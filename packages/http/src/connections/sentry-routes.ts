@@ -17,19 +17,9 @@ import { authMacro } from "../middleware/auth";
 import { requireOnboarded } from "../middleware/onboarding";
 
 /**
- * Sentry integration routes. Sentry's public OAuth is for *public* integrations
- * only, so the user pastes an internal-integration token together with the
- * organization slug it belongs to. The connect route validates both against the
- * Sentry API and stores the token via the shared bearer layer. It stores no
- * installation id: the token cannot read the installation list, and a webhook
- * delivery is attributed by its signature (`@alfred/integrations/sentry`). A
- * bad token or a wrong organization is rejected at connect, not at first tool
- * call.
- *
- *   POST   /api/integrations/sentry/connect   { token, organization }  → validate + store
- *   DELETE /api/integrations/sentry/:id                                → disconnect
- *
- * Connection state is read from `GET /api/integrations` (`../integrations.ts`).
+ * Sentry connect with a pasted internal-integration token and org slug; Sentry OAuth
+ * is for public integrations only. Both are checked at connect. No installation id:
+ * webhooks are attributed by signature.
  */
 const PROVIDER = "sentry" satisfies CredentialProvider;
 
@@ -55,24 +45,19 @@ export const sentryIntegrationRoutes = new Elysia({
           try {
             connection = await sentryValidateToken({ token, organization });
           } catch (err) {
-            // Log the real upstream reason (redacted + bounded) so prod failures
-            // are diagnosable, but never leak it to the client.
+            // Log the upstream reason; never send it to the client.
             console.error(
               `[sentry.connect] token validation failed :: ${redactSecrets(toMessage(err))}`,
             );
 
-            // Only an authorization failure means the pasted token is wrong. A
-            // transient upstream failure must not tell the user to regenerate a
-            // token that is perfectly valid.
+            // Only an auth failure means a bad token. An outage must not say "regenerate".
             if (isSentryAuthorizationError(err)) {
               throw Errors.BadRequestError(
                 "Sentry rejected that token for that organization. Check both and try again.",
               );
             }
 
-            // Sentry answered, but not in the shape the validator parses. That is
-            // a contract drift on our side, not an outage: name it so it is not
-            // retried as one.
+            // An unexpected shape is contract drift, not an outage.
             if (err instanceof ZodError) {
               throw Errors.BadGatewayError(
                 "Sentry answered in a shape Alfred does not understand. This is a bug on Alfred's side.",
@@ -85,10 +70,7 @@ export const sentryIntegrationRoutes = new Elysia({
           }
 
           const label = connection.organization.slug;
-          // One Client Secret attributes deliveries to one credential, so a
-          // second organization would silence the ingress for both (the
-          // descriptor refuses the `many` state). Refuse it at the door; a
-          // re-connect of the same organization is the upsert's in-place update.
+          // One Client Secret maps to one credential; a second org would silence webhooks for both.
           const existing = await findSoleActiveCredential({ provider: PROVIDER });
 
           const sameRow =

@@ -24,10 +24,8 @@ import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { workflowRecoveryNavigation } from "./recovery-navigation";
 
 /**
- * The run history behind the workflow detail page's History tab (#561). One
- * keyset page of a workflow's runs, newest first, each row carrying the typed
- * outcome frozen at its terminal write, the live effect ledger, the readiness
- * gaps a blocked run recorded, and the single recovery the product can offer.
+ * Run history for the workflow History tab (#561): one keyset page, newest first,
+ * with each run's outcome, effect ledger, readiness gaps, and recovery.
  */
 
 const DEFAULT_PAGE_SIZE = 20;
@@ -41,7 +39,7 @@ export interface ListWorkflowRunHistoryArgs {
   limit?: number | undefined;
 }
 
-/** Thrown when a cursor is not one this reader minted; the route maps it to 400. */
+/** Not a cursor this reader minted. The route maps it to 400. */
 export class InvalidRunHistoryCursorError extends Error {
   constructor() {
     super("Invalid run history cursor");
@@ -50,23 +48,17 @@ export class InvalidRunHistoryCursorError extends Error {
 }
 
 /**
- * The keyset frontier. `created_at` is carried as Postgres wrote it, with all
- * six fractional digits, never as a JavaScript `Date`: a `Date` keeps only
- * milliseconds, so a boundary inside a group of runs created in the same
- * millisecond (one email-triage batch does this) would drop the rest of the
- * group from the next page. The compare then uses the plain column on both
- * sides, so ORDER BY and the tuple compare share one expression and the
- * history index serves both.
+ * `created_at` stays as text with microseconds, never a `Date`: a `Date` drops to
+ * milliseconds, and one triage batch creates many runs in the same millisecond.
  */
 interface HistoryCursor {
-  /** `YYYY-MM-DDTHH:MM:SS.ffffffZ`, exactly as `createdAtMicros` renders it. */
+  /** Exactly as `createdAtMicros` renders it. */
   createdAt: string;
   id: string;
 }
 
 const MICROSECOND_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
 
-/** The run's `created_at` at full precision, in the one text form the cursor accepts. */
 const createdAtMicros = sql<string>`to_char(${agentRuns.createdAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
 
 function encodeCursor(cursor: HistoryCursor): string {
@@ -89,9 +81,8 @@ function decodeCursor(raw: string): HistoryCursor {
 }
 
 /**
- * Returns null when the workflow is not the caller's. A malformed cursor throws
- * {@link InvalidRunHistoryCursorError} rather than silently restarting at the
- * first page, which would loop a paginating client forever.
+ * Null when the workflow is not the caller's. A bad cursor throws instead of
+ * restarting at page one, which would loop a client forever.
  */
 export async function listWorkflowRunHistory(
   args: ListWorkflowRunHistoryArgs,
@@ -140,9 +131,7 @@ export async function listWorkflowRunHistory(
       and(
         eq(agentRuns.userId, args.userId),
         eq(agentRuns.workflowSlug, workflow.slug),
-        // Keyset on the same (created_at desc, id desc) order the history
-        // index serves, so every page is one index range scan. The cursor's
-        // instant is cast in SQL so no JavaScript `Date` rounds it.
+        // Same order as the history index, so each page is one range scan. Cast in SQL, not via `Date`.
         cursor
           ? sql`(${agentRuns.createdAt}, ${agentRuns.id}) < (${cursor.createdAt}::timestamptz, ${cursor.id})`
           : undefined,
@@ -228,11 +217,7 @@ async function readEffectsByRun(runIds: string[]): Promise<Map<string, EffectRec
   return byRun;
 }
 
-/**
- * Drop the frozen receipt lists from the wire copy of the outcome. The row's
- * live ledger is the same list (nothing lands after the terminal write), so
- * shipping both would give the client two sources for one fact.
- */
+/** Drop the frozen receipt lists: the live ledger is the same list. */
 function toHistoryOutcome(outcome: WorkflowRunOutcome): WorkflowRunHistoryOutcome {
   switch (outcome.kind) {
     case "completed": {
@@ -259,11 +244,9 @@ function readCoverageGaps(output: unknown): PersistedWorkflowReadinessProblem[] 
 }
 
 /**
- * The one truthful next step for a run. The runtime cannot re-lease a terminal
- * run, so "retry this run" never appears: a failed or cancelled run offers a
- * fresh run (replay) and a blocked run offers the readiness recheck or the
- * OAuth hop the server owns. An unobserved write outranks everything: a retry
- * could duplicate it.
+ * The one honest next step. A terminal run cannot be retried, so failed or cancelled
+ * offers a fresh run, and blocked offers a recheck or OAuth. An unobserved write
+ * outranks all: a retry could duplicate it.
  */
 function recoveryFor(args: {
   workflowId: string;

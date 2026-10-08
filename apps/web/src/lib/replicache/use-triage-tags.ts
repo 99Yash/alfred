@@ -11,14 +11,11 @@ export interface TriageTagsState {
   loading: boolean;
   error: string | null;
   retry: () => void;
-  /** Pin a Gmail thread to a user-chosen triage category. Optimistic. */
+  /** Pin a Gmail thread to a category the user picks. */
   overrideTag: (threadId: string, category: TriageCategory) => Promise<void>;
 }
 
-/**
- * Live view of synced triage tags (rfc-triage-tags.md). Rows are keyed by Gmail
- * thread id so inbox rows can join them without a separate API lookup.
- */
+/** Synced triage tags (docs/rfc-triage-tags.md), keyed by Gmail thread id. */
 export function useTriageTags(): TriageTagsState {
   const { rep, loadError, retry } = useReplicacheStatus();
 

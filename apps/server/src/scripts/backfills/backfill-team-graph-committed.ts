@@ -1,18 +1,9 @@
 /**
- * COMMITTED team-graph backfill (ADR-0059 P4a, one-off 2026-06-16).
+ * Build the `entities` graph from ingested Gmail `documents` (ADR-0059 P4a).
+ * Headers only, no model, no network: `from`/`to`/`cc` become contacts and
+ * organizations with a first significance pass. Idempotent. It writes no edge (#1108).
  *
- * Populates the `entities` graph from already-ingested Gmail `documents` for a
- * target user — the missing passive-capture extractor behind "prod `entities`
- * = 0". Header-level only, no LLM, no network: parses `from`/`to`/`cc` into
- * contact + organization entities and a first significance pass. Idempotent
- * (upsert/overwrite), so safe to re-run. It writes NO edge (#1108).
- *
- * Bundled by tsdown (`noExternal: @alfred/*`) so it runs on prod with plain
- * `node dist/scripts/backfills/backfill-team-graph-committed.js` — the prod image has no
- * `tsx`/loose `@alfred/*` sources.
- *
- * Dry by default — aggregates + ranks but writes nothing. Pass
- * `--commit` to write entities/scores.
+ * Bundled for prod. Dry by default; `--commit` writes entities and scores.
  *
  *   # preview (writes nothing):
  *   node dist/scripts/backfills/backfill-team-graph-committed.js
@@ -30,7 +21,7 @@ import { user as userTable } from "@alfred/db/schemas";
 import { inArray } from "drizzle-orm";
 import { toMessage } from "@alfred/contracts";
 
-/** Mailboxes to backfill. Override with `TEAM_GRAPH_EMAILS` (comma-sep). */
+/** Override with comma-separated `TEAM_GRAPH_EMAILS`. */
 const TARGET_EMAILS = (process.env.TEAM_GRAPH_EMAILS ?? "yashgouravkar@gmail.com")
   .split(",")
   .map((s) => s.trim())
@@ -48,8 +39,7 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
     maxDocs: Number.isFinite(MAX_DOCS) ? MAX_DOCS : 5000,
   });
 
-  // `persisted` discriminates the blocked count: EXACT after a commit, a
-  // two-sided pre-run ESTIMATE (`~B`) on a dry run — see BackfillTeamGraphResult.
+  // The blocked count is exact after a commit and an estimate (`~B`) on a dry run.
   const blockedLabel = result.persisted
     ? `re-kind blocked ${result.reKindBlocked}`
     : `re-kind blocked ~${result.reKindBlocked} (estimate)`;
@@ -92,7 +82,7 @@ async function main() {
 
 main()
   .catch((e) => {
-    // Log only the message — a serialized Error can leak DATABASE_URL.
+    // Message only: a serialized Error can leak DATABASE_URL.
     console.error(toMessage(e));
     process.exitCode = 1;
   })

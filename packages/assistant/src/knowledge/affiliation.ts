@@ -1,33 +1,12 @@
 /**
- * Connect-time `user_org_affiliation` emitter (ADR-0080 §4a, #342 slice 1a).
+ * Connect-time `user_org_affiliation` emitter (ADR-0080 §4a). A connected Google
+ * account is first-party evidence of the user's org, so a connect appends an
+ * observation the identity-facts projection folds into `employer`. A disconnect
+ * appends a `disconnected` row in the same family.
  *
- * When a Google account is connected (or back-filled), the account itself is a
- * FIRST-PARTY, user-subject grounding for the user's org affiliation: the
- * connected mailbox's domain is structurally about the user, not a third party
- * mentioned in inbound content. So a connect appends a `user_org_affiliation`
- * observation (`source = google_account`, `subjectIdentity = { kind: "user" }`)
- * onto the ADR-0067 log; the identity-facts projection (PR B) folds it into
- * `employer`. A disconnect appends a `status = "disconnected"` row in the SAME
- * account/domain family so the projection derives currentness from observation
- * history, never from ambient credential state (replay stays pure).
- *
- * Two correctness rails this module owns (the rest is in the deterministic core
- * and the observation write boundary):
- *
- *   - REPLAY PURITY + BACKFILL IDEMPOTENCY share one mechanism: a connect's
- *     `occurredAt` is the credential's `createdAt`, NOT `now()`. A re-auth
- *     (`upsertCredential` keeps the row, so `createdAt` is stable) re-derives the
- *     same `evidenceHash` and DEDUPS; the dry/commit backfill re-runs to the same
- *     no-op; and replaying the log converges. Disconnect/reconnect DO advance:
- *     a disconnect deletes the row, so a later reconnect is a fresh insert with a
- *     new `createdAt` → a new family member → the head advances past the
- *     disconnect (the bug a status-only hash would cause — see `evidenceHash`).
- *   - PAYLOAD SELF-CONSISTENCY: `domainClass` is computed from the SAME
- *     `(accountEmail, verifiedHostedDomain)` the observation boundary re-checks,
- *     and `verifiedHostedDomain` is the Google Workspace `hd` domain when present
- *     (Google treats `hd`, not the email claim's domain, as the hosted-domain
- *     authority), so alias/secondary-domain mailboxes still ground the verified
- *     Workspace org.
+ * `occurredAt` is the credential's `createdAt`, not `now()`, so a re-auth dedups
+ * and replays converge. A reconnect is a new row with a new `createdAt`.
+ * The org domain is the Workspace `hd` when present: Google treats `hd` as the authority.
  */
 
 import {
@@ -48,22 +27,16 @@ import { uniqueViolationConstraint } from "@alfred/db/pg-errors";
 import { insertObservation } from "./observations";
 import { type DbTransaction } from "@alfred/db";
 
-/** The lifecycle status a connect/disconnect emits. */
 export type OrgAffiliationStatus = UserOrgAffiliationPayload["status"];
 
-/**
- * The credential fields the emitter reads. A narrow interface (not the full
- * `IntegrationCredential`) so the connect route, the disconnect route, and the
- * backfill can each hand over exactly what they have without coupling to the row
- * shape — `createdAt` is the connect event time (replay/idempotency anchor).
- */
+/** The credential fields the emitter reads. `createdAt` is the connect time. */
 export interface CredentialForAffiliation {
   userId: string;
-  /** Google `sub` — the provider-stable account id. */
+  /** Google `sub`. */
   accountId: string;
-  /** The account email (`integration_credentials.account_label`). */
+  /** `integration_credentials.account_label`. */
   accountEmail: string | null;
-  /** The credential `metadata` bag (carries `googleHostedDomain`, the Workspace `hd`). */
+  /** Holds `googleHostedDomain`, the Workspace `hd`. */
   metadata: unknown;
 }
 
@@ -90,7 +63,7 @@ export function isOrgAffiliationObservationAppendConflict(err: unknown): boolean
   return constraint !== null && OBSERVATION_CHAIN_CONSTRAINTS.has(constraint);
 }
 
-/** Apply the one bounded retry policy for org-affiliation observation-chain conflicts. */
+/** The one bounded retry for org-affiliation observation-chain conflicts. */
 export async function retryOnObservationChainConflict<T>(fn: () => Promise<T>): Promise<T> {
   for (let attempt = 1; ; attempt++) {
     try {
@@ -106,7 +79,6 @@ export async function retryOnObservationChainConflict<T>(fn: () => Promise<T>): 
   }
 }
 
-/** Pull the verified Workspace hosted domain (`hd`) out of the credential metadata bag. */
 function hostedDomainFromMetadata(metadata: unknown): string | null {
   if (!isRecord(metadata)) return null;
   const hd = metadata["googleHostedDomain"];
@@ -128,16 +100,9 @@ function payloadsMatchForCurrentAffiliation(
 }
 
 /**
- * Build the `user_org_affiliation` observation for a credential — PURE given its
- * inputs (no DB), so both the live connect path and the backfill compose it and
- * the dry-run can print exactly what the commit would write. Returns a typed skip
- * reason instead of throwing when the account can't ground an affiliation (no
- * email, malformed email, unclassifiable domain) — a missing grounding is "no
- * row" (invariant 1), not an error.
- *
- * `occurredAt` is supplied by the caller and MUST be the credential's
- * `createdAt` for a connect (the idempotency/replay anchor — see the file
- * header); a disconnect passes the disconnect event time.
+ * Build the observation for a credential. Pure, so the backfill dry run prints
+ * what a commit would write. An ungroundable account returns a skip reason, not
+ * an error: no grounding, no row. `occurredAt` must be `createdAt` for a connect.
  */
 export function buildOrgAffiliationObservationInput(
   cred: CredentialForAffiliation,
@@ -154,9 +119,7 @@ export function buildOrgAffiliationObservationInput(
     return { ok: false, reason: "invalid_account_email" };
   }
 
-  // A canonical, format-valid email always has a single `@`; the domain after it
-  // is a valid hostname (the email regex validates it), so it satisfies the
-  // payload's canonical-domain schema without a second normalization pass.
+  // The email regex already validated this domain.
   const accountEmailDomain = accountEmail.slice(accountEmail.indexOf("@") + 1);
 
   const rawHostedDomain = hostedDomainFromMetadata(cred.metadata);
@@ -168,9 +131,7 @@ export function buildOrgAffiliationObservationInput(
   const verifiedHostedDomain =
     hostedDomain && identityValueMatchesKind("domain", hostedDomain) ? hostedDomain : null;
 
-  // Google documents `hd` as the hosted-domain authority. The email claim can be
-  // an alias/secondary domain, so the org lifecycle family is keyed by `hd` when
-  // present; the accountEmail still preserves the actual mailbox.
+  // Key the family by `hd`: the email can be an alias domain.
   const orgDomain = verifiedHostedDomain ?? accountEmailDomain;
 
   const domainClass = classifyConnectedAccount({ email: accountEmail, verifiedHostedDomain });
@@ -188,12 +149,10 @@ export function buildOrgAffiliationObservationInput(
       opts.status === "connected" ? "connected_google_account" : "disconnected_google_account",
   };
 
-  // Family = the account×org lifecycle; connect/disconnect/reconnect rows share
-  // it so the projection reads the latest member to decide currentness.
+  // The family is the account×org lifecycle; the latest member decides currentness.
   const familyKey = `org_affiliation:${accountId}:${orgDomain}`;
 
-  // The hash carries `occurredAtMs` so distinct lifecycle EVENTS never dedup,
-  // while a re-auth/backfill at the same connect time DOES (stable `createdAt`).
+  // `occurredAtMs` keeps distinct events apart while a re-auth at the same connect time dedups.
   const evidenceHash = sha256Canonical({
     accountId,
     orgDomain,
@@ -301,13 +260,7 @@ async function recordOrgAffiliationConnectEvent(
   return { status: deduped ? "deduped" : "emitted" };
 }
 
-/**
- * Load a Google credential by id and append its connect-time
- * `user_org_affiliation` observation. The connect EVENT TIME is the credential's
- * `createdAt` (stable across re-auth), so a re-connect that merely refreshes the
- * token dedups rather than minting a duplicate. Returns a status so the caller
- * can log; never throws on a skip (no grounding ≠ failure).
- */
+/** Append the connect observation for a credential id. A skip is not an error. */
 export async function recordOrgAffiliationOnConnect(
   credentialId: string,
   tx?: DbTransaction,
@@ -321,12 +274,8 @@ export async function recordOrgAffiliationOnConnect(
 }
 
 /**
- * Record the affiliation lifecycle after a Google credential upsert. A normal
- * re-auth with identical affiliation evidence dedups against the stable
- * credential `createdAt`. If Google reports changed affiliation evidence, treat
- * the upsert as a new lifecycle event at the callback time: disconnect the old
- * family when the family changed, and connect the current evidence at the
- * change time.
+ * After a credential upsert, an unchanged re-auth dedups. Changed evidence is a
+ * new event at callback time: disconnect the old family if it changed, then connect.
  */
 export async function recordOrgAffiliationOnCredentialUpsert(
   args: {
@@ -366,9 +315,7 @@ export async function recordOrgAffiliationOnCredentialUpsert(
         currentBuiltAtChange.ok &&
         (!previousConnectBuilt.ok ||
           previousConnectBuilt.input.familyKey !== currentBuiltAtChange.input.familyKey ||
-          // SAFETY: both inputs came from buildOrgAffiliationObservationInput
-          // and `.ok` was checked for each arm of this conjunction, so each
-          // payload below holds the built payload shape.
+          // SAFETY: both inputs came from buildOrgAffiliationObservationInput and `.ok` was checked for each.
           !payloadsMatchForCurrentAffiliation(
             previousConnectBuilt.input.payload as UserOrgAffiliationPayload,
             currentBuiltAtChange.input.payload as UserOrgAffiliationPayload,
@@ -395,12 +342,8 @@ export async function recordOrgAffiliationOnCredentialUpsert(
 }
 
 /**
- * Append a `status = "disconnected"` affiliation observation for an
- * account/domain family. Called with the fields captured BEFORE the credential
- * row is deleted (the row is gone afterwards), stamping the disconnect event time
- * — a real one-shot event, so `now()` here is the immutable record of when it
- * happened, not a replay hazard. The new row's `occurredAt` is later than the
- * connect's, so the projection reads the family as disconnected.
+ * Append a `disconnected` row. The caller captures the fields before deleting
+ * the credential. `now()` is safe here: this is a real one-time event.
  */
 export async function recordOrgAffiliationOnDisconnect(
   cred: CredentialForAffiliation,

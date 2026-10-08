@@ -16,19 +16,12 @@ const RANGE_ITEMS = USAGE_RANGE_PRESETS.map((preset) => ({
   label: USAGE_RANGE_LABELS[preset],
 }));
 
-/**
- * Settings → Usage. Spend/token dashboard over `api_call_log`: an overview
- * strip, per-category cards (which double as the activity filter), and the
- * per-run activity table. Owns the shared range + category-filter state; each
- * child fetches its own slice keyed on that state.
- */
+/** Settings → Usage over `api_call_log`. Owns the range and category state; children fetch their own data. */
 export function UsageSection() {
   const [preset, setPreset] = useState<UsageRangePreset>("30d");
   const [selected, setSelected] = useState<ReadonlyArray<UsageRunCategory>>([]);
 
-  // Snapshot "now" per range selection so the window (and thus every query key)
-  // is stable across renders — recomputing `new Date()` each render would
-  // thrash the cache. ISO strings keep the keys primitive.
+  // Fix "now" per range choice, so the query keys stay stable.
   const window = useMemo(() => {
     const { start, end } = resolveRangePreset(preset, new Date());
 

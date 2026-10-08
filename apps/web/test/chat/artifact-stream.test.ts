@@ -23,13 +23,7 @@ let frameId = 0;
 
 const nextId = () => (frameId += 1);
 
-/**
- * The two appliers are module-private, so every case drives the real reducer and
- * the hoisted thread check runs on the way in. Per-kind builders rather than one
- * generic factory: a literal `kind` beside a payload of that kind's type is
- * assignable to `EventStreamFrame` with no cast, so a schema change fails these
- * builders instead of being silently unchecked.
- */
+/** One builder per kind, so a schema change fails here without a cast to hide it. */
 function deltaFrame(
   over: Partial<EventPayload<"artifact.delta">> & { toolCallId: string; seq: number; text: string },
 ): EventStreamFrame {
@@ -127,8 +121,7 @@ describe("applyArtifactFrame — chat.tool resolution", () => {
 describe("applyArtifactFrame — thread scope", () => {
   test("a frame naming another thread is dropped before it reaches an applier", () => {
     const s = new Map<string, LiveArtifactStream>();
-    // The assertion a return-value check cannot make on its own: a check placed
-    // *below* the mutation still returns false while having already written.
+    // A check placed after the mutation would still return false, so also assert no write.
     assert.equal(
       applyArtifactFrame(
         s,
@@ -170,35 +163,11 @@ describe("applyArtifactFrame — thread scope", () => {
   });
 });
 
-/**
- * Hoisting the thread check above the kind dispatch is behaviour-neutral, proven
- * by driving the real reducer and a hand-built reference in lockstep rather than
- * by reading the diff (`apps/web` has no jsdom, so the pre-change routing cannot
- * be exercised where it lived — inside `useEffect`).
- */
+/** Proves that the thread check above the kind dispatch changes no behavior. */
 describe("applyArtifactFrame — differential against main's routing", () => {
   /**
-   * `onFrame`'s routing as it stood on `origin/main` at 3c0cfc62 (blob
-   * 25da21e17dbf6ed878007ed9746f9ee635322614), with the thread check BELOW the
-   * dispatch, once per kind:
-   *
-   *     if (frame.kind === "artifact.delta") {
-   *       const p = frame.payload;
-   *       if (p.threadId !== threadId) return;
-   *       if (applyArtifactDelta(streamsRef.current, p)) setVersion((v) => v + 1);
-   *     } else if (frame.kind === "chat.tool") {
-   *       const p = frame.payload;
-   *       if (p.threadId !== threadId) return;
-   *       if (applyArtifactToolResolution(streamsRef.current, p)) setVersion((v) => v + 1);
-   *     }
-   *
-   * The two appliers are byte-identical across this change — they only lost their
-   * `export` — so transcribing them here would add transcription risk without
-   * proving anything. The reference reaches them through `applyArtifactFrame` with
-   * the frame's OWN thread, which makes the hoisted gate vacuous and leaves pure
-   * dispatch. So this compares `per-kind-gate ∘ dispatch` (hand-built from main)
-   * against `hoisted-gate ∘ dispatch` (the real function): exactly the hoist, and
-   * a mutation to the hoisted gate is invisible to the reference.
+   * The reference: a thread check per kind, after the dispatch.
+   * It passes the frame's own thread to `applyArtifactFrame`, so the real hoisted check always passes.
    */
   function referenceOnFrame(
     streams: Map<string, LiveArtifactStream>,

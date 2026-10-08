@@ -13,10 +13,8 @@ import { createId, inList, lifecycle_dates } from "../helpers";
 import { user } from "./auth";
 
 /**
- * Durable user-owned work opened by an inbound Gmail request for a resume or
- * portfolio. The account-qualified source message is identity; the thread is
- * only a later-carrier matching relation. This table is deliberately separate
- * from the mutable thread-keyed triage projection and generic external objects.
+ * An inbound Gmail request for a resume or portfolio. Keyed by account and source message.
+ * The thread only helps match a later reply that carries the attachment.
  */
 export const documentAsks = pgTable(
   "document_asks",
@@ -27,25 +25,20 @@ export const documentAsks = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    /** Persisted connected Gmail account identity, not an email re-parsed here. */
     accountId: text("account_id").notNull(),
-    /** The inbound Gmail message that authored the ask. */
     sourceMessageId: text("source_message_id").notNull(),
-    /** Gmail thread used only to find later sent attachment carriers. */
     threadId: text("thread_id").notNull(),
     requestedKind: text("requested_kind").$type<DocumentAskKind>().notNull(),
     status: text("status").$type<DocumentAskStatus>().notNull().default("active"),
-    /** Trusted authored time; null is retained but cannot pass a later-than gate. */
+    /** A NULL row stays, but it can never pass a later-than check. */
     askedAt: timestamp("asked_at", { withTimezone: true }),
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
     resolvedCarrierMessageId: text("resolved_carrier_message_id"),
     resolvedAttachmentDocumentId: text("resolved_attachment_document_id"),
-    /** Exact occurrence and persisted-content identity used for the decision. */
     resolvedAttachmentId: text("resolved_attachment_id"),
     resolvedAttachmentContentHash: text("resolved_attachment_content_hash"),
     resolvedAttachmentFormat: text("resolved_attachment_format").$type<ContentFormat>(),
     resolvedContentKind: text("resolved_content_kind").$type<DocumentAskKind>(),
-    /** Truthful local provenance for the accepted extracted-content observation. */
     resolvedEvidenceSource: text("resolved_evidence_source").$type<DocumentAskEvidenceSource>(),
     ...lifecycle_dates,
   },

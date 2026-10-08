@@ -13,13 +13,8 @@ type WorkflowRow = { workflow: Workflow; currentRevision: WorkflowRevision | nul
 
 const ownedByUser = (userId: string) => eq(workflows.userId, userId);
 
-// Both built-in and user-authored rows sync (m13 Phase 8). The editor
-// only mutates `is_builtin = false` rows; built-ins render read-only.
-// Keyed by `slug` so the editor's optimistic write addresses the row
-// without an id lookup, matching the `/workflows/$workflow` route param.
-// The internal-slug filter runs on the version projection, which carries the
-// `slug` anyway. The current-revision join is full-value work, so it belongs to
-// the load stage and runs only for changed rows.
+// Built-ins sync too, read-only. Keyed by `slug`, the editor's route param.
+// The current-revision join runs only in the load stage.
 export const fetchWorkflows = syncEntity(SYNC_MODEL.workflow, {
   versionQuery: async (tx, userId) => {
     const rows = await tx
@@ -52,9 +47,7 @@ export const fetchWorkflows = syncEntity(SYNC_MODEL.workflow, {
     id: w.id,
     userId: w.userId,
     slug: w.slug,
-    // The control row mirrors the published definition for dispatch. The
-    // editor reads the current draft instead, so saving an active workflow
-    // does not appear to revert on the next authoritative pull.
+    // Show the current draft, not the published row, or a save looks reverted after a pull.
     name: currentRevision?.name ?? w.name,
     description: currentRevision?.description ?? w.description,
     trigger: currentRevision?.trigger ?? w.trigger,

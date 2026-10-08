@@ -1,16 +1,10 @@
 /**
- * Phase 5 manual-QA helper — produce ONE pending gated staging and park.
+ * Manual QA: start a run that parks on one gated `gmail.send_draft`, then exit and
+ * leave the pending staging for a human at /approvals.
+ *
+ * Warning: `gmail.send_draft` sends live mail. Approving the card sends the BRIEF email.
  *
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/qa/qa-gated-staging.ts
- *
- * Unlike smoke-brief-execution (which auto-approves), this creates a brief
- * that forces a gated `gmail.send_draft`, enqueues the run, and waits only
- * until the run parks on the gated approval — then exits, leaving the
- * pending `action_stagings` row for a human to click through at /approvals.
- *
- * Safe: `gmail.send_draft.execute` is still a Phase-4 stub that throws, so
- * approving the card sends no real email — it surfaces the stub error onto
- * the staging row, which is enough to exercise the UI decision flow.
  */
 
 import { randomUUID } from "node:crypto";
@@ -58,7 +52,7 @@ async function pickGoogleUser(): Promise<{ id: string; email: string } | null> {
 async function main(): Promise<void> {
   await warmPool();
   registerBuiltinWorkflows();
-  registerReplicachePokeAdapter(); // enqueued runs may emit pokes; adapter must be registered
+  registerReplicachePokeAdapter(); // enqueued runs may emit pokes
 
   const target = await pickGoogleUser();
 
@@ -75,7 +69,6 @@ async function main(): Promise<void> {
     .values({ userId: target.id })
     .onConflictDoNothing({ target: userActionPolicies.userId });
 
-  // Clean any prior run of this QA workflow.
   await db()
     .delete(agentRuns)
     .where(and(eq(agentRuns.userId, target.id), eq(agentRuns.workflowSlug, WORKFLOW_SLUG)));

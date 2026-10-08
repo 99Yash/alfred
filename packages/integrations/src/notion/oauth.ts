@@ -4,21 +4,14 @@ import { z } from "zod";
 import { INTEGRATION_FETCH_TIMEOUT_MS } from "../shared/authed-fetch";
 
 /**
- * Notion public-integration OAuth (https://developers.notion.com/docs/authorization).
- * Authorization-code flow with HTTP Basic client auth on the token exchange.
- * Notion access tokens are long-lived and carry no refresh token, so there is
- * no refresh path here — the token we store is the token we keep using.
+ * Notion OAuth (https://developers.notion.com/docs/authorization), with HTTP Basic
+ * client auth on the exchange. Tokens never expire and have no refresh token.
  */
 
 const NOTION_AUTHORIZE_URL = "https://api.notion.com/v1/oauth/authorize";
 
 const NOTION_TOKEN_URL = "https://api.notion.com/v1/oauth/token";
 
-/**
- * Notion's token-exchange response. External payload, so it is validated at
- * this boundary instead of asserted — a malformed body fails the exchange
- * loudly rather than persisting `undefined` token fields.
- */
 const tokenResponseSchema = z.object({
   access_token: z.string().min(1),
   workspace_id: z.string().min(1),
@@ -43,7 +36,7 @@ export interface NotionOAuthConfig {
   redirectUri: string;
 }
 
-/** Read + assert the Notion OAuth env. Throws when the integration isn't configured yet. */
+/** Throws when the Notion env is not set. */
 export function getNotionOAuthConfig(): NotionOAuthConfig {
   const env = serverEnv();
 
@@ -88,12 +81,12 @@ export function buildNotionAuthorizeUrl(state: string): string {
 
 export interface NotionTokenResult {
   accessToken: string;
-  /** Stable id we key the credential on. */
+  /** The credential key. */
   workspaceId: string;
   workspaceName: string | null;
   workspaceIcon: string | null;
   botId: string | null;
-  /** Owner's display name / email when Notion includes them. */
+  /** Name or email, when Notion sends them. */
   ownerName: string | null;
 }
 
@@ -118,8 +111,7 @@ export async function exchangeNotionCode(code: string): Promise<NotionTokenResul
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    // Log the upstream body for debugging, but don't forward it in the thrown
-    // message — matches how the callback avoids leaking exchange errors.
+    // Log the body, but keep it out of the thrown message.
     console.error(`[notion.oauth] token exchange ${res.status} :: ${body.slice(0, 300)}`);
     throw new Error(`[notion.oauth] token exchange failed (${res.status})`);
   }

@@ -12,15 +12,8 @@ import {
 import type { NewChatAttachment } from "@alfred/db/schemas";
 
 /**
- * The three predicates that decide whether a resent chat turn is the SAME turn.
- *
- * `startChatTurn` calls them on every resend of a `userMessageId` that already
- * has rows: a match returns the run that already exists, a mismatch throws
- * `ConflictError("Message id already belongs to a different chat turn")`. So a
- * predicate that is too loose accepts a changed attachment set under an old id,
- * and one that is too strict 409s an honest client retry. They are pure over
- * rows — no database, no Redis, no storage — so they are the one seam of the
- * turn-admission move that a service-free suite can pin.
+ * Does a resent `userMessageId` carry the same turn? A match returns the existing run;
+ * a mismatch throws `ConflictError`. Too loose accepts changed attachments; too strict 409s a retry.
  */
 
 function summary(
@@ -143,8 +136,7 @@ describe("attachmentRequestMatchesExistingRows", () => {
   });
 
   test("retry rows are matched by ORDER after the fresh ones, not by id", () => {
-    // The retry rows carry NEWLY minted ids (the bytes are copied under this
-    // message's prefix), so only their position and metadata can be compared.
+    // Retry rows get new ids, so compare only position and metadata.
     assert.equal(
       attachmentRequestMatchesExistingRows({
         fresh: [fresh("a")],

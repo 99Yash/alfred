@@ -3,26 +3,14 @@ import { AppCard } from "~/components/ui/v2";
 import { IntegrationIcon, type IntegrationBrand } from "~/lib/integrations/integration-icons";
 
 /**
- * The leading mark on a tile, as a CLOSED choice of the two kinds that exist.
- *
- * Brand artwork carries its own background and shape, so it goes in bare. A
- * lucide glyph does not, and an unframed one reads as a stray mark beside a
- * brand coin. A tile cannot tell the two apart by looking at a `ReactNode`, so
- * the caller NAMES which kind it holds and the tile owns both boxes. That keeps
- * the one 9x9 measurement in one place and makes an unframed glyph
- * unrepresentable rather than merely discouraged.
+ * Brand artwork goes in bare; a lucide glyph gets a frame. The caller names
+ * the kind, so an unframed glyph cannot be expressed.
  */
 export type McpTileIcon =
   | { readonly brand: IntegrationBrand; readonly connected: boolean }
   | { readonly glyph: ReactNode };
 
-/**
- * One tile in the MCP grid: leading icon, label, subtitle, and the caller's
- * actions.
- *
- * Presentation only. It is NOT called `ConnectionCard`, because the grid's last
- * tile is the "add a server" call to action, which is not a connection.
- */
+/** One MCP grid tile. Not `ConnectionCard`: the last tile is "add a server". */
 export function McpTile({
   icon,
   label,

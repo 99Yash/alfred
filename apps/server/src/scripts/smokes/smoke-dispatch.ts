@@ -1,24 +1,11 @@
 /**
- * Smoke test for m13 Phase 3 — the tool dispatcher.
+ * Smoke test for the tool dispatcher against real Postgres and Redis. Tools are
+ * in-process stubs, so no OAuth account is needed.
  *
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/smokes/smoke-dispatch.ts
  *
- * Walks the Phase 3 acceptance bullets end-to-end against real Postgres
- * and Redis. The tools the dispatcher calls are stubs registered into
- * the in-process registry (not real Gmail) so the smoke doesn't need an
- * OAuth account — the full integrated run lives in Phase 9's
- * `smoke-boss.ts`.
- *
- * Bullets exercised:
- *   1. Autonomy path: gmail.search-shape stub → row executed → result returned.
- *      Unknown tool names return a recoverable tool result without staging.
- *   2. Gated path: gmail.send_draft-shape stub → row pending + HIL wake;
- *      approve via direct DB update + signalRun; re-dispatch same
- *      tool_call_id → row executed, no second tool execution.
- *   3. Retry suppression: reject a gated call; re-dispatch the same
- *      tool_name + input under a NEW tool_call_id → synthesized
- *      `rejected_by_user` result, no second row, no second notify path.
- *   4. cancelRun: idempotent transitions + pending approval cleanup.
+ * Covers: autonomy path, gated path with approval and resume, retry suppression
+ * after a reject, and idempotent `cancelRun`.
  */
 
 import { cancelRun, signalRun } from "@alfred/assistant/execution";
@@ -163,7 +150,7 @@ async function main(): Promise<void> {
   const userId = await findOrCreateSmokeUser();
   await ensureDefaultActionPolicyForUser(userId);
 
-  // ─── 1. Autonomy path ────────────────────────────────────────────────
+  // 1. Autonomy path
   await setIntegrationMode(userId, "gmail", "autonomy");
   const runId1 = await createSmokeRun(userId, "autonomy-turn");
 
@@ -186,7 +173,6 @@ async function main(): Promise<void> {
     `tool.execute should fire exactly once, got ${stubs.searchExecCount()}`,
   );
 
-  // The asserts below verify the row it points at.
   assert(auto.stagingId !== null, "autonomy execution must carry a stagingId");
 
   const autoRow = (
@@ -202,8 +188,7 @@ async function main(): Promise<void> {
   assert(autoRow.executeResult !== null, "autonomy row should carry execute_result");
   console.log("[smoke-dispatch] 1. autonomy: row=executed, tool fired once ✓");
 
-  // Idempotent re-dispatch with same tool_call_id returns the cached
-  // result without firing the tool a second time.
+  // Same tool_call_id returns the cached result without a second execute.
   const auto2 = await dispatchToolCall({
     runId: runId1,
     stepId: "turn-1",
@@ -250,7 +235,7 @@ async function main(): Promise<void> {
   assert(unknownRows.length === 0, "unknown tool should not write a staging row");
   console.log("[smoke-dispatch] 1. unknown tool: recoverable result, no row ✓");
 
-  // ─── 2. Gated path ───────────────────────────────────────────────────
+  // 2. Gated path
   await setIntegrationMode(userId, "gmail", "gated");
   const runId2 = await createSmokeRun(userId, "gated-turn");
 
@@ -285,11 +270,7 @@ async function main(): Promise<void> {
   assert(gatedRow.riskTier === "high", "gated row should snapshot risk_tier='high'");
   console.log("[smoke-dispatch] 2. gated: row=pending, wake=action_staging ✓");
 
-  // Policy toggle should NOT unstick a pending row. Flip the user to
-  // autonomy and re-dispatch the same tool_call_id — the row was staged
-  // under the gated policy and must stay parked until the user explicitly
-  // approves. Otherwise a settings toggle would silently auto-execute
-  // every in-flight gated call.
+  // A switch to autonomy must not run a pending gated row. Only an approval does.
   await setIntegrationMode(userId, "gmail", "autonomy");
 
   const stillStaged = await dispatchToolCall({
@@ -312,16 +293,9 @@ async function main(): Promise<void> {
   assert(stubs.draftExecCount() === 0, "policy flip must not trigger execute on pending row");
   console.log("[smoke-dispatch] 2. gated: policy gated→autonomy keeps pending row staged ✓");
 
-  // Restore gated for the approval path below — the locked-in
-  // requires_approval=true on the row is what matters now, not the
-  // live policy.
   await setIntegrationMode(userId, "gmail", "gated");
 
-  // Simulate the executor parking the run on this wake — the dispatcher
-  // returned the wake but didn't write it; the agent loop (Phase 4)
-  // bubbles it up to a StepResult.interrupt which the executor commits.
-  // For Phase 3 we just park the run row manually so signalRun has
-  // something to wake.
+  // Park the run by hand, as the executor would, so signalRun has something to wake.
   await db()
     .update(agentRuns)
     .set({
@@ -335,8 +309,7 @@ async function main(): Promise<void> {
     })
     .where(eq(agentRuns.id, runId2));
 
-  // Approve via direct DB update (Phase 5 replaces this with the
-  // /approvals decision API).
+  // Approve with a direct DB update, not the approvals API.
   await db()
     .update(actionStagings)
     .set({
@@ -353,12 +326,8 @@ async function main(): Promise<void> {
 
   assert(woken === true, "signalRun on a freshly-parked HIL wake must return true");
 
-  // Re-dispatch with the same tool_call_id — the dispatcher reads the
-  // 'approved' row, executes the tool, and updates the row. Critically,
-  // the caller passes a DIFFERENT `input` than what was staged + approved.
-  // The dispatcher must ignore the caller's input and execute against
-  // the row's stored `proposed_input` — otherwise a buggy/malicious
-  // caller could slip an unapproved payload past the gate via resume.
+  // Resume with a different `input`. The dispatcher must run the approved
+  // `proposed_input`, or a caller could slip an unapproved payload past the gate.
   const resumed = await dispatchToolCall({
     runId: runId2,
     stepId: "turn-1",
@@ -393,7 +362,7 @@ async function main(): Promise<void> {
   );
   console.log("[smoke-dispatch] 2. gated: approved + signal → executed, tool fired once ✓");
 
-  // ─── 3. Retry-suppression ────────────────────────────────────────────
+  // 3. Retry-suppression
   const runId3 = await createSmokeRun(userId, "retry-suppression-turn");
 
   const firstAttempt = await dispatchToolCall({
@@ -412,7 +381,6 @@ async function main(): Promise<void> {
   assert(firstAttempt.kind === "staged", "retry-suppression setup expects staged on first try");
   const firstAttemptId = firstAttempt.stagingId;
 
-  // User rejects with a reason — Phase 5's decision API would do this.
   await db()
     .update(actionStagings)
     .set({
@@ -424,8 +392,7 @@ async function main(): Promise<void> {
 
   const draftExecBefore = stubs.draftExecCount();
 
-  // Model proposes the SAME tool_name + input under a fresh tool_call_id —
-  // this is the path retry-suppression targets.
+  // Same tool_name and input under a new tool_call_id.
   const reproposed = await dispatchToolCall({
     runId: runId3,
     stepId: "turn-2",
@@ -461,7 +428,7 @@ async function main(): Promise<void> {
   );
   console.log("[smoke-dispatch] 3. retry-suppression: no new row, synthesized rejection ✓");
 
-  // ─── 4. cancelRun idempotency ────────────────────────────────────────
+  // 4. cancelRun idempotency
   const runId4 = await createSmokeRun(userId, "cancel-turn");
   await db()
     .insert(actionStagings)
@@ -505,8 +472,7 @@ async function main(): Promise<void> {
   assert(cancelledRow?.status === "cancelled", "run row should be 'cancelled'");
   assert(cancelledRow.endedAt != null, "cancelled row should carry ended_at");
   assert(
-    // SAFETY: agent_runs.error is jsonb written by the executor with a
-    // reason field for this cancel path.
+    // SAFETY: the executor writes agent_runs.error with a reason on cancel.
     (cancelledRow.error as { reason: string } | null)?.reason === "smoke",
     "cancelled row should record the reason",
   );
@@ -532,7 +498,7 @@ async function main(): Promise<void> {
   );
   console.log("[smoke-dispatch] 4. cancelRun: idempotent ✓");
 
-  // ─── cleanup ─────────────────────────────────────────────────────────
+  // cleanup
   for (const runId of [runId1, runId2, runId3, runId4]) {
     await db().delete(actionStagings).where(eq(actionStagings.runId, runId));
     await db()

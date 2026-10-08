@@ -21,10 +21,6 @@ import {
 } from "@alfred/contracts";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { emitReplicachePokes, publishEvent } from "@alfred/assistant/triggers";
-// Cancel's post-commit obligations include tearing down the queued jobs of the
-// stagings it bulk-rejected. The scheduling helpers live in `tool-runtime` (a
-// sink), so owning the teardown here rather than describing it to callers adds
-// no cycle.
 import {
   removeApprovalExpiryJob,
   removeApprovalNotificationJob,
@@ -48,25 +44,15 @@ import {
 } from "@alfred/db/workflow-occurrence";
 
 /**
- * After this much silence on `last_checkpoint_at`, a `running` row is
- * presumed abandoned and may be reclaimed by another worker. Shared
- * between the resume sweep (which re-enqueues stale rows) and the
- * executor's `leaseRun` (which lets a stale row be re-leased and bumps
- * the attempt counter). Pick a value comfortably above the worker
- * heartbeat interval so a single missed beat doesn't trigger reclaim.
+ * A `running` row silent this long has a dead worker and may be reclaimed. Keep it well above the
+ * heartbeat.
  */
 export const STALE_RUN_LEASE_MS = 60_000;
 
 /**
- * Resolve the effective stale-lease window for a run's current step (ADR-0070
- * §1.4, Lever A). A per-step `staleAfterMs` (declared on the `Step`) wins;
- * otherwise the default {@link STALE_RUN_LEASE_MS}. Synchronous and DB-free — it
- * reads the in-memory workflow registry, so it's safe to call inside the
- * `leaseRun` transaction (which holds `FOR UPDATE` on the run row).
- *
- * User-authored workflows keep their DB slug on `agent_runs` but execute the
- * shared user-authored-brief workflow body. When the registry misses, fall back
- * to that shared workflow's step definition before using the default.
+ * The step's own `staleAfterMs`, else the default (ADR-0070 §1.4).
+ * DB-free, so it is safe inside the `leaseRun` lock.
+ * A user-authored slug misses the registry, so fall back to the shared user-authored workflow.
  */
 export function resolveStaleAfterMs(workflowSlug: string, stepId: string): number {
   const step = getWorkflow(workflowSlug)?.steps[stepId] ?? userAuthoredBriefWorkflow.steps[stepId];
@@ -75,12 +61,7 @@ export function resolveStaleAfterMs(workflowSlug: string, stepId: string): numbe
 }
 
 /**
- * The smallest stale window across all registered steps, floored at the
- * default. The resume sweep selects `running` candidates at this floor in SQL,
- * then refines each against its precise per-step window in JS. Selecting at the
- * floor guarantees no genuinely-stale run is missed (any step's window is
- * >= this floor by construction) while keeping healthy long turns from being
- * re-enqueued every sweep only to be declined by `leaseRun`.
+ * The smallest stale window of any step. The sweep selects at this floor, then refines per step.
  */
 export function minStaleAfterMs(): number {
   let min = STALE_RUN_LEASE_MS;
@@ -109,12 +90,6 @@ type ReplayOccurrence = Extract<WorkflowOccurrenceIdentity, { kind: "replay" }>;
 type CreateRunBase = Omit<WorkflowInput, "trigger"> & {
   userId: string;
   workflowSlug: string;
-  /**
-   * What caused this run to be created (ADR-0027). Required — every
-   * call-site declares its kind explicitly so the unified dispatcher
-   * surface stays auditable. `metadata` remains for diagnostic
-   * breadcrumbs (e.g. webhook delivery id, internal idempotency).
-   */
 };
 
 export type CreateRunArgs = CreateRunBase &
@@ -163,18 +138,9 @@ export interface ReplayRunArgs {
 }
 
 /**
- * Persist a new run row in `pending` state. The caller (an HTTP route or
- * a cron trigger) is responsible for enqueueing the BullMQ job afterwards
- * — keeping persistence and enqueue separate means a Redis blip won't
- * orphan a row, and a recovery sweep can re-enqueue from the table.
- *
- * Workflows that opt into singleton semantics expose a `dedupKey` hook;
- * its value lands on `agent_runs.dedup_key` and the partial unique index
- * (user_id, workflow_slug, dedup_key) WHERE dedup_key IS NOT NULL AND
- * status NOT IN ('failed', 'cancelled') turns a duplicate into a Postgres
- * `23505` unique-violation. Callers either catch that (OAuth-callback
- * trigger logs + continues) or surface it as a 4xx (the generic /runs
- * endpoint).
+ * Insert a `pending` run; the caller enqueues it. If Redis drops the job, the sweep re-enqueues
+ * from the table.
+ * A workflow `dedupKey` makes a live duplicate fail with a unique violation (23505).
  */
 export async function createRun(
   args: CreateRunArgs,
@@ -211,9 +177,7 @@ export async function createRun(
 
   if (resolved.userAuthoredRow) {
     const row = resolved.userAuthoredRow;
-    // A revision-backed run executes only the definition it names. Caller
-    // overrides would make workflowRevisionId claim one contract while the
-    // transcript and integration ceiling execute another.
+    // A revision-backed run ignores caller overrides, so it runs exactly the revision it names.
     brief = row.brief ?? undefined;
     metadata = {
       ...metadata,
@@ -255,8 +219,7 @@ export async function createRun(
     workflowSlug,
     workflowRevisionId: resolved.userAuthoredRow?.revisionId ?? null,
     brief,
-    // SAFETY: workflow state columns hold plain JSON objects; a missing initial
-    // state stores the empty object.
+    // SAFETY: workflow state is a plain JSON object.
     state: (initialState as object) ?? {},
     transcript,
     currentStep: workflow.initialStep,
@@ -302,16 +265,8 @@ export async function createRun(
 }
 
 /**
- * Persist a run row and place it on the agent queue in one call — the
- * ordinary-caller entry point of the execution state machine. It folds the
- * `createRun` (persist a `pending` row) and `enqueueRun` (hand the run to the
- * worker) pair behind one name so a caller cannot persist a run and forget to
- * enqueue it, or enqueue in the wrong order. Callers that need BullMQ dedup or a
- * delayed start (the cron and event dispatchers) pass `enqueueOpts`.
- *
- * The run is always enqueued, even when `createRun` returned an existing row for
- * a deduped occurrence: re-enqueueing an already-queued or in-flight run is safe
- * because lease arbitration is at the DB layer (FOR UPDATE SKIP LOCKED).
+ * Persist a run and enqueue it.
+ * A deduped existing run is enqueued again; that is safe because the DB lease arbitrates.
  */
 export async function startRun(
   args: CreateRunArgs,
@@ -324,15 +279,9 @@ export async function startRun(
 }
 
 /**
- * Persist a run inside a caller-owned transaction and deliver it to the worker
- * after that transaction commits — one named operation for the occurrence-claim
- * path (`workflows/tick.ts`, ADR-0027). `claim` runs the caller's CAS and other
- * durable writes on the transaction executor and returns the run args, or `null`
- * when it lost the race (no run, no enqueue). `createRun` runs on that same
- * executor, so the claim and the run row are atomic. The enqueue fires only
- * after the transaction commits: enqueueing a run whose row is not yet committed
- * would let the worker lease a row it cannot see. The queue handle never leaves
- * execution, so a caller cannot split, re-order, or drop the deliver.
+ * Claim and persist a run in one tx, then enqueue after commit (ADR-0027).
+ * `claim` returns `null` when it lost the race. An earlier enqueue would let the worker lease an
+ * unseen row.
  */
 export async function startRunInTx(spec: {
   claim: (tx: AgentDbExecutor) => Promise<CreateRunArgs | null>;
@@ -352,31 +301,14 @@ export async function startRunInTx(spec: {
   return created;
 }
 
-/**
- * Deliver an already-persisted run to the worker — the execution-domain verb for
- * re-delivery. It serves the callers that legitimately hold a `runId` from a
- * larger write and must enqueue it separately: a best-effort chat-turn start after
- * the outer transaction commits (`chat`), re-delivery of a run woken by
- * an approval decision or its expiry sweep (`approvals`), and the parked-run
- * re-enqueues in ops smokes. It wraps the module-private `enqueueRun` queue
- * primitive, so the BullMQ handle never leaves execution; with no public
- * `createRun` a caller cannot use it to split persistence from delivery.
- */
+/** Enqueue a run that is already persisted. */
 export async function redeliverRun(runId: string): Promise<void> {
   await enqueueRun(runId);
 }
 
 /**
- * Persist a chat-turn run inside the caller's chat-turn transaction, scoping the
- * insert to a SAVEPOINT (nested tx) so a dedup / per-thread unique-violation
- * rolls back only the failed insert and leaves the outer transaction alive to
- * recover via the caller's own SELECT. This owns the savepoint the chat
- * chat-turn route previously hand-rolled around `createRun`; delivery is
- * deferred to `redeliverRun(runId)` after the outer transaction commits (a run
- * persisted here is `pending`, so the resume sweep recovers it if the enqueue is
- * dropped). The queue handle is never exposed, so this op can only persist — it
- * cannot deliver — which keeps the chat-turn split expressible without
- * re-exposing the raw create/enqueue pair.
+ * Insert a chat-turn run in a SAVEPOINT, so a unique violation keeps the outer tx alive.
+ * The caller calls `redeliverRun` after commit.
  */
 export async function persistChatTurnRunInTx(
   tx: DbTransaction,
@@ -437,7 +369,7 @@ export async function replayRun(args: ReplayRunArgs): Promise<CreateRunResult> {
 
 export interface SignalArgs {
   runId: string;
-  /** When provided, only fire if the wake condition matches (HIL approvalId or signal name). */
+  /** Wake only if the wake condition matches. */
   match?:
     | { kind: "hil"; approvalId: string; approvalKind?: ApprovalKind | undefined }
     | { kind: "signal"; name: string }
@@ -452,16 +384,9 @@ export type SignalOutcome =
   | "already_terminal"
   | "wake_mismatch";
 
-// `DbTransaction` is derived from `db()`'s own return type, so callers can share
-// this helper from inside their own outer transaction without coupling this module
-// to one concrete Drizzle transaction instantiation.
 type AgentTx = DbTransaction;
 
-/**
- * Move a `waiting` run back to `runnable` if its wake condition matches.
- * Returns true if the run was woken, false if it was not waiting or the
- * match failed (the caller can treat both as "no-op, already moved on").
- */
+/** Move a `waiting` run to `runnable` if its wake condition matches. Returns whether it woke. */
 export async function signalRun(args: SignalArgs): Promise<boolean> {
   const outcome = await db().transaction((tx) => signalRunInTx(tx, args));
 
@@ -500,10 +425,7 @@ export async function signalRunInTx(tx: AgentTx, args: SignalArgs): Promise<Sign
     }
 
     if (match.kind === "hil" && wake.kind === "hil" && match.approvalKind) {
-      // Treat a missing `approvalKind` on the wake as "step" — pre-m13
-      // HIL wakes predate the field, and the only kind that existed
-      // then was the implicit step approval. Symmetric with the
-      // executor's interrupt-commit default (see executor.ts).
+      // Older HIL wakes have no kind; they were all step approvals.
       const wakeKind = wake.approvalKind ?? "step";
 
       if (wakeKind !== match.approvalKind) return "wake_mismatch";
@@ -515,8 +437,7 @@ export async function signalRunInTx(tx: AgentTx, args: SignalArgs): Promise<Sign
   }
 
   await tx
-    // drift-ok: FOR UPDATE held since the SELECT above, which returned unless
-    // the status was exactly `waiting`.
+    // drift-ok: the SELECT above holds the lock and returned unless status is `waiting`.
     .update(agentRuns)
     .set({
       status: "runnable",
@@ -529,13 +450,8 @@ export async function signalRunInTx(tx: AgentTx, args: SignalArgs): Promise<Sign
 }
 
 /**
- * ADR-0073: when a sub-agent child reaches a terminal state, wake the parent
- * that is joining it. Reads the child's metadata, and if it is a sub-agent,
- * fires `sub_agent_done:<childRunId>` so a parent parked in `await_sub_agent`
- * flips back to `runnable`. Returns the parent's run id when it was actually
- * woken (so the caller can enqueue it for an immediate resume), else null —
- * a no-op when the run isn't a sub-agent, the parent already moved on, or the
- * parent isn't waiting on this child. Best-effort and idempotent.
+ * Wake the parent that waits on this finished sub-agent (ADR-0073).
+ * Returns the parent id if it woke, so the caller can enqueue it. Idempotent.
  */
 export async function signalParentOfSubAgent(childRunId: string): Promise<string | null> {
   const rows = await db()
@@ -554,8 +470,6 @@ export async function signalParentOfSubAgent(childRunId: string): Promise<string
   });
 
   if (woken) {
-    // #409: the parent just woke from its `await_sub_agent` park — record the
-    // wait it spent joining this child, tagged with the child's terminal status.
     const outcome = subAgentOutcomeFromStatus(rows[0]?.status);
 
     if (outcome) {
@@ -566,7 +480,6 @@ export async function signalParentOfSubAgent(childRunId: string): Promise<string
   return woken ? sub.parentRunId : null;
 }
 
-/** Map a child run's raw status to a sub-agent-wait outcome; null when non-terminal. */
 function subAgentOutcomeFromStatus(status: string | undefined): SubAgentWaitOutcome | null {
   if (status === "completed" || status === "failed" || status === "cancelled") return status;
 
@@ -574,11 +487,8 @@ function subAgentOutcomeFromStatus(status: string | undefined): SubAgentWaitOutc
 }
 
 /**
- * Best-effort `runtime.sub_agent.wait` span for the parent that just woke from
- * an `await_sub_agent` park (#409). The park instant is the parent's latest
- * `interrupted` step's `ended_at`; if it can't be resolved we skip the span
- * rather than block the wake. Accepts an executor so it can run on the caller's
- * transaction (in-tx cancel) or a fresh connection (terminal-child signal).
+ * Best-effort wait span for a woken parent (#409). Park time is its last `interrupted` step's
+ * `ended_at`.
  */
 async function emitSubAgentWaitSpan(args: {
   ex: AgentDbExecutor;
@@ -610,77 +520,38 @@ async function emitSubAgentWaitSpan(args: {
 
 export interface CancelRunArgs {
   runId: string;
-  /** Short human/programmatic reason — surfaced in `agent_runs.error.reason`. */
+  /** Stored in `agent_runs.error.reason`. */
   reason: string;
-  /**
-   * User-facing reason copied onto pending approval rows cancelled with
-   * the run. Defaults to `reason` for programmatic callers.
-   */
+  /** User-facing text for approvals rejected with the run. Defaults to `reason`. */
   pendingApprovalRejectReason?: string | undefined;
 }
 
 export type CancelOutcome = "cancelled" | "already_terminal" | "not_found";
 
-/**
- * The `agent_runs.error.reason` a sub-agent child records when its parent's
- * cancel cascaded onto it (#559b). Distinct from the parent's own reason so an
- * operator reading the child row can tell a delegated stop from a stop aimed at
- * that child.
- */
+/** A child's reason when the parent's cancel cascades to it (#559b). */
 const CASCADED_CANCEL_REASON = "parent_run_cancelled";
 
 export interface CancelTxResult {
   outcome: CancelOutcome;
   /**
-   * Everything the committed cancel owes the world outside its transaction,
-   * as one closure. Call it exactly once, *after* the enclosing tx commits —
-   * every obligation inside publishes user-visible state or touches Redis, so
-   * none of it may survive a rollback.
-   *
-   * Handed back as a closure rather than as the raw ids it was built from
-   * because the obligation list only grows: it started at the scratch snapshot,
-   * gained a parent wake (ADR-0073), gained staging teardown, and gained client
-   * closure (#530/#531 D2). Every time it grew, a caller that had already
-   * spelled the previous list out by hand silently stopped being correct. A
-   * closure has no version to be behind.
-   *
-   * Never throws: each obligation is independently best-effort and logged, so a
-   * dead Redis can't fail a decision the user already made.
-   *
-   * A no-op unless `outcome === "cancelled"`.
+   * The cancel's side effects outside the tx. Call it once, after commit.
+   * A closure, so callers cannot drift from a list that keeps growing.
+   * Never throws. A no-op unless `outcome === "cancelled"`.
    */
   afterCommit: () => Promise<void>;
 }
 
-/** {@link CancelTxResult.afterCommit} for a cancel that didn't happen. */
 async function noCancelObligations(): Promise<void> {}
 
-/**
- * Discharge a committed cancel's post-commit obligations, in user-visible-first
- * order. Built by {@link cancelRunInTx}; reached only through
- * {@link CancelTxResult.afterCommit}.
- */
+/** Run a committed cancel's side effects, the user-visible one first. */
 async function dischargeCancelObligations(args: {
   runId: string;
   reason: string;
-  /**
-   * Gated `action_stagings` rows the cancel bulk-rejected. Their queued
-   * expiry/notification jobs must go too, or they fire later against a decided
-   * row and no-op — ghost jobs in Redis.
-   */
+  /** Their queued expiry and notification jobs must be removed too. */
   rejectedStagingIds: string[];
-  /**
-   * Parent run woken in-tx because this cancelled run was a sub-agent child it
-   * was joining (ADR-0073). Enqueued here, after commit, so the executor sees
-   * the runnable row and the boss reads the cancelled (terminal) outcome
-   * instead of hanging until its dead-man timer fires. `null` when this run is
-   * not an awaited child or its parent had already moved on.
-   */
+  /** A parent woken in the tx; enqueue it after commit so it sees the runnable row. */
   wokenParentRunId: string | null;
 }): Promise<void> {
-  // Client closure first: a cancel is a terminal transition outside any step
-  // body, so the workflow owes the user's in-flight artifact an ending, and
-  // that is the only obligation here they can see. Internally best-effort.
   await finalizeCancelledRun(args.runId, args.reason);
   await dischargeStagingSweep(args);
 
@@ -708,27 +579,20 @@ async function dischargeCancelObligations(args: {
 }
 
 /**
- * The staging sweep: reject approval rows that committed after the cancel
- * transaction took its snapshot, then tear down the queued expiry/notification
- * jobs of the rows the cancel bulk-rejected. This is the whole post-commit
- * obligation a cascaded sub-agent child owes (#559b) — a sub-agent declares
- * `closure: { kind: "none" }` and writes scratch into its parent's zone, so
- * there is no client closure and no scratch snapshot to drive for it.
+ * Reject stagings that committed after the cancel's snapshot, then remove the queued jobs.
+ * A cascaded sub-agent owes only this (#559b).
  */
 async function dischargeStagingSweep(args: {
   runId: string;
   reason: string;
   rejectedStagingIds: string[];
 }): Promise<void> {
-  // Sweep again after commit. A step body can stage an approval after the
-  // cancel transaction took its snapshot; the executor's terminal guard will
-  // roll back its step commit, but the staging row itself is an earlier
-  // autocommit. The sweep closes that visibility gap.
+  // A step body can autocommit a staging after the cancel's snapshot; the guard cannot roll that
+  // back.
   await rejectLateCancelledRunStagings(args.runId, args.reason);
 
   for (const stagingId of args.rejectedStagingIds) {
-    // Guarded per queue, not per staging: the two jobs are independent, so a
-    // failure removing one must not leave the other behind as well.
+    // Per queue, so one failure does not leave the other job behind.
     for (const remove of [removeApprovalNotificationJob, removeApprovalExpiryJob]) {
       try {
         await remove(stagingId);
@@ -740,10 +604,8 @@ async function dischargeStagingSweep(args: {
 }
 
 /**
- * Reject approval rows that committed after a run's cancel transaction read
- * them. Also called by the losing executor after its guarded commit observes
- * the cancellation, which closes the later "staged after the post-commit
- * sweep" edge.
+ * Reject stagings that committed after the cancel tx read them.
+ * The losing executor calls it too, for a staging that lands after the post-commit sweep.
  */
 export async function rejectLateCancelledRunStagings(
   runId: string,
@@ -802,18 +664,7 @@ export async function rejectLateCancelledRunStagings(
   }
 }
 
-/**
- * Stop a run from any non-terminal state. Used by the approvals
- * "Reject and end run" action (Phase 5) and any future flow that needs
- * to abandon a parked or in-flight run. Idempotent: calling on an
- * already-terminal row is a no-op and reports `already_terminal`. The
- * caller (HTTP handler) typically treats `not_found` and
- * `already_terminal` as equivalent 4xx responses but they're distinct
- * here for observability.
- *
- * Atomicity: status flip + outbox event commit inside one tx so a
- * rolled-back update can't leak a phantom `cancelled` event downstream.
- */
+/** Cancel a non-terminal run. Idempotent: a terminal run reports `already_terminal`. */
 export async function cancelRun(args: CancelRunArgs): Promise<CancelOutcome> {
   const { outcome, afterCommit } = await db().transaction((tx) => cancelRunInTx(tx, args));
   await afterCommit();
@@ -822,20 +673,8 @@ export async function cancelRun(args: CancelRunArgs): Promise<CancelOutcome> {
 }
 
 /**
- * The transactional half of {@link cancelRun}, for callers that compose the
- * cancel into a wider transaction (the approvals `cancel_run` decision).
- *
- * The cancel's post-commit obligations come back as
- * {@link CancelTxResult.afterCommit} rather than as a list for the caller to
- * re-derive — see that field. Run it once the enclosing tx commits and the
- * composed cancel is as complete as {@link cancelRun}'s.
- *
- * `opts.obligations` selects which post-commit obligations the returned closure
- * carries. `"full"` (the default, used by {@link cancelRun} and the approvals
- * decision) drives client closure, the staging sweep, the scratch snapshot, and
- * a woken parent enqueue. `"staging_sweep"` is the cascaded-child form — a
- * sub-agent owes no client closure and no scratch snapshot, so it carries only
- * {@link dischargeStagingSweep}.
+ * {@link cancelRun} inside the caller's tx. Call `afterCommit` after commit.
+ * `"staging_sweep"` is for a cascaded sub-agent, which has no client closure or scratch snapshot.
  */
 export async function cancelRunInTx(
   tx: AgentTx,
@@ -866,27 +705,17 @@ export async function cancelRunInTx(
   }
 
   const now = new Date();
-  // #561: read the effect ledger before the sweep below rejects pending
-  // stagings, so the verdict records what actually landed or went unknown.
+  // Read the effect ledger before the sweep below rejects pending stagings (#561).
   const runOutcome = await deriveRunOutcome(tx, row, { status: "cancelled" });
   await tx
-    // drift-ok: FOR UPDATE held since the SELECT above, which returned
-    // `already_terminal` under that lock. This is the write the guard protects
-    // *against* — it cannot route through it.
+    // drift-ok: the SELECT above holds the lock; this is the write the guard protects against.
     .update(agentRuns)
     .set({
       status: "cancelled",
-      // #559b: advance the monotonic cancellation fence so a step that started
-      // before this cancel refuses to commit AND the tool-runtime dispatch gate
-      // stops issuing new effects the moment it re-reads the fence.
+      // The fence (#559b): an older step cannot commit and the dispatch gate stops new effects.
       cancellationGeneration: sql`${agentRuns.cancellationGeneration} + 1`,
-      // Null the wake so a stale signal (e.g. a delayed approval
-      // landing after cancellation) can't match — signalRun guards on
-      // status='waiting' but defence-in-depth is cheap here.
+      // A late signal must not match.
       wakeCondition: null,
-      // `AgentError` requires `message`; the cancel has no exception text, so
-      // the operator-facing reason doubles as it. The cancel instant is
-      // `endedAt` below — it is not restated here.
       error: { message: args.reason, reason: args.reason },
       outcome: runOutcome,
       endedAt: now,
@@ -896,12 +725,7 @@ export async function cancelRunInTx(
     .where(eq(agentRuns.id, args.runId));
   await recordWorkflowLastRun(tx, row, "cancelled", now);
 
-  // ADR-0073: if this run is a sub-agent child, a parent boss may be parked
-  // awaiting it. The cancel above nulled the wake and the terminal-child
-  // signal only fires on completed|failed, so without this the parent would
-  // hang until the dead-man timer fires (≤6 min). Wake it in-tx — it reads the
-  // cancelled (terminal) outcome on resume — and hand the parent id back so
-  // the caller enqueues it after commit.
+  // A parent waiting on this sub-agent would otherwise hang until its dead-man timer (ADR-0073).
   let wokenParentRunId: string | null = null;
   const sub = readSubAgentMetadata(row.metadata);
 
@@ -913,9 +737,6 @@ export async function cancelRunInTx(
 
     if (signalOutcome === "woken") {
       wokenParentRunId = sub.parentRunId;
-      // #409: the parent woke because we cancelled the child it was joining;
-      // record its sub-agent wait with a `cancelled` outcome. Runs on the
-      // caller's tx so the lookup sees the same snapshot.
       await emitSubAgentWaitSpan({
         ex: tx,
         parentRunId: sub.parentRunId,
@@ -956,13 +777,8 @@ export async function cancelRunInTx(
     },
   });
 
-  // #559b: cascade the cancel to every sub-agent child this run spawned. A
-  // child is a separate `agent_runs` row with its own fence, so the parent's
-  // fence says nothing about it: without this, cancelling a boss leaves its
-  // children running and still able to land external effects — the same
-  // effect-after-cancel hole the fence closes for the parent's own steps.
-  // Runs after the parent's own status write above, so a child's cancel reads
-  // its (now terminal) parent in this same snapshot and skips the join wake.
+  // Each child has its own fence, so cancel the children too (#559b).
+  // After the parent's write, so a child sees its parent terminal and skips the join wake.
   const childObligations = await cancelSpawnedChildrenInTx(tx, {
     parentRunId: args.runId,
     userId: row.userId,
@@ -988,9 +804,7 @@ export async function cancelRunInTx(
         await dischargeStagingSweep({ runId: args.runId, reason: args.reason, rejectedStagingIds });
       }
 
-      // Each child's obligations are its own closure, discharged after this
-      // run's. Guarded per child so one child's fault cannot strand another
-      // child's sweep.
+      // Per child, so one fault does not strand another child's sweep.
       for (const discharge of childObligations) {
         try {
           await discharge();
@@ -1003,29 +817,9 @@ export async function cancelRunInTx(
 }
 
 /**
- * Cancel every non-terminal sub-agent child of a run being cancelled, on the
- * parent's transaction (#559b, amending ADR-0073).
- *
- * Why a cascade at all: the cancellation fence lives on one `agent_runs` row.
- * A child run carries its own fence at generation 0 and its dispatch gate reads
- * only that one, so a parent's cancel is invisible to it. "No new effect after
- * cancel" is only true of the whole delegation tree if the cancel reaches the
- * children the boss spawned to act on its behalf.
- *
- * A cascaded child owes only its staging sweep — see the `staging_sweep`
- * obligations passed to `cancelRunInTx` below. Its `agent.run` frame is
- * published in-tx by that call, and its fence is bumped there too.
- *
- * Recursion terminates on the status guard rather than on a depth limit: each
- * child cancel re-locks its own row and returns `already_terminal` for a run
- * this transaction has already cancelled, so a metadata cycle cannot loop.
- * Sub-agents may not spawn sub-agents today (`spawnSubAgent` refuses), which
- * makes the real depth one — the recursion is what keeps this correct if that
- * ever changes.
- *
- * Returns one `afterCommit` closure per cancelled child, for the parent to
- * discharge after its own. Never re-derive that list: see
- * {@link CancelTxResult.afterCommit}.
+ * Cancel each live sub-agent child on the parent's tx (#559b).
+ * The status guard ends the recursion, so a metadata cycle cannot loop.
+ * Returns one `afterCommit` per child.
  */
 async function cancelSpawnedChildrenInTx(
   tx: AgentTx,
@@ -1046,9 +840,7 @@ async function cancelSpawnedChildrenInTx(
         runIsNotTerminal(agentRuns.status),
       ),
     )
-    // Spawn order, for a deterministic discharge sequence. The order does not
-    // carry meaning — each child's obligations are independent — but a stable
-    // order makes the cascade reproducible.
+    // Stable order only, for reproducible runs.
     .orderBy(agentRuns.createdAt);
 
   const obligations: Array<() => Promise<void>> = [];
@@ -1059,8 +851,6 @@ async function cancelSpawnedChildrenInTx(
       {
         runId: child.id,
         reason: CASCADED_CANCEL_REASON,
-        // The user-facing approval reject text stays the parent's: the user
-        // decided once, about one run.
         pendingApprovalRejectReason: args.pendingApprovalRejectReason ?? args.reason,
       },
       { obligations: "staging_sweep" },
@@ -1084,7 +874,7 @@ export interface RunSummary {
   endedAt: Date | null;
   lastCheckpointAt: Date | null;
   wakeCondition: WakeCondition | null;
-  /** The monotonic cancellation fence (#559b). `cancelRun` increments it once. */
+  /** Cancel increments it (#559b). */
   cancellationGeneration: number;
   output: unknown;
   error: unknown;
@@ -1119,24 +909,14 @@ export async function getRun(runId: string, userId: string): Promise<RunSummary 
 }
 
 /**
- * Find run rows that are claimable by the worker pool: pending, runnable, or a
- * deferred row whose retry time arrived, plus running rows whose owning worker's
- * heartbeat has gone stale (presumed dead). The stale window is per-step
- * (ADR-0070 §1.4, Lever A): the SQL selects
- * running candidates at {@link minStaleAfterMs} (the smallest window, so nothing
- * is missed), then each is refined against its precise per-step window via
- * {@link resolveStaleAfterMs}. `leaseRun` re-checks the same window under the
- * row lock, so an over-selected candidate that isn't actually stale is a benign
- * no-op there — this refinement just avoids the wasted enqueue churn. The SQL
- * page is consumed before that refinement, so this function paginates until it
- * has `limit` accepted ids or no candidates remain; otherwise a page full of
- * live long-window rows could hide genuinely-stale rows behind it.
+ * Ids the worker pool can claim: pending, runnable, due deferred, and stale `running` rows.
+ * SQL selects at the smallest stale window, then each row is refined per step.
+ * It pages until `limit`, so live long-window rows cannot hide stale ones.
  */
 export async function findResumableRunIds(opts: { limit?: number }): Promise<string[]> {
   return collectResumableRunIds(opts.limit ?? 100, readResumeSweepPage);
 }
 
-/** One candidate row of the resume sweep, before the per-step refinement. */
 export type ResumeSweepCandidate = {
   readonly id: string;
   readonly workflowSlug: string;
@@ -1145,7 +925,6 @@ export type ResumeSweepCandidate = {
   readonly staleMs: number | string | null;
 };
 
-/** Reads one ordered page of sweep candidates at the {@link minStaleAfterMs} floor. */
 async function readResumeSweepPage(page: {
   limit: number;
   offset: number;
@@ -1169,13 +948,8 @@ async function readResumeSweepPage(page: {
 }
 
 /**
- * The page loop of {@link findResumableRunIds}, with the page reader injected.
- *
- * The reader is a parameter because the pagination invariant — a page filled by
- * refined-out rows must not hide a claimable row behind it — cannot be proved
- * against the real sweep. That query reads `agent_runs` for every user, so in a
- * shared test database any other suite's pending row lands on the page first and
- * the assertion becomes a race.
+ * The page loop, with the reader injected: the real query reads every user's rows, so a shared test
+ * DB races.
  */
 export async function collectResumableRunIds(
   limit: number,
@@ -1192,8 +966,6 @@ export async function collectResumableRunIds(
     offset += rows.length;
 
     for (const row of rows) {
-      // Pending/runnable and due deferred rows are claimable; only `running`
-      // rows are gated on the per-step stale window.
       if (row.status !== "running") {
         resumable.push(row.id);
 
@@ -1214,11 +986,7 @@ export async function collectResumableRunIds(
   return resumable;
 }
 
-/**
- * Heartbeat on a leased run — bumps `last_checkpoint_at` so the resume
- * sweep doesn't yank the run out from under us during a long step. Returns
- * false when the leased attempt no longer owns a running row.
- */
+/** Bump `last_checkpoint_at` on a leased run. Returns false when this attempt lost the run. */
 export async function heartbeatRun(runId: string, attempt?: number): Promise<boolean> {
   const conds = [eq(agentRuns.id, runId), eq(agentRuns.status, "running")];
 

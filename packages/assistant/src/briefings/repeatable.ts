@@ -1,17 +1,8 @@
 import { getBriefingQueue, type BriefingJobData } from "./queue";
 
 /**
- * Boot-time registration for the briefing-cron repeatables.
- *
- *   - briefing.tick  every 1 hour — fan out to users whose local
- *                    delivery_hour matches the current local hour.
- *
- * The hour granularity is deliberate: per ADR-0025, briefings are a
- * once-a-day event, and per-minute precision is unnecessary. An hourly
- * tick + per-user idempotency in `email_sends` is plenty.
- *
- * Idempotent: `upsertJobScheduler` keys by id, so re-boots don't
- * duplicate schedules.
+ * Register the hourly `briefing.tick` at boot. Hourly is enough for a daily email (ADR-0025).
+ * `upsertJobScheduler` keys by id, so reboots do not duplicate it.
  */
 export async function scheduleRepeatableBriefingJobs(): Promise<void> {
   const queue = getBriefingQueue();

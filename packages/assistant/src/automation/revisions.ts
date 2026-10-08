@@ -49,42 +49,27 @@ import {
 import { readWorkflowReadinessContext } from "./readiness-context";
 
 /**
- * The workflow draft / revision / activation service (#555,
- * `docs/plans/workflows-v1.md` § "Workflow identity and immutable revisions").
- *
- * **This module is the only writer of a workflow definition.** The chat
- * authoring tools, the activation approval, and the Replicache editor mutator
- * all come through here. That is not a style preference — `workflows` keeps a
- * denormalized copy of the published definition (the cron tick indexes
- * `workflows.trigger`, and the settings list reads one row instead of a join),
- * and a copy with two writers is a copy that drifts. A second
- * `UPDATE workflows SET trigger = …` anywhere in the codebase silently
- * downgrades the immutability rule below to advice.
- *
- * Three rules the shape of this file enforces:
- *
- *   1. **Revisions are append-only.** `revise` never updates a revision row.
- *      The one mutable column is `approved_at`, stamped by `activate`.
- *   2. **Editing does not disturb what is running.** The copy on `workflows`
- *      mirrors the *published* revision, so a new draft moves
- *      `current_revision_id` and nothing else. It mirrors the current revision
- *      only while `published_revision_id` is still null — a draft that has
- *      never been activated has nothing to protect.
- *   3. **Pause and blocked never travel together.** `status` is the user's
- *      intent, `blocked` is the machine's readiness. Each has its own writer
- *      here, and neither reads the other.
+ * Workflow draft, revision, and activation service (#555).
+ * This is the only writer of a user workflow definition (the seeder writes built-ins).
+ * `workflows` keeps a copy of the published definition for the cron index, and a copy
+ * with two writers drifts.
+ * Rules:
+ *   1. Revisions are append-only. Only `approved_at` changes, set by `activate`.
+ *   2. A new draft moves only `current_revision_id`. The copy on `workflows` follows the
+ *      published revision, or the current one while nothing is published.
+ *   3. `status` is user intent and `blocked` is machine readiness. Neither writer touches the other.
  */
 
 // ── Result and failure shapes ────────────────────────────────────────────────
 
-/** Why a definition is not activatable. Distinct codes so the card can point at a field. */
+/** Distinct codes so the card can point at a field. */
 export type WorkflowRevisionProblemCode =
   | "invalid_definition"
   | "invalid_cron"
   | "unschedulable_cron"
-  /** A raw event trigger without an inbound source or a kind, or a typed trigger carrying a kind (#990). */
+  /** Raw trigger without a source or kind, or a typed trigger with a kind (#990). */
   | "invalid_raw_trigger"
-  /** A raw event trigger on a kind the source has never delivered to this user (#990). */
+  /** Raw trigger on a kind the source never delivered to this user (#990). */
   | "unseen_raw_kind"
   | "empty_integration_ceiling"
   | "trigger_source_not_allowed"
@@ -96,9 +81,9 @@ export type WorkflowRevisionProblemCode =
 
 export interface WorkflowRevisionProblem {
   code: WorkflowRevisionProblemCode;
-  /** One safe sentence. Rendered on the activation card and in the blocked-draft state. */
+  /** One safe sentence for the activation card. */
   message: string;
-  /** Dotted path into the definition, when the problem belongs to one field. */
+  /** Dotted path, when the problem belongs to one field. */
   field?: string;
 }
 
@@ -107,10 +92,10 @@ export type WorkflowServiceFailure =
   | { kind: "builtin_immutable" }
   | { kind: "slug_taken"; slug: string }
   | { kind: "no_current_revision" }
-  /** The caller's `expectedRowVersion` lost a race. The caller re-reads and retries. */
+  /** The caller re-reads and retries. */
   | { kind: "row_version_conflict"; expected: number }
   | { kind: "readiness_blocked"; blockers: WorkflowReadinessProblem[] }
-  /** The approval card was built against a definition that has since changed. */
+  /** The approval card was built from an older definition. */
   | {
       kind: "stale_revision";
       expected: string;
@@ -124,17 +109,13 @@ export type WorkflowServiceResult<T> =
   | ({ ok: true } & T)
   | { ok: false; failure: WorkflowServiceFailure };
 
-/** Every write path returns the workflow row and the revision it settled on. */
 export interface WorkflowRevisionOutcome {
   workflow: Workflow;
   revision: WorkflowRevision;
 }
 
 export interface WorkflowRevisedOutcome extends WorkflowRevisionOutcome {
-  /**
-   * `false` when the edit hashed to the current revision's content. The caller
-   * should tell the user nothing changed rather than claim a new draft.
-   */
+  /** `false` when nothing changed. Tell the user so; do not claim a new draft. */
   created: boolean;
 }
 
@@ -143,26 +124,15 @@ export interface RecoveredWorkflowDraftOutcome extends WorkflowRevisionOutcome {
   activationProposal?: ActivateWorkflowInput;
 }
 
-/** A read executor or an existing transaction supplied by a composing caller. */
 type WorkflowExecutor = DbRoot | DbTransaction;
 
 // ── Validation ───────────────────────────────────────────────────────────────
 
 /**
- * Parse and check a proposed definition. Pure over the supplied timezone: it
- * performs no database reads, so authoring, the activation approval, and any
- * future UI mutator all reach the same verdict from the same inputs.
- *
- * The input is `unknown` on purpose. It arrives from a model proposal, an
- * approval card the user may have edited, or a Replicache mutator payload —
- * none of which the server may trust to already match the schema.
- *
- * `requireActivatable` is the difference between "may I save this?" and "may I
- * publish this?". A draft is allowed to be incomplete — that is the whole point
- * of the blocked-draft flow, where the user leaves to connect an account and
- * comes back to the same draft. What may never be incomplete is a definition
- * about to run unattended, so {@link activateWorkflow} is the caller that turns
- * the flag on.
+ * Parse and check a definition. No database reads, so every caller gets the same verdict.
+ * Input is `unknown`: it comes from a model, an edited card, or a mutator.
+ * Drafts may be incomplete (the user may still need to connect an account).
+ * `requireActivatable` rejects anything that cannot run unattended.
  */
 export function validateWorkflowDefinition(
   input: unknown,
@@ -187,9 +157,7 @@ export function validateWorkflowDefinition(
   const problems: WorkflowRevisionProblem[] = [];
   const { trigger, allowedIntegrations, allowedTools, requiredCapabilities } = definition;
 
-  // The raw-tier shape rule is pure and shared with authoring (#990). Whether
-  // the source has delivered the kind is a database fact; the create and revise
-  // paths ask {@link unseenRawKindProblem} for it after this function returns.
+  // Whether the source delivered the kind is a DB fact; see {@link unseenRawKindProblem}.
   if (trigger.kind === "event") {
     const issue = rawEventTriggerIssue(trigger);
 
@@ -216,9 +184,7 @@ export function validateWorkflowDefinition(
     }
   }
 
-  // An empty ceiling means "not decided yet", not "everything is allowed". A
-  // draft may sit in that state; a workflow about to run unattended may not,
-  // because its runs could load any integration the user never approved for it.
+  // An empty ceiling means "not decided", not "everything". A running workflow needs one.
   const hasCeiling = allowedIntegrations.length > 0;
 
   if (!hasCeiling && opts.requireActivatable) {
@@ -229,10 +195,8 @@ export function validateWorkflowDefinition(
     });
   }
 
-  // The run has to be able to act on what fired it (ADR-0047). `EVENT_SOURCES`
-  // is a wider namespace than `IntegrationSlug` — `learn-skill` and
-  // `google.oauth.callback` are internal signals with no integration to allow —
-  // so the cap applies only to the sources that name one.
+  // The run must be able to act on its trigger (ADR-0047). Some sources, like
+  // `learn-skill`, are internal signals with no integration to allow.
   if (
     hasCeiling &&
     trigger.kind === "event" &&
@@ -246,8 +210,7 @@ export function validateWorkflowDefinition(
     });
   }
 
-  // `system` and `mcp` tools are not lazily loaded per integration, so they sit
-  // outside the coarse ceiling by design; only loadable integrations are capped.
+  // `system` and `mcp` tools are not loaded per integration, so the ceiling skips them.
   for (const tool of hasCeiling ? allowedTools : []) {
     const integration = integrationFromToolName(tool);
 
@@ -320,13 +283,9 @@ export function validateWorkflowDefinition(
 }
 
 /**
- * A raw event trigger may name only a kind its source has delivered to this
- * user (#990). The inventory is the source of truth for "what kinds exist", so
- * the message lists what it holds: chat authoring reads the problem back and
- * proposes again with a real kind. Runs on the definition-writing paths
- * (create, revise, and the patch and activation edits that delegate to
- * revise), not on activation itself: activation republishes a definition that
- * already passed here.
+ * A raw trigger may name only a kind its source has delivered to this user (#990).
+ * The message lists the seen kinds so chat authoring can retry with a real one.
+ * Runs on the paths that write a definition, not on activation.
  */
 async function unseenRawKindProblem(
   userId: string,
@@ -355,23 +314,19 @@ async function unseenRawKindProblem(
 
 export interface CreateWorkflowDraftArgs {
   userId: string;
-  /** Stable slug, unique per user. Callers derive it from the name before calling. */
+  /** Unique per user. */
   slug: string;
-  /** Unvalidated proposal; `validateWorkflowDefinition` is applied here. */
+  /** Validated here. */
   definition: unknown;
   authoringProposal?: WorkflowAuthoringProposal;
-  /** The `agent_runs.id` that authored this. Retrying that run collapses onto one row. */
+  /** A retry of the same run collapses onto one row. */
   createdByRunId?: string;
   tx?: DbTransaction;
 }
 
 /**
- * Create a user-authored workflow in `draft` with revision 1.
- *
- * A draft is never scheduled — `status` stays `draft` and `next_run_at` stays
- * null until {@link activateWorkflow} publishes. That is what lets authoring
- * save a proposal the user has not approved yet, including one blocked on a
- * connection the user still has to set up.
+ * Create a `draft` with revision 1. Drafts are never scheduled until
+ * {@link activateWorkflow}, so authoring can save an unapproved or blocked proposal.
  */
 export async function createWorkflowDraft(
   args: CreateWorkflowDraftArgs,
@@ -393,9 +348,7 @@ export async function createWorkflowDraft(
   const run = async (
     tx: DbTransaction,
   ): Promise<WorkflowServiceResult<WorkflowRevisionOutcome>> => {
-    // Insert the stable identity first, then the revision, then its pointer.
-    // This order satisfies the pointer FK while the transaction keeps the
-    // three writes atomic.
+    // Workflow, then revision, then pointer: the order the FK needs.
     const [created] = await tx
       .insert(workflows)
       .values({
@@ -436,19 +389,12 @@ export async function createWorkflowDraft(
 
 // ── Revise ───────────────────────────────────────────────────────────────────
 
-/**
- * The definition fields as they exist right now, before validation.
- *
- * Looser than `WorkflowRevisionDefinition` in one place: `brief` may still be
- * null. A row written before revisions existed has no brief, and the merge
- * below has to be able to carry that null forward so the validator — not the
- * merge — is what reports it.
- */
+/** Like `WorkflowRevisionDefinition`, but `brief` may be null on pre-revision rows. The validator reports it. */
 export type WorkflowDefinitionDraft = Omit<WorkflowRevisionDefinition, "brief"> & {
   brief: string | null;
 };
 
-/** A partial edit. An absent key means "leave it alone"; `null` means "clear it". */
+/** Absent key means "leave it"; `null` means "clear it". */
 export type WorkflowDefinitionPatch = {
   [K in keyof WorkflowDefinitionDraft]?: WorkflowDefinitionDraft[K] | undefined;
 };
@@ -459,24 +405,16 @@ export interface ReviseWorkflowArgs {
   definition: unknown;
   authoringProposal?: WorkflowAuthoringProposal | undefined;
   createdByRunId?: string | undefined;
-  /**
-   * The `row_version` the caller read. Omit it only when no concurrent editor
-   * is possible; supplying it turns a lost update into a typed conflict.
-   */
+  /** Omit only when no concurrent editor is possible. */
   expectedRowVersion?: number | undefined;
   tx?: DbTransaction;
 }
 
 /**
- * Append a new revision and point `current_revision_id` at it.
- *
- * Two things happen before any row is written. The definition is hashed and
- * compared against the current revision, so a save that changes nothing
- * semantic returns `created: false` instead of a revision the user has to
- * re-approve. Then the workflow row is claimed with a compare-and-set on
- * `row_version` — which is both the lost-update guard and the lock that makes
- * the `revision_number = max + 1` read below safe, since a concurrent reviser
- * blocks on that row until this transaction commits and then fails its own CAS.
+ * Append a revision and point `current_revision_id` at it.
+ * An unchanged hash returns `created: false`, so the user need not re-approve.
+ * The `row_version` CAS guards lost updates and locks the row, which makes the
+ * `max + 1` revision number safe.
  */
 export async function reviseWorkflow(
   args: ReviseWorkflowArgs,
@@ -516,8 +454,7 @@ export async function reviseWorkflow(
     }
 
     const revisionId = createId("wfr");
-    // The published revision keeps running, so only a workflow that has never
-    // been activated refreshes its denormalized copy from this edit.
+    // Only a never-activated workflow refreshes its copy; the published revision keeps running.
     const mirrors = existing.publishedRevisionId === null;
 
     const nextRunAt =
@@ -552,10 +489,7 @@ export async function reviseWorkflow(
       createdByRunId: args.createdByRunId,
     });
 
-    // The FK requires the immutable row to exist before either pointer can
-    // reference it. The claim above already serialized concurrent editors;
-    // this second update completes that claimed transition without another
-    // row-version increment.
+    // The revision must exist before a pointer can reference it. The claim above already locked the row.
     const [workflow] = await tx
       .update(workflows)
       .set({
@@ -575,14 +509,8 @@ export async function reviseWorkflow(
 }
 
 /**
- * Revise from a partial edit — the entry point for an editor that sends only
- * the fields the user touched.
- *
- * The merge lives here rather than in the caller because "what does this row
- * currently mean?" is a question with a subtle answer: the current revision
- * when there is one, and the denormalized columns on `workflows` when there is
- * not (a row that predates revisions, or one a test inserted directly). A
- * caller that guessed wrong would silently drop `allowed_tools` on every save.
+ * Revise from the fields the editor sent. The base is the current revision, or the
+ * `workflows` columns when there is none. A wrong base would drop `allowed_tools`.
  */
 export async function reviseWorkflowFromPatch(args: {
   userId: string;
@@ -632,11 +560,7 @@ export async function reviseWorkflowFromPatch(args: {
   return args.tx ? run(args.tx) : db().transaction(run);
 }
 
-/**
- * Merge field by field rather than by spread. Under
- * `exactOptionalPropertyTypes` a present-but-undefined key still overwrites, so
- * a spread would clear every field the editor did not send.
- */
+/** Not a spread: under `exactOptionalPropertyTypes` an undefined key would clear the field. */
 function applyDefinitionPatch(
   base: WorkflowDefinitionDraft,
   patch: WorkflowDefinitionPatch,
@@ -657,11 +581,7 @@ function applyDefinitionPatch(
 export interface ActivateWorkflowArgs {
   userId: string;
   workflowId: string;
-  /**
-   * The content hash the approval card was built from. When it no longer
-   * matches, activation stops rather than publishing a contract the user never
-   * saw. Omit only for a reactivation of an unchanged workflow.
-   */
+  /** The hash the card was built from. Omit only to reactivate an unchanged workflow. */
   expectedContentHash?: string;
   expectedRowVersion?: number;
   tx?: DbTransaction;
@@ -669,16 +589,12 @@ export interface ActivateWorkflowArgs {
 
 export interface ActivateWorkflowDefinitionArgs {
   userId: string;
-  /** Full activation contract from the approval card, including any user edits. */
+  /** The card's contract, with any user edits. */
   input: unknown;
   createdByRunId?: string;
 }
 
-/**
- * Rebuild an edited activation card from server-owned facts. The original
- * staging remains pending, so the user must approve this refreshed contract
- * before the parked run can continue.
- */
+/** Rebuild an edited card from server facts. The user must approve the new card. */
 export async function refreshWorkflowActivationProposal(args: {
   userId: string;
   input: unknown;
@@ -792,13 +708,8 @@ export async function refreshWorkflowActivationProposal(args: {
 }
 
 /**
- * Revalidate one exact immutable draft after a connection or permission flow.
- *
- * Account canonicalization is projected into the activation proposal without
- * mutating the base revision. If approval changes the canonical definition,
- * {@link activateWorkflowDefinition} appends the approved revision before it
- * publishes. This keeps the user on the same draft while preserving the
- * append-only revision invariant.
+ * Revalidate one draft after a connection or permission flow.
+ * The base revision is not changed; {@link activateWorkflowDefinition} appends one if needed.
  */
 export async function recoverWorkflowDraft(args: {
   userId: string;
@@ -950,7 +861,7 @@ export async function recoverWorkflowDraft(args: {
   });
 }
 
-/** Add all executable effects and replace fields that the definition owns. */
+/** Add executable effects and take definition-owned fields from the definition. */
 export function approvalProposalForDefinition(
   base: WorkflowAuthoringProposal,
   definition: WorkflowRevisionDefinition,
@@ -975,7 +886,7 @@ export function approvalProposalForDefinition(
   };
 }
 
-/** Build the one exact activation contract shown by every authoring surface. */
+/** The one activation contract every authoring surface shows. */
 export function buildWorkflowActivationProposal(args: {
   workflowId: string;
   baseRevisionId: string;
@@ -1013,13 +924,9 @@ export function buildWorkflowActivationProposal(args: {
 }
 
 /**
- * Activate the exact definition carried by an approval card (#556).
- *
- * The current pointer must still identify the card's base revision. A changed
- * pointer is stale even if a later revision happens to have the same hash. If
- * the user edited the card, the approved definition is appended as a new
- * immutable revision and that new revision is published in the same
- * transaction. The base row is never mutated.
+ * Activate the definition on an approval card (#556).
+ * The current pointer must still be the card's base, even if a later revision has the same hash.
+ * An edited card appends a new revision and publishes it in the same transaction.
  */
 export async function activateWorkflowDefinition(
   args: ActivateWorkflowDefinitionArgs,
@@ -1076,10 +983,8 @@ export async function activateWorkflowDefinition(
     };
   }
 
-  // Classify a stale approval by its immutable identity before validating the
-  // editable contract. A stale base hash is not a malformed definition, and
-  // callers need the typed stale result so they can restage the same draft.
-  // The write transaction repeats this check to protect against a later race.
+  // Report stale before validation, so callers get the typed result and can restage.
+  // The write transaction checks again for a later race.
   const staleWorkflow = await loadWorkflow(db(), args.userId, input.workflowId);
 
   const staleRevision = staleWorkflow?.currentRevisionId
@@ -1140,10 +1045,7 @@ export async function activateWorkflowDefinition(
     };
   }
 
-  // The friendly preview is part of what the user approved. A trigger edit
-  // that makes it stale must be restaged with a fresh server preview; silently
-  // publishing the recomputed schedule would activate a contract the card did
-  // not show.
+  // The user approved the shown schedule. If it is stale, restage; do not publish a new one.
   const scheduleProblems = validateActivationSchedule(input, timezone);
 
   if (scheduleProblems.length > 0) {
@@ -1274,14 +1176,8 @@ function validateActivationSchedule(
 }
 
 /**
- * Publish the current revision: `published_revision_id = current_revision_id`.
- *
- * The same call reactivates a paused workflow, because the plan requires
- * reactivation to re-run the identical validation as creation — a workflow
- * paused for a month may reference a tool that no longer exists.
- *
- * Activation rechecks readiness and clears an obsolete `blocked` state before
- * publishing. The run's `check-readiness` step still protects later drift.
+ * Publish the current revision. Also reactivates a paused workflow, with full validation,
+ * because a tool may have gone away. Rechecks readiness and clears an old `blocked`.
  */
 export async function activateWorkflow(
   args: ActivateWorkflowArgs,
@@ -1374,9 +1270,7 @@ export async function activateWorkflow(
       };
     }
 
-    // `approved_at` is the one mutable column on an otherwise immutable row, and
-    // it is stamped once: republishing an already-approved revision keeps the
-    // instant the user actually approved it.
+    // Stamp `approved_at` once: a republish keeps the first approval time.
     const [revision] = await tx
       .update(workflowRevisions)
       .set({ approvedAt: new Date() })
@@ -1391,13 +1285,9 @@ export async function activateWorkflow(
   return args.tx ? run(args.tx) : db().transaction(run);
 }
 
-// ── Status and blocked — independent fields, independent writers ─────────────
+// ── Status and blocked: independent fields, independent writers ─────────────
 
-/**
- * Project one readiness verdict onto `workflows.blocked` in the transaction
- * that owns the revision. A draft cannot clear or replace the blocker for a
- * different published revision.
- */
+/** Write a readiness verdict to `workflows.blocked`. A draft cannot change a published revision's blocker. */
 export async function reconcileWorkflowReadiness(args: {
   userId: string;
   workflow: Workflow;
@@ -1423,7 +1313,7 @@ export async function reconcileWorkflowReadiness(args: {
       revisionId: args.revisionId,
     };
 
-    // Same generation = same blocker: keep the row (and its `notifiedAt`).
+    // Same generation is the same blocker: keep the row and its `notifiedAt`.
     if (
       args.workflow.blocked &&
       workflowBlockedGeneration(args.workflow.blocked) === workflowBlockedGeneration(next)
@@ -1441,19 +1331,10 @@ export async function reconcileWorkflowReadiness(args: {
   return writeBlocked(args.userId, args.workflow.id, null, args.tx);
 }
 
-/**
- * The statuses a plain status write may set. `active` is absent on purpose:
- * becoming active means publishing a revision, so it can only be reached
- * through {@link activateWorkflow}. Leaving it out of the type is what stops a
- * caller from flipping the flag without the validation behind it.
- */
+/** No `active`: only {@link activateWorkflow} may set it, with validation. */
 export type InactiveWorkflowStatus = "paused" | "draft" | "archived";
 
-/**
- * Stop future occurrences. Does not touch `blocked`, and does not touch a run
- * already in flight (pausing a run is a separate operation). `next_run_at` is
- * cleared, so the row leaves the cron tick's partial index.
- */
+/** Stop future runs. Leaves `blocked` and in-flight runs alone; clears `next_run_at`. */
 export async function setWorkflowStatus(args: {
   userId: string;
   workflowId: string;
@@ -1484,10 +1365,7 @@ export async function setWorkflowStatus(args: {
         };
 }
 
-/**
- * Record an operational blocker. Does not touch `status`: a dead Gmail watch
- * must not read back as "the user paused this".
- */
+/** Leaves `status` alone: a dead Gmail watch must not look like a user pause. */
 export async function setWorkflowBlocked(args: {
   userId: string;
   workflowId: string;
@@ -1497,10 +1375,7 @@ export async function setWorkflowBlocked(args: {
   return writeBlocked(args.userId, args.workflowId, args.blocked, args.tx);
 }
 
-/**
- * Clear the blocker after recovery. Does not resume the workflow — a workflow
- * the user paused stays paused once its connection comes back.
- */
+/** Does not resume: a paused workflow stays paused. */
 export async function clearWorkflowBlocked(args: {
   userId: string;
   workflowId: string;
@@ -1550,11 +1425,7 @@ function staleRevisionFailure(
   };
 }
 
-/**
- * The columns on `workflows` that mirror a revision. Kept in one place so every
- * writer copies the same set — a mirror that forgets `trigger` leaves the cron
- * index pointing at the old schedule.
- */
+/** Every writer copies this set. Forget `trigger` and the cron index keeps the old schedule. */
 function mirroredColumns(definition: WorkflowRevisionDefinition) {
   return {
     name: definition.name,
@@ -1565,7 +1436,6 @@ function mirroredColumns(definition: WorkflowRevisionDefinition) {
   };
 }
 
-/** The definition fields of a stored revision, in the shape the validator takes. */
 function definitionOf(revision: WorkflowRevision): WorkflowRevisionDefinition {
   return {
     name: revision.name,
@@ -1648,12 +1518,7 @@ async function insertRevision(
   return revision;
 }
 
-/**
- * Resolve the timezone the cron check runs in, before the definition is known
- * to be valid. Reads the trigger defensively: the input is still untrusted at
- * this point, and an unparseable one simply falls back to the user's zone,
- * where the validator then reports the real problem.
- */
+/** Bad input falls back to the user's zone; the validator then reports the real problem. */
 async function resolveTimezoneForInput(userId: string, input: unknown): Promise<IanaTimezone> {
   const trigger = workflowRevisionDefinitionSchema.shape.trigger.safeParse(
     getPath(input, "trigger"),

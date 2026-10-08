@@ -29,9 +29,7 @@ describe("shouldShowThinkingIndicator", () => {
     assert.equal(shouldShowThinkingIndicator(BLANK), true);
   });
 
-  // The bug: `shouldShowStream` keeps the live bubble mounted until the durable
-  // row syncs in, so a turn stopped before its first delta is `done` with an
-  // empty everything for that whole window. It must not spin.
+  // `shouldShowStream` keeps the bubble until the row syncs, so a turn stopped before any delta is done and empty.
   test("a done turn with nothing to show does not spin", () => {
     assert.equal(shouldShowThinkingIndicator(stream({ done: true })), false);
   });

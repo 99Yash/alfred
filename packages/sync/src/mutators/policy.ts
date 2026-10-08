@@ -37,12 +37,7 @@ export const policySetDefaultModeArgsSchema = z.object({
 
 export type PolicySetDefaultModeArgs = z.infer<typeof policySetDefaultModeArgsSchema>;
 
-/**
- * Flip the user's global approval default (`gated` ↔ `autonomy`). This is what
- * the chat "Auto" toggle drives: `autonomy` lets the dispatcher run tools
- * without staging a gated approval, so no card ever appears. Per-integration
- * rules still override the default (see `resolveIntegrationMode`).
- */
+/** Set the global approval default (the chat "Auto" toggle). Per-integration rules still win. */
 export async function policySetDefaultModeClient(
   tx: WriteTransaction,
   args: PolicySetDefaultModeArgs,

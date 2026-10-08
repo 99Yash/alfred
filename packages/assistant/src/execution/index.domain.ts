@@ -34,20 +34,12 @@ export {
   verifyMeteringModels,
 };
 
-// Recipe-registry queries and the decision-trace key normalizer are execution's
-// to own; cross-module callers (workflow seeder, Replicache entity projection,
-// triage's atomic trace write) reach them through this index, not through
-// `agent/registry` or `agent/decision-traces` directly. `normalizeDecisionTraceKey`
-// is exposed as a read-only key helper, not a trace write — the transaction owner
-// (executor or triage) still writes its own row (ADR-0040).
 export { isInternalWorkflowSlug, listPublicWorkflows, listResumeOnlyWorkflows } from "./registry";
 
 export { normalizeDecisionTraceKey } from "./decision-traces";
 
-// #561: the effect-receipt projection is execution's (it owns the terminal
-// write that derives the run outcome); the history reader in `automation`
-// reuses the same column list and narrowing so a receipt reads identically
-// whether it was frozen into `agent_runs.outcome` or listed live.
+// `automation`'s history reader reuses this projection, so a frozen and a live receipt read the
+// same (#561).
 export {
   EFFECT_RECEIPT_CAP,
   effectReceiptColumns,
@@ -55,19 +47,8 @@ export {
   type EffectReceiptSource,
 } from "./run-outcome";
 
-// Execution's public run-start surface is `startRun` / `startRunInTx` (folded
-// persist+deliver) plus two narrow ops for the callers that legitimately hold a
-// run apart from its delivery: `redeliverRun(runId)` hands an already-persisted
-// run to the worker (approvals re-delivery, the chat-turn post-commit enqueue, ops
-// re-enqueues, and the HTTP replay/signal endpoints), and `persistChatTurnRunInTx(tx,
-// args)` persists a chat-turn run on the caller's transaction inside a savepoint.
-// `replayRun(args)` re-persists a run from a revision choice and returns the new
-// run for the caller to `redeliverRun`; it is the entry the `/runs/:runId/replay`
-// HTTP transport calls (that transport moved to `@alfred/http` when execution left
-// `agent/`, so the run-start surface it reaches must be public). The raw
-// `createRun` / `enqueueRun` pair (and its former `deliverRun` alias) is still not
-// re-exported here, so no caller outside execution can split persistence from
-// delivery or reach the queue handle; both stay module-private.
+// `createRun` and `enqueueRun` stay private, so no outside caller can persist a run without
+// delivering it.
 export { persistChatTurnRunInTx, redeliverRun, replayRun };
 
 export { closeAgentQueue, closeSubAgentJoinWakeQueue };
@@ -78,18 +59,7 @@ export type { Step, StepContext, StepResult, Workflow, WorkflowInput } from "./r
 
 export type { CancelOutcome, SignalArgs, SignalOutcome } from "./service";
 
-// Agent-runtime primitives the `chat` recipe reaches through this
-// public seam. The recipe lives in `chat`; execution never imports it,
-// so it consumes these turn/sub-agent/context helpers here rather than through
-// private module paths.
-//
-// `run-compaction` exposes the generic `<run_summary>` token/window math the
-// chat compaction files in `chat/compaction` still share (ADR-0035);
-// `grounding`, `instructions`, `connected-summary`, and `transcript-dedup` are
-// permanent shared agent-runtime services — the sub-agent executor
-// (`workflows/user-authored-brief.ts`) consumes them too, so they stay in
-// `agent`. Chat context assembly, chat summaries, and chat compaction now live
-// in `chat/compaction` and are no longer reachable here.
+// Runtime helpers for the `chat` recipe. Execution never imports `chat`.
 export {
   CHARS_PER_TOKEN,
   compactTranscript,
@@ -154,10 +124,7 @@ export { joinChildRun, type JoinChildRunDeps, type ParkSignal } from "./sub-agen
 
 export { scheduleSubAgentJoinWakeJob } from "./sub-agent-join-wake-queue";
 
-// Action-staging approval WORKERS (ADR-0034). Both wake/notify sides live in
-// execution: the expiry worker drives the run-wake primitive (`signalRunInTx` /
-// `redeliverRun`) and the notification worker sends through `../delivery`. The
-// scheduling surface stays in `tool-runtime` (a sink).
+// Approval workers (ADR-0034). Their scheduling stays in `tool-runtime`.
 export {
   expireStaging,
   startApprovalExpiryWorker,

@@ -9,31 +9,10 @@ import { eq, inArray, like } from "drizzle-orm";
 import { dbBackedSkip } from "./support/db-backed";
 
 /**
- * DB-backed test for the sweep orchestration `@alfred/corpus` now owns
- * (`retryPending`), folded out of the api integrations worker's
- * `gmail.embed_sweep` case. It pins the two counting rules that the folded
- * loop must preserve byte-for-byte, without touching Voyage:
- *
- *   1. a dead-lettered document (`embed_failed_at` set) is NOT a candidate —
- *      `findUnembeddedDocumentIds` filters it out, so it never reaches the
- *      per-id index step;
- *   2. the `!r.empty` gate: a document that produces zero chunks embeds to
- *      `empty: true` WITHOUT a Voyage call, so it must NOT count as
- *      `succeeded`, and the empty path throws nothing (`failed` stays 0).
- *
- * `retryPending` sweeps every user when the caller omits `userId` (matching
- * the original worker loop). `source` is NOT isolation — every source in
- * `DOCUMENT_SOURCES` has a live writer, so one local Sentry webhook would put
- * a real un-embedded row in this sweep and the assertion counts would move.
- * So the test passes its own seeded `userId` and the sweep can only reach the
- * three documents below.
- *
- * The `succeeded` path (a real chunk+embed) needs Voyage credentials the local
- * env lacks; it is covered by the `smoke-embed` script, not here.
- *
- * Opt-in: runs only when `DATABASE_URL` points at a reachable migrated
- * Postgres; skipped otherwise. Seeds throwaway `test-retrypending-*` users and
- * cascades them away on teardown.
+ * Pins the `retryPending` counts without Voyage: dead-lettered docs are not candidates,
+ * and a zero-chunk doc is not `succeeded` and does not throw.
+ * Pass the seeded `userId`: a `source` filter does not isolate, since every source has a live writer.
+ * The `succeeded` path needs Voyage; `smoke-embed` covers it.
  */
 const SKIP = dbBackedSkip("database");
 
@@ -57,11 +36,7 @@ function sha256(s: string): string {
   return createHash("sha256").update(s).digest("hex");
 }
 
-/**
- * Insert an un-embedded document whose content produces zero chunks (so the
- * index step returns `empty: true` without a Voyage call) and return its id.
- * `deadLettered` pre-sets `embed_failed_at` to exclude it from the sweep.
- */
+/** A zero-chunk document, so indexing makes no Voyage call. `deadLettered` excludes it from the sweep. */
 async function seedEmptyDocument(userId: string, deadLettered = false): Promise<string> {
   const content = "";
 
@@ -124,8 +99,7 @@ describe("corpus retryPending sweep (DB-backed)", { skip: SKIP }, () => {
     assert.equal(result.succeeded, 0, "empty docs must not count as succeeded (the !r.empty gate)");
     assert.equal(result.failed, 0, "the empty path throws nothing");
 
-    // The two candidates were dead-lettered by the empty path, so a re-sweep
-    // finds nothing — the folded loop reached them.
+    // The empty path dead-letters both candidates, which proves the sweep reached them.
     assert.ok(await readFailedAt(emptyA), "candidate A dead-lettered after the sweep");
     assert.ok(await readFailedAt(emptyB), "candidate B dead-lettered after the sweep");
     assert.ok(await readFailedAt(dead), "pre-dead-lettered doc still carries its marker");

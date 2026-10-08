@@ -1,38 +1,12 @@
 /**
- * One-off backfill for the dev usage readout (models + tokens + cost +
- * reasoning effort) on chat turns that finished BEFORE the `chat_messages.usage` column
- * existed (introduced today in e239c705 / migration 0084), or whose rollup
- * predates a field the readout now renders.
+ * One-off backfill of `chat_messages.usage` for turns whose rollup is null or missing a field
+ * the readout now shows (models, per-agent split, latency, cache writes, tier).
+ * Reruns the live `aggregateRunUsage` fold from `api_call_log` (ADR-0015, never pruned),
+ * so no Langfuse call is needed. Sub-agent runs fold into the turn that spawned them.
+ * A turn with no `api_call_log` rows stays as-is.
+ * Dry run by default; pass --commit to write.
  *
- * The live path (`aggregateRunUsage` in src/execution/usage-fold.ts) rolls the
- * numbers up from the turn's `api_call_log` rows at finalize, keyed on the boss
- * `runId`, and stamps the route's reasoning effort. Those metering rows are the
- * ADR-0015 source of truth and are NOT pruned, and the tier rides on the boss
- * run's `agent_runs.metadata` (written by turn admission for every admitted
- * turn, resolved to effort through the same route table), so every older
- * assistant message is still backfillable from our own DB — no Langfuse
- * round-trip needed (Langfuse only mirrors `api_call_log.model`
- * and has retention limits the DB doesn't). This script reruns that exact
- * aggregation for messages whose `usage` is still null or incomplete.
- *
- * Dry-run by default (reports what it WOULD write); pass --commit to persist.
- *
- *   $ pnpm --filter @alfred/assistant exec tsx src/scripts/backfill-chat-usage.ts
- *   $ pnpm --filter @alfred/assistant exec tsx src/scripts/backfill-chat-usage.ts --commit
- *
- * Scope (identical to the live feature):
- *   - role='assistant' rows with a non-null run_id whose usage rollup is
- *     incomplete: usage is null (finalized before the column existed), OR usage
- *     was written by an early build that omitted the `models` array (the model
- *     chips render off `usage.models`, so those turns show the token/cost line
- *     but no model — the whole point of the readout), OR usage predates the
- *     per-agent split and therefore still holds a boss-only total, OR usage
- *     predates `modelLatencyMs` and therefore cannot show output throughput;
- *   - sub-agent child runs are folded into the turn that spawned them, and
- *     labeled by their `subId` in the split, because a delegating turn spends
- *     most of its money in its children;
- *   - a turn whose api_call_log rows are gone (INNER JOIN misses) stays as-is —
- *     the UI already renders a missing/empty rollup gracefully.
+ *   $ pnpm --filter @alfred/assistant exec tsx src/scripts/backfill-chat-usage.ts [--commit]
  */
 
 import { db, closeConnections } from "@alfred/db";
@@ -45,14 +19,10 @@ import { DEGRADED, REQUESTED_MODEL, foldModelUsage } from "@alfred/assistant/exe
 
 const COMMIT = process.argv.includes("--commit");
 
-/**
- * The turn a metering row belongs to: the run that made the call, or — when
- * that run is a sub-agent — the boss run that spawned it. Sub-agents cannot
- * spawn sub-agents, so one hop reaches the boss from any run.
- */
+/** The turn's boss run. Sub-agents cannot spawn sub-agents, so one hop is enough. */
 const OWNER_RUN_ID = sql`coalesce(${agentRuns.metadata}->'subAgent'->>'parentRunId', ${apiCallLog.runId})`;
 
-/** Which agent made the call: null for the boss's own run, else the child's `subId`. */
+/** Null for the boss's own run, else the child's `subId`. */
 const SUB_ID = sql<
   string | null
 >`case when ${apiCallLog.runId} = ${chatMessages.runId} then null else coalesce(${agentRuns.metadata}->'subAgent'->>'subId', 'sub-agent') end`;
@@ -61,27 +31,15 @@ const MODEL = sql<string>`coalesce(${apiCallLog.model}, 'unknown')`;
 
 const CALL_ROLE = sql<string | null>`${apiCallLog.requestMeta}->>'role'`;
 
-/** The boss run that owns the turn — the tier lives on its metadata. */
+/** The tier lives on the boss run's metadata. */
 const bossRuns = alias(agentRuns, "boss_runs");
 
-/**
- * The effort tier for the turn, from the boss run's metadata (written by turn
- * admission for every admitted turn). Null when the boss run row is gone;
- * the fold then defaults to `standard`, matching the live path.
- */
+/** Null when the boss run row is gone; the fold then uses `standard`, like the live path. */
 const TIER = sql<string | null>`${bossRuns.metadata}->>'tier'`;
 
 /**
- * One `api_call_log` group per (message, agent, model), summed across every run
- * that billed into the message's turn — the same GROUP BY `aggregateRunUsage`
- * runs, widened to carry the owning message id so we can fold every candidate in
- * a single scan (no N+1).
- *
- * Driven from `api_call_log` and mapped up to its owning turn (rather than
- * joining down from each message) so the whole backfill is one pass with plain
- * equi-joins, instead of a correlated child lookup per message. The `agent_runs`
- * join is LEFT so a metering row whose run row is gone still counts, as the boss
- * run's own spend.
+ * One group per (message, agent, model) in a single scan, driven from `api_call_log`.
+ * The `agent_runs` join is LEFT, so spend from a deleted run counts as the boss's.
  */
 async function loadGroups(): Promise<
   Array<{
@@ -99,7 +57,7 @@ async function loadGroups(): Promise<
     modelLatencyMs: string;
     costUsd: string;
     calls: string;
-    /** Raw `tier` off the boss run's metadata; null when the run row is gone. */
+    /** Null when the run row is gone. */
     tier: string | null;
   }>
 > {
@@ -131,18 +89,13 @@ async function loadGroups(): Promise<
       .from(apiCallLog)
       .leftJoin(agentRuns, eq(agentRuns.id, apiCallLog.runId))
       .innerJoin(chatMessages, sql`${chatMessages.runId} = ${OWNER_RUN_ID}`)
-      // LEFT so a message whose boss run row is gone still backfills (its tier
-      // then defaults to `standard` in the fold below).
+      // LEFT, so a message whose boss run is gone still backfills.
       .leftJoin(bossRuns, eq(bossRuns.id, chatMessages.runId))
       .where(
         and(
           eq(chatMessages.role, "assistant"),
           isNotNull(chatMessages.runId),
-          // Null usage, or a rollup missing the model breakdown, per-agent split,
-          // model latency needed for output throughput, the cache-write half
-          // of the cache numbers, or the effort tier. Every one of these is
-          // recomputable from `api_call_log` + `agent_runs`, which have held all
-          // of them since the columns existed.
+          // Null usage, or a rollup missing any field that `api_call_log` and `agent_runs` can rebuild.
           sql`(${chatMessages.usage} is null
           or coalesce(jsonb_array_length(${chatMessages.usage} -> 'models'), 0) = 0
           or coalesce(jsonb_array_length(${chatMessages.usage} -> 'agents'), 0) = 0
@@ -165,12 +118,7 @@ async function loadGroups(): Promise<
   );
 }
 
-/**
- * Bucket the per-(message, model) groups by message, then fold each bucket into
- * one validated ChatMessageUsage via the shared {@link foldModelUsage} — the
- * same rollup the live `aggregateRunUsage` runs, so the backfill can't drift
- * from the finalize path.
- */
+/** Fold each message with the shared {@link foldModelUsage}, so it cannot drift from finalize. */
 function foldUsage(groups: Awaited<ReturnType<typeof loadGroups>>): Map<string, ChatMessageUsage> {
   const rowsByMessage = new Map<string, Awaited<ReturnType<typeof loadGroups>>>();
 
@@ -183,12 +131,7 @@ function foldUsage(groups: Awaited<ReturnType<typeof loadGroups>>): Map<string, 
   const byMessage = new Map<string, ChatMessageUsage>();
 
   for (const [messageId, rows] of rowsByMessage) {
-    // Every group of one message shares the boss run, so the tier is one value
-    // per message. Anything but an explicit `deep` reads as `standard` — the
-    // same rule the live path uses (`metadata.tier === "deep" ? ...`), so a
-    // missing run row or a pre-tier admission defaults honestly. Resolved
-    // through the route table like the live finalize path, so the stamped
-    // effort is the ceiling the turn actually ran at.
+    // Anything but `deep` is `standard`, the same rule as the live path.
     const tier = rows[0]?.tier === "deep" ? "deep" : "standard";
 
     byMessage.set(messageId, foldModelUsage(rows, routeEffort(tier)));
@@ -205,7 +148,6 @@ async function main(): Promise<void> {
   let skipped = 0;
 
   for (const [messageId, raw] of byMessage) {
-    // Validate the fold against the wire schema before it becomes a durable row.
     const parsed = chatMessageUsageSchema.safeParse(raw);
 
     if (!parsed.success || parsed.data.calls === 0) {
@@ -224,8 +166,7 @@ async function main(): Promise<void> {
     );
 
     if (COMMIT) {
-      // Bump rowVersion + updatedAt so the change is delivered on the next
-      // Replicache pull (the synced read model carries `usage`).
+      // Bump rowVersion so the next Replicache pull delivers it.
       await db()
         .update(chatMessages)
         .set({

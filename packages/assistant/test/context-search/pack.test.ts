@@ -5,15 +5,8 @@ import { packEvidenceCards } from "@alfred/assistant/context-search";
 import type { EvidenceCard } from "@alfred/contracts";
 
 /**
- * Behavioral tests for the #423 packer.
- *
- * These cover what the compiler cannot: that each card kind renders its
- * attribution and citations, that the output is honestly bounded, and that a
- * source which returned nothing or failed is reported rather than silently
- * dropped. They assert on structure and substrings, not exact packed text, so a
- * rendering tweak does not require rewriting the suite. The card shape itself is
- * proven by the `EvidenceCard` annotations below plus `evidenceCardSchema`'s use
- * at the read boundary, not by a schema round-trip here.
+ * Packer: each card kind renders attribution and citations, output is bounded, and an
+ * empty or failed source is reported, not dropped. Assertions use structure and substrings.
  */
 
 describe("packEvidenceCards — card kinds", () => {
@@ -68,8 +61,7 @@ describe("packEvidenceCards — card kinds", () => {
 
     const packed = packEvidenceCards({ evidence: [card], sources: [] });
 
-    // The closed-underlying clause rides the SAME line as the lifecycle, so a
-    // budget cut or a line reorder cannot separate them (#1089).
+    // The closed-underlying clause shares the lifecycle line, so a cut or reorder cannot split them (#1089).
     assert.match(
       packed.text,
       /Object: github\/pull_request merged \(resolved\).* — closed work: this object is resolved; it is not an open ask/,
@@ -172,7 +164,7 @@ describe("packEvidenceCards — budget and honesty", () => {
 
     // The source that contributed a card is not accused of being dropped.
     assert.doesNotMatch(packed.text, /documents: \d+ item\(s\) not shown/);
-    // The productive source the read slid off the combined evidence names its loss.
+    // The productive source that fell off the combined evidence names its loss.
     assert.match(packed.text, /memory: 7 item\(s\) not shown \(evidence budget\)/);
     assert.deepEqual(packed.includedIds, ["documents:1"]);
     // The read reported 8 cards and handed over 1; the aggregate already said so.

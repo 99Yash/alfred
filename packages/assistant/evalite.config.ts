@@ -1,15 +1,9 @@
 import { defineConfig } from "evalite/config";
 
 export default defineConfig({
-  // Each real-model case can call both the classifier and its LLM judge. Keep
-  // the suite inside the Cloudflare AI Gateway request-rate budget.
+  // Each case calls the classifier and a judge. Stay inside the Cloudflare gateway rate budget.
   maxConcurrency: 1,
-  // Raise the per-case ceiling from evalite's 30s default. The triage classifier
-  // bounds each cheap-model call at totalMs: 30_000, and the triage eval retries
-  // a case up to a few times on transient empty-output failures (Gemini returning
-  // a 200 with no parseable object — these escape route's withFallback,
-  // see `classifyWithRetry` in triage-classify.eval.ts). Stacked worst-case that
-  // exceeds 30s and trips a spurious vitest test-timeout, so give it headroom.
-  // A genuinely hung run still ends — it just gets a longer leash.
+  // Each classifier call can take 30s, and `classifyWithRetry` retries empty output,
+  // so evalite's 30s default times out healthy cases.
   testTimeout: 120_000,
 });

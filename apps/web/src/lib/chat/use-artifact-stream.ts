@@ -4,66 +4,41 @@ import { frameThreadId, type EventStreamFrame } from "~/lib/events/frame";
 import { openEventStream } from "~/lib/events/stream";
 
 /**
- * The live body of a `document` artifact as the boss authors it, assembled from
- * the `artifact.delta` SSE stream (see `chat-turn.ts`). This lets the sidebar
- * fill token-by-token during authoring instead of the body popping in whole
- * when the tool executes. Keyed by `toolCallId` because `create_artifact` has
- * no durable artifact id until it runs; the id is bound later via the tool's
- * `chat.tool` succeeded event.
+ * A `document` artifact body as the boss writes it, from `artifact.delta` frames.
+ * Keyed by `toolCallId`: `create_artifact` has no artifact id until the tool succeeds.
  */
 export interface LiveArtifactStream {
   toolCallId: string;
   runId: string;
-  /**
-   * `replace` (create/update): `text` is the whole body.
-   * `append` (append_artifact_section): `text` is a new section rendered after
-   * the existing synced content.
-   */
+  /** `replace`: `text` is the whole body. `append`: `text` is a new section after the synced body. */
   mode: "replace" | "append";
-  /** Document title once known (create/update carry it in args). */
   title: string | null;
-  /**
-   * The durable row id. Present from the first delta for update/append (the id
-   * rides in the tool args); bound for create only once its `chat.tool`
-   * succeeded event lands.
-   */
+  /** Known from the first delta for update and append; for create, only after the tool succeeds. */
   artifactId: string | null;
-  /** The composed body streamed so far. */
   text: string;
-  /** Highest applied server seq — guards against SSE replay duplicates. */
+  /** Highest applied seq; drops replay duplicates. */
   seq: number;
-  /** The authoring tool finished (executed or failed). */
+  /** The tool succeeded or failed. */
   done: boolean;
 }
 
 export interface ArtifactStreamState {
-  /** The live stream for a specific authoring tool call, or null. */
   byToolCallId: (toolCallId: string) => LiveArtifactStream | null;
-  /** The live stream that has adopted a durable row id, or null. */
   byArtifactId: (artifactId: string) => LiveArtifactStream | null;
-  /**
-   * The newest in-flight `create_artifact` stream for `runId` that has no
-   * durable row yet — the panel auto-opens this to fill the "dead wait" before
-   * the row syncs. Returns null once every create in the run has resolved.
-   */
+  /** The newest unresolved create in the run. The panel opens it before the row syncs. */
   latestPendingForRun: (runId: string) => LiveArtifactStream | null;
 }
 
-/**
- * Apply an `artifact.delta` frame to the streams map. Returns whether the map
- * changed, so the caller can skip a re-render on an ignored (stale/replayed)
- * frame. Pure so the reducer is unit-testable without rendering the hook.
- */
+/** Returns whether the map changed. */
 function applyArtifactDelta(
   streams: Map<string, LiveArtifactStream>,
   p: EventPayload<"artifact.delta">,
 ): boolean {
   const existing = streams.get(p.toolCallId);
 
-  // A completed stream ignores late frames (post-execute replay).
   if (existing?.done) return false;
 
-  // Replay/out-of-order guard: only apply strictly newer seqs.
+  // Drop replayed and out-of-order frames.
   if (existing && p.seq <= existing.seq) return false;
 
   const next: LiveArtifactStream = existing
@@ -91,11 +66,7 @@ function applyArtifactDelta(
   return true;
 }
 
-/**
- * Apply a `chat.tool` frame to the streams map: when the authoring tool call
- * resolves, bind its durable row id (create) and freeze the stream so the
- * sidebar reconciles to the synced row. Returns whether the map changed.
- */
+/** When the authoring tool resolves, bind the row id and freeze the stream. */
 function applyArtifactToolResolution(
   streams: Map<string, LiveArtifactStream>,
   p: EventPayload<"chat.tool">,
@@ -115,22 +86,9 @@ function applyArtifactToolResolution(
 }
 
 /**
- * Apply one validated SSE frame to the streams map. Returns whether the map
- * changed, so the caller can skip a re-render on a stale or foreign-thread frame.
- * Replay is only half-covered, and deliberately stated rather than implied: a
- * replayed `artifact.delta` is dropped by the seq guard, but a replayed terminal
- * `chat.tool` re-resolves to a deep-equal entry and still reports `true`. That
- * costs one spurious version bump, not a wrong map — pre-existing, and queued.
- *
- * The thread check is hoisted above the kind dispatch and runs unconditionally —
- * `openEventStream` keeps one `EventSource` and broadcasts every frame to every
- * subscriber, so a second mounted hook would otherwise fold another thread's
- * deltas into this map. Because `frameThreadId` classifies by the payload's own
- * `threadId` field, an arm added later for a thread-carrying kind inherits the
- * check instead of having to spell it. A kind that names no thread reaches the
- * dispatch and falls through to `false`.
- *
- * Pure, so the routing is unit-testable without rendering the hook.
+ * Apply one SSE frame. Returns whether the map changed.
+ * The thread check runs first because every subscriber gets every frame.
+ * A replayed terminal `chat.tool` still returns `true`: one extra render, same map.
  */
 export function applyArtifactFrame(
   streams: Map<string, LiveArtifactStream>,
@@ -148,7 +106,6 @@ export function applyArtifactFrame(
   return false;
 }
 
-/** The live stream for a specific authoring tool call, or null. */
 export function selectByToolCallId(
   streams: Map<string, LiveArtifactStream>,
   toolCallId: string,
@@ -157,11 +114,8 @@ export function selectByToolCallId(
 }
 
 /**
- * The live stream that has adopted `artifactId`. A multi-section `document`
- * produces one stream per authoring call (create + each append_artifact_section),
- * all sharing this durable id. Prefer the currently-authoring stream so the live
- * section fills; among done streams the last (insertion order = authoring order)
- * wins so the view reconciles to the most recent section, not the stale create.
+ * A document gets one stream per authoring call, all with the same id.
+ * Prefer the one still authoring, else the last one.
  */
 export function selectByArtifactId(
   streams: Map<string, LiveArtifactStream>,
@@ -180,10 +134,7 @@ export function selectByArtifactId(
   return active ?? latest;
 }
 
-/**
- * The newest in-flight `create_artifact` stream for `runId` with no durable row
- * yet. Insertion order is authoring order, so the last match is newest.
- */
+/** Map insertion order is authoring order, so the last match is newest. */
 export function selectLatestPendingForRun(
   streams: Map<string, LiveArtifactStream>,
   runId: string,
@@ -203,18 +154,8 @@ export function selectLatestPendingForRun(
 }
 
 /**
- * Subscribes to the shared SSE bus and assembles per-`toolCallId` live artifact
- * bodies for `threadId`. Deltas are throttled server-side (~5/sec), so we keep
- * the streams in a ref and bump a version counter on change rather than easing
- * per-frame like `useChatStream` — the markdown renderer handles the cadence.
- *
- * Ephemeral: each stream is superseded by the durable synced `artifacts` row
- * once authoring completes (the sidebar reconciles to it). Streams are dropped
- * when the thread changes.
- *
- * Thread scoping lives in `applyArtifactFrame`, above its kind dispatch — this
- * hook hands every frame the shared bus delivers to the reducer and only bumps
- * the version when the map actually changed.
+ * Live artifact bodies for `threadId`, until the synced row replaces them.
+ * The server sends about 5 deltas a second, so no easing; a version counter re-renders.
  */
 export function useArtifactStream(threadId: string | undefined): ArtifactStreamState {
   const streamsRef = useRef<Map<string, LiveArtifactStream>>(new Map());
@@ -231,9 +172,7 @@ export function useArtifactStream(threadId: string | undefined): ArtifactStreamS
     };
 
     const onError = () => {
-      // Fatal SSE disconnect while artifacts are still authoring — freeze any
-      // in-flight streams so the sidebar does not hang on a spinner. The
-      // durable `artifacts` row will reconcile once the worker finishes.
+      // Freeze live streams so the sidebar does not spin forever. The synced row follows.
       let changed = false;
 
       for (const [id, stream] of streamsRef.current) {
@@ -252,8 +191,7 @@ export function useArtifactStream(threadId: string | undefined): ArtifactStreamS
   }, [threadId]);
 
   return useMemo<ArtifactStreamState>(() => {
-    // `version` participates in the deps so accessors read the latest ref state
-    // and consumers recompute their derived live stream when a delta lands.
+    // New accessors per `version`, so consumers recompute when a delta lands.
     void version;
 
     return {

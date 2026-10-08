@@ -9,11 +9,7 @@ import { authSessionPolicy, SESSION_LIFETIME_SECONDS } from "../src/session-poli
 // test boundary: one adapter stores Better Auth's generic model rows and validates every field it reads below
 type Row = Record<string, unknown>;
 
-/**
- * The provisioning origin `createUser` takes since Better Auth 1.7. Alfred
- * signs a user in through Google and nothing else, so every fixture user is
- * provisioned the way the product provisions one.
- */
+/** Alfred signs in only through Google, so fixture users are provisioned that way. */
 const GOOGLE_PROVISIONING = { method: "oauth", oauth: { providerId: "google" } } as const;
 
 function matches(row: Row, where: Array<{ field: string; value: unknown }> = []): boolean {
@@ -201,9 +197,7 @@ describe("absolute session cap at the Better Auth boundary (#454)", () => {
     const legacyExpiryMs = originMs + 36 * dayMs;
     t.mock.timers.enable({ apis: ["Date"], now: nowMs });
 
-    // This row is valid under the old sliding policy but is already one day
-    // past the newly deployed absolute deadline. Its first read must not get
-    // one authorized request before the update hook can clamp it.
+    // Valid under the old sliding policy, but one day past the absolute cap. The first read must fail.
     const store = sessionStore(new Date(originMs), new Date(legacyExpiryMs));
 
     const owner = betterAuth({
@@ -341,8 +335,7 @@ describe("absolute session cap at the Better Auth boundary (#454)", () => {
     const capMs = originMs + SESSION_LIFETIME_SECONDS.absoluteMax * 1000;
     t.mock.timers.enable({ apis: ["Date"], now: slideMs });
 
-    // A day-24 row is at Better Auth's refresh threshold. Its proposed slide is
-    // day 31, so the owner hook must persist day 30 instead.
+    // At day 24 Better Auth slides to day 31; the hook must persist day 30.
     const store = sessionStore(new Date(originMs), new Date(capMs));
 
     const writer = betterAuth({

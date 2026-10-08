@@ -1,12 +1,4 @@
-/**
- * Google Docs tools registered into the boss's tool surface.
- *
- * Read-only tool surface (the grant is now full `documents`, but write
- * tools are separate — ADR-0043): a single `get_document` that flattens a
- * Doc into plain text + a heading outline.
- * Resolve the user's active Docs-scoped Google credential, then call the
- * user-bound integrations root; tool code never receives its token.
- */
+/** Google Docs tools. Read-only, though the grant is full `documents` (ADR-0043). */
 
 import { docsGetDocumentInput, restPassthroughInput } from "@alfred/contracts";
 import { runRestPassthrough } from "./passthrough";

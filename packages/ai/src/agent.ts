@@ -18,121 +18,58 @@ import { attachProviderTurnPolicy } from "./provider-adapter";
 type AlfredProviderOptions = SharedV4ProviderOptions;
 
 /**
- * AlfredAgent — a per-turn LLM driver designed to compose with the durable
- * runtime in `packages/assistant/src/execution/`. See ADR-0026.
- *
- * Why not `ToolLoopAgent`:
- *   - ToolLoopAgent owns its own multi-step loop. We need a checkpoint
- *     between turns (ADR-0006/0014) so HIL interrupts and crash-resume work.
- *   - Per-turn metering (ADR-0015) wants one `api_call_log` row per LLM
- *     turn; ToolLoopAgent aggregates `usage` across steps.
- *   - Lazy integration loading (dimension's pattern) needs the active
- *     toolset to be re-resolved per turn from run state, not per-call.
- *
- * Shape:
- *   - One `turn()` call = one model request = one metered row.
- *   - Tools come back from the resolver; AlfredAgent strips `execute` so
- *     the SDK never runs them. The executor is the dispatcher.
- *   - Tools are sorted alphabetically here. The concrete model's turn-protocol
- *     wrapper owns provider-specific cache decoration after fallback selection,
- *     so Anthropic gets stable breakpoints while Google gets no foreign metadata.
- *
- * Not implementing AI SDK's `Agent` interface (yet): the contract shape
- * (`generate()` returns aggregated `GenerateTextResult`) implies a
- * full in-process tool loop, which we deliberately don't have here. If
- * SDK interop is needed later (e.g. `createAgentUIStreamResponse`), wrap
- * this with a thin adapter rather than bending the per-turn semantics.
+ * One model request per `turn()`, one metered row per turn (ADR-0026).
+ * Not `ToolLoopAgent`: the durable runtime checkpoints between turns (ADR-0006/0014)
+ * and resolves the toolset per turn. Tools lose `execute`, so the executor dispatches them.
  */
 
 export type Transcript = ModelMessage[];
 
-/** Constructor settings — bind to a single agent identity (boss, sub-agent kind, compactor). */
 export interface AlfredAgentSettings<CTX = unknown> {
-  /** Stable identifier; surfaced as `agent:<id>` to Langfuse when no `name` override is given. */
+  /** Langfuse name `agent:<id>` when no `name` is given. */
   id?: string;
 
-  /**
-   * System prompt. Resolved once on the first turn and pinned — must be
-   * stable per CTX for prompt caching to land. See `strictSystem`.
-   */
+  /** Pinned on the first turn. It must not change, or the prompt cache misses. */
   system: string | ((ctx: CTX) => Promise<string> | string);
 
-  /**
-   * Active tools for this turn. Called per-turn so callers can swap the
-   * set when run state changes (e.g. after an exact `load_tool` call
-   * call). Whatever order the resolver returns is fine — AlfredAgent
-   * sorts alphabetically before the call. `execute` on returned tools is
-   * stripped: the executor dispatches, not the SDK.
-   */
+  /** Called every turn, so the set can change with run state. */
   tools: (ctx: CTX) => Promise<ToolSet> | ToolSet;
 
-  /**
-   * Model from an @alfred/ai route or leg factory, so it carries the request
-   * adapter that consumes Alfred's internal turn-policy envelope and applies the
-   * provider's cache decoration. Resolver form lets capability-tagged dispatch
-   * swap providers per CTX.
-   */
+  /** Must come from an @alfred/ai route or leg, which applies the provider's cache markers. */
   model: LanguageModel | ((ctx: CTX) => Promise<LanguageModel> | LanguageModel);
 
   /**
-   * Prompt-cache policy consumed by the concrete model's protocol wrapper.
-   * Anthropic applies it to the system, last function tool, and growing
-   * transcript. Other providers remove the internal policy envelope without
-   * receiving Anthropic metadata. Default `{ ttl: '1h' }`; `false` disables it.
+   * Anthropic marks the system, last tool, and transcript. Other providers ignore it.
+   * Default `{ ttl: '1h' }`; `false` turns it off.
    */
   cacheControl?: { ttl: "5m" | "1h" } | false;
 
   maxOutputTokens?: number;
   temperature?: number;
-  /** Forwarded to the concrete protocol wrapper, then to the matching SDK adapter. */
   providerOptions?: AlfredProviderOptions;
 
-  /**
-   * Default attribution merged with per-turn `attribution`. Per-turn wins
-   * on overlap. Useful for binding `userId`/`runId`/`name` once.
-   */
+  /** Per-turn `attribution` wins on overlap. */
   attribution?: Partial<AttributedCall>;
 
-  /**
-   * `true` (default): throw if the resolved system prompt changes between
-   * turns — cache misses caused by drifting system blocks are silent and
-   * expensive. `false`: warn and continue.
-   */
+  /** Default `true`: throw when the system prompt changes. `false` warns instead. */
   strictSystem?: boolean;
 }
 
 export interface TurnArgs<CTX> {
   ctx: CTX;
   transcript: Transcript;
-  /** Per-turn attribution overrides. `runId`/`stepId`/`attempt` typically come from the executor. */
   attribution?: Partial<AttributedCall>;
   abortSignal?: AbortSignal;
-  /**
-   * Streaming circuit-breaker (`streamTurn` only). The SDK aborts the call if
-   * it stalls past these bounds. Defaults to {@link DEFAULT_TURN_STREAM_TIMEOUT}.
-   */
+  /** `streamTurn` only. Defaults to {@link DEFAULT_TURN_STREAM_TIMEOUT}. */
   streamTimeout?: { totalMs?: number; stepMs?: number; chunkMs?: number };
 }
 
-/**
- * Default streaming guard: a 30s gap between chunks means the stream is hung
- * (catches a wedged provider connection without killing a legitimately long
- * generation), with a 3-minute total ceiling as a hard backstop. Without this
- * a hung stream holds the workflow step open indefinitely.
- */
+/** A 30s gap between chunks means a hung stream. Without this, it holds the step open forever. */
 export const DEFAULT_TURN_STREAM_TIMEOUT = { chunkMs: 30_000, totalMs: 180_000 } as const;
 
 /**
- * Discriminated result of a single turn. The executor consumes `kind`:
- *   - `final`      → mark run done with `text`.
- *   - `tool-calls` → dispatch each tool, append results to transcript, schedule another turn.
- *   - `empty`      → a retryable empty completion (see {@link isRetryableEmptyCompletion}):
- *                    no text, no tool calls, a clean/errored finish. The caller should
- *                    regenerate the turn from the *unchanged* transcript a bounded number
- *                    of times before giving up — never append the empty assistant message.
- *   - `stopped`    → abnormal stop (length cap / content filter). Caller decides recovery.
- *
- * `raw.responseMessages` is the canonical thing to append to the transcript.
+ * The outcome of one turn. On `empty`, regenerate from the unchanged transcript a few times;
+ * never append the empty message. Append `raw.responseMessages` to the transcript.
  */
 export type TurnResult =
   | {
@@ -172,7 +109,6 @@ const DEFAULT_CACHE_TTL: "5m" | "1h" = "1h";
 
 export class AlfredAgent<CTX = unknown> {
   readonly id: string | undefined;
-  /** Cached resolved system prompt — captured on first turn for drift detection. */
   private pinnedSystem: string | undefined;
 
   constructor(private readonly s: AlfredAgentSettings<CTX>) {
@@ -186,18 +122,7 @@ export class AlfredAgent<CTX = unknown> {
     return classifyTurnResult(result);
   }
 
-  /**
-   * Streaming sibling of `turn()`. Same single-step semantics (the SDK sends
-   * one model request and returns; `execute`-less tools mean it never
-   * dispatches), same cache/strip/metering treatment — but returns the SDK's
-   * `StreamTextResult` so the caller can consume `stream` for live token
-   * and tool-call deltas as they arrive.
-   *
-   * The caller is responsible for draining `stream` to completion, then
-   * awaiting `toolCalls` / `text` / `response` and passing them to
-   * `classifyStreamFinish` to get the same discriminated outcome `turn()`
-   * returns. Metering lands automatically when the stream finishes.
-   */
+  /** `turn()` as a stream. Drain it, then pass the result to `classifyStreamFinish`. */
   async streamTurn(args: TurnArgs<CTX>): Promise<StreamTextResult<ToolSet, never, never>> {
     const { request, attribution } = await this.prepareTurn(args);
 
@@ -207,15 +132,6 @@ export class AlfredAgent<CTX = unknown> {
     );
   }
 
-  // ── internals ──────────────────────────────────────────────────────────
-
-  /**
-   * Shared per-turn setup for `turn()` and `streamTurn()`: resolve the system
-   * prompt (asserting it stays stable across a run), model, and tools, then
-   * assemble the request payload both paths send. `streamTurn` layers its
-   * stream `timeout` on top; everything else is identical single-step
-   * (`execute`-less tools, `stopWhen: isStepCount(1)`) semantics.
-   */
   private async prepareTurn(args: TurnArgs<CTX>) {
     const { ctx, transcript } = args;
 
@@ -232,15 +148,10 @@ export class AlfredAgent<CTX = unknown> {
       model,
       instructions: system,
       messages: transcript,
-      // Compaction prepends a server-authored `<run_summary>` system message
-      // to the persisted transcript. AI SDK 7 rejects system messages in
-      // `messages` by default; this opt-in is safe because transcript roles
-      // are assigned by Alfred, never accepted from user input.
+      // Compaction adds a `<run_summary>` system message. Safe: Alfred assigns every role.
       allowSystemInMessages: true,
       tools,
-      // Cap at 1 step: the SDK should send the model request and return
-      // — even if the model emits tool calls. Combined with `execute`-
-      // less tools, the SDK never dispatches.
+      // One step, so the SDK returns tool calls instead of running them.
       stopWhen: isStepCount(1),
       ...(this.s.maxOutputTokens !== undefined ? { maxOutputTokens: this.s.maxOutputTokens } : {}),
       ...(this.s.temperature !== undefined ? { temperature: this.s.temperature } : {}),
@@ -286,12 +197,8 @@ export class AlfredAgent<CTX = unknown> {
     perTurn: Partial<AttributedCall> | undefined,
     cacheWriteTtl: "5m" | "1h" | undefined,
   ): AttributedCall {
-    // Three layers of precedence: per-turn beats agent-level beats the resolved
-    // TTL. `withDefaults` rather than a spread at each layer because EVERY
-    // `AttributedCall` field is declared `| undefined`, so a present-undefined
-    // override wins a spread and clobbers the layer beneath it with nothing —
-    // an agent-level `cacheWriteTtl` silently lost to a per-turn `{ ttl: undefined }`
-    // is TTL-aware billing reading the wrong rate.
+    // Per-turn beats agent-level beats the TTL. `withDefaults`, not a spread:
+    // a spread lets a present `undefined` erase the layer below.
     const merged: AttributedCall = withDefaults(
       withDefaults<AttributedCall>({ cacheWriteTtl }, this.s.attribution),
       perTurn,
@@ -305,19 +212,12 @@ export class AlfredAgent<CTX = unknown> {
   }
 }
 
-// ── helpers ────────────────────────────────────────────────────────────────
-
 async function resolve<T, CTX>(v: T | ((ctx: CTX) => Promise<T> | T), ctx: CTX): Promise<T> {
-  // SAFETY: the typeof check above proved v is the callable arm of the union;
-  // the assertion restores exactly that arm's signature.
+  // SAFETY: the typeof check proves v is the function arm of the union.
   return typeof v === "function" ? await (v as (c: CTX) => Promise<T> | T)(ctx) : v;
 }
 
-/**
- * Drop `execute` from each tool, then sort alphabetically by name. Sort
- * order is load-bearing: insertion order maps to the wire serialization
- * order in `@ai-sdk/anthropic`, and the cache prefix is byte-sensitive.
- */
+/** Drop `execute` and sort by name. The order reaches the wire, and the cache prefix is byte-exact. */
 function prepareTools(tools: ToolSet): ToolSet {
   const sortedNames = Object.keys(tools).sort((a, b) => a.localeCompare(b));
   const out: ToolSet = {};
@@ -332,19 +232,11 @@ function prepareTools(tools: ToolSet): ToolSet {
   return out;
 }
 
-/**
- * These helpers speak `ToolSet[string]`, not the SDK's bare `Tool`: the two stop
- * being mutually assignable under `exactOptionalPropertyTypes` (bare `Tool`
- * pins its INPUT generic to `never`), and `ToolSet[string]` is the one a
- * `ToolSet` actually holds — so threading it through needs no cast.
- */
+/** Not the bare `Tool`, which pins its input to `never` and stops being assignable. */
 type ToolSetEntry = ToolSet[string];
 
 function stripExecute(t: ToolSetEntry): ToolSetEntry {
   if (!("execute" in t) || t.execute === undefined) return t;
-  // Drop `execute` while preserving the rest of the tool (schema,
-  // providerOptions, etc.). A tool without `execute` is still a valid tool
-  // (it's optional), so the rest object needs no cast.
   const { execute: _execute, ...rest } = t;
 
   return rest;
@@ -391,23 +283,9 @@ function nonStopReason(r: FinishReason): "length" | "content-filter" | "error" |
 }
 
 /**
- * True when a finished turn came back with **no assistant text and no tool
- * calls** — an empty completion — on a finish reason a bounded retry can plausibly
- * clear.
- *
- * Included (retryable): a clean `stop`, a provider `error`, or an `unknown`/`other`
- * finish with zero output. This is the transient provider anomaly the
- * Anthropic→Gemini quota fallback surfaces — when Anthropic hits its workspace
- * spend cap, `withFallback` degrades to Gemini 3.5 Flash, which may return
- * a `finishReason:stop` candidate with 0 output tokens (see the 2026-07-10 chat-turn
- * dig, trace `run_hesh6eyb1m01`). `withFallback` itself cannot catch this: the SDK
- * call *succeeds* with an empty stream, so there is no error for the retry cascade
- * to switch on — degrading is the executor's job. Re-attempting the same turn
- * usually produces real output.
- *
- * Excluded (surface, don't retry): `content-filter` (a safety block) and `length`
- * (the output budget was exhausted, often by thinking) do not self-heal on an
- * identical re-attempt.
+ * No text and no tool calls, on a finish a retry can clear. Some models return an empty `stop`;
+ * the call succeeds, so `withFallback` never sees it.
+ * `content-filter` and `length` are not retryable: the same request fails the same way.
  */
 export function isRetryableEmptyCompletion(input: {
   finishReason: FinishReason;
@@ -419,11 +297,7 @@ export function isRetryableEmptyCompletion(input: {
   return input.finishReason !== "content-filter" && input.finishReason !== "length";
 }
 
-/**
- * Classify a finished streamed turn into the same discriminated shape
- * `turn()` returns. Call after draining `stream` and awaiting the
- * result's `toolCalls` + `finishReason`.
- */
+/** `turn()`'s outcome for a stream. */
 export type StreamFinishOutcome =
   | { kind: "final" }
   | { kind: "tool-calls" }
@@ -431,15 +305,10 @@ export type StreamFinishOutcome =
   | { kind: "stopped"; reason: "length" | "content-filter" | "error" | "other" };
 
 export function classifyStreamFinish(input: {
-  /** Only presence matters here; callers need not manufacture a full SDK call shape. */
+  /** Only the count matters. */
   toolCalls: readonly unknown[];
   finishReason: FinishReason;
-  /**
-   * Trimmed length of the assistant text streamed this turn. The streaming
-   * executor accumulates the text itself (`state.assistantText`), so it passes
-   * the length in rather than us re-deriving it from a result object. Lets this
-   * detect the `empty` outcome symmetrically with {@link classifyTurnResult}.
-   */
+  /** Trimmed length of the streamed assistant text. */
   textLength: number;
 }): StreamFinishOutcome {
   if (input.toolCalls.length > 0) return { kind: "tool-calls" };

@@ -11,22 +11,9 @@ import { createArtifact, finalizeRunArtifacts } from "@alfred/assistant/artifact
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
- * DB-backed regression for the `artifacts.message_id` FK-ordering bug.
- *
- * The authoring assistant message is not persisted to `chat_messages` until the
- * turn finalizes (observed ~2 min after the run starts), but `create_artifact`
- * runs mid-turn. Writing `message_id = <that not-yet-persisted id>` failed
- * `artifacts_message_id_chat_messages_id_fk` for the whole turn, so artifact
- * creation failed 100% of the time in prod (all retries failed identically) and
- * the raw failed query — including `user_id` — leaked into the chat. The fix
- * leaves `message_id` NULL until finalization, then backfills it so the web can
- * associate the artifact trigger card with its authoring assistant message.
- *
- * This seeds the exact mid-turn state — user + thread + run exist, but NO
- * `chat_messages` row — and asserts the insert now succeeds with `message_id`
- * NULL. Before the fix this threw the FK violation.
- *
- * Opt-in: runs only when `DATABASE_URL` points at a reachable migrated Postgres.
+ * `create_artifact` runs mid-turn, before the assistant message row exists.
+ * So `message_id` stays NULL until the turn finalizes, or the insert fails
+ * `artifacts_message_id_chat_messages_id_fk`.
  */
 const SKIP = dbBackedSkip("database");
 
@@ -54,8 +41,7 @@ async function seedMidTurn(): Promise<{ userId: string; threadId: string; runId:
     lastCheckpointAt: new Date(),
   });
 
-  // Deliberately DO NOT insert a chat_messages row: this is the mid-turn state
-  // where the authoring assistant message does not exist yet.
+  // No chat_messages row: the mid-turn state.
   return { userId, threadId, runId };
 }
 

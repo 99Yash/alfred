@@ -1,12 +1,4 @@
-/**
- * Legacy dimension-grammar Textarea primitive for the development styleguide.
- *
- * Two patterns, both single component:
- *   - `card`   — same fill / border ramp as Input. Used in skill editor
- *                "Background" + "Prompt" fields. min-h / max-h, resize-none.
- *   - `inline` — fully transparent. Used inside chrome that owns its own
- *                outline (composer). No padding, no border, no ring.
- */
+/** Legacy dimension Textarea for the styleguide: `card` (like Input) or `inline` (no chrome). */
 
 import type { Ref, TextareaHTMLAttributes } from "react";
 import { cn } from "~/lib/utils";

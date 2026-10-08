@@ -22,28 +22,13 @@ import {
   type MeteredStep,
 } from "./metered";
 
-/**
- * AI-SDK call wrappers — thin sugar over `metered()`. They:
- *   1. Call the underlying SDK function with the caller's args.
- *   2. Extract `usage` and a small `responseMeta` shape from the result.
- *   3. Forward provider+model identifiers to the metering layer.
- *
- * Provider/model identifiers are inferred from the `LanguageModel` (which
- * carries `.provider` + `.modelId` since AI SDK v5+). When the SDK no
- * longer exposes them, callers can override via `meta`.
- */
+// AI SDK calls wrapped in `metered()`. Provider and model come from the `LanguageModel`.
 
 interface ModelIdentifiers {
   provider: string;
   model: string;
 }
 
-/**
- * Resolve `{ provider, model }` for the metering meta off a `LanguageModel`.
- * Thin adapter over the shared `identifyLanguageModel` (which returns
- * `{ provider, modelId }`) — the provider-head normalization and SDK-shape
- * narrowing live there, shared with `prices.resolveModelContextWindow`.
- */
 function modelIdsFor(model: LanguageModel): ModelIdentifiers {
   const { provider, modelId } = identifyLanguageModel(model);
 
@@ -51,40 +36,17 @@ function modelIdsFor(model: LanguageModel): ModelIdentifiers {
 }
 
 /**
- * Hard ceiling for any single non-streaming provider call when the caller
- * doesn't set its own `timeout`. A wedged provider socket (connected, no
- * bytes, no error) would otherwise block a worker step forever — and because
- * the agent worker heartbeats `last_checkpoint_at` while `runOnce()` awaits,
- * stale-run recovery can never reclaim it. Bounding every metered call turns a
- * hung provider into a normal error + retry instead of a zombie run.
- *
- * Deliberately generous: background boss-model generates (briefing, triage
- * deepen, skill docs) can legitimately run several minutes. This is a backstop
- * against an infinite hang, not an SLA — latency-sensitive callers still pass a
- * tighter `timeout` (e.g. the 15s chat-title call), which wins over this.
+ * Backstop when the caller sets no `timeout`. A hung socket would block a worker step forever,
+ * and the heartbeat keeps stale-run recovery from reclaiming it.
+ * Generous, because boss runs take minutes.
  */
 const DEFAULT_LLM_TIMEOUT_MS = 600_000;
 
-/**
- * Streaming backstop for direct {@link meteredStreamText} callers that don't
- * pass their own `timeout`. A 30s chunk gap means a wedged connection; the
- * total ceiling mirrors {@link DEFAULT_LLM_TIMEOUT_MS}. (The agent's
- * `streamTurn` sets its own tighter default, so this only guards ad-hoc
- * callers.)
- */
+/** Backstop for direct {@link meteredStreamText} callers. A 30s chunk gap means a hung connection. */
 const DEFAULT_STREAM_TIMEOUT = { chunkMs: 30_000, totalMs: DEFAULT_LLM_TIMEOUT_MS } as const;
 
-// `metered()` only reads `usage`/`finishReason`/`toolCalls`/`steps`,
-// none of which depend on the OUTPUT generic — so we collapse to the
-// widest valid instantiation and let the call site cast through `never`.
-//
-// Multi-step pricing: `result.usage` is the SUM across steps while
-// `result.response` names the FINAL step only. Pricing the sum at the final
-// leg under-reports a turn whose early steps ran on the expensive primary
-// and only the tail degraded (Sonnet → Gemini). Each step carries its own
-// `usage` + `response.modelId`, so resolve every step's serving leg and let
-// `metered()` sum the per-step costs. Single-step turns skip this and take
-// the single-price path unchanged.
+// `result.usage` sums all steps but `result.response` names only the last, so each step
+// is attributed to its own leg.
 function extractTextUsage(
   result: GenerateTextResult<ToolSet, never, never>,
   cacheWriteTtl: AttributedCall["cacheWriteTtl"],
@@ -101,28 +63,16 @@ function extractTextUsage(
       ...(steps ? { stepModels: steps.map((s) => `${s.provider}/${s.model}`) } : {}),
     },
     ...(steps ? { steps } : {}),
-    // Completion — only sent to Langfuse when capture is on (gated in
-    // metering/langfuse.ts). Folds the turn's tool calls in alongside the text:
-    // on a tool-call turn the model often emits no prose, so `.text` alone would
-    // drop the one thing a trajectory replay needs — what the model decided to
-    // call (see captureOutput).
+
     output: captureOutput({ text: result.text, toolCalls: result.toolCalls }),
     ...servedFromModel(model, result.finalStep.response.modelId),
   };
 }
 
 /**
- * The captured generation output. `result.text` alone is lossy: on a turn that
- * ends in tool calls the model frequently emits no assistant prose, so the
- * trace would record `null`/empty and lose the turn's actual decision. The
- * executed calls do surface later as their own tool spans (#214), but a call
- * that's staged / HIL-gated / rejected never executes and thus never spans — so
- * the model's *decision* is only reliably recoverable here, on the generation.
- *
- * Returns the bare string for a plain final turn or the structured-object path
- * (no tool calls, `.text` carries the JSON) so existing renders and ad-hoc
- * trace I/O mirroring are unchanged; only a tool-call turn gets the object
- * shape with `{ toolName, toolCallId, input }` per proposed call.
+ * The generation output for the trace. A tool-call turn often has no text, and a staged or
+ * rejected call never gets a tool span, so the proposed calls are kept here.
+ * Without tool calls it returns the bare text.
  */
 export function captureOutput(args: {
   text: string;
@@ -143,12 +93,7 @@ export function captureOutput(args: {
   return text;
 }
 
-/**
- * Build the Langfuse span input from SDK call args. Prefers the chat
- * `messages` array (Langfuse renders it as a conversation); falls back to
- * the `prompt` string, folding in `instructions` when present. Attached to every
- * call's meta but only emitted when `LANGFUSE_CAPTURE_IO=true`.
- */
+/** Trace input: `messages` when present (Langfuse renders a conversation), else `prompt`. */
 function captureInput(args: Pick<GenerateTextArgs, "instructions" | "prompt" | "messages">) {
   const { instructions, prompt, messages } = args;
 
@@ -165,23 +110,7 @@ function captureInput(args: Pick<GenerateTextArgs, "instructions" | "prompt" | "
   return instructions;
 }
 
-/**
- * The provider + model id that actually answered, so `metered()` can re-
- * attribute a call a `withFallback` cascade routed to the fallback leg (the
- * pre-call meta still names the primary).
- *
- * `servedModelId` comes from the SDK result (`result.finalStep.response.modelId`,
- * the non-deprecated spelling of what `ai@7` still exposes flat as
- * `result.response`) and is
- * the ONLY source here that moves with the cascade — the composed model object
- * cannot answer the question, and the result only answers it because each leg
- * stamps its own id. `routeLegProviders` in `../provider-adapter` owns both
- * halves of that rule; read it there rather than restating it here.
- *
- * The result carries no provider beside the id, so the route's own legs supply
- * it. An id that belongs to no leg of this route resolves to nothing and the
- * row keeps its pre-call attribution, rather than taking a guessed provider.
- */
+/** The leg that answered, from the response model id. See `routeLegProviders` for the rule. */
 function servedFromModel(
   model: LanguageModel,
   servedModelId: string | undefined,
@@ -193,9 +122,7 @@ function servedFromModel(
 
     if (provider !== undefined) return { served: { provider, model: servedModelId } };
 
-    // The id belongs to no leg of this route (e.g. an Anthropic dated
-    // snapshot echo). Keep the nominal attribution rather than guessing a
-    // provider, but carry the raw id so the row can mark the miss.
+    // No leg matches (for example an Anthropic dated snapshot). Keep the id so the row marks the miss.
     return { servedUnresolved: servedModelId };
   }
 
@@ -204,19 +131,7 @@ function servedFromModel(
   return { served: { provider: nominal.provider, model: nominal.modelId } };
 }
 
-/**
- * Per-step serving legs for a multi-step turn. Each step ran its own
- * `doGenerate` through the `withFallback` facade, so each step may have
- * degraded independently — the turn-level `finalStep.response.modelId` (final
- * step only) cannot name them. Resolve every step off its own
- * `step.response.modelId` + the route's leg table, falling back to the
- * step's own `model` pair and then the nominal route pair.
- *
- * Returns `undefined` for single-step (or empty) turns so they keep the
- * single-price path with no extra lookups and no `response_meta` change.
- * Multi-step turns with a uniform leg still return the list: the cost sum
- * equals the single price, and the `stepModels` audit trail stays uniform.
- */
+/** The serving leg of each step, since each step can fall back on its own. `undefined` for one step. */
 function extractStepAttribution(
   model: LanguageModel,
   steps: readonly {
@@ -305,23 +220,18 @@ type ObjectSchema<O> = Parameters<typeof Output.object<O>>[0]["schema"];
 
 export interface MeteredGenerateObjectArgs<O> extends Omit<GenerateTextArgs, "output"> {
   schema: ObjectSchema<O>;
-  /** Optional name forwarded to `Output.object` — some providers use it for tool/schema naming. */
   schemaName?: string;
-  /** Optional description forwarded to `Output.object` — surfaces as additional LLM guidance. */
   schemaDescription?: string;
 }
 
 export interface AttributedCall extends CallAttribution {
-  /** Trimmed params surfaced to `request_meta` (avoid full prompts). */
+  /** No full prompts. */
   requestMeta?: JsonObject | undefined;
-  /** Override provider/model identifiers — only useful for routed/dispatched models. */
   provider?: string | undefined;
   model?: string | undefined;
-  /** Free-form Langfuse span name. Defaults to `${provider}/${model}`. */
+  /** Langfuse name. Defaults to `${provider}/${model}`. */
   name?: string | undefined;
-  /** Stable per-call idempotency key. Forwarded to log row + Langfuse trace metadata. */
   idempotencyKey?: string | undefined;
-  /** Provider cache-write retention used by this request, for TTL-aware billing. */
   cacheWriteTtl?: "5m" | "1h" | undefined;
 }
 
@@ -340,11 +250,6 @@ export async function meteredGenerateText(
 
   const callArgs = withDefaultTimeout(args);
 
-  // The SDK's natural return type is GenerateTextResult<ToolSet, Output<any,…>>
-  // but the `Output` interface is not exported as a nameable type, only via a
-  // namespace alias. Cast through unknown to a callable shape and pin the
-  // public return type to <ToolSet, never>, which downstream callers (which
-  // never use structured output) can read freely.
   // eslint-disable-next-line anti-slop/no-chained-type-assertions -- SDK Output interface not nameable (namespace alias only); pin public return to <ToolSet, never> for callers without structured output
   return metered(meta, () => generateText(callArgs), ((
     result: GenerateTextResult<ToolSet, never, never>,
@@ -356,11 +261,7 @@ export async function meteredGenerateText(
     )) as never) as unknown as Promise<GenerateTextResult<ToolSet, never, never>>;
 }
 
-/**
- * Structured-output wrapper. AI SDK deprecated `generateObject` in favor of
- * `generateText` + `Output.object`, so we route through the text path and
- * while preserving the SDK's native typed `.output` result contract.
- */
+/** Structured output through `generateText` + `Output.object`. */
 export async function meteredGenerateObject<O>(
   args: MeteredGenerateObjectArgs<O>,
   attribution: AttributedCall = {},
@@ -377,10 +278,6 @@ export async function meteredGenerateObject<O>(
 
   type Result = GenerateTextResult<ToolSet, never, ReturnType<typeof Output.object<O>>>;
 
-  // The discriminated `Prompt` union (prompt | messages) doesn't survive an
-  // Omit/spread round trip — TS widens `messages` to `T[] | undefined`. Cast
-  // back to the SDK's parameter type so the call type-checks; the original
-  // `args` already satisfied the union.
   // eslint-disable-next-line anti-slop/no-chained-type-assertions -- discriminated Prompt union widens across Omit/spread; original args already satisfied the union
   const callArgs = {
     ...rest,
@@ -411,16 +308,7 @@ type StreamTextErrorEvent = Parameters<NonNullable<StreamTextArgs["onError"]>>[0
 
 type StreamTextAbortEvent = Parameters<NonNullable<StreamTextArgs["onAbort"]>>[0];
 
-/**
- * Streaming counterpart to `meteredGenerateText`. Returns the SDK's
- * `StreamTextResult` synchronously so the caller can consume `stream`
- * for live token / tool-call deltas; metering lands once the stream
- * finishes, via the SDK's `onEnd` / `onError` hooks. Produces exactly
- * one `api_call_log` row per streamed turn, same as the non-streaming path.
- *
- * Any caller-supplied `onEnd` / `onError` are preserved and invoked
- * after the metering hook runs.
- */
+/** Streaming `meteredGenerateText`. Meters when the stream ends; caller hooks still run after. */
 export function meteredStreamText(
   args: StreamTextArgs,
   attribution: AttributedCall = {},
@@ -439,9 +327,7 @@ export function meteredStreamText(
   const callerOnAbort = args.onAbort;
   const timeout = args.timeout ?? DEFAULT_STREAM_TIMEOUT;
 
-  // SAFETY: streamText's own generic parameters are erased by meteredStream's
-  // non-generic signature; this restores the SDK result shape the caller passed
-  // in for.
+  // SAFETY: meteredStream's signature erases streamText's generics; this restores them.
   return meteredStream(meta, ({ finish, fail, abort }) =>
     streamText({
       ...args,
@@ -457,8 +343,7 @@ export function meteredStreamText(
             ...(steps ? { stepModels: steps.map((s) => `${s.provider}/${s.model}`) } : {}),
           },
           ...(steps ? { steps } : {}),
-          // Same fold as the non-streaming path: a streamed tool-call turn emits
-          // no prose, so capture the proposed calls or the replay loses them.
+
           output: captureOutput({ text: event.text, toolCalls: event.toolCalls }),
           ...servedFromModel(args.model, event.finalStep.response.modelId),
         });
@@ -469,9 +354,7 @@ export function meteredStreamText(
         callerOnError?.(event);
       },
       onAbort: (event: StreamTextAbortEvent) => {
-        // Completed steps keep their own legs (same per-step rule as the
-        // success path), so an abort after N steps prices those steps where
-        // they ran. Only the unknowable remainder falls back to nominal.
+        // Completed steps keep their own legs; only the unfinished rest uses the nominal leg.
         const served = servedFromModel(args.model, undefined);
         const steps = extractStepAttribution(args.model, event.steps, attribution.cacheWriteTtl);
         abort({
@@ -490,10 +373,7 @@ export function meteredStreamText(
   ) as StreamTextResult<ToolSet, never, never>;
 }
 
-/**
- * Sum usage across the steps a streamed turn completed before it aborted.
- * Returns `undefined` when no step reported usage, matching `usageFromSdk`.
- */
+/** Sum the usage of the steps that finished before an abort. */
 export function usageFromSteps(
   steps: readonly { usage?: LanguageModelUsage }[],
   cacheWriteTtl?: "5m" | "1h",
@@ -502,8 +382,7 @@ export function usageFromSteps(
   let inputTokens = 0;
   let noCacheInputTokens: number | undefined;
   let outputTokens = 0;
-  // Leave undefined when no step reported cache info, matching the
-  // non-abort path (`usageFromSdk`) instead of asserting a false `0`.
+  // Stays undefined when no step reported it, not a false `0`.
   let cachedInputTokens: number | undefined;
   let cacheWriteInputTokens: number | undefined;
   let sawUsage = false;
@@ -549,11 +428,7 @@ export async function meteredEmbed(
 ): Promise<EmbedResult> {
   const ids = resolveIds(args.model, attribution);
   const meta: MeteredMeta = { ...attribution, kind: "embedding", ...ids };
-  // `embed` has no `timeout` param, only `abortSignal` — inject a timeout
-  // signal so a hung embedding call can't wedge a worker step forever, same
-  // backstop the text wrappers get via `timeout`. Compose (not replace) any
-  // caller signal so a stop button still works AND the timeout still fires
-  // even if the caller's signal never does (#286 review).
+  // `embed` has no `timeout`, so combine a timeout signal with the caller's signal.
   const timeoutSignal = AbortSignal.timeout(DEFAULT_LLM_TIMEOUT_MS);
 
   const callArgs: EmbedArgs = {
@@ -567,11 +442,6 @@ export async function meteredEmbed(
   return metered(meta, () => embed(callArgs), extractEmbedUsage);
 }
 
-/**
- * Inject the default backstop {@link DEFAULT_LLM_TIMEOUT_MS} when the caller
- * didn't set a `timeout`. The SDK lets `timeout` and `abortSignal` coexist, so
- * a caller-supplied abort signal (e.g. a stop button) is unaffected.
- */
 function withDefaultTimeout(args: GenerateTextArgs): GenerateTextArgs {
   if (args.timeout !== undefined) return args;
 
@@ -583,7 +453,6 @@ function resolveIds(model: unknown, attribution: AttributedCall): ModelIdentifie
     return { provider: attribution.provider, model: attribution.model };
   }
 
-  // SAFETY: callers pass the SDK model instance from the very request being
-  // metered, which is a LanguageModel; `unknown` only erases the SDK import.
+  // SAFETY: callers pass the model of the request being metered; `unknown` only hides the SDK import.
   return modelIdsFor(model as LanguageModel);
 }

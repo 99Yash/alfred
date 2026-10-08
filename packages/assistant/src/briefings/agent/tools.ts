@@ -20,66 +20,47 @@ import type { LocalDateKey } from "@alfred/assistant/time";
 import { z } from "zod";
 
 /**
- * Narrow toolset for the daily-briefing agent. Two design rules:
- *
- *   1. Safety through architecture, not prompt warnings — there is no
- *      `send_email` / `draft_reply` / general `web_search` tool here.
- *      A tool that doesn't exist can't be misused.
- *
- *   2. Schema-enforced terminal write — the agent must end its loop by
- *      calling `dump_briefing`. Anything else is treated as
- *      not-yet-finished. The body shape is validated at the tool
- *      boundary, not in the prompt, so the renderer always sees a
- *      well-formed payload.
- *
- * `list_calendar_events` is wired to the deterministic calendar
- * contributor (`gatherCalendarContribution`) over the briefing window.
- * The remaining stubs (`list_action_items`, `list_meeting_preps`) return
- * `[]` for now — those contributors still need to be wired. The tool
- * surface is stable so the prompt + agent shell don't change when those
- * land.
+ * Narrow toolset for the briefing agent. There is no send, draft, or web search tool:
+ * a tool that does not exist cannot be misused. The loop must end in `dump_briefing`,
+ * whose schema validates the body. `list_action_items` and `list_meeting_preps` are
+ * stubs that return `[]`.
  */
 
 export interface BriefingToolBag {
-  /** Tool definitions to hand to `generateText`. */
   tools: ToolSet;
-  /** Captured result from `dump_briefing` — populated when (if) the agent calls it. */
+  /** Null until the agent calls `dump_briefing`. */
   getDumped(): DumpedBriefing | null;
 }
 
 export interface DumpedBriefing {
   subject: string;
   bodyText: string;
-  /**
-   * Markdown body. The agent writes prose markdown; the email template
-   * (`@alfred/mailer`) owns all styling and renders it to HTML at send
-   * time. The model never hand-writes HTML.
-   */
+  /** Prose markdown. `@alfred/mailer` renders it; the model never writes HTML. */
   bodyMarkdown: string;
-  /** Document ids the agent cited; used for audit logging only. */
+  /** For audit logging only. */
   citedDocumentIds: string[];
-  /** Free-form one-line gloss for ops logs. */
+  /** One line for ops logs. */
   rationale: string | null;
 }
 
 interface BuildArgs {
   userId: string;
   slot: "morning" | "evening";
-  /** Lower bound on `documents.ingested_at` for `list_emails_since`. */
+  /** Lower bound for `list_emails_since`. */
   sinceIngestedAt: Date | null;
-  /** Frozen "now" — `until` for the email window. */
+  /** Frozen "now". */
   untilIngestedAt: Date;
-  /** YYYY-MM-DD calendar date in the user's timezone — anchors the calendar window. */
+  /** Anchors the calendar window. */
   briefingDate: LocalDateKey;
-  /** User's IANA timezone — defines local day boundaries for the calendar window. */
+  /** Local day boundaries for the calendar window. */
   timezone: IanaTimezone;
-  /** Positive object-state closure facts computed by the gather step. */
+  /** Closure facts from gather. */
   closedLoops: BriefingClosedLoop[];
-  /** Bounded, non-closing relevance verdicts over every still-live priority loop. */
+  /** Non-closing verdicts for each live loop. */
   loopRelevance: BriefingLoopRelevance[];
 }
 
-/** Fallback day-shape window when this slot has no prior watermark (first run). */
+/** Day-shape window on the first run, when there is no watermark. */
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const dumpInputSchema = z
@@ -259,8 +240,7 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
         "Terminal write. Submit the final composed briefing. Call this exactly once when you're done — calling it ends the loop. subject, bodyText, and bodyMarkdown are all required; cite documentIds for items you referenced inline. The body should be conversational prose (no bullets), read naturally on its own, and contain no internal verification terminology such as 'unverifiable', 'work-object', 'object key', or 'provider read'.",
       inputSchema: dumpInputSchema,
       execute: async (input): Promise<{ ok: true }> => {
-        // Strip em-dashes the model won't drop from the prompt alone. This is the
-        // single chokepoint before both the DB persist and the email send.
+        // The model keeps em dashes despite the prompt. This is the one place before persist and send.
         dumped = dumpInputSchema.parse({
           subject: sanitizeVoice(input.subject),
           bodyText: sanitizeVoice(input.bodyText),
@@ -274,8 +254,7 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
     }),
   } as const;
 
-  // Reference args.slot so the linter doesn't complain about the unused
-  // destructure — slot lives in the system prompt, not the tools.
+  // `slot` is used by the system prompt, not the tools.
   void args.slot;
 
   return {

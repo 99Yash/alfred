@@ -57,24 +57,8 @@ import { workflowUpdate } from "./workflows";
 export type { MutatorFollowUp, MutatorResult, RegisteredServerMutator } from "./mutator";
 
 /**
- * The push registry, one domain file per executor.
- *
- * Each entry pairs its arg schema with its runner under ONE generic `A` (see
- * `RegisteredServerMutator`). The annotation below is load-bearing twice:
- *
- * 1. Assignment checks every entry against its registered schema — an
- *    executor whose declared args drift from its schema's output, a missing
- *    implementation, or an orphaned name are compile errors here, not silent
- *    runtime drops in `push.ts`.
- * 2. Because the target is a mapped template over `MutatorName`, indexing the
- *    registry by one generic name keeps schema and runner correlated (same
- *    `A`), which is what lets push dispatch without casts.
- *
- * KEEP THIS A SHORTHAND-PROPERTY LITERAL over the named imports above.
- * `packages/http/test/type/replicache-mutator-executor.type-test.ts` reads
- * `Parameters<typeof serverMutators.prefSet["run"]>[0]` and requires
- * `DbTransaction`; the mapped template fixes that parameter for every entry,
- * so the pin holds.
+ * The push registry. The mapped type makes a missing, extra or drifted mutator a
+ * compile error, and keeps schema and runner correlated so push needs no cast.
  */
 export type ServerMutatorsRegistry = {
   [N in MutatorName]: RegisteredServerMutator<z.output<(typeof mutatorArgsSchemas)[N]>>;
@@ -88,9 +72,7 @@ export const serverMutators: ServerMutatorsRegistry = {
   factEdit: { args: factEditArgsSchema, run: factEdit },
   prefSet: { args: prefSetArgsSchema, run: prefSet },
   prefDelete: { args: prefDeleteArgsSchema, run: prefDelete },
-  // Both policy flips must also bust the dispatcher's in-process policy cache
-  // after commit: `row_version` bumps reach browsers via pull, but the gate
-  // runs server-side (ADR-0034 amendment).
+  // The policy gate runs server-side, so a pull alone does not refresh it (ADR-0034 amendment).
   policySetIntegrationMode: {
     args: policySetIntegrationModeArgsSchema,
     run: policySetIntegrationMode,
@@ -124,15 +106,12 @@ export const serverMutators: ServerMutatorsRegistry = {
     args: chatThreadSetPinnedArgsSchema,
     run: chatThreadSetPinned,
   },
-  // Deleting a thread cascades its rows in-transaction, but attachment objects
-  // in the bucket aren't reachable by FK — reap them by key prefix post-commit.
+  // Bucket objects have no FK cascade, so delete them by key prefix after commit.
   chatThreadDelete: {
     args: chatThreadDeleteArgsSchema,
     run: chatThreadDelete,
     followUp: (_userId, args) => [{ kind: "cleanChatStorage", threadId: args.id }],
   },
-  // The DB tag commits in-transaction; the Gmail label reconciles after commit
-  // via the relabel job (rfc-triage-tags.md).
   triageTagOverride: {
     args: triageTagOverrideArgsSchema,
     run: triageTagOverride,

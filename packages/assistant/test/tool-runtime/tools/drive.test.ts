@@ -5,9 +5,7 @@ import { driveExportFileInput, driveSearchInput } from "@alfred/contracts";
 
 describe("driveExportFileInput mimeType normalization (ADR-0071)", () => {
   test("normalizes case + whitespace so the forwarded value matches what was validated", () => {
-    // Prior bug: the refine lower-cased+trimmed only for the check, then the
-    // execute forwarded `input.mimeType` raw — `" Text/Plain "` passed schema
-    // validation but reached the Drive API unnormalized and failed there.
+    // Drive must receive the normalized value, not only the check.
     const parsed = driveExportFileInput.parse({ fileId: "abc123", mimeType: " Text/Plain " });
     assert.equal(parsed.mimeType, "text/plain");
   });
@@ -29,8 +27,7 @@ describe("driveExportFileInput mimeType normalization (ADR-0071)", () => {
 
 describe("driveSearchInput bare-term guard (the one real Drive-DSL fumble)", () => {
   test("rewrites a bare search term into a name/fullText contains clause", () => {
-    // `q=resume` is not valid Drive query syntax — Drive 400s on it. Rewrite it
-    // into a clause that executes instead of erroring.
+    // Drive returns 400 for a bare term.
     const parsed = driveSearchInput.parse({ q: "resume" });
     assert.equal(parsed.q, "name contains 'resume' or fullText contains 'resume'");
   });
@@ -51,8 +48,7 @@ describe("driveSearchInput bare-term guard (the one real Drive-DSL fumble)", () 
   });
 
   test("a term containing a quote is NOT treated as bare (left for Drive to validate)", () => {
-    // Only word chars / `.` / `-` count as a bare term; a quote means it's not
-    // a lone token, so we don't rewrite it.
+    // Only word chars, `.`, and `-` count as a bare term.
     const parsed = driveSearchInput.parse({ q: "o'brien" });
     assert.equal(parsed.q, "o'brien");
   });

@@ -488,15 +488,8 @@ describe("MCP OAuth provider", () => {
 });
 
 /**
- * The at-rest column shape of an MCP credential, asserted straight out of the
- * store the provider writes to. The round-trip tests above open again through
- * `open()`, which fails closed on plaintext — so a lone seal→identity mutation
- * is already caught. These assert the stored *value* is an envelope so that a
- * coordinated seal-and-open removal (write raw, read raw) cannot pass while
- * leaving `mcp_oauth_credentials.{client_secret,access_token,refresh_token,
- * id_token}` and `mcp_oauth_authorization_attempts.code_verifier` in plaintext.
- * Tier 2: the MemoryStore stands in for Postgres, so this proves the provider
- * hands the store an envelope, not that the real row is sealed end-to-end.
+ * The stored secret columns must hold an envelope, so a removal of both seal and open cannot pass.
+ * The MemoryStore stands in for Postgres: this proves the provider hands the store an envelope.
  */
 describe("MCP OAuth credentials are sealed at rest", () => {
   const ISSUER = "https://auth.example.test/";
@@ -533,7 +526,7 @@ describe("MCP OAuth credentials are sealed at rest", () => {
       assert.equal(vault.open(stored), plaintext);
     }
 
-    // Non-secret metadata is stored raw, unchanged.
+    // Non-secret metadata is stored raw.
     assert.equal(row.tokenType, "Bearer");
     assert.equal(row.expiresIn, 3600);
     assert.equal(row.scope, "read write");
@@ -590,11 +583,8 @@ describe("MCP OAuth credentials are sealed at rest", () => {
 });
 
 /**
- * The #934 path: GitHub's authorization server supports neither RFC 7591
- * dynamic registration nor URL-based client ids, so the provider answers
- * `clientInformation` from the ENVIRONMENT and the SDK skips `registerClient`.
- * The environment is canonical — no row ever holds this client — so these tests
- * also pin that nothing is written and that a rotated secret is picked up.
+ * GitHub supports neither dynamic registration nor URL-based client ids, so the provider reads
+ * `clientInformation` from the environment (#934). No row holds this client, so a rotated secret takes effect.
  */
 describe("built-in GitHub MCP OAuth client (#934)", () => {
   const CLIENT_ID = "GITHUB_MCP_CLIENT_ID";
@@ -604,8 +594,7 @@ describe("built-in GitHub MCP OAuth client (#934)", () => {
     return new McpOAuthProvider({
       connectionId: "conn_test",
       userId: "user_test",
-      // The built-in lookup keys on the authorized resource, exactly as the
-      // production provider receives it from the endpoint authorizer.
+      // The built-in lookup keys on the authorized resource, as the endpoint authorizer passes it.
       authorization: permissiveMcpOAuthAuthorizationForTests(new URL(GITHUB_MCP_ENDPOINT_HREF)),
       redirectUrl: new URL("https://alfred.example.test/api/integrations/mcp/callback"),
       clientMetadata: {
@@ -653,9 +642,8 @@ describe("built-in GitHub MCP OAuth client (#934)", () => {
     const info = await oauth.clientInformation({ issuer: GITHUB_MCP_ISSUER });
     assert.ok(info);
 
-    // The SDK picks the method from client INFORMATION, never from the
-    // registration metadata, and an empty `supportedMethods` list is what
-    // GitHub's metadata document actually yields.
+    // The SDK picks the method from client information, not registration metadata.
+    // GitHub's metadata yields an empty `supportedMethods`.
     assert.equal(selectClientAuthMethod(info, []), "client_secret_post");
     assert.equal(oauth.clientMetadata.token_endpoint_auth_method, "none");
   });
@@ -705,8 +693,7 @@ describe("built-in GitHub MCP OAuth client (#934)", () => {
 
     await oauth.saveDiscoveryState(GITHUB_DISCOVERY);
 
-    // The row holds discovery only. A durable copy would pin the secret at the
-    // value it had on first connect and survive every later rotation.
+    // The row holds discovery only. A durable copy would pin the secret and survive rotation.
     assert.equal(store.row?.clientInformation, null);
     assert.equal(store.row?.clientSecret, null);
   });
@@ -730,11 +717,8 @@ describe("built-in GitHub MCP OAuth client (#934)", () => {
     );
   });
 
-  // NOT `undefined`. A provider that pins a client reads an absent one as
-  // consent to register dynamically, and GitHub's authorization server has no
-  // registration endpoint, so the fall-through reached the remote and failed
-  // there with an opaque SDK error instead of failing here with the env line to
-  // set. The throw is what makes this fail closed.
+  // Throw, not `undefined`: a pinning provider reads an absent client as consent to register,
+  // and GitHub has no registration endpoint. The throw names the env line to set.
   test("an unconfigured environment refuses, and names the line to set", async () => {
     const oauth = githubProvider(new MemoryStore());
     await assert.rejects(() => oauth.clientInformation({ issuer: GITHUB_MCP_ISSUER }), {

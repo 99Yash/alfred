@@ -17,16 +17,7 @@ import {
   type LearnSkillWorkflowInput,
 } from "@alfred/assistant/skills";
 
-/**
- * Skill authoring HTTP routes.
- *
- *   POST /api/skills              → create a draft skill + enqueue learn-skill
- *   POST /api/skills/:id/relearn  → re-run learn-skill on an existing skill
- *
- * Both handlers atomically insert (where applicable) and enqueue. The
- * Replicache puller picks up the new rows on the next poke; the client
- * never directly mutates skills/runs in v1 (see m12 plan D6).
- */
+/** Create or relearn a skill. The client never writes skills directly; it gets rows by pull. */
 export const skillsRoutes = new Elysia({ prefix: "/api/skills", normalize: "typebox" })
   .use(authMacro)
   .use(requireOnboarded)
@@ -35,9 +26,7 @@ export const skillsRoutes = new Elysia({ prefix: "/api/skills", normalize: "type
       .post(
         "/",
         async ({ user, body }) => {
-          /* `prompt` is optional so the client can instantly create a draft
-           * skill and navigate into the editor; the learn run only fires when
-           * the caller actually supplies prompt text. */
+          /* No `prompt` makes an empty draft with no learn run. */
           const rawName = body.name?.trim() ?? "";
           const name = rawName.length > 0 ? rawName : "Untitled skill";
           const slug = await slugifyForUser(user.id, name);
@@ -61,8 +50,7 @@ export const skillsRoutes = new Elysia({ prefix: "/api/skills", normalize: "type
           const trimmedPrompt = body.prompt?.trim() ?? "";
 
           if (trimmedPrompt.length === 0) {
-            /* No learn run for an empty draft. Fire a poke so the client
-             * sees the new row before its detail page renders. */
+            /* Poke so the client has the row before its detail page renders. */
             emitReplicachePokes([user.id], skill.id);
 
             return { skillId: skill.id, slug: skill.slug, runId: null };
@@ -85,10 +73,8 @@ export const skillsRoutes = new Elysia({ prefix: "/api/skills", normalize: "type
             },
           });
 
-          // Record the learn run up-front so the skill-detail UI can render
-          // "in progress" immediately. `gather` re-records idempotently on
-          // agent_run_id, so `startRun` enqueueing before this write commits is
-          // safe — the workflow writes (never reads) this linkage first thing.
+          // Recorded now so the UI shows "in progress". `gather` re-records it
+          // idempotently, so enqueue before this commit is safe.
           await recordSkillRun({
             userId: user.id,
             skillId: skill.id,
@@ -134,8 +120,7 @@ export const skillsRoutes = new Elysia({ prefix: "/api/skills", normalize: "type
               },
             });
 
-            // Up-front UI-progress record; the `gather` step re-records
-            // idempotently, so enqueue-before-commit here is safe.
+            // Same as above: `gather` re-records idempotently.
             await recordSkillRun({
               userId: user.id,
               skillId: params.id,

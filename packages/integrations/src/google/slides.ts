@@ -3,18 +3,8 @@ import type { RetryPolicy } from "../shared/retry";
 import { googleJson } from "./http";
 
 /**
- * Thin Google Slides v1 REST client. Same shape as `gmail.ts` /
- * `calendar.ts` — direct JSON calls, no `googleapis` dependency.
- *
- * Surface covers create + edit: make a presentation, fetch it, and an
- * escape-hatch `batchUpdate`. Almost every Slides mutation (add a slide,
- * insert text, create shapes/images) goes through `batchUpdate` with the
- * request objects from https://developers.google.com/slides/api/reference/rest,
- * so the generic call plus an `addSlide` convenience cover the common cases.
- *
- * Callers pass an already-fresh access token — get it from
- * `getFreshAccessToken(credentialId)` first. Requires the `presentations`
- * scope (see `GOOGLE_SCOPE.slides.full` in `@alfred/contracts`).
+ * Slides v1 client: create, fetch, and raw `batchUpdate`, through which almost every edit goes.
+ * Callers pass a token from `getFreshAccessToken(credentialId)`.
  */
 
 const API_BASE = "https://slides.googleapis.com/v1/presentations";
@@ -29,7 +19,7 @@ const presentationSchema = z.object({
   presentationId: z.string(),
   title: z.string().optional(),
   revisionId: z.string().optional(),
-  /** Slide page objects — left loose; callers that need deep structure parse further. */
+  /** Loose; callers that need structure parse further. */
   slides: z.array(z.unknown()).optional(),
 });
 
@@ -48,7 +38,7 @@ export interface CreatePresentationResult {
   title?: string | undefined;
 }
 
-/** Create a new presentation (lands in the user's Drive root). */
+/** Lands in the Drive root. */
 export async function createPresentation(
   args: CreatePresentationArgs,
 ): Promise<CreatePresentationResult> {
@@ -77,7 +67,6 @@ export interface GetPresentationResult {
   slideCount: number;
 }
 
-/** Fetch a presentation's metadata + slide count. */
 export async function getPresentation(
   args: GetPresentationArgs,
   retry: RetryPolicy | "none" = "none",
@@ -96,11 +85,7 @@ export async function getPresentation(
 export interface BatchUpdatePresentationArgs {
   accessToken: string;
   presentationId: string;
-  /**
-   * Raw Slides API `Request` objects (createSlide, insertText, createShape, …).
-   * Typed as `unknown[]` deliberately — the request union is huge and callers
-   * pass shapes straight from Google's reference.
-   */
+  /** Raw Slides `Request` objects. `unknown[]` because the union is huge. */
   requests: unknown[];
 }
 
@@ -108,7 +93,6 @@ export interface BatchUpdatePresentationResult {
   replies: unknown[];
 }
 
-/** Escape hatch for edits: add slides, insert text, create shapes/images, etc. */
 export async function batchUpdatePresentation(
   args: BatchUpdatePresentationArgs,
 ): Promise<BatchUpdatePresentationResult> {
@@ -121,11 +105,11 @@ export async function batchUpdatePresentation(
   return { replies: parsed.replies ?? [] };
 }
 
-/** Convenience: append a blank slide. Returns the raw reply (carries the new objectId). */
+/** The raw reply carries the new objectId. */
 export async function addSlide(args: {
   accessToken: string;
   presentationId: string;
-  /** Predefined layout, e.g. `BLANK`, `TITLE_AND_BODY`. Defaults to BLANK. */
+  /** Default `BLANK`. */
   layout?: string | undefined;
 }): Promise<BatchUpdatePresentationResult> {
   return batchUpdatePresentation({
@@ -137,7 +121,6 @@ export async function addSlide(args: {
   });
 }
 
-/** Send and parse at the seam — a raw response cannot reach a caller. */
 const sendJson = <T>(
   schema: z.ZodType<T>,
   method: "GET" | "POST",

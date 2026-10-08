@@ -3,18 +3,9 @@ import { describe, test } from "node:test";
 
 import { PeriodicTask } from "../../src/realtime/periodic-task";
 
-/**
- * The lifecycle both outbox loops run on.
- *
- * These need no database, which is the point of the extraction: the property
- * that was broken — a `stop()` that returns while a pass is still working — is a
- * property of the scheduler, not of any SQL. Before this module the reaper's
- * copy of the loop never read its stop flag between batches, so its documented
- * "shutdown does not tear the pool out from under an open DELETE" was false and
- * nothing could observe that.
- */
+/** The scheduler under both outbox loops. `stop()` must not return while a pass still runs. */
 
-/** Yield to the macrotask queue so a pending pass gets to run. */
+/** Yield a macrotask so a pending pass runs. */
 const tick = (ms = 5) => new Promise((resolve) => setTimeout(resolve, ms));
 
 describe("PeriodicTask", () => {
@@ -46,8 +37,7 @@ describe("PeriodicTask", () => {
     assert.equal(eager, 1, "the default must reap at boot — a process restarting often still runs");
     assert.equal(lazy, 0, "runOnStart:false must wait for a trigger");
 
-    // Only the trigger separates the two tasks, so this proves the flag gates
-    // the boot pass rather than the pass itself.
+    // A trigger still runs the lazy task: the flag gates only the boot pass.
     lazyTask.trigger();
     await tick();
     assert.equal(lazy, 1);
@@ -64,9 +54,7 @@ describe("PeriodicTask", () => {
       name: "cooperative",
       intervalMs: 60_000,
       pass: async (signal) => {
-        // Stands in for "another delete batch": loop until asked to stop. The
-        // iteration cap is not decoration — without it a task that never aborts
-        // spins forever and the mutant wedges the suite instead of failing it.
+        // The cap makes a broken abort fail the test instead of hanging it.
         for (let i = 0; i < 200 && !signal.aborted; i += 1) await tick(1);
         observedAbort = signal.aborted;
         await tick(1);
@@ -100,7 +88,7 @@ describe("PeriodicTask", () => {
       name: "stubborn",
       intervalMs: 60_000,
       drainMs: 60,
-      // Deliberately never reads `signal` — the shape of the bug this replaces.
+      // Never reads `signal`, on purpose.
       pass: async () => {
         await blocked;
       },

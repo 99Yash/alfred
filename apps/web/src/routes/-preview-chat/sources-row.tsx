@@ -4,11 +4,7 @@ import { cn } from "~/lib/utils";
 import { APP_TINTS } from "~/lib/tints";
 import type { AppTint } from "~/lib/tints";
 
-/**
- * `sources` footer under an assistant turn. Each pill is either an integration
- * (Gmail/Calendar/…) — brand glyph on a neutral chip — or a generic internal
- * source (Memory, Contacts) — Lucide icon on a toned chip.
- */
+/** Source pills under an assistant turn: integration brand marks or internal-source icons. */
 type SourceItem =
   | {
       integration: IntegrationBrand;

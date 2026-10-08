@@ -6,15 +6,7 @@ import { MCPServerSection } from "./mcp-server-section";
 import { SectionBlock } from "./section-block";
 import { useIntegrationCatalog } from "./use-integration-catalog";
 
-/**
- * The "Connect your tools" overlay: the full integration catalog — search,
- * a floating Connected section, category sections, and MCP — dropped into a
- * dialog so the chat empty-state can surface it without leaving the page.
- * Mirrors dimension's `AllIntegrationsDialog`, re-tokenized onto Alfred's
- * frost material and driven by the same `useIntegrationCatalog` the full
- * `/integrations` page uses. Selecting a tile routes to its detail page,
- * which unmounts the chat route (and this dialog) along the way.
- */
+/** The integration catalog in a dialog, so the chat empty state can show it in place. */
 export function AllIntegrationsDialog({
   open,
   onOpenChange,

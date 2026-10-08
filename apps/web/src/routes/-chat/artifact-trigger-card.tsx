@@ -2,14 +2,7 @@ import type { SyncedArtifact } from "@alfred/sync";
 import { ArrowRight, FileText, Layers, Loader2 } from "lucide-react";
 import { cn } from "~/lib/utils";
 
-/**
- * The clickable card rendered under an assistant message that authored an
- * artifact (ADR-0075 Phase 3). It's the in-transcript entry point to the
- * sidebar: clicking opens that artifact in the shared right slot. The card
- * itself carries no content — just the title, kind, and live status — so it
- * stays cheap to render in the message list while content streams into the
- * synced row.
- */
+/** Card under the authoring message that opens the artifact in the sidebar (ADR-0075 Phase 3). */
 export function ArtifactTriggerCard({
   artifact,
   active,
@@ -21,9 +14,7 @@ export function ArtifactTriggerCard({
 }) {
   const isPages = artifact.kind === "pages";
   const externalFile = artifact.content?.kind === "external_file" ? artifact.content : null;
-  // An external_file is surfaced ready (its content is complete at mint); it
-  // rides the `generating` lifecycle only so the run finalizer backfills its
-  // messageId, so never show it as generating.
+  // An external file is complete at mint; `generating` is only for the messageId backfill.
   const generating = artifact.status === "generating" && !externalFile;
   const pageCount = artifact.content?.kind === "pages" ? artifact.content.pages.length : undefined;
 
@@ -47,9 +38,7 @@ export function ArtifactTriggerCard({
       onClick={() => onOpen(artifact.id)}
       aria-label={`Open artifact: ${artifact.title}`}
       className={cn(
-        // Lift is on `translate` (Tailwind v4 sets the CSS `translate` property,
-        // not `transform`), so that is what transitions; color/border/shadow ride
-        // the same 200ms so the card settles as one piece on hover.
+        // Tailwind v4 lifts with the CSS `translate` property, so transition `translate`.
         "group flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-[background-color,border-color,box-shadow,translate] duration-200",
         active
           ? "border-app-fg-3 bg-app-bg-a2"

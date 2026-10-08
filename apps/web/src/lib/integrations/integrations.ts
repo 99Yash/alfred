@@ -21,11 +21,7 @@ export type IntegrationCategory =
 
 export type IntegrationActionLabel = "Manage" | "Connect" | "Coming Soon" | "Add";
 
-/**
- * The web-only prose of one catalog page. Every registry fact (display name,
- * brand, live/planned status, credential shape) is read off the entry in
- * `INTEGRATIONS`, so this type holds nothing the registry already knows.
- */
+/** Web-only page copy. Registry facts come from `INTEGRATIONS`. */
 export interface IntegrationPageCopy {
   readonly description: string;
   readonly category: IntegrationCategory;
@@ -46,15 +42,11 @@ export interface IntegrationPageCopy {
 }
 
 /**
- * One catalog page: the registry entry's facts under the names the tiles and
- * detail sections read, plus the page copy. `slug` is the only key; the route
- * param, the credential probe, the policy row, and the brand all derive from
- * it. `status` and `actionLabel` are the catalog's static reading; the
- * credential overlay (`useResolvedIntegrations`) flips both to connected.
+ * Registry facts plus page copy. Everything derives from `slug`.
+ * `status` and `actionLabel` are static; `useResolvedIntegrations` overlays real state.
  */
 export interface IntegrationPage extends IntegrationPageCopy {
   readonly slug: CatalogSlug;
-  /** The registry display name (`Gmail`, `Calendar`). */
   readonly name: string;
   readonly brand: IntegrationBrand;
   readonly status: IntegrationStatus;
@@ -66,12 +58,7 @@ const GOOGLE_TRUST = {
   body: "Your data is indexed and encrypted at rest. We never train AI models on your data or share it with third parties.",
 };
 
-/**
- * The page copy, one row per catalog slug. `satisfies Record<CatalogSlug, …>`
- * makes a provider entry without a page, or a page without a provider entry, a
- * compile error, so a new registry entry cannot ship as a brandless tile or a
- * pageless slug (Notion, Railway, and Vercel once did).
- */
+/** One row per catalog slug. `satisfies` makes a missing or extra page a compile error. */
 const INTEGRATION_PAGE_COPY = {
   gmail: {
     description: "Manage Gmail emails and communications.",
@@ -324,7 +311,7 @@ function buildPage(slug: CatalogSlug): IntegrationPage {
   };
 }
 
-/** Every catalog page in registry order: the one list the tiles, dialogs, and overlays iterate. */
+/** Every catalog page, in registry order. */
 export const INTEGRATION_PAGES: ReadonlyArray<IntegrationPage> = CATALOG_SLUGS.map(buildPage);
 
 export const CATEGORY_ORDER: ReadonlyArray<IntegrationCategory> = [
@@ -335,29 +322,19 @@ export const CATEGORY_ORDER: ReadonlyArray<IntegrationCategory> = [
   "Your Integrations",
 ];
 
-/** The page of a known catalog slug. */
 export function integrationPage(slug: CatalogSlug): IntegrationPage {
-  // SAFETY: `INTEGRATION_PAGES` is `CATALOG_SLUGS.map(buildPage)`, so every
-  // catalog slug has exactly one page in it.
+  // SAFETY: `INTEGRATION_PAGES` maps every catalog slug, so the page exists.
   return INTEGRATION_PAGES.find((page) => page.slug === slug) as IntegrationPage;
 }
 
-/**
- * The page for an unchecked string (a tool-name prefix, a mention value, a
- * route param), or `undefined` when it is not a catalog slug.
- */
+/** The page for an unchecked string, or `undefined`. */
 export function getIntegrationPage(value: string): IntegrationPage | undefined {
   return isCatalogSlug(value) ? integrationPage(value) : undefined;
 }
 
 /**
- * Brand mark for an integration slug, or `undefined` for a slug without a page
- * (Alfred's own `system` tools, the `mcp` projection, the `imessage` channel).
- *
- * A `CatalogSlug` names a PROVIDER entry, and every provider entry carries a
- * brand, so that overload answers a mark and never `undefined`. Without it a
- * caller that already holds a provider slug still has to write a fallback
- * branch for a case the registry cannot produce.
+ * Brand mark for a slug, or `undefined` for one without a page (`system`, `mcp`, `imessage`).
+ * The `CatalogSlug` overload never returns `undefined`.
  */
 export function brandForIntegration(slug: CatalogSlug): IntegrationBrand;
 export function brandForIntegration(slug: IntegrationSlug): IntegrationBrand | undefined;
@@ -382,12 +359,8 @@ export function matchesIntegration(page: IntegrationPage, query: string): boolea
 }
 
 /**
- * The API path that starts a live provider's connect flow: the provider's route
- * family plus `/connect`, and for a Google product the `?features=` the entry
- * declares, so the consent screen asks only for that product's scopes
- * (Google's `include_granted_scopes=true` merges the grant into an existing
- * one). A `token_paste` credential POSTs a token to this path instead of
- * redirecting to it; `DetailHeader` branches on the credential, not the slug.
+ * The connect path for a live provider. A Google product adds `?features=` so consent
+ * asks only for its scopes. A `token_paste` credential POSTs here instead of redirecting.
  */
 export function connectPathFor(slug: LiveProviderSlug): string {
   const path = `${integrationRoutePrefix(credentialProviderOf(slug))}/connect`;

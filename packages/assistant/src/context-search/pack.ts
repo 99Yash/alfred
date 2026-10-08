@@ -11,106 +11,56 @@ import type { SourceExclusionReason } from "./manifest";
 import type { ContextSearchResult, ContextSourceReport } from "./search";
 
 /**
- * The packer (#423; ADR-0101).
- *
- * `searchContext` returns canonical `EvidenceCard`s; the packer turns them
- * into the bounded text a model reads. It is the model-facing half of the
- * boundary, so it is deliberately the only place that decides how a card is
- * rendered, which cards fit the budget, and how honesty is preserved:
- *
- * - **Bounded.** The output never exceeds `maxChars`. Cards past the budget are
- *   dropped whole (never half a card) and counted in `omittedCount`, so a
- *   caller can say how much was left out instead of pretending the evidence was
- *   complete.
- * - **Cited.** Every card renders its source and any citations, anchors, and
- *   expansion handle it carries. A card with no citation still names its source
- *   in its header.
- * - **Honest.** The packer takes the whole read result, reports, not a bare
- *   card list, so failed and empty sources are structurally impossible to
- *   forget. A source that returned nothing or failed is reported by id; a
- *   productive source whose cards the read's own `limit` dropped entirely is
- *   reported by id with its dropped count, so a source that answered is never
- *   mistaken for one that was never consulted. Cards the read's `limit` dropped
- *   are counted; freshness is rendered per card and reads `unknown` when the
- *   source did not declare it, never inferred from a missing timestamp. A
- *   card's own `note` (degraded extraction, missing state) is preserved.
- *   `truncated` is true whenever any card, note, or source line was left out of
- *   `text`, including a render-cap cut.
- * - **Safe.** Every string that reaches the model goes through
- *   `sanitizeErrorMessage`, the repo's surrogate-safe bounded truncator, so a
- *   lone surrogate or NUL byte can never ride a snippet, a note, or a provider
- *   reason into the prompt.
- *
- * It holds no adapters, calls no provider, and touches no database: pure
- * rendering over the contract, which is what makes it testable and keeps the
- * read boundary read-only.
+ * Render `EvidenceCard`s into bounded model text (ADR-0101). Pure: no provider, no DB.
+ * - Never exceeds `maxChars`. Cards drop whole and count in `omittedCount`.
+ * - Every card names its source. Failed, empty, skipped, and cut sources get a note.
+ * - Freshness shows `unknown` when undeclared, never inferred from a missing time.
+ * - Every model-facing string goes through `sanitizeErrorMessage`.
  */
 
-/** Characters in a packed result when the caller does not set a budget. */
 export const EVIDENCE_PACK_DEFAULT_MAX_CHARS = 6_000;
 
-/** Floor for a caller's budget, so a tiny budget cannot strip all attribution. */
+/** A tiny budget must not strip all attribution. */
 export const EVIDENCE_PACK_MIN_MAX_CHARS = 500;
 
-/** Ceiling for a caller's budget; a read that wants more asks again. */
 export const EVIDENCE_PACK_MAX_MAX_CHARS = 24_000;
 
-/** Cap on rendered per-source notes, so a wide source set stays bounded. */
 const EVIDENCE_PACK_MAX_SOURCE_NOTES = 12;
 
-/** Cap on one failed source's reason; the reason is provider text, not prose. */
+/** The reason is provider text. */
 const EVIDENCE_PACK_REASON_MAX_CHARS = 160;
 
-/**
- * Model-facing words for each exclusion reason, in plain language rather than
- * manifest jargon. The `skipped` report carries the enum member; this table is
- * the only place that turns it into prose, so the two cannot drift.
- */
+/** Model-facing words for each exclusion reason. */
 const SKIPPED_NOTE = {
   unavailable: "temporarily unavailable",
   "no-answering-read": "not applicable to this question",
-  // Distinct words for a distinct fact (#1077): this source never answers a
-  // question, it only re-reads a record another card already pointed at. The
-  // model must not read its absence as "this source had nothing on the topic".
+  // Must not read as "this source had nothing on the topic" (#1077).
   "expansion-only": "only re-reads records other sources found",
-  // Three more distinct facts (#1078). Each says the source was never asked,
-  // and each says something the model can act on: one is a budget this read
-  // chose, one is an account the user can connect, one is a grant the user can
-  // widen, and one is a grant the user must re-run. None is a statement about
-  // the topic, and none is a failure.
+  // Each says the source was never asked, not that it found nothing (#1078).
   "over-budget": "costs more than this read pays for",
   "not-connected": "the account is not connected",
   "missing-scope": "the account has not granted access",
   "needs-reauth": "the account needs reconnecting",
 } as const satisfies Record<SourceExclusionReason, string>;
 
-/** Cap on a card's `note` in the packed output. */
 const EVIDENCE_PACK_NOTE_MAX_CHARS = 500;
 
 export interface PackEvidenceOptions {
-  /** Hard character budget for the returned text. Clamped to the pack bounds. */
+  /** Clamped to the pack bounds. */
   readonly maxChars?: number | undefined;
 }
 
 export interface PackedEvidence {
-  /** The bounded, model-facing text. Never longer than the effective budget. */
   readonly text: string;
-  /** Ids of the cards that made it into `text`, in order. */
   readonly includedIds: readonly string[];
   /** Cards dropped by the budget or by the read's own `limit`. */
   readonly omittedCount: number;
-  /** True when any card or note text was left out of `text`. */
   readonly truncated: boolean;
 }
 
 /**
- * Render a read result as bounded, cited, honest model context.
- *
- * The notes section (failed, empty, or fully-dropped sources) is sized before the card loop, so
- * honesty never pushes the result past the budget: the loop reserves room for
- * the notes and stops early rather than letting them overflow. The final
- * `sanitizeErrorMessage` is a backstop for a notes-only result, where no card
- * is left to drop.
+ * Render a read result as bounded model context. The card loop reserves room
+ * for the notes first, so notes never push the text over budget.
  */
 export function packEvidenceCards(
   result: Pick<ContextSearchResult, "evidence" | "sources">,
@@ -161,11 +111,7 @@ export function packEvidenceCards(
   };
 }
 
-/**
- * The source's own pre-limit count. `evidenceCount` is what the source returned,
- * not what survived `request.limit`, so the difference names the cards the read
- * dropped before the packer ever saw them.
- */
+/** Pre-limit count. The gap to the card count is what `request.limit` dropped. */
 function totalReportedEvidence(sources: readonly ContextSourceReport[]): number {
   return sources.reduce((total, source) => total + source.evidenceCount, 0);
 }
@@ -186,23 +132,9 @@ interface RenderedNotes {
 }
 
 /**
- * One line per source whose evidence did not reach the packed text. `empty`,
- * `error`, and `skipped` are distinct facts and render differently; a
- * productive source that lost cards to the read's `limit` is the fourth, and
- * the one this exists to prevent forgetting. The status switch is exhaustive on purpose: a
- * new status member becomes a compile error here rather than quietly rendering
- * as an error.
- *
- * Loss is per-source, not presence-based: the note reports
- * `evidenceCount - survived`, so a source that returned two cards and kept one
- * still names the one the `limit` dropped. Judged on the cards the read handed
- * the packer, before the packer's own character budget: a card the packer
- * omits for space still proves the source answered. Those cards now arrive in
- * ranked order (#427), so the packer's budget drops the lowest-ranked cards
- * rather than whichever source registered last.
- *
- * `error` notes render first: the note list is capped, and a routine skip must
- * never push a failure out of the text.
+ * One line per source whose evidence did not reach the text, including a
+ * source that lost cards to `limit`. `error` lines go first, so the cap never
+ * hides a failure behind a routine skip.
  */
 function renderSourceNotes(
   sources: readonly ContextSourceReport[],
@@ -236,11 +168,7 @@ function renderSourceNotes(
         routine.push(sourceNote(source.sourceId, "no evidence found"));
         break;
       case "skipped": {
-        // "Not asked" is a different fact from "asked and found nothing", and
-        // the model must be able to tell them apart before it concludes
-        // anything from absence (#466). The reason is our own closed enum, so
-        // it renders from a lookup table — never through the provider-text
-        // sanitizer the `error` arm needs.
+        // "Not asked" differs from "found nothing" (#466). Closed enum, so no sanitizer.
         routine.push(sourceNote(source.sourceId, `not consulted (${SKIPPED_NOTE[source.reason]})`));
         break;
       }
@@ -274,7 +202,6 @@ function renderSourceNotes(
   };
 }
 
-/** One source note: the id joins the suffix here, never at four call sites. */
 function sourceNote(sourceId: string, suffix: string): string {
   return `${sourceId}: ${suffix}`;
 }
@@ -297,7 +224,7 @@ function renderCard(card: EvidenceCard, position: number): RenderedCard {
     return sanitizeErrorMessage(clean, maxChars);
   };
 
-  // An unnamed source (a bare MCP server) cites its stable id once, never twice.
+  // An unnamed source (a bare MCP server) shows its id once.
   const source = card.source.displayName
     ? `${card.source.displayName} [${card.source.id}]`
     : card.source.id;
@@ -309,13 +236,8 @@ function renderCard(card: EvidenceCard, position: number): RenderedCard {
     lines.push(`Content: ${bound(card.snippet, EVIDENCE_SNIPPET_MAX_CHARS)}`);
   }
 
-  // The label carries the relation, because the rendered object is identical
-  // either way. Without it a quoted email that merely NAMES pull request 42
-  // packs byte for byte like the card that IS pull request 42, and the model
-  // can read the document as merged or cite the document as proof of the pull
-  // request's state. The lifecycle belongs to the object, never to the chunk.
-  // `renderObject` adds the closed-underlying clause to the same line, so the
-  // clause and the lifecycle it qualifies cannot be separated (#1089).
+  // The label carries the relation. Otherwise an email that names PR 42 renders
+  // like the PR itself, and the model could cite it as proof of the PR's state.
   if (card.object !== undefined) {
     const label = card.object.relation === "is" ? "Object" : "Object named in this text";
 
@@ -360,86 +282,13 @@ function renderCard(card: EvidenceCard, position: number): RenderedCard {
 }
 
 /**
- * Renders one object reference, plus the closed-underlying clause when the
- * object's lifecycle closes an open ask (#1089).
- *
- * The clause exists because a category word alone does not tell the model what
- * to DO. A card rendered `merged (resolved)` still reads as work in flight, and
- * the model then asks the user to finish a pull request that shipped — the
- * failure the briefing already had before its own open-ask guard landed. The
- * clause states the consequence in words, so no reading of the lifecycle is
- * required.
- *
- * Three properties, each deliberate:
- *
- * - **It names the OBJECT, never the card, and never a BARE demonstrative.**
- *   The clause says `this object is resolved`; it never says "this is
- *   handled". On a `names` card the line above reads `Object named in this
- *   text`, so a bare "this" would invite the model to call the EMAIL handled —
- *   the exact confusion the two labels exist to prevent, one line lower.
- * - **It rides the same rendered LINE as the lifecycle**, not a second
- *   `lines.push`. A separate line is a thing a later edit can reorder, drop, or
- *   budget away on its own. One returned string is not by itself one line,
- *   because every field this function interpolates is an open provider string:
- *   `evidenceObjectRefSchema` bounds `title`, `repo`, `nativeState`, `url`,
- *   `provider`, and `kind` by length alone, and the GitHub reducer copies a
- *   pull-request title verbatim. A title that carried a newline used to split
- *   the render, and the first line then stated a `resolved` lifecycle with no
- *   clause after it — the exact honesty failure this clause exists to prevent.
- *   So the assembled line goes through {@link oneLine} before it is returned.
- *   That is what makes "the note survives beside the lifecycle" structural
- *   rather than conventional, and it holds for a field added later too.
- * - **It never goes through `bound()`.** The clause is one of two constant
- *   strings (`closesOpenAsk` returns `LoopClosingStateCategory`), 63 characters
- *   at most, and `packEvidenceCards` measures the whole rendered card before
- *   admitting it and drops a card whole. So the clause is inside the budget by
- *   construction, and `bound()` would set `truncated` for a cut that cannot
- *   happen.
- *
- * The object's own instant renders here too. `stateDeliveredAt` — the last
- * delivery that advanced this object's state — is interpolated under the label
- * `state delivered`, immediately after the `(${category})` lifecycle it dates
- * and before the title (#1087, item 08). It does not join the `Time:` line:
- * that line describes the CARD, whose `observedAt` means "when the source
- * observed the chunk", so dating an annotation with a chunk label is how the
- * card lies. Two instants on one card therefore keep distinct labels — `state
- * delivered` here, `occurred` / `observed` / `indexed` there — and this line
- * never repeats the `Time:` instant. An `is` card renders no such segment,
- * because its ref omits the field: the same instant already rides its
- * `time.observedAt`.
- *
- * The segment is a fixed ~40 characters (` — state delivered ` plus a
- * 24-character `Date.toISOString()`), so like the closed-underlying clause it
- * never goes through `bound()`: the packer measures the whole card before
- * admitting it and drops a card whole. It does cost pack budget — an annotated
- * card that carries it admits fewer cards at the margin — but the honest claim
- * is a per-CARD addition, never pack byte-identity.
- *
- * It is also not appended to `card.note`: the packer bounds a note at
- * {@link EVIDENCE_PACK_NOTE_MAX_CHARS} while the contract allows twice that, so
- * a long producer note would delete the clause with no signal. A derived clause
- * cannot be forgotten by a producer either.
- *
- * A card whose object closes nothing — active, failed, state-unknown, or an
- * unprojected provider — carries no clause at all, because
- * `evidenceObjectClosesAsk` answers all four with one `null`.
- *
- * It does NOT follow that such a card renders the same bytes it rendered before
- * this change. {@link oneLine} runs on every population, closing or not, and it
- * reads the ASSEMBLED line, never a field. So state the property of that line,
- * which names no field and therefore inherits when a field is added: the render
- * is byte for byte as before exactly when the assembled line holds no line
- * terminator, holds no run of two or more spaces or tabs, and equals its own
- * `trim()`.
- *
- * The same property read field by field is FALSE, and that is the trap. The
- * template writes a fixed single space after `${object.kind}` and around
- * `${state}`, and those two fields render bare. One space at such a field's edge
- * joins a template separator, makes a run of two in the assembled line, and is
- * folded — while no field carries a run, a line terminator, or leading
- * whitespace. `title`, `repo`, and `url` render inside `"`, `[`, and `<`, so
- * their own edges never touch a separator. A lone TAB, `U+00A0`, `U+3000`, and
- * `U+FEFF` inside a field all survive the fold.
+ * One object reference, plus a "closed work" clause when its state closes an
+ * open ask (#1089). Otherwise the model asks the user to finish shipped work.
+ * - The clause names "this object", never a bare "this", which could mean the email.
+ * - It stays on the same line as the state. `oneLine` removes newlines from
+ *   provider fields such as a PR title, so they cannot split it off.
+ * - It skips `bound()`: it is a short constant, and the packer measures whole cards.
+ * `state delivered` dates the object, not the card, so it stays off the `Time:` line.
  */
 function renderObject(object: EvidenceObjectRef): string {
   const state = object.nativeState ?? "state unknown";
@@ -457,31 +306,9 @@ function renderObject(object: EvidenceObjectRef): string {
 }
 
 /**
- * Removes the line terminators from an assembled rendered line, then collapses
- * the space run each removal leaves behind.
- *
- * Applied to a whole rendered line, never to a field, so a field added to any
- * line kind inherits the property instead of needing its own call. The pack has
- * two line joins — `renderCard`'s card lines and `renderSourceNotes`' notes —
- * and both fold every line before joining with `\n`. A consumer that reads one
- * line expects one pack fact; a provider string that carried a line break would
- * put a suffix of that fact on a line of its own, so the render, not the
- * producer, is where the break is removed.
- *
- * The fold is deliberately narrow, and a wide `\s+` fold is wrong here. It
- * takes the four ECMAScript line terminators — `\n`, `\r`, `U+2028`, `U+2029`
- * — because those are the code points that can put a suffix of one fact on a
- * line of its own. Every other whitespace-like code point inside a field stays:
- * `U+00A0` and `U+3000` are deliberate provider typography, and a CJK title
- * that loses its word separator loses meaning, while `U+FEFF` is zero width, so
- * folding it would show a character the provider never showed. The `.trim()`
- * removes leading or trailing whitespace a field may carry — a `provider` slug
- * that starts with whitespace, a source-note suffix that ends with one.
- *
- * This is a property of every line the pack renders, not of one line kind: both
- * joins fold, so a line kind added later inherits it. `renderObject` also folds
- * its own line; the fold is idempotent, so the inner call is harmless and keeps
- * that function's clause-beside-lifecycle guarantee local to itself.
+ * Fold a whole rendered line to one line: replace the four ECMAScript line
+ * terminators, collapse space and tab runs, trim. Keep it narrow, not `\s+`:
+ * `U+00A0` and `U+3000` are real provider typography.
  */
 function oneLine(text: string): string {
   return text
@@ -490,10 +317,7 @@ function oneLine(text: string): string {
     .trim();
 }
 
-/**
- * Always emits a freshness reading, so the model never has to infer staleness
- * from a missing timestamp. Only instants the card actually carries are shown.
- */
+/** Always emits freshness. Shows only the instants the card carries. */
 function renderTime(card: EvidenceCard): string {
   const parts: string[] = [];
 

@@ -148,8 +148,7 @@ const INCOMPLETE_ACTION_STATUSES = new Set([
   "page_limit",
   "rejected",
   "rejected_by_user",
-  // #559a: the unknown-outcome envelope. A possibly-delivered write must log as
-  // failed, never as a quiet success the model can move on from.
+  // A possibly-delivered write logs as failed, never as a quiet success.
   "unknown",
   "unknown_tool",
   "wrong_kind",
@@ -168,8 +167,7 @@ export function toolCallLogStatus(
   toolName: string,
   result: TerminalToolCallDispatchResult,
 ): "succeeded" | "failed" {
-  // ADR-0099: a question the user dismissed or let expire is a settled
-  // exchange, not a failed call. The card and the log show it landed.
+  // ADR-0099: an unanswered question is settled, not failed.
   if (result.kind === "unanswered") return "succeeded";
 
   if (result.kind !== "executed") return "failed";
@@ -223,12 +221,7 @@ export function completedToolCall<Call extends ProposedToolCall>(
   };
 }
 
-/**
- * The connection-health refusals a connect nudge can repair, mapped to what
- * the repair is called (#378 item 3). Everything else the floor can refuse is
- * policy or caller shape — there is no connection to fix — so those produce no
- * nudge and stay invisible plumbing.
- */
+/** Maps a connection-health refusal to its repair. Policy refusals get no nudge. */
 function connectNudgeFromDispatch(
   result: TerminalToolCallDispatchResult,
 ): ChatConnectNudge | undefined {
@@ -246,8 +239,7 @@ function connectActionFor(code: ToolUnavailabilityCode): ChatConnectNudge["actio
       return "connect";
     case "needs_reauth":
     case "missing_scope":
-      // Both mean "a credential exists but cannot act" — the provider's
-      // connect flow repairs either one, so the honest verb is reconnect.
+      // A credential exists but cannot act. Reconnecting repairs both.
       return "reconnect";
     default:
       return undefined;

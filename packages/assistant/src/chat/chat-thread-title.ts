@@ -7,10 +7,6 @@ import { emitReplicachePokes } from "@alfred/assistant/triggers";
 
 const TITLE_TIMEOUT_MS = 15_000;
 
-/**
- * Cosmetic cap on a generated thread title — matches the placeholder cap in
- * the chat turn endpoint so the sidebar row never has to ellipsize twice.
- */
 const TITLE_MAX_CHARS = 60;
 
 const TITLE_SYSTEM_PROMPT = [
@@ -20,17 +16,7 @@ const TITLE_SYSTEM_PROMPT = [
   "Reply with the title only — nothing else.",
 ].join("\n");
 
-/**
- * Derive a human title for the thread from its first exchange. Runs exactly
- * once — on the thread's first assistant reply — then leaves the title alone
- * on later turns. The turn endpoint already seeded a placeholder (the
- * truncated first message), so this is a refinement, not the only title the
- * user ever sees. Never throws into the turn: a title is cosmetic and a model
- * blip must not fail an otherwise-good reply.
- *
- * One of the three followups a healthy chat turn arms — see the
- * `arm-followups` tail in `./chat-turn-closure`.
- */
+/** Title the thread from its first exchange, once. Replaces the placeholder. Never throws. */
 export async function maybeGenerateThreadTitle(args: {
   userId: string;
   runId: string;
@@ -41,8 +27,6 @@ export async function maybeGenerateThreadTitle(args: {
   const { userId, runId, threadId, assistantMessageId, assistantText } = args;
 
   try {
-    // Only the first reply names the thread. Any earlier assistant row means
-    // the title was already derived on a prior turn — leave it.
     const priorReply = await db()
       .select({ id: chatMessages.id })
       .from(chatMessages)
@@ -132,11 +116,7 @@ export async function maybeGenerateThreadTitle(args: {
   }
 }
 
-/**
- * Normalize a model-produced title: drop a leading "Title:" echo, strip
- * wrapping quotes, collapse whitespace, trim trailing punctuation, and cap
- * the length. Returns null when nothing usable remains.
- */
+/** Clean a model title. Returns null when nothing usable remains. */
 function cleanTitle(raw: string): string | null {
   let s = raw.trim();
 

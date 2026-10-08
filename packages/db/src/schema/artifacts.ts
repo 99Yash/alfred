@@ -12,16 +12,8 @@ import { user } from "./auth";
 import { chatMessages, chatThreads } from "./chat";
 
 /**
- * Agent-produced artifacts (ADR-0075). One row is one artifact — a document or
- * a deck/PDF of pages — authored by the boss via the `system.create_artifact` /
- * `append_artifact_page` / `update_artifact` tools and rendered inline in the
- * chat's artifact sidebar. Content lives here (Postgres) and syncs to the web
- * via Replicache; the chat `chat.tool` event only signals "open the sidebar".
- *
- * Like `chat_messages`, the durable row is written by the chat worker as it
- * authors — each authoring tool call rewrites the row and bumps `row_version`,
- * so the sidebar sees pages appear via pokes (page-granular "streaming"; there
- * is no token-level stream in v1). Deleting the message/thread/user cascades.
+ * One agent-made document or page deck, shown in the chat sidebar (ADR-0075).
+ * Each authoring tool call rewrites the row, so pages appear one at a time through Replicache.
  */
 export const artifacts = pgTable(
   "artifacts",
@@ -32,32 +24,22 @@ export const artifacts = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    /** The chat thread that produced this artifact. */
     threadId: text("thread_id")
       .notNull()
       .references(() => chatThreads.id, { onDelete: "cascade" }),
-    /** The agent run that authored it (audit/replay); kept if the run is reaped. */
+    /** Set null so the artifact outlives a reaped run. */
     runId: text("run_id").references(() => agentRuns.id, { onDelete: "set null" }),
-    /**
-     * The assistant message that authored it — drives the in-message trigger
-     * card. Kept (set null) if the message is somehow removed without the thread.
-     */
+    /** The message that shows the artifact card. */
     messageId: text("message_id").references(() => chatMessages.id, { onDelete: "set null" }),
-    /** `document` | `pages` | `spreadsheet` (reserved). Selects the renderer. */
+    /** Selects the renderer. */
     kind: text("kind").notNull().$type<ArtifactKind>(),
-    /** For `pages`: `slides` | `pdf`. Null for `document`. */
+    /** NULL for `document`. */
     format: text("format").$type<ArtifactFormat>(),
     title: text("title").notNull().default(""),
-    /** `generating` while the boss authors, `complete` on turn end, `error` on failure. */
     status: text("status").notNull().default("generating").$type<ArtifactStatus>(),
-    /** The artifact body (markdown or ordered HTML pages), discriminated by `kind`. */
     content: jsonb("content").$type<ArtifactContent>(),
-    /**
-     * R2 object key for heavy binary (ADR-0065 infra) — unused in v1 (content is
-     * Postgres-only); the column is the seam for when an artifact needs a blob.
-     */
+    /** Not used yet. Reserved for an R2 blob key. */
     storageKey: text("storage_key"),
-    /** Replicache row-version. Bumped on every content/status change. */
     rowVersion: integer("row_version").notNull().default(0),
     ...lifecycle_dates,
   },

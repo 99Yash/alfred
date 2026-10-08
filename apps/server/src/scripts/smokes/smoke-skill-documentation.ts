@@ -1,28 +1,14 @@
 /**
- * Smoke test for the m12c skill-documentation workflow.
+ * Smoke test for skill-documentation: learn-skill enqueues it, it writes a
+ * `documented` revision that becomes current, and it sends a `skill_documented` email.
  *
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/smokes/smoke-skill-documentation.ts
  *
  * Pre-reqs:
- *   - `pnpm dev` running so the agent worker picks up both workflows.
+ *   - `pnpm dev` running.
  *   - At least one user row.
- *   - A boss-tier model available (ANTHROPIC_API_KEY) — compose runs at
- *     boss tier per ADR. Tens of cents per smoke run.
- *   - Resend env vars (RESEND_API_KEY, RESEND_FROM_EMAIL); the smoke
- *     does NOT skip the email send. To suppress real delivery, point
- *     RESEND_FROM_EMAIL at a sandbox address.
- *
- * What this verifies:
- *   1. Driving learn-skill end-to-end (smoke-learn-skill territory).
- *   2. learn-skill's persist step auto-enqueues skill-documentation.
- *   3. skill-documentation runs gather-context → compose → persist-revision
- *      → notify to completion.
- *   4. A new `skill_revisions` row with kind='documented' lands and
- *      `skills.current_revision_id` advances to it.
- *   5. An `email_sends` row with kind='skill_documented' exists for
- *      the user, idempotency-keyed on the v2 revision id.
- *   6. The v2 revision row's metadata carries source counts and the
- *      previous (v1) revision id pointer.
+ *   - A key for the boss-tier model. A run costs tens of cents.
+ *   - RESEND_API_KEY and RESEND_FROM_EMAIL. The smoke really sends; use a sandbox address.
  */
 import { randomUUID } from "node:crypto";
 import {
@@ -137,8 +123,7 @@ async function main() {
     console.log(`[smoke-skill-doc] created skill ${skillId}`);
   }
 
-  // Cancel any prior in-flight learn or doc runs for this skill so the
-  // partial unique indexes don't reject our fresh inserts.
+  // Cancel in-flight runs for this skill, or the dedup indexes block the inserts.
   const dedupKeysBySlug: Array<[string, string]> = [
     [LEARN_SKILL_WORKFLOW_SLUG, learnSkillDedupKey(skillId)],
     [SKILL_DOCUMENTATION_WORKFLOW_SLUG, skillDocumentationDedupKey(skillId)],
@@ -163,7 +148,6 @@ async function main() {
     }
   }
 
-  // Drive learn-skill (this also kicks off skill-documentation).
   const learn = await startRun({
     userId: u.id,
     workflowSlug: LEARN_SKILL_WORKFLOW_SLUG,
@@ -198,7 +182,6 @@ async function main() {
   const v1RevisionId = learnOut.revisionId;
   const docRunId = learnOut.documentationRunId!;
 
-  // Now wait on skill-documentation.
   const docRun = await pollRun(docRunId, "skill-documentation", DOC_TIMEOUT_MS);
   assert(
     docRun.status === "completed",
@@ -224,7 +207,6 @@ async function main() {
   assert(docOut.revisionId !== v1RevisionId, "v2 must be a fresh revision id");
   assert(docOut.emailStatus !== "failed", `email send failed: ${docOut.emailStatus}`);
 
-  // Skill row points at v2.
   const [postSkill] = await db().select().from(skills).where(eq(skills.id, skillId));
   assert(postSkill, "skill row missing after doc");
   assert(
@@ -232,7 +214,6 @@ async function main() {
     `current_revision_id should be v2 (${docOut.revisionId}), got ${postSkill.currentRevisionId}`,
   );
 
-  // v2 revision row + metadata.
   const [v2] = await db()
     .select()
     .from(skillRevisions)
@@ -244,7 +225,6 @@ async function main() {
   assert(v2Meta.previousRevisionId === v1RevisionId, "v2 metadata previousRevisionId mismatch");
   console.log(`[smoke-skill-doc] v2 body preview:\n${v2.body.slice(0, 600)}\n...`);
 
-  // skill_runs row for the doc workflow.
   const [docSkillRun] = await db()
     .select()
     .from(skillRuns)
@@ -260,7 +240,6 @@ async function main() {
     `expected skill_runs.status=completed, got ${docSkillRun.status}`,
   );
 
-  // email_sends row idempotency-keyed on the v2 revision.
   const [emailRow] = await db()
     .select()
     .from(emailSends)

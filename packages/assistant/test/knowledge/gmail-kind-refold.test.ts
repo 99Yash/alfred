@@ -17,10 +17,8 @@ import {
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
- * Scheduled/event re-fold gate (#218 PR J). Proves the frozen-logic invariant:
- * an auto-refold activates a new version only when the current fold code still
- * reproduces the active run's checksum at the active run's input; on drift it
- * BLOCKS instead of activating.
+ * Auto re-fold gate. A new version activates only if the current fold code
+ * still reproduces the active checksum at the active input. On drift it blocks.
  */
 
 const ID_PREFIX = "test-gmail-kind-refold-";
@@ -38,7 +36,7 @@ const createdUserIds: string[] = [];
 const SERVER_ENV_FIXTURES = {
   REDIS_URL: "redis://localhost:6379",
   BETTER_AUTH_SECRET: "test better auth secret with length",
-  // #453: `serverEnv()` requires a 32-byte credential KEK in every environment.
+  // `serverEnv()` needs a 32-byte credential KEK in every environment.
   OAUTH_CREDENTIAL_KEK: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY",
   BETTER_AUTH_URL: "http://localhost:3001",
   ALFRED_ALLOWED_EMAIL: "test@example.com",
@@ -115,7 +113,6 @@ describe("refoldActiveGmailKindProjection (DB-backed)", { skip: SKIP_DB }, () =>
     });
     const initial = await initialActivate(userId, [email]);
 
-    // A new inbound person arrives after activation -> watermark advances.
     await appendObs({
       userId,
       selfEmail: email,
@@ -155,9 +152,7 @@ describe("refoldActiveGmailKindProjection (DB-backed)", { skip: SKIP_DB }, () =>
     });
     const initial = await initialActivate(userId, [email]);
 
-    // Backfill arrives after activation but its message timestamp is older than
-    // the active event watermark. The append snapshot must advance even though
-    // the occurredAt watermark stays on m_a.
+    // Backfill older than the event watermark must still advance the append snapshot.
     await appendObs({
       userId,
       selfEmail: email,
@@ -194,9 +189,7 @@ describe("refoldActiveGmailKindProjection (DB-backed)", { skip: SKIP_DB }, () =>
     });
     const initial = await initialActivate(userId, [email]);
 
-    // Simulate a classifier-logic change since activation: the stored active
-    // checksum no longer matches what the current fold code recomputes at the
-    // active watermark.
+    // Fake a classifier change: the stored checksum no longer matches a recompute.
     await db()
       .update(projectionRuns)
       .set({ checksum: `sha256:${"0".repeat(64)}` })
@@ -208,7 +201,7 @@ describe("refoldActiveGmailKindProjection (DB-backed)", { skip: SKIP_DB }, () =>
     if (result.status !== "blocked") return;
     assert.equal(result.reason, "logic-drift");
 
-    // The active pointer must be untouched — no silent re-activation.
+    // No silent re-activation.
     const active = await userModelReader(userId).getActivePointer();
     assert.equal(active?.activeRunId, initial.runId);
     assert.equal(active?.activeVersion, 1);

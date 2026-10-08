@@ -17,11 +17,7 @@ import { compactTranscript } from "@alfred/assistant/execution";
 import { compactConversationSynchronously } from "./synchronous-conversation-compaction";
 import { waitForActiveConversationCompaction } from "./conversation-compaction-wait";
 
-/**
- * Ceiling on a single synchronous (foreground or within-run) compaction. The
- * turn-stop signal is composed with a timeout of this length so a wedged
- * compactor can't hold the turn open indefinitely.
- */
+/** A wedged synchronous compaction must not hold the turn open. */
 const FOREGROUND_COMPACTION_TIMEOUT_MS = 2 * 60_000;
 
 /** Place ephemeral assistant-known run context immediately before the request. */
@@ -46,11 +42,7 @@ export function withEphemeralReference(
   return [...transcript.slice(0, userIndex), message, ...transcript.slice(userIndex)];
 }
 
-/**
- * Carry a compacted transcript through the workflow without checkpointing
- * provider-only hydration (notably base64 image bytes). Both tails have the
- * same message boundaries; only their content representation differs.
- */
+/** Two views with the same message boundaries. Only the model view holds hydrated bytes. */
 export interface CompactedChatTranscriptPair {
   modelTranscript: AgentTranscriptMessage[];
   continuationTranscript: AgentTranscriptMessage[];
@@ -81,11 +73,7 @@ export function oversizedUserMessageSummaryMessage(
   };
 }
 
-/**
- * Compactor history must use storage references, never provider-hydrated media
- * bytes. The generated summary replaces this prefix, so hydration adds cost
- * without preserving any model-facing content.
- */
+/** The summary replaces this prefix, so hydrated bytes would add cost and nothing else. */
 export function storedCompactionPrefix(
   transcript: readonly AgentTranscriptMessage[],
   endExclusive: number,
@@ -182,8 +170,7 @@ async function applyForegroundContextGuard({
     assessChatRequestPressure({
       systemPrompt,
       tools,
-      // SAFETY: AgentTranscriptMessage is the persisted superset view of the
-      // SDK's ModelMessage transcript; assess reads the model-message shape.
+      // SAFETY: AgentTranscriptMessage is the persisted superset of ModelMessage.
       transcript: (pendingGuidance ? [...candidate, pendingGuidance] : candidate) as ModelMessage[],
       contextWindowTokens,
       outputReserveTokens: CHAT_MAX_OUTPUT_TOKENS,
@@ -362,9 +349,7 @@ async function applyWithinRunContextGuard({
     assessChatRequestPressure({
       systemPrompt,
       tools,
-      // SAFETY: withEphemeralReference rebuilds the same transcript shape it is
-      // given (AgentTranscriptMessage), which the pressure check reads as
-      // ModelMessage.
+      // SAFETY: withEphemeralReference keeps the AgentTranscriptMessage shape, a superset of ModelMessage.
       transcript: withEphemeralReference(
         pendingGuidance ? [...candidate, pendingGuidance] : candidate,
         artifactReference,
@@ -394,9 +379,7 @@ async function applyWithinRunContextGuard({
     const inFlightTail = hydratedTranscript.slice(inFlightTailStart);
     const storedInFlightTail = transcript.slice(inFlightTailStart);
 
-    // No inter-attempt delay: this is holding up a live turn. A stop request is
-    // fatal on top of the shared `compactor_input_too_large` — burning two more
-    // compactor calls on a turn nobody is waiting for is pure spend.
+    // No delay: a live turn waits. A stop is fatal too: nobody waits for that turn.
     const compacted = await compactWithRetry(
       (retry) =>
         compactTranscript({
@@ -436,20 +419,8 @@ async function applyWithinRunContextGuard({
 }
 
 /**
- * Owns the whole pre-call context-guard recipe for one chat turn: the
- * "guard only on turn 1 or within a tool burst" gate, the foreground vs
- * within-run dispatch, the abort composition (the turn-stop signal ∪ a
- * compaction timeout), and the start/finish phase sequencing.
- *
- * Stays event-agnostic: the caller injects `onPhase`, which is where the chat
- * path publishes its `chat.message` compaction-phase event — so compaction never
- * imports the chat workflow and no cycle forms. Stop handling stays with the
- * caller too: this only composes and propagates the abort; the caller catches
- * the abort, checks its stop controller, and finalizes.
- *
- * Returns the storage-safe continuation transcript, the provider-facing model
- * transcript, and whether it compacted (the caller resets `inFlightTailStart`
- * when a within-run compaction folded the in-flight tail into the summary).
+ * Compact before the model call when needed. The caller injects `onPhase` and
+ * handles a stop; this only propagates the abort.
  */
 async function guardExistingTurnContext(args: {
   turnCount: number;
@@ -466,9 +437,7 @@ async function guardExistingTurnContext(args: {
   storedTranscript: readonly AgentTranscriptMessage[];
   hydratedTranscript: readonly AgentTranscriptMessage[];
   artifactReference: string;
-  /** Budget runtime guidance without changing the real user's compaction boundary. */
   pendingGuidance?: AgentTranscriptMessage | undefined;
-  /** The turn-stop signal; the guard composes its own compaction timeout on top. */
   abortSignal: AbortSignal;
   onPhase: (
     phase: "compaction_started" | "compaction_finished",
@@ -479,8 +448,7 @@ async function guardExistingTurnContext(args: {
   modelTranscript: AgentTranscriptMessage[];
   compacted: boolean;
 }> {
-  // Guard only before the first provider call of the run, or when continuing a
-  // within-run tool burst — otherwise the loaded transcript is already bounded.
+  // Otherwise the loaded transcript is already bounded.
   if (!(args.turnCount === 1 || args.inFlightTailStart > 0)) {
     return {
       continuationTranscript: [...args.storedTranscript],
@@ -489,8 +457,6 @@ async function guardExistingTurnContext(args: {
     };
   }
 
-  // Stop must cover compaction (it can make billable model calls), bounded by a
-  // hard timeout so a wedged compactor can't hold the turn open.
   const guardAbortSignal = AbortSignal.any([
     args.abortSignal,
     AbortSignal.timeout(FOREGROUND_COMPACTION_TIMEOUT_MS),
@@ -516,8 +482,7 @@ async function guardExistingTurnContext(args: {
       onCompactionFinish: () => args.onPhase("compaction_finished", "foreground"),
     });
 
-    // Turn 1 always has `inFlightTailStart === 0`, so it never triggers the
-    // caller's reset — mirror the pre-extraction behavior with `compacted: false`.
+    // Turn 1 has no tail to reset.
     return {
       continuationTranscript: foreground.continuationTranscript,
       modelTranscript: foreground.modelTranscript,

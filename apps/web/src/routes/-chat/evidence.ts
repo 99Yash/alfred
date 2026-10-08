@@ -17,52 +17,39 @@ import { brandlessToolIcon } from "./animated-tool-icons";
 import { toSource, type Source } from "./sources";
 import type { ToolCallView } from "./tool-call-presentation";
 
-/**
- * The two system tools that read the live web. Everything about a "browsing"
- * card — the site favicon on the coin, the domain subline, the rich result
- * list instead of a raw JSON dump — is gated on this. `satisfies ToolName`
- * pins each to the canonical contracts key, so a rename there fails to compile
- * here instead of leaving these literals silently wrong.
- */
+/** The two live-web tools. `satisfies ToolName` makes a rename fail to compile here. */
 const WEB_SEARCH_TOOL = "system.web_search" satisfies ToolName;
 
 const FETCH_URL_TOOL = "system.fetch_url" satisfies ToolName;
 
 export interface FetchUrlView {
   kind: "fetch_url";
-  /** Bare hostname of the page being read (post-redirect once it lands). */
+  /** Hostname of the page, after redirects once it lands. */
   domain: string;
-  /** The page `<title>`, once the fetch succeeds. */
   title?: string | undefined;
-  /** Where the card links: the final URL after redirects, else the requested one. */
+  /** The final URL after redirects, else the requested one. */
   href: string;
-  /** A short peek at the sanitized text the fetch pulled back, for the panel. */
   excerpt?: string | undefined;
 }
 
 export interface WebSearchView {
   kind: "web_search";
-  /** The search query, shown as the card's subline. */
   query?: string | undefined;
-  /** Deduped result sources (favicon + title + host), once the search lands. */
   sources: Source[];
 }
 
 export type BrowsingView = FetchUrlView | WebSearchView;
 
 /**
- * Read the display shape out of a browsing tool call's args + result preview.
- * Both are best-effort JSON (pruned/sanitized server-side), so every field is
- * optional and a malformed preview simply yields less detail, never an error.
- * Returns `null` for a non-browsing tool so the caller keeps its normal card.
+ * Display shape for a browsing tool call. Previews are best-effort JSON, so a bad one gives less detail, not an error.
+ * `null` for a non-browsing tool.
  */
 export function presentBrowsing(tool: ToolCallView): BrowsingView | null {
   const args = parseJsonRecord(tool.argsPreview);
   const result = parseJsonRecord(tool.resultPreview);
 
   if (tool.toolName === FETCH_URL_TOOL) {
-    // Prefer the post-redirect `finalUrl` from the result; fall back to the
-    // requested `url` (the only thing we have while the fetch is in flight).
+    // Only `url` exists while the fetch is in flight.
     const finalUrl = asString(result?.finalUrl);
     const requested = asString(result?.url) ?? asString(args?.url);
     const href = finalUrl ?? requested;
@@ -102,73 +89,42 @@ export function presentBrowsing(tool: ToolCallView): BrowsingView | null {
 }
 
 // ---------------------------------------------------------------------------
-// Integration evidence — the web-native panel generalized to any read tool.
-//
-// The two browsing tools above already turn a raw result into favicon rows /
-// a page card. Every *other* read tool (gmail.search, github.search, …) falls
-// back to a JSON dump. This registry gives the high-traffic reads the same
-// treatment: a compact, scannable list of the records they returned, or an
-// entity card for the single-object reads — driven from the same persisted
-// `resultPreview` the JSON dump uses, so nothing new is exposed and reload
-// survives (list results echo their query context; ADR-0070 trim flag still
-// applies). A tool with no spec keeps today's JSON fallback untouched.
+// Integration evidence: a record list or entity card for read tools, built from
+// the same `resultPreview` as the JSON dump. A tool with no spec keeps the dump.
 // ---------------------------------------------------------------------------
 
-/** A status pill next to an evidence row/entity. Tones map to `app-*` scales. */
+/** A status pill. Tones map to `app-*` scales. */
 export interface EvidenceBadge {
   label: string;
   tone: "neutral" | "green" | "red" | "amber" | "purple";
 }
 
-/** One record in a `record-list` evidence panel. Renders without an `href`. */
 interface EvidenceRow {
-  /** Stable list key (the record's url/id, falling back to its title). */
+  /** The record's url or id, else its title. */
   key: string;
-  /** Primary line — what the record is. */
   title: string;
-  /** Opens in a new tab when present; a link-less row is still shown. */
   href?: string | undefined;
-  /** Muted secondary line — repo, timestamp, path. */
   meta?: string | undefined;
   badge?: EvidenceBadge | undefined;
-  /**
-   * This row's own glyph, for a list whose records come from several services
-   * at once — a corpus search answers with a Gmail message beside a GitHub
-   * event, and a tool search answers with one row per integration. Preferred
-   * over the list-wide favicon, and preferred over {@link faviconDomain}: the
-   * brand renders the service's real logo instead of a fetched favicon.
-   */
+  /** Per-row glyph when a list spans services. Beats {@link faviconDomain}: a real logo. */
   brand?: IntegrationBrand | undefined;
-  /** This row's own favicon domain, when it has no brand of its own. */
   faviconDomain?: string | undefined;
-  /**
-   * This row's own glyph, for a record that belongs to no service at all — a
-   * tool search answers with `system.current_time` beside `github.search`, and
-   * the system half would otherwise sit under an empty chip. Last in the
-   * order: a real logo beats a drawn mark.
-   */
+  /** Glyph for a row from no service (a `system.*` tool). Last choice. */
   icon?: LucideIcon | undefined;
 }
 
-/** A list of records a read tool returned (github.search, calendar, …). */
 export interface RecordListView {
   kind: "record-list";
-  /**
-   * Integration domain used for each row's favicon. Absent for a list whose
-   * rows each carry their own glyph (a corpus or tool search), where no single
-   * service owns the list.
-   */
+  /** Favicon for every row. Absent when rows carry their own glyphs. */
   faviconDomain?: string | undefined;
-  /** The query/context that produced the list, when the result echoes it. */
   query?: string | undefined;
   rows: EvidenceRow[];
-  /** Exact count of records beyond those shown (`totalCount − shown`). */
+  /** `totalCount − shown`. */
   remaining?: number | undefined;
-  /** More records exist but the count is unknown (pagination flag only). */
+  /** More exist, count unknown. */
   hasMore?: boolean | undefined;
 }
 
-/** One labeled fact in an entity panel. */
 interface EntityFact {
   label: string;
   value: string;
@@ -182,14 +138,10 @@ export interface EntityView {
   href?: string | undefined;
   badge?: EvidenceBadge | undefined;
   facts: EntityFact[];
-  /** A short peek at the body (email snippet, issue lede). */
   excerpt?: string | undefined;
 }
 
-/**
- * Coarse "3d ago" for a persisted timestamp leaf — reuses the shared clock
- * helper, but only for a real ISO string (a missing/odd leaf yields no meta).
- */
+/** "3d ago" for a real ISO string; anything else gives no meta. */
 function ago(value: unknown): string | undefined {
   const iso = asString(value);
 
@@ -199,11 +151,8 @@ function ago(value: unknown): string | undefined {
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /**
- * Format the *wall-clock* encoded in an offset-bearing ISO string (Google
- * Calendar returns event times in the event's own zone, e.g.
- * `2026-07-13T20:00:00+05:30`). We read the literal Y-M-D h:m out of the string
- * rather than constructing a `Date`, so the panel shows the time the event was
- * scheduled for — not that instant re-expressed in the viewer's timezone.
+ * Read the wall clock straight from the offset ISO string, not through `Date`.
+ * Calendar events then show their scheduled time, not the viewer's zone.
  */
 function formatEventWindow(startIso: string, endIso?: string): string {
   const start = parseWallClock(startIso);
@@ -237,7 +186,6 @@ function clock12({ hour, minute }: WallClock): string {
   return minute === 0 ? `${h} ${period}` : `${h}:${String(minute).padStart(2, "0")} ${period}`;
 }
 
-/** A GitHub PR/issue state → its colored pill. */
 function githubStateBadge(item: JsonRecord): EvidenceBadge | undefined {
   if (item.draft === true) return { label: "Draft", tone: "neutral" };
   const state = asString(item.state);
@@ -251,7 +199,7 @@ function githubStateBadge(item: JsonRecord): EvidenceBadge | undefined {
   return undefined;
 }
 
-/** Turn a Drive MIME type into a short human kind ("PDF", "Doc", "Folder"). */
+/** Drive MIME type to a short kind ("PDF", "Doc", "Folder"). */
 function driveKind(mimeType: string | undefined): string | undefined {
   if (!mimeType) return undefined;
 
@@ -275,7 +223,6 @@ function joinMeta(...parts: (string | undefined)[]): string | undefined {
   return kept.length > 0 ? kept.join(" · ") : undefined;
 }
 
-/** Collapse whitespace and cap a free-text blob into a one-glance peek. */
 function snippetOf(text: string | undefined, max = 300): string | undefined {
   if (!text) return undefined;
   const collapsed = collapseWhitespace(text);
@@ -283,12 +230,7 @@ function snippetOf(text: string | undefined, max = 300): string | undefined {
   return collapsed ? collapsed.slice(0, max) : undefined;
 }
 
-/**
- * A short readable peek at an email body. The flat `gmail.read_message` shape
- * stores the raw RFC822 dump (`From: …\nTo: …\n\n<body>`) in `content`, so drop
- * the header block (everything up to the first blank line) and collapse the
- * rest — a snippet-less read still shows what the message says, not its headers.
- */
+/** `gmail.read_message` stores raw RFC822 in `content`, so drop the headers up to the first blank line. */
 function emailBody(content: string | undefined): string | undefined {
   if (!content) return undefined;
   const blank = content.indexOf("\n\n");
@@ -296,13 +238,7 @@ function emailBody(content: string | undefined): string | undefined {
   return snippetOf(blank >= 0 ? content.slice(blank + 2) : content);
 }
 
-/**
- * The read tools whose defining argument is a search intent, so the card may
- * quote it as the row's subline ("Searched GitHub · `repo:99Yash/alfred`").
- * An allowlist rather than a "does it have a `query` field" guess, because
- * other tools carry a `query` that is not a search intent. `satisfies` pins
- * each name to the contracts key.
- */
+/** Tools whose query is a search intent, for the subline. An allowlist: other tools have a `query` too. */
 const SEARCH_TOOLS = new Set<ToolName>([
   "system.search_tools" satisfies ToolName,
   "system.corpus_search" satisfies ToolName,
@@ -316,27 +252,18 @@ const SEARCH_TOOLS = new Set<ToolName>([
 ]);
 
 /**
- * What a search tool looked for, for the collapsed row's subline and the
- * panel's header.
- *
- * Reads the live args first and the result echo second, in that order, because
- * the two channels have different lifetimes: `argsPreview` rides the live
- * `chat.tool` event but is dropped when the turn is persisted, so after a
- * reload only a result that echoes its own query can still name it. Every tool
- * in {@link SEARCH_TOOLS} either echoes the query today or shows the subline
- * for the live turn alone — never a wrong query, only a missing one.
+ * Live args first, then the result echo.
+ * `argsPreview` is dropped on persist, so after reload only an echoed query survives.
  */
 export function searchQueryOf(tool: ToolCallView): string | undefined {
   if (!isToolName(tool.toolName) || !SEARCH_TOOLS.has(tool.toolName)) return undefined;
   const args = parseJsonRecord(tool.argsPreview);
   const result = parseJsonRecord(tool.resultPreview);
 
-  // `q` is Gmail's own operator-query parameter name; every other search tool
-  // names the field `query`.
+  // Gmail names it `q`.
   return asString(args?.query) ?? asString(args?.q) ?? asString(result?.query);
 }
 
-/** The service logo for a qualified tool name (`github.search` → GitHub). */
 function brandOfToolName(name: string | undefined): IntegrationBrand | undefined {
   if (!name) return undefined;
   const slug = name.includes(".") ? name.slice(0, name.indexOf(".")) : name;
@@ -345,10 +272,8 @@ function brandOfToolName(name: string | undefined): IntegrationBrand | undefined
 }
 
 /**
- * The service logo for a corpus hit's source. Exhaustive over `DocumentSource`
- * so a new ingest lane fails the typecheck here rather than quietly drawing a
- * blank chip next to its hits. `gmail_attachment` is a file that travelled on
- * a message, so it wears the Gmail mark like its carrier.
+ * Exhaustive over `DocumentSource`, so a new lane fails typecheck instead of a blank chip.
+ * `gmail_attachment` uses the Gmail mark.
  */
 const DOCUMENT_SOURCE_BRANDS = {
   gmail: "gmail",
@@ -357,11 +282,7 @@ const DOCUMENT_SOURCE_BRANDS = {
   sentry: "sentry",
 } satisfies Record<DocumentSource, IntegrationBrand>;
 
-/**
- * Read by plain string, not by a cast: `source` arrives off a best-effort
- * parsed preview, so an unknown lane must read as "no glyph" rather than be
- * asserted into the union.
- */
+/** Keyed by string: `source` comes from a parsed preview, so an unknown lane gets no glyph. */
 const DOCUMENT_SOURCE_BRAND_BY_KEY: ReadonlyMap<string, IntegrationBrand> = new Map(
   Object.entries(DOCUMENT_SOURCE_BRANDS),
 );
@@ -370,30 +291,20 @@ function brandOfDocumentSource(source: string | undefined): IntegrationBrand | u
   return source ? DOCUMENT_SOURCE_BRAND_BY_KEY.get(source) : undefined;
 }
 
-/**
- * A `record-list` spec: where the records live, and how to turn each one into
- * a display row. Kept declarative so a new read tool is a handful of lines —
- * the row builder reads only the fields it renders and tolerates missing ones.
- */
+/** A `record-list` spec: where the records live and how to build each row. */
 interface ListSpec {
   arrayKey: string;
-  /**
-   * The list-wide favicon. Omitted when the rows each carry their own glyph —
-   * a corpus or tool search spans several services, so no one domain is right
-   * for the whole list.
-   */
+  /** List-wide favicon. Omit it when rows span services. */
   faviconDomain?: string | undefined;
   row: (item: JsonRecord) => EvidenceRow | null;
-  /** Exact count beyond the shown rows (e.g. `totalCount − shown`). */
+  /** Exact count beyond the shown rows. */
   remaining?: ((result: JsonRecord, shown: number) => number | undefined) | undefined;
-  /** More exist, count unknown (a bare pagination flag). */
   hasMore?: ((result: JsonRecord) => boolean) | undefined;
 }
 
 const LIST_SPECS = new Map<ToolName, ListSpec>([
   [
-    // The corpus answers across every lane Alfred has ingested at once, so the
-    // list carries no single service: each hit wears its own source's mark.
+    // Hits come from every lane, so each wears its own source's mark.
     "system.corpus_search",
     {
       arrayKey: "hits",
@@ -407,8 +318,7 @@ const LIST_SPECS = new Map<ToolName, ListSpec>([
           key: asString(item.chunkId) ?? asString(item.documentId) ?? title,
           title,
           href: asString(item.url),
-          // The page number is the one fact the extractor proved and the model
-          // is forbidden to invent (ADR-0091), so show it where it was proved.
+          // The page number is proved by the extractor and never invented by the model (ADR-0091).
           meta: joinMeta(page ? `page ${page}` : undefined, ago(item.authoredAt)),
           brand: brandOfDocumentSource(asString(item.source)),
         };
@@ -416,9 +326,6 @@ const LIST_SPECS = new Map<ToolName, ListSpec>([
     },
   ],
   [
-    // The ladder's own first rung. Its result is the answer to "what can I do
-    // about this?", which is worth reading as a list of capabilities — the
-    // JSON dump it replaces held the same names behind four keys of scoring.
     "system.search_tools",
     {
       arrayKey: "candidates",
@@ -433,12 +340,9 @@ const LIST_SPECS = new Map<ToolName, ListSpec>([
           title: asString(item.title) ?? name,
           meta: name,
           brand: brandOfToolName(name),
-          // A `system.*` candidate belongs to no service, so it wears the same
-          // mark its own row in the trail would wear.
+          // A `system.*` tool has no service, so use its trail icon.
           icon: brandlessToolIcon(name),
-          // A surfaced tool Alfred cannot actually run is the one fact worth a
-          // pill here: it explains a search that "found" something and then
-          // did nothing with it.
+          // Explains a search that found a tool and then did nothing.
           badge: unavailable ? { label: "unavailable", tone: "amber" } : undefined,
         };
       },
@@ -471,9 +375,7 @@ const LIST_SPECS = new Map<ToolName, ListSpec>([
       arrayKey: "items",
       faviconDomain: INTEGRATIONS.github.domain,
       remaining: (result, shown) => {
-        // `totalCount` is the exact count the search reported; the preview
-        // holds only the first page, so the panel names the rest. A preview
-        // that lost the count (or predates the schema) yields no "+N".
+        // The preview has only the first page; `totalCount` gives the "+N". No count, no "+N".
         const parsed = githubSearchResultSchema.safeParse(result);
 
         if (!parsed.success) return undefined;
@@ -536,7 +438,7 @@ const LIST_SPECS = new Map<ToolName, ListSpec>([
 
         if (!title) return null;
         const start = asString(item.start);
-        // Google serializes an absent location as the literal string "null".
+        // Google sends an absent location as the string "null".
         const location = asString(item.location);
 
         return {
@@ -592,7 +494,6 @@ const LIST_SPECS = new Map<ToolName, ListSpec>([
   ],
 ]);
 
-/** GitHub PR/issue reads share a shape: title + state pill + a few facts. */
 function githubEntity(result: JsonRecord): EntityView | null {
   const title = asString(result.title);
 
@@ -618,7 +519,7 @@ function githubEntity(result: JsonRecord): EntityView | null {
   const changedFiles = asNumber(result.changedFiles);
 
   if (changedFiles !== undefined) facts.push({ label: "Files", value: String(changedFiles) });
-  // Issues carry a comment count + a body; PRs carry neither in the preview.
+  // PR previews have no comment count or body.
   const comments = asNumber(result.comments);
 
   if (comments !== undefined) facts.push({ label: "Comments", value: String(comments) });
@@ -641,8 +542,7 @@ const ENTITY_BUILDERS = new Map<ToolName, (result: JsonRecord) => EntityView | n
     "gmail.read_message",
     (result) => {
       const subject = asString(result.subject);
-      // Two shapes are persisted: newer reads put `from`/`to`/`snippet` at the
-      // top level; older ones nest them under `metadata`. Read both.
+      // Newer reads put `from`/`to`/`snippet` at the top level; older ones under `metadata`.
       const metadata = asRecord(result.metadata);
       const from = asString(result.from) ?? (metadata ? asString(metadata.from) : undefined);
       const to = asString(result.to) ?? (metadata ? asString(metadata.to) : undefined);
@@ -662,23 +562,16 @@ const ENTITY_BUILDERS = new Map<ToolName, (result: JsonRecord) => EntityView | n
         kind: "entity",
         faviconDomain: INTEGRATIONS.gmail.domain,
         title: subject ?? "(no subject)",
-        // `url` is frequently null for Gmail reads — render as a link-less card.
+        // Often null for Gmail reads.
         href: asString(result.url),
         facts,
-        // The nested shape carries a ready snippet; the flat shape only has the
-        // raw RFC822 `content`, so peel the header block off for a body peek.
         excerpt: snippet ?? emailBody(asString(result.content)),
       };
     },
   ],
 ]);
 
-/**
- * The panel shape for a non-browsing read tool: a list of records or a single
- * entity, or `null` when the tool has no evidence spec (keeps the JSON dump) or
- * its preview parsed to nothing useful. Best-effort throughout — a pruned or
- * odd-shaped preview simply yields fewer rows, never an error.
- */
+/** A record list or entity for a read tool. `null` keeps the JSON dump. */
 export function presentEvidence(tool: ToolCallView): RecordListView | EntityView | null {
   const result = parseJsonRecord(tool.resultPreview);
 

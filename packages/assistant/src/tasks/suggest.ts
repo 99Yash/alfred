@@ -12,24 +12,19 @@ import { and, eq, gte, inArray, or, sql } from "drizzle-orm";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
 
 /**
- * How far back a resolved (`done`/`dismissed`) todo still suppresses a
- * re-suggestion of the same identified source — an IDENTITY overlap, never a
- * bare Gmail transport `thread` (see {@link todoSourcesShareIdentityOverlap}).
- * Bounds the dedup scan and means a signal the user acted on once won't be
- * re-proposed for a month. Generous on purpose — re-suggesting closed work is
- * high-friction (ADR-0050; #139).
+ * A resolved todo blocks a re-suggestion of the same identity for this long (ADR-0050, #139).
+ * A shared Gmail `thread` alone does not count ({@link todoSourcesShareIdentityOverlap}).
  */
 const RESUGGEST_SUPPRESSION_WINDOW_DAYS = 30;
 
 export interface SuggestTodoInput {
   userId: string;
-  /** Agent run that proposed this todo (traceability). */
   agentRunId: string;
   name: string;
   description?: string | undefined;
-  /** Optional Alfred-authored tip; an honest "I can't act on this" when clueless. */
+  /** An honest "I can't act on this" is fine. */
   assist?: string | undefined;
-  /** Cross-source provenance refs. Drives the idempotency/merge guard. */
+  /** Drives the merge guard. */
   sources?: TodoSource[] | undefined;
 }
 
@@ -38,13 +33,7 @@ export type SuggestTodoResult =
   | { ok: true; status: "merged"; todoId: string; addedSources: number }
   | { ok: true; status: "suppressed"; todoId: string; reason: "done" | "dismissed" };
 
-/**
- * Structural dedup predicate: does a candidate todo's existing sources overlap
- * the incoming set by identity `(provider, kind, id)`? This is the exact guard
- * {@link suggestTodo}'s merge loop runs — exported and pure so it can be tested
- * directly (the DB transaction has no test harness), instead of a re-implemented
- * copy drifting from the real path. `url` is not part of identity.
- */
+/** True when any source matches by `(provider, kind, id)`; `url` is not identity. The guard {@link suggestTodo} runs. */
 export function todoSourcesOverlap(existing: TodoSource[], incoming: TodoSource[]): boolean {
   if (existing.length === 0 || incoming.length === 0) return false;
   const incomingKeys = new Set(incoming.map(todoSourceKey));
@@ -53,47 +42,24 @@ export function todoSourcesOverlap(existing: TodoSource[], incoming: TodoSource[
 }
 
 /**
- * Insert a `suggested` todo on behalf of an agent run (ADR-0050). The source-
- * agnostic write path for `system.suggest_todo`.
- *
- * **No HIL**: a suggestion has no real-world side effect, so it stays off the
- * `action_stagings` / approvals path; audit lives on the row (`agent_run_id`,
- * `created_by='agent'`, lifecycle dates).
- *
- * **Idempotent on source overlap**: if a live (`open`/`suggested`) todo already
- * references any incoming `(provider, kind, id)`, we merge the missing refs
- * into that row instead of creating a duplicate. This is the v1 cross-channel
- * dedup guard — the *structural* case (recognizable, shares an id). Semantic
- * dedup of independent same-topic signals is deferred.
- *
- * **No re-suggesting resolved work**: if the only overlap is a recently
- * `done`/`dismissed` todo that shares an IDENTITY-bearing ref with the incoming
- * set, we suppress rather than mint a fresh suggestion — re-proposing closed
- * work trains the user to distrust the rail (#139). The overlap must be on
- * identity, not transport: a Gmail `thread` id is reused by every ask in that
- * conversation, so a resolved todo reached only through it must not silence a
- * later, different ask (see {@link todoSourcesShareIdentityOverlap}). A live
- * overlap always wins over a resolved one (merge beats suppress).
+ * Insert a `suggested` todo for an agent run (ADR-0050). No approval: it has no side effect.
+ * If a live todo shares a source, merge the new refs into it instead.
+ * If only a recently resolved todo shares an identity ref, suppress (#139).
+ * A shared Gmail `thread` is not identity: one thread can carry many asks.
+ * A live overlap beats a resolved one.
  */
 export async function suggestTodo(input: SuggestTodoInput): Promise<SuggestTodoResult> {
-  // Voice boundary (contracts AGENTS.md: reach for sanitizeVoice before
-  // persisting/displaying a slug or prose). The cheap triage model and the
-  // `system.suggest_todo` tool both produce `name`/`assist` - sanitize once
-  // here so every writer (triage workflow + tool runtime) is covered and the
-  // rail's `SuggestionRow` never renders em dashes or double hyphens.
+  // Sanitize once here, so triage and the tool both get it.
   const name = sanitizeVoice(input.name.trim()).trim();
   const rawAssist = input.assist?.trim() ?? "";
   const assist = rawAssist ? sanitizeVoice(rawAssist).trim() : "";
   const normalizedAssist = assist.length > 0 ? assist : undefined;
 
-  // Bound the incoming set so neither a fresh insert nor a merge can push the
-  // row past the schema max the sync read path enforces (#355).
+  // Bound now so neither insert nor merge passes the sync schema max (#355).
   const sources = boundTodoSources(input.sources ?? []);
 
   const result = await db().transaction(async (tx) => {
-    // Dedup against live todos that carry at least one source. Single-user
-    // scale — load candidates and resolve overlap in JS rather than a jsonb
-    // containment query per incoming ref.
+    // Load candidates and match in JS; fine at single-user scale.
     if (sources.length > 0) {
       const lockKey = `todo:suggest:${input.userId}`;
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`);
@@ -110,8 +76,7 @@ export async function suggestTodo(input: SuggestTodoInput): Promise<SuggestTodoR
             eq(todos.userId, input.userId),
             or(
               inArray(todos.status, ["open", "suggested"]),
-              // Recently-resolved rows are dedup candidates too, so the same
-              // source isn't re-suggested after the user already handled it.
+              // Recently resolved rows too, so handled work is not re-suggested.
               and(
                 inArray(todos.status, ["done", "dismissed"]),
                 gte(todos.updatedAt, resolvedCutoff),
@@ -120,19 +85,14 @@ export async function suggestTodo(input: SuggestTodoInput): Promise<SuggestTodoR
           ),
         );
 
-      // Prefer a live overlap (merge) over a resolved one (suppress): a still-
-      // open item should accrue the new ref rather than be shadowed by a
-      // closed duplicate. So scan live candidates first.
+      // Live overlap first: an open item should take the new ref.
       const overlapping = candidates.filter((c) => todoSourcesOverlap(c.sources ?? [], sources));
       const live = overlapping.filter((c) => c.status === "open" || c.status === "suggested");
 
       const resolved = overlapping.filter(
         (c): c is typeof c & { status: "done" | "dismissed" } =>
           (c.status === "done" || c.status === "dismissed") &&
-          // Suppress only on loop identity. A resolved row reached only through
-          // the shared Gmail transport `thread` is not the same work: the
-          // thread may carry a fresh ask the user has not seen (the same-thread
-          // retraction's dismissed row must not bury it).
+          // Identity only: the same thread may carry a new ask the user has not seen.
           todoSourcesShareIdentityOverlap(c.sources ?? [], sources),
       );
 
@@ -141,15 +101,11 @@ export async function suggestTodo(input: SuggestTodoInput): Promise<SuggestTodoR
       if (liveMatch) {
         const existing = liveMatch.sources ?? [];
         const existingKeys = new Set(existing.map(todoSourceKey));
-        // Bound after merge: a high-frequency recurring loop merges onto this
-        // row via its `loop` ref, so the set would otherwise grow a fresh gmail
-        // `thread` ref per re-notification and eventually break sync (#355).
+        // A recurring loop merges here and adds a `thread` ref each time; bound it (#355).
         const merged = boundTodoSources(mergeTodoSources(existing, sources));
         const addedSources = merged.filter((ref) => !existingKeys.has(todoSourceKey(ref))).length;
 
-        // Persist on ANY content change, not just growth: bounding can evict an
-        // old thread while adding the newest one (length unchanged), and that
-        // newest ref is what the reverse auto-dismiss linkage needs.
+        // Bounding can swap an old thread for the newest at the same length, so compare content.
         const changed =
           merged.length !== existing.length ||
           merged.some((ref) => !existingKeys.has(todoSourceKey(ref)));
@@ -196,8 +152,7 @@ export async function suggestTodo(input: SuggestTodoInput): Promise<SuggestTodoR
     return { status: "created" as const, todoId: row.id };
   });
 
-  // Poke AFTER commit so the client's pull sees the write (events contract).
-  // A suppressed suggestion wrote nothing, so there's nothing new to sync.
+  // Poke after commit. A suppression wrote nothing.
   if (result.status !== "suppressed") emitReplicachePokes([input.userId]);
 
   switch (result.status) {

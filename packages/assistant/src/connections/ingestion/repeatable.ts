@@ -2,37 +2,14 @@ import { GMAIL_POLL_SWEEP_INTERVAL_MS } from "./gmail-delivery-policy";
 import { getIngestionQueue, type IngestionJobData } from "./queue";
 
 /**
- * Boot-time registration for the m7c repeatable jobs:
- *
- *   - gmail.poll_sweep   every GMAIL_POLL_SWEEP_INTERVAL_MS (5 minutes) —
- *                        polls every active Gmail cursor. Backstop for Pub/Sub gaps +
- *                        the "watch channel never installed" case.
- *   - gmail.watch_renew  every 6 hours — replaces watch channels
- *                        nearing their ~7-day expiry. Daily would be
- *                        fine, but 6h means a single failed run still
- *                        leaves margin to retry before expiry.
- *   - gmail.embed_sweep  every 10 minutes — indexes chunkless Gmail and
- *                        inbound receipt documents. Also projects older
- *                        inbound receipts that have no corpus document.
- *   - user_model.gmail_kind_refold_sweep  daily — fans out a Gmail
- *                        kind-projection refold to every user with an
- *                        ACTIVE projection (#218 PR J). Backstop for
- *                        missed live-capture refolds / out-of-band
- *                        backfills; each per-user refold passes the
- *                        frozen-logic gate before it activates.
- *   - ingress.health_sweep  every 6 hours — pulls each event source's own
- *                        delivery health and emails the user about one that
- *                        stopped delivering (ADR-0100). A broken source sends
- *                        nothing, so no push signal exists and only a schedule
- *                        can notice. Six hours, not daily: the email is rate
- *                        limited to one per source per week, so the interval
- *                        only bounds how long a break stays unreported, and a
- *                        single failed run still has three more before the day
- *                        is out.
- *
- * Idempotent: `upsertJobScheduler` keys by id, so calling this on every
- * server boot doesn't duplicate schedules. The schedulers survive
- * restarts in Redis.
+ * Register the repeatable ingestion jobs at boot. Idempotent: `upsertJobScheduler` keys by id.
+ * - `gmail.poll_sweep`: backstop for missed Pub/Sub pushes and missing watches.
+ * - `gmail.watch_renew` every 6h: watches expire after about 7 days; 6h leaves room for a failed
+ *   run.
+ * - `gmail.embed_sweep`: index chunkless docs and project older receipts with no document.
+ * - `ingress.health_sweep` every 6h: a broken source sends nothing, so only a schedule notices
+ *   (ADR-0100).
+ * - `user_model.gmail_kind_refold_sweep` daily: backstop for missed live refolds.
  */
 export async function scheduleRepeatableIngestionJobs(): Promise<void> {
   const queue = getIngestionQueue();

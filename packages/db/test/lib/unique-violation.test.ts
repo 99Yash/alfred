@@ -4,13 +4,8 @@ import { describe, test } from "node:test";
 import { isUniqueViolation, uniqueViolationConstraint } from "@alfred/db/pg-errors";
 
 /**
- * `isUniqueViolation` must recognize a Postgres 23505 even when Drizzle has
- * wrapped it. Drizzle wraps every driver error in a `DrizzleQueryError` whose
- * own `.code` is undefined; the node-postgres `DatabaseError` (which carries
- * `code: "23505"`) sits on `.cause`. The old top-level-only check returned
- * false for the wrapped error, so the chat-turn double-submit dedup catch
- * fell through to `throw err` → a 500 on the losing concurrent request instead
- * of returning the in-flight run. These lock the cause-chain walk.
+ * Drizzle wraps the pg error, whose `code: "23505"` sits on `.cause`.
+ * A top-level-only check made the losing double-submit request return a 500.
  */
 describe("isUniqueViolation", () => {
   test("recognizes a raw pg unique violation (code at top level)", () => {
@@ -47,12 +42,7 @@ describe("isUniqueViolation", () => {
   });
 });
 
-/**
- * `uniqueViolationConstraint` lets the chat turn start tell WHICH partial unique
- * index a 23505 tripped — the per-thread active-run index ("thread busy") vs.
- * the userMessageId dedup index (double-submit recovery) (#488). node-postgres
- * carries the index name on `.constraint`, one level down the wrapped chain.
- */
+/** Tells "thread busy" from double-submit by the index on `.constraint`, one level down (#488). */
 describe("uniqueViolationConstraint", () => {
   test("returns the constraint name from a raw pg unique violation", () => {
     assert.equal(

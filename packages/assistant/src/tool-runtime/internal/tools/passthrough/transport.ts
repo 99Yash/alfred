@@ -1,16 +1,8 @@
 import { isIndexable, type TransportErrorKind } from "@alfred/contracts";
 
 /**
- * Classify a thrown fetch error into a {@link TransportErrorKind} for the honest
- * passthrough envelope. A transport failure means the request left Alfred but no
- * HTTP response arrived — distinct from a 4xx/5xx (which IS a response and rides
- * the `http` outcome). Kept pure and dependency-free so every provider adapter
- * classifies identically.
- *
- * `fetch` (undici) surfaces the cause as `err.cause.code`; `AbortSignal.timeout`
- * throws a `TimeoutError`/`AbortError` by name. Anything unrecognized is treated
- * as a connection reset (retryable-once), which is the safe default for a
- * transient network blip.
+ * Classify a thrown fetch error. undici puts the code on `err.cause.code`;
+ * `AbortSignal.timeout` throws by name. Anything unknown is a retryable connection reset.
  */
 export function classifyTransportError(err: unknown): TransportErrorKind {
   const name = errorName(err);
@@ -48,12 +40,8 @@ function errorName(err: unknown): string | null {
 }
 
 /**
- * Reach the undici cause code (`err.cause.code`), or a top-level `code`. A real
- * `fetch` failure is a `TypeError` instance whose `.cause` is a system `Error`,
- * so this MUST use {@link isIndexable}, not `isRecord` — `isRecord` rejects class
- * instances (and any `.cause` that is an Error), which would collapse every DNS /
- * TLS / reset failure into the `connection_reset` default and defeat the whole
- * classifier.
+ * Uses {@link isIndexable}, not `isRecord`: `isRecord` rejects Error instances,
+ * which would turn every failure into `connection_reset`.
  */
 function transportCode(err: unknown): string | null {
   const top = readStringField(err, "code");
@@ -69,7 +57,6 @@ function transportCode(err: unknown): string | null {
   return null;
 }
 
-/** Read a string-valued field off any runtime object (a caught error), or null. */
 function readStringField(value: unknown, field: string): string | null {
   if (!isIndexable(value)) return null;
   const read = Reflect.get(value, field);

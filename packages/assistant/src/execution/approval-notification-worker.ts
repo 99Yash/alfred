@@ -1,15 +1,4 @@
-/**
- * Approval notification worker (m13 Phase 5e / ADR-0034) — worker side.
- *
- * When a debounced `staging-notify:<id>` job fires, re-read the row; if it is
- * still `pending` and not yet notified, render the approval email and hand it to
- * `delivery.send`, then stamp `notified_at` and poke Replicache. A failed send
- * throws so BullMQ retries and the row stays `pending`.
- *
- * Lives in `agent/` (execution) because it imports `../delivery` (the sender);
- * the scheduling helpers stay in `tool-runtime` (a sink), so the dispatcher can
- * schedule the notification without forming an import cycle.
- */
+/** Approval notification worker (ADR-0034). Scheduling lives in `tool-runtime`. */
 
 import {
   humanizeSlug,
@@ -69,23 +58,13 @@ export async function stopApprovalNotificationWorker(): Promise<void> {
   _worker = undefined;
 }
 
-/**
- * The outcome of one approval notification job. A failed send throws for a
- * BullMQ retry instead of returning, so `sent`/`duplicate` are the only send
- * outcomes a caller ever sees. `reason` stays `string` because a `skipped`
- * row reports whatever non-pending status it holds.
- */
+/** A failed send throws so BullMQ retries; it is never returned. */
 export type ApprovalNotificationResult =
   | { status: "missing"; stagingId: string }
   | { status: "skipped"; reason: string; stagingId: string }
   | { status: "sent" | "duplicate"; stagingId: string; emailSendId: string };
 
-/**
- * One worker, two job shapes (#561): the legacy approval job (`{stagingId,
- * userId}`, no `kind`) and the workflow-blocked job (`kind: "workflow_blocked"`).
- * Parse the union once here and branch; each branch owns its own re-read,
- * render, send, and stamp.
- */
+/** Two job shapes (#561): an approval job with no `kind`, and `kind: "workflow_blocked"`. */
 async function processNotificationJob(
   job: Job<NotificationJobData>,
 ): Promise<ApprovalNotificationResult | WorkflowBlockedNotificationResult> {
@@ -113,8 +92,6 @@ async function processApprovalNotificationJob({
       integration: actionStagings.integration,
       riskTier: actionStagings.riskTier,
       proposedInput: actionStagings.proposedInput,
-      // #374: the display-safe projection. Null only on rows staged before the
-      // column existed; those fall back to `proposed_input` below.
       displayInput: actionStagings.displayInput,
       status: actionStagings.status,
       notifiedAt: actionStagings.notifiedAt,
@@ -133,10 +110,8 @@ async function processApprovalNotificationJob({
 
   if (row.notifiedAt) return { status: "skipped", reason: "already_notified", stagingId };
 
-  // #374: render the email and persist the payload from the redacted display
-  // projection, never raw `proposed_input` — a gated tool's staging row holds
-  // the resume payload verbatim, and that must not reach a notification sink.
-  // The fallback covers only pre-column legacy rows (removed by 0107 backfill).
+  // Use the redacted `display_input`, never the raw payload (#374). The fallback is for legacy
+  // rows.
   const displayInput = jsonValueSchema.parse(row.displayInput ?? row.proposedInput);
   const approvalUrl = approvalDeepLink(stagingId);
 
@@ -172,11 +147,7 @@ async function processApprovalNotificationJob({
     },
   });
 
-  // A failed send must NOT stamp notified_at (the guard on line 143 would then
-  // block every future attempt) and must NOT complete the job green — throw so
-  // BullMQ retries. notify() returns 'failed' instead of throwing, so re-raise
-  // it here; the staging row stays 'pending' and the in-app /approvals fallback
-  // is unaffected.
+  // Throw so BullMQ retries. A stamped `notified_at` would block every later attempt.
   if (result.status === "failed") {
     throw new Error(
       `[approval-notification] send failed for staging ${stagingId}: ${result.error}`,
@@ -222,16 +193,13 @@ async function renderApprovalNotification(args: RenderApprovalNotificationArgs):
   html: string;
   text: string;
 }> {
-  // A question is an approval with a different card (ADR-0099): the same row,
-  // the same email door, but the copy asks for an answer, not a decision, and
-  // a risk prefix on a question would mislead.
+  // A question asks for an answer, not a decision, so it gets no risk prefix (ADR-0099).
   const isQuestion = isQuestionApproval(args.toolName);
   const action = humanizeToolName(args.toolName);
   const heading = isQuestion ? "Alfred has a question for you" : `Alfred wants to ${action}`;
   const subject = isQuestion ? heading : `[${args.riskTier}] ${heading}`;
   const inputFields = summarizeInput(args.displayInput);
 
-  // Workflow / Tool / Risk lead the table, then the summarized input fields.
   const fields: ApprovalEmailField[] = [
     { label: "Workflow", value: args.workflowSlug },
     { label: "Tool", value: args.toolName },

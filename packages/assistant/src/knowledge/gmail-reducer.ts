@@ -164,13 +164,7 @@ function headersFromRaw(raw: unknown): HeaderLookup {
   return headersFromList(getPath(raw, "payload", "headers"));
 }
 
-/**
- * The list/bulk header signals of ONE Gmail message, from its raw
- * `payload.headers` array (persisted data, so `unknown`). The team-graph
- * writer reads it to stamp a contact's list-header evidence (#1198); taking
- * the array rather than the whole raw message lets a scan select only
- * `raw->'payload'->'headers'` instead of every message body.
- */
+/** List/bulk signals from a raw `payload.headers` array, so a scan never loads bodies (#1198). */
 export function gmailPayloadSignalsFromHeaders(headers: unknown): GmailPayloadSignals {
   const lookup = headersFromList(headers);
 
@@ -204,9 +198,7 @@ function headerOrMetadata(
   metadata: GmailDocumentMetadata,
   name: "from" | "to" | "cc" | "bcc",
 ): string | null {
-  // `bcc` is not a parser-owned metadata field, so it is read as an unknown
-  // legacy key (no writer persists it; `looseObject` would preserve one);
-  // `from`/`to`/`cc` index the typed metadata directly.
+  // `bcc` is not a typed metadata field; no writer persists it.
   if (name === "bcc") return headers.get(name) ?? getStringPath(metadata, name) ?? null;
 
   return headers.get(name) ?? normalizeHeader(metadata[name]);

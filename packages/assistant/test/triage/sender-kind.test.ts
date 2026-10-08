@@ -160,11 +160,7 @@ test("senderExtractionEvent records the sender-kind demotion breadcrumb", () => 
 });
 
 test("senderExtractionEvent carries each floor's real outcome", () => {
-  // Fed the FOLD's own output rather than a hand-built audit: the projections
-  // are the seam between `applyFloors` and the persisted row, so the test that
-  // guards them should cross it. Two runs on the same recap subject, one with a
-  // leaked secret in the body — the same input reaches the record through two
-  // floors whose fields share no naming convention.
+  // Use the fold's real output, not a hand-built audit, so the test crosses the projection seam.
   const recap = { subject: "Meeting notes: Eng standup", effectiveAuthor: "person" as const };
 
   const escalated = eventFor(
@@ -178,8 +174,7 @@ test("senderExtractionEvent carries each floor's real outcome", () => {
   assert.equal(escalated.floorMatched, true);
   assert.equal(escalated.floorForced, true);
   assert.equal(escalated.finalCategory, "urgent");
-  // The override floor moved the category off `meeting` before the gate saw it,
-  // so the meeting floor reports its own "did not fire" — a REPORT, not a gap.
+  // Override moved the category off `meeting` first, so the meeting floor reports "did not fire".
   assert.equal(escalated.meetingDemotedCategory, false);
   assert.equal(escalated.meetingDemotionReason, null);
   assert.equal(escalated.senderKindDemotedCategory, false);
@@ -195,9 +190,7 @@ test("senderExtractionEvent carries each floor's real outcome", () => {
 });
 
 test("senderExtractionEvent still reports every floor on the audit-less path", () => {
-  // The fallback/default classification runs no floors at all. The record keeps
-  // the same keys — an absent field and a floor that did not fire must not look
-  // alike to the over-tag audits.
+  // The fallback runs no floors but keeps the same keys. Audits must tell "absent" from "did not fire".
   const event = senderExtractionEvent({
     senderContextResult: senderContextResult(),
     observations: observations(),

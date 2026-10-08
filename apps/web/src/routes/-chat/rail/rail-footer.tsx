@@ -16,17 +16,8 @@ const CTA_CLASS = cn(
 );
 
 /**
- * Rail footer CTA (ADR-0049). Three states:
- *
- *   - **Latest.** A composed briefing exists for today — shows its slot +
- *     when it ran ("Evening · 8:42 AM") and deep-links to that day's detail
- *     (`/briefings/{date}`).
- *   - **Composing.** A manual run is queued/in flight — reads "Composing
- *     briefing" with a spinner; disabled until the chip flips to Latest.
- *   - **Empty.** No briefing today. With `onGenerate` (the live chat shell),
- *     it's a "Generate briefing" button that triggers an on-demand run.
- *     Without it (the preview route), it links to the briefings timeline so
- *     the rail's bottom anchor stays consistent.
+ * Rail footer briefing button (ADR-0049): latest (links to `/briefings/{date}`), composing, or empty.
+ * Empty shows "Generate briefing" with `onGenerate`, else a link to the timeline.
  */
 export function RailFooter({
   latestBriefing,
@@ -37,8 +28,6 @@ export function RailFooter({
   onGenerate?: (() => void) | undefined;
   pending?: boolean | undefined;
 }) {
-  // Title tracks the latest briefing's slot ("Evening briefing"); the empty
-  // state offers to generate, the in-flight state reports progress.
   const title = latestBriefing
     ? `${capitalize(latestBriefing.slot)} briefing`
     : pending
@@ -102,11 +91,7 @@ export function RailFooter({
   );
 }
 
-/**
- * Pick the most useful subtitle for the CTA. Same-day briefings get a
- * time ("Morning · 8:42 AM"), older ones get a date ("Morning · May 22").
- * Slot is capitalized for headline weight.
- */
+/** Today gets a time ("Morning · 8:42 AM"); older days get a date ("Morning · May 22"). */
 function formatBriefingSubtitle(b: RailBriefingSummary): string {
   const slot = capitalize(b.slot);
   const ran = new Date(b.runAt);

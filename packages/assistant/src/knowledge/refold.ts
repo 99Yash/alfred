@@ -31,37 +31,14 @@ import {
 import { userModelReader } from "./reader";
 
 /**
- * Re-project the active Gmail kind-only user-model over the latest observations
- * and (when safe) auto-activate the refresh. Called from two places on the
- * ingestion queue:
+ * Re-fold the active Gmail kind projection over new observations and, when safe,
+ * activate it. Runs per user after live capture and from the scheduled sweep.
  *
- *   - live capture (`user_model.gmail_kind_refold`, per-user) after new Gmail
- *     observations are appended;
- *   - the scheduled sweep (`user_model.gmail_kind_refold_sweep`, #218 PR J),
- *     which fans out to every user with an active projection.
- *
- * INVARIANT: a scheduled/event refold auto-activates ONLY when the classifier
- * logic is frozen relative to what was manually activated. "First activation is
- * manual" (see the activation runbook) — this path never activates the FIRST
- * projection (no active pointer → no-op) and never silently activates a CHANGED
- * classifier output.
- *
- * The frozen-logic gate recomputes the fold at the ACTIVE run's own Gmail
- * high-watermark (the exact input it consumed) and compares to the active run's
- * stored checksum. If the current code no longer reproduces that checksum, the
- * classifier output has drifted since activation (a logic change, or — the gate
- * can't tell them apart, and shouldn't — non-determinism): the refold is BLOCKED
- * rather than activated, and a human must re-validate + re-activate via the
- * script. Only once the gate confirms frozen logic do we fold the (possibly
- * advanced) current prefix into a new version and activate it.
- *
- * The recompute persists nothing (it runs inside a rolled-back transaction), so
- * a blocked or up-to-date run leaves the active projection untouched.
- *
- * Known safe-fail: the excluded-self-email set is recomputed each run, so
- * connecting/disconnecting a Google account changes the fold input and can trip
- * the drift gate even with frozen logic. That fails CLOSED (blocks
- * auto-activation, needs a manual re-activation) — the safe direction.
+ * Auto-activation needs frozen logic: the fold is recomputed at the active run's
+ * own watermark, inside a rolled-back transaction, and must match its stored
+ * checksum. A mismatch blocks, and a human re-activates. This path never makes the
+ * first activation. Adding or removing a Google account also changes the input and
+ * blocks; that fails closed.
  */
 export type RefoldGmailKindProjectionResult =
   | { readonly status: "skipped"; readonly reason: GmailKindRefoldSkippedReason }
@@ -106,11 +83,9 @@ export async function refoldActiveGmailKindProjection(
   requireEntityIdNamespace();
   const excludeEmailValues = await gmailProjectionExcludedEmails(userId);
 
-  // Frozen-logic gate (#218 PR J): verify the current fold code still reproduces
-  // the active run's checksum at the active run's input before auto-activating.
+  // Frozen-logic gate: the current code must reproduce the active checksum first.
   if (!activeChecksum || !activeGmailWatermark || !hasGmailAppendSnapshot(activeGmailWatermark)) {
-    // A malformed/legacy active run we can't verify. Fail closed rather than
-    // auto-activate a fresh fold on an unverifiable base.
+    // A legacy or malformed active run cannot be verified. Fail closed.
     console.warn(
       `[user-model.refold] BLOCKED user=${userId} reason=unverifiable-active-run ` +
         `(active run ${active.activeRunId} missing checksum/watermark/append-snapshot) — ` +
@@ -143,14 +118,13 @@ export async function refoldActiveGmailKindProjection(
     sameGmailEventWatermark(activeGmailWatermark, gmailCursor) &&
     !(await hasGmailObservationsAfterAppendSnapshot(userId, activeGmailWatermark))
   ) {
-    // Frozen logic AND no new observations since activation — already current.
+    // Frozen logic and no new observations.
     console.log(`[user-model.refold] skip user=${userId} reason=up-to-date`);
 
     return { status: "skipped", reason: "up-to-date" };
   }
 
-  // Frozen logic + new observations: fold the advanced prefix into a fresh
-  // version and activate it.
+  // Frozen logic and new observations: fold into a new version and activate.
   const projectionVersion = active.activeVersion + 1;
 
   const completed = await db().transaction(async (tx) => {
@@ -231,10 +205,8 @@ export async function refoldActiveGmailKindProjection(
 }
 
 /**
- * Rolled-back recompute of the Gmail kind checksum at a given watermark. Reuses
- * the active run's (version, run id) so the upsert targets the active run's own
- * profile rows, then throws to roll the whole transaction back — the DB is left
- * exactly as it was; only the deterministic checksum is returned.
+ * Thrown to roll back the checksum recompute. It reuses the active run's ids, so
+ * the upsert hits that run's own rows, and the DB ends unchanged.
  */
 class RefoldChecksumProbe extends Error {
   readonly checksum: string;

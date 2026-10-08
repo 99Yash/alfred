@@ -14,12 +14,7 @@ import { cn } from "~/lib/utils";
 import { useMentionConnections } from "./mention-connection";
 import { filterMentionOptions, getMentionOption, type MentionOption } from "./mention-options";
 
-/**
- * Approximates Tiptap's `editor.isEmpty` against a serialized initial doc so
- * we can seed local empty state without waiting for the editor to mount. The
- * empty-paragraph special case mirrors Tiptap's default representation of an
- * empty document.
- */
+/** Like Tiptap's `editor.isEmpty`, for the initial doc before the editor mounts. */
 function isInitialContentEmpty(initialJSON?: JSONContent): boolean {
   if (!initialJSON) return true;
   const content = initialJSON.content;
@@ -35,33 +30,27 @@ function isInitialContentEmpty(initialJSON?: JSONContent): boolean {
   return false;
 }
 
-/**
- * True on touch/pen primary-input devices. Used to switch Enter from
- * send-message (desktop) to insert-newline (mobile), where there's no reliable
- * Shift+Enter and the on-screen return key is expected to add a line.
- */
+/** Touch or pen input: Enter inserts a newline there, since Shift+Enter is unreliable. */
 function isCoarsePointer(): boolean {
   return typeof window !== "undefined" && Boolean(window.matchMedia?.("(pointer: coarse)").matches);
 }
 
 export interface SuggestionRenderState {
   query: string;
-  /** Commits the picked option as a mention node and closes the popup. */
+  /** Insert the option as a mention node and close the popup. */
   command: (item: MentionOption) => void;
-  /** Removes the `@<query>` trigger range — used to dismiss on Esc / outside click. */
+  /** Remove the `@<query>` range, to dismiss on Esc or outside click. */
   dismiss: () => void;
 }
 
 export interface TiptapComposerHandle {
-  /** Focus the editor at the end of content. */
   focusEnd: () => void;
-  /** Insert a printable character at the caret. Used by type-anywhere autofocus. */
+  /** Insert a character at the caret, for type-anywhere. */
   insertText: (text: string) => void;
-  /** Insert `@` (with a leading space if needed) to open the mention palette. */
+  /** Insert `@`, with a leading space if needed, to open the palette. */
   insertAtTrigger: () => void;
-  /** Wipe content. */
   clear: () => void;
-  /** True when the document is effectively empty (no text, no mentions). */
+  /** No text and no mentions. */
   isEmpty: () => boolean;
 }
 
@@ -73,30 +62,19 @@ interface TiptapComposerProps {
   disabled?: boolean | undefined;
   onChange: (text: string, json: JSONContent, isEmpty: boolean) => void;
   onSubmit: () => void;
-  /** Suggestion lifecycle (start / update / exit). The parent renders its own palette UI. */
+  /** Suggestion lifecycle. The parent renders the palette. */
   onSuggestionChange: (state: SuggestionRenderState | null) => void;
-  /** Keyboard handler invoked while the suggestion is active. Return `true` to consume the key. */
+  /** Key handler while a suggestion is active. Return `true` to consume the key. */
   suggestionKeyDownRef: React.MutableRefObject<((event: KeyboardEvent) => boolean) | null>;
-  /**
-   * Ghost text — a suggested next prompt rendered dimmed inside the empty
-   * editor. Tab accepts it (fills the doc and fires `onGhostAccept`); Escape
-   * fires `onGhostDismiss`. Only shown while the document is empty.
-   */
+  /** Dimmed suggested prompt in the empty editor. Tab accepts; Escape dismisses. */
   ghostText?: string | undefined;
   onGhostAccept?: (() => void) | undefined;
   onGhostDismiss?: (() => void) | undefined;
 }
 
 /**
- * Composer editor backed by Tiptap. Mention chips render as inline-block nodes
- * with a brand glyph + label — the layout impact is fine here (unlike the
- * textarea+mirror approach) because Tiptap manages caret position inside a
- * contenteditable, not a parallel native input.
- *
- * The suggestion plugin's render lifecycle is bridged to React state via the
- * `onSuggestionChange` callback; the parent renders its own palette UI rather
- * than the default tippy popup. Suggestion key handling is bridged via a ref
- * to avoid recreating the editor on every render.
+ * Tiptap composer. The suggestion plugin reports through `onSuggestionChange`; the parent renders the palette.
+ * Key handling goes through a ref, so the editor is not recreated each render.
  */
 export function TiptapComposer({
   ref,
@@ -112,11 +90,7 @@ export function TiptapComposer({
   onGhostAccept,
   onGhostDismiss,
 }: TiptapComposerProps) {
-  // Stable refs so the closures captured by Tiptap's extension config don't
-  // need to be recreated on every parent render. The refs are mirrored from
-  // the latest props in an effect below (not during render — a render-phase
-  // ref write can leak if React discards the render); Tiptap's callbacks only
-  // read them post-commit, so the timing is equivalent.
+  // Refs keep Tiptap's closures stable. An effect syncs them; a render-phase write can leak from a discarded render.
   const onChangeRef = useRef(onChange);
   const onSubmitRef = useRef(onSubmit);
   const onSuggestionChangeRef = useRef(onSuggestionChange);
@@ -124,8 +98,7 @@ export function TiptapComposer({
   const ghostTextRef = useRef(ghostText);
   const onGhostAcceptRef = useRef(onGhostAccept);
   const onGhostDismissRef = useRef(onGhostDismiss);
-  // Tracks whether the suggestion popup is open — used to skip Enter-submit
-  // when the user is picking a mention.
+  // Skip Enter-submit while picking a mention.
   const suggestionOpenRef = useRef(false);
   useEffect(() => {
     onChangeRef.current = onChange;
@@ -155,15 +128,13 @@ export function TiptapComposer({
           return ReactNodeViewRenderer(MentionChipNodeView);
         },
       }).configure({
-        // `@<label>` round-trips through `editor.getText()` so plain-text
-        // submission still carries the mention.
+        // So `editor.getText()` keeps the mention.
         renderText({ node }) {
           const label = node.attrs.label ?? node.attrs.id ?? "";
 
           return `@${label}`;
         },
-        // Backspace immediately before a chip deletes the whole chip (default
-        // behavior keeps the `@` floating around).
+        // Backspace before a chip deletes all of it, not just to a stray `@`.
         deleteTriggerWithBackspace: true,
         HTMLAttributes: {
           class: "tiptap-mention-chip",
@@ -206,10 +177,7 @@ export function TiptapComposer({
     editable: !disabled,
     editorProps: {
       attributes: {
-        // ProseMirror's contenteditable is a generic element by default, where
-        // `aria-label` is a prohibited attribute (axe `aria-prohibited-attr`).
-        // `role="textbox"` + `aria-multiline` make it a named, multiline input
-        // so the label is valid and AT announces it as a text field.
+        // `aria-label` is prohibited on a generic element; `role="textbox"` makes it valid.
         role: "textbox",
         "aria-multiline": "true",
         "aria-label": "Message",
@@ -217,9 +185,7 @@ export function TiptapComposer({
           "tiptap tiptap-minimum-input composer-editor",
           "wrap-break-word whitespace-pre-wrap outline-none",
           "max-h-64 min-h-[64px] overflow-y-auto px-3 pt-2 pb-1.5",
-          // Dissolve overflowing content into the top/bottom edges instead of a
-          // hard clip. The fade sits within the pt-2/pb-1.5 padding, so at rest
-          // the text is untouched; only content scrolled under the padding fades.
+          // Fade content scrolled under the padding instead of a hard clip.
           "[mask-image:linear-gradient(to_bottom,transparent,#000_10px,#000_calc(100%_-_8px),transparent)]",
           "[-webkit-mask-image:linear-gradient(to_bottom,transparent,#000_10px,#000_calc(100%_-_8px),transparent)]",
           "text-[15px] leading-7 font-medium tracking-tight text-app-fg-4",
@@ -230,15 +196,11 @@ export function TiptapComposer({
       handleKeyDown: (view, event) => {
         if (disabledRef.current) return true;
 
-        // Suggestion popup handles its own keys via the suggestion plugin's
-        // onKeyDown above. Only step in when it's closed.
+        // The suggestion plugin handles its own keys.
         if (suggestionOpenRef.current) return false;
 
         if (event.key === "Enter" && !event.shiftKey) {
-          // Touch devices have no reliable Shift+Enter, and their return key
-          // should behave like every mobile chat app: insert a newline (falls
-          // through to ProseMirror's default) and reserve sending for the Send
-          // button. Desktop keeps Enter-to-send.
+          // Touch: Enter inserts a newline, as in mobile chat apps. Send uses the button.
           if (isCoarsePointer()) return false;
           event.preventDefault();
           onSubmitRef.current();
@@ -246,10 +208,7 @@ export function TiptapComposer({
           return true;
         }
 
-        // Ghost text (only live while the doc is empty): Tab accepts the
-        // suggested prompt into the editor; Escape dismisses it for this turn.
-        // `editor` is safely referenced from this deferred closure — keydowns
-        // only fire after `useEditor` has assigned it.
+        // Ghost text, only while empty. `editor` is set before any keydown fires.
         const ghostActive = Boolean(ghostTextRef.current) && (editor?.isEmpty ?? false);
 
         if (ghostActive && event.key === "Tab") {
@@ -271,8 +230,7 @@ export function TiptapComposer({
             return true;
           }
 
-          // Blur so global shortcuts (⌘K etc.) route correctly without
-          // wrestling for focus.
+          // Blur so global shortcuts (⌘K) get the keys.
           if (view.dom instanceof HTMLElement) view.dom.blur();
 
           return false;
@@ -304,9 +262,7 @@ export function TiptapComposer({
       },
       insertAtTrigger: () => {
         if (!editor || disabledRef.current) return;
-        // Inspect the char immediately before the cursor — if it's not
-        // whitespace or document-start, prepend a space so the `@` opens
-        // the palette (suggestion's `allowedPrefixes` defaults to [' ']).
+        // Suggestion's `allowedPrefixes` defaults to [' '], so the `@` needs a space or doc start before it.
         const { from } = editor.state.selection;
         const prev = from > 1 ? editor.state.doc.textBetween(from - 1, from, "\n", "\n") : "";
         const needsSpace = prev !== "" && prev !== " " && prev !== "\n";
@@ -331,7 +287,6 @@ export function TiptapComposer({
         <span
           aria-hidden
           className={cn(
-            // Same first-line position as the placeholder overlay below.
             "pointer-events-none absolute inset-x-3 top-2",
             "flex items-center gap-1.5",
             "text-[15px] leading-7 font-medium tracking-tight text-app-fg-2",
@@ -355,13 +310,9 @@ export function TiptapComposer({
           aria-hidden
           data-visible={isEmpty && !ghostVisible}
           className={cn(
-            // Match the editor's first-line position (px-3 pt-2 from
-            // composer-editor) so the overlay sits exactly where the cursor
-            // starts. text-app-fg-2 keeps it readable in both themes.
+            // Matches the editor's first-line position (px-3 pt-2).
             "pointer-events-none absolute top-2 left-3",
             "text-[15px] leading-7 font-medium tracking-tight text-app-fg-2",
-            // Stardust transition — fades + slides + blurs out as the editor
-            // fills. Spring-ish ease for a soft landing.
             "transition-[opacity,filter,transform] duration-300 ease-out",
             "data-[visible=true]:blur-0 data-[visible=true]:translate-x-0 data-[visible=true]:opacity-100",
             "data-[visible=false]:translate-x-7 data-[visible=false]:opacity-0 data-[visible=false]:blur-sm",
@@ -375,16 +326,8 @@ export function TiptapComposer({
 }
 
 /**
- * Inline chip rendered for each mention node. Built as an `inline-block` pill
- * with a brand glyph + label so it matches Dimension's chat composer parity —
- * the layout shift the textarea+mirror version couldn't tolerate is fine here
- * because Tiptap manages the caret inside a contenteditable, not a parallel
- * native input.
- *
- * A chip can outlive its integration's connection (disconnect after insert,
- * or a draft synced before a revoke). The palette refuses to mint such chips,
- * so any that exist get the quiet dimmed treatment plus a native tooltip —
- * honest signal without turning the composer into a wall of warnings.
+ * Mention chip: an inline-block pill with glyph and label.
+ * A chip can outlive its connection (disconnect after insert); then it dims and gets a tooltip.
  */
 function MentionChipNodeView({ node }: NodeViewProps) {
   const id: string = node.attrs.id ?? "";
@@ -400,9 +343,6 @@ function MentionChipNodeView({ node }: NodeViewProps) {
       data-mention={id}
       title={disconnected ? `@${label} is not connected` : undefined}
       className={cn(
-        // Pristine pill: neutral subtle lift, brand identity carried by the
-        // glyph rather than a saturated bg. Hairline inset ring defines the
-        // edge without weight.
         "inline-flex items-center gap-[3px] align-baseline",
         "mx-px rounded-[6px] px-1.5 py-px",
         "bg-app-bg-a2 font-medium text-app-fg-4",

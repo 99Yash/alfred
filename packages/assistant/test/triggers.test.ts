@@ -125,9 +125,7 @@ describe("triggers", () => {
     });
 
     try {
-      // The failing reaction is counted as accepted and logged; the publish
-      // resolves so the job that awaited it is never rolled back, and the
-      // sibling still ran.
+      // A failing reaction counts as accepted, so the awaiting job is not rolled back.
       assert.deepEqual(await publishDomainEvent(event), { acceptedConsumers: 2 });
       assert.equal(siblingRan, true);
       assert.match(String(warnings[0]?.[0]), /triggers-test-best-effort-failure/);
@@ -139,8 +137,7 @@ describe("triggers", () => {
   });
 
   test("re-throws a boot error even from a best-effort consumer", async () => {
-    // A boot-wiring failure must fail the publish regardless of mode, so a broken
-    // boot path surfaces on retry instead of being silently swallowed.
+    // A boot-wiring failure fails the publish in every mode, so a retry surfaces it.
     const unregister = registerTriggerConsumer({
       name: "triggers-test-best-effort-boot",
       mode: "best-effort",
@@ -179,18 +176,15 @@ describe("triggers", () => {
     };
 
     assert.equal(domainEventSchema.safeParse(batch).success, true);
-    // Strict: an unknown key is rejected at the publish boundary.
     assert.equal(
       domainEventSchema.safeParse({ ...batch, payload: { ...batch.payload, extra: true } }).success,
       false,
     );
-    // A missing required array is rejected.
     const { unembeddedDocumentIds: _omit, ...withoutUnembedded } = batch.payload;
     assert.equal(
       domainEventSchema.safeParse({ ...batch, payload: withoutUnembedded }).success,
       false,
     );
-    // An unknown jobKind is rejected.
     assert.equal(
       domainEventSchema.safeParse({
         ...batch,
@@ -198,8 +192,7 @@ describe("triggers", () => {
       }).success,
       false,
     );
-    // The schema is chosen by `type`: the message payload does not satisfy the
-    // batch type, and the batch payload does not satisfy `message_received`.
+    // `type` picks the payload schema.
     assert.equal(
       domainEventSchema.safeParse({ ...batch, payload: { documentId: "doc-1" } }).success,
       false,

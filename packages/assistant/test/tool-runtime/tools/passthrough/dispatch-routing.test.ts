@@ -10,21 +10,14 @@ import {
 import type { ToolCallDispatchResult } from "../../../../src/tool-runtime/dispatch";
 
 /**
- * The PRD's trickiest seam: a read-gate `rejected` and a `feature_disabled`
- * rejection route OPPOSITELY. A gate `rejected` is a normal tool execution whose
- * *value* is the rejection envelope — the boss must SEE it to self-correct, so it
- * rides `kind:"executed"` and is never `nonExecution`-hidden. A `feature_disabled`
- * rejection (the user turned the tier off) is invisible enforcement — hidden from
- * the chat UI via the `nonExecution` flag. These test the shared result router
- * (`dispatch/result-routing`) the chat-turn commit loop consumes, so the two
- * can't drift into the same channel.
+ * A read-gate `rejected` and a `feature_disabled` route in opposite ways. The model must
+ * see a gate rejection to self-correct. `feature_disabled` is hidden as `nonExecution`.
+ * Tests the shared router in `result-routing.ts`.
  */
 
 const REQUEST: ToolName = "notion.request";
 
 describe("read-gate `rejected` is a VISIBLE, model-facing result", () => {
-  // The REST adapter returns a `rejected` PassthroughResult, which the tool's
-  // execute() returns — so it flows through dispatch as a normal executed result.
   const gateRejected: Extract<ToolCallDispatchResult, { kind: "executed" }> = {
     kind: "executed",
     stagingId: null,
@@ -65,7 +58,6 @@ describe("`feature_disabled` is HIDDEN nonExecution plumbing", () => {
   });
 
   test("the commit loop's hide condition (failed AND nonExecution) holds", () => {
-    // The commit loop keys on `status === "failed" && isNonExecutionFailure(result)`.
     const status = toolCallLogStatus(REQUEST, featureDisabled);
     const hidden = status === "failed" && isNonExecutionFailure(featureDisabled);
     assert.equal(hidden, true);
@@ -73,9 +65,7 @@ describe("`feature_disabled` is HIDDEN nonExecution plumbing", () => {
 });
 
 describe("an executed result carries `editedByUser` to the model", () => {
-  // The shared router surfaces the HIL edit flag on BOTH the chat turn and the
-  // sub-agent brief; before the extraction chat silently dropped it, so this
-  // pins the unified behavior against a re-drift.
+  // Both the chat turn and the sub-agent brief must carry the edit flag.
   function executedValue(editedByUser: boolean): unknown {
     const message = toolResultMessage(
       { toolCallId: "call_1", toolName: REQUEST, input: {} },

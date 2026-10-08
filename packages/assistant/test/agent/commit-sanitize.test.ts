@@ -18,18 +18,10 @@ import type { SenderExtractionEvent } from "@alfred/assistant/triage";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
- * DB-backed regression for the ADR-0070 §1.1/§1.3 executor-sink gap (PR review
- * P1): `commitStepSuccess` writes `agent_runs.state`, `.transcript`, the
- * step/run `output`, and staged action payloads into jsonb. Model-derived
- * poison (U+0000 / a lone surrogate) reaches those sinks via the replayed
- * transcript even though the dispatch-boundary sanitizer never saw it. Before
- * the fix the jsonb write threw *after* the chat row was already persisted
- * `complete`, leaving the run stuck `running` → reclaim/backstop (the exact
- * split ADR-0072 kills). The executor must strip every sink before commit.
- *
- * Opt-in: runs only when `DATABASE_URL` points at a reachable migrated
- * Postgres; skipped otherwise. Written with the `\x00` ESCAPE form, never a
- * literal NUL byte (a literal one turns this file binary to rg/grep/git).
+ * Model output can carry U+0000 or a lone surrogate into every jsonb sink that
+ * `commitStepSuccess` writes, past the dispatch sanitizer. Postgres rejects them,
+ * so the executor must strip them (ADR-0070 §1.1/§1.3).
+ * Use the `\x00` escape: a literal NUL makes git and grep treat this file as binary.
  */
 const SKIP = dbBackedSkip("database");
 
@@ -111,12 +103,7 @@ function traceFixture(senderRelationship: string): SenderExtractionEvent {
   };
 }
 
-/**
- * Two-step workflow whose every jsonb sink carries poison: `next` (state +
- * transcript + a staged action payload), then `done` (state + output +
- * transcript). If the executor doesn't strip, the commit throws on the jsonb
- * write and `runOnce` rejects instead of advancing/completing.
- */
+/** A `next` step, then a `done` step, with poison in every jsonb sink. */
 const poisonWorkflow: Workflow<TestState> = {
   slug: SLUG,
   name: "commit-sanitize test",
@@ -133,7 +120,7 @@ const poisonWorkflow: Workflow<TestState> = {
           payload: { body: `staged${NUL}payload`, nested: { x: `s${LONE_SURROGATE}` } },
           idempotencyKey: `${ctx.runId}:staged`,
         });
-        // Decision-trace sink (#219 PR-A) — same poison-strip path as the others.
+        // The decision-trace sink takes the same strip path.
         ctx.trace("triage.classification", traceFixture(`rel${NUL}poison`));
         ctx.trace("triage.classification", traceFixture(`secondary${LONE_SURROGATE}poison`), {
           decisionKey: "secondary",
@@ -213,13 +200,10 @@ describe("commit sanitizes executor jsonb sinks (DB-backed)", { skip: SKIP }, ()
   test("a step returning poisoned state/transcript/staged payload commits clean", async () => {
     const { runId } = await seedRunnableRun();
 
-    // Step 1: `next` with poison in state, transcript, and a staged payload.
-    // Pre-fix this rejects on the jsonb write; post-fix it advances.
     const first = await runOnce(runId);
     assert.equal(first.kind, "advanced", "the poisoned `next` commit must succeed, not throw");
     assert.equal(first.kind === "advanced" ? first.nextStep : undefined, "poison-done");
 
-    // The staged payload is stripped (Postgres would have rejected a NUL).
     const staged = await db()
       .select({ payload: pendingActions.payload })
       .from(pendingActions)
@@ -229,8 +213,6 @@ describe("commit sanitizes executor jsonb sinks (DB-backed)", { skip: SKIP }, ()
     assert.equal(payload?.body, "stagedpayload", "NUL stripped from staged payload string");
     assert.equal(payload?.nested.x, "s", "lone surrogate stripped from nested staged value");
 
-    // The decision trace is persisted on the `next` commit, keyed to the step,
-    // with its jsonb poison stripped (#219 PR-A).
     const tr = await db()
       .select({
         userId: agentDecisionTraces.userId,
@@ -267,7 +249,6 @@ describe("commit sanitizes executor jsonb sinks (DB-backed)", { skip: SKIP }, ()
       "lone surrogate stripped from the keyed trace jsonb",
     );
 
-    // Step 2: `done` with poison in state, output, and transcript.
     const second = await runOnce(runId);
     assert.equal(second.kind, "completed", "the poisoned `done` commit must succeed, not throw");
 

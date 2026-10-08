@@ -25,32 +25,10 @@ import { resetToolFixtures } from "@alfred/assistant/tool-runtime/test-support";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
- * DB-backed test for the late-fault artifact strand (campaign item 52).
- *
- * A chat turn authors artifacts that sit `generating` until the closure flips
- * them terminal via `finalizeRunArtifacts`. If attempt 1 faults INSIDE
- * `finalizeRunArtifacts` — after the `complete` row commits but before the
- * artifacts finish — the fault is caught in `chatTurnStep` and re-routed through
- * `finalizeFailedMessage`. The retry finds the already-terminal row, so the
- * guarded upsert / `onConflictDoNothing` returns zero rows and closure takes the
- * zero-row branch. Before this fix that branch republished the release frame but
- * did NOT re-run `finalizeRunArtifacts`, so the artifacts stayed `generating`
- * forever with no reaper to finish them.
- *
- * These pin the fix: the zero-row branch re-runs `finalizeRunArtifacts`
- * idempotently, deriving each artifact's terminal status from the PERSISTED
- * `chat_messages` row — NOT the retry's `outcome.kind`. A `completed` close that
- * faults re-enters as a `failed` close, so gating on the retry's kind would flip
- * a completed turn's artifacts to `error`; the persisted status is what keeps the
- * artifact terminal state matching the message.
- *
- * The seed reproduces the state the caught-throw leaves — a terminal row for
- * `(messageId, runId)` and a still-`generating` artifact — rather than stubbing
- * the throw, because there is no injection seam for `finalizeRunArtifacts`.
- * Calling `finalizeFailedMessage` over that state IS what `chatTurnStep`'s
- * `catch` (and the executor's `onTerminal("failed")`) do.
- *
- * Opt-in: runs only when `DATABASE_URL` points at a reachable migrated Postgres.
+ * A close can fault inside `finalizeRunArtifacts` after its row commits. The
+ * retry must still close `generating` artifacts, or nothing ever will. The status
+ * comes from the persisted row: a faulted `completed` close retries as `failed`.
+ * The seed writes the state directly: `finalizeRunArtifacts` has no injection seam.
  */
 const SKIP = dbBackedSkip("database");
 
@@ -76,11 +54,7 @@ async function seedThread(): Promise<{ userId: string; threadId: string }> {
   return { userId, threadId: thread.id };
 }
 
-/**
- * A chat run whose first closure attempt landed a terminal row AND authored one
- * artifact left in the given status: the run is `running` (not cancelled), the
- * assistant row is terminal, and the artifact was never closed out.
- */
+/** A first close that wrote a terminal row and left one artifact in `artifactStatus`. */
 async function seedTerminalRowWithArtifact(
   messageStatus: "complete" | "failed",
   artifactStatus: ArtifactStatus,
@@ -159,8 +133,7 @@ async function readArtifactStatus(artifactId: string): Promise<string | undefine
 
 describe("chat-turn closure artifact strand (campaign 52, DB-backed)", { skip: SKIP }, () => {
   before(async () => {
-    // `chatRunStateSchema`'s transform restores the tool surface, which reads the
-    // tool-runtime adapter; register the fixture adapter so the parse resolves.
+    // `chatRunStateSchema`'s transform reads the tool-runtime adapter.
     resetToolFixtures();
     registerReplicachePokeAdapter();
     await db()
@@ -178,9 +151,7 @@ describe("chat-turn closure artifact strand (campaign 52, DB-backed)", { skip: S
   });
 
   test("a failed retry over a completed row flips the stranded artifact to complete", async () => {
-    // The item's case: attempt 1 completes, writes the `complete` row, then
-    // faults inside `finalizeRunArtifacts`; `chatTurnStep`'s catch re-enters as
-    // `finalizeFailedMessage`, which finds the terminal row and zero-row branch.
+    // `chatTurnStep`'s catch re-enters a faulted completed close as `finalizeFailedMessage`.
     const { userId, runId, messageId, artifactId, state } = await seedTerminalRowWithArtifact(
       "complete",
       "generating",
@@ -203,8 +174,6 @@ describe("chat-turn closure artifact strand (campaign 52, DB-backed)", { skip: S
   });
 
   test("a failed retry over a failed row flips the stranded artifact to error", async () => {
-    // Genuine double-failure: attempt 1 failed and wrote its `failed` row; the
-    // retry closes the still-`generating` artifact into `error`.
     const { userId, runId, artifactId, state } = await seedTerminalRowWithArtifact(
       "failed",
       "generating",
@@ -220,9 +189,7 @@ describe("chat-turn closure artifact strand (campaign 52, DB-backed)", { skip: S
   });
 
   test("a retry over an already-complete artifact leaves it complete and does not throw", async () => {
-    // Idempotency: attempt 1's `finalizeRunArtifacts` UPDATE committed before the
-    // fault (e.g. the poke threw), so the artifact is already `complete`. Re-running
-    // it is a no-op filtered on `status IN (generating)`.
+    // The first close's artifact update committed before the fault.
     const { userId, runId, artifactId, state } = await seedTerminalRowWithArtifact(
       "complete",
       "complete",
@@ -238,8 +205,6 @@ describe("chat-turn closure artifact strand (campaign 52, DB-backed)", { skip: S
   });
 
   test("a completed retry over a completed row also flips a stranded artifact", async () => {
-    // The other zero-row shape: a completed re-attempt that finds the terminal
-    // row (guarded upsert matches nothing) still closes the artifact.
     const { userId, runId, artifactId, state } = await seedTerminalRowWithArtifact(
       "complete",
       "generating",

@@ -1,9 +1,4 @@
-/**
- * Notion API client (https://developers.notion.com/reference). Thin `fetch`
- * wrapper in the same style as the GitHub PR helper — no SDK. Every call
- * carries the bearer token, the JSON content type, and the pinned
- * `Notion-Version` header Notion requires.
- */
+/** Notion API client (https://developers.notion.com/reference), no SDK. */
 
 import { z } from "zod";
 
@@ -17,12 +12,7 @@ const NOTION_API = "https://api.notion.com/v1";
 
 const NOTION_VERSION = "2022-06-28";
 
-/**
- * Transport profile for the general read-only passthrough tier (ADR-0074): the
- * pinned Notion REST authority, bearer auth, and the mandatory `Notion-Version`
- * header. The transport adds `Content-Type` only when a read-via-POST body is
- * sent, so it is deliberately absent here.
- */
+/** Read-only passthrough profile (ADR-0074). Notion requires `Notion-Version`. */
 function notionPassthroughProfile(token: string): RestPassthroughProfile {
   return {
     baseUrl: NOTION_API,
@@ -35,12 +25,8 @@ function notionPassthroughProfile(token: string): RestPassthroughProfile {
 }
 
 /**
- * A single authenticated Notion call. Returns the parsed JSON body as `unknown`;
- * each caller validates it with a `zod` schema (no `as T` on `response.json()`).
- *
- * Uses `bodyPolicy: "omit"`: Notion's error bodies can echo request fragments
- * and these errors propagate into the tool dispatcher / telemetry, so the body
- * is logged server-side (in {@link authedJson}) but never rides the thrown error.
+ * `bodyPolicy: "omit"`: Notion error bodies can echo request fragments, so the body
+ * is logged but never rides the thrown error.
  */
 async function notionFetch(
   accessToken: string,
@@ -62,18 +48,14 @@ async function notionFetch(
   );
 }
 
-/** A Notion rich-text span. */
 const richTextSchema = z.object({ plain_text: z.string().catch("").optional() });
 
 type RichText = z.infer<typeof richTextSchema>;
 
-/** The title fields shared by page and database search projections. */
 const notionTitleFieldsSchema = z.object({
-  // Databases carry a top-level title. A malformed title is non-essential and
-  // degrades to empty instead of failing the complete search response.
+  // Database title. A malformed one becomes empty instead of failing the search.
   title: z.array(richTextSchema).catch([]).optional(),
-  // Page property names are user-defined. Parse only the property selected by
-  // its `type`, so one unrelated malformed property cannot hide the page.
+  // Parse only the title property, so another malformed property cannot hide the page.
   properties: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -84,7 +66,6 @@ const notionTitlePropertySchema = z.object({
   title: z.array(richTextSchema).catch([]).optional(),
 });
 
-/** One page or database result from `/search`. */
 const notionSearchObjectSchema = notionTitleFieldsSchema.extend({
   id: z.string(),
   object: z.string(),
@@ -97,20 +78,17 @@ const notionSearchResponseSchema = z.object({
   has_more: z.boolean().optional(),
 });
 
-/** One page response from `GET /pages/:id`. */
 const notionPageSchema = notionTitleFieldsSchema.extend({
   id: z.string(),
   url: z.string().nullable().optional(),
   last_edited_time: z.string().nullable().optional(),
 });
 
-/** The minimal response from `POST /pages`. */
 const notionCreatedPageSchema = z.object({
   id: z.string(),
   url: z.string().nullable().optional(),
 });
 
-/** A block keeps its dynamic type payload; search/page projections do not. */
 const notionBlockSchema = z.object({ type: z.string() }).catchall(z.unknown());
 
 type NotionBlock = z.infer<typeof notionBlockSchema>;
@@ -120,7 +98,7 @@ const notionBlockChildrenResponseSchema = z.object({
   has_more: z.boolean().optional(),
 });
 
-/** The text-bearing payload under a block's type key (paragraph, heading, list item, ...). */
+/** The payload under a block's type key (paragraph, heading, list item). */
 const textPayloadSchema = z.object({ rich_text: z.array(richTextSchema).optional() });
 
 function paragraphBlock(content: string) {
@@ -133,14 +111,13 @@ function paragraphBlock(content: string) {
 
 type ParagraphBlock = ReturnType<typeof paragraphBlock>;
 
-/** Notion rejects a single request with more than 100 child blocks. */
+/** Notion rejects more than 100 child blocks per request. */
 const NOTION_MAX_CHILDREN_PER_REQUEST = 100;
 
-/** Best-effort plain-title extraction across page (title property) and database (title array) results. */
 function titleOf(result: NotionTitleFields): string {
-  // Database object: `title` is a rich-text array at the top level.
+  // A database has a top-level `title`.
   if (result.title !== undefined) return joinRichText(result.title);
-  // Page object: find the property whose type is "title".
+  // A page has a property of type "title".
   const props = result.properties;
 
   if (props) {
@@ -212,17 +189,15 @@ export interface NotionPage {
   title: string;
   url: string | null;
   lastEditedTime: string | null;
-  /** Flattened plain-text of the page's top-level blocks (first 100). */
+  /** Plain text of the first 100 top-level blocks. */
   text: string;
 }
 
-/** Pull a page's metadata plus a plain-text rendering of its top-level blocks. */
 async function notionGetPage(
   accessToken: string,
   args: { pageId: string },
   retry: RetryPolicy | "none",
 ): Promise<NotionPage> {
-  // The two reads are independent — fetch them concurrently (~half the latency).
   const id = encodeURIComponent(args.pageId);
 
   const [pageRaw, blocksRaw] = await Promise.all([
@@ -242,21 +217,18 @@ async function notionGetPage(
   };
 }
 
-/** Render the common text-bearing block types to plain text; ignore the rest. */
 function blockToText(block: NotionBlock): string {
   const payload = textPayloadSchema.safeParse(block[block.type]);
 
   return payload.success ? joinRichText(payload.data.rich_text ?? []) : "";
 }
 
-/** Turn newline-separated text into Notion paragraph blocks. */
 function paragraphBlocks(content: string | undefined): ParagraphBlock[] {
   if (!content) return [];
 
   return content.split("\n").map(paragraphBlock);
 }
 
-/** PATCH children onto a block in ≤100-block batches (Notion's per-request cap). */
 async function appendChildrenInBatches(
   accessToken: string,
   blockId: string,
@@ -285,8 +257,7 @@ async function notionCreatePage(
     content?: string | undefined;
   },
 ): Promise<NotionCreatedPage> {
-  // Notion caps a single request at 100 child blocks: create the page with the
-  // first batch inline, then PATCH the remainder in further ≤100 batches.
+  // Create with the first 100 blocks, then PATCH the rest in batches of 100.
   const children = paragraphBlocks(args.content);
 
   const json = notionCreatedPageSchema.parse(
@@ -329,7 +300,6 @@ export interface NotionTokenResolver {
   (): Promise<string>;
 }
 
-/** Configured Notion client over a fresh-token resolver. */
 export function createNotionClient(
   resolveToken: NotionTokenResolver,
   retry: RetryPolicy | "none" = "none",
@@ -357,10 +327,7 @@ export function createNotionClient(
   };
 }
 
-/**
- * The user-bound Notion door. The bearer credential is resolved per method so a
- * rotated token is used immediately and never leaves the integrations package.
- */
+/** Resolves the token per method, so a rotated token applies at once. */
 export function notionClientForUser(options: ProviderBindOptions) {
   return createNotionClient(
     async () =>

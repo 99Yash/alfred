@@ -1,14 +1,6 @@
 /**
- * App-grammar Button primitive.
- *
- * Recipe pulled from archive/visitors-now/design-notes.md §"Button".
- * The visual identity is in three places:
- *   1. `app-elevated` — two-shadow stack (1px drop + 0-blur hairline).
- *   2. `app-press`    — consistent press feedback.
- *   3. `app-focus`    — quiet one-pixel keyboard-focus stroke.
- *
- * No gradients, no border property, no glow. The shadow does everything.
- * Variants change fill + text color only.
+ * App Button (archive/visitors-now/design-notes.md §"Button").
+ * Identity comes from `app-elevated`, `app-press`, and `app-focus`; variants change fill and text only.
  */
 
 import { Loader2 } from "lucide-react";
@@ -16,10 +8,10 @@ import type { ButtonHTMLAttributes, ReactNode, Ref } from "react";
 import { cn } from "~/lib/utils";
 
 type AppButtonVariant =
-  | "primary" /* solid purple-4 — the brand CTA */
-  | "white" /* elevated white pill — the default visitors.now button */
-  | "ghost" /* transparent until hover, then bg-a2 */
-  | "destructive"; /* solid red-4 */
+  | "primary" /* brand CTA */
+  | "white" /* neutral ink, flips with theme */
+  | "ghost" /* transparent until hover */
+  | "destructive"; /* red-4 */
 
 type AppButtonSize = "sm" | "md" | "lg";
 
@@ -28,48 +20,27 @@ interface AppButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   size?: AppButtonSize | undefined;
   leading?: ReactNode | undefined;
   trailing?: ReactNode | undefined;
-  /**
-   * A decision is in flight: the button disables itself and swaps its leading
-   * icon for a spinner. Callers pass this instead of drawing their own, so
-   * every in-flight button in the app spins the same way.
-   */
+  /** Disables the button and swaps the leading icon for the shared spinner. */
   loading?: boolean | undefined;
   ref?: Ref<HTMLButtonElement> | undefined;
 }
 
-/* Matches the 13/14px icons the call sites pass as `leading`, so the swap does
- * not resize the button. */
+/* Matches the 13/14px `leading` icons, so the swap does not resize the button. */
 const SPINNER_SIZE = { sm: 13, md: 14, lg: 14 } satisfies Record<AppButtonSize, number>;
 
-/* Radius scales with height: 12px on a 28px-tall `sm` button reads almost
- * pill-shaped, so small buttons step down to keep corners proportional. */
+/* 12px on a 28px `sm` button looks like a pill, so small buttons get a smaller radius. */
 const SIZE = {
   sm: "h-7 px-2.5 text-[13px] gap-1.5 rounded-[9px]",
   md: "h-8 px-2.5 text-sm gap-2 rounded-[10px]",
   lg: "h-9 px-3 text-sm gap-2 rounded-xl",
 } satisfies Record<AppButtonSize, string>;
 
-/* Recipes
- * - primary: gradient on the brand accent token, white text, a 1px white
- *   inset highlight (the "lift"), and an accent-tinted drop glow. Hover
- *   brightens + grows the glow; active darkens. Disabled keeps the
- *   gradient identity (so it still reads as "the CTA, just not yet
- *   clickable") but softens the glow and disables hover.
- * - white: ink button. Background flips with theme — black on white in
- *   light mode, white on black in dark mode — for max neutral contrast.
- * - ghost: invisible at rest.
- * - destructive: same recipe as primary on the red-4 token.
- */
 const VARIANT = {
   primary: cn(
     "text-[var(--app-accent-fg)]",
-    /* fill resolves through --app-cta-bg which is theme-aware:
-     * light = saturated brand gradient, dark = dimension-style ink chip
-     * with a faint accent-tinted top. */
+    /* Theme-aware: brand gradient in light, ink chip in dark. */
     "bg-[image:var(--app-cta-bg)]",
-    /* shadow resolves through --app-button-primary-shadow which is theme-aware:
-     * light mode adds an accent-tinted bloom; dark mode drops it and uses
-     * an inset top/bottom bevel + a tight black drop for the "embedded" feel. */
+    /* Theme-aware: accent bloom in light, inset bevel in dark. */
     "shadow-[var(--app-button-primary-shadow)]",
     "hover:brightness-[1.06]",
     "hover:shadow-[var(--app-button-primary-shadow-hover)]",
@@ -117,16 +88,12 @@ export function AppButton({
       type={type ?? "button"}
       disabled={disabled || loading}
       data-loading={loading || undefined}
-      // Assistive tech gets the in-flight state too. `disabled` alone says the
-      // button cannot be pressed, not that the app is working on the press
-      // that already happened.
+      // `disabled` says it cannot be pressed; `aria-busy` says the press is in progress.
       aria-busy={loading || undefined}
       className={cn(
         "relative isolate inline-flex items-center justify-center",
         "font-medium whitespace-nowrap select-none",
-        /* Hover fill/glow tweens at 300ms; transform keeps 150ms so the
-         * app-press scale still feels snappy. Durations are positional —
-         * they pair with the property list order. */
+        /* Durations pair with this property order: fills tween 300ms, transform 150ms. */
         "transition-[filter,background-color,box-shadow,transform] ease-out",
         "[transition-duration:300ms,300ms,300ms,150ms]",
         "app-focus app-press",
@@ -136,8 +103,7 @@ export function AppButton({
       )}
       {...rest}
     >
-      {/* The spinner takes the leading slot, so the label does not shift and a
-       * button with no leading icon still shows that it is working. */}
+      {/* Spinner takes the leading slot, so the label does not shift. */}
       {loading ? (
         <span className="inline-flex shrink-0">
           <Loader2 size={SPINNER_SIZE[size]} className="animate-spin" aria-hidden />

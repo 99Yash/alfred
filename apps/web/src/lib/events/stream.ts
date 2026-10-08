@@ -33,13 +33,7 @@ function eventStreamUrl(): URL {
   return url;
 }
 
-/**
- * Reconnect backoff for fatal EventSource CLOSED (e.g. 401 — no auto-reconnect per WHATWG).
- * Base 1s keeps the first retry snappy for transient session blips; max 30s caps
- * load during a prolonged outage (auth outage, deploy). Exponential (2^attempt)
- * with ±15% jitter avoids thunder-herding when many tabs share the same session.
- * Tuned against `apps/web` browser-only usage — no operator knob needed.
- */
+/** Backoff after a fatal CLOSED (for example a 401), which the browser never retries. */
 const RECONNECT_BASE_MS = 1_000;
 
 const RECONNECT_MAX_MS = 30_000;
@@ -47,12 +41,11 @@ const RECONNECT_MAX_MS = 30_000;
 function backoffMs(attempt: number): number {
   const base = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * 2 ** attempt);
 
-  // Small jitter so a fleet of tabs does not thunder-herd on the same second.
+  // ±15% jitter so many tabs do not retry in the same second.
   return Math.round(base * (0.85 + Math.random() * 0.3));
 }
 
 function attachSource(shared: SharedEventStream): void {
-  // If a source is already attached, do not create another.
   if (shared.source) return;
   // Fresh URL on every (re)connect so the replay anchor advances.
   const source = new EventSource(eventStreamUrl().toString(), { withCredentials: true });
@@ -74,16 +67,12 @@ function attachSource(shared: SharedEventStream): void {
   }
 
   source.onopen = () => {
-    // A successful open resets the backoff window and marks the bus live.
     shared.reconnectAttempts = 0;
     setEventStreamStatus("connected");
   };
 
   source.onerror = (err) => {
-    // Per WHATWG: a 401 (or other non-2xx) transitions to CLOSED and fires
-    // error exactly once WITHOUT auto-reconnect. A transport drop stays in
-    // CONNECTING and auto-reconnects. Only the CLOSED case is fatal and needs
-    // an explicit backoff re-open plus subscriber notification.
+    // A non-2xx goes to CLOSED with no auto-retry. A transport drop stays CONNECTING and retries.
     const isFatal = source.readyState === EventSource.CLOSED;
 
     if (isFatal) {
@@ -91,8 +80,7 @@ function attachSource(shared: SharedEventStream): void {
         subscriber.onError?.(err);
       }
 
-      // Tear down the dead source. Keep the shared object (and its subscriber
-      // map) so a reconnect can re-attach without callers re-subscribing.
+      // Keep the subscriber map so a reconnect needs no re-subscribe.
       try {
         source.close();
       } catch {
@@ -129,21 +117,16 @@ function attachSource(shared: SharedEventStream): void {
           return;
         }
 
-        // Re-entering connecting before the new EventSource fires onopen/onerror.
         setEventStreamStatus("connecting");
         attachSource(shared);
       }, delay);
     } else {
-      // Transient drop — the browser will auto-retry; do not fan out as a
-      // fatal error, but surface the intermediate state so a banner can show
-      // "reconnecting" without spamming error toasts / flipping the chat bubble.
+      // The browser retries a transient drop. Show the state but do not fan out an error.
       setEventStreamStatus("connecting");
     }
   };
 
   shared.source = source;
-  // The new source starts in CONNECTING; if we were previously reconnecting
-  // (backoff), we now transition to connecting until onopen confirms.
   const curStatus = getEventStreamStatus();
 
   if (curStatus === "reconnecting" || curStatus === "disconnected") {
@@ -152,20 +135,9 @@ function attachSource(shared: SharedEventStream): void {
 }
 
 /**
- * Open an SSE connection to /api/events. Returns a `close()` to tear down.
- *
- * All callers share one connection. Browser EventSource handles auto-reconnect
- * and automatically sends `Last-Event-ID` from the most recent `id:` line, so
- * the server can replay events missed across drops. That header is lost on a
- * full page reload, so we also pass the persisted recovery cursor from
- * `replay-anchor` as `?since` when the page reconnects.
- *
- * On a fatal transport error (e.g. 401 — the session cookie expired — which
- * moves the source to CLOSED with no auto-reconnect per WHATWG), the shared
- * source is torn down and re-opened on an exponential backoff while any
- * subscribers remain. Each subscriber's `onError` is invoked exactly once for
- * that fatal error so an in-flight chat turn can flip to a failed/done state
- * instead of hanging on the stop button forever.
+ * Subscribe to the one shared SSE connection to /api/events. Returns the unsubscribe.
+ * A reload loses `Last-Event-ID`, so the persisted cursor goes out as `?since`.
+ * A fatal error calls each `onError` once, so a live chat turn can fail instead of hang.
  */
 export function openEventStream(opts: OpenEventStreamOptions): () => void {
   if (!sharedStream) {
@@ -179,9 +151,7 @@ export function openEventStream(opts: OpenEventStreamOptions): () => void {
     setEventStreamStatus("connecting");
     attachSource(sharedStream);
   } else if (!sharedStream.source && !sharedStream.reconnectTimer) {
-    // Fatal error tore down the source but the timer was cleared (e.g. by a
-    // previous last-subscriber teardown that raced a new subscriber). Re-attach
-    // immediately rather than leaving the new subscriber on a dead bus.
+    // A torn-down source with no pending retry. Re-attach so the new subscriber is not on a dead bus.
     setEventStreamStatus("connecting");
     attachSource(sharedStream);
   }

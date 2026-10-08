@@ -1,24 +1,10 @@
 /**
- * Gmail sender parser ADAPTER (campaign knowledge-settings-phase4 item 04,
- * ADR-0089).
- *
- * The concrete `GmailSenderParser` port `knowledge` (formerly `memory`) depends
- * on. Memory's fact-policy and team-graph used to import triage's `From:`/SENT
- * parsers directly — the `memory ↔ triage` cycle. That parse now lives here,
- * triage-owned, and the composition roots inject `gmailSenderAdapter` into
- * memory so no `memory → triage` edge exists.
- *
- * Nothing here changes what the parsers decide: it wraps `extractSenderContext`
- * / `isSentGmailMetadata` / `isHumanLikeSender` and the header splitters
- * relocated from `memory/team-graph.ts` (byte-identical logic), and hands memory
- * a normalized observation. Triage-owned; imports only triage + contracts.
- *
- * Two `isSent` derivations are deliberate and MUST NOT be unified:
- *   - `authorship.isSent` = `isSentGmailMetadata` (`isSent===true` OR a `"SENT"`
- *     labelId),
- *   - `correspondents.isSent` = `meta.isSent === true` only (ignores labelIds).
- * Unifying them would flip a SENT-labelId-only received doc from inbound to
- * outbound in the team graph — the quirk the campaign-04 seam test pins.
+ * The `GmailSenderParser` port that knowledge depends on (ADR-0089). Injected at
+ * the composition root, so knowledge never imports triage.
+ * Two `isSent` rules on purpose; never unify them:
+ *   - `authorship.isSent`: `isSent` flag OR a `SENT` label.
+ *   - `correspondents.isSent`: the flag only. Unifying would flip some received
+ *     docs to outbound in the team graph.
  */
 
 import {
@@ -32,15 +18,10 @@ import {
 import { extractSenderContext, isHumanLikeSender } from "./sender-context";
 
 // ---------------------------------------------------------------------------
-// header splitting / person parsing (relocated from memory/team-graph.ts)
+// header splitting / person parsing
 // ---------------------------------------------------------------------------
 
-/**
- * Split a `To:`/`Cc:` header into individual address tokens. Commas inside a
- * quoted display name (`"Doe, Jane" <j@x.com>`) or inside angle brackets are
- * not separators, so a naive `split(',')` corrupts those — track quote/angle
- * depth instead.
- */
+/** Split To/Cc, honoring quotes and angle brackets (`"Doe, Jane" <j@x.com>`). */
 export function splitAddressList(raw: string | null): string[] {
   if (!raw) return [];
   const out: string[] = [];
@@ -73,7 +54,6 @@ export function splitAddressList(raw: string | null): string[] {
 
 const ANGLE_NAME_RE = /^(.*?)<[^>]+>\s*$/;
 
-/** Extract just the display-name part of a `Name <addr>` token (null if bare address). */
 function parseDisplayName(token: string): string | null {
   const m = token.trim().match(ANGLE_NAME_RE);
 
@@ -88,17 +68,8 @@ function parseDisplayName(token: string): string | null {
 }
 
 /**
- * Parse one header token into a *person* contact, reusing triage's curated
- * sender classification so `noreply`/role/service envelopes are dropped here
- * (returns `null`). Address/domain come from `extractSenderContext` (the
- * authoritative normalizer); only the display name is parsed locally.
- *
- * Triage classifies whole service domains (`google.com`, `github.com`, …) as
- * `service`, which would silently drop a real colleague at one of them. The
- * graph wants the human, so a non-`person` sender is rescued when it passes the
- * `isHumanLikeSender` reality check (person-like name or `first.last` local, and
- * not an automated envelope) — see that helper for why triage itself is left
- * untouched.
+ * One token as a person, or null for service envelopes. A service-domain sender
+ * (`jane.doe@google.com`) is rescued by `isHumanLikeSender`.
  */
 function parsePersonToken(token: string): PersonToken | null {
   const sc = extractSenderContext({ fromHeader: token, subject: null, body: "" });
@@ -126,7 +97,6 @@ function parsePersonToken(token: string): PersonToken | null {
 export const gmailSenderAdapter: GmailSenderParser = {
   authorship(metadata: unknown): GmailAuthorshipObservation {
     const meta = parseGmailDocumentMetadata(metadata);
-    // labelId-aware SENT signal (diverges from `correspondents.isSent`).
     const isSent = isSentGmailMetadata(meta);
     const fromRaw = meta.from ?? null;
 
@@ -139,7 +109,7 @@ export const gmailSenderAdapter: GmailSenderParser = {
 
   correspondents(metadata: unknown): GmailCorrespondentsObservation {
     const meta = parseGmailDocumentMetadata(metadata);
-    // `meta.isSent === true` ONLY — labelIds intentionally ignored here.
+    // Flag only, on purpose (see the header).
     const isSent = meta.isSent === true;
     const from = parsePersonToken(meta.from ?? "");
     const recipients: PersonToken[] = [];

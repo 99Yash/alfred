@@ -1,10 +1,7 @@
 /**
- * Paired real-email replay for triage prompt changes — READ-ONLY.
- *
- * Unlike `packages/ai/src/scripts/replay-diff.ts`, this compares the structured
- * output of the single-step triage classifier. It never prints or writes email
- * content. Snapshot files contain document ids only so a candidate run can use
- * the exact same rows; keep them outside the repository.
+ * Read-only paired replay of real email for triage prompt changes. It compares
+ * classifier output and never prints email content. Snapshots hold document ids
+ * only; keep them outside the repo.
  *
  * Snapshot a baseline classifier:
  *   pnpm --filter server tsx --env-file=.env \

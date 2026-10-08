@@ -4,11 +4,7 @@ import { applyServerEnvFixtures } from "./support/server-env";
 
 /** Coverage for native-expiry cache bounds and cross-token revocation (#454). */
 
-/**
- * The provisioning origin `createUser` takes since Better Auth 1.7. Alfred
- * signs a user in through Google and nothing else, so every fixture user is
- * provisioned the way the product provisions one.
- */
+/** Alfred signs in only through Google, so fixture users are provisioned that way. */
 const GOOGLE_PROVISIONING = { method: "oauth", oauth: { providerId: "google" } } as const;
 
 applyServerEnvFixtures({

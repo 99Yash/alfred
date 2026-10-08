@@ -475,11 +475,7 @@ describe("/webhooks/gmail", () => {
     assert.deepEqual(seen.enqueued, []);
   });
 
-  // Pins the handler arm only, not the whole request path. `app.handle()` is the
-  // web-standard adapter; under the production `@elysiajs/node` adapter an absent
-  // body raises Elysia `PARSE` and answers 400 before the handler runs, exactly
-  // as base `315823c5` does. Campaign item 209 owns that adapter divergence and
-  // item 210 owns the 400 arm itself.
+  // Handler arm only: under the production `@elysiajs/node` adapter an absent body is a 400 `PARSE` first.
   test("answers 200 bad-payload for an absent body once the handler sees it", async () => {
     const { seen, post } = gmailWebhookHarness();
 
@@ -529,7 +525,7 @@ describe("/webhooks/gmail", () => {
           },
         }),
         persistReceipt: async () => {
-          // Simulate the DB unique index: first insert succeeds, second is a no-op
+          // Stand in for the unique index: only the first insert lands.
           const inserted = receipts.length === 0;
           receipts.push({ inserted });
 
@@ -545,7 +541,6 @@ describe("/webhooks/gmail", () => {
       authorization: "Bearer jwt_123",
     };
 
-    // First delivery — receipt persisted
     const res1 = await app.handle(
       new Request("http://localhost/webhooks/gmail", { method: "POST", headers, body }),
     );
@@ -554,7 +549,7 @@ describe("/webhooks/gmail", () => {
     const json1 = (await res1.json()) as { receiptPersisted: boolean };
     assert.equal(json1.receiptPersisted, true);
 
-    // Second delivery (Pub/Sub redelivery) — receipt deduped, still enqueues
+    // Pub/Sub redelivery.
     const res2 = await app.handle(
       new Request("http://localhost/webhooks/gmail", { method: "POST", headers, body }),
     );
@@ -567,7 +562,7 @@ describe("/webhooks/gmail", () => {
       "duplicate delivery must not create a second receipt",
     );
 
-    // Both deliveries enqueued a poll job (BullMQ TTL dedup is separate)
+    // Both enqueue; BullMQ dedups the poll job separately.
     assert.equal(callCount, 2);
   });
 

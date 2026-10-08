@@ -3,16 +3,9 @@ import { getStringPath } from "@alfred/contracts";
 import { z } from "zod";
 
 /**
- * Smoke-test workflow proving the m5 runtime end-to-end:
- *
- *   say-hello  →  await-approval  (interrupts on HIL)  →  finalize  →  done
- *
- * Each step does cheap work and writes to state. No external calls; no
- * real LLM. This exists to verify checkpoint persistence, interrupt /
- * resume, idempotent retries, and survival of a server restart.
- *
- * Real workflows replace this file once we have integrations + the AI
- * SDK call sites in m6/m7.
+ * Smoke workflow for the runtime: say-hello, await-approval (HIL interrupt), finalize.
+ * No external calls. It checks checkpoints, interrupt and resume, idempotent
+ * retries, and survival of a restart.
  */
 const stateSchema = z.object({
   greeting: z.string(),
@@ -47,8 +40,7 @@ export const echoWithApprovalWorkflow: Workflow<State> = {
     "await-approval": {
       id: "await-approval",
       async run(ctx) {
-        // First attempt parks; the resume flips approval to 'received'
-        // before re-entering. Second attempt advances.
+        // The first attempt parks. The resume sets 'received', so the second advances.
         if (ctx.state.approval === "pending") {
           const approvalId = `${ctx.runId}:approve`;
 

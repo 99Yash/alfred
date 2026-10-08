@@ -6,21 +6,14 @@ import { createRedisConnection, type BoundedRedis } from "@alfred/db/redis";
 import { workflowRecoveryStateSchema } from "./ingestion/workflow-recovery";
 
 /**
- * Server-side OAuth state nonce store.
- *
- * On `connect`, we mint a random nonce, persist `nonce → userId` in Redis
- * with a 10-minute TTL, and embed the nonce in the (HMAC-signed) `state`
- * parameter sent to the IdP. On `callback`, we atomically pop the nonce
- * — if it's missing or already consumed, the request is rejected. This
- * is the actual CSRF/replay defense; the HMAC only proves the state
- * wasn't fabricated client-side. Without persistence, a leaked signed
- * state would let an attacker bind their IdP account to a victim's
- * Alfred user (since the userId is encoded in the state).
+ * OAuth state nonces in Redis. The one-time nonce is the CSRF and replay defense;
+ * the HMAC only proves the state was not forged. Without it, a leaked state
+ * could bind an attacker's account to a victim's user.
  */
 
 const KEY_PREFIX = "oauth:state:";
 
-const DEFAULT_TTL_SECONDS = 600; // 10 minutes — generous for slow IdP redirects
+const DEFAULT_TTL_SECONDS = 600; // generous for slow IdP redirects
 
 let _client: BoundedRedis | undefined;
 
@@ -30,12 +23,7 @@ function client(): BoundedRedis {
   return _client;
 }
 
-/**
- * The key space a nonce is minted in, so a callback can only consume a nonce
- * its own connect route minted: a credential provider's route family, or one
- * MCP connection. A misspelled provider is a compile error, not a callback that
- * never finds its nonce.
- */
+/** A callback can only consume a nonce its own connect route minted. */
 export type OAuthNonceNamespace = CredentialProvider | `mcp:${string}`;
 
 export interface IssueNonceArgs {
@@ -50,10 +38,7 @@ export async function rememberOAuthNonce(args: IssueNonceArgs): Promise<void> {
   await client().set(key(args.provider, args.nonce), args.userId, "EX", ttl);
 }
 
-/**
- * Atomically read-and-delete the nonce. Returns the userId that minted
- * it, or null if the nonce is unknown / already consumed / expired.
- */
+/** Atomic read-and-delete. `null` if unknown, used, or expired. */
 export async function consumeOAuthNonce(
   provider: OAuthNonceNamespace,
   nonce: string,
@@ -67,19 +52,13 @@ function key(provider: OAuthNonceNamespace, nonce: string): string {
   return `${KEY_PREFIX}${provider}:${nonce}`;
 }
 
-/**
- * HMAC-signed `state` carrying `(userId, nonce)`. The signature (keyed on
- * `BETTER_AUTH_SECRET`) proves the state wasn't fabricated client-side; the
- * nonce (above) is the real replay defense. The single definition of this
- * security-sensitive check — every integration's connect/callback route
- * (Google, GitHub, Notion, Vercel) signs and verifies through these.
- */
+/** HMAC-signed with `BETTER_AUTH_SECRET`. Every connect route signs and verifies here. */
 const signedOAuthStateSchema = z.object({
   userId: z.string(),
   nonce: z.string(),
-  /** Present for OAuth flows that must resume one durable connection. */
+  /** For flows that resume one durable connection. */
   connectionId: z.string().optional(),
-  /** Exact immutable workflow draft to revalidate when OAuth returns. */
+  /** The workflow draft to revalidate when OAuth returns. */
   workflowRecovery: workflowRecoveryStateSchema.optional(),
 });
 

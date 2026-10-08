@@ -8,13 +8,8 @@ import { ArtifactIconButton } from "./artifact-icon-button";
 import { useArtifactPageKeys } from "./use-artifact-pages";
 
 /**
- * Fullscreen presentation for a `pages` artifact — one page at a time over a
- * near-black backdrop, with arrow-key and button navigation.
- *
- * The overlay portals to `document.body` because both hosts sit inside a
- * transformed box (the chat panel's entrance animation, the library's dialog),
- * and a transformed ancestor makes `fixed inset-0` resolve against that box
- * instead of the viewport.
+ * Fullscreen deck presentation. Portals to `document.body`: both hosts are
+ * transformed, which would make `fixed inset-0` resolve against them.
  */
 export function ArtifactPresentOverlay({
   title,
@@ -27,7 +22,7 @@ export function ArtifactPresentOverlay({
   title: string;
   pages: ArtifactPage[];
   format: ArtifactFormat;
-  /** Current page, shared with the host so entry and exit keep position. */
+  /** Shared with the host, so entry and exit keep the position. */
   index: number;
   onIndexChange: Dispatch<SetStateAction<number>>;
   onClose: () => void;
@@ -50,7 +45,6 @@ export function ArtifactPresentOverlay({
     [pages.length, onIndexChange],
   );
 
-  // Lock background scroll while presenting.
   useEffect(() => {
     document.body.style.overflow = "hidden";
 

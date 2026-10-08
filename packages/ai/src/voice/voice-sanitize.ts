@@ -1,23 +1,18 @@
 /**
- * Narrow deterministic enforcement for Alfred-owned briefing prose.
- *
- * The transformer is deliberately lexical rather than regex-only. It preserves
- * fenced/inline code and quoted material, converts en-dash ranges to ASCII
- * hyphens, and keeps enough state for streamed output to behave exactly like a
- * completed string regardless of chunk boundaries. Do not apply it to
- * open-ended agent output: exact-copy and persona requests must remain verbatim.
+ * Deterministic dash cleanup for Alfred's own prose. A lexer, not a regex: it skips code
+ * and quotes, and a stream gives the same output as the whole string at any chunk boundary.
  */
 
 export interface VoiceStreamSanitizer {
-  /** Feed a raw text delta; returns sanitized text that is safe to emit now. */
+  /** Returns the text that is safe to emit now. */
   push(raw: string): string;
-  /** End the segment/stream, returning any held-back punctuation or whitespace. */
+  /** Returns any held-back punctuation or whitespace. */
   flush(): string;
 }
 
 interface PendingDash {
   char: "—" | "–" | "--";
-  /** Whitespace seen immediately before the dash. */
+
   before: string;
 }
 
@@ -29,11 +24,7 @@ function hasLineBreak(value: string): boolean {
   return value.includes("\n") || value.includes("\r");
 }
 
-/**
- * Create a chunk-invariant sanitizer. Markdown delimiters, prose whitespace,
- * and a pending dash may all straddle provider deltas, so each is carried as
- * explicit state instead of re-running a whole-string regexp on every chunk.
- */
+/** Delimiters, whitespace, and a pending dash can span chunks, so each is kept as state. */
 export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
   let output = "";
   let mode: "prose" | "code" = "prose";
@@ -52,10 +43,7 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
   let currentProseToken = "";
   let lineStartHyphens = "";
   let structuralMarkdownLine = false;
-  // A line that begins with `|` and so far holds only pipes, hyphens, colons,
-  // and horizontal whitespace: a GFM table delimiter row (`| --- | --- |`).
-  // Buffered until the newline proves it structural, or a prose char reveals it
-  // is a content row and the buffer is replayed through the normal path.
+  // A possible table delimiter row (`| --- |`), held until a newline or a prose character decides.
   let structuralPipeScan: string | null = null;
   let replayingPipeScan = false;
 
@@ -106,13 +94,10 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
     const after = whitespace;
 
     if (pendingDash.char === "–") {
-      // An en dash is ambiguous between a range and a clause separator. ASCII
-      // hyphenation preserves both meanings without guessing from neighboring
-      // letters ("deploy – failed" is not a range) or joining words together.
+      // An en dash can be a range or a separator. A hyphen keeps both meanings.
       output += `${before}-${after}`;
     } else {
-      // Preserve structural line breaks. On one line, a semicolon is safer than
-      // manufacturing a comma splice between clauses.
+      // Keep line breaks. On one line, use a semicolon, not a comma splice.
       const beforeBreak = hasLineBreak(before) ? withoutTrailingHorizontalSpace(before) : "";
       const afterBreak = hasLineBreak(after) ? withoutTrailingHorizontalSpace(after) : "";
 
@@ -141,7 +126,7 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
         return;
       }
 
-      // Treat an adjacent dash run as one separator.
+      // A run of dashes is one separator.
       pendingDash = { char, before: pendingDash?.before ?? whitespace };
       whitespace = "";
 
@@ -202,9 +187,7 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
 
     if (structuralPipeScan !== null) {
       if (char === "\n" || char === "\r") {
-        // The whole line was pipes, hyphens, colons, and horizontal space: a
-        // table delimiter row. Emit it verbatim so GFM still parses the table
-        // instead of seeing the dashes collapsed into prose punctuation.
+        // A table delimiter row. Emit it as is, or the table breaks.
         output += structuralPipeScan + char;
         structuralPipeScan = null;
         atLineStart = true;
@@ -218,16 +201,14 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
         return;
       }
 
-      // A prose character means this is a table content row, not a delimiter.
-      // Replay the buffered prefix through the normal path, then fall through
-      // to handle the current character.
+      // A content row, not a delimiter. Replay the buffer, then handle this character.
       const buffered = structuralPipeScan;
       structuralPipeScan = null;
       replayingPipeScan = true;
 
       for (const bufferedChar of buffered) processChar(bufferedChar);
       replayingPipeScan = false;
-      previousInputChar = char; // replay overwrote this; restore for the current char
+      previousInputChar = char; // the replay overwrote it
     }
 
     if (lineStartHyphens.length > 0) {
@@ -350,9 +331,7 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
     }
 
     if (atLineStart && char === "|" && !replayingPipeScan) {
-      // Start scanning a potential table delimiter row. Flush any held
-      // whitespace (the preceding newline/indent) so the buffered row stays
-      // in order relative to earlier output.
+      // Flush held whitespace first, so the buffered row stays in order.
       resolveDash();
       emitWhitespace();
       structuralPipeScan = char;
@@ -384,7 +363,7 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
     },
     flush(): string {
       if (structuralPipeScan !== null) {
-        // Segment ended mid-row (no closing newline). Emit the buffer verbatim.
+        // Ended mid-row. Emit the buffer as is.
         output += structuralPipeScan;
         structuralPipeScan = null;
       }
@@ -394,8 +373,7 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
       emitSingleHyphen();
 
       if (pendingDash) {
-        // A reply that ends on a separator has no right-hand clause. Preserve
-        // line structure but drop the stranded punctuation and horizontal space.
+        // A trailing separator has nothing after it. Keep line breaks, drop the dash.
         const structural = `${pendingDash.before}${whitespace}`;
 
         if (hasLineBreak(structural)) output += withoutTrailingHorizontalSpace(structural);
@@ -406,8 +384,7 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
       }
 
       const finalOutput = takeOutput();
-      // A tool-call boundary starts a new prose segment. Do not let an unmatched
-      // quote/fence in narration leak lexical state into the post-tool answer.
+      // A tool call starts a new segment, so an unclosed quote or fence does not leak past it.
       mode = "prose";
       codeDelimiterLength = 0;
       tickBuffer = "";
@@ -429,7 +406,7 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
   };
 }
 
-/** Replace prose dashes while preserving code, quotes, and range meaning. */
+/** Replace prose dashes; leave code and quotes alone. */
 export function sanitizeVoice(text: string): string {
   if (!text.includes("—") && !text.includes("–") && !text.includes("--")) return text;
   const sanitizer = createVoiceStreamSanitizer();

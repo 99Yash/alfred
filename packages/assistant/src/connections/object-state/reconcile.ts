@@ -28,52 +28,24 @@ import {
 } from "./store";
 
 /**
- * The one reconciliation operation (#1088) — ADR-0062's dispose half.
- *
- * Two callers ask the same question of the same projection today: the
- * briefing's loop reconciliation ("has the PR this mail is about been
- * merged?") and the pre-send open-ask guard ("does the prose ask me to act on
- * finished work?"). Before this file both of them owned their own copy of the
- * resolve, the exact-beats-prefix precedence, and the closure test, so a
- * second object shape would have landed twice. Context Search enrichment
- * (#1087) becomes the third caller; it owned no copy.
- *
- * What is generic and lives here:
- *   - resolving a candidate key to an object, exactly or by prefix;
- *   - the precedence between an exact identity and a prefix guess;
- *   - deduplicating keys across subjects so one lookup serves many;
- *   - reading closure off the registry's per-KIND policy.
- *
- * What is not, and lives in an adapter: which written forms name one of a
- * provider's objects, and what the canonical value of each one is.
- *
- * The honesty contract is unchanged and is what makes the seam safe: a key
- * that resolves to nothing, to more than one object, or to a state its kind
- * does not treat as closing leaves the subject alone. Absence never closes
- * (ADR-0048-D).
+ * Reconciliation (ADR-0062 dispose half, #1088): resolve candidate keys to object state. Shared by
+ * briefing loop reconciliation, the pre-send open-ask guard and Context Search (#1087). Adapters
+ * decide which written forms name an object; this file owns resolve, precedence and closure. A key
+ * that resolves to nothing, to several objects, or to a non-closing state changes nothing. Absence
+ * never closes (ADR-0048-D).
  */
 
-/** One resolved object, with what this build says its state does to an ask. */
+/** One resolved object and what its state does to an ask. */
 export interface ReconciledObject<Reading extends KeyProposalReading> {
   /** The candidate key that proved this object. */
   key: CandidateKey<Reading>;
   /** Reducer-owned state. The only assertion in this result. */
   state: ObjectState;
   /**
-   * The CANDIDATE category — what this object's stored state would close an
-   * already-open ask as — else `null`. It carries the narrowed category rather
-   * than a boolean so a caller can record WHICH closure it saw without
-   * re-deriving it. For a reading whose authority is `false` — `annotates`
-   * today — the type is exactly `null`, so a direct reader of this field
-   * cannot receive a closing category even after an `as` cast; that reading
-   * holds no closure authority.
-   *
-   * A candidate is not a closure. This seam holds stored state only, so a
-   * consumer that SUPPRESSES on this field — drops an ask, drops a sentence,
-   * writes "closed" into user- or model-facing text — must first assert it
-   * through `closesOpenAsk` with the proof that consumer actually holds. A
-   * kind declaring `closesAskFrom: "live_confirmation"` then closes nothing
-   * for a consumer that took no live read (ADR-0103).
+   * The category this state would close an open ask as, else `null`. Always `null` for a reading
+   * with no closure authority (`annotates`). A candidate, not a closure: a consumer that suppresses
+   * on it must confirm with `closesOpenAsk`, since a `live_confirmation` kind closes nothing
+   * without a live read (ADR-0103).
    */
   closesAskAs: Reading extends ClosureReading ? LoopClosingStateCategory | null : null;
 }
@@ -91,35 +63,21 @@ export interface ReconcileCandidates<Reading extends KeyProposalReading> {
   keys: readonly CandidateKey<Reading>[];
 }
 
-/**
- * Every adapter this build projects. Keyed by provider and `satisfies`-checked,
- * so a provider added to the registry without an adapter is a compile error
- * rather than a silently unreconciled source.
- */
+/** `satisfies` makes a registry provider without an adapter a compile error. */
 const OBJECT_STATE_ADAPTERS = {
   github: githubObjectStateAdapter,
   sentry: sentryObjectStateAdapter,
-  // Railway v1 proposes no keys from text (no deployment-URL grammar yet —
-  // the structured follow-up). The row exists because the table is the
-  // completeness proof, not because the adapter knows a written form.
+  // Proposes no keys from text yet; the row keeps the table complete.
   railway: railwayObjectStateAdapter,
-  // Vercel v1 proposes no keys from text either, and for a measured reason:
-  // no Vercel deployment notification exists in the corpus to ground a
-  // grammar on (#1167). Same completeness-proof row, same follow-up.
+  // Same: no Vercel notification in the corpus to ground a grammar on (#1167).
   vercel: vercelObjectStateAdapter,
-  // Generic MCP identities are proposed only by an owner-approved live read
-  // after they match a deterministic loop key. No free-text MCP adapter exists.
+  // MCP identities come only from an owner-approved live read, never from free text.
   mcp: mcpObjectStateAdapter,
 } satisfies Record<ObjectStateProvider, ObjectStateAdapter>;
 
 /**
- * Every key the registered adapters propose for one subject, tagged with the
- * provider that claimed it and the reading it was proposed under.
- *
- * Pure and synchronous, so a caller can run it inside the loop that already
- * holds the text and keep only the keys — a briefing gather never has to carry
- * a window of email bodies into the resolve phase. The reading is stamped here
- * because this seam owns it: the adapters propose written forms, not readings.
+ * Every key the adapters propose for one subject, tagged with provider and reading. Pure and sync,
+ * so a caller can keep only the keys and drop the text before the resolve.
  */
 export function proposeObjectKeys<Reading extends KeyProposalReading>(
   subject: ReconcileSubject,
@@ -137,38 +95,16 @@ export function proposeObjectKeys<Reading extends KeyProposalReading>(
 }
 
 /**
- * Resolve every subject's candidate keys to reducer-owned object state.
- *
- * Exact keys are resolved in batches — one `resolveByKeys` per
- * `(provider, keyKind)` group, plus one `getStates` over the resolved object
- * ids — and deduplicated across subjects, so a read that proposes hundreds of
- * keys costs one round trip per group instead of one per key against a pool
- * of 20 (#1087). Prefix keys stay per-key: their per-prefix `limit(2)`
- * ambiguity has no single-query shape.
- *
- * A subject with no resolvable key is absent from the result, never present
- * with an invented entry.
- *
- * "One call has one reading" is the caller's precondition, not a fact the types
- * enforce: the caller supplies one reading for the whole subject array, and a
- * mixed array compiles with `Reading` inferred as the union of its readings.
- * A mixed array does not miscarry closure — the reading is not part of
- * {@link import("./adapter").candidateIdentity}, and the seam decides closure
- * from each key's own `reading` — so per-key closure stays correct. The union
- * only widens the result: once it admits a reading with no closure authority
- * (`annotates`), {@link firstClosingObject} refuses the whole result. The result
- * is typed by the reading, and an `annotates` result carries `null` closure by
- * construction — the reading, not a comment, decides whether a caller may close
- * an ask.
+ * Resolve each subject's candidate keys to object state. Subjects with nothing resolved are absent.
+ * Exact keys batch per `(provider, keyKind)` and dedupe across subjects (#1087). Prefix keys stay
+ * per key, because their ambiguity check has no single-query shape. Callers pass one reading per
+ * call. A mixed array still closes correctly per key, but an `annotates` member makes {@link
+ * firstClosingObject} refuse the whole result.
  */
 export async function reconcileEvidence<Reading extends KeyProposalReading>(args: {
   userId: string;
   subjects: readonly ReconcileCandidates<Reading>[];
-  /**
-   * When aborted, no further query is issued and the call rejects instead of
-   * consuming the caller's whole budget (the context-search collect timeout).
-   * The operation is read-only, so abort discards partial maps.
-   */
+  /** Stop issuing queries and reject. Read-only, so partial maps are discarded. */
   abortSignal?: AbortSignal;
 }): Promise<ReconcileResult<Reading>> {
   const store = objectStateStore;
@@ -186,10 +122,8 @@ export async function reconcileEvidence<Reading extends KeyProposalReading>(args
 
   const candidates = [...distinct.values()];
 
-  // An exact key is proof of identity; a prefix key is a guess. Resolve every
-  // exact candidate first and consult a prefix only for subjects where no
-  // exact candidate produced a state — otherwise a coincidental abbreviation
-  // can report the wrong object's title and url.
+  // An exact key proves identity; a prefix is a guess. Try prefixes only for subjects with no exact
+  // state, so a coincidental abbreviation cannot report the wrong object.
   const exactByGroup = new Map<
     string,
     { provider: CandidateKey<Reading>["provider"]; keyKind: string; keys: CandidateKey<Reading>[] }
@@ -219,7 +153,6 @@ export async function reconcileEvidence<Reading extends KeyProposalReading>(args
     for (const key of group.keys) {
       const ref = resolved.get(key.keyValue);
 
-      // Unknown object → the subject stays as it was.
       if (ref) refByKey.set(candidateIdentity(key), ref);
     }
   }
@@ -234,11 +167,9 @@ export async function reconcileEvidence<Reading extends KeyProposalReading>(args
   }
 
   const resolvePrefixKey = async (key: CandidateKey<Reading>): Promise<void> => {
-    // An abbreviated sha is a leading fragment of the stored key, so it
-    // resolves by prefix; an ambiguous prefix resolves to nothing.
     const ref = await KEY_RESOLVERS[key.match](store, args.userId, key);
 
-    if (!ref) return; // unknown object → the subject stays as it was
+    if (!ref) return;
 
     args.abortSignal?.throwIfAborted();
 
@@ -268,18 +199,11 @@ export async function reconcileEvidence<Reading extends KeyProposalReading>(args
   for (const subject of subjects) {
     const resolved: ReconciledObject<Reading>[] = [];
     const seenKeys = new Set<string>();
-    // A subject whose own exact identity resolved ignores every prefix guess —
-    // including a prefix another subject's lookup resolved into the shared
-    // map — so a coincidental abbreviation can never shadow this subject's
-    // own proof.
+    // An exact match here ignores prefix guesses, even ones another subject resolved.
     const hasExactState = subjectHasExactState(subject);
 
-    // Exact identities outrank prefix guesses. Stable within a rank: the
-    // adapter proposed the keys in its own precedence order.
-    // Dedup is by candidate key, not by object: two written forms can name the
-    // same row (a repository rename mints a second pull_request_url key on one
-    // object), and a caller that maps back by key — the open-ask guard's
-    // closedByUrl — needs every key, not one survivor per object (#1082).
+    // Exact before prefix; stable within a rank. Dedupe by key, not object: a repo rename gives one
+    // object two URL keys, and the open-ask guard maps back by key (#1082).
     for (const key of [...subject.keys].sort((a, b) => MATCH_RANK[a.match] - MATCH_RANK[b.match])) {
       if (key.match === "prefix" && hasExactState) continue;
       const identity = candidateIdentity(key);
@@ -301,46 +225,26 @@ export async function reconcileEvidence<Reading extends KeyProposalReading>(args
 }
 
 /**
- * The closure authority of one result, decided by the reading that proposed its
- * key. This is the one place the conditional {@link ReconciledObject} field is
- * laundered: a reading the authority map declares `false` writes `null` at
- * runtime as well as in the type, so an `as` cast that smuggles such a result
- * into a closure reader still carries no closing category.
- *
- * The category it writes is a CANDIDATE, from `closureCandidate` rather than
- * from `closesOpenAsk`: this seam holds stored state only, and a kind
- * declaring `closesAskFrom: "live_confirmation"` needs a read taken at the
- * moment closure is asserted (ADR-0103). Nominating is this seam's job;
- * asserting belongs to the consumer that can take that read, which is why
- * `reconcile.ts` needs no provider branch for it.
+ * Closure authority for one result, decided by its reading. A reading without authority gets `null`
+ * at runtime too, so a cast cannot smuggle a closing category. Uses `closureCandidate`, not
+ * `closesOpenAsk`: this seam only nominates (ADR-0103).
  */
 function closesAskAsFor<Reading extends KeyProposalReading>(
   key: CandidateKey<Reading>,
   state: ObjectState,
 ): ReconciledObject<Reading>["closesAskAs"] {
-  // The same map `ClosureReading` derives from, read at runtime, so the field's
-  // type and this branch cannot disagree about which reading may close.
+  // Same map `ClosureReading` derives from, so type and runtime agree.
   if (!readingClosesAsk(key.reading)) return null;
 
   const closes =
     closureCandidate(state.provider, state.kind, state.stateCategory)?.closesAskAs ?? null;
 
-  // SAFETY: `readingClosesAsk` returned true, so `Reading` is one of
-  // `ClosureReading` and the field type admits `LoopClosingStateCategory | null`.
-  // TypeScript cannot narrow a deferred `Reading` from a runtime check, so the
-  // cast restates what the map already decided.
+  // SAFETY: `readingClosesAsk` was true, so `Reading` is a `ClosureReading`. TS cannot narrow a
+  // deferred generic.
   return closes as ReconciledObject<Reading>["closesAskAs"];
 }
 
-/**
- * Select the authoritative object class for a subject.
- *
- * Built-in objects keep precedence whenever the subject resolved one. Only a
- * subject with no resolved built-in object may use MCP state. Keeping the class
- * as a whole (rather than only its first object) preserves the existing
- * built-in-only closure order while preventing an MCP object from shadowing a
- * built-in one.
- */
+/** Built-in objects win whenever any resolved; MCP state is used only when none did. */
 function selectReconciledObjectClass<Reading extends KeyProposalReading>(
   resolved: readonly ReconciledObject<Reading>[] | undefined,
 ): readonly ReconciledObject<Reading>[] {
@@ -351,14 +255,7 @@ function selectReconciledObjectClass<Reading extends KeyProposalReading>(
   return resolved?.filter((object) => object.state.provider === "mcp") ?? [];
 }
 
-/**
- * The one authoritative resolved object for a subject.
- *
- * A built-in provider keeps precedence whenever the subject resolved one,
- * regardless of candidate order. An approved MCP result is authoritative only
- * when no built-in object exists. Relevance and closure both consume this rule;
- * neither gets a second provider-specific precedence check.
- */
+/** The authoritative object for a subject. Relevance and closure both use this rule. */
 export function selectPrimaryReconciledObject<Reading extends KeyProposalReading>(
   resolved: readonly ReconciledObject<Reading>[] | undefined,
 ): ReconciledObject<Reading> | undefined {
@@ -366,14 +263,8 @@ export function selectPrimaryReconciledObject<Reading extends KeyProposalReading
 }
 
 /**
- * The closure candidate from the authoritative object class, if any.
- *
- * A candidate is not a closure: a consumer that suppresses on it must first
- * assert it through `closesOpenAsk` with the proof that consumer holds (see
- * `closesAskAsFor`). Closure scans the selected class in its existing order,
- * rather than requiring its first object to close. Thus a later resolved
- * built-in object can still close a built-in-only subject, while a resolved
- * MCP object cannot close when any built-in object exists.
+ * The first closure candidate in the authoritative class. Scans the whole class, so a later
+ * built-in object can close. A consumer that suppresses on it must confirm with `closesOpenAsk`.
  */
 export function firstClosingObject(
   resolved: readonly ReconciledObject<ClosureReading>[] | undefined,
@@ -386,10 +277,7 @@ export function firstClosingObject(
   );
 }
 
-/**
- * Resolver per match mode. Exhaustive over {@link ObjectKeyMatch}, so a third
- * mode is a compile error here instead of a silent exact lookup.
- */
+/** Exhaustive over {@link ObjectKeyMatch}, so a new mode is a compile error. */
 const KEY_RESOLVERS = {
   exact: (store: ObjectStateStore, userId: string, key: CandidateKey<KeyProposalReading>) =>
     store.resolveByKey(userId, key.provider, key.keyKind, key.keyValue),
@@ -404,5 +292,5 @@ const KEY_RESOLVERS = {
   ) => Promise<Awaited<ReturnType<ObjectStateStore["resolveByKey"]>>>
 >;
 
-/** Exact identities outrank prefix guesses. Exhaustive for the same reason. */
+/** Exact outranks prefix. */
 const MATCH_RANK = { exact: 0, prefix: 1 } satisfies Record<ObjectKeyMatch, number>;

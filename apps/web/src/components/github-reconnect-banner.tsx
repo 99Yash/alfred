@@ -5,12 +5,8 @@ import { API_URL } from "~/lib/eden";
 import { openAuthorizationTab } from "~/lib/integrations/authorization-tab";
 
 /**
- * Slim nag bar for accounts connected to GitHub before the GitHub App
- * migration (ADR-0052). Their credential is still `active` but has no
- * `installation_id`, so the PR tools and activity webhooks don't work.
- * Reconnecting runs the one-click Install & Authorize, which writes the
- * installation id. Renders nothing once a healthy installation exists.
- * Sibling of `ScopeGapBanner`.
+ * Nag bar for GitHub credentials from before the GitHub App (ADR-0052): active
+ * but with no `installation_id`, so PR tools and webhooks fail. Reconnect installs the app.
  */
 export function GithubReconnectBanner() {
   const { needsReconnect, accountLabel } = useGithubNeedsReconnect();
@@ -30,8 +26,7 @@ export function GithubReconnectBanner() {
       }
       actionLabel="Reconnect GitHub"
       onAction={() => {
-        // Authorization opens in a new tab; the banner's status read
-        // refetches on window focus, so the nag clears on return.
+        // New tab; the status read refetches on focus, so the nag clears on return.
         openAuthorizationTab(`${API_URL}/api/integrations/github/connect`);
       }}
       onDismiss={() => setDismissed(true)}

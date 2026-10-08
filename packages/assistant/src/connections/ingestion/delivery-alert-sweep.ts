@@ -1,19 +1,8 @@
 /**
- * The scheduled event-delivery health sweep (#1035, ADR-0100) — worker side.
- *
- * A source that produces deliveries only while it is healthy cannot report its
- * own silence: it sends nothing when it breaks, so no push signal exists to
- * react to. Only a pull check answers the question, and nothing was running
- * one. That is how the GitHub webhook drop went unnoticed for weeks (#1033):
- * no active credential matched the App installation, every delivery was
- * acknowledged and dropped, and Alfred said nothing.
- *
- * The app banner reads the same verdict live, so it is always current, but it
- * waits for the user to open Alfred. This sweep is the half that does not wait.
- *
- * It lives beside the queue that runs it, not beside the alert rule, because it
- * reaches `../../delivery` and `@alfred/mailer`; the alert rule's own door has
- * to stay light enough for the polled integration-status read to import.
+ * Scheduled event-delivery health sweep (#1035, ADR-0100). A broken source sends nothing, so only a
+ * pull check can notice it (the GitHub drop went unseen for weeks, #1033). The banner shows the
+ * same verdict, but only when the user opens the app. Lives beside the queue because it imports
+ * `@alfred/mailer`, which the alert rule must not.
  */
 
 import { INTEGRATIONS, toMessage, type EventSource } from "@alfred/contracts";
@@ -28,28 +17,15 @@ import { readIntegrationAvailability } from "../availability";
 import { readDeliveryAlerts, type DeliveryAlertVerdict } from "../delivery-alerts";
 
 /**
- * How long one emailed alert silences the next one for the same source.
- *
- * The banner already states the live truth every time the user opens the app,
- * so this email exists only to break silence. A day would nag about a state the
- * user can already see; a week is long enough to stay news and short enough
- * that a subscription broken in the background is raised again rather than
- * forgotten.
- *
- * Accepted residual: recovery is not observed. A source that breaks, is
- * repaired, and breaks again inside the window is emailed once, not twice. The
- * banner carries the second break in the meantime, because it reads the verdict
- * live rather than from this history.
+ * One emailed alert silences the next for the same source for a week. The banner shows the live
+ * state, so the email only breaks silence. Recovery is not tracked: break, fix, break again inside
+ * the window sends one email.
  */
 const ALERT_REPEAT_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
- * How many recent `delivery_alert` rows the window read pulls back. One row per
- * broken source per week, over a handful of sources, so the cap is slack rather
- * than a limit. It is safe to state that only because the kind is this
- * feature's alone: a cap shared with another sender is a cap that another
- * sender's volume can exhaust, and an exhausted page reads as "never alerted"
- * and re-sends.
+ * Cap on recent `delivery_alert` rows read. Slack, not a limit, because only this feature writes
+ * the kind. An exhausted page would read as "never alerted" and re-send.
  */
 const ALERT_LOOKBACK_LIMIT = 50;
 
@@ -62,11 +38,8 @@ export interface DeliveryAlertSweepResult {
 }
 
 /**
- * Alert the user about every event source that stopped delivering and that
- * they can restore, at most once per source per {@link ALERT_REPEAT_MS}.
- *
- * A failed send throws so BullMQ retries the sweep. `send` is idempotent on its
- * key, so a retry after a partial run re-sends nothing that already left.
+ * Email each broken, repairable source at most once per {@link ALERT_REPEAT_MS}. A failed send
+ * throws so BullMQ retries; `send` is idempotent on its key.
  */
 export async function runDeliveryAlertSweep(
   userId: string,
@@ -147,19 +120,14 @@ async function sendDeliveryAlert(
 }
 
 /**
- * The prefix every delivery alert's idempotency key carries, following the
- * `{kind}:{userId}:{subject}:{local-day}` convention the `email_sends` schema
- * documents. The source sits in the subject segment, so one broken source never
- * silences another.
+ * Key prefix in the `{kind}:{userId}:{subject}:{local-day}` form. Per source, so sources never
+ * silence each other.
  */
 function alertKeyPrefix(userId: string, source: EventSource): string {
   return `delivery_alert:${userId}:${source}:`;
 }
 
-/**
- * Whether a delivery alert for this source already went out inside the window.
- * Pure over the keys, so the repeat rule is readable without a database.
- */
+/** Whether this source was already alerted inside the window. */
 function wasAlerted(keys: readonly string[], userId: string, source: EventSource): boolean {
   const prefix = alertKeyPrefix(userId, source);
 
@@ -167,13 +135,8 @@ function wasAlerted(keys: readonly string[], userId: string, source: EventSource
 }
 
 /**
- * Idempotency keys of the `delivery_alert` emails this user actually received
- * inside the window.
- *
- * `sent` only: a queued or failed row means the user was told nothing, so the
- * source still owes them an alert. `email_sends_user_kind_idx` on
- * `(user_id, kind, created_at)` serves the read; `status` is filtered on the
- * heap, which is why the read is capped.
+ * Keys of `delivery_alert` emails actually sent inside the window. Queued or failed rows told the
+ * user nothing. `status` filters on the heap, hence the cap.
  */
 async function listRecentAlertKeys(userId: string, since: Date): Promise<string[]> {
   const rows = await db()
@@ -201,17 +164,8 @@ export interface DeliveryAlertSweepTally {
 }
 
 /**
- * The repeatable job body: sweep every user Alfred may email.
- *
- * `selectEmailableUsers` is the scope, not every `user` row. This is the second
- * recurring outbound fan-out in the codebase, and the first one billed real
- * work against 83 leftover `@example.test` rows before it gained the same
- * filter.
- *
- * Single-user today; the per-user fan-out carries us forward. One user's
- * failure must not hide the rest, so every user runs and the failures are
- * rethrown together at the end — BullMQ then retries the sweep, and `send` is
- * idempotent on its key, so the users already alerted are not alerted twice.
+ * Repeatable job body. Scope is `selectEmailableUsers`, not every `user` row, so test rows are
+ * skipped. Every user runs; failures are rethrown together so BullMQ retries.
  */
 export async function runDeliveryAlertSweepForAllUsers(): Promise<DeliveryAlertSweepTally> {
   const users = await selectEmailableUsers();

@@ -10,8 +10,7 @@ export {
   type RouteReasoning,
 } from "./provider-adapter";
 
-// Named, not `export *`: the transcription transports and the audio sniff are
-// internals `gateway.ts` calls, not package surface.
+// Named, not `export *`: the transports and the audio sniff are internal.
 export { transcribeAudio, transcriptionConfigured } from "./gateway";
 
 export { MAX_TRANSCRIBE_AUDIO_BYTES, type TranscribeAudioResult } from "./transcription";

@@ -1,10 +1,4 @@
-/**
- * App-grammar Textarea primitive.
- *
- * Multi-line variant of AppInput. Same elevation shadow stack, same focus
- * halo. `card` is the default; `inline` strips chrome for embedding
- * inside a surface that owns its own outline.
- */
+/** Multi-line AppInput. `inline` drops chrome for a surface with its own outline. */
 
 import type { Ref, TextareaHTMLAttributes } from "react";
 import { cn } from "~/lib/utils";

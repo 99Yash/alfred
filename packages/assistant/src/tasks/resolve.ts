@@ -14,7 +14,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
 
-/** The live (`not-yet-terminal`) statuses a dismissal may target. */
+/** Live statuses a dismissal may target. */
 const liveTodoStatusSchema = z.enum(["open", "suggested"]);
 
 const resolveTodosForGmailSourceArgsSchema = z
@@ -22,51 +22,27 @@ const resolveTodosForGmailSourceArgsSchema = z
     userId: z.string().min(1),
     senderEmail: z.string().nullish(),
     sourceThreadId: z.string().nullish(),
-    /**
-     * Optional exact todo allowlist for callers that have already proved a
-     * narrower provenance boundary. It composes with the Gmail source scope and
-     * is re-applied in the status-guarded UPDATE, so a row outside the list can
-     * never be dismissed.
-     */
+    /** Exact todo allowlist for a caller with narrower provenance. Re-applied in the UPDATE. */
     todoIds: z.array(z.string().min(1)).min(1).optional(),
     accountId: z.string().nullable().optional(),
     /**
-     * A stored standing-instruction target to sweep: dismisses the live todos
-     * the sweep may retract (both live statuses for a one-mailbox target,
-     * `suggested` only for a class target — see below) whose thread carries
-     * pair the target covers, per {@link targetMatchesSender}. The
-     * `system.remember` path passes the instruction it just wrote; the
-     * thread-only and single-address callers leave this unset. Never alongside
-     * `senderEmail`, `accountId`, `todoIds`, or `statuses` — the target already
-     * carries the `accountId` gate and owns its status bound (one-mailbox
-     * targets keep both live statuses, class targets sweep `suggested` only),
-     * so a second scope riding along is a caller bug.
+     * Sweep the live todos whose thread matches this standing-instruction target
+     * ({@link targetMatchesSender}). Never with `senderEmail`, `accountId`, `todoIds`,
+     * or `statuses`: the target owns its account gate and status bound.
      */
     target: standingInstructionTargetSchema.nullish(),
     /**
-     * Audit label for why the caller is dismissing. Free text because the
-     * model-authored `system.resolve_todo` path supplies it; bounded like the
-     * tool input. Persisted on the row as `resolved_reason` and echoed back as
-     * {@link ResolveTodosForGmailSourceResult} `auditReason` so callers can log it.
-     */
+         /** Audit label, persisted as `resolved_reason`. Free text, because the model supplies it. */
     reason: z.string().max(1_000).nullish(),
     /**
-     * Who is doing the dismissing. Persisted as `resolved_by` and fanned out
-     * into the append-only `todo_events` history by the transition trigger —
-     * this is the answer to "who cleared this?". `agent` for tool calls acting
-     * for the user, `system` for the automatic `close-loop-todos` retraction.
-     */
+         /** Persisted as `resolved_by`; `todo_events` records it. `system` is the `close-loop-todos` retraction. */
     actor: z.enum(TODO_RESOLVED_BY).default("agent"),
     /**
-     * Which live statuses to retract. Defaults to both: the manual
-     * `system.resolve_todo` path dismisses whatever the user pointed at,
-     * promoted or not. The automatic `close-loop-todos` retraction
-     * passes `["suggested"]` on purpose — it may only drop an **unpromoted**
-     * proposal, never a commitment the user explicitly promoted to `open`, where
-     * a holding reply ("I'll send it tomorrow") is progress, not closure.
-     * Never beside `target`: the sweep owns its own bound (see below), so a
-     * caller-stated scope riding along is a caller bug and the parse refuses it.
-     */
+         /**
+          * Statuses to retract; defaults to both. `close-loop-todos` passes `["suggested"]`:
+          * it may drop an unpromoted proposal, never a todo the user promoted to `open`.
+          * Never with `target`.
+          */
     statuses: z.array(liveTodoStatusSchema).min(1).optional(),
   })
   .refine((data) => data.todoIds === undefined || data.sourceThreadId != null, {
@@ -88,24 +64,14 @@ const resolveTodosForGmailSourceArgsSchema = z
 
 export type ResolveTodosForGmailSourceArgs = z.infer<typeof resolveTodosForGmailSourceArgsSchema>;
 
-/** Both live statuses; the default when a caller does not narrow. */
 const DEFAULT_RETRACTABLE_STATUSES = ["open", "suggested"] as const satisfies ReadonlyArray<
   z.infer<typeof liveTodoStatusSchema>
 >;
 
 /**
- * The only status a CLASS-target sweep may retract. A domain target widens
- * the sender set, so it must not widen the status set with it: an automatic
- * retraction may drop an unpromoted `suggested` proposal, never an `open`
- * commitment the user promoted (same rule `close-loop-todos` follows at
- * `workflow-operations.ts:962-968`). A target that names ONE mailbox (see
- * {@link targetNamesOneMailbox}) widens nothing, so its sweep keeps the
- * caller default — both live statuses — preserving the `scope:"sender"`
- * behavior exactly. This is a deliberate narrowing for `scope:"domain"`:
- * on main the caller passed the named address on every path, so a domain
- * mute dismissed that one address's promoted `open` todo; at HEAD the class
- * bound governs the whole covered set, that address included, and the named
- * address's `open` todo survives.
+ * A class target (such as a domain) widens the sender set, so it may retract only
+ * `suggested`, never a promoted `open` todo. A one-mailbox target
+ * ({@link targetNamesOneMailbox}) keeps both statuses.
  */
 const TARGET_SWEEP_STATUSES = ["suggested"] as const satisfies ReadonlyArray<
   z.infer<typeof liveTodoStatusSchema>
@@ -118,7 +84,7 @@ export type ResolveTodosForGmailSourceResult =
       dismissedCount: number;
       todoIds: string[];
       matchedThreadIds: string[];
-      /** The caller's audit label, persisted as `resolved_reason` and echoed for logging. */
+      /** Persisted as `resolved_reason`. */
       auditReason: string | null;
     }
   | {
@@ -126,7 +92,7 @@ export type ResolveTodosForGmailSourceResult =
       status: "needs_clarification";
       reason: "missing_source_or_sender";
       message: string;
-      /** The caller's audit label, echoed for logging. Never persisted. */
+      /** Echoed for logging. Never persisted. */
       auditReason: string | null;
     };
 
@@ -142,24 +108,10 @@ interface GmailThreadMetadata {
 }
 
 /**
- * Dismiss live Gmail-sourced todos by the source they carry, not by sender
- * alone. A caller may scope by `sourceThreadId` (the `close-loop-todos`
- * retraction, which knows only the thread), by `senderEmail`/`accountId` (the
- * `system.resolve_todo` path), by `target` (the `system.remember` path, which
- * sweeps every sender the stored instruction covers), or combine a thread
- * with one sender-scope; any one mode alone is enough. Named for the source
- * because the thread-only call is a first-class caller, not a misuse of a
- * sender-shaped API. A caller with stronger provenance may pass an exact
- * `todoIds` allowlist alongside `sourceThreadId`; the load and status-guarded
- * update both retain that boundary.
- *
- * The statuses to retract are a caller decision ({@link
- * ResolveTodosForGmailSourceArgs.statuses}), defaulting to both live ones. The
- * automatic retraction narrows to `suggested` so it never buries a todo the
- * user promoted — and a CLASS-target sweep is forced to the same bound below,
- * so the widened sender set cannot widen the status set with it. A
- * one-mailbox target sweep keeps the caller default (both), preserving the
- * single-address behavior that predates this item.
+ * Dismiss live Gmail-sourced todos by source: by `sourceThreadId` (`close-loop-todos`),
+ * by `senderEmail`/`accountId` (`system.resolve_todo`), by `target` (`system.remember`),
+ * or a thread plus one sender scope. `todoIds` can narrow a thread call further.
+ * A class-target sweep is forced to `suggested` only.
  */
 export async function resolveTodosForGmailSource(
   args: ResolveTodosForGmailSourceArgs,
@@ -172,11 +124,8 @@ export async function resolveTodosForGmailSource(
   const target = parsed.target ?? null;
   const auditReason = normalizeOptional(parsed.reason);
 
-  // A CLASS-target sweep is an automatic retraction over a widened sender
-  // set: `suggested` only. A one-mailbox target widens nothing, so its sweep
-  // keeps the caller default (both live statuses). `statuses` beside `target`
-  // never reaches here — the schema refuses it — so there is nothing to
-  // narrow or substitute; the bound turns on the target's width alone.
+  // Class target: `suggested` only. One-mailbox target: the caller default.
+  // The schema refuses `statuses` with `target`.
   const statuses = target
     ? targetNamesOneMailbox(target)
       ? DEFAULT_RETRACTABLE_STATUSES
@@ -222,17 +171,9 @@ export async function resolveTodosForGmailSource(
         if (!meta) continue;
 
         if (target) {
-          // The sweep covers exactly the set the instruction's own match
-          // rule covers: one function answers for the write and the sweep.
-          // Each thread's senders and accounts both feed the matcher, so a
-          // scoped target's `accountId` gate participates — but only as two
-          // independent sets (some sender matches AND some account passes),
-          // never as a real (sender, account) pair. A thread spanning two
-          // mailboxes can therefore over-match a scoped target; returning
-          // pairs from `loadThreadMetadata` is queued follow-up work. A
-          // future target kind the sweep does not know matches nothing
-          // rather than mis-matching, per `targetMatchesSender`'s
-          // fail-closed arm.
+          // Use the instruction's own match rule. Senders and accounts are matched as two
+          // separate sets, not as pairs, so a thread across two mailboxes can over-match.
+          // An unknown target kind matches nothing.
           const covered = [...meta.senderEmails].some((sender) =>
             [...meta.accountIds].some((account) => targetMatchesSender(target, sender, account)),
           );

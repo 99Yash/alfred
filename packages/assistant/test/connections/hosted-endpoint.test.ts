@@ -161,8 +161,7 @@ describe("isBlockedHost", () => {
     test(`blocks ${host}`, () => assert.equal(isBlockedHost(host), true));
   }
 
-  // A public name that *resolves* to a private IP (e.g. 127.0.0.1.nip.io) passes
-  // the string check and is caught at connect time — not here.
+  // A public name that resolves to a private IP (127.0.0.1.nip.io) passes here and fails at connect time.
   for (const host of [
     "example.com",
     "www.yashk.xyz",
@@ -356,9 +355,7 @@ describe("guarded fetch", () => {
     await guarded(request);
 
     assert.equal(seen.length, 2);
-    // Node's `new Request(url, { signal })` stores a DEPENDENT signal, not the
-    // controller's own, so identity is asserted against the Request the caller
-    // handed over — which is the signal native Fetch would read too.
+    // `new Request(url, { signal })` stores a dependent signal, so compare against the Request's own.
     assert.equal(seen[0], request.signal);
     assert.equal(seen[1], request.signal);
 
@@ -412,8 +409,7 @@ describe("guarded fetch", () => {
     requestController.abort();
     assert.equal(seen[0]?.aborted, false, "the Request's signal is not the effective one");
 
-    // An explicit `null` is SUPPLIED, so it must not fall back to the
-    // Request's signal; native hands it to fetch, which detaches.
+    // An explicit `null` is supplied, so it must not fall back to the Request's signal.
     await guarded(request, { signal: null });
     assert.equal(seen[1], null, "an explicit null replaces; it does not fall back");
   });

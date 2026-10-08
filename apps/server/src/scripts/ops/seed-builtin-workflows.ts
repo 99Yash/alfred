@@ -1,13 +1,8 @@
 /**
- * Backfill builtin `workflows` rows for every existing user.
+ * Seed builtin `workflows` rows for every existing user, including newly shipped
+ * builtins. Idempotent: the upsert leaves status and next_run_at alone.
  *
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/ops/seed-builtin-workflows.ts
- *
- * `seedBuiltinWorkflowsForUser` is idempotent (ON CONFLICT DO UPDATE
- * leaves status/next_run_at alone), so this is safe to re-run. It also
- * picks up any new builtins added since the last invocation — handy
- * when shipping a new builtin (e.g. a new boss-agent workflow in m13)
- * without forcing a re-signup.
  */
 import { closeConnections, warmPool } from "@alfred/db";
 import { seedBuiltinWorkflowsForAllUsers } from "@alfred/assistant/automation";

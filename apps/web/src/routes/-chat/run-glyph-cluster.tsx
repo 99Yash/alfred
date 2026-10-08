@@ -3,18 +3,9 @@ import { IntegrationIcon } from "~/lib/integrations/integration-icons";
 import { cn } from "~/lib/utils";
 import type { RunGlyph } from "./run-summary";
 
-/** Max coins stacked in the summary cluster before we stop adding more. */
 const MAX_GLYPHS = 3;
 
-/**
- * Overlapping coins for the glyphs a run touched (max 3) — integration app-icon
- * tiles and/or system marks, in the order the run first hit them, as picked by
- * `runGlyphs`. A run with no mappable glyph (only unmapped system plumbing)
- * falls back to a lone wrench.
- *
- * Shared by the turn's top-level activity trail and a sub-agent's nested one,
- * so a finished child run reads in the same vocabulary as a finished turn.
- */
+/** Overlapping coins for a run's glyphs, in first-hit order. A lone wrench when none map. */
 export function RunGlyphCluster({ glyphs }: { glyphs: RunGlyph[] }) {
   if (glyphs.length === 0) {
     return (
@@ -27,8 +18,7 @@ export function RunGlyphCluster({ glyphs }: { glyphs: RunGlyph[] }) {
     );
   }
 
-  // ring matches the page background so overlapping coins read as a clean stack
-  // rather than a smudge.
+  // Ring in the page color, so overlaps read as a clean stack.
   return (
     <span aria-hidden className="flex shrink-0 items-center">
       {glyphs.slice(0, MAX_GLYPHS).map((glyph, i) =>
@@ -40,8 +30,7 @@ export function RunGlyphCluster({ glyphs }: { glyphs: RunGlyph[] }) {
             className={cn("ring-2 ring-app-background", i > 0 && "-ml-2")}
           />
         ) : (
-          // System tool with no brand — its animated mark on a neutral coin,
-          // sized to match the brand tiles. Static here; plays on row hover.
+          // Static here; it plays on row hover.
           <span
             key={glyph.key}
             className={cn(

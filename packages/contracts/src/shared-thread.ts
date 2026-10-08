@@ -5,44 +5,27 @@ import { isoDateTimeStringSchema } from "./iso-date-time";
 import { slugBase } from "./slug";
 
 /**
- * The PUBLICATION shapes for a shared chat thread (ADR-0102).
- *
- * These are deliberately NARROWER than the synced rows in `@alfred/sync` that
- * they are built from, and the narrowing is the security control. A shared
- * thread is world-readable by URL, so every field here had to earn its place by
- * being something the owner would knowingly publish. Anything omitted below is
- * omitted on purpose; read the notes before widening one.
- *
- * The redaction runs at WRITE time (`buildSharedThreadSnapshot`), so the
- * `shared_threads` row never stores the dropped fields at all. That is what
- * makes the control hold: a later bug in the public read path cannot leak a
- * column that does not exist.
+ * Public shapes for a shared thread (ADR-0102). Anyone with the URL can read it,
+ * so these are narrower than the synced rows, and the narrowing is the security
+ * control. Redaction runs at write time (`toSharedMessage`, `toSharedArtifact`),
+ * so the row never stores a dropped field. Read the notes before you widen one.
  */
 
 /**
- * A tool call as a visitor sees it: THAT Alfred ran a tool, never what it read.
- *
- * `argsPreview` and `resultPreview` are dropped. On this product those two
- * fields routinely hold raw Gmail message bodies, calendar attendee lists,
- * Drive file contents, and GitHub issue text — the private material the whole
- * assistant exists to read. Publishing the trail without them still shows the
- * work ("Searched email", "Read calendar"); publishing them would hand the
- * user's inbox to anyone holding the link.
- *
- * `connectNudge` is dropped too: it is a repair affordance for the owner, and a
- * visitor can neither act on it nor should learn which integrations are broken.
+ * That a tool ran, never what it read. `argsPreview` and `resultPreview` hold
+ * mail bodies and file contents. `connectNudge` would show which integrations are broken.
  */
 export const sharedThreadToolCallSchema = z.object({
   toolCallId: z.string(),
   toolName: z.string(),
   status: z.enum(["succeeded", "failed"]),
-  /** Keeps the trail interleaved with narration in publish order. */
+  /** Keeps tool calls interleaved with narration. */
   segmentIndex: z.number().int().nonnegative().default(0),
 });
 
 export type SharedThreadToolCall = z.infer<typeof sharedThreadToolCallSchema>;
 
-/** A narration segment — prose Alfred wrote itself, so it publishes as-is. */
+/** Prose Alfred wrote, so it publishes as-is. */
 export const sharedThreadNarrationSchema = z.object({
   index: z.number().int().nonnegative(),
   text: z.string(),
@@ -51,24 +34,9 @@ export const sharedThreadNarrationSchema = z.object({
 export type SharedThreadNarration = z.infer<typeof sharedThreadNarrationSchema>;
 
 /**
- * One published turn.
- *
- * Dropped against `syncedChatMessageSchema`, each for its own reason:
- *   - `userId` / `threadId` / `runId` — internal identifiers. A visitor needs
- *     none of them, and they let an outsider correlate several shared threads
- *     back to one account.
- *   - `usage` — token counts, model latency, and COST in microdollars. That is
- *     the owner's billing data, not part of the conversation.
- *   - `errorKind` — names Alfred's internal failure taxonomy. A failed turn
- *     still publishes (`status`) so the transcript is not silently doctored,
- *     but the taxonomy stays private.
- *   - `rowVersion` / `updatedAt` — Replicache bookkeeping with no reader here.
- *
- * `reasoning` is KEPT. It is the model's own thinking, it is already shown to
- * the owner in a collapsible section, and a shared thread that hides it
- * misrepresents how the answer was reached. It is nonetheless the field most
- * likely to quote private context verbatim, so the share dialog says in plain
- * words that reasoning is published.
+ * Drops from `syncedChatMessageSchema`: ids (they link shares to one account),
+ * `usage` (billing data), `errorKind` (internal), and sync bookkeeping.
+ * Keeps `reasoning`, and the share dialog says so: it can quote private context.
  */
 export const sharedThreadMessageSchema = z.object({
   id: z.string(),
@@ -79,15 +47,7 @@ export const sharedThreadMessageSchema = z.object({
   status: z.enum(["complete", "failed"]),
   toolCalls: z.array(sharedThreadToolCallSchema).nullable().default(null),
   narration: z.array(sharedThreadNarrationSchema).nullable().default(null),
-  /**
-   * How many files rode with this turn. A COUNT, never the files: attachment
-   * bytes sit behind the owner's auth-gated content proxy and a visitor cannot
-   * fetch them, so publishing the count is what keeps the transcript honest —
-   * a turn that carried three screenshots would otherwise read as a bare
-   * sentence, which is the same doctoring the `status` field exists to prevent.
-   *
-   * Defaulted so a row written before this field existed still parses.
-   */
+  /** A count, never the files, so the transcript is honest. Defaulted for older rows. */
   attachmentCount: z.number().int().nonnegative().default(0),
   createdAt: isoDateTimeStringSchema,
 });
@@ -95,23 +55,9 @@ export const sharedThreadMessageSchema = z.object({
 export type SharedThreadMessage = z.infer<typeof sharedThreadMessageSchema>;
 
 /**
- * A published artifact BODY. This union is deliberately not
- * `artifactContentSchema`, and the difference is the point of the split.
- *
- *   - `document` publishes its markdown. The owner authored it as prose and the
- *     public page renders it.
- *   - `pages` publishes a COUNT and no HTML. A page body is assembled from tool
- *     results, so it can restate the mail, calendar, and file content that the
- *     `resultPreview` drop already removed from the same thread. A count says
- *     the deck exists without republishing what it was built from.
- *   - `external_file` has no variant here AT ALL. Its body is a pointer into
- *     the owner's Drive — a file id, a preview URL, a file name — which is
- *     private material with no reader on a public page. An artifact whose body
- *     does not map onto this union is dropped from the snapshot rather than
- *     published with an empty body (see `toSharedArtifact`).
- *
- * Narrowing here is what makes the write-time redaction real: the row cannot
- * store a field this union cannot express, so no read path can return one.
+ * Narrower than `artifactContentSchema` on purpose. `pages` publishes only a count:
+ * its HTML is built from tool results. `external_file` has no variant: it points
+ * into the owner's Drive, so `toSharedArtifact` drops it.
  */
 export const sharedThreadArtifactBodySchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("document"), markdown: z.string().max(DOCUMENT_MARKDOWN_MAX) }),
@@ -121,17 +67,8 @@ export const sharedThreadArtifactBodySchema = z.discriminatedUnion("kind", [
 export type SharedThreadArtifactBody = z.infer<typeof sharedThreadArtifactBodySchema>;
 
 /**
- * A published artifact. Only `complete` artifacts are snapshotted, so there is
- * no `status` field: a half-written `generating` body and a failed `error` body
- * are both things the owner never chose to publish.
- *
- * `kind` and `format` are gone too — `body.kind` already selects the renderer,
- * and `format` (slides versus pdf) drives page geometry that this surface never
- * draws.
- *
- * Unlike Dimension — whose public page re-reads artifact bodies live from the
- * `artifacts` table by id, so a later edit silently rewrites an already-shared
- * page — the body is COPIED here at publish time and never re-read.
+ * Only `complete` artifacts publish, so there is no `status`. The body is copied
+ * at publish time, so a later edit does not change a shared page.
  */
 export const sharedThreadArtifactSchema = z.object({
   id: z.string(),
@@ -142,7 +79,7 @@ export const sharedThreadArtifactSchema = z.object({
 
 export type SharedThreadArtifact = z.infer<typeof sharedThreadArtifactSchema>;
 
-/** The body `GET /api/shared/:slug` returns to an unauthenticated visitor. */
+/** `GET /api/shared/:slug`, unauthenticated. */
 export const sharedThreadPageSchema = z.object({
   urlSlug: z.string(),
   title: z.string(),
@@ -153,10 +90,7 @@ export const sharedThreadPageSchema = z.object({
 
 export type SharedThreadPage = z.infer<typeof sharedThreadPageSchema>;
 
-/**
- * One row in the owner's list of live shares for a thread. Carries no snapshot
- * body: the dialog only needs to name the link, date it, and revoke it.
- */
+/** One live share in the owner's list. No snapshot body. */
 export const sharedThreadSummarySchema = z.object({
   id: z.string(),
   urlSlug: z.string(),
@@ -168,30 +102,15 @@ export const sharedThreadSummarySchema = z.object({
 
 export type SharedThreadSummary = z.infer<typeof sharedThreadSummarySchema>;
 
-/**
- * Random characters appended to every slug.
- *
- * The slug IS the read capability — there is no token and no second check — so
- * its entropy is the whole access control. 16 characters of the 32-symbol
- * alphabet below is 80 bits, which is not enumerable. Dimension uses 6
- * (`nanoid6`, ~30 bits); at that width an attacker can walk the space, so it is
- * not copied. Do not shorten this for prettier URLs.
- */
+/** The slug is the only read check. 16 chars of 32 symbols is 80 bits. Do not shorten it. */
 export const SHARED_THREAD_SLUG_SUFFIX_LENGTH = 16;
 
-/** Lowercase alphanumerics minus `l`, `1`, `o`, `0` — unambiguous when read aloud or retyped. */
+/** No `l`, `1`, `o`, or `0`, so it is easy to retype. */
 const SLUG_ALPHABET = "abcdefghijkmnpqrstuvwxyz23456789";
 
 /**
- * Build `kebab-title-<random>` from a thread title and caller-supplied random
- * bytes. Randomness is injected rather than read here so this stays pure and
- * `@alfred/contracts` keeps no crypto dependency; the server passes
- * `crypto.getRandomValues`-backed bytes.
- *
- * The title half is cosmetic. It is truncated hard because a title can be long
- * and a URL should stay pasteable, and it falls back to `thread` when a title
- * has no alphanumerics at all (an emoji-only title, say) so the slug never
- * degenerates to a bare suffix with a leading dash.
+ * Build `kebab-title-<random>`. The caller passes the random bytes, so this stays pure.
+ * The title part is cosmetic and falls back to `thread`.
  */
 export function buildSharedThreadSlug(title: string, randomBytes: Uint8Array): string {
   if (randomBytes.length < SHARED_THREAD_SLUG_SUFFIX_LENGTH) {
@@ -203,8 +122,7 @@ export function buildSharedThreadSlug(title: string, randomBytes: Uint8Array): s
   let suffix = "";
 
   for (let i = 0; i < SHARED_THREAD_SLUG_SUFFIX_LENGTH; i++) {
-    // SAFETY: `i` is below the length checked above, and the modulo keeps the
-    // index inside `SLUG_ALPHABET`.
+    // SAFETY: `i` is in range, and the modulo keeps the index inside `SLUG_ALPHABET`.
     suffix += SLUG_ALPHABET[randomBytes[i]! % SLUG_ALPHABET.length];
   }
 

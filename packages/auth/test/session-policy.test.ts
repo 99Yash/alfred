@@ -2,18 +2,9 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { ensureAuthTestEnv } from "./support/env";
 
-/**
- * Coverage for the session lifetime (#454).
- *
- * Three of the four numbers restate a Better Auth default, so every case here
- * asserts an exact value rather than "is a number". The point of the issue was
- * that a default is not a decision: a case that accepted any number would pass
- * against the very silent-default drift the block exists to stop.
- */
+/** Exact values, not "is a number": most restate a Better Auth default, and defaults can drift. */
 
-// Set before the imports below, not with a static import: the auth module
-// reaches `serverEnv()` and `@alfred/db`, and a static import is hoisted above
-// this line. See `.lessons/import-environment-sensitive-modules-after-test-fixtures.md`.
+// Before the dynamic imports: a static import is hoisted above this line and reads `serverEnv()` first.
 ensureAuthTestEnv();
 
 const [{ SESSION_LIFETIME_SECONDS, authSessionPolicy }, { createAuthMiddleware }, { auth }] =
@@ -33,8 +24,7 @@ function sessionUpdateHook() {
 }
 
 function updateContext(createdAt: Date) {
-  // SAFETY: The hook reads only `context.session.session.createdAt`; this fixture
-  // supplies that exact Better Auth-owned path and no other context capability.
+  // SAFETY: the hook reads only `context.session.session.createdAt`, which this fixture supplies.
   return {
     context: {
       session: {
@@ -53,16 +43,12 @@ describe("session lifetime (#454)", () => {
   });
 
   test("freshness stays on", () => {
-    // Better Auth reads `freshAge: 0` as "always fresh" and skips its freshness
-    // checks. That disables the policy; it is not a shorter window. Route
-    // behavior belongs in `docs/reference/auth.md`.
+    // Better Auth reads `freshAge: 0` as "always fresh", which disables the check.
     assert.notEqual(authSessionPolicy().session.freshAge, 0);
   });
 
   test("the absolute cap sits above the idle window", () => {
-    // A cap below the idle window would not be a cap: it would silently become
-    // the idle window instead, and every "7 day" statement about this system
-    // would be wrong.
+    // A cap below the idle window would silently become the idle window.
     assert.equal(SESSION_LIFETIME_SECONDS.absoluteMax, DAY_SECONDS * 30);
     assert.ok(
       SESSION_LIFETIME_SECONDS.absoluteMax > SESSION_LIFETIME_SECONDS.idle,

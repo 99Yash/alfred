@@ -1,19 +1,7 @@
 /**
- * `<AppThemed>` — combines the `.app` opt-in class with the correct
- * `data-app-theme` attribute so callers don't have to wire it themselves.
- *
- * We always stamp the *resolved* theme (`"dark"` | `"light"`), even in
- * "system" mode, rather than leaving the attribute off and deferring to the
- * `@media (prefers-color-scheme)` block. Deferring to @media means the dark
- * tokens only land on `.app` once index.css is applied; in the Vite dev server
- * that lands a beat late on a cold mobile load, so `.app` momentarily falls
- * through to the LIGHT `:root` baseline. With `color-scheme: dark` already
- * forcing a dark UA canvas (see index.html), the result is a dark page whose
- * app surface and accent tokens briefly use their light values. Stamping the
- * resolved attribute makes `.app` carry the dark token block deterministically,
- * with no @media timing dependency. The provider's matchMedia listener keeps
- * `resolved` in sync when the OS theme changes, so "system" still auto-follows
- * — it just does so through React, not raw CSS.
+ * `.app` plus the resolved `data-app-theme`, even in "system" mode.
+ * Leaving it to the index.css media query flashed light tokens on a cold
+ * mobile load in Vite dev. The provider still follows OS changes.
  */
 
 import { use, type HTMLAttributes } from "react";
@@ -27,12 +15,9 @@ export function AppThemed({
   ...rest
 }: HTMLAttributes<HTMLDivElement> & { as?: "div" | "main" | "section" | "article" }) {
   const ctx = use(AppThemeContext);
-  // No provider mounted → fall back to `.app` with no attribute, which lets the
-  // @media block track system preference (the original behavior). With a
-  // provider, always write the resolved theme so the tokens are deterministic.
+  // No provider: no attribute, so the media query tracks the system theme.
   const dataTheme = ctx?.resolved;
-  // SAFETY: As holds a component-or-tag for the polymorphic render below;
-  // React.ElementType is exactly that union.
+  // SAFETY: `As` is a component or tag, which is what React.ElementType means.
   const Comp = As as React.ElementType;
 
   return (

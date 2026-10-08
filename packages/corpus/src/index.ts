@@ -1,7 +1,4 @@
-// @alfred/corpus — document indexing + semantic retrieval over the chunk corpus.
-// The chunker and the Voyage embed machinery are package-internal; callers see
-// the corpus verbs (indexDocument / retryPending / search) plus the two embed
-// primitives the DB-backed poison-pill test and the poll smoke assert against.
+// Document indexing and semantic search over chunks.
 export {
   indexDocument,
   findUnembeddedDocumentIds,

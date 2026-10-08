@@ -12,16 +12,10 @@ import {
   scoreAttentionForItems,
 } from "@alfred/contracts";
 
-/**
- * Pins the presentation-layer attention scorer (ADR-0064, #210). The whole
- * point of this work is that demanding-ness is a deterministic render property
- * layered on top of the honest immutable category — so the formula's behavior
- * (and especially its safe-degradation and its load-bearing examples) is pinned
- * here, the cheap-to-cover pure surface.
- */
+/** Demanding-ness is a deterministic render property over the immutable category (ADR-0064). */
 describe("attentionScore", () => {
   test("an unscored sender keeps the category base — today's intrinsic-only behavior", () => {
-    // No graph row → significanceBand null → multiplier 1.0 → score === base.
+    // No graph row means multiplier 1.0, so score equals base.
     const r = attentionScore({ category: "awaiting_reply" });
     assert.equal(r.score, CATEGORY_BASE_DEMAND.awaiting_reply);
     assert.equal(r.band, "demanding");
@@ -39,17 +33,14 @@ describe("attentionScore", () => {
   });
 
   test("significance never pushes a low category above its floor", () => {
-    // strong significance multiplier is 1.0, not >1 — fyi stays muted.
+    // The strong multiplier is 1.0, so fyi stays muted.
     const r = attentionScore({ category: "fyi", significanceBand: "strong" });
     assert.equal(r.score, CATEGORY_BASE_DEMAND.fyi);
     assert.equal(r.band, "muted");
   });
 
   test("quiet payment/follow_up stay below `demanding` at the category floor", () => {
-    // The $6.79-receipt bug: a resolved micro-charge is `payment` (0.55) and,
-    // like `follow_up` (0.55), sits below the DEMANDING_AT cutoff (0.6) at FULL
-    // strength. Actionable payment failures are pinned by the briefing gate's
-    // category-specific scorer; the raw category floor stays below the bar.
+    // Regression: a resolved $6.79 receipt read as demanding. Both bases sit below DEMANDING_AT.
     for (const category of ["payment", "follow_up"] as const) {
       const unscored = attentionScore({ category });
       assert.equal(unscored.band, "normal", `${category} unscored should be normal`);
@@ -187,14 +178,12 @@ describe("scoreAttentionForItems", () => {
   });
 
   test("assigns recurrence chronologically even when items arrive newest-first", () => {
-    // Both live consumers (briefing + inbox rail) feed rows newest-first. The
-    // FIRST chronological sighting must stay demanding; the latest (10th) copy
-    // must decay — regardless of the order it's passed in.
+    // Callers pass rows newest-first; the oldest sighting must stay demanding whatever the order.
     const newestFirst = Array.from({ length: 10 }, (_, i) => ({
       sender: "no-reply@sns.amazonaws.com",
       subject: "ALARM: CPU high",
       category: "urgent" as const,
-      // i=0 is newest; oldest has the smallest timestamp.
+      // i=0 is newest.
       occurredAtMs: 10_000 - i * 1000,
     }));
 
@@ -202,7 +191,6 @@ describe("scoreAttentionForItems", () => {
     const newest = results[0];
     const oldest = results[results.length - 1];
     assert.ok(newest && oldest);
-    // The newest copy is the 10th sighting → decayed; the oldest is the 1st.
     assert.equal(oldest.band, "demanding", "the first (oldest) sighting stays demanding");
     assert.equal(newest.band, "muted", "the latest (10th) copy decays out");
     assert.ok(newest.score < oldest.score);

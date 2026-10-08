@@ -17,13 +17,8 @@ import { upsertToolPolicy } from "@alfred/assistant/tool-runtime/mcp/test-suppor
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
- * DB-backed tests for the `mcp.call` gate-side effective-risk resolver (#541
- * Part 3). They prove the reviewed per-descriptor downgrade applies ONLY when it
- * binds to the exact tool the model selected on the connection's current catalog,
- * and that every uncertainty falls back to the conservative `high` floor.
- *
- * Opt-in on `DATABASE_URL` (mirrors the other MCP tests); seeds throwaway
- * `test-mcprisk-*` users and cascades everything away on teardown.
+ * DB-backed tests for the `mcp.call` effective-risk resolver. A reviewed downgrade applies only to the
+ * exact tool on the current catalog; any doubt falls back to `high`. Needs `DATABASE_URL`.
  */
 const SKIP = dbBackedSkip("database");
 
@@ -35,12 +30,7 @@ const REVISION = "sha256:catrev1";
 
 const REMOTE = "search_issues";
 
-/**
- * The one descriptor every case in this file publishes. It asserts
- * `annotations.readOnlyHint`, so a reviewed `low` still lowers the tier: the
- * ADR-0069 amendment keeps the `high` floor for write tools, and this fixture
- * proves the downgrade where it is still allowed.
- */
+/** Has `annotations.readOnlyHint`, so a reviewed `low` can still lower the tier (ADR-0069 keeps `high` for writes). */
 const DESCRIPTOR: Tool = {
   name: REMOTE,
   inputSchema: { type: "object", additionalProperties: true },
@@ -136,11 +126,10 @@ describe("resolveMcpCallRiskTier (DB-backed)", { skip: SKIP }, () => {
   });
 
   test("a connection with no current revision pointer stays at the floor", async () => {
-    // A connection that has never published a catalog (or lost its pointer) has
-    // no revision to bind a descriptor against, so the downgrade cannot apply.
+    // No catalog pointer means no revision to bind against, so no downgrade.
     const userId = await seedUser();
     const connectionId = await seedConnection(userId);
-    // NB: no seedRevision — the connection's currentCatalogRevisionId is null.
+    // No seedRevision: `currentCatalogRevisionId` is null.
 
     const tier = await resolveMcpCallRiskTier({
       userId,
@@ -181,10 +170,8 @@ describe("resolveMcpCallRiskTier (DB-backed)", { skip: SKIP }, () => {
     const userId = await seedUser();
     const connectionId = await seedConnection(userId);
     await seedRevision(connectionId);
-    // The user reviewed a PRIOR descriptor of this tool; the live one differs.
-    // The exact-hash policy join misses, and the `reviewed` branch is what
-    // holds the floor — the structural branch must not answer for a tool the
-    // user has already made a decision about (ADR-0096 sub-decision 2).
+    // The user reviewed an earlier descriptor. The hash join misses, and the `reviewed` branch holds the floor;
+    // the structural branch must not answer for a tool the user decided on (ADR-0096 sub-decision 2).
     await upsertToolPolicy({
       userId,
       connectionId,
@@ -231,10 +218,7 @@ describe("resolveMcpCallRiskTier (DB-backed)", { skip: SKIP }, () => {
   });
 
   test("a corrupt persisted tier (out of enum) re-gates to the floor", async () => {
-    // The persisted `riskTier` is a `$type<ToolRiskTier>()` cast over `text`, not
-    // a validated value. If a bad write ever lands an out-of-enum string, the
-    // resolver must treat it as unknown and re-gate — never silently un-gate a
-    // high-floor call because an unrecognized string isn't literally "high".
+    // `riskTier` is a `$type<ToolRiskTier>()` cast over `text`. An unknown string must re-gate, not un-gate.
     const userId = await seedUser();
     const connectionId = await seedConnection(userId);
     await seedRevision(connectionId);

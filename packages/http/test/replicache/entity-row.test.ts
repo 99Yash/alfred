@@ -1,17 +1,9 @@
 /**
- * The recoverable-serialization path, which no test covered before the
- * per-domain split of the pull read model.
- *
- * `toEntityRow` decides whether one malformed row costs the user ONE ROW or the
- * WHOLE PULL. A narrowed predicate, a deleted `try`, or a domain `make` that
- * throws a plain `Error` where it used to throw `SerializationError` turns a
- * skipped row into a failed pull — a total sync outage for that user, from one
- * bad row, with every type check green.
- *
- * These are NEW assertions, not characterization tests: the behavior existed
- * before, but `toEntityRow` was module-private and could not be driven.
- * Env-free, so this also runs in the `http-env-free-load` job.
+ * `toEntityRow` decides if one malformed row costs one row or the whole pull.
+ * A narrowed predicate, a deleted `try`, or a plain `Error` instead of `SerializationError`
+ * turns a skipped row into a failed pull, with every type check green.
  */
+
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 

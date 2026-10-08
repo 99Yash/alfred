@@ -3,30 +3,22 @@ import { render } from "@react-email/render";
 import * as React from "react";
 import { bodyStyles, EmailShell } from "./_shell";
 
-/**
- * The daily-briefing email. A markdown body rendered inside the shared
- * {@link EmailShell} (logo + white card + footer timestamp/CTA).
- *
- * The body is **markdown** — the briefing agent emits markdown (not HTML),
- * and the template owns all styling. That keeps the model's contract simple
- * (write prose) and the visual design in one place. `<Markdown>` renders it
- * to email-safe HTML with the inline styles below.
- */
+/** The briefing email. The agent writes markdown; this template owns all styling. */
 
 export interface BriefingEmailProps {
-  /** Markdown for the body content card. */
+  /** Body markdown. */
   content?: string;
-  /** ISO timestamp of when the briefing was generated. */
+  /** ISO generation time. */
   createdAt?: string;
-  /** IANA timezone (e.g. "America/New_York") for the footer timestamp. Falls back to UTC. */
+  /** IANA zone for the footer time. Defaults to UTC. */
   timezone?: string | undefined;
-  /** Absolute URL to the logo image. Hidden when omitted. */
+  /** Absolute logo URL. No logo when omitted. */
   logoUrl?: string;
-  /** Short line shown in the inbox preview / snippet. */
+  /** Inbox preview line. */
   previewText?: string;
-  /** When set, renders a pill CTA button in the footer. */
+  /** Adds a footer CTA button. */
   ctaUrl?: string;
-  /** Label for the CTA button. Defaults to "Open Alfred". */
+  /** Defaults to "Open Alfred". */
   ctaLabel?: string;
 }
 
@@ -84,6 +76,6 @@ BriefingEmail.PreviewProps = {
 
 export default BriefingEmail;
 
-/** Render the briefing email to an HTML string for sending. */
+/** Render to HTML. */
 export const renderBriefingEmail = (props: BriefingEmailProps): Promise<string> =>
   render(<BriefingEmail {...props} />);

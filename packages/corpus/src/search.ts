@@ -10,46 +10,21 @@ import { chunks, documents, type Document } from "@alfred/db/schemas";
 import { and, eq, isNotNull, sql } from "drizzle-orm";
 import { extractPageFromMetadata } from "./chunk-metadata";
 
-/**
- * Semantic search over the chunked corpus. Returns top-K chunks ranked
- * by cosine similarity, joined to their parent document so callers can
- * surface the title + source.
- *
- * pgvector's `<=>` operator computes cosine *distance* in [0, 2]
- * (`1 - cos(θ)`, lower = more similar). We sort ascending and convert
- * to cosine similarity (`cos(θ)` in [-1, 1]) in the result shape so
- * consumers don't deal with the inverted scale.
- */
 export interface SearchArgs {
   query: string;
-  /**
-   * Precomputed query embedding. Use this when several retrieval surfaces
-   * share one query so callers do not double-bill the embedding API.
-   */
+  /** Pass this when several searches share one query, to pay for one embedding. */
   queryEmbedding?: number[];
   userId: string;
-  /** Restrict to a particular source (`gmail`, `slack`, …). */
   source?: Document["source"];
-  /** Top-K. Default 10. */
+  /** Default 10. */
   limit?: number;
 }
 
 /**
- * The provider-native record identity the ingest lane keyed the parent
- * document by (#1076, prefactor for #428): the tuple
- * `documents_source_id_idx` is uniquely keyed by (`source`, `sourceId`,
- * plus `userId`), with the thread grouping and the carrying account as its
- * two sidecars. Derived from the row type so the shape cannot drift from
- * the columns.
- *
- * `sourceId` for a direct-ingest source is the provider's own id (a Gmail
- * message id); for an inbound-webhook source it is Alfred's receipt id. A
- * `gmail_attachment` row folds every byte-identical carrier into one row
- * whose `sourceId` packs the FIRST carrier's `messageId:attachmentId` pair
- * (the delimiter lives in `sourceIdOf` in the Gmail media ingest) — that
- * packed id is not a faithful per-carrier address and no consumer may split
- * it apart. Per-carrier provenance rides `occurrences` instead, which
- * already groups one message, thread, and account per carrier.
+ * The provider identity of the parent document.
+ * `sourceId` is the provider id, or Alfred's receipt id for a webhook source.
+ * For `gmail_attachment` it packs only the first carrier's ids: do not split it;
+ * use `occurrences` for each carrier.
  */
 export type RecordIdentity = Pick<Document, "sourceId" | "sourceThreadId" | "accountId">;
 
@@ -57,70 +32,38 @@ export interface SearchHit {
   chunkId: string;
   documentId: string;
   source: Document["source"];
-  /**
-   * Dereference plumbing for the future #428 expander. Nested so the
-   * model-facing shape is one key removal, and so a new dereference fact
-   * lands inside `record` — where {@link ModelFacingHit} provably excludes
-   * it — instead of beside it, where every carrier would inherit it.
-   */
+  /** Not for the model. Put new lookup fields here so {@link ModelFacingHit} drops them too. */
   record: RecordIdentity;
   title: string | null;
-  /**
-   * Provider receipt kind (an inbound event type such as `pull_request`),
-   * when this hit came from an inbound delivery. This is the RECEIPT's kind,
-   * never the record's shape — the two id-spaces stay in separate fields.
-   */
+  /** The inbound event type (for example `pull_request`), not the record's shape. */
   kind?: string;
-  /** Provider URL retained on the document, when supplied. */
   url?: string;
   position: number;
-  /**
-   * The 1-indexed PDF page the extractor proved this chunk sits on, when the
-   * parent document carries page structure. `null` for every other document —
-   * never state a page the extractor did not prove (ADR-0091).
-   */
+  /** 1-indexed PDF page the extractor proved, else `null`. Never guess a page (ADR-0091). */
   page: number | null;
-  /** First ~280 chars of the chunk for surfacing. */
+  /** First 280 chars of the chunk. */
   preview: string;
-  /**
-   * Cosine similarity in [-1, 1] — 1 = identical direction, 0 =
-   * orthogonal, -1 = opposite. In practice with L2-normalized embeddings
-   * scores cluster in [0, 1]; do not assume that as a hard bound.
-   */
+  /** Cosine similarity in [-1, 1]. Usually in [0, 1], but that is not a bound. */
   similarity: number;
   authoredAt: Date | null;
   /**
-   * Other carriers of byte-identical content — the same file forwarded under
-   * new `messageId:attachmentId` pairs folds into one canonical row, and each
-   * later occurrence is recorded here (filenames, threadIds, mimeTypes), so a
-   * question about `Acme_Offer_Letter.pdf` can reconcile against a row titled
-   * by the first carrier. Parsed defensively from the document's unknown
-   * `metadata.references`; present only on `gmail_attachment` hits that hold
-   * at least one valid reference.
+   * Other emails that carry the same attachment bytes, with their own filenames.
+   * The row title comes from the first carrier only. Set only on `gmail_attachment` hits.
    */
   occurrences?: AttachmentContentReference[];
 }
 
-/**
- * One hit as the model reads it: `SearchHit` minus the dereference
- * plumbing. Corpus-owned so every model-facing carrier strips the same key:
- * `Omit` names `record` once, and a new dereference fact placed inside
- * `record` is excluded here by construction instead of by a second
- * hand-maintained key list.
- */
+/** A hit as the model sees it: `SearchHit` without `record`. */
 export type ModelFacingHit = Omit<SearchHit, "record">;
 
-/**
- * Strip the dereference plumbing for a model-facing answer. New plumbing
- * belongs inside `record`; anything added beside it is model-visible by
- * default, which is exactly the decision this function forces.
- */
+/** Drop `record`. A field added beside it reaches the model. */
 export function toModelFacingHit(hit: SearchHit): ModelFacingHit {
   const { record: _record, ...rest } = hit;
 
   return rest;
 }
 
+/** Top chunks by cosine similarity, with their parent document. `<=>` is distance, so similarity = 1 - distance. */
 export async function search(args: SearchArgs): Promise<SearchHit[]> {
   const limit = args.limit ?? 10;
 
@@ -133,29 +76,23 @@ export async function search(args: SearchArgs): Promise<SearchHit[]> {
     }));
 
   assertQueryEmbedding(queryVec);
-  // Match the DB vector adapter: pgvector stores float32, so avoid
-  // sending float64-precision text for query literals too.
+  // pgvector stores float32, so send float32 text like the DB adapter does.
   const vectorLiteral = formatVectorFloat32(queryVec);
-  // Pull a wider pool from the approximate halfvec index, then rerank with
-  // the full-precision vector distance below.
+  // Take a wider pool from the approximate halfvec index, then rerank at full precision.
   const candidateLimit = Math.max(limit * 5, 50);
 
   const filters = [eq(chunks.userId, args.userId), isNotNull(chunks.embedding)];
 
   if (args.source) filters.push(eq(documents.source, args.source));
 
-  // HNSW returns at most `hnsw.ef_search` rows per scan (default 40), so the
-  // candidate pool is silently truncated unless we raise it to cover
-  // candidateLimit. SET LOCAL scopes the bump to this transaction; pgvector
-  // caps ef_search at 1000.
+  // HNSW returns at most `hnsw.ef_search` rows (default 40), which would silently
+  // cut the pool. SET LOCAL keeps the change in this transaction. Max is 1000.
   const rows = await db().transaction(async (tx) => {
     await tx.execute(sql.raw(`SET LOCAL hnsw.ef_search = ${Math.min(candidateLimit, 1000)}`));
 
     const candidates = tx
       .select({
-        // Aliased apart: chunks.id and documents.id would otherwise both
-        // project as "id" and the outer rerank SELECT could not reference
-        // either without an ambiguous-column error.
+        // Both ids would project as "id" and be ambiguous in the outer SELECT.
         chunkId: sql<string>`${chunks.id}`.as("chunk_id"),
         documentId: sql<string>`${documents.id}`.as("document_id"),
         source: documents.source,
@@ -167,8 +104,7 @@ export async function search(args: SearchArgs): Promise<SearchHit[]> {
         position: chunks.position,
         content: chunks.content,
         metadata: chunks.metadata,
-        // Aliased apart from chunks.metadata: two projected columns named
-        // "metadata" would collide in the subquery result mapping.
+        // Two "metadata" columns would collide in the subquery.
         documentMetadata: sql`${documents.metadata}`.as("document_metadata"),
         authoredAt: documents.authoredAt,
         distance: sql<number>`${chunks.embedding} <=> ${vectorLiteral}::vector`.as("distance"),
@@ -237,7 +173,7 @@ export async function search(args: SearchArgs): Promise<SearchHit[]> {
 }
 
 function hashQuery(q: string): string {
-  // Stable enough for idempotency keys; doesn't need to be cryptographic.
+  // Not cryptographic. Only an idempotency key.
   let h = 0;
 
   for (let i = 0; i < q.length; i++) h = ((h << 5) - h + q.charCodeAt(i)) | 0;

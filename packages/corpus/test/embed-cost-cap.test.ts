@@ -10,29 +10,9 @@ import { dbBackedSkip } from "./support/db-backed";
 import { sha256 } from "../src/hash";
 
 /**
- * DB-backed test for the cost-cap truncation policy (architecture review
- * candidate 2): the $0.50 cap governs ONE `indexDocument` call, and a
- * truncation marks the document terminal for the sweep instead of leaving it
- * silently half-embedded.
- *
- * The injected `pricePerMtokUsd` is what makes this reachable without Voyage:
- * a price of 500_000 $/Mtok derives a 1-token budget (`maxTokensForPrice`),
- * so the first chunk alone exceeds the cap and `indexDocument` returns
- * `truncated: true` with zero chunks written — before any provider call.
- *
- * Pins three properties of the zero-kept path:
- *
- *   1. the result reports `truncated: true`, `chunksWritten: 0`, and
- *      `empty: false` (the doc HAS embeddable content — it was capped);
- *   2. the document row carries the terminal marker (`embed_failed_at` set,
- *      `last_embed_error` naming the cost cap) so the sweep drops it;
- *   3. `findUnembeddedDocumentIds` no longer selects it — the pre-fix
- *      behavior re-selected such a doc on every sweep forever.
- *
- * Opt-in: runs only when `DATABASE_URL` points at a reachable migrated
- * Postgres; skipped otherwise. Isolates on throwaway `test-embedcap-*` users
- * writing `github` documents under throwaway users and cascades
- * them away on teardown.
+ * A cost-capped document must become terminal for the sweep, not stay half-embedded.
+ * A huge injected price gives a 1-token budget, so the cap fires before any Voyage call.
+ * Regression: a capped doc was re-selected on every sweep.
  */
 const SKIP = dbBackedSkip("database");
 
@@ -40,7 +20,7 @@ const ID_PREFIX = "test-embedcap-";
 
 const SOURCE = "github" as const;
 
-/** 0.5 / 500_000 * 1e6 = 1 → any chunk of ≥2 tokens exceeds the budget. */
+/** 0.5 / 500_000 * 1e6 = 1 token, so any chunk of 2+ tokens exceeds it. */
 const ABSURD_PRICE_PER_MTOK = 500_000;
 
 const createdUserIds: string[] = [];

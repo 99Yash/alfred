@@ -5,20 +5,9 @@ import { afterEach, describe, test } from "node:test";
 import { createGithubClient } from "../src/github/client";
 
 /**
- * The GitHub client is now the ONE door to `api.github.com` on a user's behalf,
- * so these pin the properties that made deleting the old `pull-requests.ts`
- * helpers safe:
- *
- *   - the token is unwrapped only into the `Authorization` header, and never
- *     appears in a URL the transport logs or an error it throws;
- *   - `passthrough` is an opaque authority capability, so the tool layer never
- *     receives authenticated headers;
- *   - `getIssue` keeps the two shapes the deleted helper had — the 20k body cap
- *     and GitHub's object-or-string label union.
- *
- * `createGithubClient` (not `githubClientForUser`) is used deliberately: it takes
- * the resolver directly, so this runs offline with no DB and no memoization
- * hiding the resolve count.
+ * The token goes only into `Authorization`, never into a URL or an error.
+ * `passthrough` is opaque, so tools never see auth headers. `getIssue` caps the body and reads both label shapes.
+ * `createGithubClient` takes the resolver directly, so no DB and no memo hides the resolve count.
  */
 
 const realFetch = globalThis.fetch;
@@ -53,8 +42,6 @@ function client(onResolve?: () => void) {
 
       return { token: redacted("ghs_secret_token"), accountLogin: "99Yash" };
     },
-    // Stated, not defaulted: `retry` is required at every client constructor so a
-    // test cannot silently exercise a different envelope than production.
     retry: "none",
   });
 }
@@ -80,7 +67,7 @@ describe("github client auth", () => {
     const call = calls[0];
     assert.ok(call);
     assert.equal(call.headers.Authorization, "Bearer ghs_secret_token");
-    // The secret must never ride the URL — that is what reaches logs and errors.
+    // URLs reach logs and errors.
     assert.ok(!call.url.includes("ghs_secret_token"));
     assert.equal(call.url, "https://api.github.com/repos/o/r/issues/7");
   });
@@ -119,9 +106,7 @@ describe("github client auth", () => {
 
     await gh.connectedLogin();
     await gh.getIssue({ owner: "o", repo: "r", number: 7 });
-    // Two methods, two resolves. `githubClientForUser` behaves identically — the
-    // point being that no entry point caches a token, so no entry point carries a
-    // "don't hold me longer than a request" rule that only a comment enforces.
+    // One resolve per call, so no client caches a token.
     assert.equal(resolves, 2, "a client must not cache its credential");
   });
 });

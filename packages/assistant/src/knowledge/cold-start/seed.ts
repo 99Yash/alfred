@@ -3,34 +3,16 @@ import type { ColdStartSignals } from "./signals";
 import { buildColdStartWebTool } from "./web-tool";
 
 /**
- * Cold-start v2 — step 1 of the agent harness: boss identity resolution
- * (ADR-0011/0022 amendment).
- *
- * Before any aspect sub-agent fans out, the boss does one bounded web pass to
- * answer "which person is this, exactly?" — pinning the canonical public
- * profile (LinkedIn / company bio / personal site / GitHub) that matches the
- * name + work email. The resulting anchor is threaded into every aspect brief
- * so four parallel sub-agents all research the *same* person rather than four
- * different people who happen to share a name. Mismatch at this stage is the
- * expensive failure mode the design guards against — false matches are worse
- * than gaps.
- *
- * Bounded: a boss-tier model with a local `web_search` tool, capped at a few
- * searches via `stopWhen`. The final assistant text is the anchor — short prose
- * the aspects read verbatim, or an explicit "no confident match" when the
- * footprint is thin (consumer email, common name, nothing public). When there's
- * no confident match the downstream aspects stay conservative and the run still
- * completes cleanly with few or zero facts.
+ * Cold-start step 2: the boss pins which public person this user is, so every
+ * aspect researches the same person. A false match is worse than a gap.
  */
 
 const SEED_MAX_STEPS = 4;
 
 export interface IdentityAnchor {
-  /** ≤~150-word prose identity resolution, or an explicit no-confident-match. */
+  /** About 150 words of prose, or an explicit no-confident-match. */
   anchor: string;
-  /** Whether the boss found a profile it could confidently attribute. */
   confident: boolean;
-  /** Citation URLs gathered during identity resolution. */
   citations: string[];
 }
 

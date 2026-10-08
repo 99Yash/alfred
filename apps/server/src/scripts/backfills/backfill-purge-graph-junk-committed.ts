@@ -1,54 +1,19 @@
 /**
- * COMMITTED cleanup of the legacy user-model graph (#1108) — the existing prod
- * damage behind the two bars this PR adds to the live writer.
+ * Clean the legacy user-model graph (#1108). The live writer no longer makes these shapes.
  *
- * Measured on prod 2026-09-16: 23 entities, 12 relations, every relation a
- * `works_at` pointing from a mail sender to that sender's own mail domain, and
- * three non-people (a GitHub advisory id, a CI workflow name, a retailer) filed
- * as `person`. The writer no longer produces either shape. This script removes
- * what it already produced.
+ *   A. Delete a `works_at` edge when the `from` entity has an email alias at the
+ *      domain the `to` entity names. A grounded `works_at` survives.
+ *   B. Re-kind each `person` row through `previewStoredContactKinds`, the same bar
+ *      the live writer uses. Update in place, so the id and aliases survive (ADR-0067).
  *
- * TWO actions, both scoped by a predicate rather than by a table sweep:
+ * The bar reads `metadata.listEvidence` (#1198), which only the team-graph writer stamps.
+ * Run `backfill-team-graph-committed.js --commit` first.
+ * A re-kind that hits the `(user_id, kind, canonical_name)` unique key is reported, never merged.
  *
- *   A. EDGES. Delete an `entity_relations` row whose `relation` is `works_at`
- *      AND whose `from` entity holds an email alias whose domain equals the
- *      `to` entity's canonical name. That is "the edge restates the address"
- *      stated in code, so a future GROUNDED `works_at` survives this script.
- *   B. KINDS. Re-kind every `person` row through `previewStoredContactKinds` —
- *      each row classifies its OWN stored `canonicalName` through the SAME
- *      `classifyContactKind` bar the live writer applies (and the dry run
- *      previews through `previewContactKinds`), so "what is a person" has one
- *      definition, per the #493 precedent — and UPDATE the kind in place when
- *      it disagrees. In place, so the row id, its aliases and its
- *      correspondence aggregate all survive: ADR-0067 types a non-human node,
- *      it never drops it.
+ * Dry by default. A dry run without `--emails` surveys all users. `--commit` requires
+ * `--emails=...`. Idempotent.
  *
- * The bar also reads each row's stored list-header evidence
- * (`metadata.listEvidence`, #1198) and outbound count, from the same row this
- * script already selects, so it never scans `documents`. Only the team-graph
- * writer stamps that evidence. A row captured before #1198 carries none until
- * a writer run sees its mail: run the team-graph backfill
- * (`backfill-team-graph-committed.js --commit`) first, which stamps the
- * evidence and re-kinds the row in place, then run this script — its
- * re-derive agrees with that writer and reports zero for those rows.
- *
- * `entities` is unique on `(user_id, kind, canonical_name)`, so a re-kind can
- * collide with a row already at the target coordinate. Such a row is REPORTED
- * and left alone — this script never merges two contacts. The predicate is
- * `reKindWouldCollide`, the one the live writer applies, imported through the
- * same door as the preview so the policy has a single home.
- *
- * Bundled by tsdown (`noExternal: @alfred/*`, registered in `tsdown.config.ts`)
- * so it runs on prod with plain `node dist/...`.
- *
- * Dry by default — classifies and prints what it WOULD do, writes nothing.
- * `--commit` applies and REQUIRES `--emails=...` explicitly so a prod shell typo
- * cannot mutate the default account. A DRY run with no `--emails` surveys ALL
- * users (read-only) so the operator can see the full picture first. Idempotent:
- * a deleted edge cannot re-match, and a re-kinded row already agrees with the
- * classifier, so a second run reports zero.
- *
- *   # preview EVERY account (writes nothing):
+ *   # preview every account (writes nothing):
  *   node dist/scripts/backfills/backfill-purge-graph-junk-committed.js
  *   # preview one account (writes nothing):
  *   node dist/scripts/backfills/backfill-purge-graph-junk-committed.js --emails=a@x.com
@@ -68,10 +33,10 @@ import { closeScriptResources } from "../script-runtime";
 
 const COMMIT = process.argv.includes("--commit");
 
-/** Cap on how many per-row samples to print in the report (counts are exact). */
+/** Max sample rows to print. Counts stay exact. */
 const SAMPLE_LIMIT = 50;
 
-/** The relation the ungrounded mint wrote. Nothing else ever reached this table. */
+/** The relation the ungrounded mint wrote. */
 const ADDRESS_DERIVED_RELATION = "works_at";
 
 function parseTargetEmails(): string[] | null {
@@ -81,7 +46,6 @@ function parseTargetEmails(): string[] | null {
     throw new Error("--emails=a@x.com must be set explicitly when using --commit");
   }
 
-  // No flag in DRY mode → survey ALL users (read-only).
   if (!flag) return null;
 
   return flag
@@ -93,12 +57,12 @@ function parseTargetEmails(): string[] | null {
 
 const TARGET_EMAILS = parseTargetEmails();
 
-/** `aliases` is jsonb — persisted data, so read it as `unknown` and keep only strings. */
+/** `aliases` is jsonb, so keep only strings. */
 function readAliases(raw: unknown): string[] {
   return Array.isArray(raw) ? raw.filter(isNonEmptyString) : [];
 }
 
-/** The domain of the first email alias on a contact row, lowercased. */
+/** The domains of every email alias on a contact row. */
 function aliasDomains(raw: unknown): Set<string> {
   const domains = new Set<string>();
 
@@ -112,10 +76,7 @@ function aliasDomains(raw: unknown): Set<string> {
   return domains;
 }
 
-/**
- * A canonical name is a display name OR the raw address. Reveal the domain — the
- * signal an operator reads this report for — without the full local part.
- */
+/** Show the domain of an address-like name, not its local part. */
 function maskName(canonicalName: string): string {
   const at = canonicalName.lastIndexOf("@");
 
@@ -145,8 +106,7 @@ async function purgeAddressDerivedEdges(userId: string): Promise<void> {
     return;
   }
 
-  // Both endpoints in ONE read, keyed by id — Drizzle cannot join the same table
-  // object twice without an alias, and the endpoint count here is tiny.
+  // One read for both endpoints. A self-join needs a Drizzle alias.
   const endpointIds = [...new Set(rows.flatMap((r) => [r.fromEntityId, r.toEntityId]))];
 
   const endpoints = await db()
@@ -213,21 +173,12 @@ async function rekindContacts(userId: string): Promise<void> {
 
   const demotions: Array<{ id: string; canonicalName: string; kind: ContactKind }> = [];
 
-  // Each row classifies its OWN stored canonical name — the same input the
-  // live writer classifies for that row — through the row-keyed door, which
-  // derives each row's own address from its metadata/aliases. A wrapped
-  // alias, a metadata-led address, or an alias shared with another row
-  // cannot borrow a sibling's name. Keyed by row id: no caller-side key
-  // derivation, and a row with no derivable address is listed in the door's
-  // `unclassifiable` — the single source of truth below — rather than
-  // defaulting toward a write.
+  // Each row classifies its own stored name, keyed by row id.
   const { kinds, unclassifiable: unanswered } = previewStoredContactKinds(rows);
   const unclassifiable = unanswered.length;
 
   for (const row of rows) {
-    // Absent from `kinds` only when the row yields no address (no metadata
-    // address and no email alias — exactly the door's `unclassifiable` list):
-    // leave it alone rather than defaulting toward a write.
+    // Missing only for an `unclassifiable` row. Leave it alone.
     const kind = kinds.get(row.id);
 
     if (kind !== undefined && kind !== "person") {
@@ -235,14 +186,8 @@ async function rekindContacts(userId: string): Promise<void> {
     }
   }
 
-  // The SAME predicate the live writer applies, through the same door as the
-  // classifier: a row already at the target coordinate is a different
-  // contact, so leave both alone and say so. Never merge. Counted BEFORE the
-  // commit check — read-only SELECTs, so dry stays dry — and one hoisted
-  // `blockedIds` set feeds BOTH report lines below: the dry line prints
-  // `re-kind N (blocked B)` while the commit line prints
-  // `COMMITTED — re-kinded U/N (blocked B)` with U = N − B, but B is the
-  // same number either way.
+  // A row already at the target key is a different contact. Never merge.
+  // Counted before the commit check, so dry and commit report the same number.
   const blockedIds = new Set<string>();
 
   for (const d of demotions) {
@@ -330,7 +275,7 @@ async function main() {
 
 main()
   .catch((e) => {
-    // Log only the message — a serialized Error can leak DATABASE_URL.
+    // Message only: a serialized Error can leak DATABASE_URL.
     console.error(toMessage(e));
     process.exitCode = 1;
   })

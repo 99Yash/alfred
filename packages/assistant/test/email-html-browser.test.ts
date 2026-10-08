@@ -104,8 +104,7 @@ function findChrome(): string | null {
 
   for (const candidate of candidates) {
     try {
-      // `spawnSync` would work too, but `accessSync` keeps this check cheap and
-      // avoids starting Chrome just to decide whether the optional test runs.
+      // Cheaper than starting Chrome to see if it exists.
       accessSync(candidate);
 
       return candidate;
@@ -311,11 +310,8 @@ async function waitForChrome(
 }
 
 /**
- * Chrome writes `DevToolsActivePort` only once the debugger is listening: line 1
- * is the port it actually bound, line 2 the browser target path. Reading the port
- * Chrome chose beats dictating one — reserving a port by opening and closing a
- * server leaves a window where another process takes it, and `node --test` runs
- * test files concurrently, so that window is contended.
+ * Read the port Chrome bound from `DevToolsActivePort` (line 1: port, line 2: target path).
+ * A reserved port could be taken by a concurrent test file before Chrome binds it.
  */
 async function readDevToolsPort(portFile: string): Promise<number | null> {
   let contents: string;

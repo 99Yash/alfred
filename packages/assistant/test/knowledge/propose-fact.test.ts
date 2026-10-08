@@ -11,15 +11,9 @@ import { closeRedis } from "@alfred/db/redis";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
- * DB-backed integration test for `proposeFact`'s #330 capture invariants:
- *   - canonicalize alias keys (all sources) before storing;
- *   - reject unknown / not_writable / bad-value-shape on the document path only;
- *   - persist unknown keys as-is for trusted (non-document) sources;
- *   - source-agnostic single-valued conflict → hold `proposed` (autonomous) or
- *     supersede (user-driven).
- *
- * Opt-in: runs only with a reachable migrated `DATABASE_URL`. Seeds throwaway
- * `test-pf-*` users and deletes them on teardown.
+ * `proposeFact` capture rules. Needs a migrated `DATABASE_URL`. Every source canonicalizes alias keys.
+ * Only the document path rejects unknown or non-writable keys and bad values.
+ * A single-valued conflict holds `proposed` when autonomous and supersedes when user-driven.
  */
 const SKIP = dbBackedSkip("database");
 
@@ -56,8 +50,7 @@ describe("proposeFact capture invariants (DB-backed, #330)", { skip: SKIP }, () 
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
 
-    // The fact-capture path opens a tracked Redis connection (#546); leaving it
-    // ESTABLISHED keeps the test child process alive forever.
+    // Fact capture opens a Redis connection; an open one keeps the test process alive.
     await closeRedis();
     await closeConnections();
   });
@@ -131,8 +124,7 @@ describe("proposeFact capture invariants (DB-backed, #330)", { skip: SKIP }, () 
   test("relationship junk floor rejects service-sender + empty edges for ALL sources (#492)", async () => {
     const userId = await seedUser();
 
-    // A service/no-reply sender is never a relationship — even from a trusted
-    // (non-document) source, and even with a plausible role value.
+    // A service sender is never a relationship, even from a trusted source with a plausible role.
     assert.equal(
       await proposeFact({
         userId,

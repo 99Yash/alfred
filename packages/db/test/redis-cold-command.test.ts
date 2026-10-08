@@ -6,24 +6,10 @@ import { applyServerEnv } from "./support/server-env";
 import { settleWithin, settlementMessage } from "./support/settle";
 
 /**
- * Why `"command"` and `"fail-fast"` are different kinds, pinned against a real
- * Redis.
- *
- * `"fail-fast"` looks like it could serve every non-BullMQ caller — it already
- * bounds an outage, and it has been in this module the whole time. It cannot,
- * and the reason is not visible in an outage test: `enableOfflineQueue: false`
- * rejects whenever the connection is not writable, and writable requires
- * `status === "ready"`. A command issued in the same tick as the constructor is
- * therefore ALWAYS rejected, even by a perfectly healthy Redis.
- *
- * Every ordinary-command caller in this repo is a lazy `??=` getter that
- * constructs and immediately commands, so collapsing `"command"` into
- * `"fail-fast"` would break the first publish, the first OAuth-state write and
- * the boot-time `psubscribe` of every process — against a healthy Redis. This
- * file is the test that reddens when someone tries.
- *
- * Needs a reachable Redis. The `db-tests` CI job supplies one; locally,
- * `docker compose up redis` does.
+ * Why `"fail-fast"` cannot replace `"command"`. `enableOfflineQueue: false` rejects
+ * until `status === "ready"`, so a command sent in the constructor's tick always fails,
+ * even on a healthy Redis. Lazy `??=` getters do exactly that.
+ * Needs a real Redis (`docker compose up redis`; the `db-tests` CI job has one).
  */
 
 const REDIS_URL = process.env["REDIS_URL"] ?? "redis://127.0.0.1:6379"; // drift-ok: this tree FAILS LOUDLY on an absent Redis instead of skipping
@@ -37,15 +23,8 @@ describe("redis connection kinds against a healthy Redis", () => {
     applyServerEnv(REDIS_URL);
     redis = await import("../src/redis");
 
-    // Fail loudly rather than skipping: a skipped subtest here would remove the
-    // only evidence that `"command"` and `"fail-fast"` differ at all.
-    //
-    // The probe MUST be a bounded kind. A `"queue"` ping never settles when
-    // nothing answers — that is what `"queue"` means — so the assertion below
-    // would be unreachable and the file would hang instead of reporting a
-    // missing Redis. `"command"` is the kind that both resolves cold against a
-    // healthy Redis and rejects within its bound against a dead endpoint, which
-    // is exactly what a liveness probe needs.
+    // Fail, do not skip, when Redis is missing. Probe with `"command"`: a `"queue"`
+    // ping would hang, and a `"fail-fast"` ping fails while cold.
     const probe = redis.createRedisConnection("command");
     probe.on("error", () => {});
 
@@ -70,8 +49,7 @@ describe("redis connection kinds against a healthy Redis", () => {
     const conn = redis.createRedisConnection("command");
     conn.on("error", () => {});
 
-    // No `await` between construction and the command: this is the shape every
-    // lazy getter in the repo has.
+    // No `await` after construction, like a lazy getter.
     const settlement = await settleWithin(conn.ping(), DEADLINE_MS);
 
     assert.equal(
@@ -91,10 +69,7 @@ describe("redis connection kinds against a healthy Redis", () => {
     assert.equal(settlement.state, "rejected");
     assert.match(settlementMessage(settlement), /Stream isn't writeable/);
 
-    // And it recovers once ready, so the rejection is about the cold window
-    // only — the caller falling back to its source of truth is not permanent.
-    // The wait is load-bearing: `"fail-fast"` rejects for as long as the status
-    // is anything other than `ready`, connecting included.
+    // It works once `ready`, so only the cold window fails.
     if (conn.status !== "ready") await once(conn, "ready");
     assert.equal(await conn.ping(), "PONG");
   });

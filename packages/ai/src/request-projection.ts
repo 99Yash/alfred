@@ -3,11 +3,7 @@ import { z } from "zod";
 
 export type CacheTtl = "5m" | "1h";
 
-/**
- * Deep module owning the per-turn envelope and Anthropic cache projection.
- * Agent → provider adapter seam: AlfredAgent attaches `alfredInternal:{cacheTtl}`
- * which is consumed here before provider dispatch — never wire metadata.
- */
+/** AlfredAgent puts `alfredInternal:{cacheTtl}` in provider options; this removes it before the wire. */
 const INTERNAL_PROVIDER_NAMESPACE = "alfredInternal";
 
 const turnEnvelopeSchema = z
@@ -191,5 +187,4 @@ export function cleanAndProjectRequest(
   return { clean, cacheTtl, projected };
 }
 
-// Re-export helpers for the adapter composer without leaking internals broadly.
 export { cleanProviderRequest, projectAnthropicRequest, projectApplicationRequest };

@@ -12,10 +12,7 @@ export const POLICY_MODES = ["autonomy", "gated"] as const;
 
 export type PolicyMode = (typeof POLICY_MODES)[number];
 
-/**
- * The actions an integration registers, read off its registry entry
- * (`INTEGRATIONS[slug].actions`). `${slug}.${action}` is the tool name.
- */
+/** `${slug}.${action}` is the tool name. */
 export type ActionSlug<I extends IntegrationSlug> = (typeof INTEGRATION_ACTIONS)[I][number];
 
 export type ToolName = {
@@ -23,15 +20,9 @@ export type ToolName = {
 }[IntegrationSlug];
 
 /**
- * Product facts about a run that change tool eligibility.
- *
- * `interaction` describes product behavior, not storage or execution location.
- * A live chat can use conversation-bound tools. A background run cannot, even
- * when it reports progress into a chat UI. Remote execution is orthogonal: its
- * validated ingress maps to one of these interaction modes.
- *
- * Build this value from trusted, already-validated run state. Validate
- * persisted, queued, or remote input at its owning boundary, then map it here.
+ * Run facts that change which tools are allowed. Only a live chat can use
+ * conversation-bound tools, even if a background run reports into a chat.
+ * Build it from validated run state only.
  */
 export interface ToolRunContext {
   caller: "boss" | "sub_agent";
@@ -39,17 +30,9 @@ export interface ToolRunContext {
 }
 
 /**
- * The bounded execution fence the tool runtime consumes to refuse new effect
- * dispatches after a cancellation (workflows-v1 #559b). `generation` is a
- * monotonic counter on `agent_runs`: `cancelRunInTx` increments it once per
- * cancel. A worker captures the value it started its step under and the
- * dispatch gate re-reads it immediately before each effect; when the current
- * value has moved past the captured one, the run was cancelled mid-step and no
- * new external effect may fire.
- *
- * It is a closed value, not an implementation handle — the tool runtime never
- * imports execution code. The gate reads it through its store seam and compares
- * `current.generation > expected.generation`.
+ * Stops new effects after a cancel (#559b). `cancelRunInTx` bumps `generation`.
+ * The dispatch gate re-reads it before each effect; a higher value means the run
+ * was cancelled mid-step.
  */
 export const cancellationFenceSchema = z.object({
   generation: z.number().int().min(0),
@@ -57,11 +40,7 @@ export const cancellationFenceSchema = z.object({
 
 export type CancellationFence = z.infer<typeof cancellationFenceSchema>;
 
-/**
- * The non-actionable envelope a tool call receives when the run was cancelled
- * while the step was in flight. The call did not run and must never be
- * repeated; the model can only acknowledge and stop.
- */
+/** The run was cancelled mid-step. The call did not run; never repeat it. */
 export const cancellationEnvelopeSchema = z.object({
   status: z.literal("cancelled"),
   retry: z.literal("never"),
@@ -70,37 +49,18 @@ export const cancellationEnvelopeSchema = z.object({
 
 export type CancellationEnvelope = z.infer<typeof cancellationEnvelopeSchema>;
 
-/**
- * The two orchestration tools whose *names* five surfaces have to agree on —
- * the chat workflow (tally + fold guards), the dispatcher, the tool-card
- * presenter, the animated-icon map, and the activity trail that turns a spawn
- * card into the child's nested container. `satisfies ToolName` ties each to the
- * registry above, so renaming an action breaks here rather than silently making
- * every one of those comparisons false.
- */
+/** Many surfaces compare against these names. `satisfies` makes a rename fail here. */
 export const SPAWN_SUB_AGENT_TOOL = "system.spawn_sub_agent" satisfies ToolName;
 
 export const AWAIT_SUB_AGENT_TOOL = "system.await_sub_agent" satisfies ToolName;
 
 /**
- * The one tool that parks a chat turn on a `question` approval (ADR-0099). The
- * dispatcher routes it by its registered staging arm; every reader without the
- * registry in hand (the decision route's reason rule, the notification email
- * copy, the recent-rejection card note, run metrics) keys on this name. The
- * registry proves at boot that the arm's single declarer IS this tool, so the
- * two cannot drift.
+ * Parks a chat turn on a `question` approval (ADR-0099). Readers without the
+ * registry key on this name. The registry checks at boot that it owns the arm.
  */
 export const ASK_USER_TOOL = "system.ask_user" satisfies ToolName;
 
-/**
- * Does this staged row hold a question rather than a write? The one reader-side
- * spelling of {@link ASK_USER_TOOL}, so "is this a question?" is answered by a
- * named predicate at every call site instead of by a repeated comparison.
- *
- * Takes a plain `string` on purpose: every caller reads the tool name off a
- * database row, a synced entity, or an event payload, none of which prove
- * `ToolName`.
- */
+/** True when a staged row holds a question, not a write. Takes `string`: callers read stored names. */
 export function isQuestionApproval(toolName: string): boolean {
   return toolName === ASK_USER_TOOL;
 }
@@ -110,30 +70,16 @@ export const TOOL_RISK_TIERS = ["no_risk", "low", "medium", "high"] as const;
 export type ToolRiskTier = (typeof TOOL_RISK_TIERS)[number];
 
 /**
- * Narrow a dynamic or persisted string to a known risk tier. Use it before
- * trusting a tier read back from storage: a `$type<ToolRiskTier>()` column is a
- * cast over `text`, so a corrupt or out-of-enum value would otherwise flow
- * through unchecked — and since only `"high"` gates (ADR-0069), an unrecognized
- * value silently un-gates. Treat persisted tiers as `unknown` and re-gate to the
- * conservative floor when this returns false.
+ * Check a stored tier before you trust it. Only `"high"` gates (ADR-0069), so a bad
+ * value would un-gate. On false, fall back to the conservative floor.
  */
 export const isToolRiskTier = enumGuard(TOOL_RISK_TIERS);
 
-/**
- * The tiers whose tools can change state outside Alfred. `low` is a read with a
- * target worth reviewing, not a write, so it is absent on purpose. Every
- * surface that splits tools into "reads" and "writes" (discovery preload, the
- * approval tray labels, the run-history effect ledger) reads this one list.
- */
+/** Tiers that can change state outside Alfred. `low` is a read, so it is absent. */
 export const WRITE_RISK_TIERS = ["medium", "high"] as const satisfies readonly ToolRiskTier[];
 
 export const isWriteRiskTier = enumGuard(WRITE_RISK_TIERS);
 
-/**
- * Per-tier tool counts for one integration (a UX hint for the integration
- * detail page). Lives here so the server registry and the web client agree on
- * the shape without the web importing the server-only registry.
- */
 export type RiskTierCounts = Record<ToolRiskTier, number>;
 
 export interface IntegrationRule {
@@ -143,14 +89,7 @@ export interface IntegrationRule {
 
 export type IntegrationRules = Partial<Record<IntegrationSlug, IntegrationRule>>; // drift-ok: sparse per-user overrides; absence is the default mode
 
-/**
- * Derive an integration's effective policy mode from a rules map + the
- * user default. The single source for this projection — the dispatcher's
- * `resolvePolicyMode` (server) and the policy editor (web) both call it so
- * the displayed mode and the enforced mode can't drift. Per-tool overrides
- * are deliberately ignored here: this is the per-integration radio's value,
- * not a per-tool resolution (that stays in `resolvePolicyMode`).
- */
+/** The per-integration mode for the policy editor. Ignores per-tool overrides (see `resolvePolicyMode`). */
 export function resolveIntegrationMode(
   rules: IntegrationRules,
   slug: IntegrationSlug,
@@ -192,7 +131,7 @@ export function isToolName(value: unknown): value is ToolName {
   return actions.includes(action);
 }
 
-/** Closed tool-name values for model-facing JSON Schema enums. */
+/** For model-facing JSON Schema enums. */
 export const TOOL_NAMES: readonly ToolName[] = INTEGRATION_SLUGS.flatMap((integration) =>
   INTEGRATION_ACTIONS[integration].map((action) => {
     const name = `${integration}.${action}`;
@@ -203,13 +142,7 @@ export const TOOL_NAMES: readonly ToolName[] = INTEGRATION_SLUGS.flatMap((integr
   }),
 );
 
-/**
- * The zod form of {@link isToolName}. Lives beside the guard it wraps so a
- * persisted, model-proposed, or wire-carried tool name is narrowed to
- * `ToolName` by parsing rather than by a cast. `z.custom` (not
- * `z.string().refine(…)`) because only `z.custom` carries the narrowed output
- * type through `z.infer`.
- */
+/** `z.custom`, not `.refine`: only `z.custom` keeps the narrowed type in `z.infer`. */
 export const toolNameSchema = z.custom<ToolName>((value) => isToolName(value), "Invalid tool name");
 
 export function hashToolInput(toolName: ToolName, input: unknown): string {
@@ -217,16 +150,8 @@ export function hashToolInput(toolName: ToolName, input: unknown): string {
 }
 
 /**
- * Canonical request hash for the effect ledger (#559a). The ambiguity barrier
- * keys on this: it must be stable for one logical effect AND scope the effect
- * to the target it acts on, so the same args against a different account/
- * resource resolve as a DIFFERENT effect. `toolName` and `input` are exactly
- * the values {@link hashToolInput} hashes; `target` is the binding the effect
- * lands on (the resolved account ref / resource), appended when known.
- *
- * Deliberately a separate helper: changing `hashToolInput` would silently
- * re-key every persisted `proposed_input_hash` and rejection signature, while
- * the ledger's request hash may grow a target binding independently.
+ * Effect-ledger hash (#559a). Adds `target`, so the same args on another account are
+ * a different effect. Separate from `hashToolInput`: changing that re-keys stored hashes.
  */
 export function hashToolRequest(
   toolName: ToolName,
@@ -238,54 +163,25 @@ export function hashToolRequest(
   return `req:fnv1a64:${fnv1a64(`${toolName}${binding}:${canonicalJson(input)}`)}`;
 }
 
-/**
- * Title-case a snake/underscore slug for display: `send_draft` → `Send Draft`.
- * Shared so the email worker and the approvals card never drift. Not for an
- * integration slug: `github` would render as "Github". Index
- * {@link INTEGRATION_DISPLAY_NAMES} with a typed slug, or call
- * {@link integrationDisplayName} with an unchecked string.
- */
+/** `send_draft` to `Send Draft`. Not for integration slugs (`Github`): use {@link integrationDisplayName}. */
 export function humanizeSlug(value: string): string {
   return value.replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase());
 }
 
-/**
- * The display name for a string that may be an integration slug. A known slug
- * reads from {@link INTEGRATION_DISPLAY_NAMES}; anything else (a tool-name
- * prefix that is not registered, a legacy value) falls back to
- * {@link humanizeSlug} so the caller still has something to show.
- */
+/** An unknown slug falls back to {@link humanizeSlug}. */
 export function integrationDisplayName(value: string): string {
   return isIntegrationSlug(value) ? INTEGRATION_DISPLAY_NAMES[value] : humanizeSlug(value);
 }
 
-/**
- * Human phrasing for a single tool, co-located here so every surface reads the
- * same words. The chat transcript narrates with the `running` → `done` verbs;
- * approvals and the email notification worker use the imperative `title`.
- */
 export interface ToolLabel {
-  /** Present-continuous, shown in the chat row while the call is in flight. */
+  /** Shown while the call runs. */
   running: string;
-  /** Past tense, shown once the call lands. */
   done: string;
-  /**
-   * Imperative, lowercase-leading so it reads after "Alfred wants to …" (email
-   * subject) and capitalizes cleanly as an approval card title.
-   */
+  /** Lowercase imperative, so it reads after "Alfred wants to ...". */
   title: string;
 }
 
-/**
- * The single source of truth for tool-facing copy. Keyed by `ToolName`, so the
- * type checker forces a label for every tool the moment it's added to
- * `INTEGRATION_ACTIONS` — labels can never silently fall back to a raw
- * `snake_case` symbol again. Pure + zero-dep so the server notification worker,
- * the approvals card, and the chat transcript all import the one map.
- *
- * `system.spawn_sub_agent` carries a static fallback here; its chat row refines
- * it with the live target at the call site when one is available.
- */
+/** Keyed by `ToolName`, so a new tool fails to compile without a label. */
 export const TOOL_LABELS = {
   "system.search_tools": {
     running: "Searching for a tool",
@@ -416,8 +312,7 @@ export const TOOL_LABELS = {
   },
   "system.ask_user": {
     running: "Waiting for your answer",
-    // Also the label for a dismissed or expired question: the call landed
-    // without an answer, so the copy must not claim one arrived.
+    // Also used for a dismissed or expired question, so it must not claim an answer.
     done: "Asked you a question",
     title: "ask you a question",
   },
@@ -646,21 +541,12 @@ export const TOOL_LABELS = {
   },
 } satisfies Record<ToolName, ToolLabel>;
 
-/** The co-located label for a tool, or `null` for an unregistered name. */
+/** `null` for an unregistered name. */
 export function toolLabel(toolName: string): ToolLabel | null {
   return isToolName(toolName) ? TOOL_LABELS[toolName] : null;
 }
 
-/**
- * What a tool *did*, for a run summary: `"source"` gathered information,
- * `"action"` changed something, `"system"` is plumbing (tool loading, timing,
- * sub-agent orchestration, internal scratch/context) that never headlines the
- * summary. Keyed by `ToolName` so the type checker forces a category the moment
- * a tool joins `INTEGRATION_ACTIONS` — the classification can't silently fall
- * back to a verb guess the way it did when this lived as a heuristic in the web
- * app. Kept separate from {@link TOOL_LABELS} so copy and classification stay
- * independently reviewable.
- */
+/** For run summaries. `system` is plumbing and never leads the summary. */
 export type ToolCategory = "source" | "action" | "system";
 
 export const TOOL_CATEGORIES = {
@@ -749,18 +635,12 @@ export const TOOL_CATEGORIES = {
   "sentry.request": "source",
 } satisfies Record<ToolName, ToolCategory>;
 
-/** The declared category for a tool, or `null` for an unregistered name. */
+/** `null` for an unregistered name. */
 export function toolCategoryOf(toolName: string): ToolCategory | null {
   return isToolName(toolName) ? TOOL_CATEGORIES[toolName] : null;
 }
 
-/**
- * Human phrase for "what does this tool do", in the imperative so it reads
- * after "Alfred wants to …" (email subject) and as a card title. Registered
- * tools resolve from {@link TOOL_LABELS}; anything else falls back to a generic
- * `${action} in ${integration}` phrasing. Pure + zero-dep so both the server
- * notification worker and the web approvals card import the one source.
- */
+/** The label `title`, or `${action} in ${integration}` for an unregistered tool. */
 export function humanizeToolName(toolName: string): string {
   if (isToolName(toolName)) return TOOL_LABELS[toolName].title;
   const separator = toolName.indexOf(".");
@@ -772,11 +652,7 @@ export function humanizeToolName(toolName: string): string {
     : integrationDisplayName(integration);
 }
 
-/**
- * Deterministic JSON serialization for hashes that cross durable boundaries.
- * Object keys are sorted recursively; array order remains significant. Values
- * that JSON itself omits or normalizes follow the same broad behavior here.
- */
+/** JSON with object keys sorted recursively, for stored hashes. Array order still counts. */
 export function canonicalJson(value: unknown): string {
   return stringifyCanonical(value, new WeakSet<object>());
 }

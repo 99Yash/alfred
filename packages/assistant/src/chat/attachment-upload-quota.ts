@@ -8,18 +8,9 @@ import {
 import { createRedisConnection, type BoundedRedis } from "@alfred/db/redis";
 
 /**
- * The attachment upload quota: a per-user rate limit, a per-message count and
- * byte cap, and a per-user budget of bytes reserved but not yet accepted by a
- * turn. All four counters live in Redis because the API runs more than one
- * process and the cap has to hold across all of them.
- *
- * The reserve/release pair is the part to read carefully.
- * `assertAttachmentUploadBudgetAllowed` RESERVES `size` pending bytes for the
- * user; `releasePendingUploadBudget` gives them back. Exactly one of two things
- * releases a reservation: the upload route's `catch`, when a later step of the
- * same upload throws, or `startChatTurn`, when the turn that carries those
- * bytes commits. A leak here silently shrinks the user's upload budget until
- * the hour TTL expires; a double release lets them exceed it.
+ * Upload quota counters, in Redis so they hold across API processes.
+ * Each reservation is released exactly once: by the upload's `catch`, or by `startChatTurn`.
+ * A leak shrinks the budget for an hour; a double release lets the user exceed it.
  */
 
 const ATTACHMENT_UPLOAD_RATE_LIMIT_SECONDS = 60;
@@ -33,11 +24,7 @@ const MAX_PENDING_ATTACHMENT_UPLOAD_BYTES = MAX_ATTACHMENT_BYTES_PER_MESSAGE * 4
 let attachmentUploadRateRedis: BoundedRedis | undefined;
 
 function getAttachmentUploadRateRedis(): BoundedRedis {
-  // `"command"`, not `"fail-fast"`: these counters ARE the upload quota, so
-  // nothing else can answer for them. `assertAttachmentUploadRateAllowed` fails
-  // CLOSED on a rejection, and a `"fail-fast"` handle rejects its first command
-  // after construction even against a healthy Redis — which 503'd the first
-  // attachment upload of every process (#127).
+  // `"command"`: this check fails closed, and `"fail-fast"` rejects the first command on a cold connection (#127).
   attachmentUploadRateRedis ??= createRedisConnection("command");
 
   return attachmentUploadRateRedis;

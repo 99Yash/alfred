@@ -19,7 +19,7 @@ test("the join contract accepts a child id and rejects an empty one", () => {
 
 test("the agent await schema derives from the join contract and stays strict", () => {
   assert.equal(awaitSubAgentInputSchema.safeParse({ childRunId: "run_1" }).success, true);
-  // `.strict()` is the local addition — an extra key is a drift the floor rejects.
+  // `.strict()`: the floor rejects an extra key.
   assert.equal(
     awaitSubAgentInputSchema.safeParse({ childRunId: "run_1", extra: true }).success,
     false,

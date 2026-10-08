@@ -18,9 +18,7 @@ import { WeatherHero } from "./weather-hero";
 
 const RAIL_TABS: ReadonlyArray<{ value: RailTab; label: string; icon: ReactNode }> = [
   { value: "todo", label: "To do", icon: <ListChecks size={12} /> },
-  // Inbox + Up next are both source-backed (Gmail / Google Calendar). Their
-  // tab glyphs mirror the brand icons in `ConnectToolsRow` so a glance
-  // tells the user which integration the tab is reading from.
+  // Brand glyphs show which integration each tab reads.
   { value: "inbox", label: "Inbox", icon: <IntegrationGlyph brand="gmail" size={12} /> },
   {
     value: "meetings",
@@ -46,43 +44,23 @@ export function RailContent({
   const { data: weather } = useWeather();
   const now = new Date();
   const feedScrollRef = useRef<HTMLDivElement | null>(null);
-  // CSS can't interpolate between in-flow and `absolute`, so on a tab
-  // switch the grid row snaps to the incoming feed's height while the
-  // 300ms crossfade is still running. If the outgoing feed was scrolled,
-  // the browser clamps scrollTop to an arbitrary offset in that same
-  // frame. Reset to the top before paint (layout effect) so the first
-  // painted frame of the crossfade is always the coherent
-  // top-of-old-feed → top-of-new-feed view, never a clamped mid-scroll.
+  // On a tab switch the grid row snaps height mid-crossfade and the browser clamps scrollTop.
+  // Reset to the top before paint so the crossfade starts clean.
   useLayoutEffect(() => {
     if (feedScrollRef.current) feedScrollRef.current.scrollTop = 0;
   }, [tab]);
 
   return (
     <>
-      {/* Full-bleed condition-aware video behind the rail content. */}
+      {/* Weather video behind the rail. */}
       <WeatherVideoSurface condition={weather?.condition} isDay={weather?.isDay} />
-      {/* Legibility stack — both scrims are DARK, because the rail content
-       * is white. A neutral sky-to-night ramp darkens the lower body so the
-       * feed and footer read, and a top vignette guarantees the header text
-       * clears contrast on every condition.
-       *
-       * The header scrim is the load-bearing one: the sky videos are bright
-       * at the top (rainy/cloudy ~170/255, and thunderstorm flashes blow out
-       * to ~255), so a white text header floated on the raw frame. A black
-       * top gradient pulls even a lightning flash under the ~118/255 white-on-
-       * dark AA threshold. (The old stack lifted the top with WHITE, which
-       * did the opposite — it washed the header out.) Apple Weather / the iOS
-       * lock screen treat photo backdrops the same way. */}
+      {/* Dark scrims for white text. The top one matters most: the sky videos are bright
+       * there, and lightning flashes reach ~255/255. */}
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_bottom,transparent,rgba(0,0,0,0.08)_28%,rgba(7,17,31,0.70)_100%)]" />
       <div className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-[linear-gradient(to_bottom,rgba(0,0,0,0.55),rgba(0,0,0,0.42)_38%,rgba(0,0,0,0.16)_72%,transparent)]" />
 
       <div className="relative z-10 flex h-full min-h-0 flex-col text-white">
-        {/* Header — "hero temperature" framing. The greeting demotes to a
-         * quiet top line; the weather hero (large temp + condition icon +
-         * hairline + caption) is the focal block; the date closes it as a
-         * second quiet caption. Each row fades up in sequence on entrance
-         * (delays climb down the block) so the header reads as one settling
-         * gesture rather than four rows snapping in at once. */}
+        {/* Header rows fade up in sequence on entrance. */}
         <div className="px-4 py-5">
           <div className="flex items-start justify-between gap-3">
             <div className="animate-rail-head min-w-0 flex-1 truncate text-[0.8125rem] font-medium text-white/75 mix-blend-plus-lighter">
@@ -120,20 +98,12 @@ export function RailContent({
           />
         </div>
 
-        {/* Stacked feeds — all three render in the same grid cell so the
-         * outgoing feed crossfades + lifts while the new feed settles in.
-         * Same pattern as `HeroShowcase`'s `Slot`. Only the active feed
-         * is in flow (inactive slots overlay absolutely — see `RailSlot`),
-         * so the scrollable height always tracks the visible feed. */}
+        {/* All feeds share one grid cell so they crossfade. Only the active one is in flow (see `RailSlot`). */}
         <div
           ref={feedScrollRef}
           className="scroll-stable relative min-h-0 flex-1 overflow-y-auto px-3 pb-3"
         >
-          {/* Single-column track with `minmax(0, 1fr)` clamps every stacked
-           * feed to the rail's width — otherwise the grid auto-sizes to its
-           * widest child (the inbox rows), `truncate` stops working, and
-           * narrower feeds like the to-do empty hint run past the rail's
-           * visible edge. */}
+          {/* `minmax(0, 1fr)` clamps feeds to the rail width; else `truncate` fails. */}
           <div className="relative grid grid-cols-[minmax(0,1fr)]">
             <RailSlot active={tab === "todo"}>
               <TodoFeed

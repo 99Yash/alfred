@@ -4,10 +4,7 @@ import type { IDBKeys, SyncedValueFor, SyncModelFor } from "@alfred/sync";
 import { ZodError } from "zod";
 import type { ClientViewMap } from "../cvr";
 
-/**
- * One row's contribution to the patch: its raw `id` and row_version drive CVR
- * diffing, while `storageKey` and `serialized` are what Replicache writes.
- */
+/** `id` and `rowVersion` drive the CVR diff; `storageKey` and `serialized` go to Replicache. */
 export interface EntityRow<Slug extends IDBKeys = IDBKeys> {
   id: string;
   storageKey: `${Slug}/${string}`;
@@ -15,26 +12,14 @@ export interface EntityRow<Slug extends IDBKeys = IDBKeys> {
   serialized: SyncedValueFor<Slug>;
 }
 
-/**
- * The identity plus version a CVR entry describes, with no claim about the row's
- * values. Derived from the model, so `unchanged` cannot disagree with what
- * `SYNC_MODEL[slug].parsePullVersion` produces.
- */
+/** Identity plus version only, with no claim about values. */
 export type EntityVersion = ReturnType<SyncModelFor<IDBKeys>["parsePullVersion"]>;
 
-/** What a version projection must carry to select a changed row: identity plus version. */
 export type VersionInputFor<Slug extends IDBKeys> = Parameters<
   SyncModelFor<Slug>["storageKeyForId"]
 >[0] & { rowVersion: number };
 
-/**
- * One entity read's two outcomes, which the CVR diff needs separately.
- *
- * `unchanged` is membership the client already holds at that version, proven
- * without reading a value. `rows` is only the changed rows that loaded *and*
- * passed the wire schema. A changed row that failed either is in neither, so it
- * keeps no acknowledged version and is retried on the next pull.
- */
+/** A changed row that fails to load or parse is in neither list, so the next pull retries it. */
 export type EntityReadResult<Slug extends IDBKeys> = {
   unchanged: EntityVersion[];
   rows: EntityRow<Slug>[];
@@ -47,23 +32,9 @@ export type EntityFetcher<Slug extends IDBKeys> = (
 ) => Promise<EntityReadResult<Slug>>;
 
 /**
- * THE RECOVERABLE-SERIALIZATION PATH. Read this before editing any file in
- * this directory.
- *
- * One malformed row must cost the user one row, never the whole pull. Drop the
- * `try` below, narrow {@link isRecoverableSerializationError}, or let a domain
- * `make` throw a plain `Error` where it used to throw
- * {@link SerializationError}, and a single bad row stops being a skipped row
- * and becomes a failed pull — a total sync outage for that user, with every
- * type check green.
- *
- * `make` produces the whole row contribution — id, rowVersion, and the parsed
- * serialized value — so every derivation that can throw (the domain mapper,
- * the schema `parse`) stays behind the same recoverable boundary. The caller
- * (`syncEntity`, in this directory) keeps only the two queries and the choice of
- * which projections are changed.
- *
- * `packages/http/test/replicache/entity-row.test.ts` drives the three arms.
+ * One bad row must cost one row, never the whole pull. A plain `Error` instead of a
+ * {@link SerializationError} turns a skipped row into a sync outage, and types stay green.
+ * Keep every throwing step inside `make`.
  */
 export function toEntityRow<Slug extends IDBKeys>(args: {
   slug: Slug;
@@ -73,8 +44,6 @@ export function toEntityRow<Slug extends IDBKeys>(args: {
     return [args.make()];
   } catch (err) {
     if (!isRecoverableSerializationError(err)) throw err;
-    // `syncEntity` logs schema paths and a bounded mapped-value preview;
-    // this generic warning also covers domain `SerializationError` failures.
     console.warn(`[replicache] skipping invalid ${args.slug} row: ${toMessage(err)}`);
 
     return [];
@@ -82,18 +51,8 @@ export function toEntityRow<Slug extends IDBKeys>(args: {
 }
 
 /**
- * A row failed a sync-serialization invariant — a non-null field came back
- * null, or a row in a non-syncable status reached its serializer. Tagged so
- * {@link isRecoverableSerializationError} can skip the row by type rather than
- * sniffing a `[replicache]` message prefix (the same "branch on the tag, not
- * the string" rule the shared `HttpError` follows).
- *
- * EXPORTED, AND THAT IS A REAL INTERFACE COST. This class was private to the
- * single `entities.ts` module before the per-domain split, so "only the pull
- * read model may declare a row skippable" was enforced by the module boundary.
- * Twelve domain files now throw it, so the rule is convention inside
- * `src/sync/read/` rather than encapsulation. It stays off the `@alfred/http`
- * barrel, so the blast radius is this one directory.
+ * A row broke a sync invariant, so skip it. Tagged, so the check is by type, not message.
+ * Only `src/sync/read/` may throw it; keep it off the `@alfred/http` barrel.
  */
 export class SerializationError extends Error {
   readonly _tag = "SerializationError" as const;

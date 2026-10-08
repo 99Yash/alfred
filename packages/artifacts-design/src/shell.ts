@@ -2,38 +2,17 @@ import type { ArtifactFormat } from "@alfred/contracts";
 import { FONT_FACE_CSS } from "./fonts";
 import { cssVariables, cssVariablesDark, font, pageGeometry, spacing, type } from "./tokens";
 
-/** The two color schemes the shell can stamp; drives the `data-theme` attribute. */
+/** The `data-theme` value the shell stamps on `<html>`. */
 export type ArtifactColorScheme = "light" | "dark";
 
 /**
- * The render-time house shell for artifact pages (pristine-artifacts Phase 1).
- *
- * Model-authored pages are body-level HTML (see `ARTIFACT_DESIGN_PROMPT`); this
- * wraps that body in a complete, self-contained `<!doctype html>` document that
- * carries the design tokens, a reset, and a compact utility / primitive class
- * layer. Applied at render time by `ArtifactPageFrame` rather than baked into
- * the stored content, so it is retroactive (old rows re-skin on next paint) and
- * needs no re-store — mirroring the seam the old inline `PAGE_RESET` occupied,
- * which this subsumes.
- *
- * Hard constraint that shapes the design: the renderer's iframe keeps an
- * opaque-origin sandbox and does not permit scripts — so NO Tailwind CDN, NO
- * Font Awesome JS, NO runtime framework. Everything here is pure CSS. The brand
- * face (Open Runde) cannot be fetched from `/fonts/*.woff2` under that sandbox,
- * so the shell inlines a base64 `data:` subset of it (see `./fonts`) — a `data:`
- * @font-face has no network request and loads where a URL reference is rejected,
- * giving on-screen render AND print export the real brand type instead of the
- * system-sans fallback. The fallback stack still catches any glyph outside the
- * Latin subset.
+ * Wraps model-authored body HTML in a full document at render time
+ * (`ArtifactPageFrame`), so old rows re-skin without a re-store.
+ * The iframe sandbox allows no scripts and no font URLs, so everything is pure CSS
+ * and the brand font is inlined as a `data:` subset (see `./fonts`).
  */
 
-/**
- * Box-sizing + overflow reset. Leads the stylesheet so the page's own later
- * rules still win where they set the same property. Folds padding into the
- * fixed page box (`border-box`) and clips — never scrolls — any residual
- * overflow, since the iframe is `pointer-events-none` and a scrollbar there is
- * just a dead gutter. This is the old `PAGE_RESET`, absorbed into the shell.
- */
+/** Reset. Comes first so page rules win. The iframe ignores pointer events, so overflow clips instead of scrolls. */
 const RESET = `
 *, *::before, *::after {
   box-sizing: border-box;
@@ -49,7 +28,7 @@ img, svg, canvas { display: block; max-width: 100%; }
 p, h1, h2, h3, h4, h5, h6, ul, ol, figure, blockquote { margin: 0; }
 ul, ol { padding: 0; list-style-position: inside; }`;
 
-/** `:root { --art-*: … }` from the token source of truth (the light defaults). */
+/** Light `--art-*` variables on `:root`. */
 function rootVariables(): string {
   const decls = cssVariables()
     .map((token) => `  --${token.name}: ${token.value};`)
@@ -59,14 +38,8 @@ function rootVariables(): string {
 }
 
 /**
- * The dark override: `:root[data-theme="dark"]` re-points only the `--art-*`
- * properties that differ (from `cssVariablesDark`), so stamping `data-theme` on
- * `<html>` reskins every surface, mark, and shadow at once — retroactively,
- * with no restored bytes. A couple of rules that can't be expressed purely
- * through a variable swap (the aurora's `color-mix` percentages are literals,
- * not custom-property-interpolable) get a scoped dark form: the wash needs more
- * presence over near-black than over white to stay perceptible without muddying
- * the ink.
+ * Dark overrides for the variables that differ.
+ * The aurora's `color-mix` percentages are literals, so it gets its own stronger dark rule.
  */
 function darkRootVariables(): string {
   const decls = cssVariablesDark()
@@ -84,14 +57,7 @@ ${decls}
 }`;
 }
 
-/**
- * Base page + a compact primitive/utility vocabulary. Kept deliberately small
- * (layout helpers, a type ramp, and a handful of surface/badge/rule/stat/chart
- * primitives) so the authoring model has a stable, named grammar to compose
- * without re-inventing CSS per page — the lever that makes freehand output
- * consistent. Everything is class-based; authors may still add their own inline
- * `<style>` for a specific page.
- */
+/** Base page and a small set of named classes, so the model composes pages instead of writing CSS. */
 function baseStyles(): string {
   return `
 html, body { width: 100%; height: 100%; }
@@ -343,47 +309,13 @@ code {
 }
 
 /**
- * Motion vocabulary (ADR-0086, the "still -> lively -> showcase" dial's motion
- * realization). A small, NAMED, OPT-IN set of autoplay-on-mount entrances — the
- * only motion the sealed sandbox permits (no scripts, `pointer-events: none`, so
- * nothing hover/scroll/click-driven; motion can only fire on mount). It follows
- * the same rules that make the rest of the system safe:
- *
- *  - Every keyframe animates FROM a hidden state TO the element's RESTING state,
- *    and resting == the final visible frame. So the ONE guard at the bottom
- *    (`@media print, (prefers-reduced-motion: reduce)` -> `animation: none`)
- *    always lands on the finished look, and a future primitive physically
- *    cannot forget its guard — stillness is just the resting frame.
- *  - Classes are opt-in and never auto-applied, so every existing artifact stays
- *    perfectly still (zero regression to the hard-won restraint); the expression
- *    dial decides when to reach for them.
- *  - Timing and easing mirror the app's own motion language
- *    (`cubic-bezier(0.22, 1, 0.36, 1)`), so an artifact animates like the rest of
- *    Alfred, not like a different product.
- *  - Entrances only fade + lift WITHIN the page box; no edge slide-in (`.art-page`
- *    clips), so a reveal never fights the page geometry.
- *
- * Reachability note: this vocabulary is built but DORMANT. No archetype,
- * template, or authoring-prompt line names these classes yet — prompt-wiring and
- * the expression dial are deferred (ADR-0086, governance-first: "fancy undoes
- * restraint"), so NO model-authored artifact animates today. It ships ahead of
- * that wiring only because it is retroactive and safe by construction: the guard
- * below rests every class at its final visible frame, so existing decks stay
- * perfectly still. When the dial does name these classes, the viewer already
- * lazy-mounts each page on first scroll into view (see `LazyArtifactPage`), so
- * mount == reveal and each entrance will fire as its page arrives rather than all
- * at once on load — the seam is in place, waiting on the vocabulary, not the
- * other way around.
+ * Opt-in entrance animations that play on mount (ADR-0086). The sandbox allows no other motion.
+ * Each keyframe ends on the resting frame, so the one print/reduced-motion guard always shows the finished look.
+ * No archetype, template, or prompt names these classes yet, so no artifact animates today.
  */
 export const MOTION_CLASS_NAMES = ["art-rise", "art-stagger", "art-drift", "art-sheen"] as const;
 
-/**
- * The CSS for {@link MOTION_CLASS_NAMES}. That exported array is the single
- * source of truth for the set of motion classes: the write-boundary rejection
- * hint (`validation.ts`) reads it rather than restating it, so the hint can never
- * advertise a class this shell does not define (an earlier hint named a phantom
- * `art-draw`). A test asserts every name renders as a real selector here.
- */
+/** CSS for {@link MOTION_CLASS_NAMES}. The rejection hint in `validation.ts` reads that list, so keep them in sync. */
 function motionStyles(): string {
   return `/* Entrance: fade + gentle lift. */
 @keyframes art-rise {
@@ -452,7 +384,7 @@ function motionStyles(): string {
 }`;
 }
 
-/** The full shell stylesheet: inlined brand font, token vars, reset, primitives, motion. */
+/** The full shell stylesheet. */
 function shellStyles(): string {
   return `${FONT_FACE_CSS}
 ${rootVariables()}
@@ -463,20 +395,9 @@ ${motionStyles()}`;
 }
 
 /**
- * Wrap model-authored, body-level `bodyHtml` in the full house-shell document
- * for the given `format`. The returned string is a complete standalone page:
- * `<!doctype html>` -> `<head>` (tokens, reset, primitives, locked page
- * box) -> `<body>` -> `.art-page` wrapper -> the author's HTML.
- *
- * Legacy rows that stored a full `<!doctype>` document will double-wrap; that is
- * an accepted tradeoff for a single-user app with disposable historical
- * artifacts (see the plan) and keeps the shell a pure, retroactive render-time
- * transform with no migration.
- *
- * `theme` stamps `data-theme` on `<html>`; `"dark"` selects the dark override
- * block. It is a render-time input (the caller passes the viewer's resolved app
- * theme), NOT part of the stored artifact — the same body renders in either
- * scheme, so a deck follows the app instead of being pinned to one look.
+ * Wrap body-level HTML in the full shell document.
+ * Old rows that stored a full `<!doctype>` document get wrapped twice. We accept that.
+ * `theme` is the viewer's app theme, not part of the stored artifact.
  */
 export function buildArtifactDocument(
   bodyHtml: string,
@@ -502,7 +423,7 @@ ${bodyHtml}
 </html>`;
 }
 
-/** Minimal HTML-text escape for interpolating a title into `<title>`. */
+/** Escape a title for `<title>`. */
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -511,13 +432,7 @@ function escapeHtml(value: string): string {
     .replace(/"/g, "&quot;");
 }
 
-/**
- * Print-only overrides layered after the shell styles. Sets the physical page
- * size to the format geometry (so the browser's own print engine emits 1:1,
- * one artifact page per sheet, no margins), unlocks the shell's screen-only
- * full-viewport `overflow:hidden` body, and sizes each `.art-print-page` box to
- * the exact geometry with a hard page break between pages.
- */
+/** Print overrides: one artifact page per sheet at 1:1, no margins, and the body may overflow. */
 function printStyles(format: ArtifactFormat): string {
   const { width, height } = pageGeometry[format];
 
@@ -551,23 +466,10 @@ body.art-print { background: var(--art-surface); }
 }
 
 /**
- * Build a single print-ready `<!doctype html>` document containing every page
- * of a `kind: "pages"` artifact, for the browser-native "Save as PDF" export
- * (pristine-artifacts Phase 3a). Reuses the exact no-web-font house shell so
- * the export is visually identical to the on-screen render, then layers
- * `printStyles` so the browser's print engine emits one artifact page per
- * physical sheet at 1:1.
- *
- * Each entry in `pages` is body-level page HTML (same contract as
- * `buildArtifactDocument`). `title` seeds `<title>`, which browsers use as the
- * default PDF filename. Pure string output — the caller (web) drives the actual
- * print via an off-screen iframe, since the render iframe is `sandbox=""` and
- * cannot script `print()` itself.
- *
- * An exported PDF is always LIGHT (`data-theme="light"`) — it is a shareable,
- * print-bound artifact, so it stays ink-friendly and reads the same on any
- * screen or paper regardless of the theme the author was viewing in. This is a
- * property of the medium, not a caller choice, so it is not a parameter.
+ * One print document with every page, for the browser's "Save as PDF".
+ * `title` becomes the default PDF filename. The web caller prints it from an
+ * off-screen iframe, because the sandboxed render iframe cannot call `print()`.
+ * Always light theme: an export must print the same for everyone.
  */
 export function buildArtifactPrintDocument(
   pages: readonly string[],

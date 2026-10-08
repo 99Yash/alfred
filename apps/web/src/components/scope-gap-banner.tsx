@@ -6,11 +6,8 @@ import { API_URL } from "~/lib/eden";
 import { openAuthorizationTab } from "~/lib/integrations/authorization-tab";
 
 /**
- * Slim nag bar shown when a Google account is connected but some scopes were
- * left unchecked on the consent screen (the common failure mode of a broad
- * one-click grant). Reconnecting re-runs the full grant; Google merges it into
- * the existing authorization via `include_granted_scopes=true`. Renders nothing
- * when there's no gap. Borrowed from dimension's scope-completeness banner.
+ * Nag bar when Google scopes were left unchecked at consent. Reconnect re-runs
+ * the full grant; `include_granted_scopes=true` merges it.
  */
 export function ScopeGapBanner() {
   const { connected, missing } = useGoogleScopeGaps();
@@ -35,8 +32,7 @@ export function ScopeGapBanner() {
       }
       actionLabel="Reconnect Google"
       onAction={() => {
-        // Authorization opens in a new tab; the banner's status read
-        // refetches on window focus, so the nag clears on return.
+        // New tab; the status read refetches on focus, so the nag clears on return.
         openAuthorizationTab(`${API_URL}${integrationRoutePrefix("google")}/connect`);
       }}
       onDismiss={() => setDismissed(true)}

@@ -1,24 +1,8 @@
 /**
- * MCP execution broker (PRD #540) — the durable trust boundary around a single
- * `tools/call`. It composes the already-built pieces (connection manager +
- * persistence ledger + hashing) into the one operation the dispatch seam invokes:
- * route an authorized `mcp.call` through the ambiguity ledger and return a
- * structured, model-safe outcome.
- *
- * The broker owns the durable semantics the raw client deliberately does NOT:
- *  - reviewed effect/retry policy resolution (drift → conservative `unknown`);
- *  - the pre-dispatch barrier reservation that stops a possibly-delivered write
- *    from being silently repeated (docs/research/mcp-ambiguous-write-outcomes.md);
- *  - the crash-safe lifecycle (`prepared` → `delivery_possible` →
- *    `response_received`) that lets the boot reconcile sweep classify a mid-flight
- *    crash (issue #540 clarification #1);
- *  - the boundary-based ambiguity rule (any *possibly-delivered* failure resolves
- *    to `unknown`/blocked, not just timeouts — clarification #2).
- *
- * It is proven OFFLINE: the connection manager injects a fake protocol, so
- * connect → refresh → call runs with no socket. Successor reservation stays
- * host-owned in `recovery.ts`; the broker never mints a successor from a model
- * proposal (clarification #4).
+ * Runs one authorized `mcp.call` through the ambiguity ledger.
+ * Policy drift falls back to `unknown`. A write gets a barrier row before it is
+ * sent, so a possibly-delivered write is never repeated
+ * (docs/research/mcp-ambiguous-write-outcomes.md). Only `recovery.ts` mints successors.
  */
 
 import {
@@ -91,19 +75,14 @@ export interface McpBrokerCallInput {
   /** The `action_stagings` row that authorized this call (1:1 with the ledger row). */
   stagingId: string;
   ref: ExternalToolRef;
-  /** Opaque MCP arguments — validated against the exact tool schema by the raw client. */
+  /** The raw client validates these against the tool schema. */
   arguments: unknown;
   /** Run trace id. Observability only; ledger correlation still copies the staging row. */
   traceId?: string;
   signal?: AbortSignal;
 }
 
-/**
- * A fixed, owner-reviewed gather-time read. The mapping row is re-read by the
- * broker and supplies the arguments; a caller cannot smuggle a different call
- * through this narrower entry point. The descriptor's persisted read-only
- * claim is checked again before the live client is allowed to send anything.
- */
+/** An owner-reviewed health read. The broker re-reads the mapping and takes the arguments from it. */
 export interface McpHealthReadInput {
   userId: string;
   ref: ExternalToolRef;
@@ -114,11 +93,8 @@ export interface McpHealthReadInput {
 }
 
 /**
- * A successor resume carries no `AbortSignal` on purpose. The send it performs is
- * the one send that must not share an HTTP request's lifetime: a closed tab
- * would abort a write that is already `delivery_possible` and convert a
- * user-authorized successor into one more ambiguous row. The raw client's own
- * request timeout is the only bound.
+ * No `AbortSignal` on purpose: a closed tab must not abort a write that is
+ * already `delivery_possible`. The client timeout is the only bound.
  */
 export interface McpReservedSuccessorInput {
   userId: string;
@@ -128,18 +104,8 @@ export interface McpReservedSuccessorInput {
 export type McpBrokerBlockReason = "ambiguity_barrier" | "already_recorded";
 
 /**
- * The broker's structured, non-throwing outcomes. Deterministic pre-delivery
- * failures (an invalid call, stale catalog, dead connection) are NOT represented
- * here — those THROW out of the broker so the dispatch seam records a normal
- * `failed` staging row. These four are the outcomes that must ride durably in the
- * `execute_result` envelope instead:
- *
- *  - `completed`: a clean successful response was received.
- *  - `tool_error`: an idempotent read reported an MCP tool error.
- *  - `blocked`: the barrier refused the reservation; NOTHING was dispatched.
- *  - `ambiguous`: a possibly-delivered failure or an effectful MCP tool error;
- *    the write may have happened and the ledger row stays unresolved so an
- *    identical repeat keeps being blocked.
+ * Non-throwing outcomes. Pre-delivery failures throw instead.
+ * `blocked`: nothing was sent. `ambiguous`: the write may have happened, so the row stays unresolved.
  */
 export type McpBrokerOutcome =
   | { status: "completed"; invocationId: string | null; envelope: McpCallEnvelope }
@@ -152,7 +118,7 @@ export type McpBrokerOutcome =
     }
   | { status: "ambiguous"; invocationId: string; message: string };
 
-/** True only for a deterministic pre-delivery `McpClientError` (provably not delivered). */
+/** True only for an `McpClientError` that provably was not delivered. */
 function isProvenNotDelivered(err: unknown): boolean {
   return err instanceof McpClientError && isPreDeliveryErrorCode(err.code);
 }
@@ -203,11 +169,7 @@ function pendingRepairKey(input: Pick<PendingMcpSettlementRepair, "userId" | "in
   return `${input.userId}:${input.invocationId}`;
 }
 
-/**
- * Module-private normal-call reservation. The reachable invocation leaf has no
- * insert authority; the broker supplies only normal prepared-state fields and
- * copies correlation from the exact owner-scoped staging row.
- */
+/** Reserve a normal call. Trace ids are copied from the owned staging row. */
 async function reserveNormalMcpInvocationDelivery(
   values: NormalMcpInvocationReservation,
 ): Promise<NormalMcpInvocationReservationResult> {
@@ -299,10 +261,7 @@ async function recordCompletedMcpRead(input: {
         .for("update");
 
       if (!correlation) {
-        // The remote read already completed, so this is post-delivery: the
-        // audit row is best-effort and must never throw a pre-delivery code
-        // (which would discard the received result as "never delivered").
-        // Returning null keeps the completed envelope with no provenance row.
+        // The read already completed. Never throw a pre-delivery code here; return null.
         return null;
       }
 
@@ -336,21 +295,14 @@ async function recordCompletedMcpRead(input: {
   } catch (error) {
     if (!isUniqueViolation(error)) throw error;
 
-    // A dispatch retry re-records the same staging row after the remote read
-    // already succeeded once. Reads are idempotent: reuse the recorded row
-    // instead of leaking a raw Postgres 23505 and discarding the result.
+    // A dispatch retry records the same read again. Reuse the row instead of a 23505.
     const prior = await readInvocationByStagingId(input.stagingId);
 
     return prior?.id ?? null;
   }
 }
 
-/**
- * Re-read the exact owner mapping at the broker boundary. The gather query is
- * deliberately not treated as authority: a clear or replacement review observed
- * at either broker read makes the call disappear rather than turn a stale
- * in-memory mapping into authority.
- */
+/** Re-read the owner mapping. The gather query is not authority; a cleared mapping cancels the call. */
 async function readHealthMapping(input: McpHealthReadInput) {
   const [row] = await db()
     .select({ definition: mcpHealthMapping.definition })
@@ -394,9 +346,7 @@ async function reserveHealthMcpRead(input: {
     const [row] = await db()
       .insert(mcpInvocation)
       .values({
-        // A deterministic health read has no model staging row. The nullable
-        // column is still a ledger row, and the CHECK constraint permits null
-        // only for the read class.
+        // No staging row. The CHECK allows null only for reads.
         stagingId: null,
         userId: input.userId,
         connectionId: input.connectionId,
@@ -414,8 +364,7 @@ async function reserveHealthMcpRead(input: {
 
     return row?.id ?? null;
   } catch (error) {
-    // A concurrent identical health read is already in flight. It is safe to
-    // decline this second briefing read; the next gather can try again.
+    // The same read is in flight. The next gather can retry.
     if (isUniqueViolation(error)) return null;
     throw error;
   }
@@ -434,10 +383,7 @@ async function settleHealthMcpRead(input: {
   const settlement = input.settlement;
   const provenance = settlement.resultProvenance;
 
-  // A health call is a read, not an effectful operation. Even a transport
-  // failure may have crossed the wire, but repeating an idempotent read is
-  // safe; leave no staging-less row permanently blocked for a recovery UI that
-  // cannot address it. The provenance/error still records what was observed.
+  // Always resolve: a read is safe to repeat, and no recovery UI can reach a row with no staging.
   await db()
     .update(mcpInvocation)
     .set({
@@ -466,11 +412,7 @@ async function settleHealthMcpRead(input: {
     );
 }
 
-/**
- * Settle the invocation and its authorizing staging row as one aggregate. The
- * mode closes the only domain distinction: ordinary calls have no predecessor;
- * recovery successors must have one.
- */
+/** Settle the invocation and its staging row together. Only successors have a predecessor. */
 async function settleMcpInvocationAggregate(input: {
   userId: string;
   invocationId: string;
@@ -612,9 +554,8 @@ type ReservedMcpSuccessor = { invocation: McpInvocation; effectiveInput: unknown
 type ReservedMcpSuccessorSettlement = McpInvocationSettlement;
 
 /**
- * Module-private successor state. The package export wildcard can reach this
- * file, so raw read/claim/settle operations must not be exported from any leaf.
- * The class's ID-only `resumeReservedSuccessor` method is the sole product door.
+ * Keep successor helpers unexported: the package export wildcard reaches this file.
+ * `resumeReservedSuccessor` is the only public entry.
  */
 async function readReservedMcpSuccessor(input: {
   userId: string;
@@ -643,11 +584,7 @@ async function readReservedMcpSuccessor(input: {
     : undefined;
 }
 
-/**
- * Revalidate and claim a prepared successor in one authority-locked transaction.
- * The connection row serializes catalog-pointer, ownership, and policy changes.
- * The invocation/staging locks bind the exact persisted input to the transition.
- */
+/** Revalidate and claim a prepared successor in one transaction, under the connection row lock. */
 async function claimReservedMcpSuccessorDelivery(input: {
   userId: string;
   invocationId: string;
@@ -789,11 +726,7 @@ async function settleReservedMcpSuccessor(input: {
   await settleMcpInvocationAggregate({ ...input, mode: "successor" });
 }
 
-/**
- * Complete a settlement repair only when the staging row carries durable proof
- * that the provider phase ended. A live request remains `dispatching`, so it can
- * never be selected by this repair or the recovery list.
- */
+/** Repair only rows with proof the provider phase ended. A live request stays `dispatching`. */
 async function normalizeMarkedMcpSettlementFailure(
   input: PendingMcpSettlementRepair,
 ): Promise<boolean> {
@@ -867,12 +800,7 @@ async function repairMcpSettlement(input: PendingMcpSettlementRepair): Promise<b
 export class McpExecutionBroker {
   readonly #manager: McpConnectionManager;
 
-  /**
-   * Admission state is per broker instance, not per module: a test that swaps
-   * the singleton gets a fresh queue, and a process has exactly one broker.
-   * Capacity counts every user together, which is the right shape for a
-   * single-user deployment and a deliberate simplification beyond it.
-   */
+  /** Per instance, so a swapped test broker gets a fresh queue. Capacity counts all users together. */
   readonly #pendingRepairs = new Map<string, PendingMcpSettlementRepair>();
   #activeSettlementSlots = 0;
   #repairDrainTimer: ReturnType<typeof setTimeout> | undefined;
@@ -881,13 +809,7 @@ export class McpExecutionBroker {
     this.#manager = manager;
   }
 
-  /**
-   * Retry every queued local settlement repair, at most one batch per pass. The
-   * queue holds only repairs this process could not complete after the provider
-   * phase ended; a crash hands the same rows to boot reconciliation instead. A
-   * timer calls this after `MCP_SETTLEMENT_REPAIR_RETRY_MS`; tests call it
-   * directly. It never calls a provider.
-   */
+  /** Retry one batch of queued settlement repairs. Never calls a provider; boot covers a crash. */
   async drainPendingSettlementRepairs(): Promise<{ repaired: number; remaining: number }> {
     if (this.#repairDrainTimer) {
       clearTimeout(this.#repairDrainTimer);
@@ -915,8 +837,7 @@ export class McpExecutionBroker {
         continue;
       }
 
-      // Re-queue at the back: one row that keeps failing must not hold the
-      // head of every pass and starve the rows behind it.
+      // Re-queue at the back so one failing row cannot starve the rest.
       this.#pendingRepairs.set(key, repair);
     }
 
@@ -933,17 +854,12 @@ export class McpExecutionBroker {
       void this.drainPendingSettlementRepairs();
     }, MCP_SETTLEMENT_REPAIR_RETRY_MS);
 
-    // The drain must never hold the process open: boot covers whatever a
-    // shutdown leaves behind.
+    // Never hold the process open; boot covers what a shutdown leaves.
     unrefTimer(timer);
     this.#repairDrainTimer = timer;
   }
 
-  /**
-   * One bounded process slot per effectful send or successor resume. Reads take
-   * none: they have no settlement. A refusal is the broker's own pre-delivery
-   * code, so the dispatch seam reports capacity, not a missing connection.
-   */
+  /** One slot per effectful send or successor resume. Reads take none. */
   #acquireSettlementSlot(): () => void {
     if (
       !hasMcpBrokerAdmissionCapacity({
@@ -968,8 +884,6 @@ export class McpExecutionBroker {
   }
 
   async #bestEffortRepair(input: PendingMcpSettlementRepair): Promise<void> {
-    // Admission reserves one bounded process slot before any provider work. A
-    // completed call transfers that slot here before releasing it.
     this.#pendingRepairs.set(pendingRepairKey(input), input);
 
     try {
@@ -986,12 +900,7 @@ export class McpExecutionBroker {
     this.#scheduleRepairDrain();
   }
 
-  /**
-   * Resolve ownership, hydrate the live catalog, and compare the live
-   * descriptor with the durable identity. Both the model-selected call and the
-   * fixed health-read door use this preparation seam; neither is allowed to
-   * reach `prepared.call` with an unowned connection or a stale revision.
-   */
+  /** Check ownership, load the live catalog, and compare the live descriptor with the stored one. */
   async #prepareCall(input: {
     userId: string;
     ref: ExternalToolRef;
@@ -1025,9 +934,7 @@ export class McpExecutionBroker {
       );
     }
 
-    // A catalog publication can race the first identity read. Re-resolve after
-    // hydration, exactly as the ordinary broker path does, before honoring any
-    // persisted claim.
+    // A catalog publication can race the first read, so resolve again after loading.
     if (identity.status === "unresolved") {
       identity = await resolveMcpToolIdentity({
         userId: input.userId,
@@ -1056,13 +963,7 @@ export class McpExecutionBroker {
     };
   }
 
-  /**
-   * Execute one owner-approved health read through the same broker seam as a
-   * model-selected MCP call. There is no caller-supplied argument object: the
-   * exact owner mapping is re-read here, and the broker supplies its persisted
-   * arguments. The persisted descriptor claim and the live descriptor must
-   * both say read-only before a single tools/call is sent.
-   */
+  /** Run an owner-approved health read. Stored and live descriptors must both say read-only. */
   async callHealthRead(input: McpHealthReadInput): Promise<McpCallEnvelope | null> {
     const span = startMcpTraceSpan({
       name: "runtime.mcp.health_read",
@@ -1090,9 +991,7 @@ export class McpExecutionBroker {
         trace: span.context,
       });
 
-      // Catalog hydration can take long enough for an owner to clear or replace
-      // the row. Re-read the same revision after that seam so the arguments sent
-      // below are the current persisted definition, not the pre-hydration copy.
+      // The owner may change the mapping during catalog load, so read it again.
       definition = await readHealthMapping(input);
 
       if (!definition) {
@@ -1125,21 +1024,15 @@ export class McpExecutionBroker {
         );
       }
 
-      // An explicit reviewed `high` policy is the owner asking for approval on
-      // every ordinary MCP call. This fixed health read has no staging surface
-      // on which to ask, so it stops before `tools/call` rather than
-      // silently overriding that decision. A missing policy is different: the
-      // health mapping is its own owner review of this exact descriptor and
-      // fixed argument object.
+      // A reviewed `high` policy demands approval, which this read cannot ask for, so stop.
+      // A missing policy is fine: the health mapping is itself an owner review.
       if (resolved.identity.policy?.riskTier === "high") {
         span.end({ status: "blocked", metadata: { riskTier: "high" } });
 
         return null;
       }
 
-      // Record the ordinary MCP risk decision for tracing. It does not grant
-      // this path authority; the exact mapping, read-only checks, explicit-high
-      // stop above, and broker ledger do.
+      // Tracing only. This decision grants nothing here.
       const riskTier = effectiveMcpRiskTier(resolved.identity);
 
       const invocationId = await reserveHealthMcpRead({
@@ -1219,11 +1112,7 @@ export class McpExecutionBroker {
     }
   }
 
-  /**
-   * Route one authorized `mcp.call` through the ledger. Reads bypass the ledger
-   * entirely (idempotent); effectful (`write`/`unknown`) calls mint a barrier
-   * reservation BEFORE dispatch and resolve the lifecycle around the network hop.
-   */
+  /** Reads skip the barrier; `write`/`unknown` calls reserve one before sending. */
   async callTool(input: McpBrokerCallInput): Promise<McpBrokerOutcome> {
     const span = startMcpTraceSpan({
       name: "runtime.mcp.broker_invoke",
@@ -1252,11 +1141,7 @@ export class McpExecutionBroker {
     }
   }
 
-  /**
-   * Deliver one host-reserved successor. The caller supplies only its durable id;
-   * target and arguments are reloaded from the exact staging row. The atomic
-   * `prepared` claim is the send-once gate for concurrent or repeated HTTP posts.
-   */
+  /** Send a host-reserved successor by id. The atomic `prepared` claim makes it send once. */
   async resumeReservedSuccessor(input: McpReservedSuccessorInput): Promise<McpBrokerOutcome> {
     const releaseSettlementSlot = this.#acquireSettlementSlot();
 
@@ -1477,9 +1362,6 @@ export class McpExecutionBroker {
   async #callTool(input: McpBrokerCallInput, trace: McpTraceContext): Promise<McpBrokerOutcome> {
     const { ref } = input;
 
-    // Ownership, catalog hydration, and the live descriptor comparison are the
-    // shared preparation seam. The health-read door below enters here too, so
-    // it cannot accidentally grow a second connection path.
     const preparedCall = await this.#prepareCall({
       userId: input.userId,
       ref,
@@ -1489,10 +1371,7 @@ export class McpExecutionBroker {
 
     const { identity, connection, prepared, descriptorHash: hash } = preparedCall;
 
-    // The durable identity and reviewed policy were resolved together above.
-    // Honor that policy only if the exact live descriptor has the same hash. A
-    // stale selection, missing live tool, or persisted/live drift therefore has
-    // no policy and defaults to conservative `unknown`.
+    // Use the policy only if the live descriptor hash matches; otherwise `unknown`.
     const policy =
       identity.status === "resolved" && hash === identity.descriptorHash
         ? identity.policy
@@ -1501,11 +1380,7 @@ export class McpExecutionBroker {
     const effectClass: McpEffectClass = policy?.effectClass ?? "unknown";
 
     if (effectClass === "read") {
-      // Reads are idempotent: no ambiguity barrier. A completed response gets
-      // an audit row, so a chat provenance claim can point to a completed call.
-      // A failed read remains safe to re-run and throws or returns tool_error.
-      // The options object IS the conditional — a spread inside a fresh literal
-      // would just be a redundant copy (oxlint's `no-useless-spread`).
+      // Reads skip the barrier. A completed read gets an audit row for provenance.
       const envelope = await prepared.call(ref, input.arguments, {
         ...(input.signal ? { signal: input.signal } : {}),
         trace,
@@ -1577,14 +1452,9 @@ export class McpExecutionBroker {
   ): Promise<McpBrokerOutcome> {
     const { ref } = input;
     const argsHash = canonicalArgsHash(input.arguments);
-    // Only the current-revision POINTER is needed for the ledger row, and the
-    // owner-verified connection pointer was already read in `callTool`, so reuse
-    // it rather than fetching the catalog-sized revision row just to recover its
-    // id.
     const connection = resolved.connection;
 
-    // The reservation. Minting the row IS the barrier: the partial unique index
-    // rejects a second unresolved proposal identical to an in-flight/blocked one.
+    // The row is the barrier: a partial unique index refuses an identical unresolved call.
     const minted = await reserveNormalMcpInvocationDelivery({
       stagingId: input.stagingId,
       userId: input.userId,
@@ -1592,20 +1462,13 @@ export class McpExecutionBroker {
       remoteName: ref.remoteName,
       argsHash,
       effectClass: resolved.effectClass,
-      // Conditional spread, like everywhere else in this repo — `exactOptionalPropertyTypes`
-      // is off (#552), so a plain `key: maybeUndefined` is unenforced style rather than a
-      // typed distinction. Here the distinction is also load-bearing: drizzle's insert walks
-      // `Object.keys`, so a present-but-undefined key binds a NULL param where an absent key
-      // emits `DEFAULT`. Same row today (all three columns are nullable with no default), but
-      // the divergence would be silent the moment one of them gains a column default.
+      // Omit absent keys: Drizzle binds NULL for an undefined key but DEFAULT for a missing one.
       ...(connection?.currentCatalogRevisionId
         ? { catalogRevisionId: connection.currentCatalogRevisionId }
         : {}),
       ...(resolved.descriptorHashValue ? { descriptorHash: resolved.descriptorHashValue } : {}),
       ...(resolved.policy ? { policyRevision: resolved.policy.policyRevision } : {}),
-      // Correlation breadcrumbs (trace/step/tool-call) are NOT passed here: they
-      // are copied from the authorizing staging row inside `reserveNormalMcpInvocationDelivery`, so
-      // they cannot drift from the row this reservation points at (#541).
+      // Trace ids come from the staging row inside `reserveNormalMcpInvocationDelivery`.
     });
 
     if (!minted.ok) {
@@ -1614,20 +1477,9 @@ export class McpExecutionBroker {
 
     const invocation = minted.invocation;
 
-    // Cross the delivery boundary: persist `delivery_possible` BEFORE the network
-    // hop so a crash mid-flight leaves durable evidence the write is ambiguous.
-    //
-    // NO-REPLAY INVARIANT (issue #540, VS Code findings): once an effectful call
-    // is `delivery_possible`, NO layer may transparently re-send the same
-    // `tools/call` — not the MCP SDK (progress-retry disabled via `maxTotalTimeout`
-    // in protocol.ts), the raw client (`callTool` sends once; session-expiry
-    // rethrows, never re-issues), the connection manager / session-refresh
-    // (reconnect rebuilds a client for a LATER authorized attempt, never replays
-    // this one), this broker (the catch below leaves the row unresolved), nor any
-    // worker/model-loop retry (the durable barrier index refuses an identical
-    // proposal). A second outbound attempt is legal only via an explicitly
-    // reserved recovery successor. Before admitting any wrapper into this path,
-    // confirm its retry is disabled or provably pre-delivery.
+    // Persist `delivery_possible` before sending, so a crash leaves proof of ambiguity.
+    // Invariant: from here no layer may re-send this `tools/call` (SDK retry is off
+    // via `maxTotalTimeout`). Only a reserved recovery successor may send again.
     try {
       const envelope = await resolved.prepared.call(ref, input.arguments, {
         ...(input.signal ? { signal: input.signal } : {}),
@@ -1637,9 +1489,7 @@ export class McpExecutionBroker {
       return this.#resolveResponse(invocation, envelope);
     } catch (err) {
       if (isProvenNotDelivered(err)) {
-        // Deterministic failure that never reached the remote application: resolve
-        // the reservation as not-delivered (retry-safe) and rethrow so the dispatch
-        // seam records an ordinary `failed` staging row.
+        // Never delivered: resolve as not-delivered and rethrow.
         try {
           await settleMcpInvocationAggregate({
             mode: "normal",
@@ -1659,18 +1509,9 @@ export class McpExecutionBroker {
         throw err;
       }
 
-      // Possibly delivered (session_expired, invalid_output, transport/abort). The
-      // write may have happened; leave the row UNRESOLVED so the barrier keeps
-      // rejecting an identical repeat until a host-minted successor or a user check.
-      //
-      // If a response actually crossed the wire (today: invalid_output), the raw
-      // client carries its census on the error — persist it and advance the
-      // lifecycle to `response_received`, so the highest-value audit case (a
-      // possibly-completed effect with a malformed response) stays reconstructable
-      // from provenance, not just an error string (#541). The outcome stays
-      // unknown/blocked: a malformed response can't prove the effect. When no
-      // response arrived (transport/abort/session_expired), provenance is absent
-      // and the lifecycle never advances past the delivery boundary.
+      // Possibly delivered: leave the row unresolved so the barrier holds.
+      // If a malformed response arrived (`invalid_output`), store its provenance
+      // and move to `response_received`. The outcome stays ambiguous.
       const provenance = err instanceof McpClientError ? err.provenance : undefined;
 
       try {
@@ -1696,16 +1537,13 @@ export class McpExecutionBroker {
     }
   }
 
-  /** A clean response arrived. Only a confirmed success resolves an effectful call. */
+  /** Only a confirmed success resolves an effectful call. */
   async #resolveResponse(
     invocation: McpInvocation,
     envelope: McpCallEnvelope,
   ): Promise<McpBrokerOutcome> {
     if (envelope.outcome === "tool_error") {
-      // MCP `isError` says the tool reported a problem. It does not prove that
-      // the tool applied no effect before it produced the response. Keep the
-      // barrier unresolved unless a reviewed provider contract can prove the
-      // call was rejected before application.
+      // `isError` does not prove the tool had no effect, so the barrier stays.
       try {
         await settleMcpInvocationAggregate({
           mode: "normal",
@@ -1749,11 +1587,8 @@ export class McpExecutionBroker {
   }
 
   /**
-   * The reservation was refused. A `barrier` collision means a *different* staging
-   * row already holds an unresolved match — read it so the block can be explained.
-   * A `duplicate_staging` collision means THIS staging row was already recorded (a
-   * crash between mint and the `executed` write); read that prior row rather than
-   * re-delivering.
+   * `barrier`: another staging row holds an unresolved match.
+   * `duplicate_staging`: this row was already recorded; read it, never re-send.
    */
   async #resolveBlocked(
     input: McpBrokerCallInput,

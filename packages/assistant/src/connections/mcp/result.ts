@@ -2,13 +2,8 @@ import { getPath, getStringPath, safeJsonParse } from "@alfred/contracts";
 import type { z } from "zod";
 
 /**
- * Parse one MCP tool result at the transport boundary.
- *
- * `structuredContent` wins whenever the server sent it, even if that value is
- * malformed. Only a result with NO structured payload may use the fallback text
- * block, and that fallback must be exactly one `text` block. This prevents two
- * representations of the same read from being blended when one disagrees with
- * the approved mapping.
+ * Parse one MCP tool result. `structuredContent` always wins, even if malformed.
+ * Without it, the result must be exactly one `text` block. Never blend the two.
  */
 export function parseMcpToolResult<Schema extends z.ZodType>(
   result: unknown,

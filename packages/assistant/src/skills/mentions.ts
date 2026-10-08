@@ -2,21 +2,9 @@ import { z } from "zod";
 
 /**
  * `@`-mention parser for skill prompts and workflow briefs.
- *
- * Dimension's UX overloads `@` for three reference kinds (integration,
- * skill, collaborator). We follow the same input shape — bare `@<slug>`
- * — and resolve the kind at distill time against the user's registry of
- * connected integrations + authored skills. Unresolved mentions stay in
- * the parsed list as `kind='unresolved'` so the model can flag them in
- * its rationale.
- *
- * Explicit-prefix forms are also accepted for unambiguous authoring:
- *   `@skill:<slug>`        — skill activation per ADR-0017
- *   `@integration:<slug>`  — disambiguate when a slug is shared
- *   `@person:<slug>`       — collaborator (deferred; parsed for forward compat)
- *
- * The regex deliberately rejects mentions inside email addresses
- * (`alice@oliv.ai`) by requiring whitespace / start-of-line before `@`.
+ * A bare `@<slug>` resolves at distill time to an integration or skill; else `unresolved`.
+ * Explicit forms: `@skill:<slug>` (ADR-0017), `@integration:<slug>`, `@person:<slug>` (not used yet).
+ * Needs whitespace or line start before `@`, so `alice@oliv.ai` is not a mention.
  */
 
 export const MENTION_KINDS = ["integration", "skill", "collaborator", "unresolved"] as const;
@@ -24,13 +12,12 @@ export const MENTION_KINDS = ["integration", "skill", "collaborator", "unresolve
 export type MentionKind = (typeof MENTION_KINDS)[number];
 
 export const parsedMentionSchema = z.object({
-  /** Raw matched text including the `@`. */
+  /** Includes the `@`. */
   raw: z.string(),
-  /** Resolved-or-pending kind. */
   kind: z.enum(MENTION_KINDS),
-  /** The slug after stripping the prefix. Lower-cased. */
+  /** Prefix stripped, lower-cased. */
   slug: z.string(),
-  /** Character offset in the source text — handy for inline highlighting later. */
+  /** Character offset in the source text. */
   index: z.number().int().nonnegative(),
 });
 
@@ -38,11 +25,7 @@ export type ParsedMention = z.infer<typeof parsedMentionSchema>;
 
 const MENTION_RE = /(?:^|\s)@(?:(skill|integration|person):)?([a-z0-9][a-z0-9-]{0,63})/gi;
 
-/**
- * Parse mentions out of free text. Returns mentions with `kind` set to
- * either the explicit prefix or `'unresolved'`. Run {@link resolveMentions}
- * afterwards to disambiguate bare mentions.
- */
+/** Parse mentions; `kind` is the explicit prefix or `unresolved`. Then run {@link resolveMentions}. */
 export function parseMentions(text: string): ParsedMention[] {
   const out: ParsedMention[] = [];
 
@@ -52,9 +35,7 @@ export function parseMentions(text: string): ParsedMention[] {
     if (!slug || match.index === undefined) continue;
     const atOffset = full.indexOf("@");
     const slugLower = slug.toLowerCase();
-    // Regex is case-insensitive, so `prefix` can be "Skill" / "INTEGRATION" /
-    // etc. Lower once and reuse — comparing the raw capture would misclassify
-    // any non-lowercase prefix as `unresolved`.
+    // The regex is case-insensitive; compare the lower-cased prefix.
     const prefixLower = prefix?.toLowerCase();
     const raw = `@${prefixLower ? `${prefixLower}:` : ""}${slugLower}`;
     out.push({
@@ -81,15 +62,8 @@ export interface MentionRegistry {
 }
 
 /**
- * Disambiguate bare `@<slug>` mentions against the user's registry.
- * Precedence on collision (rare at single-user scale):
- *   integration > skill > unresolved
- *
- * A user authoring a skill named "github" while also having Github
- * connected is the conflict case. Integration wins because the more
- * common authoring path is "use this connected integration in this
- * skill" rather than "compose this skill into another." Authors who
- * want skill-precedence write `@skill:github` explicitly.
+ * Resolve bare mentions. On a collision, integration beats skill: "use this integration"
+ * is the common case. Write `@skill:github` to pick the skill.
  */
 export function resolveMentions(
   mentions: ParsedMention[],

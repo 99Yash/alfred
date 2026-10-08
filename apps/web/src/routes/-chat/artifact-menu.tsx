@@ -7,21 +7,7 @@ import { cn } from "~/lib/utils";
 import { IconButton } from "./rail/icon-button";
 import { Tip } from "./tip";
 
-/**
- * Persistent quick-access control for a thread's artifacts, mounted in the chat
- * top bar (ADR-0075). Before this, the only re-entry point to a finished
- * artifact was its `ArtifactTriggerCard` buried in the transcript — so
- * re-opening one meant scrolling to hunt for the authoring message. This gives
- * a stable, scroll-independent affordance that also conveys how many artifacts
- * a thread holds.
- *
- *   - 0 artifacts → renders nothing (the common case; keeps the bar clean).
- *   - 1 artifact  → a direct toggle button (open / hide the panel).
- *   - 2+          → a count button opening a popover to pick which to view.
- *
- * Content lives in the synced `artifacts` row; this only drives the shared
- * right-slot selection via the panel's `open`/`close`.
- */
+// Top-bar artifact access (ADR-0075): nothing for 0, a toggle for 1, a count and picker for 2+.
 
 function artifactIcon(artifact: SyncedArtifact, size: number) {
   if (artifact.status === "generating") return <Loader2 size={size} className="animate-spin" />;
@@ -52,9 +38,7 @@ export function ArtifactMenu({
 }) {
   const listboxId = useId();
   const [open, setOpen] = useState(false);
-  // The popover portals out of the `.app` subtree, so CSS token inheritance
-  // breaks — stamp the resolved theme on the content directly (React context
-  // still flows through portals). Same pattern as `ModelTierPicker`.
+  // The popover portals out of `.app`, so stamp the theme on the content.
   const themeCtx = use(AppThemeContext);
 
   const dataTheme =
@@ -62,7 +46,6 @@ export function ArtifactMenu({
 
   if (artifacts.length === 0) return null;
 
-  // Single artifact → the button toggles the panel directly; no menu needed.
   if (artifacts.length === 1) {
     const only = artifacts[0]!;
     const active = selectedId === only.id;
@@ -80,8 +63,7 @@ export function ArtifactMenu({
     );
   }
 
-  // 2+ artifacts → a count button opening a picker. The button reads "active"
-  // whenever one of this thread's artifacts is the panel's current occupant.
+  // "Active" when one of this thread's artifacts is open.
   const panelShowsArtifact = artifacts.some((a) => a.id === selectedId);
 
   return (

@@ -4,20 +4,15 @@ import { cn } from "~/lib/utils";
 import { isAnswerEmpty, type AskUserSummary } from "./ask-user";
 
 /**
- * A settled `system.ask_user` call, read-only, in the transcript (ADR-0099).
- *
- * The question card in the approval tray is gone the moment the row leaves
- * `pending`, so this is what the turn leaves behind: the questions Alfred
- * asked and what the user said back, or why no answer arrived. It renders in
- * the activity trail in place of the ordinary tool row, both while the run
- * finishes and on every later reload.
+ * A settled `system.ask_user` call in the transcript (ADR-0099): the questions and
+ * the answers, or why none arrived. Replaces the tool row in the activity trail.
  */
 export function QuestionAnswersCard({
   summary,
   inTrail = false,
 }: {
   summary: AskUserSummary;
-  /** Inside the auto-animated trail, which owns the enter animation. */
+  /** The trail owns the enter animation. */
   inTrail?: boolean | undefined;
 }) {
   const answered = summary.status === "answered";
@@ -53,9 +48,7 @@ export function QuestionAnswersCard({
           <p className="mt-1.5 text-[12px] leading-5 text-app-fg-3">
             {unansweredCopy(summary.reason)}
           </p>
-          {/* Position IS the identity in both lists below: the questions were
-           * frozen when the row was written, answers pair with them by index,
-           * and nothing here reorders, inserts, or removes an entry. */}
+          {/* Index is the key: questions are frozen and answers pair by index. */}
           <ul className="mt-2 flex flex-col gap-1">
             {summary.questions.map((question, index) => (
               <li key={index} className="text-[12px] leading-5 text-app-fg-3">
@@ -67,10 +60,7 @@ export function QuestionAnswersCard({
       ) : (
         <dl className="mt-2 flex flex-col gap-2.5">
           {summary.answered.map(({ question, answer }, index) => {
-            // One test decides both branches. `customAnswer` may hold only
-            // whitespace — the schema deliberately does not trim it, so the
-            // card owns emptiness — and rendering it raw drew an invisible
-            // span directly above the word "Skipped".
+            // The schema does not trim `customAnswer`, so whitespace-only counts as empty here.
             const empty = isAnswerEmpty(answer);
 
             return (
@@ -102,7 +92,6 @@ export function QuestionAnswersCard({
   );
 }
 
-/** Why no answer reached the model. One line, no blame. */
 function unansweredCopy(reason: AskUserUnansweredReason): string {
   if (reason === "dismissed") return "You dismissed this question. Alfred continued without it.";
 

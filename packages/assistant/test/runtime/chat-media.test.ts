@@ -135,10 +135,7 @@ describe("chat media composition seam", () => {
     );
   });
 
-  // Backstop for the boot-error-plain-extends gate: if the seam ever reaches this
-  // registry's not-registered error from a best-effort consumer, membership in
-  // TriggerConsumerBootError is what makes it reject the publish rather than be
-  // swallowed. Catches a revert to `extends Error` even if the static gate were removed.
+  // A plain `Error` here would be swallowed by a best-effort consumer instead of failing the publish.
   test("its not-registered error is a TriggerConsumerBootError", () => {
     assert.ok(new NoChatMediaHandlerRegisteredError() instanceof TriggerConsumerBootError);
   });

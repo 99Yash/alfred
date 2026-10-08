@@ -50,8 +50,7 @@ export async function runPdfExtractionChild(): Promise<number> {
     return 0;
   } catch (error) {
     const pdfExtractionError = error instanceof PdfExtractionError;
-    // Send the original cause so the parent can rebuild the one canonical
-    // PdfExtractionError message instead of accepting arbitrary message text.
+    // Send the cause, not the text, so the parent rebuilds the PdfExtractionError message.
     const described = describeError(pdfExtractionError ? error.cause : error);
     await writeReply({
       kind: "dependency_error",

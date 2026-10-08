@@ -4,18 +4,8 @@ import { describe, test } from "node:test";
 import { isCallerAbort } from "../src/abort";
 
 /**
- * One predicate, two consumers that must agree, and a boundary that is easy to
- * get subtly wrong:
- *
- *  - `withFallback` drops a caller abort (re-issuing a cancelled request on the
- *    fallback bills a second call for an answer nobody is waiting for) but
- *    treats a timeout as switch-worthy;
- *  - `metered()` records a caller abort as a cancelled row and a timeout as an
- *    error row.
- *
- * Both invert on the same distinction, and both failure modes are quiet — a
- * duplicate bill, a mislabelled ledger row. `AbortSignal.timeout()` produces a
- * `DOMException` too, differing only in `name`, so this is pinned by name.
+ * `withFallback` and `metered()` both treat an abort and a timeout differently, and both fail quietly.
+ * `AbortSignal.timeout()` also throws a `DOMException`, so only `name` tells them apart.
  */
 describe("isCallerAbort", () => {
   test("matches a controller-initiated cancel", () => {

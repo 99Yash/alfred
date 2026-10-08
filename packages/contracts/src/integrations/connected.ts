@@ -1,29 +1,16 @@
-/**
- * The connected rule (ADR-0093): a live provider is connected for a user when
- * one credential row satisfies the rule its `CredentialSpec` declares. The rule
- * is prose on each `CredentialSpec` member in `./registry`; this is its one
- * executable home. The server's availability read and the web's connectedness
- * probe both call it, so the two cannot disagree on which rows count.
- */
+/** The connected rule (ADR-0093). Server and web both call it, so they agree on which rows count. */
 
 import type { CredentialSpec } from "./registry";
 
-/**
- * The credential row fields the connected rule reads. The server's
- * `ProviderAvailability` (scopes as a `Set`) and the web's parsed credential
- * row (scopes as an array) both satisfy it.
- */
+/** The row fields the connected rule reads. */
 export interface CredentialProofRow {
   readonly status: string;
   readonly scopes: Iterable<string>;
-  /** The provider installation id (GitHub App id, Sentry installation uuid); `null` on a legacy classic-OAuth GitHub row and on providers that send no webhooks. Only the `github_app` arm reads it. */
+  /** `null` on a classic-OAuth GitHub row. */
   readonly installationId: string | null;
 }
 
-/**
- * Whether a granted scope set holds at least one of `anyOfScopes`. An empty
- * requirement is satisfied by any grant: the caller had nothing to prove.
- */
+/** An empty `anyOfScopes` always passes. */
 export function holdsAnyScope(granted: Iterable<string>, anyOfScopes: readonly string[]): boolean {
   if (anyOfScopes.length === 0) return true;
 
@@ -35,16 +22,8 @@ export function holdsAnyScope(granted: Iterable<string>, anyOfScopes: readonly s
 }
 
 /**
- * Whether one credential row proves its provider connected under `spec`. Every
- * shape needs an active row; what else it needs is the shape's rule:
- *
- * - `google_oauth`: the row holds one of `anyOfScopes`, because the consent
- *   screen lets the user uncheck scopes.
- * - `github_app`: the row carries an `installationId`, because App permissions
- *   never land in `scopes` and a classic-OAuth row cannot mint a token.
- * - `bearer`: the active row is the proof.
- *
- * A new shape is a new arm here, and an unhandled arm fails to compile.
+ * Google checks scopes because the user can uncheck them at consent. GitHub checks
+ * `installationId` because App permissions never reach `scopes`.
  */
 export function credentialSatisfies(spec: CredentialSpec, row: CredentialProofRow): boolean {
   if (row.status !== "active") return false;

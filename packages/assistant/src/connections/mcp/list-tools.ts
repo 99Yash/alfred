@@ -1,7 +1,4 @@
-/**
- * Bounded, local discovery over persisted MCP catalogs. This module owns the
- * scan budget and cursor semantics; it never reaches a live MCP client.
- */
+/** Bounded search over stored MCP catalogs. Never calls a live client. */
 
 import {
   Errors,
@@ -136,7 +133,7 @@ function encodeCursor(
   return Buffer.from(JSON.stringify(cursor)).toString("base64url");
 }
 
-/** Project one database-built `{ name, title, description }` summary into visible bounded text. */
+/** Turn one stored summary into bounded text. */
 function toSummary(descriptor: unknown): Summary | undefined {
   const parsed = jsonObjectSchema.safeParse(descriptor);
 
@@ -162,12 +159,7 @@ function connection(row: OwnedCurrentCatalogRow): McpDiscoveryConnection {
   return { id: row.connectionId, instanceKey: row.instanceKey, label: row.label };
 }
 
-/**
- * `query` finds a TOOL, so it reads tool fields only. The connection label is
- * deliberately not a match target: a query that equals a label would fill the
- * page with every tool on that connection. `namespace` and `connectionId` are
- * the doors that scope a search to one connection.
- */
+/** Match tool fields only. A label match would return every tool on that connection. */
 function matches(summary: Summary, query: string): boolean {
   if (!query) return true;
 
@@ -247,8 +239,7 @@ async function rowsForSearch(input: {
   const remainingDescriptorBudget =
     MCP_DISCOVERY_SCAN_BUDGET.descriptorLimit - current.summaries.length;
 
-  // A full current slice leaves no summary budget for a later catalog, so the
-  // follow-up read projects nothing and only answers whether one exists.
+  // The budget is spent, so the next read only checks whether more catalogs exist.
   const remainingCatalogBudget =
     remainingDescriptorBudget === 0 ? 0 : MCP_DISCOVERY_SCAN_BUDGET.catalogLimit - 1;
 
@@ -264,13 +255,7 @@ async function rowsForSearch(input: {
   return { rows: [current, ...following.rows], hasMore: following.hasMore };
 }
 
-/**
- * Bounded local reads over the persisted catalog. `searchMcpToolsLocal` and
- * `inspectMcpToolLocal` are production doors: the dispatcher's
- * `mcp.list_tools` / `mcp.inspect_tool` tools and `searchAvailableTools` call
- * them directly. `listMcpToolsLocal` is the HTTP combined search-or-inspect
- * door. The package barrel re-exports all three; the test tree pins them.
- */
+/** Search stored catalogs. `listMcpToolsLocal` is the HTTP search-or-inspect entry. */
 export async function searchMcpToolsLocal(
   input: McpToolSearchInput & { userId: string },
 ): Promise<McpToolDiscoveryPage> {
@@ -373,9 +358,7 @@ export async function inspectMcpToolLocal(input: {
     });
   }
 
-  // The persistence read selects the descriptor by name, so a name mismatch
-  // here is a defect, not a legacy-catalog case; the result schema repeats the
-  // same identity check as the contract's own guarantee.
+  // The read selects by name, so a mismatch here is a bug.
   const tool = jsonObjectSchema.safeParse(row.descriptor);
 
   if (!tool.success || tool.data.name !== ref.remoteName) {
@@ -394,7 +377,7 @@ export async function inspectMcpToolLocal(input: {
   });
 }
 
-/** Own the strict search-or-inspect operation rule behind one local adapter door. */
+/** Run a search or an inspect, never both. */
 export async function listMcpToolsLocal(input: {
   userId: string;
   request: McpListToolsInput;

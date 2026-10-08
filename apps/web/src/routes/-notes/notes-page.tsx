@@ -43,8 +43,7 @@ export function NotesPage() {
       return;
     }
 
-    // Append each finalised segment to the note, separated by a space so
-    // dictation flows naturally after any text already typed.
+    // Append each final segment after a space.
     dictation.start((chunk) => {
       if (!chunk) return;
       setText((prev) =>

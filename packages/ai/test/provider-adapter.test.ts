@@ -41,8 +41,6 @@ function mockModel(provider: ProviderId, modelId: string): MockLanguageModelV4 {
 // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
 const asModel = (model: MockLanguageModelV4) => model as unknown as LanguageModel;
 
-// Reads a nested field off an SDK object, so it takes `unknown` and uses the
-// shared `getPath` reader rather than a hand-written structural type.
 function cacheControl(value: unknown): unknown {
   return getPath(value, "providerOptions", "anthropic", "cacheControl");
 }
@@ -136,9 +134,7 @@ describe("provider turn protocol", () => {
     await generateText({
       model,
       prompt: "hello",
-      // The SDK unifies the two entries' input generic to `never` inside the
-      // non-generic `ToolSet`, so a provider-defined tool needs the same
-      // `as ToolSet` cast `googleSearchGroundingTools` uses in `src/provider.ts`.
+      // The SDK infers a provider tool's input as `never` inside `ToolSet`, so it needs this cast.
       tools: {
         ...tools,
         anthropic_tool_search: anthropic.tools.toolSearchBm25_20251119(),
@@ -363,9 +359,7 @@ describe("provider turn protocol", () => {
     );
   });
 
-  // Wrapper ordering contract: the projection is outer, the name shim inner.
-  // In one call the envelope must be gone, the function tool encoded, and the
-  // provider-defined tool untouched — proving both layers ran, projection first.
+  // The projection wraps the name shim. One call proves both layers ran, projection first.
   test("strip the envelope outside the name shim without rewriting provider tools", async () => {
     const inner = mockModel("google", "gemini-3.5-flash");
     const model = adaptProviderModel("google", asModel(inner)).model;
@@ -373,9 +367,7 @@ describe("provider turn protocol", () => {
     await generateText({
       model,
       prompt: "hello",
-      // SAFETY: the SDK unifies provider-defined tools' input generic to `never`
-      // inside the non-generic `ToolSet`, so the concrete grounding tool needs
-      // this cast; the built record is one provider tool under its own key.
+      // SAFETY: the SDK infers a provider tool's input as `never` inside `ToolSet`.
       tools: {
         ...tools,
         google_search: google.tools.googleSearch({}),
@@ -400,12 +392,12 @@ describe("route legs", () => {
   test("preserve the provider and model identity the factory supplied", () => {
     const standard = identifyLanguageModel(route("standard").model());
     assert.equal(standard.provider, "openai");
-    // why: ADR-0077 — Auto's primary is GPT-6 Luna after the 2026-09-24 swap.
+    // ADR-0077: Auto's primary is GPT-6 Luna.
     assert.equal(standard.modelId, "gpt-6-luna");
 
     const boss = identifyLanguageModel(route("boss").model());
     assert.equal(boss.provider, "openai");
-    // why: ADR-0077 — background work shares Auto's GPT-6 Luna primary.
+    // ADR-0077: background work shares Auto's primary.
     assert.equal(boss.modelId, "gpt-6-luna");
   });
 
@@ -417,8 +409,7 @@ describe("route legs", () => {
   });
 
   test("carry the provider-option exceptions the generic reasoning setting cannot express", () => {
-    // Deep pins OpenAI's provider-only `max`; every reasoning-on Google-bearing
-    // route requests the thought summaries the generic value does not enable.
+    // OpenAI `max` and Google thought summaries have no generic reasoning setting.
     assert.deepEqual(route("deep").providerOptions(), {
       google: { thinkingConfig: { includeThoughts: true } },
       openai: { reasoningEffort: "max" },

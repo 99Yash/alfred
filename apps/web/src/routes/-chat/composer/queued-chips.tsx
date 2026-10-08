@@ -3,12 +3,7 @@ import { X } from "lucide-react";
 import { cn } from "~/lib/utils";
 import type { QueuedMessage } from "~/lib/chat/use-chat-queue";
 
-/**
- * Pending-message chips rendered above the composer while a turn is streaming
- * (#489). Each chip is a queued turn waiting for the in-flight reply to finish;
- * it can be removed before it sends and the remaining order is preserved (FIFO).
- * White-space-only entries never enter the queue, so none render blank.
- */
+/** Queued messages above the composer (#489), FIFO. Each can be removed before it sends. */
 export function QueuedChips({
   items,
   onRemove,
@@ -24,8 +19,7 @@ export function QueuedChips({
     <div ref={listRef} aria-label="Queued messages" className="flex flex-wrap gap-2 px-1 pb-2">
       {items.map((item) => {
         const preview = item.text.trim();
-        // Truncate long queued text for the chip while keeping file affordance.
-        // The full text rides the queued turn when it later starts.
+        // The chip truncates; the full text is sent.
         const shown = preview.length > 80 ? `${preview.slice(0, 80).trimEnd()}…` : preview;
 
         const label =

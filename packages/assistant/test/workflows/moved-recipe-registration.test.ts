@@ -12,40 +12,18 @@ import {
 import { learnSkillWorkflow, skillDocumentationWorkflow } from "@alfred/assistant/skills";
 import { emailTriageWorkflow, gmailSenderAdapter } from "@alfred/assistant/triage";
 
-// The recipe is built with the injected Gmail sender adapter (ADR-0089); its
-// identity (slug/steps/entry/trigger/dedup) is independent of the injection.
+// The injected sender adapter (ADR-0089) does not affect recipe identity.
 const memoryExtractionWorkflow = buildMemoryExtractionWorkflow(gmailSenderAdapter);
 
 import type { Workflow, WorkflowInput } from "@alfred/assistant/execution";
 
 /**
- * Item 04 moves the product recipe declarations out of
- * `apps/server/src/builtins/workflows/` into the module that owns each domain.
- * Each recipe is published by that module's own `@alfred/assistant` subpath,
- * which is the seam the composition root registers from. (The
- * `@alfred/api/backend` door that once forwarded them is deleted; a separate
- * suite in `packages/api` proves it, and campaign item 12 deletes that package,
- * so this file names no locator for it.) The move is
- * behavior-neutral: the recipe identity — its
- * slug, its ordered step ids, its entry step, its `trigger` declaration, and its
- * `dedupKey` derivation — must stay byte-identical, or a persisted nonterminal
- * run resolves to a different state machine on resume, fires from a different
- * event, or loses its singleton guard.
- *
- * The `trigger` is the fire path the cron dispatcher / event matcher reads
- * (ADR-0027/ADR-0047); `dedupKey` is the value the `agent_runs_dedup_key_idx`
- * partial-unique-index (23505) singleton guard keys on. Both are durable
- * obligations a later in-module refactor could silently break, so both are
- * pinned here alongside slug/entry/steps.
- *
- * This pins that identity at the public seam. It does not exercise the step
- * bodies (those did not move); item 06's generic-execution contract test guards
- * the registration list.
+ * Pin each recipe's slug, steps, entry, `trigger`, and `dedupKey` at its owning subpath.
+ * A change breaks resume of a persisted run, fires it from another event,
+ * or drops the `agent_runs_dedup_key_idx` singleton guard (ADR-0027, ADR-0047).
  */
 describe("moved product recipes keep their identity at their owning module seam", () => {
-  // A schema-valid manual trigger for the dedupKey samples. Every `dedupKey`
-  // below ignores `userId`/`trigger` (they read only `input`/`metadata`), but
-  // `WorkflowInput` requires them, so this satisfies the shape.
+  // `dedupKey` ignores the trigger, but `WorkflowInput` requires one.
   const sampleTrigger: WorkflowInput["trigger"] = { kind: "manual" };
 
   const cases: ReadonlyArray<{
@@ -55,20 +33,11 @@ describe("moved product recipes keep their identity at their owning module seam"
     initialStep: string;
     steps: readonly string[];
     resumeOnly?: boolean;
-    /** The declared fire path — compared with `deepEqual`, not by `kind` alone. */
     trigger: WorkflowTrigger;
-    /**
-     * `null` ⇒ the recipe declares no `dedupKey` (no singleton guard). Otherwise
-     * one or more `(input → expected key)` samples pinning the derivation. Inputs
-     * must be runtime-valid: `learn-skill`/`skill-documentation` `schema.parse`
-     * their `input`, so a missing required field throws instead of returning.
-     */
+    /** `null` means no `dedupKey`. Inputs must parse: some recipes `schema.parse` them. */
     dedup: null | ReadonlyArray<{ input: WorkflowInput; expected: string | null }>;
   }> = [
-    // `slug` here is the LITERAL persisted wire string, not the recipe's own
-    // slug constant. A resuming run keys on this exact string; asserting it
-    // against the same constant the recipe imports would only prove the import
-    // wired up, not that the durable contract is stable.
+    // `slug` is the persisted literal, not the recipe's constant, so a renamed constant goes red.
     {
       name: "dailyBriefingWorkflow",
       recipe: dailyBriefingWorkflow as Workflow<unknown>,
@@ -113,8 +82,7 @@ describe("moved product recipes keep their identity at their owning module seam"
       initialStep: "load-transcript",
       steps: ["load-transcript", "extract", "finalize"],
       trigger: { kind: "manual" },
-      // Keyed off `metadata`, not `input`. A settled transcript anchor
-      // (thread + arming message) dedups; a run without both is un-guarded.
+      // Keyed off `metadata`. A run without thread and message has no guard.
       dedup: [
         {
           input: {
@@ -175,7 +143,7 @@ describe("moved product recipes keep their identity at their owning module seam"
         "persist",
       ],
       trigger: { kind: "event", source: "google.oauth.callback", type: "completed" },
-      // Global per-user singleton — a constant key regardless of args.
+      // One run per user: a constant key.
       dedup: [{ input: { userId: "u1", trigger: sampleTrigger }, expected: "cold-start" }],
     },
   ];

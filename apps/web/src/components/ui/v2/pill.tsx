@@ -1,29 +1,14 @@
-/**
- * App-grammar Pill primitive.
- *
- * The 32px-tall rounded-full selector used for "Today", "30 days", "USD",
- * etc. on visitors.now. Same shadow stack as the Button white variant.
- * Optional leading icon + trailing chevron.
- *
- * Use as a button (clickable selector) or as a static chip (delta indicator,
- * status, source name). The `chevron` prop adds the up/down chevron used
- * for dropdown triggers.
- */
+/** 32px rounded pill, as a button or a static chip. `chevron` marks a menu trigger. */
 
 import type { ButtonHTMLAttributes, ReactNode, Ref } from "react";
 import { cn } from "~/lib/utils";
 
 interface AppPillProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   leading?: ReactNode | undefined;
-  /** Show a chevron-down on the right edge. Set true when the pill opens a menu. */
   chevron?: boolean | undefined;
-  /**
-   * Default visual: muted bg. `accent` is the colored variant — left as a
-   * prop for explicit call sites, but it's also inferred automatically when
-   * `tone` is set, so callers only need to set one of the two.
-   */
+  /** `tone` implies `accent`, so callers set one or the other. */
   variant?: "default" | "accent" | undefined;
-  /** Picks the hue family. Setting this implies the accent variant. */
+  /** Hue family; implies `accent`. */
   tone?: "green" | "red" | "amber" | "purple" | "sky" | "blue" | "pink" | undefined;
   ref?: Ref<HTMLButtonElement> | undefined;
 }
@@ -49,9 +34,6 @@ export function AppPill({
   ref,
   ...rest
 }: AppPillProps) {
-  // A pill is "accented" whenever a tone is provided, or the caller
-  // explicitly sets variant="accent". Passing `tone` alone is the common
-  // case — every caller wants the hue, so we shouldn't require both.
   const isAccent = !!tone || variant === "accent";
 
   return (

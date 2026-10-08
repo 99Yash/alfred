@@ -15,24 +15,11 @@ import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { isInternalWorkflowSlug, type RunDeferReason } from "./registry";
 
-/**
- * The typed verdict every terminal (and deferred) run write carries beside its
- * status (#561). One module owns the derivation so the seven write sites —
- * `done`, `blocked`, `defer`, step failure, resolve failure, the lease backstop
- * and cancel — agree on what "something happened" means, and the history
- * reader never re-derives it from `status` + `error`.
- */
+// The typed outcome stored with every terminal or deferred status write (#561).
 
-/** The run columns the derivation and the workflow roll-up need. */
 export type RunOutcomeSubject = Pick<AgentRun, "id" | "userId" | "workflowSlug">;
 
-/**
- * Which terminal write is about to land, with the inputs its kind needs. The
- * `done` and `defer` step results name their own summary and reason (see
- * `StepResult`), so the derivation never inspects a workflow's `output` keys.
- * A blocked run's `output` is the `check-readiness` contract and is parsed
- * with its schema.
- */
+/** A blocked run's `output` is the `check-readiness` contract, parsed with its schema. */
 export type RunOutcomeWrite =
   | { status: "completed"; summary: string | undefined }
   | { status: "blocked"; output: unknown }
@@ -44,14 +31,10 @@ export type RunOutcomeWrite =
   | { status: "cancelled" }
   | { status: "deferred"; reason: RunDeferReason | undefined; retryAt: Date };
 
-/**
- * The staging columns an effect receipt is projected from: exactly the keys of
- * `effectReceiptColumns`, typed as the row type reads them. The `$type<>()`
- * enums are casts over `text`, so `toEffectReceipt` still re-narrows each one.
- */
+/** `$type<>()` enums are casts over `text`, so `toEffectReceipt` narrows each again. */
 export type EffectReceiptSource = Pick<ActionStaging, keyof typeof effectReceiptColumns>;
 
-/** Receipts and outcome effect lists are capped so one jsonb row stays bounded. */
+/** Keeps one jsonb row bounded. */
 export const EFFECT_RECEIPT_CAP = 50;
 
 const STAGING_READ_CAP = 500;
@@ -59,9 +42,8 @@ const STAGING_READ_CAP = 500;
 const SUMMARY_MAX_CHARS = 280;
 
 /**
- * Project one persisted staging into a receipt. Out-of-enum tiers fall to the
- * conservative `high`; unrecognized outcome/status values read as
- * `unknown`/`failed`, never as a success.
+ * Unknown values never read as success: a bad tier is `high`, a bad outcome `unknown`, a bad status
+ * `failed`.
  */
 export function toEffectReceipt(row: EffectReceiptSource): EffectReceipt {
   const outcome = effectOutcomeSchema.safeParse(row.outcome);
@@ -79,7 +61,6 @@ export function toEffectReceipt(row: EffectReceiptSource): EffectReceipt {
   };
 }
 
-/** Select list shared by the in-tx derivation and the history reader. */
 export const effectReceiptColumns = {
   effectKey: actionStagings.effectKey,
   toolName: actionStagings.toolName,
@@ -91,7 +72,7 @@ export const effectReceiptColumns = {
   executedAt: actionStagings.executedAt,
 } as const;
 
-/** Only write tiers are receipts; the tier list is the shared `WRITE_RISK_TIERS`. */
+/** Only write tiers are receipts. */
 async function readWriteReceipts(tx: DbTransaction, runId: string): Promise<EffectReceipt[]> {
   const rows = await tx
     .select(effectReceiptColumns)
@@ -103,7 +84,6 @@ async function readWriteReceipts(tx: DbTransaction, runId: string): Promise<Effe
   return rows.filter((row) => isWriteRiskTier(row.riskTier)).map(toEffectReceipt);
 }
 
-/** The step's own sentence, clipped; a `done` step that names none reads as plain completion. */
 function clipSummary(summary: string | undefined): string {
   const trimmed = summary?.trim() ?? "";
 
@@ -131,10 +111,8 @@ function distinctRecoveryActions(
 }
 
 /**
- * Derive the outcome for the write about to land. Returns null for internal
- * runs (chat turns, sub-agents), which carry no outcome so the jsonb stays off
- * every chat turn. Call it BEFORE the guarded status update so the outcome
- * rides in the same `.set()`; the read is harmless if the guard then refuses.
+ * Null for internal runs (chat turns, sub-agents). Call it before the guarded update and pass the
+ * result to the same `.set()`.
  */
 export async function deriveRunOutcome(
   tx: DbTransaction,
@@ -164,9 +142,7 @@ export async function deriveRunOutcome(
     };
   }
 
-  // A write whose result was never observed outranks every other verdict: a
-  // retry could duplicate it, so the run must not read as done, blocked, or
-  // retryable.
+  // An unobserved write wins: a retry could duplicate it, so the run must not look retryable.
   const firstUnknown = unknown[0];
 
   if (firstUnknown) {
@@ -197,10 +173,8 @@ export async function deriveRunOutcome(
 }
 
 /**
- * Roll the terminal status up onto the owning `workflows` row so the synced
- * workflow list shows the last run without a join. Call it AFTER the guarded
- * run update, on the same transaction, so a superseded commit rolls it back
- * too. Never for `deferred`: the run is not over.
+ * Call after the guarded update in the same tx, so a superseded commit rolls it back. Not for
+ * `deferred`.
  */
 export async function recordWorkflowLastRun(
   tx: DbTransaction,
@@ -221,14 +195,7 @@ export async function recordWorkflowLastRun(
     .where(and(eq(workflows.userId, run.userId), eq(workflows.slug, run.workflowSlug)));
 }
 
-/**
- * Wake the owner's Replicache clients after a terminal commit so the synced
- * `workflows` row (its `lastRunAt` roll-up) refreshes. The History tab is a
- * react-query read, not a synced entity; it watches that synced `lastRunAt`
- * and re-fetches when it moves (`useWorkflowRunHistory`). Internal runs have
- * no workflow row to refresh, so they stay silent. Call it after the
- * transaction commits.
- */
+/** Call after commit. The History tab refetches when the synced `lastRunAt` moves. */
 export function pokeWorkflowOwner(run: RunOutcomeSubject): void {
   if (isInternalWorkflowSlug(run.workflowSlug)) return;
   emitReplicachePokes([run.userId]);

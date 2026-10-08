@@ -14,35 +14,23 @@ export function ArtifactPageFrame({
   html: string;
   title: string;
   className?: string | undefined;
-  /** Drives page geometry/aspect. Defaults to `pdf` (portrait US-Letter). */
+  /** Defaults to `pdf` (portrait US-Letter). */
   format?: ArtifactFormat | undefined;
 }) {
   const { width: pageWidth, height: pageHeight } = pageGeometry[format];
 
-  // Follow the app's resolved theme so an artifact rendered inside dark Alfred
-  // reads as a dark sheet instead of a white blowout. Read the context
-  // defensively (not via `useAppTheme`, which throws) so a preview rendered
-  // outside the provider falls back to the print-friendly light scheme. The
-  // shell's dark variant is a render-time reskin — the stored page HTML is
-  // theme-agnostic — so changing themes only re-stamps `data-theme`.
+  // Follow the app theme. Optional context, not `useAppTheme` (which throws),
+  // so a preview outside the provider gets the print-friendly light scheme.
   const theme = use(AppThemeContext)?.resolved ?? "light";
   const surfaceColor = theme === "dark" ? darkPalette.surface : palette.surface;
-  // `width` is undefined until the frame has been measured. The iframe falls
-  // back to scale 1 in that single pre-measurement frame; ResizeObserver fires
-  // synchronously on attach, so the unscaled frame is rarely visible.
+  // Undefined until measured; the iframe uses scale 1 for that one frame.
   const [width, setWidth] = useState<number | undefined>(undefined);
 
-  // Callback ref with a cleanup return (React 19) replaces a useState-in-effect
-  // pattern — the observer attaches when the node mounts and disconnects when
-  // it unmounts, without a separate useEffect to read DOM state at init time.
   const frameRef = useCallback((element: HTMLDivElement | null) => {
     if (!element) return;
 
-    // Read the layout content-box from the ResizeObserver entry rather than
-    // `getBoundingClientRect()`, which folds in ancestor CSS transforms — an
-    // animating `scale(...)` ancestor (e.g. the fullscreen present entrance)
-    // would otherwise be measured mid-animation and leave the iframe scaled to
-    // the shrunken width once the transform settles.
+    // Use the observer's content box: `getBoundingClientRect()` includes ancestor
+    // transforms, so a mid-animation `scale(...)` would be measured.
     const observer = new ResizeObserver((entries) => {
       const nextWidth = entries[0]?.contentRect.width ?? 0;
 
@@ -60,20 +48,14 @@ export function ArtifactPageFrame({
     <div
       ref={frameRef}
       className={cn("relative overflow-hidden rounded-lg shadow-2xl", className)}
-      // Match the page surface so the rounded frame and any pre-paint flash read
-      // as the artifact's own background, not a stray white edge in dark mode.
-      // Aspect is derived from the one geometry source (`pageGeometry`) rather
-      // than a parallel Tailwind class table, so the frame box can never drift
-      // from the logical page it scales.
+      // Page surface color, so no white edge flashes in dark mode. Aspect from `pageGeometry`.
       style={{ backgroundColor: surfaceColor, aspectRatio: `${pageWidth} / ${pageHeight}` }}
     >
       <iframe
         title={title}
         srcDoc={buildArtifactDocument(html, format, theme)}
-        // Keep the frame on an opaque origin: scripts, forms, top navigation,
-        // storage, and parent DOM access all stay blocked. Same-origin font
-        // files may fall back to the system stack here, which is acceptable for
-        // previews and safer than relaxing the sandbox.
+        // Opaque origin blocks scripts, forms, navigation, storage, and parent DOM.
+        // Same-origin fonts may fall back to system fonts; that is acceptable.
         sandbox=""
         className="pointer-events-none absolute top-0 left-0 border-0"
         style={{

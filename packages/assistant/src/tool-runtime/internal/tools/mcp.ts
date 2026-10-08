@@ -1,22 +1,7 @@
 /**
- * The two projected MCP tools (PRD #540). The open-ended external catalog never
- * widens the closed `ToolName`: fixed MCP actions carry
- * the `ExternalToolRef` (connection + remote name + catalog revision) in its ARGS,
- * and every call is authorized independently at Alfred's dispatch boundary.
- *
- *  - `mcp.call` carries a static `high` FLOOR: an unreviewed MCP tool always
- *    stages for approval (the risk floor in `toolRequiresApproval`), then routes
- *    through the durable execution broker, which owns the ambiguity ledger. A
- *    `resolveRiskTier` hook narrows that floor at the dispatch gate on TWO
- *    authorities: a reviewed `mcp_tool_policy` row for the exact descriptor
- *    (#541 Part 3), or a structural read-only proof — a built-in read-only
- *    resource plus that tool's own published `readOnlyHint` (ADR-0096). An
- *    unreviewed tool that satisfies neither, and a reviewed tool whose
- *    descriptor has drifted, both re-gate high.
- *  - `mcp.list_tools` is a bounded LOCAL read of the persisted catalog. It runs on
- *    the dispatcher's fast path (no staging, no approval, no ledger) because it
- *    performs no outbound action — see the `mcp.list_tools` intercept in
- *    `dispatchToolCall`.
+ * The fixed MCP tools (PRD #540). A remote tool never becomes a `ToolName`: its
+ * `ExternalToolRef` rides in the `mcp.call` args, and dispatch authorizes each call.
+ * `mcp.list_tools` and `mcp.inspect_tool` are local catalog reads on the fast path.
  */
 
 import {
@@ -39,7 +24,6 @@ import {
 } from "@alfred/assistant/tool-runtime/mcp";
 
 /** Model-safe projection of a broker outcome into an `mcp.call` tool result. */
-/** Model-safe projection of a broker outcome. `unknown`-free by construction. */
 interface McpBrokerToolResult {
   status: string;
   result?: unknown;
@@ -56,8 +40,7 @@ function brokerResult(outcome: McpBrokerOutcome): McpBrokerToolResult {
         outcome.envelope,
       );
     case "tool_error":
-      // Only idempotent reads can reach this arm. Effectful tool errors remain
-      // ambiguous because MCP `isError` does not prove that no effect occurred.
+      // Only idempotent reads reach here. MCP `isError` does not prove no effect occurred.
       return withTruncation(
         { status: "tool_error", result: outcome.envelope.result },
         outcome.envelope,
@@ -70,9 +53,7 @@ function brokerResult(outcome: McpBrokerOutcome): McpBrokerToolResult {
         message: outcome.message,
       };
     case "ambiguous":
-      // The doc's normative unknown-outcome envelope: explicit, and NOT an ordinary
-      // retryable error the model should self-correct on. Produced through the shared
-      // schema so the dispatch gate's recognizer and this producer stay one shape.
+      // Not a retryable error. The shared schema keeps this and the gate's recognizer in step.
       return unknownEffectEnvelopeSchema.parse({
         status: "unknown",
         retry: "blocked",
@@ -89,8 +70,7 @@ export const mcpTools: readonly RegisteredTool[] = [
   liveTool({
     integration: "mcp",
     action: "call",
-    // Static high floor: an MCP call is an outbound action against an external
-    // server, so it always confirms regardless of policy (ADR-0069 floor).
+    // An outbound call to an external server always confirms (ADR-0069).
     riskTier: "high",
     description:
       "Invoke a tool on a connected MCP server. Supply the `connectionId`, remote `remoteName`, and `catalogRevision` from the exact ref returned by system.search_tools or mcp.list_tools, plus `arguments` matching the tool schema. Use mcp.inspect_tool if you need the full schema. The call is validated against the server's exact schema and routed through Alfred's approval + durable-execution boundary; a write that may have been delivered but not confirmed comes back as `status:\"unknown\"` and MUST NOT be repeated — check its state instead.",
@@ -102,16 +82,9 @@ export const mcpTools: readonly RegisteredTool[] = [
       relatedTools: ["mcp.list_tools"],
     },
     inputSchema: mcpCallInput,
-    // Two downgrade authorities over the `high` floor above. The REVIEWED one
-    // (#541, as narrowed by the ADR-0069 amendment) lowers it only for a tool
-    // whose persisted descriptor claimed `readOnlyHint` — a reviewed `no_risk`
-    // on a write descriptor (e.g. Railway `redeploy`) keeps the floor. The
-    // STRUCTURAL one (ADR-0096) narrows it for a
-    // tool that is a read on two independent proofs: its connection's endpoint is
-    // a built-in read-only protected resource, and its own published descriptor
-    // asserted `annotations.readOnlyHint`. All resolution reads Alfred's PERSISTED
-    // catalog (no live client at the gate); any uncertainty — unowned connection,
-    // stale revision, descriptor drift, a corrupt policy row — stays high.
+    // Two downgrades: a reviewed policy row on a `readOnlyHint` descriptor (#541),
+    // or a read-only resource plus the tool's own `readOnlyHint` (ADR-0096).
+    // Reads the persisted catalog only. Any doubt stays high.
     resolveRiskTier: (input, ctx) =>
       resolveMcpCallRiskTier({
         userId: ctx.userId,
@@ -123,9 +96,7 @@ export const mcpTools: readonly RegisteredTool[] = [
       "#541 reviewed policy binds the exact owned MCP descriptor and catalog revision and lowers only a readOnlyHint tool (ADR-0069 amendment); ADR-0096 grants a read-only built-in endpoint plus a published readOnlyHint",
     execute: async (input, ctx) => {
       if (!ctx.stagingId) {
-        // mcp.call is always staged (high floor), so it only reaches execution via
-        // the staged/approved path, which threads the staging row id. A missing id
-        // is a wiring bug, not a runtime condition — fail loud.
+        // Always staged, so a missing id is a wiring bug.
         throw new Error("mcp.call executed without a staging row id");
       }
 
@@ -142,9 +113,7 @@ export const mcpTools: readonly RegisteredTool[] = [
         traceId: ctx.runId,
         ref,
         arguments: input.arguments,
-        // Correlation (trace/step/tool-call) is NOT threaded from ctx: the broker's
-        // persistence layer copies it from the authorizing staging row at mint, so
-        // the ledger's breadcrumbs cannot drift from the row they describe (#541).
+        // The broker copies correlation ids from the staging row, so they cannot drift.
       });
 
       return brokerResult(outcome);
@@ -163,18 +132,8 @@ export const mcpTools: readonly RegisteredTool[] = [
       verbs: ["list", "discover", "browse", "search"],
       relatedTools: ["mcp.call"],
     },
-    // A bounded LOCAL read of Alfred's already-validated MCP catalog (#540
-    // clarification #5) — no outbound action, so it needs no staging row and
-    // nothing to approve, exactly like a scratch read. `mcp.call` gets no such
-    // bypass: it is a high-tier action that always stages, then routes through
-    // the durable broker on execute.
     staging: "fast_path",
-    // `mcp` is deliberately NOT `system` (see contracts/src/tools.ts) precisely
-    // so it keeps the per-user policy gate — and the fast path is what removes
-    // that gate, so the waiver has to be explicit rather than implied by the
-    // comment above. Safe here because there is no outbound call to approve: the
-    // read is of rows Alfred itself wrote and validated. It does NOT generalize
-    // to another `mcp` tool.
+    // `mcp` is not `system`, so it keeps the policy gate. This read has no outbound call.
     policyGateWaiver:
       "#540 clarification #5: bounded local read of Alfred's own validated MCP catalog — no outbound action, nothing to approve",
     inputSchema: mcpToolSearchInputSchema,

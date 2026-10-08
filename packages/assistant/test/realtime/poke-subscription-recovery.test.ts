@@ -3,42 +3,15 @@ import { createServer, type Server, type Socket } from "node:net";
 import { after, before, describe, test } from "node:test";
 
 /**
- * A failed SUBSCRIBE must not make this replica permanently deaf.
- *
- * The bus refcounts SSE listeners per user and holds one Redis channel per
- * user. Those are two different facts, and while they were one Map a single
- * rejected SUBSCRIBE was terminal: the refcount had already been incremented,
- * so no later listener passed the "first listener" test and re-issued the
- * subscription, and ioredis will not re-issue it either — its auto-resubscribe
- * reads the channel list from `condition.subscriber`, which is populated only
- * from a SUBSCRIBE REPLY that never arrived, and on the `"subscriber"` kind that
- * auto-resubscribe is switched off outright because it is uncaught. Every poke
- * for that user was then dropped for the lifetime of the process.
- *
- * Two recovery paths, and the second subtest exists because the first one alone
- * is not enough. A LATER listener re-issuing the subscription only helps if a
- * later listener arrives; a listener that was already attached when its
- * SUBSCRIBE failed has no such rescuer, and stayed deaf for the life of its SSE
- * stream even after Redis came back. The connection's `ready` event is what
- * recovers it, and `ready` is also the only thing that re-subscribes after an
- * ordinary reconnect, because ioredis no longer does.
- *
- * The Redis here is a real socket speaking just enough RESP to refuse a
- * SUBSCRIBE on demand and to drop its connections. A mock of the bus's own
- * connection could not show either subtest: the defect is in which commands
- * reach the wire, and only the wire can count them.
- *
- * `user-events-bus.ts` carries the identical pair of structures and the identical
- * `ready` handler for the same reason. It is not separately pinned here — the two
- * files are deliberate mirrors, and this test is what documents the shape.
+ * A rejected SUBSCRIBE must not leave this replica deaf for a user.
+ * ioredis does not resubscribe here: its auto-resubscribe is off on the subscriber,
+ * and it only knows channels whose SUBSCRIBE reply arrived.
+ * Recovery: a later listener re-issues it, or the `ready` event does after a reconnect.
+ * A real RESP socket, because the defect is which commands reach the wire.
+ * `user-events-bus.ts` mirrors this shape and is not pinned separately.
  */
 
-/**
- * Format-valid dummies for `serverEnv()`, which is all-or-nothing: without them
- * `isQueueEnabled()` returns false and the bridge quietly does nothing, so the
- * test would pass while measuring nothing. `??=`, so the `assistant-unit-tests`
- * CI job's own `env:` block wins where it has an opinion.
- */
+/** Without a valid `serverEnv()`, `isQueueEnabled()` is false and the bridge does nothing. CI values win. */
 const ENV_DUMMIES = {
   DATABASE_URL: "postgresql://ci:ci@localhost:5432/alfred_ci",
   BETTER_AUTH_SECRET: "ci-dummy-better-auth-secret-32chars-min",
@@ -96,11 +69,7 @@ function bulk(value: string): string {
   return `$${String(Buffer.byteLength(value))}\r\n${value}\r\n`;
 }
 
-/**
- * A Redis that refuses a SUBSCRIBE whenever the test says to, counts the
- * SUBSCRIBE frames it received per channel, and can drop its connections to make
- * the client reconnect.
- */
+/** A Redis that can refuse SUBSCRIBE, counts SUBSCRIBE frames, and can drop connections. */
 class FlakySubscribeRedis {
   /** Set by the test around the SUBSCRIBE it wants to fail. */
   refuseSubscribes = false;
@@ -205,8 +174,7 @@ describe("replicache poke bus recovers from a rejected SUBSCRIBE", () => {
     redis = await FlakySubscribeRedis.start();
 
     for (const [key, value] of Object.entries(ENV_DUMMIES)) process.env[key] ??= value;
-    // Unconditional: an ambient REDIS_URL pointing at a healthy Redis would
-    // make the first SUBSCRIBE succeed and delete the whole point of the file.
+    // Unconditional: a healthy ambient Redis would accept the SUBSCRIBE.
     process.env["REDIS_URL"] = redis.url; // drift-ok: overrides the value on purpose, does not gate a suite
 
     bus = await import("../../src/realtime/replicache-events");
@@ -229,8 +197,7 @@ describe("replicache poke bus recovers from a rejected SUBSCRIBE", () => {
 
     const first = bus.subscribeUserPokes(LATER_LISTENER_USER, () => {});
     await waitFor(() => redis.subscribesFor(channel) >= 1, "the first SUBSCRIBE to reach Redis");
-    // The rejection has to be delivered and handled before the second listener
-    // arrives, or this measures the in-flight guard instead of the recovery.
+    // Let the rejection land first, or this tests the in-flight guard.
     await new Promise((resolve) => setTimeout(resolve, 100));
     redis.refuseSubscribes = false;
 
@@ -248,15 +215,12 @@ describe("replicache poke bus recovers from a rejected SUBSCRIBE", () => {
     const channel = `replicache-pokes:u:${RECONNECT_USER}`;
     redis.refuseSubscribes = true;
 
-    // Exactly one listener, and no second one ever arrives. This is the SSE
-    // stream that was already open when Redis blipped: the subtest above cannot
-    // save it, because its rescuer is a listener that may never come.
+    // One listener only: no later listener comes to rescue it.
     const only = bus.subscribeUserPokes(RECONNECT_USER, () => {});
     await waitFor(() => redis.subscribesFor(channel) >= 1, "the first SUBSCRIBE to reach Redis");
     await new Promise((resolve) => setTimeout(resolve, 100));
 
-    // Redis comes back: the socket drops, ioredis reconnects to the same
-    // listening server and reaches `ready`.
+    // ioredis reconnects to the same server and emits `ready`.
     redis.refuseSubscribes = false;
     redis.dropConnections();
 

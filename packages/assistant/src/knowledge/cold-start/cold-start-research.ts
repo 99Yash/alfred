@@ -13,55 +13,12 @@ import {
 } from "./workflow-input";
 
 /**
- * Cold-start research workflow (ADR-0011 + ADR-0022, v2 amendment).
+ * Cold-start research workflow (ADR-0011, ADR-0022): signals, seed, aspects,
+ * synthesis, extract, persist. Web-only: new users are `gated`, so a Gmail or
+ * Calendar read would park in an onboarding run that nobody watches.
  *
- * v2 swaps the single Perplexity Sonar Deep Research call for the agent
- * harness, run bounded inside this deterministic onboarding workflow:
- *   1. gather-signals   — read user row + connected integrations into a
- *                         structured signal bundle.
- *   2. seed             — boss identity resolution: one bounded web pass
- *                         pins the canonical public profile so every aspect
- *                         researches the same person.
- *   3. research-aspects — bounded parallel sub-agents, one per facet
- *                         (professional / employer / online / personal),
- *                         each looping a local `web_search` tool (see
- *                         `cold-start/web-tool.ts`, same grounded path as
- *                         `system.web_search`) for ~500w of findings.
- *   4. synthesis        — boss folds the findings into one ~300w telegraphic
- *                         summary (the memory chunk + extractor input).
- *   5. extract-facts    — cheap-tier model converts the summary into
- *                         structured `user_facts` proposals (unchanged).
- *   6. persist          — propose each fact (auto-confirm gated by the 0.85
- *                         threshold) and store the summary as a
- *                         `memory_chunks` row for later semantic recall.
- *
- * v2.0 is web-only: new users default to `gated`, so live Gmail/Calendar
- * reads would park in a watcher-less onboarding run. Read-only
- * calendar/gmail aspects are a v2.1 follow-up gated on the run-scoped
- * autonomy override.
- *
- * Idempotency:
- *   - Trigger-side: the workflow declares `dedupKey: () => 'cold-start'`,
- *     so the partial unique index on `agent_runs(user_id, workflow_slug,
- *     dedup_key) WHERE dedup_key IS NOT NULL AND status NOT IN
- *     ('failed', 'cancelled')` makes any second `createRun` for the same
- *     user fail with `23505`. There is no in-workflow "skip if prior
- *     run exists" gate — concurrent inserts are blocked at the DB.
- *   - Step-side: `proposeFact` already short-circuits on the rejection
- *     guard + active-dup guard, and `writeMemoryChunk` upserts on
- *     `(user_id, kind, content_hash)`. So an in-step retry after a
- *     worker crash never double-writes.
- *   - Cost: each step checkpoints its result, so a worker crash re-runs
- *     only the failed step. A crash mid-seed/aspects/synthesis re-bills
- *     just that step's LLM + web_search calls — cheap, no checkpoint
- *     cache warranted.
- *
- * Latency budget:
- *   - The aspect sub-agents run concurrently, so step 3's wall time is the
- *     slowest single aspect, not their sum. Each web_search lands its own
- *     `kind=web_search` log row; each reasoning turn a `kind=llm` row.
- *   - Worker heartbeat keeps the lease alive while a step's loop is in
- *     flight.
+ * Each step checkpoints, so a crash re-runs only the failed step. `proposeFact`
+ * and `writeMemoryChunk` are idempotent, so a step retry does not write twice.
  */
 
 const aspectFindingSchema = z.object({
@@ -71,9 +28,7 @@ const aspectFindingSchema = z.object({
   citations: z.array(z.string()),
 });
 
-// Checkpoint mirror of the `collectColdStartSignals` return shape. `satisfies
-// z.ZodType<ColdStartSignals>` ties it to the interface so an added/renamed
-// required field fails typecheck instead of being silently stripped on resume.
+// `satisfies` ties this to `ColdStartSignals`, so a new field fails typecheck instead of being stripped on resume.
 const coldStartSignalsSchema = z.object({
   userId: z.string(),
   name: z.string(),
@@ -87,9 +42,7 @@ const coldStartSignalsSchema = z.object({
 
 const stateSchema = z.object({
   reason: z.enum(["signup", "manual"]),
-  /** Computed in step 1; threaded through the rest of the run. */
   signals: coldStartSignalsSchema.optional(),
-  /** Computed in step 2; threaded into aspect briefs + synthesis. */
   identity: z
     .object({
       anchor: z.string(),
@@ -97,9 +50,7 @@ const stateSchema = z.object({
       citations: z.array(z.string()),
     })
     .optional(),
-  /** Computed in step 3; consumed by synthesis. */
   aspects: z.array(aspectFindingSchema).optional(),
-  /** Computed in step 4; consumed by step 5 and persisted in step 6. */
   research: z
     .object({
       content: z.string(),
@@ -111,7 +62,6 @@ const stateSchema = z.object({
       }),
     })
     .optional(),
-  /** Computed in step 5; consumed in step 6. */
   proposals: z
     .array(
       z.object({
@@ -131,8 +81,6 @@ export const coldStartResearchWorkflow: Workflow<State> = {
   name: "Cold-start research",
   description:
     "Cold-start research at signup — boss identity seed → parallel web_search aspect sub-agents → boss synthesis → cheap-tier extract → user_facts proposals + memory_chunks (ADR-0011 + ADR-0022, v2).",
-  // Fires from the Google OAuth callback; lifetime-once is enforced by
-  // the workflow's own `dedupKey: () => 'cold-start'`.
   trigger: { kind: "event", source: "google.oauth.callback", type: "completed" },
   initialStep: "gather-signals",
   stateSchema,
@@ -144,22 +92,14 @@ export const coldStartResearchWorkflow: Workflow<State> = {
     return { reason: parsed.reason };
   },
 
-  // Singleton-per-user. The DB-level partial unique index (see
-  // packages/db/src/schema/agent.ts → `agent_runs_dedup_key_idx`)
-  // turns a duplicate `createRun` into Postgres `23505`. Failed +
-  // cancelled rows are excluded from the index so a Perplexity outage
-  // isn't a permanent lockout.
+  // `agent_runs_dedup_key_idx` makes a second run for the user fail with 23505.
+  // Failed and cancelled runs fall outside the index, so a failure is not a permanent lockout.
   dedupKey: () => COLD_START_DEDUP_KEY,
 
   steps: {
     "gather-signals": {
       id: "gather-signals",
       async run(ctx) {
-        // No in-workflow dedup gate — the partial unique index on
-        // `agent_runs.(user_id, workflow_slug, dedup_key)` makes a
-        // second concurrent run impossible to even insert, so by the
-        // time this step runs, this row is the lone active research
-        // run for the user.
         const signals = await collectColdStartSignals(ctx.userId);
         await ctx.log(
           `gather-signals: name="${signals.name}" domain=${signals.emailDomain ?? "n/a"}${
@@ -182,7 +122,6 @@ export const coldStartResearchWorkflow: Workflow<State> = {
           throw new Error("[cold-start] seed entered without signals");
         }
 
-        // Stable per-run key so retries of this step share a trace.
         const identity: IdentityAnchor = await resolveIdentity({
           signals: ctx.state.signals,
           runId: ctx.runId,
@@ -265,7 +204,6 @@ export const coldStartResearchWorkflow: Workflow<State> = {
           throw new Error("[cold-start] extract-facts entered without signals/research");
         }
 
-        // Stable per-run key so retries of this step share a trace.
         const proposals: ColdStartProposal[] = await extractColdStartFacts({
           signals: ctx.state.signals,
           research: {

@@ -6,52 +6,19 @@ import { fileURLToPath } from "node:url";
 import { before, describe, test } from "node:test";
 
 /**
- * Why `"subscriber"` exists as a kind of its own, pinned at the process
- * boundary and on the wire.
+ * Why `"subscriber"` is its own kind. After a reconnect, ioredis's `readyHandler`
+ * re-issues SUBSCRIBE with no `.catch`, so any rejection of it is unhandled and
+ * `apps/server/src/index.ts` exits the process. Two routes reach that rejection:
+ * a `commandTimeout`, and a numeric `maxRetriesPerRequest` flushing the queue
+ * when the peer refuses. So `"subscriber"` turns `autoResubscribe` off.
  *
- * After a reconnect, ioredis's `readyHandler` re-issues the previous SUBSCRIBE
- * and PSUBSCRIBE with NO `.catch` — unlike the `readonly().catch(noop)` a few
- * lines above it in the same function. That is the only command on such a
- * connection that no module owns, so ANY rejection of it is an unhandled
- * rejection, and `apps/server/src/index.ts` turns one of those into
- * `process.exit(1)`. Two measured routes reach that rejection, and removing
- * either alone leaves the other:
+ * The tests count SUBSCRIBE frames on the wire, not crashes, after a proven reconnect.
+ * Control A (`"command"` must re-send one) proves the reconnect happened.
+ * Control B (`"command"` against a silent peer must exit 1) proves a crash is visible.
+ * No `"subscriber"` version of B: without `commandTimeout` it never reaches `ready`
+ * on a silent peer (ioredis 5.11.1), so it would pass without testing anything.
  *
- * 1. a `commandTimeout` times the re-issued command out;
- * 2. a numeric `maxRetriesPerRequest` flushes it with `MaxRetriesPerRequestError`
- *    when the peer then refuses — `prevCommandQueue = self.commandQueue` in the
- *    close handler is an ALIAS, not a move, and only a TCP `connect` calls
- *    `resetCommandQueue()`, which a refusing peer never emits.
- *
- * `"subscriber"` therefore deletes the command itself: `autoResubscribe: false`.
- * That is what these subtests measure — not the absence of a crash, which an
- * outage that never happened also produces, but the absence of the COMMAND, on a
- * reconnect the harness proves it provoked.
- *
- * The three subtests are one subject and two controls:
- *
- * - The subject reconnects for real (a second `READY` from the child) and must
- *   send ZERO further SUBSCRIBE frames.
- * - Control A is the same reconnect on `"command"`, which MUST send one. Without
- *   it, "zero frames" is equally consistent with a harness that never
- *   reconnected — which is exactly how the previous version of this file passed
- *   while measuring nothing.
- * - Control B is `"command"` against a peer that accepts and never replies,
- *   which must exit 1. It proves an unhandled rejection is observable through
- *   this harness at all, and it is why `"subscriber"` also carries no
- *   `commandTimeout`.
- *
- * There is deliberately NO `"subscriber"` counterpart to control B: measured on
- * ioredis 5.11.1, a connection with no `commandTimeout` never reaches `ready`
- * against a peer that accepts and never replies, because the `CLIENT SETINFO`
- * handshake never completes. It would exit 0 by not reconnecting, which is the
- * vacuity this file was rewritten to remove. The subject uses a HEALTHY peer
- * behind a cut socket instead, where reaching `ready` again is guaranteed and
- * observable.
- *
- * Needs a reachable Redis: the connection must genuinely subscribe before the
- * outage, or the reconnect has nothing to re-issue. The `db-tests` CI job
- * supplies one; locally, `docker compose up redis` does.
+ * Needs a real Redis (`docker compose up redis`; the `db-tests` CI job has one).
  */
 
 const UPSTREAM_URL = process.env["REDIS_URL"] ?? "redis://127.0.0.1:6379"; // drift-ok: this tree FAILS LOUDLY on an absent Redis instead of skipping
@@ -80,13 +47,8 @@ interface ChildOutcome {
 }
 
 /**
- * A TCP proxy in front of the real Redis. It can cut every live socket while
- * still serving the reconnect (a flap), stop answering entirely (a peer that
- * accepts and never replies), and count the SUBSCRIBE frames the client sends.
- *
- * A closed port is not enough for the subject: the client must reconnect
- * SUCCESSFULLY to reach `ready` and re-issue its subscriptions, and nothing
- * reconnects successfully to a closed port.
+ * TCP proxy to the real Redis that can flap, go silent, and count SUBSCRIBE frames.
+ * A closed port is not enough: the client must reconnect successfully to reach `ready`.
  */
 class SwitchableProxy {
   private mode: "forward" | "silent" = "forward";
@@ -116,10 +78,7 @@ class SwitchableProxy {
 
       if (proxy.mode === "silent") return;
       const upstreamSocket = connectTcp(upstreamPort, upstreamHost);
-      // Not `pipe`: every client byte is inspected on its way through, which is
-      // the only place a re-issued SUBSCRIBE is visible. A mock of the
-      // connection could not show it — the whole question is which commands
-      // reach the wire.
+      // Not `pipe`: the client bytes are the only place a re-issued SUBSCRIBE shows.
       let pending = "";
       downstream.on("data", (chunk: Buffer) => {
         pending = (pending + chunk.toString("latin1")).slice(-512);
@@ -189,9 +148,7 @@ class ChildEvents {
 
   feed(chunk: string): void {
     this.buffer += chunk;
-    // Recounted from the whole buffer each time rather than tracked across
-    // partial lines: the volume is a handful of lines, and a miscounted READY
-    // is precisely the failure this file exists to avoid.
+    // Recount the whole buffer each time; partial lines must not miscount READY.
     this.seen.clear();
 
     for (const line of this.buffer.split("\n")) {
@@ -228,10 +185,7 @@ class ChildEvents {
   }
 }
 
-/**
- * A fresh proxy per child: `goSilent()` is one-way, so a shared one would leave
- * the second child unable to subscribe in the first place.
- */
+/** A fresh proxy per child, because `goSilent()` cannot be undone. */
 async function runChild(
   kind: string,
   outage: (proxy: SwitchableProxy, events: ChildEvents) => Promise<void>,
@@ -275,8 +229,7 @@ async function drive(
       CHILD_DEADLINE_MS,
       `child never subscribed${exitedEarly ? " (it exited first)" : ""}: ${stderr}`,
     );
-    // Only now: the subscription must exist before the outage, or the reconnect
-    // has nothing to re-issue and the whole file measures nothing.
+    // Without a subscription before the outage, the reconnect has nothing to re-issue.
     const framesBefore = proxy.subscribeFrames;
     await outage(proxy, events);
     const resubscribeFrames = proxy.subscribeFrames - framesBefore;
@@ -299,10 +252,7 @@ async function drive(
   }
 }
 
-/**
- * Cut the socket and serve the reconnect normally, then WAIT FOR PROOF that the
- * reconnect happened before measuring anything. A second `READY` is that proof.
- */
+/** Cut the socket, then wait for a second `READY` as proof of the reconnect. */
 async function flapAndProveReconnect(proxy: SwitchableProxy, events: ChildEvents): Promise<void> {
   proxy.cutSockets();
   await events.wait(
@@ -311,8 +261,7 @@ async function flapAndProveReconnect(proxy: SwitchableProxy, events: ChildEvents
     RECONNECT_DEADLINE_MS,
     "the child never reached `ready` a second time — it did not reconnect, so nothing about a re-issued subscribe was measured. Fix the harness before trusting any subtest in this file",
   );
-  // `ready` is when `readyHandler` runs; the re-issued SUBSCRIBE is written from
-  // inside it, so a short window after is enough for it to reach the proxy.
+  // `readyHandler` writes the re-issued SUBSCRIBE, so a short wait is enough.
   await new Promise((resolve) => setTimeout(resolve, RESUBSCRIBE_WINDOW_MS));
 }
 
@@ -351,9 +300,7 @@ describe("a subscriber connection that reconnects", () => {
   test('"command" against a peer that never replies exits 1 — the crash is observable', async () => {
     const outcome = await runChild("command", async (proxy) => {
       proxy.goSilent();
-      // No reconnect proof to wait for: this peer is the one shape where the
-      // connection reaches `ready` only BECAUSE of the `commandTimeout`, which
-      // is the fact under measurement.
+      // No reconnect proof here: on this peer only `commandTimeout` gets the client to `ready`.
       await new Promise((resolve) => setTimeout(resolve, RESUBSCRIBE_WINDOW_MS));
     });
 

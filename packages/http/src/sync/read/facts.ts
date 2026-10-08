@@ -5,19 +5,11 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import { SerializationError } from "./entity-row";
 import { syncEntity } from "./sync-entity";
 
-// Only `proposed` + `confirmed` reach the client; rejected / edited /
-// superseded rows stay server-side as audit history.
 const syncsToClient = (userId: string) =>
   and(eq(userFacts.userId, userId), inArray(userFacts.status, ["proposed", "confirmed"]));
 
-// #491: a proposed `relationship:<email>` edge to a service/no-reply sender,
-// or with an empty/uninformative value, is unreviewable junk — keep the row
-// server-side (intact + queryable) but never sync it to the /memory review
-// queue. Confirmed facts and all non-relationship facts are unaffected.
-//
-// It reads three columns only, so both stages can run it: the version stage
-// keeps an unreviewable row out of membership, and the load stage keeps it out
-// if a changed row's key or value flipped while the pull ran.
+// Hide proposed relationship facts nobody can review (no-reply senders, empty values).
+// Both stages run it, in case the value changes during the pull.
 const isSyncedFact = (f: Pick<UserFact, "status" | "key" | "value">) =>
   !(f.status === "proposed" && isUninformativeRelationshipFact(f.key, f.value));
 

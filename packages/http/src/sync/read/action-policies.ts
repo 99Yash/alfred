@@ -5,9 +5,7 @@ import { syncEntity } from "./sync-entity";
 
 const ownedByUser = (userId: string) => eq(userActionPolicies.userId, userId);
 
-// The per-integration policy editor (m13 Phase 8c). One row per user,
-// synced as a single entity keyed by `userId`; the web derives each
-// integration's mode from `integration_rules[slug] ?? default_mode`.
+// One row per user, keyed by `userId`. The web resolves `integration_rules[slug] ?? default_mode`.
 export const fetchActionPolicies = syncEntity(SYNC_MODEL.actionpolicy, {
   versionQuery: (tx, userId) =>
     tx

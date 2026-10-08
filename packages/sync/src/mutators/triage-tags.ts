@@ -4,18 +4,8 @@ import { z } from "zod";
 import { SYNC_MODEL } from "../sync-model";
 import type { SyncedTriageTag } from "../schemas";
 
-/**
- * Client-side triage-tag mutator (rfc-triage-tags.md). The user overrides a
- * thread's tag; the optimistic patch flips the local row to a `user` variant
- * (dropping classifier provenance so no confidence renders), and the server
- * mutator writes `email_triage` + enqueues the Gmail relabel after commit.
- *
- * Read-only by design otherwise: classifier-authored (`auto`) tags arrive via
- * pull, never a client mutator.
- */
-
 export const triageTagOverrideArgsSchema = z.object({
-  /** Gmail `source_thread_id` (the IDB key). */
+  /** Gmail `source_thread_id`. */
   threadId: z.string().min(1).max(200),
   category: triageCategorySchema,
 });
@@ -30,12 +20,7 @@ async function writeTag(tx: WriteTransaction, tag: SyncedTriageTag): Promise<voi
   await SYNC_MODEL.triagetag.put(tx, tag);
 }
 
-/**
- * Override a thread's tag: produce a `user` variant carrying `overriddenAt`
- * and no classifier fields. No-op if the thread has no tag yet (override
- * before first classify) — the eventual classify writes `auto` and the user
- * can override again.
- */
+/** Turn the tag into a `user` tag. No-op before the first classify. */
 export async function triageTagOverrideClient(
   tx: WriteTransaction,
   args: TriageTagOverrideArgs,
@@ -51,8 +36,7 @@ export async function triageTagOverrideClient(
     category: args.category,
     documentId: tag.documentId,
     appliedLabelId: null,
-    // Sender significance is a property of the sender, not the classification —
-    // a user pinning the category doesn't change who's asking, so carry it over.
+    // Significance belongs to the sender, not the category, so keep it.
     senderSignificanceBand: tag.senderSignificanceBand,
     rowVersion: tag.rowVersion + 1,
     updatedAt: now,

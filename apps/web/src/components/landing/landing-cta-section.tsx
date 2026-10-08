@@ -3,19 +3,7 @@ import { FadeInOnScroll } from "~/components/landing/fade-in-on-scroll";
 import { FrostButton } from "~/components/landing/frost-button";
 import { cn } from "~/lib/utils";
 
-/**
- * Closing CTA — a panel, not another centered block of page.
- *
- * By this point the reader has scrolled past three centered headline blocks,
- * and a fourth one reads as the page repeating itself. Putting the ask on its
- * own contained surface makes it the last object on the page rather than the
- * last paragraph, which is what visitors.now does with the same slot
- * (`bg-background-subtle rounded-3xl px-8 py-16` inside the column).
- *
- * The panel carries the hero band's indigo, closing the loop: the page opens
- * on indigo light behind the product and ends on the same light behind the
- * button. If something appears one way, it should resolve the same way.
- */
+/** Closing CTA as a contained panel, lit with the hero band's indigo. */
 export function LandingCtaSection({ onGetStarted }: { onGetStarted: () => void }) {
   return (
     <section id="cta" className="relative w-full scroll-mt-24 py-16 sm:py-20">
@@ -28,8 +16,7 @@ export function LandingCtaSection({ onGetStarted }: { onGetStarted: () => void }
               "shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]",
             )}
           >
-            {/* Same light source as the hero band, from below this time — the
-             * page's last object is lit by the same lamp as its first. */}
+            {/* Same light as the hero band, from below. */}
             <div
               aria-hidden
               className="pointer-events-none absolute inset-0 -z-10"

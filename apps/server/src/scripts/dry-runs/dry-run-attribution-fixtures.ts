@@ -1,9 +1,7 @@
 import { toMessage } from "@alfred/contracts";
 /**
- * Attribution-gate fixtures (ADR-0050/0051 amendment 2026-06-09) — READ-ONLY.
- * Validates rule 16a (ii): an action the email assigns to a named third party
- * must NOT mint a todo for the user. Plus a positive control (a real ask of the
- * user must still propose). No DB writes to todos/triage.
+ * Read-only fixtures for rule 16a (ii): an action assigned to a named third party
+ * must not mint a todo for the user. A positive control checks a real ask still does.
  */
 import {
   assembleObservations,
@@ -14,9 +12,7 @@ import {
 
 const IDENTITY = { name: "Yash Kar", email: "yash.k@oliv.ai" };
 
-// `expectTodo` is the machine-checkable assertion: would the LIVE rail mint a
-// todo for this mail? (`resolveTodoSuggestion`, the single production decision
-// point.) `expect` is the human-readable rationale shown in the printout.
+// `expectTodo`: would `resolveTodoSuggestion` mint a todo? `expect` is the printed reason.
 const FIXTURES: Array<{
   label: string;
   expect: string;
@@ -93,15 +89,8 @@ async function main() {
     });
 
     const d = classification.todoDecision;
-    // Assert against what production would actually mint, not the raw model
-    // suggestion: `resolveTodoSuggestion` is the live gate (proposed outcome +
-    // todo-eligible category).
-    //
-    // A `null` date anchor is production's answer for these fixtures, not a
-    // shortcut: every one of them carries `authoredAt: null`, and the live
-    // triage step builds no anchor without a send instant. Spelled out because
-    // the parameter is required — an omitted anchor silently strips relative
-    // dates, so it is not something a call site gets to leave unsaid.
+    // Check what prod would mint, not the raw suggestion. The anchor is null
+    // because these fixtures have no `authoredAt`, as in prod.
     const resolved = resolveTodoSuggestion(classification, null);
     const todo = resolved?.name ?? null;
     const gotTodo = resolved !== null;
@@ -127,8 +116,7 @@ async function main() {
 main()
   .then(() => process.exit(0))
   .catch((e) => {
-    // Log only the message — serializing the full Error can leak DATABASE_URL,
-    // query state, and connection credentials into CI / shared-machine logs.
+    // Message only: a serialized Error can leak DATABASE_URL.
     console.error(toMessage(e));
     process.exit(1);
   });

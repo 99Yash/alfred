@@ -9,26 +9,21 @@ import { useMemo } from "react";
 import { usePreferenceMap } from "./use-preferences";
 
 const BRIEFING_PREF_KEYS = {
-  // #229: `timezone` is the ONE canonical zone — it grounds chat/boss date
-  // reasoning AND briefing delivery. The picker writes here; the legacy
-  // `briefing.timezone` key is read-only fallback for rows written before the
-  // unification (server resolvers honor the same precedence).
+  // The one zone for chat dates and briefing delivery. `briefing.timezone` is a read-only fallback.
   timezone: "timezone",
   morningHour: "briefing.delivery_hour",
   eveningHour: "briefing.evening_hour",
 } as const;
 
-/** Legacy zone key, still read for display if no canonical row exists yet. */
 const LEGACY_TIMEZONE_KEY = "briefing.timezone";
 
 export interface BriefingScheduleState {
-  /** Effective IANA timezone (stored value, else the server default). */
+  /** Stored value, else the server default. */
   timezone: string;
-  /** Morning delivery hour 0–23 in `timezone` (stored value, else default). */
+  /** Hour 0–23 in `timezone`. */
   morningHour: number;
-  /** Evening delivery hour 0–23 in `timezone` (stored value, else default). */
   eveningHour: number;
-  /** True once the stored value (not the default) is in effect for that field. */
+  /** The field uses a stored value, not the default. */
   hasOverride: { timezone: boolean; morningHour: boolean; eveningHour: boolean };
   setTimezone: (tz: string) => Promise<void>;
   setMorningHour: (hour: number) => Promise<void>;
@@ -48,15 +43,7 @@ function parseTimezone(value: unknown): string | null {
   return isIanaTimezone(value) ? value : null;
 }
 
-/**
- * Live view of the briefing delivery schedule (Settings → Features →
- * Briefing schedule). Reads the three `briefing.*` preference rows from the
- * same `pref/{key}` prefix the feature flags use via
- * {@link usePreferenceMap}, which is built on the shared
- * {@link useReplicacheSubscription} helper. An absent row resolves to the
- * documented server default. Writes are optimistic `prefSet` mutations
- * that the next pull rebases — identical idiom to {@link useFeatureFlags}.
- */
+/** The briefing schedule from preference rows. A missing row means the server default. */
 export function useBriefingSchedule(): BriefingScheduleState {
   const { values, loaded, setPref, loadError, retry } = usePreferenceMap();
 

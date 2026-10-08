@@ -17,23 +17,10 @@ import type {
 } from "./adapter";
 
 /**
- * The GitHub object-state adapter (ADR-0062 v1; ADR-0063 is the rich
- * replacement) — GitHub's irreducible half of reconciliation (#1088).
- *
- * GitHub notifications identify a PR through the subject's repository + PR
- * number, a pull-request URL, a 40-hex `head_sha`, or the abbreviated sha that
- * Actions failure mail carries in its subject. Use a single PR identity when
- * possible: a link to a different PR in a comment body cannot close the
- * notification's own loop. Ambiguous PR references leave the loop live.
- *
- * An Actions failure notification additionally names a CI TARGET — the
- * reconciled `owner/repo#branch` identity whose state is the outcome of the
- * latest suite on that branch (#1093) — through the same subject grammar, so a
- * later green run closes the ask the failure mail opened.
- *
- * Everything past the proposal is generic and lives elsewhere: `reconcile.ts`
- * resolves and ranks the candidates, the store asserts state, and the
- * registry's per-kind definition declares what closes an ask.
+ * GitHub object-state adapter (ADR-0062 v1, #1088). Mail names a PR by subject repo and number, a
+ * PR URL, a 40-hex `head_sha`, or the short sha in Actions failure subjects. Prefer one PR
+ * identity: a link to another PR in a comment must not close this mail's loop. Actions failure mail
+ * also names a CI target (`owner/repo#branch`), so a later green run closes it (#1093).
  */
 
 /** Senders whose mail we treat as GitHub CI/notification traffic. */
@@ -42,24 +29,15 @@ const GITHUB_NOTIFICATION_DOMAINS = ["github.com"];
 const HEAD_SHA_RE = /\b[0-9a-f]{40}\b/gi;
 
 /**
- * Shortest abbreviation that may name a commit. Git's default and GitHub's mail
- * both use 7 hex; below that a fragment is a guess, not an identity. Read off
- * the registry's `prefixableKeys` beside the closure policy — the store reads
- * the same entry for its prefix lookup, so the two floors cannot drift.
+ * 7 hex, as Git and GitHub mail use. Read from the registry, which the store's prefix lookup also
+ * reads.
  */
 const MIN_ABBREVIATED_SHA_LENGTH = INTEGRATION_OBJECT_DEFS.github.prefixableKeys.head_sha;
 
 /**
- * The abbreviated sha an Actions failure mail carries, for example
- * `[owner/repo] Run failed: ... (efd2e98)`. GitHub writes the commit in
- * trailing parentheses, so only a parenthesized run at the end of the subject
- * counts: `Invoice (1234567) paid` is a build number mid-subject, not a
- * commit. The run must also mix digits and a–f letters — an all-letter run
- * spells ordinary words (`defaced`, `effaced`), an all-digit run spells a
- * build number or date (`20260915`) — while a real abbreviation is
- * overwhelmingly mixed. A sha-shaped word such as `(facade0)` is
- * indistinguishable from a commit and still counts; the store's uniqueness
- * floor absorbs it.
+ * The short sha at the end of an Actions failure subject, e.g. `Run failed: ... (efd2e98)`. Only a
+ * trailing parenthesized run counts: `Invoice (1234567) paid` is a build number. It must mix digits
+ * and a-f letters: `defaced` is a word, `20260915` a date.
  */
 const SUBJECT_ABBREVIATED_SHA_RE = new RegExp(
   String.raw`\(([0-9a-f]{${MIN_ABBREVIATED_SHA_LENGTH},40})\)\s*$`,
@@ -67,11 +45,8 @@ const SUBJECT_ABBREVIATED_SHA_RE = new RegExp(
 );
 
 /**
- * Whether the sender is GitHub traffic by domain. Module-private: the gated
- * extraction below is the only caller, and the name deliberately differs from
- * triage's `isGithubNotificationSender` — that one matches the
- * `notifications@github.com` address, this one gates the whole `github.com`
- * sender domain (so `noreply@github.com` passes here and fails there).
+ * Gate on the whole `github.com` domain. Unlike triage's `isGithubNotificationSender`, which
+ * matches only `notifications@github.com`.
  */
 function isGithubSenderDomain(from: string | null | undefined): boolean {
   const address = parseEmailAddress(from);
@@ -83,13 +58,9 @@ function isGithubSenderDomain(from: string | null | undefined): boolean {
 }
 
 /**
- * Pull the email's GitHub object key. The subject owns a PR identity when it
- * names one; otherwise the full 40-hex form anywhere in the mail wins, then a
- * body PR reference when it is the sole PR identity in that body, then the
- * abbreviation in its own subject. Pure and deterministic: no network and no
- * model. Module-private: callers go through the adapter's `proposeKeys`, which
- * applies the sender-domain gate first — this raw extraction alone would let
- * any spoofed mail propose a loop-closing identity.
+ * Extract GitHub keys. Order: the subject's PR identity, then any 40-hex sha, then a sole body PR,
+ * then the subject's short sha. Only `proposeKeys` calls this, after the sender gate; without the
+ * gate, spoofed mail could propose a loop-closing identity.
  */
 function extractGithubKeys(input: SubjectText): ExtractedKey[] {
   const haystack = `${input.subject}\n${input.content}`;
@@ -123,8 +94,7 @@ function extractGithubKeys(input: SubjectText): ExtractedKey[] {
   const subjectUrls = collectGithubPullRequestUrls(input.subject);
 
   if (subjectUrls.length > 0) {
-    // Two PRs in one subject is an ambiguous identity; neither one may close
-    // the notification's loop.
+    // Two PRs in one subject is ambiguous, so neither may close the loop.
     if (subjectUrls.length === 1) {
       for (const url of subjectUrls) addKey("pull_request_url", url, "exact");
     }
@@ -132,10 +102,7 @@ function extractGithubKeys(input: SubjectText): ExtractedKey[] {
     return keys;
   }
 
-  // The full 40-hex form anywhere in the mail names the commit exactly. A
-  // body PR reference is used only when it is the sole PR identity in that
-  // body. The subject abbreviation is a guess, so it runs last: an exact
-  // identity must never lose to a prefix.
+  // A full sha is exact. The short sha is a guess and runs last, so exact always wins.
   for (const match of haystack.matchAll(HEAD_SHA_RE)) {
     const sha = match[0].toLowerCase();
 
@@ -152,8 +119,7 @@ function extractGithubKeys(input: SubjectText): ExtractedKey[] {
     return keys;
   }
 
-  // One abbreviation in the subject names the failed run's own commit. Two is
-  // an ambiguous identity, so neither may close the loop.
+  // Two short shas in the subject is ambiguous.
   const abbreviated = collectSubjectAbbreviatedShas(input.subject);
   const onlyAbbreviated = abbreviated.length === 1 ? abbreviated[0] : undefined;
 
@@ -162,13 +128,12 @@ function extractGithubKeys(input: SubjectText): ExtractedKey[] {
   return keys;
 }
 
-/** The trailing parenthesized sha abbreviation the subject carries, if any. */
+/** The subject's trailing short sha, if any. */
 function collectSubjectAbbreviatedShas(subject: string): string[] {
   const sha = SUBJECT_ABBREVIATED_SHA_RE.exec(subject)?.[1]?.toLowerCase();
 
   if (!sha) return [];
-  // Ordinary words and build numbers/dates are single-class runs; a real
-  // abbreviation mixes digits and letters.
+  // Words and dates use one character class; a real abbreviation mixes both.
 
   if (!/[0-9]/.test(sha) || !/[a-f]/.test(sha)) return [];
 
@@ -176,32 +141,18 @@ function collectSubjectAbbreviatedShas(subject: string): string[] {
 }
 
 /**
- * The CI target an Actions failure notification is ABOUT, read from the
- * notification's own structured subject — GitHub writes
- * `[owner/repo] Run failed: <workflow> - <branch> (<sha>)`.
- *
- * The reconciled identity is the TARGET (`owner/repo#branch`), never the suite
- * attempt: a later green run on the branch closes the ask an earlier failure
- * opened, and a later failure reopens it (#1093). The reducer writes that row
- * (item 04); this is its first reader.
- *
- * The trailing `(<sha>)` is an ANCHOR, not a key — it is what makes the subject
- * unmistakably GitHub's failure notification, so an ordinary
- * `[owner/repo] Title - word` subject never matches. The abbreviation it carries
- * is proposed separately by {@link extractGithubKeys}. Its floor is read off the
- * registry beside that sibling's regex, so the two cannot drift. The `.*` before
- * the separator is greedy so the LAST ` - ` wins when the workflow name itself
- * carries one; a branch name has no spaces, so `\S+` captures it whole.
- *
- * Fail closed: no match, an unparseable repo/branch, or a branch the contract
- * canonicalizer refuses proposes nothing — absence never closes (ADR-0048-D).
+ * The CI target of an Actions failure subject:
+ * `[owner/repo] Run failed: <workflow> - <branch> (<sha>)`. The key is the target, not the run, so
+ * a later green run closes the ask and a later failure reopens it (#1093). The trailing `(<sha>)`
+ * is only an anchor, so `[owner/repo] Title - word` never matches. Greedy `.*` makes the last ` - `
+ * win when the workflow name has one. No match or a refused branch proposes nothing (ADR-0048-D).
  */
 const GITHUB_CI_TARGET_SUBJECT_RE = new RegExp(
   String.raw`\[([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)\][^\n]*\bRun failed:.*\s-\s(\S+)\s*\([0-9a-f]{${MIN_ABBREVIATED_SHA_LENGTH},40}\)\s*$`,
   "i",
 );
 
-/** The CI target the subject names, as one exact key, or nothing. */
+/** The subject's CI target as one exact key, or nothing. */
 function subjectCiTargetIds(subject: string): ExtractedKey[] {
   const match = GITHUB_CI_TARGET_SUBJECT_RE.exec(subject);
 
@@ -214,12 +165,11 @@ function subjectCiTargetIds(subject: string): ExtractedKey[] {
   return [{ keyKind: "ci_target", keyValue: targetId, match: "exact" }];
 }
 
-/** One subject's whole text, as the un-gated readings scan it. */
 function wholeText(text: SubjectText): string {
   return `${text.subject}\n${text.content}`;
 }
 
-/** Every pull request the text names, as canonical exact keys. */
+/** Every PR the text names, as canonical exact keys. */
 function pullRequestUrlKeys(text: string): ExtractedKey[] {
   return collectGithubPullRequestUrls(text).map((url) => ({
     keyKind: "pull_request_url",
@@ -229,24 +179,12 @@ function pullRequestUrlKeys(text: string): ExtractedKey[] {
 }
 
 /**
- * GitHub's adapter. The three readings differ in what they are allowed to
- * assume, not in how safe they are:
- *
- * - `about` requires the `github.com` sender-domain gate and returns the mail's own
- *   work-object identity — its single PR reference, or the CI target an Actions
- *   failure subject names — because the briefing uses it to DROP an item and a
- *   wrong identity would drop the wrong one.
- * - `mentions` returns every pull request the text names, with no provenance
- *   demand, because its caller SUPPRESSES a composed sentence. The canonical
- *   URL is the only written form that survives: a bare `head_sha` in arbitrary
- *   prose is a commit, not a claim about a pull request, and silencing a real
- *   ask over a coincidence costs a human a message they needed.
- * - `annotates` returns the same pull requests PLUS every full 40-hex
- *   `head_sha` the text holds. Its caller only decorates evidence it already
- *   has, so a sha that resolves to the pull request carrying it is a useful
- *   annotation and a sha that resolves to nothing costs nothing. Only the full
- *   form counts: indexed text holds hashes of many kinds, so an abbreviated
- *   prefix there is a coincidence magnet rather than an identity.
+ * - `about`: needs the `github.com` sender gate. Returns the mail's own PR or CI target, because
+ *   the briefing drops an item on it.
+ * - `mentions`: every PR URL, no provenance. Not bare shas: a sha in prose is not a claim about a
+ *   PR, and suppressing a real ask over a coincidence costs the user a message.
+ * - `annotates`: PR URLs plus every full 40-hex sha. Not short shas: indexed text holds many kinds
+ *   of hash.
  */
 export const githubObjectStateAdapter: ObjectStateAdapter = {
   provider: "github",
@@ -256,8 +194,7 @@ export const githubObjectStateAdapter: ObjectStateAdapter = {
     if (proposal.reading === "annotates") {
       const text = wholeText(subject.text);
 
-      // A repeated sha needs no dedup here: `reconcileEvidence` keys every
-      // candidate by `candidateIdentity` before it resolves one.
+      // `reconcileEvidence` dedupes repeated shas.
       const shaKeys = [...text.matchAll(HEAD_SHA_RE)].map(
         (found): ExtractedKey => ({
           keyKind: "head_sha",
@@ -271,9 +208,7 @@ export const githubObjectStateAdapter: ObjectStateAdapter = {
 
     if (!isGithubSenderDomain(proposal.sender)) return [];
 
-    // The mail's own object: the CI target its subject names (an Actions
-    // failure notification's reconciled identity) ahead of the PR/sha keys, so
-    // the exact target outranks the abbreviated-sha prefix that follows.
+    // The CI target first, so the exact target outranks the short-sha prefix.
     return [...subjectCiTargetIds(subject.text.subject), ...extractGithubKeys(subject.text)];
   },
 };

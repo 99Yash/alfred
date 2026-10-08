@@ -1,7 +1,7 @@
 import type { UsageRunCategory } from "@alfred/contracts";
 import { APP_TINTS } from "~/lib/tints";
 
-/** Human labels for the coarse run categories (finer per-run labels come from the server). */
+/** Coarse category labels; per-run labels come from the server. */
 export const CATEGORY_LABELS = {
   chat: "Chat",
   briefing: "Briefings",
@@ -15,12 +15,7 @@ export const CATEGORY_LABELS = {
   uncategorized: "Other",
 } satisfies Record<UsageRunCategory, string>;
 
-/**
- * Per-category tint tile (`bg-app-{tone}-1 text-app-{tone}-4`). Reuses the six
- * shared app hues; `workflow`/`uncategorized` fall back to a neutral grey since
- * the palette only has six tones. Same class shape as the settings tiles so the
- * usage pills never drift from the rest of the app.
- */
+/** Tile classes per category; `workflow` and `uncategorized` are grey, since there are six hues. */
 export const CATEGORY_TILE = {
   chat: APP_TINTS.purple,
   briefing: APP_TINTS.amber,
@@ -34,7 +29,6 @@ export const CATEGORY_TILE = {
   uncategorized: "bg-app-bg-2 text-app-fg-3",
 } satisfies Record<UsageRunCategory, string>;
 
-/** Date-range presets for the overview control. `all` reaches before Alfred existed. */
 export const USAGE_RANGE_PRESETS = ["7d", "30d", "month", "all"] as const;
 
 export type UsageRangePreset = (typeof USAGE_RANGE_PRESETS)[number];
@@ -46,7 +40,7 @@ export const USAGE_RANGE_LABELS = {
   all: "All time",
 } satisfies Record<UsageRangePreset, string>;
 
-/** Resolve a preset to a concrete [start, end) window (end = now). */
+/** A `[start, end)` window ending now. */
 export function resolveRangePreset(preset: UsageRangePreset, now: Date) {
   const end = now;
   const day = 24 * 60 * 60 * 1000;
@@ -59,8 +53,7 @@ export function resolveRangePreset(preset: UsageRangePreset, now: Date) {
     case "month":
       return { start: new Date(now.getFullYear(), now.getMonth(), 1), end };
     case "all":
-      // Alfred has no data before this; a fixed floor keeps the window a
-      // finite, cache-stable key rather than epoch-0.
+      // A fixed floor keeps the key finite and cache-stable.
       return { start: new Date("2024-01-01T00:00:00Z"), end };
   }
 }

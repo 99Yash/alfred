@@ -9,28 +9,10 @@ import { sql } from "drizzle-orm";
 import { dbBackedSkip } from "./support/db-backed";
 
 /**
- * DB-backed guard for the nesting contract of `runAtomic` (campaign item 131).
- *
- * `runAtomic` used to read `"transaction" in runner ? runner.transaction(body) :
- * body(runner)`. The condition is ALWAYS true — both members of `DbRunner` carry
- * `transaction` — so the second arm never ran and the helper always opened a
- * transaction, which Postgres serves as a `SAVEPOINT` when one is already open.
- * Deleting the dead arm keeps that behavior; this file is what makes the choice
- * a decision instead of an accident.
- *
- * The load-bearing assertion is `rowsAfterFailure`, and it discriminates two
- * ways at once. Under savepoint semantics the read ANSWERS, and it answers `0`.
- * Under the reuse semantics the deleted arm would have given (`body(runner)`),
- * either the read returns a NON-ZERO count — measured: `1`, because a body that
- * throws in JavaScript has no savepoint to roll back to, so its writes stay live
- * in the caller's transaction — or, when the body fails with a SQL error instead,
- * the caller's transaction is aborted and the same read raises SQLSTATE `25P02`.
- * A test that only called `runAtomic` with the root client cannot tell the two
- * designs apart.
- *
- * Needs a reachable migrated Postgres — locally, `docker compose up postgres`.
- * The `db-tests` CI job supplies one; `dbBackedSkip` throws there rather than
- * skipping if it does not.
+ * Pins that a nested `runAtomic` opens a savepoint, not a reuse of the caller's transaction.
+ * The key check is `rowsAfterFailure`: a savepoint reads `0`. Reuse would read `1`
+ * after a JS throw, or raise `25P02` after a SQL error.
+ * Needs a migrated Postgres (`docker compose up postgres`); CI fails instead of skipping.
  */
 const SKIP = dbBackedSkip("database");
 
@@ -50,12 +32,7 @@ class RollbackSentinel extends Error {
   }
 }
 
-/**
- * The transaction id of the runner's CURRENT transaction. `txid_current()`
- * assigns one if the transaction does not have it yet, so two calls inside one
- * transaction agree and two separate transactions do not. Postgres returns a
- * bigint, which node-postgres hands back as a string.
- */
+/** The current transaction id. Same value inside one transaction; a bigint, so a string. */
 async function currentTxid(runner: DbRunner): Promise<string> {
   const result = await runner.execute(sql`select txid_current()::text as txid`);
   const [row] = rowsFromExecute<{ txid: string }>(result);
@@ -79,10 +56,7 @@ describe("runAtomic nesting semantics", { skip: SKIP }, () => {
   });
 
   test("a nested body failure rolls back to a savepoint and leaves the outer transaction usable", async () => {
-    // Every observation is collected inside the outer transaction and asserted
-    // outside it: an assertion that throws in there would unwind the
-    // transaction and be reported as the outer rejection, hiding which fact
-    // actually failed.
+    // Assert outside the transaction; a throw inside would hide which check failed.
     interface Seen {
       outerTxid?: string;
       innerTxid?: string;
@@ -95,9 +69,7 @@ describe("runAtomic nesting semantics", { skip: SKIP }, () => {
 
     await assert.rejects(
       db().transaction(async (outer) => {
-        // Session-scoped, and `db()` is pooled — this holds only because one
-        // `transaction` callback runs every statement on one checked-out
-        // client. `ON COMMIT DROP` cleans up even on the paths that commit.
+        // A temp table is per session; this works because one transaction uses one pooled client.
         await outer.execute(
           sql`create temp table run_atomic_probe (id int primary key) on commit drop`,
         );
@@ -113,9 +85,7 @@ describe("runAtomic nesting semantics", { skip: SKIP }, () => {
           seen.innerRejection = err instanceof Error ? err.name : String(err);
         }
 
-        // The discriminator. Under savepoint semantics this answers `0`; under
-        // reuse it answers a non-zero count, or raises `25P02` when the inner
-        // body failed with a SQL error rather than a JavaScript throw.
+        // Savepoint: `0`. Reuse: a non-zero count, or `25P02` after a SQL error.
         try {
           const result = await outer.execute(sql`select count(*)::int as n from run_atomic_probe`);
           const [row] = rowsFromExecute<{ n: number }>(result);
@@ -148,12 +118,8 @@ describe("runAtomic nesting semantics", { skip: SKIP }, () => {
   });
 
   test("a nested SQL-error failure un-aborts via ROLLBACK TO SAVEPOINT and leaves the outer transaction usable", async () => {
-    // The JavaScript-throw arm above can never reach SQLSTATE 25P02: a body
-    // that throws in JS leaves no aborted transaction to un-abort. Only a SQL
-    // error (here a duplicate-key insert, 23505) puts the outer transaction in
-    // the aborted state, and only `ROLLBACK TO SAVEPOINT` un-aborts it — the
-    // exact property `persistChatTurnRunInTx` depends on when it recovers from
-    // a unique violation inside the chat-turn transaction.
+    // Only a SQL error aborts the outer transaction, and only `ROLLBACK TO SAVEPOINT`
+    // recovers it. `persistChatTurnRunInTx` relies on this after a unique violation.
     interface Seen {
       outerTxid?: string;
       innerTxid?: string;
@@ -175,15 +141,12 @@ describe("runAtomic nesting semantics", { skip: SKIP }, () => {
           await runAtomic(outer, async (inner) => {
             await inner.execute(sql`insert into run_atomic_probe (id) values (1)`);
             seen.innerTxid = await currentTxid(inner);
-            // Same primary key a second time — a SQL error, not a JS throw.
             await inner.execute(sql`insert into run_atomic_probe (id) values (1)`);
           });
         } catch (err) {
           seen.innerRejection = err instanceof Error ? err.name : String(err);
         }
 
-        // Un-aborted: the read answers instead of raising 25P02, and it sees
-        // none of the failed body's writes.
         try {
           const result = await outer.execute(sql`select count(*)::int as n from run_atomic_probe`);
           const [row] = rowsFromExecute<{ n: number }>(result);
@@ -192,8 +155,6 @@ describe("runAtomic nesting semantics", { skip: SKIP }, () => {
           seen.rowsAfterFailure = sqlState(err) ?? `non-sqlstate: ${String(err)}`;
         }
 
-        // The caller's own write must still be accepted — a transaction left
-        // aborted by the SQL error would refuse it with 25P02.
         try {
           await outer.execute(sql`insert into run_atomic_probe (id) values (2)`);
           seen.callerWriteAccepted = true;
@@ -226,11 +187,7 @@ describe("runAtomic nesting semantics", { skip: SKIP }, () => {
   });
 
   test("the root client gets one fresh transaction per call, spanning the whole body", async () => {
-    // Two statements per call, because ONE statement cannot tell a transaction
-    // from autocommit: every bare statement on the root client already runs in
-    // an implicit transaction of its own and reports a txid. Only a SHARED txid
-    // across two statements proves the body ran inside one transaction, which
-    // is what dies if `runAtomic` ever hands the root client through unwrapped.
+    // One statement cannot tell a transaction from autocommit. Two that share a txid can.
     const first = await runAtomic(db(), async (tx) => [
       await currentTxid(tx),
       await currentTxid(tx),
@@ -251,12 +208,7 @@ describe("runAtomic nesting semantics", { skip: SKIP }, () => {
   });
 
   test("depth-2 nesting still keeps the outermost transaction the single commit unit", async () => {
-    // The headline claim is "any depth": `txid_current()` is constant through
-    // ANY depth of nesting, and the invariant says "any sequence of nested
-    // `runAtomic` calls". The other two arms drive depth 1 only; a future
-    // drizzle upgrade that changed savepoint naming or nesting behavior at
-    // depth >= 2 (a name that collides across siblings, or a nested commit)
-    // would go green today without this arm.
+    // The other tests nest one level only. This catches a drizzle change at depth 2.
     interface Seen {
       outerTxid?: string;
       depth1Txid?: string;
@@ -288,8 +240,6 @@ describe("runAtomic nesting semantics", { skip: SKIP }, () => {
           }
         });
 
-        // The depth-2 failure rolled back to its savepoint; the outer read
-        // still answers 0 and the outer transaction is still usable.
         try {
           const result = await outer.execute(sql`select count(*)::int as n from run_atomic_probe`);
           const [row] = rowsFromExecute<{ n: number }>(result);
@@ -327,13 +277,8 @@ describe("runAtomic nesting semantics", { skip: SKIP }, () => {
   });
 
   test("a second concurrent runAtomic on one handle is refused before any SQL runs", async () => {
-    // The runtime guard (campaign item 274): the round-2 measurement showed two
-    // concurrent `runAtomic` calls on ONE handle silently lose writes — drizzle
-    // names every savepoint after depth alone (`sp${nestedIndex + 1}`), so the
-    // two bodies share a name and one's `ROLLBACK TO SAVEPOINT` discards the
-    // other's live writes while both are in flight. The guard refuses the second
-    // call before it can send any statement, so the outer transaction stays
-    // usable and keeps both surviving writes.
+    // Drizzle names savepoints by depth only (`sp${nestedIndex + 1}`). Two concurrent
+    // bodies on one handle share a name, and one rollback drops the other's writes.
     interface Seen {
       outerTxid?: string;
       /** The guard's message when the second call is refused, or null if it ran. */

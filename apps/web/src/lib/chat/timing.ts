@@ -5,8 +5,7 @@ declare global {
 }
 
 const DEV =
-  // SAFETY: import.meta.env is Vite's injected env record; the optional read
-  // keeps non-Vite contexts (unit tests) working.
+  // SAFETY: Vite injects `import.meta.env`; the optional read works without Vite.
   (import.meta as { env?: { DEV?: boolean } }).env?.DEV === true &&
   typeof window !== "undefined" &&
   typeof performance !== "undefined";

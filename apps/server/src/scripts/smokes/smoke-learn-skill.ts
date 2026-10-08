@@ -1,31 +1,13 @@
 /**
- * Smoke test for the m12 learn-skill workflow.
+ * Smoke test for the learn-skill workflow: a draft skill becomes `active` with a
+ * new revision, a completed `skill_runs` row, and any fact proposals from the run.
  *
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/smokes/smoke-learn-skill.ts
  *
  * Pre-reqs:
- *   - A server process running (`pnpm dev`) so the agent worker picks up
- *     the run. The script does not start an in-process worker.
- *   - At least one user row in the DB (sign in once first).
- *   - A cheap-tier model available — depending on @alfred/ai's resolver
- *     that's either ANTHROPIC_API_KEY or GOOGLE_GENERATIVE_AI_API_KEY.
- *
- * What this verifies end-to-end:
- *   1. A draft `skills` row is created (mirroring the UX where clicking
- *      "New skill" inserts the placeholder before Learn fires).
- *   2. Any prior in-flight learn-skill run for that skill is moved to
- *      `cancelled` so the partial unique index on
- *      `agent_runs.(user_id, workflow_slug, dedup_key)` doesn't reject
- *      the fresh smoke insert.
- *   3. createRun + enqueueRun cycle a `learn-skill` run.
- *   4. The workflow runs gather → distill → persist to completion.
- *   5. The skill row advances: `status='active'`, `current_revision_id`
- *      points at the new `skill_revisions` row, `name` reflects the
- *      LLM-suggested title.
- *   6. A `skill_runs` row exists, in `completed` status, pointing at the
- *      same revision id.
- *   7. `user_facts` rows whose `source.id = runId` exist (when the model
- *      emitted any proposals — single-string keys per the distill schema).
+ *   - A server process running (`pnpm dev`).
+ *   - At least one user row (sign in once first).
+ *   - A key for the cheap-tier model.
  */
 import { randomUUID } from "node:crypto";
 import { LEARN_SKILL_WORKFLOW_SLUG } from "@alfred/assistant/skills";
@@ -46,7 +28,7 @@ import { closeScriptResources } from "../script-runtime";
 
 const POLL_INTERVAL_MS = 1_000;
 
-const POLL_TIMEOUT_MS = 90_000; // cheap-tier distill is ~5–15s; 90s is comfortable headroom.
+const POLL_TIMEOUT_MS = 90_000;
 
 const SAMPLE_PROMPT =
   "i am looking for remote engineering jobs with $40k+ minimum salary. " +
@@ -104,9 +86,7 @@ async function main() {
 
   console.log(`[smoke-learn-skill] target: ${u.email} (id=${u.id})`);
 
-  // Ensure a stable test-only skill row exists. We key on a fixed slug
-  // so re-running the smoke doesn't accumulate skills. The row is left
-  // in `draft` until the first Learn run completes.
+  // A fixed slug, so reruns do not pile up skills.
   const testSlug = "smoke-learn-skill";
 
   const [existing] = await db()
@@ -119,8 +99,7 @@ async function main() {
 
   if (existing) {
     skillId = existing.id;
-    // Reset to draft + clear the revision pointer so we can re-verify
-    // the draft → active transition on each smoke run.
+    // Reset to draft, so each run checks draft to active again.
     await db()
       .update(skills)
       .set({
@@ -146,9 +125,7 @@ async function main() {
     console.log(`[smoke-learn-skill] created skill ${skillId}`);
   }
 
-  // Clear any in-flight learn-skill rows for THIS skill so the per-skill
-  // dedup index doesn't block the fresh insert. Failed/cancelled rows
-  // are excluded from the index already, so nothing is overwritten.
+  // Cancel an in-flight run for this skill, or the dedup index blocks the insert.
   const stomped = await db()
     .update(agentRuns)
     .set({ status: "cancelled", endedAt: new Date(), updatedAt: new Date() })
@@ -181,7 +158,7 @@ async function main() {
   const run = await pollRun(runId, "learn-skill run");
   assert(run.status === "completed", `run status=${run.status} error=${JSON.stringify(run.error)}`);
 
-  // SAFETY: learn-skill workflow's own committed output shape.
+  // SAFETY: the learn-skill workflow's own output shape.
   const out = run.output as {
     skillId: string;
     revisionId: string;
@@ -198,7 +175,6 @@ async function main() {
   assert(out.revisionId, "expected output.revisionId");
   assert(out.skillId === skillId, "output.skillId mismatch");
 
-  // Skill row state assertions.
   const [postSkill] = await db().select().from(skills).where(eq(skills.id, skillId));
   assert(postSkill, "skill row missing after run");
   console.log(
@@ -212,7 +188,6 @@ async function main() {
   );
   assert(postSkill.name !== "Untitled skill", "expected name to be auto-updated by distill");
 
-  // Revision row.
   const [rev] = await db()
     .select()
     .from(skillRevisions)
@@ -223,7 +198,6 @@ async function main() {
   assert(rev.body.length > 0, "expected non-empty body");
   console.log(`[smoke-learn-skill] revision body preview:\n${rev.body.slice(0, 400)}\n...`);
 
-  // Skill-run row.
   const [sr] = await db().select().from(skillRuns).where(eq(skillRuns.agentRunId, runId));
   assert(sr, "skill_runs row missing");
   assert(sr.status === "completed", `skill_runs.status = ${sr.status}`);
@@ -232,7 +206,6 @@ async function main() {
     `skill_runs.produced_revision_id mismatch: ${sr.producedRevisionId} vs ${out.revisionId}`,
   );
 
-  // Fact proposals attributable to this run.
   const facts = await db()
     .select({
       key: userFacts.key,

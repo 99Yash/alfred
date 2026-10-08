@@ -1,17 +1,7 @@
 /**
- * Full-bleed 50x50 "app-icon" integration tiles.
- *
- * These are ported verbatim from dimension's public brand SVGs: each tile bakes
- * in its own background fill and glossy top-light gradient, so it renders
- * edge-to-edge (the artwork fills the entire 50x50 viewBox) when drawn by
- * IntegrationIcon. They are intentionally distinct from the mark-only
- * BRAND_SVGS in integration-svgs.ts, which render the bare logo glyph inline
- * (no background, no gloss). Use these when you want the polished app-store
- * style tile; use BRAND_SVGS when you want just the logo mark.
- *
- * The `width="50" height="50"` attributes are hardcoded from the source, but
- * `{...props}` is spread last on each <svg>, so a caller passing className /
- * width / height overrides them as expected.
+ * Full-bleed 50x50 app-icon tiles from dimension's brand SVGs, with background and gloss.
+ * For the bare logo glyph, use `BRAND_SVGS` in integration-icons.tsx.
+ * `{...props}` is spread last, so a caller's width and height win.
  */
 import * as React from "react";
 
@@ -1568,8 +1558,7 @@ const PolylaneTile = (props: React.ComponentPropsWithoutRef<"svg">) => {
           <stop stopColor="#15200D" />
           <stop offset="1" stopColor="#2E3D22" />
         </radialGradient>
-        {/* The brand lime, top-lit like every other coin: full strength at the
-         * crown, half strength at the foot. */}
+        {/* Top-lit brand lime: full strength at the top, half at the foot. */}
         <linearGradient
           id={`paint1_linear_${idJitter}`}
           x1="25"

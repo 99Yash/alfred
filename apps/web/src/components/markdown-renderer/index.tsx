@@ -11,18 +11,12 @@ import { markdownComponents } from "./elements";
 
 import "katex/dist/katex.min.css";
 
-// Re-export the shared fenced-code `pre` renderer so surfaces with their own
-// wrapper typography (e.g. the chat reply's `AssistantMarkdown`) can render the
-// same dark CodeBlock card instead of forking a second one. `CodeBlock` itself
-// is exported too, for surfaces that show a code/data payload outside markdown
-// (e.g. a tool result's pretty-printed JSON).
+// Shared fenced-code renderer, for surfaces with their own wrapper typography.
 export { MarkdownPre } from "./markdown-pre";
 
 export { CodeBlock } from "./code-block";
 
-// The `alt-text` image override lives in its own module so this file exports
-// components only: a component file that also exports a plain function loses
-// React Fast Refresh, and editing it forces a full reload instead of a hot swap.
+// Own module: a component file that also exports a plain function loses Fast Refresh.
 export { altTextImageComponents } from "./alt-text-image";
 
 type RemarkPlugins = ComponentProps<typeof ReactMarkdown>["remarkPlugins"];
@@ -31,42 +25,26 @@ interface MarkdownRendererProps {
   children: string;
   className?: string | undefined;
   /**
-   * Color treatment. `surface` follows the app theme tokens — use it on
-   * normal light/dark surfaces. `media` is FIXED white-alpha for content
-   * that sits on the rail's weather video: that backdrop is always a dark
-   * photograph regardless of theme, so theme tokens (near-black ink in
-   * light mode) would invert against it. Mirrors how the rest of the rail
-   * styles itself (`text-white/65`, `bg-white/[0.06]`, …).
+   * `surface` follows theme tokens. `media` is fixed white-alpha for the rail's
+   * weather video, which is always dark, so theme ink would invert against it.
    */
   tone?: "surface" | "media" | undefined;
   /**
-   * Typographic scale. `compact` (default) is the dense email/chat-rail body
-   * — 12.5px, tight block rhythm. `reading` is the briefing-detail scale —
-   * 15px in a wide reading column with larger headings and roomier spacing.
-   * Pick the variant rather than overriding base size via `className`:
-   * arbitrary `text-[…]` utilities tie on specificity, so a className font
-   * size won't reliably beat the wrapper's.
+   * `compact` (default) is the dense rail/email body; `reading` is the briefing scale.
+   * Pick a variant, not a `className` font size: `text-[…]` ties on specificity.
    */
   size?: "compact" | "reading" | undefined;
-  /**
-   * Extra remark plugins appended after the built-ins (gfm/breaks/math).
-   * Briefings inject a token-resolution plugin here to turn the composer's
-   * `[[<kind>:<id>]]` references into inline entity chips.
-   */
+  /** Runs after gfm/breaks/math. Briefings use it to turn `[[<kind>:<id>]]` into entity chips. */
   extraRemarkPlugins?: RemarkPlugins | undefined;
   /** Extra component overrides merged over the shared registry. */
   extraComponents?: Components | undefined;
   /**
-   * How to handle markdown images. `render` (default) emits `<img>` as usual —
-   * correct for chat, briefings, and artifacts. `alt-text` emits the alt text
-   * in brackets and NEVER an `<img>`, so a `![](https://tracker)` pixel in a
-   * text/plain email body makes zero remote requests (#294). The inbox Reader
-   * passes `alt-text`; everywhere else keeps the default.
+   * `alt-text` prints the alt text and never emits `<img>`, so a tracker pixel
+   * in untrusted content (inbox mail) makes no remote request.
    */
   images?: "render" | "alt-text" | undefined;
 }
 
-/** Theme-following colors for regular app surfaces. */
 const SURFACE_TONE = [
   "text-app-fg-3",
   "[&_h1]:text-app-fg-4 [&_h2]:text-app-fg-4 [&_h3]:text-app-fg-4 [&_h4]:text-app-fg-4",
@@ -79,11 +57,7 @@ const SURFACE_TONE = [
   "[&_hr]:border-app-bg-3/60",
 ] as const;
 
-/**
- * Fixed white-alpha colors for the weather-video backdrop. Link color is a
- * literal (`--app-purple-4`'s dark-mode value) rather than the token — the
- * light-mode token (#918df6) drops below AA against the dark video.
- */
+/** Literal link color: the light-mode `--app-purple-4` fails AA on the dark video. */
 const MEDIA_TONE = [
   "text-white/85",
   "[&_h1]:text-white [&_h2]:text-white [&_h3]:text-white [&_h4]:text-white",
@@ -96,10 +70,6 @@ const MEDIA_TONE = [
   "[&_hr]:border-white/20",
 ] as const;
 
-/**
- * Dense rail/email scale. Block spacing is tighter than `prose` defaults,
- * which read as "article" rather than "email body" at this size.
- */
 const COMPACT_SIZE = [
   "text-[12.5px] leading-[1.6]",
   "[&_p]:my-2 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0",
@@ -116,10 +86,6 @@ const COMPACT_SIZE = [
   "[&_.katex-display]:my-2",
 ] as const;
 
-/**
- * Briefing-detail reading scale: 15px body in a wide column with larger,
- * more separated headings and a roomier vertical rhythm than the rail.
- */
 const READING_SIZE = [
   "text-[15px] leading-7",
   "[&_p]:my-3 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0",
@@ -137,27 +103,8 @@ const READING_SIZE = [
 ] as const;
 
 /**
- * Renders email/note bodies, assistant messages, and briefing prose as
- * markdown.
- *
- * Architecture mirrors dimension's renderer: a thin wrapper that owns the
- * shared typography (via the `[&_x]` selectors below) and a small `components`
- * registry (`./elements`) for tags that need behaviour — fenced code becomes a
- * dark `CodeBlock` with copy + syntax highlighting, and `"cite"`-titled links
- * become source pills. Everything else falls through to react-markdown's
- * defaults dressed by the tone selectors. Size-dependent rhythm lives in the
- * `*_SIZE` sets so the same plumbing serves both the dense rail and the wide
- * briefing column; callers compose extra plugins/components (e.g. briefing
- * entity chips) without forking this file.
- *
- *  - `remark-gfm` handles GitHub-flavored extensions (tables, strikethrough,
- *    autolinks, task lists). Most plain-text email signatures + GitHub /
- *    Linear notification mails arrive in this dialect already.
- *  - `remark-breaks` turns single `\n` into `<br>`. Gmail bodies extracted
- *    from `text/plain` rely on hard line breaks, not paragraph spacing —
- *    without this they'd collapse into prose blocks.
- *  - `remark-math` + `rehype-katex` render `$$…$$` / `\(…\)` math. Single-`$`
- *    text math is disabled so stray dollar amounts ("$5") aren't parsed.
+ * Render email/note bodies, assistant messages, and briefing prose as markdown.
+ * `remark-breaks` keeps the hard line breaks of `text/plain` Gmail bodies.
  */
 export function MarkdownRenderer({
   children,
@@ -168,9 +115,7 @@ export function MarkdownRenderer({
   extraComponents,
   images = "render",
 }: MarkdownRendererProps) {
-  // In `alt-text` mode the `img` override wins over `extraComponents` — it is a
-  // privacy guarantee (#294), not a style default, so nothing may re-enable a
-  // remote `<img>`.
+  // `alt-text` wins over `extraComponents`: it is a privacy guarantee, not a style.
   const components: Components = {
     ...markdownComponents,
     ...extraComponents,
@@ -181,51 +126,29 @@ export function MarkdownRenderer({
     <div
       className={cn(
         ...(size === "reading" ? READING_SIZE : COMPACT_SIZE),
-        // Inline text
         "[&_strong]:font-semibold",
         "[&_em]:italic",
         "[&_a]:underline [&_a]:underline-offset-2",
         "[&_a]:wrap-break-word",
-        // Lists
         "[&_ol]:list-decimal [&_ul]:list-disc",
         "[&_li]:pl-0.5",
-        // Blockquote — typical "On X wrote:" reply chains land here once we
-        // add the quote-detector. Until then this still tames the rare `>` line.
         "[&_blockquote]:border-l-2 [&_blockquote]:pl-3",
-        // Inline code — tokens like `useInfiniteQuery` and quoted file refs
-        // (`chat-shell.tsx:450`) routinely exceed the rail width.
-        // `overflow-wrap: anywhere` lets the browser break mid-token *only
-        // when* a word boundary won't fit on the line — keeping single
-        // identifiers intact whenever they have room. Avoid `break-all`,
-        // which slices every long-ish token across lines even when it
-        // would fit by simply wrapping onto the next row. Fenced ``` blocks
-        // are handled by `CodeBlock` (the `pre` override) and aren't styled
-        // here.
+        // `anywhere` breaks a long token only when it cannot fit; `break-all` splits every token.
         "[&_:not(pre)>code]:rounded [&_:not(pre)>code]:px-1 [&_:not(pre)>code]:py-px",
         "[&_:not(pre)>code]:font-mono",
         "[&_:not(pre)>code]:[overflow-wrap:anywhere]",
-        // Tables — emails rarely contain them, but newsletters sometimes do.
-        // Wrap the table in a horizontal scroller (display:block on the table
-        // itself) so wide tables stay tabular rather than collapsing column
-        // structure. Body cells still wrap their text.
+        // display:block makes a wide table scroll instead of losing its columns.
         "[&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto",
         "[&_table]:border-collapse",
         "[&_th]:border [&_th]:px-1.5 [&_th]:py-1 [&_th]:font-medium",
         "[&_td]:border [&_td]:px-1.5 [&_td]:py-1",
         "[&_td]:wrap-break-word [&_th]:wrap-break-word",
-        // Horizontal rule
         "[&_hr]:border-t",
-        // Images — rare, and we don't proxy them so cors / privacy concerns
-        // apply. Inline-cap so a runaway image can't blow up the rail width.
+        // Cap width so a large image cannot widen the rail.
         "[&_img]:h-auto [&_img]:max-w-full [&_img]:rounded",
-        // Math — keep KaTeX display blocks inside the rail and let inline math
-        // wrap with surrounding text rather than forcing a horizontal scroll.
         "[&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden",
         "[&_.katex]:text-[1em]",
-        // Root-level wrapping safety net — `min-w-0` lets the flex parent
-        // shrink us below content width (otherwise children with intrinsic
-        // width like long URLs can blow the card open), and the wrap rules
-        // catch anything that slipped past the per-tag selectors above.
+        // `min-w-0` lets the flex parent shrink us, so a long URL cannot force the card open.
         "min-w-0 [overflow-wrap:anywhere] wrap-break-word",
         ...(tone === "media" ? MEDIA_TONE : SURFACE_TONE),
         className,

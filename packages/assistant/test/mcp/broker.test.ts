@@ -43,10 +43,8 @@ import { dbBackedSkip } from "../support/db-backed";
 import { claimExpectedRejection } from "../support/expected-rejection";
 
 /**
- * DB-backed offline tests for the execution broker (PRD #540). A real
- * `McpRawClient` is wired to a controllable FAKE `McpProtocolClient`, so the full
- * connect → refresh → ledger → call path runs with no socket. Opt-in on
- * `DATABASE_URL`, mirroring the other MCP tests.
+ * DB-backed broker tests. A real `McpRawClient` runs over a fake `McpProtocolClient`,
+ * so the full connect, refresh, ledger, and call path runs with no socket. Needs `DATABASE_URL`.
  */
 const SKIP = dbBackedSkip("database");
 
@@ -104,8 +102,7 @@ class FakeProtocol implements McpProtocolClient {
   onConnectionUnhealthy(): void {}
 }
 
-// Permissive schema on purpose: these tests exercise ledger/barrier semantics,
-// not the raw client's exact-schema validation (covered by client tests).
+// Permissive schema on purpose: these tests cover the ledger and barrier, not schema validation.
 function tool(name: string): Tool {
   return {
     name,
@@ -131,10 +128,7 @@ async function seedUser(): Promise<string> {
   return userId;
 }
 
-/**
- * The exact `mcp.call` input a staging row stores. The tool schema is strict and
- * omits `kind`, so a spread of the whole `ExternalToolRef` is not a valid row.
- */
+/** The exact `mcp.call` input a staging row stores. The strict schema omits `kind`, so do not spread `ExternalToolRef`. */
 function stagedCallInput(ref: ExternalToolRef, args: McpCallInput["arguments"]): McpCallInput {
   return {
     connectionId: ref.connectionId,
@@ -171,7 +165,7 @@ async function seedStaging(
       proposedInput,
       displayInput: proposedInput,
       proposedInputHash: randomUUID(),
-      // #559a: the ledger's NOT NULL effect identity and canonical request hash.
+      // The ledger's NOT NULL effect identity and canonical request hash.
       effectKey: `eff:${run.id}:${toolCallId}`,
       attemptKey: `eff:${run.id}:${toolCallId}:1`,
       requestHash: `req_seed_${randomUUID()}`,
@@ -359,26 +353,10 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     assert.equal(invocation.effectOutcome, "succeeded");
   });
 
-  // The reviewed-read fast path above skips approval, and this is the guard on
-  // it: a `read` policy is honored only while the descriptor it
-  // was reviewed against is still the one in the current catalog. A server that
-  // quietly redefines a tool cannot keep an exemption granted for other behavior.
-  //
-  // The guard is the POLICY JOIN in `resolveMcpToolIdentity` (`persistence.ts`),
-  // which matches `mcp_tool_policy.descriptor_hash` against the hash the current
-  // catalog revision stores for that tool name. A stale reviewed hash simply does
-  // not join, so no policy is authorized and the conservative `unknown` default
-  // applies. Dropping that one join condition is the mutant this case kills.
-  //
-  // The broker's own `hash === identity.descriptorHash` check is a second gate on
-  // the same question, and it is NOT what this case exercises: removing it leaves
-  // this test green. It can only fire on a catalog row whose stored descriptor
-  // hashes disagree with its own revision hash, because a revision is
-  // `sha256Canonical(sortedTools)` over every descriptor (`client.ts`) — so
-  // editing a descriptor always moves the revision too, and the broker's
-  // catalog-revision check rejects that call earlier. Reach the reachable half:
-  // a policy row carrying an earlier review's hash, selected at the CURRENT
-  // revision.
+  // A `read` policy holds only while its reviewed descriptor is still in the current catalog.
+  // The guard is the policy join in `resolveMcpToolIdentity` (`invocations.ts`): a stale hash does not join,
+  // so the `unknown` default applies. Dropping that join is the mutant this case kills.
+  // The broker's own hash check is not exercised here: editing a descriptor also moves the revision.
   test("a stale reviewed hash discards the read policy and takes the effectful path", async () => {
     const userId = await seedUser();
     const connId = await seedConnection(userId);
@@ -392,8 +370,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       description: "What the reviewer approved, before the server changed it",
     } satisfies Tool;
 
-    // Without this the case would silently degrade into the matching-hash test
-    // above, which asserts the OPPOSITE outcome and would still pass.
+    // Without this, the case degrades into the matching-hash test above, which asserts the opposite.
     assert.notEqual(
       descriptorHash(reviewedDescriptor),
       descriptorHash(liveDescriptor),
@@ -547,8 +524,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     assert.equal(row?.retryDisposition, "blocked");
     assert.equal(row?.resolvedAt, null);
 
-    // An identical proposal (fresh staging row) is refused by the barrier and
-    // never reaches the transport again.
+    // An identical proposal (fresh staging row) is refused by the barrier and never reaches the transport.
     const callsBefore = protocol.calls;
 
     const second = await broker.callTool({
@@ -598,16 +574,8 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     assert.equal(protocol.calls, 1);
   });
 
-  // A stale catalog revision is refused by the BROKER, before the reservation is
-  // minted. The barrier exists to stop a repeat of a write that may have reached
-  // the remote application, so a call rejected before dispatch needs none — the
-  // same rule the foreign-connection case below proves for ownership. Read the
-  // pair together: this is the second of the two pre-dispatch refusals, and both
-  // must leave the ledger empty.
-  //
-  // This check sat inside the raw client until it moved into the broker, which is
-  // why an earlier version of this case expected a minted-then-resolved row. That
-  // row recorded a call that provably never happened.
+  // The broker refuses a stale catalog revision before it mints a reservation.
+  // A call rejected before dispatch needs no barrier, so the ledger stays empty (as in the foreign-connection case).
   test("a stale catalog revision is refused pre-dispatch and mints no reservation", async () => {
     const userId = await seedUser();
     const connId = await seedConnection(userId);
@@ -642,20 +610,15 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     );
   });
 
-  // Reconnect/session-expiry regression (issue #540 VS Code findings): a session
-  // that expires AFTER the outbound `tools/call` was observed is a possibly-
-  // delivered write. No layer — raw client, SDK, session-refresh, connection
-  // manager, or broker — may transparently replay it. The barrier is durable, so
-  // even a fresh worker (new manager → real reconnect) must refuse the repeat.
+  // A session that expires after `tools/call` went out is a possibly-delivered write.
+  // No layer may replay it, and the durable barrier refuses the repeat even from a fresh worker.
   test("a session expiry after dispatch is ambiguous and no reconnect replays it", async () => {
     const userId = await seedUser();
     const connId = await seedConnection(userId);
     const protocol = new FakeProtocol([tool("charge_card")]);
     const revision = await liveRevision(protocol, connId);
 
-    // The server observes exactly one outbound `tools/call`, then the transport
-    // reports a session expiry (HTTP 404) before Alfred receives a trustworthy
-    // result — the raw client maps this to `session_expired`.
+    // One outbound `tools/call`, then HTTP 404 before a result. The raw client maps this to `session_expired`.
     protocol.behavior = {
       kind: "throw",
       error: new SdkHttpError(
@@ -693,16 +656,13 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       .from(mcpInvocation)
       .where(eq(mcpInvocation.id, firstOutcome.invocationId));
 
-    // The lifecycle never advanced past the delivery boundary, and the row stays
-    // unresolved so the barrier keeps rejecting an identical repeat.
+    // The lifecycle stops at the delivery boundary, and the row stays unresolved so the barrier holds.
     assert.equal(row?.attemptLifecycle, "delivery_possible");
     assert.equal(row?.effectOutcome, "unknown");
     assert.equal(row?.retryDisposition, "blocked");
     assert.equal(row?.resolvedAt, null);
 
-    // Reconnect: a brand-new manager/broker (as a cold worker would build) truly
-    // reconnects the client. Flip the fake so a hypothetical replay WOULD succeed —
-    // proving the block is the durable barrier, not a broken transport.
+    // A fresh manager and broker truly reconnect. The fake would now succeed, so the block is the barrier.
     protocol.behavior = { kind: "ok" };
     const reconnectedBroker = brokerWith(protocol);
 
@@ -1049,9 +1009,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
             invocationId: seeded.invocationId,
           }),
         );
-        // The attacker already holds `default` on this server, and
-        // `(user_id, server_id, instance_key)` is unique, so the transferred row
-        // takes its own instance key.
+        // The attacker already holds `default`, and `(user_id, server_id, instance_key)` is unique.
         await tx
           .update(mcpConnections)
           .set({
@@ -1138,9 +1096,8 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
 
       assert.ok(successor);
       assert.ok(successor.stagingId);
-      // Force the first settlement transaction's staging guard to fail after
-      // the provider has returned. The broker's local fallback must align this
-      // split state without calling the provider again.
+      // Fail the first settlement's staging guard after the provider returned.
+      // The local fallback must align this split state without calling the provider again.
       await db()
         .update(actionStagings)
         .set({ outcome: "planned" })
@@ -1293,8 +1250,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       assert.ok(successor);
       assert.ok(successor.stagingId);
       successorStagingId = successor.stagingId;
-      // `refused` is not a value the aggregate settle or the incomplete mark
-      // accepts, so the first repair genuinely fails and the row stays queued.
+      // Neither the aggregate settle nor the incomplete mark accepts `refused`, so the first repair fails.
       await db()
         .update(actionStagings)
         .set({ status: "failed", outcome: "refused" })
@@ -1405,9 +1361,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     assert.equal(protocol.calls, 1);
   });
 
-  // Invalid/malformed output after possible delivery is NOT a proven non-delivery:
-  // the write may have applied, so an effectful call resolves ambiguous/blocked
-  // (issue #540 clarification #2 — boundary-based, not timeout-specific).
+  // Malformed output after possible delivery is not proven non-delivery, so an effectful call resolves ambiguous.
   test("invalid output after possible delivery is ambiguous for an effectful call", async () => {
     const userId = await seedUser();
     const connId = await seedConnection(userId);
@@ -1424,8 +1378,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     } satisfies Tool;
 
     const protocol = new FakeProtocol([declaredOutput]);
-    // A structured result that violates the declared output schema → the raw
-    // client throws `invalid_output` AFTER the call was delivered.
+    // Output that violates the declared schema: the raw client throws `invalid_output` after delivery.
     protocol.behavior = {
       kind: "throw",
       error: new Error("unused — overridden below"),
@@ -1458,10 +1411,8 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     assert.equal(row?.effectOutcome, "unknown");
     assert.equal(row?.retryDisposition, "blocked");
     assert.equal(row?.resolvedAt, null);
-    // A response DID cross the wire, so provenance is persisted even though the
-    // outcome is ambiguous (#541): the lifecycle advances to `response_received`
-    // and the census records `outputSchemaValidated: false` — the very fact that
-    // explains the failure — rather than being lost to an error string.
+    // A response arrived, so provenance is persisted even though the outcome is ambiguous.
+    // `outputSchemaValidated: false` records why it failed.
     assert.equal(row?.attemptLifecycle, "response_received");
     assert.deepEqual(row?.resultProvenance, {
       isError: false,
@@ -1473,9 +1424,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     });
   });
 
-  // Ambiguous-write protection keys on the reviewed EFFECT CLASS, not the approval
-  // risk tier: a write downgraded to low risk still gets barrier protection
-  // (issue #540 clarification #3).
+  // The barrier keys on the reviewed effect class, not the risk tier: a low-risk write still gets it.
   test("a low-risk reviewed write still receives ambiguous-write protection", async () => {
     const userId = await seedUser();
     const connId = await seedConnection(userId);
@@ -1526,9 +1475,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     assert.equal(protocol.calls, callsBefore, "a low-risk write repeat is still barred");
   });
 
-  // #541: the broker persists a payload-free result-provenance envelope onto the
-  // ledger row, separately from the sanitized model projection, whenever a
-  // response is received — for a clean success AND an ambiguous tool_error.
+  // The broker persists a payload-free provenance envelope whenever a response arrives, on success and on tool_error.
   test("a received response persists the result-provenance envelope on the ledger row", async () => {
     const userId = await seedUser();
     const connId = await seedConnection(userId);
@@ -1583,11 +1530,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     assert.deepEqual(errRow?.resultProvenance?.contentKinds, { text: 1 });
   });
 
-  // A transport failure with NO response received has no result to record: the
-  // provenance column stays NULL and the lifecycle never advances past the
-  // delivery boundary. (Contrast the invalid_output case above, where a response
-  // DID arrive and provenance is persisted despite the ambiguous outcome.) The
-  // durable model projection is absent too — nothing to flatten to prose here.
+  // No response means no provenance: the column stays NULL and no model projection is stored.
   test("a transport failure with no response leaves the result-provenance envelope null", async () => {
     const userId = await seedUser();
     const connId = await seedConnection(userId);
@@ -1616,10 +1559,8 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     assert.equal(row?.resultProvenance, null);
   });
 
-  // Ownership is enforced at the broker's boundary, mirroring the read half
-  // (`listMcpToolsLocal`): a caller may only drive a connection they own. A
-  // foreign `connectionId` reads as "not connected" and never reaches the
-  // network or mints a ledger row.
+  // Ownership, as in `listMcpToolsLocal`: a foreign `connectionId` reads as "not connected",
+  // and never reaches the network or mints a ledger row.
   test("a call against a connection owned by another user is refused pre-dispatch", async () => {
     const owner = await seedUser();
     const connId = await seedConnection(owner);
@@ -1649,11 +1590,8 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     assert.equal((await invocationsForStaging(stagingId)).length, 0);
   });
 
-  // #541 part 2: the ledger's correlation breadcrumbs are a copy of the authorizing
-  // staging row's `run_id` / `step_id` / `tool_call_id`, sourced at mint (never
-  // threaded from a ctx that could drift). The two attempt-phase timestamps are
-  // stamped in lifecycle order — distinct from the row's `createdAt` (reservation)
-  // and `resolvedAt` (terminal). Observability only; the barrier keys on `argsHash`.
+  // The ledger copies `run_id` / `step_id` / `tool_call_id` from the staging row at mint.
+  // The two phase timestamps are stamped in order. Observability only; the barrier keys on `argsHash`.
   test("correlation ids are copied from the staging row and phase timestamps persisted", async () => {
     const userId = await seedUser();
     const connId = await seedConnection(userId);
@@ -1700,8 +1638,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     );
   });
 
-  // A transport failure with no response never crosses the response boundary, so
-  // `responseReceivedAt` stays null even though delivery was possible.
+  // With no response, `responseReceivedAt` stays null even though delivery was possible.
   test("responseReceivedAt stays null when no response arrives", async () => {
     const userId = await seedUser();
     const connId = await seedConnection(userId);
@@ -1729,11 +1666,8 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     assert.equal(row?.responseReceivedAt, null, "no response boundary was crossed");
   });
 
-  // #541 part 2: the ledger must persist enough to reconstruct an ambiguous
-  // attempt WITHOUT ever storing a credential or a full payload. A possibly-
-  // delivered failure whose error text carries a bearer token, URL-embedded
-  // credentials, and a huge body lands on the row bounded + redacted; and the raw
-  // arguments never appear anywhere on the row (only their hash).
+  // An ambiguous attempt must be reconstructable without a credential or a full payload.
+  // Error text with secrets and a huge body lands redacted and bounded; raw arguments are only hashed.
   test("secrets and full payloads never enter the ledger row", async () => {
     const userId = await seedUser();
     const connId = await seedConnection(userId);

@@ -1,12 +1,7 @@
 /**
- * Product-facing MCP recovery door. It owns both durable ambiguity barriers:
- * `mcp_invocation` and `action_stagings`. No caller can supply replacement call
- * data; a successor always copies the exact persisted, owner-scoped staging input.
- *
- * The list is a pure read. It never repairs a row and never constructs the
- * broker. Rows whose provider phase ended but whose settlement is not recorded
- * yet are reported as a count (`awaitingRepair`), not hidden behind a live
- * cursor; the broker's drain timer and boot reconciliation normalize them.
+ * Product-facing MCP recovery. Owns both ambiguity barriers: `mcp_invocation` and
+ * `action_stagings`. A successor copies the persisted staging input; callers supply no call data.
+ * The list is a pure read. It never repairs a row or builds the broker.
  */
 
 import { Buffer } from "node:buffer";
@@ -53,14 +48,8 @@ type ReservedSuccessor = { priorId: string; successor: McpInvocation };
 
 export type { McpRecoveryOperationsPageInput } from "@alfred/contracts";
 
-// ---------------------------------------------------------------------------
-// Keyset order. The cursor carries a JavaScript ISO timestamp, which has
-// millisecond precision, while PostgreSQL stores microseconds. The SQL key is
-// therefore truncated to milliseconds on BOTH sides of the comparison: a row
-// whose `created_at` is `12:00:00.123456` must sort exactly where the cursor
-// that names it as `.123` says it does, or the boundary row repeats on the next
-// page (and a `<=` frontier would drop it).
-// ---------------------------------------------------------------------------
+// Keyset order. The JS cursor has milliseconds and PostgreSQL has microseconds,
+// so truncate both sides to milliseconds or the boundary row repeats or drops.
 
 export const mcpRecoveryOrderKeySchema = z
   .object({ timestamp: z.string().datetime(), invocationId: z.string() })
@@ -102,11 +91,8 @@ function encodeRecoveryCursor(key: McpRecoveryOrderKey): string {
 }
 
 /**
- * Rows whose provider phase ended (the dispatcher committed the staging row to a
- * terminal status) but whose broker settlement was never recorded on the
- * invocation. They are invisible to the product projection until the broker's
- * drain or boot reconciliation normalizes them, so the page reports how many
- * there are instead of hiding them behind an empty page.
+ * Count rows whose staging row is terminal but whose broker settlement is not recorded.
+ * The list cannot show them until repair, so the page reports the count.
  */
 async function countAwaitingRepair(userId: string, runner: DbRunner): Promise<number> {
   const [row] = await runner
@@ -266,10 +252,7 @@ export async function resolveMcpRecoveryOperation(
       .set({
         outcome: succeeded ? "succeeded" : "failed",
         status: succeeded ? "executed" : "failed",
-        // A `failed` staging row is replayed to the model through its stored
-        // error. The user's statement is the error here: the effect did not
-        // apply and Alfred did not repeat it. Without it the replay reads as a
-        // generic provider failure.
+        // The model sees this error on replay. Say the effect did not apply, not a provider failure.
         ...(succeeded
           ? {}
           : { executeError: jsonValueSchema.parse(publicAppError("mcp_effect_not_applied")) }),
@@ -287,11 +270,7 @@ export async function resolveMcpRecoveryOperation(
   });
 }
 
-/**
- * The successor is one more attempt of the SAME logical effect, so it inherits
- * the prior row's `effect_key` and takes the next attempt number, the same way
- * `attemptKeyFor` spells a first attempt as `<effect_key>:1`.
- */
+/** The next attempt of the same effect: `<effect_key>:<n+1>`, after `attemptKeyFor`'s `:1`. */
 function nextAttemptKey(staging: { effectKey: string; attemptKey: string }): string {
   const suffix = /:(\d+)$/.exec(staging.attemptKey);
   const prior = suffix?.[1] ? Number.parseInt(suffix[1], 10) : 1;
@@ -304,11 +283,7 @@ async function reserveMcpRecoverySuccessor(
   runner: DbRunner = db(),
 ): Promise<ReservedSuccessor> {
   return runAtomic(runner, async (tx) => {
-    // Read only the pointer needed to establish the lock order. Connection
-    // authority is locked first; catalog publishers, ownership changes, and the
-    // policy writer all serialize on this row. The invocation and staging locks
-    // come next, so validation and both barrier transitions use one stable
-    // authority snapshot.
+    // Lock order: connection row first (publishers and policy writes wait on it), then invocation and staging.
     const [requestedRef] = await tx
       .select({ connectionId: mcpInvocation.connectionId })
       .from(mcpInvocation)
@@ -343,10 +318,7 @@ async function reserveMcpRecoverySuccessor(
       throw Errors.NotFoundError("MCP recovery operation not found");
     }
 
-    // A refreshed product posts the visible prepared successor's own id. This is
-    // the same closed action as posting the prior id: return the already-minted
-    // reservation, and let the broker's prepared-only claim decide whether one
-    // send is still allowed.
+    // A refreshed page may post the successor's own id. Return the existing reservation.
     if (
       prior.successorOf &&
       prior.attemptLifecycle === "prepared" &&
@@ -428,9 +400,7 @@ async function reserveMcpRecoverySuccessor(
     const now = new Date();
     const stagingId = createId("as");
     const toolCallId = createId("mcp-recovery");
-    // The prior row leaves `unknown` so the successor can hold the one unresolved
-    // slot the `(user_id, request_hash) WHERE outcome = 'unknown'` index admits
-    // per effect. See `effectOutcomeSchema` for what `superseded` claims.
+    // The prior row leaves `unknown`: the unique index allows one `unknown` row per request.
     await tx
       .update(actionStagings)
       .set({
@@ -450,8 +420,7 @@ async function reserveMcpRecoverySuccessor(
         toolCallId,
         toolName: "mcp.call",
         integration: "mcp",
-        // The same guarded derivation the dispatch gate applies: an unreviewed or
-        // out-of-enum tier re-gates to the floor instead of un-gating.
+        // Same derivation as the dispatch gate, so the successor cannot get a lower tier.
         riskTier: effectiveMcpRiskTier(identity),
         proposedInput: call.data,
         displayInput: staging.displayInput,
@@ -501,11 +470,7 @@ async function reserveMcpRecoverySuccessor(
   });
 }
 
-/**
- * Reserve and deliver one explicit successor. The input carries no
- * `AbortSignal` on purpose: the resume is the one send that must not share an
- * HTTP request's lifetime (see `McpReservedSuccessorInput`).
- */
+/** Reserve and send one successor. No `AbortSignal`: the send must outlive the HTTP request. */
 export async function retryMcpRecoveryOperation(input: {
   userId: string;
   invocationId: string;

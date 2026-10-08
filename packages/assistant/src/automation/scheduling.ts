@@ -11,18 +11,9 @@ import { isValidTimezone } from "@alfred/assistant/time";
 import { resolveTimezone } from "@alfred/assistant/settings";
 
 /**
- * Workflow scheduling helpers (ADR-0027).
- *
- * `cron-parser` runs at *write time* — when a workflow row mutates and
- * after each tick fire — so the per-minute `workflows.tick` is a partial
- * index lookup on `next_run_at`, not an O(n) cron parse. This module is
- * the only place that knows the parser exists.
- *
- * Tz resolution chain is shared with ADR-0025's morning briefing:
- *
- *   1. `trigger.timezone` on the workflow row, if set + valid IANA tz.
- *   2. The shared user timezone resolver (`timezone`, then `briefing.timezone`).
- *   3. UTC fallback.
+ * Workflow scheduling (ADR-0027). Cron is parsed at write time and after each fire,
+ * so the per-minute tick is an index lookup on `next_run_at`.
+ * Timezone: `trigger.timezone` if valid, then the user's timezone, then UTC.
  */
 
 export const DEFAULT_WORKFLOW_TIMEZONE = parseIanaTimezone("UTC");
@@ -56,14 +47,7 @@ export function validateCronTrigger(
   }
 }
 
-/**
- * Resolve the timezone used to compute `next_run_at` for a cron workflow.
- *
- * The trigger-level override wins because users sometimes want a single
- * "America/New_York" workflow even after they fly to Tokyo and update
- * their preference. The pref-level fallback covers the common case where
- * the user has one canonical tz and every workflow inherits it.
- */
+/** The trigger's own zone wins, so a workflow can stay on New York time after the user moves. */
 export async function resolveWorkflowTimezone(
   userId: string,
   trigger: WorkflowTrigger,
@@ -76,14 +60,8 @@ export async function resolveWorkflowTimezone(
 }
 
 /**
- * Compute the next firing instant for a cron trigger relative to `from`
- * (defaulting to now). Returns `null` for non-cron triggers and for
- * malformed expressions — the caller treats null as "this workflow does
- * not contribute to the tick index" rather than throwing, so a single
- * bad row can't crash the dispatcher.
- *
- * `cron-parser` interprets the schedule in `timezone`, so `0 7 * * *` +
- * `America/New_York` returns 7am EST, not 7am UTC.
+ * Next fire after `from` (default now), in `timezone`. Null for non-cron or bad
+ * expressions, so one bad row cannot crash the dispatcher.
  */
 export function computeNextRunAt(
   trigger: WorkflowTrigger,
@@ -103,16 +81,14 @@ export function computeNextRunAt(
   }
 }
 
-/** Deterministic approval copy derived from the trigger it describes. */
+/** Approval copy derived from the trigger. */
 export function workflowScheduleSummary(trigger: WorkflowTrigger): string {
   switch (trigger.kind) {
     case "cron":
       return describeCronSchedule(trigger.schedule, trigger.timezone);
     case "event":
-      // A typed trigger keeps the exact pre-#990 string: activation compares
-      // this summary with the staged preview (`validateActivationSchedule`),
-      // so an approval staged before a deploy must still activate after it.
-      // Only a raw trigger names the provider's own kind.
+      // Typed triggers keep the pre-#990 string: `validateActivationSchedule` compares it,
+      // so an approval staged before a deploy still activates.
       return isRawEventType(trigger.type) && trigger.rawKind
         ? `For every ${eventTriggerPhrase(trigger)} event; Alfred evaluates semantic conditions inside the run`
         : "For every Gmail delivery; Alfred evaluates semantic conditions inside the run";

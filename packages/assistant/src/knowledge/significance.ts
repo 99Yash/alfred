@@ -1,16 +1,7 @@
 /**
- * Significance score (ADR-0057, builds ADR-0050 D1) — the one computed "who
- * matters" signal over `entities`, consumed by four call sites (web-search
- * enrichment gate · triage sender priority · meeting-prep · todo D1). It stays
- * a **scalar**: directional richness ("who am I *to this sender*") is composed
- * downstream by triage's Sender-relationship resolver (ADR-0059), not here.
- *
- * v1 blends header-derivable components over the correspondence aggregate
- * passive team-graph capture (P4a) writes onto each `person` entity: a
- * recency-weighted *activity* term (frequency × recency — so a fresh cold blast
- * doesn't score like a relationship), reply-reciprocity, and same-org-domain.
- * Weights and saturation constants are tunable from data (ADR-0057/0059 open
- * item); they live here as named constants, not magic numbers.
+ * Significance score (ADR-0057): one "who matters" scalar per `person` entity.
+ * Blends recency-weighted activity, reply reciprocity, and same-org domain.
+ * Directional context ("who am I to this sender") is triage's job (ADR-0059).
  */
 import {
   type SignificanceBand,
@@ -34,30 +25,24 @@ import {
 } from "./entity-metadata";
 
 export interface SignificanceWeights {
-  /**
-   * Recency-weighted correspondence volume (`frequency × recency`). Combined,
-   * not additive: a *recent* cold blast must not score like a real
-   * relationship just because it arrived yesterday (ADR-0059's exact failure
-   * shape). Old-but-frequent contact decays; recent two-way contact dominates.
-   */
+  /** Frequency × recency, so a fresh cold blast does not score like a relationship. */
   activity: number;
-  /** Reply-reciprocity — the strongest relationship-quality signal. */
+  /** The strongest relationship signal. */
   reciprocity: number;
-  /** Same-org-domain colleague bonus. */
   sameOrg: number;
 }
 
-/** Sum to 1.0 — `score` is their weighted mean, so it stays in `[0,1]`. */
+/** Sum to 1.0, so `score` stays in `[0,1]`. */
 export const DEFAULT_SIGNIFICANCE_WEIGHTS: SignificanceWeights = {
   activity: 0.5,
   reciprocity: 0.35,
   sameOrg: 0.15,
 };
 
-/** Correspondence volume at which the (log-scaled) frequency component ~saturates. */
+/** Volume at which the log-scaled frequency nears 1. */
 const VOLUME_SATURATION = 40;
 
-/** Half-life (days) of the recency component — ~one quarter. */
+/** Decay time constant in days: recency falls to 1/e (not 1/2) after this long. */
 const RECENCY_HALFLIFE_DAYS = 90;
 
 /** Co-recipient touches count for less than a direct send/receive. */
@@ -71,16 +56,13 @@ function round3(n: number): number {
 
 export interface ComputeSignificanceInput {
   stats: CorrespondenceStats;
-  /** Contact's domain ∈ one of the user's own account domains (work colleague signal). */
+  /** The contact's domain is one of the user's own domains. */
   sameOrg: boolean;
-  /** Reference "now" for the recency decay (injected for determinism in tests/backfill). */
+  /** Injected for deterministic tests and backfills. */
   now: Date;
 }
 
-/**
- * Pure scalar in `[0,1]`. Each component is independently `[0,1]`; the score is
- * their weight-weighted mean, so adjusting weights never pushes it out of range.
- */
+/** Pure scalar in `[0,1]`: a weighted mean of `[0,1]` components. */
 export function computeSignificance(
   input: ComputeSignificanceInput,
   weights: SignificanceWeights = DEFAULT_SIGNIFICANCE_WEIGHTS,
@@ -101,15 +83,12 @@ export function computeSignificance(
         )
       : 0;
 
-  // A two-way thread (the user replied / initiated) is a real relationship; a
-  // pure one-way inbound stream (never answered) is the cold-outreach shape
-  // ADR-0059 exists to deprioritize.
+  // Never-answered inbound is the cold-outreach shape ADR-0059 deprioritizes.
   const reciprocity = stats.inbound > 0 && stats.outbound > 0 ? 1 : stats.outbound > 0 ? 0.6 : 0.2;
 
   const sameOrgScore = sameOrg ? 1 : 0;
 
-  // Recency weights *volume* rather than standing alone — a fresh one-way
-  // blast (high recency, zero reciprocity, low frequency) must stay low.
+  // Recency scales volume, so a fresh one-way blast stays low.
   const activity = frequency * recency;
 
   const components: SignificanceScoreComponents = {
@@ -128,11 +107,7 @@ export function computeSignificance(
   return { score: round3(score), components, computedAt: now.toISOString() };
 }
 
-/**
- * The user's own account domains — the `same-org-domain` reference set. v1
- * derives them from the `user.email` row; connected-account domains can be
- * folded in once multi-account org detection earns it.
- */
+/** The user's own domains, from `user.email` only for now. */
 export async function loadUserDomains(userId: string): Promise<Set<string>> {
   const rows = await db()
     .select({ email: user.email })
@@ -141,10 +116,7 @@ export async function loadUserDomains(userId: string): Promise<Set<string>> {
     .limit(1);
 
   const domains = new Set<string>();
-  // `user.email` is read straight off the table with no schema gate in front
-  // of it, so an address with no usable shape answers `null` here and the
-  // same-org component falls to 0. `splitEmail` checks one `@`, a legal local
-  // part, and a normalized domain; the host itself is not validated here.
+  // `user.email` has no schema gate; an unusable address gives `null` and same-org 0.
   const d = emailDomain(rows[0]?.email ?? null);
 
   if (d) domains.add(d);
@@ -153,30 +125,24 @@ export async function loadUserDomains(userId: string): Promise<Set<string>> {
 }
 
 export interface RunSignificancePassOpts {
-  /** Reference "now"; defaults to wall-clock at call time. */
   now?: Date;
-  /** Pre-resolved user domains; loaded from the `user` row when omitted. */
+  /** Loaded from the `user` row when omitted. */
   userDomains?: Set<string>;
-  /** When false, compute + return scores but write nothing (dry run). */
+  /** False: compute and return scores, write nothing. */
   commit?: boolean;
   weights?: SignificanceWeights;
 }
 
 export interface SignificancePassResult {
-  /** person entities considered. */
+  /** Person entities considered. */
   total: number;
-  /** entities whose score was (re)computed. */
+  /** Entities scored. */
   scored: number;
-  /** Top entities by score, for logging — `{ name, address, score }`. */
+  /** Top entities by score, for logging. */
   top: Array<{ canonicalName: string; address: string | null; score: number }>;
 }
 
-/**
- * First significance pass over the populated graph (ADR-0059 P4a). Recomputes
- * the scalar for every `person` entity from its correspondence aggregate and
- * writes it under `metadata.significance`. Idempotent — safe to re-run after a
- * fresh capture.
- */
+/** Recompute every `person` entity's score into `metadata.significance` (ADR-0059 P4a). Idempotent. */
 export async function runSignificancePass(
   userId: string,
   opts: RunSignificancePassOpts = {},
@@ -221,9 +187,7 @@ export async function runSignificancePass(
     }
   }
 
-  // Issue the per-entity writes concurrently rather than awaiting each in the
-  // loop — the pass is idempotent (re-runnable after a partial failure), so the
-  // round-trips don't need a serial barrier or a single-connection transaction.
+  // Concurrent writes are fine: the pass is idempotent.
   if (pendingWrites.length > 0) {
     await Promise.all(
       pendingWrites.map((write) =>
@@ -240,16 +204,9 @@ export async function runSignificancePass(
   return { total: rows.length, scored: scoredRows.length, top: scoredRows.slice(0, 15) };
 }
 
-// ─── Sender-significance read (ADR-0064 #210 — the shared consumer-side read) ──
+// ─── Sender-significance read (ADR-0064 #210) ────────────────────────────────
 
-/**
- * One-shot read of a `person` entity's metadata bag by email *alias* — the
- * shared lookup behind {@link getSenderSignificance} and triage's
- * Sender-relationship resolver. Both must resolve a sender's graph row the same
- * way (alias match, lowercased), so the lookup lives here once rather than
- * duplicated at each consumer. Returns `null` when no `person` row carries this
- * address as an alias.
- */
+/** A `person` row's metadata by lowercased email alias, or `null`. Shared with triage's sender resolver. */
 export async function findPersonMetadataByAddress(
   userId: string,
   address: string,
@@ -278,27 +235,16 @@ export async function findPersonMetadataByAddress(
   return parsePersonEntityMetadata(rows[0]?.metadata);
 }
 
-/** The precomputed sender significance the attention scorer + lane split consume. */
 export interface SenderSignificance {
-  /** Precomputed scalar in `[0,1]` (ADR-0057). Never recomputed on read. */
+  /** Precomputed (ADR-0057); never recomputed on read. */
   score: number;
-  /** Bucketed band the attention scorer keys on (shared `@alfred/contracts` bucketing). */
   band: SignificanceBand;
-  /** Whether the sender shares the user's org domain — read straight from the stored components. */
   sameOrg: boolean;
 }
 
 /**
- * Read the precomputed sender significance for an email address — the shared
- * "who matters" scalar (ADR-0057/0059) the briefing lane and inbox rail consume
- * to demote low-significance senders within their honest category (ADR-0064).
- * Never recomputes; one entity read.
- *
- * Returns `null` when the sender has no graph row, OR has a row but no
- * significance pass yet (a not-yet-scored two-way contact must not be mistaken
- * for a real low score). The attention scorer degrades that `null` to a neutral
- * multiplier — exactly today's intrinsic-only behavior, safe by construction.
- * Best-effort: a DB blip also yields `null` rather than failing the caller.
+ * Precomputed sender significance (ADR-0064). `null` when the sender has no row
+ * or no score yet, so an unscored contact is not read as a low score. A DB error also gives `null`.
  */
 export async function getSenderSignificance(
   userId: string,
@@ -325,15 +271,7 @@ export async function getSenderSignificance(
   };
 }
 
-/**
- * Batched form of {@link getSenderSignificance} — resolves many sender addresses
- * to their precomputed significance in a *single* alias query, returning a map
- * keyed by normalized (trimmed/lowercased) address. Addresses with no scored
- * `person` row are simply absent (the caller treats absence as neutral), exactly
- * like the one-shot read. Use this on fan-out read paths (e.g. a briefing email
- * list) where calling the one-shot per address would be an N+1. Best-effort: a
- * DB blip yields an empty map rather than failing the caller.
- */
+/** Batched {@link getSenderSignificance}, keyed by lowercased address. Missing means neutral. A DB error gives an empty map. */
 export async function getSenderSignificanceBatch(
   userId: string,
   addresses: ReadonlyArray<string | null | undefined>,
@@ -385,8 +323,7 @@ export async function getSenderSignificanceBatch(
       sameOrg: significance.components.sameOrg >= 1,
     };
 
-    // Map every requested address this entity carries as an alias back to its
-    // significance — one entity can answer several of the distinct senders.
+    // One entity can answer several requested addresses.
     const aliases = toStringArray(row.aliases);
 
     for (const alias of aliases) {

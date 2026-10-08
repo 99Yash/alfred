@@ -1,24 +1,14 @@
 /**
- * Dry-run triage RE-CATEGORIZE (2026-06-22) — READ-ONLY, prod-runnable.
+ * Read-only: re-classify recent auto `email_triage` rows with the current prompt and
+ * print an old-to-new category matrix. Writes no triage or todo state, but each
+ * classify logs an `api_call_log` cost row.
  *
- * Re-classifies the newest document behind each recent auto-authored
- * `email_triage` row with the CURRENT prompt and diffs the NEW category against
- * the stored one. Unlike
- * `dry-run-triage-backfill.ts` (which walks agent TODOs and is `tsx`-only), this
- * walks the triage rows themselves and reports a category transition matrix —
- * the before/after view for a rubric change (e.g. the rule-8a social-network
- * → fyi flip). It writes NOTHING to `email_triage`/`todos` (it does emit an
- * `api_call_log` cost row per classify — cost attribution, not state).
- *
- * Bundled by tsdown (`noExternal: @alfred/*`) so it runs on prod with plain
- * `node dist/scripts/dry-runs/dry-run-triage-recategorize-committed.js` — the prod image
- * has no `tsx`/loose `@alfred/*` sources. Because it re-classifies with whatever
- * prompt is in the running image, run it AFTER deploying the new prompt.
+ * Runs on prod (bundled, no `tsx` in the image). It uses the prompt in the running
+ * image, so deploy the new prompt first.
  *
  *   # how many threads per mailbox (default 60):
  *   RECAT_LIMIT=80 node dist/scripts/dry-runs/dry-run-triage-recategorize-committed.js
- *   # or name the threads instead of taking a window — the preview a thread-scoped
- *   # repair (`../repairs/repair-triage-sender-miss-committed.ts`) runs before it commits:
+ *   # or name the threads (the preview for `repair-triage-sender-miss-committed.ts`):
  *   RECAT_THREAD_IDS=19a1b2c3d4e5f6a7,19b2c3d4e5f6a7b8 \
  *     node dist/scripts/dry-runs/dry-run-triage-recategorize-committed.js
  */
@@ -47,20 +37,7 @@ const TARGET_EMAILS = ["yash.k@oliv.ai", "yashgouravkar@gmail.com"];
 
 const RECAT_LIMIT = Number(process.env.RECAT_LIMIT) || 60;
 
-/**
- * Named Gmail thread ids. When set, these REPLACE the `RECAT_LIMIT` recency
- * window: the run scopes to exactly these threads, inside the `TARGET_EMAILS`
- * mailboxes. `main()` selects its users by `TARGET_EMAILS`, so a named thread
- * that lives in any other mailbox is never previewed — `reportUncoveredThreads`
- * prints it as `its mailbox … is outside TARGET_EMAILS`. This is the preview half of a thread-scoped repair — see
- * `../repairs/repair-triage-sender-miss-committed.ts`, which enqueues the real
- * workflow for the same ids and must never do so unpreviewed.
- *
- * The `source = 'auto'` filter below still applies, so a user-overridden thread
- * named here drops out of the re-classify loop. It does NOT drop out of the
- * report: {@link reportUncoveredThreads} names every requested id this run did
- * not re-classify, and why. A silent drop here would be read as "no change".
- */
+/** Named thread ids. When set, they replace the `RECAT_LIMIT` window, inside `TARGET_EMAILS` only. */
 const RECAT_THREAD_IDS = (process.env.RECAT_THREAD_IDS ?? "")
   .split(",")
   .map((id) => id.trim())
@@ -72,25 +49,9 @@ interface TargetUser {
 }
 
 /**
- * Name WHICH mechanism moved the answer, not just that it moved.
- *
- * `model` carries one `+tag` per deterministic floor that MOVED the category,
- * plus the second-pass tag. That makes it incomplete, not authoritative: a floor
- * that ran and held the answer emits no tag (`floors/index.ts:138-175` tags only
- * the moving arm), which is exactly the spam floor's `held_demand_lane` path.
- * `ClassifyAudit.floors` is the authoritative source. This function reads it for
- * the spam floor only; item 32 owns reading it by key for all four floors.
- *
- * This function TESTS NO TAG: it splits `model` on `+` and re-prints every tag it
- * finds. Enumerating is deliberate. A tag test would have to match whole tags, because
- * `'+2pass_failed'` CONTAINS `'+2pass'` and a substring test therefore reads a
- * failed re-check as a successful one. Printing the split avoids the question
- * and keeps a tag this function has never heard of visible in the output.
- *
- * The audit fields beside it say what the tags cannot: `conflict` names the net
- * that asked for a second pass even when the second pass changed nothing, and
- * `spamFloorOutcome` distinguishes the spam floor holding a demand lane (the
- * softened path, no tag) from the floor being inert.
+ * Name the mechanism that moved the category. `model` tags only a floor that moved
+ * the answer, so add the audit fields. Print every tag; never substring-test them,
+ * because `+2pass_failed` contains `+2pass`.
  */
 function describeMechanism(model: string, audit: ClassifyAudit): string {
   const tags = model.split("+").slice(1);
@@ -105,11 +66,7 @@ function describeMechanism(model: string, audit: ClassifyAudit): string {
   return parts.length > 0 ? parts.join(" ") : "model";
 }
 
-/**
- * Re-classify this mailbox's rows and print the diff. Returns the thread ids it
- * actually re-classified, so {@link reportUncoveredThreads} can name every
- * requested id that never reached a classify call.
- */
+/** Re-classify this mailbox's rows, print the diff, and return the thread ids it classified. */
 async function processUser(u: TargetUser): Promise<Set<string>> {
   console.log(`\n=== ${u.email} (user=${u.userId}) ===`);
 
@@ -117,7 +74,6 @@ async function processUser(u: TargetUser): Promise<Set<string>> {
     eq(emailTriage.userId, u.userId),
     eq(emailTriage.source, "auto"),
     isNotNull(emailTriage.documentId),
-    // Named threads replace the window; no ids means the whole recency window.
     RECAT_THREAD_IDS.length > 0 ? inArray(emailTriage.sourceThreadId, RECAT_THREAD_IDS) : undefined,
   );
 
@@ -133,7 +89,6 @@ async function processUser(u: TargetUser): Promise<Set<string>> {
     // A named-thread run must not be truncated by the window's limit.
     .limit(RECAT_THREAD_IDS.length > 0 ? RECAT_THREAD_IDS.length : RECAT_LIMIT);
 
-  // old→new transition tally; `changed` keeps the human-readable diffs.
   const previewed = new Set<string>();
   const transitions = new Map<string, number>();
   const changed: string[] = [];
@@ -284,16 +239,8 @@ async function processUser(u: TargetUser): Promise<Set<string>> {
 }
 
 /**
- * Name every requested thread id this preview did not re-classify, and say which
- * filter dropped it.
- *
- * The operator procedure for a sender-miss repair runs THIS preview, shows it to
- * the human, and then runs `../repairs/repair-triage-sender-miss-committed.ts`
- * with `--commit`, which enqueues the real workflow and ends in a live Gmail
- * label write. So a requested id the preview drops in silence gets approved on
- * the strength of a preview that never mentioned it. The repair script prints a
- * loud line for every id it cannot run; the preview half must do the same, or
- * the two halves of one procedure disagree about what the human saw.
+ * Name each requested thread this preview skipped, and why. A silent drop would
+ * look like "no change" to the human who then approves the repair.
  */
 async function reportUncoveredThreads(previewed: Set<string>): Promise<void> {
   const uncovered = RECAT_THREAD_IDS.filter((id) => !previewed.has(id));
@@ -302,9 +249,7 @@ async function reportUncoveredThreads(previewed: Set<string>): Promise<void> {
 
   if (uncovered.length === 0) return;
 
-  // Deliberately UNSCOPED — no user, no `source = 'auto'`, no document filter.
-  // The point is to name which of the scope filters above dropped the id, so
-  // this read must see the rows those filters hid.
+  // Unscoped on purpose: it must see the rows the filters above hid.
   const rows = await db()
     .select({
       threadId: emailTriage.sourceThreadId,
@@ -384,7 +329,7 @@ async function main() {
 
 main()
   .catch((e) => {
-    // Log only the message — a serialized Error can leak DATABASE_URL.
+    // Message only: a serialized Error can leak DATABASE_URL.
     console.error(toMessage(e));
     process.exitCode = 1;
   })

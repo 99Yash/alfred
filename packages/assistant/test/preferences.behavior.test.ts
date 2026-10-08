@@ -11,22 +11,9 @@ import { deletePreference, getPreference, getPreferences, setPreference } from "
 import { dbBackedSkip } from "./support/db-backed";
 
 /**
- * DB-backed integration test for the `settings` preference gateway — the four
- * public verbs over `user_preferences`. Pins the invariant this campaign item
- * preserves: every access resolves through `settings/index.ts` and returns a
- * `PreferenceRow` whose `source` is a validated `MemorySource`, with
- * last-write-wins upserts that bump `row_version`.
- *
- * Opt-in: runs only when `DATABASE_URL` points at a reachable Postgres with the
- * migrated schema (the local dev DB). Skipped otherwise so the pure-function
- * suite still runs without a database. It seeds throwaway `test-settings-gw-*`
- * users and deletes them (cascade clears their preferences) on teardown.
- *
- * The `-gw-` segment is load-bearing: the sibling `preferences-tx-core.behavior`
- * suite owns `test-settings-tx-`, and `tsx --test` runs the two files as
- * concurrent processes against one database. A bare `test-settings-` prefix here
- * would make the `before` cleanup below delete the tx suite's rows mid-run.
- * `pnpm check:test-id-prefixes` fails on any such pair.
+ * The `settings` preference verbs return a validated `source` and bump `row_version` on upsert.
+ * The `-gw-` prefix matters: `preferences-tx-core.behavior` runs at the same time
+ * with `test-settings-tx-`, and a bare prefix would delete its rows mid-run.
  */
 const SKIP = dbBackedSkip("database");
 
@@ -46,7 +33,7 @@ async function seedUser(): Promise<string> {
 
 describe("settings preferences (DB-backed)", { skip: SKIP }, () => {
   before(async () => {
-    // Clear any rows a previously-crashed run left behind.
+    // Clear rows a crashed run left behind.
     await db()
       .delete(user)
       .where(like(user.id, `${ID_PREFIX}%`));
@@ -137,12 +124,7 @@ describe("settings preferences (DB-backed)", { skip: SKIP }, () => {
     );
   });
 
-  // The stored `source` column carries a DB check constraint
-  // (`user_preferences_source_shape`) that rejects any value whose `kind` is not
-  // in the enum, so a malformed provenance row cannot be seeded through an
-  // insert. The fallback path in `parseMemorySourceOrDefault` — now owned by
-  // `@alfred/contracts` and used by every stored-source reader — is exercised
-  // directly here instead. See the "Deviation" note in the item design.
+  // `user_preferences_source_shape` blocks a malformed row, so call the fallback directly.
   test("parseMemorySourceOrDefault falls back on a malformed stored source", () => {
     assert.deepEqual(
       parseMemorySourceOrDefault({ kind: "invented" }, { kind: "user" }, "test"),

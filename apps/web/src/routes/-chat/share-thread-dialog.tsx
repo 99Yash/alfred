@@ -14,30 +14,14 @@ import { callToast } from "~/lib/toast";
 import { cn } from "~/lib/utils";
 
 /**
- * The Share control's dialog (ADR-0102).
- *
- * Two things about this surface are deliberate and should survive a redesign.
- *
- * NOTHING IS PUBLISHED UNTIL THE USER PRESSES THE BUTTON. Opening the dialog
- * only lists shares that already exist. A dialog that published on open would
- * make an accidental click a disclosure.
- *
- * THE DIALOG STATES WHAT TRAVELS. A visitor sees the transcript and Alfred's
- * reasoning; they do not see tool results, token costs, or attachments. Users
- * cannot reason about a privacy control they have to infer, so the copy says it
- * rather than relying on the reader having read the ADR.
- *
- * REVOKE ASKS TWICE. It is a hard delete of the row and its snapshot bytes
- * (ADR-0102 D9), so it gets the same second click a thread delete gets. The
- * confirmation is inline on the row rather than a nested dialog: a dialog over
- * a dialog moves the focus trap twice for a one-word question.
- *
- * PREVIEW OPENS THE REAL PAGE. Dimension renders its own preview from the LIVE
- * thread, so its preview can disagree with what it published. A plain link to
- * the published URL cannot: it is the page, so it is correct by construction.
+ * Share dialog (ADR-0102). Keep these through a redesign:
+ * - Nothing publishes until the button press; opening only lists existing shares.
+ * - The copy states what travels: transcript and reasoning, not tool results, costs, or attachments.
+ * - Revoke asks twice, inline: it hard-deletes the row and snapshot (ADR-0102 D9).
+ * - Preview links to the published page, so it cannot disagree with what was published.
  */
 
-/** Time-boxed "Copied" acknowledgement on the copy button. */
+/** Time-boxed "Copied" state on the copy button. */
 function useCopiedFlag() {
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<number | null>(null);
@@ -60,7 +44,7 @@ function useCopiedFlag() {
   };
 }
 
-/** One small text action on a share row: Preview, Revoke, and the confirm pair. */
+/** Text action on a share row: Preview, Revoke, confirm. */
 const ROW_ACTION_CLASS = cn(
   "inline-flex items-center rounded-lg px-2 py-1 text-xs font-medium no-underline",
   "text-app-fg-2 transition-colors hover:bg-app-bg-a2 hover:text-app-fg-4",
@@ -88,8 +72,7 @@ function ShareRow({
         callToast({ message: "Link copied", variant: "success" });
       },
       () => {
-        // Clipboard writes fail on an insecure context or a denied permission.
-        // The URL is on screen and selectable, so this is a nudge, not an error.
+        // Clipboard writes can fail. The URL is on screen, so this is a nudge, not an error.
         callToast({
           message: "Could not copy the link. Select it and copy manually.",
           variant: "warning",
@@ -228,11 +211,7 @@ export function ShareThreadDialog({
             results, attachments, and usage costs are never published.
           </p>
 
-          {/* Fixed minimum height so the first-open fetch resolving mid-entrance
-           * doesn't resize the panel mid-animation (the first-open jank: later
-           * opens read from cache and never show the spinner). Prefetch on the
-           * Share button covers the common path; this covers a cold direct
-           * click by holding the panel size steady instead. */}
+          {/* Minimum height so a cold first fetch does not resize the panel mid-entrance. */}
           <div className="flex min-h-[44px] flex-col gap-3">
             {shares.isLoading ? (
               <div className="flex items-center gap-2 py-3 text-sm text-app-fg-2">
@@ -266,8 +245,7 @@ export function ShareThreadDialog({
               disabled={!threadId}
               leading={<Globe size={14} aria-hidden />}
               onClick={() =>
-                // The server's own message is the actionable one: it names the
-                // empty thread, the message cap, and the size cap by number.
+                // The server's message names the cap that was hit.
                 share.mutate(undefined, {
                   onError: (error) => callToast({ message: toMessage(error), variant: "error" }),
                 })

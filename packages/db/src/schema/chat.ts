@@ -21,68 +21,32 @@ import { createId, lifecycle_dates } from "../helpers";
 import { agentRuns } from "./agent";
 import { user } from "./auth";
 
-/**
- * Interactive chat (streaming-chat plan). A `chat_threads` row is one
- * conversation; `chat_messages` are its turns. Both sync to the web via
- * Replicache so threads/history are durable and multi-device.
- *
- * The agent's reply streams live over the SSE event bus (`chat.delta` /
- * `chat.tool`); the *durable* assistant message is written here by the chat
- * worker on completion (then a Replicache poke syncs it). So a `chat_messages`
- * row is always a finished turn — partial streamed text is never persisted.
- */
+/** A `chat_messages` row is always a finished turn. Partial streamed text is never stored. */
 export type ChatMessageRole = "user" | "assistant";
 
 export type ChatMessageStatus = "complete" | "failed";
 
-/**
- * A tool call captured on a finished assistant turn, so a reload re-renders
- * the tool cards the user saw stream in. Mirrors the live `chat.tool` event
- * payload (minus the routing ids).
- */
+/** A tool card from a finished turn, so a reload shows what streamed live. */
 export interface ChatMessageToolCall {
   toolCallId: string;
   toolName: string;
   status: "succeeded" | "failed";
   argsPreview?: string | undefined;
   resultPreview?: string | undefined;
-  /**
-   * `preview()` pruned the result to fit its cap: a string shortened, an array
-   * sliced, or an object key dropped. Persisted because a pruned preview still
-   * parses, so a reader that re-reads it as the record it came from cannot
-   * tell (#1018 review, S2).
-   */
+  /** `preview()` pruned the result. A pruned preview still parses, so a reader cannot tell otherwise. */
   resultTruncated?: boolean | undefined;
-  /**
-   * ADR-0070: the dispatch-boundary sanitizer stripped non-text bytes from this
-   * result before storage. Persisted so a reload re-renders the "trimmed" flag
-   * the user saw live, rather than showing a scrubbed result as pristine.
-   */
+  /** The sanitizer stripped non-text bytes from the result (ADR-0070). */
   sanitized?: boolean | undefined;
-  /**
-   * The narration segment this call follows, so a reload can interleave it
-   * with the model's narration in the activity trail. Absent on rows written
-   * before interleaved narration shipped (read back as 0).
-   */
+  /** The narration segment this call follows. Absent reads as 0. */
   segmentIndex?: number | undefined;
   /**
-   * Present only on a connection-health bounce (#378 item 3): this entry is
-   * deliberately persisted (despite being a non-execution) so a reload
-   * re-offers the repair. Shape is the cross-boundary contract. The type is a
-   * claim over a jsonb column: a row written by a build with a wider registry
-   * can hold a slug this enum lacks. Only the sync parse
-   * (`syncedChatToolCallSchema`) validates it, and that parse reads a foreign
-   * slug as `null`; nothing else re-checks the row.
+   * Set only when a connection-health check bounced the call, so a reload offers the repair again.
+   * A newer build can store a slug this enum lacks. Only `syncedChatToolCallSchema` checks it.
    */
   connectNudge?: ChatConnectNudge | undefined;
 }
 
-/**
- * One closed narration segment captured on a finished assistant turn: the
- * brief line the model wrote before a tool step. `index` matches the
- * `segmentIndex` carried on the tool calls so a reload re-interleaves them.
- * The final (answer) segment is never stored here — it lives in `content`.
- */
+/** The line the model wrote before a tool step. The final answer is in `content`, not here. */
 export interface ChatMessageNarration {
   index: number;
   text: string;
@@ -97,13 +61,11 @@ export const chatThreads = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    /** Short title; null until derived from the first turn. */
+    /** Null until derived from the first turn. */
     title: text("title"),
-    /** Sort key for the thread list — bumped on every new message. */
+    /** Thread list sort key. */
     lastMessageAt: timestamp("last_message_at", { withTimezone: true }),
-    /** User-pinned threads float to a "Pinned" group above the date buckets. */
     pinned: boolean("pinned").notNull().default(false),
-    /** Replicache row-version. Bumped on title / lastMessageAt / pinned changes. */
     rowVersion: integer("row_version").notNull().default(0),
     ...lifecycle_dates,
   },
@@ -122,42 +84,21 @@ export const chatMessages = pgTable(
     threadId: text("thread_id")
       .notNull()
       .references(() => chatThreads.id, { onDelete: "cascade" }),
-    /** 'user' (client mutator) | 'assistant' (worker-written on completion). */
     role: text("role").notNull().$type<ChatMessageRole>(),
-    /** Final text content of the turn. */
     content: text("content").notNull().default(""),
-    /** The model's thinking for this turn (assistant only); null when the model emitted none. */
     reasoning: text("reasoning"),
-    /** Wall-clock the model spent thinking, in ms — drives the "Thought for Ns" label on reload. */
+    /** Drives the "Thought for Ns" label on reload. */
     reasoningMs: integer("reasoning_ms"),
-    /** 'complete' once the turn finished, 'failed' on a terminal turn error. */
     status: text("status").notNull().default("complete").$type<ChatMessageStatus>(),
-    /**
-     * On a `status:"failed"` turn, the user-meaningful failure kind the client
-     * pattern-matches to a tailored message + recovery affordance. Null on
-     * `complete` rows (and on legacy failed rows written before this column).
-     * The raw provider error is logged server-side only, never persisted here.
-     */
+    /** Set on a failed turn. The raw provider error is only logged, never stored. */
     errorKind: text("error_kind").$type<ChatErrorKind>(),
-    /** Tool cards to re-render on reload (assistant turns only). */
     toolCalls: jsonb("tool_calls").$type<ChatMessageToolCall[]>(),
-    /**
-     * Closed narration segments (the brief lines the model wrote before each
-     * tool step), interleaved with `toolCalls` by `segmentIndex` on reload.
-     * Null when the turn produced none.
-     */
+    /** Interleaved with `toolCalls` by `segmentIndex` on reload. */
     narration: jsonb("narration").$type<ChatMessageNarration[]>(),
-    /**
-     * Token usage, model latency, and cost for this assistant turn, aggregated
-     * from the run's `api_call_log` rows at finalize. Null on user rows and on
-     * assistant rows written before this column. Powers a dev-gated usage
-     * readout under the reply. We control the write, so the `.$type<>()` shape
-     * is truthful.
-     */
+    /** Summed from the run's `api_call_log` rows at finalize. */
     usage: jsonb("usage").$type<ChatMessageUsage>(),
-    /** The agent run servicing this turn (set on both the user turn and its reply). */
+    /** Set on both the user turn and its reply. */
     runId: text("run_id").references(() => agentRuns.id, { onDelete: "set null" }),
-    /** Replicache row-version. Bumped on any content/status change. */
     rowVersion: integer("row_version").notNull().default(0),
     ...lifecycle_dates,
   },
@@ -168,13 +109,7 @@ export const chatMessages = pgTable(
   ],
 );
 
-/**
- * Server-internal working-context state for a chat thread. This table is
- * deliberately absent from Replicache: summaries, pressure estimates, and job
- * metadata are runtime implementation details rather than user-visible chat
- * entities. `summary` stays `unknown` until the API's owning boundary validates
- * its structure and source provenance.
- */
+/** Server-only compaction state for a thread. Not synced to Replicache. */
 export const chatThreadContext = pgTable(
   "chat_thread_context",
   {
@@ -197,7 +132,7 @@ export const chatThreadContext = pgTable(
     compactionFailedAt: timestamp("compaction_failed_at", { withTimezone: true }),
     compactionFailureCategory: text("compaction_failure_category"),
     compactionFailureMessage: text("compaction_failure_message"),
-    /** Monotonic compare-and-swap revision; incremented only by a winning summary write. */
+    /** Compare-and-swap revision. Only a winning summary write bumps it. */
     compactionGeneration: integer("compaction_generation").notNull().default(0),
     ...lifecycle_dates,
   },
@@ -217,16 +152,9 @@ export const chatThreadContext = pgTable(
 );
 
 /**
- * A file the user attached to a chat message (ADR-0065). The raw bytes live in
- * an object bucket under `chat/{userId}/{threadId}/{messageId}/{file}`; only the
- * `storageKey` is recorded here. The model never sees the raw media — at turn
- * time we fold in the *degraded artifact* (`degradedText` + `degradedImageKeys`)
- * once `status` is `ready`. A separate table (not a jsonb column on the message)
- * so the async degrade can flip status / write the artifact without rewriting
- * the message row. Deleting the message — or the thread, or the user — cascades
- * the rows; the bucket objects are reaped by a prefix-delete cleanup job (the FK
- * cascade can't reach object storage).
- * `status` is the canonical {@link ChatAttachmentStatus} from `@alfred/contracts`.
+ * A file attached to a chat message (ADR-0065). The model sees only the degraded
+ * artifact, never the raw media. A cascade delete does not reach the bucket;
+ * a prefix delete cleans up the objects.
  */
 export const chatAttachments = pgTable(
   "chat_attachments",
@@ -240,48 +168,35 @@ export const chatAttachments = pgTable(
     messageId: text("message_id")
       .notNull()
       .references(() => chatMessages.id, { onDelete: "cascade" }),
-    /** Object-store key: `chat/{userId}/{threadId}/{messageId}/{file}`. */
+    /** `chat/{userId}/{threadId}/{messageId}/{file}`. */
     storageKey: text("storage_key").notNull(),
-    /** Original filename, for the composer chip + download affordance. */
     name: text("name").notNull(),
-    /** Declared MIME type; the ingest policy is keyed off it. */
+    /** Declared MIME type. The ingest policy keys off it. */
     mime: text("mime").notNull(),
-    /** Byte size as reported by the client (capped per the ingest policy). */
+    /** Client-reported byte size. */
     size: integer("size").notNull(),
-    /** Stable order within the message; model + UI preserve this order. */
     position: integer("position").notNull().default(0),
-    /** 'pending' (uploading/degrading) | 'ready' (artifact written) | 'failed'. */
     status: text("status").notNull().default("pending").$type<ChatAttachmentStatus>(),
-    /** Degraded text artifact (transcript / extracted text); null for images. */
+    /** Transcript or extracted text. Null for images. */
     degradedText: text("degraded_text"),
-    /**
-     * Object-store keys of degraded keyframe images (video) — folded into the
-     * transcript as image parts. Empty for non-video; the upload's own bytes (an
-     * image) are referenced by `storageKey`, not here.
-     */
+    /** Video keyframes only. An uploaded image lives at `storageKey`. */
     degradedImageKeys: jsonb("degraded_image_keys")
       .$type<string[]>()
       .notNull()
       .default(sql`'[]'::jsonb`),
-    /** Set when `status` is 'failed' — a short, user-facing reason. */
+    /** User-facing reason when `status` is `failed`. */
     failureReason: text("failure_reason"),
-    /** Replicache row-version. Bumped on status flips (e.g. pending→ready). */
     rowVersion: integer("row_version").notNull().default(0),
     ...lifecycle_dates,
   },
   (t) => [
-    // `(message_id, position)` also serves message_id-prefix lookups, so a
-    // standalone message_id index would be redundant.
+    // Also serves `message_id` lookups, so no separate index.
     index("chat_attachments_message_position_idx").on(t.messageId, t.position),
     index("chat_attachments_user_idx").on(t.userId),
   ],
 );
 
-/**
- * Versioned, reusable semantic representation of one attachment. The raw JSON
- * remains unknown until the API owner validates it; compaction, memory, and
- * history all read this row rather than paying for separate enrichment calls.
- */
+/** One enrichment per attachment version, reused by compaction and history. */
 export const chatAttachmentRepresentations = pgTable(
   "chat_attachment_representations",
   {

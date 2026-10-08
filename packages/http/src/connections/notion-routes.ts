@@ -17,17 +17,7 @@ import {
 import { authMacro } from "../middleware/auth";
 import { requireOnboarded } from "../middleware/onboarding";
 
-/**
- * Notion OAuth routes (full authorization-code flow). Same state-nonce CSRF
- * defense as Google/GitHub. Notion access tokens are long-lived, so the stored
- * credential is a plain bearer token via the shared bearer-credential layer.
- *
- *   GET    /api/integrations/notion/connect     → 302 to Notion's authorize URL
- *   GET    /api/integrations/notion/callback     ← Notion redirects with code + state
- *   DELETE /api/integrations/notion/:id          → disconnect
- *
- * Connection state is read from `GET /api/integrations` (`../integrations.ts`).
- */
+/** Notion OAuth with the same state-nonce check as Google. Tokens are long-lived bearers. */
 const PROVIDER = "notion" satisfies CredentialProvider;
 
 export const notionIntegrationRoutes = new Elysia({
@@ -67,7 +57,7 @@ export const notionIntegrationRoutes = new Elysia({
         { params: t.Object({ id: t.String() }) },
       ),
   )
-  // Callback is unauthenticated; the signed state proves who initiated.
+  // No session here; the signed state proves who started the flow.
   .get(
     "/callback",
     async ({ query, set }) => {

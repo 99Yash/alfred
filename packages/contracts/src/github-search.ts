@@ -1,43 +1,13 @@
 /**
- * GitHub search query hardening (issue #213 + GROUND; extended by ADR-0071).
- *
- * The boss appends free-form qualifiers to `github.search`'s `query` field.
- * Two failure modes have bitten us in prod:
- *
- *  - **Invented qualifiers.** The model wrote `merged-by:@me` — GitHub has no
- *    `merged-by:` qualifier. GitHub does NOT error on an unknown qualifier; it
- *    silently demotes it to a free-text term, matches nothing, and returns
- *    `total_count: 0`. The tool call therefore "succeeds" with a zero count and
- *    the boss reports "0 PRs" with no signal that its query was malformed.
- *  - **Structured-field collisions.** The model free-typed `is:pr`, `author:`,
- *    `state:`, or a `closed:>` / `merged:>=` window that the structured fields
- *    already emit — producing duplicate or conflicting clauses and
- *    non-deterministic counts (the observed 19-vs-23 gap across two identical
- *    questions, #213). The boss **re-trips this every turn** (it re-derives the
- *    query from scratch and never carries the lesson forward).
- *
- * Two layers, per ADR-0071:
- *  - {@link sanitizeGithubSearchQuery} — **sanitize-and-merge**: strip the
- *    colliding `author:`/`is:`/`state:`/date qualifiers out of the freeform
- *    query and fold their intent into the structured fields, turning the
- *    re-tripped collision into *silent correctness* rather than a hard error +
- *    wasted retry. This is the robust lever #213 itself proposed.
- *  - {@link githubSearchQueryIssues} — **reject** only what sanitize can't
- *    safely fix: invented qualifier *keys* (the silent-zero trap), malformed
- *    date *values* (GitHub 422s), and genuinely contradictory structured
- *    field combinations. The boss reads the joined message and retries.
- *
- * Pure string logic — no Date, no server imports — so it lives in the web-safe
- * contracts package and is unit-testable in isolation.
+ * Harden the boss's free-form `github.search` query (#213, ADR-0071).
+ * GitHub silently treats an unknown qualifier (`merged-by:`) as text and returns 0.
+ * Free-typed `is:`/`author:`/`state:`/date tokens collide with the structured fields.
+ * `sanitizeGithubSearchQuery` folds collisions into the fields.
+ * `githubSearchQueryIssues` rejects what it cannot fix.
  */
 import { enumGuard } from "./guards";
 
-/**
- * Real GitHub issue/PR search qualifiers the boss may append verbatim to the
- * `query` field. Sourced from GitHub's "Searching issues and pull requests"
- * docs — spans both issues (`is:issue`, `label:`, `state:`, `reason:`) and PRs.
- * Anything not here is treated as invented and rejected.
- */
+/** Real GitHub issue and PR search qualifiers. Anything else counts as invented. */
 export const GITHUB_PR_SEARCH_QUALIFIERS: ReadonlySet<string> = new Set([
   "type",
   "is",
@@ -80,24 +50,14 @@ export const GITHUB_PR_SEARCH_QUALIFIERS: ReadonlySet<string> = new Set([
   "archived",
 ]);
 
-/**
- * Pull qualifier heads out of a GitHub search string. Qualifiers can appear in
- * nested boolean groups, e.g. `(label:bug OR review-requested:@me)`, so a
- * parser that only checks the beginning of a whitespace token would miss the
- * original failure class when the model wraps it in parentheses.
- */
+/** Finds qualifiers inside boolean groups too, such as `(label:bug OR review-requested:@me)`. */
 const QUALIFIER_TOKEN = String.raw`-?([A-Za-z][\w-]*):(?:"[^"]*"|[^\s)]*)`;
 
 const QUALIFIER_SCAN_RE = new RegExp(String.raw`(^|[\s(])(${QUALIFIER_TOKEN})`, "g");
 
 /**
- * The same scan, widened to absorb the boolean operator that BINDS the token
- * (`… OR closed:>=X`). {@link stripQualifiers} drops a folded token together
- * with its operator, because an operator whose operand is gone is dangling and
- * GitHub 422s on it. The token sub-pattern is shared with
- * {@link QUALIFIER_SCAN_RE}, so both scans agree on where a token starts and
- * ends and only the left boundary differs.
- *
+ * The same scan, plus the boolean operator that binds the token. A dropped token
+ * takes its operator, because a dangling operator makes GitHub return 422.
  * Groups: 1 = boundary, 2 = operator (may be empty), 3 = token, 4 = name.
  */
 const QUALIFIER_STRIP_RE = new RegExp(
@@ -106,31 +66,20 @@ const QUALIFIER_STRIP_RE = new RegExp(
 );
 
 export interface ParsedQualifier {
-  /** Qualifier name as written, e.g. `merged-by`. */
   raw: string;
-  /** Lower-cased name for whitelist lookup. */
   key: string;
-  /** Raw value after the `:`. Only interpreted for known managed qualifiers. */
+  /** Interpreted only for managed qualifiers. */
   value: string;
-  /**
-   * Whether the qualifier was negated (`-author:octocat`). GitHub treats a
-   * leading `-` as exclusion; the structured fields only express inclusion, so
-   * a negated qualifier is never folded — it stays in the free-form query.
-   */
+  /** The structured fields only include, so a negated qualifier is never folded. */
   negated: boolean;
 }
 
-/**
- * Stable identity for a parsed token: `<negated?>-<key>:<value>`. Lets
- * {@link stripQualifiers} re-tokenize the query with the same scanner and drop
- * only the exact tokens that were folded, never a naive substring (so `is:pr`
- * cannot clip `is:private`) and never the opposite polarity.
- */
+/** Lets {@link stripQualifiers} drop exact tokens, so `is:pr` cannot clip `is:private`. */
 function qualifierIdentity(q: Pick<ParsedQualifier, "key" | "value" | "negated">): string {
   return `${q.negated ? "-" : ""}${q.key}:${q.value}`;
 }
 
-/** Pull the `qualifier:` heads out of a free-form query; bare words are skipped. */
+/** Bare words are skipped. */
 export function parseSearchQualifiers(query: string): ParsedQualifier[] {
   const out: ParsedQualifier[] = [];
 
@@ -146,16 +95,8 @@ export function parseSearchQualifiers(query: string): ParsedQualifier[] {
 }
 
 /**
- * The GitHub date qualifiers a structured window can emit, each paired with the
- * `github.search` field that sets it, in the order the query builder lists
- * them.
- *
- * ONE table, three readers. Before it, the same three-event map was restated in
- * the query builder's `if` blocks, in the sanitizer's `hasStructuredWindow`,
- * and in this module's date-qualifier whitelist, so a fourth event meant three
- * edits and a missed one was silent. {@link githubSearchWindowDays} is the only
- * function that answers "how long is this event's window", and every reader
- * goes through it.
+ * Each date qualifier and the `github.search` field that sets it. Read the window
+ * length only through {@link githubSearchWindowDays}.
  */
 export const GITHUB_SEARCH_WINDOWS = [
   { qualifier: "closed", field: "closedWithinDays" },
@@ -163,15 +104,12 @@ export const GITHUB_SEARCH_WINDOWS = [
   { qualifier: "merged", field: "mergedWithinDays" },
 ] as const;
 
-/** One date event a window can name. */
 export type GithubSearchWindow = (typeof GITHUB_SEARCH_WINDOWS)[number]["qualifier"];
 
-/** One row of {@link GITHUB_SEARCH_WINDOWS}. */
 export type GithubSearchWindowEntry = (typeof GITHUB_SEARCH_WINDOWS)[number];
 
 const isWindowQualifier = enumGuard(GITHUB_SEARCH_WINDOWS.map((entry) => entry.qualifier));
 
-/** The window row a free-form qualifier head names, or `undefined` for any other head. */
 function windowEntry(qualifier: string): GithubSearchWindowEntry | undefined {
   return GITHUB_SEARCH_WINDOWS.find((entry) => entry.qualifier === qualifier);
 }
@@ -209,17 +147,11 @@ export type GithubSearchState = "open" | "closed" | "merged" | "all";
 
 const IS_STATE_VALUES = ["open", "closed", "merged"] as const;
 
-/** True when an `is:`/`state:` qualifier value names a structured state. */
 const isRecognizedIsState = enumGuard(IS_STATE_VALUES);
 
 /**
- * Qualifiers that already scope a search to a place or a person. When the boss
- * types one of these (`repo:`, `org:`, `author:octocat`, `assignee:@me`, …) the
- * search is NOT implicitly "the connected user's", so `github.search` must not
- * layer an `author:@me` default on top — that silently narrows e.g. "open issues
- * in repo:X" to ones I authored (ADR-0071, no silent narrowing). Pure filters
- * (`label:`, `state:`, `is:`, `sort:`, dates) do not scope to a person/place and
- * so do not count.
+ * Qualifiers that name a place or person. With one, `github.search` must not add
+ * the `author:@me` default: that would silently narrow the search (ADR-0071).
  */
 const NARROWING_SCOPE_QUALIFIERS: ReadonlySet<string> = new Set([
   "repo",
@@ -237,26 +169,19 @@ const NARROWING_SCOPE_QUALIFIERS: ReadonlySet<string> = new Set([
   "team",
 ]);
 
-/**
- * True when the free-form query already scopes the search to a repo/org/user or
- * a specific person. `github.search` uses this to decide whether an unset author
- * should default to the connected user (`@me`) — it should for a bare "my PRs"
- * search, but NOT when the query names where/whom to look.
- */
+/** When true, an unset author does not default to `@me`. */
 export function queryHasNarrowingScope(query: string | undefined): boolean {
   if (!query?.trim()) return false;
 
-  // Only a *positive* scope qualifier narrows the search. A negated one
-  // (`-author:octocat`, `-repo:x`) is an exclusion, not a scope — it doesn't
-  // name where/whom to look, so it must NOT suppress the `author:@me` default.
-  // Counting it as scope turned "my PRs except octocat" into a broad search.
+  // A negated qualifier (`-author:octocat`) excludes; it does not scope.
+  // Counting it turned "my PRs except octocat" into a broad search.
   return parseSearchQualifiers(query).some(
     (q) => !q.negated && NARROWING_SCOPE_QUALIFIERS.has(q.key),
   );
 }
 
 export interface GithubSearchQueryContext {
-  /** Whether the search targets issues, PRs, or both. Owns the `is:pr`/`is:issue` clause. */
+  /** Owns the `is:pr`/`is:issue` clause. */
   type?: GithubSearchType | undefined;
   author?: string | undefined;
   state?: GithubSearchState | undefined;
@@ -264,22 +189,13 @@ export interface GithubSearchQueryContext {
   closedWithinDays?: number | undefined;
   createdWithinDays?: number | undefined;
   mergedWithinDays?: number | undefined;
-  /**
-   * One window that stands for every event this search can observe. See
-   * {@link githubActivityWindows} for the expansion.
-   */
+  /** One window for every event this search can observe. See {@link githubActivityWindows}. */
   activeWithinDays?: number | undefined;
 }
 
 /**
- * Which events `activeWithinDays` stands for, given the type and state the
- * search already fixes.
- *
- * "Active" means the item did something inside the window, so creation always
- * counts. The other two drop out when the structured fields make them
- * impossible. That is why one field replaces three: it cannot produce the
- * `state:'open'` or `type:'issue'` contradictions the explicit fields can, so
- * the tool description does not have to teach which combinations are legal.
+ * The events `activeWithinDays` covers. Creation always counts; closed and merged
+ * drop out when type or state rule them out, so the field cannot contradict them.
  */
 export function githubActivityWindows(
   input: Pick<GithubSearchQueryContext, "type" | "state">,
@@ -293,11 +209,7 @@ export function githubActivityWindows(
   return ["closed", "created", "merged"];
 }
 
-/**
- * How many days back one date event reaches: the explicit `*WithinDays` field
- * when it is set, else `activeWithinDays` when this event is part of what
- * "active" means for this search. `undefined` means emit no token for it.
- */
+/** The explicit `*WithinDays`, else `activeWithinDays` if it covers this event. `undefined`: no token. */
 export function githubSearchWindowDays(
   input: GithubSearchQueryContext,
   window: GithubSearchWindowEntry,
@@ -314,24 +226,15 @@ export function githubSearchWindowDays(
 }
 
 /**
- * Validate the structured fields and the residue of the free-form `query` that
- * {@link sanitizeGithubSearchQuery} cannot safely auto-fix. Returns a list of
- * human-readable problems (empty when clean) — the schema joins them into one
- * `invalid_input` message the boss reads and retries against.
- *
- * Run this against the **sanitized** input: collisions the sanitizer strips
- * (free-typed `author:`/`state:`/`is:`/redundant date windows) are silently
- * corrected and never surface here; what remains is the genuinely
- * unresolvable class — invented keys, malformed date values, and contradictory
- * field combinations.
+ * Problems the sanitizer cannot fix: invented keys, malformed dates, and
+ * contradictory fields. Run it on the sanitized input. Empty when clean.
  */
 export function githubSearchQueryIssues(input: GithubSearchQueryContext): string[] {
   const query = input.query?.trim();
   const issues: string[] = [];
   const qualifiers = query ? parseSearchQualifiers(query) : [];
 
-  // Logical contradictions between structured fields — sanitize can't resolve
-  // these (there is no single correct intent), so they stay hard rejections.
+  // No single correct intent, so these stay hard rejections.
   if (input.state === "open" && input.closedWithinDays !== undefined) {
     issues.push("`closedWithinDays` conflicts with `state:'open'` — open PRs have not closed.");
   }
@@ -349,9 +252,7 @@ export function githubSearchQueryIssues(input: GithubSearchQueryContext): string
     );
   }
 
-  // Positive `is:unmerged` in `query` while merged filters are set is a true
-  // semantic contradiction (a PR can't be both) — sanitize can't pick a side,
-  // so reject. A negated `-is:unmerged` is compatible with merged filters.
+  // `is:unmerged` with merged filters is a contradiction. `-is:unmerged` is fine.
   const hasUnmergedFilter = qualifiers.some(
     (q) => !q.negated && q.key === "is" && normalizeQualifierValue(q.value) === "unmerged",
   );
@@ -362,12 +263,8 @@ export function githubSearchQueryIssues(input: GithubSearchQueryContext): string
     );
   }
 
-  // Unrecognized `state:` values (`state:done`, `state:wip`). GitHub's `state:`
-  // accepts only `open`/`closed`; anything else is silently demoted to a
-  // free-text term and returns zero matches — the same silent-zero trap as an
-  // invented qualifier. The sanitizer folds the recognized open/closed/merged
-  // values into the structured field, so a `state:` token surviving to here is
-  // unrecognized; reject it rather than ship a misleading empty result.
+  // `state:` accepts only open/closed; other values silently match nothing.
+  // The sanitizer folds the valid ones, so any `state:` left here is bad.
   const badStateValues = [
     ...new Set(
       qualifiers
@@ -384,12 +281,8 @@ export function githubSearchQueryIssues(input: GithubSearchQueryContext): string
     );
   }
 
-  // Negated type qualifiers (`-is:pr`, `-is:issue`) contradict the `type` field,
-  // which ALWAYS emits an `is:pr`/`is:issue` clause (defaulting to `is:pr`). The
-  // sanitizer leaves negated qualifiers verbatim — they're exclusions it can't
-  // fold — so `-is:pr` survives into a query the builder turns into
-  // `is:pr … -is:pr`, a guaranteed zero-match. There's no safe auto-fix (it's
-  // the structured field that owns type), so reject and point at it.
+  // `type` always emits `is:pr` or `is:issue`, so `-is:pr` guarantees zero matches.
+  // The sanitizer keeps negations, so reject here and point at `type`.
   const negatedTypeQualifiers = [
     ...new Set(
       qualifiers
@@ -413,8 +306,7 @@ export function githubSearchQueryIssues(input: GithubSearchQueryContext): string
     );
   }
 
-  // 1. Invented qualifiers (the `merged-by:` bug) — the silent zero-count trap.
-  //    Sanitize cannot guess the intent of a non-existent qualifier, so reject.
+  // 1. Invented qualifiers (`merged-by:`): GitHub returns a silent zero.
   const unknown = [
     ...new Set(qualifiers.filter((q) => !GITHUB_PR_SEARCH_QUALIFIERS.has(q.key)).map((q) => q.raw)),
   ];
@@ -428,15 +320,9 @@ export function githubSearchQueryIssues(input: GithubSearchQueryContext): string
     );
   }
 
-  // A free-form date window mixed with a structured one. GitHub joins top-level
-  // tokens with AND, while two or more structured windows are emitted as one
-  // parenthesized OR group — so `createdWithinDays:7` plus a `merged:>=X` in
-  // `query` asks for a PR that was created AND merged, the exact dropped-item
-  // class the OR group exists to remove. The sanitizer already strips a
-  // free-form window that DUPLICATES a set field, so anything reaching here
-  // names a DIFFERENT event. There is no safe auto-fix: folding an explicit
-  // range into the OR group would silently widen the search the model asked
-  // for. Reject, and name the field that expresses it.
+  // A free-form window joins with AND, but structured windows form one OR group,
+  // so mixing them drops items. Duplicates were already stripped, and folding a
+  // different event would widen the search. Reject and name the field.
   const setWindows = GITHUB_SEARCH_WINDOWS.filter(
     (entry) => githubSearchWindowDays(input, entry) !== undefined,
   );
@@ -463,10 +349,8 @@ export function githubSearchQueryIssues(input: GithubSearchQueryContext): string
     }
   }
 
-  // Malformed date comparison operators (`closed:>`, `merged:>=`) make GitHub
-  // reject the whole request — catch them before the network call. (A valid
-  // date window in `query` is legitimate for explicit ranges the relative
-  // *WithinDays fields can't express.)
+  // A malformed date operator (`closed:>`) makes GitHub reject the whole request.
+  // A valid date window in `query` is fine for explicit ranges.
   const malformedDateQualifiers = qualifiers
     .filter((q) => isWindowQualifier(q.key) && !isValidDateQualifierValue(q.value))
     .map((q) => `${q.raw}:${q.value}`);
@@ -483,28 +367,16 @@ export function githubSearchQueryIssues(input: GithubSearchQueryContext): string
 }
 
 export interface SanitizedGithubSearchQuery {
-  /** The input with colliding qualifiers folded into structured fields. */
   sanitized: GithubSearchQueryContext;
-  /** The qualifier tokens lifted out of the free-form `query`, for logging. */
+  /** For logs. */
   stripped: string[];
 }
 
 /**
- * Strip the structured-field collisions out of the free-form `query` and fold
- * their intent into the structured fields (ADR-0071 sanitize-and-merge):
- *
- *  - `author:X`           → set `author` (the explicit value the model typed
- *                            wins over the field default), drop from `query`.
- *  - `state:S` / `is:S`   → set `state` from `open`/`closed`/`merged`, drop.
- *  - `is:pr` / `is:issue` → set `type`, drop (owned by the `type` field now).
- *  - `type:pr` / `type:issue` → set `type`, drop (GitHub's synonym for `is:`).
- *  - `created:`/`closed:`/`merged:` date window that **duplicates** a set
- *    *WithinDays field → drop the free-form one (the structured window wins).
- *    A date window with *no* corresponding field is a legitimate explicit
- *    range the relative fields can't express, so it is **kept**.
- *
- * Invented keys and malformed date values are left in place for
- * {@link githubSearchQueryIssues} to reject — they have no safe auto-fix.
+ * Fold colliding qualifiers into the structured fields (ADR-0071): `author:`,
+ * `state:`/`is:` states, `is:`/`type:` pr or issue, and a date window that
+ * duplicates a set `*WithinDays`. Other date windows stay. Invented keys and bad
+ * dates stay for {@link githubSearchQueryIssues} to reject.
  */
 export function sanitizeGithubSearchQuery(
   input: GithubSearchQueryContext,
@@ -516,18 +388,13 @@ export function sanitizeGithubSearchQuery(
   if (!query) return { sanitized, stripped };
 
   const qualifiers = parseSearchQualifiers(query);
-  // Tokens (qualifier:value, as written) to remove from the free-form query.
   const toRemove: ParsedQualifier[] = [];
 
-  // Does the structured context already carry a window for this date qualifier?
   const hasStructuredWindow = (entry: GithubSearchWindowEntry): boolean =>
     githubSearchWindowDays(input, entry) !== undefined;
 
   for (const q of qualifiers) {
-    // A negated qualifier is an exclusion (`-author:octocat`, `-label:wontfix`)
-    // that the inclusion-only structured fields cannot represent. Folding it
-    // would silently invert the user's intent, so leave it verbatim in the
-    // free-form query — GitHub understands the `-` directly.
+    // Folding an exclusion would invert it. GitHub reads the `-` directly.
     if (q.negated) continue;
 
     if (q.key === "author") {
@@ -544,10 +411,7 @@ export function sanitizeGithubSearchQuery(
         toRemove.push(q);
       }
 
-      // An unrecognized value (`state:done`) is NOT folded and NOT stripped:
-      // dropping it would silently rewrite the query into a different one. Leave
-      // it for `githubSearchQueryIssues` to reject instead of shipping a query
-      // GitHub would silently demote to a zero-match free-text term.
+      // Not folded and not stripped: `githubSearchQueryIssues` rejects it.
       continue;
     }
 
@@ -565,17 +429,13 @@ export function sanitizeGithubSearchQuery(
         toRemove.push(q);
       }
 
-      // Other `is:` values (is:draft, is:queued, …) are valid extra filters; keep.
+      // Other `is:` values (`is:draft`) are valid filters.
       continue;
     }
 
     if (q.key === "type") {
-      // GitHub's free-form `type:pr`/`type:issue` is a synonym for `is:pr`/
-      // `is:issue`; fold it into the structured `type` field with the same
-      // precedence (unset → folded value; conflicting explicit type → `both`).
-      // Left unfolded, the unset `type` field defaults to `pr` while the
-      // `type:issue` token leaks through as inert text — a self-contradictory
-      // `is:pr … type:issue` query that returns the wrong count (#276).
+      // `type:` is GitHub's synonym for `is:`. Left alone, it leaks through as text
+      // beside the default `is:pr` and gives the wrong count (#276).
       const v = normalizeQualifierValue(q.value);
 
       if (v === "pr") {
@@ -586,14 +446,13 @@ export function sanitizeGithubSearchQuery(
         toRemove.push(q);
       }
 
-      // Other `type:` values aren't ones the structured field expresses; keep.
       continue;
     }
 
     const entry = windowEntry(q.key);
 
     if (entry && hasStructuredWindow(entry) && isValidDateQualifierValue(q.value)) {
-      // Duplicates a structured window — the field wins; drop the free-form one.
+      // The structured window wins.
       toRemove.push(q);
       continue;
     }
@@ -609,26 +468,13 @@ export function sanitizeGithubSearchQuery(
 }
 
 /**
- * Remove the given folded `qualifier:value` tokens from the query string and
- * tidy the leftover whitespace and now-empty boolean groups.
- *
- * Re-tokenizes with the same token pattern the parse used and drops only whole
- * qualifier tokens whose identity is in `toRemove`. A naive `split(token)`
- * would clip prefixes (`is:pr` inside `is:private`) and miss/garble the `-`
- * negation; matching on the scanner's token boundaries + the negation-aware
- * identity avoids both.
- *
- * A dropped token takes the boolean operator that BOUND it with it
- * ({@link QUALIFIER_STRIP_RE}), because an operator whose operand is gone is a
- * syntax error GitHub answers with 422. Removing the operator at strip time
- * rather than by a blind sweep afterwards is what keeps a MEANINGFUL operator
- * between two surviving tokens intact — `(NOT is:draft) closed:>=X` loses only
- * the date window, not the `NOT`.
+ * Drop the folded tokens, matched by token identity, never by substring.
+ * Each takes its binding operator with it, so a meaningful operator between two
+ * kept tokens stays: `(NOT is:draft) closed:>=X` keeps the `NOT`.
  */
 function stripQualifiers(query: string, toRemove: readonly ParsedQualifier[]): string | undefined {
   const drop = new Set(toRemove.map(qualifierIdentity));
-  // A fresh regex instance: QUALIFIER_STRIP_RE is global and module-shared, so
-  // reusing it in `.replace` could collide with another scan's `lastIndex`.
+  // A fresh instance: the shared global regex has its own `lastIndex`.
   const scanner = new RegExp(QUALIFIER_STRIP_RE.source, QUALIFIER_STRIP_RE.flags);
 
   const out = query.replace(
@@ -638,8 +484,7 @@ function stripQualifiers(query: string, toRemove: readonly ParsedQualifier[]): s
       const value = token.slice(token.indexOf(":") + 1);
       const identity = qualifierIdentity({ key: name.toLowerCase(), value, negated });
 
-      // Keep the leading boundary char (space/`(`/start) so neighbouring tokens
-      // don't fuse; drop the operator and the qualifier it bound.
+      // Keep the boundary so neighbouring tokens do not fuse.
       return drop.has(identity) ? boundary : match;
     },
   );
@@ -648,16 +493,8 @@ function stripQualifiers(query: string, toRemove: readonly ParsedQualifier[]): s
 }
 
 /**
- * Close up the syntax a strip leaves behind: a group that lost its first member
- * still opens with the operator that bound its second (`( OR label:bug)`), and a
- * group that lost every member is empty (`()`).
- *
- * Runs to a fixed point because one pass can expose the next: `((closed:>=X))`
- * strips to `(())`, whose inner group has to go before the outer one is empty.
- *
- * `AND`/`OR` never legitimately open a group, so removing one there is
- * unambiguous. `NOT` does open a group, so it is NOT listed here — a `NOT` that
- * bound a dropped token already left with it.
+ * Remove a leading `AND`/`OR` in a group and empty `()` groups, to a fixed point.
+ * `NOT` is not listed: it can open a group.
  */
 function tidyBooleanResidue(query: string): string | undefined {
   let cleaned = query;
@@ -666,15 +503,11 @@ function tidyBooleanResidue(query: string): string | undefined {
     const next = cleaned
       .replace(/\(\s*(?:AND|OR)\s+/g, "(")
       .replace(/\(\s*\)/g, " ")
-      // The gap a dropped token leaves next to a parenthesis. Whitespace beside
-      // a parenthesis means nothing to GitHub, so closing it is safe and keeps
-      // the emitted query byte-identical to the one a clean input would build.
+      // Whitespace beside a parenthesis means nothing to GitHub, and closing it keeps
+      // the query identical to the one a clean input builds.
       .replace(/\(\s+/g, "(")
       .replace(/\s+\)/g, ")")
-      // drift-ok: the emitted GitHub query, not display text. It is a query a
-      // provider must receive unchanged: GitHub parses these bytes as an
-      // operator grammar, so a changed fold changes which results come back
-      // rather than how something renders.
+      // drift-ok: GitHub parses these bytes as query grammar, not display text.
       .replace(/\s{2,}/g, " ")
       .replace(/^\s*(AND|OR|NOT)\s+/i, "")
       .replace(/\s+(AND|OR|NOT)\s*$/i, "")

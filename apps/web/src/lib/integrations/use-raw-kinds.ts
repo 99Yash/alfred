@@ -2,12 +2,7 @@ import { rawReceiptInventorySchema, type InboundEventSource } from "@alfred/cont
 import { useQuery } from "@tanstack/react-query";
 import { client, parseEdenBody } from "~/lib/eden";
 
-/**
- * Raw receipt inventory of one inbound source (ADR-0097 item 9); preserve query
- * state so a failed read stays visible. Shared by the integration detail page
- * and the workflow editor (#990), which lists the kinds as trigger options.
- * `null` disables the query so a caller can keep the hook call unconditional.
- */
+/** Raw receipt kinds of one inbound source (ADR-0097). `null` disables the query. */
 export function useRawReceiptKinds(slug: InboundEventSource | null) {
   return useQuery({
     queryKey: ["integrations", "raw-kinds", slug],

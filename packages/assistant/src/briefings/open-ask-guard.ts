@@ -8,39 +8,21 @@ import {
 import { proposeObjectKeys, reconcileEvidence } from "@alfred/assistant/connections";
 
 /**
- * Pre-send open-ask guard (#1082) — the deterministic half of the closed-loop
- * rule #1080 put in the composer prompt.
- *
- * The composer of `brg_l49mbk1vf534` held the closure fact in its own context
- * and asked the user to review a merged PR anyway. A model that contradicts a
- * fact it can see will do it again, so the guarantee sits outside the prompt:
- * after compose and before send, read the composed prose, resolve every work
- * object it names, and reject a draft that asks the user to act on an object
- * the projection has already proved closed.
- *
- * Powers and limits (ADR-0048 decision D, and the #257 boundary this shares):
- *   - It may only BLOCK a draft or DROP a sentence. It never writes prose, and
- *     it never reflows the prose that survives (no whitespace normalization —
- *     fences, tables, and list indentation stay byte-identical), and
- *     it never asserts on its own that an object closed.
- *   - It reads `integration_objects` and writes nothing. No durable state moves.
- *   - It makes no model call. The re-prompt it triggers is the workflow's call,
- *     not the guard's.
- *   - Absence never closes a loop. An object with no row, an unreadable state,
- *     a provider this build does not project, or a state category that is not
- *     loop-closing all leave the draft alone.
+ * Pre-send open-ask guard (#1082). A composer once asked the user to review a PR
+ * it could see was merged, so this check sits outside the prompt.
+ * After compose, it finds every work object the prose names and rejects an ask
+ * about one the projection proved closed (ADR-0048 D).
+ * Limits: it only blocks a draft or drops a sentence, never rewrites or reflows prose.
+ * It writes nothing and makes no model call. Absence never closes a loop.
  */
 
 /**
- * The one subject the guard reconciles: the whole composed briefing, read as
- * one blob. The guard binds an object to a SENTENCE itself (a bare `#51` needs
- * the briefing-wide list to bind), so splitting the text into a subject per
- * sentence would propose the same keys many times and answer a question the
- * guard does not ask.
+ * The guard reconciles the whole briefing as one subject. A bare `#51` needs
+ * the briefing-wide list to bind, so a subject per sentence would not work.
  */
 const GUARD_SUBJECT_ID = "composed-briefing";
 
-/** The three composed strings that reach the user. The guard checks all three. */
+/** The three strings that reach the user. */
 export interface ComposedBriefingBody {
   subject: string;
   bodyText: string;
@@ -51,45 +33,35 @@ export type BriefingBodyField = keyof ComposedBriefingBody;
 
 const BRIEFING_BODY_FIELDS = ["subject", "bodyText", "bodyMarkdown"] as const;
 
-/** One closed work object, keyed by the canonical URL the prose must match. */
+/** Keyed by the canonical URL the prose must match. */
 export interface ClosedObjectFact {
   url: string;
   stateCategory: LoopClosingStateCategory;
   title: string | null;
-  /** The email document that opened the loop, when the fact came from gather. */
+  /** The email that opened the loop, when the fact came from gather. */
   documentId: string | null;
 }
 
 export interface OpenAskViolation {
   field: BriefingBodyField;
-  /** The whole sentence that carries the ask, verbatim. Named back to the composer. */
+  /** Verbatim. Named back to the composer. */
   sentence: string;
   objectUrl: string;
   objectTitle: string | null;
   stateCategory: LoopClosingStateCategory;
-  /** The open-ask phrase that fired, so a log line says exactly why. */
   marker: string;
   /**
-   * The email document that opened the loop, when the closure fact came from
-   * this run's gather. `null` for a live `integration_objects` read — that
-   * path proves the object closed but never saw the email document, so there
-   * is no document to blame. The workflow uses this to keep a dropped
-   * sentence's document out of `surfacedDocumentIds`; without it the next
-   * slot would treat an undelivered item as "already told you".
+   * The email that opened the loop. Null for a live read, which never saw the email.
+   * The workflow keeps this document out of `surfacedDocumentIds`, or the next slot
+   * would treat an undelivered item as already told.
    */
   documentId: string | null;
 }
 
 /**
- * Resolve every work object the composed briefing names and report each place
- * the prose asks the user to act on a closed one.
- *
- * Two closure sources, and both are positive facts:
- *   1. `closedLoops` — what this run's gather already proved closed.
- *   2. A live `integration_objects` read, through the shared reconciliation
- *      operation, for every object the prose names. This is how a
- *      `get_day_shape.shipped` object is covered: it shipped because its row
- *      says `resolved`, and that row is what the guard reads.
+ * Report each place the briefing asks the user to act on a closed object.
+ * Closure comes from this run's `closedLoops` or a live `integration_objects` read.
+ * The live read also covers `get_day_shape.shipped` objects.
  */
 export async function auditComposedBriefing(args: {
   userId: string;
@@ -115,10 +87,8 @@ export async function auditComposedBriefing(args: {
     });
   }
 
-  // The prose MENTIONS objects rather than being about one, so the adapters
-  // propose every named object and claim no provenance. Resolution and closure
-  // are then the shared `reconcileEvidence` operation (#1088), which is what
-  // keeps this guard's reading of "closed" identical to the gather's.
+  // `mentions` proposes every named object. `reconcileEvidence` (#1088) keeps "closed"
+  // the same as in gather.
   const subject = { id: GUARD_SUBJECT_ID, text: { subject: "", content: text } };
 
   const reconciled = await reconcileEvidence({
@@ -127,23 +97,16 @@ export async function auditComposedBriefing(args: {
   });
 
   for (const object of reconciled.get(GUARD_SUBJECT_ID) ?? []) {
-    // Only canonical PR-URL keys can be URL facts. Today `mentions` proposes
-    // nothing else, but a second adapter's key kinds must not land in a
-    // URL-keyed map unread — read the key only for the kind that IS a URL.
+    // Only URL keys can go in a URL-keyed map. Today `mentions` proposes nothing else.
     if (object.key.keyKind !== "pull_request_url") continue;
     const url = object.key.keyValue;
 
-    // A gather-proved closure already in the map wins: it is the same row read
-    // minutes earlier, and only it knows which email opened the loop.
-    // `closesAskAs === null` is the READING's authority (`annotates` may not
-    // close at all), which is a different question from the proof below.
+    // A gather closure wins: same row, and it knows which email opened the loop.
+    // `closesAskAs === null` means this reading (`annotates`) may not close at all.
     if (object.closesAskAs === null || closedByUrl.has(url)) continue;
 
-    // `closesAskAs` only NOMINATES. This guard DROPS a user-facing sentence,
-    // which is suppression, so it must assert with the proof it actually holds
-    // — stored projection, because it takes no live read. A kind declaring
-    // `closesAskFrom: "live_confirmation"` therefore suppresses nothing here
-    // (ADR-0103), whatever key kinds the filter above admits later.
+    // `closesAskAs` only nominates. The guard has no live read, so it asserts with
+    // stored projection; a `live_confirmation` kind suppresses nothing here (ADR-0103).
     const closes = closesOpenAsk(
       object.state.provider,
       object.state.kind,
@@ -166,23 +129,11 @@ export async function auditComposedBriefing(args: {
 }
 
 /**
- * The pure detector. Split each composed field into sentences, bind each
- * sentence to the objects it names, and report a sentence that both names a
- * closed object and carries an open-ask phrase.
- *
- * `named` is the ordered list of objects the WHOLE briefing names by URL. It
- * exists so a bare `#51` can bind: the subject and the plain-text body carry no
- * markdown link, so the number is the only reference they have. A bare number
- * binds only when exactly one object in this same briefing has that pull-request
- * number, which keeps the binding deterministic and local.
- *
- * The marker scan skips a hit that lies fully inside a word-bounded,
- * case-insensitive copy of any bound closed object's title. The
- * verified-closed recap names an object by its title, and a title such as
- * "Follow up on the #1082 review" is the object's name, not an ask about it.
- * The skip is span-based, on the unchanged sentence text, so a short title
- * can never hide a longer ask around it ("Review" hides nothing inside
- * "review it"), and one sentence with two closed objects is scanned once.
+ * Report each sentence that names a closed object and carries an open-ask phrase.
+ * A bare `#51` binds only when exactly one object in `named` has that number.
+ * A marker hit fully inside the closed object's own title is skipped:
+ * "Follow up on the #1082 review" is a name, not an ask. The span check means
+ * a short title cannot hide a longer ask around it.
  */
 export function findOpenAskViolations(args: {
   composed: ComposedBriefingBody;
@@ -225,14 +176,9 @@ export function findOpenAskViolations(args: {
 }
 
 /**
- * Drop every violating sentence from the two body fields, preserving the
- * surrounding paragraph shape.
- *
- * Returns `null` when the draft cannot be downgraded — a violating subject (the
- * headline is one beat and there is nothing left to keep), or a body that loses
- * all of its prose. The caller then fails the compose. Dropping a sentence is a
- * downgrade; writing a replacement would be an assertion, which this guard is
- * not allowed to make.
+ * Drop each violating sentence from both bodies.
+ * Returns `null` if the subject violates or a body loses all prose; the caller fails the compose.
+ * Writing replacement prose would be an assertion, which the guard may not make.
  */
 export function downgradeOpenAsks(
   composed: ComposedBriefingBody,
@@ -252,7 +198,6 @@ export function downgradeOpenAsks(
   return { subject: composed.subject, bodyText, bodyMarkdown };
 }
 
-/** One log/prompt line per violation, for the re-prompt and the ops log. */
 export function describeOpenAskViolation(violation: OpenAskViolation): string {
   const object = violation.objectTitle
     ? `${violation.objectUrl} ("${violation.objectTitle}")`
@@ -267,15 +212,9 @@ export function describeOpenAskViolation(violation: OpenAskViolation): string {
 // ─── Detection internals ──────────────────────────────────────────────────
 
 /**
- * Phrases that frame an object as work still owed by the user. Each entry is a
- * multi-word phrase on purpose: the bare word "review" appears in honest recap
- * prose ("the review comments landed"), so matching it would block a correct
- * draft. Lower-case; the haystack is lower-cased before the scan.
- *
- * "follow up on" and "needs your approval" (#1240) are the present-tense ask,
- * so the past-tense and noun forms of the same event do not match them:
- * "followed up on", "the follow-up on", "needed your approval", "got your
- * approval".
+ * Phrases that mark an object as work the user still owes.
+ * Multi-word on purpose: a bare "review" shows up in honest recaps.
+ * Present tense only (#1240): "followed up on" and "got your approval" do not match.
  */
 const OPEN_ASK_MARKERS = [
   "action needed",
@@ -319,13 +258,9 @@ const OPEN_ASK_MARKERS = [
 ] as const;
 
 /**
- * A negated marker is not an ask — "nothing needs your review there" states the
- * opposite of what the phrase alone reads as. The negation may carry a
- * `longer` and/or `need to` tail, so "no longer needs your approval" and "you
- * don’t need to follow up on" read as negated too; `n't` takes either
- * apostrophe because composed prose carries both. Only the text immediately
- * before the phrase is inspected, so this cannot reach across a clause and
- * excuse a real ask.
+ * A negation right before the marker means it is not an ask ("nothing needs your review").
+ * Allows a `longer` or `need to` tail, and both apostrophes in `n't`.
+ * Looks only at the text just before the phrase, so it cannot excuse a real ask in another clause.
  */
 const NEGATION_BEFORE_RE =
   /(?:\b(?:no|not|nothing|none|never|nobody)\b|n['’]t)(?:\s+longer)?(?:\s+need\s+to)?[\s,]*$/;
@@ -360,15 +295,8 @@ function findOpenAskMarker(sentence: string, titles: readonly (string | null)[])
 }
 
 /**
- * Word-bounded, case-insensitive spans of every bound closed object's title in
- * the already lower-cased haystack. Offsets agree with the marker scan by
- * construction, because both read the same string.
- *
- * A span needs a word boundary on each side where the title meets a word
- * character: a one-word title such as "Review" matches inside "Please review
- * it" (both sides bounded), but not inside "reviews" (the trailing `s` keeps
- * the word going). Only a marker hit fully inside one span is skipped, so the
- * title can excuse its own name and never a longer ask around it.
+ * Word-bounded spans of each closed title in the lower-cased haystack.
+ * "Review" matches in "please review it" but not in "reviews".
  */
 function titleSpans(
   haystack: string,
@@ -409,11 +337,7 @@ function isWordChar(char: string): boolean {
   return char.length === 1 && /[\p{L}\p{N}_]/u.test(char);
 }
 
-/**
- * Pull-request number → the single object that carries it, when the briefing
- * names exactly one. A number two objects share stays out of the map, so an
- * ambiguous `#51` binds to nothing and blocks nothing.
- */
+/** PR number to its object. A number two objects share is left out, so `#51` binds to nothing. */
 function bindableNumbers(named: readonly string[]): ReadonlyMap<string, string> {
   const byNumber = new Map<string, string>();
   const ambiguous = new Set<string>();
@@ -455,12 +379,9 @@ interface SentenceSpan {
 }
 
 /**
- * Split a composed field into independently-droppable spans: sentences, blank-line
- * paragraphs, and markdown list items. A bullet carries no end punctuation, so
- * punctuation alone fuses a whole list (plus the sign-off) into one span — one
- * violating bullet would then delete every sibling and still ship the greeting
- * (#1082 B1). A lone `\n` inside a paragraph does NOT split, so a soft-wrapped
- * sentence keeps its marker and its object reference in the same span.
+ * Split into droppable spans: sentences, paragraphs, and list items.
+ * Bullets have no end punctuation, so without the list split one bad bullet
+ * dropped the whole list (#1082 B1). A single `\n` does not split.
  */
 const SENTENCE_BOUNDARY_RE = /(?<=[.!?])\s+|\n\s*\n+|\n(?=\s*(?:[-*•>]|\d+[.)])\s)/g;
 
@@ -495,19 +416,9 @@ function violatingSentences(
 }
 
 /**
- * Remove whole sentences by span, then close the gap the removal left behind.
- * Each kept span carries the separator that FOLLOWED it, and a dropped
- * sentence takes its own separator with it — so the blank line between a
- * greeting and the paragraph survives without any rewriting of the text that
- * stays. The only normalization is a trim of the field edges.
- *
- * Deliberately no global whitespace pass: collapsing `[ \t]+` or stripping
- * space around `\n` rewrites prose the guard never judged — it flattens
- * indented code inside fences, collapses GFM table column padding, and
- * re-indents list continuations. The voice sanitizer already proved the naive
- * form wrong the expensive way (fences, block quotes, link destinations, and
- * table delimiter rows each need their own protection); a sentence-drop has
- * no business re-running any of that. Surviving bytes stay byte-identical.
+ * Drop sentences by span. Each kept span carries the separator after it,
+ * so the remaining text stays byte-identical. Only the edges are trimmed.
+ * No global whitespace pass: it would break code fences, tables, and list indents.
  */
 function dropSentences(text: string, sentences: ReadonlySet<string>): string {
   if (sentences.size === 0) return text;
@@ -517,9 +428,6 @@ function dropSentences(text: string, sentences: ReadonlySet<string>): string {
 
   for (const [index, span] of spans.entries()) {
     if (sentences.has(span.text.trim())) continue;
-    // Carry the separator that FOLLOWED this sentence, so the blank line
-    // between a greeting and the paragraph survives. A dropped sentence takes
-    // its own separator with it, which is what closes the gap.
     const next = spans[index + 1];
 
     out += span.text + (next ? text.slice(span.end, next.start) : text.slice(span.end));
@@ -529,17 +437,9 @@ function dropSentences(text: string, sentences: ReadonlySet<string>): string {
 }
 
 /**
- * Keep a downgrade from poisoning the next slot's continuity signal. A dropped
- * sentence's document was never delivered, so it must not land in
- * `surfacedDocumentIds` — `collectSurfacedKeys` resolves those ids back into
- * the `previouslySurfaced` flag, and a stale id would suppress an item the
- * user never heard about.
- *
- * Only documents the violations actually blame (via `violation.documentId`)
- * are removed; every other citation passes through trimmed and deduped.
- * A violation with `documentId: null` (a live-read closure the gather never
- * saw) names no document, so it filters nothing — that is a known residual
- * gap, not a license to drop citations the guard cannot attribute.
+ * Remove the blamed documents from `surfacedDocumentIds`: they were never delivered,
+ * and the next slot would mark them `previouslySurfaced`.
+ * A violation with `documentId: null` filters nothing. That is a known gap.
  */
 export function filterDroppedCitations(
   citedDocumentIds: readonly string[],

@@ -9,13 +9,7 @@ import {
   type ThreadTurn,
 } from "@alfred/assistant/knowledge/extractor";
 
-/**
- * Pins the pure surface of the chat→memory extractor (#398): transcript
- * assembly (role labels, blank-skipping, newest-preserving truncation) and the
- * extract pipeline (empty short-circuit, prompt shape, output re-validation).
- * The live cheap-model call is exercised via smokes, not here — the `generate`
- * seam lets these stay deterministic and AI-SDK-free.
- */
+/** Chat-to-memory extractor, pure parts. The `generate` seam replaces the live model call. */
 
 describe("buildThreadTranscript", () => {
   test("renders role labels and joins turns oldest-first", () => {
@@ -186,8 +180,6 @@ describe("SYSTEM_PROMPT (D6 guidance)", () => {
     assert.match(SYSTEM_PROMPT, /FINAL/);
   });
 
-  // A trivially-referenced type import keeps the ChatProposition symbol in use
-  // for readers wiring further assertions; harmless and documents intent.
   test("proposition shape is the contract type", () => {
     const p: ChatProposition = {
       subject: "user",

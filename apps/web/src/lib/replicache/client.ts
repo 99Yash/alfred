@@ -4,66 +4,37 @@ import type { ClientMutators } from "@alfred/sync";
 import { clientMutators } from "@alfred/sync";
 import { API_URL } from "~/lib/eden";
 
-/**
- * Abort a pull/push that hasn't resolved in this window. Without it a
- * black-holed server (TCP accepted, never responds) leaves the fetch promise
- * pending forever and Replicache never retries — the sync silently wedges. A
- * thrown timeout is just another failed attempt Replicache backs off and
- * retries, which is exactly what we want.
- */
+/** A server that accepts TCP but never answers would wedge sync. A timeout becomes a normal retry. */
 const SYNC_FETCH_TIMEOUT_MS = 30_000;
 
 /**
- * Replicache partitions its IndexedDB by `(name, schemaVersion)`. Bumping this
- * constant makes every client treat its persisted store as a different DB —
- * the old one is abandoned and the next load cold-syncs from scratch.
- *
- * This is the canonical self-healing reset (the pattern dimension uses):
- *   - Bump it whenever a synced entity's *serialized shape* changes, so stale
- *     shapes in old IndexedDB stores can't silently linger and diverge.
- *   - Bump it as the recovery lever if a client ever wedges its local store
- *     (e.g. the #337 client-group fork) — a redeploy heals every client with
- *     no "clear your IndexedDB" handholding.
- *
- * Keep it a hand-bumped string (not derived) so the reset is an explicit,
- * code-reviewed decision tied to a deploy.
+ * Bump to abandon every client's IndexedDB and cold-sync on next load.
+ * Bump when a synced entity's shape changes, or to heal a wedged local store.
  */
 const REPLICACHE_SCHEMA_VERSION = "1";
 
-/**
- * A Replicache handle paired with the last value read for it. The subscription
- * hooks (`use-briefings`, `use-workflows`, `use-chat`) store this so a client
- * swap and its stale snapshot are discarded together.
- */
+/** A handle with its last read value, so a client swap drops the stale value too. */
 export interface ReplicacheSnapshot<T> {
   rep: Replicache<ClientMutators>;
   value: T;
 }
 
 export interface CreateReplicacheOptions {
-  /**
-   * Fired when the synced data path looks unauthenticated — a pull/push that
-   * 401s, or a poke `EventSource` that errors into a permanently CLOSED state
-   * (a 401 closes it with no auto-reconnect). Lets the caller surface a
-   * "session expired" state instead of an invisible infinite retry loop.
-   */
+  /** A pull or push got a 401, or the poke `EventSource` closed for good. */
   onAuthError?: (() => void) | undefined;
-  /** Fired after a pull response has been successfully parsed. */
   onPullSuccess?: (() => void) | undefined;
-  /** Fired for HTTP, network, timeout, and response parsing pull failures. */
+  /** HTTP, network, timeout, and parse failures. */
   onPullError?: ((message: string) => void) | undefined;
 }
 
-// Replicache surfaces a non-200 `errorMessage` via its logging /
-// onClientStateNotFound paths; a blank string throws away the only diagnostic
-// we get. Read the body (bounded) so a 401/5xx says *why* it failed.
+// `errorMessage` is the only diagnostic Replicache logs, so include a bounded body.
 async function describeFailure(response: Response): Promise<string> {
   let body = "";
 
   try {
     body = summarizeBody(await response.text());
   } catch {
-    // Body already consumed or unreadable — fall back to the status line.
+    // Unreadable body: use the status line.
   }
 
   return `${response.status} ${response.statusText}${body ? `: ${body}` : ""}`;
@@ -82,9 +53,6 @@ export function createReplicache(
   userId: string,
   options: CreateReplicacheOptions = {},
 ): CreatedReplicache {
-  // One place for "this pull/push failed": a 401 means the session cookie
-  // expired (notify the caller), and a bounded body makes any failure
-  // diagnosable instead of a blank errorMessage. Keeps puller/pusher in step.
   const failureInfo = async (response: Response) => {
     if (response.status === 401) options.onAuthError?.();
 
@@ -143,7 +111,7 @@ export function createReplicache(
     },
   });
 
-  // Subscribe to SSE pokes so Replicache pulls immediately on server writes.
+  // Pull at once when the server pokes.
   const source = new EventSource(`${API_URL}/api/replicache/events`, {
     withCredentials: true,
   });
@@ -152,9 +120,7 @@ export function createReplicache(
     rep.pull();
   });
   source.onerror = () => {
-    // A transient drop leaves the source CONNECTING (it auto-reconnects) — stay
-    // quiet. A 401 closes it permanently (readyState CLOSED, no reconnect); that
-    // mirrors an expired session, so surface it rather than silently dying.
+    // A transient drop stays CONNECTING and retries. CLOSED means a 401.
     if (source.readyState === EventSource.CLOSED) options.onAuthError?.();
   };
 

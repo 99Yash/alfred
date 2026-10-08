@@ -21,25 +21,9 @@ import {
 } from "./schemas";
 
 /**
- * One synced Replicache entity: the prefix of its IDB keys, the zod schema
- * that owns its shape, and the functions that derive full IDB storage keys.
- *
- * This is the single source of truth for "which field of a synced entity is
- * its IDB id". The server pull (`syncEntity` in `@alfred/http`), the client
- * mutators, and the key builders all read from here — so a server that
- * keys triage tags by `id` and a client that keys them by `threadId` can no
- * longer compile.
- *
- * Each registered Zod object schema is also the allowlist for browser-visible
- * fields. Its default unknown-key stripping is intentional: an identity mapper
- * can pass a whole server row, and only schema-declared fields reach the browser.
- * Do not make these schemas strict; a new database-only column must not
- * invalidate and skip the row.
- *
- * `storageKeyFor` derives a full key (`todo/abc`) from a parsed entity;
- * `storageKeyForId` builds one from the model's typed identity. Scan prefixes
- * stay private to this module. No public key operation returns a bare id-part,
- * so a caller cannot pass the result of a key builder to Replicache by mistake.
+ * One synced entity: its key prefix, its schema, and its key builders.
+ * The schema is the allowlist of fields the browser sees. Do not make it strict:
+ * a new database-only column would then make every row fail to parse.
  */
 type SyncSchema = z.ZodType<{ rowVersion: number }, unknown>;
 
@@ -68,11 +52,7 @@ export interface SyncEntityModel<
   readonly slug: Prefix;
   /** Type carrier for SyncModelFor and server projection derivation. */
   readonly schema: TSchema;
-  /**
-   * Rebuild a storage key from the bare identity stored in a CVR snapshot.
-   * The delete-diff loop in `packages/http/src/sync/pull.ts` is the only
-   * intended caller.
-   */
+  /** Rebuild a storage key from the bare identity in a CVR snapshot. */
   storageKeyForCVRId(id: string): `${Prefix}/${string}`;
   storageKeyForId(id: SyncIdentity<TSchema, TKeys>): `${Prefix}/${string}`;
   storageKeyFor(entity: z.output<TSchema>): `${Prefix}/${string}`;
@@ -94,19 +74,9 @@ export interface SyncEntityModel<
     value: z.output<TSchema>;
   };
   /**
-   * Validate one *light* version projection — the ordered identity tuple plus
-   * `rowVersion` — and derive the CVR id from that same tuple.
-   *
-   * `parsePullValue` is the full wire gate: it needs every schema field, so a
-   * caller must first have read the whole row. This is what the server pull runs
-   * over its membership query instead. It says nothing about the row's values,
-   * so it can acknowledge membership the client already holds, and it does NOT
-   * decide whether a value may reach the client. Every key outside `key` and
-   * `rowVersion` is ignored, so a reader whose membership is decided in JS may
-   * select the few extra columns that test reads.
-   *
-   * A malformed projection throws a `ZodError`, which the pull treats as one
-   * skippable row.
+   * Validate only the identity and `rowVersion`, and derive the CVR id.
+   * It does not decide whether a value may reach the client; `parsePullValue` does.
+   * Throws a `ZodError` on a malformed row.
    */
   parsePullVersion(
     input: unknown,
@@ -135,8 +105,7 @@ function model<
   const { key } = identity;
 
   const identityOf = (value: z.output<TSchema>): SyncIdentity<TSchema, TKeys> => {
-    // SAFETY: TKeys can contain only string-valued keys from TSchema's output,
-    // so the parsed value satisfies the identity record by construction.
+    // SAFETY: TKeys holds only string-valued keys of TSchema's output.
     return value as z.output<TSchema> & SyncIdentity<TSchema, TKeys>;
   };
 
@@ -162,9 +131,7 @@ function model<
     return parsed;
   };
 
-  // The narrow version gate. Two field shapes, not a schema narrowed from
-  // `schema`: this stays a two-field contract for every model, union schema
-  // included. Both parse once per projection row, so they are built here.
+  // Built from field shapes, not from `schema`, so union schemas work too.
   const identityValueSchema = z.string();
   const rowVersionSchema = z.number();
 
@@ -223,14 +190,8 @@ function model<
 }
 
 /**
- * Single registry of every synced entity.
- *
- * `IDBKeys` and `SyncedEntity` are derived from this map, so
- * adding an entity is one entry here plus one fetcher and one mutator — no
- * parallel schema/key/SyncedEntity-union bookkeeping.
- *
- * The literal order is load-bearing: `IDB_KEY_NAMES` and the server patch
- * dispatcher preserve this insertion order. Keep existing entries stable.
+ * Every synced entity. The key order matters: `IDB_KEY_NAMES` and the server
+ * patch dispatcher keep it. Do not reorder existing entries.
  */
 const syncModels = {
   note: model("note", syncedNoteSchema, { key: ["id"] }),
@@ -255,37 +216,22 @@ export const SYNC_MODEL = syncModels satisfies {
   [Key in keyof typeof syncModels]: { readonly slug: Key & string };
 };
 
-/** Union of every persisted raw prefix — drives generic dispatchers. */
 export type IDBKeys = keyof typeof SYNC_MODEL;
 
-/** The precise schema and operations bound to one slug. */
 export type SyncModelFor<Slug extends IDBKeys> = (typeof SYNC_MODEL)[Slug];
 
-/** The synced value type for a slug. */
 export type SyncedValueFor<Slug extends IDBKeys> = z.output<SyncModelFor<Slug>["schema"]>;
 
-/**
- * Every synced entity that can live in the Replicache store. Derived from
- * `SYNC_MODEL` so the union cannot drift from the registry.
- */
 export type SyncedEntity = {
   [Slug in IDBKeys]: SyncedValueFor<Slug>;
 }[IDBKeys];
 
-/** All entity slugs as a runtime array — server iterates over this. */
 export const IDB_KEY_NAMES =
   /* SAFETY: Object.keys preserves every literal object key and adds no keys. */
   Object.keys(SYNC_MODEL) as IDBKeys[];
 
-/**
- * Round-trip through `JSON.stringify`/`JSON.parse` to coerce any
- * Drizzle/server-shaped value into Replicache's strict `ReadonlyJSONValue`.
- * The serialisation step strips methods, `undefined`, prototypes, and other
- * non-JSON artefacts; the parse step returns a plain JSON tree that
- * satisfies the Replicache boundary.
- */
+/** JSON round-trip a server value into a plain `ReadonlyJSONValue`. */
 function normalizeToReadonlyJSON<T>(value: T): ReadonlyJSONValue {
-  // SAFETY: JSON.parse returns `unknown`; the round-trip guarantees a valid
-  // JSON tree, which is exactly ReadonlyJSONValue.
+  // SAFETY: a JSON round-trip yields a JSON tree, which is ReadonlyJSONValue.
   return JSON.parse(JSON.stringify(value)) as ReadonlyJSONValue;
 }

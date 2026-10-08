@@ -22,29 +22,13 @@ interface FeatureCard {
   body: string;
   bullets: ReadonlyArray<string>;
   mockup: ReactNode;
-  /**
-   * Set on a capability that is designed but not shipped. The card renders a
-   * "Soon" tag next to its eyebrow. Delete the flag when the feature lands —
-   * that is the whole removal, one line per card.
-   */
+  /** Designed but not shipped: shows a "Soon" tag. Remove when the feature lands. */
   soon?: boolean | undefined;
 }
 
 /**
- * Visitors.now's "Everything you need" pattern adapted for Alfred —
- * a 2-column grid of feature cards. Each card has:
- *   • a tinted category icon + colored eyebrow
- *   • a big bold title
- *   • a one-line body
- *   • three bullet checkmarks
- *   • a stylized mockup at the bottom
- *
- * Each card also carries its tone into its own *surface*, not just its icon.
- * Four cards with identical neutral backgrounds read as one undifferentiated
- * block of boxes; a whisper of the accent in the fill and the border makes the
- * four capabilities distinguishable at a glance, before any reading happens.
- * The tint is deliberately near-threshold — enough to separate, never enough
- * to compete with the copy.
+ * Two-column feature cards. Each card tints its surface and border with its tone,
+ * just enough to tell the four apart at a glance.
  */
 export function FeatureGrid({ className }: { className?: string }) {
   return (
@@ -66,14 +50,8 @@ export function FeatureGrid({ className }: { className?: string }) {
   );
 }
 
-/* ----------------------------------------------------------------------
- * Card content
- * ------------------------------------------------------------------- */
-
 /**
- * Card copy is held to what the code does. Two cards describe shipped
- * behavior; two carry `soon` and describe designed behavior. When you edit a
- * bullet here, the bar is a file you can point at:
+ * Copy must match the code. Cards marked `soon` describe designed behavior. Sources:
  *   • triage        → packages/assistant/src/triage/email-triage.ts
  *   • briefing      → packages/assistant/src/briefings/daily-briefing.ts
  *   • the 7am/6pm   → packages/contracts/src/briefing-constants.ts
@@ -135,20 +113,12 @@ const FEATURES: ReadonlyArray<FeatureCard> = [
   },
 ];
 
-/* ----------------------------------------------------------------------
- * Card chrome
- * ------------------------------------------------------------------- */
-
 interface ToneAccent {
   text: string;
-  /** Icon tile fill. */
   bg: string;
   ring: string;
-  /** Hover glow at the card's top edge. */
   glow: string;
-  /** The card's own surface tint — near-threshold, see FeatureGrid. */
   surface: string;
-  /** The card's border, tinted to match the surface. */
   border: string;
 }
 
@@ -198,24 +168,18 @@ function FeatureCardView({ card }: { card: FeatureCard }) {
         "border bg-neutral-950/40",
         tone.border,
         "transition-[border-color,translate] duration-200",
-        // A whisper of lift on hover so the card feels liftable, not just tinted.
         "hover:-translate-y-0.5 motion-reduce:hover:translate-y-0",
-        // Subtle inner highlight so the card edge catches a hint of light,
-        // matching the frosted-bezel rhythm used elsewhere on the page.
         "shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]",
       )}
     >
-      {/* The card's own tone, laid on the surface as a top-down wash. Strongest
-          where the eye lands first and gone by the mockup, so the illustration
-          keeps a neutral ground to sit on. */}
+      {/* Tone wash, top-down, gone by the mockup so it sits on a neutral ground. */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 -z-10"
         style={{ background: `linear-gradient(180deg, ${tone.surface}, transparent 62%)` }}
       />
 
-      {/* Tone-matched glow that warms the top edge on hover — the card's
-          accent bleeding up through the frosted surface. */}
+      {/* Tone-matched glow on the top edge on hover. */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-x-0 -top-px h-32 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
@@ -266,11 +230,7 @@ function FeatureCardView({ card }: { card: FeatureCard }) {
   );
 }
 
-/**
- * Marks a capability that is designed but not shipped. Amber, because that is
- * the colour this page already uses for "read this before you assume" — the
- * same register as the access notice, not the register of a feature badge.
- */
+/** Designed but not shipped. Amber, like the access notice: "read before you assume". */
 function SoonTag() {
   return (
     <span
@@ -284,11 +244,7 @@ function SoonTag() {
   );
 }
 
-/* ----------------------------------------------------------------------
- * Per-card mockups — small static illustrations, NOT full mockups. Echoes
- * of the hero panels but stripped to one or two essential elements so each
- * card reads at a glance.
- * ------------------------------------------------------------------- */
+/* Per-card mockups: one or two elements each, so a card reads at a glance. */
 
 function InboxRowMockup() {
   return (
@@ -392,9 +348,8 @@ function MeetingPrepMockupCard() {
 }
 
 /**
- * The one mockup that earns a real sequence: a question goes out, Alfred
- * "thinks" (typing dots), then the answer lands. Plays once when the card
- * scrolls into view; reduced-motion users see the finished exchange up front.
+ * The one animated mockup: question, typing dots, answer. Plays once in view;
+ * reduced motion shows the finished exchange.
  */
 function ChatBubbleMockup() {
   const ref = useRef<HTMLDivElement | null>(null);
@@ -487,9 +442,7 @@ function ChatBubbleMockup() {
   );
 }
 
-/* ----------------------------------------------------------------------
- * Mini primitives shared by the embedded mockups.
- * ------------------------------------------------------------------- */
+/* Mini primitives for the mockups. */
 
 type MiniAvatarTone = "indigo" | "violet" | "peach" | "rose" | "emerald";
 

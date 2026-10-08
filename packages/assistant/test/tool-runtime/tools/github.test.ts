@@ -17,9 +17,7 @@ import {
   resolvePullRequestAuthor,
 } from "../../../src/tool-runtime/internal/tools/github";
 
-// Noon UTC on Sat 6 June 2026 — far enough from a tz boundary that UTC and
-// Asia/Kolkata agree on the calendar day, except where a case picks a
-// near-midnight time to exercise the boundary.
+// Noon UTC, so UTC and Asia/Kolkata agree on the day.
 const NOW = Date.UTC(2026, 5, 6, 12, 0, 0);
 
 const UTC = parseIanaTimezone("UTC");
@@ -34,7 +32,7 @@ describe("buildGithubSearchQuery", () => {
         UTC,
         NOW,
       ),
-      // 6 June minus 6 days = 31 May → the last 7 calendar days, today included.
+      // The last 7 calendar days, today included.
       "is:pr author:@me is:closed closed:>=2026-05-31T00:00:00+00:00",
     );
   });
@@ -89,7 +87,6 @@ describe("buildGithubSearchQuery", () => {
     assert.equal(resolvePullRequestAuthor("@me", "99Yash"), "99Yash");
     assert.equal(resolvePullRequestAuthor("octocat", "99Yash"), "octocat");
     assert.equal(resolvePullRequestAuthor("octocat", null), "octocat");
-    // The failure is a catalog code with a machine-readable fix, not message text.
     assert.throws(
       () => resolvePullRequestAuthor("@me", null, "user_1"),
       (err: unknown) =>
@@ -175,9 +172,7 @@ describe("sanitizeGithubSearchQuery (ADR-0071 sanitize-and-merge)", () => {
   });
 
   test("a negated qualifier is NOT folded — exclusion intent is preserved verbatim", () => {
-    // `-author:octocat` excludes; the inclusion-only structured field can't
-    // express that, so it must stay in the query (the prior code dropped the
-    // `-` and set author='octocat', inverting the user's intent).
+    // The structured field cannot express exclusion, so it stays in the query.
     const { sanitized, stripped } = sanitizeGithubSearchQuery({
       query: "-author:octocat repo:99Yash/alfred",
     });
@@ -188,8 +183,7 @@ describe("sanitizeGithubSearchQuery (ADR-0071 sanitize-and-merge)", () => {
   });
 
   test("folding is:pr does not clip a prefix-overlapping is:private token", () => {
-    // `split("is:pr")` would corrupt `is:private` into `ivate`; the
-    // scanner-based strip removes whole tokens only.
+    // `split("is:pr")` would turn `is:private` into `ivate`.
     const { sanitized } = sanitizeGithubSearchQuery({
       query: "is:pr is:private",
     });
@@ -199,9 +193,7 @@ describe("sanitizeGithubSearchQuery (ADR-0071 sanitize-and-merge)", () => {
   });
 
   test("an unrecognized state: value is NOT folded and NOT silently stripped", () => {
-    // `state:done` is not a real GitHub state. The old code stripped every
-    // `state:` token regardless, silently rewriting the query into a different
-    // one. It must now be left in place for the validator to reject.
+    // Leave an unknown state in place for the validator to reject.
     const { sanitized, stripped } = sanitizeGithubSearchQuery({
       query: "state:done repo:99Yash/alfred",
     });
@@ -212,8 +204,6 @@ describe("sanitizeGithubSearchQuery (ADR-0071 sanitize-and-merge)", () => {
   });
 
   test("a free-typed is:issue with unset type resolves to issue, not both", () => {
-    // With no schema default applied, an unset `type` + free-typed `is:issue`
-    // narrows to `issue` instead of silently widening to `both`.
     const { sanitized } = sanitizeGithubSearchQuery({ query: "is:issue" });
     assert.equal(sanitized.type, "issue");
   });
@@ -224,9 +214,7 @@ describe("sanitizeGithubSearchQuery (ADR-0071 sanitize-and-merge)", () => {
   });
 
   test("folds free-typed type:issue/type:pr into the structured type field and strips it", () => {
-    // #276: the `type:` qualifier was not folded, so with an unset structured
-    // `type` (defaulting to `pr`) the query became a contradictory
-    // `is:pr … type:issue` and GitHub returned the wrong count.
+    // Unfolded, `type` defaults to `pr` and the query becomes `is:pr … type:issue`.
     const issue = sanitizeGithubSearchQuery({ query: "type:issue" });
     assert.equal(issue.sanitized.type, "issue");
     assert.equal(issue.sanitized.query, undefined);
@@ -238,8 +226,6 @@ describe("sanitizeGithubSearchQuery (ADR-0071 sanitize-and-merge)", () => {
   });
 
   test("the live #276 query folds type: and state: and leaves only the repo scope", () => {
-    // Observed in prod (run_rpyg8jxp0x4o): "type:issue" leaked through while
-    // "state:open" folded, emitting `is:pr is:open … type:issue`.
     const { sanitized } = sanitizeGithubSearchQuery({
       query: "repo:99Yash/alfred type:issue state:open",
     });
@@ -286,8 +272,6 @@ describe("githubSearchQueryIssues (residue that has no safe auto-fix)", () => {
   });
 
   test("folded structured-field collisions no longer reject (sanitize handles them)", () => {
-    // is:/author:/state: free-typed into query are now silently merged, not
-    // rejected — so the residue checker sees nothing wrong.
     assert.deepEqual(
       githubSearchQueryIssues(
         sanitizeGithubSearchQuery({ query: "is:pr author:99Yash state:closed" }).sanitized,
@@ -303,8 +287,7 @@ describe("githubSearchQueryIssues (residue that has no safe auto-fix)", () => {
   });
 
   test("rejects an unrecognized state: value instead of dropping it silently", () => {
-    // `state:done` survives sanitize (see above); the validator must reject it
-    // rather than ship a query GitHub silently demotes to a zero-match term.
+    // GitHub would treat it as a zero-match term.
     const issues = githubSearchQueryIssues(
       sanitizeGithubSearchQuery({ query: "state:done repo:99Yash/alfred" }).sanitized,
     );
@@ -338,8 +321,7 @@ describe("githubSearchQueryIssues (residue that has no safe auto-fix)", () => {
   });
 
   test("rejects negated type qualifiers (-is:pr / -is:issue) that contradict the type field", () => {
-    // `type` always emits an `is:pr`/`is:issue` clause (defaulting to is:pr), so
-    // a negated one survives into `is:pr … -is:pr` → guaranteed zero matches.
+    // `type` always emits `is:pr` or `is:issue`, so a negated one matches nothing.
     const prIssues = githubSearchQueryIssues(
       sanitizeGithubSearchQuery({ query: "-is:pr" }).sanitized,
     );
@@ -356,7 +338,6 @@ describe("githubSearchQueryIssues (residue that has no safe auto-fix)", () => {
     assert.equal(issueIssues.length, 1);
     assert.match(issueIssues[0]!, /Negated type qualifier/);
 
-    // A non-type negated qualifier is a legitimate exclusion GitHub handles — not rejected.
     assert.deepEqual(githubSearchQueryIssues({ query: "-label:wontfix" }), []);
     assert.deepEqual(githubSearchQueryIssues({ query: "-is:draft" }), []);
   });
@@ -449,8 +430,6 @@ describe("github fetch tools accept a URL / number (param-ergonomics)", () => {
   });
 
   test("an explicit owner/repo/pull_number always wins over a conflicting url", () => {
-    // The canonical fields are present, so the url is ignored (dropped) rather
-    // than clobbering them.
     const parsed = githubGetPullRequestInput.parse({
       owner: "octocat",
       repo: "hello",
@@ -462,8 +441,7 @@ describe("github fetch tools accept a URL / number (param-ergonomics)", () => {
   });
 
   test("the model-facing schema still advertises only owner/repo/pull_number", () => {
-    // z.toJSONSchema unwraps the preprocess, so the surface the model is told
-    // about is unchanged — url/number are accepted-input conveniences only.
+    // url and number are accepted but never advertised.
     const json = z.toJSONSchema(githubGetPullRequestInput, { io: "input" }) as {
       properties?: Record<string, unknown>;
     };
@@ -495,12 +473,9 @@ describe("queryHasNarrowingScope (author-default gate, ADR-0071)", () => {
   });
 
   test("a NEGATED scope qualifier is an exclusion, not scope → does not suppress @me", () => {
-    // `-author:octocat` is "exclude octocat", not "scope to octocat". Counting it
-    // as scope suppressed the `author:@me` default and turned "my PRs except
-    // octocat" into a broad all-authors search.
+    // Counting it as scope would drop the `author:@me` default and search all authors.
     assert.equal(queryHasNarrowingScope("-author:octocat"), false);
     assert.equal(queryHasNarrowingScope("-repo:99Yash/archived"), false);
-    // A positive scope alongside a negated one still scopes.
     assert.equal(queryHasNarrowingScope("repo:99Yash/alfred -author:octocat"), true);
   });
 });

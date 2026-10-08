@@ -19,8 +19,7 @@ test("every code has a status, and every factory carries the code it names", () 
     assert.ok(status >= 400 && status <= 599, `${code} maps to a non-failure status`);
   }
 
-  // Each factory owns exactly one code, and the error derives its own status —
-  // a call site can never pair a status with a code that disagrees.
+  // The status derives from the code, so the two cannot disagree.
   const built = Object.values(Errors).map((make) => make());
   const codes = built.map((err) => err.code);
   assert.deepEqual([...codes].sort(), [...API_ERROR_CODES].sort());
@@ -55,7 +54,7 @@ test("a factory error keeps the details it was given, on the error and on the wi
     details: { retryAfterSeconds: 60 },
   });
 
-  // No details means no `details` key at all, not `details: undefined`.
+  // No `details` key at all, not `details: undefined`.
   const bare = apiErrorResponse(Errors.NotFoundError());
   assert.equal("details" in bare, false);
   assert.equal(isApiErrorResponse(bare), true);

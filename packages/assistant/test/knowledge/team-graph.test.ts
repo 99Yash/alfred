@@ -1,21 +1,17 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-// Internal-by-intent helpers dropped from the `knowledge` barrel (item 15) —
-// read from their owning file directly.
+// Internal helpers, not in the `knowledge` barrel.
 import { accumulateDoc, type ContactAggregate } from "@alfred/assistant/knowledge/team-graph";
 import { computeSignificance } from "@alfred/assistant/knowledge/significance";
 import { gmailSenderAdapter } from "@alfred/assistant/triage/gmail-sender-adapter";
 
 const NOW = new Date("2026-06-16T12:00:00.000Z");
 
-// Person classification needs a display name with a space OR a separator in the
-// local part (sender-context.ts), so the fixtures use realistic person headers.
+// A person needs a two-word display name or a first.last local part, so fixtures use real headers.
 const SELF = "me.user@acme.com";
 
-// accumulateDoc now consumes a parsed GmailCorrespondentsObservation (ADR-0089).
-// Build it from raw metadata via the triage adapter — the address-splitting and
-// human-rescue live there now, their outcome is still exercised through here.
+// Parse raw metadata with the triage adapter, as production does (ADR-0089).
 function acc(
   contacts: Map<string, ContactAggregate>,
   meta: Record<string, unknown>,
@@ -86,12 +82,9 @@ describe("accumulateDoc", () => {
   });
 
   test("a real human on a known-service domain IS captured (the rescue)", () => {
-    // Triage classifies whole service domains (google.com, github.com, …) as
-    // `service`; a real colleague at one of them must still become a contact.
+    // Triage marks google.com and github.com as `service`; a real colleague there is still a contact.
     const c = new Map<string, ContactAggregate>();
-    // first.last local part on a service domain
     acc(c, { from: "jane.doe@google.com", isSent: false }, t1, SELF);
-    // person-like display name with a single-token local on a service domain
     acc(c, { from: "Karthik Rao <karthik@github.com>", isSent: false }, t1, SELF);
     assert.equal(c.get("jane.doe@google.com")?.inbound, 1);
     assert.equal(c.get("karthik@github.com")?.inbound, 1);

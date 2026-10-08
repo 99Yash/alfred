@@ -5,80 +5,28 @@ import { transcribe } from "ai";
 import type { GatewayConfig } from "./gateway";
 
 /**
- * Speech-to-text for the chat composer's voice input.
- *
- * This module owns the audio domain: the container sniff, the request each
- * transport sends, and the transcript it reads back. It does NOT choose a
- * transport. `gateway.ts` makes that choice one time and calls one of the two
- * functions below through `Gateway.transcribe`, so no second file decides
- * which host, model, or credential a clip reaches.
- *
- * Two transports exist because Cloudflare attaches a Unified Billing
- * credential per *endpoint*, not per gateway:
- *
- * - **Cloudflare configured** — POST the `/ai/run` universal endpoint. It is
- *   the only Cloudflare surface that serves audio models. The OpenAI
- *   provider-native passthrough (`gateway.ai.cloudflare.com/…/openai/…`) that
- *   the rest of `@alfred/ai` rides gets a managed credential on
- *   `/chat/completions` and `/responses` only; `/audio/transcriptions`
- *   reaches OpenAI with no key at all and returns 401 for every model name.
- *   So this one call leaves the AI SDK. `cf-aig-gateway-id` keeps it in the
- *   gateway's logs and spend limits.
- * - **Not configured** — the direct provider default, which reads
- *   `OPENAI_API_KEY`.
- *
- * Callers ask `transcriptionConfigured()` (also in `gateway.ts`) before they
- * call, and surface a friendly error when neither transport is present.
+ * Speech-to-text for composer voice input. `gateway.ts` picks the transport.
+ * With Cloudflare, this POSTs `/ai/run`: the OpenAI passthrough sends
+ * `/audio/transcriptions` with no key and gets 401. Without it, OpenAI is called directly.
  */
 export interface TranscribeAudioResult {
   text: string;
-  /** Clip length as reported by the provider; undefined when not returned. */
+
   durationInSeconds: number | undefined;
 }
 
-/**
- * Largest raw clip either transport accepts, and the only place the number
- * lives — the HTTP route reads it from here, so a transport change stays one
- * edit in one package.
- *
- * Both transports state 25 MB, but they count different bytes:
- *
- * - Direct: OpenAI caps an `/audio/transcriptions` upload at 25 MB of raw
- *   audio.
- * - Cloudflare: the same bytes travel base64 inside a JSON body, which is 4/3
- *   of the raw size. Cloudflare documents 25 MB as the largest request it
- *   caches and 10 MB as the largest it logs, so a 25 MB clip (about 33 MB
- *   encoded) leaves the documented envelope on this path.
- *
- * 18 MB of raw audio encodes to about 24 MB, which stays inside both. That is
- * still hours of Opus, and a composer dictation is seconds.
- */
+/** Both transports allow 25 MB, but Cloudflare counts the base64 body: 18 MB raw is ~24 MB. */
 export const MAX_TRANSCRIBE_AUDIO_BYTES = 18 * 1024 * 1024;
 
 const TRANSCRIBE_TIMEOUT_MS = 300_000;
 
-/**
- * Cloudflare's catalog name. `gpt-4o-mini-transcribe` is not in the catalog —
- * only the full `gpt-4o-transcribe` is — so the gateway path cannot use the
- * cheaper sibling the direct path uses.
- */
+/** Cloudflare's catalog has no `gpt-4o-mini-transcribe`. */
 const CLOUDFLARE_MODEL = "openai/gpt-4o-transcribe";
 
-/**
- * Cheaper than `whisper-1` with better punctuation on short conversational
- * clips, which is what composer dictation produces. Direct path only.
- */
+/** Cheaper than `whisper-1`, with better punctuation on short clips. */
 const DIRECT_MODEL = "gpt-4o-mini-transcribe";
 
-/**
- * Cloudflare transport. Called by `Gateway.transcribe`, never chosen here.
- *
- * `fetchImpl` carries the gateway pacer. This call leaves the AI SDK, so it
- * misses the `fetch` decorator every model leg gets — but `cf-aig-gateway-id`
- * puts it in the same gateway, and therefore against the same Unified Billing
- * budget the pacer exists to spread. Required (no default) so a caller cannot
- * pass the bare `fetch` and take a slot without reserving one.
- */
+/** `fetchImpl` must be the paced fetch: this call uses the same gateway budget as the model calls. */
 export async function transcribeViaCloudflareRun(
   gateway: GatewayConfig,
   audio: Uint8Array,
@@ -104,11 +52,10 @@ export async function transcribeViaCloudflareRun(
 
   if (text === undefined) throw new Error("Cloudflare /ai/run returned no transcript");
 
-  // The model's output schema is `{ text }` alone — no duration on this path.
+  // This model returns `{ text }` only.
   return { text, durationInSeconds: undefined };
 }
 
-/** Direct transport. Called by `Gateway.transcribe`, never chosen here. */
 export async function transcribeWithOpenAi(
   openai: OpenAIProvider,
   audio: Uint8Array,
@@ -122,25 +69,12 @@ export async function transcribeWithOpenAi(
   return { text: result.text, durationInSeconds: result.durationInSeconds };
 }
 
-/**
- * The containers a browser recorder produces, as a closed set. Chrome records
- * WebM/Opus and Safari records MP4/AAC; the rest arrive when a user drops a
- * file into the composer.
- */
+/** Chrome records WebM/Opus and Safari MP4/AAC. The rest come from dropped files. */
 type AudioContainer = "wav" | "ogg" | "flac" | "mp4" | "mp3" | "webm";
 
 /**
- * The subtype each container travels as inside the `data:` URI.
- *
- * These are a Cloudflare policy, not MIME facts. Cloudflare takes the subtype
- * verbatim as the filename extension it hands OpenAI, so each value must be a
- * name OpenAI accepts as an extension. `audio/mp4` and `audio/x-m4a` both fail
- * on an MP4/AAC clip that `audio/m4a` transcribes, which is why the MP4
- * container maps to `m4a`. Every value below returned 200 against
- * `openai/gpt-4o-transcribe`.
- *
- * A new container costs two typed edits: one member on `AudioContainer` and
- * one row here. A missing row does not compile.
+ * Not MIME facts: Cloudflare passes the subtype to OpenAI as the file extension.
+ * So MP4 must be `m4a`; `audio/mp4` and `audio/x-m4a` fail.
  */
 const CONTAINER_DATA_URI_MIME = {
   wav: "audio/wav",
@@ -152,16 +86,9 @@ const CONTAINER_DATA_URI_MIME = {
 } as const satisfies Record<AudioContainer, string>;
 
 /**
- * Sniff the container from the byte signature, the way the AI SDK did before
- * this path left it — the browser's own `MediaRecorder.mimeType` carries codec
- * parameters (`audio/webm;codecs=opus`) and Safari lies by omission.
- *
- * This is the third hand-rolled signature table in the tree, after
- * `sniffBinaryType` (`fetch-url.ts`) and `sniffPassThroughImageMime`
- * (`attachments.ts`). They stay separate on purpose: each one returns a
- * different label set — a response MIME type there, a pass-through image MIME
- * there, a filename extension here — so a merge would only move the mapping
- * problem into a shared function.
+ * Read the container from the bytes. The browser's `mimeType` carries codec params,
+ * and Safari's is incomplete.
+ * Kept apart from `sniffBinaryType` and `sniffPassThroughImageMime`: each returns different labels.
  */
 function sniffAudioContainer(audio: Uint8Array): AudioContainer {
   const at = (offset: number, text: string): boolean =>
@@ -178,7 +105,7 @@ function sniffAudioContainer(audio: Uint8Array): AudioContainer {
   if (at(0, "ID3")) return "mp3";
 
   if (audio[0] === 0x1a && audio[1] === 0x45 && audio[2] === 0xdf && audio[3] === 0xa3) {
-    return "webm"; // EBML — WebM/Matroska, what Chrome records
+    return "webm"; // EBML: WebM/Matroska
   }
 
   // MPEG audio frame sync (a bare MP3 with no ID3 tag).

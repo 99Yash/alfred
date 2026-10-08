@@ -11,15 +11,12 @@ import {
   weekdayIndex,
 } from "@alfred/assistant/time";
 
-// The two parsers, aliased for brevity — every zone and every day key in these
-// tests goes through them, which is the point: outside this module a value has
-// to be parsed into its type before it can be used as one.
+// Every zone and day key goes through a parser, as it must outside this module.
 const tz = parseIanaTimezone;
 
 const day = parseLocalDateKey;
 
-// The zones these tests keep returning to: UTC, a half-hour offset east, and a
-// DST-observing zone west.
+// UTC, a half-hour offset east, and a DST zone west.
 const utc = inZone(tz("UTC"));
 
 const kolkata = inZone(tz("Asia/Kolkata"));
@@ -33,8 +30,7 @@ describe("parseLocalDateKey", () => {
   });
 
   test("rejects a truncated key instead of silently completing it", () => {
-    // The old `dateParts` read this as [2026, 0, 1] — so `addDays("2026", 1)`
-    // returned "2026-01-02" and no caller ever learned it had been guessing.
+    // A guessed completion would let `addDays("2026", 1)` return "2026-01-02".
     assert.throws(() => parseLocalDateKey("2026"), /not a local date key/);
     assert.throws(() => parseLocalDateKey("2026-06"), /not a local date key/);
   });
@@ -68,8 +64,7 @@ describe("inZone", () => {
 });
 
 describe("clock.day", () => {
-  // The instant every "which day is it" bug is born on: late evening UTC, which
-  // is already tomorrow east of UTC and still yesterday far enough west.
+  // Late evening UTC: already tomorrow east of UTC.
   const evening = new Date("2026-06-10T19:30:00.000Z");
 
   test("is the local calendar day, not the UTC one", () => {
@@ -85,8 +80,7 @@ describe("clock.day", () => {
   });
 
   test("mints a key the parser accepts, in a far-eastern zone too", () => {
-    // The mint re-parses its own output, so a locale that stopped producing
-    // YYYY-MM-DD would fail loudly here rather than poison every day key.
+    // The mint re-parses its output, so a locale change fails here, not in every key.
     assert.equal(isLocalDateKey(inZone(tz("Pacific/Kiritimati")).day()), true);
   });
 });
@@ -125,16 +119,14 @@ describe("clock.offsetMs", () => {
 
 describe("clock.dayBounds", () => {
   test("brackets the local day the instant falls in", () => {
-    // 19:30 UTC is 01:00 on Jun 11 in Kolkata, so the day being bracketed is
-    // Jun 11 local = [Jun 10 18:30Z, Jun 11 18:30Z).
+    // 19:30Z is 01:00 Jun 11 in Kolkata: [Jun 10 18:30Z, Jun 11 18:30Z).
     const { start, end } = kolkata.dayBounds(new Date("2026-06-10T19:30:00.000Z"));
     assert.equal(start.toISOString(), "2026-06-10T18:30:00.000Z");
     assert.equal(end.toISOString(), "2026-06-11T18:30:00.000Z");
   });
 
   test("yields a 23-hour window on a spring-forward day", () => {
-    // US DST starts 2026-03-08. The local day is one hour short, and each bound
-    // must converge on its OWN offset for that to come out right.
+    // US DST starts 2026-03-08. Each bound must use its own offset.
     const { start, end } = newYork.dayBounds(new Date("2026-03-08T18:00:00.000Z"));
     assert.equal(end.getTime() - start.getTime(), 23 * 3_600_000);
   });
@@ -145,12 +137,8 @@ describe("clock.dayBounds", () => {
   });
 
   test("regression: derives tomorrow from the day key, not from now + 24h", () => {
-    // The shape this replaced computed the upper bound as `now + 86_400_000` and
-    // then took ITS local day. Early on a fall-back morning that lands back on
-    // *today*, and the two bounds resolve against different offsets — the old
-    // `me/routes` code returned a ONE-hour window (04:00Z → 05:00Z) here.
-    //
-    // 04:30Z is 00:30 EDT on Nov 1; the local day runs 00:00 EDT → 00:00 EST.
+    // Trap: `now + 86_400_000` lands back on today here and gives a one-hour window.
+    // 04:30Z is 00:30 EDT on Nov 1; the local day runs 00:00 EDT to 00:00 EST.
     const { start, end } = newYork.dayBounds(new Date("2026-11-01T04:30:00.000Z"));
     assert.equal(start.toISOString(), "2026-11-01T04:00:00.000Z");
     assert.equal(end.toISOString(), "2026-11-02T05:00:00.000Z");
@@ -166,15 +154,13 @@ describe("addDays / clock.startOf", () => {
   });
 
   test("day arithmetic is unaffected by a DST transition in between", () => {
-    // +1 day across spring-forward is still the next calendar day, even though
-    // the two midnights are 23 hours apart.
+    // The two midnights are 23 hours apart.
     assert.equal(addDays(day("2026-03-07"), 1), "2026-03-08");
     assert.equal(newYork.startOf(day("2026-03-08")).toISOString(), "2026-03-08T05:00:00.000Z");
   });
 
   test("startOf takes an hour, and resolves it against that hour's own offset", () => {
-    // 09:00 on a normal EDT day is 13:00Z; on the spring-forward day the same
-    // wall-clock 09:00 is still 13:00Z because the shift happened at 02:00.
+    // The shift happens at 02:00, so 09:00 is 13:00Z on that day too.
     assert.equal(newYork.startOf(day("2026-06-10"), 9).toISOString(), "2026-06-10T13:00:00.000Z");
     assert.equal(newYork.startOf(day("2026-03-08"), 9).toISOString(), "2026-03-08T13:00:00.000Z");
     // Midnight is the default, so `startOf(key)` and `startOf(key, 0)` agree.
@@ -210,17 +196,14 @@ describe("formatDay", () => {
   });
 
   test("a key at the far edges of the day still renders as itself", () => {
-    // A key has no instant, so rendering it takes no zone at all — this is the
-    // UTC+14 weekday-a-day-late defect, asserted at both extremes.
+    // A key has no instant, so rendering takes no zone. Guards the UTC+14 weekday-a-day-late bug.
     assert.equal(formatDay(day("2026-01-01"), "long"), "Thursday, 1 January 2026");
     assert.equal(formatDay(day("2026-12-31"), "long"), "Thursday, 31 December 2026");
   });
 });
 
 describe("clock.format", () => {
-  // The #284 evidence instant: a ClickUp notification received at 21:40 UTC,
-  // which is 03:10 the next morning in India — the "late-night request" the
-  // briefing must be able to phrase by local time.
+  // 21:40 UTC is 03:10 the next morning in India (#284).
   const overnight = new Date("2026-06-26T21:40:00.000Z");
 
   test("renders wall-clock in the bound zone, rolling the local date when needed", () => {
@@ -272,10 +255,7 @@ describe("clock.clock", () => {
   });
 
   test("its localDate is a real key, not an assembled '--'", () => {
-    // The prior version substituted "" for any missing `Intl` part, assembling
-    // `localDate: "--"` / `localTime: "::"` and handing them to the model
-    // verbatim via `system.current_time`. A key that can't be parsed is now a
-    // throw, so this asserts the assembled value survives the parser.
+    // A missing `Intl` part must throw, not assemble "--" for the model.
     const reading = kolkata.clock(new Date("2026-07-14T16:20:11.000Z"));
     assert.equal(isLocalDateKey(reading.localDate), true);
     assert.match(reading.localTime, /^\d{2}:\d{2}:\d{2}$/);

@@ -14,7 +14,7 @@ import { memorySourceSchema, type MemorySource } from "@alfred/contracts";
 import { and, asc, desc, eq, gt, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { USER_FACING_MEMORY_CHUNK_KINDS } from "./chunks";
 
-/** The sections {@link readUserContext} can be narrowed to via `include`. */
+/** Sections `include` can select. */
 export type UserContextSection =
   | "profile"
   | "integrations"
@@ -25,23 +25,11 @@ export type UserContextSection =
   | "recent_memory";
 
 export interface ReadUserContextOptions {
-  /**
-   * A specific contact to GUARANTEE is in the result, matched by email alias —
-   * pulled in even when it falls outside the significance-ranked top slice, so
-   * "what do I know about <person>?" never silently misses them.
-   */
+  /** A contact always included, matched by email alias, even below the ranked cap. */
   subjectEmail?: string | undefined;
-  /**
-   * Free-text focus. Its tokens are matched (case-insensitive) against entity
-   * names/aliases; any hit is guaranteed into the result so a named person or
-   * project survives the entity cap.
-   */
+  /** Free text. Any entity whose name or alias matches a token is always included. */
   query?: string | undefined;
-  /**
-   * Section hints. When given, only these sections are populated (profile is
-   * always kept for provenance); omitted sections come back empty. Bounded
-   * either way.
-   */
+  /** Only these sections are filled; profile is always kept. Bounded either way. */
   include?: readonly UserContextSection[] | undefined;
 }
 
@@ -99,11 +87,8 @@ const FACT_LIMIT = 30;
 const PREF_LIMIT = 50;
 
 /**
- * Canonical identity keys that answer "who am I / where do I work?". These are
- * GUARANTEED into the bounded fact slice ahead of the recency/confidence-ranked
- * rest, so a flood of transactional per-email facts can never evict the user's
- * authoritative identity (issue #329). Kept deliberately tight — this is the
- * profile spine, not the broader preference allow-list the #331 purge uses.
+ * Identity keys always in the fact slice, so per-email facts cannot evict who
+ * the user is (#329). Keep this list tight.
  */
 const IDENTITY_FACT_KEYS = [
   "employer",
@@ -137,7 +122,7 @@ const MEMORY_LIMIT = 6;
 
 const MEMORY_PREVIEW_CHARS = 900;
 
-/** Cap on the extra entities a `query`/`subjectEmail` focus may pull in past the ranked slice. */
+/** Max extra entities a `query`/`subjectEmail` focus may add. */
 const FOCUS_MATCH_LIMIT = 10;
 
 type EntityRow = Pick<Entity, "id" | "kind" | "canonicalName" | "aliases" | "metadata">;
@@ -171,10 +156,10 @@ const identityKeyRank = new Map<IdentityFactKey, number>(
   IDENTITY_FACT_KEYS.map((key, index) => [key, index]),
 );
 
-/** `metadata.significance.score` as a sortable float — NULL (unscored) sorts last. */
+/** `metadata.significance.score` as a float. Unscored sorts last. */
 const significanceScore = sql<number>`(${entities.metadata} -> 'significance' ->> 'score')::float8`;
 
-/** Tokenize a free-text query into the alpha-numeric terms worth matching against names. */
+/** Alphanumeric query terms worth matching against names. */
 function queryTokens(query: string | undefined): string[] {
   if (!query) return [];
 
@@ -189,8 +174,7 @@ function queryTokens(query: string | undefined): string[] {
 }
 
 function isIdentityFactKey(key: string): key is IdentityFactKey {
-  // SAFETY: the cast only types .has' argument for the membership test; the
-  // map's keys are exactly the IdentityFactKey union.
+  // SAFETY: the cast only types `.has`'s argument; the map's keys are exactly the IdentityFactKey union.
   return identityKeyRank.has(key as IdentityFactKey);
 }
 
@@ -296,11 +280,8 @@ function bestIdentityFacts<T extends FactContextRow>(rows: T[]): T[] {
 }
 
 /**
- * Read Alfred's compact, bounded user context. Entities are ranked by the
- * significance scalar (ADR-0057) — NOT alphabetically — so the bounded slice
- * keeps who-matters; a `subjectEmail`/`query` focus is then guaranteed into the
- * result even if it falls below the cap. `include` narrows which sections come
- * back (profile is always kept for provenance).
+ * Alfred's compact, bounded user context. Entities rank by significance
+ * (ADR-0057), and a `subjectEmail` or `query` focus is always included.
  */
 export async function readUserContext(
   userId: string,
@@ -356,17 +337,12 @@ export async function readUserContext(
               or(isNull(userFacts.validUntil), gt(userFacts.validUntil, now)),
             ),
           )
-          // Confidence first, then recency — the authoritative identity facts
-          // (source=user, c=1.0) outrank transactional per-email noise (c≈0.95)
-          // instead of being buried by it (issue #329).
+          // Confidence first: user identity facts (1.0) outrank per-email noise (~0.95) (#329).
           .orderBy(desc(userFacts.confidence), desc(userFacts.updatedAt), desc(userFacts.createdAt))
           .limit(FACT_LIMIT)
       : Promise.resolve([]),
-    // Candidate rows for canonical identity keys. This query is intentionally
-    // not gated on `facts`: `profile` must be identity-complete even when a
-    // model narrows the tool call to include only profile/integrations
-    // (issue #329). Selection happens in code so source provenance can outrank
-    // recency: user/cold-start/agent identity beats document extraction noise.
+    // Not gated on `facts`: `profile` must hold identity even when only profile is requested (#329).
+    // Selection is in code, so source can outrank recency.
     db()
       .select(FACT_COLUMNS)
       .from(userFacts)
@@ -387,10 +363,8 @@ export async function readUserContext(
           .orderBy(asc(userPreferences.key))
           .limit(PREF_LIMIT)
       : Promise.resolve([]),
-    // Entities are needed whenever the caller wants entities OR relationships
-    // (relation endpoints resolve to entity names from this set).
-    // SAFETY: the skipped tier contributes no rows; EntityRow[] is the shared
-    // element type of these Promise.all branches.
+    // Relationships need the entities to resolve endpoint names.
+    // SAFETY: the skipped tier contributes no rows; EntityRow[] is the shared element type of these Promise.all branches.
     wants("entities") || wants("relationships")
       ? db()
           .select(ENTITY_COLUMNS)
@@ -410,9 +384,7 @@ export async function readUserContext(
           .where(
             and(
               eq(memoryChunks.userId, userId),
-              // An `extraction_run` chunk is operational bookkeeping, never
-              // something Alfred knows about the user, so `recent_memory` reads
-              // the same user-facing set as recall (#1052).
+              // `extraction_run` is bookkeeping, not user memory (#1052).
               inArray(memoryChunks.kind, [...USER_FACING_MEMORY_CHUNK_KINDS]),
             ),
           )
@@ -424,16 +396,13 @@ export async function readUserContext(
   const identityFactRows = bestIdentityFacts(identityFactRowsRaw);
   const profileIdentityRows = profileIdentityFacts(identityFactRowsRaw);
 
-  // Guarantee the focused contact/query matches survive the ranked cap: fetch
-  // them directly and merge ahead of the ranked slice (deduped by id).
+  // Fetch focus matches directly, so they survive the ranked cap.
   const focusRows =
     (subjectEmail || tokens.length > 0) && (wants("entities") || wants("relationships"))
       ? await fetchFocusEntities(userId, subjectEmail, tokens)
       : [];
 
-  // Focus rows go first so they survive the cap; the ranked slice fills the
-  // remainder up to ENTITY_LIMIT, keeping the merged set bounded (focus matches
-  // would otherwise push the total to ENTITY_LIMIT + FOCUS_MATCH_LIMIT).
+  // Focus rows first; the ranked slice fills up to ENTITY_LIMIT, so the total stays bounded.
   const mergedEntities: EntityRow[] = [];
   const seenIds = new Set<string>();
 
@@ -445,9 +414,7 @@ export async function readUserContext(
     mergedEntities.push(row);
   }
 
-  // Identity facts first so they survive the cap; the confidence-ranked rest
-  // fills the remainder up to FACT_LIMIT, deduped by id (an identity fact also
-  // present in the ranked slice is counted once).
+  // Identity facts first; the ranked rest fills up to FACT_LIMIT, deduped by id.
   const mergedFacts: FactContextRow[] = [];
   const seenFactIds = new Set<string>();
 
@@ -490,9 +457,7 @@ export async function readUserContext(
   const profile = profileRows[0]
     ? {
         ...profileRows[0],
-        // DTO field names stay stable for API consumers; they map from the
-        // canonical storage keys (#330 — `current_*` is a read DTO label, not a
-        // storage key). Currentness lives in status + validity windows.
+        // DTO names stay stable; they map from canonical keys (#330).
         currentCompany: stringIdentityValue(profileIdentityRows, "employer"),
         currentRole: stringIdentityValue(profileIdentityRows, "job_title"),
         currentWork: stringIdentityValue(profileIdentityRows, "work_summary"),
@@ -545,11 +510,7 @@ export async function readUserContext(
   };
 }
 
-/**
- * Entities a `subjectEmail` (exact alias match) or `query` (name/alias ILIKE on
- * any token) points at — fetched separately from the ranked slice so a focused
- * lookup never misses its target. Bounded by {@link FOCUS_MATCH_LIMIT}.
- */
+/** Entities matched by `subjectEmail` (exact alias) or `query` (ILIKE per token). Bounded by {@link FOCUS_MATCH_LIMIT}. */
 async function fetchFocusEntities(
   userId: string,
   subjectEmail: string | undefined,

@@ -24,25 +24,16 @@ type AuthCookiePolicy =
     };
 
 /**
- * The browser transport policy for Better Auth cookies.
- *
- * `useSecureCookies` controls both the `secure` attribute and Better Auth's
- * `__Secure-` cookie name prefix. Keep that decision with the default cookie
- * attributes so one environment change cannot make the name and attributes
- * disagree.
- *
- * `__Host-` is stronger but not reachable here. Better Auth reads only the
- * `__Secure-<name>` and bare-name forms, so forcing `__Host-` through its
- * advanced cookie overrides would produce a cookie it cannot read itself.
+ * Cookie settings. `useSecureCookies` also sets the `__Secure-` name prefix, so keep it
+ * with the attributes. Not `__Host-`: Better Auth cannot read a cookie with that prefix.
  */
 export function authCookiePolicy(nodeEnv: ServerEnv["NODE_ENV"]): AuthCookiePolicy {
   if (nodeEnv === "production") {
     return {
       useSecureCookies: true,
       defaultCookieAttributes: {
-        // Web and server use different *.up.railway.app subdomains under a
-        // Public Suffix List entry. Browser fetches are cross-site there, so
-        // production needs None+Secure. Local HTTP development stays Lax.
+        // Web and server are on different *.up.railway.app subdomains, a public suffix,
+        // so requests are cross-site.
         sameSite: "none",
         secure: true,
         httpOnly: true,

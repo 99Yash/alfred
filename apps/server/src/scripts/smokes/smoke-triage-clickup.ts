@@ -1,13 +1,9 @@
 /**
- * One-shot validation for the rule-12e activity-feed/task-tracker fix.
+ * Check rule 12e (task-tracker activity feeds) with a live cheap-model call: the
+ * real prod misses plus counter-cases that must not be suppressed. It injects
+ * `runPass`, so it needs no local `model_prices` or api_call_log state.
  *
  *   $ pnpm tsx --env-file=.env src/scripts/smokes/smoke-triage-clickup.ts
- *
- * Live cheap-model (gemini-2.5-flash-lite) call — needs GOOGLE_GENERATIVE_AI_API_KEY.
- * Uses classifyEmail's injected runPass seam so this smoke validates prompt +
- * floor behavior without depending on local `model_prices` / api_call_log DB state.
- * Runs the real prod miss plus two counter-cases that must NOT be suppressed, so
- * we confirm the new principle flips the leak without over-correcting genuine work.
  */
 import { route } from "@alfred/ai";
 import {
@@ -77,9 +73,9 @@ interface Case {
   expectCategory: string[];
   expectTodo: boolean;
   expectCollabActivity?: CollabActivityKind | null;
-  /** A heavy action_needed prior, like prod accumulated — proves the prompt beats the prior. */
+  /** A heavy action_needed prior, to show the prompt beats it. */
   prior?: Record<string, number>;
-  /** Prior messages in the same thread (newest first), fed as ADR-0051 #8 thread context. */
+  /** Earlier thread messages, newest first (ADR-0051 #8). */
   recentMessages?: { direction: "sent" | "received"; snippet: string }[];
 }
 
@@ -116,18 +112,13 @@ const CASES: Case[] = [
     prior: { action_needed: 20, done: 6, fyi: 2 },
   },
   {
-    // The actual prod miss (thread 19ebcefb0663aaa1, 2026-06-12): a bot's
-    // "Done. Created [task]" trailing message collapsed a thread whose earlier
-    // message assigned the user a bug. With thread context, the live ask wins.
+    // A bot's trailing "Done. Created" hid an earlier assignment. The thread context must win.
     name: "REAL MISS — bot 'Done. Created task' must NOT bury an earlier assignment (rules 5/12e/17)",
     from: "Oliv AI <notifications@tasks.clickup.com>",
     subject: "dvd",
     body: "Brain: Done. Created [Fix imports not triggering deal driver messages] in the 26.3 Backlog list.\nView comment or reply to add a comment",
     expectCategory: ["action_needed", "awaiting_reply"],
-    // A live production bug dvd assigned the user (deal-driver messages not
-    // firing, manually triggered via repl) — a real obligation worth the rail
-    // (rule 16). It dedupes against the todo minted off the original assignment
-    // message via the shared thread source, so re-triage merges, not duplicates.
+    // A real assigned bug (rule 16). It dedupes against the earlier todo by thread.
     expectTodo: true,
     prior: { action_needed: 20, done: 6, fyi: 2 },
     recentMessages: [
@@ -140,9 +131,7 @@ const CASES: Case[] = [
     ],
   },
   {
-    // Same trailing line, but NO earlier ask in the thread — a task was simply
-    // filed. Awareness only. Must NOT be `done` (work just opened), and without
-    // an assignment in-thread it lands `fyi`, never action_needed.
+    // Same line with no earlier ask: a task was filed, so `fyi`, not `done`.
     name: "GUARD — bot 'Done. Created task' with no in-thread ask → fyi, never done",
     from: "Oliv AI <notifications@tasks.clickup.com>",
     subject: "Backlog",
@@ -153,12 +142,8 @@ const CASES: Case[] = [
     prior: { action_needed: 20, done: 6, fyi: 2 },
   },
   {
-    // #351: a PURE status-change event (backlog → "10 web"), no assignment to the
-    // user. The imperative task TITLE + an action_needed-heavy service prior used
-    // to leak this to action_needed past rule 12e (self-reinforcing loop). The
-    // service-prior over-classification challenge (detectConflict Net B) re-asks
-    // with 12e spelled out and it should settle on fyi. Second pass expected —
-    // model id will carry +2pass.
+    // #351: a status change with no assignment. The over-classification second
+    // pass should settle on fyi, so expect `+2pass` in the model id.
     name: "STATUS-CHANGE — 'set status to' with no assignment → fyi (rule 12e, #351)",
     from: "Oliv AI <notifications@tasks.clickup.com>",
     subject: "Functionality to change default behaviour of deal driver messages",

@@ -8,11 +8,7 @@ const WRAPPER = cn(
   "flex items-center gap-2 transition-colors",
 );
 
-/**
- * Add-a-todo row. When `onSubmit` is wired (live rail), it's an inline input
- * that creates a todo on Enter; without it (fixture previews), a static
- * affordance. Empty/whitespace submits are ignored.
- */
+/** An input that adds a todo on Enter when `onSubmit` is set; else static. Blank submits are ignored. */
 export function RailAddRow({
   placeholder,
   onSubmit,

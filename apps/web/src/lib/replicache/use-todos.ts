@@ -5,28 +5,26 @@ import { authClient } from "~/lib/auth/auth-client";
 import { useReplicacheStatus } from "./context";
 
 export interface TodosState {
-  /** Live todos (`open` first, then `done`), newest-created first within each. */
+  /** `open`, then `done`. */
   todos: SyncedTodo[];
-  /** Alfred's pending proposals (`suggested`), newest-created first. */
+  /** Alfred's `suggested` todos. */
   suggestions: SyncedTodo[];
   loading: boolean;
   error: string | null;
   retry: () => void;
-  /** Add a user-authored todo. Optimistic; the server confirms on next pull. */
   createTodo: (name: string, description?: string) => Promise<void>;
-  /** Check the box (`open → done`). */
+  /** `open` to `done`. */
   completeTodo: (id: string) => Promise<void>;
-  /** Uncheck the box (`done → open`). */
+  /** `done` to `open`. */
   reopenTodo: (id: string) => Promise<void>;
-  /** Mark a suggestion done directly (`suggested → done`). */
+  /** `suggested` to `done`. */
   completeSuggestion: (id: string) => Promise<void>;
-  /** Accept a suggestion (`suggested → open`). */
+  /** `suggested` to `open`. */
   promoteTodo: (id: string) => Promise<void>;
-  /** Decline a suggestion or drop an open todo (terminal `dismissed`). */
+  /** Terminal `dismissed`. */
   dismissTodo: (id: string) => Promise<void>;
-  /** Personally clear a completed todo from the rail (terminal `cleared`). */
+  /** Terminal `cleared`: remove a done todo from the rail. */
   clearTodo: (id: string) => Promise<void>;
-  /** Edit a todo's name and/or description. */
   editTodo: (id: string, patch: { name?: string; description?: string | null }) => Promise<void>;
 }
 
@@ -35,8 +33,7 @@ const STATUS_RANK = {
   done: 1,
   suggested: 2,
   dismissed: 3,
-  // `cleared` rows never sync to the client, so this rank is never exercised in
-  // practice — it exists only to satisfy the exhaustive status map.
+  // `cleared` never syncs; the rank only makes the map exhaustive.
   cleared: 4,
 } satisfies Record<SyncedTodo["status"], number>;
 
@@ -45,8 +42,7 @@ function sortTodos(a: SyncedTodo, b: SyncedTodo): number {
     return STATUS_RANK[a.status] - STATUS_RANK[b.status];
   }
 
-  // Manual order takes precedence when present (forward-compat `position`),
-  // otherwise fall back to creation order.
+  // Manual `position` first, then newest created.
   if (a.position != null && b.position != null && a.position !== b.position) {
     return a.position - b.position;
   }
@@ -54,11 +50,7 @@ function sortTodos(a: SyncedTodo, b: SyncedTodo): number {
   return b.createdAt.localeCompare(a.createdAt);
 }
 
-/**
- * Live view of the user's todos + Alfred's suggestions for the quick rail
- * (ADR-0050). `dismissed` rows never sync; `done` rows linger 2 days. Rows that
- * fail schema validation are dropped rather than crashing the rail.
- */
+/** Todos and suggestions for the rail (ADR-0050). `done` rows sync for 2 days. */
 export function useTodos(): TodosState {
   const { rep, loadError, retry } = useReplicacheStatus();
   const { data: session } = authClient.useSession();

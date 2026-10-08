@@ -1,14 +1,4 @@
-/**
- * Legacy dimension-grammar Input primitive for the development styleguide.
- *
- * Two visual variants:
- *   - `default` — rounded-lg, used in forms (skill editor, settings).
- *   - `search`  — rounded-full, optional leading icon, used on /integrations.
- *
- * Background ramps from `gray-50 @ 50%` (default) through `gray-50 @ 80%` (hover)
- * to fully opaque on focus. Border steps gray-100 → gray-200 → gray-300.
- * No outline ring — focus is signalled by the border step + fill ramp.
- */
+/** Legacy dimension Input for the styleguide. Focus shows as a border step and fill ramp, no ring. */
 
 import type { InputHTMLAttributes, ReactNode, Ref } from "react";
 import { cn } from "~/lib/utils";
@@ -17,27 +7,19 @@ type LegacyInputVariant = "default" | "search";
 
 interface LegacyInputProps extends InputHTMLAttributes<HTMLInputElement> {
   variant?: LegacyInputVariant | undefined;
-  /** Leading slot — typically a 14–16px Lucide icon. Slot is absolutely positioned. */
+  /** Absolutely positioned; usually a 14–16px Lucide icon. */
   leading?: ReactNode | undefined;
-  /** Trailing slot — small icon or kbd hint. */
   trailing?: ReactNode | undefined;
   ref?: Ref<HTMLInputElement> | undefined;
 }
 
 const BASE = cn(
-  /* layout */
   "block h-9 w-full text-sm",
-  /* fill ramp via state */
   "bg-[rgb(var(--gray-50)/0.5)] hover:bg-[rgb(var(--gray-50)/0.8)] focus:bg-[rgb(var(--gray-50))]",
-  /* border step */
   "border border-gray-100 hover:border-gray-200 focus:border-gray-300",
-  /* text */
   "text-gray-950 placeholder:text-gray-800",
-  /* no ring — Dimension uses the border step instead */
   "outline-none focus:outline-none",
-  /* transitions */
   "transition-[background-color,border-color] duration-200",
-  /* disabled */
   "disabled:cursor-not-allowed disabled:opacity-50",
 );
 
@@ -54,13 +36,11 @@ export function LegacyInput({
   ref,
   ...rest
 }: LegacyInputProps) {
-  /* Bare input — most usage. */
   if (!leading && !trailing) {
     return <input ref={ref} className={cn(BASE, VARIANT[variant], className)} {...rest} />;
   }
 
-  /* Slotted input — wrap in a relative container so we can absolutely position
-   * the leading/trailing icons over the input padding. Padding compensates. */
+  /* Padding makes room for the absolutely positioned slots. */
   return (
     <div className={cn("relative inline-flex w-full items-center")}>
       {leading ? (

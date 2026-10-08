@@ -6,7 +6,7 @@ import { RailAddRow } from "./rail-add-row";
 import { SuggestionRow } from "./suggestion-row";
 
 export interface RailTodoSuggestion {
-  /** Todo row id (ADR-0050 `suggested` row). Absent on fixture-only previews. */
+  /** Absent on fixture previews. */
   id?: string | undefined;
   label: string;
   detail: string;
@@ -26,17 +26,17 @@ export function TodoFeed({
 }: {
   items: ReadonlyArray<RailTodoItem>;
   suggestions?: ReadonlyArray<RailTodoSuggestion> | undefined;
-  /** Check/uncheck a todo. `done` is the row's current state. */
+  /** `done` is the current state. */
   onToggleTodo?: ((id: string, done: boolean) => void) | undefined;
-  /** Clear a completed todo from the rail (`done → cleared`); distinct from reopening. */
+  /** `done → cleared`; not the same as reopening. */
   onClearTodo?: ((id: string) => void) | undefined;
-  /** Add a user-authored todo. When absent, the add row is a static affordance. */
+  /** Without it, the add row is static. */
   onCreateTodo?: ((title: string) => void) | undefined;
-  /** Mark a suggestion done directly (`suggested → done`). */
+  /** `suggested → done`. */
   onCompleteSuggestion?: ((id: string) => void) | undefined;
-  /** Accept a suggestion (`suggested → open`). */
+  /** `suggested → open`. */
   onPromoteSuggestion?: ((id: string) => void) | undefined;
-  /** Decline a suggestion (`suggested → dismissed`). */
+  /** `suggested → dismissed`. */
   onDismissSuggestion?: ((id: string) => void) | undefined;
 }) {
   const [openListRef] = useAutoAnimate<HTMLUListElement>();
@@ -119,7 +119,7 @@ function TodoRow({
 }: {
   todo: RailTodoItem;
   onToggle?: (() => void) | undefined;
-  /** Clear a completed todo (`done → cleared`). Distinct from unchecking it. */
+  /** `done → cleared`; not the same as unchecking. */
   onClear?: (() => void) | undefined;
 }) {
   return (

@@ -4,12 +4,8 @@ import { describe, test } from "node:test";
 import { captureOutput } from "../src/metering/wrappers";
 
 /**
- * `captureOutput` is the fix for the lossy generation trace (#214 follow-up):
- * `result.text` alone records `null`/empty on a tool-call turn (the model emits
- * no prose), losing the turn's decision. A trajectory replay reads the captured
- * output to learn what the model chose, so these cases pin the shape:
- *  - bare string for a plain/final or structured-object turn (no regression),
- *  - tool calls folded in whenever the turn proposes any.
+ * `result.text` is empty on a tool-call turn, so the trace lost the decision.
+ * A bare string for a text turn; tool calls folded in when the turn has any.
  */
 
 describe("captureOutput", () => {
@@ -51,8 +47,6 @@ describe("captureOutput", () => {
   });
 
   test("projects only name/id/input — drops any extra SDK fields off the call", () => {
-    // Extra fields the SDK may carry (type, providerMetadata, dynamic) ride along
-    // exactly as fetch would deliver them.
     const sdkCall = Object.assign(
       {
         toolName: "calendar.list_events",

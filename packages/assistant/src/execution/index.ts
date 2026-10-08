@@ -1,10 +1,3 @@
-// Execution core: domain exports + scratchpad utilities
-//
-// The execution module owns the run lifecycle, recipe registry, decision tracing,
-// and approval workflows. Domain services from `index.domain.ts` reach callers
-// through this facade, along with the scratchpad runtime helpers.
-
-// Domain exports: run lifecycle, workers, recipe registry, types, agent-runtime primitives
 export {
   registerRecipe,
   startRun,
@@ -97,7 +90,6 @@ export type {
   AgentDbExecutor,
 } from "./index.domain";
 
-// Scratchpad exports: per-run scratch helpers and health spans
 export {
   RUNTIME_SCRATCH_READ,
   RUNTIME_SCRATCH_WRITE,

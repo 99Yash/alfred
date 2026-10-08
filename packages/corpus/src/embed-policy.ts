@@ -1,27 +1,21 @@
 import type { Chunk } from "./chunker";
 
-// Re-export from canonical owner `@alfred/contracts/pricing` for
-// backward compat. New code should import from `@alfred/contracts/pricing`.
+// New code should import these from `@alfred/contracts/pricing`.
 export { EMBED_COST_CAP_USD, maxTokensForPrice } from "@alfred/contracts/pricing";
 
-/** What `capChunksForBudget` returns: the kept prefix plus honest counts. */
+/** The kept prefix and its counts. */
 export interface EmbedBudgetSlice {
   chunks: Chunk[];
   hashes: string[];
-  /** True when the input exceeded `maxTokens` and was cut to its longest fitting prefix. */
+  /** The input exceeded `maxTokens`. */
   truncated: boolean;
-  /** How many chunks survived the cap. */
+  /** Chunks kept. */
   kept: number;
-  /** Total tokens across ALL input chunks, counted before capping. */
+  /** Tokens across all input chunks, before the cap. */
   total: number;
 }
 
-/**
- * Keep the longest prefix of `chunks` whose token sum fits `maxTokens`.
- * Pure: slices into fresh arrays and never mutates the inputs, and it logs
- * nothing — the caller owns every observable. An empty result is legal and
- * means even the first chunk exceeds the budget.
- */
+/** Keep the longest prefix that fits `maxTokens`. Empty means the first chunk is too big. */
 export function capChunksForBudget(
   chunks: readonly Chunk[],
   hashes: readonly string[],

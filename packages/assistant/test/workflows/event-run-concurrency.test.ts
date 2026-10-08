@@ -34,26 +34,9 @@ import { closeRedis } from "@alfred/db/redis";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
- * DB-backed guard for the event-dispatch duplicate-run invariant (#531).
- *
- * `acceptEvent` gated duplicates with a soft `hasNonTerminalEventRun` read
- * immediately followed by `createRun` — a check-then-create TOCTOU with nothing
- * at the DB level behind it. The general dedup index only fires on a non-null
- * `dedup_key`, which event-triggered runs don't have, so two concurrent
- * dispatches of one event (a webhook and its retry, or a webhook and a poll)
- * both read zero matches and both spawn a run: duplicate triage/brief,
- * duplicate model spend, duplicate side effects.
- *
- * The fix is a partial unique index over the event identity on non-terminal
- * rows — {@link EVENT_ACTIVE_RUN_INDEX} — mirroring the chat path's
- * per-thread active-run index. These tests lock the identity the index keys on
- * (including `reason`, which deliberately keeps an outbound-reply re-eval a
- * distinct event; and excluding nothing when a trigger omits `source`/`type`,
- * which NULLs would otherwise exempt from enforcement entirely) and that the
- * losing dispatch is dropped as a duplicate rather than counted as a failure —
- * whichever of the two duplicate-run indexes it collided on.
- *
- * Opt-in: runs only when `DATABASE_URL` points at a reachable migrated Postgres.
+ * Two concurrent dispatches of one event must create one run (#531).
+ * {@link EVENT_ACTIVE_RUN_INDEX} keys on the event identity of non-terminal runs, `reason` included.
+ * The losing dispatch counts as a duplicate, not a failure, on either dedup index.
  */
 const SKIP = dbBackedSkip("database");
 
@@ -92,14 +75,7 @@ const eventWorkflow: Workflow<Record<string, never>> = {
   },
 };
 
-/**
- * An event-triggered workflow that ALSO declares a `dedupKey` — a lifetime-once
- * singleton like cold-start-research. Two dispatches of *different* events land
- * on the same dedup key, so the losing insert collides on
- * {@link RUN_DEDUP_KEY_INDEX} rather than the event identity index. Both mean
- * "a run for this already exists"; a catch that only names the event index
- * counted this one as a failure (#530/#531 review, D7).
- */
+/** Event workflow with a `dedupKey`: different events collide on {@link RUN_DEDUP_KEY_INDEX} (D7). */
 const singletonEventWorkflow: Workflow<Record<string, never>> = {
   slug: SINGLETON_WORKFLOW_SLUG,
   name: "event dedup singleton test",
@@ -116,13 +92,7 @@ const singletonEventWorkflow: Workflow<Record<string, never>> = {
   },
 };
 
-/**
- * A workflow subscribed to one raw kind of an inbound source (#990, ADR-0097
- * item 11). The deliver job publishes a raw receipt as `sentry.raw` with its
- * `rawKind`; the matcher compares the kind, and the receipt's own dedup key is
- * the event id, so a redelivered receipt collides on the event identity index
- * exactly as a typed event does.
- */
+/** Raw-kind subscriber (ADR-0097). A redelivered receipt has the same event id, so it collides too. */
 const rawEventWorkflow: Workflow<Record<string, never>> = {
   slug: RAW_WORKFLOW_SLUG,
   name: "event dedup raw kind test",
@@ -148,11 +118,7 @@ async function seedUser(): Promise<string> {
   return userId;
 }
 
-/**
- * A user with one event-triggered workflow active, so `acceptEvent` matches it.
- * Only the requested slug is seeded — a user holding both test workflows would
- * make every dispatch match twice and blur which index fired.
- */
+/** Seed only one workflow, or every dispatch matches twice and blurs which index fired. */
 async function seedUserWithEventWorkflow(
   slug = EVENT_WORKFLOW_SLUG,
   accountRef?: string,
@@ -172,8 +138,7 @@ async function seedUserWithEventWorkflow(
       },
       allowedIntegrations: ["gmail"],
       status: "active",
-      // The runtime body is registered above, so this is a built-in fixture.
-      // Built-ins do not pin database revisions; user-authored rows must.
+      // Built-ins need no pinned revision; the body is registered above.
       isBuiltin: true,
     });
 
@@ -214,17 +179,13 @@ async function seedUserWithGoogleCallbackWorkflow(): Promise<string> {
   return userId;
 }
 
-/** Insert an event-triggered run row shaped exactly as `createRun` writes it. */
+/** Insert a run row shaped as `createRun` writes it. */
 async function insertEventRun(args: {
   userId: string;
   eventId: string;
   reason?: string | undefined;
   status?: string;
-  /**
-   * Write the trigger without `source`/`type` — the pre-ADR-0047 shape the
-   * contract still accepts (both fields are optional). The index has to keep
-   * enforcing on it, which is why its key coalesces the two (D6).
-   */
+  /** The pre-ADR-0047 shape without `source`/`type`, which the contract still accepts (D6). */
   omitSourceAndType?: boolean;
 }): Promise<string> {
   const runId = `run_${randomUUID().slice(0, 12)}`;
@@ -265,7 +226,7 @@ async function expectUniqueViolation(fn: () => Promise<unknown>): Promise<string
 
 const TERMINAL = new Set(["completed", "failed", "cancelled"]);
 
-/** Count of NON-terminal runs the user holds for one event id — the guarded quantity. */
+/** Non-terminal runs for one event id. */
 async function countActiveEventRuns(
   userId: string,
   eventId: string,
@@ -283,7 +244,6 @@ async function countActiveEventRuns(
   }).length;
 }
 
-/** Every non-terminal run the user holds for one workflow, regardless of event. */
 async function countActiveRuns(userId: string, workflowSlug: string): Promise<number> {
   const rows = await db()
     .select({ status: agentRuns.status })
@@ -369,14 +329,7 @@ describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
 
     const [a, b] = await Promise.all([dispatch(), dispatch()]);
 
-    // Composition registers nine consumers: `workflow-event-trigger`, the four
-    // `gmail.documents_ingested` batch consumers, one object-state fold per
-    // provider that has an inbound source (`github-activity-fold` and
-    // `sentry-activity-fold`, #1090, plus `vercel-activity-fold`, #1167 —
-    // Vercel rides GitHub's webhook, so two folds read the same source), and
-    // the reply-drafting post-triage consumer (ADR-0098). The last eight no-op
-    // on this `message_received` event but still accept it. The duplicate-run
-    // guard is the run count below, not the consumer count.
+    // All nine consumers accept the event; eight no-op. The run count is the guard.
     assert.deepEqual(a, { acceptedConsumers: 9 });
     assert.deepEqual(b, { acceptedConsumers: 9 });
     assert.equal(await countActiveEventRuns(userId, eventId), 1);
@@ -384,8 +337,7 @@ describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
 
   test("a raw kind trigger fires once per receipt and only on its own kind (#990)", async () => {
     const userId = await seedUserWithRawEventWorkflow();
-    // The deliver job's event id for a raw receipt is the receipt's dedup key,
-    // so a redelivery of the same body carries the same id.
+    // A raw receipt's event id is its dedup key, so a redelivery carries the same id.
     const eventId = `raw:${RAW_KIND}:${randomUUID()}`;
     const payload = { receiptId: `rcpt-${randomUUID()}`, deliveryKey: eventId };
 
@@ -399,16 +351,12 @@ describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
         payload,
       });
 
-    // Same nine consumers as the typed case above: the eight that are not the
-    // workflow trigger no-op on a Sentry source but still accept the event.
-    // `sentry-activity-fold` returns on `isRawEventType` before any read, so a
-    // raw kind reaches no reducer.
+    // `sentry-activity-fold` returns on `isRawEventType`, so a raw kind reaches no reducer.
     const [a, b] = await Promise.all([dispatch(), dispatch()]);
     assert.deepEqual(a, { acceptedConsumers: 9 });
     assert.deepEqual(b, { acceptedConsumers: 9 });
     assert.equal(await countActiveEventRuns(userId, eventId, RAW_WORKFLOW_SLUG), 1);
 
-    // A different kind of the same source is not this workflow's event.
     const otherKind = await acceptEvent({
       userId,
       source: RAW_SOURCE,
@@ -466,9 +414,7 @@ describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
   test("a dedup-key collision on a singleton workflow is a duplicate, not a failure", async () => {
     const userId = await seedUserWithEventWorkflow(SINGLETON_WORKFLOW_SLUG);
 
-    // Two DIFFERENT events. Neither the fast-path read nor the event identity
-    // index sees a duplicate — the workflow's `dedupKey` does, so the losing
-    // insert raises 23505 on RUN_DEDUP_KEY_INDEX instead.
+    // Two different events: only the `dedupKey` sees the duplicate.
     const first = await acceptEvent({
       userId,
       source: SOURCE,
@@ -489,9 +435,7 @@ describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
     assert.equal(second.failed, 0, "not as a failure (#530/#531 review, D7)");
     assert.equal(await countActiveRuns(userId, SINGLETON_WORKFLOW_SLUG), 1);
 
-    // Pin WHICH index the drop above came from: bypassing `acceptEvent`'s catch
-    // shows the raw collision is the dedup-key index, not the event identity
-    // one — the case a catch matching only EVENT_ACTIVE_RUN_INDEX rethrew.
+    // Bypass `acceptEvent`'s catch to pin which index the drop came from.
     const constraint = await expectUniqueViolation(() =>
       createRun({
         userId,
@@ -515,10 +459,7 @@ describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
     const eventId = `evt-${randomUUID()}`;
     await insertEventRun({ userId, eventId, omitSourceAndType: true });
 
-    // With a bare `trigger ->> 'source'` in the index key both rows would carry
-    // NULL there, NULLs are distinct in a unique index, and BOTH inserts would
-    // succeed — enforcement silently off for the shape the contract still
-    // accepts. The coalesce in EVENT_RUN_IDENTITY_PARTS is what closes it (D6).
+    // NULLs are distinct in a unique index; the coalesce in EVENT_RUN_IDENTITY_PARTS closes that (D6).
     const constraint = await expectUniqueViolation(() =>
       insertEventRun({ userId, eventId, omitSourceAndType: true }),
     );

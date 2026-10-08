@@ -1,20 +1,6 @@
 /**
- * Approval expiry worker (m13 Phase 5e / ADR-0034) — worker side.
- *
- * When a delayed `staging-expire:<id>` job fires:
- *
- *   - re-read the row; if it is no longer `pending`, the user already
- *     decided (or it was cancelled) — no-op.
- *   - otherwise flip `status='expired'`, `reject_reason='auto-expired'`,
- *     bump `row_version` (Replicache drops the card), and `signalRun` the
- *     parked run so the executor re-dispatches and the dispatcher's
- *     `case 'expired'` synthesizes the structured auto-expired rejection
- *     back to the boss — which can then re-plan or finish.
- *
- * Lives in `agent/` (execution) because it drives the run-wake primitive
- * (`signalRunInTx` / `redeliverRun`); the scheduling helpers stay in
- * `tool-runtime` (a sink), so the dispatcher can schedule expiry without
- * forming an import cycle.
+ * Approval expiry worker (ADR-0034). A still-pending staging becomes `expired` and the parked
+ * run wakes, so the boss gets an auto-expired rejection. Scheduling lives in `tool-runtime`.
  */
 
 import { db } from "@alfred/db";
@@ -87,22 +73,14 @@ export type ExpireStagingResult =
   | { status: "skipped"; stagingId: string; reason: string }
   | { status: "deferred"; stagingId: string; expiresAt: Date; reason?: undefined };
 
-/**
- * Core expiry transition, callable directly (the BullMQ job is a thin
- * wrapper). Idempotent: a row that is already non-pending returns
- * `{ status: 'skipped' }` without touching the run.
- */
+/** Idempotent: a row that is no longer pending returns `skipped`. */
 export async function expireStaging(args: {
   stagingId: string;
   userId: string;
 }): Promise<ExpireStagingResult> {
   const { stagingId, userId } = args;
 
-  // Mirror the decision API: lock the row, signal the parked run, then
-  // flip status — all in one transaction so a concurrent human decision
-  // either wins (row already non-pending → we skip) or loses (we hold the
-  // lock and expire). The `for update` lock serializes against
-  // `POST /approvals/:id/decision`.
+  // One tx with a row lock, so a racing human decision either wins or waits.
   const outcome = await db().transaction<
     | {
         kind: "expired";
@@ -144,18 +122,13 @@ export async function expireStaging(args: {
       return { kind: "deferred", expiresAt: row.expiresAt };
     }
 
-    // Match on the staging id alone. The wake already carries the approval
-    // kind the dispatcher wrote, and a kind re-derived here could only disagree
-    // with it (ADR-0099), so this worker needs neither the tool registry nor a
-    // boot order.
+    // Match on the staging id alone; the wake already carries the kind (ADR-0099).
     const signalOutcome = await signalRunInTx(tx, {
       runId: row.runId,
       match: { kind: "hil", approvalId: stagingId },
     });
 
-    // Only expire when the run is genuinely parked on this approval. A
-    // terminal/mismatched run shouldn't leave a pending gated row, but if
-    // it does we leave it untouched rather than racing an unrelated wake.
+    // Expire only if the run is parked on this approval.
     if (signalOutcome !== "woken") {
       return { kind: "skipped", reason: `signal_${signalOutcome}` };
     }
@@ -165,9 +138,7 @@ export async function expireStaging(args: {
       .update(actionStagings)
       .set({
         status: "expired",
-        // The effect dimension, orthogonal to `status` (#559a). An expired gate
-        // never called the provider, so the effect is `refused` — the same
-        // value `withdrawToolCallApproval` writes for the same reason.
+        // The provider was never called (#559a).
         outcome: "refused",
         rejectReason: "auto-expired",
         decidedAt: now,
@@ -193,8 +164,6 @@ export async function expireStaging(args: {
   }
 
   emitReplicachePokes([userId], stagingId);
-  // Best-effort approval-wait span (#409): the gated action sat unanswered from
-  // its request until this auto-expiry. Backdated to createdAt, closed now.
   startApprovalWaitSpan({
     runId: outcome.runId,
     startedAt: outcome.startedAt,
@@ -202,9 +171,7 @@ export async function expireStaging(args: {
     integration: outcome.integration,
     riskTier: outcome.riskTier,
   }).end("expired", new Date());
-  // The notify debounce normally fired long before expiry; remove it
-  // defensively so a still-queued notification can't email about an
-  // action we just expired.
+  // So a queued notification cannot email about an expired action.
   await removeApprovalNotificationJob(stagingId);
 
   let enqueued = false;

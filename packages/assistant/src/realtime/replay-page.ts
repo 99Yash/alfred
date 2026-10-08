@@ -1,4 +1,4 @@
-/** Maximum durable events read by one SSE connection before it reconnects. */
+/** Events per SSE connection before it reconnects. */
 export const REPLAY_PAGE_SIZE = 500;
 
 export interface ReplayPage<T> {
@@ -6,11 +6,7 @@ export interface ReplayPage<T> {
   hasMore: boolean;
 }
 
-/**
- * Keep replay work bounded per connection. EventSource reconnects with the
- * final delivered id when `hasMore` is true, turning the existing cap into
- * pagination instead of silently discarding the remainder.
- */
+/** On `hasMore`, EventSource reconnects from the last id, so the cap pages instead of dropping. */
 export function toReplayPage<T>(rows: readonly T[]): ReplayPage<T> {
   return {
     frames: rows.slice(0, REPLAY_PAGE_SIZE),

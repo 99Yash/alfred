@@ -1,15 +1,9 @@
 /**
- * Subset Open Runde faces (Latin + common punctuation), embedded as base64
- * `data:` URIs so the brand face renders INSIDE the artifact preview's
- * opaque-origin sandbox — which cannot fetch `/fonts/*.woff2` over the network.
- * A `data:` @font-face has no origin check and no network request, so it loads
- * where a URL reference is rejected. Each weight is ~22KB, so the pair adds
- * ~60KB of base64 to a rendered page. Applied at RENDER time only (never stored,
- * never in the authoring prompt), so it costs no tokens and no database bytes.
+ * Latin subset of Open Runde as base64 `data:` URIs. The sandboxed iframe cannot
+ * fetch `/fonts/*.woff2`, but a `data:` face loads. Render time only, never stored.
  *
- * This is DERIVED DATA. To regenerate after the source faces change, subset the
- * app's shipped `apps/web/public/fonts/OpenRunde-{Medium,Semibold}.woff2` to the
- * Latin range and re-embed as base64 (needs `pyftsubset` from fonttools+brotli):
+ * Generated. To rebuild, subset `apps/web/public/fonts/OpenRunde-{Medium,Semibold}.woff2`
+ * (needs `pyftsubset` from fonttools+brotli):
  *
  *   pyftsubset OpenRunde-<W>.woff2 --flavor=woff2 --output-file=<W>.subset.woff2 \
  *     --unicodes="U+0020-007E,U+00A0-00FF,U+2010-2014,U+2018-201A,U+201C-201E,\
@@ -17,15 +11,10 @@
  *     U+2190-2193,U+2212,U+25CF,U+2713" \
  *     --layout-features="kern,liga,calt,tnum,ss01,ss03,cv11"
  *
- * then `base64` each output into the `src:` data URI below (Medium -> 400-550,
- * Semibold -> 551-800).
- *
- * Two static weights map the app's `@font-face` ranges: Medium covers 400-550,
- * Semibold covers 551-800. The system-sans stack in `font.stack` stays the
- * fallback for any glyph outside the subset or if a browser rejects the face.
+ * then `base64` each output into a `src:` below (Medium -> 400-550, Semibold -> 551-800).
  */
 
-/** The two @font-face rules, ready to inline in the shell `<style>`. */
+/** The two @font-face rules for the shell `<style>`. */
 export const FONT_FACE_CSS = `
 @font-face {
   font-family: "Open Runde";

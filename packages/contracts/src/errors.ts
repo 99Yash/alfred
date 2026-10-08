@@ -1,61 +1,21 @@
-/**
- * Shared error primitives.
- *
- * Three things kept getting hand-rolled across the codebase, each slightly
- * differently:
- *
- *   1. `err instanceof Error ? err.message : String(err)` — repeated ~95×.
- *   2. Bounding an external error body before logging it — `body.slice(0, 500)`
- *      in the Google integrations, `slice(0, 300)` in GitHub, a `2_000` cap in
- *      Railway, and dropped entirely in Notion. No single source of truth for
- *      "how much of an upstream body is safe to keep."
- *   3. Discriminating an error by sniffing its message string
- *      (`err.message.startsWith("[gmail]")`) because the throw carried no
- *      structured fields — no status, no provider, no retryable flag.
- *
- * This module is the one home for all three. It lives in `@alfred/contracts`
- * (zod-only, client-safe) so integrations, the API, the AI layer, and the web
- * bundle can all import it without crossing a package boundary.
- */
+/** Shared error helpers: error text, safe upstream bodies, and a structured `HttpError`. */
 
 import { isIndexable } from "./guards";
 
-/**
- * Max chars of an external error body we retain. Bounded so a giant HTML error
- * page or stack-trace dump can't bloat a log line, and — unlike the old inline
- * `slice(0, 500)` / `slice(0, 300)` / `2_000` scattering — uniform everywhere.
- */
+/** Max chars of an upstream error body to keep. */
 export const MAX_ERROR_BODY_CHARS = 500;
 
-/**
- * Turn an unknown thrown value into a string message. The canonical form of
- * the `err instanceof Error ? err.message : String(err)` idiom — same
- * semantics, one place to improve.
- */
+/** Get a message string from any thrown value. */
 export function toMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/**
- * How many links of a cause chain a walker follows, head included.
- *
- * Four is enough for the deepest real chain Alfred has seen: an SDK error, the
- * `TypeError: fetch failed` it wraps, and the errno refusal under that.
- */
+/** Cause links to follow, head included. The deepest real chain is SDK error, fetch failed, errno. */
 export const MAX_CAUSE_CHAIN_DEPTH = 4;
 
 /**
- * The error and its causes, nearest first, bounded to `maxDepth` links.
- *
- * A cause hides in one of two places, and the thrower decides which. Node puts
- * it on `Error.cause`. The MCP SDK takes a cause as its `SdkError` *data*
- * argument and stores it on `data`, so `Version negotiation probe failed: fetch
- * failed` carries the real reason at `data.cause` and carries nothing at all on
- * `cause`. A walker that reads only `cause` therefore prints one identical
- * sentence for a blocked private address, a timeout, a refused connection and a
- * TLS failure — and writes that same sentence into a durable column.
- *
- * One reader for both shapes, so no caller has to know which library threw.
+ * The error and its causes, nearest first.
+ * The MCP SDK puts the cause on `data.cause`, not `cause`, so this reads both.
  */
 export function causeChain(err: unknown, maxDepth: number = MAX_CAUSE_CHAIN_DEPTH): unknown[] {
   const chain: unknown[] = [err];
@@ -71,8 +31,7 @@ export function causeChain(err: unknown, maxDepth: number = MAX_CAUSE_CHAIN_DEPT
 
 function causeOf(err: Error): unknown {
   if (err.cause !== undefined) return err.cause;
-  // SAFETY: `data` is the field the MCP SDK puts on every `SdkError`; reading it
-  // off an `Error` is a presence check, not a shape assertion.
+  // SAFETY: the MCP SDK sets `data` on `SdkError`. This only checks presence.
   const data: unknown = (err as { readonly data?: unknown }).data;
 
   if (!isIndexable(data)) return undefined;
@@ -80,15 +39,7 @@ function causeOf(err: Error): unknown {
   return Reflect.get(data, "cause");
 }
 
-/**
- * Strip high-confidence secrets from text before it lands in an error message
- * or log. Targets `Bearer`/`Basic`/`Token` auth values and the common
- * `secret-ish-key: value` shapes (access/refresh tokens, client secrets, API
- * keys, passwords). Not exhaustive by design — a bound plus this pass make a
- * 4xx body safe to log without hand-auditing every provider's error shape.
- * Over-redaction in an error body is an acceptable trade for never leaking a
- * credential into a log.
- */
+/** Remove likely secrets (auth headers, `key: value` tokens, URL userinfo) from log text. Not exhaustive. */
 export function redactSecrets(text: string): string {
   return (
     text
@@ -97,18 +48,12 @@ export function redactSecrets(text: string): string {
         /\b(access_token|refresh_token|client_secret|api[-_]?key|apikey|authorization|password|secret|token)\b(\s*["']?\s*[:=]\s*["']?)([^\s"'&,}]+)/gi,
         "$1$2[redacted]",
       )
-      // Credentials embedded in a URL's userinfo (`https://user:token@host`). A
-      // key=value pass never catches these because the secret is positional, not
-      // keyed; an MCP transport/endpoint error is a realistic carrier of one.
+      // `https://user:token@host`: the key=value pass cannot see a positional secret.
       .replace(/(\bhttps?:\/\/)[^/\s:@]+:[^/\s@]+@/gi, "$1[redacted]@")
   );
 }
 
-/**
- * Render an external body for safe logging: redact secrets, then bound it with
- * a visible truncation marker (so a clipped body reads as clipped, not as the
- * whole thing). The single funnel every `HttpError` body passes through.
- */
+/** Redact, then truncate with a visible marker. */
 export function summarizeBody(text: string, max: number = MAX_ERROR_BODY_CHARS): string {
   const redacted = redactSecrets(text);
 
@@ -121,21 +66,13 @@ interface HttpErrorArgs {
   provider: string;
   status: number;
   url: string;
-  /** Pre-summarized body (already redacted + bounded). */
+  /** Already passed through `summarizeBody`. */
   body: string;
-  /** Absent or `undefined` both mean "unknown verb" — defaults to `GET`. */
+  /** Defaults to `GET`. */
   method?: string | undefined;
 }
 
-/**
- * A failed HTTP response from an upstream provider, carrying structured fields
- * instead of a formatted-string-only throw. Callers branch on `status` /
- * `provider` / {@link HttpError.retryable} rather than regexing the message;
- * the message itself stays human-readable for logs.
- *
- * Discriminate with the literal `_tag` (or {@link isHttpError}) — never by
- * message prefix.
- */
+/** A failed upstream HTTP response. Branch on its fields, not on the message text. */
 export class HttpError extends Error {
   readonly _tag = "HttpError" as const;
   readonly provider: string;
@@ -156,74 +93,35 @@ export class HttpError extends Error {
     this.method = method;
   }
 
-  /** Worth retrying: rate-limited (429) or a transient upstream 5xx. */
+  /** 429 or 5xx. */
   get retryable(): boolean {
     return this.status === 429 || (this.status >= 500 && this.status <= 599);
   }
 
-  /**
-   * The provider rejected THIS input, so the same request will fail forever.
-   * See {@link PER_INPUT_PERMANENT_STATUSES} for what qualifies and why the
-   * other 4xx statuses do not.
-   */
+  /** The provider rejected this input, so a retry of the same request always fails. */
   get perInputPermanent(): boolean {
     return PER_INPUT_PERMANENT_STATUSES.has(this.status);
   }
 }
 
 /**
- * HTTP statuses that mean THIS specific request body is unacceptable — a
- * malformed request (400), a payload too large (413), or content the provider
- * semantically rejects (422). The caller must CHANGE the input; repeating it
- * only burns attempts.
- *
- * Every OTHER non-`retryable` status is systemic and recoverable, NOT
- * per-input: a rotated-then-valid key (401), a quota/billing/permission trip
- * (403), an endpoint change (404), or a request timeout (408) return the same
- * status for every request while the condition lasts, then clear. A caller
- * that treated those as "the input is wrong" would tell the user to fix an
- * input that was never the problem. (429 and 5xx are already `retryable` and
- * never reach this set.)
- *
- * Two readers, one table: the embed poison-pill guard dead-letters a row on the
- * first such failure (`buildEmbedFailureSet` in `@alfred/db`), and the public
- * failure catalog turns one into a `correct_input` fix rather than the generic
- * "try again" (`toPublicAppError`).
+ * Statuses that mean the input itself is bad, so the caller must change it.
+ * 401, 403, 404, and 408 are left out: they hit every request until the
+ * condition clears, so the input is not at fault.
  */
 export const PER_INPUT_PERMANENT_STATUSES: ReadonlySet<number> = new Set([400, 413, 422]);
 
-/** Type guard — branch on the tag, not the message. */
 export function isHttpError(err: unknown): err is HttpError {
   return err instanceof HttpError;
 }
 
 /**
- * How much of the upstream body the built {@link HttpError} carries:
- *
- *   - `"summarize"` (default): a bounded, secret-redacted slice rides ON the
- *     error (and thus into logs/telemetry). Safe for providers whose error
- *     bodies are prod-safe after {@link summarizeBody} (GitHub, Google, …).
- *   - `"omit"`: nothing rides on the error (`body: ""`). For providers whose
- *     bodies can echo request fragments the secret-redaction can't catch (a
- *     Notion page slice, a user-supplied query) and must never reach the
- *     tool dispatcher / model transcript. Log the body server-side at the call
- *     site if you still need it for debugging — this factory won't (it's
- *     browser-safe and does no I/O beyond reading the response).
+ * `omit` drops the body for providers that can echo user content redaction
+ * cannot catch, such as a Notion page slice.
  */
 export type ErrorBodyPolicy = "summarize" | "omit";
 
-/**
- * Build an {@link HttpError} from a failed `Response`, reading a bounded +
- * secret-redacted slice of the body. The one-liner that replaces the
- * copy-pasted `if (!res.ok) { const body = await res.text().catch(() => "");
- * throw new Error(...) }` block at every fetch site:
- *
- *   if (!res.ok) throw await httpErrorFromResponse("gmail", res, { url });
- *
- * Pass `bodyPolicy: "omit"` for a provider whose body must not travel on the
- * error (see {@link ErrorBodyPolicy}). Reads the body, so only call it on the
- * error path (a non-ok response).
- */
+/** Build an `HttpError` from a failed `Response`. It reads the body, so call it only when `!res.ok`. */
 export async function httpErrorFromResponse(
   provider: string,
   res: Response,

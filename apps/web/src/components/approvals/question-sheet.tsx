@@ -5,20 +5,12 @@ import { cn } from "~/lib/utils";
 import { parseAskUserInput, unansweredCount, type QuestionStaging } from "./ask-user";
 import { AskUserQuestionPanel } from "./question-panel";
 
-// Hoisted so the `leading` props below don't allocate a fresh element per render.
+// Hoisted so `leading` gets a stable element.
 const ICON_X = <X size={13} />;
 
 const ICON_CHECK = <Check size={13} />;
 
-/**
- * The body and the action row of a parked `system.ask_user` approval
- * (ADR-0099), shared by the chat tray's card and the `/approvals` queue's.
- *
- * Both surfaces draw the same answer sheet, so both get the same keyboard
- * contract, the same blank-aware button copy, and the same error announcement
- * from one place. Only the chrome above it differs: chat leads with Alfred's
- * avatar inside the transcript, `/approvals` with the queue's row metadata.
- */
+/** Body and actions of a parked `system.ask_user` approval (ADR-0099), shared by chat and `/approvals`. */
 export function QuestionSheet({
   question,
   draftInput,
@@ -41,16 +33,11 @@ export function QuestionSheet({
   idPrefix: string;
   onContinue: () => void;
   onDismiss: () => void;
-  /** Copy for the in-flight row once a decision has landed. */
   settledLabel: string;
-  /** Padding override, so each surface's card keeps its own rhythm. */
   className?: string | undefined;
 }) {
-  // Read the *draft*, so the blank count and the answers the panel draws are
-  // what the user has actually filled in. A draft the schema refuses is
-  // unreachable from this card — every control writes a schema-valid value and
-  // the free-text field is capped at the schema's own limit — so the staged
-  // pair is the fallback rather than a raw-JSON editor.
+  // Read the draft. Every control writes a schema-valid value, so a refused
+  // draft cannot come from this card; fall back to the staged pair.
   const draftRaw = asRecord(draftInput);
   const draftInputParsed = draftRaw ? parseAskUserInput(draftRaw) : null;
   const input = draftInputParsed ?? question.input;
@@ -62,9 +49,7 @@ export function QuestionSheet({
     <div
       className={cn("border-t border-app-bg-a2 p-3 sm:px-4", className)}
       onKeyDown={(event) => {
-        // Cmd/Ctrl+Enter continues from anywhere in the sheet, including the
-        // custom-answer field. Scoped to the sheet, so it can never fire for a
-        // question the user is not looking at.
+        // Cmd/Ctrl+Enter continues, scoped to this sheet.
         if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey)) return;
 
         if (locked) return;
@@ -116,8 +101,7 @@ export function QuestionSheet({
               disabled={busy}
               onClick={onContinue}
             >
-              {/* The pager shows one question at a time, so the label carries
-               * the fact that pressing this sends an incomplete sheet. */}
+              {/* The pager hides other pages, so the label warns of blanks. */}
               {blanks > 0 ? "Continue anyway" : "Continue"}
             </AppButton>
           </div>

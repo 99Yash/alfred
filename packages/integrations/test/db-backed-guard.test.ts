@@ -3,9 +3,7 @@ import { describe, test } from "node:test";
 
 import { decideDbBackedSkip } from "./support/db-backed";
 
-// The three arms of the guard that replaces "read the skip count" for
-// `leaf-db-tests`. This suite reads no service variable, so it registers and runs
-// in every `leaf-db-tests` run — including one that reaches no database.
+// Reads no service variable, so it runs in every `leaf-db-tests` run, even one with no database.
 describe("decideDbBackedSkip", () => {
   test("runs when nothing is missing, on a laptop and in CI alike", () => {
     assert.deepEqual(decideDbBackedSkip({ missing: [], ci: false }), { kind: "run" });

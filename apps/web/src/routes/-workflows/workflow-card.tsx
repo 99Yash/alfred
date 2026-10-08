@@ -46,9 +46,7 @@ export function WorkflowCard({ workflow, index }: { workflow: WorkflowDefinition
       )}
       style={{ animationDelay: `${index * 70 + 60}ms` }}
     >
-      {/* Hero preview — unique per workflow. Lives in a tinted panel
-       *  at the top; the icon overlaps the bottom edge for a small
-       *  scrapbook feel. */}
+      {/* Per-workflow preview; the icon overlaps its bottom edge. */}
       <div
         className={cn(
           "relative h-[120px] overflow-hidden",

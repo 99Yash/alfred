@@ -13,12 +13,9 @@ import {
 export interface CredentialBackfillResult {
   accountsUpdated: number;
   integrationsUpdated: number;
-  /** Non-null token fields still readable as plaintext once the pass finishes. */
+  /** Token fields still in plaintext after the pass. */
   plaintextRemaining: number;
-  /**
-   * Non-null token fields that are envelope-shaped but do not open with the
-   * configured key.
-   */
+  /** Sealed token fields that do not open with the configured key. */
   unopenableRemaining: number;
 }
 
@@ -30,11 +27,7 @@ type PersistedTokenState =
   | { readonly state: "openable" }
   | { readonly state: "unopenable" };
 
-/**
- * Classify persisted data without trusting the Drizzle column type. This
- * maintenance pass exists for rows whose old plaintext representation violates
- * that type.
- */
+/** Takes `unknown`, because old plaintext rows do not match the Drizzle column type. */
 function classifyPersisted(value: unknown, vault: CredentialVault): PersistedTokenState {
   if (value === null || value === undefined) return { state: "absent" };
 
@@ -74,11 +67,7 @@ function sealPending<Field extends string>(
   }, {});
 }
 
-/**
- * Better Auth owns the unbranded account payload type. Keep the conversion
- * private so `CredentialVault.open` remains the only public way to get
- * plaintext from a sealed value.
- */
+/** Better Auth's `account` type wants `string`. Keep this private so `open` stays the only public unwrap. */
 function asUnbranded<Field extends string>(
   pending: Partial<Record<Field, SealedCredentialSecret>>,
 ): Partial<Record<Field, string>> {
@@ -104,11 +93,7 @@ function countUnsealed<Field extends string>(
   return { plaintext, unopenable };
 }
 
-/**
- * Convert old plaintext OAuth credentials in one transaction, then verify the
- * complete persisted state. Run this only while every credential writer is
- * stopped.
- */
+/** Seal plaintext OAuth tokens in one transaction, then count what is left. Stop all writers first. */
 export async function encryptPersistedOAuthCredentials(options?: {
   checkOnly?: boolean;
 }): Promise<CredentialBackfillResult> {
@@ -191,10 +176,7 @@ export async function encryptPersistedOAuthCredentials(options?: {
   });
 }
 
-/**
- * Refuse to start against plaintext credentials or envelopes that the current
- * key cannot open.
- */
+/** Refuse to start if any token is plaintext or does not open with the current key. */
 export async function assertPersistedCredentialsSealed(): Promise<void> {
   const { plaintextRemaining, unopenableRemaining } = await encryptPersistedOAuthCredentials({
     checkOnly: true,

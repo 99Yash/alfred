@@ -1,10 +1,6 @@
-// @alfred/extraction — the one deterministic reader of a PDF's bytes. Bytes in,
-// pages out, with every page number 1-indexed. The wrapper is the only caller of
-// `@firecrawl/pdf-inspector`; the configured reader runs it in a killable child.
-
-// Canonical constant owner is `./constants` — do not re-export via
-// `extract-pdf` or `media-extraction`. Those modules import from constants
-// for internal use only; public consumers import from this barrel.
+// Bytes in, text and 1-indexed pages out. The only caller of `@firecrawl/pdf-inspector`,
+// which runs in a child process that can be killed.
+// Export constants only from here, not through `extract-pdf` or `media-extraction`.
 export { createPdfExtractor, PdfExtractionError } from "./extract-pdf";
 
 export type {

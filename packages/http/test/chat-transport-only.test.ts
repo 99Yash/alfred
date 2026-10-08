@@ -5,22 +5,9 @@ import { fileURLToPath } from "node:url";
 import { describe, test } from "node:test";
 
 /**
- * The chat routes hold transport only.
- *
- * `packages/http/src/chat.ts` used to carry ~780 lines of product
- * logic: turn admission, attachment reconciliation, the upload byte budget, and
- * the Redis counters behind it. That work now lives in
- * `@alfred/assistant/chat` (ADR-0089), and the route file reads the
- * request and writes the response.
- *
- * An invariant about "decisions" cannot be read off a file. Its import set can.
- * A route that decides which run exists, which rows exist, or which bytes are
- * stored has to name a database, a Redis handle, a storage function or a
- * `drizzle-orm` operator to do it — so a forbidden specifier here IS the
- * regression, and it appears in the diff that causes it.
- *
- * This is a tier-4 detector, not a fence: it reports a regression, it does not
- * prevent one.
+ * `src/chat.ts` holds transport only; product logic lives in `@alfred/assistant/chat` (ADR-0089).
+ * A route that decides state must import a database, Redis, storage, or `drizzle-orm`,
+ * so a forbidden specifier is the regression. This reports a regression; it does not prevent one.
  */
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -41,12 +28,7 @@ export function importSpecifiers(source: string): string[] {
   return found;
 }
 
-/**
- * A specifier a transport file must not import, and why. `@alfred/assistant`
- * itself is allowed — reaching the product module IS the point — but only
- * through the `chat` seam, never into a sibling module the routes have
- * no business knowing.
- */
+/** `@alfred/assistant` is allowed only through the `chat` barrel. */
 const FORBIDDEN: readonly {
   readonly matches: (specifier: string) => boolean;
   readonly why: string;

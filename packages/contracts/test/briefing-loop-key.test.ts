@@ -3,16 +3,11 @@ import { describe, test } from "node:test";
 
 import { deriveLoopKey } from "@alfred/contracts";
 
-/**
- * Subjects here are the real shapes pulled from prod (Gmail `documents.title`):
- * GitHub `notifications@github.com` and ClickUp `notifications@tasks.clickup.com`
- * were the two dominant re-notifying senders behind #283.
- */
+/** Subjects are real prod shapes from the two loudest re-notifying senders, GitHub and ClickUp. */
 describe("deriveLoopKey", () => {
   describe("GitHub notifications", () => {
     test("collapses a PR's review + comment emails onto one key", () => {
-      // Two separate emails (a review, then a comment) about the same PR arrive
-      // on different threads; both must resolve to the same loop.
+      // Different threads about one PR are one loop.
       const review = deriveLoopKey(
         "Re: [OlivAIRepo/baserow-middleware] Stop dictation harvest (PR #786)",
       );
@@ -57,16 +52,13 @@ describe("deriveLoopKey", () => {
     });
 
     test("does not treat a mid-sentence token as an issue key", () => {
-      // A hyphenated word mid-subject must not masquerade as an issue key.
       assert.equal(deriveLoopKey("Notes on the A-1 form review"), null);
     });
   });
 
   describe("ClickUp / normalized-subject fallback (#283 regression)", () => {
     test("collapses re-notifications that share the task-title subject", () => {
-      // Verified prod repeat: this exact ClickUp task title arrived on 3 separate
-      // notification emails within an hour. Each is its own Gmail thread, but the
-      // loop is one.
+      // Seen in prod: three threads within an hour for one ClickUp task.
       const first = deriveLoopKey(
         "Netsmart: Opening Isabelle's account doesn't open favorite view",
         {
@@ -182,7 +174,7 @@ describe("deriveLoopKey", () => {
       assert.equal(deriveLoopKey(undefined), null);
       assert.equal(deriveLoopKey(""), null);
       assert.equal(deriveLoopKey("   "), null);
-      // Gather's persisted sentinel for a subject-less email must never key.
+      // The persisted sentinel for a subject-less email.
       assert.equal(deriveLoopKey("(no subject)"), null);
     });
   });

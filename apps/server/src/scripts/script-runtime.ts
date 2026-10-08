@@ -3,17 +3,13 @@ import { closeRedis } from "@alfred/db/redis";
 
 type ResourceCloser = () => Promise<unknown> | unknown;
 
-/**
- * Closes script-owned resources before shared infrastructure, continuing when
- * any individual cleanup fails. Pass queue or worker closers in dependency
- * order; Redis and database connections are always closed last.
- */
+/** Run each closer in order, then Redis and the DB. One failure does not stop the rest. */
 export async function closeScriptResources(...resourceClosers: ResourceCloser[]): Promise<void> {
   for (const closeResource of [...resourceClosers, closeRedis, closeConnections]) {
     try {
       await closeResource();
     } catch {
-      // Cleanup is best-effort so one failed closer cannot strand the rest.
+      // Best effort.
     }
   }
 }

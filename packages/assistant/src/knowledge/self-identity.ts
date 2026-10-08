@@ -4,16 +4,9 @@ import { and, eq } from "drizzle-orm";
 import type { SelfIdentity } from "./fact-policy";
 
 /**
- * Build the {@link SelfIdentity} the Tier-B authorship gate (#330, ADR-0079)
- * matches a document's author against: the global `user.email` plus every
- * active connected account. Gmail credentials carry the mailbox email in
- * `account_label` (keyed by `account_id`, which matches `documents.account_id`);
- * GitHub carries the login in `account_label` and the numeric user id in
- * `account_id`. Conservative by construction — an absent provider identity just
- * means that provider's docs can't pass attribution (never a false positive).
- *
- * Shared by the memory-extraction workflow (live capture) and the #330 purge
- * script (re-judging leaked rows) so authorship has ONE definition.
+ * The {@link SelfIdentity} for the Tier B authorship gate (#330): `user.email`
+ * plus each active connected account. A missing provider identity fails
+ * attribution, never passes it. Shared with the purge script.
  */
 export async function loadSelfIdentity(userId: string): Promise<SelfIdentity> {
   const [[selfRow], creds] = await Promise.all([

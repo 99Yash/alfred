@@ -5,21 +5,9 @@ import { Dialog, DialogContent } from "~/components/ui/dialog";
 import { IntegrationIcon } from "~/lib/integrations/integration-icons";
 
 /**
- * Pre-OAuth consent coaching. Borrowed from dimension's
- * `google-permission-gif-dialog`, adapted for Alfred's single-tenant,
- * Production-unverified posture (ADR-0044, amended 2026-06-08): one consent
- * grants the full Workspace surface, so the two things that actually sink a
- * broad grant get coached up-front —
- *
- *   1. Google's consent screen shows per-scope checkboxes the user can
- *      *uncheck*. A broad grant makes that the #1 failure mode, so we tell
- *      them to leave every box ticked.
- *   2. An unverified app shows a scary "Google hasn't verified this app"
- *      interstitial. dimension (verified) never hit this; Alfred always does.
- *      We pre-explain the Advanced → Go to Alfred click so it doesn't read as
- *      a dead end.
- *
- * `onConfirm` performs the actual full-page redirect to the connect endpoint.
+ * Coaching before Google OAuth (ADR-0044). Tells the user to leave every scope
+ * box ticked and how to pass the unverified-app screen (Advanced → Go to Alfred).
+ * `onConfirm` does the full-page redirect.
  */
 export function GoogleConsentDialog({
   open,

@@ -1,16 +1,7 @@
 import type { ReactNode } from "react";
 import { cn } from "~/lib/utils";
 
-/**
- * Page-wide backdrop for the marketing landing — pure black with a faint
- * square grid texture. FQ-style: the "atmosphere" is all typography and
- * spacing, not gradients or animated meshes.
- *
- * Grid is drawn as a CSS `background-image` so it tiles cheaply at any size
- * and scales with the viewport. A single 80px grid (vertical + horizontal
- * lines composed into one image) gives the texture without becoming a
- * focal point.
- */
+/** Black landing backdrop with a faint 80px CSS grid. */
 export function LandingBackground({
   children,
   className,
@@ -20,9 +11,7 @@ export function LandingBackground({
 }) {
   return (
     <div
-      // Lock Open Runde in landing scope — explicit family beats relying on
-      // the body --font-sans cascade. tracking-[-0.012em] mirrors visitors.now's
-      // -0.32px / 16px body tracking; headlines tighten further on their own.
+      // Set Open Runde explicitly; body tracking matches visitors.now (-0.32px at 16px).
       style={{
         fontFamily: '"Open Runde", Inter, ui-sans-serif, system-ui, sans-serif',
       }}
@@ -33,14 +22,13 @@ export function LandingBackground({
         className="pointer-events-none absolute inset-0 -z-10"
         style={{
           backgroundImage: [
-            // Major 80px grid — very faint
             "linear-gradient(to right, rgba(255,255,255,0.035) 1px, transparent 1px)",
             "linear-gradient(to bottom, rgba(255,255,255,0.035) 1px, transparent 1px)",
           ].join(", "),
           backgroundSize: "80px 80px, 80px 80px",
         }}
       />
-      {/* Soft top vignette so the announcement bar reads cleanly */}
+      {/* Top vignette keeps the announcement bar legible */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-64 bg-linear-to-b from-black/60 to-transparent"

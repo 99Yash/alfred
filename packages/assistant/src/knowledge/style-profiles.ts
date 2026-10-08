@@ -8,11 +8,7 @@ import {
 import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
-/**
- * `style_profiles.channel` / `audience_bucket` vocabularies (ADR-0013). The
- * text columns are validated at this app-boundary store; the unions derive from
- * the tuples so a new channel or bucket cannot drift from its parse.
- */
+/** `style_profiles.channel` and `audience_bucket` values (ADR-0013). The unions derive from the tuples. */
 export const STYLE_CHANNELS = [
   "gmail",
   "imessage",
@@ -41,14 +37,6 @@ export const STYLE_AUDIENCE_BUCKETS = [
 export const styleAudienceBucketSchema = z.enum(STYLE_AUDIENCE_BUCKETS);
 
 export type StyleAudienceBucket = (typeof STYLE_AUDIENCE_BUCKETS)[number];
-
-/**
- * Style-profile primitives are intentionally minimal in m8a — table
- * CRUD only. ADR-0013's full lifecycle (lazy materialization,
- * audience-bucket inference from `user_facts`, regeneration on source
- * deletion) lands when something actually drafts on the user's behalf
- * (m9 reply drafting, ADR-0025 #5 OFF-by-default).
- */
 
 const channelSchema = styleChannelSchema;
 
@@ -101,12 +89,7 @@ export const upsertStyleProfileArgsSchema = styleProfileInsertSchema
 
 export type UpsertStyleProfileArgs = z.infer<typeof upsertStyleProfileArgsSchema>;
 
-/**
- * Like the DB row, but with the parsed enum/jsonb columns narrowed. Every other
- * column tracks `StyleProfile` ($inferSelect) automatically; lifecycle dates and
- * `supersededById` are intentionally excluded (not part of the read shape). Only
- * the columns `rowToProfile` transforms are restated.
- */
+/** `StyleProfile` with parsed columns narrowed, minus lifecycle dates and `supersededById`. */
 export type StyleProfileRow = Omit<
   StyleProfile,
   | "channel"
@@ -136,14 +119,12 @@ function rowToProfile(r: StyleProfile): StyleProfileRow {
   };
 }
 
-/** Insert or replace a profile keyed by (user, channel, audience_bucket, recipient_id). */
+/** Insert or replace by (user, channel, audience_bucket, recipient_id). */
 export async function upsertStyleProfile(args: UpsertStyleProfileArgs): Promise<StyleProfileRow> {
   const parsed = upsertStyleProfileArgsSchema.parse(args);
   const status = parsed.status ?? "draft";
 
-  // recipient_id NULL participates in the unique index as DISTINCT — so
-  // drizzle's ON CONFLICT can target the unique tuple including NULL.
-  // Use a guarded upsert: if a row with the same tuple exists, update.
+  // A NULL recipient_id is distinct in the unique index, so ON CONFLICT cannot catch it. Check, then update.
   return await db().transaction(async (tx) => {
     const where =
       parsed.recipientId == null
@@ -207,13 +188,8 @@ export async function upsertStyleProfile(args: UpsertStyleProfileArgs): Promise<
 }
 
 /**
- * Most-specific applicable profile (ADR-0013 lookup precedence):
- *
- *   1. recipient-level for `recipientId`
- *   2. audience_bucket-level for `audienceBucket`
- *   3. channel-generic ('generic' bucket, NULL recipient)
- *
- * Only `active` profiles are considered; `draft` + `superseded` are skipped.
+ * The most specific active profile (ADR-0013): recipient, then audience bucket,
+ * then channel generic.
  */
 export async function getStyleProfile(
   userId: string,
@@ -221,10 +197,7 @@ export async function getStyleProfile(
   audienceBucket: StyleAudienceBucket,
   recipientId?: string | null,
 ): Promise<StyleProfileRow | null> {
-  // Recipient scoping: only a recipient-level row for *this* recipient (or a
-  // recipient-agnostic row, NULL recipientId) may apply. Without this, a row
-  // authored for a different recipient in the same audience bucket leaks into
-  // the candidate set and can tie/beat the correct bucket-level generic row.
+  // Only rows for this recipient or for no recipient, so another recipient's row cannot win.
   const recipientScope =
     recipientId != null
       ? or(isNull(styleProfiles.recipientId), eq(styleProfiles.recipientId, recipientId))
@@ -244,10 +217,7 @@ export async function getStyleProfile(
     )
     .orderBy(desc(styleProfiles.generatedFromCount));
 
-  // Sort by specificity manually since SQL ORDER BY across two nullable
-  // dimensions is awkward to express. The WHERE above guarantees every
-  // candidate's recipientId is either NULL or === recipientId, so the only
-  // distinctions left are: exact-recipient match, exact-bucket match, generic.
+  // Rank in code: every candidate's recipientId is NULL or this recipient.
   const score = (r: StyleProfile) => {
     let s = 0;
 

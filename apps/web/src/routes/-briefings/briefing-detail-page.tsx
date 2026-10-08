@@ -6,12 +6,7 @@ import { cn } from "~/lib/utils";
 import { BriefingSlot } from "./briefing-slot";
 import { formatDayHeading } from "./briefing-utils";
 
-/**
- * A day's briefing detail (ADR-0049): morning above evening, both visible
- * (not tabbed — a day reads orientation → close top-to-bottom). Day-keyed via a
- * `briefing/{date}/` prefix scan, so the URL stays human and shareable while
- * the per-slot Replicache key is an implementation detail.
- */
+/** A day's briefing (ADR-0049): morning above evening, found by a `briefing/{date}/` prefix scan. */
 export function BriefingDetailPage() {
   const { date } = useParams({ from: "/briefings/$date" });
   const { slots, loading, error, retry } = useBriefing(date);

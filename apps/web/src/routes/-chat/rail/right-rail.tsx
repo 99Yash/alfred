@@ -5,18 +5,7 @@ import { RailContent } from "./rail-content";
 import { EMPTY_RAIL_DATA, type RailData } from "./rail-data";
 
 /* -------------------------------------------------------------------------- */
-/* Right rail — Today panel                                                    */
-/*                                                                            */
-/* Two layout modes driven by viewport width:                                 */
-/*  • inline  (≥1280px): takes column space next to the conversation.         */
-/*  • overlay (<1280px): slides in over the conversation with a backdrop.     */
-/* The mode swap auto-syncs `railOpen` to each mode's sensible default so a   */
-/* resize doesn't leave the user looking at a giant fullscreen overlay.       */
-/*                                                                            */
-/* Data is prop-driven — the rail itself owns no fixtures. `/preview/chat`    */
-/* passes a fixture bundle for the demo; `/chat` passes `EMPTY_RAIL_DATA`     */
-/* (or partial real data) so the production surface stays honest until        */
-/* todos / inbox / meetings sync ships.                                       */
+/* Right rail (Today): inline at ≥1280px, overlay below. Data comes in props.  */
 /* -------------------------------------------------------------------------- */
 
 interface RightRailProps {
@@ -50,9 +39,7 @@ export function RightRail({ open, mode, onClose, data = EMPTY_RAIL_DATA }: Right
             "fixed inset-y-0 right-0 z-50 w-[340px] max-w-[88vw]",
             "border-l border-app-bg-3/60 bg-transparent",
             "flex flex-col shadow-[0_20px_60px_rgba(0,0,0,0.18)]",
-            // Enters and exits along the same path (in from / out to the
-            // right). Under reduced-motion the slide is swapped for a plain
-            // opacity cross-fade — no vestibular translation (apple-design §14).
+            // Slides in and out on the right; reduced motion gets a fade (apple-design §14).
             "transition-transform duration-200 ease-out motion-reduce:transition-opacity",
             "overflow-hidden",
             open

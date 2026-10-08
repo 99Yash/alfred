@@ -13,9 +13,7 @@ import { TrustNotice } from "./trust-notice";
 
 export function ProviderDetail({ provider }: { provider: IntegrationPage }) {
   const connected = provider.status === "connected";
-  // A planned provider has no route, no tools, and no credential, so its
-  // connection, policy, and capability surfaces would be phantom. Render the
-  // design-only notice instead of them; the header and hero stay for context.
+  // A planned provider has no route, tools, or credential; show the design-only notice.
   const live = isLiveProviderSlug(provider.slug);
 
   return (

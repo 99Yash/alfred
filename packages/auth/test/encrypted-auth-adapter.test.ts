@@ -6,13 +6,8 @@ import { encryptedAuthAdapter, type AuthAdapter } from "../src/credential-adapte
 import { createCredentialVault, CredentialVaultError } from "@alfred/db/credential-vault";
 
 /**
- * Coverage for the Better Auth adapter boundary (#453).
- *
- * The whole contract is a direction: the *inner* adapter (what reaches Postgres)
- * must only ever see envelopes, and the *outer* caller (Better Auth) must only
- * ever see plaintext. Every case below asserts both halves, because asserting
- * one alone cannot tell a working decorator from one that seals on write and
- * forgets to open on read.
+ * The inner adapter (Postgres) sees only envelopes; Better Auth sees only plaintext.
+ * Each case asserts both halves, or a decorator that seals but never opens would pass.
  */
 
 const vault = createCredentialVault(randomBytes(32));
@@ -25,10 +20,7 @@ const ID_TOKEN = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxIn0.sig";
 
 type Call = { op: string; model: string; payload: unknown };
 
-/**
- * A recording adapter standing in for drizzle. `store.row` is what "Postgres"
- * holds, so a test can read it back the way a real query would.
- */
+/** Stands in for drizzle. `store.row` is what Postgres holds. */
 function recordingAdapter() {
   const calls: Call[] = [];
 
@@ -81,8 +73,7 @@ function recordingAdapter() {
 
       return 1;
     },
-    // Both added by better-auth 1.6.25. They take a `where` and return a row,
-    // so they sit on the same side of this boundary as `findOne` and `update`.
+    // They take a `where` and return a row, like `findOne` and `update`.
     consumeOne: async (data: { model: string }) => {
       calls.push({ op: "consumeOne", model: data.model, payload: null });
 
@@ -101,9 +92,7 @@ function recordingAdapter() {
     transaction: async <R>(callback: (trx: unknown) => Promise<R>) => {
       calls.push({ op: "transaction", model: "-", payload: null });
 
-      // Hand the callback a *separate* undecorated handle, exactly as drizzle
-      // does. If `encryptedAuthAdapter` forgets to recurse, the callback writes
-      // plaintext and the assertions below catch it.
+      // A separate undecorated handle, as drizzle gives. Catches a decorator that does not recurse.
       return callback(fake);
     },
   };
@@ -128,7 +117,6 @@ function build() {
   return { inner, outer };
 }
 
-/** The payload the inner adapter received for one operation. */
 function payloadOf(
   inner: ReturnType<typeof recordingAdapter>,
   op: string,
@@ -165,7 +153,6 @@ describe("encryptedAuthAdapter: account writes are sealed", () => {
       assert.equal(created[field], plaintext, `${field} was not opened for the caller`);
     }
 
-    // Non-secret columns pass through untouched.
     assert.equal(written.accountId, "goog_1");
   });
 
@@ -259,8 +246,7 @@ describe("encryptedAuthAdapter: account reads are opened", () => {
   });
 
   test("a plaintext row fails closed instead of passing through", async () => {
-    // The rollout's real risk: a row the backfill missed. Serving it would keep
-    // the system working while it still held usable tokens.
+    // A row the backfill missed. Serving it would hide plaintext tokens at rest.
     harness.inner.setStored({ id: "acc_1", accessToken: "ya29.never-encrypted" });
     await assert.rejects(
       () => harness.outer.findOne({ model: "account", where: [{ field: "id", value: "acc_1" }] }),
@@ -271,8 +257,7 @@ describe("encryptedAuthAdapter: account reads are opened", () => {
 
 describe("encryptedAuthAdapter: scope of the boundary", () => {
   test("other models pass through untouched in both directions", async () => {
-    // `session.token` looks like a secret and is deliberately NOT in scope: it
-    // is a Better Auth session id, and sealing it would break every lookup.
+    // `session.token` is a lookup id; sealing it would break every lookup.
     const created = await harness.outer.create<Record<string, unknown>, Record<string, unknown>>({
       model: "session",
       data: { token: "sess_plain", accessToken: "not-an-account-field" },
@@ -301,12 +286,7 @@ describe("encryptedAuthAdapter: scope of the boundary", () => {
     );
   });
 
-  /**
-   * `consumeOne` and `incrementOne` arrived with better-auth 1.6.25 and crossed
-   * this boundary undecorated, because completeness rested on a spread. Nothing
-   * routes them at `account` today — verification tokens and rate limits only —
-   * so these cases pin the boundary rather than a live path.
-   */
+  /** Nothing routes these at `account` today; the cases pin the boundary, not a live path. */
   test("consumeOne opens the row it deletes", async () => {
     harness.inner.setStored({ id: "acc_1", accessToken: vault.seal(ACCESS) });
 
@@ -327,8 +307,7 @@ describe("encryptedAuthAdapter: scope of the boundary", () => {
       model: "account",
       where: [{ field: "id", value: "acc_1" }],
       increment: { failedAttempts: 1 },
-      // `set` writes absolute values atomically alongside the increments, so it
-      // is a token write path.
+      // `set` writes absolute values, so it is a token write path.
       set: { accessToken: "ya29.replaced" },
     });
 
@@ -338,8 +317,7 @@ describe("encryptedAuthAdapter: scope of the boundary", () => {
   });
 
   test("an increment on a sealed column is refused", async () => {
-    // A sealed field holds a string envelope, so `field = field + 1` is
-    // incoherent rather than merely wrong.
+    // A sealed field holds a string envelope, so incrementing it makes no sense.
     await assert.rejects(
       () =>
         harness.outer.incrementOne({
@@ -372,8 +350,7 @@ describe("encryptedAuthAdapter: scope of the boundary", () => {
   });
 
   test("a where clause on a sealed column is rejected, not silently unmatched", async () => {
-    // Fresh nonces mean `where accessToken = <plaintext>` can never match. A
-    // pass-through would answer "no such account" in the middle of a sign-in.
+    // Fresh nonces mean a plaintext token `where` can never match.
     await assert.rejects(
       () =>
         harness.outer.findOne({
@@ -390,10 +367,7 @@ describe("encryptedAuthAdapter: scope of the boundary", () => {
   });
 
   test("every member that takes a where rejects a sealed column", async () => {
-    // The guard is on the `where`, not on the return value, so it has to cover
-    // the members that carry no token at all. Without it these answer "0 rows"
-    // and "count 0" — the same silent wrong answer, just quieter than a failed
-    // sign-in.
+    // The guard is on the `where`, so it covers members that return no token too.
     const sealedWhere = [{ field: "refreshToken", value: REFRESH }];
     await assert.rejects(
       () => harness.outer.count({ model: "account", where: sealedWhere }),
@@ -434,9 +408,7 @@ describe("encryptedAuthAdapter: scope of the boundary", () => {
 
 describe("encryptedAuthAdapter: transactions", () => {
   test("the transaction handle is decorated too", async () => {
-    // Better Auth links a social account inside a transaction, so this is the
-    // one write that actually stores a fresh OAuth token. An undecorated handle
-    // would write plaintext.
+    // Better Auth links a social account inside a transaction, so fresh tokens arrive here.
     const linked = await harness.outer.transaction(async (trx) =>
       trx.create<Record<string, unknown>, Record<string, unknown>>({
         model: "account",
@@ -519,8 +491,7 @@ describe("encryptedAuthAdapter: declared joins", () => {
   });
 
   test("a join to some other model is left alone", async () => {
-    // The transform is driven by the declared join key, not by a walk for keys
-    // that happen to be named `accessToken`.
+    // Driven by the declared join key, not by any key named `accessToken`.
     harness.inner.setStored({
       id: "ses_1",
       user: { id: "usr_1", accessToken: "some-unrelated-value" },

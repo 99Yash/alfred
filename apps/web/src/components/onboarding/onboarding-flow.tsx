@@ -24,15 +24,7 @@ import { cn } from "~/lib/utils";
 
 export type OnboardingStep = 1 | 2 | 3;
 
-/**
- * Dimension-grammar onboarding shell. Same split-pane DNA as the landing —
- * sky gradient backdrop, sticky left rail with intro + headline + bullets +
- * step pager + CTA, right showcase panel that swaps content per step.
- *
- * Used by both the real /onboarding route and the /preview/onboarding
- * design-iteration route. State (current step, connected email, callbacks)
- * is fully prop-driven so the same shell handles both surfaces.
- */
+/** Onboarding shell: sticky left rail with the step pager, right panel per step. Fully prop-driven. */
 export function OnboardingFlow({
   step,
   connectedEmail,
@@ -55,8 +47,7 @@ export function OnboardingFlow({
   const localTime = useLocalTime();
   const active = STEPS[step - 1] ?? STEPS[0]!;
 
-  // Step 1's CTA opens the consent-coaching dialog first; the dialog's
-  // confirm runs the real `onConnect` redirect. Steps 2/3 act immediately.
+  // Step 1 opens consent coaching first; its confirm runs `onConnect`.
   const [consentOpen, setConsentOpen] = useState(false);
 
   const primaryAction = (() => {
@@ -81,8 +72,7 @@ export function OnboardingFlow({
 
       <HeroAtmosphere className="min-h-[100dvh]">
         <div className="mx-auto flex min-h-[100dvh] w-full max-w-[100rem] flex-col lg:flex-row">
-          {/* Left rail — sticky on desktop. Intro label, headline, bullets,
-           * step pager (with active highlight + completed checks), CTA. */}
+          {/* Left rail, sticky on desktop. */}
           <aside
             className={cn(
               "relative shrink-0 px-6 sm:px-10",
@@ -168,14 +158,12 @@ export function OnboardingFlow({
                 </p>
               ) : null}
 
-              {/* Step pager — visitors.now pill + progress track, pinned to bottom */}
+              {/* Step pager, pinned to the bottom */}
               <div className="mt-10 lg:mt-auto lg:pt-10">
                 <h2 className="mb-3 text-[17px] font-semibold text-white">Get set up</h2>
                 <ul className="flex flex-wrap gap-2">
                   {STEPS.map((s, idx) => {
-                    // SAFETY: STEPS is the ordered list of the three onboarding
-                    // steps and OnboardingStep is the literal union 1 | 2 | 3, so
-                    // the 1-based index is always a valid step number.
+                    // SAFETY: STEPS has three entries and OnboardingStep is 1 | 2 | 3.
                     const stepNumber = (idx + 1) as OnboardingStep;
                     const isActive = stepNumber === step;
                     const isDone = stepNumber < step;
@@ -220,7 +208,7 @@ export function OnboardingFlow({
           </aside>
 
           <main className="relative z-10 grow lg:bg-black/10">
-            {/* Sticky locale + step header — masked blur */}
+            {/* Sticky step header with masked blur */}
             <div className="sticky top-0 z-30">
               <div
                 aria-hidden
@@ -246,7 +234,7 @@ export function OnboardingFlow({
               </div>
             </div>
 
-            {/* Step content — narrow visitors.now column */}
+            {/* Step content */}
             <div className="relative flex flex-col pl-5">
               <div className="mx-auto flex w-full max-w-[720px] flex-col pt-4 pr-6 pb-32 pl-10 sm:pr-10">
                 <div className="mb-6 flex flex-col gap-1.5">
@@ -276,9 +264,7 @@ export function OnboardingFlow({
   );
 }
 
-/* ------------------------------------------------------------------ */
-/* Step content                                                       */
-/* ------------------------------------------------------------------ */
+/* Step content */
 
 interface StepDef {
   id: string;
@@ -338,7 +324,7 @@ const STEPS: ReadonlyArray<StepDef> = [
   },
 ];
 
-/* -------- Step 1: What you'll unlock — feature grid ---------------- */
+/* Step 1: what you unlock */
 
 interface UnlockFeature {
   key: string;
@@ -427,27 +413,16 @@ function UnlockShowcase() {
   );
 }
 
-/* -------- Step 2: Popular integrations ---------------------------
- *
- * Step 2 is a live connect surface for the integrations wired today.
- * Google Workspace is picked up via step 1; GitHub connects right here
- * (its OAuth callback 302s back to ?step=2&github_connected=…). The three
- * Google sub-features are "Included" once Workspace is linked, since they
- * share its OAuth scope. Linear/Slack plug in at m14 (MCP client) and are
- * honestly labelled "Soon". The rail's "Continue" CTA always advances —
- * connecting GitHub is optional. */
+/* Step 2: live connect. GitHub connects here (its callback returns to ?step=2);
+ * Google products are "Included" once Workspace is linked. Connecting is optional. */
 
 type IntegrationTileStatus = "included" | "connected" | "available" | "soon";
 
-/**
- * The showcase's pick of the catalog, in display order, with a short web-only
- * line each. Name and brand are the registry entry's; a Google product is
- * "Included" once Workspace is linked because it rides the same grant.
- */
+/** Showcase picks with a short line each. Name and brand come from the registry. */
 interface PopularIntegration {
   slug: CatalogSlug;
   description: string;
-  /** Renders a live "Connect" pill that triggers `onConnectGithub`. */
+  /** Shows a "Connect" pill that calls `onConnectGithub`. */
   connectable?: true | undefined;
 }
 
@@ -491,8 +466,7 @@ function ConnectShowcase({
       <ul className="grid grid-cols-1 gap-px bg-white/10 sm:grid-cols-2">
         {POPULAR_INTEGRATIONS.map((p) => {
           const { displayName: name, brand } = INTEGRATIONS[p.slug];
-          // GitHub connects live here; Google products ride the Workspace
-          // grant; everything else is honestly "Soon".
+          // GitHub connects here; Google products ride the Workspace grant; the rest is "Soon".
           const isGithubConnected = p.connectable && Boolean(connectedGithub);
 
           const status: IntegrationTileStatus = isGithubConnected
@@ -576,7 +550,7 @@ function IntegrationStatusBadge({ status }: { status: IntegrationTileStatus }) {
   );
 }
 
-/* -------- Step 3: Install tiles ---------------------------------- */
+/* Step 3: install tiles */
 
 interface InstallTile {
   key: string;
@@ -647,7 +621,7 @@ function FinishShowcase() {
   );
 }
 
-/* -------- Shared frame wrapper for all three showcases ------------ */
+/* Shared showcase frame */
 
 function ShowcaseFrame({ children }: { children: ReactNode }) {
   return (
@@ -664,9 +638,7 @@ function ShowcaseFrame({ children }: { children: ReactNode }) {
   );
 }
 
-/* ------------------------------------------------------------------ */
-/* Shared bits                                                        */
-/* ------------------------------------------------------------------ */
+/* Shared bits */
 
 function Bullet({
   icon,

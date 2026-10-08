@@ -1,11 +1,4 @@
-/**
- * App-grammar Select primitive.
- *
- * A styled single-select that replaces the native `<select>` — same h-9 pill
- * chrome as `AppInput`, opening a popover listbox with the selected row
- * checked. Built on `@radix-ui/react-popover` for positioning/dismissal, with
- * the listbox semantics + roving arrow-key focus implemented here.
- */
+/** Single-select on a Radix popover, replacing `<select>`. Listbox semantics and arrow keys are ours. */
 
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { Check, ChevronDown } from "lucide-react";
@@ -23,15 +16,13 @@ interface AppSelectProps {
   value: string | undefined;
   onChange: (value: string | undefined) => void;
   options: ReadonlyArray<AppSelectOption>;
-  /** Adds a leading "clear" row that resolves to `undefined`. */
+  /** Adds a "clear" row that resolves to `undefined`. */
   clearable?: boolean | undefined;
-  /** Label for the clear row + empty trigger state. */
+  /** Clear row label and empty trigger text. */
   placeholder?: string | undefined;
   disabled?: boolean | undefined;
   className?: string | undefined;
-  /** Accessible label for the popover listbox. */
   label?: string | undefined;
-  /** Optional leading glyph shown in the trigger. */
   leading?: ReactNode | undefined;
 }
 
@@ -49,9 +40,7 @@ export function AppSelect({
 }: AppSelectProps) {
   const [open, setOpen] = useState(false);
   const listboxId = useId();
-  // The popover renders in a portal outside the `.app` subtree, so CSS token
-  // inheritance breaks — stamp the resolved theme on the content directly
-  // (React context still flows through portals).
+  // The portal leaves `.app`; stamp the theme so tokens resolve.
   const themeCtx = use(AppThemeContext);
 
   const dataTheme =

@@ -134,9 +134,7 @@ function access(
   const availability = new Map<ToolName, ToolAvailabilityResult>();
 
   for (const tool of [gmailSearch, gmailRead, gmailSend, calendarCreate, calendarList]) {
-    // Mirror evaluateToolCatalog's precedence: the allowlist is decided first
-    // and surfaces as a `not_allowed` result, so the map is the single source
-    // of both availability and reason (no parallel allowlist predicate).
+    // Like evaluateToolCatalog, the allowlist is decided first as `not_allowed`.
     availability.set(
       tool.name,
       allowed.size > 0 && !allowed.has(tool.integration)
@@ -247,9 +245,7 @@ describe("tool discovery", () => {
 
   test("exact load returns the specific unavailability code and reason, not a generic string", async () => {
     registerTool(notionCreate);
-    // The credential-health snapshot has no Notion provider, so the shared
-    // evaluator returns not_connected — and the load path hands that exact
-    // reason to the model instead of "not available in this run's context".
+    // No Notion credential, so the model gets `not_connected`, not a generic refusal.
     assert.deepEqual(
       await resolveExactToolLoad({
         userId: "user_1",
@@ -497,9 +493,8 @@ describe("evaluateToolAvailability reason codes (#413)", () => {
   });
 });
 
-// #413: tools registered without hand-authored discovery still participate in
-// search via the derived baseline, and strong-but-unavailable matches can be
-// surfaced with a reason instead of silently dropped.
+// Tools without authored discovery use the derived baseline. Strong unavailable matches show a
+// reason.
 const notionCreate = liveTool({
   integration: "notion",
   action: "create_page",
@@ -598,8 +593,7 @@ describe("derived-metadata discovery (#413)", () => {
   });
 
   test("keeps weak incidental matches to unavailable tools hidden", () => {
-    // "workspace" appears only in the description → summary-token score (2),
-    // below the unavailable surfacing floor.
+    // A description-only match scores below the floor for unavailable tools.
     const found = searchToolCatalog({
       query: "workspace",
       tools: [notionGet],
@@ -619,9 +613,7 @@ describe("derived-metadata discovery (#413)", () => {
   });
 
   test("never surfaces tools outside the workflow allowlist, available or not", () => {
-    // The allowlist is a hard scope, so the evaluator marks an out-of-allowlist
-    // tool `not_allowed`; the ranker hides it even with includeUnavailable set,
-    // because that reason is not a gap the user can close in-run.
+    // The user cannot fix `not_allowed` in-run, so it stays hidden even with includeUnavailable.
     const found = searchToolCatalog({
       query: "create page",
       tools: [notionCreate],
@@ -645,10 +637,7 @@ describe("derived-metadata discovery (#413)", () => {
   });
 });
 
-// #414: the deterministic preloader must fire for natural chat phrasing, where
-// the prompt is plural ("my pull requests") and the verb is a generic
-// information-seeking word ("give me a summary of…") the narrow catalog verbs
-// don't list — while still refusing to force-load a state-changing sibling.
+// Plural nouns and generic read verbs must preload, but never a write sibling.
 describe("preload recall for natural phrasing (#414)", () => {
   const mailSearch = liveTool({
     integration: "gmail",
@@ -682,8 +671,6 @@ describe("preload recall for natural phrasing (#414)", () => {
   } as const;
 
   test("a plural prompt matches a singular authored entity", () => {
-    // Without number-insensitive matching, "emails" would miss the entity "email"
-    // and the tool would be invisible to a plural prompt.
     assert.ok(
       searchToolCatalog({ query: "anything new in my emails", ...catalog }).some(
         (candidate) => candidate.name === "gmail.search",
@@ -692,9 +679,7 @@ describe("preload recall for natural phrasing (#414)", () => {
   });
 
   test("a generic read request preloads the read tool but never the write sibling", () => {
-    // "give"/"summary" are not catalog verbs, and "emails" is plural — the fix
-    // makes both resolve. The high-risk send tool shares the entity but has no
-    // matching catalog verb, so a read-flavored request must not force-load it.
+    // The send tool shares the entity but no verb, so a read request must not load it.
     assert.deepEqual(
       preloadToolCatalog({
         prompt: "Give me a summary of my emails",

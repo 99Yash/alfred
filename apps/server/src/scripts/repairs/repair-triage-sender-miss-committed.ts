@@ -1,72 +1,19 @@
 /**
- * COMMITTED thread-scoped re-triage for the sender-not-phrases fix (#1099).
+ * Re-run the real `email-triage` workflow over named Gmail threads (#1099).
+ * It enqueues onto the prod BullMQ queue, so the prod worker runs every step.
  *
- * Re-runs the real `email-triage` workflow over a NAMED set of Gmail threads, so
- * a thread that was tagged before #1097/#1098 landed converges onto the current
- * classifier and the Gmail label follows. Enqueues onto the same BullMQ queue
- * the prod `server` worker consumes, so classify → upsertTriage → suggestTodo →
- * apply-label → close-loop-todos runs exactly as in production.
+ * Not `backfill-triage-committed.ts`: that script deletes every agent todo for the user.
+ * Preview the old and new category with `dry-run-triage-recategorize-committed.ts`
+ * and `RECAT_THREAD_IDS`.
  *
- * WHY NOT `backfill-triage-committed.ts`. That script DELETES every
- * `created_by='agent'` todo for the user before it enqueues, and it scopes by
- * mailbox plus recency — it has no thread selector at all. Running it to repair
- * two threads would destroy the user's whole agent todo set. Its contract is
- * "delete every agent todo, then re-triage a window"; a second mode that skips
- * the delete would make one script mean two things.
+ * Limits:
+ *  - The sender prior keeps its old vote. A second bump would count one mail twice.
+ *  - A stale agent todo is printed, not deleted. A human decides.
+ *  - A row with `source != 'auto'` is skipped. `apply-label` ignores `source`, so a
+ *    re-run would still do a live Gmail write of the user's own category.
  *
- * WHAT IT DOES NOT DO.
- *
- *  - It does not re-classify locally and print a diff. That belongs to
- *    `../dry-runs/dry-run-triage-recategorize-committed.ts`, which already
- *    assembles the classify context; set `RECAT_THREAD_IDS` to the same thread
- *    ids to see the old→new diff BEFORE committing here.
- *  - It does not re-teach the sender prior, and it does not correct the vote
- *    the first classification cast. `incrementSenderPrior` only adds, so a
- *    second bump would leave the old category's vote standing beside the new
- *    one and give the sender two votes from one mail. The classify step now
- *    skips the bump when the stored row was written by an earlier run and
- *    names the same document (`workflow-operations.ts`), which is exactly the
- *    case a repair creates. The consequence to accept: a sender this script
- *    repairs keeps the WRONG vote in its histogram. The histogram is a prior,
- *    not a verdict, and later mail from that sender outvotes it.
- *  - It does not delete a stale todo. A forced re-run re-runs `suggestTodo` but
- *    does NOT remove the todo the previous classification minted, so a thread
- *    moving out of a demand lane can leave one behind. This script PRINTS every
- *    agent-authored todo behind a RE-TRIAGEABLE thread and leaves the delete to
- *    the human — that is the one judgment a repair script must not take. The
- *    newer `close-loop-todos` step does not change this: it acts only on the
- *    `reason === "reply"` re-eval, and this repair enqueues `reason: "manual"`.
- *  - It does not touch a user-overridden row. `upsertTriage` returns at its
- *    read side with `written: false` on a `source = 'user'` row
- *    (`store.ts:197`), and `reconcileThreadLabel` re-reads the stored row inside
- *    the thread lock, so Gmail converges on the USER's category either way.
- *    The `written` gate covers the classify step's own side effects: no todo,
- *    no `inbox.updated`, no `email-triage.classified`, no sender prior and no
- *    decision trace. It does NOT cover the Gmail write.
- *    `runEmailTriageClassify` returns `nextStep: "apply-label"`
- *    unconditionally, that step forwards to the terminal
- *    `close-loop-todos` unconditionally, and `apply-label` is a
- *    SIBLING step that reads neither `written` nor `source`. It
- *    re-applies the stored row's category to the target message, strips
- *    every Alfred label off the thread's siblings
- *    (`stripAllAlfredLabels: true`, `tags.ts:146`), and bumps `row_version`
- *    through `setAppliedLabelId` / `setTriageReconciledTarget`. Two gates stop
- *    that write and neither of them reads `source`: the `emailTagging` feature
- *    flag, and `gmailMailboxWritesEnabled()`. So on prod the enqueue costs one
- *    wasted model call AND a live mailbox write of the category the user
- *    already chose. That is why this script skips the row loudly.
- *
- * Bundled by tsdown (`noExternal: @alfred/*`) so it runs on prod with plain
- * `node dist/scripts/repairs/repair-triage-sender-miss-committed.js` — the prod
- * image has no `tsx`/loose `@alfred/*` sources. It must run WHERE prod Redis is
- * reachable, and `startRun` runs the workflow's `initialState` in-process before
- * it enqueues. It does NOT need the current prompt: `createRun` writes
- * `workflowRevisionId: null` for a builtin, so the prod worker supplies the
- * prompt at execute time whatever machine enqueued the run.
- *
- * Dry by default: it reads, prints the plan, and writes nothing. `--commit`
- * enqueues, and REFUSES when Gmail mailbox writes are disabled — the enqueued
- * workflow ends in a live label write.
+ * Runs on prod where Redis is reachable (bundled, no `tsx` in the image). Dry by default.
+ * `--commit` enqueues, and refuses when Gmail mailbox writes are disabled.
  *
  *   # preview (writes nothing):
  *   TRIAGE_REPAIR_THREAD_IDS=19a1b2c3d4e5f6a7,19b2c3d4e5f6a7b8 \
@@ -94,29 +41,15 @@ import { closeScriptResources } from "../script-runtime";
 
 const COMMIT = process.argv.includes("--commit");
 
-/**
- * Gmail thread ids to re-triage, comma-separated. Required — this script has no
- * default scope on purpose: a repair with an implicit target set is a backfill.
- */
+/** Required. No default scope: a repair with an implicit target set is a backfill. */
 const THREAD_IDS = (process.env.TRIAGE_REPAIR_THREAD_IDS ?? "")
   .split(",")
   .map((id) => id.trim())
   .filter(Boolean);
 
 /**
- * One selected thread, with everything needed to decide whether it can be re-run.
- *
- * `category` and `source` are read off {@link EmailTriage}, not re-typed as
- * `string`. `source` carries the whole user-authority invariant this script
- * claims to honour, so `plan.source !== "auto"` must be a comparison the
- * compiler checks: widened to `string` it would keep compiling after the member
- * is renamed, and the skip would silently stop firing.
- *
- * The test is an ALLOW-list, matching the preview's `eq(emailTriage.source,
- * "auto")` in `../dry-runs/dry-run-triage-recategorize-committed.ts`. A deny-list
- * (`=== "user"`) agrees with the preview only while `TRIAGE_TAG_SOURCES` has two
- * members: add a third and the preview would drop that row and report it while
- * this script enqueued it in silence, into a live Gmail label write.
+ * `source` keeps the {@link EmailTriage} type, so a renamed member breaks the
+ * `!== "auto"` skip at compile time. The skip is an allow-list, like the preview.
  */
 interface ThreadPlan {
   threadId: string;
@@ -127,7 +60,7 @@ interface ThreadPlan {
   documentId: string | null;
   appliedLabelId: string | null;
   model: string;
-  /** False when `document_id` is a dead soft pointer — the doc was purged. */
+  /** False when the document was purged. */
   documentPresent: boolean;
 }
 
@@ -149,8 +82,7 @@ async function loadPlans(): Promise<ThreadPlan[]> {
 
   const docIds = rows.map((row) => row.documentId).filter((id): id is string => id !== null);
 
-  // `email_triage.document_id` is a soft pointer with NO foreign key: it outlives
-  // the document being purged, so a row can name a document that is not there.
+  // `document_id` has no foreign key, so it can outlive a purged document.
   const live =
     docIds.length === 0
       ? []
@@ -206,12 +138,7 @@ async function main() {
 
   await warmPool();
   registerBuiltinWorkflows(); // createRun resolves builtins from the in-process registry
-  // NO poke adapter is registered here, unlike the sibling committed scripts.
-  // `startRun` is `createRun` + `enqueueRun`; neither emits a Replicache poke
-  // (the only `pokeWorkflowOwner` call in execution's service sits in
-  // `cancelRunInTx`). The enqueued run's own writes happen in the prod `server`
-  // worker, which registers its adapter at boot. Registering one in this
-  // short-lived process would be dead code.
+  // No poke adapter: `startRun` emits no poke, and the prod worker does the writes.
 
   console.log(
     `# Sender-miss triage repair (#1099) — mode=${COMMIT ? "COMMIT" : "DRY"} | ` +
@@ -269,13 +196,7 @@ async function main() {
     console.log(`    → WOULD ENQUEUE email-triage (reason=manual, force=true)`);
   }
 
-  // Stale agent todos: a forced re-run re-mints, it never deletes. Print them so
-  // the human can decide; deleting one is not this script's call.
-  //
-  // Scoped to `runnable`, not `plans`. A SKIPPED thread never reaches classify,
-  // or reaches it and lands on a `written: false` row, so nothing re-mints its
-  // todos — printing them under this banner would claim a risk that path does
-  // not carry.
+  // A forced re-run re-mints todos but never deletes. Only runnable threads carry that risk.
   const byUser = new Map<string, Set<string>>();
 
   for (const plan of runnable) {
@@ -320,14 +241,8 @@ async function main() {
       await startRun({
         userId: plan.userId,
         workflowSlug: TRIAGE_WORKFLOW_SLUG,
-        // `force`: bypass the already-tagged skip guard (the ONLY thing it
-        // bypasses). Without it a thread still sitting on the message it was
-        // last classified from skips and the repair is a no-op.
-        //
-        // `satisfies` is load-bearing. `WorkflowInput.input` is `unknown` and
-        // `force` is OPTIONAL in `triageWorkflowInputSchema`, so a misspelt key
-        // would parse, drop, and make the whole repair a silent no-op that
-        // still prints `enqueued`. The excess-property check rejects it here.
+        // `force` bypasses the already-tagged skip, or the repair is a no-op.
+        // `satisfies` rejects a misspelt key, which the parse would drop silently.
         input: {
           documentId: plan.documentId,
           reason: "manual",
@@ -353,7 +268,7 @@ async function main() {
 
 main()
   .catch((e) => {
-    // Log only the message — a serialized Error can leak DATABASE_URL.
+    // Message only: a serialized Error can leak DATABASE_URL.
     console.error(toMessage(e));
     process.exitCode = 1;
   })

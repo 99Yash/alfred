@@ -1,24 +1,9 @@
 /**
- * Smoke test for the m12d generic workflow dispatcher (ADR-0027).
+ * Smoke test for the cron workflow dispatcher (ADR-0027): a due workflow gets a
+ * run with the right `trigger`, `next_run_at` advances, a second tick is a no-op,
+ * and two concurrent ticks enqueue once (CAS on `next_run_at`).
  *
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/smokes/smoke-workflows-tick.ts
- *
- * Verifies:
- *   1. A user-authored cron workflow with `next_run_at <= now()` is
- *      picked up by `dispatchDueCronWorkflows`.
- *   2. The handler creates an `agent_runs` row with
- *      `trigger.kind = 'cron'` and `trigger.scheduledFor` = the old
- *      `next_run_at` (in ISO).
- *   3. `dispatchDueCronWorkflows` reports the run enqueued
- *      (`result.enqueued >= 1`). The BullMQ jobId-dedup mechanics are
- *      proven below by ticks #2 and the race, not by a raw queue read —
- *      the raw queue handle is internal to the execution module now.
- *   4. The workflow row's `next_run_at` is advanced and
- *      `last_scheduled_at` matches the fired instant.
- *   5. A second tick (same fired instant in BullMQ) is a no-op — the
- *      jobId is already-known to BullMQ.
- *   6. The same scheduled instant is not re-fired even after the
- *      handler runs again (CAS on `next_run_at`).
  */
 import { dispatchDueCronWorkflows, closeWorkflowsQueue } from "@alfred/assistant/automation";
 import { closeAgentQueue } from "@alfred/assistant/execution";
@@ -30,10 +15,7 @@ import { and, eq } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "~/builtins";
 import { toMessage } from "@alfred/contracts";
 
-// Re-use the registered `echo-with-approval` slug so the dispatcher's
-// `createRun` → `requireWorkflow` lookup resolves. We never let the
-// agent worker pick the run up; this smoke verifies only the
-// dispatcher side (insert + advance + jobId dedup + CAS race).
+// A registered slug, so `requireWorkflow` resolves. No worker runs the run.
 const TEST_SLUG = "echo-with-approval";
 
 function assert(cond: unknown, msg: string): asserts cond {
@@ -59,9 +41,7 @@ async function findOrCreateSmokeUser(): Promise<string> {
 }
 
 async function cleanupPriorTest(userId: string): Promise<void> {
-  // Drop any prior fake-workflow row + its runs from a previous smoke
-  // attempt. Foreign keys: agent_runs.user_id → user.id (no FK to
-  // workflows), so we delete by user_id + workflow_slug.
+  // Clear rows from an earlier attempt. agent_runs has no FK to workflows.
   await db()
     .delete(agentRuns)
     .where(and(eq(agentRuns.userId, userId), eq(agentRuns.workflowSlug, TEST_SLUG)));
@@ -79,8 +59,8 @@ async function main() {
 
   await cleanupPriorTest(userId);
 
-  const fakeSchedule = "*/5 * * * *"; // every 5 minutes
-  const scheduledFor = new Date(Date.now() - 60_000); // 60s in the past
+  const fakeSchedule = "*/5 * * * *";
+  const scheduledFor = new Date(Date.now() - 60_000);
 
   const insertedWf = await db()
     .insert(workflows)
@@ -105,13 +85,12 @@ async function main() {
     `[smoke-workflows-tick] inserted workflow id=${wfRow.id} next_run_at=${scheduledForIso}`,
   );
 
-  // --- Tick #1 -----------------------------------------------------------
+  // Tick 1.
   const result1 = await dispatchDueCronWorkflows();
   console.log(`[smoke-workflows-tick] tick 1 result:`, result1);
   assert(result1.enqueued >= 1, `tick 1 should enqueue at least 1; got ${result1.enqueued}`);
   assert(result1.failed === 0, `tick 1 failed=${result1.failed} expected 0`);
 
-  // Run row present with trigger.kind='cron' and matching scheduledFor.
   const runs = await db()
     .select()
     .from(agentRuns)
@@ -119,8 +98,7 @@ async function main() {
 
   assert(runs.length === 1, `expected exactly 1 run row after tick 1; got ${runs.length}`);
   const run = runs[0]!;
-  // SAFETY: agent_runs.trigger is jsonb written by the cron scheduler with
-  // this envelope.
+  // SAFETY: the cron scheduler writes agent_runs.trigger with this shape.
   const trigger = run.trigger as { kind: string; scheduledFor: string } | null;
   assert(trigger?.kind === "cron", `expected trigger.kind='cron'; got ${JSON.stringify(trigger)}`);
   assert(
@@ -129,7 +107,6 @@ async function main() {
   );
   console.log(`[smoke-workflows-tick] run id=${run.id} trigger=${JSON.stringify(trigger)}`);
 
-  // Workflow row advanced.
   const after1 = await db()
     .select({ nextRunAt: workflows.nextRunAt, lastScheduledAt: workflows.lastScheduledAt })
     .from(workflows)
@@ -149,9 +126,7 @@ async function main() {
     `[smoke-workflows-tick] workflow advanced: next_run_at=${advanced.nextRunAt!.toISOString()} last_scheduled_at=${advanced.lastScheduledAt?.toISOString()}`,
   );
 
-  // --- Tick #2 (same now) ------------------------------------------------
-  // Since the workflow row's next_run_at advanced past now, the second
-  // tick should select 0 due rows and create 0 runs.
+  // Tick 2: next_run_at moved past now, so nothing is due.
   const result2 = await dispatchDueCronWorkflows();
   console.log(`[smoke-workflows-tick] tick 2 result:`, result2);
   assert(result2.scanned === 0, `tick 2 scanned=${result2.scanned} expected 0`);
@@ -163,10 +138,7 @@ async function main() {
 
   assert(runs2.length === 1, `tick 2 created an extra run; total=${runs2.length}`);
 
-  // --- Race simulation: rewind + concurrent dispatch ---------------------
-  // Reset next_run_at to the past, then call dispatch twice
-  // concurrently. The CAS in dispatchOne should mean exactly one
-  // enqueue happens, even though both calls SELECT the same row.
+  // Race: rewind, then dispatch twice at once. The CAS allows one enqueue.
   const replayScheduledFor = new Date(Date.now() - 30_000);
   await db()
     .update(workflows)
@@ -187,11 +159,7 @@ async function main() {
   );
   console.log(`[smoke-workflows-tick] race respected: 1 enqueue + 1 raced`);
 
-  // The queued jobs use a distinct scheduled-instant jobId each run
-  // (`scheduledFor` derives from `Date.now()`), so a re-run is never blocked
-  // by jobId dedup and no explicit BullMQ cleanup is needed here. The agent
-  // worker never runs in this smoke, so the jobs age out via
-  // `removeOnComplete`/`removeOnFail` bounds on the queue.
+  // No queue cleanup: each run uses a new jobId, and old jobs age out.
 
   console.log("[smoke-workflows-tick] ✅ all assertions passed");
 }

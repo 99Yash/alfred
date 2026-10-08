@@ -6,13 +6,7 @@ import {
   type ChatModelTier,
 } from "@alfred/contracts";
 
-/**
- * One message waiting for the in-flight turn to finish before it is started as
- * its own turn. FIFO, client-local, per-thread — does not survive reload (v1).
- * The queue lives in an in-memory map keyed by threadId so switching threads
- * does not leak queued text into the wrong conversation; the thread-scoped
- * slice is what the composer renders as removable chips (#489).
- */
+/** A message that waits for the in-flight turn, then starts its own. In memory only. */
 export interface QueuedMessage {
   id: string;
   text: string;
@@ -37,41 +31,26 @@ function safeRandomId(): string {
 }
 
 export interface ChatQueue {
-  /** FIFO slice for the current thread — render as chips above the composer. */
+  /** This thread's FIFO, shown as chips above the composer. */
   queue: QueuedMessage[];
-  /** Enqueue after trimming; returns false when the entry is empty and was not added. */
+  /** Returns false when the entry is empty, over a cap, or the queue is full. */
   enqueue: (entry: Omit<QueuedMessage, "id">) => boolean;
-  /** Remove a pending chip before it sends; order of the rest is preserved. */
   remove: (id: string) => void;
-  /** Drop the oldest entry after it has been successfully started. */
+  /** Call after the oldest entry has started. */
   dequeue: () => void;
-  /** Peek at the oldest entry without removing it. */
   peek: () => QueuedMessage | undefined;
 }
 
 /**
- * Per-thread client-local message queue for the chat composer (#489).
- *
- * While a turn is streaming, submits are enqueued instead of dropped. When the
- * current turn completes (stream done + durable synced), the oldest entry is
- * started as its own turn. The `busy` guard (#488) keeps the entry queued for a
- * retry rather than dropping it or duplicating the run.
- *
- * Implementation is an in-memory `Map<threadId, QueuedMessage[]>` in component
- * state — no persistence for v1 — so reload clears it. The map keeps each
- * thread's slice isolated; `queueKey` scopes `__new__` for the bare `/chat`
- * surface so that surface does not leak a queue into a real thread.
+ * Per-thread composer queue. Sends during a turn wait here and start when it ends.
+ * A reload clears it. The bare `/chat` page uses the `__new__` key.
  */
 export function useChatQueue(threadId: string | undefined): ChatQueue {
   const [queues, setQueues] = useState<Queues>(() => new Map());
   const key = queueKey(threadId);
   const queue = useMemo(() => queues.get(key) ?? [], [queues, key]);
 
-  // Migrate any queued entries from the ephemeral `__new__` bucket (the bare
-  // `/chat` surface) into the newly created real thread after the first send
-  // navigates to `/chat/$threadId`. Without this, a message queued while the
-  // first turn was still mounting before navigation would stay stranded under
-  // `__new__` and disappear after the route change.
+  // Move `__new__` entries to the real thread after the first send navigates there.
   useEffect(() => {
     if (!threadId) return;
     setQueues((prev) => {
@@ -80,11 +59,7 @@ export function useChatQueue(threadId: string | undefined): ChatQueue {
 
       if (!oldQueue || oldQueue.length === 0) return prev;
       const newQueue = prev.get(threadId) ?? [];
-      // Merge rather than drop: if the new thread already has queued items
-      // (race of two rapid enqueues around navigation), preserve FIFO by
-      // appending the migrated items after the existing ones. Dropping either
-      // side would silently lose the user's draft — the harsher structural
-      // review flagged the old `if (newQueue.length>0) return prev` as data loss.
+      // Merge, never drop: the new thread can already have entries after a fast double send.
       const merged = [...newQueue, ...oldQueue];
 
       if (merged.length === 0) return prev;
@@ -92,9 +67,7 @@ export function useChatQueue(threadId: string | undefined): ChatQueue {
       next.set(threadId, merged);
       next.set(oldKey, []);
 
-      // Prune empty buckets to bound memory: a Map that grows per visited
-      // thread would leak `File` handles. Delete empties and cap distinct
-      // thread buckets (LRU-ish: drop oldest empty-ish entries if we exceed 20).
+      // Bound memory, because entries hold `File` handles: drop empties, keep at most 20 threads.
       if (next.get(oldKey)?.length === 0) next.delete(oldKey);
 
       if (next.size > 20) {
@@ -112,8 +85,7 @@ export function useChatQueue(threadId: string | undefined): ChatQueue {
       const text = entry.text.trim();
       const hasFiles = entry.files.length > 0;
 
-      // Single source of truth for "empty" — mirrors `useSendMessage` and
-      // `ChatShell.onSend` via `isEmptyChatTurnInput` in `@alfred/contracts`.
+      // The same "empty" rule as `useSendMessage` and `ChatShell`.
       if (
         isEmptyChatTurnInput({
           content: text,
@@ -124,12 +96,8 @@ export function useChatQueue(threadId: string | undefined): ChatQueue {
       )
         return false;
 
-      // Guard `File` caps at enqueue time so a queued batch cannot later exceed
-      // the per-message limits the server enforces. The composer already caps
-      // live attachments, but a queued turn bypasses that gate.
+      // A queued turn skips the composer's attachment cap, so check it here.
       if (entry.files.length > MAX_ATTACHMENTS_PER_MESSAGE) return false;
-      // Normalize to trimmed text so a chip never renders leading/trailing blank
-      // and the started turn does not carry it.
       const normalized = text;
 
       if (
@@ -142,9 +110,7 @@ export function useChatQueue(threadId: string | undefined): ChatQueue {
       )
         return false;
 
-      // Capacity: keep queue bounded so a runaway loop cannot pin unbounded
-      // `File` handles in memory. When full, reject and let the caller keep
-      // the draft in the composer (same as "empty" → composer does not clear).
+      // When full, reject so the draft stays in the composer.
       const currentLen = queues.get(key)?.length ?? 0;
 
       if (currentLen >= MAX_QUEUED_TURNS) return false;

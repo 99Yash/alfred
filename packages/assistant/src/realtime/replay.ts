@@ -5,11 +5,7 @@ import type { EventFrame } from "@alfred/contracts/events";
 import { isKnownEventKind } from "@alfred/contracts/events";
 import { REPLAY_PAGE_SIZE, toReplayPage, type ReplayPage } from "./replay-page";
 
-/**
- * A replay page is capped so a malicious or buggy `since=0` request cannot
- * read an unbounded history in one connection. The route closes after a full
- * page; EventSource reconnects with its final id to request the next page.
- */
+/** The highest published id; replay reads up to it. */
 export async function getReplayHighWatermark(userId: string): Promise<number> {
   const [row] = await db()
     .select({ max: sql<string | null>`MAX(${eventsOutbox.id})` })
@@ -19,6 +15,7 @@ export async function getReplayHighWatermark(userId: string): Promise<number> {
   return row?.max ? Number(row.max) : 0;
 }
 
+/** One capped page, so `since=0` cannot read unbounded history in one connection. */
 export async function getEventsSince(
   userId: string,
   sinceId: number,

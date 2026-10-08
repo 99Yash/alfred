@@ -1,16 +1,6 @@
 /**
- * App-wide error boundary, wired as the router's `defaultErrorComponent`
- * (see `main.tsx`). Catches any uncaught render error in a route subtree so a
- * single throw degrades to a recoverable panel instead of white-screening the
- * whole app.
- *
- * Adapted from the dimension web `ErrorBoundary`, but built on TanStack
- * Router's error-component contract rather than a React class: the router owns
- * the boundary, hands us `{ error, reset }`, and `reset` + `invalidate()` lets
- * us retry the failed render in place before falling back to a hard reload.
- *
- * Sentry is loaded lazily (matching `main.tsx`'s deferred observability init)
- * so `@sentry/react` never lands in the main bundle just to report errors.
+ * The router's `defaultErrorComponent`: a recoverable panel instead of a white screen.
+ * Sentry loads lazily, so it stays out of the main bundle.
  */
 
 import { useRouter, type ErrorComponentProps } from "@tanstack/react-router";
@@ -46,8 +36,7 @@ export function DefaultCatchBoundary({ error, reset }: ErrorComponentProps) {
             variant="ghost"
             size="md"
             onClick={() => {
-              // Retry the failed render in place: clear the router's error
-              // state, then re-run the route's loaders/queries.
+              // Clear the router's error and re-run the route's loaders.
               reset();
               void router.invalidate();
             }}
@@ -70,11 +59,7 @@ export function DefaultCatchBoundary({ error, reset }: ErrorComponentProps) {
   );
 }
 
-/**
- * App-wide 404, wired as the router's `defaultNotFoundComponent` (see
- * `main.tsx`). Renders when a route doesn't match or a loader throws
- * `notFound()`.
- */
+/** The router's `defaultNotFoundComponent`. */
 export function NotFound() {
   const router = useRouter();
 

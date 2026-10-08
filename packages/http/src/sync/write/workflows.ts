@@ -10,14 +10,7 @@ import { and, eq } from "drizzle-orm";
 import { MutatorForbiddenError } from "../authz";
 import type { DbTransaction } from "@alfred/db";
 
-/**
- * Turn a revision-service failure into the one error `push.ts` understands.
- *
- * The savepoint around each mutator rolls back on any throw, so a rejected edit
- * leaves no partial revision behind. `MutatorForbiddenError` is the right
- * carrier for all of these: none is retryable, and the client's optimistic
- * patch is discarded on the next authoritative pull either way.
- */
+/** None of these is retryable. The savepoint rolls back, and the next pull drops the optimistic patch. */
 function workflowMutatorError(failure: WorkflowServiceFailure): MutatorForbiddenError {
   switch (failure.kind) {
     case "validation_failed":
@@ -45,18 +38,9 @@ function workflowMutatorError(failure: WorkflowServiceFailure): MutatorForbidden
 }
 
 /**
- * Patch a user-authored workflow (m13 Phase 8 event-trigger authoring).
- *
- * Every definition write goes through the revision service (#555) — this
- * mutator owns transport concerns only: find the row by slug, split the patch
- * into "what it does" and "whether it runs", and turn a typed service failure
- * into the ACL error `push.ts` already handles.
- *
- * An edit appends a revision and moves `current_revision_id`. On an
- * already-published workflow the running definition is untouched, so the
- * editor produces *unpublished changes* rather than a live rewrite.
- * Activation is refused here: publication must pass through the staged,
- * high-risk exact-contract approval owned by `system.activate_workflow`.
+ * Patch a user workflow through the revision service. An edit to a published
+ * workflow makes unpublished changes. Activation is refused here: it needs the
+ * `system.activate_workflow` approval.
  */
 export async function workflowUpdate(
   tx: DbTransaction,
@@ -69,8 +53,7 @@ export async function workflowUpdate(
     .where(and(eq(workflows.userId, userId), eq(workflows.slug, args.slug)))
     .limit(1);
 
-  // Unknown slug → drop silently (Replicache at-least-once; a deleted row
-  // shouldn't wedge the client). Built-in rows are read-only.
+  // Replicache retries, so a deleted row must not wedge the client.
   if (!existing) return;
 
   if (existing.isBuiltin) {

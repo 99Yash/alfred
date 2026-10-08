@@ -7,19 +7,8 @@ export type FrostButtonTone = "dark" | "light";
 export type FrostButtonSize = "sm" | "md" | "lg";
 
 /**
- * Frost-bordered call-to-action button. Inherits `frost-border` for the
- * gradient hairline + inset glow, then layers:
- *   • dark-glass or light-paper fill (per `tone`)
- *   • a radial top-left specular highlight pseudo
- *   • an after-overlay for the hover wash
- *
- * Alfred is dark-first so `tone="dark"` is the default. Use `tone="light"`
- * on top of light backgrounds (e.g. a paper-textured section) — that matches
- * Dimension's original "Get Started" button recipe.
- *
- * Pass `loading` to fade the label and overlay a spinner. The button is
- * automatically disabled (and `cursor-wait`) while loading so consumers
- * don't need a separate `disabled` flag during async submits.
+ * Frost-bordered CTA. `tone="dark"` (default) is glass; `light` is for light backgrounds.
+ * `loading` fades the label, shows a spinner, and disables the button.
  */
 export function FrostButton({
   className,
@@ -46,16 +35,14 @@ export function FrostButton({
 
   const toneClass =
     tone === "light"
-      ? // Dimension's original light recipe — bright fill, dark text. NB: this
-        // project inverts Tailwind's gray scale (gray-950 maps to near-white),
-        // so the text color is a literal hex value, not a token utility.
+      ? // Literal text color: this project inverts Tailwind's gray scale (gray-950 is near-white).
         cn(
           "bg-white bg-linear-to-b from-[#eee] to-[#eee]",
           "text-[#0c0c0c]",
           "hover:to-[#eee]/70 active:to-[#eee]/90",
           "after:bg-white/[0.05] hover:after:opacity-50",
         )
-      : // Dark-glass — Alfred default. Translucent dark fill + white text.
+      : // Dark glass.
         cn(
           "bg-linear-to-b from-white/[0.14] to-white/[0.06]",
           "text-white",
@@ -82,7 +69,7 @@ export function FrostButton({
       className={cn(
         "frost-border press-scale isolate inline-flex items-center justify-center select-none",
         "rounded-full font-medium backdrop-blur-md",
-        // after-overlay — soft hover wash
+        // hover wash
         "after:absolute after:inset-0 after:rounded-[inherit] after:content-['']",
         "after:pointer-events-none after:opacity-0 after:transition-opacity after:duration-200",
         "active:after:opacity-0",

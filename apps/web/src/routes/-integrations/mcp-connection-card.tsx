@@ -16,22 +16,10 @@ export interface McpConnectionCardViewProps {
 }
 
 /**
- * One user-added MCP server: health, and every action that acts on its row.
- *
- * Presentation only. The four lifecycle mutations live behind
- * {@link useMcpConnectionActions}, so this half renders from props and the
- * `renderToStaticMarkup` seam can pin the closed confirm step, the
- * `auth_required` action set, and a 409's recovery anchor without a DOM or a
- * QueryClient.
- *
- * The remove confirm is inline state, not a browser dialog: it renders inside
- * the same tree (so static markup sees the closed state) and puts the question
- * next to the row it is about, matching `McpRecoveryList`.
- *
- * `auth_required` is the one state no mutation can repair: the row holds no
- * usable credential, so `reconnect` throws and answers 400. Only a consent
- * round trip helps, so that state replaces Reconnect with a browser NAVIGATION
- * to the same door the built-in tile uses.
+ * One user-added MCP server, rendered from props so `renderToStaticMarkup` can test it.
+ * The remove confirm is inline state, not a browser dialog.
+ * `auth_required` has no usable credential (`reconnect` returns 400), so it
+ * navigates to consent instead of offering Reconnect.
  */
 export function McpConnectionCardView({ connection, actions }: McpConnectionCardViewProps) {
   const [editingLabel, setEditingLabel] = useState<string | null>(null);
@@ -88,8 +76,7 @@ export function McpConnectionCardView({ connection, actions }: McpConnectionCard
             }}
           >
             <AppInput
-              // Autofocus is a user-visible focus move on a control the click
-              // just revealed; without it the editor opens unfocused.
+              // The click just revealed this editor; focus it.
               autoFocus
               aria-label="Connection label"
               className="h-7 w-32 text-[13px]"
@@ -191,10 +178,7 @@ export function McpConnectionCardView({ connection, actions }: McpConnectionCard
   );
 }
 
-/**
- * The container the section renders. It owns the lifecycle hook and hands the
- * flattened actions to the view, so the view stays hook-free.
- */
+/** Owns the lifecycle hook, so the view stays hook-free. */
 export function McpConnectionCard({ connection }: { connection: McpConnection }) {
   const actions = useMcpConnectionActions(connection);
 

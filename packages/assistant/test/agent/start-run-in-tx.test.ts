@@ -19,21 +19,8 @@ import type { StepResult, Workflow } from "@alfred/assistant/execution";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
- * DB/Redis-backed coverage for the execution module's `startRunInTx` seam
- * (campaign item 05). `startRunInTx` owns the occurrence-claim path: it runs the
- * caller's `claim` (CAS + other durable writes) on one transaction, creates the
- * run on that same transaction, and enqueues once AFTER the transaction commits.
- * The queue handle never leaves execution, so a caller cannot split, re-order, or
- * drop the deliver. This test pins three properties:
- *
- *  1. `claim` returns `null` (raced) → resolves `null`, no run row, no queued job.
- *  2. `claim` returns args → the run row is created on the transaction and a
- *     BullMQ job with the passed `jobId` sits on the queue only AFTER commit
- *     (the job is absent while `claim` still runs).
- *  3. `claim` throws → the transaction rolls back (no run row) and no job fires.
- *
- * Opt-in: runs only when `DATABASE_URL` and `REDIS_URL` point at reachable test
- * services. Seeds a throwaway `test-start-run-in-tx-*` user and cascades it away.
+ * `startRunInTx` runs the caller's `claim` and creates the run in one transaction,
+ * then enqueues only after commit. A null or throwing claim leaves no row and no job.
  */
 const SKIP = dbBackedSkip("database+redis");
 
@@ -170,8 +157,6 @@ describe("startRunInTx claims, persists, then enqueues (DB/Redis-backed)", { ski
     });
 
     assert.equal(result, null, "raced claim should resolve null");
-    // No run row proves `createRun` never ran: it is the only path that inserts
-    // an `agent_runs` row, and `startRunInTx` skips it on a null claim.
     assert.equal(await runRowCountForUser(userId), 0, "no run row for a raced claim");
     assert.equal(await queueHasJobId(jobId), false, "no queued job for a raced claim");
   });
@@ -185,8 +170,6 @@ describe("startRunInTx claims, persists, then enqueues (DB/Redis-backed)", { ski
 
     const result = await startRunInTx({
       claim: async () => {
-        // The enqueue must fire AFTER the transaction commits, so while `claim`
-        // still runs the job cannot yet be on the queue.
         enqueuedWhileClaimRan = await queueHasJobId(jobId);
 
         return runArgsFor(userId);
@@ -216,8 +199,6 @@ describe("startRunInTx claims, persists, then enqueues (DB/Redis-backed)", { ski
     await assert.rejects(
       startRunInTx({
         claim: async (tx) => {
-          // Persist a run on the transaction, then fail: the row must not
-          // survive and the enqueue must never fire.
           await createRun(runArgsFor(userId), tx);
           throw new Error("claim failed after a durable write");
         },

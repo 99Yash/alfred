@@ -43,8 +43,7 @@ export async function authorWorkflowDraft(args: {
   timezone: IanaTimezone;
   input: AuthorWorkflowInput;
 }): Promise<WorkflowServiceResult<AuthoredWorkflowOutcome>> {
-  // Gather mutable setup before the first write. A transient availability-read
-  // failure must not commit a draft and then make a retry create a second one.
+  // Read before the first write, so a failed read cannot commit a draft and a retry make a second.
   const context = await readWorkflowReadinessContext(args.userId);
   const { availability } = context;
   const toolCatalog = workflowToolCatalog();
@@ -134,7 +133,7 @@ export async function authorWorkflowDraft(args: {
   });
 }
 
-/** Derive the exact stored execution envelope from the model-facing proposal. */
+/** The stored execution envelope from the model's proposal. */
 export function definitionFromProposal(input: AuthorWorkflowInput): AuthorableWorkflowDefinition {
   const requiredCapabilities = uniqueCapabilities(
     input.capabilities.flatMap((capability) =>

@@ -3,9 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { pageMeta } from "~/lib/page-meta";
 import { OnboardingRoute, type OnboardingStep } from "./-onboarding/onboarding-route";
 
-/* `?step=N` is the source of truth for which step renders. Defaulting to 1
- * keeps a bare `/onboarding` visit landing on Unlock; the Google callback
- * redirects with `step=2` to advance the funnel. */
+/* `?step=N` picks the step; default 1. The Google callback sends `step=2`. */
 interface OnboardingSearch {
   step: OnboardingStep;
   google_connected?: string | undefined;

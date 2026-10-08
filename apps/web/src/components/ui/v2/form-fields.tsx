@@ -1,13 +1,6 @@
 /**
- * App-grammar field components for the app-form hook.
- *
- * Each one reads its own `FieldApi` from context, so a call site names the
- * field once and never wires `value` / `onChange` / `onBlur` / `aria-*` by
- * hand. They are registered as `field.TextField`, `field.TextAreaField` in
- * `form.ts` and used inside `form.AppField`.
- *
- * Validation errors are read on blur only, matching the rest of the app: a
- * half-typed value is not yet an error.
+ * Fields for the app-form hook. Each reads its `FieldApi` from context.
+ * Errors show on blur only: a half-typed value is not yet an error.
  */
 
 import { isNonEmptyString, isRecord } from "@alfred/contracts";
@@ -17,10 +10,7 @@ import { useFieldContext } from "./form-context";
 import { AppInput } from "./input";
 import { AppTextarea } from "./textarea";
 
-/**
- * A validator may answer with a bare string or with a schema issue that
- * carries `message`. Normalize both to the one string the error slot renders.
- */
+/** A validator returns a string or an issue with `message`. */
 function fieldErrorMessage(error: unknown): string | undefined {
   if (isNonEmptyString(error)) return error;
 

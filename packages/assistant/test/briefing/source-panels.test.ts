@@ -14,16 +14,8 @@ import {
 } from "@alfred/assistant/briefings/references";
 
 /**
- * Characterization of the two server-side halves of `briefing/references.ts`
- * (campaign arch-20260727 item 06). `references.test.ts` covers only the pure
- * resolver that relocated to `@alfred/contracts`; the panel builder and the
- * email renderer had no test at all, and both sit directly on the
- * gather → compose seam that item 06 rewrites.
- *
- * These pin today's behaviour, including the bits that look accidental (the
- * `start - end` subtitle with no formatting, the ordering that is only stable
- * for referenced-vs-not). If a later change means to alter one, the assertion
- * should be updated deliberately, not deleted.
+ * Pins today's panel builder and email renderer in `briefings/references.ts`, odd bits included
+ * (the raw `start - end` subtitle). Change an assertion on purpose; do not delete it.
  */
 
 function activityItem(overrides: Partial<IntegrationActivityItem> = {}): IntegrationActivityItem {
@@ -58,8 +50,7 @@ describe("buildBriefingSourcePanels", () => {
   test("an empty gather still yields the always-present day panel and drops the empty ones", () => {
     const panels = buildBriefingSourcePanels(gather());
 
-    // email + integration_activity are pushed unconditionally but filtered out
-    // when empty; day_of_week is deterministic so it always has one item.
+    // Empty panels drop out; day_of_week always has one item.
     assert.deepEqual(
       panels.map((p) => p.source),
       ["day_of_week"],
@@ -166,7 +157,7 @@ describe("buildBriefingSourcePanels", () => {
 
     assert.equal(emailPanel?.items[0]?.href, undefined);
     assert.equal(emailPanel?.items[0]?.reference, briefingReference("email", "doc_nothread"));
-    // An empty snippet is dropped by compactMetadata rather than kept as "".
+    // compactMetadata drops an empty snippet.
     assert.deepEqual(emailPanel?.items[0]?.metadata, { category: "urgent" });
   });
 
@@ -247,8 +238,7 @@ describe("buildBriefingSourcePanels", () => {
     const weather = panels.find((p) => p.source === "weather");
     assert.equal(weather?.items[0]?.title, "Clear");
     assert.equal(weather?.items[0]?.subtitle, "28C now, 33C high");
-    // compactMetadata filters on the stringified value, so a 0mm forecast still
-    // renders a "0" entry rather than being dropped. Pinned as-is.
+    // compactMetadata checks the string, so 0mm keeps a "0" entry.
     assert.deepEqual(weather?.items[0]?.metadata, {
       feelsLikeC: "32",
       precipitationMm: "0",

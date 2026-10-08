@@ -53,78 +53,43 @@ import { createHedgeBudget, hedgeCeilingFor, runHedged, type HedgeBudget } from 
 import type { Observations } from "./observations";
 import { MAX_RATIONALE_LEN, truncateRationale } from "./rationale";
 
-// Re-exported for the public triage surface (the barrel, `deepen.ts`) — the
-// definitions live in the leaf `rationale.ts` to avoid a `classify ↔ floors` cycle.
+// Defined in the leaf `rationale.ts` to avoid a `classify ↔ floors` cycle.
 export { MAX_RATIONALE_LEN, truncateRationale };
 
 /**
- * Email triage classifier, cheap-model-always (ADR-0051): `classifyEmail` runs
- * the cheap model, then a conditional second pass and the deterministic floors
- * (override → sender-kind → spam → meeting), returning the classification + audit. Owner: this file. Supersedes ADR-0042. Glossary: `docs/reference/glossary.md`.
+ * Email triage, cheap model always (ADR-0051): one cheap pass, an optional
+ * second pass, then the deterministic floors.
  */
 
-/**
- * Todo-worthiness rubric outcomes (ADR-0050 amendment 2026-06-06). Reports which
- * of the five ordered rubric tests (rule 16) decided the todo call: `proposed`
- * only when all pass, otherwise the FIRST test that failed. Stored on the
- * `triage.classification` decision trace so the rubric is tuned from real misses (which
- * dimension fails on which class of mail), not by appending example #N.
- *
- * Defined in `@alfred/contracts` (so the `email_triage` row can persist it
- * without a db→api dependency) and re-exported here for the existing importers.
- */
+/** Which rubric test (rule 16) decided the todo call. In contracts so the row can store it. */
 export { TODO_DECISION_OUTCOMES, type TodoDecisionOutcome };
 
 export const triageClassificationSchema = z.object({
   category: z.enum(TRIAGE_CATEGORIES),
   /**
-   * [0, 1] — surfaced in the UI for low-confidence soft-confirms. Below
-   * 0.5 the workflow still applies the chosen label (we always pick one,
-   * to avoid leaving the message untriaged), but flags it for the briefing
-   * to optionally surface as "alfred wasn't sure."
-   *
-   * Bare number (no `.min(0).max(1)`) so it round-trips through providers that
-   * reject numeric bounds in structured output schemas — see `confidenceSchema`.
-   * The range is enforced by clamping at the producer boundary (`defaultRunPass`),
-   * the one place a documented threshold (< 0.5 soft-confirm) keys off it.
+   * [0, 1]. Below 0.5 the label still applies but is flagged as "alfred wasn't sure".
+   * Bare number because some providers reject numeric bounds; `defaultRunPass` clamps it.
    */
   confidence: confidenceSchema,
-  /** Short rationale grounded in the email — used for audit and debugging. */
   rationale: z.string().min(1).max(MAX_RATIONALE_LEN),
-  /** Explicit inbound document request proposed by the classifier. */
   documentAsk: documentAskProposalSchema.nullable().optional(),
   /**
-   * Real-time todo proposal for the rail (ADR-0050, amended 2026-06-06 to the
-   * todo-worthiness rubric). Non-null ONLY when the email clears all five rubric
-   * tests (rule 16) — the email-triage tail step turns it into a `suggested`
-   * todo via `system.suggest_todo`. The decision is ORTHOGONAL to the category
-   * and evaluated over the whole email (a `done` closure with a significant
-   * trailing ask can still yield one); `todoDecision` reports which test fired.
-   * The model must always emit the key (null when no todo) — this is one field
-   * on the existing cheap call, not a second call.
+   * Rail todo proposal (ADR-0050). Set only when all rubric tests (rule 16) pass.
+   * Independent of the category: a `done` email can still carry one.
    */
-  // Schemas owned by `@alfred/contracts` (so the persisted `email_triage` row
-  // can share them). `.optional()` on the TYPE so non-cheap-classifier producers
-  // need not set them; the cheap call is prompted to always emit them (the
-  // suggestion null when no todo, the decision always present).
+  // Optional so other producers can skip them; the cheap call is prompted to always emit them.
   todoSuggestion: triageTodoSuggestionSchema.optional(),
   todoDecision: triageTodoDecisionSchema.optional(),
   /**
-   * Collaboration-tool activity kind (#218). Non-null ONLY for a task/issue
-   * tracker or doc-comment notification (ClickUp, Linear, Jira, Asana, Notion,
-   * Trello, …); null for every other email. The sender-kind floor reads it to
-   * demote PASSIVE team activity (`state_change`/`other_activity`/`digest`) from
-   * a confident group/service sender while KEEPING work directed at the user
-   * (`assigned_to_user`/`mentioned_user`/`comment_to_user`). `.nullable()` so the
-   * cheap model's explicit `null` validates; `.optional()` so non-cheap producers
-   * need not emit it.
+   * Collaboration-tool activity kind (#218); null for non-tracker mail. The
+   * sender-kind floor demotes passive kinds and keeps work directed at the user.
    */
   collabActivity: collabActivitySchema.nullable().optional(),
 });
 
 export type TriageClassification = z.infer<typeof triageClassificationSchema>;
 
-/** A single cheap-model pass — the seam the second pass and tests drive. */
+/** One cheap-model pass. Tests inject it. */
 export type RunPass = (input: {
   system: string;
   prompt: string;
@@ -132,16 +97,11 @@ export type RunPass = (input: {
 }) => Promise<TriageClassification>;
 
 export interface ClassifyEmailArgs {
-  /** Optional metering attribution; the userId itself is never sent to the model. */
+  /** Metering only; never sent to the model. */
   userId?: string;
   /**
-   * Minimal identity signal (ADR-0050/0051 amendment 2026-06-09) — the user's
-   * display name + the account email being triaged. The ONLY user-identity the
-   * cheap classifier gets: it powers the todo ownership-attribution gate (rule
-   * 16a) so an action the email assigns to a *named third party* is not minted
-   * as the user's todo (the "Sakshi standup" bug). Deliberately NOT role /
-   * projects / relationships — those stay parked under ADR-0050 D1. The first
-   * surgical brick toward the full `User context` projection.
+   * The only user identity the classifier gets. Rule 16a uses it so a task
+   * assigned to a named third party is not minted as the user's todo.
    */
   identity?: { name?: string | null; email?: string | null };
   document: {
@@ -149,73 +109,36 @@ export interface ClassifyEmailArgs {
     title: string | null;
     content: string;
     authoredAt: Date | null;
-    /** Canonical persisted Gmail metadata projection. */
     metadata: GmailDocumentMetadata;
   };
-  /**
-   * Deterministic parse of the sender/envelope/body actor (ADR-0042 #1,
-   * unchanged). The classifier uses this typed context but loads no broader
-   * user profile or memory.
-   */
   senderContext: SenderContext;
-  /**
-   * Deterministic pre-model observations (ADR-0051 §4a). Assembled by the
-   * workflow (sender prior, persona, thread state, known-contact, Gmail
-   * signals, content flags) and fed into the prompt as hints — never verdicts.
-   */
+  /** Deterministic pre-model hints, never verdicts (ADR-0051 §4a). */
   observations: Observations;
-  /** Run/step ids forwarded to the metering log + Langfuse trace. */
   runId?: string;
   stepId?: string;
-  /** Stable per-call idempotency key — caller derives from `(runId, stepId, doc.id, attempt)`. */
   idempotencyKey?: string;
-  /**
-   * Override the AI SDK retry count for the cheap-model call. Production leaves
-   * this unset (SDK default = 2 retries / 3 attempts). The eval lowers it so a
-   * provider-overload blip fails fast to the configured cheap-model fallback
-   * instead of burning three exponential-backoff cycles per case — without that,
-   * a CI run under sustained provider throttling exceeds the eval job's
-   * wall-clock budget.
-   */
+  /** The eval lowers retries so a provider blip fails over fast and CI stays in budget. */
   maxRetries?: number;
-  /**
-   * Override the hedge delay for the cheap-model call (#436), in milliseconds;
-   * `0` disables hedging. Production leaves this unset and reads
-   * `TRIAGE_CLASSIFY_HEDGE_MS`. The eval sets `0`: hedging buys tail latency on
-   * a live mailbox, but in a batch scored for tagging precision it only doubles
-   * the provider load the eval is already rate-limited by.
-   */
+  /** Hedge delay in ms; `0` disables. Unset reads `TRIAGE_CLASSIFY_HEDGE_MS`. */
   hedgeDelayMs?: number;
-  /**
-   * Test/seam override for the cheap model call. Production leaves this unset
-   * and the real metered `route("cheap").model()` call is used; tests inject canned
-   * pass outputs to exercise the conflict/second-pass/floor logic without a
-   * live LLM (no model mocking framework in the repo).
-   */
+  /** Tests inject canned passes here. */
   runPass?: RunPass;
 }
 
-/** Why the conditional second cheap pass fired (ADR-0051 §4b, Phase 3 seed). */
+/** Why the second cheap pass fired (ADR-0051 §4b). */
 export interface TriageConflict {
   kind: "under_classification" | "over_classification" | "loop_state";
-  /** Human-readable conflict spelled out into the second-pass prompt + audit. */
+  /** Goes into the second-pass prompt and the audit. */
   message: string;
 }
 
-/** Audit trail of the full classify sequence, stored in the `triage.classification` trace. */
+/** Stored in the `triage.classification` trace. */
 export interface ClassifyAudit {
   firstPass: TriageClassification;
   conflict: TriageConflict | null;
   secondPass: TriageClassification | null;
   secondPassFailure: { message: string } | null;
-  /**
-   * Per-floor audit facts from the deterministic floor sequence, carried verbatim
-   * from {@link applyFloors} and keyed by floor name. The fold's other two outputs
-   * are not repeated here — its classification IS the classification this audit
-   * accompanies, and its model tags are already on `model`. The shape is derived
-   * from `FLOOR_SEQUENCE`, so a fourth floor reaches this audit (and the `model`
-   * tag) without an edit in this file.
-   */
+  /** Per-floor audits from {@link applyFloors}, keyed by floor name. */
   floors: FloorAudits;
 }
 
@@ -224,18 +147,12 @@ const PASSIVE_CATEGORIES = new Set<TriageCategory>(["fyi", "done", "newsletter",
 const IMPORTANT_CATEGORIES = new Set<TriageCategory>(["urgent", "action_needed"]);
 
 /**
- * Categories that NEVER carry a rail todo regardless of model output (ADR-0050
- * amendment 2026-06-06). Shrunk to `{marketing, newsletter}`: these are the
- * broadcast buckets where a genuine personal obligation would be, by definition,
- * a MISCLASSIFICATION leaking through — so this is a CONSISTENCY GUARD against
- * classifier leakage, not a relevance judgment. `fyi`/`done` deliberately do NOT
- * live here: an `fyi` can carry a real obligation ("auto-renews unless you
- * cancel") and a `done` closure can end with a significant trailing ask — both
- * go through the rubric (rule 16), which owns the todo decision everywhere else.
+ * Never carry a rail todo. A real obligation here means the category is wrong.
+ * `fyi` and `done` stay out: "auto-renews unless you cancel" is a real todo.
  */
 const TODO_INELIGIBLE_CATEGORIES = new Set<TriageCategory>(["marketing", "newsletter"]);
 
-/** Categories that count toward a sender's "bulk" share for the over-classification net. */
+/** Count toward a sender's "bulk" share for the over-classification net. */
 const BULK_PRIOR_CATEGORIES = new Set<string>(["newsletter", "marketing", "fyi", "done"]);
 
 export const SYSTEM_PROMPT = `You triage emails for a personal assistant. Classify each email into EXACTLY ONE category:
@@ -363,10 +280,7 @@ function renderThreadObservation(obs: Observations): string[] {
       `Thread: ${t.messageCount} prior message(s); ${replied}; newest is ${t.newestDirection ?? "unknown"}`,
     );
 
-    // Prior-message excerpts (newest first). The fed context that lets the
-    // classifier of a trailing low-signal message see an earlier open ask in the
-    // SAME thread (ADR-0051 amendment 2026-06-13). Labelled by direction so the
-    // model knows which side spoke; "you sent" vs "you received".
+    // Lets a trailing low-signal message see an earlier open ask in the thread.
     if (t.recentMessages.length) {
       lines.push(`Recent thread messages (newest first — the email below may be even newer):`);
 
@@ -382,69 +296,21 @@ function renderThreadObservation(obs: Observations): string[] {
   return lines;
 }
 
-/**
- * How the model should weigh a matched standing-instruction phrasing, rendered
- * beside the phrasing in `renderObservations` (never in SYSTEM_PROMPT — see
- * the placement note there). A named constant because the rubric reads ~90
- * words against sibling lines that are each one terse fact; the call site keeps
- * the placement, this keeps the text.
- */
+/** Rendered beside a matched instruction, never in SYSTEM_PROMPT (see `renderObservations`). */
 const STANDING_INSTRUCTION_HANDLING_RULE =
   "How to weigh that line, for THIS SENDER ONLY: treat it as a prior over this sender's prior, the Gmail signals, and urgency cues in the body, because each of those is Alfred's inference and this line is the user's own words. It is still a prior, not a command: prefer 'fyi' for this sender's routine notices even when they carry urgency cues, while still allowing a demand lane for a genuinely urgent item judged from the body. Apply none of this to any other sender.";
 
 /**
- * The prompt budget for the whole cold-start prior, in characters.
- *
- * It lives HERE, at the render site, and not beside `readUserContextLine`. The
- * value it bounds is the prompt, and `UserContextLine` is a plain exported
- * interface reachable through the public `AssembleObservationsArgs.userContext`,
- * so a cap applied inside the reader would be a claim any hand-built literal
- * could break. Capping where the block is built holds on every construction path.
- *
- * The cap bounds the PROSE PREFIX only. A clipped line pays the dropped-count
- * notice on top of it — see `clipUserContextLine`, which explains why the notice
- * sits outside the cap rather than inside it.
- *
- * Re-measured 2026-09-19, by rendering `renderObservations` twice over one
- * fixture: an 1800-character prior clipped to this cap grows the triage
- * observations block from 469 B (~117 tokens) to 1554 B (~389 tokens) — a delta
- * of 1085 B / ~271 tokens. Of that delta, ~400 B is the fixed handling rule
- * beside the line, and 14 B is the notice. A user with no cold-start chunk pays
- * 0 B, because the render is skipped entirely.
- *
- * Read that 1085 B against THIS fixture, not against the 1069 B item 03 recorded
- * on 2026-09-17: that run used a leaner fixture (a 383 B prior-free block) and
- * the bare `…` this notice replaces, so the two deltas are not byte-comparable.
- *
- * A raise is a visible diff and a review question (Tier 3), not a gate.
+ * Prompt budget for the cold-start prior, in characters. Capped here at the
+ * render site because `UserContextLine` is a public interface any caller can build.
+ * A clipped line costs about 270 tokens; no prior costs 0.
  */
 const USER_CONTEXT_LINE_MAX_CHARS = 600;
 
 /**
- * Clip the prior to the prompt budget, ending with a notice that names how many
- * code units the render dropped.
- *
- * The cut is DELEGATED to {@link sanitizeErrorMessage}, the repo's only
- * surrogate-safe bounded truncator. A bare `slice` at an arbitrary UTF-16 index
- * can split a well-formed surrogate pair and leave a lone half — the same poison
- * `sanitizeToolResult` exists to strip, and a probe showed an earlier hand-rolled
- * cut here produced a string whose `isWellFormed()` was false. The helper strips
- * that poison after it slices, so this call site keeps no surrogate arithmetic of
- * its own. Its name says "Error" but its own docstring scopes it to "a
- * message/text string"; `boundCardText` in `../context-search/object-ref` already
- * reuses it for a non-error value.
- *
- * The notice names the DROPPED COUNT rather than ending with a bare `…`, so the
- * model never reads a clipped prior as the whole prior (the ADR-0070 honesty
- * posture `boundToolResult` follows for the same reason). The count is derived
- * from the kept string, never from the cap, so the strip and the `trimEnd` cannot
- * make it lie. `…[+N chars]` is the repo's existing dropped-count dialect
- * (`summarizeBody`, `@alfred/contracts`); this adds no fifth one.
- *
- * The notice sits OUTSIDE the cap, as overhead beside it. Reserving room for it
- * inside the cap is a fixpoint — the notice's length depends on the dropped
- * count, which depends on the kept length. `bound.ts` and `summarizeBody` both
- * treat their notice the same way.
+ * Clip the prior and append `…[+N chars]` so the model never reads it as whole (ADR-0070).
+ * {@link sanitizeErrorMessage} does the cut because a bare `slice` can split a surrogate pair.
+ * N comes from the kept string, and the notice sits outside the cap.
  */
 function clipUserContextLine(text: string): string {
   const bounded = sanitizeErrorMessage(text, USER_CONTEXT_LINE_MAX_CHARS);
@@ -457,15 +323,8 @@ function clipUserContextLine(text: string): string {
 }
 
 /**
- * How the model should weigh the cold-start user-context prior, rendered beside
- * it in `renderObservations`. A named constant for the same reason the standing-
- * instruction rule above is one: the rubric is long against sibling lines that
- * are each one terse fact.
- *
- * The rule is a DEMOTION, not a promotion. Every other observation is derived
- * from the user's own corpus; this one is derived from the public web by
- * Alfred's own research agent, so it is the weakest evidence in the block and
- * the only one that can be about a different person entirely.
+ * Demotes the cold-start prior. It comes from Alfred's web research, not the user's
+ * mail, so it is the weakest signal and may describe a different person.
  */
 const USER_CONTEXT_HANDLING_RULE =
   "How to weigh that line: it is Alfred's own web research about the user, not the user's words and not this email, so it is the WEAKEST signal in this block. Use it only to judge whether this email touches the user's employer, studies, projects or public profiles. It never decides a category on its own, it never outranks the email body, and it never outranks the standing instruction above.";
@@ -473,27 +332,12 @@ const USER_CONTEXT_HANDLING_RULE =
 function renderObservations(obs: Observations): string {
   const lines: string[] = ["=== Observations (deterministic context — hints, not verdicts) ==="];
 
-  // FIRST, above every derived signal, and deliberately so. Each sibling
-  // observation is Alfred's own inference from the corpus, so each can be wrong
-  // about what the user wants; this line is the user's verbatim words
-  // (`phrasing`), so it outranks them on what the user wants. `directive` is
-  // deliberately NOT rendered here: it is the model-composed, prompt-ready
-  // sentence from capture time, so ordering on it would rest the "cannot be
-  // wrong" claim on Alfred's own inference.
-  //
-  // The HANDLING RULE ships here, beside the phrasing, and NOT as a bullet in
-  // SYSTEM_PROMPT. That is measured, not stylistic. A first version put it in
-  // the system prompt, where it is present for every email; a paired eval run
-  // (two runs per side, byte-identical totals) moved four unrelated rows, and
-  // `clickup-bot-done-buries-live` flipped action_needed → fyi — the exact
-  // burial the thread-state rule exists to prevent. The rule generalizes, so a
-  // permanent copy taught the model to demote routine-looking mail from senders
-  // the user never named. Rendered here it costs zero bytes and zero behavior
-  // change when no instruction matches, which is almost every email.
+  // First: the user's own words outrank every inferred signal. Render `phrasing`,
+  // not `directive`, which is model-composed.
+  // The handling rule sits here, not in SYSTEM_PROMPT: there it flipped unrelated
+  // eval rows (`clickup-bot-done-buries-live` went action_needed → fyi).
   if (obs.standingInstruction) {
-    // Defense in depth beside the schema single-line rule: legacy rows written
-    // before the rule can still carry a newline, so collapse it here rather
-    // than letting it forge a `===` section above the derived signals.
+    // Legacy rows can carry a newline that would forge a `===` section.
     const phrasing = obs.standingInstruction.phrasing.replace(/[\r\n]+/g, " ").trim();
     lines.push(
       `User's standing instruction for THIS SENDER, in the user's own words: ${phrasing}`,
@@ -501,15 +345,8 @@ function renderObservations(obs: Observations): string {
     );
   }
 
-  // BELOW the standing instruction and ABOVE the derived signals, and
-  // deliberately so. It is Alfred's own research, so it is weaker than the
-  // user's verbatim words; it is background about the user rather than about
-  // this email, so it reads first among the derived lines. Costs zero bytes
-  // when the user has no cold-start chunk, which is every user until the
-  // one-shot research run fires.
-  // `senderExtractionEvent` projects this same null check as the trace's
-  // `userContextPresent`. A condition added here must be added there too,
-  // or the row claims a prior the prompt never carried.
+  // Below the user's words, above the derived signals.
+  // `senderExtractionEvent` mirrors this null check as `userContextPresent`. Change both together.
   if (obs.userContext) {
     lines.push(
       `What Alfred researched about the user (recorded ${obs.userContext.recordedAt.toISOString()}): ${clipUserContextLine(obs.userContext.text)}`,
@@ -572,8 +409,7 @@ function userPrompt(args: ClassifyEmailArgs, conflict: TriageConflict | null): s
   lines.push(JSON.stringify(args.senderContext));
   lines.push("");
 
-  // Minimal identity for the ownership-attribution gate (rule 16a). One line,
-  // name + account email; absent → the gate degrades to the model's best guess.
+  // For the ownership gate (rule 16a). Absent, the model guesses.
   const idName = args.identity?.name?.trim();
   const idEmail = args.identity?.email?.trim();
 
@@ -608,8 +444,6 @@ function userPrompt(args: ClassifyEmailArgs, conflict: TriageConflict | null): s
     subject: args.document.title,
   });
 
-  // Cap to keep token budget bounded — most emails fit easily; the rare long
-  // thread gets truncated, which is fine for triage (the lede usually suffices).
   const content =
     body.length > TRIAGE_BODY_MAX_CHARS
       ? body.slice(0, TRIAGE_BODY_MAX_CHARS) + "\n[…truncated]"
@@ -636,10 +470,6 @@ function userPrompt(args: ClassifyEmailArgs, conflict: TriageConflict | null): s
   return lines.join("\n");
 }
 
-/**
- * Sum a sender prior histogram and the share that falls in bulk categories.
- * Used by the over-classification conflict net.
- */
 interface BulkProfile {
   total: number;
   bulkShare: number;
@@ -658,10 +488,6 @@ function priorBulkProfile(categoryCounts: Record<string, number>): BulkProfile {
   return { total, bulkShare: total > 0 ? bulk / total : 0 };
 }
 
-/**
- * Sum a sender prior histogram and the share that falls in `action_needed`.
- * Used by the service-prior over-classification challenge (#351). PURE.
- */
 interface ActionShare {
   total: number;
   actionShare: number;
@@ -680,11 +506,7 @@ function priorActionShare(categoryCounts: Record<string, number>): ActionShare {
   return { total, actionShare: total > 0 ? action / total : 0 };
 }
 
-/**
- * True when the bounded thread context contains a received message that may be
- * newer than the user's last reply. This does not decide whether the message is
- * an ask; it only identifies the ambiguity that merits one focused second pass.
- */
+/** A received message may be newer than the user's last reply. Not proof of an ask. */
 function hasPossiblyUnansweredReceivedContext(observations: Observations): boolean {
   const lastReply = observations.thread.lastUserReplyAt;
 
@@ -696,13 +518,8 @@ function hasPossiblyUnansweredReceivedContext(observations: Observations): boole
 }
 
 /**
- * Detect a tightly-gated conflict between the model's output and typed evidence
- * (ADR-0051 §4b). Returns the conflict to spell into one second cheap pass, or
- * null. PURE.
- *
- * `floorMatches` is the override-floor predicate result — passed in so the
- * under-classification net doesn't fire a redundant second pass when the floor
- * will force `urgent` regardless.
+ * Find a conflict between the first answer and typed evidence that earns one
+ * second pass (ADR-0051 §4b). `floorMatches` skips a re-ask the override floor makes moot.
  */
 export function detectConflict(
   classification: TriageClassification,
@@ -710,8 +527,7 @@ export function detectConflict(
   floorMatches: boolean,
   senderContext?: Pick<SenderContext, "effectiveAuthor">,
 ): TriageConflict | null {
-  // Under-classification: a security signal is present but the model chose a
-  // passive category, and the floor won't already fix it. The dangerous miss.
+  // Security vocabulary but a passive category, and the floor will not fix it.
   if (
     observations.content.hasSecurityKeyword &&
     PASSIVE_CATEGORIES.has(classification.category) &&
@@ -723,12 +539,8 @@ export function detectConflict(
     };
   }
 
-  // Loop-state ambiguity: the model read the current collaboration event as
-  // passive, but a received prior message may still contain an unanswered ask.
-  // Re-ask once with the time/order obligation explicit. This is not a forced
-  // category rule: the second pass may keep the passive answer after it checks
-  // the prior message. It replaces the phrase-specific "Done. Created" prompt
-  // branch with one general condition over typed model output + thread order.
+  // A passive collab event, but an earlier received message may hold an open ask.
+  // The second pass may keep the passive answer.
   const collabActivity = classification.collabActivity ?? null;
 
   if (
@@ -745,16 +557,9 @@ export function detectConflict(
     };
   }
 
-  // Over-classification A: the model spiked to an important category for a sender
-  // whose prior is overwhelmingly bulk, with nothing objective supporting the
-  // severity. Gated on `!floorMatches` (NOT `!hasSecurityKeyword`): the override
-  // floor already force-tags a genuine exposed-secret body urgent regardless, so
-  // a bulk sender's mail that merely MENTIONS a security topic ("stop storing
-  // your API keys in your repo", a vendor's status post) — no exposure verb, so
-  // the floor stays silent — is exactly the false-urgent this net should re-ask,
-  // not skip. Keying off `hasSecurityKeyword` instead let ANY bulk-sender
-  // security mention sail through to urgent unchallenged (the educational-
-  // newsletter miss; #263-adjacent).
+  // Net A: an important category from a mostly-bulk sender.
+  // Gate on `!floorMatches`, not `!hasSecurityKeyword`: a bulk mail that only
+  // mentions security is the false urgent this net must re-ask.
   if (
     IMPORTANT_CATEGORIES.has(classification.category) &&
     !floorMatches &&
@@ -770,16 +575,9 @@ export function detectConflict(
     }
   }
 
-  // Over-classification B (#351 partial mitigation): the model tagged a SERVICE
-  // sender's mail `action_needed`, and that sender's prior is a well-established,
-  // action_needed-heavy histogram — the self-reinforcing loop past rule 12e
-  // (status changes / watch-activity keep landing `action_needed` because past
-  // mail did, and that histogram is fed back as justification). Re-ask ONCE with
-  // 12e spelled out; the model KEEPS it if the body truly assigns the item — not
-  // a forced downgrade, so the ~genuine assignment/@-mention notifications the
-  // issue flags as correct are preserved. Gated to service/bot senders so a real
-  // person's direct ask is never challenged here. (Net A misses these: an
-  // action_needed-heavy prior is not "bulk", so its bulkShare stays low.)
+  // Net B (#351): a service sender whose prior is mostly `action_needed` feeds
+  // its own history back as proof. Re-ask once; a real assignment keeps it.
+  // Net A misses this because that prior is not "bulk".
   if (
     classification.category === "action_needed" &&
     !floorMatches &&
@@ -806,25 +604,10 @@ export function detectConflict(
     }
   }
 
-  // Over-classification C: the model tagged a DETERMINISTIC service envelope's
-  // mail `awaiting_reply` — a platform relay, notification address, or bot
-  // envelope (`effectiveAuthor: 'service'`) that no user owes a reply to. The
-  // recurring shape is reply-worded platform copy ("I'm still waiting for your
-  // response" on a LinkedIn invite reminder, "we need your input" on a product
-  // digest): the model reads the literal phrase as an ask and never weighs the
-  // sender. Re-ask ONCE with rules 8a/12 spelled out; the model KEEPS
-  // `awaiting_reply` when the body carries a genuine personal ask relayed
-  // through the platform (the 8a exception). Gated to deterministic service
-  // envelopes so a real person's direct ask is never challenged here, to
-  // non-IMPORTANT mail like nets A/B, and to senders the projection never
-  // scored (`senderKind == null`): a confident group/service signal is either
-  // demoted by the sender-kind floor regardless of what a second pass says
-  // (a wasted re-ask) or already had its sender-kind line in the prompt. An
-  // ownership `collabActivity` is the model's own explicit "directed at the
-  // user" read — the same veto the sender-kind floor honors — so it exempts
-  // the re-ask entirely. (The sender-kind floor demotes only
-  // projection-confident group/service senders; this net is the backstop for
-  // the deterministic envelope the projection never scored.)
+  // Net C: `awaiting_reply` on a service envelope, usually reply-worded platform
+  // copy ("still waiting for your response"). Only for senders the projection
+  // never scored; the sender-kind floor covers the rest. An ownership
+  // `collabActivity` vetoes the re-ask, as it does on that floor.
   if (
     classification.category === "awaiting_reply" &&
     !floorMatches &&
@@ -846,16 +629,11 @@ export function detectConflict(
   return null;
 }
 
-/** A resolved rail todo to mint — the cheap model's proposal after the gate. */
+/** The cheap model's todo proposal after the gate. */
 export type ResolvedTodoSuggestion = { name: string; assist?: string };
 
-// The rail title IS the todo; an `assist` line earns the user's eyes only if it
-// carries a HARD FACT the title structurally can't — a money amount or a
-// date/deadline. The cheap model reliably *extracts* those but will NOT reliably
-// *self-censor*: it pads `assist` with URLs, prose, mechanical steps, and
-// restatements. Prompting harder is whack-a-mole, so the keep/drop is enforced
-// deterministically here instead. Anything that isn't a short amount/date
-// fragment collapses to a title-only row.
+// `assist` must be a short amount or date. The model pads it with prose and URLs,
+// so the keep/drop is enforced here, not in the prompt.
 const ASSIST_URL_RE = /https?:\/\//i;
 
 const ASSIST_AMOUNT_RE =
@@ -864,42 +642,26 @@ const ASSIST_AMOUNT_RE =
 const ASSIST_DATE_RE =
   /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}\b|\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b|\b\d{4}-\d{2}-\d{2}\b/i;
 
-// A rail todo persists for days, so a relative date word ("due tomorrow") reads
-// as a lie the moment it goes stale — the absolute calendar date is always the
-// better fact. The prompt tells the cheap model to resolve relative phrasing
-// against the email's send date, but it won't reliably comply, so we enforce it
-// here against the same anchor. `tonight`/`today` map to the send day; offsets
-// are in days. Anything we can't resolve to a date is dropped (see below).
+// A todo lives for days, so "tomorrow" goes stale. Resolve against the send day.
 const RELATIVE_DAY_OFFSETS: ReadonlyArray<readonly [RegExp, number]> = [
   [/\btomorrow\b/gi, 1],
   [/\byesterday\b/gi, -1],
   [/\b(?:today|tonight)\b/gi, 0],
 ];
 
-// Relative phrasing we can't pin to a single calendar day ("next Friday", "in 3
-// days"). Left in place these go stale, so an assist that still contains one
-// after resolution is dropped rather than shown.
+// Relative phrasing with no single day ("next Friday"). An assist with one is dropped.
 const RESIDUAL_RELATIVE_RE =
   /\b(?:next|this|last)\s+(?:week|month|year|mon|tue|wed|thu|fri|sat|sun)[a-z]*\b|\bin\s+\d+\s+(?:day|week|month)s?\b|\b(?:today|tonight|tomorrow|yesterday)\b/i;
 
-/**
- * Where "today" is, for a rail todo's date resolution: the moment the email was
- * sent, read as a calendar day in the *user's* zone. Both halves are required —
- * an instant alone can't name a day, and the zone is exactly what a UTC reading
- * silently assumed, which rendered an evening email's "tomorrow" a day early
- * for anyone east of UTC.
- */
+/** The send instant plus the user's zone. A UTC reading put "tomorrow" a day off east of UTC. */
 export interface AssistDateAnchor {
   sentAt: Date;
   timezone: IanaTimezone;
 }
 
 /**
- * Rewrite relative date words in an assist fragment to an absolute calendar date
- * anchored on the email's send day. Day offsets are applied to the local date
- * key, never in milliseconds, so a DST boundary between send and due date can't
- * shift the answer. Without an anchor the word can't be resolved, so it's
- * stripped — a stale relative date is worse than none. PURE.
+ * Replace relative day words with an absolute date. Offsets apply to the date key,
+ * not milliseconds, so DST cannot shift them. No anchor strips the word.
  */
 function resolveRelativeDates(text: string, anchor: AssistDateAnchor | null): string {
   const sentDay = anchor ? inZone(anchor.timezone).day(anchor.sentAt) : null;
@@ -923,20 +685,8 @@ function resolveRelativeDates(text: string, anchor: AssistDateAnchor | null): st
 }
 
 /**
- * Keep `assist` only when it reads as a hard fact (an amount or an absolute date)
- * and is short enough to be a fragment, never a URL. Relative date words are
- * first resolved to an absolute date against `anchor` (the email's send time);
- * anything still relative afterward is dropped. Returns `undefined` otherwise so
- * the row renders title-only. PURE.
- */
-/*
- * `anchor` is REQUIRED, and `null` has to be written out.
- *
- * Its absence is not a neutral default — it silently strips every relative date
- * from the output. When a seam's default answer to a hazard is "on", an
- * optional parameter is the wrong shape for it: `sanitizeAssist(assist)`
- * compiled, read as "just sanitize it", and quietly degraded the result. One
- * dry-run script did exactly that while claiming to mirror production.
+ * Keep `assist` only as a short amount or absolute date, never a URL; else `undefined`.
+ * `anchor` is required, not optional: a `null` anchor strips every relative date.
  */
 export function sanitizeAssist(
   assist: string | null | undefined,
@@ -958,30 +708,15 @@ export function sanitizeAssist(
   return text;
 }
 
-// Rule 16f bans hedge/passive todo titles ("Look into…", "Investigate the…",
-// "View task…") and demands a real verb + object — but the cheap model keeps
-// emitting them, and prompting harder is whack-a-mole (same reasoning as
-// `sanitizeAssist`). So the clear cases are repaired deterministically here.
-//
-// SCOPE IS DELIBERATELY NARROW: only verbs with NO legitimate "the action IS
-// this verb" reading. Stripping the prefix off "Investigate the X alarm" yields
-// a strictly better object-led reminder ("X alarm"). Verbs that CAN be the real
-// action — review (a contract), check (a number), confirm, verify, update,
-// address — are EXCLUDED: auto-stripping them would destroy a legitimate title,
-// so they stay model-owned via rule 16f. And we NEVER drop the todo: a hedged
-// title still beats losing a real obligation (unlike `assist`, which is droppable).
+// Hedge titles ("Look into…") that rule 16f bans but the model still emits.
+// Only verbs that are never the real action: "review" or "verify" can be, so they stay out.
 const TODO_HEDGE_PREFIX_RE =
   /^(?:please\s+)?(?:look into|look at|dig into|take a look at|provide (?:info|information|details)|investigate|view)\b/i;
 
-// Filler left dangling after the verb is stripped — a leading article, "into"/
-// "at" preposition, or the "task" noun ("View task Eng…" → "Eng…").
+// Filler left after the verb ("View task Eng…" → "Eng…").
 const TODO_HEDGE_FILLER_RE = /^(?:the|a|an|this|that|into|at|on|for|about|tasks?)\s+/i;
 
-/**
- * Repair an unambiguous hedge-shaped todo title into an object-led one (rule
- * 16f). Returns the original UNCHANGED when it isn't hedged or when stripping
- * would leave nothing usable — never empties or drops a real obligation. PURE.
- */
+/** Strip a hedge prefix from a todo title (rule 16f). Never empties the title. */
 export function sanitizeTodoName(name: string): string {
   const trimmed = name.trim();
 
@@ -996,38 +731,23 @@ export function sanitizeTodoName(name: string): string {
 
   rest = rest.replace(/^[\s:–—-]+/, "").trim();
 
-  // A one-word or empty remainder means the hedge verb carried the meaning —
-  // keep the original rather than mint a bare fragment.
+  // A one-word remainder means the hedge verb carried the meaning.
   if (rest.split(/\s+/).filter(Boolean).length < 2 || rest.length < 4) return trimmed;
 
-  // Capitalize a leading lowercase word ("baserow alarm" → "Baserow alarm").
   return /^[a-z]/.test(rest) ? rest.charAt(0).toUpperCase() + rest.slice(1) : rest;
 }
 
-// A `todoDecision.note` prefix that belongs to a FAILING rubric outcome (rule
-// 16b): a cold contact (`cold_sender:`), a product-manufactured stake
-// (`manufactured:`), or pre-merge PR advisory (`advisory:`). Each is documented
-// to accompany `not_significant` — so a `proposed` decision carrying one is the
-// cheap model contradicting itself (it named the disqualifying reason, then
-// proposed anyway; the exact HyperNexus cold-outreach leak). Resolve the
-// contradiction the way the note leans: no todo.
+// Note prefixes of a failing 16b outcome. On a `proposed` decision the model
+// contradicts itself; trust the note and mint no todo.
 const FAILING_OUTCOME_NOTE_PREFIX_RE = /^\s*(?:cold_sender|manufactured|advisory)\s*:/i;
 
-/** True when a `proposed` decision's note names a disqualifying (failing) reason. */
 export function noteMarksFailingOutcome(note: string | null | undefined): boolean {
   return note != null && FAILING_OUTCOME_NOTE_PREFIX_RE.test(note);
 }
 
 /**
- * Resolve the rail todo to mint from a FINAL classification (ADR-0050 amendment
- * 2026-06-06). Returns the suggestion ONLY when the cheap model proposed one
- * AND the category is todo-eligible; the floor ({@link TODO_INELIGIBLE_CATEGORIES},
- * now just `{marketing, newsletter}`) suppresses a stray suggestion that leaked
- * onto a broadcast bucket. The real todo decision is the rubric (rule 16) the
- * model already applied; this is a thin consistency guard, not the judgment.
- * The name is run through {@link sanitizeTodoName} to repair the hedge titles
- * the model emits despite rule 16f. PURE — the `email-triage` tail step calls
- * this and, on a non-null result, writes the todo via `suggestTodo`.
+ * The rail todo to mint from a final classification (ADR-0050), or null.
+ * The model's rubric is the judgment; this is a consistency guard.
  */
 export function resolveTodoSuggestion(
   classification: TriageClassification,
@@ -1041,8 +761,6 @@ export function resolveTodoSuggestion(
 
   if (classification.todoDecision?.outcome !== "proposed") return null;
 
-  // Contradiction backstop: a `proposed` decision whose note carries a
-  // failing-outcome prefix is the model disagreeing with itself — drop it.
   if (noteMarksFailingOutcome(classification.todoDecision?.note)) return null;
 
   if (TODO_INELIGIBLE_CATEGORIES.has(classification.category)) return null;
@@ -1052,7 +770,7 @@ export function resolveTodoSuggestion(
   return assist ? { name, assist } : { name };
 }
 
-/** Why a structurally-disqualified email yields no rail todo even when the cheap model proposed one. */
+/** Why an email gets no rail todo even though the model proposed one. */
 export type TodoSuppressionReason =
   | "alfred_approval"
   | "pre_merge_advisory"
@@ -1060,10 +778,8 @@ export type TodoSuppressionReason =
   | "cold_sender"
   | "user_already_replied";
 
-// A dedicated task/issue tracker or doc-comment tool's notification address
-// (#353). Subdomains and per-site Atlassian hosts (`<site>.atlassian.net`) match
-// via the optional leading label group. Used as the deterministic fallback for
-// the `tracker_owned` suppression when the model omits `collabActivity`.
+// Tracker notification senders (#353), subdomains included. Fallback for
+// `tracker_owned` when the model omits `collabActivity`.
 const TASK_TRACKER_SENDER_RE =
   /@(?:[\w.-]*\.)?(?:clickup\.com|linear\.app|atlassian\.net|asana\.com|monday\.com|trello\.com|notion\.so|height\.app|shortcut\.com)\b/i;
 
@@ -1071,20 +787,12 @@ const TASK_TRACKER_SENDER_RE =
 const ALFRED_APPROVAL_SUBJECT_RE =
   /^\s*\[(?:no_risk|low|medium|high|critical)\]\s+alfred wants to\b/i;
 
-// The reply-shape categories where the ONLY stake is "a person is waiting on a
-// reply" — the exact stake rule 16b says a cold contact does NOT carry. A cold
-// sender landing any OTHER category (payment, action_needed with a real task,
-// urgent) is judged on that category's intrinsic stake, not gated here.
+// Lanes whose only stake is "a person is waiting", which a cold contact lacks (rule 16b).
 const COLD_SENDER_GATED_CATEGORIES = new Set<TriageCategory>(["awaiting_reply", "follow_up"]);
 
 /**
- * A cold sender still earns a todo when the mail carries a real INTRINSIC stake
- * (rule 16b): money owed / at risk, a hard deadline, an exposed credential, or an
- * access/security/payment consequence. Reuse the floors' existing detectors so
- * the carve-out matches what the sender-kind and monitoring floors already honor
- * — a cold contact with a genuine stake is not suppressed. The credential half is
- * the RECALL predicate (`password` included): this test only PRESERVES a todo, so
- * a miss buries "your password was found in a data breach". PURE.
+ * A real stake that keeps a cold sender's todo (rule 16b). Uses the RECALL
+ * credential predicate: this only preserves a todo, and a miss buries a breach notice.
  */
 function hasIntrinsicStakeSignal(signalText: string): boolean {
   return (
@@ -1095,66 +803,25 @@ function hasIntrinsicStakeSignal(signalText: string): boolean {
   );
 }
 
-// Liveness escape for the PR gate — something already in production / `main` /
-// an exposed credential makes a PR thread a real stake (rule 16b), not advisory.
-// Pairs with the RECALL predicate below, so a committed `DB_PASSWORD` keeps its
-// todo even though the escalating floor no longer reads the word `password`.
+// Something already live makes a PR thread a real stake (rule 16b), not advisory.
 const TODO_LIVENESS_RE =
   /\bproduction\b|\bprod\b|\boutage\b|\bincident\b|\balready merged\b|\bin main\b|\bblocked deploy|\bdeploy(?:ment)? (?:failing|blocked|broken)\b/i;
 
 /**
- * Structural disqualifier for a rail todo, applied AFTER the cheap model proposed
- * one (rule 16). The cheap model won't reliably self-apply 16b's liveness clause,
- * recognize Alfred's own approval mail, or hold the tracker-ownership line, so
- * these whole-row leaks are killed here deterministically — from the email's
- * shape, and (for `user_already_replied`) from thread state:
- *   - `alfred_approval`    — Alfred's own HIL approval request; it lives on the
- *                            Approvals surface, never the todo rail.
- *   - `pre_merge_advisory` — a GitHub pull-request notification thread with no
- *                            liveness signal (nothing in production / `main`, no
- *                            exposed secret). Reviewing unmerged code is not a todo.
- *   - `tracker_owned`      — a dedicated task/issue tracker or doc-comment tool's
- *                            notification (ClickUp, Linear, Jira, …). The item is
- *                            already tracked + re-notified there, so it fails rule
- *                            16c memorability; the CATEGORY still surfaces it, but
- *                            a rail todo only duplicates the tool (#353).
- *   - `cold_sender`        — a reply-shape ask (awaiting_reply/follow_up) from a
- *                            COLD human contact (`isColdContact`, rule 16b) whose
- *                            ONLY stake is "a person is waiting", with no intrinsic
- *                            stake in the body. The typed corroboration the cheap
- *                            model won't reliably self-apply (the HyperNexus
- *                            cold-outreach leak). The CATEGORY is untouched — the
- *                            thread keeps its honest awaiting_reply chip.
- *   - `user_already_replied` — the user's own newest send is strictly newer
- *                            than THIS message (thread state, not category):
- *                            the loop this mail opened is already on the
- *                            counterparty, so a rail todo would propose work
- *                            the user just did (ADR-0050 same-thread
- *                            retraction). Per-message on purpose: a whole-thread
- *                            "newest is mine" flag inverts on the next inbound
- *                            and buries a fresh ask (P0). Category is untouched
- *                            — only the suggestion is withheld.
- * Returns null when nothing disqualifies it. PURE — the mint path and the
- * dry-run both apply it so KEEP/KILL stays consistent.
+ * Kill a proposed todo the model should not have proposed (rule 16). Never changes the category.
+ * `user_already_replied` is per message on purpose: a whole-thread "newest is mine"
+ * flag flips on the next inbound and buries a fresh ask.
  */
 export function todoSuppressionReason(email: {
   sender: string | null;
   subject: string | null;
   signalText: string;
   collabActivity?: CollabActivityKind | null;
-  /** Final category — the cold-sender gate only fires on the reply-shape lanes. */
   category?: TriageCategory | null;
-  /** Typed rule-16b cold-contact flag from the sender-relationship observation. */
   isColdContact?: boolean;
-  /**
-   * The user's own newest send is strictly newer than THIS message (the
-   * per-message closure of ADR-0050). Defaults to `false` so the dry-run
-   * harnesses and callers without thread state are unchanged.
-   */
+  /** The user's newest send is newer than this message. */
   userRepliedAfterMessage?: boolean;
 }): TodoSuppressionReason | null {
-  // The strongest, most specific fact first: whatever the email's shape, a
-  // message the user has since answered mints no new rail todo.
   if (email.userRepliedAfterMessage) return "user_already_replied";
 
   if (ALFRED_APPROVAL_SUBJECT_RE.test(email.subject ?? "")) return "alfred_approval";
@@ -1166,18 +833,8 @@ export function todoSuppressionReason(email: {
     if (!live) return "pre_merge_advisory";
   }
 
-  // Tracker-owned (#353): an item living in a dedicated task/issue tracker or
-  // doc-comment tool the user actively works is ALREADY tracked and re-notified
-  // there — they will not forget it (rule 16c), so a rail todo only repeats the
-  // tool's own reminder. This holds even when the item is assigned to or
-  // @-mentions the user: the collab ownership veto keeps the CATEGORY at
-  // action_needed (that carries the "act on this" signal), while the rail stops
-  // duplicating it. Signaled by the model's own collaboration read (any non-null
-  // `collabActivity` = a ClickUp/Linear/Jira/… notification) OR, when the model
-  // omits the field (~1-in-5), a known task-tracker sender. Escape: an exposed
-  // credential earns a todo regardless of source — a leaked credential is never
-  // "already safely tracked" (mirrors the PR gate's escape). RECALL predicate,
-  // for the same reason: the escape only preserves a todo the model proposed.
+  // The tracker already reminds the user (rule 16c, #353), even for assigned work.
+  // An exposed credential still earns a todo.
   if (
     (email.collabActivity != null || TASK_TRACKER_SENDER_RE.test(email.sender ?? "")) &&
     !matchesExposedCredentialClaim(email.signalText)
@@ -1185,10 +842,6 @@ export function todoSuppressionReason(email: {
     return "tracker_owned";
   }
 
-  // Cold-sender (rule 16b): a reply-shape ask from a cold human contact whose
-  // only stake is "a person is waiting" mints no rail todo. Gated hard on the
-  // reply-shape lanes AND the absence of any intrinsic stake, so a cold sender
-  // who genuinely owes money / names a deadline / exposed a secret still passes.
   if (
     email.isColdContact &&
     email.category != null &&
@@ -1201,7 +854,7 @@ export function todoSuppressionReason(email: {
   return null;
 }
 
-/** Concatenated lowercased text the floor predicate scans (subject + body + snippet). */
+/** Lowercased subject + body + snippet for the floor predicates. */
 function floorSignalText(document: ClassifyEmailArgs["document"]): string {
   const parts: string[] = [];
 
@@ -1225,21 +878,14 @@ function floorBodySignalText(document: ClassifyEmailArgs["document"]): string {
 }
 
 /**
- * The rubric plus the deployment identity block. The rubric stays the exported
- * constant (tests couple to its literal notes); the identity block is appended
- * at call time because it comes from configuration, not from source. Without it
- * the classifier reads a provider's "<our hostname> was granted access" notice
- * as an unknown third party (the 2026-09-06 evening-briefing miss).
+ * Rubric plus Alfred's own identity from env. Without it, "<our hostname> was
+ * granted access" reads as an unknown third party.
  */
 function classifySystemPrompt(): string {
   return `${SYSTEM_PROMPT}\n\n${selfIdentityGrounding()}`;
 }
 
-/**
- * Run the context-rich classify sequence over a single email: first cheap pass
- * → conditional second pass on a detected conflict → override floor. Returns
- * the final classification, the resolved model id, and an audit trail.
- */
+/** First pass, a second pass on conflict, then the floors. */
 export async function classifyEmail(
   args: ClassifyEmailArgs,
 ): Promise<{ classification: TriageClassification; model: string; audit: ClassifyAudit }> {
@@ -1264,18 +910,8 @@ export async function classifyEmail(
   let secondPassFailure: { message: string } | null = null;
 
   if (conflict) {
-    // The second pass is an OPTIONAL re-check, and a failure on it resolves to
-    // the first pass in BOTH directions. It must not discard the already-valid
-    // first pass: if the error propagated, the workflow's catch would force the
-    // whole message to the default `fyi`, silently DE-escalating a real
-    // urgent/action_needed. It must not ESCALATE on the failure either. This
-    // net gates on the broad `hasSecurityKeyword` flag, which every vendor auth
-    // echo sets (rule 15a), so a conservative escalation put that whole class
-    // in a demand lane on model weather alone. The one signal that genuinely
-    // forces a lane without the model is an exposed secret, and the override
-    // floor already does that deterministically — `detectConflict` suppresses
-    // this conflict whenever the floor matches, so no exposed-secret body ever
-    // reaches this catch.
+    // A failed second pass keeps the first pass. Rethrowing would fall back to
+    // `fyi` and bury a real urgent; escalating would flag every vendor auth echo.
     try {
       secondPass = await runPass({
         system: classifySystemPrompt(),
@@ -1290,9 +926,6 @@ export async function classifyEmail(
     }
   }
 
-  // Deterministic post-classification floors (override → sender-kind → spam →
-  // meeting), owned by the `floors/` module. `classifyEmail` only assembles the context;
-  // the outcome then travels onto the audit and the model id unflattened.
   const meta = args.document.metadata;
   const { from, to, cc } = meta;
 
@@ -1312,11 +945,7 @@ export async function classifyEmail(
 
   const classification = floors.classification;
 
-  // The `model` string, as ONE ordered list of tags: this function's own pass
-  // tags first, then the floor tags the fold contributes in sequence order (each
-  // registered next to its floor, so a fourth floor never edits this file). The
-  // order is the whole contract — the value is an audit/debug string, so query it
-  // with `LIKE '%+kindfloor%'`, never by equality on the assembled id.
+  // Pass tags, then floor tags in sequence order. Query with `LIKE '%+kindfloor%'`, never equality.
   const model_id = [
     baseModelId,
     ...(secondPass ? ["+2pass"] : []),
@@ -1331,13 +960,7 @@ export async function classifyEmail(
   };
 }
 
-/**
- * Process-wide ceiling on simultaneous hedge draws, shared by every classify
- * call in this process (both passes of every concurrent run). Created lazily so
- * importing this module doesn't force env validation — `serverEnv()` throws on
- * an incomplete env, which a test or a script that never classifies shouldn't
- * have to satisfy.
- */
+/** Process-wide hedge ceiling. Lazy, so importing never runs `serverEnv()`, which can throw. */
 let _hedgeBudget: HedgeBudget | undefined;
 
 function classifyHedgeBudget(): HedgeBudget {
@@ -1347,22 +970,13 @@ function classifyHedgeBudget(): HedgeBudget {
 }
 
 /**
- * The exact request one classify pass dispatches.
- *
- * Split out of {@link defaultRunPass} so the properties that make hedging safe
- * are checkable without a provider. The load-bearing one is `abortSignal`:
- * `runHedged` cancels the loser through the signal it hands each attempt, and a
- * hedge whose signal never reaches the request is not a hedge, it is double
- * spend that fails silently — no error, no wrong label, just a second bill. The
- * hedge helper's own tests can't see it, because they exercise `runHedged` with
- * fake work. Taking `signal` as a required argument makes forgetting it a type
- * error rather than a docstring violation.
+ * The request one classify pass sends. `signal` is required: if it does not
+ * reach the request, the hedge loser is never cancelled and silently bills twice.
  */
 export function classifyCallOptions(input: {
   model: LanguageModel;
   instructions: string;
   prompt: string;
-  /** The hedge attempt's signal. Forwarded verbatim — see above. */
   signal: AbortSignal;
   maxRetries: number | undefined;
 }): MeteredGenerateObjectArgs<TriageClassification> {
@@ -1372,42 +986,20 @@ export function classifyCallOptions(input: {
     prompt: input.prompt,
     schema: triageClassificationSchema,
     temperature: 0,
-    // Triage answers are tiny — cap hard so a misbehaving model can't burn
-    // tokens on a wall-of-text rationale.
     maxOutputTokens: TRIAGE_MAX_OUTPUT_TOKENS,
-    // Bound the call so a hung/slow Gemini connection can't hold an agent worker
-    // slot (and the DB connection behind it) indefinitely. The workflow catches a
-    // timeout and falls through to the default category (better a label than a
-    // stuck run).
-    //
-    // This is a *total* budget: the SDK folds it into the abort signal every
-    // retry attempt shares, so once it expires there is nothing left for
-    // `withFallback` to degrade into — see the timeout note on `withFallback`.
+    // A hung call must not hold a worker slot. A total budget across retries,
+    // so an expired timeout leaves nothing for `withFallback`.
     timeout: { totalMs: TRIAGE_REQUEST_TIMEOUT_MS },
-    // Cancels the losing hedge as soon as its twin answers. `withFallback`
-    // carves aborts out of `shouldSwitch`, so this cancel dies here instead of
-    // degrading to `gemini-2.5-flash`.
+    // Cancels the losing hedge. `withFallback` does not retry an abort on the fallback.
     abortSignal: input.signal,
-    // Undefined in production (SDK default). The eval lowers it to fail fast to
-    // the configured cheap-model fallback under provider overload — see the
-    // `maxRetries` doc on `ClassifyEmailArgs`.
     ...(input.maxRetries !== undefined ? { maxRetries: input.maxRetries } : {}),
   };
 }
 
 /**
- * Build the production cheap-model pass runner (metered, Zod-validated, hedged).
- *
- * Each pass is run through {@link runHedged}: if the model hasn't answered
- * within `TRIAGE_CLASSIFY_HEDGE_MS`, an identical second call goes out and the
- * first answer back wins (#436). The two draws are interchangeable —
- * `temperature: 0` over a fixed structured-output schema — so first-wins costs
- * no tagging precision.
- *
- * The duplicate is budgeted, not unconditional: the hedge fires **per pass**, so
- * a conflict thread can draw up to four times, and the trigger fires broadest
- * exactly when the provider is already under pressure. {@link hedgeCeilingFor}
- * bounds how much of that this process can have in flight at once.
+ * The production pass runner, hedged (#436): a slow answer gets a twin call and
+ * the first wins. The hedge fires per pass, so a conflict can draw four times;
+ * {@link hedgeCeilingFor} caps it.
  */
 function defaultRunPass(model: LanguageModel | null, args: ClassifyEmailArgs): RunPass {
   const name = (pass: "first" | "second") =>
@@ -1419,9 +1011,7 @@ function defaultRunPass(model: LanguageModel | null, args: ClassifyEmailArgs): R
 
     const result = await runHedged({
       delayMs,
-      // Only when hedging is on: with `hedgeDelayMs: 0` (the eval) there is no
-      // duplicate to budget, and building one would drag `serverEnv()` — the
-      // full server schema — into a process that deliberately avoids it.
+      // With hedging off (the eval) there is nothing to budget, so skip `serverEnv()`.
       ...(delayMs > 0 ? { budget: classifyHedgeBudget() } : {}),
       run: ({ attempt, signal }) =>
         meteredGenerateObject<TriageClassification>(
@@ -1437,19 +1027,14 @@ function defaultRunPass(model: LanguageModel | null, args: ClassifyEmailArgs): R
             userId: args.userId,
             runId: args.runId,
             stepId: args.stepId,
-            // Distinct idempotency key per pass so the second pass isn't deduped
-            // against the first within the same attempt — and per hedge attempt,
-            // because we really are billed for both draws. `idempotencyKey` is a
-            // correlation tag, not a dedupe gate, so collapsing them would just
-            // make two paid calls look like one.
+            // One key per pass and per hedge draw: both draws are billed.
             idempotencyKey: args.idempotencyKey
               ? `${args.idempotencyKey}:${pass}${attempt === 1 ? ":hedge" : ""}`
               : undefined,
             requestMeta: {
               purpose: name(pass),
               documentId: args.document.id,
-              // Marked on both draws so the pair is queryable: the honest cost of
-              // the hedge is "how many classify calls carry hedge: true".
+              // Hedge cost = count of calls with `hedge: true`.
               hedge: attempt === 1,
             },
             name: name(pass),
@@ -1459,9 +1044,6 @@ function defaultRunPass(model: LanguageModel | null, args: ClassifyEmailArgs): R
 
     const object = result.output;
 
-    // Clamp confidence into [0, 1] here rather than in the schema: the range
-    // can't be expressed in the cheap-model structured-output JSON schema (see
-    // `confidenceSchema`). `clamp01` is the shared boundary clamp.
     return normalizeClassifierOutput(object);
   };
 }
@@ -1470,16 +1052,7 @@ export function normalizeClassifierOutput(object: TriageClassification): TriageC
   return {
     ...object,
     confidence: clamp01(object.confidence),
-    // `collabActivity` is an OPTIONAL field, so the cheap model is free to omit
-    // the key — flash-lite does on ~1-in-5 non-collab emails. Treat omission as
-    // `null` (no collaboration-tool activity), never a throw: an unhandled throw
-    // here propagates out of the un-caught first pass and the workflow buries the
-    // real classification as the fallback `fyi`. A throw on the SECOND pass is
-    // harmless by contrast: `classifyEmail` catches it and resolves back to the
-    // already-valid first pass, so no deterministic path turns a failure into a
-    // category. The sender-kind floor only demotes on a non-null PASSIVE kind, so
-    // omitted and null are already equivalent downstream — the guarantee the
-    // throw tried to enforce has no consumer.
+    // The model may omit the key. Never throw: a first-pass throw buries the real answer as `fyi`.
     collabActivity: object.collabActivity ?? null,
     documentAsk: object.documentAsk ?? null,
   };
@@ -1489,5 +1062,5 @@ function errorMessage(err: unknown): string {
   return toMessage(err);
 }
 
-/** Default category for failure paths — keep it as `fyi` so we never drop a message untriaged. */
+/** Failure-path category, so no message is left untriaged. */
 export const DEFAULT_TRIAGE_CATEGORY: TriageCategory = "fyi";

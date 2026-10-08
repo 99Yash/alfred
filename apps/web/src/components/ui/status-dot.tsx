@@ -1,16 +1,4 @@
-/**
- * Dimension-grammar StatusDot primitive.
- *
- * Tiny glowing dot used as a presence/health indicator. Four tones:
- *   - emerald — "Auto" pill in the composer (active workflow)
- *   - amber   — warning / pending
- *   - red     — error / disconnected
- *   - muted   — idle / no signal
- *
- * Two sizes:
- *   - md (2.5) — the canonical Dimension composer dot
- *   - sm (1.5) — Alfred-specific health dot
- */
+/** Small glowing presence/health dot. */
 
 import { type HTMLAttributes } from "react";
 import { cn } from "~/lib/utils";

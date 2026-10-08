@@ -3,14 +3,11 @@ import { describe, test } from "node:test";
 import { HttpError } from "@alfred/contracts";
 import type { LabelSelfMailDeps } from "../src/google/index";
 
-// serverEnv() validates the whole schema on first read; seed the required slots
-// before importing `@alfred/integrations/google` (its module graph reads env
-// lazily, but be defensive). Mirrors `self-authored-drop.test.ts`.
+// `serverEnv()` validates every field on first read, so seed it before the import.
 const SERVER_ENV_FIXTURES = {
   DATABASE_URL: "postgres://user:pass@localhost:5432/test",
   REDIS_URL: "redis://localhost:6379",
   BETTER_AUTH_SECRET: "test better auth secret with length",
-  // #453: `serverEnv()` requires a 32-byte credential KEK in every environment.
   OAUTH_CREDENTIAL_KEK: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY",
   BETTER_AUTH_URL: "http://localhost:3001",
   ALFRED_ALLOWED_EMAIL: "test@example.com",
@@ -45,7 +42,7 @@ interface MadeDeps {
   addCalls: Array<{ messageId: string; labelId: string }>;
 }
 
-/** Recording fake deps so the DI seam exercises skip / retry without a mailbox. */
+/** Fake deps that record calls, so skip and retry run without a mailbox. */
 function makeDeps(
   overrides: {
     /** Label id returned per ensureLabel call (index-aligned to call count). */

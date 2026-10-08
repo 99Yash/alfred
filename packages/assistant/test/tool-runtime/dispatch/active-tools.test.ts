@@ -288,8 +288,7 @@ function scratchReadTool(onExecute: () => void) {
     action: "read_scratch",
     riskTier: "no_risk",
     description: "test scratch read",
-    // Mirrors the real registration: the fast path is declared, not inferred
-    // from the tool name, so a fixture that omits it takes the staged path.
+    // The fast path is declared, not inferred from the name.
     staging: "fast_path",
     inputSchema: z.object({ key: z.string() }).strict(),
     execute: async () => {

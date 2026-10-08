@@ -20,11 +20,8 @@ import {
 } from "../../../src/tool-runtime/internal/tools/fetch-url";
 
 /**
- * Pins the pure surface of `system.fetch_url` (#286, ADR-0071 honest read-in):
- * HTML→text extraction, entity decoding, the model-facing refusal text, and the
- * content-type / size / binary-sniff handling in `runFetchUrl` (with the network
- * transport stubbed). The live connect-time pinning + redirect path is covered by
- * smoke-fetch-url.ts.
+ * `system.fetch_url` with a stubbed transport (ADR-0071). `smoke-fetch-url.ts` covers the live
+ * path.
  */
 
 describe("decodeEntities", () => {
@@ -86,8 +83,7 @@ describe("runFetchUrl (stubbed transport)", () => {
   function transportOf(
     res: Omit<Partial<RawResponse>, "body"> & { body?: string | Uint8Array[] },
   ): Transport {
-    // RawResponse.contentType is bare (no params) — safeRequest strips them, so
-    // the stub does too, letting tests pass a realistic full header.
+    // safeRequest strips content-type params, so the stub does too.
     const contentTypeHeader = res.contentType ?? "text/html";
     const bare = contentTypeHeader.split(";", 1)[0]?.trim().toLowerCase() ?? "";
     const charsetMatch = /(?:^|;)\s*charset\s*=\s*("?)([^";]+)\1/i.exec(contentTypeHeader);
@@ -121,8 +117,7 @@ describe("runFetchUrl (stubbed transport)", () => {
     };
   }
 
-  // These run the real transport: each is refused by validateUrl *before* any
-  // socket is opened, so there's no network to stub.
+  // Real transport: validateUrl refuses these before any socket opens.
   test("rejects a non-http scheme before any socket", async () => {
     const r = await runFetchUrl({ url: "ftp://example.com/x" });
     assert.equal(r.ok, false);
@@ -151,8 +146,7 @@ describe("runFetchUrl (stubbed transport)", () => {
     }
   });
 
-  // #292 — non-default / scheme-mismatched ports are refused in validateUrl, so
-  // the real transport throws before any socket; no network to stub.
+  // validateUrl refuses non-default ports before any socket opens.
   for (const url of [
     "http://example.com:8080/admin",
     "https://example.com:8443/",
@@ -170,7 +164,7 @@ describe("runFetchUrl (stubbed transport)", () => {
     });
   }
 
-  // #293 — credential-bearing query params are refused before any socket.
+  // Credential query params are refused before any socket opens.
   for (const url of [
     "https://example.com/cb?code=abc123",
     "https://example.com/?access_token=xyz",
@@ -186,7 +180,6 @@ describe("runFetchUrl (stubbed transport)", () => {
 
       if (!r.ok) {
         assert.equal(r.reason, "credential_url");
-        // The error's url/finalUrl must not echo the secret back.
         assert.doesNotMatch(
           JSON.stringify(r),
           /abc123|sk_live_42|deadbeef|\bxyz\b|zzz|spacesecret|plussecret/,
@@ -218,7 +211,7 @@ describe("runFetchUrl (stubbed transport)", () => {
     }
   });
 
-  // #509 — a client-rendered shell: lots of markup, no extractable text.
+  // A client-rendered shell: lots of markup, no text.
   const jsShell = `<!doctype html><html><head><title>x</title></head><body>${"<script>var a=1;</script>".repeat(50)}<div id="root"></div></body></html>`;
 
   test("#509 flags a JS shell (markup but no text) as empty_content", async () => {
@@ -236,7 +229,7 @@ describe("runFetchUrl (stubbed transport)", () => {
   });
 
   test("#509 does NOT flag a small legitimately-empty page", async () => {
-    // Below NONTRIVIAL_HTML_BYTES — a bare stub is genuinely empty, not unrendered.
+    // Below NONTRIVIAL_HTML_BYTES.
     const r = await runFetchUrl(
       { url: "https://example.com/blank" },
       { transport: transportOf({ contentType: "text/html", body: "<html><body></body></html>" }) },
@@ -357,7 +350,7 @@ describe("runFetchUrl (stubbed transport)", () => {
       { transport: transportOf({ contentType: "application/pdf", body: "%PDF-1.7" }) },
     );
 
-    // Fake PDF data fails extraction — honest error, not a rejection.
+    // Fake PDF data fails extraction: an error, not a rejection.
     assert.equal(r.ok, false);
 
     if (!r.ok) {
@@ -462,7 +455,7 @@ describe("runFetchUrl (stubbed transport)", () => {
       { transport: transportOf({ contentType: "text/html", body: "%PDF-1.7\n%binary" }) },
     );
 
-    // Fake PDF data fails extraction — honest error, not a rejection.
+    // Fake PDF data fails extraction: an error, not a rejection.
     assert.equal(r.ok, false);
 
     if (!r.ok) assert.equal(r.reason, "unsupported_content_type");
@@ -576,7 +569,6 @@ describe("runFetchUrl (stubbed transport)", () => {
   });
 
   test("refuses an oversized chunked body with no content-length (streamed bound)", async () => {
-    // 9 × 1MB chunks, no declared length — must abort, not buffer it all.
     const chunk = new Uint8Array(1_000_000).fill(0x61); // 'a'
 
     const r = await runFetchUrl(
@@ -595,8 +587,7 @@ describe("runFetchUrl (stubbed transport)", () => {
   });
 
   test("#293 redacts a credential fragment on the OK path (fragment is fetched, not blocked)", async () => {
-    // A `#access_token=…` fragment is never sent to the server, so the fetch
-    // succeeds — but the persisted result must not echo the secret.
+    // The fragment never reaches the server, so the fetch runs. The result must still hide it.
     const r = await runFetchUrl(
       { url: "https://example.com/page#access_token=secretfrag&state=ok" },
       { transport: transportOf({ finalUrl: "https://example.com/page", body: "<p>hi</p>" }) },
@@ -654,7 +645,6 @@ describe("runFetchUrl (stubbed transport)", () => {
 });
 
 describe("redactCredentialUrl (#293 matcher + redaction)", () => {
-  // Credential-bearing params → value replaced, everything else verbatim.
   for (const [input, expected] of [
     ["https://h/cb?code=abc", "https://h/cb?code=[REDACTED]"],
     ["https://h/?access_token=x&page=2", "https://h/?access_token=[REDACTED]&page=2"],
@@ -674,8 +664,7 @@ describe("redactCredentialUrl (#293 matcher + redaction)", () => {
     test(`redacts ${input}`, () => assert.equal(redactCredentialUrl(input), expected));
   }
 
-  // Ordinary / look-alike params must pass through untouched — the segmenter is
-  // what keeps these out of the credential net.
+  // Look-alike params such as `country_code` must pass through.
   for (const url of [
     "https://h/?country_code=US",
     "https://h/?sort_key=name",
@@ -739,7 +728,7 @@ describe("decodeResponseBody", () => {
   }
 
   test("decodes a doubly-encoded body (gzip then deflate) in the right order", async () => {
-    // Content-Encoding lists outermost-first; decoders apply in reverse.
+    // Content-Encoding lists the outermost first, so decode in reverse.
     const doubly = deflateSync(gzipSync(payload));
 
     const { body, decoded } = decodeResponseBody(
@@ -840,7 +829,6 @@ describe("safeRequest (manual redirect re-validation)", () => {
       (e) =>
         e instanceof FetchError &&
         e.reason === "credential_url" &&
-        // The blocked redirect target carried into the error must be redacted.
         typeof e.finalUrl === "string" &&
         e.finalUrl.includes("access_token=[REDACTED]") &&
         !e.finalUrl.includes("leaked"),

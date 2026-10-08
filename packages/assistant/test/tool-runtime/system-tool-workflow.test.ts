@@ -9,11 +9,7 @@ import {
   type SystemToolWorkflowAdapter,
 } from "@alfred/assistant/tool-runtime";
 
-// The seam owns no behavior: it forwards each op to the registered adapter and
-// returns its result unchanged. These tests pin exactly that — a missing
-// registration fails loud, a registered adapter receives the exact args and its
-// result is handed straight back. The adapter never inspects the input, so a
-// minimal placeholder stands in for a fully-parsed workflow input here.
+// The seam only forwards to the registered adapter, so placeholder inputs are enough.
 // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
 const authorArgs = {
   userId: "user_1",
@@ -96,12 +92,10 @@ describe("system-tool workflow seam with a registered adapter", () => {
 
     unregister = registerSystemToolWorkflowAdapter(adapter);
 
-    // Same object identity out as the adapter returned — the seam adds nothing.
     assert.equal(await authorWorkflow(authorArgs), authorResult);
     assert.equal(await recoverWorkflow(recoverArgs), recoverResult);
     assert.equal(await activateWorkflow(activateArgs), activateResult);
 
-    // Same object identity in — the seam forwards, it does not reshape.
     assert.equal(seen.author, authorArgs);
     assert.equal(seen.recover, recoverArgs);
     assert.equal(seen.activate, activateArgs);
@@ -120,7 +114,6 @@ describe("system-tool workflow seam with a registered adapter", () => {
     assert.throws(() => registerSystemToolWorkflowAdapter({ ...first }), {
       message: "A system-tool workflow adapter is already registered",
     });
-    // Re-registering the SAME adapter is idempotent, not an error.
     assert.doesNotThrow(() => registerSystemToolWorkflowAdapter(first));
   });
 });

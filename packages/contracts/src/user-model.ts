@@ -1,23 +1,8 @@
 /**
- * Multi-source user-model substrate — typed registries (ADR-0067, #218).
- *
- * The tunable, no-migration knobs + closed enums for the event-sourced
- * observation log and its projections. Same ergonomics as
- * `INTEGRATION_OBJECT_DEFS` (ADR-0062): text columns in Postgres, validated
- * against these registries at the app boundary, so the DB stays migration-light
- * while the legal value sets live in one typed place.
- *
- * Pure module — no Node imports (consumed across the web boundary). The one
- * thing that is NOT here is the stable-entity-id *computation*: it is an
- * HMAC keyed by a server secret, so the algorithm lives in `@alfred/db`
- * (`computeStableEntityId`) while this module owns only its input contract
- * (`StableEntityIdInput`, `STABLE_ENTITY_ID_VERSION`).
- *
- * Naming note: the legacy aggregate graph (`entities`, `entity_relations`,
- * `ENTITY_KINDS` in the memory module) coexists with this substrate through the
- * shadow phase (ADR-0067 D10) and is dropped only at cutover. The new layer
- * therefore uses distinct names — `ENTITY_NODE_KINDS`, `ENTITY_EDGE_TYPES`,
- * tables `entity_nodes` / `entity_edges` — to avoid colliding with it.
+ * Closed vocabularies for the user-model observation log and its projections (ADR-0067).
+ * Postgres stores plain text; these registries validate it at the app boundary.
+ * The `ent_*` id HMAC needs a server secret, so it lives in `@alfred/db` (`computeStableEntityId`).
+ * Names differ from the legacy `entities` graph (`ENTITY_KINDS`), which coexists until cutover (D10).
  */
 
 import { z } from "zod";
@@ -29,11 +14,7 @@ import { STANDING_INSTRUCTION_KEY } from "./standing-instructions";
 // Observation sources + precedence (D1, D14)
 // ───────────────────────────────────────────────────────────────────────────
 
-/**
- * The kinds a user-authored source may emit (D14). `user` (a `/settings` edit)
- * and `alfred_chat` (the same correction typed into a thread) share the whole
- * set, so the two reducers point at one tuple rather than restating it.
- */
+/** Kinds that `user` and `alfred_chat` both emit (D14). */
 const USER_AUTHORED_KINDS = [
   "user_standing_instruction",
   "user_correction",
@@ -45,98 +26,48 @@ const USER_AUTHORED_KINDS = [
 /** One reducer's precedence and the evidence kinds it may emit. */
 interface ObservationReducerEntry {
   /**
-   * Conflict precedence for the fold (D14): rank first, then recency within a
-   * rank. Lower number wins, regardless of time. `user` (0) beats
-   * `alfred_chat` (1) beats first-party integrations (2) beats enrichment (3).
-   * A projection may *propose* facts from an integration, but must never
-   * overwrite a user-authoritative correction.
+   * Fold precedence (D14). Lower wins over any recency; recency breaks ties.
+   * An integration may propose a fact but never overwrite a user correction.
    */
   readonly rank: number;
-  /**
-   * Relationship-evidence kinds (D4/D15). A provider event can produce several
-   * observations, but only relationship-bearing occurrences affect
-   * significance and co-occurrence — a calendar reminder edit is not another
-   * meeting.
-   */
+  /** Evidence kinds this source may emit (D4/D15). */
   readonly kinds: readonly [string, ...string[]];
-  /**
-   * The identity kinds this reducer's projection mints on `entity_identities`
-   * (D2/D3). This list is the `(kind, source)` rail for that table, the way
-   * `kinds` is the rail for `observations`. A kind may register under more than
-   * one source, as `USER_AUTHORED_KINDS` does above. An empty list means the
-   * source writes no identity row.
-   */
+  /** Identity kinds this source may write to `entity_identities` (D2/D3). Empty means none. */
   readonly identityKinds: readonly string[];
 }
 
 /**
- * Every observation reducer in the tree, keyed by the source it writes under
- * (#987). The record keys ARE the source space, so a reducer states its source,
- * its rank, its kinds, and its identity kinds ONCE and the tables below derive
- * from it (the identity-kind half lives under "Identities" further down).
- * `OBSERVATION_SOURCES`, `OBSERVATION_SOURCE_RANK`, `OBSERVATION_KINDS`, and
- * `OBSERVATION_KINDS_BY_SOURCE` are projections of this record and hold no
- * vocabulary of their own.
- *
- * Integrations feed the graph passively; `user` and `alfred_chat` are
- * first-class high-precedence sources (D14) — a chat-captured standing
- * instruction or a `/settings` correction is an observation, not a
- * side-channel write.
- *
- * A source with NO reducer is not pre-registered, because a reader would
- * recover a shape the traffic does not have. A new reducer joins here in the
- * same change that lands its first write (ADR-0067 P2 GitHub, P3 Calendar and
- * Directory, post-v1 enrichment). Adding the key is the whole registration:
- * there is no second table to forget.
+ * Every observation reducer, keyed by its source. The tables below derive from this record.
+ * Register a source only in the change that lands its first write.
  */
 export const OBSERVATION_REDUCERS = {
   /** A `/settings` edit or another explicit user statement. */
   user: { rank: 0, kinds: USER_AUTHORED_KINDS, identityKinds: [] },
-  /** The standing-instruction writer, capturing the same set from a thread. */
+  /** The same statements, captured from a chat thread. */
   alfred_chat: { rank: 1, kinds: USER_AUTHORED_KINDS, identityKinds: [] },
-  /**
-   * The Gmail message reducer. First-party integrations share rank 2. Its
-   * projection mints `email` identity rows from message participants
-   * (`gmail-kind-fold`). The `domain` org nodes it mints from employment
-   * signatures (`gmail-edge-fold`) are nodes only, not identity rows, so
-   * `domain` stays forward.
-   */
+  /** Gmail messages. Its `domain` org nodes are nodes only, so `domain` stays forward. */
   gmail: { rank: 2, kinds: ["email_message"], identityKinds: ["email"] },
-  /**
-   * The connect-time org-affiliation emitter (ADR-0080 §4a): the connected
-   * Google account asserts the user's org domain. This is account-level
-   * provenance, not a Gmail message reducer event; keeping it on its own source
-   * stops the emitter pretending a generic Google credential came from Gmail.
-   */
+  /** The connected Google account asserts the user's org domain (ADR-0080 §4a). Not a Gmail event. */
   google_account: { rank: 2, kinds: ["user_org_affiliation"], identityKinds: [] },
 } as const satisfies Record<string, ObservationReducerEntry>;
 
-/** Where an observation came from — the reducer keys, in record order. */
 export type ObservationSource = keyof typeof OBSERVATION_REDUCERS;
 
 export const OBSERVATION_SOURCES: readonly ObservationSource[] =
-  // SAFETY: `Object.keys` types its result as `string[]`; the keys of a
-  // non-indexed literal are exactly `keyof typeof OBSERVATION_REDUCERS`.
+  // SAFETY: a non-indexed literal's keys are exactly its `keyof`.
   Object.keys(OBSERVATION_REDUCERS) as ObservationSource[];
 
 export const observationSourceSchema = z.enum(OBSERVATION_SOURCES);
 
-/** Fold precedence, projected off the registry. See `ObservationReducerEntry.rank`. */
 export const OBSERVATION_SOURCE_RANK: {
   readonly [S in ObservationSource]: (typeof OBSERVATION_REDUCERS)[S]["rank"];
 } =
-  // SAFETY: `Object.fromEntries` types its result as `{ [k: string]: T }`; the
-  // pairs are built from `OBSERVATION_SOURCES`, so the keys are exactly
-  // `ObservationSource` and each value is that reducer's own rank.
+  // SAFETY: the pairs come from `OBSERVATION_SOURCES`, each with its own reducer's rank.
   Object.fromEntries(
     OBSERVATION_SOURCES.map((source) => [source, OBSERVATION_REDUCERS[source].rank]),
   ) as { readonly [S in ObservationSource]: (typeof OBSERVATION_REDUCERS)[S]["rank"] };
 
-/**
- * Closed `source -> kind` map (D1/D15). `source` and `kind` are NOT independent
- * vocabularies: a kind is legal only for the source whose reducer emits it, so
- * `{ source: "gmail", kind: "user_org_affiliation" }` is rejected.
- */
+/** A kind is legal only for the source whose reducer emits it (D1/D15). */
 export const OBSERVATION_KINDS_BY_SOURCE: {
   readonly [S in ObservationSource]: (typeof OBSERVATION_REDUCERS)[S]["kinds"];
 } =
@@ -145,7 +76,6 @@ export const OBSERVATION_KINDS_BY_SOURCE: {
     OBSERVATION_SOURCES.map((source) => [source, OBSERVATION_REDUCERS[source].kinds]),
   ) as { readonly [S in ObservationSource]: (typeof OBSERVATION_REDUCERS)[S]["kinds"] };
 
-/** Every evidence kind some reducer emits, deduplicated across shared tuples. */
 export type ObservationKind = (typeof OBSERVATION_REDUCERS)[ObservationSource]["kinds"][number];
 
 export const OBSERVATION_KINDS: readonly ObservationKind[] = [
@@ -154,7 +84,6 @@ export const OBSERVATION_KINDS: readonly ObservationKind[] = [
 
 export const observationKindSchema = z.enum(OBSERVATION_KINDS);
 
-/** True iff `kind` is one of the kinds the reducer for `source` may emit. */
 export function isObservationKindForSource(
   source: ObservationSource,
   kind: ObservationKind,
@@ -164,22 +93,7 @@ export function isObservationKindForSource(
   return kinds.includes(kind);
 }
 
-/**
- * The `(source, kind)` pair every reducer must satisfy before an observation is
- * written — closes the half-open vocabulary that independent `source`/`kind`
- * validation leaves (a `gmail` row carrying a user-authored kind). P1's full
- * observation-insert schema composes this.
- *
- * HARD P1 GATE: this pair-check is necessary but not sufficient. No raw
- * `.insert(observations)` (or projection write) is permitted until P1 lands an
- * `insertObservation`-style boundary parser that validates the source→kind combo,
- * the `participants` envelope, the `subject_identity` / `object_identity`
- * `IdentityRef`s, and the projection lifecycle fields. The DB columns are
- * deliberately bare `text`/`jsonb` (app-boundary validation, not pg enums — same
- * rationale as the rest of the schema), so that parser is the only thing standing
- * between a reducer bug and a permanently-corrupt log. Every P1+ writer routes
- * through it, the way `entity_nodes` writers route through `makeEntityNodeInsert`.
- */
+/** Validates `source` and `kind` as a pair. `observationInsertSchema` composes it. */
 export const observationSourceKindSchema = z
   .object({
     source: observationSourceSchema,
@@ -197,35 +111,12 @@ export type ObservationSourceKind = z.infer<typeof observationSourceKindSchema>;
 // ───────────────────────────────────────────────────────────────────────────
 
 /**
- * Typed identity keys. Replaces the legacy untyped `aliases` jsonb blob;
- * `entity_identities` is unique on `(user_id, kind, value)` and is both the
- * dedup index and the join target observations resolve through.
- *
- * People/org identifiers are the cross-source hard bridges (`email`,
- * `github_user_id`, …). NON-person nodes need an anchor too: every
- * `entity_nodes` row carries a NOT NULL `canonical_identity` (D2) and the kind
- * taxonomy (D7) admits `repository` / `project`, so those nodes need a hard
- * identity that is NOT a person/org key — otherwise P2 would have to abuse
- * `github_login` / `domain` to mint a repo id and collide semantically with
- * people. Hence:
- *   - `github_repository_id`        — GitHub's immutable numeric repo id (never renamed).
- *   - `github_repository_full_name` — `owner/repo` (mutable: rename/transfer), so it
- *                                     anchors only at the provider-handle tier.
- *   - `integration_object_key`      — generic provider object key for `project`
- *                                     nodes from other sources (ClickUp/Notion/
- *                                     Railway/Vercel), the ADR-0062 object-key shape.
- *
- * The vocabulary has two disjoint halves (#1028). A REGISTERED kind is one that
- * a reducer in `OBSERVATION_REDUCERS` lists in `identityKinds`, so a live source
- * can write it to `entity_identities`. A FORWARD kind is listed in
- * `FORWARD_IDENTITY_KINDS` below: it is legal inside an `IdentityRef` (an
- * observation may name it, and the format, case-fold, and anchor tables already
- * cover it), but no source may write it as an identity row yet.
+ * Identity kinds some reducer may write to `entity_identities` (the registered half).
+ * `IdentityKind` adds the forward half: legal in an `IdentityRef`, not yet writable as a row.
  */
 export type EntityIdentityKind =
   (typeof OBSERVATION_REDUCERS)[ObservationSource]["identityKinds"][number];
 
-/** The registered half: every identity kind some reducer mints, deduplicated. */
 const ENTITY_IDENTITY_KINDS: readonly EntityIdentityKind[] = [
   ...new Set(OBSERVATION_SOURCES.flatMap((source) => OBSERVATION_REDUCERS[source].identityKinds)),
 ];
@@ -233,13 +124,8 @@ const ENTITY_IDENTITY_KINDS: readonly EntityIdentityKind[] = [
 const entityIdentityKindSchema = z.enum(ENTITY_IDENTITY_KINDS);
 
 /**
- * Forward vocabulary: identity kinds whose source has no reducer yet. A reducer
- * that starts to write one moves it from this list to its own `identityKinds`
- * in the change that lands the first write (P2 GitHub for the `github_*` kinds,
- * P3 Directory for `google_directory_id`, ADR-0092 S2 for
- * `integration_object_key`, the merge-signal owner for `domain`, which today is
- * only a node anchor). `UNREGISTERED_FORWARD_IDENTITY_KINDS` below fails
- * the type check while a kind sits in both halves.
+ * Identity kinds with no writing reducer yet. A reducer that starts to write one
+ * moves it to its own `identityKinds` in the same change.
  */
 const FORWARD_IDENTITY_KINDS = [
   "domain",
@@ -258,8 +144,7 @@ type ForwardIdentityKind = (typeof FORWARD_IDENTITY_KINDS)[number];
 
 export type IdentityKind = EntityIdentityKind | ForwardIdentityKind;
 
-// The element type drops every registered kind, so the assignment fails to
-// compile while a kind sits in both halves.
+// Fails to compile while a kind sits in both halves.
 const UNREGISTERED_FORWARD_IDENTITY_KINDS: readonly Exclude<
   ForwardIdentityKind,
   EntityIdentityKind
@@ -272,27 +157,19 @@ export const IDENTITY_KINDS: readonly IdentityKind[] = [
 
 export const identityKindSchema = z.enum(IDENTITY_KINDS);
 
-/** True iff some reducer registers `kind`, so an identity row may carry it. */
 export function isEntityIdentityKind(kind: IdentityKind): kind is EntityIdentityKind {
   const kinds: readonly IdentityKind[] = ENTITY_IDENTITY_KINDS;
 
   return kinds.includes(kind);
 }
 
-/** True iff the reducer for `source` mints `kind` on `entity_identities`. */
 function isEntityIdentityKindForSource(source: ObservationSource, kind: IdentityKind): boolean {
   const kinds: readonly IdentityKind[] = OBSERVATION_REDUCERS[source].identityKinds;
 
   return kinds.includes(kind);
 }
 
-/**
- * The `(source, kind)` pair an `entity_identities` write must satisfy (#1028).
- * `source` parses against the reducer keys and `kind` against the registered
- * half, so a forward kind or a kind from another source's reducer is rejected
- * before the row reaches the database. `recordEntityIdentity` is the writer
- * that parses it.
- */
+/** Rejects a forward kind, or a kind that another source mints. `recordEntityIdentity` parses it. */
 export const entityIdentitySourceKindSchema = z
   .object({
     source: observationSourceSchema,
@@ -308,15 +185,8 @@ export const MAX_IDENTITY_VALUE_BYTES = 1024;
 const UTF8_ENCODER = new TextEncoder();
 
 /**
- * Identity value contract. `computeStableEntityId` (the mint chokepoint, in
- * `@alfred/db`) and `entity_identities.value` (the live dedup key) both reject
- * an empty, surrounding-whitespace, or oversized value because a stable `ent_*`
- * id is permanent and must not be whitespace-sensitive — and normalizing it
- * silently is the caller's job, not the mint's. The contract boundary must
- * agree, or a reducer can write a contract-valid observation (`value:
- * " a@b.com "`, or a 2KB opaque provider id) that then fails projection. So
- * reject the same shapes HERE, fail-loud, rather than letting the asymmetry
- * strand a write.
+ * Same rules as `computeStableEntityId` and `entity_identities.value`, so a valid
+ * observation cannot fail later at projection.
  */
 export const identityValueSchema = z
   .string()
@@ -329,17 +199,8 @@ export const identityValueSchema = z
   });
 
 /**
- * Identity kinds whose value is CASE-INSENSITIVE and so must be lowercased
- * before it becomes the dedup key / `ent_*` content-address input. Email and DNS
- * are case-insensitive by spec; GitHub logins and `owner/repo` names are
- * case-insensitive at the provider. Without folding, `Person@Example.com` and
- * `person@example.com` mint two different stable ids for one person — exactly the
- * split-brain D2 exists to prevent. The OTHER kinds are deliberately left as-is:
- * provider opaque ids (`slack_id` `U07ABC…`, `notion_user_id`,
- * `google_directory_id`) are case-SIGNIFICANT, numeric ids
- * (`github_user_id`/`github_repository_id`) are digits, and `phone` /
- * `integration_object_key` carry no safe blanket case rule — folding them would
- * corrupt a real distinct value.
+ * Case-insensitive kinds, lowercased before dedup and minting.
+ * Opaque provider ids (`slack_id`) are case-sensitive, so other kinds stay as they are.
  */
 const CASE_FOLDED_IDENTITY_KINDS: ReadonlySet<IdentityKind> = new Set([
   "email",
@@ -349,14 +210,8 @@ const CASE_FOLDED_IDENTITY_KINDS: ReadonlySet<IdentityKind> = new Set([
 ]);
 
 /**
- * The ONE canonicalizer for an identity value (D2). Stable `ent_*` ids are
- * content-addressed from this output, so every reducer (P1 Gmail, P2 GitHub, …)
- * and the mint chokepoint MUST run the SAME normalization or they mint diverging
- * anchors for one identity. Centralizing it here — rather than letting each
- * reducer lowercase "however it remembers to" — is what keeps the address space
- * single-valued. Trims, then lowercases the case-insensitive kinds. Idempotent:
- * `canonicalize(canonicalize(x)) === canonicalize(x)`, which is what the
- * contract refine and the mint assertion below rely on.
+ * The one normalization for an identity value (D2). Every reducer must use it,
+ * or one identity mints two `ent_*` ids. Idempotent; the canonical checks rely on that.
  */
 export function canonicalizeIdentityValue(kind: IdentityKind, value: string): string {
   const trimmed = value.trim();
@@ -364,67 +219,29 @@ export function canonicalizeIdentityValue(kind: IdentityKind, value: string): st
   return CASE_FOLDED_IDENTITY_KINDS.has(kind) ? trimmed.toLowerCase() : trimmed;
 }
 
-// The GitHub login/owner grammar, shared by the format regexes below.
-// `GITHUB_HANDLE`: 1–39 chars, alphanumeric with single INTERNAL hyphens only (a
-// hyphen is allowed only when immediately followed by an alphanumeric, so no
-// leading/trailing/consecutive hyphens). Written without lookbehind so it parses on
-// every JS engine. The DNS hostname grammar (`HOSTNAME`, an unanchored fragment)
-// lives in `./hostname` — the single source of truth also used by the domain
-// classifier in `identity-affiliation.ts`.
+// GitHub login: 1 to 39 alphanumerics, single internal hyphens only. No lookbehind, for older engines.
 const GITHUB_HANDLE = "[a-z\\d](?:[a-z\\d]|-(?=[a-z\\d])){0,38}";
 
 /**
- * Per-kind VALUE FORMAT validators (D2/D3). Non-empty + canonical (above) is the
- * FLOOR, not the whole contract: a kind whose value has a well-defined shape must
- * also MATCH that shape before it becomes a permanent `ent_*` content-address.
- * Without this, `{ kind: "email", value: "not-an-email" }` or `{ kind:
- * "github_user_id", value: "abc" }` mints a permanent anchor from garbage that no
- * later real value can ever reconcile with — the same split-brain class as the
- * canonicalization gap, one rung lower. Enforced at the contract boundary
- * (`identityRefSchema`) AND mirrored at the mint chokepoint (`computeStableEntityId`),
- * same fail-loud posture as the whitespace/canonical checks.
- *
- * Only kinds with an UNAMBIGUOUS, spec- or contract-defined shape are listed.
- * Provider-OPAQUE ids with no committed format and no reducer yet (`slack_id`,
- * `notion_user_id`, `google_directory_id`, `phone`) are deliberately left at the
- * non-empty+canonical floor — guessing their shape risks rejecting a legitimate
- * value, and folding/validating an opaque id can corrupt a real distinct one.
- * Their reducer registers a format HERE when it lands (the same "a new reducer
- * registers first" precedent as `OBSERVATION_KINDS_BY_SOURCE`). Values are assumed
- * already canonical for their kind (lowercased where case-folded), so the
- * case-folded patterns are written lowercase-only.
+ * Value formats per kind (D2/D3). A malformed value would mint a permanent id no real value can match.
+ * Opaque ids with no known format (`slack_id`, `phone`) are not listed, so a guess cannot reject real values.
+ * Patterns are lowercase because values arrive canonical.
  */
 const IDENTITY_VALUE_FORMATS = {
-  // Pragmatic, not full RFC 5322, but the DOMAIN is validated for real (shared
-  // `HOSTNAME`): a local part with no whitespace / `@` / control chars (C0 +
-  // DEL — so `a\x00b@x.com` can't anchor), then `@`, then a true dotted hostname.
-  // Rejects "not-an-email", "a@b" (no TLD), and the near-miss domains a loose
-  // `[^\s@]+\.[^\s@]+` waved through — `a@-bad.com`, `a@bad..com`, `a@bad.com-`.
+  // Loose local part (no whitespace, `@`, or control chars), strict hostname.
   email: new RegExp(`^[^\\s@\\x00-\\x1f\\x7f]+@${HOSTNAME}$`),
-  // DNS hostname: ≥2 labels (must carry a TLD) and ≤253 chars total.
   domain: new RegExp(`^${HOSTNAME}$`),
-  // GitHub username rules (lowercased).
   github_login: new RegExp(`^${GITHUB_HANDLE}$`),
-  // Immutable provider numeric ids — a positive integer with no leading zero.
+  // Positive integer, no leading zero.
   github_user_id: /^[1-9]\d*$/,
   github_repository_id: /^[1-9]\d*$/,
-  // `owner/repo`: owner follows login rules; repo is `[a-z0-9._-]` (1–100) and may
-  // not be exactly `.` or `..` (a path traversal, never a real repo name).
+  // Repo name must not be `.` or `..`.
   github_repository_full_name: new RegExp(`^${GITHUB_HANDLE}/(?!\\.{1,2}$)[a-z0-9._-]{1,100}$`),
-  // Generic provider object key for non-person `project` nodes (ADR-0062): the
-  // `provider:kind:externalId` shape mirroring the `(provider, kind, external_id)`
-  // native identity of an `integration_objects` row, so a bare token can't anchor a
-  // project node (and semantically collide with a person handle). The P2/P3
-  // reducer mints keys in this shape; `externalId` may itself contain colons.
+  // `provider:kind:externalId` (ADR-0062). `externalId` may contain colons.
   integration_object_key: /^[a-z0-9_-]+:[a-z0-9_-]+:.+$/,
 } satisfies Partial<Record<IdentityKind, RegExp>>;
 
-/**
- * True iff `value` is a legal format for `kind` — or `kind` has no registered
- * format, in which case only the non-empty+canonical floor applies. Assumes
- * `value` is already canonical for the kind (run `canonicalizeIdentityValue`
- * first). The mint chokepoint and the contract boundary both gate on this.
- */
+/** True if `value` matches the format for `kind`, or `kind` has no format. Expects a canonical value. */
 export function identityValueMatchesKind(kind: IdentityKind, value: string): boolean {
   const format = Object.entries(IDENTITY_VALUE_FORMATS).find(([k]) => k === kind)?.[1];
 
@@ -437,23 +254,13 @@ export const identityRefSchema = z
     value: identityValueSchema,
   })
   .strict()
-  // The value must already be in canonical form for its kind — the contract
-  // boundary refuses a non-canonical identity (`Person@x.com`) rather than
-  // silently folding it, mirroring the mint chokepoint's fail-loud posture
-  // (`computeStableEntityId`): normalizing is the reducer's job (via
-  // `canonicalizeIdentityValue`), and an un-normalized value reaching the schema
-  // is a reducer bug that must surface, not get papered over into a second
-  // address for the same identity. The original un-normalized form lives in
-  // `observationParticipant.raw`, so nothing is lost by requiring this.
+  // Reject, do not fold: a non-canonical value is a reducer bug.
+  // The raw form lives in `ObservationParticipant.raw`.
   .refine((r) => r.value === canonicalizeIdentityValue(r.kind, r.value), {
     error:
       "identity value must be canonical for its kind (e.g. lowercased email/domain/github handle)",
     path: ["value"],
   })
-  // Beyond canonical, the value must MATCH its kind's format (a real email, a
-  // numeric github id, an `owner/repo`, …) — a malformed value would otherwise
-  // mint a permanent `ent_*` anchor from garbage. Kinds with no registered format
-  // pass this (the floor still applies). See `identityValueMatchesKind`.
   .refine((r) => identityValueMatchesKind(r.kind, r.value), {
     error: "identity value is not a valid format for its kind",
     path: ["value"],
@@ -462,18 +269,8 @@ export const identityRefSchema = z
 export type IdentityRef = z.infer<typeof identityRefSchema>;
 
 /**
- * The subject an observation is ABOUT. Almost always a cross-source identity (a
- * contact / org / repo). But `source='user'|'alfred_chat'` observations (D14) —
- * and the self-facts whose `FACT_ONTOLOGY` subject is `'user'` (timezone,
- * location, standing instructions, profile edits) — are about the user
- * themselves, who has no `IdentityRef` of their own (they are the axis the
- * graph is built around, not a node in it). `{ kind: 'user' }` is the only way
- * to express that subject without inventing a self-entity or smuggling the
- * meaning into `payload`. Mirrors `FACT_SUBJECT_KINDS` on the projection side.
- *
- * The `observations.subject_identity` column stays so named (renaming is a
- * migration; widening the jsonb `$type` is not) — read it as "subject" when the
- * kind is `user`.
+ * What an observation is about: an identity, or `{ kind: "user" }` for the user, who has no `IdentityRef`.
+ * Stored in the `observations.subject_identity` column.
  */
 export const observationSubjectSchema = z.union([
   identityRefSchema,
@@ -485,16 +282,8 @@ export type ObservationSubject = z.infer<typeof observationSubjectSchema>;
 export type JsonPrimitive = string | number | boolean | null;
 
 /**
- * Exactly what `jsonValueSchema` below accepts — no `undefined` on the value
- * side. The two must stay in lockstep: this type guards the same values the
- * validator rejects at the persistence boundary (`jsonObjectSchema`), so
- * admitting a present-`undefined` here would let the compiler bless a payload
- * that `observationInsertSchema.parse` then throws on.
- *
- * A JSON-shaped object with declared optional properties therefore cannot be
- * assigned into a `JsonValue` index signature under
- * `exactOptionalPropertyTypes`. That is the point — omit the key, or use
- * `z.looseObject` when the schema itself needs open-ended keys.
+ * Exactly what `jsonValueSchema` accepts. Keep them in step. No `undefined` values,
+ * so a type with optional properties does not assign here. Omit the key instead.
  */
 export type JsonValue =
   | JsonPrimitive
@@ -544,12 +333,7 @@ export const observationParticipantSchema = z
 
 export type ObservationParticipant = z.infer<typeof observationParticipantSchema>;
 
-/**
- * The single initiating ACTOR side of an event — the sender / organizer / PR or
- * commit author. Excluded from the fan-out audience count: one actor addressing
- * N others is a 1→N event, and counting the actor would inflate a true 1:1.
- * Closed, small set; everything else in the participant vocabulary is audience.
- */
+/** The one actor who starts an event. Not counted as audience, or a 1:1 would read as 1:2. */
 const ACTOR_ROLES: ReadonlySet<ObservationParticipantRole> = new Set([
   "from",
   "organizer",
@@ -557,61 +341,28 @@ const ACTOR_ROLES: ReadonlySet<ObservationParticipantRole> = new Set([
 ]);
 
 /**
- * Roles that are CONTRIBUTOR/authorship metadata, not fan-out audience and not
- * the initiating actor — a third bucket excluded from `recipientCount`. A
- * `committer` is whoever committed a commit, which on GitHub's merge/squash path
- * is the bot identity `web-flow` (or "GitHub") rather than a person the event
- * fans out to: counting it would make that bot a co-occurrence MAGNET linked to
- * everyone, and a 30-committer PR would read as a 30-person blast and have its
- * genuine collaboration co-occurrence suppressed under `FAN_OUT_CUTOFF`. It is
- * also the symmetric partner of `author` (already an actor) — the same
- * contributor class, so it shouldn't land on the opposite side of the audience
- * line. Kept SEPARATE from `ACTOR_ROLES` (a committer isn't the initiating actor
- * either) so the actor semantics stay clean; both sets are subtracted from the
- * audience below.
+ * Neither actor nor audience. On a GitHub merge the committer is the `web-flow` bot;
+ * as audience it would link to everyone.
  */
 const CONTRIBUTOR_ROLES: ReadonlySet<ObservationParticipantRole> = new Set(["committer"]);
 
 /**
- * Roles `recipientCount` counts — the fan-out AUDIENCE: every co-occurrence-
- * bearing participant that is neither the initiating actor nor contributor
- * metadata. For email that is To/Cc/Bcc; for calendar, attendees; for GitHub,
- * the reviewers/assignees a PR fans out to (NOT committers — see
- * `CONTRIBUTOR_ROLES`). Defined as the COMPLEMENT of `ACTOR_ROLES ∪
- * CONTRIBUTOR_ROLES` (not a hand-listed allowlist) so a new audience role added
- * to `OBSERVATION_PARTICIPANT_ROLES` is counted automatically — otherwise every
- * future reducer (the P2 GitHub one first) would have to remember a separate
- * convention, and a 30-reviewer PR written with `recipientCount: 0` would slip
- * the fan-out rail. `items` may legitimately carry MORE rows than
- * `recipientCount` (it also holds the actor roles) or FEWER (a huge blast may
- * store `recipientCount: 50` while enumerating only a subset). So the only
- * direction the envelope can self-check is the one that catches the prod
- * corruption this design exists to kill: a reducer enumerating N audience
- * members but writing `recipientCount < N`, which would let an N-person blast
- * masquerade as a 1:1 and slip under `FAN_OUT_CUTOFF`.
- *
- * The lower bound counts DISTINCT recipient IDENTITIES, not raw rows — the fold
- * (and `FAN_OUT_CUTOFF`) reason about distinct recipient participants, so one
- * person appearing in both To and Cc, or a GitHub user who is both `reviewer`
- * and `assignee`, is one recipient. Counting rows would force a correct reducer
- * (`recipientCount = 1` distinct) to fail this refine and inflate the count to
- * pass — re-introducing exactly the per-reducer convention this rail removes.
+ * Distinct recipient identities in `items`. One person in both To and Cc counts once.
+ * The lower bound for `recipientCount`, so a blast cannot pass as a 1:1.
  */
 function distinctRecipientCount(items: readonly ObservationParticipant[]): number {
   const seen = new Set<string>();
 
   for (const p of items) {
-    // Join with an escaped NUL (\u0000 — never a LITERAL NUL byte in source,
-    // which turns this file binary to rg/grep and silently breaks plain-text
-    // search on a core contract). NUL can't occur in a typed identity kind or a
-    // normalized value, so it is an unambiguous separator that keeps
-    // (kind:"email", value:"a") distinct from (kind:"email_a", value:"").
+    // NUL cannot occur in a kind or value, so it is a safe separator.
+    // Keep it escaped: a literal NUL byte makes grep treat this file as binary.
     if (RECIPIENT_ROLES.has(p.role)) seen.add(`${p.identity.kind}\u0000${p.identity.value}`);
   }
 
   return seen.size;
 }
 
+// Audience is every other role, so a new role counts by default.
 const RECIPIENT_ROLES: ReadonlySet<ObservationParticipantRole> = new Set(
   OBSERVATION_PARTICIPANT_ROLES.filter(
     (role) => !ACTOR_ROLES.has(role) && !CONTRIBUTOR_ROLES.has(role),
@@ -621,14 +372,7 @@ const RECIPIENT_ROLES: ReadonlySet<ObservationParticipantRole> = new Set(
 export const observationParticipantsSchema = z
   .object({
     items: z.array(observationParticipantSchema),
-    /**
-     * Total fan-out audience size (the cutoff signal). May exceed `items.length`
-     * when the reducer truncates a blast's participant list; must never be LESS
-     * than the DISTINCT recipient identities enumerated in `items` (the refine
-     * below). The P1 fold derives fan-out as `max(recipientCount, |distinct
-     * recipient identities|)` so a miswritten count can never push a real blast
-     * back under the cutoff.
-     */
+    /** Total audience size. May exceed `items` when the list is truncated, never fewer distinct recipients. */
     recipientCount: z.number().int().nonnegative(),
     listId: z.string().nullable().optional(),
   })
@@ -706,27 +450,15 @@ export const userOrgAffiliationPayloadSchema = z
 export type UserOrgAffiliationPayload = z.infer<typeof userOrgAffiliationPayloadSchema>;
 
 // ───────────────────────────────────────────────────────────────────────────
-// Observation write boundary (HARD P1 GATE)
+// Observation write boundary
 // ───────────────────────────────────────────────────────────────────────────
 
-/**
- * Byte caps for the two idempotency keys, mirroring the DB CHECKs
- * (`observations_family_key_nonempty` ≤ 512, `observations_evidence_hash_nonempty`
- * ≤ 256). Pinned here so a write that would trip the constraint is rejected at the
- * app boundary with a field-level message instead of surfacing as a raw 23514.
- */
+/** Same caps as the DB CHECKs, so a bad key fails here with a field message, not a raw 23514. */
 export const MAX_FAMILY_KEY_BYTES = 512;
 
 export const MAX_EVIDENCE_HASH_BYTES = 256;
 
-/**
- * An idempotency-key string column (`family_key` / `evidence_hash`): non-empty,
- * no surrounding whitespace, bounded in UTF-8 bytes — the contract-side mirror of
- * the `length(...) > 0 AND octet_length(...) <= N AND ... !~ '^[[:space:]]|[[:space:]]$'`
- * DB rails. `trim()` covers the DB's `[[:space:]]` edge-whitespace check (and then
- * some — JS trims all Unicode whitespace), so a value that clears this clears the
- * DB constraint too.
- */
+/** Mirrors the DB CHECK on `family_key` / `evidence_hash`. `trim()` is stricter than `[[:space:]]`. */
 function boundedKeySchema(maxBytes: number, label: string) {
   return z
     .string()
@@ -740,28 +472,9 @@ function boundedKeySchema(maxBytes: number, label: string) {
 }
 
 /**
- * The ONE schema every observation write must pass before any `.insert(observations)`
- * (ADR-0067 P1 HARD GATE). The DB columns are deliberately bare `text`/`jsonb`
- * (app-boundary validation, not pg enums), so this parser — not the database — is
- * what stands between a reducer bug and a permanently-corrupt log. It composes the
- * pieces the schema comments name as its obligations:
- *
- *   - `source` × `kind` validated as a PAIR (`isObservationKindForSource`), closing
- *     the half-open vocabulary a `gmail` row carrying a user-authored kind would slip;
- *   - `subjectIdentity` as an `ObservationSubject` (a canonical `IdentityRef` OR the
- *     `{ kind: "user" }` self-subject), `objectIdentity` as a canonical `IdentityRef`
- *     or null — both inherit the kind-specific FORMAT + canonicalization refines;
- *   - `participants` as the full envelope (its `recipientCount >= distinct
- *     recipients` refine guards `FAN_OUT_CUTOFF`); `payload` as a JSON object;
- *   - `familyKey` / `evidenceHash` non-empty, edge-whitespace-free, byte-bounded
- *     (mirrors the DB idempotency rails); `schemaVersion` / `reducerVersion` ≥ 1.
- *
- * `participants` and `payload` carry the same defaults as the DB columns so a
- * minimal reducer need not restate them. `supersedesObservationId` is the prior
- * active family member this row supersedes — its multi-hop cycle detection + the
- * CAS retry against `observations_no_fork_idx` stay the reducer's job (the writer
- * only performs the validated append + head upsert); the parser just types the
- * pointer.
+ * Every observation write parses this first (ADR-0067 P1). The DB columns are plain
+ * text and jsonb, so this is the only guard against a corrupt log.
+ * Cycle checks on `supersedesObservationId` stay with the reducer.
  */
 export const observationInsertSchema = z
   .object({
@@ -849,29 +562,14 @@ export const observationInsertSchema = z
     }
   });
 
-/** Caller-facing input (pre-parse): defaulted fields are optional. */
 export type ObservationInsertInput = z.input<typeof observationInsertSchema>;
 
-/** Validated, defaults-applied observation ready to persist. */
 export type ObservationInsert = z.infer<typeof observationInsertSchema>;
 
 /**
- * UNCONDITIONALLY immutable PERSON/ACCOUNT ids — a stable per-account handle with
- * a committed value contract, so sharing one is always a hard cross-source bridge
- * between two people-observations (P2/P3 merge use). This is deliberately NOT the
- * same set as `identityAnchorRank`'s `providerAccountId` tier: that tier is an
- * anchor-STRENGTH bucket that also holds `domain` (an org, shared by many people
- * — never a person bridge), `slack_id`/`notion_user_id` (opaque until their
- * reducers register value formats), and `github_repository_id` /
- * `integration_object_key` (immutable, but they anchor `repository`/`project`
- * nodes, not accounts). Keep the two distinct; don't widen this list to the
- * anchor tier or a repo/org/opaque id would falsely bridge two people.
- *
- * NOT the exhaustive merge-policy set — `google_directory_id` is ALSO a hard
- * bridge, but only when `verified` (D2/D3), so it can't live in a bare list.
- * Email is a hard bridge too, but it is not an opaque immutable account id. P2/P3
- * merge code must gate on `isHardPersonBridge`, never this list directly, or it
- * will miss email / verified Directory identities and over-merge future opaque ids.
+ * Immutable account ids: sharing one always links two people (D3).
+ * Not the `providerAccountId` anchor tier, which also holds orgs and repos.
+ * Merge code must call `isHardPersonBridge`, not read this list.
  */
 export const IMMUTABLE_ACCOUNT_ID_KINDS = [
   "github_user_id",
@@ -879,61 +577,37 @@ export const IMMUTABLE_ACCOUNT_ID_KINDS = [
 
 export interface AccountBridgeInput {
   readonly kind: IdentityKind;
-  /** Mirrors `entity_identities.verified` — gates the directory case (D2/D3). */
+  /** `entity_identities.verified`. Gates `google_directory_id` (D2/D3). */
   readonly verified?: boolean;
 }
 
-/**
- * True iff sharing this opaque/directory account identity is a hard person bridge
- * for P2/P3 auto-merge (D3). The unconditional account ids bridge whenever
- * present; `google_directory_id` bridges ONLY when `verified`, exactly as it only
- * anchors at the directory tier when verified in `identityAnchorRank` (an
- * unverified Directory row is a weaker signal that must not auto-merge two
- * people). Email is a hard bridge too, but it is not an opaque account id; use
- * `isHardPersonBridge` for the complete merge-policy predicate.
- */
+/** An immutable account id, or a verified `google_directory_id`. Excludes email. */
 export function isImmutableAccountBridge({ kind, verified }: AccountBridgeInput): boolean {
-  // SAFETY: the table is `as const satisfies readonly IdentityKind[]`;
-  // widening its element type to the full union only lets .includes take the
-  // wider `kind` argument — every member already is an IdentityKind.
+  // SAFETY: widening to `IdentityKind[]` only lets `.includes` accept `kind`; every member is one.
   if ((IMMUTABLE_ACCOUNT_ID_KINDS as readonly IdentityKind[]).includes(kind)) return true;
 
   return kind === "google_directory_id" && verified === true;
 }
 
-/** Complete P2/P3 hard person-bridge predicate (D3): email OR a gated account id. */
+/** The complete rule for when a shared identity links two people (D3). */
 export function isHardPersonBridge(input: AccountBridgeInput): boolean {
   return input.kind === "email" || isImmutableAccountBridge(input);
 }
 
 /**
- * Anchor rank (D2/D3) — the *stable entity id* is content-addressed from the
- * best-ranked identity in an entity's hard-bridge component, and on merge the
- * node seeded by the best anchor survives (losers forward via
- * `supersedes_entity_id`). Lower wins. Not arrival order, not newest/oldest row.
- *
- * `verified` does not gate the *email* tier — an email observed in a From header
- * is still the canonical hard bridge (D3), so `email` anchors at tier 3 whether
- * or not a stronger verification exists. It DOES gate the *directory* tier: the
- * tier-2 slot means a *verified* Workspace Directory identity (D2/D3), so an
- * unverified `google_directory_id` falls back to the provider-account tier
- * rather than outranking email.
- *
- * Tie-break order after rank (resolved in the fold, not here): earliest
- * `first_seen_at` → normalized value lexicographic → entity id lexicographic.
+ * Anchor strength (D2/D3). Lower wins. The best anchor seeds the `ent_*` id and survives a merge.
+ * The fold breaks ties: earliest `first_seen_at`, then value, then entity id.
  */
 export const IDENTITY_ANCHOR_TIER = {
   /** User-pinned merge target / explicit user correction. */
   userPinned: 1,
   /** Verified first-party directory identity (Google Workspace). */
   directoryVerified: 2,
-  /** Email identity (the canonical cross-source hard bridge). */
   email: 3,
   /** Provider immutable account ids + org domain. */
   providerAccountId: 4,
-  /** Provider mutable handle (e.g. GitHub login — can be renamed). */
+  /** Renamable handle, such as a GitHub login. */
   providerHandle: 5,
-  /** Provisional / source-local / unknown. */
   provisional: 6,
 } as const;
 
@@ -941,13 +615,12 @@ export type IdentityAnchorTier = (typeof IDENTITY_ANCHOR_TIER)[keyof typeof IDEN
 
 export interface IdentityAnchorInput {
   readonly kind: IdentityKind;
-  /** True when this identity was set by an explicit user pin / correction (source `user`). */
+  /** Set by an explicit user pin or correction. */
   readonly userPinned?: boolean;
-  /** Mirrors `entity_identities.verified` — gates the tier-2 directory slot (D2/D3). */
+  /** `entity_identities.verified`. Gates the tier-2 directory slot. */
   readonly verified?: boolean;
 }
 
-/** Anchor rank for seed/merge-survivor selection (lower = stronger). See `IDENTITY_ANCHOR_TIER`. */
 export function identityAnchorRank({
   kind,
   userPinned,
@@ -957,9 +630,7 @@ export function identityAnchorRank({
 
   switch (kind) {
     case "google_directory_id":
-      // Tier 2 means a *verified* Workspace Directory identity (D2/D3). An
-      // unverified directory row must not outrank email — demote it to the
-      // provider-account tier (it is still a Google-immutable id).
+      // An unverified directory id must not outrank email.
       return verified
         ? IDENTITY_ANCHOR_TIER.directoryVerified
         : IDENTITY_ANCHOR_TIER.providerAccountId;
@@ -969,16 +640,12 @@ export function identityAnchorRank({
     case "slack_id":
     case "notion_user_id":
     case "domain":
-    // Immutable provider object ids — the anchor for non-person nodes
-    // (`repository` / `project`). They never bridge across sources, so the tier
-    // only matters for the single-identity content-address; they sit with the
-    // other immutable provider ids rather than the renamable-handle tier.
+    // Anchors for non-person nodes. Immutable, so not the handle tier.
     case "github_repository_id":
     case "integration_object_key":
       return IDENTITY_ANCHOR_TIER.providerAccountId;
     case "github_login":
-    // `owner/repo` is renamable/transferable, exactly like a GitHub login — a
-    // weaker anchor than the immutable numeric repo id above.
+    // `owner/repo` can be renamed or transferred.
     case "github_repository_full_name":
       return IDENTITY_ANCHOR_TIER.providerHandle;
     case "phone":
@@ -992,15 +659,8 @@ export function identityAnchorRank({
 }
 
 /**
- * Stable-entity-id input contract (D2). The id is
- * `ent_<base32(hmacSha256(secret, canonicalJson(input)))>` — HMAC-keyed (not
- * raw SHA: emails/logins are guessable and these ids appear in client sync /
- * logs), content-addressed from a single normalized hard identity. The
- * computation lives in `@alfred/db` (`computeStableEntityId`) because it needs
- * a Node crypto + a server secret; this is the shape both sides agree on.
- *
- * Never seed from display name, kind, significance, canonical name, a random
- * id, or a projection version — only stable identity material + `userId`.
+ * Input to `computeStableEntityId` (D2). Seed only from the identity and `userId`,
+ * never a name, kind, score, or random id.
  */
 export const STABLE_ENTITY_ID_VERSION = 1 as const;
 
@@ -1008,7 +668,7 @@ export interface StableEntityIdInput {
   readonly v: typeof STABLE_ENTITY_ID_VERSION;
   readonly userId: string;
   readonly identityKind: IdentityKind;
-  /** The normalized identity value (lowercased email, canonical login, etc.). */
+  /** Output of `canonicalizeIdentityValue`. */
   readonly normalizedValue: string;
 }
 
@@ -1017,16 +677,8 @@ export interface StableEntityIdInput {
 // ───────────────────────────────────────────────────────────────────────────
 
 /**
- * The kind taxonomy (D7), classified into the *versioned* `entity_profiles`
- * (a better classifier can change `kind` without re-minting the stable id).
- * Non-humans are retained as typed nodes — queryable, recomputable, no signal
- * lost — but `group` / `service` / `repository` / `project` / `unknown` are
- * NEVER person-significance-scored (this is the dist-list HARD gate that fixes
- * the live `'Anthropic' via Engineering`-as-#1-person bug).
- *
- * `unknown` is the deterministic low-confidence bucket: keep the stable node
- * and provenance, but withhold person scoring + edge promotion until a later
- * projection version has stronger evidence.
+ * Node kinds (D7). Kind lives in the versioned `entity_profiles`, so a reclassify keeps the id.
+ * Only `person` gets person scoring. `unknown` also gets no edge promotion.
  */
 export const ENTITY_NODE_KINDS = [
   "person",
@@ -1035,13 +687,8 @@ export const ENTITY_NODE_KINDS = [
   "service",
   "repository",
   "project",
-  // The thing a recurring notification is ABOUT (ADR-0092): a CloudWatch alarm,
-  // a tracker task, a PR and its CI run, an invoice. It is the identity that
-  // persists across re-notifications, where the Gmail thread is only transport.
-  // Deliberately ONE kind with no sub-taxonomy: a declared vendor list has the
-  // same blind spot as the per-vendor regex it replaces, and a model asked to
-  // pick a label splits one referent across labels. What a referent IS stays in
-  // the identity value and the accumulated evidence, never in the kind.
+  // What a recurring notification is about, such as an alarm or a PR (ADR-0092).
+  // One kind with no subtypes: a label list splits one referent across labels.
   "referent",
   "unknown",
 ] as const;
@@ -1050,7 +697,7 @@ export const entityNodeKindSchema = z.enum(ENTITY_NODE_KINDS);
 
 export type EntityNodeKind = (typeof ENTITY_NODE_KINDS)[number];
 
-/** Kinds that are never scored as a person (the dist-list / service gate, D7). */
+/** Never scored as a person (D7). */
 export const NON_PERSON_ENTITY_KINDS = [
   "organization",
   "group",
@@ -1066,67 +713,32 @@ export function isPersonScorable(kind: EntityNodeKind): boolean {
 }
 
 /**
- * The `kind` SEGMENT vocabulary of an `integration_object_key`, and the
- * `EntityNodeKind` each segment anchors.
- *
- * `integration_object_key` is the one identity kind that TWO node kinds anchor
- * on: an ADR-0062 provider object (`project`) and an ADR-0092 `referent`. So the
- * identity KIND decides nothing, and the middle segment of
- * `provider:kind:externalId` is the only thing that separates them. That segment
- * vocabulary lives here, once: every minter draws its segment from this table
- * (see {@link IntegrationObjectSegmentFor}) and `classifyEntityKind` reads the
- * same table, so a segment can never mean `referent` where it is minted and
- * `project` where it is classified.
- *
- * The provider is deliberately NOT part of the key. `github:issue:…` and
- * `linear:issue:…` are the same kind of thing, and a per-provider table would
- * need a row for every vendor that ever mints one — the same blind spot as the
- * per-vendor regex ADR-0092 removes.
- *
- * The table holds only the segments a minter uses today. A segment that is
- * planned but unwritten (`aws:cloudwatch_alarm:<arn>`) is deliberately absent:
- * the row arrives with the writer, so the table never claims coverage it does
- * not have.
- *
- * An unregistered segment classifies as `unknown` with a `bestGuess`, never as a
- * guessed kind. That is safe in the direction that matters: `kind` lives in the
- * VERSIONED `entity_profiles` and a replay fixes it, while the permanent half —
- * the identity value — is not decided here.
+ * Middle segment of `provider:kind:externalId` to node kind. Both `project` and `referent`
+ * anchor on `integration_object_key`, so only the segment tells them apart.
+ * Minters and the classifier share this table. Not keyed by provider. List only segments a minter writes today.
  */
 export const INTEGRATION_OBJECT_KIND_SEGMENTS = {
-  // ADR-0092 referents: the thing a recurring notification is ABOUT. `referent`
-  // is the sender-scoped fallback, used when no provider-unique id was found.
+  // ADR-0092. `referent` is the fallback when no provider id was found.
   pull_request: "referent",
   issue: "referent",
   discussion: "referent",
   commit: "referent",
   check_suite: "referent",
   referent: "referent",
-  // ADR-0062 provider objects that anchor a `project` node (ClickUp / Notion /
-  // Railway / Vercel). The P2/P3 reducer that mints these registers its segments
-  // here rather than beside its own writer.
+  // ADR-0062 provider objects.
   project: "project",
 } as const satisfies Readonly<Record<string, EntityNodeKind>>;
 
 export type IntegrationObjectKindSegment = keyof typeof INTEGRATION_OBJECT_KIND_SEGMENTS;
 
-/**
- * The segments that anchor node kind `K`. A minter takes this instead of
- * `string`, so an unregistered segment does not compile — which is what forces
- * the table edit and the classifier to move together.
- */
+/** Segments that anchor node kind `K`. Minters take this, so an unlisted segment does not compile. */
 export type IntegrationObjectSegmentFor<K extends EntityNodeKind> = {
   [Segment in IntegrationObjectKindSegment]: (typeof INTEGRATION_OBJECT_KIND_SEGMENTS)[Segment] extends K
     ? Segment
     : never;
 }[IntegrationObjectKindSegment];
 
-/**
- * Build an `integration_object_key` value. The ONE owner of the `:` shape, so
- * the format regex, the segment table, and every writer stay in step.
- * `externalId` may itself contain colons (`IDENTITY_VALUE_FORMATS` ends in `.+`);
- * the caller still owns its length and its case (see `canonicalizeIdentityValue`).
- */
+/** The one builder of the `provider:kind:externalId` shape. The caller owns `externalId` length and case. */
 export function integrationObjectKey(
   provider: string,
   segment: IntegrationObjectKindSegment,
@@ -1135,12 +747,7 @@ export function integrationObjectKey(
   return `${provider}:${segment}:${externalId}`;
 }
 
-/**
- * The registered kind segment of an `integration_object_key` value, or `null`
- * when the value is malformed or its segment is not in the table. Reading the
- * segment is the only way to learn which node kind an `integration_object_key`
- * belongs to.
- */
+/** The registered segment of an `integration_object_key`, or `null` if malformed or unlisted. */
 export function integrationObjectKeySegment(value: string): IntegrationObjectKindSegment | null {
   const segments = value.split(":");
   const candidate = segments.length >= 3 ? segments[1] : undefined;
@@ -1166,12 +773,7 @@ export const entityKindResearchStatusSchema = z.enum(ENTITY_KIND_RESEARCH_STATUS
 
 export type EntityKindResearchStatus = (typeof ENTITY_KIND_RESEARCH_STATUS)[number];
 
-/**
- * Versioned profile-kind classifier output, persisted inside projection
- * provenance. This is deliberately model/source-agnostic: deterministic folds
- * write evidence codes, while later enrichment can update `researchStatus`
- * without inventing a second provenance shape.
- */
+/** Kind classifier output, stored in projection provenance. */
 export const entityKindClassificationSchema = z
   .object({
     kind: entityNodeKindSchema,
@@ -1185,30 +787,16 @@ export const entityKindClassificationSchema = z
 export type EntityKindClassification = z.infer<typeof entityKindClassificationSchema>;
 
 /**
- * Every evidence code a `service` classification carries, named once.
- *
- * `evidenceCodes` is `string[]` on purpose — the other branches of the kind
- * classifier mint open-ended codes (`identity:…`, `gmail:list_id`) and no
- * reader switches on them. The `service` codes are different: TWO consumers in
- * different packages read them to decide whether a non-person claim is hard
- * enough to act on, and they disagree deliberately.
- *   - `@alfred/assistant` knowledge asks "may this take `person` away from a
- *     mail contact", which gates a live `gmail.send_draft`.
- *   - `@alfred/assistant` triage asks "may this demote a demanding thread to
- *     `fyi`", which is the #210 sender-kind floor.
- *
- * Each consumer therefore declares a TOTAL `satisfies Record<ServiceEvidenceCode, …>`
- * table rather than a set of bare literals. A new member here fails to compile
- * in both tables until each one answers for it. That is the enforcement the
- * bare literals did not buy: the `email:domain:service_strong` member was added
- * in one consumer and silently switched the other consumer's floor off.
+ * Evidence codes for a `service` classification. The knowledge classifier and the triage
+ * sender-kind floor each keep a total `satisfies Record<ServiceEvidenceCode, …>` table,
+ * so a new code fails to compile until both decide on it. They decide differently on purpose.
  */
 export const SERVICE_EVIDENCE_CODES = {
-  /** A strong service LOCAL part: `noreply@`, `notifications@`, `…-noreply@`. */
+  /** `noreply@`, `notifications@`, `…-noreply@`. */
   localStrong: "email:local:service_strong",
-  /** A strong service leftmost host LABEL: `…@noreply.github.com`. */
+  /** `…@noreply.github.com`. */
   domainStrong: "email:domain:service_strong",
-  /** A soft ROLE mailbox: `billing@`, `support@`, `admin@`. A human may sit behind it. */
+  /** `billing@`, `support@`. A human may read it. */
   localRole: "email:local:service",
   /** An `Auto-Submitted` header. A human's out-of-office carries this too. */
   autoSubmitted: "gmail:auto_submitted",
@@ -1219,21 +807,12 @@ export type ServiceEvidenceCode =
 
 const SERVICE_EVIDENCE_CODE_VALUES = new Set<string>(Object.values(SERVICE_EVIDENCE_CODES));
 
-/**
- * True when a persisted evidence code is one of the `service` vocabulary
- * members. The boundary between the open `string[]` column and a consumer's
- * total decision table: a code this returns false for cannot index one. PURE.
- */
 export function isServiceEvidenceCode(value: string): value is ServiceEvidenceCode {
   return SERVICE_EVIDENCE_CODE_VALUES.has(value);
 }
 
-// `looseObject` rather than `.catchall(jsonValueSchema)`: a catchall checks the
-// *declared* optional keys against the index signature too, which would force
-// `JsonValue` to admit `undefined` and put the type out of step with the
-// validator guarding the same column. Unknown provenance keys pass through as
-// `unknown` instead of schema-checked JSON; provenance keys are ours to write,
-// and a JSON-shaped type that lies is the worse trade.
+// Not `.catchall(jsonValueSchema)`: that checks the optional keys against the index
+// signature, which would force `JsonValue` to admit `undefined`.
 export const projectionProvenanceSchema = z.looseObject({
   observationIds: z.array(z.string()).optional(),
   familyKeys: z.array(z.string()).optional(),
@@ -1242,12 +821,7 @@ export const projectionProvenanceSchema = z.looseObject({
 
 export type ProjectionProvenance = z.infer<typeof projectionProvenanceSchema>;
 
-/**
- * Typed, traversable edges in the versioned relation projection. `co_occurrence`
- * is a separate weighted pair projection (D5) — an edge becomes a traversable
- * `frequent_collaborator` only after the promotion threshold; below that the
- * pair is queryable data, never walked.
- */
+/** Traversable edge types. A co-occurrence pair becomes `frequent_collaborator` only past promotion (D5). */
 export const ENTITY_EDGE_TYPES = [
   "works_at",
   "member_of",
@@ -1261,65 +835,30 @@ export const entityEdgeTypeSchema = z.enum(ENTITY_EDGE_TYPES);
 export type EntityEdgeType = (typeof ENTITY_EDGE_TYPES)[number];
 
 // ───────────────────────────────────────────────────────────────────────────
-// Significance fold knobs (D5, D6) — locked values 2026-06-23
+// Significance fold knobs (D5, D6)
 // ───────────────────────────────────────────────────────────────────────────
 
 /**
- * Events above this participant count contribute ZERO pairwise co-occurrence —
- * a 50-person blast is not social evidence (D5). Below it, each pair gets
- * `weight += sourceWeight / participantCount`.
- *
- * The count the P1 fold compares against this is `max(participants.recipientCount,
- * |distinct recipient participants in items|)`, NOT `recipientCount` alone — the
- * envelope refine guarantees `recipientCount` is never less than the enumerated
- * recipients, so neither a truncated `items` nor an under-written count can
- * push a real blast back under the cutoff.
+ * Above this many participants an event adds no co-occurrence (D5).
+ * Below it, each pair gets `weight += sourceWeight / participantCount`.
  */
 export const FAN_OUT_CUTOFF = 12;
 
-/**
- * A co-occurring pair becomes a traversable `frequent_collaborator` edge only
- * past this accumulated weight (D5). Below it the pair stays queryable but is
- * never traversed (keeps traversal small + indexed).
- */
+/** Weight a pair needs to become a `frequent_collaborator` edge (D5). */
 export const PROMOTION_THRESHOLD = 2.0;
 
 /**
- * Promotion guardrails so one noisy thread / PR can't mint a collaborator edge:
- * a pair must clear the weight bar AND be backed by at least this many distinct
- * observations across at least this many distinct event families. Source folds
- * may add stricter diversity keys when their event family grain is smaller than
- * the real interaction context. For example, Gmail uses message-grain families
- * for idempotent supersession, then separately requires thread diversity before
- * promoting a collaborator edge.
+ * Promotion also needs this many observations across this many families, so one
+ * noisy thread cannot mint an edge. Gmail also requires thread diversity.
  */
 export const PROMOTION_MIN_OBSERVATIONS = 3;
 
 export const PROMOTION_MIN_FAMILIES = 2;
 
 /**
- * Per-interaction significance weights (D6). Keys are fold-derived interaction
- * classes, not the raw `OBSERVATION_KINDS` vocabulary. The fold contributes
- * `pairWeight += SOURCE_WEIGHTS[key] / participantCount` (participantCount =
- * all resolved human-ish participants). With `PROMOTION_THRESHOLD = 2.0`, a 1:1
- * reply needs ~5 touches to promote, a direct thread ~7, and cc/list exposure
- * basically never promotes unless repeatedly real.
- *
- * Only the classes a LIVE reducer can produce are listed (#987), on the same
- * rule as `OBSERVATION_REDUCERS`: a weight for a provider that cannot write is
- * a shape the traffic does not have. Gmail is the one such reducer, and its
- * single kind `email_message` fans out into the four classes here. The
- * `github_*` and `calendar_meeting` weights were provisional, uncalibrated, and
- * unreachable, so P2 and P3 register their classes with the folds that consume
- * them rather than inheriting a guess. `gmail_blast` is 0 (the fan-out cutoff
- * already zeroes its co-occurrence; kept explicit for non-person significance
- * accounting).
- *
- * A P2 GitHub PR-open has no key here on purpose, and adding one before the
- * fold lands would re-create exactly the false shape this list just dropped:
- * P2 owns the decision of which class it contributes to (author-reviewer
- * co-occurrence) versus what it only emits as an object edge (`authored_by`,
- * D9).
+ * Weight per interaction class (D6). Keys are fold classes, not `OBSERVATION_KINDS`.
+ * At a threshold of 2.0, a 1:1 reply promotes after about 5 touches.
+ * List only classes a live reducer produces.
  */
 export const SOURCE_WEIGHTS = {
   gmail_reply: 0.8,
@@ -1335,12 +874,8 @@ export function sourceWeight(key: SourceWeightKey): number {
 }
 
 /**
- * TIME-INVARIANT significance components only (D6/D13). The final score is
- * `base(components) * recency(asOf)` computed at READ time, and the projection
- * checksum runs over these components — so anything wall-clock-derived must stay
- * OUT of here or the checksum stops being deterministic across replays. Recency
- * is NOT a component: `lastSeenAt` is a first-class column on `entity_profiles`
- * (and `entity_co_occurrence`), the single source of truth read at scoring time.
+ * Time-invariant score inputs only (D6/D13). The projection checksum covers them, so
+ * nothing from the wall clock. Recency comes from `lastSeenAt` at read time.
  */
 export const significanceComponentsSchema = z
   .object({
@@ -1359,13 +894,7 @@ export type SignificanceComponents = z.infer<typeof significanceComponentsSchema
 // Projection run bookkeeping
 // ───────────────────────────────────────────────────────────────────────────
 
-/**
- * The canonical projection name for the user-model graph (the `entity_profiles` /
- * `entity_edges` / `entity_co_occurrence` triple). `projection_runs` is GENERIC
- * (P4's `user_facts` projection reuses it under its own name), so the writer,
- * the reader, and every `projection_*` row bind to this one string rather than
- * scattering the literal — a typo would silently strand a run under an unread name.
- */
+/** The `projection_runs` name for the entity graph. A typo would strand runs under an unread name. */
 export const USER_MODEL_PROJECTION_NAME = "user-model";
 
 /** Stable BullMQ result reasons for a Gmail kind refold that does no work. */
@@ -1395,12 +924,7 @@ export const projectionCursorValueSchema = z
 
 export type ProjectionCursorValue = z.infer<typeof projectionCursorValueSchema>;
 
-/**
- * Per-source replay high-watermark, keyed by `ObservationSource` (NOT free
- * strings) so a typo key (`gihub`) can't silently strand a source's cursor.
- * Partial by design — a run consumes only the sources it touched, so missing
- * keys are legal; the default column value is `{}`.
- */
+/** Replay cursor per source. Partial: a run records only the sources it touched. */
 export const projectionSourceHighWatermarkSchema = z.partialRecord(
   observationSourceSchema,
   projectionCursorValueSchema,
@@ -1416,11 +940,7 @@ export type ProjectionRowCounts = z.infer<typeof projectionRowCountsSchema>;
 // Fact ontology (D8)
 // ───────────────────────────────────────────────────────────────────────────
 
-/**
- * Which subject a fact can bind to. Facts about people hang off their stable
- * entity node (the "personalized relevance" destination); facts about the user
- * bind to `{kind:'user'}`. `any` = either.
- */
+/** A fact is about the user or about an entity node. `FactTypeDef` adds `any`. */
 export const FACT_SUBJECT_KINDS = ["user", "entity"] as const;
 
 export const factSubjectKindSchema = z.enum(FACT_SUBJECT_KINDS);
@@ -1433,23 +953,9 @@ export interface FactTypeDef {
 }
 
 /**
- * Registered durable fact-types (D8, #330). A `user_facts.key` must validate
- * against this at the app boundary. This is the ONE canonical fact-key registry
- * — `CANONICAL_FACT_KEYS` below is derived from it, not declared in parallel
- * (the #330 "no second registry" rule). Transient document content (passcodes,
- * alarm names, incident timestamps) is NOT a fact-type — it stays in the
- * document / `memory_chunk`, never auto-confirmed as a fact. `standing_instruction`
- * is reserved and governed by `standing-instructions.ts`, not folded as an
- * ontology value here — so the `user_facts.key` column gate is `isUserFactKey`
- * (ontology ∪ the standing key), NOT `isFactKey` (durable fact-types only).
- *
- * Keys are durable CONCEPTS, not read-DTO labels: currentness is represented by
- * `status` + validity windows, so the storage key is `employer`, never
- * `current_company` (the read API still exposes `currentCompany` by mapping from
- * it — see `read_user_context`). Legacy / producer spellings
- * (`current_company`, `company`, `name`, `personal_website`, …) are mapped onto
- * these keys by `FACT_KEY_ALIASES` + `canonicalizeFactKey`, never stored as
- * parallel truths.
+ * The one registry of durable fact types (D8). Transient content such as passcodes is not a fact.
+ * Keys are concepts: `employer`, never `current_company`. `status` and validity windows carry currentness.
+ * Gate `user_facts.key` writes with `isUserFactKey`, which also admits `standing_instruction`.
  */
 export const FACT_ONTOLOGY = {
   // identity
@@ -1490,38 +996,21 @@ export function isFactKey(key: string): key is FactKey {
   return Object.prototype.hasOwnProperty.call(FACT_ONTOLOGY, key);
 }
 
-/**
- * The exact canonical identity/profile fact keys — derived from the ONE
- * registry (`FACT_ONTOLOGY`), never a parallel list. The order tracks the
- * registry declaration order.
- */
 export const CANONICAL_FACT_KEYS =
-  // SAFETY: FactKey is `keyof typeof FACT_ONTOLOGY`, so Object.keys of that
-  // very registry enumerates exactly those strings.
+  // SAFETY: `Object.keys` of the registry is exactly `keyof typeof FACT_ONTOLOGY`.
   Object.keys(FACT_ONTOLOGY) as readonly FactKey[];
 
-/**
- * Open-ended fact-key prefixes (a key is `<prefix><suffix>`):
- *   - `relationship:<email>` — the user's relationship to that person.
- *   - `pref:<name>`          — a durable preference.
- * The suffix is validated/normalized per-prefix by `canonicalizeFactKey`.
- */
+/** `relationship:<email>` keys the user's relation to a person. */
 export const RELATIONSHIP_FACT_PREFIX = "relationship:";
 
+/** `pref:<name>` keys a durable preference. */
 export const PREF_FACT_PREFIX = "pref:";
 
 export const CANONICAL_FACT_PREFIXES = [RELATIONSHIP_FACT_PREFIX, PREF_FACT_PREFIX] as const;
 
 /**
- * EXPLICIT legacy / producer key-spelling map → canonical key. This is a
- * compatibility shim for the spellings actually observed in producers
- * (`cold-start/extract.ts`, `extraction.ts`) and in live dev rows — NOT a
- * fuzzy/semantic guesser and NOT a migration dumping ground. Near-misses that
- * are NOT listed (`website`, `url`, `homepage`, `company_url`) stay rejected as
- * `unknown_key`. Every target MUST be a real canonical key (the `satisfies`
- * enforces it). Consumed by `canonicalizeFactKey` before any dedup/conflict
- * check, for ALL sources (aliasing prevents `company`/`current_company`/
- * `employer` coexisting as separate truths).
+ * Spellings seen in producers, mapped to canonical keys before dedup.
+ * Only observed spellings: an unlisted near-miss (`website`) stays `unknown_key`.
  */
 export const FACT_KEY_ALIASES = {
   current_company: "employer",
@@ -1541,31 +1030,15 @@ export function isFactKeyAlias(key: string): key is FactKeyAlias {
   return Object.prototype.hasOwnProperty.call(FACT_KEY_ALIASES, key);
 }
 
-/**
- * The result of canonicalizing a raw fact key. A canonical key passes through
- * (`wasAlias:false`); a listed alias or a re-normalized open key is mapped
- * (`wasAlias:true`, carrying the original for provenance); anything unknown is
- * rejected. This is a pure key-NAME canonicalizer — it never inspects the value
- * and never makes a trust/source decision (that is `fact-policy.ts`).
- */
+/** `wasAlias` is true when the key changed; `originalKey` keeps the input for provenance. */
 export type CanonicalizeFactKeyResult =
   | { ok: true; key: string; wasAlias: false }
   | { ok: true; key: string; wasAlias: true; originalKey: string }
   | { ok: false; reason: "unknown_key" };
 
 /**
- * Canonicalize a `user_facts` key onto the one ontology BEFORE dedup/conflict.
- *
- *  - Exact canonical key → passes through unchanged.
- *  - Listed `FACT_KEY_ALIASES` spelling → mapped to its canonical key.
- *  - `relationship:<email>` → email suffix trimmed + lowercased; an unparseable
- *    (non-email) suffix is rejected (`relationship:github.com`, a display name).
- *  - `pref:<name>` → suffix trimmed; an empty suffix is rejected.
- *  - Anything else → `{ ok:false, reason:"unknown_key" }`.
- *
- * `wasAlias` is true exactly when the canonical key differs from the raw input
- * (a spelling alias OR a re-normalized open key), so callers can record
- * `originalKey` for drift provenance.
+ * Map a fact key onto the ontology before dedup. Aliases map; prefix suffixes are normalized.
+ * A `relationship:` suffix must be an email. Key name only: trust decisions live in `fact-policy.ts`.
  */
 export function canonicalizeFactKey(rawKey: string): CanonicalizeFactKeyResult {
   const key = rawKey.trim();
@@ -1609,15 +1082,8 @@ export function canonicalizeFactKey(rawKey: string): CanonicalizeFactKeyResult {
 }
 
 /**
- * Every legal `user_facts.key` — the boundary gate the P4 fact projection
- * validates against. It is NOT just `FACT_ONTOLOGY`: `standing_instruction`
- * (governed by `standing-instructions.ts`, ADR-0058) is a first-class
- * `user_facts.key` that deliberately lives OUTSIDE the durable-fact ontology
- * (its `value` is a structured directive, not a fact-type). The plan migrates
- * standing instructions into `source='user'` observations that project back
- * into `user_facts`, so a gate that checked `isFactKey` alone would reject the
- * very rows it must accept. Validate column writes with THIS, classify
- * fact-types with `isFactKey`.
+ * Every legal `user_facts.key`: the ontology plus `standing_instruction` (ADR-0058).
+ * Gate column writes with this; classify fact types with `isFactKey`.
  */
 export type UserFactKey = FactKey | typeof STANDING_INSTRUCTION_KEY;
 

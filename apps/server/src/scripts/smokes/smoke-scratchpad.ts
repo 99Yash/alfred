@@ -1,19 +1,8 @@
 /**
- * Smoke test for m13 Phase 2 — scratchpad helpers + tool registry shape.
+ * Smoke test for the scratchpad on real Redis and Postgres: round-trip, promote,
+ * zone enforcement in the dispatcher tools, idempotent snapshot, and health spans.
  *
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/smokes/smoke-scratchpad.ts
- *
- * Exercises the Phase 2 acceptance bullets:
- *   1. writeScratch + readScratch round-trip on a real local Redis.
- *   2. promoteScratch copies a sub-agent value into the boss-owned
- *      `shared.*` zone.
- *   3. dispatcher scratch tools enforce boss/sub-agent zones.
- *   4. snapshotScratchToPostgres lands rows in `agent_run_context` and
- *      is idempotent on retry (second call upserts the same shape).
- *
- * The compile-time guards for invalid tool names are verified by `pnpm check-types`; the file
- * `smoke-tools-types.ts` ships an `@ts-expect-error` assertion that
- * fails compilation if `ToolName` ever stops narrowing properly.
  */
 
 import {
@@ -40,12 +29,7 @@ import { actionStagings, agentRunContext, agentRuns, user as userTable } from "@
 import { createRedisConnection } from "@alfred/db/redis";
 import { and, eq } from "drizzle-orm";
 
-/**
- * Captured scratch health spans (#408). The injected starter records the opening
- * input and the terminal end args so the smoke can assert the runtime-span
- * contract — stable names + safe (hashed, count-only) metadata — alongside the
- * real Redis/Postgres behavior, without a live Langfuse client.
- */
+/** Captured scratch health spans (#408), so the smoke can check them without Langfuse. */
 interface CapturedScratchSpan {
   input: RuntimeSpanInput;
   end?: RuntimeSpanEndArgs;
@@ -86,7 +70,7 @@ async function findOrCreateSmokeUser(): Promise<string> {
 }
 
 async function createSmokeRun(userId: string): Promise<string> {
-  // Minimal run row purely to satisfy the FK on agent_run_context.
+  // Satisfies the FK on agent_run_context.
   const inserted = await db()
     .insert(agentRuns)
     .values({
@@ -112,8 +96,6 @@ async function main(): Promise<void> {
   registerBuiltinTools();
   registerAgentSystemToolAdapter();
 
-  // Capture every scratch health span emitted below so we can assert the
-  // runtime-span contract end-to-end alongside the real behavior (#408).
   const capturedSpans: CapturedScratchSpan[] = [];
 
   const restoreSpanCapture = _setScratchRuntimeSpanStarterForTests((input) => {
@@ -400,8 +382,7 @@ async function main(): Promise<void> {
 
   console.log(`[smoke-scratchpad] second snapshot idempotent (${secondCount} rows, same shape)`);
 
-  // 5. Health-span contract: every operation above emitted a stable runtime
-  //    observation with safe (hashed, count-only) metadata.
+  // 5. Every operation above emitted a span with hashed, count-only metadata.
   restoreSpanCapture();
 
   const byName = (name: string): CapturedScratchSpan[] =>
@@ -418,10 +399,7 @@ async function main(): Promise<void> {
     }
   }
 
-  // Every span must close with a status and — for keyed ops — carry the hashed
-  // key identity by its expected field name. Asserting the hash is *present and
-  // sha256-prefixed* is what actually proves the key was fingerprinted rather
-  // than emitted raw; `assertNoRawLeak` below covers the raw-value direction.
+  // A sha256-prefixed key hash proves the key was not emitted raw.
   const isKeyHash = (v: unknown): boolean => typeof v === "string" && v.startsWith("sha256:");
 
   for (const span of capturedSpans) {
@@ -448,15 +426,12 @@ async function main(): Promise<void> {
     }
   }
 
-  // Reads recorded hit/miss: the promote-source reads and round-trips are hits;
-  // no genuine miss is expected in this happy-path run.
   const readEnds = byName(RUNTIME_SCRATCH_READ).map((s) => s.end?.metadata ?? {});
 
   if (!readEnds.some((m) => m.hit === true)) {
     throw new Error("[smoke-scratchpad] expected at least one read span with hit=true");
   }
 
-  // The two terminal snapshots each persisted 6 rows with zero corruption.
   const snapshotEnds = byName(RUNTIME_SCRATCH_SNAPSHOT).map((s) => s.end?.metadata ?? {});
 
   for (const meta of snapshotEnds) {
@@ -483,11 +458,7 @@ async function main(): Promise<void> {
     `[smoke-scratchpad] health spans ok (${capturedSpans.length} spans, no raw values/keys leaked)`,
   );
 
-  // 6. Corrupt/miss contract. The happy path never exercises an unparseable
-  //    entry or a genuine miss, yet those are exactly what the read `corrupt`
-  //    flag and the snapshot `corrupt`/`scanned` counters exist to surface.
-  //    Install a fresh capture, plant one unparseable key beside the 6 live
-  //    ones, and assert the spans tell corruption apart from an absent key.
+  // 6. Plant one unparseable key; the spans must tell it apart from an absent key.
   const corruptSpans: CapturedScratchSpan[] = [];
 
   const restoreCorruptCapture = _setScratchRuntimeSpanStarterForTests((input) => {
@@ -504,14 +475,13 @@ async function main(): Promise<void> {
   const seedConn = createRedisConnection("command");
 
   try {
-    // Bypass writeScratch so the envelope is deliberately unparseable.
+    // Bypass writeScratch to write an unparseable envelope.
     await seedConn.set(`alfred:scratch:${runId}:shared.corrupt`, "{ not valid json", "EX", 300);
   } finally {
     await seedConn.quit().catch(() => seedConn.disconnect());
   }
 
-  // Present-but-unparseable: hit=true (the key exists) yet corrupt=true, and
-  // readScratch still honors its degrade-to-null contract.
+  // Unparseable: hit=true, corrupt=true, and readScratch returns null.
   if ((await readScratch({ runId, zone: "shared", path: "corrupt" })) !== null) {
     throw new Error("[smoke-scratchpad] corrupt read should degrade to null");
   }
@@ -565,9 +535,7 @@ async function main(): Promise<void> {
   assertNoRawLeak(corruptSpans);
   console.log("[smoke-scratchpad] corrupt/miss health spans ok (corruption distinct from absent)");
 
-  // Cleanup: scratchpad keys (best-effort), then DB rows. SCAN+DEL
-  // instead of KEYS so the script stays safe if it ever points at a
-  // non-trivial Redis.
+  // SCAN+DEL, not KEYS, so a large Redis is safe.
   const conn = createRedisConnection("command");
 
   try {

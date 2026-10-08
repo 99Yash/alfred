@@ -1,22 +1,10 @@
 /**
- * Paired trajectory diff for two recorded agent runs (the regression check for
- * multi-step runs — see replay/trajectory.ts for the why).
+ * Diff two runs of one input, old build against new. Only the targeted step should change.
  *
- * Workflow: run a recorded input through the OLD build → note its run id; run
- * the same input through the NEW build → note its run id; diff the two. What
- * changed is the answer to "did my change do what I wanted, not just for one
- * step" — the targeted step should differ, nothing else should.
- *
- * Run from packages/ai (needs LANGFUSE_* in env):
  *   ./node_modules/.bin/tsx --env-file=../../apps/server/.env \
  *     src/scripts/replay-diff.ts <baselineTraceId> <candidateTraceId>
  *
- * Reads go through `GET /api/public/v2/observations` (filtered by trace id)
- * because the self-hosted `events_only` write mode serves reads from the v2
- * observations API and 404s the legacy `GET /api/public/traces/:id`.
- *
- * Tip: grab run ids from the Langfuse Traces UI, or list recent observations
- * with their trace context:
+ * Find trace ids in the Langfuse UI, or:
  *   curl -s "$LANGFUSE_HOST/api/public/v2/observations?fields=trace_context&limit=20" \
  *     -H "Authorization: Basic $(printf '%s:%s' "$PK" "$SK" | base64)"
  */

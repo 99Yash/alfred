@@ -9,15 +9,12 @@ export interface AgentJobData {
 
 let _queue: Queue<AgentJobData> | undefined;
 
-/** Lazy-init the singleton queue. Safe to call from any module. */
 export function getAgentQueue(): Queue<AgentJobData> {
   if (_queue) return _queue;
   _queue = new Queue<AgentJobData>(AGENT_QUEUE_NAME, {
     connection: createRedisConnection("queue"),
     defaultJobOptions: {
-      // BullMQ retries a failed job (the *job*, not the run-step attempt).
-      // The run row is the source of truth for step-attempt retries; this
-      // is just the BullMQ-level safety net for ephemeral picker errors.
+      // Job retries only; the run row owns step attempts.
       attempts: 3,
       backoff: { type: "exponential", delay: 2_000 },
       removeOnComplete: { count: 100, age: 60 * 60 },
@@ -29,20 +26,9 @@ export function getAgentQueue(): Queue<AgentJobData> {
 }
 
 /**
- * Enqueue a run for execution. Lease arbitration is at the DB layer (FOR
- * UPDATE SKIP LOCKED), so multiple jobs racing the same `runId` is safe —
- * only one will see the row to lease.
- *
- * `jobId` (ADR-0027) opts the enqueue into BullMQ's native dedup: a
- * second `add` with the same `jobId` is a no-op until the prior job is
- * removed. The cron dispatcher uses
- * `workflow.{workflowId}.scheduled.{scheduledForMs}` so a retried tick
- * never enqueues the same scheduled instant twice; one-off "Run now"
- * presses pass no `jobId` and get the default per-enqueue identity.
- *
- * BullMQ forbids `:` in custom jobIds (see
- * `bullmq/.../job.js`'s `Custom Id cannot contain :` check), so the
- * separator is `.`.
+ * Two jobs for one run are safe: the DB lease lets only one run it.
+ * A `jobId` makes BullMQ drop a second `add` until the first job is removed (ADR-0027).
+ * BullMQ job ids cannot contain `:`.
  */
 export async function enqueueRun(
   runId: string,

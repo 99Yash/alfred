@@ -36,27 +36,13 @@ import {
 import { documentAskReducer } from "../document-asks";
 
 /**
- * Gmail ingestion orchestration. Relocated out of `@alfred/integrations`
- * (`google/ingestor.ts`) so the provider package stays provider-only: it now
- * exposes only fetch/normalize/OAuth/watch/label primitives, and this api-layer
- * consumer owns the ingestion-domain writes — the `documents` + `ingestion_state`
- * rows and the `@alfred/corpus` index. Behavior is byte-identical to the former
- * provider-resident code; only the home changed.
- *
- * One-shot ingestion of recent Gmail messages for a credential.
- *
- * m7a deliberately skips chunking and embedding — we just want to prove
- * the OAuth → list → fetch → write loop works end-to-end. m7b lands the
- * chunker + Voyage embedding pipeline that backfills `chunks` from
- * `documents` (no re-fetching from Gmail required).
+ * Gmail ingestion: writes `documents` and `ingestion_state` and indexes the corpus. The provider
+ * package (`@alfred/integrations/google`) keeps only fetch, OAuth, watch and label primitives.
  */
 
 /**
- * Deferred attachment ingest (ADR-0091 amendment): the poll paths never run
- * fetch + child-process parse inline — a message with several attachments
- * could hold the poll job for minutes and delay cursor advance and sibling
- * messages. Instead they schedule one `gmail.media_ingest` job per message
- * (`queue.ts` owns the real enqueue; tests inject a recorder).
+ * Schedules one `gmail.media_ingest` job per message (ADR-0091 amendment). Poll paths never parse
+ * attachments inline: that could hold the poll for minutes.
  */
 export type ScheduleGmailMediaIngest = (args: {
   credentialId: string;
@@ -73,13 +59,11 @@ export interface IngestRecentArgs {
   /** Page size for `messages.list` calls. Gmail caps at 500. */
   pageSize?: number | undefined;
   /**
-   * Whether this run should advance the Gmail history cursor / full-sync marker.
-   * Keep true for normal catch-up ingestion. Set false for filtered replay-style
-   * backfills, where advancing the cursor from a partial query would incorrectly
-   * claim the whole mailbox has been scanned.
+   * Advance the history cursor. Set false for filtered backfills: a partial query must not claim
+   * the whole mailbox was scanned.
    */
   updateCursor?: boolean | undefined;
-  /** #560b: set true when this ingest covers a detected coverage gap. */
+  /** Set when this ingest covers a detected coverage gap (#560b). */
   coverageGap?: boolean | undefined;
   /** Deferred attachment ingest sink. Production wires `enqueueGmailMediaIngest`. */
   scheduleMediaIngest?: ScheduleGmailMediaIngest | undefined;
@@ -89,44 +73,26 @@ export interface IngestRecentResult {
   fetched: number;
   inserted: number;
   skipped: number;
-  /** Self-authored mail dropped before becoming a document (issue #211) — distinct from `skipped` (dedupe no-op) so #211 stays observable in logs. */
+  /** Self-authored mail dropped before it became a document (#211). */
   ignored: number;
   errors: number;
   /** New chunk rows written across freshly inserted documents. */
   chunksWritten: number;
   /** Inserted documents whose embed step failed (the doc row still landed). */
   embedFailures: number;
-  /** Highest `historyId` we observed — m7c uses this to seed delta polling. */
+  /** Highest `historyId` seen; seeds delta polling. */
   highWaterHistoryId: string | null;
-  /** Document ids that were freshly inserted this run (skipped/conflict rows excluded). */
+  /** Freshly inserted document ids. */
   insertedDocumentIds: string[];
-  /**
-   * Freshly-inserted docs the caller still needs to embed. This is the owner of
-   * the embed-policy fact: `[]` here because this bulk path embeds every insert
-   * inline (see the `indexDocument` call in the loop), so nothing is left for the
-   * corpus consumer.
-   */
+  /** Always `[]`: this path embeds every insert inline. */
   unembeddedDocumentIds: string[];
-  /**
-   * Subset of `insertedDocumentIds` eligible for triage — sent mail excluded
-   * (ADR-0051 #7: sent docs are ingested + embedded but never triaged/labeled).
-   * Embed/index over `insertedDocumentIds`; fan triage over this.
-   */
+  /** Inserted ids to triage. Sent mail is embedded but never triaged (ADR-0051 #7). */
   triageDocumentIds: string[];
-  /**
-   * Inserted documents carrying Gmail's `SENT` label (the user's own outbound
-   * mail). Never triaged/labeled (ADR-0051 #7), but the caller uses these to
-   * re-evaluate the thread tag on an outbound reply (issue #282) — keying the
-   * received-only classify on the thread's newest inbound doc.
-   */
+  /** Inserted `SENT` docs. Never triaged, but they re-evaluate the thread tag on a reply (#282). */
   sentDocumentIds: string[];
-  /**
-   * Distinct Gmail thread ids that received a freshly-inserted message this
-   * run. The caller reconciles these threads' `documents` against the live
-   * Gmail thread so dead/superseded message ids don't accumulate (issue #279).
-   */
+  /** Threads with a fresh insert, reconciled against live Gmail to drop dead message ids (#279). */
   touchedThreadIds: string[];
-  /** User who owns the credential — handy for downstream fanout (triage, indexing). */
+  /** Owner of the credential. */
   userId: string;
 }
 
@@ -183,9 +149,7 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
 
         if (message.threadId) touchedThreadIds.add(message.threadId);
 
-        // Embed inline. Failures don't bubble — the doc row is still
-        // useful for SQL search; m7c's poll will retry the embed via
-        // findUnembeddedDocumentIds.
+        // Embed failures do not bubble. `gmail.embed_sweep` retries them.
         try {
           const embedResult = await indexDocument({ documentId: result.documentId });
           chunksWritten += embedResult.chunksWritten;
@@ -241,7 +205,6 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
     embedFailures,
     highWaterHistoryId,
     insertedDocumentIds,
-    // Inline embed above already covered every insert — nothing deferred.
     unembeddedDocumentIds: [],
     triageDocumentIds,
     sentDocumentIds,
@@ -285,25 +248,16 @@ type PersistMessageResult =
       outcome: "inserted" | "skipped";
       documentId: string;
       /**
-       * Mail the user SENT (carries Gmail's `SENT` label). Ingested + embedded
-       * like any other doc — chat recall over sent mail needs vectors (ADR-0051
-       * #7) — but the caller must keep it OUT of the triage fan-out and the
-       * sender-prior write-back (you are not a sender to triage or to cache).
+       * Mail the user sent. Embedded for recall, but kept out of triage and sender priors (ADR-0051
+       * #7).
        */
       isSent: boolean;
     }
-  // Self-authored mail (From = Alfred's own send identity) — dropped before it
-  // becomes a `documents` row, so there is nothing to embed, triage, or address
-  // downstream (issue #211). Distinct from `skipped` (a dedupe no-op) in intent,
-  // but callers handle it identically: the non-`inserted` branch counts it and
-  // does nothing else. The `isSelfAuthored` guard is a pure identity helper that
-  // stays in the provider package (`@alfred/integrations/google`).
+  // Self-authored mail, dropped before it becomes a document (#211). Callers treat it like
+  // `skipped`.
   | { outcome: "ignored" };
 
-/**
- * Convert Gmail's `internalDate` (ms-since-epoch as string) to a Date.
- * Returns null when missing or non-numeric — the column is nullable.
- */
+/** Gmail `internalDate` (epoch ms as a string) to a Date, or null. */
 function internalDateToDate(internalDate: string | undefined): Date | null {
   if (!internalDate) return null;
   const ms = Number(internalDate);
@@ -321,14 +275,9 @@ async function persistMessage(
   const { userId, accountId } = cred;
   const extracted = extractMessageContent(message);
 
-  // Drop Alfred's own outbound mail before it becomes a document — see
-  // `isSelfAuthored` (issue #211). Nothing downstream should ever see it.
+  // Drop Alfred's own outbound mail (#211), but label it so it stays findable in Gmail (#285).
   if (isSelfAuthored(extracted.from)) {
-    // But don't let it vanish: tag it with the dedicated Alfred label so the
-    // briefing + approval stream is findable in Gmail (issue #285). Best-effort
-    // — a labelling failure must never block the drop, which is the actual
-    // self-loop guardrail. The message stays out of `documents`, triage, and
-    // the sender-prior cache regardless.
+    // Best-effort: a label failure must never block the drop.
     if (gmailMailboxWritesEnabled()) {
       try {
         await labelSelfAuthoredMail({
@@ -361,14 +310,7 @@ async function persistMessage(
   const labelIds = message.labelIds ?? [];
   const isSent = labelIds.includes("SENT");
 
-  // The unique index on (user_id, source, source_id) makes
-  // `onConflictDoNothing` an idempotent re-ingest: a Gmail message
-  // we've already seen does not re-write the row. A subject or body
-  // change for the same Gmail `id` is intentionally NOT reflected —
-  // first-seen wins and the mail doc is immutable for the current
-  // product (the update would need `onConflictDoUpdate`). The name
-  // `skipped` reflects this: a conflict is a dedupe no-op, not a
-  // deferred update.
+  // Idempotent re-ingest: first-seen wins, so a later subject or body change is not applied.
   const inserted = await db()
     .insert(documents)
     .values({
@@ -403,12 +345,7 @@ async function persistMessage(
     return { outcome: "inserted", documentId: inserted[0].id, isSent };
   }
 
-  // Conflict: look up the existing row's id so callers can still
-  // address it (handy for re-embedding a doc that exists but lost its
-  // chunks). If the row has vanished between the conflict and this
-  // select (concurrent delete or data corruption), fail loudly — an
-  // empty id silently propagating into downstream embed/search would
-  // be far worse to debug.
+  // Return the existing id so callers can still address the doc. Fail loudly if it vanished.
   const existing = await db()
     .select({ id: documents.id })
     .from(documents)
@@ -432,13 +369,7 @@ async function persistMessage(
   return { outcome: "skipped", documentId: existingId, isSent };
 }
 
-/**
- * Single owner for post-persist attachment scheduling. Centralizes the
- * `ignored` (self-authored) and no-attachment guards so a new ingest path
- * cannot forget them, and keeps domain order explicit: persist message →
- * schedule attachments. Never runs extraction inline (ADR-0091 amendment):
- * a five-attachment message must not hold the poll for minutes.
- */
+/** Schedule attachment ingest after persist. Skips ignored and attachment-free messages. */
 async function scheduleMediaAttachmentsAfterPersist(args: {
   cred: CredentialContext;
   message: GmailMessage;
@@ -459,12 +390,8 @@ async function scheduleMediaAttachmentsAfterPersist(args: {
 }
 
 /**
- * Flag-first scheduling. The mail row carries `mediaPending` until a
- * `gmail.media_ingest` job completes cleanly, so a lost or failed enqueue is
- * recovered by the next poll's flagged-known-message pass (and BullMQ's own
- * attempts cover transient job failures). A failed flag write only costs one
- * extra dedup-only retry; a failed schedule with the flag set is retried on
- * the next poll.
+ * Set `mediaPending` first, then enqueue. The flag stays until a clean `gmail.media_ingest` run, so
+ * the next poll re-schedules a lost or failed job.
  */
 async function scheduleGmailMediaIngestBestEffort(args: {
   credentialId: string;
@@ -497,19 +424,15 @@ async function scheduleGmailMediaIngestBestEffort(args: {
 }
 
 /**
- * Job-side runner for `gmail.media_ingest`. Fetches the full message fresh
- * (the poll paths no longer carry it), re-applies the self-authored guard as
- * belt-and-suspenders for rows written before the current rule, runs the
- * attachment ingest loop, then resolves the `mediaPending` flag by outcome:
- * cleared on a clean pass, held on any fetch/extract/persist error so the
- * next poll re-schedules. Embed failures are not flagged — the corpus sweep
- * recovers those (`gmail.embed_sweep` covers `gmail_attachment` rows).
+ * Run a `gmail.media_ingest` job. Fetches the message fresh and re-checks self-authorship. Clears
+ * `mediaPending` on a clean pass and keeps it on any error. Embed failures are left to
+ * `gmail.embed_sweep`.
  */
 export async function runGmailMediaIngest(args: {
   credentialId: string;
   messageId: string;
   documentId: string;
-  /** Test seam — overrides Gmail I/O and attachment ingest deps. */
+  /** Test seam. */
   deps?: RunGmailMediaIngestDeps | undefined;
 }): Promise<GmailMediaIngestResult> {
   const getFreshAccessTokenFn = args.deps?.getFreshAccessToken ?? getFreshAccessToken;
@@ -530,22 +453,18 @@ export async function runGmailMediaIngest(args: {
     ...(args.deps?.media ? { deps: args.deps.media } : {}),
   });
 
-  // Clear this carrier's completion marker before observation. A sibling media
-  // job can then make the final observation after both carriers have settled;
-  // a reducer failure still rejects this BullMQ attempt and keeps its retry path.
+  // Clear the flag before observing, so a sibling media job can make the final observation.
   await setMediaPending(args.documentId, result.errors > 0);
 
   try {
-    // The locator is the whole hand-off: the reducer reads direction, thread,
-    // time, and attachment evidence from the persisted rows itself.
+    // The reducer reads everything it needs from the persisted rows.
     await documentAskReducer.observe({
       userId: cred.userId,
       carrier: { accountId: cred.accountId, messageId: message.id },
       observedAt: new Date(),
     });
   } catch (err) {
-    // A reducer read/conditional-write fault must remain retryable even though
-    // the media completion marker was cleared before observation.
+    // Keep the job retryable: the flag was already cleared above.
     await setMediaPending(args.documentId, true);
     throw err;
   }
@@ -566,9 +485,9 @@ export interface RunGmailMediaIngestDeps {
   media?: GmailMediaIngestDeps | undefined;
 }
 
-/** Numeric compare on history-id strings — Gmail's ids are stringified ints. */
+/** Compare Gmail history ids, which are integer strings. */
 function compareHistoryIds(a: string, b: string): number {
-  // Coerce via BigInt so we don't trip on JS double precision for very large ids.
+  // BigInt, because large ids lose precision as doubles.
   try {
     const ba = BigInt(a);
     const bb = BigInt(b);
@@ -584,14 +503,14 @@ interface UpsertIngestionStateArgs {
   userId: string;
   historyId: string | null;
   fullSync: boolean;
-  /** #560b: set true when a coverage gap is detected (history gone or cursor jump). */
+  /** Coverage gap detected: history gone or cursor jump (#560b). */
   coverageGap?: boolean;
   /**
-   * Start of a fallback poll that inserted an unannounced message. Completion
-   * latency must not move this observation forward.
+   * Start of a fallback poll that inserted an unannounced message. Completion latency must not move
+   * it.
    */
   fallbackInsertAt?: Date | undefined;
-  /** The webhook fetch/persist pass completed without message errors. */
+  /** The webhook pass finished with no message errors. */
   webhookSyncCompleted?: boolean | undefined;
 }
 
@@ -599,8 +518,7 @@ async function upsertIngestionState(args: UpsertIngestionStateArgs): Promise<voi
   const now = new Date();
   const fallbackInsertAt = args.fallbackInsertAt ?? null;
   const newId = args.historyId; // string | null — drizzle binds null as SQL NULL
-  // #560b: merge coverageGap and lastPushHistoryId into the JSONB state.
-  // coverageGap clears automatically when the cursor advances (Blocker 4 fix).
+  // `coverageGap` clears when the cursor advances.
   const coverageGapValue = args.coverageGap ?? false;
   await db()
     .insert(ingestionState)
@@ -621,18 +539,9 @@ async function upsertIngestionState(args: UpsertIngestionStateArgs): Promise<voi
     .onConflictDoUpdate({
       target: [ingestionState.credentialId, ingestionState.stream],
       set: {
-        // Compare-and-advance on historyId at the DB level. Two writers
-        // (realtime `pollGmailRecent` + catch-up `pollGmailHistory`) can race
-        // on this row; the application-level snapshot (`cursorBefore`) is
-        // already stale by the time we write back, so a naive `jsonb_set`
-        // could roll the cursor backward and force a wider re-scan on the
-        // next catch-up. CASE arms (PG short-circuits the WHEN list in
-        // order): keep existing if (a) we observed no new id, (b) cursor
-        // exists and the new id isn't strictly greater. Only when the new
-        // id is null OR strictly higher do we touch state.historyId.
-        // `lastSyncAt`/`updatedAt` still update unconditionally so
-        // findCredentialsNeedingPoll sees the credential as fresh.
-        // (ADR-0037)
+        // Compare-and-advance in SQL (ADR-0037): `pollGmailRecent` and `pollGmailHistory` race, so
+        // the cursor only moves to a strictly higher id and never rolls back. `lastSyncAt` still
+        // updates, so the credential reads as fresh.
         state: sql`
           jsonb_set(
             CASE
@@ -677,12 +586,8 @@ async function upsertIngestionState(args: UpsertIngestionStateArgs): Promise<voi
 }
 
 /**
- * Seed the rolling Gmail history cursor for a credential when no cursor row
- * exists yet. Relocated from the provider package's `watch.ts` so the provider
- * no longer writes `ingestion_state`: `installGmailWatch` returns its watch
- * state and this consumer seeds the cursor. A renewal must NOT reset an existing
- * cursor — that would skip everything between the last poll and now — so the
- * seed is guarded by an existence check plus `onConflictDoNothing`.
+ * Seed the history cursor when no row exists. A watch renewal must not reset an existing cursor, or
+ * mail between the last poll and now is skipped.
  */
 export async function seedGmailHistoryCursorIfAbsent(args: {
   credentialId: string;
@@ -700,8 +605,7 @@ export async function seedGmailHistoryCursorIfAbsent(args: {
 
   if (existing[0]) return;
 
-  // No prior cursor → seed one. Look up userId from the credential row;
-  // we need it for the not-null FK.
+  // Seed a cursor. The FK needs userId from the credential.
   const credRow = (
     await db()
       .select({ userId: integrationCredentials.userId })
@@ -730,14 +634,9 @@ export async function seedGmailHistoryCursorIfAbsent(args: {
 }
 
 /**
- * Install (or renew) a Gmail watch channel, then seed the rolling history
- * cursor when the channel actually installed. The single app entry point for
- * watch installation: the provider `installGmailWatch` no longer seeds the
- * cursor (it is a provider-only package now), so every install site MUST route
- * through this wrapper — otherwise a freshly-watched credential gets no cursor
- * and `pollGmailHistory` falls into a perpetual full re-sync. A `null` state
- * (mailbox writes disabled, #278) means no watch was registered, so there is
- * nothing to seed.
+ * Install or renew a Gmail watch, then seed the cursor. Every install site must use this: without a
+ * cursor, `pollGmailHistory` falls into a full re-sync every time. `null` state means mailbox
+ * writes are disabled (#278) and no watch exists.
  */
 export async function installGmailWatchAndSeedCursor(args: {
   credentialId: string;
@@ -761,22 +660,16 @@ export async function installGmailWatchAndSeedCursor(args: {
 // ---------------------------------------------------------------------------
 
 /**
- * Why a `gmail.poll_history` job ran. `webhook` is the manual replay or backfill
- * case; `poll-fallback` is the sweep. The sweep's inserts are the evidence the
- * stale-push signal reads (#998): Gmail publishes a push for every mailbox
- * change, so a message that only the sweep found is a push that never arrived.
+ * Why a `gmail.poll_history` job ran. Gmail pushes every mailbox change, so a message that only the
+ * `poll-fallback` sweep found is a missed push (#998).
  */
 export type GmailPollHistoryReason = "webhook" | "poll-fallback";
 
 export interface PollHistoryArgs {
   credentialId: string;
-  /** Who enqueued the poll; `undefined` for a direct call. */
+  /** `undefined` for a direct call. */
   reason?: GmailPollHistoryReason | undefined;
-  /**
-   * Cap on history pages walked in one call. Each page can yield up to
-   * 500 entries; the cap is a defense against runaway loops if a watch
-   * channel went silent for days and the history is huge.
-   */
+  /** Page cap, against a runaway walk after a long-silent watch. */
   maxPages?: number | undefined;
   /** Deferred attachment ingest sink. Production wires `enqueueGmailMediaIngest`. */
   scheduleMediaIngest?: ScheduleGmailMediaIngest | undefined;
@@ -785,61 +678,37 @@ export interface PollHistoryArgs {
 export interface PollHistoryResult {
   /** Number of history pages fetched. */
   pagesFetched: number;
-  /** New documents written this run. */
   inserted: number;
-  /** Messages already on file (no-op insert). */
+  /** Messages already on file. */
   skipped: number;
-  /** Self-authored mail dropped before becoming a document (issue #211). */
+  /** Self-authored mail dropped (#211). */
   ignored: number;
   errors: number;
   chunksWritten: number;
   embedFailures: number;
-  /** Cursor advanced to this historyId. */
   cursorBefore: string | null;
   cursorAfter: string | null;
-  /**
-   * True when the cursor was unusable (404 from Gmail) and we ran a
-   * full re-ingest instead. Caller should treat this as "expected
-   * occasionally" not a failure.
-   */
+  /** The cursor returned 404, so this run did a full re-ingest. Expected now and then. */
   fullResync: boolean;
-  /** Document ids that were freshly inserted this run. */
   insertedDocumentIds: string[];
   /**
-   * Freshly-inserted docs the caller still needs to embed. `[]` on the main
-   * history-poll path (it embeds inline); the cursorless / history-gone
-   * fallbacks delegate to `ingestRecentGmail` and forward its value.
+   * `[]` on the main path, which embeds inline. The fallbacks forward `ingestRecentGmail`'s value.
    */
   unembeddedDocumentIds: string[];
-  /** Non-sent subset of `insertedDocumentIds` — the ids the caller fans triage runs over. */
+  /** Non-sent inserts, for triage. */
   triageDocumentIds: string[];
-  /**
-   * SENT docs observed by this history poll that should drive reply re-eval
-   * (issue #282). Includes skipped rows when another ingestion path inserted
-   * the same sent copy first.
-   */
+  /** SENT docs that drive reply re-eval (#282), including rows another path inserted first. */
   sentDocumentIds: string[];
-  /** Threads with a fresh insert or observed SENT row — reconciled against live Gmail (issue #279). */
+  /** Threads to reconcile against live Gmail (#279). */
   touchedThreadIds: string[];
-  /** User who owns the credential. */
   userId: string;
 }
 
 /**
- * Incremental sync from the stored `historyId` cursor. The contract:
- *  - Reads cursor → calls users.history.list until no more pages.
- *  - Fetches + persists each `messagesAdded` message via the same path
- *    as the bulk ingest (so dedupe + embed behave identically).
- *  - Advances the cursor to the latest `historyId` we observed (or the
- *    top-level `historyId` from the response when no entries returned —
- *    this matters during quiet periods so the cursor doesn't go stale).
- *  - On `404 history not found`: cursor is older than Gmail's retention
- *    window; falls back to a full re-ingest so we don't silently miss
- *    a multi-day backlog.
- *
- * The job is idempotent: every persistMessage hits an
- * `onConflictDoNothing` on `(userId, source, sourceId)`, so a webhook
- * + cron poll racing on the same notification is fine.
+ * Delta sync from the stored `historyId` cursor through `users.history.list`. With no entries,
+ * adopt the response's top-level `historyId` so a quiet mailbox does not go stale. A 404 means the
+ * cursor is past Gmail's retention, so fall back to a full re-ingest. Idempotent: inserts conflict
+ * on `(userId, source, sourceId)`.
  */
 export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHistoryResult> {
   const startedAt = new Date();
@@ -848,9 +717,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
   const cursorBefore = await loadHistoryCursor(args.credentialId);
 
   if (!cursorBefore) {
-    // No cursor yet — m7a never ran for this credential, or watch hasn't
-    // installed. Fall back to recent ingest; that path also seeds the
-    // cursor via `upsertIngestionState`.
+    // No cursor yet. Recent ingest also seeds it.
     const recent = await ingestRecentGmail({
       credentialId: args.credentialId,
       maxMessages: 200,
@@ -869,7 +736,6 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
       cursorAfter: recent.highWaterHistoryId,
       fullResync: true,
       insertedDocumentIds: recent.insertedDocumentIds,
-      // Fallback delegates to ingestRecentGmail, its true owner — forward, don't re-derive.
       unembeddedDocumentIds: recent.unembeddedDocumentIds,
       triageDocumentIds: recent.triageDocumentIds,
       sentDocumentIds: recent.sentDocumentIds,
@@ -896,17 +762,15 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
 
       for (const entry of page.entries) {
         for (const id of collectAddedMessageIds(entry)) {
-          // The addition's revision is the evidence. messages.get can return
-          // a later revision from a label change on the same message.
+          // Keep the revision of the addition. `messages.get` can return a later one from a label
+          // change.
           if (!messageIds.has(id)) messageIds.set(id, entry.id);
         }
 
         if (compareHistoryIds(entry.id, latestHistoryId) > 0) latestHistoryId = entry.id;
       }
 
-      // Quiet-period safety: if no entries came back, the response's
-      // top-level `historyId` reflects Gmail's current mailbox revision.
-      // Adopt it so the next call doesn't re-request the same window.
+      // Quiet period: adopt the mailbox's current `historyId`.
       if (page.entries.length === 0 && page.historyId) {
         if (compareHistoryIds(page.historyId, latestHistoryId) > 0) {
           latestHistoryId = page.historyId;
@@ -929,10 +793,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
         scheduleMediaIngest: args.scheduleMediaIngest,
       });
 
-      // #560b: clear coverageGap after the full re-sync repair. The
-      // ingestRecentGmail call above set it to true (which is correct for
-      // the audit trail), but the gap is now closed and triggerReady must
-      // recover. The cursor has advanced, so the SQL CASE clears the flag.
+      // The re-sync closed the gap, so clear the flag set above (#560b).
       await upsertIngestionState({
         credentialId: cred.credentialId,
         userId: cred.userId,
@@ -953,7 +814,6 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
         cursorAfter: recent.highWaterHistoryId,
         fullResync: true,
         insertedDocumentIds: recent.insertedDocumentIds,
-        // Fallback delegates to ingestRecentGmail, its true owner — forward, don't re-derive.
         unembeddedDocumentIds: recent.unembeddedDocumentIds,
         triageDocumentIds: recent.triageDocumentIds,
         sentDocumentIds: recent.sentDocumentIds,
@@ -1032,8 +892,8 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
     }
   }
 
-  // An old internalDate can hide announced mail from the realtime search.
-  // Such an insert does not prove push failure, even when the poll ran late.
+  // An old internalDate can hide announced mail from the realtime search, so a late insert proves
+  // nothing.
   const pushedHistoryId =
     args.reason === "poll-fallback" && insertedHistoryId
       ? await loadHighestReceiptHistoryId(args.credentialId)
@@ -1043,9 +903,8 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
     insertedHistoryId !== null &&
     (!pushedHistoryId || compareHistoryIds(insertedHistoryId, pushedHistoryId) > 0);
 
-  // #998: stamp the poll start, so fetch/index latency cannot age the evidence.
-  // cursorless and history-gone branches above are excluded on purpose: a full
-  // re-sync inserts a backlog that says nothing about push liveness.
+  // Stamp the poll start, so fetch latency cannot age the evidence (#998). The full re-sync
+  // branches above skip this: a backlog says nothing about push liveness.
   await upsertIngestionState({
     credentialId: cred.credentialId,
     userId: cred.userId,
@@ -1066,7 +925,6 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
     cursorAfter: latestHistoryId,
     fullResync: false,
     insertedDocumentIds,
-    // Main history-poll path embeds inline — nothing deferred.
     unembeddedDocumentIds: [],
     triageDocumentIds,
     sentDocumentIds,
@@ -1089,19 +947,15 @@ export interface PollRecentDeps {
 
 export interface PollRecentArgs {
   credentialId: string;
-  /** Search window passed to `newer_than:<window>`. Default `5m`. */
+  /** Search window for `newer_than:<window>`. */
   window?: string | undefined;
-  /** Soft cap on messages considered in one call. Default 50. */
+  /** Soft cap on messages considered. */
   maxMessages?: number | undefined;
-  /**
-   * Bounded concurrency for the per-message `getMessage` + `persistMessage`
-   * phase. Default 5. Gmail's per-user QPS comfortably absorbs this and a
-   * 1-message webhook short-circuits to serial anyway.
-   */
+  /** Concurrency for the per-message fetch and persist. */
   concurrency?: number | undefined;
-  /** #560b: Pub/Sub push historyId for cursor-jump gap detection. */
+  /** Pub/Sub push historyId for gap detection (#560b). */
   pushHistoryId?: string | undefined;
-  /** Test seam — overrides Gmail I/O and media ingestion deps. */
+  /** Test seam. */
   deps?: PollRecentDeps | undefined;
 }
 
@@ -1110,57 +964,33 @@ export interface PollRecentResult {
   listed: number;
   /** Freshly persisted documents. */
   inserted: number;
-  /** Messages we already had (dedupe hit on `(userId, source, sourceId)`). */
+  /** Messages already on file. */
   skipped: number;
-  /** Self-authored mail dropped before becoming a document (issue #211). */
+  /** Self-authored mail dropped (#211). */
   ignored: number;
   errors: number;
   cursorBefore: string | null;
   cursorAfter: string | null;
   insertedDocumentIds: string[];
   /**
-   * Freshly-inserted docs the caller still needs to embed. This realtime path
-   * is the ONLY deferred-embed path (it returns before embedding to keep Voyage
-   * latency off the tag-latency budget — ADR-0037), so this equals exactly the
-   * freshly-inserted ids: `insertedDocumentIds`, never the observed-SENT rows.
+   * The only deferred-embed path: equals `insertedDocumentIds`, so Voyage stays off tag latency
+   * (ADR-0037).
    */
   unembeddedDocumentIds: string[];
-  /** Non-sent subset of `insertedDocumentIds` — the ids the caller fans triage runs over. */
+  /** Non-sent inserts, for triage. */
   triageDocumentIds: string[];
-  /**
-   * SENT docs observed by this realtime poll that should drive reply re-eval
-   * (issue #282). Includes skipped rows when the 5-min catch-up path inserted
-   * the same sent copy first.
-   */
+  /** SENT docs that drive reply re-eval (#282), including rows the catch-up path inserted first. */
   sentDocumentIds: string[];
-  /** Threads with a fresh insert or observed SENT row — reconciled against live Gmail (issue #279). */
+  /** Threads to reconcile against live Gmail (#279). */
   touchedThreadIds: string[];
   userId: string;
 }
 
 /**
- * Realtime fetch driven by pub/sub. Uses Gmail's search index
- * (`users.messages.list`) instead of the change-log API
- * (`users.history.list`) — the search index updates within seconds of
- * a message arriving, where the history index can lag pub/sub by
- * minutes (ADR-0037).
- *
- * Contract:
- *  - Lists messages with `newer_than:<window>` (default 5m), capped.
- *  - One indexed SELECT drops already-known non-SENT ids before we spend a
- *    `messages.get` roundtrip on them. Already-known SENT rows are still
- *    surfaced to the caller so outbound replies trigger reply re-eval.
- *  - Advances the history cursor to the max observed `historyId`, but
- *    only forward — never rolls it back. `pollGmailHistory` (poll-
- *    fallback) reads the same cursor and stays consistent.
- *  - **Does not embed.** The caller (`queue.ts`) enqueues triage on the
- *    inserted ids first, then runs `indexDocument` best-effort; this
- *    keeps Voyage latency off the user-visible tag-latency path.
- *
- * `history.list` remains the right shape for catch-up after extended
- * downtime; this function does not replace it. The 5-min poll-fallback
- * (which calls `pollGmailHistory`) is the safety net for any window
- * this path misses (bursts > maxMessages, search-index quirks, etc).
+ * Realtime fetch on a Pub/Sub push (ADR-0037). Uses the search index (`messages.list`), which
+ * updates in seconds, not `history.list`, which can lag the push by minutes. Moves the cursor
+ * forward only. Does not embed; the caller triages first, then indexes. The `poll-fallback` sweep
+ * through `pollGmailHistory` catches what this misses.
  */
 export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentResult> {
   const listMessagesFn = args.deps?.listMessages ?? listMessages;
@@ -1168,10 +998,7 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
   const getFreshAccessTokenFn = args.deps?.getFreshAccessToken ?? getFreshAccessToken;
   const scheduleMediaIngest = args.deps?.scheduleMediaIngest;
 
-  // Header loads are independent (cred row, token refresh, cursor row).
-  // Running them serially added ~40-60ms to every webhook for no reason;
-  // any contention is harmless — both cred reads are SELECTs on the same
-  // pk and the cursor lives in a different table.
+  // Independent reads, so run them together.
   const [cred, accessToken, state] = await Promise.all([
     loadCredentialOrThrow(args.credentialId),
     getFreshAccessTokenFn(args.credentialId),
@@ -1180,10 +1007,7 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
 
   const cursorBefore = state.historyId;
 
-  // #560b: read the latest push-delivered historyId from event_receipts.
-  // Receipts are written by every webhook handler, even when the queue
-  // deduplicates the job, so this value reflects the highest historyId
-  // we have seen regardless of BullMQ dedup.
+  // Receipts land even when BullMQ dedups the job, so they hold the highest pushed id (#560b).
   const latestReceiptHistoryId = await loadHighestReceiptHistoryId(args.credentialId);
 
   const windowExpr = args.window ?? "5m";
@@ -1207,10 +1031,7 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
     pageToken = page.nextPageToken;
   }
 
-  // Preserve the indexed pre-filter for the latency path, but do not drop known
-  // SENT rows on the floor. A sent copy may have been inserted by history
-  // catch-up or a prior attempt that died before side effects; the realtime
-  // webhook must still force the thread's reply re-eval.
+  // Keep known SENT rows: the realtime path must still force the thread's reply re-eval.
   const { unknownRefs, knownRefs, knownSentDocs } = refs.length
     ? await partitionKnownGmailRefs(cred.userId, refs)
     : { unknownRefs: [], knownRefs: [], knownSentDocs: [] };
@@ -1242,10 +1063,9 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
 
         if (message.threadId) touchedThreadIds.add(message.threadId);
       } else if (result.outcome === "ignored") {
-        // Self-authored mail (issue #211) — dropped, never a document.
         ignored++;
       } else {
-        // A race against pollGmailHistory or a duplicate webhook. Rare but fine.
+        // Raced `pollGmailHistory` or a duplicate webhook.
         skipped++;
 
         if (result.isSent) {
@@ -1278,10 +1098,7 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
     }
   });
 
-  // Re-schedule attachment ingest for known messages whose mail row carries
-  // the `mediaPending` flag from a lost or failed job. No `messages.get`
-  // roundtrip here — the flag alone identifies the retry set, and the job
-  // fetches the full message itself.
+  // Re-schedule known messages still flagged `mediaPending`. The job fetches the message itself.
   if (knownRefs.length > 0 && scheduleMediaIngest) {
     await mapConcurrent(knownRefs, concurrency, async (ref) => {
       await scheduleGmailMediaIngestBestEffort({
@@ -1294,14 +1111,8 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
     });
   }
 
-  // #560b: detect a coverage gap when the Pub/Sub push historyId is far ahead
-  // of our stored cursor. A large jump means the watch was down or the process
-  // was offline for a period — events in between were never polled. The 5m
-  // search window cannot reach them, so the trigger readiness gate must know.
-  // #560b: detect coverage gaps by comparing the cursor against the latest
-  // push-delivered historyId from event_receipts. Receipts are written by
-  // every webhook, even when the queue deduplicates the job, so gap
-  // detection works regardless of whether BullMQ dropped a duplicate push.
+  // A large jump from the cursor to the pushed id means the watch or the process was down. The 5m
+  // search window cannot reach those events, so flag a coverage gap (#560b).
   const COVERAGE_GAP_THRESHOLD = 1000;
   let coverageGap = false;
 
@@ -1317,13 +1128,12 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
         );
       }
     } catch {
-      // Non-numeric historyId — ignore; the cursor will advance normally.
+      // Non-numeric historyId: ignore.
     }
   }
 
-  // Record successful webhook completion even for an empty or deduplicated
-  // search. Partial failures can still advance the cursor or record a gap,
-  // but must not update the successful webhook timestamp.
+  // Record webhook success even for an empty search. A partial failure may move the cursor, not the
+  // success time.
   const cursorAdvanced = Boolean(highWaterHistoryId && highWaterHistoryId !== cursorBefore);
 
   if (cursorAdvanced || coverageGap || errors === 0) {
@@ -1346,7 +1156,6 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
     cursorBefore,
     cursorAfter: highWaterHistoryId,
     insertedDocumentIds,
-    // Deferred embed: hand the corpus consumer exactly the freshly-inserted ids.
     unembeddedDocumentIds: insertedDocumentIds,
     triageDocumentIds,
     sentDocumentIds,
@@ -1365,7 +1174,7 @@ async function partitionKnownGmailRefs(
   refs: { id: string; threadId: string }[],
 ): Promise<{
   unknownRefs: { id: string; threadId: string }[];
-  /** Known messages whose mail row carries `mediaPending` — the only ones the retry re-schedules. */
+  /** Known messages flagged `mediaPending`, to re-schedule. */
   knownRefs: { id: string; threadId: string; documentId: string }[];
   knownSentDocs: KnownSentGmailDoc[];
 }> {
@@ -1409,24 +1218,18 @@ async function partitionKnownGmailRefs(
   return { unknownRefs, knownRefs, knownSentDocs };
 }
 
-/**
- * Read the `mediaPending` retry flag off a mail row's jsonb metadata. The
- * flag is written by `setMediaPending` after a failed attachment attempt;
- * absent or non-true means "no retry needed".
- */
+/** True when the mail row's metadata has `mediaPending: true`. */
 function isMediaPending(metadata: unknown): boolean {
   return getPath(metadata, "mediaPending") === true;
 }
 
-/** Return added message ids from a history entry. We dedupe upstream via Set. */
+/** Added message ids from a history entry. The caller dedupes. */
 function collectAddedMessageIds(entry: GmailHistoryEntry): string[] {
   const out: string[] = [];
 
   for (const m of entry.messagesAdded ?? []) out.push(m.message.id);
 
-  // `messages` (without -Added/-Deleted) is the union per Gmail docs;
-  // include it as a safety net in case we ever drop the historyTypes
-  // filter in the call. Duplicates collapse in the caller's map.
+  // `messages` is the union per the Gmail docs. Kept in case the historyTypes filter is dropped.
   for (const m of entry.messages ?? []) out.push(m.id);
 
   return out;
@@ -1440,18 +1243,14 @@ async function loadHistoryCursor(credentialId: string): Promise<string | null> {
       and(eq(ingestionState.credentialId, credentialId), eq(ingestionState.stream, "messages")),
     );
 
-  // SAFETY: ingestion_state.state is jsonb written by these very cursors with
-  // the historyId envelope; this read views that stored shape.
+  // SAFETY: these cursors write this jsonb shape.
   const state = rows[0]?.state as { historyId?: string | null } | undefined;
   const id = state?.historyId;
 
   return id ?? null;
 }
 
-/**
- * Return the ingestion state for a credential — history cursor and coverage
- * gap flag.
- */
+/** History cursor and coverage-gap flag for a credential. */
 async function loadIngestionState(
   credentialId: string,
 ): Promise<{ historyId: string | null; coverageGap: boolean }> {
@@ -1462,7 +1261,7 @@ async function loadIngestionState(
       and(eq(ingestionState.credentialId, credentialId), eq(ingestionState.stream, "messages")),
     );
 
-  // SAFETY: same stored envelope as above, plus the optional coverageGap flag.
+  // SAFETY: same stored shape, plus the optional coverageGap flag.
   const state = rows[0]?.state as { historyId?: string | null; coverageGap?: boolean } | undefined;
 
   return {
@@ -1471,19 +1270,13 @@ async function loadIngestionState(
   };
 }
 
-/**
- * #560b: read the latest push-delivered historyId from event_receipts for a
- * credential. This is the source of truth for gap detection — receipts are
- * written by every webhook, even when the queue deduplicates the job, so this
- * value reflects the highest historyId we have seen regardless of job dedup.
- */
+/** Highest pushed historyId from receipts; they land even when BullMQ dedups the job (#560b). */
 async function loadHighestReceiptHistoryId(credentialId: string): Promise<string | null> {
   const { typedEventReceipts } = await import("@alfred/db/schemas");
 
   const rows = await db()
     .select({
-      // Delivery order is not revision order. Validate persisted text before
-      // numeric comparison, and keep exact precision for large Gmail ids.
+      // Delivery order is not revision order. Validate the text, then compare exactly as numeric.
       historyId: max(sql<string>`CASE
         WHEN ${typedEventReceipts.historyId} ~ '^[0-9]+$'
         THEN ${typedEventReceipts.historyId}::numeric
@@ -1496,13 +1289,8 @@ async function loadHighestReceiptHistoryId(credentialId: string): Promise<string
 }
 
 /**
- * Find active Gmail cursors. The sweep omits `before` so a previous poll's
- * completion time cannot suppress the next catch-up. Diagnostic callers can
- * still request cursors whose `last_sync_at` is older than `before`.
- *
- * Note: a credential with no `ingestion_state` row at all is *not*
- * returned — the bulk ingest seeds the row, and a credential without one
- * has nothing to delta-sync from yet.
+ * Active Gmail cursors. The sweep omits `before`, so a recent poll cannot suppress catch-up. A
+ * credential with no `ingestion_state` row is not returned.
  */
 export async function findCredentialsNeedingPoll(
   before?: Date,

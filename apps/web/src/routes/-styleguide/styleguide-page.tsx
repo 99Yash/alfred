@@ -1,17 +1,6 @@
 /**
- * Internal styleguide — Before/After preview of Alfred's two design grammars.
- *
- * Visit /styleguide on a dev build and toggle between:
- *   • After — the App-revamp landing grammar (FrostButton, EyebrowChip,
- *     AuroraGlow, DeviceBezel, FeatureGrid, etc.) used by the marketing
- *     surface in components/landing/*.
- *   • Before — legacy Dimension primitives retained as a design reference.
- *     The duplicated form and surface primitives live in components/ui/legacy;
- *     production app surfaces use the App primitives from components/ui/v2.
- *
- * Add new primitives to the appropriate half as they're built. The App half is
- * the source of truth for the new marketing direction (see
- * components/landing/landing-page.tsx).
+ * Dev styleguide at /styleguide. "After" shows the landing primitives;
+ * "Before" shows the legacy dimension primitives from components/ui/legacy.
  */
 
 import {
@@ -75,8 +64,7 @@ import { MorningBriefingPanel } from "~/components/landing/morning-briefing-pane
 import { TabPill } from "~/components/landing/tab-pill";
 import { cn } from "~/lib/utils";
 
-/* Static prop icons hoisted to module scope so they keep a stable reference
-   across renders instead of allocating a fresh element each time. */
+/* Module scope keeps these icon elements stable across renders. */
 const sparklesLeading = <Sparkles size={14} />;
 
 const plusLeading = <Plus size={14} />;
@@ -136,9 +124,7 @@ export function StyleguidePage() {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Dimension half — the original primitives, untouched.                        */
-/* -------------------------------------------------------------------------- */
+/* Dimension half */
 
 function DimensionHalf() {
   return (
@@ -204,10 +190,6 @@ function HalfBanner({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Section scaffolding                                                         */
-/* -------------------------------------------------------------------------- */
-
 function Section({
   id,
   title,
@@ -254,10 +236,6 @@ function ChatThreadSection() {
     </Section>
   );
 }
-
-/* -------------------------------------------------------------------------- */
-/* Tokens                                                                      */
-/* -------------------------------------------------------------------------- */
 
 const GRAY_STOPS = [
   "0",
@@ -331,9 +309,7 @@ function Swatches<T extends string>({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Button                                                                      */
-/* -------------------------------------------------------------------------- */
+// Button
 
 function ButtonSection() {
   return (
@@ -420,9 +396,7 @@ function ButtonSection() {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* IconButton                                                                  */
-/* -------------------------------------------------------------------------- */
+// IconButton
 
 function IconButtonSection() {
   return (
@@ -457,9 +431,7 @@ function IconButtonSection() {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Input                                                                       */
-/* -------------------------------------------------------------------------- */
+// Input
 
 function InputSection() {
   return (
@@ -497,9 +469,7 @@ function InputSection() {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Textarea                                                                    */
-/* -------------------------------------------------------------------------- */
+// Textarea
 
 function TextareaSection() {
   return (
@@ -536,9 +506,7 @@ function TextareaSection() {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Switch                                                                      */
-/* -------------------------------------------------------------------------- */
+// Switch
 
 function SwitchSection() {
   return (
@@ -584,9 +552,7 @@ function ControlledSwitchDemo() {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Tabs                                                                        */
-/* -------------------------------------------------------------------------- */
+// Tabs
 
 function TabsSection() {
   const [underline, setUnderline] = useState<"learn" | "history">("learn");
@@ -652,9 +618,7 @@ function QuickAccessRailSection() {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Card                                                                        */
-/* -------------------------------------------------------------------------- */
+// Card
 
 function CardSection() {
   return (
@@ -700,9 +664,7 @@ function CardSection() {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* FrostPanel                                                                  */
-/* -------------------------------------------------------------------------- */
+// FrostPanel
 
 function FrostPanelSection() {
   return (
@@ -735,9 +697,7 @@ function FrostPanelSection() {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Avatar                                                                      */
-/* -------------------------------------------------------------------------- */
+// Avatar
 
 function AvatarSection() {
   return (
@@ -760,9 +720,7 @@ function AvatarSection() {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Kbd                                                                         */
-/* -------------------------------------------------------------------------- */
+// Kbd
 
 function KbdSection() {
   return (
@@ -790,9 +748,7 @@ function KbdSection() {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* StatusDot                                                                   */
-/* -------------------------------------------------------------------------- */
+// StatusDot
 
 function StatusDotSection() {
   return (
@@ -831,9 +787,7 @@ function StatusDotSection() {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* frost-border showcase                                                       */
-/* -------------------------------------------------------------------------- */
+// frost-border showcase
 
 function FrostBorderSection() {
   return (
@@ -851,11 +805,9 @@ function FrostBorderSection() {
         <div
           className="frost-border inline-flex h-10 items-center rounded-full bg-white px-4 text-black"
           style={{
-            // bumped variant — matches the Upgrade Plan white pill
-            // SAFETY: CSS custom properties are valid style keys at runtime;
-            // React's CSSProperties type just omits them.
+            // SAFETY: CSS custom properties are valid style keys; CSSProperties omits them.
             ["--frost-strength" as never]: "0.8",
-            // SAFETY: same custom-property omission as `--frost-strength` above.
+            // SAFETY: as above.
             ["--frost-border-strength" as never]: "3",
           }}
         >
@@ -866,10 +818,9 @@ function FrostBorderSection() {
         <div
           className="frost-border inline-flex h-10 items-center rounded-full bg-[rgb(var(--gray-50))] px-4 text-gray-950"
           style={{
-            // SAFETY: CSS custom properties are valid style keys at runtime;
-            // React's CSSProperties type just omits them.
+            // SAFETY: CSS custom properties are valid style keys; CSSProperties omits them.
             ["--frost-strength" as never]: "1",
-            // SAFETY: same custom-property omission as `--frost-strength` above.
+            // SAFETY: as above.
             ["--frost-border-strength" as never]: "0.3",
           }}
         >
@@ -886,9 +837,7 @@ function FrostBorderSection() {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Command palette                                                             */
-/* -------------------------------------------------------------------------- */
+// Command palette
 
 function CommandPaletteSection() {
   const [open, setOpen] = useState(false);
@@ -1010,9 +959,7 @@ function CommandPaletteSection() {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Typography                                                                  */
-/* -------------------------------------------------------------------------- */
+// Typography
 
 function TypographySection() {
   return (
@@ -1048,10 +995,7 @@ function TypographySection() {
   );
 }
 
-/* ========================================================================== */
-/* App half — landing-grammar primitives. Wrap in LandingBackground so   */
-/* every preview reads on the new #0a0a0a canvas with its faint grid.         */
-/* ========================================================================== */
+// App half: landing primitives on the landing canvas.
 
 function AppHalf() {
   return (
@@ -1083,11 +1027,7 @@ function AppHalf() {
   );
 }
 
-/**
- * Shared canvas wrapper for app-half previews — matches the actual
- * landing background (#0a0a0a + 80px grid + Open Runde) so primitives like
- * FrostButton read identically to the production page.
- */
+/** The landing background (#0a0a0a, 80px grid, Open Runde), so previews match production. */
 function AppCanvas({
   children,
   className,
@@ -1321,8 +1261,7 @@ function TopAnnouncementSection() {
     >
       <AppCanvas>
         <div className="relative flex flex-col items-center gap-4">
-          {/* Inline simulation — strip the `fixed` positioning so the pill
-              renders within the styleguide column. */}
+          {/* Without the `fixed` positioning, so it stays in the column. */}
           <button
             type="button"
             className={cn(
@@ -1365,9 +1304,7 @@ function FloatingPillNavSection() {
     >
       <AppCanvas>
         <div className="flex items-center justify-center py-8">
-          {/* Inline simulation — mirrors FloatingPillNav's structure but
-              strips the fixed positioning that would otherwise pin it to
-              the viewport across both halves of the styleguide. */}
+          {/* FloatingPillNav's structure without `fixed`, so it stays in the column. */}
           <nav
             aria-label="Primary"
             className={cn(
@@ -1721,11 +1658,7 @@ function LandingFooterPreview() {
   );
 }
 
-/* ========================================================================== */
-/* V2 half — the app-grammar primitives that power the authenticated app      */
-/* (components/ui/v2 + the chat approval tray). Every preview renders twice,  */
-/* once per forced theme, so light/dark regressions are visible side by side. */
-/* ========================================================================== */
+// V2 half: app primitives, each rendered in forced light and forced dark.
 
 function V2Half() {
   return (

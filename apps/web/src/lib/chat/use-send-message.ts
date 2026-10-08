@@ -24,26 +24,14 @@ export type SendMessage = (
   text: string,
   tier?: ChatModelTier,
   files?: File[],
-  /**
-   * Faithful retry (ADR-0065): source attachment ids from the prior user
-   * message to re-attach. The bytes are already in the bucket, so the client
-   * uploads nothing — the turn endpoint copies them under the new message's
-   * keys. Mutually exclusive with `files` in practice (retry carries no fresh
-   * picks).
-   */
+  /** Retry (ADR-0065): the server copies these stored attachments, so nothing uploads. */
   retryAttachmentIds?: string[],
   retryAttachmentMessageId?: string,
-  /** Structured target selected by the artifact sidebar; never parsed from prose. */
+  /** Chosen in the artifact sidebar; never parsed from prose. */
   artifactTargetId?: string,
 ) => Promise<SendResult>;
 
-/**
- * The start just stages the message + enqueues the run (the reply streams back
- * over SSE), so it should ack in well under a second. Bound it anyway: without
- * a signal a wedged connection leaves the optimistic UI waiting on the
- * browser's default network timeout (minutes), with no error toast. Mirrors the
- * transcription path in `turn-controls.ts`.
- */
+/** The start acks fast; without a bound, a wedged connection waits minutes with no toast. */
 const TURN_START_TIMEOUT_MS = 30_000;
 
 function safeRandomId(): string {
@@ -54,10 +42,8 @@ function safeRandomId(): string {
 }
 
 /**
- * Send a chat turn. Uploads any files, starts the agent over
- * `POST /api/chat/threads/:id/turn` (which durably upserts the user message),
- * then mirrors the accepted turn into Replicache for immediate local display.
- * The agent's reply streams back over SSE (see `useChatStream`).
+ * Upload files, start the turn over `POST /api/chat/threads/:id/turn`, then mirror
+ * it into Replicache for instant display. The reply streams over SSE.
  */
 export function useSendMessage(): SendMessage {
   const rep = useReplicache();
@@ -97,11 +83,8 @@ export function useSendMessage(): SendMessage {
       const now = new Date().toISOString();
       markChatSubmit({ threadId: tid, userMessageId, contentChars: content.length });
 
-      // Upload the bytes to the bucket before staging the message. The durable
-      // transcript stores object keys; the worker signs fresh read URLs from
-      // those keys when a model step starts, so the object must exist before the
-      // run is enqueued. A per-file failure drops just that file (toast); the rest
-      // of the turn still goes through. (ADR-0065)
+      // Upload first: the worker signs URLs from the object keys (ADR-0065).
+      // A failed file is dropped with a toast; the rest of the turn goes on.
       let uploaded: ChatAttachmentDescriptor[] = [];
 
       if (pickedFiles.length > 0) {
@@ -126,7 +109,7 @@ export function useSendMessage(): SendMessage {
         uploaded = uploadResults.filter((a): a is ChatAttachmentDescriptor => a !== null);
         uploaded = uploaded.map((a, position) => ({ ...a, position }));
 
-        // Every file failed and there's no text or re-attached file — nothing to send.
+        // Every file failed and nothing else is left to send.
         if (
           isEmptyChatTurnInput({
             content,
@@ -152,8 +135,6 @@ export function useSendMessage(): SendMessage {
             content,
             tier: tier ?? "standard",
             attachments: uploaded.length > 0 ? uploaded : undefined,
-            // Faithful retry: the server copies these source objects under the
-            // new message's keys and writes the rows (which sync back via pull).
             retryAttachmentIds: retryIds.length > 0 ? retryIds : undefined,
             retryAttachmentMessageId:
               retryIds.length > 0 && retryAttachmentMessageId
@@ -182,10 +163,7 @@ export function useSendMessage(): SendMessage {
 
         if (payload.success) {
           if (payload.data.outcome === "busy") {
-            // The thread already has a turn in flight (#488). No run was created
-            // for this message. The caller decides whether to keep the message
-            // queued for a retry once the in-flight reply finishes; don't surface
-            // it as a failure toast here.
+            // Another turn is in flight, so no run started. The caller decides whether to queue it.
             markChatTimingByUser(
               userMessageId,
               "turn_request_thread_busy",
@@ -232,10 +210,7 @@ export function useSendMessage(): SendMessage {
             createdAt: now,
           });
 
-          // Local display patch only: the HTTP route has already verified the
-          // bucket object and inserted the canonical attachment rows. Replicache
-          // serializes write mutations internally, so preserve explicit order
-          // instead of presenting this as concurrent work.
+          // Display only; the server already wrote the real rows. Replicache runs mutations in order.
           for (const attachment of uploaded) {
             await rep.mutate.chatAttachmentCreate({
               id: attachment.id,
@@ -268,10 +243,7 @@ export function useSendMessage(): SendMessage {
         return { ok: false, reason: "error" } satisfies SendResult;
       }
 
-      // Success path: the payload already validated the ids; fall back to a
-      // minimal shape when the ack was unparseable but the turn still durably
-      // succeeded (Replicache mirror above already staged it). This masks a
-      // contract violation — log it so the server fix is not hidden.
+      // An unparseable 2xx ack is a contract break, but the turn did start. Log it and fall back.
       if (successPayload) {
         return {
           ok: true,

@@ -6,28 +6,16 @@ import {
   SUPPORTED_FILE_TYPES,
 } from "@alfred/contracts";
 
-/**
- * Chat attachment upload (ADR-0065). Phase 1 is images only: the composer
- * validates a picked file against the shared ingest policy, then — at send time
- * — posts the bytes to the same-origin API, which relays them to the private
- * bucket. At turn time the server verifies the stored object before recording a
- * ready row. Validation here mirrors the server's `assertUploadAllowed` so the
- * user gets an instant, friendly rejection.
- */
+/** Chat attachment upload (ADR-0065). Validation mirrors the server's `assertUploadAllowed`. */
 
-/** MIME types the composer accepts today — images and PDFs. */
+/** Images and PDFs today. */
 const ACCEPTED_MIME_TYPES = SUPPORTED_FILE_TYPES.filter(isChatUploadAllowed);
 
-/** `accept` attribute for the file input. */
 export const ACCEPT_ATTR = ACCEPTED_MIME_TYPES.join(",");
 
 const ATTACHMENT_UPLOAD_TIMEOUT_MS = 60_000;
 
-/**
- * Validate a picked file against the ingest policy. Returns an error message to
- * show the user, or `null` when the file is accepted. Phase 1 accepts only
- * model-readable images and PDFs; other types are rejected with a "coming soon" note.
- */
+/** An error message for the user, or `null` when the file is accepted. */
 export function validateFile(file: File): string | null {
   const policy = classifyUpload(file.type);
 
@@ -49,17 +37,8 @@ export function validateFile(file: File): string | null {
 }
 
 /**
- * Upload one file's bytes through the server (ADR-0065). Returns the descriptor
- * to attach to the turn, or throws on failure (the caller toasts and drops just
- * that file). `id` is the client-minted attachment id; it must be the same one
- * passed to the turn so the server rebuilds the matching storage key.
- *
- * We post the bytes to our own API (multipart, same-origin/CORS-cleared) rather
- * than PUT/POST direct-to-bucket: Railway's storage provider serves no CORS
- * `Access-Control-Allow-Origin` header, so a browser→bucket upload is blocked.
- * The server relays the bytes to the bucket (see the `/attachments/upload`
- * route). The presigned-`/sign` route stays available for a future
- * CORS-capable provider.
+ * Upload through our API, not direct to the bucket: Railway's storage sends no CORS headers.
+ * Pass the same `id` to the turn so the server rebuilds the storage key. Throws on failure.
  */
 export async function uploadAttachment(opts: {
   threadId: string;
@@ -74,10 +53,10 @@ export async function uploadAttachment(opts: {
   form.append("attachmentId", id);
   form.append("name", file.name);
   form.append("mime", file.type);
-  // Append the bytes last so the multipart parser has the metadata fields first.
+  // Bytes last, so the parser reads the metadata first.
   form.append("file", file, file.name);
 
-  // No explicit Content-Type — the browser sets the multipart boundary.
+  // No Content-Type: the browser sets the multipart boundary.
   const res = await fetch(`${API_URL}/api/chat/attachments/upload`, {
     method: "POST",
     credentials: "include",

@@ -1,34 +1,11 @@
 import { z } from "zod";
 import { enumGuard } from "./guards";
 
-/**
- * Browser-safe contracts for the settings → Usage dashboard. The web bundle
- * reads these to render per-run cost/token spend without importing `@alfred/db`
- * or `@alfred/ai`. The server aggregates `api_call_log` (per-call cost log, one
- * row per billable external request) grouped by `run_id`, joined to
- * `agent_runs` to recover each run's category.
- *
- * Alfred has no billing/credits abstraction — this surface reports raw *cost*
- * (USD, snapshot at write time) and *tokens*, not a paid-plan quota.
- */
+/** Settings > Usage dashboard. The server groups `api_call_log` by `run_id`; cost is USD at write time. */
 
 /**
- * Coarse run category, derived server-side from `agent_runs.workflow_slug`
- * (+ `trigger.kind`). It is the stable filter/color key; the human-readable
- * `label` on a run may be finer (e.g. "Morning briefing" vs "Evening briefing",
- * or a specific skill/workflow name) than the category bucket.
- *
- *   - `chat`          — a boss chat turn (`__chat-turn__`).
- *   - `briefing`      — morning or evening daily briefing (`daily-briefing`).
- *   - `triage`        — email triage run (`email-triage`).
- *   - `reply_drafting` — a reply-drafting run (`reply-drafting`, ADR-0098).
- *   - `cold_start`    — cold-start onboarding research.
- *   - `skill`         — a skill run (learn-skill / skill-documentation).
- *   - `memory`        — memory extraction / chat-memory capture.
- *   - `sub_agent`     — a spawned sub-agent brief (billed on its own run).
- *   - `workflow`      — a user-authored workflow run.
- *   - `uncategorized` — calls with no `run_id` (ad-hoc probes, cold-start
- *                       research fragments) or an unrecognized slug.
+ * Run category, derived on the server from `agent_runs.workflow_slug`. A run `label` can be finer.
+ * `uncategorized` covers calls with no `run_id` and unknown slugs.
  */
 export const USAGE_RUN_CATEGORIES = [
   "chat",
@@ -57,18 +34,14 @@ export const usageModelBreakdownSchema = z.object({
 
 export type UsageModelBreakdown = z.infer<typeof usageModelBreakdownSchema>;
 
-/**
- * Period totals for the overview strip. `periodStart`/`periodEnd` are ISO
- * instants bounding the queried window (`end` exclusive), echoed back so the
- * client can label the range it actually got.
- */
+/** Period totals. `periodStart` and `periodEnd` echo the queried window (end exclusive). */
 export const usageSummarySchema = z.object({
   costUsd: z.number().nonnegative(),
   inputTokens: z.number().int().nonnegative(),
   outputTokens: z.number().int().nonnegative(),
   cachedInputTokens: z.number().int().nonnegative(),
   calls: z.number().int().nonnegative(),
-  /** Distinct billed agent runs in the window (rows with a `run_id`). */
+  /** Distinct runs with a `run_id`. */
   runs: z.number().int().nonnegative(),
   periodStart: z.string(),
   periodEnd: z.string(),
@@ -76,7 +49,7 @@ export const usageSummarySchema = z.object({
 
 export type UsageSummary = z.infer<typeof usageSummarySchema>;
 
-/** Per-category rollup card. `tokens` = input + output (cache-inclusive input). */
+/** `tokens` is input plus output; input includes cached tokens. */
 export const usageCategoryBreakdownSchema = z.object({
   category: usageRunCategorySchema,
   costUsd: z.number().nonnegative(),
@@ -93,11 +66,7 @@ export const usageBreakdownSchema = z.object({
 
 export type UsageBreakdown = z.infer<typeof usageBreakdownSchema>;
 
-/**
- * One row in the activity table: a single agent run, folded from its
- * `api_call_log` rows. `label` is the display name (category-derived, possibly
- * finer than `category`); `models` lists which providers/models served it.
- */
+/** One agent run, folded from its `api_call_log` rows. */
 export const usageActivityRunSchema = z.object({
   runId: z.string(),
   createdAt: z.string(),
@@ -123,7 +92,7 @@ export const usageActivityResultSchema = z.object({
 
 export type UsageActivityResult = z.infer<typeof usageActivityResultSchema>;
 
-/** The only server-sortable activity column. Everything else sorts by recency. */
+/** Server-sortable activity columns. */
 export const usageSortFieldValues = ["createdAt", "costUsd"] as const;
 
 export type UsageSortField = (typeof usageSortFieldValues)[number];
@@ -132,7 +101,6 @@ export const usageSortDirValues = ["asc", "desc"] as const;
 
 export type UsageSortDir = (typeof usageSortDirValues)[number];
 
-/** Pagination + filter/sort bounds shared by the route validator and client. */
 export const USAGE_ACTIVITY_MAX_PAGE_SIZE = 100;
 
 export const USAGE_ACTIVITY_DEFAULT_PAGE_SIZE = 20;
