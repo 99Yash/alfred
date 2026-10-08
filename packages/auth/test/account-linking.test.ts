@@ -6,31 +6,14 @@ import { fileURLToPath } from "node:url";
 import { ensureAuthTestEnv } from "./support/env";
 
 /**
- * Coverage for CVE-2026-53516 (#455).
- *
- * The bug was in Better Auth's OAuth callback, so no Alfred code path can
- * reproduce it. The fix is the version floor, and the floor is what a later
- * relock or a careless catalog edit can silently undo, so it is asserted in two
- * independent places:
- *
- *   1. every `better-auth` the lockfile resolves is at or above the fix, and
- *   2. the catalog range cannot admit a version below it.
- *
- * The lockfile case alone would pass the moment someone relocks against a
- * loosened range; the catalog case alone would pass a lockfile that still holds
- * a stale vulnerable copy.
- *
- * There is also one configuration case, and it is a *negative* one: the fix
- * defaults `requireLocalEmailVerified` to true, so Alfred asserts it is never
- * set to `false` rather than asserting some flag is set to `true`. Alfred
- * deliberately configures no `accountLinking` block at all — see
- * `packages/auth/src/index.ts` for why `disableImplicitLinking` was dropped.
+ * CVE-2026-53516 lives in Better Auth, so the fix is a version floor. Pin it twice:
+ * every lockfile resolution, and the catalog range. Either alone misses a case.
+ * Also assert `requireLocalEmailVerified` is never `false`.
  */
 
 /** The first release that checks the *local* account's `emailVerified`. */
 const FIXED_VERSION = [1, 6, 11] as const;
 
-/** `packages/auth/test` -> repo root. */
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 
 function parseVersion(raw: string): [number, number, number] {
@@ -57,10 +40,7 @@ function isAtLeast(actual: readonly number[], floor: readonly number[]): boolean
 
 describe("account linking (CVE-2026-53516)", () => {
   test("every better-auth the lockfile resolves is at or above the fix", () => {
-    // The lockfile, not `node_modules`, is what CI installs, and `better-auth`
-    // is not a dependency of this package so it cannot be imported here. Read
-    // every resolution rather than one: a second, older copy reachable through
-    // some other dependency is the failure this case exists to catch.
+    // Check every resolution: an older copy through another dependency is the failure.
     const lock = readFileSync(join(REPO_ROOT, "pnpm-lock.yaml"), "utf8");
 
     const found = [...lock.matchAll(/^ {2}better-auth@(\d+\.\d+\.\d+[^(:\s]*)/gm)].map(
@@ -78,10 +58,7 @@ describe("account linking (CVE-2026-53516)", () => {
   });
 
   test("the catalog floor cannot admit a vulnerable release", () => {
-    // The lockfile case above passes the moment someone relocks; this one is
-    // what stops the relock from choosing a vulnerable version in the first
-    // place. Only a caret range is accepted, because `~1.6.11` or `>=1.3.28`
-    // would satisfy a naive floor check while still resolving below the fix.
+    // Caret only: `~1.6.11` or `>=1.3.28` pass a naive floor check yet can resolve below the fix.
     const workspace = readFileSync(join(REPO_ROOT, "pnpm-workspace.yaml"), "utf8");
     const declared = /^ {2}better-auth: \^(\d+\.\d+\.\d+)$/m.exec(workspace)?.[1];
     assert.ok(declared, "pnpm-workspace.yaml must declare better-auth as a caret range");
@@ -94,9 +71,7 @@ describe("account linking (CVE-2026-53516)", () => {
   test("auth() does not weaken the local-email-verified check", async () => {
     ensureAuthTestEnv();
     const { auth } = await import("../src/index");
-    // The fix defaults this to `true`. Setting it to `false` would restore the
-    // vulnerable comparison even on a patched release, so the only acceptable
-    // states are "absent" and "true".
+    // `false` restores the bug even on a patched release.
     const linking = auth().options.account?.accountLinking;
     assert.notEqual(linking?.requireLocalEmailVerified, false);
   });

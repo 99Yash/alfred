@@ -16,26 +16,9 @@ import { closeRedis } from "@alfred/db/redis";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
- * Characterization of the *relationship* between the briefing's two reads of
- * the same mailbox (campaign arch-20260727 item 06). Today the pipeline pays
- * for `gatherBriefingWithSuppressionAudit`, persists its payload for the
- * surface, and then composes with an agent that re-reads the window through
- * `listEmailsSinceWatermark` and applies standing-instruction suppression a
- * second time.
- *
- * Each path is already tested alone (`suppression-gather.test.ts`,
- * `read-suppression.test.ts`). What nothing pinned is how they line up — which
- * is exactly what item 06 collapses to one read. So this file pins:
- *
- *   1. both paths drop the same instruction-suppressed sender,
- *   2. the gather's audit array reports that drop with a real fact id,
- *   3. the two paths deliberately DISAGREE on non-priority mail: `gather`
- *      carries only the six priority categories, while the agent's list
- *      carries every gmail document in the window, triaged or not.
- *
- * (3) is the load-bearing one: seeding the gather to the agent without
- * accounting for it would silently strip `fyi`/newsletter/untriaged mail out of
- * the composer's view.
+ * How `gatherBriefingWithSuppressionAudit` and `listEmailsSinceWatermark` line up on one mailbox.
+ * Both drop the same suppressed sender. They differ on non-priority mail: `gather` keeps
+ * only priority categories, so feeding it to the composer would hide fyi and untriaged mail.
  */
 
 const SKIP = dbBackedSkip("database");
@@ -69,7 +52,7 @@ async function seedEmail(args: {
   userId: string;
   from: string;
   subject: string;
-  /** Omit to seed an untriaged document — the left-join miss the read path tolerates. */
+  /** Omit to seed an untriaged document. */
   category?: TriageCategory;
   ingestedAt?: Date;
 }): Promise<string> {
@@ -191,7 +174,7 @@ describe("briefing gather ↔ agent-read parity (DB-backed)", { skip: SKIP }, ()
     assert.deepEqual(gatheredDocIds(gather), new Set([keptDocId]));
     assert.deepEqual(readIds, new Set([keptDocId]));
 
-    // …and the gather side reports the drop as an auditable fact.
+    // The gather side reports the drop with a fact id.
     assert.equal(suppressedByInstruction.length, 1);
     const audit = suppressedByInstruction[0];
     assert.equal(audit?.documentId, suppressedDocId);
@@ -234,13 +217,10 @@ describe("briefing gather ↔ agent-read parity (DB-backed)", { skip: SKIP }, ()
     const gatherIds = gatheredDocIds((await gatherFor(userId)).gather);
     const readIds = new Set((await readFor(userId)).map((e) => e.documentId));
 
-    // `gather` keeps only the six priority buckets.
     assert.deepEqual(gatherIds, new Set([priorityDocId]));
-    // The agent's list is every gmail document in the window, triaged or not.
     assert.deepEqual(readIds, new Set([priorityDocId, fyiDocId, newsletterDocId, untriagedDocId]));
 
-    // The read is a strict superset today. Any reseat of the composer onto the
-    // gather has to decide what happens to this difference.
+    // The read is a strict superset of the gather.
     for (const id of gatherIds) assert.ok(readIds.has(id), `${id} missing from the read path`);
   });
 
@@ -278,9 +258,7 @@ describe("briefing gather ↔ agent-read parity (DB-backed)", { skip: SKIP }, ()
       ingestedAt: new Date(WINDOW_END.getTime() + 1000),
     });
 
-    // Both bounds are inclusive on the gather side; the read path's lower bound
-    // is exclusive, which the `READ_SINCE` offset compensates for. Callers that
-    // pass the previous run's watermark verbatim get a half-open window instead.
+    // The read path's lower bound is exclusive; `READ_SINCE` offsets it.
     assert.deepEqual(gatheredDocIds((await gatherFor(userId)).gather), new Set([atStart, atEnd]));
     assert.deepEqual(
       new Set((await readFor(userId)).map((e) => e.documentId)),

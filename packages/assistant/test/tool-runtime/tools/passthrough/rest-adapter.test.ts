@@ -9,11 +9,8 @@ import {
 import { runRestPassthrough } from "../../../../src/tool-runtime/internal/tools/passthrough";
 
 /**
- * The shared REST passthrough adapter composes the whole security boundary for a
- * raw REST read: gate (method/path proven a read) → pinned-authority transport →
- * honest envelope. Transport is mocked at `globalThis.fetch` (the one primitive
- * `restPassthroughFetch` uses), so every outcome is asserted without a real
- * provider. The adapter must NEVER throw — every path returns a PassthroughResult.
+ * The REST passthrough adapter: read gate, pinned-authority transport, envelope.
+ * `globalThis.fetch` is mocked. The adapter must never throw.
  */
 
 interface FetchCapture {
@@ -150,8 +147,7 @@ describe("runRestPassthrough — HTTP envelope", () => {
   });
 
   test("a pinned fixedQuery (Vercel teamId) cannot be overridden by the model's own query", async () => {
-    // Threat model: an injected `query.teamId` must not repoint the request at
-    // another team. The profile's authority parameter wins.
+    // An injected `query.teamId` must not point the request at another team.
     const result = await withMockedFetch(
       (capture) => {
         assert.equal(
@@ -299,10 +295,8 @@ describe("runRestPassthrough — failure classification (never throws)", () => {
   });
 
   test("a URL that escapes the pinned namespace is a fail-closed invalid_path rejection", async () => {
-    // A namespace-relative path cannot escape (the gate hardens `..`, encoded
-    // slashes, etc.), so force the transport's defense-in-depth check by pinning
-    // a namespaced base and a path that lands outside it. `/v2/...` is outside
-    // Notion's `/v1` namespace once resolved.
+    // The gate already blocks `..`, so this forces the transport's own check: `/v2` is outside
+    // Notion's `/v1`.
     let fetched = false;
 
     const escaping: RestPassthroughProfile = {
@@ -323,7 +317,6 @@ describe("runRestPassthrough — failure classification (never throws)", () => {
         ),
     );
 
-    // The gate rejects `..` first — the request never reaches the transport.
     assert.equal(fetched, false);
     assert.equal(result.outcome, "rejected");
 

@@ -13,13 +13,8 @@ import type { PdfExtractionLimits } from "../src/constants";
 const CHILD_ENTRY = new URL("./support/extract-pdf-process-child.ts", import.meta.url);
 
 /**
- * The deadline clock starts at spawn, and a cold `tsx` child needs a few
- * hundred milliseconds to boot. So a default deadline in that same range makes
- * every case that asserts a CHILD-produced outcome race its own clock, and the
- * race is silent in the direction that reads as success: the deadline wins,
- * `extractPdf` RESOLVES with a `parse_milliseconds` limit, and the expected
- * rejection simply never arrives. The default is therefore out of reach, and
- * each case that needs the deadline to fire names its own value below.
+ * A cold `tsx` child takes a few hundred ms to boot, and the deadline starts at spawn.
+ * A near default would let the deadline silently beat child outcomes, so cases set their own.
  */
 const BASE_LIMITS: PdfExtractionLimits = {
   maxBytes: 1_000,
@@ -27,34 +22,19 @@ const BASE_LIMITS: PdfExtractionLimits = {
   maxParseMilliseconds: 10_000,
 };
 
-/**
- * How long a `*_late_close` child holds the inherited stdout open after its own
- * exit. The parent settles on `close` and on nothing else, so this is the delay
- * each late-close case is measured against. The child reads it from the
- * environment; see `holdInheritedPipes` in the child fixture.
- */
+/** How long a `*_late_close` child holds stdout open after exit. The parent settles only on `close`. */
 const PIPE_HOLD_MILLISECONDS = 5_000;
 
 /**
- * The deadline for a case where the child records a terminal cause of its own
- * and the held-open pipe then delays `close`. Two bounds, both load-bearing:
- * ABOVE child startup, so the child's cause lands first and survives, and BELOW
- * {@link PIPE_HOLD_MILLISECONDS}, because the deadline is what destroys the
- * streams and lets `close` arrive at all.
+ * Above child startup, so the child's own cause lands first.
+ * Below {@link PIPE_HOLD_MILLISECONDS}, because the deadline destroys the streams so `close` fires.
  */
 const DEADLINE_INSIDE_PIPE_HOLD_MILLISECONDS = 1_200;
 
-/**
- * The deadline for a case whose child never produces a usable reply, so the
- * deadline is the only outcome available however slowly the child boots.
- */
+/** For a child with no usable reply, so the deadline always wins. */
 const DEADLINE_ALWAYS_WINS_MILLISECONDS = 300;
 
-/**
- * Settling this early proves the parent did not sit and wait for the held-open
- * pipe. The margin against {@link PIPE_HOLD_MILLISECONDS} is what makes the
- * claim survive a loaded machine.
- */
+/** Settling before this proves the parent did not wait out {@link PIPE_HOLD_MILLISECONDS}. */
 const SETTLED_WITHOUT_THE_PIPE_HOLD_MILLISECONDS = 3_000;
 
 function testExtractor(
@@ -294,9 +274,7 @@ test("malformed output wins when a code-zero child's inherited pipes cross the d
 
   await assert.rejects(
     extractPdf(new Uint8Array([1])),
-    // The malformed REPLY must be the cause. `instanceof PdfExtractionError`
-    // alone cannot tell this apart from a child that died for any other reason,
-    // which is how the case stays green even when the fixture never held a pipe.
+    // Pin the cause: `instanceof` alone passes even when the fixture never held a pipe.
     (error: unknown) =>
       error instanceof PdfExtractionError &&
       error.cause instanceof Error &&

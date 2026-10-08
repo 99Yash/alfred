@@ -28,12 +28,8 @@ import {
 } from "../../../src/runtime/adapters/system-tool-context-search";
 
 /**
- * Behavioral coverage for the model-facing `system.search_context` tool (#426):
- * its registration and bounded schema, the typed `SystemToolContextSearchAdapter`
- * seam running the real boundary and packer against a fixture source, and one
- * real tool-call round that reads the `{status:"executed", result}` wrapper the
- * chat turn hands the model. A fake source keeps the test off the database while
- * still exercising tool -> seam -> `searchContext` -> `packEvidenceCards`.
+ * `system.search_context` end to end over a fake source: tool, seam, `searchContext`,
+ * `packEvidenceCards`.
  */
 
 const SOURCE_ID = "test:search-context";
@@ -69,7 +65,7 @@ function evidenceCard(snippet: string): EvidenceCard {
   };
 }
 
-/** The exact parsed request `tool.execute` forwards to the seam. */
+/** The parsed request `tool.execute` forwards to the seam. */
 function seamRequest(query: string): SystemToolRequest<"system.search_context"> {
   return {
     input: { query, limit: CONTEXT_SEARCH_DEFAULT_LIMIT },
@@ -115,8 +111,6 @@ describe("system.search_context", () => {
     const tool = getTool("system.search_context");
     assert.ok(tool);
 
-    // Unknown keys are refused, so a stray envelope field bounces before any
-    // source runs rather than being silently ignored.
     assert.equal(
       tool.modelInputSchema.safeParse({ query: "anything", userId: "user_1" }).success,
       false,
@@ -163,8 +157,7 @@ describe("system.search_context", () => {
 
     assert.equal(result.ok, true);
     assert.equal(result.includedCount, 0);
-    // An empty source is reported by name, not swallowed — the model learns the
-    // read happened and found nothing rather than seeing a bare "no results".
+    // The model must learn the read ran and found nothing.
     assert.match(result.text, /no evidence found/);
   });
 
@@ -230,8 +223,7 @@ describe("system.search_context", () => {
       assert.equal(part.type, "tool-result");
       assert.equal(part.toolName, "system.search_context");
 
-      // The wrapper the chat turn actually persists: `{status:"executed", result}`
-      // with the packed result bounded inside it.
+      // The wrapper the chat turn persists.
       assert.ok(isRecord(part.output));
       assert.equal(part.output.type, "json");
       assert.ok(isRecord(part.output.value));

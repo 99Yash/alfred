@@ -21,18 +21,11 @@ import {
 } from "../../../src/tool-runtime/internal/registry";
 
 /**
- * Regression coverage for the run-local tool surface + persisted-state
- * migration (#405/#411/#412). The load-bearing property: a run checkpointed
- * before a deploy — whose active or pending set may still name a tool that has
- * since been retired (here `system.load_integration`, dropped when
- * integration-level loading was replaced by exact `system.load_tool`) —
- * migrates forward gracefully by DROPPING the unknown name rather than carrying
- * a dangling tool the dispatcher can no longer resolve.
+ * A run checkpointed before a deploy may name a retired tool. Migration must drop
+ * the unknown name, not carry a tool the dispatcher cannot resolve.
  */
 
-// A plausibly-persisted name that is no longer a registered tool: not present in
-// INTEGRATION_ACTIONS['system'], so `isToolName` rejects it before the registry
-// lookup even runs.
+// Not in INTEGRATION_ACTIONS, so `isToolName` rejects it before the registry lookup.
 const RETIRED_TOOL = "system.load_integration";
 
 before(() => {
@@ -62,9 +55,8 @@ describe("systemToolKernel", () => {
   });
 
   test("every system tool named by the composed chat prompt is eager or intentionally lazy", () => {
-    // Artifact mutation schemas are intentionally the largest system tools, so
-    // they stay lazy even when the prompt explains the artifact workflow. Any
-    // other newly named system tool must be promoted or deliberately added here.
+    // The artifact schemas are the largest, so they stay lazy. Add any other exception here on
+    // purpose.
     const intentionallyLazy = new Set<ToolName>([
       "system.create_artifact",
       "system.append_artifact_page",
@@ -72,8 +64,6 @@ describe("systemToolKernel", () => {
       "system.update_artifact",
     ]);
 
-    // The artifact edit rules are inlined by the builder (#896), so this reads
-    // the production constant, not a hand-written stand-in.
     const prompt = buildChatSystemPrompt("Thursday, July 16, 2026", "", "");
     const namedSystemTools = new Set(prompt.match(/\bsystem\.[a-z_]+\b/g) ?? []);
     const kernel = new Set<string>(systemToolKernel());
@@ -93,11 +83,8 @@ describe("systemToolKernel", () => {
 });
 
 describe("buildSdkToolSet caller/interaction projection", () => {
-  // The kernel is one set of names; what actually reaches the model is filtered
-  // by caller (boss vs sub_agent) and whether the run has a thread. The ladder
-  // tools (search_tools/load_tool) must survive EVERY projection — they are the
-  // only route to any non-preloaded capability, so a caller that lost them
-  // could never climb to a tool it needs.
+  // search_tools and load_tool must survive every projection: they are the only way to reach a
+  // lazy tool.
   const kernelNames = () => listKernelTools().map((t) => t.name);
 
   test("live chat boss projects all ten kernel tools", () => {
@@ -143,17 +130,12 @@ describe("buildSdkToolSet caller/interaction projection", () => {
 });
 
 describe("preloadToolCatalog against the real registry", () => {
-  // Path B (deterministic preload) vs path C (the model must climb the ladder).
-  // discovery.test.ts covers the mechanics with mock tools; this pins them
-  // against the REAL github discovery metadata, where the nuance bites:
-  // `github.search`'s entity phrase is the singular "pull request", so a
-  // word-boundary match on the plural "pull requests" misses it and the ask
+  // Path B preloads a tool. Path C leaves the model to search and load. Uses real github metadata.
   interface GitHubAccess {
     access: ToolCatalogAccess;
     kernelNames: ToolName[];
   }
 
-  // falls through to the ladder rather than preloading.
   const githubAccess = (): GitHubAccess => {
     const kernelNames = listKernelTools().map((t) => t.name);
     const githubNames = listToolsForIntegration("github").map((t) => t.name);

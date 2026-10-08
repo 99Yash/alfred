@@ -53,11 +53,8 @@ describe("buildThreadSnippet", () => {
   });
 });
 
-// The per-message closure test (ADR-0050 same-thread retraction). `todoSuppressionReason`
-// only branches on this boolean, and the whole-thread read has no local harness,
-// so the P0 inversion is locked here: on the reply re-eval the user's send is
-// newer than the message under classification, but on the NEXT inbound it is
-// older — and only the first may suppress the mint.
+// Same-thread retraction (ADR-0050). A user reply newer than the message may suppress the
+// todo; a reply older than the next inbound must not.
 describe("userRepliedAfterMessage", () => {
   const inboundAt = new Date("2026-09-18T07:36:00Z");
   const replyAt = new Date("2026-09-18T07:48:00Z");

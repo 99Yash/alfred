@@ -34,7 +34,7 @@ const inspectionTool: McpConnectionToolInspection = {
     name: "create_issue",
     title: "Create issue",
     description: "Create a GitHub issue.",
-    // Untrusted nested field: must never be rendered as markup.
+    // Untrusted: never render as markup.
     inputSchema: { properties: { remoteSecret: "top-secret-value" } },
   },
 };
@@ -134,8 +134,7 @@ test("MCP catalog shows the inspection loading state before the descriptor arriv
   });
 
   assert.match(html, /Loading tool…/);
-  // The list stays visible while the exact descriptor loads; only the detail
-  // panel is replaced by the loading line.
+  // Only the detail panel shows the loading line; the list stays.
   assert.match(html, /create_issue/);
   assert.doesNotMatch(html, />Close<|>Back to tools</);
 });

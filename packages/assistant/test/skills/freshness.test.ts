@@ -22,9 +22,7 @@ const SKIP =
     ? "REDIS_URL set - local poke assertions require the in-process bridge"
     : false);
 
-// The prefix-only throw path needs a DB row absence, not the in-process poke
-// bridge, so it runs whether or not REDIS_URL is set — a strictly weaker gate
-// than SKIP above.
+// The throw path needs no poke bridge, so it runs with or without REDIS_URL.
 const SKIP_DB = dbBackedSkip("database");
 
 const createdUserIds: string[] = [];
@@ -104,10 +102,7 @@ describe("skill Replicache freshness (DB-backed)", { skip: SKIP }, () => {
 });
 
 describe("skill-revisions persistence error prefix (DB-backed)", { skip: SKIP_DB }, () => {
-  // `skill-revisions` is a phase-neutral persistence leaf called by both the
-  // `distilled` (learn-skill) and `documented` (skill-documentation) consumers.
-  // Its thrown errors must name the module owner, never one consumer, so a
-  // `documented` failure is not mis-triaged to the learn phase.
+  // Two phases call `skill-revisions`, so its errors name the module, not one phase.
   test("skill-not-found throw names the module owner, not a consumer phase", async () => {
     await assert.rejects(
       commitSkillRevision({
@@ -128,9 +123,7 @@ describe("skill-revisions persistence error prefix (DB-backed)", { skip: SKIP_DB
   });
 });
 
-// Both suites share the lazily-created singleton `db()` pool. `closeConnections`
-// is not idempotent (`pool.end()` twice throws), so close it exactly once here,
-// after every suite in the process has run, rather than per-suite.
+// Close the shared pool once: `pool.end()` throws on a second call.
 after(async () => {
   await closeConnections();
 });

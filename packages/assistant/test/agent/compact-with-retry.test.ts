@@ -4,12 +4,7 @@ import { describe, test } from "node:test";
 import type { CompactTranscriptResult } from "@alfred/assistant/execution/run-compaction/compactor";
 import { compactWithRetry } from "@alfred/assistant/execution/run-compaction/compact-with-retry";
 
-/**
- * A compactor call is full-price, so the retry loop's cost bound is a behavior
- * worth pinning: it must never spend an attempt on a turn the user has stopped.
- * `abortSignal` is a required option for exactly this reason — these tests are
- * what "required" is buying.
- */
+/** A compactor call is full price. Never spend an attempt on a stopped turn. */
 describe("compactWithRetry cost bound", () => {
   const result: CompactTranscriptResult = {
     transcript: [{ role: "user", content: "compacted" }],
@@ -64,7 +59,7 @@ describe("compactWithRetry cost bound", () => {
         },
         {
           abortSignal: controller.signal,
-          // Stand in for the user hitting Stop while the loop is backing off.
+          // The user stops while the loop backs off.
           delayBeforeRetryMs: () => {
             controller.abort();
 

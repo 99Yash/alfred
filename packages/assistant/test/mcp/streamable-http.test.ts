@@ -223,8 +223,7 @@ test("McpRawClient negotiates, catalogs, and calls a real Streamable HTTP server
     auth: { mode: "none" },
     connectionId: "conn_http_test",
     endpoint: { endpointUrl: endpoint.href, endpointOrigin: endpoint.origin },
-    // Production supplies the hardened URL/SSRF authorizer. This explicit test
-    // policy is the only place loopback HTTP is admitted.
+    // Production uses the SSRF authorizer. Only this test policy admits loopback HTTP.
     endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(async (input, init) => {
       const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
 

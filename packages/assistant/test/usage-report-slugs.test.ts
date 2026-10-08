@@ -12,17 +12,8 @@ import { SKILL_DOCUMENTATION_WORKFLOW_SLUG } from "@alfred/assistant/skills/skil
 import { TRIAGE_WORKFLOW_SLUG } from "@alfred/assistant/triage/workflow-input";
 import { SLUG_CATEGORY } from "@alfred/assistant/execution/usage-report";
 
-/**
- * `SLUG_CATEGORY` (usage-report) hard-codes workflow slugs as literals rather
- * than importing the workflow modules that define them (those pull heavy
- * graphs). That decouples the read service, but it means a slug rename in a
- * workflow module leaves this map silently stale — misattributing that run's
- * cost. These tests are the drift guard: they re-couple the two at test time.
- */
+/** `SLUG_CATEGORY` hard-codes slugs to avoid heavy imports; this catches a rename that would misfile cost. */
 describe("SLUG_CATEGORY drift guard", () => {
-  // Each importable slug constant must still be a recognized key. If someone
-  // renames a workflow slug, the constant changes and this assertion fails
-  // instead of the run's cost quietly landing in the wrong (or no) bucket.
   const CONSTANT_SLUGS: Array<[string, string]> = [
     ["triage", TRIAGE_WORKFLOW_SLUG],
     ["cold_start", COLD_START_WORKFLOW_SLUG],
@@ -42,10 +33,7 @@ describe("SLUG_CATEGORY drift guard", () => {
     });
   }
 
-  // Pin the full key set so adding/removing/renaming any entry (including the
-  // three slugs defined as raw literals — `__chat-turn__`,
-  // `__chat-memory-capture__`, `memory-extraction` — that have no importable
-  // constant to check above) is a conscious, test-updating change.
+  // Pin the full key set, which covers slugs with no importable constant.
   test("map key set is unchanged", () => {
     assert.deepEqual(Object.keys(SLUG_CATEGORY).sort(), [
       "__chat-memory-capture__",

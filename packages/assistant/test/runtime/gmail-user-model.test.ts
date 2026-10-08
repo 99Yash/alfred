@@ -372,7 +372,7 @@ describe("Gmail user-model composition seam", () => {
   });
 
   test("propagates capture boot errors and failures; keeps refold results and failures retryable", async () => {
-    // A missing handler is a boot-wiring failure the integration seam must surface.
+    // A missing handler is a boot-wiring failure and must surface.
     await assert.rejects(
       () => captureGmailObservations({ userId: "user-1", documentIds: ["document-1"] }),
       NoGmailUserModelHandlerRegisteredError,
@@ -402,9 +402,7 @@ describe("Gmail user-model composition seam", () => {
     });
 
     try {
-      // The integration seam no longer swallows a capture failure — the
-      // best-effort swallow now lives at the trigger seam (see the
-      // gmail-ingested consumers test), so a raw capture error propagates here.
+      // The trigger seam swallows capture errors, not this one.
       await assert.rejects(
         () => captureGmailObservations({ userId: "user-1", documentIds: ["document-1"] }),
         captureFailure,

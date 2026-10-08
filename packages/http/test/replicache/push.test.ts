@@ -1,16 +1,9 @@
 /**
- * `handlePush` was driven by NO test in this repository until this file.
- *
- * The four sibling suites in this directory drive `handlePull` and the
- * `serverMutators` map directly, so none of them enters `push.ts`. That matters
- * because the push handler owns three behaviors that no mutator body can state
- * and no type can carry: the LMID advances even for a mutation it DROPS, an
- * already-applied mutation is inert on redelivery, and a `clientGroupID` bound
- * to another user is refused before any write.
- *
- * These are characterization tests. They pin what the handler does today, so a
- * later reshape of the mutator registry has something to be measured against.
+ * Characterization tests for `handlePush`, which no other suite enters. The handler owns
+ * three behaviors no mutator or type states: the LMID advances for a dropped mutation,
+ * a redelivered mutation is inert, and a `clientGroupID` bound to another user is refused.
  */
+
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
@@ -30,9 +23,7 @@ import { handlePush } from "../../src/sync/push";
 import { dbBackedSkip } from "../support/db-backed";
 import { applyServerEnvFixtures } from "../support/server-env";
 
-// The fixtures must land before the first `serverEnv()` call in a test body,
-// and `serverEnv()` memoizes. The plain form plants no service URL, so it
-// cannot hide an absent Postgres or Redis from the guard below.
+// `serverEnv()` memoizes, so seed first. The plain form plants no service URL.
 applyServerEnvFixtures();
 
 const SKIP = dbBackedSkip("database+redis");
@@ -51,7 +42,6 @@ async function seedUser(): Promise<string> {
   return userId;
 }
 
-/** The mutation shape the push body carries, with the fields a test varies. */
 interface RecordedMutation {
   id: number;
   clientID: string;
@@ -81,8 +71,7 @@ async function lastMutationId(clientID: string): Promise<number> {
 describe("handlePush LMID, replay and ownership (DB-backed)", { skip: SKIP }, () => {
   after(async () => {
     if (createdUserIds.length) {
-      // notes, chat_threads, replicache_client_group and replicache_client all
-      // cascade from user.
+      // Notes, chat threads, and Replicache client rows cascade from user.
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
 
@@ -93,10 +82,7 @@ describe("handlePush LMID, replay and ownership (DB-backed)", { skip: SKIP }, ()
   test("each dropped mutation still advances its own client's LMID and writes no row", async () => {
     const userId = await seedUser();
     const clientGroupID = `${ID_PREFIX}g-${randomUUID()}`;
-    // Each mutation the handler DROPS gets its own client, so its LMID advance
-    // is observable on its own. A single shared client would hide both drops:
-    // the last applied mutation raises the LMID past them either way, and the
-    // assertion would pass with both drop branches deleted.
+    // One client per dropped mutation: with a shared client, the last applied one hides both drops.
     const appliedClient = `${ID_PREFIX}c-applied-${randomUUID()}`;
     const unknownClient = `${ID_PREFIX}c-unknown-${randomUUID()}`;
     const invalidClient = `${ID_PREFIX}c-invalid-${randomUUID()}`;
@@ -104,9 +90,7 @@ describe("handlePush LMID, replay and ownership (DB-backed)", { skip: SKIP }, ()
     const lastNoteId = `${ID_PREFIX}n2-${randomUUID()}`;
     const droppedNoteId = `${ID_PREFIX}n3-${randomUUID()}`;
 
-    // One batch, four mutations: applied, unknown name, invalid args, applied.
-    // The two dropped ones can never apply, so the handler advances their LMID
-    // anyway and the client stops re-queueing them.
+    // Applied, unknown name, invalid args, applied. Drops advance the LMID so the client stops retrying.
     const result = await handlePush(userId, {
       pushVersion: 1,
       clientGroupID,
@@ -127,7 +111,7 @@ describe("handlePush LMID, replay and ownership (DB-backed)", { skip: SKIP }, ()
           id: 1,
           clientID: invalidClient,
           name: "noteCreate",
-          // `text` is required by `noteCreateArgsSchema`; this fails safeParse.
+          // No `text`, so `noteCreateArgsSchema` rejects it.
           args: { id: droppedNoteId, userId, createdAt: new Date().toISOString() },
         }),
         mutation({
@@ -167,9 +151,7 @@ describe("handlePush LMID, replay and ownership (DB-backed)", { skip: SKIP }, ()
     const clientID = `${ID_PREFIX}c-${randomUUID()}`;
     const threadId = `${ID_PREFIX}t-${randomUUID()}`;
 
-    // `chatThreadRename` writes its title unconditionally, so it is NOT
-    // idempotent through a conflict clause. That makes it the right probe: if
-    // the replay reached the mutator body, the title below would change back.
+    // `chatThreadRename` is not idempotent, so a replay that reached it would reset the title.
     const batch = {
       pushVersion: 1 as const,
       clientGroupID,

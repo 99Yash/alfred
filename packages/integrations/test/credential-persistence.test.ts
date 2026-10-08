@@ -21,13 +21,8 @@ import { eq, inArray, sql } from "drizzle-orm";
 import { dbBackedSkip } from "./support/db-backed";
 
 /**
- * The invariant of #453, asserted against a real database: after any allowed
- * write, the *column* holds an envelope while the *public function* still
- * returns the original token.
- *
- * Reading through the same module that wrote is not enough on its own — a
- * no-op vault would pass that. Every case below also reads the raw column with
- * its own query.
+ * After each write, the column holds an envelope and the public read returns the original token.
+ * Each case also reads the raw column, because a no-op vault would pass a read through the same module.
  */
 
 const SKIP = dbBackedSkip("database");
@@ -51,23 +46,14 @@ function ensureCredentialTestEnv(): void {
   process.env.GITHUB_APP_PRIVATE_KEY ??= "test";
   process.env.GITHUB_WEBHOOK_SECRET ??= "test";
   process.env.GITHUB_APP_REDIRECT_URI ??= "http://localhost:3001/github/callback";
-  // The vault has no derived default, so the suite must supply a real key.
+  // The vault has no default key.
   process.env.OAUTH_CREDENTIAL_KEK ??= Buffer.from(
     "0123456789abcdef0123456789abcdef",
     "utf8",
   ).toString("base64url");
 }
 
-/**
- * Every `user` row this file seeds, so the teardown can remove them.
- *
- * Not optional bookkeeping: a leaked `user` row is not inert. Background crons
- * fan out over the `user` table, so a forgotten `@example.test` row keeps
- * drawing scheduled LLM work and outbound email for as long as it exists. This
- * suite once left 56 of them behind, which is what made the hourly briefing
- * tick exceed the AI-gateway rate limit and bill real tokens against addresses
- * nobody owns.
- */
+/** Seeded `user` rows for teardown. A leaked row draws real cron LLM work and email. */
 const seededUserIds: string[] = [];
 
 async function seedUser(prefix: string): Promise<string> {

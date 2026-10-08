@@ -55,12 +55,8 @@ afterEach(() => {
   clearToolRegistryForTests();
 });
 
-// This file seeds nothing, but the `dispatchToolCall` cases below reach the
-// dispatcher's persistence path, which opens a pooled Postgres connection
-// transitively. The pool heartbeat keeps that socket alive past the pool's idle
-// timeout, so without an explicit close the test child process never exits
-// (#546). A test cannot tell which transitive import opened a handle, so close
-// both.
+// Dispatch opens Postgres and Redis handles through imports. Without a close the process never
+// exits.
 after(async () => {
   await closeRedis();
   await closeConnections();
@@ -228,7 +224,6 @@ describe("dispatchToolCall rejection tracing", () => {
         action: "await_sub_agent",
         riskTier: "no_risk",
         description: "test await tool",
-        // The dispatcher intercepts on the declared policy, not on the name.
         staging: "join",
         inputSchema: z.object({ childRunId: z.string() }).strict(),
         execute: async () => {

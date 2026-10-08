@@ -18,24 +18,10 @@ import { registerBuiltinTools } from "../src/tool-runtime/builtin-tools";
 import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
 
-// LESSON 03 / context-purity experiment: does a bloated tool menu degrade the
-// boss's tool SELECTION? We run the same realistic tasks through Sonnet 4.6
-// (route("standard").model(), the real chat driver) under two menus that BOTH
-// contain the correct tool:
-//   LEAN  = system tools + only the task's home integration  (~17-21 tools)
-//   FULL  = system tools + all 10 connected integrations     (~49 tools)
-// Identical cases, identical scorer. The gap between the two suites' aggregate
-// scores is the bloat cost — the number ADR-0053 said to measure before
-// reviving lazy/scoped loading. Cases are seeded from REAL dev-DB chat tasks
-// plus deliberately cross-integration-confusable ones (notion/gmail/drive
-// search; railway↔vercel deploy; sheets↔drive; web_search vs *.search).
-//
-// Caveat: scoping changes both the declared schemas AND the connected-summary
-// catalog text together (that's what real scoping would do), so this measures
-// the decision-relevant effect, not a single isolated variable. n is small
-// (one run/case) — read a gap as "worth pursuing", not a precise percentage.
-//
-// Run: `pnpm --filter @alfred/assistant eval` (needs apps/server/.env: ANTHROPIC_API_KEY).
+// Does a large tool menu hurt tool selection? The same cases run under two menus that both hold
+// the right tool: LEAN (system + the task's integration) and FULL (system + every live provider).
+// The score gap is the cost ADR-0053 asked us to measure. One run per case, so read it roughly.
+// Run with apps/server/.env populated: `pnpm --filter @alfred/assistant eval`.
 
 loadEnv({ path: path.resolve(import.meta.dirname, "../../../apps/server/.env") });
 
@@ -47,24 +33,20 @@ const TIMEZONE = parseIanaTimezone("Asia/Kolkata");
 
 const EVAL_TIMEOUT_MS = 60_000;
 
-/** Build the SDK tool set for a set of slugs — mirrors `resolveSdkTools`. */
 function buildToolSet(slugs: IntegrationSlug[]): ToolSet {
   const out: Record<string, Tool> = {};
 
   for (const slug of slugs) {
     for (const reg of builtinTools.listForIntegration(slug)) {
-      // No `execute` → the run halts on the first tool call so we can inspect
-      // which tool the model chose (same trick as github-grounding.eval.ts).
+      // No `execute`, so the run stops at the first tool call.
       out[reg.name] = tool({ description: reg.description, inputSchema: reg.inputSchema });
     }
   }
 
-  // SAFETY: ToolSet is the SDK's index-signature tool record; the resolved map
-  // satisfies it by construction.
+  // SAFETY: ToolSet is an index-signature record; this map satisfies it by construction.
   return out as ToolSet;
 }
 
-/** Build the connected-summary catalog text for the live slugs in scope. */
 function buildSummary(live: readonly LiveProviderSlug[]): string {
   if (live.length === 0) {
     return "You have no third-party integrations connected right now.";
@@ -85,12 +67,12 @@ function buildSummary(live: readonly LiveProviderSlug[]): string {
 interface Case {
   input: string;
   expected: string;
-  /** Live provider to include in the LEAN menu; null = system-only LEAN. */
+  /** null = system tools only in LEAN. */
   home: LiveProviderSlug | null;
 }
 
 const CASES: Case[] = [
-  // --- seeded from real dev-DB chat tasks ---
+  // From real chat tasks.
   { input: "what's on my calendar tomorrow?", expected: "calendar.list_events", home: "calendar" },
   {
     input:
@@ -114,7 +96,7 @@ const CASES: Case[] = [
     expected: "system.fetch_url",
     home: null,
   },
-  // --- cross-integration confusables (where a bloated menu should bite) ---
+  // Integrations that are easy to confuse.
   {
     input: "what meetings do I have on Friday?",
     expected: "calendar.list_events",
@@ -134,8 +116,7 @@ const CASES: Case[] = [
     home: "sheets",
   },
   {
-    // A read (get) needs no prep context, so it cleanly tests slides selection
-    // without the model reasonably reaching for read_user_context first.
+    // A plain read, so the model has no reason to call read_user_context first.
     input: "get the google slides presentation with id pres_1AbC and summarize it",
     expected: "slides.get_presentation",
     home: "slides",
@@ -216,8 +197,6 @@ evalite<string, TaskOutput, string>("Tool selection — FULL menu (system + all 
   task: async (input) => {
     void serverEnv().ANTHROPIC_API_KEY;
 
-    // Every live provider (the 10 connected integrations with a non-empty
-    // action surface): the realistic FULL menu for this user.
     return runUnderMenu(input, ["system", ...LIVE_PROVIDER_SLUGS]);
   },
   scorers: scorers(),

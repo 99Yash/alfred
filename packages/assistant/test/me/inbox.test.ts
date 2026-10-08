@@ -1,12 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-// Canonical sent-mail predicate — the single JS source of truth used by the
-// inbox query, triage thread-state, and the sender-prior write-back guard.
 import { isSentGmailMetadata } from "@alfred/assistant/triage/sent-mail";
 
 describe("isSentGmailMetadata", () => {
-  // Full legacy-vs-explicit matrix: a doc is sent on EITHER signal.
+  // A doc is sent on either the legacy or the explicit signal.
   const cases: Array<[string, Record<string, unknown> | null | undefined, boolean]> = [
     ["explicit isSent flag", { isSent: true, labelIds: [] }, true],
     ["legacy SENT label, no flag", { labelIds: ["SENT", "INBOX"] }, true],
@@ -25,8 +23,5 @@ describe("isSentGmailMetadata", () => {
     });
   }
 
-  // NOTE: the SQL twin `gmailSentSql` / `notSentGmailDocumentWhere` (same module)
-  // must filter the same rows. It is exercised by the live inbox query, not unit-
-  // tested here (no DB harness). Both forms now live in one module and check both
-  // signals, so they can no longer drift the way the prior three copies did.
+  // The SQL twins `gmailSentSql` and `notSentGmailDocumentWhere` must match; they are not tested here.
 });

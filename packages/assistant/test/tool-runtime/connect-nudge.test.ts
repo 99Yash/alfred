@@ -7,12 +7,7 @@ import {
   type TerminalToolCallDispatchResult,
 } from "../../src/tool-runtime/internal/result-routing";
 
-/**
- * #378 item 3: the dispatch health floor's `{status:"not_allowed"}` envelope
- * already tells the model why a call was refused; the connect nudge carries
- * the *repair* to the client. These pin which refusals become a nudge — only
- * connection health, and never a policy refusal dressed up as one.
- */
+/** Only a connection-health refusal becomes a connect nudge, never a policy refusal. */
 
 const GMAIL_SEARCH: ToolName = "gmail.search";
 

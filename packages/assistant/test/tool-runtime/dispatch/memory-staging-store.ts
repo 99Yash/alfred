@@ -1,11 +1,6 @@
 /**
- * In-memory {@link StagingStore} — the second adapter behind the dispatch gate.
- *
- * It lives in `test/` on purpose. A fake in `src/` is a runtime someone can
- * select in production; what makes this a real adapter rather than a mock is
- * `staging-store-contract.ts`, which runs the *same* suite against this and
- * against Postgres. If that suite is ever run against only one of them, this
- * file stops being evidence about anything.
+ * In-memory {@link StagingStore}. It lives in `test/` so production cannot select it.
+ * `staging-store-contract.ts` runs the same suite against this and Postgres.
  */
 
 import {
@@ -27,11 +22,11 @@ import {
   type StagingStore,
 } from "../../../src/tool-runtime/internal/dispatch/staging-store";
 
-/** Every column the fake tracks — the gate's view plus what the contract reads back. */
+/** The gate's view plus what the contract reads back. */
 interface StoredRow extends StagingRow {
   userId: string;
   toolCallId: string;
-  /** The #374 display projection — outside `StagingRow` because the gate never branches on it. */
+  /** Not in `StagingRow`: the gate never branches on it. */
   displayInput: ActionStaging["displayInput"];
   decidedAt: Date | null;
   executedAt: Date | null;
@@ -39,9 +34,8 @@ interface StoredRow extends StagingRow {
 }
 
 export interface MemoryStagingStore extends StagingStore {
-  /** Register an owning run so `readRunStatus` can answer for it. */
   seedRun(runId: string, status: RunStatus, fence?: CancellationFence): void;
-  /** Out-of-band decision write — models the approval API, not the store. */
+  /** Models the approval API, not the store. */
   decide(
     stagingId: string,
     decision: {
@@ -51,7 +45,7 @@ export interface MemoryStagingStore extends StagingStore {
       decidedAt?: Date;
     },
   ): void;
-  /** Read a stored row back, including columns `StagingRow` does not carry. */
+  /** Includes columns `StagingRow` does not carry. */
   readBack(stagingId: string): StoredRow | null;
   /** Every row, in insertion order. */
   rows(): readonly StoredRow[];
@@ -63,9 +57,8 @@ function conflictKey(runId: string, toolCallId: string): string {
 
 export function memoryStagingStore(): MemoryStagingStore {
   const runs = new Map<string, RunStatus>();
-  /** Per-run cancellation generation; the Postgres default (0) when unseeded. */
+  /** Cancellation generation per run. Unseeded means 0, the Postgres default. */
   const fences = new Map<string, number>();
-  /** Insertion-ordered; `Map` iteration order is the fake's "most recent last". */
   const byId = new Map<string, StoredRow>();
   const byConflictKey = new Map<string, string>();
   let nextId = 0;
@@ -78,7 +71,7 @@ export function memoryStagingStore(): MemoryStagingStore {
     return row;
   }
 
-  /** The gate's view of a stored row — a copy, so a caller cannot mutate storage. */
+  /** A copy, so a caller cannot mutate storage. */
   function project(row: StoredRow): StagingRow {
     return {
       id: row.id,
@@ -134,12 +127,8 @@ export function memoryStagingStore(): MemoryStagingStore {
     },
 
     async findPriorRejection(query) {
-      // Mirrors the adapter's `ORDER BY decided_at DESC LIMIT 1`. A null
-      // `decided_at` sorts last, matching Postgres `DESC` (NULLS LAST is the
-      // default for DESC in Postgres — nulls are treated as largest, so
-      // `DESC` puts them FIRST; the gate only ever writes `decided_at` with
-      // the rejection, so a rejected row without one does not occur. The
-      // contract suite pins the ordering that does.)
+      // Mirrors `ORDER BY decided_at DESC`. Postgres puts a null first, this fake last.
+      // A rejected row always has `decided_at`, so the difference cannot occur.
       const candidates = [...byId.values()].filter(
         (row) =>
           row.runId === query.runId &&
@@ -179,9 +168,7 @@ export function memoryStagingStore(): MemoryStagingStore {
       const existingId = byConflictKey.get(key);
 
       if (existingId !== undefined) {
-        // The no-op conflict SET: nothing is written, the stored row is
-        // returned verbatim — the minted effect identity and outcome survive a
-        // re-dispatch, exactly as Postgres keeps them.
+        // The no-op conflict SET: return the stored row unchanged, as Postgres does.
         return { row: project(mustGet(existingId)), wasInserted: false };
       }
 

@@ -7,37 +7,18 @@ import { z } from "zod";
 import { spawnSubAgentInputSchema } from "@alfred/assistant/tool-runtime";
 
 /**
- * Cross-integration guard for the JSON-stringified-array failure mode.
- *
- * Cheap / non-thinking models (Haiku is the worst offender) serialize a
- * nested-array tool argument as a JSON *string* (`values: "[[\"a\"]]"`) instead
- * of a real array. A bare `z.array(...)` then hard-fails the dispatch boundary
- * with `invalid_type: expected array, received string`, the boss bounces on the
- * same wall several turns in a row, and the user sees a naive tool error (or a
- * fabricated success over empty output — trace run_9ff8bcw13vba). The fix is
- * `coerceJsonArrayFields` in tool-schemas.ts, applied per array field.
- *
- * This test is the gate: it introspects EVERY tool schema, discovers every
- * array-typed top-level field from the model-facing JSON schema, and asserts
- * (a) each one is covered by a fixture here and (b) the JSON-stringified form of
- * that field still parses. A new array field added without coercion fails the
- * coverage assertion below, so the tolerance can't silently regress per
- * integration.
+ * Cheap models send an array argument as a JSON string (`values: "[[\"a\"]]"`).
+ * Every top-level array field on every tool must accept that form via `coerceJsonArrayFields`.
+ * A new array field without a fixture fails the coverage test.
  */
 
 const MODEL_FACING_TOOL_INPUT_SCHEMAS = {
   ...TOOL_INPUT_SCHEMAS,
-  // Server-only because the schema references sub-agent internals, but still
-  // boss-visible and model-facing in chat turns.
+  // Server-only schema, but the model still sees it.
   "system.spawn_sub_agent": spawnSubAgentInputSchema,
 } satisfies Partial<Record<ToolName, z.ZodType>>;
 
-/**
- * One valid input per tool that has an array-typed field, plus the names of the
- * array fields on it. `base` must parse as-is; each listed field is then
- * re-tested in its JSON-stringified form. Keep this in lockstep with the array
- * fields discovered by `discoverArrayFields` — the coverage test enforces it.
- */
+/** One valid `base` input per tool with array fields; each listed field is retried as a JSON string. */
 interface ArrayCoercionFixture {
   base: Record<string, unknown>;
   arrayFields: readonly string[];
@@ -226,9 +207,7 @@ function discoverArrayFields(schema: z.ZodType): string[] {
 }
 
 describe("tool-schema array-field coercion (cross-integration)", () => {
-  // The gate: every array field on every tool must have a fixture. A new
-  // array-typed argument added anywhere fails here until it is both covered by a
-  // fixture and (the next test proves) wrapped in coerceJsonArrayFields.
+  // A new array field fails here until it has a fixture.
   test("every array-typed tool field is covered by a fixture", () => {
     const uncovered: string[] = [];
 
@@ -260,8 +239,7 @@ describe("tool-schema array-field coercion (cross-integration)", () => {
         parsed.success,
         `base fixture should parse: ${JSON.stringify(parsed.error?.issues)}`,
       );
-      // Fixture/schema drift guard: the fields the fixture claims are arrays
-      // must be exactly the array fields the schema actually exposes.
+      // The fixture's array fields must match the schema's exactly.
       assert.deepEqual([...arrayFields].sort(), discoverArrayFields(schema).sort());
     });
 
@@ -300,8 +278,7 @@ describe("tool-schema array-field coercion (cross-integration)", () => {
     }
   }
 
-  // A string that is not a JSON array must still be rejected (coercion is a
-  // narrow escape hatch, not a blanket "accept any string for an array").
+  // Coercion accepts only a JSON array string, not any string.
   test("a non-array string still fails strict validation", () => {
     const schema = TOOL_INPUT_SCHEMAS["sheets.update_values"];
 

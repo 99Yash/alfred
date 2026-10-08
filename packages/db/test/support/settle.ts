@@ -1,11 +1,6 @@
 /**
- * The pre-fix behavior this package's Redis probes exist to catch is a command
- * that NEVER settles, so `assert.rejects` is the wrong tool: it waits forever
- * and the file times out with no statement about which command hung.
- *
- * `settleWithin` turns "still pending" into an ordinary value the test can
- * assert on, in both directions — the bounded kinds must not be `"pending"`,
- * and the `"queue"` control must be.
+ * Turns "still pending after the deadline" into a value a test can assert on.
+ * `assert.rejects` on a command that never settles just times out with no diagnosis.
  */
 export type Settlement =
   | { readonly state: "resolved"; readonly value: unknown }
@@ -35,7 +30,7 @@ export async function settleWithin(
   }
 }
 
-/** The rejection's message, for asserting on WHICH bound fired. */
+/** The rejection message, to check which bound fired. */
 export function settlementMessage(settlement: Settlement): string {
   if (settlement.state !== "rejected") return "";
 

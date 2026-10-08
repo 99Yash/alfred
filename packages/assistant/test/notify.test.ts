@@ -116,7 +116,7 @@ describe("delivery.send (DB-backed)", { skip: SKIP }, () => {
 
     assert.equal(first.status, "sent");
     assert.equal(second.status, "duplicate");
-    // The unique index absorbed the retry: Resend saw the send exactly once.
+    // The unique index absorbed the retry.
     assert.equal(calls.length, 1);
   });
 

@@ -9,12 +9,7 @@ import { isQuietMorning, scorePriorityEmailDemand } from "@alfred/assistant/brie
 import { closeRedis } from "@alfred/db/redis";
 import { dbBackedSkip } from "../support/db-backed";
 
-/**
- * Pins the morning suppression invariant (#259 / ADR-0064): a cron morning
- * suppresses when nothing in the window is DEMANDING — not merely when the
- * priority buckets are empty. A normal/muted item (a resolved micro-charge, a
- * cold ask) no longer forces a send and promotes itself to the headline.
- */
+/** A cron morning is suppressed when nothing is demanding, even with priority items present (ADR-0064). */
 describe("isQuietMorning", () => {
   const base = { emailCount: 0, activityCount: 0, meetingCount: 0 };
 
@@ -35,7 +30,7 @@ describe("isQuietMorning", () => {
   });
 
   test("signal unavailable falls back to the raw email count — errs toward sending", () => {
-    // Legacy gather / failed day-shape: undefined demand → old behavior.
+    // Undefined demand keeps the old behavior.
     assert.equal(
       isQuietMorning({
         ...base,
@@ -56,11 +51,8 @@ describe("isQuietMorning", () => {
 });
 
 /**
- * DB-backed because {@link scorePriorityEmailDemand} reads sender significance.
- * With no graph rows (a fresh user), scoring degrades to intrinsic-only — which
- * is exactly the case the gate must get right: categories at/above the demanding
- * cutoff still count, while quiet sub-cutoff items do not. Payment failures are
- * pinned demanding from subject/snippet so real billing problems are not eaten.
+ * DB-backed: {@link scorePriorityEmailDemand} reads sender significance. A fresh user scores on category alone.
+ * A failed payment must stay demanding from its subject or snippet.
  */
 const SKIP = dbBackedSkip("database");
 

@@ -10,16 +10,8 @@ import { leaseRun } from "@alfred/assistant/execution/executor";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
- * DB-backed tests for the ADR-0070 §1.4 non-progressing-step backstop (#137
- * lease-test harness). A step that can never commit is reclaimed forever by
- * the stale-lease sweep; the backstop counts consecutive `lease_reclaimed`
- * failures for the same `(run_id, current_step)` since the last successful
- * step and terminal-fails the run on the 3rd, while a single genuine worker
- * death (one reclaim) still recovers.
- *
- * Opt-in: runs only when `DATABASE_URL` points at a reachable migrated
- * Postgres; skipped otherwise. Seeds throwaway `test-lease-*` users and
- * cascades them away on teardown.
+ * A step that never commits would be reclaimed forever (ADR-0070 §1.4). The 3rd
+ * consecutive reclaim since the last progress fails the run; one worker death recovers.
  */
 const SKIP = dbBackedSkip("database");
 
@@ -29,7 +21,7 @@ const createdUserIds: string[] = [];
 
 const STEP = "dispatch-tools";
 
-// Older than STALE_RUN_LEASE_MS (60s) so the running row is reclaimable.
+// Older than STALE_RUN_LEASE_MS, so the row is reclaimable.
 const STALE_CHECKPOINT = new Date(Date.now() - 5 * 60_000);
 
 async function seedStaleRunningRun(attempt: number): Promise<{ userId: string; runId: string }> {
@@ -52,12 +44,10 @@ async function seedStaleRunningRun(attempt: number): Promise<{ userId: string; r
   return { userId, runId };
 }
 
-/** Insert the in-flight orphan step row at `attempt` (status='running'). */
 async function insertRunningStep(runId: string, attempt: number) {
   await db().insert(agentSteps).values({ runId, stepId: STEP, attempt, status: "running" });
 }
 
-/** Insert a prior `lease_reclaimed` failure row for the step at `attempt`. */
 async function insertReclaimedStep(runId: string, attempt: number) {
   await db()
     .insert(agentSteps)
@@ -99,7 +89,6 @@ describe("lease backstop (DB-backed)", { skip: SKIP }, () => {
   });
 
   test("a single worker death recovers (first reclaim is free)", async () => {
-    // Current attempt 5, no prior reclaim rows for this step.
     const { runId } = await seedStaleRunningRun(5);
     await insertRunningStep(runId, 5);
 
@@ -112,7 +101,6 @@ describe("lease backstop (DB-backed)", { skip: SKIP }, () => {
     );
     assert.equal(await runStatus(runId), "running", "the run stays runnable, not failed");
 
-    // The orphan row is now marked failed with the structured marker.
     const orphan = await db()
       .select({ status: agentSteps.status, error: agentSteps.error })
       .from(agentSteps)
@@ -123,8 +111,6 @@ describe("lease backstop (DB-backed)", { skip: SKIP }, () => {
   });
 
   test("the 2nd reclaim still recovers (one prior reclaim, under the limit)", async () => {
-    // attempt 4 already reclaimed (priorReclaims=1); current orphan at 5 → this is
-    // reclaim #2, still below the limit of 3.
     const { runId } = await seedStaleRunningRun(5);
     await insertReclaimedStep(runId, 4);
     await insertRunningStep(runId, 5);
@@ -139,15 +125,13 @@ describe("lease backstop (DB-backed)", { skip: SKIP }, () => {
   });
 
   test("the 3rd consecutive reclaim terminal-fails the run", async () => {
-    // attempts 3,4 reclaimed (priorReclaims=2); current orphan at 5 → reclaim #3 trips.
     const { runId } = await seedStaleRunningRun(5);
     await insertReclaimedStep(runId, 3);
     await insertReclaimedStep(runId, 4);
     await insertRunningStep(runId, 5);
 
     const leased = await leaseRun(runId);
-    // The backstop returns a `backstopped` result (not `none`/`leased`) so the
-    // caller can drive workflow-level failure finalization (#222 P1).
+    // `backstopped` lets the caller run workflow failure closure.
     assert.equal(leased.kind, "backstopped", "the backstop signals a terminal failure");
     assert.match(
       leased.kind === "backstopped" ? leased.error : "",
@@ -166,11 +150,7 @@ describe("lease backstop (DB-backed)", { skip: SKIP }, () => {
   });
 
   test("a HIL interrupt since the prior reclaims resets the count (forward progress)", async () => {
-    // Regression for the P1 review finding: an `interrupted` step is real
-    // forward progress (the step ran and parked for approval, then resumes at
-    // attempt+1). Two prior reclaims (3,4), then an interrupt at 5, then a
-    // stale running attempt at 6 must NOT terminal-fail — only attempt > 5
-    // counts, and there are none.
+    // An `interrupted` step is forward progress, so only reclaims after it count.
     const { runId } = await seedStaleRunningRun(6);
     await insertReclaimedStep(runId, 3);
     await insertReclaimedStep(runId, 4);
@@ -211,9 +191,7 @@ describe("lease backstop (DB-backed)", { skip: SKIP }, () => {
   });
 
   test("a successful step since the prior reclaims resets the count", async () => {
-    // attempt 3 reclaimed, attempt 4 COMPLETED (forward progress), attempt 6 reclaimed,
-    // current orphan at 7. Only attempt 6 counts (> last completed 4) → priorReclaims=1
-    // → reclaim #2 recovers despite 2 total reclaim rows in history.
+    // Two reclaim rows in history, but only the one after the completed attempt 4 counts.
     const { runId } = await seedStaleRunningRun(7);
     await insertReclaimedStep(runId, 3);
     await db()

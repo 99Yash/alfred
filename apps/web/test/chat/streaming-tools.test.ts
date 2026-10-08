@@ -46,17 +46,13 @@ describe("applyStreamingToolEvent", () => {
       { startedTs: 1_000, endedTs: 2_500 },
     );
 
-    // A replayed terminal frame (SSE reconnect) must not push the clock forward,
-    // or the duration chip would grow every time the stream reconnects.
+    // A replayed terminal frame must not move the clock, or the duration grows on each reconnect.
     applyStreamingToolEvent(tools, { ...baseEvent, status: "succeeded" }, 9_000);
     assert.equal(tools.get("tool_1")?.endedTs, 2_500);
   });
 
   test("a replayed started event cannot un-finish a landed card", () => {
-    // `dispatchBatch` re-dispatches the whole batch on resume/reclaim and
-    // republishes each `started`, and SSE frames are not ordered — so a
-    // `started` after a terminal is expected traffic, not a bug. Absorbing it
-    // is what keeps a finished step from flipping back to a spinner.
+    // Resume republishes `started` and SSE frames are not ordered, so a late `started` is normal.
     const tools = new Map<string, StreamingToolCall>();
     applyStreamingToolEvent(tools, { ...baseEvent, status: "started" }, 1_000);
     applyStreamingToolEvent(
@@ -77,8 +73,7 @@ describe("applyStreamingToolEvent", () => {
   });
 
   test("a bounce still retracts a landed card", () => {
-    // The absorbing guard is scoped to `started`: a terminal frame must keep
-    // its authority, or a reissued call's retraction would be dropped.
+    // The absorbing guard applies to `started` only, or a reissued call's retraction would be lost.
     const tools = new Map<string, StreamingToolCall>();
     applyStreamingToolEvent(tools, { ...baseEvent, status: "succeeded" }, 1_000);
     applyStreamingToolEvent(tools, { ...baseEvent, status: "failed", nonExecution: true }, 2_000);
@@ -86,9 +81,7 @@ describe("applyStreamingToolEvent", () => {
   });
 
   test("a call seen first at its terminal event still gets a bounded duration", () => {
-    // The optimistic `started` event is suppressed for a tool that is not yet on
-    // the active surface (`shouldPublishToolStarted`), so the terminal event can
-    // legitimately be the first one we see.
+    // `shouldPublishToolStarted` can suppress `started`, so the terminal event can come first.
     const tools = new Map<string, StreamingToolCall>();
     applyStreamingToolEvent(tools, { ...baseEvent, status: "succeeded" }, 4_000);
     assert.deepEqual(
@@ -109,11 +102,8 @@ describe("subAgentEventAddressesStream", () => {
   });
 
   test("a child event never mounts a turn of its own", () => {
-    // A spawn need never be awaited, and a cancel reaches a child only
-    // cooperatively, so a child outlives its parent turn. If a late child event
-    // could mount a stream ref, the sequence "stop turn 1, send turn 2, child
-    // publishes" would replace turn 2's ref: its deltaSeq resets to 0, its
-    // segments empty, and the bubble blanks mid-answer.
+    // A child can outlive its parent turn. If its late event mounted a ref, it would replace
+    // the next turn's ref and blank that bubble mid-answer.
     assert.equal(
       subAgentEventAddressesStream(null, { messageId: "message_1", runId: "run_1" }),
       false,

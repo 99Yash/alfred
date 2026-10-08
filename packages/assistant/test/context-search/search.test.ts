@@ -5,13 +5,8 @@ import { registerContextSource, searchContext } from "@alfred/assistant/context-
 import { defineTestContextSource } from "@alfred/assistant/context-search/test-support";
 
 /**
- * Behavioral tests for the #423 boundary on `searchContext`: a source's cards
- * are validated against the canonical `EvidenceCard` before they reach the
- * result, so the contract is enforced, not merely typed. A violating card fails
- * its source with an `error` report instead of entering the evidence list.
- *
- * Each test installs and disposes its own source; node's runner isolates test
- * files in separate processes, and the disposer runs in `finally`.
+ * `searchContext` validates each card against `EvidenceCard` at the boundary.
+ * A violating card fails its source with an `error` report and never enters the evidence.
  */
 
 describe("searchContext — card validation at the boundary", () => {

@@ -28,12 +28,8 @@ import { applyFloorVerdict } from "@alfred/assistant/triage/floors/floor";
 import type { Observations } from "@alfred/assistant/triage/observations";
 
 // ---------------------------------------------------------------------------
-// Per-floor harness. A floor DECIDES (a verdict); the shared `applyFloorVerdict`
-// APPLIES it — these three wrappers run both halves exactly as `applyFloors`
-// does, so the cases below can stay about the predicate ("does this input trip
-// this floor?") while still asserting on a real demoted classification. The fold
-// itself — order, threading, audits, model tags — is covered end-to-end in
-// `floors.test.ts`.
+// Per-floor harness. Each wrapper runs a floor's verdict through `applyFloorVerdict`,
+// as `applyFloors` does. Floor order and threading live in `floors.test.ts`.
 // ---------------------------------------------------------------------------
 
 function applyOverrideFloor(...args: Parameters<typeof overrideFloorVerdict>) {
@@ -112,7 +108,7 @@ function args(over: Partial<ClassifyEmailArgs> = {}): ClassifyEmailArgs {
   };
 }
 
-/** A canned model that returns a fixed output per pass, recording call count. */
+/** A canned model: one fixed output per pass, and a call count. */
 function scriptedModel(first: TriageClassification, second?: TriageClassification) {
   let calls = 0;
 
@@ -139,7 +135,7 @@ describe("applyOverrideFloor", () => {
     assert.equal(r.classification.category, "urgent");
     assert.equal(r.forced, true);
     assert.match(r.classification.rationale, /override floor/i);
-    // Forced urgent floors confidence to 0.85 (it is surfaced in the UI).
+    // Forced urgent raises confidence to at least 0.85; the UI shows it.
     assert.equal(r.classification.confidence, 0.85);
   });
 
@@ -188,8 +184,7 @@ describe("applyOverrideFloor", () => {
   });
 
   test("does NOT trip on generic 'credential ... exposed' engineering prose", () => {
-    // `credential` is excluded from the unrecoverable floor (it stays in the
-    // broad hint regex) so architecture discussion doesn't get force-tagged.
+    // `credential` alone does not force urgent, so architecture talk is not force-tagged.
     const r = applyOverrideFloor(
       classification({ category: "fyi" }),
       "the credential object is exposed to the network in this design",
@@ -335,10 +330,8 @@ describe("applySenderKindDemotionFloor", () => {
     assert.equal(r.classification.category, "action_needed");
   });
 
-  // --- #218: collabActivity model-field floor (ClickUp/Linear residual tail) ---
-  // The body is the ambiguous assignment/mention/comment prose that no
-  // state-transition regex matches — the model's `collabActivity` read is the
-  // signal. Passive kinds demote; ownership kinds keep.
+  // --- collabActivity floor: no regex matches this prose, so the model's read decides ---
+  // Passive kinds demote; ownership kinds keep.
 
   for (const kind of ["state_change", "other_activity", "digest"] as const) {
     test(`demotes action_needed → fyi on passive collabActivity=${kind} (no state-transition regex)`, () => {
@@ -402,8 +395,7 @@ describe("applySenderKindDemotionFloor", () => {
   }
 
   test("collabActivity model field wins over a stray state-transition regex match", () => {
-    // Body would match the passive-state-transition regex, but the model read the
-    // notification as assigned to the user — the model field takes precedence.
+    // The passive regex matches, but the model's `assigned` read wins.
     const r = applySenderKindDemotionFloor(
       classification({ category: "action_needed" }),
       serviceKind,
@@ -605,7 +597,7 @@ describe("applySenderKindDemotionFloor", () => {
     assert.equal(r.classification.category, "urgent");
   });
 
-  // --- #354: monitoring-alarm broadcasts (shape AND audience) ---
+  // --- monitoring-alarm broadcasts: shape and audience ---
   const ACCOUNT = "yash.k@oliv.ai";
 
   test("demotes urgent → fyi for a CloudWatch/SNS alarm broadcast the user is not addressed on", () => {
@@ -719,12 +711,8 @@ describe("applySenderKindDemotionFloor", () => {
   });
 
   test("demotes a broadcast alarm whose boilerplate footer merely contains 'please' (#354 regression)", () => {
-    // The real prod failure: every CloudWatch/SNS alarm relayed through the
-    // `engineering@oliv.ai` Google Group carries list boilerplate — CloudWatch's
-    // "You are receiving this email…" preamble and a "…please visit the link to
-    // unsubscribe" footer. COLLAB_DIRECT_OWNERSHIP_RE read that bare "please" as a
-    // direct ask and vetoed EVERY demotion, so 26 SNS broadcasts stayed `urgent`
-    // with no `+kindfloor`. Alarm ownership must not be inferred from body prose.
+    // Prod regression: the "please visit the link to unsubscribe" footer read as a
+    // direct ask and vetoed every alarm demotion. Do not infer alarm ownership from body prose.
     const r = applySenderKindDemotionFloor(
       classification({
         category: "urgent",
@@ -779,8 +767,7 @@ describe("applySenderKindDemotionFloor", () => {
   });
 
   test("keeps a monitoring alarm the user is addressed on via a Gmail plus-tag", () => {
-    // `yash.k+alerts@oliv.ai` does not contain `yash.k@oliv.ai` as a substring —
-    // the old raw-substring test over-demoted this direct (plus-addressed) recipient.
+    // A plus-addressed recipient is a direct recipient; a substring test misses it.
     const r = applySenderKindDemotionFloor(classification({ category: "urgent" }), groupKind, {
       sender: "no-reply@sns.amazonaws.com",
       subject: "ALARM: prod-db-cpu",
@@ -794,8 +781,7 @@ describe("applySenderKindDemotionFloor", () => {
   });
 
   test("demotes a broadcast whose recipient merely CONTAINS the account as a substring", () => {
-    // `notyash.k@oliv.ai` contains `yash.k@oliv.ai` — a raw substring test wrongly
-    // read the user as addressed and kept the category; exact membership demotes.
+    // `notyash.k@oliv.ai` contains `yash.k@oliv.ai`; exact membership must not match it.
     const r = applySenderKindDemotionFloor(classification({ category: "urgent" }), groupKind, {
       sender: "no-reply@sns.amazonaws.com",
       subject: "ALARM: prod-db-cpu",
@@ -1153,11 +1139,10 @@ describe("detectConflict", () => {
           categoryCounts: { newsletter: 8, marketing: 2 },
           lastCategory: "newsletter",
         },
-        // hasSecurityKeyword used to DISABLE this net — now it's gated on the
-        // floor instead, so an educational security mention still gets re-asked.
+        // The net is gated on the floor, not the keyword, so an educational mention is re-asked.
         content: { ...observations().content, hasSecurityKeyword: true },
       }),
-      false, // floor did NOT match — the subject has no exposure verb
+      false, // floor did not match: no exposure verb
     );
 
     assert.equal(conflict?.kind, "over_classification");
@@ -1174,7 +1159,7 @@ describe("detectConflict", () => {
         },
         content: { ...observations().content, hasSecurityKeyword: true },
       }),
-      true, // floor matched → don't challenge; the floor forces urgent regardless
+      true, // floor matched, so do not challenge; it forces urgent anyway
     );
 
     assert.equal(conflict, null);
@@ -1254,8 +1239,7 @@ describe("detectConflict", () => {
   });
 
   test("no over-classification B for a non-service (person) sender, even with an action_needed-heavy prior", () => {
-    // A real person's direct ask must never be challenged by the service net —
-    // the ~genuine assignment notifications #351 flags as correct are preserved.
+    // The service net must not challenge a real person's direct ask.
     assert.equal(
       detectConflict(
         classification({ category: "action_needed" }),
@@ -1275,7 +1259,7 @@ describe("detectConflict", () => {
 });
 
 // ---------------------------------------------------------------------------
-// classifyEmail orchestration (injected model seam — no live LLM)
+// classifyEmail orchestration (injected model, no live LLM)
 // ---------------------------------------------------------------------------
 
 describe("classifyEmail", () => {
@@ -1453,8 +1437,7 @@ describe("classifyEmail", () => {
   });
 
   test("acceptance: prior-heavy newsletter sender + credential-exposure body still lands urgent", async () => {
-    // The model under-classifies (newsletter), but the body exposes a secret —
-    // the override floor forces urgent.
+    // The model says newsletter, but the body exposes a secret.
     const model = scriptedModel(classification({ category: "newsletter", confidence: 0.95 }));
 
     const result = await classifyEmail(
@@ -1483,9 +1466,7 @@ describe("classifyEmail", () => {
   });
 
   test("acceptance: self-initiated magic link is fyi, single pass (rule 15)", async () => {
-    // Clean auth text trips neither the override floor (no exposure verb) nor the
-    // under-classification net (no security keyword), so fyi — a passive category —
-    // survives without a second pass.
+    // No exposure verb and no security keyword, so fyi survives without a second pass.
     const model = scriptedModel(classification({ category: "fyi", confidence: 0.9 }));
 
     const result = await classifyEmail(
@@ -1508,8 +1489,7 @@ describe("classifyEmail", () => {
   });
 
   test("acceptance: a hard conflict triggers at most one second pass", async () => {
-    // First pass under-classifies a security body as fyi; conflict fires; the
-    // second pass corrects to action_needed and is final. Exactly two calls.
+    // First pass says fyi on a security body; the second pass corrects it and is final.
     const model = scriptedModel(
       classification({ category: "fyi" }),
       classification({ category: "action_needed", confidence: 0.7 }),
@@ -1870,10 +1850,8 @@ describe("classifyEmail", () => {
   });
 
   test("sender-kind floor demotes a monitoring-alarm broadcast end-to-end (threads to + identity)", async () => {
-    // Guards the two fields #354 added to the floor context — `metadata.to` and
-    // `identity.email`. A refactor that drops `identity` makes `accountEmail` null,
-    // `isBroadcastAudience` returns false, and the floor silently no-ops in prod;
-    // the predicate-level tests would still pass. This locks the wiring end-to-end.
+    // Without `identity`, `accountEmail` is null and the floor silently no-ops.
+    // The predicate tests would still pass, so this pins the wiring end-to-end.
     const model = scriptedModel(
       classification({
         category: "urgent",
@@ -1974,9 +1952,7 @@ describe("classifyEmail", () => {
   });
 
   test("todoSuggestion survives when the floor FORCES the category to urgent", async () => {
-    // The documented invariant the tail step relies on (email-triage.ts): the
-    // override floor changes the category but must preserve todoSuggestion, and
-    // resolveTodoSuggestion runs on the POST-floor classification.
+    // The override floor keeps todoSuggestion; resolveTodoSuggestion reads the post-floor result.
     const model = scriptedModel(
       classification({
         category: "action_needed",
@@ -2008,10 +1984,7 @@ describe("classifyEmail", () => {
   });
 
   test("over-classification drives exactly one second pass through classifyEmail and tags +2pass", async () => {
-    // First pass spikes to urgent for a strong-bulk sender with no supporting
-    // signal; the over-classification net fires one second pass that corrects
-    // to newsletter and is final. Exercises the over_classification → second-
-    // pass orchestration (detectConflict alone was unit-tested; this is e2e).
+    // A bulk sender spikes to urgent with no support; one second pass corrects it.
     const model = scriptedModel(
       classification({ category: "urgent", confidence: 0.8 }),
       classification({ category: "newsletter", confidence: 0.9 }),
@@ -2038,15 +2011,8 @@ describe("classifyEmail", () => {
   });
 
   test("a failing under-classification second pass records the failure and keeps the first pass", async () => {
-    // Regression guard: a transient failure on the optional second pass must not
-    // propagate (the workflow would force the message to the default `fyi`,
-    // de-escalating it). It must not ESCALATE either: the under-classification
-    // net fires on the broad `hasSecurityKeyword` flag, which every vendor auth
-    // echo sets, so escalating on a transient model outage put that whole class
-    // in a demand lane on model weather alone (rule 15a). The exposed-secret
-    // case does not need this branch — the override floor forces `urgent`
-    // deterministically, and `detectConflict` suppresses this conflict whenever
-    // the floor matches, so the escalation branch was unreachable anyway.
+    // A failed second pass must not throw (the message would fall to `fyi`) or escalate.
+    // Every vendor auth echo sets `hasSecurityKeyword`, so escalating on an outage misfiles them.
     let calls = 0;
 
     const runPass: RunPass = async ({ pass }) => {
@@ -2109,10 +2075,8 @@ describe("classifyEmail", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Phase 0 — shipped todo contract (ADR-0050 amendment): schema shape + gate.
-// Locks behavior the v3 classifier rewrite must preserve. The cheap model emits
-// `todoSuggestion`; the workflow tail step mints a `suggested` todo ONLY through
-// `resolveTodoSuggestion`, which is the single decision point for the rail.
+// Todo contract (ADR-0050 amendment). The model emits `todoSuggestion`;
+// `resolveTodoSuggestion` is the only gate that mints a `suggested` todo.
 // ---------------------------------------------------------------------------
 
 describe("triageClassificationSchema.todoSuggestion", () => {
@@ -2211,10 +2175,7 @@ describe("sanitizeAssist", () => {
     assert.equal(sanitizeAssist("due today", anchor), "due Jun 10");
   });
 
-  // The defect the timezone module's ownership fixed. 2026-06-10T19:30Z is
-  // already Jun 11 in Asia/Kolkata (+05:30), so the user's "tomorrow" is
-  // Jun 12 — a UTC reading of the same instant said Jun 11, a day early, on
-  // the exact field whose value has to survive for days.
+  // 2026-06-10T19:30Z is already Jun 11 in Asia/Kolkata, so "tomorrow" is Jun 12, not UTC's Jun 11.
   test("resolves the relative date in the USER's zone, not UTC", () => {
     const evening = {
       sentAt: new Date("2026-06-10T19:30:00Z"),
@@ -2292,8 +2253,7 @@ describe("sanitizeTodoName", () => {
   });
 
   test("does NOT strip ambiguous verbs that can be the real action (left to rule 16f)", () => {
-    // review/check/address have a legitimate "the action IS this verb" reading,
-    // so they are deliberately out of scope — stripping would mangle them.
+    // review/check/address can be the action itself, so stripping them would mangle the title.
     assert.equal(
       sanitizeTodoName("Review the contract before signing"),
       "Review the contract before signing",
@@ -2366,9 +2326,7 @@ describe("resolveTodoSuggestion", () => {
     );
   });
 
-  // Floor (ADR-0050 amendment 2026-06-06) = {marketing, newsletter} only: a
-  // genuine obligation on a broadcast bucket is misclassification leaking
-  // through, so suppress it as a consistency guard.
+  // Floor = {marketing, newsletter} only (ADR-0050 amendment): an obligation there is a misclassification.
   for (const category of ["marketing", "newsletter"] as const) {
     test(`floor: ${category} suppresses a stray suggestion the model emitted anyway`, () => {
       assert.equal(
@@ -2385,9 +2343,7 @@ describe("resolveTodoSuggestion", () => {
     });
   }
 
-  // fyi/done are NO LONGER floored — the rubric (rule 16) owns them, since an
-  // fyi can carry a real obligation and a done closure can end with a real ask.
-  // When the model proposes on one (rubric passed), the suggestion goes through.
+  // The rubric (rule 16) owns fyi/done: either can carry a real ask, so a proposal goes through.
   for (const category of ["fyi", "done"] as const) {
     test(`rubric-owned: ${category} passes a suggestion the model proposed (no longer floored)`, () => {
       assert.deepEqual(
@@ -2432,10 +2388,7 @@ describe("resolveTodoSuggestion", () => {
     );
   });
 
-  // Contradiction backstop: the model returns `proposed` but names a
-  // disqualifying reason in the note (the HyperNexus cold-outreach leak: it
-  // wrote `cold_sender:` yet proposed anyway). Drop it — the note is the model
-  // disagreeing with its own outcome.
+  // Backstop: drop a `proposed` todo whose note names a disqualifying reason like `cold_sender:`.
   for (const note of [
     "cold_sender:",
     "cold_sender: pelloni.robert@gmail.com",
@@ -2471,10 +2424,7 @@ describe("resolveTodoSuggestion", () => {
     );
   });
 
-  // Coupling guard: the backstop only works if the prompt actually instructs the
-  // model to emit these exact note prefixes on a failing outcome. If the prompt
-  // convention drifts (`cold-sender:`, `[cold_sender]`, …) the backstop silently
-  // dies — pin the three markers to the prompt AND to the matcher.
+  // The backstop works only if the prompt emits these exact prefixes. Pin them to both.
   for (const prefix of ["cold_sender:", "manufactured:", "advisory:"] as const) {
     test(`coupling: SYSTEM_PROMPT emits the "${prefix}" note the backstop matches`, () => {
       assert.ok(
@@ -2530,8 +2480,7 @@ describe("todoSuppressionReason", () => {
   });
 
   test("tracker_owned via sender fallback when the model OMITS collabActivity (~1-in-5)", () => {
-    // The #447 reality: flash-lite drops the collabActivity key on some collab
-    // mail. The known-tracker sender still suppresses so the rail is not clogged.
+    // The model sometimes omits collabActivity; the known-tracker sender still suppresses.
     assert.equal(
       todoSuppressionReason({
         ...base,
@@ -2571,8 +2520,7 @@ describe("todoSuppressionReason", () => {
   });
 
   test("KEEP: an exposed secret escapes tracker_owned suppression (still a todo)", () => {
-    // A leaked credential outlives the tracker item — rotate it regardless of
-    // where the notification came from. Mirrors the PR gate's secret escape.
+    // A leaked credential needs rotation whatever the source, as in the PR gate.
     assert.equal(
       todoSuppressionReason({
         ...base,
@@ -2596,8 +2544,7 @@ describe("todoSuppressionReason", () => {
     );
   });
 
-  // cold_sender (rule 16b): a reply-shape ask from a cold human contact whose
-  // only stake is "a person is waiting" — the HyperNexus cold-outreach shape.
+  // cold_sender (rule 16b): a cold contact's ask whose only stake is "a person is waiting".
   for (const category of ["awaiting_reply", "follow_up"] as const) {
     test(`cold_sender: a cold contact's ${category} ask with no intrinsic stake mints no todo`, () => {
       assert.equal(
@@ -2616,8 +2563,7 @@ describe("todoSuppressionReason", () => {
   }
 
   test("KEEP: a cold contact is NOT gated outside the reply-shape lanes (e.g. action_needed)", () => {
-    // A cold sender landing action_needed/payment/urgent is judged on that
-    // category's intrinsic stake, not the person-waiting gate.
+    // On action_needed/payment/urgent, the category's own stake decides, not the person-waiting gate.
     assert.equal(
       todoSuppressionReason({
         ...base,
@@ -2643,8 +2589,7 @@ describe("todoSuppressionReason", () => {
     );
   });
 
-  // A cold sender still earns a todo when the body carries a real intrinsic
-  // stake (rule 16b): money owed, a hard deadline, or an exposed secret.
+  // A cold sender still earns a todo for money owed, a hard deadline, or an exposed secret (rule 16b).
   for (const signalText of [
     "your invoice of $96.00 is past due",
     "can you confirm the contract before jun 30?",
@@ -2671,11 +2616,8 @@ describe("todoSuppressionReason", () => {
 // ---------------------------------------------------------------------------
 
 /**
- * `runHedged`'s own tests prove the loser is cancelled through the signal it
- * hands each attempt. They cannot prove the signal reaches the provider — they
- * drive fake work. That last hop is `classifyCallOptions`, and it fails
- * silently when it breaks: no error, no wrong label, just an uncancelled
- * duplicate that bills a full second call.
+ * `classifyCallOptions` must pass the abort signal to the provider.
+ * If it breaks, nothing errors; the loser just bills a full second call.
  */
 describe("classifyCallOptions", () => {
   const call = (signal: AbortSignal) =>
@@ -2698,8 +2640,7 @@ describe("classifyCallOptions", () => {
   });
 
   test("both draws are interchangeable — the property first-wins rests on", () => {
-    // temperature 0 over a fixed schema is why taking whichever draw lands
-    // first can't trade tagging precision for latency.
+    // Temperature 0 makes both draws equal, so the first one costs no precision.
     const options = call(new AbortController().signal);
     assert.equal(options.temperature, 0);
     assert.equal(options.schema, triageClassificationSchema);

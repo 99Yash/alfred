@@ -95,10 +95,7 @@ test("configured pino logger never writes raw error messages", () => {
     },
   };
 
-  // Pin `verboseErrors` — this asserts the strict production contract, and
-  // `createLogger`'s default is derived from `NODE_ENV`, so leaving it implicit
-  // made the assertion depend on the ambient environment (it passed only when
-  // `serverEnv()` threw). CI sets a full env, so the default there is verbose.
+  // Explicit: the default comes from `NODE_ENV`, so the test would depend on the ambient env.
   const testLogger = createLogger(destination, { verboseErrors: false });
   testLogger.error({ err: new Error(RAW_SQL) }, "safe public message");
   assert.match(output, /safe public message/);
@@ -125,7 +122,7 @@ test("verbose serializer surfaces provider APICallError diagnostics for dev", ()
   assert.equal(verbose.message, "tools.9.custom.input_schema.type: Field required");
   assert.equal(verbose.statusCode, 400);
   assert.equal(verbose.url, "https://api.anthropic.com/v1/messages");
-  // Response body is retained but capped so a large provider body can't flood logs.
+  // Capped so a large provider body cannot flood logs.
   assert.ok(verbose.responseBody !== undefined && verbose.responseBody.length <= 4_000);
 });
 

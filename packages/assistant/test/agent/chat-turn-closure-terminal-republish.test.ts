@@ -18,48 +18,17 @@ import { resetToolFixtures } from "@alfred/assistant/tool-runtime/test-support";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
- * DB-backed test for the replay-barrier release hole (campaign item 38, path 1).
- *
- * The client arms a replay-recovery barrier on `chat.message started` and
- * releases it only on `chat.message completed`. `closeChatTurn` writes the
- * assistant row and then, several statements later, publishes that frame. A
- * first attempt that writes a terminal (`complete`) row but throws before the
- * publish — e.g. `finalizeRunArtifacts` faults — leaves the row and NO frame. On
- * retry the guarded upsert (`onlyIfPreviousAttemptFailed`) matches nothing and
- * returns zero rows, so the old unconditional early return published the frame
- * NEVER, and the barrier leaked forever.
- *
- * These pin the fix: on ANY terminal retry over an already-terminal row — the
- * zero-row branch — the closure republishes the frame and nothing else. The
- * release is ending-independent, so a `failed` retry republishes it too. That
- * `failed` case is the reachable one: a `completed` close that faults after
- * writing its `complete` row is caught in `chatTurnStep` and re-routed through
- * `finalizeFailedMessage`, so the retry that finds the terminal row arrives as a
- * `failed` close. Gating the republish on the ending would relocate the barrier
- * leak to that branch — the exact regression round 2 caught.
- *
- * The seed reproduces the state that caught-throw leaves — a `complete` row for
- * `(messageId, runId)` with no `chat.message` frame in the outbox — rather than
- * stubbing the throw, because there is no injection seam for
- * `finalizeRunArtifacts`. Calling `finalizeFailedMessage` over that row IS what
- * `chatTurnStep`'s `catch` (and the executor's `onTerminal("failed")`) do, so the
- * closure sees the identical committed state the real retry sees.
- *
- * Opt-in: runs only when `DATABASE_URL` points at a reachable migrated Postgres.
+ * Only `chat.message completed` releases the client's replay barrier. A close can
+ * write its terminal row and throw before the publish. Any retry over a terminal
+ * row must republish that frame, whatever its ending.
+ * The seed writes the row directly: `finalizeRunArtifacts` has no injection seam.
  */
 const SKIP = dbBackedSkip("database");
 
-/**
- * The Replicache poke is delivered over the in-process emitter only when there
- * is no Redis publisher (`replicache-events.ts` publishes to Redis when
- * `REDIS_URL` is set and never touches the local emitter). So a test that
- * observes a poke through `subscribeUserPokes` requires `REDIS_URL` unset —
- * same gate `test/skills/freshness.test.ts` uses for its poke assertions.
- */
+/** With `REDIS_URL` set, pokes go to Redis and `subscribeUserPokes` sees none. */
 const POKE_SKIP =
   dbBackedSkip("database") ||
-  // drift-ok: composes an EXTRA condition on top of dbBackedSkip — these poke
-  // assertions need REDIS_URL ABSENT, which a presence-only guard cannot express.
+  // drift-ok: needs REDIS_URL absent, which a presence-only guard cannot express.
   (process.env.REDIS_URL
     ? "REDIS_URL set — local poke assertions require the in-process bridge"
     : false);
@@ -86,11 +55,7 @@ async function seedThread(): Promise<{ userId: string; threadId: string; rowVers
   return { userId, threadId: thread.id, rowVersion: thread.rowVersion };
 }
 
-/**
- * A chat run whose first closure attempt has already landed a terminal row: the
- * run is `running` (not cancelled, so closure does not yield), the assistant row
- * is `complete`, and the outbox holds no `chat.message` frame.
- */
+/** A first close that wrote a terminal row but no frame. The run is not cancelled. */
 async function seedTerminalRowAttempt(status: "complete" | "failed"): Promise<{
   userId: string;
   threadId: string;
@@ -163,8 +128,7 @@ describe(
   { skip: SKIP },
   () => {
     before(async () => {
-      // `chatRunStateSchema`'s transform restores the tool surface, which reads the
-      // tool-runtime adapter; register the fixture adapter so the parse resolves.
+      // `chatRunStateSchema`'s transform reads the tool-runtime adapter.
       resetToolFixtures();
       registerReplicachePokeAdapter();
       await db()
@@ -200,9 +164,7 @@ describe(
     });
 
     test("a failed retry over an already-completed row STILL republishes the release frame", async () => {
-      // The reachable barrier-leak path: attempt 1 completes, writes the
-      // `complete` row, then faults before the frame; `chatTurnStep`'s catch
-      // re-enters as `finalizeFailedMessage`, which finds the terminal row.
+      // The reachable path: `chatTurnStep`'s catch re-enters as `finalizeFailedMessage`.
       const { userId, threadId, runId, messageId, threadRowVersion, state } =
         await seedTerminalRowAttempt("complete");
 
@@ -228,8 +190,6 @@ describe(
     });
 
     test("a failed retry over an already-failed row republishes the frame and stays failed", async () => {
-      // The other zero-row failed shape: attempt 1 already failed and wrote its
-      // `failed` row (and sent the frame); a re-attempt is harmlessly redundant.
       const { userId, threadId, runId, messageId, state } = await seedTerminalRowAttempt("failed");
 
       await finalizeFailedMessage(userId, runId, state, new Error("second fault"));
@@ -248,12 +208,7 @@ describe(
       assert.equal(rows[0]?.status, "failed", "and never promotes the failed row to complete");
     });
 
-    // The release frame and the Replicache poke are one indivisible client-release
-    // now that the poke lives inside `publishCompletedFrame`. The zero-row republish
-    // reaches that call, so it must poke too — the parity gap campaign item 53 filed.
-    // Before the fix the reachable `failed`-over-`complete` retry published the frame
-    // and poked nothing, because the first attempt threw one line before BOTH the
-    // frame and the poke, so no poke ever fired for that turn.
+    // The poke lives in `publishCompletedFrame`, so the republish must poke too.
     test(
       "the failed retry over a completed row also pokes Replicache",
       { skip: POKE_SKIP },
@@ -273,12 +228,8 @@ describe(
       },
     );
 
-    // Differential guard that the fold is behaviour-neutral for the row-writing
-    // path: the poke moved from a standalone statement INTO `publishCompletedFrame`,
-    // so a normal close must still poke exactly once, not zero and not twice.
     test("a normal close pokes Replicache exactly once", { skip: POKE_SKIP }, async () => {
-      // A prior `failed` row lets the guarded upsert replace it and return one row,
-      // so the close takes the full row-writing path rather than the zero-row branch.
+      // A prior `failed` row makes the upsert return a row, so the close writes in full.
       const { userId, runId, state } = await seedTerminalRowAttempt("failed");
       const pokes: string[] = [];
       const unsubscribe = subscribeUserPokes(userId, (poke) => pokes.push(poke.assetId));

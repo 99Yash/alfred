@@ -9,15 +9,8 @@ import { inArray } from "drizzle-orm";
 import { dbBackedSkip } from "./support/db-backed";
 
 /**
- * DB-backed test for #878: `search` surfaces the `metadata.references`
- * occurrences of a folded `gmail_attachment` hit. The references column is
- * unknown jsonb written by another package, so retrieval must parse it
- * defensively — a valid entry reaches the output, a malformed peer is
- * dropped, and non-attachment hits carry no occurrences at all.
- *
- * Embeddings are synthetic: the seeded chunk stores the exact vector the test
- * later passes as `queryEmbedding`, so similarity is deterministic and Voyage
- * is never called.
+ * Another package writes `metadata.references`, so `search` must drop malformed entries.
+ * The seeded chunk stores the query vector itself, so similarity is fixed and Voyage is not called.
  */
 const SKIP = dbBackedSkip("database");
 

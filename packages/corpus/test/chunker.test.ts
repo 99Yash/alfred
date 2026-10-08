@@ -18,8 +18,7 @@ describe("chunkText", () => {
   });
 
   test("splits long content into multiple chunks with overlap", () => {
-    // 10 paragraphs, each short, target 1000 tokens ~4000 chars, so should still fit in one
-    // Use a forced small target to trigger splitting.
+    // Small limits force a split.
     const paras = Array.from({ length: 10 }, (_, i) => `Paragraph ${i} with some text.`).join(
       "\n\n",
     );
@@ -27,9 +26,8 @@ describe("chunkText", () => {
     const chunks = chunkText(paras, { targetTokens: 5, maxTokens: 10, overlapTokens: 1 });
     assert.ok(chunks.length > 1, "should split into multiple chunks with small limits");
 
-    // Each chunk position is dense
     for (let i = 0; i < chunks.length; i++) assert.equal(chunks[i]?.position, i);
-    // Overlap: second chunk should start with tail of first
+    // The second chunk starts with the tail of the first.
     const first = chunks[0]!.content;
     const second = chunks[1]!.content;
     const tail = first.slice(Math.max(0, first.length - 4));
@@ -40,7 +38,7 @@ describe("chunkText", () => {
     const page1 = "Page one content.\n\nSecond paragraph page one.";
     const page2 = "Page two content.\n\nSecond paragraph page two.";
 
-    // With chunkPages, page 2 chunks never contain page 1 tail beyond page boundary
+    // Overlap never crosses a page boundary.
     const pageChunks = chunkPages(
       [
         { page: 1, text: page1 },
@@ -49,7 +47,6 @@ describe("chunkText", () => {
       { targetTokens: 10, maxTokens: 20, overlapTokens: 2 },
     );
 
-    // Every chunk's page is either 1 or 2, and text never mixes
     for (const c of pageChunks) {
       if (c.page === 1) {
         assert.ok(!c.content.includes("Page two"), "page 1 chunk must not contain page 2 text");
@@ -95,8 +92,6 @@ describe("chunkPages", () => {
     const chunks = chunkPages(pages, { targetTokens: 5, maxTokens: 10, overlapTokens: 2 });
 
     for (const c of chunks) {
-      // Chunk text is derived from its own page only, so it should not contain another page's unique word
-      // Use unique markers Alpha/Beta/Gamma
       if (c.page === 1) assert.ok(!c.content.includes("Beta") && !c.content.includes("Gamma"));
 
       if (c.page === 2) assert.ok(!c.content.includes("Alpha") && !c.content.includes("Gamma"));
@@ -104,7 +99,7 @@ describe("chunkPages", () => {
       if (c.page === 3) assert.ok(!c.content.includes("Alpha") && !c.content.includes("Beta"));
     }
 
-    // Positions are globally dense
+    // Positions are dense across pages.
     for (let i = 0; i < chunks.length; i++) assert.equal(chunks[i]?.position, i);
   });
 

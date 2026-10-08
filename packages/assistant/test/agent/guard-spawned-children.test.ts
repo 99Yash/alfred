@@ -16,20 +16,9 @@ import { openChatTurnRetries } from "@alfred/assistant/execution/workflows/turn-
 import type { StepContext } from "@alfred/assistant/execution";
 
 /**
- * Unit tests for the ADR-0073 finalization guard (#268). This guard is the
- * runtime invariant — "the parent turn cannot complete while a child it spawned
- * is still running" — so it carries direct regression coverage for the failure
- * modes that would otherwise strand a parent or leak a rejected answer:
- *
- *  - a dead-man timer that can't be scheduled → fold + finalize, never park
- *    (else `findResumableRunIds` never sweeps `waiting` and the run hangs);
- *  - a child past the wait-ceiling → fold + finalize, never re-park (else each
- *    wake re-arms the same six-minute timer and parks forever);
- *  - a terminal child → fold its outcome and regenerate an informed answer;
- *  - the live segment transition → a zero-length delta on the next segment so
- *    the client stops rendering the premature answer the guard rejected.
- *
- * No DB or Redis: the guard's I/O is injected.
+ * A parent turn cannot complete while a child it spawned still runs (ADR-0073).
+ * If the timer cannot be scheduled or the child passed the ceiling, fold and
+ * finalize: a park there would hang forever. The guard's I/O is injected.
  */
 
 const RUN_ID = "run_parent";
@@ -145,7 +134,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
       "signal",
       "parks on the child's completion signal",
     );
-    // It must NOT have been folded — there's no result yet to surface.
+    // No result yet, so nothing to fold.
     assert.deepEqual(state.foldedChildRunIds, []);
   });
 
@@ -296,16 +285,8 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
     assert.deepEqual(rec.scheduleCalls, ["child_run"], "the timer is armed for the running child");
   });
 
-  // A turn that spawns a child, skips the prompted `await_sub_agent`, and then
-  // streams a final answer arrives here with the transcript tail
-  // `…, tool, assistant[reasoning,text]` — the last assistant message is the
-  // premature answer `appendModelResponseMessages` appended. The guard closes
-  // that answer into narration, so it must also drop it from the transcript it
-  // forwards: on the PARK path the parked transcript becomes `ctx.transcript`
-  // and the resumed step re-invokes the model with it BEFORE the guard runs
-  // again — a transcript ending in an assistant message is an illegal prefill
-  // under extended thinking (Anthropic 400 "the conversation must end with a
-  // user message", which previously retried 9× and failed the turn).
+  // The guard must drop the premature assistant tail from the forwarded transcript.
+  // A resumed turn that ends in an assistant message is an illegal prefill (Anthropic 400).
   const prematureTail = (): AgentTranscriptMessage[] => [
     { role: "user", content: "summarize my open PRs" },
     {
@@ -435,11 +416,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
   });
 
   test("spawn + terminal await → guard returns null (no false 'unawaited' note)", async () => {
-    // The boss spawned a child and then correctly `await_sub_agent`'d it. The
-    // dispatch commit pass records that successful await by adding the child to
-    // `foldedChildRunIds` (see `awaitedChildRunId` accounting), so the guard must
-    // see nothing left to fold — otherwise it injects the false "finished without
-    // you awaiting it" note, demotes the streamed answer, and burns a turn.
+    // The commit pass already put the awaited child in `foldedChildRunIds`.
     const state = baseState({
       toolCallsLog: [
         {
@@ -455,7 +432,6 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
           segmentIndex: 0,
         },
       ],
-      // What the commit-pass accounting leaves behind for an awaited child.
       foldedChildRunIds: ["child_a"],
     });
 
@@ -489,7 +465,6 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
 
     await guardSpawnedChildren(baseCtx(state), state, [], rec.deps);
 
-    // Server state: the premature text is demoted to narration and the segment advances.
     assert.equal(state.assistantText, "", "the premature answer is cleared from the live segment");
     assert.deepEqual(
       state.narration,
@@ -498,9 +473,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
     );
     assert.equal(state.segmentIndex, 3, "the segment advanced past the rejected answer");
 
-    // Client frame: a higher-seq, zero-length delta on the NEW segment so
-    // use-chat-stream advances `currentSegment` and stops rendering the premature
-    // text as the live reply.
+    // The empty delta on the new segment makes the client stop showing the premature text.
     const deltas = rec.published.filter((p) => p.kind === "chat.delta");
     assert.equal(deltas.length, 1, "exactly one segment-advance frame is emitted");
     assert.equal(deltas[0]?.payload.text, "");
@@ -526,16 +499,8 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
 
 describe("FINALIZE_GUARD_SEQUENCE", () => {
   /**
-   * The finalize guards have identical signatures, so nothing in a type
-   * stops a caller from swapping them. The order is load-bearing:
-   * `guardSpawnedChildren` may PARK the turn, and a parked turn must not first
-   * have spent a regeneration on the honesty note — that note would be
-   * re-injected on the resumed turn against a transcript the child's fold has
-   * since changed. The child guard also strips the premature assistant tail from
-   * the transcript it forwards, which the honesty guard's append builds on.
-   *
-   * This is the only thing keeping that order honest, so assert it directly
-   * rather than trusting the comment above the list.
+   * No type stops a swap of the guards. `guardSpawnedChildren` can park the turn,
+   * so it must run before the honesty guard spends a regeneration.
    */
   test("runs the spawned-children guard before the honesty guard", () => {
     assert.deepEqual(
@@ -558,15 +523,7 @@ describe("FINALIZE_GUARD_SEQUENCE", () => {
 });
 
 describe("crossFinalizeBoundary", () => {
-  /**
-   * These cover the boundary's work *around* the guards — the two things the
-   * workflow used to do in bare statements above the guard chain, where a
-   * future edit could drop or reorder them without a type objecting.
-   *
-   * Every case runs with an empty `toolCallsLog`, so the guards stand aside on
-   * their first line and no guard I/O (children lookup, event publish) is
-   * reached: what's under test is the boundary, not the guards.
-   */
+  /** An empty `toolCallsLog` makes every guard stand aside, so only the boundary runs. */
   interface ReleaseRecorder {
     releaseWithheldReply: () => Promise<void>;
     calls: Array<{ flagAtCallTime: boolean }>;
@@ -599,8 +556,7 @@ describe("crossFinalizeBoundary", () => {
     assert.equal(
       rec.calls[0]?.flagAtCallTime,
       false,
-      // The stream's flush gate reads this flag: releasing first publishes
-      // nothing and the answer is lost from the live stream entirely.
+      // The flush gate reads this flag. A release before the clear publishes nothing.
       "the flag is already cleared when the release runs",
     );
     assert.equal(rec.state.reissuePending, false);
@@ -618,8 +574,7 @@ describe("crossFinalizeBoundary", () => {
   });
 
   test("hands a regenerated turn a fresh retry budget", async () => {
-    // Spent budgets: this turn already burned both, and a guard may now send
-    // the run back through `chat-turn`.
+    // Both budgets are spent, and a guard may send the run back through `chat-turn`.
     const state = baseState({
       toolCallsLog: [],
       emptyCompletionRetries: 2,

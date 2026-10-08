@@ -10,16 +10,8 @@ import {
 } from "../../src/context-search/object-state-source";
 
 /**
- * Behavioral tests for the #425 object-state adapter.
- *
- * The adapter is driven through `searchContext`, so these also prove the
- * request's `objects` envelope parses, the card passes the canonical
- * `EvidenceCard` validation at the boundary, and a miss is reported as a card
- * rather than inferred closure. The store is a fake: the adapter is a mapping
- * over three reads, and a database is not required to prove the mapping.
- *
- * Each test installs and disposes its own instance; node's runner isolates test
- * files in separate processes, and the disposer runs in `finally`.
+ * Object-state adapter, driven through `searchContext`: the `objects` envelope parses, the card
+ * passes `EvidenceCard` validation, and a miss is a card, not inferred closure. The store is a fake.
  */
 
 const SHA = "a1b2c3d4".repeat(5);
@@ -204,11 +196,8 @@ describe("object-state adapter — exact references", () => {
     await withObjectStateSource(store, async () => {
       const result = await searchContext({ userId: "user-1", query: "anything" });
 
-      // Since #466 the adapter is not merely unproductive here, it is not
-      // consulted at all: its manifest declares `exact_lookup` only, and this
-      // request declares no object for it to look up. The read is saved, and
-      // the report says `skipped` rather than `empty` so "never asked" cannot
-      // be misread as "asked and found nothing".
+      // The manifest declares `exact_lookup` only and the request names no object, so the adapter is not consulted.
+      // `skipped`, not `empty`: "never asked" must not read as "asked and found nothing".
       assert.equal(result.evidence.length, 0);
       assert.equal(result.sources[0]?.status, "skipped");
       assert.equal(

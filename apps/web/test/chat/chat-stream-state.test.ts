@@ -15,11 +15,8 @@ import {
 import type { EventStreamFrame } from "../../src/lib/events/frame";
 
 /**
- * Every case drives the real reducer, and a turn is only ever mounted by a real
- * frame — there is no test-only door into the state. That is the point of the
- * split: the two invariants ADR-0073:21 names ("a sub-agent event may address an
- * in-flight turn but never create one"; "a terminal tool card is absorbing")
- * used to be comments over code reachable only from a browser.
+ * Only real frames mount a turn here. This pins the two ADR-0073 invariants: a sub-agent
+ * event never creates a turn, and a terminal tool card is absorbing.
  */
 
 const THREAD = "thread_1";
@@ -38,9 +35,7 @@ let frameId = 0;
 
 const nextId = () => (frameId += 1);
 
-// Per-kind builders rather than one generic factory: a literal `kind` beside a
-// payload of that kind's type is assignable to `EventStreamFrame` with no cast,
-// so a schema change fails these builders instead of being silently unchecked.
+// One builder per kind, so a schema change fails here without a cast to hide it.
 const messageFrame = (payload: EventPayload<"chat.message">): EventStreamFrame => ({
   id: nextId(),
   kind: "chat.message",
@@ -129,7 +124,7 @@ const run = (runId: string, phase: EventPayload<"agent.run">["phase"]) =>
 const approval = (runId: string) =>
   approvalFrame({ runId, approvalId: "appr_1", approvalKind: "step", prompt: "Send it?" });
 
-/** A kind a chat turn does not read — the `default` arm the design keeps open. */
+/** A kind a chat turn does not read. */
 const unrelated = (): EventStreamFrame => ({
   id: nextId(),
   kind: "agent.progress",
@@ -137,14 +132,7 @@ const unrelated = (): EventStreamFrame => ({
   createdAt: CREATED_AT,
 });
 
-/**
- * The one non-`chat.*` kind that *does* carry a `threadId`, and so is subject to
- * the hoisted thread check like any other — `frameThreadId` classifies by the
- * payload's field, not by the `chat.` name prefix. This reducer reads no arm for
- * it, so a matching-thread frame passes the check and is then dropped by the
- * bottom `return false`; the pair of cases below pins that as behaviour rather
- * than as prose.
- */
+/** A non-`chat.*` kind with a `threadId`: `frameThreadId` reads the field, not the name prefix. */
 const artifactDelta = (threadId: string): EventStreamFrame => ({
   id: nextId(),
   kind: "artifact.delta",
@@ -161,12 +149,7 @@ const artifactDelta = (threadId: string): EventStreamFrame => ({
 
 const cellOf = () => createChatStreamCell(THREAD);
 
-/**
- * The cell's internals, for the assertions a projection cannot see (`deltaSeq`,
- * `stopped`, the trail maps). Production code never reaches through
- * `cell.current` — `tickDrip` hands back the projection and nothing else — so
- * this is the test's own door, not one the hook uses.
- */
+/** The cell's internals, for state the projection hides. Production code never reads `cell.current`. */
 function refOf(cell: ChatStreamCell) {
   const ref = cell.current;
   assert.ok(ref, "expected a mounted turn");
@@ -174,7 +157,6 @@ function refOf(cell: ChatStreamCell) {
   return ref;
 }
 
-/** One animation frame, asserted to have found a mounted turn. */
 function tick(cell: ChatStreamCell): { snapshot: StreamingMessage; caughtUp: boolean } {
   const projected = tickDrip(cell);
   assert.ok(projected, "expected a mounted turn");
@@ -182,11 +164,7 @@ function tick(cell: ChatStreamCell): { snapshot: StreamingMessage; caughtUp: boo
   return projected;
 }
 
-/**
- * Drain the drip buffers to a settled projection. Every text assertion goes
- * through this: one `tickDrip` advances only a couple of chars, so asserting
- * full text after a single call would read as a reducer bug.
- */
+/** Drain the drip buffers. One `tickDrip` shows only a few chars, so text assertions use this. */
 interface DrainedTick {
   snapshot: StreamingMessage;
   ticks: number;
@@ -652,9 +630,7 @@ describe("applyChatFrame — thread filter (the cell's own identity)", () => {
   });
 
   test("the two kinds that name no thread still cannot mount a turn", () => {
-    // ADR-0073's shape: `agent.run` and `approval.requested` carry no `threadId`
-    // at all, so they pass the hoisted guard — and must then resolve only
-    // against a ref that already exists.
+    // These kinds pass the thread guard, so they may only address a turn that already exists.
     const cell = cellOf();
     assert.equal(applyChatFrame(cell, run(SUB.childRunId, "completed"), 1_000), false);
     assert.equal(applyChatFrame(cell, approval("run_1"), 1_000), false);
@@ -662,10 +638,6 @@ describe("applyChatFrame — thread filter (the cell's own identity)", () => {
   });
 
   test("a kind this reducer reads no arm for is dropped whether or not its thread matches", () => {
-    // `artifact.delta` is thread-scoped and gated above the dispatch; with no arm
-    // to reach, it then falls out of the bottom `return false`. `agent.progress`
-    // names no thread, passes the check, and falls out the same way — so the
-    // `default: null` arm of the thread reader has not started admitting anything.
     const cell = cellOf();
     applyChatFrame(cell, started(), 1_000);
     const before = drain(cell).snapshot;
@@ -681,15 +653,8 @@ describe("applyChatFrame — thread filter (the cell's own identity)", () => {
 
 describe("SubAgentTrail — identity is write-once", () => {
   test("a second child under one parent call keeps the first child's identity", () => {
-    // The dependency `streamSnapshotsEqual` rests on, made executable. The
-    // server spawns exactly one child per `(parentRunId, parentToolCallId)`
-    // (`packages/assistant/src/execution/sub-agents.ts` — `findExistingSubAgentRun`
-    // plus the sub-agent `dedupKey` unique index), so this case cannot happen in
-    // production. If it ever could, this is what the client would do: keep the
-    // first `subId`/`childRunId`, absorb the second child's calls into that
-    // trail, and report the two projections *equal* because neither field is
-    // compared. Pinning it means a change to either half is a red test rather
-    // than a silent merge.
+    // The server spawns one child per parent call (`findExistingSubAgentRun`), so this cannot happen.
+    // `streamSnapshotsEqual` relies on that. If it ever did, the first child's identity wins.
     const cell = cellOf();
     applyChatFrame(cell, started(), 1_000);
     applyChatFrame(cell, tool({ subAgent: SUB, toolCallId: "child_tool_1" }), 1_000);
@@ -712,9 +677,7 @@ describe("SubAgentTrail — identity is write-once", () => {
       { subId: trail.subId, childRunId: trail.childRunId, startedTs: trail.startedTs },
       { subId: SUB.subId, childRunId: SUB.childRunId, startedTs: 1_000 },
     );
-    // …and the comparison the animation loop runs cannot tell them apart on
-    // identity alone. It reports unequal here only because a tool card was
-    // added; drop that card and the two snapshots compare equal.
+    // Unequal only because a tool card was added. Identity alone does not tell them apart.
     const after = drain(cell).snapshot;
     assert.equal(streamSnapshotsEqual(before, after), false);
     assert.deepEqual(
@@ -754,11 +717,7 @@ describe("applyChatFrame — reasoningMs", () => {
 });
 
 describe("applyChatFrame — return value per branch", () => {
-  // The one thing a state-only assertion cannot see. On `main` these branches
-  // were `ensureRaf()` calls and bare `return`s inside one closure; a branch
-  // translated the wrong way stops the bubble typing until the next frame
-  // lands, with nothing failing. Table derived from `main` by inspection before
-  // any code moved (see the item file's branch table).
+  // A wrong return value stalls the typing animation until the next frame, and nothing else fails.
   const mounted = () => {
     const cell = cellOf();
     applyChatFrame(cell, started(), 1_000);
@@ -772,8 +731,7 @@ describe("applyChatFrame — return value per branch", () => {
     assert.equal(refOf(cell).compacting, true);
     assert.equal(applyChatFrame(cell, compaction("compaction_finished"), 1_000), true);
     assert.equal(refOf(cell).compacting, false);
-    // A compaction or completion phase naming a turn we do not hold changes
-    // nothing, so it must not schedule a frame.
+    // A phase for a turn we do not hold changes nothing, so it must not schedule a frame.
     assert.equal(applyChatFrame(cell, compaction("compaction_started", TURN_2), 1_000), false);
     assert.equal(applyChatFrame(cell, completed(TURN_2), 1_000), false);
     assert.equal(applyChatFrame(cell, completed(), 1_000), true);

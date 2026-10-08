@@ -54,7 +54,7 @@ describe("buildScratchReadSpanInput", () => {
       keyHash: hashScratchKey("scratch.subA.secret-topic"),
       keyLength: "scratch.subA.secret-topic".length,
     });
-    // The raw logical key / path must never ride along in metadata.
+    // The raw key and path must not reach metadata.
     const serialized = JSON.stringify(input.metadata);
     assert.ok(!serialized.includes("secret-topic"));
     assert.ok(!serialized.includes("subA"));

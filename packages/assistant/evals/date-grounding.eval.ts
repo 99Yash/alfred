@@ -9,16 +9,9 @@ import { formatRuntimeTimeGrounding } from "@alfred/assistant/execution/groundin
 import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
 
-// ADR-0055: behavioral eval for agent date grounding. Guards the regression
-// where the chat agent, given "how many meetings do i have in october 2026",
-// replied "which year?" instead of calling the calendar tool — because the
-// system prompt never told it what "now" is. We run the REAL grounded chat
-// prompt against the standard chat model with the calendar tool exposed (no
-// `execute`, so the model stops at the tool call) and assert deterministically
-// on the call it makes. Deterministic scorers, no LLM judge — the tool call
-// either targets the right window or it doesn't.
-//
-// Run locally with ANTHROPIC_API_KEY in env: `pnpm --filter @alfred/assistant eval`.
+// ADR-0055: asked about "october 2026", chat once replied "which year?" because it had no "now".
+// The tool has no `execute`, so the run stops at the call and we check its args.
+// Run with apps/server/.env populated: `pnpm --filter @alfred/assistant eval`.
 
 loadEnv({ path: path.resolve(import.meta.dirname, "../../../apps/server/.env") });
 
@@ -31,10 +24,7 @@ const EVAL_TIMEOUT_MS = 60_000;
 
 const CALENDAR_TOOL = "calendar.list_events";
 
-// A representative connected summary, in the exact shape `buildConnectedSummary`
-// emits for a Google + GitHub user (ADR-0053). We assert the prompt builder
-// actually embeds it — a regression guard against the connected-summary param
-// being dropped from the system prompt the way the date once was.
+// A connected summary for a Google + GitHub user (ADR-0053). The prompt must embed it.
 const CONNECTED_SUMMARY = [
   "You are connected to these integrations right now — call each as integration.action (for example calendar.list_events). Treat this list as authoritative: do not offer or attempt an integration that is not on it.",
   "- gmail.search, gmail.read_message, gmail.send_draft — the user's email",
@@ -43,15 +33,15 @@ const CONNECTED_SUMMARY = [
 ].join("\n");
 
 interface TargetWindow {
-  /** Inclusive lower bound (ISO date) the call's window must reach into. */
+  /** Inclusive. */
   fromISO: string;
-  /** Exclusive upper bound (ISO date) the call's window must reach into. */
+  /** Exclusive. */
   toISO: string;
 }
 
 interface Case {
   input: string;
-  /** Specific month the call must cover, or null for "any sensible call". */
+  /** null accepts any sensible call. */
   target: TargetWindow | null;
 }
 
@@ -59,28 +49,26 @@ interface TaskOutput {
   toolName: string | null;
   args: Record<string, unknown> | null;
   text: string;
-  /** The resolved system prompt sent to the model — asserted for grounding content. */
   system: string;
 }
 
 const CASES: Case[] = [
   {
-    // The actual prod bug: explicit future month, year stated outright.
+    // The prod bug.
     input: "how many meetings do i have in october 2026",
     target: { fromISO: "2026-10-01", toISO: "2026-11-01" },
   },
   {
-    // Partial date — year must be inferred from "today" (June 2026 → Dec 2026).
+    // The year comes from "now": December 2026.
     input: "do i have anything in december",
     target: { fromISO: "2026-12-01", toISO: "2027-01-01" },
   },
   {
-    // Relative window the tool's enum covers — just must reach for the tool.
     input: "what's on my calendar next week",
     target: null,
   },
   {
-    // Relative day — must call the tool, not ask which Thursday.
+    // Must call the tool, not ask which Thursday.
     input: "am i free thursday afternoon",
     target: null,
   },
@@ -98,9 +86,7 @@ function windowOverlaps(args: Record<string, unknown>, target: TargetWindow): bo
   const start = parseDate(args.timeMin);
   const end = parseDate(args.timeMax);
 
-  // A specific month is outside the today/tomorrow/next_7_days enums, so the
-  // only correct call uses explicit RFC3339 bounds. A relative `window` here is
-  // a miss by construction.
+  // No `window` value covers a specific month, so only explicit bounds can be right.
   if (!start || !end) return false;
   const from = new Date(`${target.fromISO}T00:00:00Z`);
   const to = new Date(`${target.toISO}T00:00:00Z`);
@@ -112,10 +98,7 @@ evalite<string, TaskOutput, TargetWindow | null>("Agent date grounding", {
   data: () => CASES.map((c) => ({ input: c.input, expected: c.target })),
   task: async (input) => {
     void serverEnv().ANTHROPIC_API_KEY;
-    // Mirror an artifact-free first prod call: chat's system prompt states no
-    // date, and "now" rides the ephemeral runtime line as an assistant turn just
-    // before the user's message (withEphemeralReference). Grounding the eval the
-    // same way keeps it a faithful guard for the single-source path (#410).
+    // Like prod: the system prompt has no date. "Now" comes from the runtime line (#410).
     const system = buildChatSystemPrompt("", CONNECTED_SUMMARY, selfIdentityGrounding());
 
     const result = await generateText({
@@ -128,9 +111,6 @@ evalite<string, TaskOutput, TargetWindow | null>("Agent date grounding", {
       temperature: 0,
       timeout: { totalMs: EVAL_TIMEOUT_MS },
       tools: {
-        // Mirror the prod registration: calendar already active, read-only list
-        // tool with the real contract schema, no `execute` so the model stops
-        // at the call and we can inspect its args.
         [CALENDAR_TOOL]: tool({
           description:
             "List Google Calendar events. Prefer the relative window fields for today/tomorrow/next-week questions; use explicit RFC3339 bounds only when the user gave exact dates or times.",
@@ -143,8 +123,7 @@ evalite<string, TaskOutput, TargetWindow | null>("Agent date grounding", {
 
     return {
       toolName: call?.toolName ?? null,
-      // SAFETY: the persisted tool-call input is jsonb; this diagnostic view
-      // tolerates absence via ??.
+      // SAFETY: diagnostic view of the tool-call input; `??` covers absence.
       args: (call?.input as Record<string, unknown> | undefined) ?? null,
       text: result.text,
       system,
@@ -152,8 +131,6 @@ evalite<string, TaskOutput, TargetWindow | null>("Agent date grounding", {
   },
   scorers: [
     {
-      // The core regression: reach for the calendar tool instead of bouncing
-      // the question back to the user.
       name: "Calls calendar tool",
       scorer: ({ output }) => ({
         score: output.toolName === CALENDAR_TOOL ? 1 : 0,
@@ -164,8 +141,7 @@ evalite<string, TaskOutput, TargetWindow | null>("Agent date grounding", {
       }),
     },
     {
-      // For a specific month, the call must use explicit bounds that actually
-      // cover that month. N/A (auto-pass) for relative-window cases.
+      // Auto-passes for relative-window cases.
       name: "Targets the right window",
       scorer: ({ output, expected }) => {
         if (!expected) return { score: 1, metadata: "n/a (relative window)" };
@@ -185,9 +161,7 @@ evalite<string, TaskOutput, TargetWindow | null>("Agent date grounding", {
       },
     },
     {
-      // ADR-0053 / GROUND-001: the connected summary must reach the model in
-      // the same grounded system prompt as the date. Deterministic — the
-      // built prompt either embeds the exact-slug calendar line or it doesn't.
+      // ADR-0053: the connected summary must reach the system prompt.
       name: "Grounds connected integrations",
       scorer: ({ output }) => {
         const ok =

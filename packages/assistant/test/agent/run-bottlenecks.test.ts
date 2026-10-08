@@ -74,20 +74,17 @@ describe("summarizeRunBottlenecks", () => {
     const summary = summarizeRunBottlenecks(input);
 
     assert.equal(summary.wallClockMs, 20_000);
-    // api_call_log sums.
     assert.equal(summary.modelMs, 3000);
     assert.equal(summary.inputTokens, 300);
     assert.equal(summary.outputTokens, 60);
     assert.equal(summary.costUsd, 4);
-    // Only the two parked/completed dispatch-tools steps (500 + 500); the
-    // reclaimed/failed one is excluded.
+    // 500 + 500. The reclaimed step does not count.
     assert.equal(summary.toolMs, 1000);
-    // Approval wait is precise from the staging (4000 - 2000).
+    // From the staging: 4000 - 2000.
     assert.equal(summary.approvalWaitMs, 2000);
-    // Wait gaps follow the two interrupted steps: 3000 + 2700 = 5700; minus the
-    // 2000 explained by the approval = 3700 attributed to sub-agent joins.
+    // 3000 + 2700 of wait, minus the 2000 the approval explains.
     assert.equal(summary.subAgentWaitMs, 3700);
-    // Queue is the gaps after non-parked steps: 500 + 300 + 100 = 900.
+    // Gaps after non-parked steps: 500 + 300 + 100.
     assert.equal(summary.queueMs, 900);
     assert.equal(summary.reclaims, 1);
     assert.equal(summary.stagingsRejected, 1);
@@ -95,8 +92,6 @@ describe("summarizeRunBottlenecks", () => {
   });
 
   test("queue time excludes attributed approval and sub-agent waits", () => {
-    // One approval-parked gap and one sub-agent-parked gap, bracketed by queue
-    // gaps after completed steps. queue must not absorb either wait.
     const input: RunBottleneckInput = {
       run: { startedAt: t(0), endedAt: t(10_000) },
       apiCalls: [],
@@ -116,7 +111,7 @@ describe("summarizeRunBottlenecks", () => {
           endedAt: t(400),
           errorReason: null,
         },
-        // gap 1000 (wait, after interrupted) — matched by the approval below
+        // gap 1000 (wait, after interrupted), matched by the approval below
         {
           stepId: "boss-turn",
           status: "completed",
@@ -132,7 +127,7 @@ describe("summarizeRunBottlenecks", () => {
           endedAt: t(1600),
           errorReason: null,
         },
-        // gap 5000 (wait, after interrupted) — no staging → sub-agent
+        // gap 5000 (wait, after interrupted), no staging, so sub-agent
         {
           stepId: "boss-turn",
           status: "completed",
@@ -154,7 +149,7 @@ describe("summarizeRunBottlenecks", () => {
   });
 
   test("orders steps by start time before computing gaps", () => {
-    // Same two steps, supplied out of order — the gap must be 900, not negative.
+    // Out of order: the gap must be 900, not negative.
     const input: RunBottleneckInput = {
       run: { startedAt: t(0), endedAt: t(2000) },
       apiCalls: [],

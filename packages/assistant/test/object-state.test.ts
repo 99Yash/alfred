@@ -14,13 +14,8 @@ import { reduceGithubEvent } from "../src/connections/object-state/github-reduce
 import { dbBackedSkip } from "./support/db-backed";
 
 /**
- * Contract tests for integration object-state memory (ADR-0062, #212).
- *
- * The pure suite (reducer + registry + key extraction) always runs. The store
- * suite is DB-backed and opt-in — it runs only when `DATABASE_URL` points at a
- * reachable migrated Postgres, mirroring the other DB-backed tests; it asserts
- * the load-bearing ADR-0048-D contract: a closing state closes a loop, an
- * unknown one never does, and replay/redelivery can't regress a merged PR.
+ * Integration object-state memory (ADR-0062). A closing state closes a loop, an unknown one
+ * never does, and a replay cannot reopen a merged PR (ADR-0048-D).
  */
 
 const SHA_A = "a1b2c3d4".repeat(5); // 40 hex
@@ -241,15 +236,13 @@ describe("objectStateStore contract (DB-backed)", { skip: SKIP }, () => {
   });
 
   test("monotonic: replaying a stale opened delivery cannot regress a merged PR", async () => {
-    // A delayed duplicate can have a later receipt time than the merge; resolved
-    // PRs are absorbing so stale open/synchronize deliveries cannot reopen them.
+    // A delayed duplicate can arrive after the merge, so a resolved PR stays resolved.
     await apply("opened", prPayload(101, SHA_A), new Date("2026-06-04T00:00:00Z"));
 
     const ref = await objectStateStore.resolveByKey(userId, "github", "head_sha", SHA_A);
     const state = await objectStateStore.getState(userId, ref!);
     assert.equal(state?.stateCategory, "resolved", "out-of-order replay must not reopen");
 
-    // Idempotent: still exactly one object for the user.
     const objects = await objectStateStore.list(userId, "github", { kind: "pull_request" });
     assert.equal(objects.length, 1);
   });

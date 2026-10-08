@@ -19,29 +19,15 @@ import type { StepResult, Workflow } from "@alfred/assistant/execution";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
- * DB/Redis-backed coverage for the execution module's `startRun` seam
- * (campaign item 01). `startRun` folds `createRun` (persist a `pending` row)
- * and `enqueueRun` (hand the run to the worker) into one call so an ordinary
- * caller cannot persist a run and forget to enqueue it. This test pins both
- * halves: after one `startRun`, the `agent_runs` row exists in `pending` AND a
- * BullMQ job carrying its `runId` sits on the agent queue.
- *
- * Opt-in: runs only when `DATABASE_URL` and `REDIS_URL` point at reachable test
- * services. Seeds a throwaway `test-start-run-direct-*` user and cascades it away
- * on teardown. The agent worker never runs here, so the enqueued job is
- * inspected and removed directly.
- *
- * The `-direct-` segment is load-bearing: the sibling `start-run-in-tx` suite
- * owns `test-start-run-in-tx-`, and `tsx --test` runs the two files as
- * concurrent processes against one database. A bare `test-start-run-` prefix here
- * would make the `before` cleanup below delete the in-tx suite's rows mid-run.
- * `pnpm check:test-id-prefixes` fails on any such pair.
+ * One `startRun` both persists a `pending` row and enqueues its job.
+ * Keep `-direct-` in the id prefix: a bare `test-start-run-` would make the
+ * `before` cleanup delete the concurrent in-tx suite's rows (`check:test-id-prefixes`).
  */
 const SKIP = dbBackedSkip("database+redis");
 
 const SERVER_ENV_FIXTURES = {
   BETTER_AUTH_SECRET: "test better auth secret with length",
-  // #453: `serverEnv()` requires a 32-byte credential KEK in every environment.
+  // `serverEnv()` requires a 32-byte credential KEK in every environment.
   OAUTH_CREDENTIAL_KEK: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY",
   BETTER_AUTH_URL: "http://localhost:3001",
   ALFRED_ALLOWED_EMAIL: "test@example.com",
@@ -75,8 +61,7 @@ function seedServerEnvForQueueTests(): void {
   }
 }
 
-// A trivial registered recipe. Its step is never executed: this test asserts
-// persist+enqueue, not step run.
+// Its step never runs.
 const startRunTestRecipe: Workflow<unknown> = {
   slug: SLUG,
   name: "start-run test",

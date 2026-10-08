@@ -113,8 +113,7 @@ describe("classifyEntityKind", () => {
   });
 
   test("reads the kind segment of an integration_object_key, not the identity kind", () => {
-    // Two node kinds anchor on `integration_object_key`. Reading the kind alone
-    // labelled every ADR-0092 referent a `project`.
+    // Two node kinds anchor on `integration_object_key`, so the identity kind alone is not enough.
     const referent = classifyEntityKind({
       identity: identity("integration_object_key", "github:pull_request:99yash/alfred#913"),
     });

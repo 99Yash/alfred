@@ -25,33 +25,10 @@ import { resetToolFixtures } from "@alfred/assistant/tool-runtime/test-support";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
- * DB-backed closure tests for the ONE workflow that owes the user a visible
- * ending: chat-turn (#530/#531 review, finding D2).
- *
- * `commit-cancel-race.test.ts` proves the *runtime* obligation — a cancel drives
- * `onTerminal` with `outcome: "cancelled"` exactly once — through a recording
- * stand-in workflow. That left
- * the production implementation of the hook untested, which is where the
- * regression actually lived: under the terminal commit guard both commits roll
- * back, so if chat-turn's cancel branch doesn't persist the assistant row and
- * emit `chat.message completed`, the streaming bubble hangs forever. These drive
- * the real `chatTurnWorkflow` through the real `cancelRun`.
- *
- * What they pin, deliberately, is the *committed*-state semantics: closure
- * re-reads `agent_runs.state`, so a cancel renders the last step boundary — not
- * whatever the rolled-back in-flight step had accumulated. A cancel landing
- * inside the first assistant step therefore closes an empty turn, and that is
- * the honest behaviour, not a bug to paper over: the alternative would be
- * persisting text no commit ever accepted.
- *
- * Not asserted here: that a cancel skips the success tail (memory capture,
- * compaction, titling). That divergence is enforced by construction —
- * `finalizeCancelledMessage` calls the row-only finalizer and the schedulers are
- * unreachable from it — and every one of them is flag-and-Redis gated, so an
- * "it didn't fire" assertion would pass in this environment whether or not the
- * code called it. A test that can't fail isn't evidence.
- *
- * Opt-in: runs only when `DATABASE_URL` points at a reachable migrated Postgres.
+ * Drives the real `chatTurnWorkflow` cancel branch through `cancelRun`. If it
+ * does not persist the row and emit `chat.message completed`, the bubble hangs.
+ * Closure re-reads `agent_runs.state`, so a cancel renders the last committed step.
+ * Not asserted: the skipped success tail. It is flag and Redis gated, so the check could not fail.
  */
 const SKIP = dbBackedSkip("database");
 
@@ -63,13 +40,7 @@ const STEP = "chat-turn";
 
 const CANCEL_REASON = "cancelled_by_user";
 
-/**
- * A committed chat-turn checkpoint. Deliberately NOT typed as `ChatRunState`:
- * that is the parse *output*, and what a real checkpoint holds is partial input
- * JSON the schema fills in. Typing it as the output would let the seed skip the
- * validation every real cancel goes through — closure parses `agent_runs.state`,
- * and a seed the schema rejects must fail this test, not bypass it.
- */
+/** Not `ChatRunState`: a real checkpoint is partial input JSON, and closure must parse it. */
 interface CommittedState {
   [key: string]: unknown;
 }
@@ -86,9 +57,7 @@ function committedState(args: {
     tier: "standard",
     allowedIntegrations: [],
     pendingToolCalls: [],
-    // Explicitly empty rather than absent: an absent list means "legacy
-    // checkpoint" and the schema back-fills today's kernel, which needs a live
-    // tool registry this test has no reason to stand up.
+    // An absent list back-fills the kernel, which needs a live tool registry.
     activeTools: [],
     assistantText: args.assistantText,
     narration: args.narration ?? [],
@@ -113,10 +82,7 @@ async function seedThread(): Promise<{ userId: string; threadId: string }> {
   return { userId, threadId };
 }
 
-/**
- * A chat run parked exactly where the only production cancel caller finds one:
- * `waiting` on an approval, its state at the last committed step boundary.
- */
+/** A chat run `waiting` on an approval, its state at the last committed step. */
 async function seedWaitingChatRun(args: {
   assistantText: string;
   narration?: { index: number; text: string }[];
@@ -174,9 +140,6 @@ describe("chat-turn cancel closure (#530/#531 D2, DB-backed)", { skip: SKIP }, (
       .delete(user)
       .where(like(user.id, `${ID_PREFIX}%`));
 
-    // The production workflow, not a stand-in: closure resolves the hook off the
-    // run's `workflow_slug` through the registry, and the whole point here is
-    // that chat-turn's own `onTerminal` cancel branch does the work.
     if (!getWorkflow(CHAT_TURN_WORKFLOW_SLUG)) registerRecipe(chatTurnWorkflow);
   });
   after(async () => {
@@ -187,8 +150,7 @@ describe("chat-turn cancel closure (#530/#531 D2, DB-backed)", { skip: SKIP }, (
     _resetRegistryForTests();
     resetToolFixtures();
     await closeConnections();
-    // The cancel's post-commit obligations touch Redis (scratch snapshot,
-    // Replicache pokes), so the connection has to come down with the pool.
+    // The cancel's post-commit work touches Redis.
     await closeRedis();
   });
 
@@ -225,12 +187,7 @@ describe("chat-turn cancel closure (#530/#531 D2, DB-backed)", { skip: SKIP }, (
   });
 
   test("the closed turn renders the last committed state, so a first-step cancel closes empty", async () => {
-    // A mid-step cancel rolls the in-flight step's commit back, and closure
-    // re-reads `agent_runs.state` — so the text the rolled-back step had
-    // accumulated is gone by construction. Cancel inside the FIRST assistant
-    // step and the committed boundary holds no text at all. Ending an empty
-    // turn is still ending it; the bubble must not hang waiting for text no
-    // commit ever accepted.
+    // The rolled-back step's text is gone, but the turn must still end.
     const { userId, threadId, runId, messageId } = await seedWaitingChatRun({
       assistantText: "",
     });

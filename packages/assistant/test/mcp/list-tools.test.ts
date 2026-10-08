@@ -625,9 +625,7 @@ describe("cross-connection MCP discovery (DB-backed, offline)", { skip: SKIP }, 
         connectionId: connection.id,
         revisionHash: `sha256:${randomUUID().replace(/-/g, "")}`,
         descriptors: unsorted,
-        // A DIRECT insert on purpose: this row's unsorted array is what
-        // publication now refuses, so the projections come straight from the
-        // projector rather than through `publishCatalogRevision`.
+        // A direct insert on purpose: publication now refuses this unsorted array.
         ...projectCatalogRevision(unsorted),
         toolCount: unsorted.length,
       })

@@ -10,17 +10,9 @@ import { selectEmailableUsers } from "../../src/delivery/emailable-users";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
- * A recurring fan-out is where a bare `user` row turns into paid LLM work and an
- * outbound email, so its scope is a spend and deliverability boundary, not a
- * convenience filter. The hourly briefing tick was the first such fan-out; the
- * inbound delivery-alert sweep (ADR-0100) is the second, and both read the one
- * predicate this file drives.
- *
- * Regression cover for a live incident: a DB-backed suite seeded `user` rows and
- * never deleted them, the tick selected every row unconditionally, and 83
- * leftover `@example.test` users each drew an evening briefing every hour. That
- * alone exceeded the Cloudflare AI-gateway rate limit and billed real tokens
- * against addresses nobody owns.
+ * The fan-out scope turns a `user` row into paid LLM work and an email, so it is a spend boundary.
+ * The briefing tick and the delivery-alert sweep (ADR-0100) share it.
+ * Regression: leftover test users each drew a briefing every hour.
  */
 
 const SKIP = dbBackedSkip("database");
@@ -56,10 +48,7 @@ after(async () => {
 
 describe("briefing fan-out scope (DB-backed)", { skip: SKIP }, () => {
   test("selects a verified user and never an unverified one", async () => {
-    // Seeded in the same case so the two rows differ in exactly one column.
-    // Asserting only the absence of the unverified id would pass against a
-    // query that returns nothing at all, so the verified id is what proves the
-    // predicate still selects.
+    // The verified row proves the query still selects something.
     const verifiedId = await seedUser(true);
     const unverifiedId = await seedUser(false);
 
@@ -77,9 +66,7 @@ describe("briefing fan-out scope (DB-backed)", { skip: SKIP }, () => {
   });
 
   test("every selected user has a verified email", async () => {
-    // Both arms seeded here rather than leaning on whatever the database
-    // already holds: without the verified row, an empty selection would satisfy
-    // the "none are unverified" assertion vacuously.
+    // Without the verified row, an empty selection would pass.
     await seedUser(true);
     await seedUser(false);
 

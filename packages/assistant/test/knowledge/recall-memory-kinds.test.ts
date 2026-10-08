@@ -12,29 +12,14 @@ import {
   USER_FACING_MEMORY_CHUNK_KINDS,
   writeMemoryChunk,
 } from "@alfred/assistant/knowledge";
-// Internal-by-intent: the embed backfill is not part of the `knowledge` barrel.
+// Internal helper, not in the `knowledge` barrel.
 import { embedMemoryChunk } from "@alfred/assistant/knowledge/chunks";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
- * DB-backed test for `recallMemory`'s kind handling (#1052).
- *
- * The primitive defaults `kinds` to `USER_FACING_MEMORY_CHUNK_KINDS`, and the
- * restriction is applied in the candidate query before the HNSW pool and
- * top-K. Two properties need proof the offline type system cannot give:
- *
- *  - The exclusion must not be a fetch-then-drop. The seed plants
- *    `EXCLUDED_SEED_COUNT` operational chunks nearer the query than the one
- *    real memory chunk, so the excluded kind alone fills more than the
- *    candidate pool (`max(limit * 5, 50)`). A post-pool drop would return
- *    nothing; only a candidate-query filter returns the summary. The same seed
- *    makes the default's safety observable — with no `kinds` the summary must
- *    still come back and no telemetry may.
- *  - An empty set is an explicit "no kinds", not "any".
- *
- * Opt-in: runs only when `DATABASE_URL` points at a reachable migrated
- * Postgres; skipped otherwise. Seeds throwaway `test-recallkinds-*` users and
- * cascades them away on teardown.
+ * `recallMemory` kind filter. Needs a migrated `DATABASE_URL`.
+ * The kind filter must run in the candidate query, not after the pool fills.
+ * An empty `kinds` means no kinds, not any.
  */
 const SKIP = dbBackedSkip("database");
 
@@ -45,8 +30,7 @@ const LIMIT = 10;
 // `recallMemory` pulls `max(limit * 5, 50)` candidates before reranking.
 const CANDIDATE_POOL = Math.max(LIMIT * 5, 50);
 
-// One more than the pool: the excluded kind alone cannot fit inside it, so a
-// fetch-then-drop implementation would starve the real memory chunk.
+// Excluded chunks overfill the pool, so filtering after the fetch returns nothing.
 const EXCLUDED_SEED_COUNT = CANDIDATE_POOL + 1;
 
 const createdUserIds: string[] = [];
@@ -118,8 +102,7 @@ describe("recallMemory kind restriction (DB-backed)", { skip: SKIP }, () => {
       );
     }
 
-    // Control: with every kind allowed the telemetry chunks are live
-    // candidates, so the exclusions below are not vacuous.
+    // Control: with every kind allowed, the telemetry chunks do come back.
     const allKinds = await recallMemory({
       userId,
       query,
@@ -133,9 +116,7 @@ describe("recallMemory kind restriction (DB-backed)", { skip: SKIP }, () => {
       "control: the extraction_run chunks must be findable when every kind is allowed",
     );
 
-    // Default (no `kinds`): user-facing only. If the filter were applied after
-    // the candidate pool, the excluded chunks would fill the pool and the
-    // summary could not come back.
+    // Default (no `kinds`) is user-facing only.
     const defaulted = await recallMemory({ userId, query, queryEmbedding, limit: LIMIT });
     assert.equal(
       defaulted.some((hit) => hit.kind === "extraction_run"),

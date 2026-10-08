@@ -168,7 +168,7 @@ class MemoryPersistence implements McpConnectionManagerPersistence {
     await this.onPublish?.();
     const now = new Date();
     const id = `revision-${this.publications}`;
-    // `descriptors` is `readonly Tool[]` now, so the name is typed, not sniffed.
+    // `descriptors` is `readonly Tool[]`, so the name is typed.
     this.revisions.set(
       id,
       input.descriptors.map((entry) => entry.name),
@@ -754,8 +754,7 @@ describe("mcp connection manager lifecycle", () => {
     assert.equal(await removal, "removed");
     assert.equal(persistence.deleted, true);
     assert.equal(protocol.closeCount, 1);
-    // The removal close intent writes no durable row: the deleted row stays
-    // exactly as it was in the fake.
+    // The removal close intent writes no durable row, so the deleted row stays unchanged in the fake.
     assert.equal(persistence.connection.status, "ready");
   });
 

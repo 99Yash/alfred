@@ -64,13 +64,11 @@ describe("splitPersistedToolCalls", () => {
       },
     ]);
 
-    // Same rule as the live stream state's map: gmail stays in first position
-    // and its last offer wins, so a reload matches what the turn streamed.
+    // Same rule as the live stream: first position stays, last offer wins, so a reload matches.
     assert.deepEqual(nudges, [
       { integration: "gmail", action: "reconnect" },
       { integration: "notion", action: "connect" },
     ]);
-    // Every bounced entry stays out of the drawable trail.
     assert.deepEqual(cards, []);
   });
 });

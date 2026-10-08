@@ -30,7 +30,7 @@ function tool(args: {
   });
 }
 
-/** A non-`system` tool, i.e. one whose policy mode comes from the user's policy. */
+/** A non-`system` tool, so its policy mode comes from the user's policy. */
 function notionTool(args: { staging?: "fast_path"; policyGateWaiver?: string }) {
   return liveTool({
     integration: "notion",
@@ -93,11 +93,7 @@ describe("the fast path may not waive an approval a tool could require", () => {
     assert.doesNotThrow(() => registerTool(tool({ action: "web_search", riskTier: "high" })));
   });
 
-  // The half a riskTier-only guard misses: approval is
-  // `policyMode === "gated" || riskTier === "high"`, and only `system` is forced
-  // to autonomy by `resolvePolicyMode`. So a low-tier NON-system fast path
-  // skips a real approval under the default policy — the naive call must fail
-  // at boot.
+  // Only `system` is forced to autonomy, so a non-system fast path would skip a real approval.
   test("a mid-tier non-system fast-path tool throws without a named waiver", () => {
     assert.throws(
       () => registerTool(notionTool({ staging: "fast_path" })),
@@ -164,10 +160,8 @@ describe("resolveToolAvailability reads the credential snapshot only when it cou
   });
 
   test("an `mcp.*` tool resolves with no snapshot read", async () => {
-    // `mcp` is deliberately not a loadable slug: its connection health lives on
-    // `mcp_connections`, not `integration_credentials`, so it is absent from the
-    // snapshot. Reading the snapshot for it would resolve every MCP tool to
-    // `not_connected` and silently kill the whole MCP surface.
+    // `mcp` health is not in the snapshot. A snapshot read would mark every MCP tool
+    // `not_connected`.
     const mcpListTools = liveTool({
       integration: "mcp",
       action: "list_tools",

@@ -7,8 +7,7 @@ import IORedis from "ioredis";
 import { ambientRouteSurfaceCase, routeSurfaceFor } from "./support/route-surface";
 import { applyServerEnvFixtures } from "./support/server-env";
 
-// This suite has NO service guard — it mocks `db` and `auth` and never dials
-// either service — so it opts into local service URLs to make the parse succeed.
+// No service guard: `db` and `auth` are mocked, so local URLs only make the env parse.
 applyServerEnvFixtures({
   databaseUrl: "postgresql://localhost:5432/alfred_test",
   redisUrl: "redis://localhost:6379",
@@ -16,25 +15,16 @@ applyServerEnvFixtures({
 
 const { app } = await import("@alfred/http");
 
-// `/ready` now keeps ONE long-lived Redis handle instead of building and
-// quitting one per request, so this suite is the thing that closes it.
-// `--test-force-exit` would kill the process around a reconnecting socket
-// rather than close it, which is not the same evidence.
+// `/ready` keeps one long-lived Redis handle; close it rather than rely on `--test-force-exit`.
 after(async () => {
   await closeRedis();
 });
 
-/**
- * Relative to now, not a fixed instant. The absolute session cap (#454) revokes
- * any session older than 30 days on read, so a hard-coded `createdAt` turns this
- * suite into a time bomb that starts failing 30 days after it was written.
- */
+/** Relative to now: the 30-day absolute session cap (#454) would expire a fixed date. */
 const SIGNED_IN_AT = new Date(Date.now() - 60_000);
 
 describe("@alfred/http root app", () => {
-  // `ambientRouteSurfaceCase()` is read here, after the fixture loop above has seeded
-  // `NODE_ENV`, so it describes the same value the barrel read at import time.
-  // `../route-surface-env.test.ts` covers every other value in a child process each.
+  // Matches the `NODE_ENV` the barrel saw; `route-surface-env.test.ts` covers the other values.
   test("keeps the complete ordered route surface", () => {
     assert.deepEqual(
       app.routes.map(({ method, path }) => `${method} ${path}`),

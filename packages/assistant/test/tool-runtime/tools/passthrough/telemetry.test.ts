@@ -4,12 +4,9 @@ import type { PassthroughResult } from "@alfred/contracts";
 import { passthroughTruncationTelemetry } from "../../../../src/tool-runtime/internal/tools/passthrough";
 
 /**
- * ADR-0074 thermometer (PRD User Story 17). The builder turns a clipped
- * passthrough result's `handleEligible` truncation marker into the structured
- * signal folded onto the tool span — the evidence gate for the object-handle
- * layer (L0). It must fire ONLY on a truncated `http` outcome, carry the exact
- * L0-trigger fields, and never throw on a malformed or non-passthrough result
- * (it runs on every tool's result, seen as `unknown`).
+ * Turns a clipped passthrough result's `handleEligible` marker into a span signal (ADR-0074).
+ * Fires only on a truncated `http` outcome.
+ * It reads every tool's result as `unknown`, so it must never throw.
  */
 
 const RUN_ID = "run_thermo_1";

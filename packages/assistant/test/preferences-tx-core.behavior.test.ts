@@ -15,18 +15,8 @@ import {
 import { dbBackedSkip } from "./support/db-backed";
 
 /**
- * DB-backed integration test for the `tx`-accepting preference cores —
- * `upsertPreference` / `deletePreferenceRow` executed against a Drizzle
- * transaction rather than the pooled `db()` handle. This is the seam this
- * campaign item introduces: the Replicache `prefSet` / `prefDelete` mutators
- * route through these cores against the push transaction, so the write must
- * commit and roll back with that outer transaction. The gateway paths
- * (`setPreference` / `deletePreference` via `db()`) are covered by
- * `preferences.behavior.test.ts` and are unchanged.
- *
- * Opt-in: runs only when `DATABASE_URL` points at a reachable Postgres with the
- * migrated schema. Skipped otherwise. Seeds throwaway `test-settings-tx-*`
- * users and deletes them (cascade clears their preferences) on teardown.
+ * `upsertPreference` and `deletePreferenceRow` on a caller's transaction.
+ * The Replicache `prefSet`/`prefDelete` mutators use them, so writes must commit and roll back with the push.
  */
 const SKIP = dbBackedSkip("database");
 

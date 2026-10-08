@@ -33,22 +33,8 @@ import {
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
- * DB-backed behavior test for the ADR-0067 P1 WRITE BOUNDARY + read surface — the
- * complement to `user-model-rails.test.ts` (which pins the raw DB constraints).
- * This proves the helpers that route every substrate write/read:
- *
- *   - `insertObservation`: validated append, dedup is a no-op, the family head
- *     pointer moves to the new live member, and a no-fork/single-root violation
- *     is NOT swallowed (it surfaces for the reducer's CAS retry);
- *   - `recordEntityIdentity`: idempotent over the ACTIVE `(kind, value)` set;
- *   - `startProjectionRun` / `completeProjectionRun`: single-attempt reuse +
- *     completed runs require a checksum;
- *   - `activateProjectionVersion`: the completed-only guard a FK can't express;
- *   - `userModelReader`: empty until activated, then pinned to the active run
- *     (a non-active version's rows are invisible).
- *
- * Seeds nodes through `makeEntityNodeInsert` with a fixed test secret (same as
- * the rails test) so it needs only `DATABASE_URL`, not the full `serverEnv`.
+ * The ADR-0067 user-model write and read helpers. `user-model-rails.test.ts` pins the raw constraints.
+ * A fork must surface, not be swallowed, so the reducer can retry its CAS.
  */
 const SKIP = dbBackedSkip("database");
 
@@ -162,7 +148,6 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
     const first = await insertObservation(gmailObs(userId, familyKey, "hash-a"));
     assert.equal(first.deduped, false);
 
-    // Head points at the new row.
     const [head] = await db()
       .select()
       .from(observationFamilyHeads)
@@ -176,7 +161,7 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
     assert.ok(head);
     assert.equal(head.headObservationId, first.observation.id);
 
-    // Identical evidence dedups to the SAME row, no new insert, head unchanged.
+    // Identical evidence dedups to the same row.
     const again = await insertObservation(gmailObs(userId, familyKey, "hash-a"));
     assert.equal(again.deduped, true);
     assert.equal(again.observation.id, first.observation.id);
@@ -307,10 +292,8 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
     const userId = await seedUser();
     const familyKey = `gmail:${randomUUID()}`;
     await insertObservation(gmailObs(userId, familyKey, "hash-1"));
-    // A SECOND root (distinct evidence, no supersedes) must collide on the
-    // single-root index, not be silently dropped — the reducer retries on this.
-    // Drizzle wraps the pg error as "Failed query: …" with the constraint name +
-    // SQLSTATE on `.cause`, so walk the chain rather than the wrapper message.
+    // A second root must collide on the single-root index.
+    // Drizzle puts the constraint name on `.cause`, so walk the chain.
     await assert.rejects(
       () => insertObservation(gmailObs(userId, familyKey, "hash-2")),
       (err: unknown) => {
@@ -371,7 +354,6 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
     const entityB = await seedNode(userId, "node-b@example.com");
     const shared = { kind: "email" as const, value: "shared@example.com" };
 
-    // The handle binds to A first.
     await recordEntityIdentity({
       userId,
       entityId: entityA,
@@ -380,9 +362,7 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
       validFrom: SEED_FIRST_SEEN_AT,
     });
 
-    // Asking to bind the SAME live (kind, value) to a different node must NOT
-    // silently hand back A's row as if B's link succeeded — it is the merge/
-    // re-anchor signal, surfaced as a typed conflict for the reducer.
+    // Binding the same identity to B must return a typed conflict, not A's row.
     await assert.rejects(
       () =>
         recordEntityIdentity({
@@ -512,7 +492,7 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
       completedAt: new Date("2026-06-23T01:00:00.000Z"),
     });
 
-    // A second completion must NOT overwrite the trusted checksum/completedAt.
+    // A second completion must not overwrite the checksum.
     await assert.rejects(
       () =>
         completeProjectionRun({
@@ -524,13 +504,11 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
       /already completed/,
     );
 
-    // Demoting a completed run to failed would orphan the cutover invariant.
     await assert.rejects(
       () => failProjectionRun({ runId: run.id, userId }),
       /already.*completed|cannot be demoted/,
     );
 
-    // The original completion is intact.
     const [after] = await db().select().from(projectionRuns).where(eq(projectionRuns.id, run.id));
     assert.equal(after?.status, "completed");
     assert.equal(after?.checksum, "checksum-original");
@@ -545,7 +523,6 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
       projectionVersion: 1,
     });
 
-    // While running: the cursor write lands.
     await writeProjectionCursor({
       userId,
       projectionName: USER_MODEL_PROJECTION_NAME,
@@ -575,7 +552,7 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
       completedAt: new Date("2026-06-23T01:00:00.000Z"),
     });
 
-    // After completion the replay record is immutable — no more cursor writes.
+    // A completed run is immutable.
     await assert.rejects(
       () =>
         writeProjectionCursor({
@@ -595,11 +572,9 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
     const entityId = await seedNode(userId, "reader@example.com");
     const reader = userModelReader(userId);
 
-    // Nothing activated yet.
     assert.equal(await reader.getActivePointer(), null);
     assert.deepEqual(await reader.listProfiles(), []);
 
-    // Two completed versions; only v1 is activated.
     const seedProfileVersion = async (version: number) => {
       const { run } = await startProjectionRun({
         userId,
@@ -645,7 +620,6 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
     const byId = await reader.getProfile(entityId);
     assert.equal(byId?.displayName, "v1");
 
-    // Now flip the pointer to v2 and confirm the read follows.
     const [v2run] = await db()
       .select()
       .from(projectionRuns)

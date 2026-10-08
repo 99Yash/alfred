@@ -6,11 +6,8 @@ import { liveTool } from "@alfred/assistant/tool-runtime";
 import { evaluateToolAvailability } from "../../src/tool-runtime/internal/registry";
 
 /**
- * The default-OFF passthrough preference gate (ADR-0074). `evaluateToolAvailability`
- * is the single source both discovery/load and the dispatch recheck consult, so
- * these prove the `feature_disabled` code fires precisely: off (or unset) →
- * feature_disabled BEFORE any connection reason; on + connected → available; on
- * but disconnected → the honest health reason, not feature_disabled.
+ * The passthrough preference gate, off by default (ADR-0074). Off returns `feature_disabled`
+ * before any connection reason. On but disconnected returns the health reason.
  */
 
 const notionRequest = liveTool({
@@ -81,8 +78,6 @@ describe("passthrough preference gate (feature_disabled)", () => {
   });
 
   test("preference gate precedes the connection check: OFF + disconnected is feature_disabled, not not_connected", () => {
-    // The user turned the tier off, so that is the honest reason regardless of
-    // whether the integration is connected.
     const result = evaluateToolAvailability(
       snapshot({ notionHealth: null, passthroughOn: false }),
       notionRequest,

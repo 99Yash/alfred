@@ -8,8 +8,7 @@ import { documents, memoryChunks, user } from "@alfred/db/schemas";
 import { recordDocumentEmbedFailure, findUnembeddedDocumentIds } from "@alfred/corpus";
 import { eq, inArray, like } from "drizzle-orm";
 
-// Internal-by-intent chunk-embed helpers dropped from the `knowledge` barrel
-// (item 15) — read from their owning file directly.
+// Internal helpers, not in the `knowledge` barrel.
 import {
   findPendingEmbedChunks,
   pendingEmbedChunkIds,
@@ -18,44 +17,17 @@ import {
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
- * DB-backed test for the embedding poison-pill guard on both `memory_chunks`
- * and `documents`. It proves the retry storm terminates WITHOUT destroying the
- * backlog during a provider outage:
- *
- *   1. a per-input-permanent error (400/413/422 — the input itself is
- *      un-embeddable) dead-letters the row on the FIRST failure, so it drops out
- *      of the embed-sweep candidate set;
- *   2. a systemic error (401/403/404 — rotated key, quota trip, endpoint change)
- *      is NOT per-input, so it must NOT dead-letter on the first failure; it
- *      rides the wall-clock window like any transient failure. Regression guard
- *      for the blocker: classifying these as permanent would dead-letter the
- *      whole pending backlog on the first sweep of a key-rotation lag;
- *   3. a 429 (rate-limit) is transient, not permanent;
- *   4. a transient error (5xx) is retried for a wall-clock window regardless of
- *      how many sweeps hit it — the P1 regression guard: a 25-minute outage
- *      that burns >MAX attempts must NOT dead-letter — and only dead-letters
- *      once the *first* failure is older than `EMBED_RETRY_WINDOW_HOURS`;
- *   5. the first-failure marker is stamped ONCE (COALESCE) — re-stamping every
- *      sweep would perpetually reset the window and reintroduce the retry storm.
- *
- * The wall-clock window is 24h in the implementation; the tests backdate
- * `embed_first_failed_at` rather than sleeping, and assert structurally (never
- * import the private constant) so a window change doesn't break them.
- *
- * Gap (documented, not covered): none of these drive the real `embed()`/
- * `embedMany()` → catch → record path; forcing a deterministic Voyage failure
- * needs provider mocking. They exercise the record/select layer directly, which
- * is where the guard's SQL lives.
- *
- * Opt-in: runs only when `DATABASE_URL` points at a reachable migrated
- * Postgres; skipped otherwise. Seeds throwaway `test-embedpoison-*` users and
- * cascades them away on teardown.
+ * Embed poison-pill guard on `memory_chunks` and `documents`. Needs a migrated `DATABASE_URL`.
+ * A per-input error (400/413/422) dead-letters at once. A systemic error (401/403/404),
+ * a 429, or a 5xx retries until the first failure passes `EMBED_RETRY_WINDOW_HOURS`,
+ * so a key rotation or outage does not drop the backlog. The first-failure stamp is set once.
+ * Not covered: the real `embed()` catch path, which needs provider mocks.
  */
 const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-embedpoison-";
 
-// More than the old attempt cap (5), to prove attempt count no longer gates.
+// Many attempts, to prove the attempt count does not dead-letter.
 const TRANSIENT_FAILURES_IN_WINDOW = 8;
 
 const createdUserIds: string[] = [];
@@ -179,7 +151,7 @@ describe("memory embed poison-pill guard (DB-backed)", { skip: SKIP }, () => {
     const chunkId = await seedUnembeddedChunk(userId);
     const perUser = await pendingEmbedChunkIds(userId);
     assert.ok(perUser.includes(chunkId), "fresh chunk should be pending (per-user)");
-    // The worker sweeps the global finder, not the per-user one — cover it too.
+    // The worker sweeps the global finder, not the per-user one.
     const global = await findPendingEmbedChunks(5000);
     assert.ok(
       global.some((r) => r.id === chunkId),
@@ -218,11 +190,8 @@ describe("memory embed poison-pill guard (DB-backed)", { skip: SKIP }, () => {
   });
 
   test("systemic (401/403/404) errors do NOT dead-letter on the first failure", async () => {
-    // Rotated key (401), quota/billing/permission trip (403), endpoint change
-    // (404): each returns the same status for every row while it lasts, then
-    // clears. The blocker regression guard — treating these as permanent would
-    // dead-letter the entire pending backlog on the first sweep of a routine
-    // key-rotation lag. They must ride the wall-clock window instead.
+    // 401/403/404 hit every row until the key or quota is fixed. As permanent, they
+    // would dead-letter the whole backlog on the first sweep.
     for (const status of [401, 403, 404]) {
       const userId = await seedUser();
       const chunkId = await seedUnembeddedChunk(userId);
@@ -240,8 +209,7 @@ describe("memory embed poison-pill guard (DB-backed)", { skip: SKIP }, () => {
     const userId = await seedUser();
     const chunkId = await seedUnembeddedChunk(userId);
 
-    // Simulate an outage: many sweeps fail in quick succession, past the old
-    // attempt cap. The first-failure marker stays recent, so nothing dies.
+    // An outage: many quick failed sweeps. The first failure stays recent, so nothing dies.
     for (let i = 1; i <= TRANSIENT_FAILURES_IN_WINDOW; i++) {
       await recordMemoryEmbedFailure(chunkId, userId, httpError(500));
       const mid = await readChunk(chunkId);
@@ -266,12 +234,8 @@ describe("memory embed poison-pill guard (DB-backed)", { skip: SKIP }, () => {
   });
 
   test("P1: embed_first_failed_at is stamped ONCE across repeated failures", async () => {
-    // The mechanism the whole wall-clock window rests on: the guard writes
-    // COALESCE(firstFailedAt, now()), so the ORIGINAL first-failure time must
-    // survive every subsequent sweep. Re-stamping it each failure would keep the
-    // window perpetually fresh — the infinite retry storm the guard terminates.
-    // Assert the column directly: the outcome-level tests can't catch a re-stamp
-    // because a fresh burst stays failed=false either way.
+    // A re-stamp would keep the window fresh forever. Check the column, because
+    // outcome tests stay failed=false either way.
     const userId = await seedUser();
     const chunkId = await seedUnembeddedChunk(userId);
 

@@ -27,13 +27,11 @@ test("redactSecrets strips bearer/basic tokens and secret-keyed values", () => {
   const out = redactSecrets(json);
   assert.ok(!out.includes("sk-secret-value-123"));
   assert.match(out, /\[redacted\]/);
-  // Non-secret fields survive.
   assert.match(out, /keep me/);
 
   assert.ok(!redactSecrets("?refresh_token=abc123def&page=2").includes("abc123def"));
 
-  // Credentials positional in a URL's userinfo — not keyed, so only the
-  // userinfo pass catches them. Host/path survive so the error stays useful.
+  // URL userinfo has no key name, so only the userinfo pass catches it.
   const urlCreds = redactSecrets("connect failed https://svc:s3cr3tToken@mcp.example.com/mcp");
   assert.ok(!urlCreds.includes("s3cr3tToken"));
   assert.match(urlCreds, /\[redacted\]@mcp\.example\.com\/mcp/);
@@ -45,10 +43,8 @@ test("summarizeBody redacts then bounds with a visible marker", () => {
   assert.ok(out.length < big.length);
   assert.match(out, /…\[\+50 chars\]$/);
 
-  // Short bodies pass through untouched (after redaction).
   assert.equal(summarizeBody("short body"), "short body");
 
-  // Secrets are gone even when the body is short enough to keep.
   assert.ok(!summarizeBody('{"client_secret":"hunter2"}').includes("hunter2"));
 });
 

@@ -105,16 +105,12 @@ describe("rememberSenderSuppression coordinator (DB-backed)", { skip: SKIP }, ()
     const result = await rememberSenderSuppression({ userId, senderEmail: SENDER });
     assert.equal(result.ok, true);
 
-    // memory no longer reaches into tasks: the matching todo is still open.
     assert.equal(await todoStatus(todoId), "open");
   });
 
   test("the coordinator dismisses the sender's todos on the `remembered` path", async () => {
     const userId = await seedUser();
-    // A one-mailbox target widens nothing, so its sweep keeps the caller
-    // default (both live statuses): the sender's promoted `open` todo is
-    // dismissed, as the single-address sweep always did. Only a class
-    // (domain) target narrows to `suggested`.
+    // A one-mailbox target sweeps both live statuses. Only a domain target narrows to `suggested`.
     const { todoId } = await seedGmailTodoFromSender(userId, "open");
 
     const result = await rememberSenderSuppressionAndDismissTodos(rememberRequest(userId));
@@ -134,7 +130,6 @@ describe("rememberSenderSuppression coordinator (DB-backed)", { skip: SKIP }, ()
     const userId = await seedUser();
     const first = await seedGmailTodoFromSender(userId, "open");
 
-    // First call mints the suppression (remembered) and dismisses the first todo.
     const remembered = await rememberSenderSuppressionAndDismissTodos(rememberRequest(userId));
     assert.equal(remembered.ok, true);
 
@@ -142,10 +137,9 @@ describe("rememberSenderSuppression coordinator (DB-backed)", { skip: SKIP }, ()
     assert.equal(remembered.status, "remembered");
     assert.equal(await todoStatus(first.todoId), "dismissed");
 
-    // A new open todo from the same sender arrives after the suppression exists.
     const second = await seedGmailTodoFromSender(userId, "open");
 
-    // Second call hits the `already_exists` branch and must still dismiss.
+    // The `already_exists` branch must still dismiss.
     const again = await rememberSenderSuppressionAndDismissTodos(rememberRequest(userId));
     assert.equal(again.ok, true);
 

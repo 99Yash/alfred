@@ -61,8 +61,7 @@ describe("system.corpus_search", () => {
       },
     };
 
-    // SAFETY: execute returns unknown; this tool's execute builds
-    // `{ ok, query, hits }` above, so narrow to that shape for asserts.
+    // SAFETY: this tool's execute builds `{ ok, query, hits }`.
     const result = (await tool.execute({ query: "resume platform team" }, ctx)) as {
       ok: boolean;
       query: string;
@@ -72,9 +71,7 @@ describe("system.corpus_search", () => {
     assert.deepEqual(seen, [{ query: "resume platform team", userId: "user_1" }]);
     assert.equal(result.ok, true);
     assert.equal(result.query, "resume platform team");
-    // The record identity (#1076) is dereference plumbing for the evidence
-    // card, never a tool answer: the hit reaches the model as a
-    // `ModelFacingHit`, so `record` is absent here by design.
+    // `record` feeds the evidence card. The model gets a `ModelFacingHit` without it.
     assert.ok(result.hits[0] && !("record" in result.hits[0]));
     const { record: _record, ...modelHit } = hit;
     assert.deepEqual(result.hits, [modelHit]);
@@ -97,8 +94,7 @@ describe("system.corpus_search", () => {
       },
     };
 
-    // SAFETY: execute returns unknown; this tool's execute builds
-    // `{ ok, hits }` above, so narrow to that shape for asserts.
+    // SAFETY: this tool's execute builds `{ ok, hits }`.
     const result = (await tool.execute({ query: "nothing matches" }, ctx)) as {
       ok: boolean;
       hits: unknown[];
