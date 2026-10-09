@@ -66,6 +66,7 @@ import {
   finalizeAssistantMessage,
   finalizeCancelledMessage,
   finalizeFailedMessage,
+  foldUncommittedDeltas,
 } from "./chat-turn-closure";
 import {
   admitPdfDesignGuide,
@@ -1046,12 +1047,24 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
   stateSchema: chatRunStateSchema,
   // Ends the client bubble for runs that go terminal outside a step body.
   // Both finalizers are idempotent on messageId.
+  //
+  // `ctx.state` is the last committed state, from before the faulted step ran, so
+  // the text that step streamed is not in it. The executor reaches this closure in
+  // three ways, and in each one text can have streamed that no row holds (#1267):
+  // - A step throws. The in-step catch writes the failed row first, from its live
+  //   state. When that write itself throws, no row exists and this closure writes it.
+  // - The lease backstop fails a run whose attempts died without a commit. Their
+  //   text lived only in the dead processes.
+  // - The step does not resolve, after earlier reclaimed attempts streamed.
+  // So the failed branch folds the outbox `chat.delta` rows after the committed
+  // `deltaSeq` into the state. The outbox is the record of what the client was sent.
+  // The insert stays do-nothing on conflict, so a row the in-step catch wrote wins.
   closure: {
     kind: "client",
     async onTerminal(ctx) {
       switch (ctx.outcome) {
-        case "failed":
-          // Last committed state, so the faulted step's time is lost. Accepted (#902).
+        case "failed": {
+          // The outbox gives back the text, but not the time: the faulted step's time is lost. Accepted (#902).
           emitTurnPhaseThermometer({
             runId: ctx.runId,
             startedAt: ctx.state.startedAt ? new Date(ctx.state.startedAt) : undefined,
@@ -1059,9 +1072,12 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
             turns: ctx.state.turnCount,
             reading: ctx.state,
           });
-          await finalizeFailedMessage(ctx.userId, ctx.runId, ctx.state, new Error(ctx.error));
+          const state = await foldUncommittedDeltas(ctx.userId, ctx.state);
+          await finalizeFailedMessage(ctx.userId, ctx.runId, state, new Error(ctx.error));
 
           return;
+        }
+
         // A cancel is deliberate, so it persists a normal row, not an error.
         case "cancelled":
           emitTurnPhaseThermometer({
