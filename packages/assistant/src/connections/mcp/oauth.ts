@@ -4,7 +4,7 @@
  * Callback: `matchesState`, re-check the issuer, `finishAuthorization`, `saveTokens`.
  * Refresh happens only before delivery; the transport gets a token-only view, so it cannot replay `tools/call`.
  */
-import { parseOAuthScopeList } from "@alfred/contracts";
+import { parseOAuthScopeList, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { credentialVault, type CredentialVault } from "@alfred/db/credential-vault";
 import {
@@ -17,6 +17,7 @@ import {
   type NewMcpOauthCredential,
 } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
+import { logger } from "@alfred/logging";
 import {
   auth,
   StreamableHTTPClientTransport,
@@ -375,6 +376,16 @@ function parseAuthorizationServerMetadata(
   };
 }
 
+/** The metadata names another protected resource than the connection's endpoint. */
+class McpOAuthResourceMovedError extends Error {
+  constructor(published: string, expected: string) {
+    super(
+      `MCP OAuth resource metadata changed the protected resource (${published}, expected ${expected})`,
+    );
+    this.name = "McpOAuthResourceMovedError";
+  }
+}
+
 function parseProtectedResourceMetadata(
   value: unknown,
   authorization: McpAuthorizedOAuth,
@@ -384,7 +395,7 @@ function parseProtectedResourceMetadata(
   const resource = authorization.validateResourceEndpoint(parsed.resource);
 
   if (resource.href !== authorization.resource.href) {
-    throw new Error("MCP OAuth resource metadata changed the protected resource");
+    throw new McpOAuthResourceMovedError(resource.href, authorization.resource.href);
   }
 
   const authorizationServers = parsed.authorization_servers?.map((candidate) =>
@@ -706,8 +717,26 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
 
     try {
       return parseDiscoveryState(credential.discoveryState, this.#authorization, credential.issuer);
-    } catch {
-      throw new Error("Persisted MCP OAuth discovery state is invalid");
+    } catch (err) {
+      // An endpoint move (`/mcp` to `/mcp/readonly`) leaves a cache that blocks every
+      // reconnect. Drop only that copy: the SDK fetches it again and `saveDiscoveryState`
+      // re-runs every check, and `attachDiscovery` still refuses another issuer.
+      if (err instanceof McpOAuthResourceMovedError) {
+        logger.warn(
+          {
+            event: "mcp_oauth_discovery_stale",
+            connectionId: this.#connectionId,
+            cause: err.message,
+          },
+          "Dropped MCP OAuth discovery state cached for a moved resource",
+        );
+        await this.#store.update(credential.id, this.#userId, { discoveryState: null });
+
+        return undefined;
+      }
+
+      // Anything else is an issuer change or a refused endpoint. Fail closed, before any request.
+      throw new Error(`Persisted MCP OAuth discovery state is invalid: ${toMessage(err)}`);
     }
   }
 
