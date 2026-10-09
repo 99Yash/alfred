@@ -1,16 +1,20 @@
 import { ArrowUp, AtSign, Check, Loader2, Mic, Paperclip, Square, X } from "lucide-react";
-import type { ButtonHTMLAttributes, ReactNode, Ref } from "react";
+import type { ButtonHTMLAttributes, MouseEvent, ReactNode, Ref } from "react";
 import { cn } from "~/lib/utils";
 import { ApprovalModePicker } from "../approval-mode-picker";
 import { ModelTierPicker } from "../model-tier-picker";
 import type { ChatModelTier } from "@alfred/contracts";
 import { useMicRecording } from "../mic-recording";
 import { Tip } from "../tip";
+import { KeyHint } from "./key-hint";
 
 export function ComposerToolbar({
   mic,
   canSend,
   isStreaming,
+  canSteer,
+  steerArmed,
+  onSteer,
   disabled,
   sending,
   mentionActive,
@@ -30,6 +34,11 @@ export function ComposerToolbar({
   mic: ReturnType<typeof useMicRecording>;
   canSend: boolean;
   isStreaming: boolean;
+  /** A reply can stop for a steer (#490): the send button queues, and ⌘↵ sends now. */
+  canSteer: boolean;
+  /** ⌘ is held in the composer, so the send button steers. */
+  steerArmed: boolean;
+  onSteer: () => void;
   disabled: boolean;
   sending: boolean;
   mentionActive: boolean;
@@ -47,6 +56,15 @@ export function ComposerToolbar({
   onTierChange: (tier: ChatModelTier) => void;
 }) {
   const statusMessage = voiceError ?? mic.error;
+  // The send button grows into "Steer" while ⌘ is held, so the user sees what ⌘↵ does.
+  const steering = canSteer && steerArmed && canSend;
+
+  // A ⌘-click on send steers too, the same as ⌘↵.
+  const onSendClick = (e: MouseEvent<HTMLButtonElement>) => {
+    if (!canSteer || !(e.metaKey || e.ctrlKey)) return;
+    e.preventDefault();
+    onSteer();
+  };
 
   return (
     <div className="flex items-center justify-between gap-2 px-1.5 pt-1.5">
@@ -121,6 +139,36 @@ export function ComposerToolbar({
           </>
         ) : (
           <>
+            {canSteer ? (
+              // Visible hints, not a tooltip: the keys matter at the moment the user types.
+              <div
+                aria-hidden
+                className={cn(
+                  "mr-1 hidden items-center gap-2.5 text-[11px] text-app-fg-2 @xl/composer:flex",
+                  "app-fade-in [@media(pointer:coarse)]:hidden",
+                )}
+              >
+                <KeyHint
+                  keys="↵"
+                  className={cn("transition-opacity duration-150", steerArmed && "opacity-40")}
+                >
+                  Queue
+                </KeyHint>
+                <KeyHint
+                  keys="⌘↵"
+                  className={cn(
+                    "transition-colors duration-150",
+                    steerArmed && "text-app-purple-4",
+                  )}
+                  kbdClassName={cn(
+                    "transition-colors duration-150",
+                    steerArmed && "border-app-purple-3 bg-app-purple-1 text-app-purple-4",
+                  )}
+                >
+                  Steer
+                </KeyHint>
+              </div>
+            ) : null}
             <Tip label="Dictate">
               <ComposerIcon
                 label="Dictate"
@@ -149,15 +197,37 @@ export function ComposerToolbar({
                 </button>
               </Tip>
             ) : null}
-            <Tip label="Send" keys={["↵"]}>
+            <Tip
+              label={steering ? "Steer" : canSteer ? "Queue" : "Send"}
+              keys={[steering ? "⌘↵" : "↵"]}
+              description={
+                steering
+                  ? "Stops the reply and sends this now."
+                  : canSteer
+                    ? "Hold ⌘ to steer instead."
+                    : undefined
+              }
+            >
               <button
                 type="submit"
                 disabled={!canSend}
-                aria-label={sending ? "Sending" : disabled ? "Waiting for approval" : "Send"}
+                onClick={onSendClick}
+                aria-label={
+                  sending
+                    ? "Sending"
+                    : disabled
+                      ? "Waiting for approval"
+                      : steering
+                        ? "Steer"
+                        : canSteer
+                          ? "Queue"
+                          : "Send"
+                }
                 className={cn(
-                  "inline-flex size-9 shrink-0 items-center justify-center rounded-full",
-                  "app-focus app-press transition-[opacity,filter,transform]",
-                  "enabled:hover:scale-[1.04]",
+                  "inline-flex h-9 min-w-9 shrink-0 items-center justify-center rounded-full",
+                  "app-focus app-press transition-[opacity,filter,transform,padding,background-color]",
+                  "duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] enabled:hover:scale-[1.04]",
+                  steering ? "gap-1 pr-3.5 pl-3" : "px-0",
                   canSend
                     ? cn(
                         "text-(--app-accent-fg)",
@@ -170,6 +240,9 @@ export function ComposerToolbar({
                 )}
               >
                 <ArrowUp size={16} strokeWidth={2.25} />
+                {steering ? (
+                  <span className="app-fade-in text-[13px] font-medium">Steer</span>
+                ) : null}
               </button>
             </Tip>
           </>
