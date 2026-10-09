@@ -253,7 +253,7 @@ export class McpRawClient {
   readonly #schemaValidator = createSchemaValidator();
   #generation: McpClientGeneration | null = null;
   /** Why the server dropped the last generation, so `not_connected` can name the real cause. */
-  #lostReason: string | null = null;
+  #lostError: Error | null = null;
   #catalog: McpCatalogSnapshot | null = null;
   #catalogExpiresAt = 0;
   #catalogGeneration = 0;
@@ -382,7 +382,7 @@ export class McpRawClient {
 
       if (wasCurrent) {
         this.#generation = null;
-        this.#lostReason = toMessage(error);
+        this.#lostError = error;
       }
 
       const cleanup = this.#closeGeneration(generation, false).catch(() => undefined);
@@ -417,7 +417,7 @@ export class McpRawClient {
     }
 
     this.#generation = generation;
-    this.#lostReason = null;
+    this.#lostError = null;
   }
 
   close(options: { terminateSession?: boolean } = {}): Promise<void> {
@@ -730,12 +730,12 @@ export class McpRawClient {
 
   #requireGeneration(): McpClientGeneration {
     if (!this.#generation) {
-      throw new McpClientError(
-        "not_connected",
-        this.#lostReason
-          ? `The MCP client lost its connection: ${this.#lostReason}`
-          : "The MCP client is not connected",
-      );
+      // `boundedMcpErrorText` renders the cause chain, so the lost error rides as the cause.
+      throw this.#lostError
+        ? new McpClientError("not_connected", "The MCP client lost its connection", {
+            cause: this.#lostError,
+          })
+        : new McpClientError("not_connected", "The MCP client is not connected");
     }
 
     return this.#generation;
