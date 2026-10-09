@@ -1,6 +1,13 @@
 import { google } from "@ai-sdk/google";
 import type { SharedV4ProviderOptions } from "@ai-sdk/provider";
-import { chatEffortSchema, type ChatEffort, type ChatModelTier } from "@alfred/contracts";
+import {
+  chatEffortSchema,
+  getPath,
+  getStringPath,
+  safeJsonParse,
+  type ChatEffort,
+  type ChatModelTier,
+} from "@alfred/contracts";
 import { findApiCallError, isCallerAbort } from "./abort";
 import { APICallError, type ToolSet } from "ai";
 // Narrower than `ai`'s `LanguageModel`, which also admits gateway string ids.
@@ -201,20 +208,32 @@ export function googleSearchGroundingTools(): ToolSet {
 
 /**
  * The newest provider error in `err` names a spend cap, exhausted usage limit, or credit
- * balance. Money does not refill on a backoff, so this is never capacity. Anthropic sends
- * its workspace spend cap as a 400. Checks both message and body.
- * Provider routing and the chat failure taxonomy both read this, so keep one phrase list.
+ * balance. Anthropic sends its workspace spend cap as a 400.
+ * `withFallback`, `isCapacityError`, and the chat failure taxonomy all read this, so keep
+ * one phrase list.
  */
 export function isQuotaOrBillingError(err: unknown): boolean {
   const apiError = findApiCallError(err);
 
-  if (!apiError) return false;
+  if (!apiError || hasRetryDelay(apiError)) return false;
   const haystack = `${apiError.message} ${apiError.responseBody ?? ""}`.toLowerCase();
 
   return (
     haystack.includes("usage limit") ||
     haystack.includes("credit balance") ||
     haystack.includes("billing")
+  );
+}
+
+/**
+ * Gemini's per-minute 429 says "check your plan and billing details" but carries a
+ * `RetryInfo` delay. A quota that names its own refill time is rate, not money.
+ */
+function hasRetryDelay(e: APICallError): boolean {
+  const details = getPath(safeJsonParse(e.responseBody ?? ""), "error", "details");
+
+  return (
+    Array.isArray(details) && details.some((d) => getStringPath(d, "retryDelay") !== undefined)
   );
 }
 
@@ -257,7 +276,7 @@ export function withFallback(primary: LanguageModelV4, fallback: LanguageModelV4
       const code = e.statusCode;
       const isClientBug = code >= 400 && code < 500 && code !== 408 && code !== 429;
 
-      // A spend cap arrives as a 4xx but is capacity, so it switches like a 429.
+      // A spend cap arrives as a 4xx but is not our bug, so it switches like a 429.
       if (isClientBug && !isQuotaOrBillingError(e)) return false;
     }
 
