@@ -158,7 +158,11 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   const clearQuote = useCallback(() => setQuote(null), []);
   // Per-thread client queue (#489): while a reply streams, submits queue as chips.
   // On completion the oldest sends, one at a time. A `busy` reply retries a few times, then waits.
-  const { queue, enqueue, remove, promote, dequeue } = useChatQueue(threadId);
+  const { queue, enqueue, remove, update, promote, dequeue } = useChatQueue(threadId);
+  // The queued message open for an in-place edit. The flush waits while it is next.
+  const [editingQueuedId, setEditingQueuedId] = useState<string | null>(null);
+  // The queued message a steer stopped the reply for. Its row shows "Steering…".
+  const [steeringId, setSteeringId] = useState<string | null>(null);
   const [queueSending, setQueueSending] = useState(false);
   // Set by a completion; cleared once the head starts or fails for good.
   const [flushArmed, setFlushArmed] = useState(false);
@@ -176,6 +180,8 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     setQueueSending(false);
     setFlushArmed(false);
     setQuote(null);
+    setEditingQueuedId(null);
+    setSteeringId(null);
   }
 
   const onSend = useCallback(
@@ -194,11 +200,8 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
         return false;
 
       // Queue while a turn is active, including done-but-not-synced, so no stream mounts over that bubble.
-      if (showStream) {
-        const ok = enqueue({ text: trimmed, files: files ?? [], tier, artifactTargetId });
-
-        return ok;
-      }
+      if (showStream)
+        return enqueue({ text: trimmed, files: files ?? [], tier, artifactTargetId }) !== null;
 
       const result = await send(
         threadId,
@@ -214,7 +217,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
 
       if (result.reason === "busy") {
         // Another turn is in flight (#488). Queue it; the flush retries until that run ends.
-        const ok = enqueue({ text: trimmed, files: files ?? [], tier, artifactTargetId });
+        const ok = enqueue({ text: trimmed, files: files ?? [], tier, artifactTargetId }) !== null;
 
         if (ok) setFlushArmed(true);
 
@@ -267,6 +270,9 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
       return;
     }
 
+    // Wait for the edit, so a half-edited message never sends. Saving or canceling re-runs this.
+    if (next.id === editingQueuedId) return;
+
     setQueueSending(true);
     void (async () => {
       const result = await send(
@@ -283,6 +289,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
         // An `empty` entry is stale. Drop it so it does not block the queue.
         dequeue();
         setFlushArmed(false);
+        setSteeringId(null);
         busyAttemptsRef.current = 0;
       } else if (result.reason === "busy" && busyAttemptsRef.current < QUEUE_BUSY_RETRIES) {
         // Stay armed and try again. The chip shows the entry, so no toast.
@@ -291,12 +298,13 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
       } else {
         // A hard error (already toasted) or a run that stays busy: keep it for the next completion.
         setFlushArmed(false);
+        setSteeringId(null);
         busyAttemptsRef.current = 0;
       }
 
       setQueueSending(false);
     })();
-  }, [flushArmed, queue, queueSending, isStreaming, send, threadId, dequeue]);
+  }, [flushArmed, queue, queueSending, isStreaming, editingQueuedId, send, threadId, dequeue]);
 
   // Retry sends the attachment ids, not files; the server copies the bytes (ADR-0065).
   const onRetry = useCallback(
@@ -410,8 +418,13 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     async (text: string, files?: File[], artifactTargetId?: string): Promise<boolean> => {
       if (!canSteer) return onSend(text, files, artifactTargetId);
 
-      if (!enqueue({ text: text.trim(), files: files ?? [], tier, artifactTargetId }, "front"))
-        return false;
+      const id = enqueue(
+        { text: text.trim(), files: files ?? [], tier, artifactTargetId },
+        "front",
+      );
+
+      if (!id) return false;
+      setSteeringId(id);
       onStopGeneration();
 
       return true;
@@ -424,7 +437,10 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     (id: string) => {
       promote(id);
 
-      if (canSteer) onStopGeneration();
+      if (canSteer) {
+        setSteeringId(id);
+        onStopGeneration();
+      }
       // No turn on screen (a send that met `busy`): try the head now.
       else if (!showStream) setFlushArmed(true);
     },
@@ -495,6 +511,11 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
                   queued={queue}
                   onRemoveQueued={remove}
                   onSendQueuedNow={onSendQueuedNow}
+                  onUpdateQueued={update}
+                  editingQueuedId={editingQueuedId}
+                  onEditingQueuedChange={setEditingQueuedId}
+                  steeringQueuedId={steeringId}
+                  queueSendingHead={queueSending}
                   quote={quote}
                   onClearQuote={clearQuote}
                 />

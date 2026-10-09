@@ -129,9 +129,10 @@ export function SelectionQuote({ onQuote }: { onQuote: (text: string) => void })
       }}
       className={cn(
         "app fixed z-200 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-full px-3 py-1.5",
-        anchor.placement === "above" && "-translate-y-full",
+        anchor.placement === "above" ? "origin-bottom -translate-y-full" : "origin-top",
         "bg-app-fg-4 text-xs font-medium text-app-bg-1 shadow-[0_2px_8px_rgba(0,0,0,0.18)]",
-        "animate-[app-fade-in_120ms_ease-out] select-none motion-reduce:animate-none",
+        // The same reveal as a `Tip` pill, grown from the selection side.
+        "animate-[app-tooltip-in_160ms_cubic-bezier(0.22,1,0.36,1)] select-none motion-reduce:animate-none",
         "app-press app-focus",
       )}
     >
