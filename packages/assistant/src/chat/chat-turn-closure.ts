@@ -1,7 +1,14 @@
 import { runStatusSchema, sanitizeToolResult } from "@alfred/contracts";
+import { eventPayloadSchemas } from "@alfred/contracts/events";
 import { db } from "@alfred/db";
-import { agentRuns, chatMessages, chatThreads, type ChatMessageStatus } from "@alfred/db/schemas";
-import { and, eq, sql } from "drizzle-orm";
+import {
+  agentRuns,
+  chatMessages,
+  chatThreads,
+  eventsOutbox,
+  type ChatMessageStatus,
+} from "@alfred/db/schemas";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { publishEvent } from "@alfred/assistant/triggers";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { logger } from "@alfred/logging";
@@ -12,7 +19,7 @@ import { routeEffort } from "@alfred/ai";
 import { sanitizeVoice } from "@alfred/ai/voice";
 import { scheduleConversationCompactionIfNeeded } from "./compaction";
 import { classifyChatTurnFailure } from "./chat-failure-kind";
-import type { ChatRunState } from "./chat-turn-state";
+import { closeNarrationSegment, type ChatRunState } from "./chat-turn-state";
 import { maybeGenerateThreadTitle } from "./chat-thread-title";
 
 /**
@@ -313,6 +320,85 @@ export async function finalizeFailedMessage(
   err: unknown,
 ): Promise<void> {
   await closeChatTurn(userId, runId, state, { kind: "failed", error: err });
+}
+
+/**
+ * Fold the `chat.delta` text the outbox holds after the last commit into `state`.
+ * For the executor's failure closure only: its state is the pre-step snapshot, so the
+ * faulted step's streamed text is not in it. The outbox is the only path to the client
+ * (ADR-0005), so it holds what was streamed, also for an attempt whose process died.
+ * Returns a copy when a row folds. Returns `state` itself when no row folds, and on
+ * any fault, so the failed row still lands.
+ */
+export async function foldUncommittedDeltas(
+  userId: string,
+  state: ChatRunState,
+): Promise<ChatRunState> {
+  try {
+    const rows = await db()
+      .select({ id: eventsOutbox.id, payload: eventsOutbox.payload })
+      .from(eventsOutbox)
+      .where(
+        and(
+          eq(eventsOutbox.userId, userId),
+          eq(eventsOutbox.kind, "chat.delta"),
+          sql`${eventsOutbox.payload}->>'messageId' = ${state.messageId}`,
+        ),
+      )
+      .orderBy(asc(eventsOutbox.id));
+
+    // The client's dedupe (`chat-stream-state.ts`): drop a `seq` at or below the highest
+    // seen. A reclaimed attempt restarts at the committed `deltaSeq`, so its repeats drop.
+    // Two differences remain: this walks outbox `id` order, not frame order, and a skipped
+    // lower-segment row does not advance the maximum. Both can only keep more text than
+    // the bubble showed, never less.
+    const segments = new Map<number, string>();
+    let deltaSeq = state.deltaSeq;
+
+    for (const row of rows) {
+      const delta = eventPayloadSchemas["chat.delta"].safeParse(row.payload);
+
+      if (!delta.success) {
+        logger.warn(
+          { event: "chat_delta_fold_unparsable", outboxId: row.id, messageId: state.messageId },
+          "Skipped an unparsable chat.delta outbox row",
+        );
+        continue;
+      }
+
+      // Committed segments are already closed onto the narration trail.
+      if (delta.data.seq <= deltaSeq || delta.data.segmentIndex < state.segmentIndex) continue;
+      deltaSeq = delta.data.seq;
+      segments.set(
+        delta.data.segmentIndex,
+        (segments.get(delta.data.segmentIndex) ?? "") + delta.data.text,
+      );
+    }
+
+    if (segments.size === 0) return state;
+
+    // A shallow copy is enough: `closeNarrationSegment` replaces the array, it does not push.
+    const folded: ChatRunState = { ...state, deltaSeq };
+
+    // `keepText` stays true even when `reissuePending` is set, unlike `closeLeadInNarration`:
+    // the outbox proves the user saw this text.
+    for (const [index, text] of [...segments].sort(([a], [b]) => a - b)) {
+      while (folded.segmentIndex < index) {
+        closeNarrationSegment(folded, { keepText: true, advanceWhenNothingKept: true });
+      }
+
+      folded.assistantText += text;
+    }
+
+    return folded;
+  } catch (err) {
+    logger.warn(
+      { err, event: "chat_delta_fold_failed", messageId: state.messageId },
+      "Could not fold streamed chat deltas into the failed row",
+    );
+
+    return state;
+  }
 }
 
 async function runWasCancelled(runId: string): Promise<boolean> {
