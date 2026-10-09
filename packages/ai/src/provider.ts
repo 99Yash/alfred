@@ -200,11 +200,16 @@ export function googleSearchGroundingTools(): ToolSet {
 }
 
 /**
- * A 4xx that means a spend cap or exhausted credit, not a malformed request.
- * Anthropic sends its workspace spend cap as a 400. Checks both message and body.
+ * The newest provider error in `err` names a spend cap, exhausted usage limit, or credit
+ * balance. Money does not refill on a backoff, so this is never capacity. Anthropic sends
+ * its workspace spend cap as a 400. Checks both message and body.
+ * Provider routing and the chat failure taxonomy both read this, so keep one phrase list.
  */
-function isQuotaOrBillingError(e: APICallError): boolean {
-  const haystack = `${e.message} ${e.responseBody ?? ""}`.toLowerCase();
+export function isQuotaOrBillingError(err: unknown): boolean {
+  const apiError = findApiCallError(err);
+
+  if (!apiError) return false;
+  const haystack = `${apiError.message} ${apiError.responseBody ?? ""}`.toLowerCase();
 
   return (
     haystack.includes("usage limit") ||
