@@ -1,3 +1,4 @@
+import { isQuotaOrBillingError } from "@alfred/ai";
 import { HttpError, toMessage, type ChatErrorKind } from "@alfred/contracts";
 import { threadImageAttachments } from "./chat-attachments";
 import type { ChatRunState } from "./chat-turn-state";
@@ -59,6 +60,10 @@ export function classifyChatFailure(
   ) {
     return "too_long";
   }
+
+  // Money does not refill on a backoff, so this precedes the 429 nets. Read the
+  // provider's own signal: a second phrase list here would drift from it.
+  if (isQuotaOrBillingError(err)) return "budget_exhausted";
 
   // `\b` so an id or token count that contains "429" does not match.
   if (err instanceof HttpError && err.status === 429) return "rate_limited";
