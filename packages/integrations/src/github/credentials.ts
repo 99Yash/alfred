@@ -2,7 +2,7 @@ import { getIdPath, type JsonObject } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { credentialVault } from "@alfred/db/credential-vault";
 import { integrationCredentials, type IntegrationCredential } from "@alfred/db/schemas";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { getInstallationToken } from "./app";
 
 /**
@@ -79,6 +79,7 @@ export type GithubCredentialSummary = Pick<
 >;
 
 export async function listGithubCredentials(userId: string): Promise<GithubCredentialSummary[]> {
+  // Newest first. Without an order, heap order picks the row, and it changes after an update.
   return db()
     .select({
       id: integrationCredentials.id,
@@ -90,6 +91,9 @@ export async function listGithubCredentials(userId: string): Promise<GithubCrede
     .from(integrationCredentials)
     .where(
       and(eq(integrationCredentials.userId, userId), eq(integrationCredentials.provider, "github")),
+    )
+    .orderBy(
+      sql`${integrationCredentials.updatedAt} desc nulls last, ${integrationCredentials.id} desc`,
     );
 }
 
@@ -124,11 +128,18 @@ export async function getInstallationTokenForUser(
   userId: string,
   accountRef?: string,
 ): Promise<UserInstallationToken> {
-  const active = (await listGithubCredentials(userId)).find(
+  const candidates = (await listGithubCredentials(userId)).filter(
     (credential) =>
       credential.status === "active" &&
       (accountRef === undefined || credential.accountId === accountRef),
   );
+
+  // A row without an installation cannot mint a token, and a row without a login cannot
+  // resolve `@me`. Prefer a complete row, so a stray partial row never shadows it.
+  const active =
+    candidates.find((c) => c.installationId && c.accountLabel?.trim()) ??
+    candidates.find((c) => c.installationId) ??
+    candidates[0];
 
   if (!active) {
     throw new Error(

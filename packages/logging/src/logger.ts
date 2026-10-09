@@ -1,4 +1,4 @@
-import { isIndexable, SENSITIVE_LOG_PATHS } from "@alfred/contracts";
+import { isHttpError, isIndexable, SENSITIVE_LOG_PATHS } from "@alfred/contracts";
 import { nodeEnv } from "@alfred/env/server";
 import pino, { type DestinationStream } from "pino";
 import { AppError } from "@alfred/contracts/app-errors";
@@ -97,6 +97,8 @@ export function safeErrorDiagnostic(err: unknown): string {
 
   return [
     err instanceof AppError ? err.code : serialized.type,
+    // Provider and status only. The body and URL can hold user data, so they stay out.
+    isHttpError(err) ? `provider=${err.provider} status=${err.status}` : undefined,
     database?.code ? `sqlstate=${database.code}` : undefined,
     database?.constraint ? `constraint=${database.constraint}` : undefined,
   ]
