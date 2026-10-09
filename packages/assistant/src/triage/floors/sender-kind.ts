@@ -73,6 +73,25 @@ export function applySenderKindDemotionFloor(
     };
   }
 
+  // GitHub's `ci_activity` Cc alias is the reason header itself, so it needs no
+  // projection. `notifications@github.com` has none, and Net B was demoting these alone.
+  if (
+    !senderKind &&
+    isGithubCiActivityNotification(context) &&
+    senderKindFloorShouldDemoteCategory(classification.category, "github_passive_pr_or_ci")
+  ) {
+    return {
+      verdict: {
+        kind: "demote",
+        key: "sender_kind_floor",
+        note: "GitHub sent a passive CI notification",
+        reason:
+          "Sender-kind floor: GitHub CI run notification (ci_activity) is not awaiting the user's action",
+      },
+      reason: "github_passive_pr_or_ci",
+    };
+  }
+
   if (
     !senderKind ||
     !senderKindCanDemoteDemand(senderKind) ||
@@ -213,9 +232,11 @@ const PR_THREAD_RE = /\/pull\/\d+|\bpull request\b|\bpr #\d+\b/i;
 
 const GITHUB_REASON_ALIAS_RE = /<([^>]+@noreply\.github\.com)>/gi;
 
+const GITHUB_CI_ACTIVITY_ALIAS = "ci_activity@noreply.github.com";
+
 const PASSIVE_GITHUB_REASON_ALIASES = new Set([
   "author@noreply.github.com",
-  "ci_activity@noreply.github.com",
+  GITHUB_CI_ACTIVITY_ALIAS,
   "state_change@noreply.github.com",
 ]);
 
@@ -233,9 +254,16 @@ function isPassiveGithubPrOrCiNotification(context: SenderKindDemotionFloorConte
 
   if (!reasons.some((r) => PASSIVE_GITHUB_REASON_ALIASES.has(r))) return false;
 
-  if (reasons.includes("ci_activity@noreply.github.com")) return true;
+  if (reasons.includes(GITHUB_CI_ACTIVITY_ALIAS)) return true;
 
   return PR_THREAD_RE.test(context.subject ?? "");
+}
+
+function isGithubCiActivityNotification(context: SenderKindDemotionFloorContext): boolean {
+  return (
+    GITHUB_NOTIFICATION_RE.test(context.sender ?? "") &&
+    githubReasonAliases(context.cc).includes(GITHUB_CI_ACTIVITY_ALIAS)
+  );
 }
 
 function githubReasonAliases(cc: string | null | undefined): string[] {
