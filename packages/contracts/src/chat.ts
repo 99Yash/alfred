@@ -29,6 +29,9 @@ export const chatEffortSchema = z.enum(chatEffortValues);
  *   - `attachment`: an image in this turn is unreadable. Retry without it.
  *   - `attachment_history`: an image in an earlier turn is unreadable. The transcript
  *     replays it each turn, so only a new chat fixes it.
+ *   - `spend_limited`: the model provider rejected the call for money (spend cap,
+ *     usage limit, credit balance). A retry fails until the budget is raised, so the
+ *     client offers none.
  *   - `timeout`: the stream ceiling stopped the turn after one automatic retry.
  *   - `too_long`: over the context limit. The tool-loop cap lands the turn instead.
  */
@@ -37,6 +40,7 @@ export const chatErrorKindValues = [
   "attachment_history",
   "overloaded",
   "rate_limited",
+  "spend_limited",
   "timeout",
   "too_long",
   "generic",
