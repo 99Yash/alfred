@@ -62,6 +62,8 @@ interface TiptapComposerProps {
   disabled?: boolean | undefined;
   onChange: (text: string, json: JSONContent, isEmpty: boolean) => void;
   onSubmit: () => void;
+  /** ⌘↵ / Ctrl+↵. Steers while a reply streams; otherwise the parent sends. */
+  onSubmitNow?: (() => void) | undefined;
   /** Suggestion lifecycle. The parent renders the palette. */
   onSuggestionChange: (state: SuggestionRenderState | null) => void;
   /** Key handler while a suggestion is active. Return `true` to consume the key. */
@@ -84,6 +86,7 @@ export function TiptapComposer({
   disabled = false,
   onChange,
   onSubmit,
+  onSubmitNow,
   onSuggestionChange,
   suggestionKeyDownRef,
   ghostText,
@@ -93,6 +96,7 @@ export function TiptapComposer({
   // Refs keep Tiptap's closures stable. An effect syncs them; a render-phase write can leak from a discarded render.
   const onChangeRef = useRef(onChange);
   const onSubmitRef = useRef(onSubmit);
+  const onSubmitNowRef = useRef(onSubmitNow);
   const onSuggestionChangeRef = useRef(onSuggestionChange);
   const disabledRef = useRef(disabled);
   const ghostTextRef = useRef(ghostText);
@@ -103,6 +107,7 @@ export function TiptapComposer({
   useEffect(() => {
     onChangeRef.current = onChange;
     onSubmitRef.current = onSubmit;
+    onSubmitNowRef.current = onSubmitNow;
     onSuggestionChangeRef.current = onSuggestionChange;
     disabledRef.current = disabled;
     ghostTextRef.current = ghostText;
@@ -110,7 +115,16 @@ export function TiptapComposer({
     onGhostDismissRef.current = onGhostDismiss;
 
     if (disabled) suggestionOpenRef.current = false;
-  }, [onChange, onSubmit, onSuggestionChange, disabled, ghostText, onGhostAccept, onGhostDismiss]);
+  }, [
+    onChange,
+    onSubmit,
+    onSubmitNow,
+    onSuggestionChange,
+    disabled,
+    ghostText,
+    onGhostAccept,
+    onGhostDismiss,
+  ]);
 
   const editor = useEditor({
     extensions: [
@@ -198,6 +212,13 @@ export function TiptapComposer({
 
         // The suggestion plugin handles its own keys.
         if (suggestionOpenRef.current) return false;
+
+        if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+          event.preventDefault();
+          (onSubmitNowRef.current ?? onSubmitRef.current)();
+
+          return true;
+        }
 
         if (event.key === "Enter" && !event.shiftKey) {
           // Touch: Enter inserts a newline, as in mobile chat apps. Send uses the button.
