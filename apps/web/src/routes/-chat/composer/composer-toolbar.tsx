@@ -11,6 +11,7 @@ export function ComposerToolbar({
   mic,
   canSend,
   isStreaming,
+  canSteer,
   disabled,
   sending,
   mentionActive,
@@ -30,6 +31,8 @@ export function ComposerToolbar({
   mic: ReturnType<typeof useMicRecording>;
   canSend: boolean;
   isStreaming: boolean;
+  /** A reply can stop for a steer (#490): the send button queues, and ⌘↵ sends now. */
+  canSteer: boolean;
   disabled: boolean;
   sending: boolean;
   mentionActive: boolean;
@@ -149,7 +152,11 @@ export function ComposerToolbar({
                 </button>
               </Tip>
             ) : null}
-            <Tip label="Send" keys={["↵"]}>
+            <Tip
+              label={canSteer ? "Queue" : "Send"}
+              keys={["↵"]}
+              description={canSteer ? "⌘↵ stops the reply and sends now." : undefined}
+            >
               <button
                 type="submit"
                 disabled={!canSend}

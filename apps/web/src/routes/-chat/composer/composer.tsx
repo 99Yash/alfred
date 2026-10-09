@@ -9,7 +9,7 @@ import {
   type RefObject,
 } from "react";
 import type { JSONContent } from "@tiptap/react";
-import { ImagePlus } from "lucide-react";
+import { CornerDownRight, ImagePlus, X } from "lucide-react";
 import { ACCEPT_ATTR } from "~/lib/chat/upload-attachments";
 import { toast } from "~/lib/toast";
 import { cn } from "~/lib/utils";
@@ -20,6 +20,7 @@ import { TiptapComposer, type TiptapComposerHandle } from "../tiptap-composer";
 import { AttachmentChips } from "./attachment-chips";
 import { ComposerToolbar } from "./composer-toolbar";
 import { QueuedChips } from "./queued-chips";
+import { quoteMessage } from "../quote";
 import { useMentionConnections } from "../mention-connection";
 import { MentionPalette } from "./mention-palette";
 import { useComposerAttachments } from "./use-composer-attachments";
@@ -34,6 +35,7 @@ export function Composer({
   isStreaming,
   disabled = false,
   onSend,
+  onSteer,
   onStopGeneration,
   ghostText,
   onGhostAccept,
@@ -46,11 +48,18 @@ export function Composer({
   prefill,
   queued,
   onRemoveQueued,
+  onSendQueuedNow,
+  quote,
+  onClearQuote,
 }: {
   threadId: string | undefined;
   isStreaming: boolean;
   disabled?: boolean | undefined;
   onSend?:
+    | ((text: string, files?: File[], artifactTargetId?: string) => Promise<boolean>)
+    | undefined;
+  /** Stop the reply and send this next (#490), on ⌘↵. Absent when no reply can stop. */
+  onSteer?:
     | ((text: string, files?: File[], artifactTargetId?: string) => Promise<boolean>)
     | undefined;
   onStopGeneration?: (() => void) | undefined;
@@ -75,6 +84,11 @@ export function Composer({
   /** Queued messages for this thread, shown as chips (#489). */
   queued?: QueuedMessage[] | undefined;
   onRemoveQueued?: ((id: string) => void) | undefined;
+  /** Move a queued message to the head and stop the reply, so it sends next. */
+  onSendQueuedNow?: ((id: string) => void) | undefined;
+  /** Text quoted from a reply. It is sent as a blockquote ahead of the message. */
+  quote?: string | null | undefined;
+  onClearQuote?: (() => void) | undefined;
 }) {
   const editorRef = useRef<TiptapComposerHandle | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -140,6 +154,11 @@ export function Composer({
     editorRef.current?.insertText(prefill.text);
   }, [prefill, disabled, sending, threadId, setArtifactTargetId]);
 
+  // A new quote puts the caret in the editor, so the user types the question next.
+  useEffect(() => {
+    if (quote) editorRef.current?.focusEnd();
+  }, [quote]);
+
   const handleEditorChange = useCallback(
     (nextText: string, nextJSON: JSONContent, nextEmpty: boolean) => {
       onEditorChange(nextText, nextJSON, nextEmpty);
@@ -154,22 +173,42 @@ export function Composer({
     fileInputRef.current?.click();
   }, [disabled, sending, mic.recording]);
 
-  const handleSubmit = useCallback(() => {
-    if (!canSend || !onSend) return;
-    const value = text.trim();
-    const files = attachments.files();
-    setSending(true);
-    void onSend(value, files, artifactTargetIdRef.current)
-      .then((staged) => {
-        if (!staged) return;
-        editorRef.current?.clear();
-        resetDraft();
-        attachments.clear();
-        setArtifactTargetId(undefined);
-      })
-      .catch(() => toast.error("Couldn't send your message. Please try again."))
-      .finally(() => setSending(false));
-  }, [canSend, text, onSend, resetDraft, attachments, setArtifactTargetId]);
+  const submit = useCallback(
+    (mode: "send" | "steer") => {
+      // ⌘↵ with nothing to stop is a plain send.
+      const deliver = mode === "steer" && onSteer ? onSteer : onSend;
+
+      if (!canSend || !deliver) return;
+      const value = quote ? quoteMessage(quote, text.trim()) : text.trim();
+      const files = attachments.files();
+      setSending(true);
+      void deliver(value, files, artifactTargetIdRef.current)
+        .then((staged) => {
+          if (!staged) return;
+          editorRef.current?.clear();
+          resetDraft();
+          attachments.clear();
+          setArtifactTargetId(undefined);
+          onClearQuote?.();
+        })
+        .catch(() => toast.error("Couldn't send your message. Please try again."))
+        .finally(() => setSending(false));
+    },
+    [
+      canSend,
+      quote,
+      text,
+      onSend,
+      onSteer,
+      resetDraft,
+      attachments,
+      setArtifactTargetId,
+      onClearQuote,
+    ],
+  );
+
+  const handleSubmit = useCallback(() => submit("send"), [submit]);
+  const handleSteer = useCallback(() => submit("steer"), [submit]);
 
   const onFormSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -223,7 +262,11 @@ export function Composer({
   return (
     <div className="flex flex-col gap-2">
       {queued && queued.length > 0 && onRemoveQueued ? (
-        <QueuedChips items={queued} onRemove={onRemoveQueued} />
+        <QueuedChips
+          items={queued}
+          onRemove={onRemoveQueued}
+          onSendNow={composerDisabled ? undefined : onSendQueuedNow}
+        />
       ) : null}
       <form
         onSubmit={onFormSubmit}
@@ -291,6 +334,26 @@ export function Composer({
                 e.target.value = "";
               }}
             />
+            {quote && onClearQuote ? (
+              <div className="mx-1 mb-1 flex items-start gap-2 rounded-2xl bg-app-bg-a2 py-2 pr-2 pl-3">
+                <CornerDownRight size={14} aria-hidden className="mt-0.5 shrink-0 text-app-fg-2" />
+                <p className="line-clamp-2 min-w-0 flex-1 text-[13px] leading-snug whitespace-pre-wrap text-app-fg-3">
+                  {quote}
+                </p>
+                <button
+                  type="button"
+                  aria-label="Remove quote"
+                  onClick={onClearQuote}
+                  className={cn(
+                    "inline-flex size-5 shrink-0 items-center justify-center rounded-full",
+                    "text-app-fg-3 transition-colors hover:bg-app-bg-3 hover:text-app-fg-4",
+                    "app-focus",
+                  )}
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            ) : null}
             {hasAttachments ? (
               <AttachmentChips
                 items={attachments.items}
@@ -307,6 +370,7 @@ export function Composer({
                 disabled={composerDisabled}
                 onChange={handleEditorChange}
                 onSubmit={handleSubmit}
+                onSubmitNow={handleSteer}
                 onSuggestionChange={mention.setSuggestion}
                 suggestionKeyDownRef={suggestionKeyDownRef}
                 ghostText={ghostText}
@@ -326,6 +390,7 @@ export function Composer({
               mic={mic}
               canSend={canSend}
               isStreaming={isStreaming}
+              canSteer={Boolean(onSteer)}
               disabled={composerDisabled}
               sending={sending}
               mentionActive={suggestion !== null}
