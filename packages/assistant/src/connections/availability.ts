@@ -10,6 +10,7 @@ import {
   LIVE_PROVIDERS,
   PASSTHROUGH_PREFERENCE_KEYS,
   projectSlugs,
+  selectGithubAccountRow,
   toMessage,
   toStringArray,
   type CredentialProvider,
@@ -212,7 +213,10 @@ function resolveIntegrationAvailability(
   providerRows: readonly ProviderAvailability[],
 ): IntegrationAvailability {
   if (providerRows.length === 0) return { health: null, accountLabel: null };
-  const active = providerRows.find((row) => credentialSatisfies(spec, row));
+  const satisfying = providerRows.filter((row) => credentialSatisfies(spec, row));
+  // An org install leaves GitHub with a second row, so the card names the row the tools
+  // would use rather than the first one that satisfies the rule.
+  const active = spec.shape === "github_app" ? selectGithubAccountRow(satisfying) : satisfying[0];
 
   return {
     health: active ? "active" : "needs_reauth",

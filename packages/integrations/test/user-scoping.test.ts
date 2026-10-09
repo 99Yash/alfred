@@ -225,7 +225,9 @@ describe("credential reads are scoped to the bound user (DB-backed)", { skip: SK
       const a = await upsertGithubCredential({
         userId: userA,
         accountId: `a-${randomUUID()}`,
+        accountLabel: "scope-a",
         accessToken: "gh-token-a",
+        installationId: "10001",
         scopes: ["repo"],
         expiresAt: new Date(Date.now() + 60 * 60_000),
       });
@@ -233,7 +235,9 @@ describe("credential reads are scoped to the bound user (DB-backed)", { skip: SK
       const b = await upsertGithubCredential({
         userId: userB,
         accountId: `b-${randomUUID()}`,
+        accountLabel: "scope-b",
         accessToken: "gh-token-b",
+        installationId: "10002",
         scopes: ["repo"],
         expiresAt: new Date(Date.now() + 60 * 60_000),
       });
