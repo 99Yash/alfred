@@ -131,9 +131,9 @@ export class McpClientError extends Error {
   constructor(
     code: McpClientErrorCode,
     message: string,
-    options?: { provenance?: McpResultProvenance },
+    options?: { provenance?: McpResultProvenance; cause?: unknown },
   ) {
-    super(message);
+    super(message, options?.cause === undefined ? undefined : { cause: options.cause });
     this.name = "McpClientError";
     this.code = code;
 
