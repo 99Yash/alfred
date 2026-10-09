@@ -1052,19 +1052,23 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
   // the text that step streamed is not in it. The executor reaches this closure in
   // three ways, and in each one text can have streamed that no row holds (#1267):
   // - A step throws. The in-step catch writes the failed row first, from its live
-  //   state. When that write itself throws, no row exists and this closure writes it.
+  //   state. When that write throws before its insert, no row exists and this
+  //   closure writes it. A throw after the insert leaves the row, so this closure's
+  //   insert does nothing.
   // - The lease backstop fails a run whose attempts died without a commit. Their
   //   text lived only in the dead processes.
-  // - The step does not resolve, after earlier reclaimed attempts streamed.
+  // - The workflow or step definition is not found, after earlier reclaimed attempts
+  //   streamed.
   // So the failed branch folds the outbox `chat.delta` rows after the committed
-  // `deltaSeq` into the state. The outbox is the record of what the client was sent.
+  // `deltaSeq` into the state. The outbox is the only path to the client (ADR-0005).
   // The insert stays do-nothing on conflict, so a row the in-step catch wrote wins.
   closure: {
     kind: "client",
     async onTerminal(ctx) {
       switch (ctx.outcome) {
         case "failed": {
-          // The outbox gives back the text, but not the time: the faulted step's time is lost. Accepted (#902).
+          // The outbox gives back the text, but not the time: the faulted
+          // step's time is lost. Accepted (#902).
           emitTurnPhaseThermometer({
             runId: ctx.runId,
             startedAt: ctx.state.startedAt ? new Date(ctx.state.startedAt) : undefined,
