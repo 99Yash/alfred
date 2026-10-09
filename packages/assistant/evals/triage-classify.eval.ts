@@ -119,6 +119,27 @@ const CASES: Case[] = [
     },
   },
   {
+    // Net B (#351) walked all seven of these back to `fyi` in prod. The prior is
+    // the user's OWN history of CI failures, so the histogram argues against the
+    // right answer. Pin the carve-out, and pin `+2pass` so the re-ask still runs:
+    // this is the case Net B exists for, misfiring.
+    label: "github-own-repo-ci-failure",
+    from: "GitHub <noreply@github.com>",
+    subject:
+      "[99Yash/alfred] PR run failed: ci - refactor(mcp): separate server and connection identity",
+    body: "The ci workflow on branch refactor/mcp-separate-connection-id failed.\n\n  ✗ test — 3m 12s\n    packages/assistant/test/mcp/tool-runtime.test.ts > routes every MCP tool\n    Expected: 200\n    Received: 401\n\n  Annotations: 1 warning, 0 failures\n\nView the run on GitHub.",
+    senderKey: "noreply@github.com",
+    senderPrior: { fyi: 4, action_needed: 9 },
+    lastCategory: "fyi",
+    sender: { fromKind: "service", effectiveAuthor: "service" },
+    expected: {
+      category: ["action_needed"],
+      todo: "mint",
+      guards: ["+2pass"],
+      note: "The user pushed this branch, so the red build is theirs — 'fix a broken build' is named in action_needed, and rule 12f carves the user's own infrastructure out of the passive-vendor rule. Net B's histogram is their own CI-failure history, so it argues against the right answer. The todo MINTS, matching the three production rows where this category survived (b94731f6ce9a, 828803b157a7, 446f900624b4): while the category was being demoted to fyi the todo decision read 'no_obligation — no action assigned', so the wrong category was suppressing the todo too.",
+    },
+  },
+  {
     label: "self-initiated-login-code",
     from: "Anthropic <noreply@anthropic.com>",
     subject: "Your login code is 123456",
