@@ -60,6 +60,11 @@ const FAILURE_PRESENTATION = {
     message: "I'm getting a lot of requests right now. Give it a moment, then try again.",
     retry: "same",
   },
+  spend_limited: {
+    message:
+      "My model budget is used up, so I can't reply right now. Top it up, then send your message again.",
+    retry: "none",
+  },
   timeout: {
     message: "That one ran long and I had to stop before finishing. Try again.",
     retry: "same",

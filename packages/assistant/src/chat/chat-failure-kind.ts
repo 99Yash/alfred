@@ -1,3 +1,4 @@
+import { isQuotaOrBillingError } from "@alfred/ai";
 import { HttpError, toMessage, type ChatErrorKind } from "@alfred/contracts";
 import { threadImageAttachments } from "./chat-attachments";
 import type { ChatRunState } from "./chat-turn-state";
@@ -21,7 +22,7 @@ export async function classifyChatTurnFailure(
 }
 
 /**
- * Map a fault to a {@link ChatErrorKind}. Providers give no typed errors, so the
+ * Map a fault to a {@link ChatErrorKind}. Few faults carry a typed signal, so the
  * message is sniffed as a last resort. Order matters: an image rejection often also carries a 4xx.
  */
 export function classifyChatFailure(
@@ -59,6 +60,10 @@ export function classifyChatFailure(
   ) {
     return "too_long";
   }
+
+  // Precedes the 429 nets: a money fault can arrive as a 429. Read the provider's own
+  // signal: a second phrase list here would drift from it.
+  if (isQuotaOrBillingError(err)) return "spend_limited";
 
   // `\b` so an id or token count that contains "429" does not match.
   if (err instanceof HttpError && err.status === 429) return "rate_limited";

@@ -125,7 +125,8 @@ type SlotWaiter = (signal: AbortSignal | undefined, url: string) => Promise<void
 
 /**
  * A 429 that never went to the wire. An `APICallError`, so `isCapacityError` treats it like a real one.
- * The message must avoid the words `isQuotaOrBillingError` matches, or the ladder gives up.
+ * The message must avoid the words `isQuotaOrBillingError` matches, or the ladder gives up
+ * and chat hides Retry.
  */
 function overCapRefusal(waitMs: number, maxWaitMs: number, url: string): APICallError {
   return new APICallError({
