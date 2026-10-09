@@ -323,11 +323,12 @@ export async function finalizeFailedMessage(
 }
 
 /**
- * Fold the `chat.delta` text the outbox delivered after the last commit into `state`.
+ * Fold the `chat.delta` text the outbox holds after the last commit into `state`.
  * For the executor's failure closure only: its state is the pre-step snapshot, so the
- * faulted step's streamed text is not in it. The outbox is the record of what the
- * client was sent (ADR-0005), also for an attempt whose process died.
- * Returns a new state. On any fault it returns `state`, so the failed row still lands.
+ * faulted step's streamed text is not in it. The outbox is the only path to the client
+ * (ADR-0005), so it holds what was streamed, also for an attempt whose process died.
+ * Returns a copy when a row folds. Returns `state` itself when no row folds, and on
+ * any fault, so the failed row still lands.
  */
 export async function foldUncommittedDeltas(
   userId: string,
@@ -346,8 +347,11 @@ export async function foldUncommittedDeltas(
       )
       .orderBy(asc(eventsOutbox.id));
 
-    // The client's rule: in outbox order, drop a `seq` at or below the highest seen.
-    // A reclaimed attempt restarts at the committed `deltaSeq`, so its repeats drop.
+    // The client's dedupe (`chat-stream-state.ts`): drop a `seq` at or below the highest
+    // seen. A reclaimed attempt restarts at the committed `deltaSeq`, so its repeats drop.
+    // Two differences remain: this walks outbox `id` order, not frame order, and a skipped
+    // lower-segment row does not advance the maximum. Both can only keep more text than
+    // the bubble showed, never less.
     const segments = new Map<number, string>();
     let deltaSeq = state.deltaSeq;
 
@@ -376,6 +380,8 @@ export async function foldUncommittedDeltas(
     // A shallow copy is enough: `closeNarrationSegment` replaces the array, it does not push.
     const folded: ChatRunState = { ...state, deltaSeq };
 
+    // `keepText` stays true even when `reissuePending` is set, unlike `closeLeadInNarration`:
+    // the outbox proves the user saw this text.
     for (const [index, text] of [...segments].sort(([a], [b]) => a - b)) {
       while (folded.segmentIndex < index) {
         closeNarrationSegment(folded, { keepText: true, advanceWhenNothingKept: true });
