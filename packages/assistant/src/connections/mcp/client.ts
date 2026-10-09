@@ -252,6 +252,8 @@ export class McpRawClient {
   readonly #limits: Required<McpClientLimits>;
   readonly #schemaValidator = createSchemaValidator();
   #generation: McpClientGeneration | null = null;
+  /** Why the server dropped the last generation, so `not_connected` can name the real cause. */
+  #lostReason: string | null = null;
   #catalog: McpCatalogSnapshot | null = null;
   #catalogExpiresAt = 0;
   #catalogGeneration = 0;
@@ -378,7 +380,11 @@ export class McpRawClient {
       generation.unhealthy = error;
       const wasCurrent = this.#generation === generation;
 
-      if (wasCurrent) this.#generation = null;
+      if (wasCurrent) {
+        this.#generation = null;
+        this.#lostReason = toMessage(error);
+      }
+
       const cleanup = this.#closeGeneration(generation, false).catch(() => undefined);
       this.#registerCleanup(cleanup);
 
@@ -411,6 +417,7 @@ export class McpRawClient {
     }
 
     this.#generation = generation;
+    this.#lostReason = null;
   }
 
   close(options: { terminateSession?: boolean } = {}): Promise<void> {
@@ -723,7 +730,12 @@ export class McpRawClient {
 
   #requireGeneration(): McpClientGeneration {
     if (!this.#generation) {
-      throw new McpClientError("not_connected", "The MCP client is not connected");
+      throw new McpClientError(
+        "not_connected",
+        this.#lostReason
+          ? `The MCP client lost its connection: ${this.#lostReason}`
+          : "The MCP client is not connected",
+      );
     }
 
     return this.#generation;
