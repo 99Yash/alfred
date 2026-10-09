@@ -55,15 +55,15 @@ const FAILURE_PRESENTATION = {
       "I couldn't read an image from earlier in this thread, and it'll keep affecting replies here. Start a new chat to continue.",
     retry: "none",
   },
-  budget_exhausted: {
-    message:
-      "My model budget is used up, so I can't reply right now. Top it up, then send your message again.",
-    retry: "none",
-  },
   overloaded: { message: "I hit a brief glitch on my end.", retry: "same" },
   rate_limited: {
     message: "I'm getting a lot of requests right now. Give it a moment, then try again.",
     retry: "same",
+  },
+  spend_limited: {
+    message:
+      "My model budget is used up, so I can't reply right now. Top it up, then send your message again.",
+    retry: "none",
   },
   timeout: {
     message: "That one ran long and I had to stop before finishing. Try again.",
