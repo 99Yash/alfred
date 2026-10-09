@@ -37,24 +37,18 @@ export function extractSenderContext(args: ExtractSenderContextArgs): SenderCont
   const senderDomain = parsed?.domain ?? null;
   const fromKind = classifyFromKind(parsed);
 
-  const dispatch: BodyActorDispatch = parsed
-    ? parseBodyActor(parsed.domain, parsed.localPart, args.body)
-    : { actor: undefined, parserHit: null };
+  // A GitHub `[bot]` display name beats the body: a bot's bold headline
+  // ("**Hold this merge.**") otherwise parses as a person. Structural, not a slug list.
+  const displayNameBot = parsed ? githubDisplayNameBot(parsed) : undefined;
 
-  let bodyActor = dispatch.actor;
-  let parserHit = dispatch.parserHit;
+  const dispatch: BodyActorDispatch = displayNameBot
+    ? { actor: displayNameBot, parserHit: "github" }
+    : parsed
+      ? parseBodyActor(parsed.domain, parsed.localPart, args.body)
+      : { actor: undefined, parserHit: null };
 
-  // A GitHub `[bot]` display name with no body actor line is still a bot.
-  // Structural, not a slug list, so new bots are covered.
-  if (!bodyActor && parsed && isGithubDomain(parsed.domain) && parsed.displayName) {
-    const m = parsed.displayName.match(GITHUB_BOT_SUFFIX_RE);
-    const handle = m?.[1]?.trim().toLowerCase();
-
-    if (handle) {
-      bodyActor = { kind: "bot", name: parsed.displayName, handle };
-      parserHit = "github";
-    }
-  }
+  const bodyActor = dispatch.actor;
+  const parserHit = dispatch.parserHit;
 
   const botSlug = resolveBotSlug({
     domain: parsed?.domain ?? null,
@@ -340,6 +334,13 @@ function unwrapBold(s: string): string {
 const GITHUB_BOLD_RE = /\*\*([^*\n]{1,80})\*\*/;
 
 const GITHUB_BOT_SUFFIX_RE = /^(.+?)\s*\[bot\]\s*$/i;
+
+function githubDisplayNameBot(parsed: ParsedFrom): BodyActor | undefined {
+  if (!isGithubDomain(parsed.domain) || !parsed.displayName) return undefined;
+  const handle = parsed.displayName.match(GITHUB_BOT_SUFFIX_RE)?.[1]?.trim().toLowerCase();
+
+  return handle ? { kind: "bot", name: parsed.displayName, handle } : undefined;
+}
 
 function parseGithubBodyActor(body: string): BodyActor | undefined {
   const head = body.split(/\r?\n/).slice(0, 12).join("\n");
