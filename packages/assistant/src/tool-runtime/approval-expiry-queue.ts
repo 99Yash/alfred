@@ -1,6 +1,8 @@
 /**
  * Schedules approval expiry (ADR-0034), so an undecided gated row cannot park its run
  * forever. A decision removes the job. The worker is `execution/approval-expiry-worker.ts`.
+ * The job is the fast path only. The worker's Postgres reconciler expires a row whose job
+ * failed to schedule or was lost, so a schedule failure is logged, not returned.
  */
 
 import { Queue } from "bullmq";
@@ -43,8 +45,8 @@ export async function scheduleApprovalExpiryJob(args: {
   stagingId: string;
   userId: string;
   delayMs: number;
-}): Promise<"scheduled" | "disabled" | "failed"> {
-  if (!isQueueEnabled()) return "disabled";
+}): Promise<void> {
+  if (!isQueueEnabled()) return;
 
   try {
     const queue = getApprovalExpiryQueue();
@@ -69,12 +71,12 @@ export async function scheduleApprovalExpiryJob(args: {
         jobId,
       },
     );
-
-    return "scheduled";
   } catch (err) {
-    console.warn("[approvals] failed to schedule approval expiry", args.stagingId, toMessage(err));
-
-    return "failed";
+    console.warn(
+      "[approvals] failed to schedule approval expiry; the reconciler will expire it",
+      args.stagingId,
+      toMessage(err),
+    );
   }
 }
 
