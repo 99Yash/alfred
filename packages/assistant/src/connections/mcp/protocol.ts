@@ -10,16 +10,23 @@ import {
   type CacheScope,
   type ClientCapabilities,
   type ClientOptions,
+  type McpSubscription,
   type ProtocolEra,
   type Tool,
   type Transport,
 } from "@modelcontextprotocol/client";
 import type { McpAuthorizedProtocol } from "./endpoint-authorization";
 import type { JsonObject } from "@alfred/contracts";
-import { McpClientError } from "./errors";
+import { isMcpTransportFailure, McpClientError } from "./errors";
 import type { McpTraceContext } from "./trace";
 
 const HEADER_MISMATCH_ERROR_CODE = -32020;
+
+/** A list-change stream that lived less than this is not reopened. */
+const MIN_RELISTEN_LIFETIME_MS = 10_000;
+
+/** Wait before each reopen attempt of a dropped list-change stream. */
+const RELISTEN_BACKOFF_MS = [0, 500, 2_000] as const;
 
 /** Alfred offers no server-callable handlers and no Tasks capability. */
 export const MCP_CLIENT_CAPABILITIES = Object.freeze({}) satisfies ClientCapabilities;
@@ -208,12 +215,7 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
         );
       }
 
-      void subscription.closed.then((cause) => {
-        if (this.#closing || cause === "local") return;
-        void this.#connectionUnhealthyHandler?.(
-          new Error(`MCP modern list-change subscription closed (${cause})`),
-        );
-      });
+      this.#watchToolsSubscription(subscription, Date.now());
     }
 
     return {
@@ -224,6 +226,77 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
       hasTools: capabilities?.tools !== undefined,
       toolsListChanged: capabilities?.tools?.listChanged === true,
     };
+  }
+
+  /**
+   * Keep the modern list-change stream open. A proxy can end an idle SSE stream
+   * (Railway's edge ends it after about 100 s), and the SDK does not re-listen.
+   * Each other request is a separate POST, so a lost stream is not a lost connection.
+   * A change sent while no stream was open is not replayed, so the catalog TTL bounds
+   * how long a missed one stays unseen.
+   */
+  #watchToolsSubscription(subscription: McpSubscription, openedAt: number): void {
+    void subscription.closed.then(async (cause) => {
+      if (this.#closing || cause === "local") return;
+      const closed = `MCP modern list-change subscription closed (${cause})`;
+      const lifetimeMs = Date.now() - openedAt;
+
+      // A stream that ends at once again and again is a broken server, not an idle timeout.
+      if (lifetimeMs < MIN_RELISTEN_LIFETIME_MS) {
+        void this.#connectionUnhealthyHandler?.(
+          new Error(`${closed} ${Math.round(lifetimeMs / 1000)}s after it opened`),
+        );
+
+        return;
+      }
+
+      let next: McpSubscription;
+
+      try {
+        next = await this.#relistenTools();
+      } catch (err) {
+        if (this.#closing) return;
+        void this.#connectionUnhealthyHandler?.(
+          new Error(`${closed} and could not reopen`, { cause: err }),
+        );
+
+        return;
+      }
+
+      if (this.#closing) {
+        await next.close().catch(() => undefined);
+
+        return;
+      }
+
+      this.#watchToolsSubscription(next, Date.now());
+    });
+  }
+
+  async #relistenTools(): Promise<McpSubscription> {
+    let lastError: unknown;
+
+    for (const delayMs of RELISTEN_BACKOFF_MS) {
+      if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+
+      if (this.#closing) throw new Error("The MCP client closed while it reopened the stream");
+
+      try {
+        return await this.#client.listen(
+          { toolsListChanged: true },
+          requestOptions(this.#requestTimeoutMs),
+        );
+      } catch (err) {
+        // The first POST after a dropped stream can reuse a socket the proxy closed.
+        // A remote answer (authorization, protocol) will not fix itself, so only a
+        // transport failure earns the next delay.
+        if (!isMcpTransportFailure(err)) throw err;
+
+        lastError = err;
+      }
+    }
+
+    throw lastError;
   }
 
   #era(): McpProtocolEra | null {
