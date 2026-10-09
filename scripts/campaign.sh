@@ -63,8 +63,8 @@
 #                     discovering it three rounds in.
 #   MODEL           model for an opencode phase, as `provider/model`. Default
 #                   `opencode/muse-spark-1.3-contributor-free`. Ignored by `claude`.
-#                   `MODEL_DESIGN` / `MODEL_IMPLEMENT` / `MODEL_REVIEW` /
-#                   `MODEL_REVISE` override it per phase, for the same reason the
+#                   `DESIGN_MODEL` / `IMPLEMENT_MODEL` / `REVIEW_MODEL` /
+#                   `REVISE_MODEL` override it per phase, for the same reason the
 #                   engines are per-phase: the review fan-out and the mechanical
 #                   edit want different models, and one global cannot be both.
 

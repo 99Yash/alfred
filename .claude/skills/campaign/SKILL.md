@@ -38,19 +38,40 @@ all — is incremental checkpoints and rejected approaches, not just conclusions
 knowledge that outlives the campaign, the door is `/learn` → `.lessons/`, which the
 recall hook surfaces in future sessions on its own.
 
-## Two ways to run it
+## How to run it
 
-**In session** — `/campaign <path-to-artifact>` to create a campaign, or
-`/campaign` to continue the existing one. Runs phases back to back in the current
-context. Fine for one or two items; the context budget is on you.
+**Every phase after intake runs headless, through `scripts/campaign.sh`. This
+applies to a one-item campaign too.** Do not run design, implement, review, revise,
+or land in the session that invoked `/campaign`. The owner wants each phase in its
+own shell, and a session that runs phases back to back carries every file read into
+the next phase.
 
-**Headless (preferred for more than two items)** — `scripts/campaign.sh`. A Ralph
-loop: pick the next `(item, phase)`, spawn a fresh `claude -p`, stream it, verify
-state moved, repeat. Each iteration gets its own window, so the budget is structural
-rather than aspirational.
+`/campaign <path-to-artifact>` runs intake in session, because intake is the only
+phase that reads the whole artifact. `/campaign` with no argument continues the
+existing campaign. In both cases, the session then starts the driver in the
+background, monitors the log, and reports the result. It does not do the phase work.
+
+The driver is a Ralph loop: pick the next `(item, phase)`, spawn a fresh `claude -p`
+or `opencode run`, stream it, verify state moved, repeat. Each iteration gets its
+own window, so the budget is structural rather than aspirational.
+
+**Models.** Use these unless the owner names others:
+
+- `claude` phases: Opus 5.5 at high effort. The driver passes no model or effort
+  flag to `claude -p`, so set `ANTHROPIC_MODEL=claude-opus-5-5` and
+  `CLAUDE_CODE_EFFORT_LEVEL=high` in the environment.
+- `opencode` phases: `MODEL='meta/muse-spark-1.3#high'`. A per-phase override is
+  `<PHASE>_MODEL`, for example `REVISE_MODEL`.
+- Keep review on `claude`, because only `claude` runs the three review lanes as
+  real subagents. The write phases can go to `opencode` (`REVISE_ENGINE=opencode`,
+  and so on).
 
 ```bash
-scripts/campaign.sh                  # work the queue
+# the standard launch: review on claude, revise on opencode
+SLUG=<slug> ITEM=01 REVISE_ENGINE=opencode MODEL='meta/muse-spark-1.3#high' \
+  ANTHROPIC_MODEL=claude-opus-5-5 CLAUDE_CODE_EFFORT_LEVEL=high \
+  scripts/campaign.sh
+
 DRY_RUN=1 scripts/campaign.sh        # print the prompts, invoke nothing
 ITEM=07 scripts/campaign.sh          # one item only — the way to smoke-test the harness
 MAX_ITER=4 scripts/campaign.sh       # cap iterations
