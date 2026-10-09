@@ -19,7 +19,8 @@ import type { ChatModelTier } from "@alfred/contracts";
 import { TiptapComposer, type TiptapComposerHandle } from "../tiptap-composer";
 import { AttachmentChips } from "./attachment-chips";
 import { ComposerToolbar } from "./composer-toolbar";
-import { QueuedChips } from "./queued-chips";
+import { QueueTray } from "./queue-tray";
+import { useSteerModifier } from "./use-steer-modifier";
 import { quoteMessage } from "../quote";
 import { useMentionConnections } from "../mention-connection";
 import { MentionPalette } from "./mention-palette";
@@ -49,6 +50,11 @@ export function Composer({
   queued,
   onRemoveQueued,
   onSendQueuedNow,
+  onUpdateQueued,
+  editingQueuedId,
+  onEditingQueuedChange,
+  steeringQueuedId,
+  queueSendingHead,
   quote,
   onClearQuote,
 }: {
@@ -86,11 +92,21 @@ export function Composer({
   onRemoveQueued?: ((id: string) => void) | undefined;
   /** Move a queued message to the head and stop the reply, so it sends next. */
   onSendQueuedNow?: ((id: string) => void) | undefined;
+  /** Replace a queued message's text (an in-place edit). */
+  onUpdateQueued?: ((id: string, text: string) => void) | undefined;
+  /** The queued message open for an edit. The flush waits while it is next. */
+  editingQueuedId?: string | null | undefined;
+  onEditingQueuedChange?: ((id: string | null) => void) | undefined;
+  /** The queued message a steer stopped the reply for. */
+  steeringQueuedId?: string | null | undefined;
+  /** The flush is sending the first queued message now. */
+  queueSendingHead?: boolean | undefined;
   /** Text quoted from a reply. It is sent as a blockquote ahead of the message. */
   quote?: string | null | undefined;
   onClearQuote?: (() => void) | undefined;
 }) {
   const editorRef = useRef<TiptapComposerHandle | null>(null);
+  const formRef = useRef<HTMLFormElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const { initialJSON, text, isEmpty, onEditorChange, resetDraft } = useComposerDraft(threadId);
   const voice = useComposerVoice(editorRef);
@@ -209,6 +225,7 @@ export function Composer({
 
   const handleSubmit = useCallback(() => submit("send"), [submit]);
   const handleSteer = useCallback(() => submit("steer"), [submit]);
+  const steerArmed = useSteerModifier(formRef, Boolean(onSteer));
 
   const onFormSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -262,17 +279,26 @@ export function Composer({
   return (
     <div className="flex flex-col gap-2">
       {queued && queued.length > 0 && onRemoveQueued ? (
-        <QueuedChips
+        <QueueTray
           items={queued}
+          isStreaming={isStreaming}
+          canSteer={Boolean(onSteer)}
+          steeringId={steeringQueuedId}
+          sendingHead={queueSendingHead}
+          editingId={editingQueuedId}
+          onEditingChange={onEditingQueuedChange}
+          onUpdate={onUpdateQueued}
           onRemove={onRemoveQueued}
           onSendNow={composerDisabled ? undefined : onSendQueuedNow}
         />
       ) : null}
       <form
+        ref={formRef}
         onSubmit={onFormSubmit}
         aria-label="Send a message"
         data-disabled={composerDisabled || undefined}
-        className="relative"
+        // Above the queue tray, which tucks under the top edge.
+        className="relative z-10"
       >
         {!composerDisabled && suggestion && mentionCandidates.length > 0 ? (
           <MentionPalette
@@ -289,7 +315,7 @@ export function Composer({
         ) : null}
         <div
           className={cn(
-            "composer-frost relative overflow-hidden rounded-3xl p-2",
+            "composer-frost @container/composer relative overflow-hidden rounded-3xl p-2",
             // Frosted surface (see `.composer-frost`).
             "shadow-[var(--frost-shadow)]",
             "app-focus-within transition-shadow",
@@ -335,7 +361,7 @@ export function Composer({
               }}
             />
             {quote && onClearQuote ? (
-              <div className="mx-1 mb-1 flex items-start gap-2 rounded-2xl bg-app-bg-a2 py-2 pr-2 pl-3">
+              <div className="app-fade-in mx-1 mb-1 flex items-start gap-2 rounded-2xl bg-app-bg-a2 py-2 pr-2 pl-3">
                 <CornerDownRight size={14} aria-hidden className="mt-0.5 shrink-0 text-app-fg-2" />
                 <p className="line-clamp-2 min-w-0 flex-1 text-[13px] leading-snug whitespace-pre-wrap text-app-fg-3">
                   {quote}
@@ -366,7 +392,13 @@ export function Composer({
               <TiptapComposer
                 ref={editorRef}
                 initialJSON={initialJSON}
-                placeholder="Type and press enter to start chatting…"
+                placeholder={
+                  isStreaming
+                    ? onSteer
+                      ? "Queue a follow-up, or steer the reply…"
+                      : "Queue a follow-up…"
+                    : "Type and press enter to start chatting…"
+                }
                 disabled={composerDisabled}
                 onChange={handleEditorChange}
                 onSubmit={handleSubmit}
@@ -391,6 +423,8 @@ export function Composer({
               canSend={canSend}
               isStreaming={isStreaming}
               canSteer={Boolean(onSteer)}
+              steerArmed={steerArmed}
+              onSteer={handleSteer}
               disabled={composerDisabled}
               sending={sending}
               mentionActive={suggestion !== null}
