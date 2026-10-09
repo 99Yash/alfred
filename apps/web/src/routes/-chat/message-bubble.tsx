@@ -1,6 +1,6 @@
 import type { ChatErrorKind } from "@alfred/contracts";
 import type { SyncedChatAttachment, SyncedChatMessage } from "@alfred/sync";
-import { Check, Copy, RotateCcw } from "lucide-react";
+import { Check, Copy, CornerDownRight, RotateCcw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
@@ -13,7 +13,9 @@ import { cn } from "~/lib/utils";
 import { ConnectNudgeRows } from "./connect-nudge-rows";
 import { useMarkdownImageMode } from "./published-transcript";
 import { splitPersistedToolCalls } from "./connect-nudges";
+import { splitQuote } from "./quote";
 import { ReasoningSection } from "./reasoning-section";
+import { quotableProps } from "./selection-quote";
 import { SourcesStrip } from "./sources-strip";
 import { collectSources } from "./sources";
 import { ToolCallGroup } from "./tool-call-group";
@@ -274,14 +276,23 @@ export function MessageBubble({
   const bodyRef = useRef<HTMLDivElement | null>(null);
 
   if (message.role === "user") {
+    // A quoted reply (see `quote.ts`) shows its quote as a muted line above the bubble.
+    const { quote, body } = splitQuote(message.content);
+
     return (
       <div className="flex flex-col items-end gap-1">
         {attachments && attachments.length > 0 ? (
           <MessageAttachments attachments={attachments} />
         ) : null}
-        {message.content.length > 0 ? (
+        {quote ? (
+          <div className="flex max-w-[80%] items-start gap-1.5 px-1 text-[13px] leading-snug text-app-fg-3">
+            <CornerDownRight size={13} aria-hidden className="mt-0.5 shrink-0 text-app-fg-2" />
+            <span className="line-clamp-3 whitespace-pre-wrap">{quote}</span>
+          </div>
+        ) : null}
+        {body.length > 0 ? (
           <div className="max-w-[80%] rounded-2xl bg-app-bg-2 px-4 py-2.5 text-sm leading-relaxed tracking-tight whitespace-pre-wrap text-app-fg-4">
-            {message.content}
+            {body}
           </div>
         ) : null}
       </div>
@@ -317,7 +328,7 @@ export function MessageBubble({
       <ToolCallGroup tools={tools} narration={message.narration ?? []} active={false} />
       <WorkflowRecoveryCta tools={tools} />
       {message.content.length > 0 ? (
-        <div ref={bodyRef}>
+        <div ref={bodyRef} {...quotableProps}>
           <AssistantMarkdown text={message.content} />
         </div>
       ) : null}

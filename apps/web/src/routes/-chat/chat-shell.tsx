@@ -22,11 +22,18 @@ import { Conversation } from "./conversation";
 import { buildFollowUpSuggestions, shouldShowStream } from "./conversation-helpers";
 import { EmptyHero } from "./empty-hero";
 import { RightRail } from "./rail/right-rail";
+import { SelectionQuote } from "./selection-quote";
 import { useRailData } from "./rail/use-rail-data";
 import { useRailMode } from "./rail/use-rail-mode";
 import { TopBar } from "./top-bar";
 import { ThreadTotal } from "./thread-usage";
 import { pendingToolCallId, useArtifactPanel } from "./use-artifact-panel";
+
+/** A stopped turn writes its reply before its run ends, so the next send can meet `busy`. */
+const QUEUE_BUSY_RETRY_MS = 1_000;
+
+/** Then the head waits for the next completion. */
+const QUEUE_BUSY_RETRIES = 5;
 
 /** Chat scaffold for `/chat` and `/chat/$threadId`: top bar, feed or hero, composer, right rail. */
 export interface ChatShellProps {
@@ -146,10 +153,16 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   const send = useSendMessage();
   // Persisted Auto/Deep tier, sent with every turn.
   const [tier, setTier] = useModelTier();
+  // Text quoted from a reply with "Ask Alfred". It rides on the next send as a blockquote.
+  const [quote, setQuote] = useState<string | null>(null);
+  const clearQuote = useCallback(() => setQuote(null), []);
   // Per-thread client queue (#489): while a reply streams, submits queue as chips.
-  // On completion the oldest sends, one at a time. A `busy` reply keeps it queued.
-  const { queue, enqueue, remove, dequeue } = useChatQueue(threadId);
+  // On completion the oldest sends, one at a time. A `busy` reply retries a few times, then waits.
+  const { queue, enqueue, remove, promote, dequeue } = useChatQueue(threadId);
   const [queueSending, setQueueSending] = useState(false);
+  // Set by a completion; cleared once the head starts or fails for good.
+  const [flushArmed, setFlushArmed] = useState(false);
+  const busyAttemptsRef = useRef(0);
   const prevShowStreamRef = useRef(showStream);
   const lastErrorStreamIdRef = useRef<string | null>(null);
   // Reset during render so the old thread's `showStream` cannot flush the new thread's queue.
@@ -159,7 +172,10 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     setPrevThreadId(threadId);
     prevShowStreamRef.current = false;
     lastErrorStreamIdRef.current = null;
+    busyAttemptsRef.current = 0;
     setQueueSending(false);
+    setFlushArmed(false);
+    setQuote(null);
   }
 
   const onSend = useCallback(
@@ -197,8 +213,10 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
       if (result.ok) return true;
 
       if (result.reason === "busy") {
-        // Another turn is in flight (#488). Queue and retry on the next completion.
+        // Another turn is in flight (#488). Queue it; the flush retries until that run ends.
         const ok = enqueue({ text: trimmed, files: files ?? [], tier, artifactTargetId });
+
+        if (ok) setFlushArmed(true);
 
         return ok;
       }
@@ -211,8 +229,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     [showStream, enqueue, send, threadId, tier],
   );
 
-  // On completion (stream done and synced), send the oldest queued message.
-  // `queueSending` stops a burst while the new stream mounts.
+  // On completion (stream done and synced), arm the flush of the oldest queued message.
   const streamDone = stream?.done ?? false;
   const streamError = stream?.error ?? null;
   const streamRunId = stream?.runId ?? null;
@@ -222,7 +239,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     const completed = prev && !showStream;
 
     // A done stream with an error and no durable message (SSE drop) counts as complete.
-    // Send once per `runId+error` to avoid a retry loop.
+    // Arm once per `runId+error` to avoid a retry loop.
     const errorId =
       streamDone && streamError ? `${streamRunId ?? "unknown"}:${String(streamError)}` : null;
 
@@ -230,18 +247,26 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
       Boolean(errorId) &&
       errorId !== lastErrorStreamIdRef.current &&
       queue.length > 0 &&
-      !queueSending &&
       !isStreaming;
 
     if (isNewErrorCompletion && errorId) lastErrorStreamIdRef.current = errorId;
 
     if (!streamDone || !streamError) lastErrorStreamIdRef.current = null;
-    const shouldFlush = completed || isNewErrorCompletion;
 
-    if (!shouldFlush || queue.length === 0 || queueSending || isStreaming) return;
+    if ((completed || isNewErrorCompletion) && queue.length > 0) setFlushArmed(true);
+  }, [showStream, queue.length, isStreaming, streamDone, streamError, streamRunId]);
+
+  // Send the head while armed. `queueSending` stops a burst while the new stream mounts.
+  useEffect(() => {
+    if (!flushArmed || queueSending || isStreaming) return;
     const next = queue[0];
 
-    if (!next) return;
+    if (!next) {
+      setFlushArmed(false);
+
+      return;
+    }
+
     setQueueSending(true);
     void (async () => {
       const result = await send(
@@ -254,31 +279,24 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
         next.artifactTargetId,
       );
 
-      if (result.ok) {
+      if (result.ok || result.reason === "empty") {
+        // An `empty` entry is stale. Drop it so it does not block the queue.
         dequeue();
-      } else if (result.reason === "busy") {
-        // Keep queued; the next completion retries. The chip shows it, so no toast.
-      } else if (result.reason === "empty") {
-        // Drop a stale empty entry so it does not block the queue.
-        dequeue();
+        setFlushArmed(false);
+        busyAttemptsRef.current = 0;
+      } else if (result.reason === "busy" && busyAttemptsRef.current < QUEUE_BUSY_RETRIES) {
+        // Stay armed and try again. The chip shows the entry, so no toast.
+        busyAttemptsRef.current += 1;
+        await new Promise((resolve) => setTimeout(resolve, QUEUE_BUSY_RETRY_MS));
       } else {
-        // Hard error, already toasted: keep it queued.
+        // A hard error (already toasted) or a run that stays busy: keep it for the next completion.
+        setFlushArmed(false);
+        busyAttemptsRef.current = 0;
       }
 
       setQueueSending(false);
     })();
-  }, [
-    showStream,
-    queue,
-    queueSending,
-    isStreaming,
-    send,
-    threadId,
-    dequeue,
-    streamDone,
-    streamError,
-    streamRunId,
-  ]);
+  }, [flushArmed, queue, queueSending, isStreaming, send, threadId, dequeue]);
 
   // Retry sends the attachment ids, not files; the server copies the bytes (ADR-0065).
   const onRetry = useCallback(
@@ -383,6 +401,36 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     });
   }, [activeRunId, stopStream]);
 
+  // Steer (#490): stop the reply and send this next. A run parked on an approval cannot stop.
+  const canSteer = isStreaming && !approvalTrayActive;
+
+  // The stop finalizes the partial reply, so the next turn sees it. The queue sends the steer
+  // on completion, ahead of older entries. An empty steer is rejected before the stop.
+  const onSteer = useCallback(
+    async (text: string, files?: File[], artifactTargetId?: string): Promise<boolean> => {
+      if (!canSteer) return onSend(text, files, artifactTargetId);
+
+      if (!enqueue({ text: text.trim(), files: files ?? [], tier, artifactTargetId }, "front"))
+        return false;
+      onStopGeneration();
+
+      return true;
+    },
+    [canSteer, onSend, enqueue, tier, onStopGeneration],
+  );
+
+  // "Send now" on a queued chip: the same steer for a message that already waits.
+  const onSendQueuedNow = useCallback(
+    (id: string) => {
+      promote(id);
+
+      if (canSteer) onStopGeneration();
+      // No turn on screen (a send that met `busy`): try the head now.
+      else if (!showStream) setFlushArmed(true);
+    },
+    [promote, canSteer, onStopGeneration, showStream],
+  );
+
   // 600ms skip delay so a sweep across the usage strip does not re-arm the 300ms delay per cell.
   return (
     <Tooltip.Provider delayDuration={300} skipDelayDuration={600}>
@@ -433,6 +481,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
                   isStreaming={isStreaming}
                   disabled={approvalTrayActive}
                   onSend={onSend}
+                  onSteer={canSteer ? onSteer : undefined}
                   onStopGeneration={onStopGeneration}
                   prefill={editPrefill}
                   ghostText={ghostText}
@@ -445,9 +494,13 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
                   onTierChange={setTier}
                   queued={queue}
                   onRemoveQueued={remove}
+                  onSendQueuedNow={onSendQueuedNow}
+                  quote={quote}
+                  onClearQuote={clearQuote}
                 />
               </div>
             </div>
+            <SelectionQuote onQuote={setQuote} />
           </>
         ) : messagesLoading ? (
           <ConversationLoading />

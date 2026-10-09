@@ -33,9 +33,14 @@ function safeRandomId(): string {
 export interface ChatQueue {
   /** This thread's FIFO, shown as chips above the composer. */
   queue: QueuedMessage[];
-  /** Returns false when the entry is empty, over a cap, or the queue is full. */
-  enqueue: (entry: Omit<QueuedMessage, "id">) => boolean;
+  /**
+   * Returns false when the entry is empty, over a cap, or the queue is full.
+   * `front` puts a steer (#490) ahead of the waiting entries.
+   */
+  enqueue: (entry: Omit<QueuedMessage, "id">, position?: "back" | "front") => boolean;
   remove: (id: string) => void;
+  /** Move an entry to the head, so it sends next. */
+  promote: (id: string) => void;
   /** Call after the oldest entry has started. */
   dequeue: () => void;
   peek: () => QueuedMessage | undefined;
@@ -81,7 +86,7 @@ export function useChatQueue(threadId: string | undefined): ChatQueue {
   }, [threadId]);
 
   const enqueue = useCallback(
-    (entry: Omit<QueuedMessage, "id">): boolean => {
+    (entry: Omit<QueuedMessage, "id">, position: "back" | "front" = "back"): boolean => {
       const text = entry.text.trim();
       const hasFiles = entry.files.length > 0;
 
@@ -132,7 +137,7 @@ export function useChatQueue(threadId: string | undefined): ChatQueue {
 
         if (prevList.length >= MAX_QUEUED_TURNS) return prev;
         const next = new Map(prev);
-        next.set(key, [...prevList, queued]);
+        next.set(key, position === "front" ? [queued, ...prevList] : [...prevList, queued]);
 
         return next;
       });
@@ -160,6 +165,22 @@ export function useChatQueue(threadId: string | undefined): ChatQueue {
     [key],
   );
 
+  const promote = useCallback(
+    (id: string) => {
+      setQueues((prev) => {
+        const list = prev.get(key) ?? [];
+        const entry = list.find((m) => m.id === id);
+
+        if (!entry || list[0] === entry) return prev;
+        const map = new Map(prev);
+        map.set(key, [entry, ...list.filter((m) => m !== entry)]);
+
+        return map;
+      });
+    },
+    [key],
+  );
+
   const dequeue = useCallback(() => {
     setQueues((prev) => {
       const list = prev.get(key) ?? [];
@@ -177,5 +198,5 @@ export function useChatQueue(threadId: string | undefined): ChatQueue {
 
   const peek = useCallback(() => queue[0], [queue]);
 
-  return { queue, enqueue, remove, dequeue, peek };
+  return { queue, enqueue, remove, promote, dequeue, peek };
 }
