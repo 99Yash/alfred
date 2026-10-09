@@ -1,8 +1,8 @@
-import { getIdPath, type JsonObject } from "@alfred/contracts";
+import { getIdPath, selectGithubAccountRow, type JsonObject } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { credentialVault } from "@alfred/db/credential-vault";
 import { integrationCredentials, type IntegrationCredential } from "@alfred/db/schemas";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { getInstallationToken } from "./app";
 
 /**
@@ -13,11 +13,12 @@ import { getInstallationToken } from "./app";
 export interface UpsertGithubCredentialArgs {
   userId: string;
   accountId: string;
-  accountLabel?: string | null;
+  /** The GitHub login. Blank would leave `@me` unresolvable, so every row has one. */
+  accountLabel: string;
   accessToken: string;
   refreshToken?: string | null;
   /** From the post-install redirect. */
-  installationId?: string | null;
+  installationId: string;
   scopes: string[];
   metadata?: JsonObject;
   expiresAt: Date;
@@ -36,10 +37,10 @@ export async function upsertGithubCredential(
       userId: args.userId,
       provider: "github",
       accountId: args.accountId,
-      accountLabel: args.accountLabel ?? null,
+      accountLabel: args.accountLabel,
       accessToken: sealedAccessToken,
       refreshToken: sealedRefreshToken,
-      installationId: args.installationId ?? null,
+      installationId: args.installationId,
       expiresAt: args.expiresAt,
       scopes: args.scopes,
       metadata: args.metadata ?? {},
@@ -54,12 +55,12 @@ export async function upsertGithubCredential(
       set: {
         accessToken: sealedAccessToken,
         refreshToken: sealedRefreshToken,
-        installationId: args.installationId ?? null,
+        installationId: args.installationId,
         expiresAt: args.expiresAt,
         scopes: args.scopes,
         metadata: args.metadata ?? {},
         status: "active",
-        accountLabel: args.accountLabel ?? null,
+        accountLabel: args.accountLabel,
         lastRefreshedAt: new Date(),
         updatedAt: new Date(),
       },
@@ -78,6 +79,11 @@ export type GithubCredentialSummary = Pick<
   "id" | "status" | "accountId" | "accountLabel" | "installationId"
 >;
 
+/**
+ * Oldest first, so "the first row" is the first connected account for every reader.
+ * `selectGithubAccountRow` picks from this order, so the Connected card and the token
+ * path name the same account.
+ */
 export async function listGithubCredentials(userId: string): Promise<GithubCredentialSummary[]> {
   return db()
     .select({
@@ -90,7 +96,8 @@ export async function listGithubCredentials(userId: string): Promise<GithubCrede
     .from(integrationCredentials)
     .where(
       and(eq(integrationCredentials.userId, userId), eq(integrationCredentials.provider, "github")),
-    );
+    )
+    .orderBy(asc(integrationCredentials.createdAt), asc(integrationCredentials.id));
 }
 
 /** The stored identity token. For REST access use `getInstallationTokenForUser`. */
@@ -124,11 +131,15 @@ export async function getInstallationTokenForUser(
   userId: string,
   accountRef?: string,
 ): Promise<UserInstallationToken> {
-  const active = (await listGithubCredentials(userId)).find(
+  const candidates = (await listGithubCredentials(userId)).filter(
     (credential) =>
       credential.status === "active" &&
       (accountRef === undefined || credential.accountId === accountRef),
   );
+
+  // The one rule both this and the availability card read, so a partial row never
+  // shadows the account the tools will actually use.
+  const active = selectGithubAccountRow(candidates);
 
   if (!active) {
     throw new Error(
