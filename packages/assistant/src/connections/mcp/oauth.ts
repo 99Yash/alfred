@@ -4,7 +4,7 @@
  * Callback: `matchesState`, re-check the issuer, `finishAuthorization`, `saveTokens`.
  * Refresh happens only before delivery; the transport gets a token-only view, so it cannot replay `tools/call`.
  */
-import { parseOAuthScopeList, toMessage } from "@alfred/contracts";
+import { parseOAuthScopeList } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { credentialVault, type CredentialVault } from "@alfred/db/credential-vault";
 import {
@@ -736,7 +736,8 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
       }
 
       // Anything else is an issuer change or a refused endpoint. Fail closed, before any request.
-      throw new Error(`Persisted MCP OAuth discovery state is invalid: ${toMessage(err)}`);
+      // `boundedMcpErrorText` renders the cause chain, so the cause stays out of this message.
+      throw new Error("Persisted MCP OAuth discovery state is invalid", { cause: err });
     }
   }
 
