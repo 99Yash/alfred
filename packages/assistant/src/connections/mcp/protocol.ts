@@ -16,8 +16,8 @@ import {
   type Transport,
 } from "@modelcontextprotocol/client";
 import type { McpAuthorizedProtocol } from "./endpoint-authorization";
-import { toMessage, type JsonObject } from "@alfred/contracts";
-import { McpClientError } from "./errors";
+import type { JsonObject } from "@alfred/contracts";
+import { isMcpTransportFailure, McpClientError } from "./errors";
 import type { McpTraceContext } from "./trace";
 
 const HEADER_MISMATCH_ERROR_CODE = -32020;
@@ -232,7 +232,8 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
    * Keep the modern list-change stream open. A proxy can end an idle SSE stream
    * (Railway's edge ends it after about 100 s), and the SDK does not re-listen.
    * Each other request is a separate POST, so a lost stream is not a lost connection.
-   * A change sent while no stream was open is lost, so a reopen also reports a change.
+   * A change sent while no stream was open is not replayed, so the catalog TTL bounds
+   * how long a missed one stays unseen.
    */
   #watchToolsSubscription(subscription: McpSubscription, openedAt: number): void {
     void subscription.closed.then(async (cause) => {
@@ -256,7 +257,7 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
       } catch (err) {
         if (this.#closing) return;
         void this.#connectionUnhealthyHandler?.(
-          new Error(`${closed} and could not reopen: ${toMessage(err)}`),
+          new Error(`${closed} and could not reopen`, { cause: err }),
         );
 
         return;
@@ -269,7 +270,6 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
       }
 
       this.#watchToolsSubscription(next, Date.now());
-      void this.#toolsChangedHandler?.();
     });
   }
 
@@ -288,6 +288,10 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
         );
       } catch (err) {
         // The first POST after a dropped stream can reuse a socket the proxy closed.
+        // A remote answer (authorization, protocol) will not fix itself, so only a
+        // transport failure earns the next delay.
+        if (!isMcpTransportFailure(err)) throw err;
+
         lastError = err;
       }
     }
