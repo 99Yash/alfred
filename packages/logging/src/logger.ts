@@ -30,7 +30,7 @@ function devErrorDiagnostics(err: unknown): Partial<SafeErrorLog> {
   const message = err instanceof Error ? stringField(err, "message") : undefined;
 
   if (message) out.message = message;
-  const statusCode = Reflect.get(isIndexable(err) ? err : {}, "statusCode");
+  const statusCode: unknown = Reflect.get(isIndexable(err) ? err : {}, "statusCode");
 
   if (typeof statusCode === "number") out.statusCode = statusCode;
   const url = stringField(err, "url");
@@ -57,14 +57,14 @@ function isPostgresDiagnostic(value: unknown): boolean {
 }
 
 /**
- * Allowlist an error for logs. Never `message`, `detail`, `query`, or `parameters`:
+ * Allowlist an error for logs. In production, never `message`, `detail`, `query`, or `parameters`:
  * Postgres can put user data and SQL there. Keep only stack frames, since line one repeats `message`.
  * Never throws: pino rethrows a serializer throw out of the log call, so a value whose
  * prototype or getters throw collapses to `{ type: typeof err }`.
  */
 export function serializeError(err: unknown, verbose = false): SafeErrorLog {
   try {
-    const error = err instanceof Error ? err : undefined;
+    const error: unknown = err instanceof Error ? err : undefined;
     let databaseSource: unknown;
 
     for (const level of pgErrorChain(err)) {
