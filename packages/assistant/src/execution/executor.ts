@@ -369,7 +369,7 @@ export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise
     const outcome = await commitStepFailure(run, stepId, attempt, error);
 
     if (outcome.kind === "failed") {
-      await finalizeFailedRun(run, outcome.error);
+      await finalizeFailedRun(run, outcome.error, err);
     }
 
     return outcome;
