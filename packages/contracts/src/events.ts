@@ -13,11 +13,14 @@ export const CHAT_TOOL_NAME_MAX = 120;
 
 export const CHAT_TOOL_CALL_ID_MAX = 200;
 
+/** Cap on an `agent.progress` frame's `message`. `StepContext.log` applies it. */
+export const AGENT_PROGRESS_MESSAGE_MAX = 2_000;
+
 /** Payloads for the outbox -> Redis Pub/Sub -> SSE bus. Replicache pokes use a separate bus. */
 export const agentProgressSchema = z.object({
   runId: z.string().min(1).max(120),
   step: z.string().min(1).max(120),
-  message: z.string().max(2_000).optional(),
+  message: z.string().max(AGENT_PROGRESS_MESSAGE_MAX).optional(),
 });
 
 export const toolCallSchema = z.object({
