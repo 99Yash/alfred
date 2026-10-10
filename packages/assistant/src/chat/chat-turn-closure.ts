@@ -3,6 +3,7 @@ import {
   createChatDeltaLog,
   runStatusSchema,
   sanitizeToolResult,
+  toMessage,
   type ChatErrorKind,
   type ChatMessageUsage,
 } from "@alfred/contracts";
@@ -375,6 +376,10 @@ export async function finalizeCancelledMessage(
 /**
  * Persist a `failed` row with whatever streamed, and release the client.
  * A step body passes its lease; only the executor's `onTerminal` hook passes `null`.
+ *
+ * Never rejects. A step catch rethrows the turn's own fault after this call, so the
+ * executor fails the run with that fault and its closure classifies it, not a write
+ * fault. The closure then retries the write; the insert does nothing on conflict.
  */
 export async function finalizeFailedMessage(
   userId: string,
@@ -383,7 +388,22 @@ export async function finalizeFailedMessage(
   err: unknown,
   lease: StepLease | null,
 ): Promise<void> {
-  await closeChatTurn(userId, runId, state, { kind: "failed", error: err }, lease);
+  try {
+    await closeChatTurn(userId, runId, state, { kind: "failed", error: err }, lease);
+  } catch (writeErr) {
+    logger.warn(
+      {
+        // Only `err` goes through the error serializer, so the turn fault rides as text.
+        err: writeErr,
+        turnError: toMessage(err),
+        event: "chat_turn_failed_write_fault",
+        runId,
+        attempt: lease?.attempt,
+        messageId: state.messageId,
+      },
+      "Could not close the failed chat turn",
+    );
+  }
 }
 
 /**

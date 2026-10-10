@@ -1062,6 +1062,10 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
   // So the failed branch folds the outbox `chat.delta` rows after the committed
   // `deltaSeq` into the state. The outbox is the only path to the client (ADR-0005).
   // The insert stays do-nothing on conflict, so a row the in-step catch wrote wins.
+  //
+  // The failed branch classifies `ctx.cause`, the object the step threw, when the
+  // executor has it. `ctx.error` is only its message, which loses the HTTP status and
+  // the error name that `classifyChatFailure` reads.
   closure: {
     kind: "client",
     async onTerminal(ctx) {
@@ -1077,7 +1081,13 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
             reading: ctx.state,
           });
           const state = await foldUncommittedDeltas(ctx.userId, ctx.state);
-          await finalizeFailedMessage(ctx.userId, ctx.runId, state, new Error(ctx.error), null);
+          await finalizeFailedMessage(
+            ctx.userId,
+            ctx.runId,
+            state,
+            ctx.cause ?? new Error(ctx.error),
+            null,
+          );
 
           return;
         }

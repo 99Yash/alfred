@@ -17,6 +17,12 @@ export type TerminalOutcome =
       outcome: "failed";
       /** Already sanitized and safe to show. */
       error: string;
+      /**
+       * The raw value the step body threw, when it threw in this process. Absent for the
+       * lease backstop and an unresolved step. In memory only: classify or log it, never
+       * persist or show it, because it can carry vendor URLs.
+       */
+      cause?: unknown;
     }
   | {
       outcome: "cancelled";
@@ -26,11 +32,10 @@ export type TerminalOutcome =
 /**
  * One hook with a union, not two optional hooks, so a workflow that forgets the cancel case fails
  * to compile.
- * The distributed form lets `switch (ctx.outcome)` narrow `error` and `reason`.
+ * The intersection distributes over the union, so `switch (ctx.outcome)` narrows `error` and
+ * `reason`.
  */
-type TerminalClosureContext<S> =
-  | (TerminalRunFields<S> & { outcome: "failed"; error: string })
-  | (TerminalRunFields<S> & { outcome: "cancelled"; reason: string });
+type TerminalClosureContext<S> = TerminalRunFields<S> & TerminalOutcome;
 
 /** What a run that ends outside its step body owes the client. */
 export type WorkflowClosure<S> =
@@ -73,8 +78,13 @@ async function driveClosure(run: TerminalClosureRun, outcome: TerminalOutcome): 
   }
 }
 
-export async function finalizeFailedRun(run: TerminalClosureRun, error: string): Promise<void> {
-  await driveClosure(run, { outcome: "failed", error });
+/** Pass `cause` only when a step body threw it in this process. */
+export async function finalizeFailedRun(
+  run: TerminalClosureRun,
+  error: string,
+  cause?: unknown,
+): Promise<void> {
+  await driveClosure(run, { outcome: "failed", error, cause });
 }
 
 /**
