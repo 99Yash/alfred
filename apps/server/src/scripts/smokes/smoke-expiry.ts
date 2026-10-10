@@ -9,7 +9,7 @@
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/smokes/smoke-expiry.ts
  */
 
-import { getStringPath, type IntegrationAvailabilitySnapshot } from "@alfred/contracts";
+import { getStringPath } from "@alfred/contracts";
 import {
   approvalExpiryJobId,
   getApprovalExpiryQueue,
@@ -17,7 +17,7 @@ import {
 } from "@alfred/assistant/tool-runtime";
 
 import { dispatchToolCall } from "@alfred/assistant/tool-runtime/dispatch";
-import { _setIntegrationAvailabilityReaderForTests } from "@alfred/assistant/tool-runtime/test-support";
+import { stubIntegrationHealthForTests } from "@alfred/assistant/tool-runtime/test-support";
 import { expireStaging } from "@alfred/assistant/execution";
 import { clearToolRegistryForTests, liveTool, registerTools } from "@alfred/assistant/tool-runtime";
 import { closeConnections, warmPool } from "@alfred/db";
@@ -38,14 +38,6 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 const SMOKE_USER_EMAIL = "smoke-expiry@alfred.local";
-
-const GMAIL_CONNECTED: IntegrationAvailabilitySnapshot = {
-  integrations: new Map([["gmail", { health: "active", accountLabel: null }]]),
-  providers: new Map(),
-  passthroughEnabled: new Map(),
-};
-
-let restoreAvailabilityReader: (() => void) | undefined;
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(`[smoke-expiry] ${message}`);
@@ -166,9 +158,6 @@ async function main(): Promise<void> {
       },
     }),
   ]);
-  restoreAvailabilityReader = _setIntegrationAvailabilityReaderForTests(() =>
-    Promise.resolve(GMAIL_CONNECTED),
-  );
 
   const userId = await findOrCreateSmokeUser();
   await ensureDefaultActionPolicyForUser(userId);
@@ -308,6 +297,8 @@ async function main(): Promise<void> {
   console.log("[smoke-expiry] cleanup ok");
 }
 
+const restoreIntegrationHealth = stubIntegrationHealthForTests(["gmail"]);
+
 try {
   await main();
   console.log("[smoke-expiry] PASS");
@@ -315,7 +306,7 @@ try {
   console.error("[smoke-expiry] FAIL", err);
   process.exitCode = 1;
 } finally {
-  restoreAvailabilityReader?.();
+  restoreIntegrationHealth();
   await closeRedis();
   await closeConnections();
 }
