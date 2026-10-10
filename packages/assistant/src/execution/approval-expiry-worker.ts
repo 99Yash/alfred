@@ -12,7 +12,7 @@ import { and, asc, eq, lte, sql } from "drizzle-orm";
 import { DelayedError, Worker, type Job } from "bullmq";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { createRedisConnection } from "@alfred/db/redis";
-import { redeliverRun, signalRunInTx } from "./service";
+import { lockStagingWithRunInTx, redeliverRun, signalRunInTx } from "./service";
 import { startApprovalWaitSpan } from "./runtime-spans";
 import {
   APPROVAL_EXPIRY_QUEUE_NAME,
@@ -92,7 +92,7 @@ export async function expireStaging(args: {
 }): Promise<ExpireStagingResult> {
   const { stagingId, userId } = args;
 
-  // One tx with a row lock, so a racing human decision either wins or waits.
+  // One tx with the run and staging locks, so a racing human decision either wins or waits.
   const outcome = await db().transaction<
     | {
         kind: "expired";
@@ -106,23 +106,7 @@ export async function expireStaging(args: {
     | { kind: "skipped"; reason: string }
     | { kind: "deferred"; expiresAt: Date }
   >(async (tx) => {
-    const rows = await tx
-      .select({
-        id: actionStagings.id,
-        runId: actionStagings.runId,
-        status: actionStagings.status,
-        requiresApproval: actionStagings.requiresApproval,
-        createdAt: actionStagings.createdAt,
-        toolName: actionStagings.toolName,
-        integration: actionStagings.integration,
-        riskTier: actionStagings.riskTier,
-        expiresAt: actionStagings.expiresAt,
-      })
-      .from(actionStagings)
-      .where(and(eq(actionStagings.id, stagingId), eq(actionStagings.userId, userId)))
-      .for("update");
-
-    const row = rows[0];
+    const row = await lockStagingWithRunInTx(tx, { stagingId, userId });
 
     if (!row) return { kind: "skipped", reason: "missing" };
 
