@@ -10,7 +10,7 @@ import {
   serializePdfExtractionChildRequest,
   truncateExtractedForLimit,
 } from "./extract-pdf-protocol";
-import type { PdfExtractionLimits } from "./constants";
+import type { ExtractionLimits } from "./constants";
 
 export type PdfDocumentType = "text_based" | "scanned" | "image_based" | "mixed";
 
@@ -138,7 +138,7 @@ function remoteNativeError(name: string, message: string, code?: string): Error 
 
 async function runPdfExtractionChild(
   bytes: Uint8Array,
-  limits: PdfExtractionLimits,
+  limits: ExtractionLimits,
   options: PdfExtractorChildOptions,
 ): Promise<ExtractedPdf> {
   const startedAt = performance.now();
@@ -356,13 +356,13 @@ async function runPdfExtractionChild(
 }
 
 /** Configure one door's extraction policy once. The hot call accepts only bytes. */
-export function createPdfExtractor(limits: PdfExtractionLimits): ExtractPdf {
+export function createPdfExtractor(limits: ExtractionLimits): ExtractPdf {
   return createPdfExtractorWithChild(limits, { childEntry: defaultChildEntry() });
 }
 
 /** @internal Deterministic child seam for process-boundary tests. */
 export function createPdfExtractorWithChild(
-  limits: PdfExtractionLimits,
+  limits: ExtractionLimits,
   options: PdfExtractorChildOptions,
 ): ExtractPdf {
   const configuredLimits = parsePdfExtractionLimits(limits);

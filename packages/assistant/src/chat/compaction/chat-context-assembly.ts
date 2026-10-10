@@ -2,8 +2,8 @@ import type { AgentTranscriptMessage } from "@alfred/contracts";
 import type { ChatMessageRole } from "@alfred/db/schemas";
 
 import type { ConversationSummary } from "./conversation-summary";
-import { nullableChatMessageWatermark } from "./chat-message-watermark";
-import type { ChatSummaryWatermark, LoadedChatThreadContext } from "./chat-context-store";
+import { nullableChatMessageWatermark, type ChatMessageWatermark } from "./chat-message-watermark";
+import type { LoadedChatThreadContext } from "./chat-context-store";
 import { estimateTranscriptTokens } from "@alfred/assistant/execution";
 
 export interface ChatContextMessage {
@@ -96,7 +96,7 @@ export function conversationSummaryMessage(summary: ConversationSummary): AgentT
   };
 }
 
-function completeWatermark(context: LoadedChatThreadContext | null): ChatSummaryWatermark | null {
+function completeWatermark(context: LoadedChatThreadContext | null): ChatMessageWatermark | null {
   return nullableChatMessageWatermark(
     context?.summaryWatermarkCreatedAt,
     context?.summaryWatermarkMessageId,

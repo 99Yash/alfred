@@ -7,10 +7,11 @@ export { type ConversationSummary } from "./conversation-summary";
 export {
   loadChatThreadContext,
   persistConversationSummary,
-  type ChatSummaryWatermark,
   type LoadedChatThreadContext,
   type PersistConversationSummaryArgs,
 } from "./chat-context-store";
+
+export { type ChatMessageWatermark } from "./chat-message-watermark";
 
 export {
   assembleChatContext,

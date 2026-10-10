@@ -16,12 +16,9 @@ import {
   afterChatMessageWatermark,
   chatMessageWatermark,
   nullableChatMessageWatermark,
+  type ChatMessageWatermark,
 } from "./chat-message-watermark";
-import {
-  loadChatThreadContext,
-  persistConversationReplayEstimate,
-  type ChatSummaryWatermark,
-} from "./chat-context-store";
+import { loadChatThreadContext, persistConversationReplayEstimate } from "./chat-context-store";
 import { CHAT_MAX_OUTPUT_TOKENS } from "./constants";
 import { estimateSerializedTokens } from "@alfred/assistant/execution";
 
@@ -201,7 +198,7 @@ async function scheduleThreadMediaEnrichment(userId: string, threadId: string): 
 
 function replayEstimateWatermark(
   context: Awaited<ReturnType<typeof loadChatThreadContext>>,
-): ChatSummaryWatermark | null {
+): ChatMessageWatermark | null {
   return nullableChatMessageWatermark(
     context?.replayEstimateWatermarkCreatedAt,
     context?.replayEstimateWatermarkMessageId,

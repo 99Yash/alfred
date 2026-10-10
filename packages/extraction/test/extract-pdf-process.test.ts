@@ -8,7 +8,7 @@ import {
   createPdfExtractorWithChild,
   PdfExtractionError,
 } from "../src/extract-pdf";
-import type { PdfExtractionLimits } from "../src/constants";
+import type { ExtractionLimits } from "../src/constants";
 
 const CHILD_ENTRY = new URL("./support/extract-pdf-process-child.ts", import.meta.url);
 
@@ -16,7 +16,7 @@ const CHILD_ENTRY = new URL("./support/extract-pdf-process-child.ts", import.met
  * A cold `tsx` child takes a few hundred ms to boot, and the deadline starts at spawn.
  * A near default would let the deadline silently beat child outcomes, so cases set their own.
  */
-const BASE_LIMITS: PdfExtractionLimits = {
+const BASE_LIMITS: ExtractionLimits = {
   maxBytes: 1_000,
   maxCharacters: 10,
   maxParseMilliseconds: 10_000,
@@ -39,7 +39,7 @@ const SETTLED_WITHOUT_THE_PIPE_HOLD_MILLISECONDS = 3_000;
 
 function testExtractor(
   behavior: string,
-  limits: PdfExtractionLimits = BASE_LIMITS,
+  limits: ExtractionLimits = BASE_LIMITS,
   onSpawn?: (pid: number | undefined) => void,
 ) {
   return createPdfExtractorWithChild(limits, {
