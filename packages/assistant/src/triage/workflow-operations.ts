@@ -65,6 +65,7 @@ import {
   toMessage,
 } from "@alfred/contracts";
 import { getFreshAccessToken, getMessage } from "@alfred/integrations/google";
+import { logger, safeErrorDiagnostic } from "@alfred/logging";
 import { triageRunReasonSchema } from "./workflow-input";
 import { z } from "zod";
 
@@ -881,6 +882,27 @@ export async function runEmailTriageOpenDocumentAsk<State extends EmailTriageOpe
 
   if (!documentAsk) return next;
 
+  // `ctx.log` is an outbox insert on the same pool `open` uses, so a pool fault can
+  // fail it too. A log fault must not escape: it falls back to the process log, with
+  // the open fault as its allowlisted diagnostic. Item 58 moves this into the executor.
+  const log = async (message: string, openErr?: unknown) => {
+    try {
+      await ctx.log(message);
+    } catch (logErr) {
+      logger.warn(
+        {
+          err: logErr,
+          ...(openErr === undefined ? {} : { openError: safeErrorDiagnostic(openErr) }),
+          event: "triage_document_ask_log_fault",
+          runId: ctx.runId,
+          sourceMessageId: documentAsk.source.messageId,
+          retries: ctx.state.documentAskOpenRetries ?? 0,
+        },
+        "triage: document-ask step log failed",
+      );
+    }
+  };
+
   try {
     // Idempotent per source message, so a deferred re-entry is safe.
     const opened = await documentAskReducer.open({
@@ -890,22 +912,22 @@ export async function runEmailTriageOpenDocumentAsk<State extends EmailTriageOpe
       observedAt: new Date(),
     });
 
-    if (opened.kind === "noop") await ctx.log(`document_ask: open noop reason=${opened.reason}`);
+    if (opened.kind === "noop") await log(`document_ask: open noop reason=${opened.reason}`);
 
     return next;
   } catch (err) {
     const retries = ctx.state.documentAskOpenRetries ?? 0;
     const delay = DOCUMENT_ASK_OPEN_RETRY_DELAYS_MS[retries];
+    // Bounded so the line stays under the progress-message cap.
+    const reason = toMessage(err).slice(0, 500);
 
     if (delay === undefined) {
-      await ctx.log(
-        `document_ask: open failed after ${retries} retries; ask lost: ${toMessage(err)}`,
-      );
+      await log(`document_ask: open failed after ${retries} retries; ask lost: ${reason}`, err);
 
       return next;
     }
 
-    await ctx.log(`document_ask: open failed (retry ${retries + 1}): ${toMessage(err)}`);
+    await log(`document_ask: open failed (retry ${retries + 1}): ${reason}`, err);
 
     return {
       kind: "defer",
