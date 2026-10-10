@@ -77,8 +77,8 @@ export type DocumentAskOpenResult =
 
 export type DocumentAskObserveResult =
   | { kind: "resolved"; resolutions: readonly DocumentAskResolution[] }
-  /** A sibling's media is still live. Observe again at `retryAt`. */
-  | { kind: "deferred"; retryAt: Date }
+  /** A sibling's media is still live. The reconciler re-runs the thread after the barrier closes. */
+  | { kind: "deferred" }
   | { kind: "noop"; reason: DocumentAskNoopReason };
 
 export type DocumentAskNoopReason =
@@ -136,7 +136,7 @@ type CarrierEvidence = {
 };
 
 type CarrierResolution =
-  | { kind: "deferred"; retryAt: Date }
+  | { kind: "deferred" }
   | { kind: "settled"; resolutions: DocumentAskResolution[]; reason: DocumentAskNoopReason };
 
 const gmailMessageColumns = {
@@ -240,7 +240,11 @@ async function readSentCarriers(
   });
 }
 
-/** Every occurrence of one stored attachment that this exact carrier sent. */
+/**
+ * Every occurrence of one stored attachment that this exact carrier sent. The SQL filter in
+ * `readAttachmentRows` must return every row that this function can match. Change that read with
+ * any new occurrence source here, or the row is never read and the ask stays active.
+ */
 function attachmentOccurrences(
   row: StoredAttachmentRow,
   carrier: PersistedGmailMessage,
@@ -357,16 +361,15 @@ function sentAfter(carrier: PersistedGmailMessage, ask: DocumentAskRow): boolean
 }
 
 /**
- * Wait for a sibling's live media job, or the result depends on job order. Returns the epoch ms
- * when the barrier closes, or null when it is not open. The observed carrier is never its own
- * barrier.
+ * Wait for a sibling's live media job, or the result depends on job order. The observed carrier
+ * is never its own barrier.
  */
-function mediaBarrierExpiry(input: {
+function mediaBarrierOpen(input: {
   carrier: PersistedGmailMessage;
   observedMessageId: string | null;
   activeAsks: readonly DocumentAskRow[];
   observedAt: Date;
-}): number | null {
+}): boolean {
   const { carrier } = input;
 
   if (
@@ -375,12 +378,10 @@ function mediaBarrierExpiry(input: {
     carrier.authoredAt === null ||
     !input.activeAsks.some((ask) => sentAfter(carrier, ask))
   ) {
-    return null;
+    return false;
   }
 
-  const expiry = carrier.authoredAt.getTime() + MEDIA_PENDING_SETTLE_MS;
-
-  return input.observedAt.getTime() < expiry ? expiry : null;
+  return input.observedAt.getTime() < carrier.authoredAt.getTime() + MEDIA_PENDING_SETTLE_MS;
 }
 
 /** Resolve each requested kind independently across the persisted carrier set. */
@@ -397,10 +398,9 @@ async function resolvePersistedCarriers(input: {
   }
 
   const carriers = await readSentCarriers(input.userId, input.accountId, input.threadId);
-  const expiries = carriers.flatMap((carrier) => mediaBarrierExpiry({ ...input, carrier }) ?? []);
 
-  if (expiries.length > 0) {
-    return { kind: "deferred", retryAt: new Date(Math.min(...expiries)) };
+  if (carriers.some((carrier) => mediaBarrierOpen({ ...input, carrier }))) {
+    return { kind: "deferred" };
   }
 
   const attachmentRows = await readAttachmentRows(
@@ -601,7 +601,7 @@ export async function observeDocumentAskCarrier(
 
 /**
  * One reconcile pass: re-run the replay for each thread that has an active ask with `askedAt` and
- * a gmail row authored inside the lookback. Checks `signal` between threads. A thread fault is
+ * a gmail row ingested inside the lookback. Checks `signal` between threads. A thread fault is
  * logged and counted, and the pass continues.
  */
 export async function reconcileDocumentAskThreadsOnce(
