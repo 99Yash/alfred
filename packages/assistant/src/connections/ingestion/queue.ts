@@ -29,10 +29,16 @@ import { assertGmailPushOidcConfigured } from "@alfred/integrations/google";
 import { deliverInboundReceipt } from "./inbound-deliver";
 import { runDeliveryAlertSweepForAllUsers } from "./delivery-alert-sweep";
 import { backfillReceiptDocuments } from "./receipt-corpus-backfill";
-import { observeDocumentAskCarrier, type ScheduleDocumentAskObserve } from "../document-asks";
+import {
+  observeDocumentAskCarrier,
+  type DocumentAskObserveResult,
+  type GmailMessageLocator,
+  type ScheduleDocumentAskObserve,
+} from "../document-asks";
 
 /**
- * Ingestion queue: Gmail sync, chat media, user-model refolds and inbound receipt delivery.
+ * Ingestion queue: Gmail sync, chat media, document-ask re-observes, user-model refolds and inbound
+ * receipt delivery.
  * Repeatable schedules live in `repeatable.ts`.
  */
 const INGESTION_QUEUE_NAME = "ingestion-runs";
@@ -154,8 +160,12 @@ export type IngestionJobData =
       /** Re-observe one sent carrier after a sibling's media barrier closes. */
       kind: "document_ask.observe";
       userId: string;
-      accountId: string;
-      messageId: string;
+      carrier: GmailMessageLocator;
+      /**
+       * Epoch ms the observe is scheduled for. The worker observes at `max(now, atMs)`, so a worker
+       * whose clock is behind still sees the barrier closed and does not re-add its own dedup id.
+       */
+      atMs: number;
     }
   | {
       /** Re-project the active Gmail kind user-model. No active projection means no-op. */
@@ -369,7 +379,7 @@ export const enqueueDocumentAskObserve: ScheduleDocumentAskObserve = async ({
 }) => {
   await getIngestionQueue().add(
     "document_ask.observe",
-    { kind: "document_ask.observe", userId, ...carrier },
+    { kind: "document_ask.observe", userId, carrier, atMs: at.getTime() },
     {
       delay: Math.max(0, at.getTime() - Date.now()),
       deduplication: {
@@ -378,6 +388,21 @@ export const enqueueDocumentAskObserve: ScheduleDocumentAskObserve = async ({
     },
   );
 };
+
+function formatObserveResult(result: DocumentAskObserveResult): string {
+  switch (result.kind) {
+    case "deferred":
+      return `deferred retryAt=${result.retryAt.toISOString()}`;
+    case "noop":
+      return `noop reason=${result.reason}`;
+    case "resolved":
+      return `resolved resolutions=${result.resolutions.length}`;
+    default: {
+      const _exhaustive: never = result;
+      throw new Error(`unknown document-ask observe result: ${JSON.stringify(_exhaustive)}`);
+    }
+  }
+}
 
 async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown> {
   return processIngestionJobData(job.data);
@@ -623,21 +648,14 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
       const result = await observeDocumentAskCarrier(
         {
           userId: data.userId,
-          carrier: { accountId: data.accountId, messageId: data.messageId },
-          observedAt: new Date(),
+          carrier: data.carrier,
+          observedAt: new Date(Math.max(Date.now(), data.atMs)),
         },
         enqueueDocumentAskObserve,
       );
 
-      const detail =
-        result.kind === "deferred"
-          ? ` retryAt=${result.retryAt.toISOString()}`
-          : result.kind === "noop"
-            ? ` reason=${result.reason}`
-            : ` resolutions=${result.resolutions.length}`;
-
       console.log(
-        `[ingestion:worker] document_ask.observe message=${data.messageId} ${result.kind}${detail}`,
+        `[ingestion:worker] document_ask.observe message=${data.carrier.messageId} ${formatObserveResult(result)}`,
       );
 
       return result;
