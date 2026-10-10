@@ -1,6 +1,6 @@
 /**
  * Smoke test for the tool dispatcher against real Postgres and Redis. Tools are
- * in-process stubs, so no OAuth account is needed.
+ * in-process stubs and `gmail` connection health is stubbed as active, so no OAuth account is needed.
  *
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/smokes/smoke-dispatch.ts
  *
@@ -13,6 +13,7 @@ import { cancelRun, signalRun } from "@alfred/assistant/execution";
 import { getStringPath } from "@alfred/contracts";
 
 import { dispatchToolCall } from "@alfred/assistant/tool-runtime/dispatch";
+import { stubIntegrationHealthForTests } from "@alfred/assistant/tool-runtime/test-support";
 import { clearToolRegistryForTests, liveTool, registerTools } from "@alfred/assistant/tool-runtime";
 import { closeConnections, warmPool } from "@alfred/db";
 import { closeRedis } from "@alfred/db/redis";
@@ -509,6 +510,8 @@ async function main(): Promise<void> {
   console.log("[smoke-dispatch] cleanup ok");
 }
 
+const restoreIntegrationHealth = stubIntegrationHealthForTests(["gmail"]);
+
 try {
   await main();
   console.log("[smoke-dispatch] PASS");
@@ -516,6 +519,7 @@ try {
   console.error("[smoke-dispatch] FAIL", err);
   process.exitCode = 1;
 } finally {
+  restoreIntegrationHealth();
   await closeRedis();
   await closeConnections();
 }
