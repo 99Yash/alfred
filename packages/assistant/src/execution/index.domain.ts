@@ -3,6 +3,7 @@ import { registerRecipe } from "./registry";
 import {
   cancelRun,
   getRun,
+  lockStagingWithRunInTx,
   persistChatTurnRunInTx,
   redeliverRun,
   replayRun,
@@ -26,6 +27,7 @@ export {
   getRun,
   signalRun,
   signalRunInTx,
+  lockStagingWithRunInTx,
   cancelRun,
   startAgentWorker,
   stopAgentWorker,
