@@ -206,11 +206,11 @@ function ensureStreamRef(
     messageId,
     runId,
     mountId: frameId,
-    text: createChatDeltaLog(),
+    text: createChatDeltaLog({ seq: 0, segment: 0 }),
     currentSegment: 0,
     shown: 0,
     shownSegment: 0,
-    reasoningLog: createChatDeltaLog(),
+    reasoningLog: createChatDeltaLog({ seq: 0, segment: 0 }),
     reasoningShown: 0,
     reasoningStartTs: null,
     reasoningMs: null,
@@ -312,6 +312,7 @@ export function applyChatFrame(
     const applied = applyChatDelta(r.reasoningLog, {
       seq: p.seq,
       attempt: p.attempt,
+      fromSeq: p.fromSeq,
       segment: 0,
       text: p.text,
     });
@@ -352,6 +353,7 @@ export function applyChatFrame(
     const applied = applyChatDelta(r.text, {
       seq: p.seq,
       attempt: p.attempt,
+      fromSeq: p.fromSeq,
       segment,
       text: p.text,
     });

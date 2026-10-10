@@ -3,7 +3,11 @@ import { getStringPath, type ToolName } from "@alfred/contracts";
 import { CHAT_DELTA_MAX } from "@alfred/contracts/events";
 import { parsePartialJson } from "ai";
 import { publishEvent } from "@alfred/assistant/triggers";
-import { shouldPublishToolStarted, toolCardStarted } from "@alfred/assistant/execution";
+import {
+  shouldPublishToolStarted,
+  toolCardStarted,
+  type StepContext,
+} from "@alfred/assistant/execution";
 import { createVoiceStreamSanitizer } from "@alfred/ai/voice";
 import type { TurnStopController } from "./turn-stop-controller";
 
@@ -70,7 +74,11 @@ export interface StreamedTurn {
 export async function streamModelTurn(args: {
   stream: Awaited<ReturnType<AlfredAgent["streamTurn"]>>;
   state: StreamTurnState;
-  ctx: { userId: string; runId: string; attempt: number };
+  /** `ctx.state` is the committed state, so its seqs are this attempt's `fromSeq`. */
+  ctx: Pick<
+    StepContext<Pick<StreamTurnState, "deltaSeq" | "reasoningSeq">>,
+    "userId" | "runId" | "attempt" | "state"
+  >;
   stopController: TurnStopController;
   /** Injected for tests. */
   publish?: typeof publishEvent;
@@ -95,6 +103,7 @@ export async function streamModelTurn(args: {
           messageId: state.messageId,
           seq: state.deltaSeq,
           attempt: ctx.attempt,
+          fromSeq: ctx.state.deltaSeq,
           text: chunk,
           segmentIndex: state.segmentIndex,
         },
@@ -146,6 +155,7 @@ export async function streamModelTurn(args: {
           messageId: state.messageId,
           seq: state.reasoningSeq,
           attempt: ctx.attempt,
+          fromSeq: ctx.state.reasoningSeq,
           text: chunk,
         },
       });

@@ -92,7 +92,7 @@ export { appendSystemNote } from "./transcript-notes";
 
 export { aggregateRunUsage } from "./usage-fold";
 
-export { withStepLease, type StepLease, type SupersedeCause } from "./executor";
+export { withStepLease, type StepLease } from "./executor";
 
 export {
   shouldPublishToolStarted,

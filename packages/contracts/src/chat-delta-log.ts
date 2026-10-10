@@ -1,11 +1,23 @@
 /**
  * The one dedupe rule for `chat.delta` and `chat.reasoning` frames. The web bubble and the
- * server's failed-closure fold both apply it, so they cannot drift.
+ * server's failed-closure fold both apply it in outbox order, from a different floor.
  *
- * `attempt` grows on every step commit and on every stale-lease reclaim. A reclaimed attempt
- * restarts at the committed `seq`, so a higher attempt cuts what the older attempt sent from
- * that `seq` on. A lower attempt is a superseded body that still runs, so it drops.
+ * `attempt` grows on every step commit and on every stale-lease reclaim. Each frame carries
+ * `fromSeq`, the committed `seq` its attempt started after. A higher attempt cuts every applied
+ * frame above its `fromSeq`, so the cut does not depend on which of its frames arrives first.
+ * For a normal next step nothing sits above `fromSeq`, so nothing is cut. A lower attempt is a
+ * superseded body that still runs, so it drops.
+ *
+ * Within one attempt, a frame at or below the highest applied `seq` drops. Delivery is not
+ * ordered, so a frame that arrives after a higher `seq` of its own attempt is lost from the
+ * stream until the saved row replaces it.
  */
+
+/** A point in the stream: the committed `deltaSeq` and `segmentIndex` of a run. */
+export interface ChatDeltaPosition {
+  seq: number;
+  segment: number;
+}
 
 /** Where one applied delta landed: `end` is the segment's length after the append. */
 interface ChatDeltaMark {
@@ -16,35 +28,48 @@ interface ChatDeltaMark {
 
 /** Ordered text of one chat stream, rebuilt from `chat.delta` or `chat.reasoning` frames. */
 export interface ChatDeltaLog {
-  /** Committed before the log started. A `seq` at or below it always drops. */
-  readonly floor: number;
+  /**
+   * Text already committed before the log started. A frame at or below `floor.seq`, or in a
+   * segment below `floor.segment`, never appends, but its `attempt` still counts.
+   */
+  readonly floor: ChatDeltaPosition;
+  /** The highest attempt seen. A frame from a lower attempt drops. */
   attempt: number;
+  /** The highest `seq` applied in `attempt`, or the start point of `attempt`. */
   seq: number;
   readonly segments: Map<number, string>;
   /** One per applied delta, in `seq` order. Internal to the reducer; read `segments`. */
   readonly marks: ChatDeltaMark[];
 }
 
-/** `committedSeq` is the floor: the server fold passes the run's committed `deltaSeq`. */
-export function createChatDeltaLog(committedSeq = 0): ChatDeltaLog {
-  return { floor: committedSeq, attempt: 0, seq: committedSeq, segments: new Map(), marks: [] };
+/** The bubble starts at `{ seq: 0, segment: 0 }`; the server fold starts at the committed position. */
+export function createChatDeltaLog(floor: ChatDeltaPosition): ChatDeltaLog {
+  return { floor, attempt: 0, seq: floor.seq, segments: new Map(), marks: [] };
 }
 
-/** Apply one frame. `"rewound"` means text the caller already rendered was cut. */
+/**
+ * Apply one frame. `"rewound"` means text the caller already rendered was cut; the frame itself
+ * was then appended unless it sits at or below the floor.
+ */
 export function applyChatDelta(
   log: ChatDeltaLog,
-  delta: { seq: number; attempt: number; segment: number; text: string },
+  delta: { seq: number; attempt: number; fromSeq: number; segment: number; text: string },
 ): "dropped" | "appended" | "rewound" {
-  if (delta.seq <= log.floor || delta.attempt < log.attempt) return "dropped";
+  if (delta.attempt < log.attempt) return "dropped";
   let rewound = false;
 
+  // Read the attempt before the floor: a committed frame still raises it, so an older
+  // attempt's uncommitted text above the floor is cut here as it is in the bubble.
   if (delta.attempt > log.attempt) {
-    rewound = cutFrom(log, delta.seq);
+    rewound = cutAbove(log, delta.fromSeq);
     log.attempt = delta.attempt;
-    log.seq = delta.seq - 1;
+    log.seq = Math.max(delta.fromSeq, log.floor.seq);
   }
 
-  if (delta.seq <= log.seq) return "dropped";
+  if (delta.seq <= log.seq || delta.segment < log.floor.segment) {
+    return rewound ? "rewound" : "dropped";
+  }
+
   const text = (log.segments.get(delta.segment) ?? "") + delta.text;
   log.segments.set(delta.segment, text);
   log.marks.push({ seq: delta.seq, segment: delta.segment, end: text.length });
@@ -53,9 +78,9 @@ export function applyChatDelta(
   return rewound ? "rewound" : "appended";
 }
 
-/** Drop every mark at or above `cutSeq` and the text it added. Returns whether any was cut. */
-function cutFrom(log: ChatDeltaLog, cutSeq: number): boolean {
-  const first = log.marks.findIndex((mark) => mark.seq >= cutSeq);
+/** Drop every mark above `fromSeq` and the text it added. Returns whether any was cut. */
+function cutAbove(log: ChatDeltaLog, fromSeq: number): boolean {
+  const first = log.marks.findIndex((mark) => mark.seq > fromSeq);
 
   if (first === -1) return false;
   log.marks.splice(first);

@@ -26,6 +26,7 @@ const CHAT_DELTA: EventPayload<"chat.delta"> = {
   messageId: "msg-1",
   seq: 0,
   attempt: 0,
+  fromSeq: 0,
   text: "hello",
   segmentIndex: 0,
 };
@@ -36,6 +37,7 @@ const CHAT_REASONING: EventPayload<"chat.reasoning"> = {
   messageId: "msg-1",
   seq: 0,
   attempt: 0,
+  fromSeq: 0,
   text: "thinking",
 };
 
