@@ -18,7 +18,7 @@ import {
 import { and, asc, eq, sql } from "drizzle-orm";
 import { publishEvent } from "@alfred/assistant/triggers";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
-import { logger } from "@alfred/logging";
+import { logger, safeErrorDiagnostic } from "@alfred/logging";
 import { finalizeRunArtifacts } from "@alfred/assistant/artifacts";
 import { scheduleThreadIdleExtraction } from "./idle-capture-queue";
 import {
@@ -375,6 +375,12 @@ export async function finalizeCancelledMessage(
 /**
  * Persist a `failed` row with whatever streamed, and release the client.
  * A step body passes its lease; only the executor's `onTerminal` hook passes `null`.
+ *
+ * Never rejects. A step catch rethrows the turn's own fault after this call, so the
+ * executor fails the run with that fault and its closure classifies it, not a write
+ * fault. For a step catch, the closure then retries the write; the insert does nothing
+ * on conflict. For the closure itself (`lease` is `null`), nothing retries: a write
+ * fault is final, no row lands, and the bubble waits for the client stall watchdog.
  */
 export async function finalizeFailedMessage(
   userId: string,
@@ -383,7 +389,23 @@ export async function finalizeFailedMessage(
   err: unknown,
   lease: StepLease | null,
 ): Promise<void> {
-  await closeChatTurn(userId, runId, state, { kind: "failed", error: err }, lease);
+  try {
+    await closeChatTurn(userId, runId, state, { kind: "failed", error: err }, lease);
+  } catch (writeErr) {
+    logger.warn(
+      {
+        // Only `err` goes through the redacting serializer. The turn fault rides as its
+        // allowlisted diagnostic: a raw message can hold chat text or a vendor URL.
+        err: writeErr,
+        turnError: safeErrorDiagnostic(err),
+        event: "chat_turn_failed_write_fault",
+        runId,
+        attempt: lease?.attempt,
+        messageId: state.messageId,
+      },
+      "Could not close the failed chat turn",
+    );
+  }
 }
 
 /**
