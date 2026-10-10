@@ -5,6 +5,7 @@ export {
   getRun,
   signalRun,
   signalRunInTx,
+  lockStagingWithRunInTx,
   replayRun,
   cancelRun,
   startAgentWorker,

@@ -1,10 +1,11 @@
 import { db } from "@alfred/db";
 import { actionStagings } from "@alfred/db/schemas";
-import { and, eq, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { Elysia, t } from "elysia";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { authMacro } from "./middleware/auth";
 import {
+  lockStagingWithRunInTx,
   redeliverRun,
   signalRunInTx,
   type CancelOutcome,
@@ -112,23 +113,10 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
           | { conflict: string }
           | { badRequest: string }
         >(async (tx) => {
-          const rows = await tx
-            .select({
-              id: actionStagings.id,
-              runId: actionStagings.runId,
-              status: actionStagings.status,
-              requiresApproval: actionStagings.requiresApproval,
-              createdAt: actionStagings.createdAt,
-              toolName: actionStagings.toolName,
-              integration: actionStagings.integration,
-              riskTier: actionStagings.riskTier,
-              rowVersion: actionStagings.rowVersion,
-            })
-            .from(actionStagings)
-            .where(and(eq(actionStagings.id, params.stagingId), eq(actionStagings.userId, user.id)))
-            .for("update");
-
-          const row = rows[0];
+          const row = await lockStagingWithRunInTx(tx, {
+            stagingId: params.stagingId,
+            userId: user.id,
+          });
 
           if (!row) return { notFound: true };
 

@@ -7,6 +7,7 @@ import {
   agentSteps,
   runIsNotTerminal,
   workflows,
+  type ActionStaging,
 } from "@alfred/db/schemas";
 import {
   agentRunTriggerSchema,
@@ -393,6 +394,10 @@ export async function signalRun(args: SignalArgs): Promise<boolean> {
   return outcome === "woken";
 }
 
+/**
+ * {@link signalRun} inside the caller's tx. It locks the run row, so a caller that also locks a
+ * staging of the run must lock the run first: use {@link lockStagingWithRunInTx}.
+ */
 export async function signalRunInTx(tx: AgentTx, args: SignalArgs): Promise<SignalOutcome> {
   const match = args.match ?? { kind: "any" };
 
@@ -447,6 +452,62 @@ export async function signalRunInTx(tx: AgentTx, args: SignalArgs): Promise<Sign
     .where(eq(agentRuns.id, args.runId));
 
   return "woken";
+}
+
+/** The staging columns that the expiry and decision transactions read. */
+export type StagingDecisionRow = Pick<
+  ActionStaging,
+  | "id"
+  | "runId"
+  | "status"
+  | "requiresApproval"
+  | "createdAt"
+  | "toolName"
+  | "integration"
+  | "riskTier"
+  | "expiresAt"
+  | "rowVersion"
+>;
+
+/**
+ * Lock the run that owns a staging, then the staging row itself.
+ * Lock order is `agent_runs` then `action_stagings`, the same as `cancelRunInTx` and `withStepLease`.
+ * Returns null when the staging does not exist for this user.
+ */
+export async function lockStagingWithRunInTx(
+  tx: AgentTx,
+  args: { stagingId: string; userId: string },
+): Promise<StagingDecisionRow | null> {
+  const owned = and(eq(actionStagings.id, args.stagingId), eq(actionStagings.userId, args.userId));
+
+  const runs = await tx
+    .select({ id: agentRuns.id })
+    .from(actionStagings)
+    .innerJoin(agentRuns, eq(agentRuns.id, actionStagings.runId))
+    .where(owned)
+    .for("update", { of: agentRuns });
+
+  if (!runs[0]) return null;
+
+  // `run_id` never changes, so this row belongs to the run locked above.
+  const rows = await tx
+    .select({
+      id: actionStagings.id,
+      runId: actionStagings.runId,
+      status: actionStagings.status,
+      requiresApproval: actionStagings.requiresApproval,
+      createdAt: actionStagings.createdAt,
+      toolName: actionStagings.toolName,
+      integration: actionStagings.integration,
+      riskTier: actionStagings.riskTier,
+      expiresAt: actionStagings.expiresAt,
+      rowVersion: actionStagings.rowVersion,
+    })
+    .from(actionStagings)
+    .where(owned)
+    .for("update");
+
+  return rows[0] ?? null;
 }
 
 /**
