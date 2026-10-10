@@ -24,12 +24,10 @@ export {
   documentAskReducer,
   gmailMessageLocatorSchema,
   type DocumentAskNoopReason,
-  type DocumentAskObserveResult,
   type DocumentAskOpenResult,
   type DocumentAskReducer,
   type DocumentAskResolution,
   type GmailMessageLocator,
-  type ObserveDocumentAskInput,
   type OpenDocumentAskInput,
 } from "./document-asks";
 
