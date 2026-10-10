@@ -27,7 +27,9 @@ const RESPONSE_BODY_LOG_CAP = 4_000;
 function devErrorDiagnostics(err: unknown): Partial<SafeErrorLog> {
   const out: Partial<SafeErrorLog> = {};
 
-  if (err instanceof Error && err.message) out.message = err.message;
+  const message = err instanceof Error ? stringField(err, "message") : undefined;
+
+  if (message) out.message = message;
   const statusCode = Reflect.get(isIndexable(err) ? err : {}, "statusCode");
 
   if (typeof statusCode === "number") out.statusCode = statusCode;
