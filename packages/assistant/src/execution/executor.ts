@@ -353,7 +353,8 @@ export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise
         });
       } catch (err) {
         // A lost progress frame costs nothing (ADR-0005), so a publish fault never fails the step.
-        // Only the publish fault goes under `err`; the message text can hold user data.
+        // Only the publish fault goes under `err`; the message text can hold user data. (A drizzle
+        // `err.message` echoes the query params in dev; production drops `err.message`.)
         logger.warn(
           {
             err,
