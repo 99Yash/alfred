@@ -92,12 +92,13 @@ const delta = (seq: number, text: string, opts: { segmentIndex?: number; turn?: 
     ...(opts.turn ?? TURN),
     seq,
     attempt: 0,
+    fromSeq: 0,
     text,
     segmentIndex: opts.segmentIndex ?? 0,
   });
 
 const reasoning = (seq: number, text: string, turn: Turn = TURN) =>
-  reasoningFrame({ ...turn, seq, attempt: 0, text });
+  reasoningFrame({ ...turn, seq, attempt: 0, fromSeq: 0, text });
 
 const tool = (
   args: {

@@ -411,8 +411,9 @@ export async function foldUncommittedDeltas(
       .orderBy(asc(eventsOutbox.id));
 
     // The bubble's own rule, in the same outbox `id` order, so a reclaimed attempt's text
-    // replaces the older attempt's uncommitted text here as it does on screen.
-    const log = createChatDeltaLog(state.deltaSeq);
+    // replaces the older attempt's uncommitted text here as it does on screen. The floor is the
+    // committed position: committed rows still raise the attempt, but never append.
+    const log = createChatDeltaLog({ seq: state.deltaSeq, segment: state.segmentIndex });
 
     for (const row of rows) {
       const delta = eventPayloadSchemas["chat.delta"].safeParse(row.payload);
@@ -425,8 +426,6 @@ export async function foldUncommittedDeltas(
         continue;
       }
 
-      // Committed segments are already closed onto the narration trail.
-      if (delta.data.segmentIndex < state.segmentIndex) continue;
       applyChatDelta(log, { ...delta.data, segment: delta.data.segmentIndex });
     }
 

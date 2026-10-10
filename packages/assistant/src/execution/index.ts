@@ -90,7 +90,6 @@ export type {
   ChildRunOutcome,
   AgentDbExecutor,
   StepLease,
-  SupersedeCause,
 } from "./index.domain";
 
 export {

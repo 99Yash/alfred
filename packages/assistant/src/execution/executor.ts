@@ -156,6 +156,8 @@ export type StepLease = Pick<StepContext<unknown>, "runId" | "attempt" | "fence"
  * Returns the cause and runs nothing when this attempt no longer owns the run, so a body whose
  * lease was reclaimed cannot write over the live attempt.
  * Lock order is `agent_runs` then the caller's tables, the same as `leaseRun`.
+ * It opens its own transaction, so the caller must not hold the `agent_runs` row lock in an
+ * outer transaction: the inner lock would wait on it.
  */
 export async function withStepLease<T>(
   lease: StepLease,
