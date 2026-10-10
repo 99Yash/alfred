@@ -11,6 +11,8 @@ import type { BoundedRedis } from "@alfred/db/redis";
  * - `internalCode 2018` "Wholesale Rate limited": the Unified Billing budget, one per gateway,
  *   shared across all providers. Cloudflare documents 200/min; measured, it is a burst of
  *   about 15 to 25 that refills at single digits per minute.
+ * The edge also sends `internalCode 2021` "Insufficient wholesale credits" as a 402: the Unified
+ * Billing credit pool is empty for every provider, so `withFallback` does not switch on it.
  *
  * Pacing spreads Alfred's fan-out over that budget. It cannot make a drained bucket serve.
  * Under `maxWaitMs` the caller sleeps, then sends. Over it, the caller gets a retryable 429
