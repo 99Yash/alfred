@@ -10,5 +10,6 @@ export {
   type GmailMessageLocator,
   type ObserveDocumentAskInput,
   type OpenDocumentAskInput,
-  type ScheduleDocumentAskObserve,
 } from "./reducer";
+
+export { startDocumentAskReconciler, stopDocumentAskReconciler } from "./reconciler";

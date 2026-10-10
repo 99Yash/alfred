@@ -29,6 +29,10 @@ import {
   stopReceiptPayloadReaper,
 } from "@alfred/assistant/connections/ingestion";
 import {
+  startDocumentAskReconciler,
+  stopDocumentAskReconciler,
+} from "@alfred/assistant/connections";
+import {
   startMcpConnectionRecovery,
   stopMcpConnectionRecovery,
 } from "@alfred/assistant/connections/mcp";
@@ -189,6 +193,9 @@ export function createAssistantRuntime(config: RuntimeConfig): AssistantRuntime 
         startMcpConnectionRecovery();
         // Frees old `event_receipts` bodies. Gated like the crons; `stop()` stops it.
         startReceiptPayloadReaper();
+        // Re-runs document-ask threads that a lost media job left. Gated: dev needs no recovery,
+        // and an ungated pass would resolve rows under DB tests.
+        startDocumentAskReconciler();
         await scheduleRepeatableIngestionJobs();
         await scheduleRepeatableMemoryJobs();
         await scheduleRepeatableBriefingJobs();
@@ -208,6 +215,7 @@ export function createAssistantRuntime(config: RuntimeConfig): AssistantRuntime 
       // load-bearing: no step waits on it. Row locks keep it safe beside the workers.
       // After `drainMs`, `stop()` may return while one reaper `UPDATE` still runs.
       await runShutdownStep("receipt-payload reaper", stopReceiptPayloadReaper);
+      await runShutdownStep("document-ask reconciler", stopDocumentAskReconciler);
       await runShutdownStep("MCP connection recovery", stopMcpConnectionRecovery);
       const agentWorkerStopped = await runShutdownStep("agent worker", stopAgentWorker);
       await runShutdownStep("sub-agent join-wake worker", stopSubAgentJoinWakeWorker);
