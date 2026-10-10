@@ -6,7 +6,10 @@
 import { PeriodicTask } from "@alfred/assistant/realtime/periodic-task";
 import { reconcileDocumentAskThreadsOnce } from "./reducer";
 
-/** A media barrier closes at most one interval before its thread is re-run. */
+/**
+ * A thread is re-run not later than one interval plus the duration of the current pass after its
+ * media barrier closes.
+ */
 const RECONCILE_INTERVAL_MS = 5 * 60 * 1000;
 
 const reconciler = new PeriodicTask({
