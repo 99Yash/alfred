@@ -19,7 +19,7 @@ export {
   TEXT_LIMITS_BY_DOOR,
 } from "./constants";
 
-export type { ExtractionDoor, ExtractionLimits, PdfExtractionLimits } from "./constants";
+export type { ExtractionDoor, ExtractionLimits } from "./constants";
 
 export { formatExtractedMediaText, mediaFailureMessage } from "./format-extracted-pdf";
 

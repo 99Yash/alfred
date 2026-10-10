@@ -5,6 +5,7 @@ import {
   INTEGRATIONS,
   isToolName,
   type DocumentSource,
+  type JsonObject,
   type ToolName,
 } from "@alfred/contracts";
 import type { LucideIcon } from "lucide-react";
@@ -12,7 +13,7 @@ import { domainOf } from "~/lib/favicon";
 import type { IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { getIntegrationPage } from "~/lib/integrations/integrations";
 import { formatRelative } from "~/lib/strings";
-import { asRecord, asNumber, asString, parseJsonRecord, type JsonRecord } from "~/lib/json-record";
+import { asRecord, asNumber, asString, parseJsonRecord } from "~/lib/json-record";
 import { brandlessToolIcon } from "./animated-tool-icons";
 import { toSource, type Source } from "./sources";
 import type { ToolCallView } from "./tool-call-presentation";
@@ -186,7 +187,7 @@ function clock12({ hour, minute }: WallClock): string {
   return minute === 0 ? `${h} ${period}` : `${h}:${String(minute).padStart(2, "0")} ${period}`;
 }
 
-function githubStateBadge(item: JsonRecord): EvidenceBadge | undefined {
+function githubStateBadge(item: JsonObject): EvidenceBadge | undefined {
   if (item.draft === true) return { label: "Draft", tone: "neutral" };
   const state = asString(item.state);
 
@@ -296,10 +297,10 @@ interface ListSpec {
   arrayKey: string;
   /** List-wide favicon. Omit it when rows span services. */
   faviconDomain?: string | undefined;
-  row: (item: JsonRecord) => EvidenceRow | null;
+  row: (item: JsonObject) => EvidenceRow | null;
   /** Exact count beyond the shown rows. */
-  remaining?: ((result: JsonRecord, shown: number) => number | undefined) | undefined;
-  hasMore?: ((result: JsonRecord) => boolean) | undefined;
+  remaining?: ((result: JsonObject, shown: number) => number | undefined) | undefined;
+  hasMore?: ((result: JsonObject) => boolean) | undefined;
 }
 
 const LIST_SPECS = new Map<ToolName, ListSpec>([
@@ -494,7 +495,7 @@ const LIST_SPECS = new Map<ToolName, ListSpec>([
   ],
 ]);
 
-function githubEntity(result: JsonRecord): EntityView | null {
+function githubEntity(result: JsonObject): EntityView | null {
   const title = asString(result.title);
 
   if (!title) return null;
@@ -535,7 +536,7 @@ function githubEntity(result: JsonRecord): EntityView | null {
   };
 }
 
-const ENTITY_BUILDERS = new Map<ToolName, (result: JsonRecord) => EntityView | null>([
+const ENTITY_BUILDERS = new Map<ToolName, (result: JsonObject) => EntityView | null>([
   ["github.get_pull_request", githubEntity],
   ["github.get_issue", githubEntity],
   [

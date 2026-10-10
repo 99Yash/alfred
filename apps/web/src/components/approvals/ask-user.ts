@@ -7,9 +7,9 @@ import {
   type AskUserInput,
   type AskUserQuestion,
   type AskUserUnansweredResult,
+  type JsonObject,
 } from "@alfred/contracts";
 import type { SyncedActionStaging } from "@alfred/sync";
-import type { JsonRecord } from "~/lib/json-record";
 import { asRecord } from "~/lib/json-record";
 
 /**
@@ -39,7 +39,7 @@ export interface QuestionStaging {
   staging: SyncedActionStaging;
   input: AskUserInput;
   /** The unparsed input that answers are written back onto. */
-  raw: JsonRecord;
+  raw: JsonObject;
 }
 
 /**
@@ -72,7 +72,7 @@ export function unansweredCount(input: AskUserInput): number {
  * would make the draft look edited.
  * All-empty answers drop the key, so the tool reports `no_answers`.
  */
-export function withAnswers(rawInput: JsonRecord, answers: readonly AskUserAnswer[]): JsonRecord {
+export function withAnswers(rawInput: JsonObject, answers: readonly AskUserAnswer[]): JsonObject {
   const next = { ...rawInput };
 
   if (answers.every(isAnswerEmpty)) delete next.answers;

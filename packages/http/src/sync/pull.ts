@@ -11,8 +11,6 @@ type PatchOp =
   | { op: "del"; key: string }
   | { op: "clear" };
 
-export type PullRequestBody = ReplicacheModel.Pull;
-
 export interface PullResponse {
   cookie: ReplicacheModel.PullCookie;
   lastMutationIDChanges: Record<string, number>;
@@ -31,7 +29,7 @@ function narrowPullCookie(raw: unknown): ReplicacheModel.PullCookie | null {
 
 export async function handlePull(
   userId: string,
-  body: PullRequestBody,
+  body: ReplicacheModel.Pull,
 ): Promise<PullResponse | { forbidden: true }> {
   const cookie = narrowPullCookie(body.cookie);
   const cvrStore = getCVRStore();

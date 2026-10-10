@@ -4,12 +4,13 @@ import {
   toolInputFields,
   toJsonValue,
   type FieldSpec,
+  type JsonObject,
   type ToolName,
 } from "@alfred/contracts";
 import { useState } from "react";
 import type { z } from "zod";
 import { AppDateTimePicker, AppInput, AppSelect, AppSwitch, AppTextarea } from "~/components/ui/v2";
-import { asRecord, type JsonRecord } from "~/lib/json-record";
+import { asRecord } from "~/lib/json-record";
 import { formatJson, parseJson } from "./format";
 
 type FieldControlSpec = Exclude<FieldSpec, { kind: "boolean" }>;
@@ -79,7 +80,7 @@ const CALENDAR_RELATIVE_TIME_KEYS: ReadonlySet<CalendarListEventsKey> = new Set(
 function editorFieldsForTool(
   toolName: ToolName,
   fields: FieldSpec[],
-  record: JsonRecord,
+  record: JsonObject,
 ): FieldSpec[] {
   if (toolName !== "calendar.list_events") return fields;
 
@@ -99,7 +100,7 @@ function hasCalendarListKey(keys: ReadonlySet<CalendarListEventsKey>, key: strin
   return (keys as ReadonlySet<string>).has(key);
 }
 
-function hasFieldValue(record: JsonRecord, key: CalendarListEventsKey): boolean {
+function hasFieldValue(record: JsonObject, key: CalendarListEventsKey): boolean {
   const value = record[key];
 
   return value !== undefined && value !== null && value !== "";
@@ -114,7 +115,7 @@ function EditableField({
 }: {
   id: string;
   field: FieldSpec;
-  record: JsonRecord;
+  record: JsonObject;
   disabled: boolean | undefined;
   onChange: (value: unknown) => void;
 }) {
@@ -165,7 +166,7 @@ function FieldControl({
 }: {
   id: string;
   field: FieldControlSpec;
-  record: JsonRecord;
+  record: JsonObject;
   disabled: boolean | undefined;
   onChange: (value: unknown) => void;
 }) {

@@ -4,7 +4,7 @@ import type {
   PdfDocumentType,
   PdfExtractionLimitKind,
 } from "./extract-pdf";
-import type { PdfExtractionLimits } from "./constants";
+import type { ExtractionLimits } from "./constants";
 
 // The child process imports this file. Keep it free of runtime imports, including `@alfred/contracts`.
 
@@ -21,7 +21,7 @@ export type PdfExtractionChildReply =
     };
 
 export interface PdfExtractionChildRequest {
-  readonly limits: PdfExtractionLimits;
+  readonly limits: ExtractionLimits;
   readonly bytes: Uint8Array;
 }
 
@@ -74,7 +74,7 @@ function isPdfExtractionResultKind(value: unknown): value is ExtractedPdf["kind"
   return typeof value === "string" && Object.hasOwn(PDF_EXTRACTION_RESULT_KINDS, value);
 }
 
-export function parsePdfExtractionLimits(value: unknown): PdfExtractionLimits {
+export function parsePdfExtractionLimits(value: unknown): ExtractionLimits {
   if (!isRecord(value)) throw new RangeError("PDF extraction limits must be an object");
 
   const maxParseMilliseconds = positiveSafeInteger(
@@ -287,7 +287,7 @@ export function pdfExtractionContentCharacterCount(result: ExtractedPdf): number
 }
 
 export function serializePdfExtractionChildRequest(
-  limits: PdfExtractionLimits,
+  limits: ExtractionLimits,
   bytes: Uint8Array,
 ): Buffer {
   const header = Buffer.from(`${JSON.stringify({ limits, byteLength: bytes.byteLength })}\n`);
@@ -297,7 +297,7 @@ export function serializePdfExtractionChildRequest(
 }
 
 type ParsedRequestHeader = {
-  readonly limits: PdfExtractionLimits;
+  readonly limits: ExtractionLimits;
   readonly byteLength: number;
 };
 
@@ -328,7 +328,7 @@ export async function readPdfExtractionChildRequest(
   const bodyParts: Buffer[] = [];
   let headerBytes = 0;
   let bodyBytes = 0;
-  let header: { readonly limits: PdfExtractionLimits; readonly byteLength: number } | undefined;
+  let header: { readonly limits: ExtractionLimits; readonly byteLength: number } | undefined;
 
   for await (const inputChunk of input) {
     let chunk = typeof inputChunk === "string" ? Buffer.from(inputChunk) : inputChunk;

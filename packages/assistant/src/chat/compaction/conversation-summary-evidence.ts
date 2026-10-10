@@ -13,8 +13,11 @@ import {
 } from "../attachments";
 
 import type { AgentDbExecutor } from "@alfred/assistant/execution";
-import { afterChatMessageWatermark, throughChatMessageWatermark } from "./chat-message-watermark";
-import type { ChatSummaryWatermark } from "./chat-context-store";
+import {
+  afterChatMessageWatermark,
+  throughChatMessageWatermark,
+  type ChatMessageWatermark,
+} from "./chat-message-watermark";
 import type { ConversationSummaryEvidence } from "./conversation-summary-generator";
 import type { ConversationSummary } from "./conversation-summary";
 
@@ -32,7 +35,7 @@ type EvidenceAttachmentRow = Pick<
 
 export interface LoadedConversationSummaryEvidence {
   evidence: ConversationSummaryEvidence;
-  watermark: ChatSummaryWatermark;
+  watermark: ChatMessageWatermark;
 }
 
 /** Load only records newly eligible after the prior compound watermark. */
@@ -47,8 +50,8 @@ export async function loadConversationSummaryEvidence({
   userId: string;
   threadId: string;
   priorSummary: ConversationSummary | null;
-  afterWatermark: ChatSummaryWatermark | null;
-  throughWatermark: ChatSummaryWatermark;
+  afterWatermark: ChatMessageWatermark | null;
+  throughWatermark: ChatMessageWatermark;
   ex?: AgentDbExecutor;
 }): Promise<LoadedConversationSummaryEvidence> {
   const lowerBound = afterWatermark

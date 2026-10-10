@@ -5,7 +5,6 @@ import { conversationSummaryMessage } from "./chat-context-assembly";
 import {
   loadChatThreadContext,
   persistConversationSummary,
-  type ChatSummaryWatermark,
   type LoadedChatThreadContext,
   type PersistConversationSummaryArgs,
 } from "./chat-context-store";
@@ -22,15 +21,16 @@ import type { ConversationSummary } from "./conversation-summary";
 import {
   compareChatMessageWatermarks,
   nullableChatMessageWatermark,
+  type ChatMessageWatermark,
 } from "./chat-message-watermark";
 import { estimateTranscriptTokens } from "@alfred/assistant/execution";
 
 export interface SynchronousConversationCompactionArgs {
   userId: string;
   threadId: string;
-  throughWatermark: ChatSummaryWatermark;
+  throughWatermark: ChatMessageWatermark;
   replayTail: readonly AgentTranscriptMessage[];
-  replayTailWatermark: ChatSummaryWatermark;
+  replayTailWatermark: ChatMessageWatermark;
   attribution: Omit<AttributedCall, "kind" | "role">;
   abortSignal?: AbortSignal | undefined;
   timeoutMs?: number | undefined;
@@ -41,7 +41,7 @@ export type SynchronousConversationCompactionResult =
       kind: "persisted";
       summary: ConversationSummary;
       estimatedReplayTokens: number;
-      watermark: ChatSummaryWatermark;
+      watermark: ChatMessageWatermark;
     }
   | { kind: "superseded" }
   | { kind: "nothing_to_compact" };
@@ -52,8 +52,8 @@ export interface SynchronousConversationCompactionDependencies {
     userId: string;
     threadId: string;
     priorSummary: ConversationSummary | null;
-    afterWatermark: ChatSummaryWatermark | null;
-    throughWatermark: ChatSummaryWatermark;
+    afterWatermark: ChatMessageWatermark | null;
+    throughWatermark: ChatMessageWatermark;
   }) => Promise<LoadedConversationSummaryEvidence>;
   generateSummary?: (args: GenerateConversationSummaryArgs) => Promise<ConversationSummary>;
   persistSummary?: (args: PersistConversationSummaryArgs) => Promise<boolean>;
@@ -124,7 +124,7 @@ export async function compactConversationSynchronously(
     : { kind: "superseded" };
 }
 
-function contextWatermark(context: LoadedChatThreadContext | null): ChatSummaryWatermark | null {
+function contextWatermark(context: LoadedChatThreadContext | null): ChatMessageWatermark | null {
   return nullableChatMessageWatermark(
     context?.summaryWatermarkCreatedAt,
     context?.summaryWatermarkMessageId,
