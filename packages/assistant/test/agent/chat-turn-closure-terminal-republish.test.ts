@@ -14,6 +14,7 @@ import {
 } from "@alfred/assistant/chat/chat-turn-closure";
 import { chatRunStateSchema, type ChatRunState } from "@alfred/assistant/chat/chat-turn-state";
 import { CHAT_TURN_WORKFLOW_SLUG } from "@alfred/assistant/chat/chat-turn";
+import type { StepLease } from "@alfred/assistant/execution";
 import { resetToolFixtures } from "@alfred/assistant/tool-runtime/test-support";
 import { dbBackedSkip } from "../support/db-backed";
 
@@ -63,6 +64,8 @@ async function seedTerminalRowAttempt(status: "complete" | "failed"): Promise<{
   messageId: string;
   threadRowVersion: number;
   state: ChatRunState;
+  /** The seeded run's live lease, as `chatTurnStep` holds it. */
+  lease: StepLease;
 }> {
   const { userId, threadId, rowVersion } = await seedThread();
   const runId = `run_${randomUUID().slice(0, 12)}`;
@@ -101,7 +104,15 @@ async function seedTerminalRowAttempt(status: "complete" | "failed"): Promise<{
     narration: [],
   });
 
-  return { userId, threadId, runId, messageId, threadRowVersion: rowVersion, state };
+  return {
+    userId,
+    threadId,
+    runId,
+    messageId,
+    threadRowVersion: rowVersion,
+    state,
+    lease: { runId, attempt: 1, fence: { generation: 0 } },
+  };
 }
 
 async function readChatMessageEvents(userId: string): Promise<unknown[]> {
@@ -146,10 +157,10 @@ describe(
     });
 
     test("a completed retry over an already-terminal row republishes the completed frame", async () => {
-      const { userId, threadId, runId, messageId, threadRowVersion, state } =
+      const { userId, threadId, runId, messageId, threadRowVersion, state, lease } =
         await seedTerminalRowAttempt("complete");
 
-      await finalizeAssistantMessage(userId, runId, state);
+      await finalizeAssistantMessage(userId, state, lease);
 
       assert.deepEqual(
         await readChatMessageEvents(userId),
@@ -165,10 +176,10 @@ describe(
 
     test("a failed retry over an already-completed row STILL republishes the release frame", async () => {
       // The reachable path: `chatTurnStep`'s catch re-enters as `finalizeFailedMessage`.
-      const { userId, threadId, runId, messageId, threadRowVersion, state } =
+      const { userId, threadId, runId, messageId, threadRowVersion, state, lease } =
         await seedTerminalRowAttempt("complete");
 
-      await finalizeFailedMessage(userId, runId, state, new Error("late fault"));
+      await finalizeFailedMessage(userId, runId, state, new Error("late fault"), lease);
 
       assert.deepEqual(
         await readChatMessageEvents(userId),
@@ -190,9 +201,10 @@ describe(
     });
 
     test("a failed retry over an already-failed row republishes the frame and stays failed", async () => {
-      const { userId, threadId, runId, messageId, state } = await seedTerminalRowAttempt("failed");
+      const { userId, threadId, runId, messageId, state, lease } =
+        await seedTerminalRowAttempt("failed");
 
-      await finalizeFailedMessage(userId, runId, state, new Error("second fault"));
+      await finalizeFailedMessage(userId, runId, state, new Error("second fault"), lease);
 
       assert.deepEqual(
         await readChatMessageEvents(userId),
@@ -213,11 +225,11 @@ describe(
       "the failed retry over a completed row also pokes Replicache",
       { skip: POKE_SKIP },
       async () => {
-        const { userId, runId, state } = await seedTerminalRowAttempt("complete");
+        const { userId, runId, state, lease } = await seedTerminalRowAttempt("complete");
         const pokes: string[] = [];
         const unsubscribe = subscribeUserPokes(userId, (poke) => pokes.push(poke.assetId));
 
-        await finalizeFailedMessage(userId, runId, state, new Error("late fault"));
+        await finalizeFailedMessage(userId, runId, state, new Error("late fault"), lease);
 
         unsubscribe();
         assert.deepEqual(
@@ -230,11 +242,11 @@ describe(
 
     test("a normal close pokes Replicache exactly once", { skip: POKE_SKIP }, async () => {
       // A prior `failed` row makes the upsert return a row, so the close writes in full.
-      const { userId, runId, state } = await seedTerminalRowAttempt("failed");
+      const { userId, state, lease } = await seedTerminalRowAttempt("failed");
       const pokes: string[] = [];
       const unsubscribe = subscribeUserPokes(userId, (poke) => pokes.push(poke.assetId));
 
-      await finalizeAssistantMessage(userId, runId, state);
+      await finalizeAssistantMessage(userId, state, lease);
 
       unsubscribe();
       assert.deepEqual(pokes, [""], "the row-writing path pokes exactly once, not twice");
