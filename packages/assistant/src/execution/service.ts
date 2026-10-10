@@ -396,7 +396,9 @@ export async function signalRun(args: SignalArgs): Promise<boolean> {
 
 /**
  * {@link signalRun} inside the caller's tx. It locks the run row, so a caller that also locks a
- * staging of the run must lock the run first: use {@link lockStagingWithRunInTx}.
+ * staging of the run must lock the run first: use {@link lockStagingWithRunInTx}. An FK INSERT
+ * into a child of `agent_runs` (`action_stagings`, `agent_steps`, ...) also locks the run
+ * (`KEY SHARE`), with no visible `.for(...)`.
  */
 export async function signalRunInTx(tx: AgentTx, args: SignalArgs): Promise<SignalOutcome> {
   const match = args.match ?? { kind: "any" };
@@ -472,6 +474,11 @@ export type StagingDecisionRow = Pick<
 /**
  * Lock the run that owns a staging, then the staging row itself.
  * Lock order is `agent_runs` then `action_stagings`, the same as `cancelRunInTx` and `withStepLease`.
+ * An FK INSERT into a child of `agent_runs` also locks the run (`KEY SHARE`), with no visible
+ * `.for(...)`, so a tx that locks a staging and then inserts such a child must lock the run first.
+ * The run row stays locked until commit. Do not call a helper that opens its own transaction on
+ * this run (`withStepLease`, `signalRun`, `cancelRun`): Postgres cannot see a wait across two
+ * connections, so the request hangs.
  * Returns null when the staging does not exist for this user.
  */
 export async function lockStagingWithRunInTx(
