@@ -143,10 +143,10 @@ export async function readActiveForThread(
 }
 
 /**
- * Threads that have an active ask with `askedAt` and a gmail row authored on or after `since`.
- * The `sent` check and the later-than-ask check stay in the reducer: `authored_at` holds the
- * sender-controlled `Date` header, but `askedAt` and `sentAfter` use Gmail's `internalDate`, so a
- * SQL `authored_at > asked_at` could drop a real carrier.
+ * Threads that have an active ask with `askedAt` and a gmail row ingested on or after `since`.
+ * The window reads `ingested_at` (server clock), never `authored_at`: that column holds the
+ * sender-controlled `Date` header, so a client clock that runs behind would drop a real carrier.
+ * The `sent` check and the later-than-ask check stay in the reducer on Gmail's `internalDate`.
  */
 export async function readThreadsToReconcile(
   since: Date,
@@ -172,7 +172,7 @@ export async function readThreadsToReconcile(
                 eq(documents.source, "gmail"),
                 eq(documents.accountId, documentAsks.accountId),
                 eq(documents.sourceThreadId, documentAsks.threadId),
-                gte(documents.authoredAt, since),
+                gte(documents.ingestedAt, since),
               ),
             ),
         ),
