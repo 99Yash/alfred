@@ -1,10 +1,12 @@
 /**
  * Smoke test for approval expiry on real Postgres and Redis, with a stub tool.
  * It backdates `expires_at` and calls `expireStaging` directly instead of waiting 24h for the job.
- * Covers: staging sets `expires_at` and queues a job; expiry wakes the run and a
- * re-dispatch returns 'auto-expired' without executing; a human decision wins;
- * `removeApprovalExpiryJob` cancels the timer.
+ * Covers: staging sets `expires_at` and queues a job; the deferred gate no-ops expiry before
+ * `expires_at`; expiry wakes the run and a re-dispatch returns 'auto-expired' without executing;
+ * a human decision wins; `removeApprovalExpiryJob` cancels the timer.
  * The smoke user has no real Google credential, so it stubs `gmail` connection health as active.
+ * Run it with no `pnpm dev` running. A live worker can expire the row or lease the run first,
+ * so the smoke checks for one and stops.
  *
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/smokes/smoke-expiry.ts
  */
@@ -12,16 +14,20 @@
 import { getStringPath } from "@alfred/contracts";
 import {
   approvalExpiryJobId,
+  closeApprovalExpiryQueue,
+  closeApprovalNotificationQueue,
   getApprovalExpiryQueue,
+  getApprovalNotificationQueue,
   removeApprovalExpiryJob,
+  removeApprovalNotificationJob,
 } from "@alfred/assistant/tool-runtime";
 
 import { dispatchToolCall } from "@alfred/assistant/tool-runtime/dispatch";
 import { stubIntegrationHealthForTests } from "@alfred/assistant/tool-runtime/test-support";
 import { expireStaging } from "@alfred/assistant/execution";
+import { closeAgentQueue, getAgentQueue } from "@alfred/assistant/execution/queue";
 import { clearToolRegistryForTests, liveTool, registerTools } from "@alfred/assistant/tool-runtime";
-import { closeConnections, warmPool } from "@alfred/db";
-import { closeRedis } from "@alfred/db/redis";
+import { warmPool } from "@alfred/db";
 import {
   bustPolicyCache,
   ensureDefaultActionPolicyForUser,
@@ -34,13 +40,53 @@ import {
   user as userTable,
   userActionPolicies,
 } from "@alfred/db/schemas";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
+import { closeScriptResources } from "../script-runtime";
 
 const SMOKE_USER_EMAIL = "smoke-expiry@alfred.local";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(`[smoke-expiry] ${message}`);
+}
+
+/** Stop before any write if a dev server's workers can expire the row or lease the run first. */
+async function assertNoLiveWorkers(): Promise<void> {
+  for (const queue of [getApprovalExpiryQueue(), getApprovalNotificationQueue(), getAgentQueue()]) {
+    const workers = await queue.getWorkers();
+
+    if (workers.length > 0) {
+      throw new Error(
+        `[smoke-expiry] a live worker is attached to '${queue.name}'. Stop pnpm dev and run again.`,
+      );
+    }
+  }
+}
+
+/**
+ * Delete the smoke user and the jobs of each staging it owns. Keyed on the email, so it also
+ * sweeps the leftovers of an earlier run that failed or was killed. The jobs go first, because
+ * their ids come from the staging rows; the user delete cascades to runs and stagings.
+ */
+async function cleanupSmokeUser(): Promise<void> {
+  const users = await db()
+    .select({ id: userTable.id })
+    .from(userTable)
+    .where(eq(userTable.email, SMOKE_USER_EMAIL));
+
+  for (const { id: userId } of users) {
+    const stagings = await db()
+      .select({ id: actionStagings.id })
+      .from(actionStagings)
+      .where(eq(actionStagings.userId, userId));
+
+    for (const { id } of stagings) {
+      await removeApprovalExpiryJob(id);
+      await removeApprovalNotificationJob(id);
+    }
+
+    await db().delete(userTable).where(eq(userTable.id, userId));
+  }
 }
 
 async function findOrCreateSmokeUser(): Promise<string> {
@@ -189,6 +235,30 @@ async function main(): Promise<void> {
 
   // 2. expireStaging on a parked, pending row
   await parkRunOnApproval(runId1, stagedId);
+
+  const early = await expireStaging({ stagingId: stagedId, userId });
+  assert(
+    early.status === "deferred",
+    `expireStaging before expires_at expected 'deferred', got '${early.status}'`,
+  );
+
+  const deferredRow = (
+    await db().select().from(actionStagings).where(eq(actionStagings.id, stagedId))
+  )[0];
+
+  assert(
+    deferredRow?.status === "pending" && deferredRow.rowVersion === stagedRow.rowVersion,
+    `deferred row expected 'pending' at row_version ${stagedRow.rowVersion}, got '${deferredRow?.status}' at ${deferredRow?.rowVersion}`,
+  );
+
+  const parkedRun = (await db().select().from(agentRuns).where(eq(agentRuns.id, runId1)))[0];
+  assert(
+    parkedRun?.status === "waiting" && parkedRun.wakeCondition !== null,
+    `deferred run expected 'waiting' with its wake, got '${parkedRun?.status}'`,
+  );
+  assert(draftExec === 0, "deferred expiry must not execute the tool");
+  console.log("[smoke-expiry] 2. deferred: expiry before expires_at is a no-op ✓");
+
   await backdateExpiry(stagedId);
   const expired = await expireStaging({ stagingId: stagedId, userId });
   assert(expired.status === "expired", `expireStaging expected 'expired', got '${expired.status}'`);
@@ -281,25 +351,13 @@ async function main(): Promise<void> {
   const goneJob = await queue.getJob(approvalExpiryJobId(cancelId));
   assert(!goneJob, "removeApprovalExpiryJob must dequeue the staging-expire job");
   console.log("[smoke-expiry] 4. removeApprovalExpiryJob: job dequeued ✓");
-
-  // cleanup
-  for (const id of [stagedId, decidedId, cancelId]) {
-    await removeApprovalExpiryJob(id);
-  }
-
-  for (const runId of [runId1, runId2, runId3]) {
-    await db().delete(actionStagings).where(eq(actionStagings.runId, runId));
-    await db()
-      .delete(agentRuns)
-      .where(and(eq(agentRuns.id, runId), eq(agentRuns.userId, userId)));
-  }
-
-  console.log("[smoke-expiry] cleanup ok");
 }
 
 const restoreIntegrationHealth = stubIntegrationHealthForTests(["gmail"]);
 
 try {
+  await assertNoLiveWorkers();
+  await cleanupSmokeUser();
   await main();
   console.log("[smoke-expiry] PASS");
 } catch (err) {
@@ -307,6 +365,18 @@ try {
   process.exitCode = 1;
 } finally {
   restoreIntegrationHealth();
-  await closeRedis();
-  await closeConnections();
+
+  try {
+    await cleanupSmokeUser();
+    console.log("[smoke-expiry] cleanup ok");
+  } catch (err) {
+    console.error("[smoke-expiry] cleanup FAILED", err);
+    process.exitCode = 1;
+  }
+
+  await closeScriptResources(
+    closeAgentQueue,
+    closeApprovalExpiryQueue,
+    closeApprovalNotificationQueue,
+  );
 }
