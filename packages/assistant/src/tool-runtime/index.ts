@@ -268,9 +268,13 @@ declare const safeToParkWakeBrand: unique symbol;
 
 /**
  * A signal wake that carries a persisted deadline, which the join reconciler reads. Only
- * execution mints it, so no adapter can park a run without that backstop.
+ * execution mints it, so no adapter can park a run without that backstop. The contract field is
+ * optional (zod infers `?: string | undefined`), so the intersection, not `Required`, makes it a
+ * plain `string` here.
  */
-export type SafeToParkWake = Required<Extract<WakeCondition, { kind: "signal" }>> & {
+export type SafeToParkWake = Extract<WakeCondition, { kind: "signal" }> & {
+  deadlineAt: string;
+} & {
   readonly [safeToParkWakeBrand]: true;
 };
 

@@ -94,8 +94,11 @@ async function processSubAgentJoinWakeJob(
  * Wake `waiting` runs whose signal wake deadline is past, and return how many woke. It matches on
  * the wake name the row holds, so a race with the live job or the child signal resolves under the
  * row lock in `signalRunInTx`. `now` comes from the app clock, the same clock that wrote the
- * deadline. A wake parked before the deadline existed falls back to its park time plus the
- * ceiling: the park write is the last writer of `lastCheckpointAt` on a `waiting` row.
+ * deadline. A signal wake with no deadline falls back to its park time plus the sub-agent
+ * ceiling: the park write is the last writer of `lastCheckpointAt` on a `waiting` row. That is
+ * every such wake, not only a legacy row: `StepResult.interrupt.wake` and
+ * `ToolCallDispatchResult.parked.wake` accept a raw signal wake, so a producer that skips
+ * `joinChildRun` gets the sub-agent ceiling with no error. Item 29 removes the fallback.
  */
 async function wakeOverdueJoinsOnce(now: Date, signal: AbortSignal): Promise<number> {
   const parked = await db()
@@ -120,6 +123,7 @@ async function wakeOverdueJoinsOnce(now: Date, signal: AbortSignal): Promise<num
 
     if (!wake.success || wake.data.kind !== "signal") continue;
 
+    // A row with no checkpoint is due at once, on purpose: it has no park time to wait from.
     const deadlineMs = wake.data.deadlineAt
       ? Date.parse(wake.data.deadlineAt)
       : (row.lastCheckpointAt?.getTime() ?? 0) + AWAIT_SUB_AGENT_CEILING_MS;
@@ -138,7 +142,8 @@ async function wakeOverdueJoinsOnce(now: Date, signal: AbortSignal): Promise<num
       try {
         await enqueueRun(row.id);
       } catch (err) {
-        // The resume sweep picks up a `runnable` run, so a failed enqueue only adds latency.
+        // The resume sweep picks up a `runnable` run, so a lost enqueue only adds latency. During a
+        // Redis outage the enqueue hangs instead of failing, and this pass stalls (item 30).
         console.warn(
           "[sub-agent-join:wake-reconciler] failed to enqueue",
           row.id,
@@ -162,7 +167,9 @@ const reconciler = new PeriodicTask({
   pass: async (signal) => {
     const woken = await wakeOverdueJoinsOnce(new Date(), signal);
 
-    // Each one means the delayed job was lost or never scheduled.
-    if (woken > 0) console.warn("[sub-agent-join:wake-reconciler] woke", woken, "overdue");
+    // The delayed job and the deadline fire at the same instant, so a healthy park can count here.
+    if (woken > 0) {
+      console.warn("[sub-agent-join:wake-reconciler] woke", woken, "by the backstop");
+    }
   },
 });
