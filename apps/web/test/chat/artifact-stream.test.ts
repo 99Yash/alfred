@@ -153,7 +153,15 @@ describe("applyArtifactFrame — thread scope", () => {
         id: nextId(),
         kind: "chat.delta",
         createdAt: CREATED_AT,
-        payload: { runId: RUN, threadId, messageId: "msg_1", seq: 1, text: "x", segmentIndex: 0 },
+        payload: {
+          runId: RUN,
+          threadId,
+          messageId: "msg_1",
+          seq: 1,
+          attempt: 0,
+          text: "x",
+          segmentIndex: 0,
+        },
       };
 
       assert.equal(applyArtifactFrame(s, frame, THREAD), false);
@@ -259,6 +267,7 @@ describe("applyArtifactFrame — differential against main's routing", () => {
             threadId,
             messageId: "msg_1",
             seq,
+            attempt: 0,
             text: `d${seq}`,
             segmentIndex: 0,
           },

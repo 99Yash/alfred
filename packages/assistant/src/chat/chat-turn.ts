@@ -466,7 +466,7 @@ const chatTurnStep: Step<ChatRunState> = {
         if (guarded.compacted) state.inFlightTailStart = 0;
       } catch (error) {
         if (!stop.stopped) throw error;
-        await finalizeAssistantMessage(ctx.userId, ctx.runId, state);
+        await finalizeAssistantMessage(ctx.userId, state, ctx);
         closeBrackets();
         emitPhases("stopped");
 
@@ -538,7 +538,7 @@ const chatTurnStep: Step<ChatRunState> = {
 
       if (stop.stopped) {
         // Do not await `stream.toolCalls/finishReason/response`: after an abort they may never settle.
-        await finalizeAssistantMessage(ctx.userId, ctx.runId, state);
+        await finalizeAssistantMessage(ctx.userId, state, ctx);
         closeBrackets();
         emitPhases("stopped");
         const stoppedText = fullAssistantText(state);
@@ -685,7 +685,7 @@ const chatTurnStep: Step<ChatRunState> = {
 
       if (takeover) return takeover;
 
-      await finalizeAssistantMessage(ctx.userId, ctx.runId, state);
+      await finalizeAssistantMessage(ctx.userId, state, ctx);
       closeBrackets();
       emitPhases("completed");
 
@@ -731,7 +731,7 @@ const chatTurnStep: Step<ChatRunState> = {
           if ((await stop.wait(delayMs)) === "elapsed") return retry.step;
 
           // Stop during the backoff ends as stopped, not failed.
-          await finalizeAssistantMessage(ctx.userId, ctx.runId, state);
+          await finalizeAssistantMessage(ctx.userId, state, ctx);
           emitPhases("stopped");
 
           return {
@@ -744,7 +744,7 @@ const chatTurnStep: Step<ChatRunState> = {
       }
 
       // Persist a failed row so the client bubble ends, then rethrow for the executor.
-      await finalizeFailedMessage(ctx.userId, ctx.runId, state, err);
+      await finalizeFailedMessage(ctx.userId, ctx.runId, state, err, ctx);
       throw err;
     } finally {
       closeBrackets();
@@ -793,7 +793,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
       if (calls.length > 0) {
         // Checked once: the batch runs concurrently, so a per-call check would race.
         if (await isChatStopRequested(ctx.runId)) {
-          await finalizeAssistantMessage(ctx.userId, ctx.runId, state);
+          await finalizeAssistantMessage(ctx.userId, state, ctx);
           closeBrackets();
           emitPhases("stopped");
 
@@ -906,7 +906,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
 
       return { kind: "next", state, transcript, nextStep: "chat-turn" };
     } catch (err) {
-      await finalizeFailedMessage(ctx.userId, ctx.runId, state, err);
+      await finalizeFailedMessage(ctx.userId, ctx.runId, state, err, ctx);
       throw err;
     } finally {
       // The park result holds this same `state`, so the fold reaches the commit.
@@ -1077,7 +1077,7 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
             reading: ctx.state,
           });
           const state = await foldUncommittedDeltas(ctx.userId, ctx.state);
-          await finalizeFailedMessage(ctx.userId, ctx.runId, state, new Error(ctx.error));
+          await finalizeFailedMessage(ctx.userId, ctx.runId, state, new Error(ctx.error), null);
 
           return;
         }

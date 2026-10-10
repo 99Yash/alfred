@@ -70,7 +70,7 @@ export interface StreamedTurn {
 export async function streamModelTurn(args: {
   stream: Awaited<ReturnType<AlfredAgent["streamTurn"]>>;
   state: StreamTurnState;
-  ctx: { userId: string; runId: string };
+  ctx: { userId: string; runId: string; attempt: number };
   stopController: TurnStopController;
   /** Injected for tests. */
   publish?: typeof publishEvent;
@@ -94,6 +94,7 @@ export async function streamModelTurn(args: {
           threadId: state.threadId,
           messageId: state.messageId,
           seq: state.deltaSeq,
+          attempt: ctx.attempt,
           text: chunk,
           segmentIndex: state.segmentIndex,
         },
@@ -144,6 +145,7 @@ export async function streamModelTurn(args: {
           threadId: state.threadId,
           messageId: state.messageId,
           seq: state.reasoningSeq,
+          attempt: ctx.attempt,
           text: chunk,
         },
       });

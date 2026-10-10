@@ -99,6 +99,7 @@ async function closePrematureAnswerSegment(
       threadId: state.threadId,
       messageId: state.messageId,
       seq: state.deltaSeq,
+      attempt: ctx.attempt,
       text: "",
       segmentIndex: state.segmentIndex,
     },
