@@ -7,8 +7,13 @@ import {
   type DocumentAskEvidenceSource,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { documentAsks, type DocumentAskRow, type NewDocumentAsk } from "@alfred/db/schemas";
-import { and, eq } from "drizzle-orm";
+import {
+  documentAsks,
+  documents,
+  type DocumentAskRow,
+  type NewDocumentAsk,
+} from "@alfred/db/schemas";
+import { and, eq, exists, gte, isNotNull, sql } from "drizzle-orm";
 
 type CreateIfAbsentInput = Pick<
   NewDocumentAsk,
@@ -135,6 +140,44 @@ export async function readActiveForThread(
     );
 
   return rows.map(rowToDocumentAsk);
+}
+
+/**
+ * Threads that have an active ask with `askedAt` and a gmail row ingested on or after `since`.
+ * The window reads `ingested_at` (server clock), never `authored_at`: that column holds the
+ * sender-controlled `Date` header, so a client clock that runs behind would drop a real carrier.
+ * The `sent` check and the later-than-ask check stay in the reducer on Gmail's `internalDate`.
+ */
+export async function readThreadsToReconcile(
+  since: Date,
+): Promise<Pick<DocumentAskRow, "userId" | "accountId" | "threadId">[]> {
+  return db()
+    .selectDistinct({
+      userId: documentAsks.userId,
+      accountId: documentAsks.accountId,
+      threadId: documentAsks.threadId,
+    })
+    .from(documentAsks)
+    .where(
+      and(
+        eq(documentAsks.status, "active"),
+        isNotNull(documentAsks.askedAt),
+        exists(
+          db()
+            .select({ one: sql`1` })
+            .from(documents)
+            .where(
+              and(
+                eq(documents.userId, documentAsks.userId),
+                eq(documents.source, "gmail"),
+                eq(documents.accountId, documentAsks.accountId),
+                eq(documents.sourceThreadId, documentAsks.threadId),
+                gte(documents.ingestedAt, since),
+              ),
+            ),
+        ),
+      ),
+    );
 }
 
 /**

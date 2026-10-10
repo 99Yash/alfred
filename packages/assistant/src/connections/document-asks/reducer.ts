@@ -12,7 +12,8 @@ import {
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, type Document, type DocumentAskRow } from "@alfred/db/schemas";
-import { and, eq } from "drizzle-orm";
+import { safeErrorDiagnostic } from "@alfred/logging";
+import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   documentAskEvidenceKey,
@@ -20,7 +21,13 @@ import {
   type DocumentAskEvidence,
   type DocumentAskOccurrence,
 } from "./evidence";
-import { createIfAbsent, readActiveForThread, readById, resolveIfActive } from "./store";
+import {
+  createIfAbsent,
+  readActiveForThread,
+  readById,
+  readThreadsToReconcile,
+  resolveIfActive,
+} from "./store";
 
 /**
  * Gmail ids are per mailbox, so the account is part of the identity.
@@ -70,8 +77,8 @@ export type DocumentAskOpenResult =
 
 export type DocumentAskObserveResult =
   | { kind: "resolved"; resolutions: readonly DocumentAskResolution[] }
-  /** A sibling's media is still live. Observe again at `retryAt`. */
-  | { kind: "deferred"; retryAt: Date }
+  /** A sibling's media is still live. The reconciler re-runs the thread after the barrier closes. */
+  | { kind: "deferred" }
   | { kind: "noop"; reason: DocumentAskNoopReason };
 
 export type DocumentAskNoopReason =
@@ -87,17 +94,23 @@ export type DocumentAskNoopReason =
   | "multiple_carriers"
   | "stale_state";
 
-/** Carriers are observed only through `observeDocumentAskCarrier`, which owns the re-observe. */
+/** Carriers are observed only through `observeDocumentAskCarrier`. */
 export interface DocumentAskReducer {
   open(input: OpenDocumentAskInput): Promise<DocumentAskOpenResult>;
 }
 
 /**
  * How long a set `mediaPending` flag blocks its thread. A flag can be lost (no job and no poll
- * left to clear it), so the block needs an end. A blocked observe schedules one more observe at
- * the end, so the bound does not depend on the poll window.
+ * left to clear it), so the block needs an end. The reconciler re-runs the thread after the end,
+ * so the bound does not depend on the poll window.
  */
 const MEDIA_PENDING_SETTLE_MS = 30 * 60 * 1000;
+
+/**
+ * How far back the reconciler looks for a carrier. A chosen bound: an outage longer than this
+ * still loses the observe, and a wider window costs one more thread replay per pass.
+ */
+const DOCUMENT_ASK_RECONCILE_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 
 type GmailMessageRow = Pick<
   Document,
@@ -123,7 +136,7 @@ type CarrierEvidence = {
 };
 
 type CarrierResolution =
-  | { kind: "deferred"; retryAt: Date }
+  | { kind: "deferred" }
   | { kind: "settled"; resolutions: DocumentAskResolution[]; reason: DocumentAskNoopReason };
 
 const gmailMessageColumns = {
@@ -227,7 +240,11 @@ async function readSentCarriers(
   });
 }
 
-/** Every occurrence of one stored attachment that this exact carrier sent. */
+/**
+ * Every occurrence of one stored attachment that this exact carrier sent. The SQL filter in
+ * `readAttachmentRows` must return every row that this function can match. Change that read with
+ * any new occurrence source here, or the row is never read and the ask stays active.
+ */
 function attachmentOccurrences(
   row: StoredAttachmentRow,
   carrier: PersistedGmailMessage,
@@ -267,7 +284,17 @@ function attachmentOccurrences(
   return occurrences;
 }
 
-async function readAttachmentRows(userId: string): Promise<StoredAttachmentRow[]> {
+/**
+ * Read the attachment rows that can have an occurrence on one of these carriers. The SQL filter is
+ * a superset of `attachmentOccurrences`: both sides compare the raw JSON string, because
+ * `parseGmailDocumentMetadata` and `parseAttachmentContentReferences` do not transform an id.
+ */
+async function readAttachmentRows(
+  userId: string,
+  carrierMessageIds: readonly string[],
+): Promise<StoredAttachmentRow[]> {
+  if (carrierMessageIds.length === 0) return [];
+
   // Canonical rows are user-scoped because content dedup folds across linked
   // Gmail accounts. The exact occurrence check grants evidence authority.
   return db()
@@ -281,7 +308,19 @@ async function readAttachmentRows(userId: string): Promise<StoredAttachmentRow[]
       metadata: documents.metadata,
     })
     .from(documents)
-    .where(and(eq(documents.userId, userId), eq(documents.source, "gmail_attachment")));
+    .where(
+      and(
+        eq(documents.userId, userId),
+        eq(documents.source, "gmail_attachment"),
+        or(
+          inArray(sql`${documents.metadata}->>'messageId'`, [...carrierMessageIds]),
+          ...carrierMessageIds.map(
+            (messageId) =>
+              sql`${documents.metadata}->'references' @> ${JSON.stringify([{ messageId }])}::jsonb`,
+          ),
+        ),
+      ),
+    );
 }
 
 /** Positive evidence on one carrier, one entry per stored occurrence. */
@@ -322,16 +361,15 @@ function sentAfter(carrier: PersistedGmailMessage, ask: DocumentAskRow): boolean
 }
 
 /**
- * Wait for a sibling's live media job, or the result depends on job order. Returns the epoch ms
- * when the barrier closes, or null when it is not open. The observed carrier is never its own
- * barrier.
+ * Wait for a sibling's live media job, or the result depends on job order. The observed carrier
+ * is never its own barrier.
  */
-function mediaBarrierExpiry(input: {
+function mediaBarrierOpen(input: {
   carrier: PersistedGmailMessage;
   observedMessageId: string | null;
   activeAsks: readonly DocumentAskRow[];
   observedAt: Date;
-}): number | null {
+}): boolean {
   const { carrier } = input;
 
   if (
@@ -340,12 +378,10 @@ function mediaBarrierExpiry(input: {
     carrier.authoredAt === null ||
     !input.activeAsks.some((ask) => sentAfter(carrier, ask))
   ) {
-    return null;
+    return false;
   }
 
-  const expiry = carrier.authoredAt.getTime() + MEDIA_PENDING_SETTLE_MS;
-
-  return input.observedAt.getTime() < expiry ? expiry : null;
+  return input.observedAt.getTime() < carrier.authoredAt.getTime() + MEDIA_PENDING_SETTLE_MS;
 }
 
 /** Resolve each requested kind independently across the persisted carrier set. */
@@ -362,13 +398,15 @@ async function resolvePersistedCarriers(input: {
   }
 
   const carriers = await readSentCarriers(input.userId, input.accountId, input.threadId);
-  const expiries = carriers.flatMap((carrier) => mediaBarrierExpiry({ ...input, carrier }) ?? []);
 
-  if (expiries.length > 0) {
-    return { kind: "deferred", retryAt: new Date(Math.min(...expiries)) };
+  if (carriers.some((carrier) => mediaBarrierOpen({ ...input, carrier }))) {
+    return { kind: "deferred" };
   }
 
-  const attachmentRows = await readAttachmentRows(input.userId);
+  const attachmentRows = await readAttachmentRows(
+    input.userId,
+    carriers.map((carrier) => carrier.messageId),
+  );
 
   const positiveCarriers: CarrierEvidence[] = carriers.flatMap((carrier) => {
     const evidence = carrierEvidence(attachmentRows, carrier);
@@ -473,7 +511,7 @@ async function replayForAsk(
     observedAt,
   });
 
-  // The open path has no carrier to re-observe, so a deferred replay resolves nothing here.
+  // A deferred replay resolves nothing here. The reconciler re-runs the thread.
   if (resolution.kind === "deferred") return [];
 
   return resolution.resolutions.filter((resolution) => resolution.askId === ask.id);
@@ -524,7 +562,10 @@ export const documentAskReducer: DocumentAskReducer = {
   },
 };
 
-async function observeCarrier(input: ObserveDocumentAskInput): Promise<DocumentAskObserveResult> {
+/** Observe one sent carrier from persisted rows. A `deferred` result is re-run by the reconciler. */
+export async function observeDocumentAskCarrier(
+  input: ObserveDocumentAskInput,
+): Promise<DocumentAskObserveResult> {
   const locator = gmailMessageLocatorSchema.safeParse(input.carrier);
 
   if (!locator.success || !validDate(input.observedAt)) return noop("malformed_source");
@@ -558,26 +599,47 @@ async function observeCarrier(input: ObserveDocumentAskInput): Promise<DocumentA
     : noop(resolution.reason);
 }
 
-export type ScheduleDocumentAskObserve = (args: {
-  userId: string;
-  carrier: GmailMessageLocator;
-  at: Date;
-}) => Promise<void>;
-
 /**
- * Observe one sent carrier. Each `deferred` result schedules one more observe of this carrier at
- * `retryAt`, which is strictly later than this observe, so the chain ends when the last barrier
- * closes.
+ * One reconcile pass: re-run the replay for each thread that has an active ask with `askedAt` and
+ * a gmail row ingested inside the lookback. Checks `signal` between threads. A thread fault is
+ * logged and counted, and the pass continues.
  */
-export async function observeDocumentAskCarrier(
-  input: ObserveDocumentAskInput,
-  schedule: ScheduleDocumentAskObserve,
-): Promise<DocumentAskObserveResult> {
-  const result = await observeCarrier(input);
+export async function reconcileDocumentAskThreadsOnce(
+  now: Date,
+  signal?: AbortSignal,
+): Promise<{ threads: number; resolved: number; deferred: number; failed: number }> {
+  const threads = await readThreadsToReconcile(
+    new Date(now.getTime() - DOCUMENT_ASK_RECONCILE_LOOKBACK_MS),
+  );
 
-  if (result.kind === "deferred") {
-    await schedule({ userId: input.userId, carrier: input.carrier, at: result.retryAt });
+  const tally = { threads: threads.length, resolved: 0, deferred: 0, failed: 0 };
+
+  for (const thread of threads) {
+    if (signal?.aborted) break;
+
+    try {
+      const activeAsks = await readActiveForThread(
+        thread.userId,
+        thread.accountId,
+        thread.threadId,
+      );
+
+      const resolution = await resolvePersistedCarriers({
+        ...thread,
+        activeAsks,
+        observedMessageId: null,
+        observedAt: now,
+      });
+
+      if (resolution.kind === "deferred") tally.deferred += 1;
+      else tally.resolved += resolution.resolutions.length;
+    } catch (err) {
+      tally.failed += 1;
+      console.warn(
+        `[document-ask-reconciler] thread=${thread.threadId} failed: ${safeErrorDiagnostic(err)}`,
+      );
+    }
   }
 
-  return result;
+  return tally;
 }
