@@ -1,4 +1,5 @@
-import type { SafeToParkSignal } from "@alfred/assistant/tool-runtime";
+import type { WakeCondition } from "@alfred/contracts";
+import type { SafeToParkWake } from "@alfred/assistant/tool-runtime";
 
 import {
   AWAIT_SUB_AGENT_CEILING_MS,
@@ -12,23 +13,27 @@ import {
 } from "./sub-agents";
 
 /**
- * How a parent joins a child sub-agent. The sweep never resumes `waiting` runs,
- * so a park without its dead-man timer never wakes. Only this module can build the `park` arm,
- * and only after the timer is scheduled.
+ * How a parent joins a child sub-agent. The sweep never resumes `waiting` runs, so a park
+ * needs a backstop. Only this module can build the `park` arm, and its wake carries the
+ * deadline that the join reconciler reads from Postgres.
  */
 export type JoinChildRunResult =
   | { kind: "resolved"; outcome: ChildRunOutcome }
-  | { kind: "park"; signalName: ParkSignal };
+  | { kind: "park"; wake: ParkWake };
 
 /**
- * A `sub_agent_done` signal whose dead-man wake is scheduled. A raw signal wake condition
+ * A `sub_agent_done` signal wake with a persisted deadline. A raw signal wake condition
  * can still bypass it, so join through {@link joinChildRun}.
  */
-export type ParkSignal = SafeToParkSignal;
+export type ParkWake = SafeToParkWake;
 
-function mintParkSignal(childRunId: string): ParkSignal {
-  // SAFETY: the only mint; it runs after the timer is scheduled.
-  return subAgentDoneSignalName(childRunId) as ParkSignal;
+function mintParkWake(childRunId: string, deadlineAt: string): ParkWake {
+  // SAFETY: the only mint; every park it builds carries a deadline.
+  return {
+    kind: "signal",
+    name: subAgentDoneSignalName(childRunId),
+    deadlineAt,
+  } satisfies Extract<WakeCondition, { kind: "signal" }> & { deadlineAt: string } as ParkWake;
 }
 
 /** Injected so the protocol is testable without a DB or Redis. */
@@ -51,25 +56,15 @@ export async function joinChildRun(
   // Past the ceiling the child is reported, not parked again, so a stuck child cannot loop.
   if (shouldResolveWithoutParking(outcome)) return { kind: "resolved", outcome };
 
-  // Schedule the dead-man wake before parking. The child's own signal can be lost
-  // in a race, skipped by a cancel, or dropped by a crash.
-  const scheduled = await deps.scheduleWake({
+  // The child's own signal can be lost in a race, skipped by a cancel, or dropped by a crash.
+  // The Redis job is the fast path. The deadline in the wake is the backstop if the job is lost.
+  // The deadline counts from the join, not from the park commit, the same as the Redis delay.
+  const deadlineAt = new Date(Date.now() + AWAIT_SUB_AGENT_CEILING_MS).toISOString();
+  await deps.scheduleWake({
     childRunId: args.childRunId,
     parentRunId: args.parentRunId,
     delayMs: AWAIT_SUB_AGENT_CEILING_MS,
   });
 
-  if (scheduled !== "scheduled") {
-    // No timer means no safe park, so report the child as still running.
-    console.warn(
-      "[sub_agent_join] dead-man wake not scheduled (",
-      scheduled,
-      ") — refusing to park",
-      args.childRunId,
-    );
-
-    return { kind: "resolved", outcome: { ...outcome, reason: "join_timer_unavailable" } };
-  }
-
-  return { kind: "park", signalName: mintParkSignal(args.childRunId) };
+  return { kind: "park", wake: mintParkWake(args.childRunId, deadlineAt) };
 }

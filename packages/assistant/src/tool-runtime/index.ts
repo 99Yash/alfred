@@ -264,14 +264,18 @@ export interface JoinChildRunRequest {
   childRunId: string;
 }
 
-declare const safeToParkSignalBrand: unique symbol;
+declare const safeToParkWakeBrand: unique symbol;
 
 /**
- * A signal name whose dead-man wake is already scheduled. Only execution mints it,
- * so no adapter can park a run without that backstop.
+ * A signal wake that carries a persisted deadline, which the join reconciler reads. Only
+ * execution mints it, so no adapter can park a run without that backstop. The contract field is
+ * optional (zod infers `?: string | undefined`), so the intersection, not `Required`, makes it a
+ * plain `string` here.
  */
-export type SafeToParkSignal = string & {
-  readonly [safeToParkSignalBrand]: true;
+export type SafeToParkWake = Extract<WakeCondition, { kind: "signal" }> & {
+  deadlineAt: string;
+} & {
+  readonly [safeToParkWakeBrand]: true;
 };
 
 export type AwaitSubAgentDispatchResult =
@@ -283,7 +287,7 @@ export type AwaitSubAgentDispatchResult =
     }
   | {
       kind: "parked";
-      wake: Extract<WakeCondition, { kind: "signal" }> & { name: SafeToParkSignal };
+      wake: SafeToParkWake;
     };
 
 export type SystemToolScratchRead =

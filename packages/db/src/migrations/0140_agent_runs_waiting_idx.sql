@@ -1,0 +1,1 @@
+CREATE INDEX "agent_runs_waiting_idx" ON "agent_runs" USING btree ("last_checkpoint_at") WHERE "agent_runs"."status" = 'waiting';
