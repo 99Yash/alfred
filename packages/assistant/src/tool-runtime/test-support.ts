@@ -17,8 +17,8 @@ export function resetToolFixtures(): void {
 
 /**
  * Report each slug as connected (`health: "active"`) to dispatch. Returns the restore function.
- * Dispatch only: discovery, chat-turn preload, automation readiness, and the delivery sweep still
- * read the real snapshot. A tool that declares `availability.credential` or `passthrough` needs the
+ * Dispatch only: every reader other than dispatch (for example discovery, chat-turn preload,
+ * automation readiness, and the delivery sweep) still reads the real snapshot. A tool that declares `availability.credential` or `passthrough` needs the
  * raw `_setIntegrationAvailabilityReaderForTests` with `providers` rows.
  */
 export function stubIntegrationHealthForTests(
