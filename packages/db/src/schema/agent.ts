@@ -263,6 +263,10 @@ export const agentRuns = pgTable(
     index("agent_runs_deferred_idx")
       .on(t.deferredUntil)
       .where(sql`${t.status} = 'deferred'`),
+    // The sub-agent join reconciler scans parked runs every minute.
+    index("agent_runs_waiting_idx")
+      .on(t.lastCheckpointAt)
+      .where(sql`${t.status} = 'waiting'`),
     uniqueIndex(OCCURRENCE_RUN_INDEX).on(t.userId, t.occurrenceKey),
     // `completed` still blocks ("already done").
     // Failed/cancelled do not, so an outage cannot lock a workflow out.

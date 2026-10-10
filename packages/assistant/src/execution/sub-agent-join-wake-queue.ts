@@ -2,6 +2,8 @@
  * Dead-man timer for a parent parked on a sub-agent (ADR-0073), scheduling side.
  * The sweep never resumes `waiting`, so a lost `sub_agent_done` signal would strand the parent.
  * The signal is lost when the child ends before the park commits, is cancelled, or crashes.
+ * This delayed job is the fast path. It lives only in Redis, so the join reconciler in the
+ * worker file is the backstop: it wakes a parent whose persisted wake deadline is past.
  * The worker lives in another file to avoid an import cycle.
  */
 
@@ -52,8 +54,8 @@ export async function scheduleSubAgentJoinWakeJob(args: {
   childRunId: string;
   parentRunId: string;
   delayMs: number;
-}): Promise<"scheduled" | "disabled" | "failed"> {
-  if (!isQueueEnabled()) return "disabled";
+}): Promise<void> {
+  if (!isQueueEnabled()) return;
 
   try {
     const queue = getSubAgentJoinWakeQueue();
@@ -78,16 +80,12 @@ export async function scheduleSubAgentJoinWakeJob(args: {
         jobId,
       },
     );
-
-    return "scheduled";
   } catch (err) {
     console.warn(
       "[sub-agent-join] failed to schedule dead-man wake",
       args.childRunId,
       toMessage(err),
     );
-
-    return "failed";
   }
 }
 

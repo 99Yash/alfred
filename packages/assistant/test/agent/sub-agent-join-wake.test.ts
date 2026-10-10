@@ -236,13 +236,12 @@ describe("sub-agent join wake liveness (DB/Redis-backed)", { skip: SKIP }, () =>
     const { parentRunId, childRunId } = await seedJoinRows();
     await startSubAgentJoinWakeWorker();
 
-    const scheduled = await scheduleSubAgentJoinWakeJob({
+    await scheduleSubAgentJoinWakeJob({
       childRunId,
       parentRunId,
       delayMs: 0,
     });
 
-    assert.equal(scheduled, "scheduled");
     await waitForParentRunnable(parentRunId);
     await assertAgentRunQueued(parentRunId);
   });

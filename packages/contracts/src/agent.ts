@@ -106,7 +106,12 @@ export const wakeConditionSchema = z.discriminatedUnion("kind", [
     prompt: z.string().optional(),
   }),
   z.object({ kind: z.literal("timer"), wakeAt: z.string() }),
-  z.object({ kind: z.literal("signal"), name: z.string() }),
+  z.object({
+    kind: z.literal("signal"),
+    name: z.string(),
+    /** When the wait gives up. Optional only so wakes parked before it existed still parse. */
+    deadlineAt: z.string().datetime().optional(),
+  }),
 ]);
 
 export type WakeCondition = z.infer<typeof wakeConditionSchema>;

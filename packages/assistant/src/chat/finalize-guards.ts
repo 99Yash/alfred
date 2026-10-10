@@ -21,7 +21,7 @@ import {
   scheduleSubAgentJoinWakeJob,
   type ChildRunOutcome,
   type JoinChildRunDeps,
-  type ParkSignal,
+  type ParkWake,
   type StepContext,
   type StepResult,
 } from "@alfred/assistant/execution";
@@ -143,8 +143,8 @@ export async function guardSpawnedChildren(
   if (unfolded.length === 0) return null;
 
   const foldNotes: string[] = [];
-  // Only signals the join returned: each one has a timer behind it.
-  const parkSignals: ParkSignal[] = [];
+  // Only wakes the join returned: each one carries a persisted deadline.
+  const parkWakes: ParkWake[] = [];
 
   for (const child of unfolded) {
     const join = await joinChildRun(
@@ -153,7 +153,7 @@ export async function guardSpawnedChildren(
     );
 
     if (join.kind === "park") {
-      parkSignals.push(join.signalName);
+      parkWakes.push(join.wake);
       continue;
     }
 
@@ -176,8 +176,8 @@ export async function guardSpawnedChildren(
     [...baseTranscript],
   );
 
-  if (parkSignals.length > 0) {
-    return interruptChatRun(state, nextTranscript, { kind: "signal", name: parkSignals[0]! });
+  if (parkWakes.length > 0) {
+    return interruptChatRun(state, nextTranscript, parkWakes[0]!);
   }
 
   return { kind: "next", state, transcript: nextTranscript, nextStep: "chat-turn" };

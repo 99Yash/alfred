@@ -82,7 +82,7 @@ export type {
   SignalOutcome,
   WorkflowReadinessVerdict,
   JoinChildRunDeps,
-  ParkSignal,
+  ParkWake,
   ExpireStagingResult,
   StartApprovalExpiryWorkerOpts,
   StartApprovalNotificationWorkerOpts,
