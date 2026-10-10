@@ -411,8 +411,9 @@ export async function foldUncommittedDeltas(
       )
       .orderBy(asc(eventsOutbox.id));
 
-    // The bubble's own rule, in the same outbox `id` order, so a reclaimed attempt's text
-    // replaces the older attempt's uncommitted text here as it does on screen. The floor is the
+    // The bubble's own rule, applied in outbox `id` order (the bubble applies it in arrival
+    // order), so a reclaimed attempt's text replaces the older attempt's uncommitted text here
+    // as it does on screen. The floor is the
     // committed position: committed rows still raise the attempt, but never append.
     const log = createChatDeltaLog({ seq: state.deltaSeq, segment: state.segmentIndex });
 
