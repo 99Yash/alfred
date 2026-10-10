@@ -85,6 +85,8 @@ export * from "./briefing-constants";
 
 export * from "./chat";
 
+export * from "./chat-delta-log";
+
 export * from "./artifacts";
 
 export * from "./briefing-references";

@@ -88,10 +88,16 @@ const compaction = (
 ): EventStreamFrame => messageFrame({ ...turn, phase });
 
 const delta = (seq: number, text: string, opts: { segmentIndex?: number; turn?: Turn } = {}) =>
-  deltaFrame({ ...(opts.turn ?? TURN), seq, text, segmentIndex: opts.segmentIndex ?? 0 });
+  deltaFrame({
+    ...(opts.turn ?? TURN),
+    seq,
+    attempt: 0,
+    text,
+    segmentIndex: opts.segmentIndex ?? 0,
+  });
 
 const reasoning = (seq: number, text: string, turn: Turn = TURN) =>
-  reasoningFrame({ ...turn, seq, text });
+  reasoningFrame({ ...turn, seq, attempt: 0, text });
 
 const tool = (
   args: {
@@ -226,8 +232,8 @@ describe("applyChatFrame — mounting (ADR-0073: address, never create)", () => 
     applyChatFrame(cell, tool({ status: "succeeded" }), 1_000);
 
     assert.equal(applyChatFrame(cell, started(), 1_000), true);
-    assert.equal(refOf(cell).deltaSeq, 3);
-    assert.equal(refOf(cell).segments.get(0), "partial answer");
+    assert.equal(refOf(cell).text.seq, 3);
+    assert.equal(refOf(cell).text.segments.get(0), "partial answer");
     assert.equal(refOf(cell).tools.size, 1);
   });
 
@@ -238,8 +244,8 @@ describe("applyChatFrame — mounting (ADR-0073: address, never create)", () => 
 
     const retry = { threadId: THREAD, messageId: "msg_1", runId: "run_2" };
     assert.equal(applyChatFrame(cell, started(retry), 1_000), true);
-    assert.equal(refOf(cell).deltaSeq, 0);
-    assert.equal(refOf(cell).segments.size, 0);
+    assert.equal(refOf(cell).text.seq, 0);
+    assert.equal(refOf(cell).text.segments.size, 0);
   });
 
   test("a delta can mount the turn when `started` was missed", () => {
@@ -297,8 +303,8 @@ describe("applyChatFrame — mount recency (a replayed older turn cannot blank a
 
     assert.equal(applyChatFrame(cell, atId(started(TURN_2), 100), 1_000), true);
     assert.equal(refOf(cell).messageId, "msg_2");
-    assert.equal(refOf(cell).deltaSeq, 0);
-    assert.equal(refOf(cell).segments.size, 0);
+    assert.equal(refOf(cell).text.seq, 0);
+    assert.equal(refOf(cell).text.segments.size, 0);
   });
 
   test("a retry (same messageId, new runId, higher id) mounts and is not refused", () => {
@@ -312,7 +318,7 @@ describe("applyChatFrame — mount recency (a replayed older turn cannot blank a
     assert.equal(applyChatFrame(cell, atId(started(retry), 100), 1_000), true);
     assert.equal(refOf(cell).runId, "run_2");
     assert.equal(refOf(cell).messageId, TURN.messageId);
-    assert.equal(refOf(cell).deltaSeq, 0);
+    assert.equal(refOf(cell).text.seq, 0);
   });
 
   test("the first mount is unaffected — the recency branch is guarded by an existing ref", () => {
@@ -569,7 +575,7 @@ describe("applyChatFrame — monotonicity (clause 3)", () => {
     applyChatFrame(cell, started(), 1_000);
     assert.equal(applyChatFrame(cell, delta(3, "third"), 1_000), true);
     assert.equal(applyChatFrame(cell, delta(2, "second"), 1_000), false);
-    assert.equal(refOf(cell).deltaSeq, 3);
+    assert.equal(refOf(cell).text.seq, 3);
     assert.equal(drain(cell).snapshot.text, "third");
   });
 
@@ -578,7 +584,7 @@ describe("applyChatFrame — monotonicity (clause 3)", () => {
     applyChatFrame(cell, started(), 1_000);
     assert.equal(applyChatFrame(cell, reasoning(3, "third"), 1_000), true);
     assert.equal(applyChatFrame(cell, reasoning(2, "second"), 1_000), false);
-    assert.equal(refOf(cell).reasoningSeq, 3);
+    assert.equal(refOf(cell).reasoningLog.seq, 3);
     assert.equal(drain(cell).snapshot.reasoning, "third");
   });
 });
