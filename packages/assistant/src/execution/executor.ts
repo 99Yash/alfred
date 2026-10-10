@@ -1,5 +1,6 @@
 import type { AgentRunError, AgentTranscriptMessage } from "@alfred/contracts";
 import {
+  AGENT_PROGRESS_MESSAGE_MAX,
   AGENT_STEP_PROGRESS_STATUSES,
   boundAgentRunError,
   isTerminalStatus,
@@ -10,6 +11,7 @@ import {
   type WakeCondition,
 } from "@alfred/contracts";
 import { db, rowsFromExecute, type DbTransaction } from "@alfred/db";
+import { logger } from "@alfred/logging";
 import {
   agentDecisionTraces,
   agentRuns,
@@ -338,12 +340,32 @@ export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise
       staged.push(action);
     },
     async log(message) {
-      await publishEvent({
-        untransacted: true,
-        userId: run.userId,
-        kind: "agent.progress",
-        payload: { runId: run.id, step: stepId, message },
-      });
+      try {
+        await publishEvent({
+          untransacted: true,
+          userId: run.userId,
+          kind: "agent.progress",
+          payload: {
+            runId: run.id,
+            step: stepId,
+            message: sanitizeErrorMessage(message, AGENT_PROGRESS_MESSAGE_MAX),
+          },
+        });
+      } catch (err) {
+        // A lost progress frame costs nothing (ADR-0005), so a publish fault never fails the step.
+        // Only the publish fault goes under `err`; the message text can hold user data. (A drizzle
+        // `err.message` echoes the query params in dev; production drops `err.message`.)
+        logger.warn(
+          {
+            err,
+            event: "agent_progress_publish_fault",
+            runId: run.id,
+            step: stepId,
+            messageLength: message.length,
+          },
+          "agent: progress frame lost",
+        );
+      }
     },
     trace(kind, record, options) {
       const decisionKey = normalizeDecisionTraceKey(options?.decisionKey);

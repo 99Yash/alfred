@@ -71,6 +71,11 @@ export interface StepContext<S> {
    * A re-run is a no-op because `idempotencyKey` is unique on `pending_actions`.
    */
   stageAction(action: StagedAction): void;
+  /**
+   * Best-effort progress frame to the user's realtime channel (ADR-0005).
+   * Never rejects: a publish fault goes to the process log and the frame is lost.
+   * Strips poison and caps the text, so any string is safe to pass. Not a durable record.
+   */
   log(message: string): Promise<void>;
   /**
    * Write a decision record to `agent_decision_traces` with this step's commit.
