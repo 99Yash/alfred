@@ -26,7 +26,7 @@ async function resolveAwaitSubAgent(
     };
   }
 
-  return { kind: "parked", wake: { kind: "signal", name: join.signalName } };
+  return { kind: "parked", wake: join.wake };
 }
 
 /**

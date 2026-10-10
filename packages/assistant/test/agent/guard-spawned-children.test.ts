@@ -17,8 +17,8 @@ import type { StepContext } from "@alfred/assistant/execution";
 
 /**
  * A parent turn cannot complete while a child it spawned still runs (ADR-0073).
- * If the timer cannot be scheduled or the child passed the ceiling, fold and
- * finalize: a park there would hang forever. The guard's I/O is injected.
+ * If the child passed the ceiling, fold and finalize: a park there would re-park
+ * forever. The guard's I/O is injected.
  */
 
 const RUN_ID = "run_parent";
@@ -82,7 +82,6 @@ interface Recorder {
 function recorder(args: {
   children: Array<{ id: string; status: string }>;
   outcomes: Record<string, ChildRunOutcome>;
-  scheduleResult?: "scheduled" | "disabled" | "failed";
 }): Recorder {
   const scheduleCalls: string[] = [];
   const published: Array<{ kind: string; payload: Record<string, unknown> }> = [];
@@ -98,8 +97,6 @@ function recorder(args: {
     },
     scheduleWake: async ({ childRunId }) => {
       scheduleCalls.push(childRunId);
-
-      return args.scheduleResult ?? "scheduled";
     },
     publish: async (event) => {
       published.push({ kind: event.kind, payload: event.payload as Record<string, unknown> });
@@ -123,7 +120,6 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
     const rec = recorder({
       children: [{ id: "child_a", status: "running" }],
       outcomes: { child_a: { ok: true, done: false, status: "running", runningMs: 1_000 } },
-      scheduleResult: "scheduled",
     });
 
     const result = await guardSpawnedChildren(baseCtx(state), state, [], rec.deps);
@@ -136,32 +132,6 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
     );
     // No result yet, so nothing to fold.
     assert.deepEqual(state.foldedChildRunIds, []);
-  });
-
-  test("scheduling failure → folds and finalizes instead of parking (never strand in waiting)", async () => {
-    for (const scheduleResult of ["disabled", "failed"] as const) {
-      const state = baseState();
-
-      const rec = recorder({
-        children: [{ id: "child_a", status: "running" }],
-        outcomes: { child_a: { ok: true, done: false, status: "running", runningMs: 1_000 } },
-        scheduleResult,
-      });
-
-      const result = await guardSpawnedChildren(baseCtx(state), state, [], rec.deps);
-      assert.equal(
-        result?.kind,
-        "next",
-        `scheduleWake=${scheduleResult} must not park — it loops back to regenerate`,
-      );
-      assert.deepEqual(state.foldedChildRunIds, ["child_a"], "the child is folded, not re-tracked");
-      const folded = result?.kind === "next" ? result.transcript : undefined;
-      assert.match(
-        String(folded?.[0]?.content ?? ""),
-        /could not be awaited \(join_timer_unavailable\)/,
-        "the fold tells the boss the timer was unavailable",
-      );
-    }
   });
 
   test("a child past the wait-ceiling → folds, never re-parks (no infinite re-park)", async () => {
@@ -276,7 +246,6 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
         child_done: { ok: true, done: true, status: "completed", output: { ok: 1 } },
         child_run: { ok: true, done: false, status: "running", runningMs: 500 },
       },
-      scheduleResult: "scheduled",
     });
 
     const result = await guardSpawnedChildren(baseCtx(state), state, [], rec.deps);
@@ -315,7 +284,6 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
     const rec = recorder({
       children: [{ id: "child_a", status: "running" }],
       outcomes: { child_a: { ok: true, done: false, status: "running", runningMs: 1_000 } },
-      scheduleResult: "scheduled",
     });
 
     const result = await guardSpawnedChildren(baseCtx(state), state, prematureTail(), rec.deps);
@@ -387,7 +355,6 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
         child_done: { ok: true, done: true, status: "completed", output: { ok: 1 } },
         child_run: { ok: true, done: false, status: "running", runningMs: 500 },
       },
-      scheduleResult: "scheduled",
     });
 
     const result = await guardSpawnedChildren(baseCtx(state), state, prematureTail(), rec.deps);
@@ -460,7 +427,6 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
     const rec = recorder({
       children: [{ id: "child_a", status: "running" }],
       outcomes: { child_a: { ok: true, done: false, status: "running", runningMs: 1_000 } },
-      scheduleResult: "scheduled",
     });
 
     await guardSpawnedChildren(baseCtx(state), state, [], rec.deps);
@@ -487,7 +453,6 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
     const rec = recorder({
       children: [{ id: "child_a", status: "running" }],
       outcomes: { child_a: { ok: true, done: false, status: "running", runningMs: 1_000 } },
-      scheduleResult: "scheduled",
     });
 
     await guardSpawnedChildren(baseCtx(state), state, [], rec.deps);
