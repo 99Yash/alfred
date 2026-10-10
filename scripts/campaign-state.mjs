@@ -319,6 +319,16 @@ function commandAdd(statePath, flags) {
   withLock(statePath, () => {
     const state = readState(statePath);
 
+    // A frozen queue takes no new items. Each landed item queued about 1.5 review follow-ups
+    // (reliability-quickwins, 2026-10-10), so the queue grew faster than lanes drained it. A
+    // NOTES.md rule alone did not stop that, so the refusal lives here, where every phase adds.
+    if (state.policy?.queueFrozen === true) {
+      die(
+        `the queue in ${statePath} is frozen (policy.queueFrozen): write the follow-up as one ` +
+          `line with \`campaign-state.mjs note\` instead of adding an item`,
+      );
+    }
+
     for (const prereq of prereqs) {
       if (!state.items.some((item) => item.id === prereq)) {
         die(`prereq ${prereq} is not an item in ${statePath}`);
