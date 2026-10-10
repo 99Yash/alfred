@@ -73,6 +73,7 @@ export interface StreamedTurn {
  */
 export async function streamModelTurn(args: {
   stream: Awaited<ReturnType<AlfredAgent["streamTurn"]>>;
+  /** A copy of `ctx.state`, never `ctx.state` itself: the frames read their `fromSeq` from `ctx.state`. */
   state: StreamTurnState;
   /** `ctx.state` is the committed state, so its seqs are this attempt's `fromSeq`. */
   ctx: Pick<
