@@ -26,6 +26,7 @@ import { db } from "@alfred/db";
 import { createId, requireRow, runAtomic, type DbRunner } from "@alfred/db/helpers";
 import {
   actionStagings,
+  agentRuns,
   mcpConnections,
   mcpInvocation,
   type McpInvocation,
@@ -283,14 +284,25 @@ async function reserveMcpRecoverySuccessor(
   runner: DbRunner = db(),
 ): Promise<ReservedSuccessor> {
   return runAtomic(runner, async (tx) => {
-    // Lock order: connection row first (publishers and policy writes wait on it), then invocation and staging.
+    // Lock order: the run first (`agent_runs` then the caller's tables), then the connection row
+    // (publishers and policy writes wait on it), then invocation and staging. The successor INSERT
+    // takes a run lock (`KEY SHARE`) through its FK, so the run must be locked before the staging.
     const [requestedRef] = await tx
-      .select({ connectionId: mcpInvocation.connectionId })
+      .select({ connectionId: mcpInvocation.connectionId, runId: actionStagings.runId })
       .from(mcpInvocation)
+      .leftJoin(actionStagings, eq(actionStagings.id, mcpInvocation.stagingId))
       .where(and(eq(mcpInvocation.id, input.invocationId), eq(mcpInvocation.userId, input.userId)))
       .limit(1);
 
     if (!requestedRef) throw Errors.NotFoundError("MCP recovery operation not found");
+
+    if (requestedRef.runId) {
+      await tx
+        .select({ id: agentRuns.id })
+        .from(agentRuns)
+        .where(eq(agentRuns.id, requestedRef.runId))
+        .for("update");
+    }
 
     const [lockedConnection] = await tx
       .select({
@@ -354,7 +366,10 @@ async function reserveMcpRecoverySuccessor(
       .where(and(eq(actionStagings.id, prior.stagingId), eq(actionStagings.userId, input.userId)))
       .for("update");
 
-    if (!staging) throw Errors.NotFoundError("MCP recovery operation not found");
+    // `run_id` never changes, so a match proves this staging belongs to the run locked above.
+    if (!staging || staging.runId !== requestedRef.runId) {
+      throw Errors.NotFoundError("MCP recovery operation not found");
+    }
 
     if (staging.outcome !== "unknown") {
       throw Errors.ConflictError("MCP recovery barriers are not aligned");
