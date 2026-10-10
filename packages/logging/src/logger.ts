@@ -27,8 +27,10 @@ const RESPONSE_BODY_LOG_CAP = 4_000;
 function devErrorDiagnostics(err: unknown): Partial<SafeErrorLog> {
   const out: Partial<SafeErrorLog> = {};
 
-  if (err instanceof Error && err.message) out.message = err.message;
-  const statusCode = Reflect.get(isIndexable(err) ? err : {}, "statusCode");
+  const message = err instanceof Error ? stringField(err, "message") : undefined;
+
+  if (message) out.message = message;
+  const statusCode: unknown = Reflect.get(isIndexable(err) ? err : {}, "statusCode");
 
   if (typeof statusCode === "number") out.statusCode = statusCode;
   const url = stringField(err, "url");
@@ -55,55 +57,65 @@ function isPostgresDiagnostic(value: unknown): boolean {
 }
 
 /**
- * Allowlist an error for logs. Never `message`, `detail`, `query`, or `parameters`:
+ * Allowlist an error for logs. In production, never `message`, `detail`, `query`, or `parameters`:
  * Postgres can put user data and SQL there. Keep only stack frames, since line one repeats `message`.
+ * Never throws: pino rethrows a serializer throw out of the log call, so a value whose
+ * prototype or getters throw collapses to `{ type: typeof err }`.
  */
 export function serializeError(err: unknown, verbose = false): SafeErrorLog {
-  const error = err instanceof Error ? err : undefined;
-  let databaseSource: unknown;
+  try {
+    const error: unknown = err instanceof Error ? err : undefined;
+    let databaseSource: unknown;
 
-  for (const level of pgErrorChain(err)) {
-    if (isPostgresDiagnostic(level)) databaseSource = level;
+    for (const level of pgErrorChain(err)) {
+      if (isPostgresDiagnostic(level)) databaseSource = level;
+    }
+
+    const database = {
+      code: stringField(databaseSource, "code"),
+      constraint: stringField(databaseSource, "constraint"),
+      schema: stringField(databaseSource, "schema"),
+      table: stringField(databaseSource, "table"),
+      column: stringField(databaseSource, "column"),
+    };
+
+    const hasDatabaseField = Object.values(database).some((value) => value !== undefined);
+
+    const stack = stringField(error, "stack")
+      ?.split("\n")
+      .filter((line) => /^\s*at\s/.test(line))
+      .join("\n")
+      .trim();
+
+    return {
+      type: stringField(error, "name") ?? typeof err,
+      ...(stack ? { stack } : {}),
+      ...(hasDatabaseField ? { database } : {}),
+      ...(verbose ? devErrorDiagnostics(err) : {}),
+    };
+  } catch {
+    return { type: typeof err };
   }
-
-  const database = {
-    code: stringField(databaseSource, "code"),
-    constraint: stringField(databaseSource, "constraint"),
-    schema: stringField(databaseSource, "schema"),
-    table: stringField(databaseSource, "table"),
-    column: stringField(databaseSource, "column"),
-  };
-
-  const hasDatabaseField = Object.values(database).some((value) => value !== undefined);
-
-  const stack = error?.stack
-    ?.split("\n")
-    .filter((line) => /^\s*at\s/.test(line))
-    .join("\n")
-    .trim();
-
-  return {
-    type: error?.name ?? typeof err,
-    ...(stack ? { stack } : {}),
-    ...(hasDatabaseField ? { database } : {}),
-    ...(verbose ? devErrorDiagnostics(err) : {}),
-  };
 }
 
-/** A bounded, allowlisted diagnostic suitable for traces and other text-only sinks. */
+/** A bounded, allowlisted diagnostic suitable for traces and other text-only sinks. Never throws. */
 export function safeErrorDiagnostic(err: unknown): string {
   const serialized = serializeError(err);
   const database = serialized.database;
 
-  return [
-    err instanceof AppError ? err.code : serialized.type,
-    // Provider and status only. The body and URL can hold user data, so they stay out.
-    isHttpError(err) ? `provider=${err.provider} status=${err.status}` : undefined,
-    database?.code ? `sqlstate=${database.code}` : undefined,
-    database?.constraint ? `constraint=${database.constraint}` : undefined,
-  ]
-    .filter((part): part is string => part !== undefined)
-    .join(" ");
+  try {
+    return [
+      err instanceof AppError ? err.code : serialized.type,
+      // Provider and status only. The body and URL can hold user data, so they stay out.
+      isHttpError(err) ? `provider=${err.provider} status=${err.status}` : undefined,
+      database?.code ? `sqlstate=${database.code}` : undefined,
+      database?.constraint ? `constraint=${database.constraint}` : undefined,
+    ]
+      .filter((part): part is string => part !== undefined)
+      .join(" ");
+  } catch {
+    return serialized.type;
+  }
 }
 
 export function createLogger(destination?: DestinationStream, opts?: { verboseErrors?: boolean }) {
