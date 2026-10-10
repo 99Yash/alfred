@@ -884,7 +884,7 @@ export async function runEmailTriageOpenDocumentAsk<State extends EmailTriageOpe
 
   // `ctx.log` is an outbox insert on the same pool `open` uses, so a pool fault can
   // fail it too. A log fault must not escape: it falls back to the process log, with
-  // the open fault as its allowlisted diagnostic. Item 58 moves this into the executor.
+  // the open fault as its allowlisted diagnostic, until `StepContext.log` is best-effort.
   const log = async (message: string, openErr?: unknown) => {
     try {
       await ctx.log(message);
@@ -922,6 +922,17 @@ export async function runEmailTriageOpenDocumentAsk<State extends EmailTriageOpe
     const reason = toMessage(err).slice(0, 500);
 
     if (delay === undefined) {
+      // The progress row is reaped after 7 days, so the loss also goes to the process log.
+      logger.warn(
+        {
+          openError: safeErrorDiagnostic(err),
+          event: "triage_document_ask_lost",
+          runId: ctx.runId,
+          sourceMessageId: documentAsk.source.messageId,
+          retries,
+        },
+        "triage: document ask lost after retries",
+      );
       await log(`document_ask: open failed after ${retries} retries; ask lost: ${reason}`, err);
 
       return next;
