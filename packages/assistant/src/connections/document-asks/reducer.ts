@@ -70,6 +70,8 @@ export type DocumentAskOpenResult =
 
 export type DocumentAskObserveResult =
   | { kind: "resolved"; resolutions: readonly DocumentAskResolution[] }
+  /** A sibling's media is still live. Observe again at `retryAt`. */
+  | { kind: "deferred"; retryAt: Date }
   | { kind: "noop"; reason: DocumentAskNoopReason };
 
 export type DocumentAskNoopReason =
@@ -78,7 +80,6 @@ export type DocumentAskNoopReason =
   | "unowned_source"
   | "unknown_carrier_time"
   | "carrier_not_sent"
-  | "carrier_media_pending"
   | "no_active_ask"
   | "no_positive_evidence"
   | "ambiguous_active_asks"
@@ -86,14 +87,15 @@ export type DocumentAskNoopReason =
   | "multiple_carriers"
   | "stale_state";
 
+/** Carriers are observed only through `observeDocumentAskCarrier`, which owns the re-observe. */
 export interface DocumentAskReducer {
   open(input: OpenDocumentAskInput): Promise<DocumentAskOpenResult>;
-  observe(input: ObserveDocumentAskInput): Promise<DocumentAskObserveResult>;
 }
 
 /**
- * After this, a set `mediaPending` flag has no job left to clear it.
- * The poll retries only inside its `newer_than:5m` window; the rest is margin for queue lag.
+ * How long a set `mediaPending` flag blocks its thread. A flag can be lost (no job and no poll
+ * left to clear it), so the block needs an end. A blocked observe schedules one more observe at
+ * the end, so the bound does not depend on the poll window.
  */
 const MEDIA_PENDING_SETTLE_MS = 30 * 60 * 1000;
 
@@ -120,10 +122,9 @@ type CarrierEvidence = {
   evidence: DocumentAskEvidence[];
 };
 
-type CarrierResolution = {
-  resolutions: DocumentAskResolution[];
-  reason: DocumentAskNoopReason;
-};
+type CarrierResolution =
+  | { kind: "deferred"; retryAt: Date }
+  | { kind: "settled"; resolutions: DocumentAskResolution[]; reason: DocumentAskNoopReason };
 
 const gmailMessageColumns = {
   sourceId: documents.sourceId,
@@ -321,24 +322,30 @@ function sentAfter(carrier: PersistedGmailMessage, ask: DocumentAskRow): boolean
 }
 
 /**
- * Wait for a sibling's live media job, or the result depends on job order.
- * The observed carrier is never its own barrier.
+ * Wait for a sibling's live media job, or the result depends on job order. Returns the epoch ms
+ * when the barrier closes, or null when it is not open. The observed carrier is never its own
+ * barrier.
  */
-function isOpenMediaBarrier(input: {
+function mediaBarrierExpiry(input: {
   carrier: PersistedGmailMessage;
   observedMessageId: string | null;
   activeAsks: readonly DocumentAskRow[];
   observedAt: Date;
-}): boolean {
+}): number | null {
   const { carrier } = input;
 
-  return (
-    carrier.mediaPending &&
-    carrier.messageId !== input.observedMessageId &&
-    carrier.authoredAt !== null &&
-    input.observedAt.getTime() - carrier.authoredAt.getTime() < MEDIA_PENDING_SETTLE_MS &&
-    input.activeAsks.some((ask) => sentAfter(carrier, ask))
-  );
+  if (
+    !carrier.mediaPending ||
+    carrier.messageId === input.observedMessageId ||
+    carrier.authoredAt === null ||
+    !input.activeAsks.some((ask) => sentAfter(carrier, ask))
+  ) {
+    return null;
+  }
+
+  const expiry = carrier.authoredAt.getTime() + MEDIA_PENDING_SETTLE_MS;
+
+  return input.observedAt.getTime() < expiry ? expiry : null;
 }
 
 /** Resolve each requested kind independently across the persisted carrier set. */
@@ -350,12 +357,15 @@ async function resolvePersistedCarriers(input: {
   observedMessageId: string | null;
   observedAt: Date;
 }): Promise<CarrierResolution> {
-  if (input.activeAsks.length === 0) return { resolutions: [], reason: "no_active_ask" };
+  if (input.activeAsks.length === 0) {
+    return { kind: "settled", resolutions: [], reason: "no_active_ask" };
+  }
 
   const carriers = await readSentCarriers(input.userId, input.accountId, input.threadId);
+  const expiries = carriers.flatMap((carrier) => mediaBarrierExpiry({ ...input, carrier }) ?? []);
 
-  if (carriers.some((carrier) => isOpenMediaBarrier({ ...input, carrier }))) {
-    return { resolutions: [], reason: "carrier_media_pending" };
+  if (expiries.length > 0) {
+    return { kind: "deferred", retryAt: new Date(Math.min(...expiries)) };
   }
 
   const attachmentRows = await readAttachmentRows(input.userId);
@@ -367,7 +377,7 @@ async function resolvePersistedCarriers(input: {
   });
 
   if (positiveCarriers.length === 0) {
-    return { resolutions: [], reason: "no_positive_evidence" };
+    return { kind: "settled", resolutions: [], reason: "no_positive_evidence" };
   }
 
   const resolutions: DocumentAskResolution[] = [];
@@ -443,7 +453,7 @@ async function resolvePersistedCarriers(input: {
     });
   }
 
-  return { resolutions, reason };
+  return { kind: "settled", resolutions, reason };
 }
 
 async function replayForAsk(
@@ -462,6 +472,9 @@ async function replayForAsk(
     observedMessageId: null,
     observedAt,
   });
+
+  // The open path has no carrier to re-observe, so a deferred replay resolves nothing here.
+  if (resolution.kind === "deferred") return [];
 
   return resolution.resolutions.filter((resolution) => resolution.askId === ask.id);
 }
@@ -509,36 +522,62 @@ export const documentAskReducer: DocumentAskReducer = {
 
     return { kind, askId: opened.ask.id, status: current.status, resolutions };
   },
-
-  async observe(input) {
-    const locator = gmailMessageLocatorSchema.safeParse(input.carrier);
-
-    if (!locator.success || !validDate(input.observedAt)) return noop("malformed_source");
-
-    const carrier = await readGmailMessage(input.userId, locator.data);
-
-    if (carrier.kind === "missing") return noop("unowned_source");
-
-    if (carrier.kind === "malformed") return noop("malformed_source");
-
-    if (!carrier.message.isSent) return noop("carrier_not_sent");
-
-    const { accountId, threadId, messageId } = carrier.message;
-    const activeAsks = await readActiveForThread(input.userId, accountId, threadId);
-
-    if (activeAsks.length === 0) return noop("no_active_ask");
-
-    const resolution = await resolvePersistedCarriers({
-      userId: input.userId,
-      accountId,
-      threadId,
-      activeAsks,
-      observedMessageId: messageId,
-      observedAt: input.observedAt,
-    });
-
-    return resolution.resolutions.length > 0
-      ? { kind: "resolved", resolutions: resolution.resolutions }
-      : noop(resolution.reason);
-  },
 };
+
+async function observeCarrier(input: ObserveDocumentAskInput): Promise<DocumentAskObserveResult> {
+  const locator = gmailMessageLocatorSchema.safeParse(input.carrier);
+
+  if (!locator.success || !validDate(input.observedAt)) return noop("malformed_source");
+
+  const carrier = await readGmailMessage(input.userId, locator.data);
+
+  if (carrier.kind === "missing") return noop("unowned_source");
+
+  if (carrier.kind === "malformed") return noop("malformed_source");
+
+  if (!carrier.message.isSent) return noop("carrier_not_sent");
+
+  const { accountId, threadId, messageId } = carrier.message;
+  const activeAsks = await readActiveForThread(input.userId, accountId, threadId);
+
+  if (activeAsks.length === 0) return noop("no_active_ask");
+
+  const resolution = await resolvePersistedCarriers({
+    userId: input.userId,
+    accountId,
+    threadId,
+    activeAsks,
+    observedMessageId: messageId,
+    observedAt: input.observedAt,
+  });
+
+  if (resolution.kind === "deferred") return resolution;
+
+  return resolution.resolutions.length > 0
+    ? { kind: "resolved", resolutions: resolution.resolutions }
+    : noop(resolution.reason);
+}
+
+export type ScheduleDocumentAskObserve = (args: {
+  userId: string;
+  carrier: GmailMessageLocator;
+  at: Date;
+}) => Promise<void>;
+
+/**
+ * Observe one sent carrier. Each `deferred` result schedules one more observe of this carrier at
+ * `retryAt`, which is strictly later than this observe, so the chain ends when the last barrier
+ * closes.
+ */
+export async function observeDocumentAskCarrier(
+  input: ObserveDocumentAskInput,
+  schedule: ScheduleDocumentAskObserve,
+): Promise<DocumentAskObserveResult> {
+  const result = await observeCarrier(input);
+
+  if (result.kind === "deferred") {
+    await schedule({ userId: input.userId, carrier: input.carrier, at: result.retryAt });
+  }
+
+  return result;
+}
