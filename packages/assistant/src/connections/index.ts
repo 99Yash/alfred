@@ -22,6 +22,7 @@ export * from "./google-credential-lifecycle";
 
 export {
   documentAskReducer,
+  gmailMessageLocatorSchema,
   type DocumentAskNoopReason,
   type DocumentAskObserveResult,
   type DocumentAskOpenResult,

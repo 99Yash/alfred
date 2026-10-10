@@ -3,7 +3,7 @@ import {
   publishEvent,
   type EmailTriageClassifiedPayload,
 } from "@alfred/assistant/triggers";
-import { documentAskReducer } from "@alfred/assistant/connections";
+import { documentAskReducer, gmailMessageLocatorSchema } from "@alfred/assistant/connections";
 import { resolveFeatureFlags, resolveTimezone } from "@alfred/assistant/settings";
 import {
   findActiveSenderSuppression,
@@ -51,6 +51,7 @@ import { getThreadState, readGmailThreadClosure, userRepliedAfterMessage } from 
 import { assembleObservations, type Observations } from "./observations";
 import type { StepContext, StepResult } from "@alfred/assistant/execution";
 import {
+  documentAskProposalSchema,
   gmailTodoSources,
   isHttpError,
   isSentGmailMetadata,
@@ -64,13 +65,14 @@ import {
   toMessage,
 } from "@alfred/contracts";
 import { getFreshAccessToken, getMessage } from "@alfred/integrations/google";
+import { logger, safeErrorDiagnostic } from "@alfred/logging";
 import { triageRunReasonSchema } from "./workflow-input";
 import { z } from "zod";
 
 /**
  * Email triage workflow (ADR-0025): one `email_triage` row per (user, thread),
- * steps classify → apply-label → close-loop-todos. A reply re-runs it; user
- * overrides stay pinned.
+ * steps classify → apply-label → open-document-ask → close-loop-todos. A reply
+ * re-runs it; user overrides stay pinned.
  */
 
 /**
@@ -88,6 +90,12 @@ export const emailTriageStateSchema = z.object({
   force: z.boolean().optional(),
   /** Whole-thread closure, read by `classify` on reply runs only, used by `close-loop-todos`. */
   userAlreadyReplied: z.boolean().optional(),
+  /** The ask `classify` proposed for this message, opened by `open-document-ask`. */
+  documentAsk: z
+    .object({ source: gmailMessageLocatorSchema, proposal: documentAskProposalSchema })
+    .optional(),
+  /** Faulted opens so far; indexes `DOCUMENT_ASK_OPEN_RETRY_DELAYS_MS`. */
+  documentAskOpenRetries: z.number().int().min(0).optional(),
 });
 
 export type EmailTriageOperationState = z.infer<typeof emailTriageStateSchema>;
@@ -433,21 +441,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
   }
 
   // Side effects run on both paths (#157). Each is idempotent, so a re-entry is safe.
-
-  // Not gated on `written`: an older ask that loses the row race is still an ask.
-  // A reducer fault throws so the step retries.
-  const documentAskAccountId = ctxData.document.accountId;
-
-  if (classification.documentAsk && documentAskAccountId) {
-    const opened = await documentAskReducer.open({
-      userId: ctx.userId,
-      source: { accountId: documentAskAccountId, messageId: ctxData.document.sourceId },
-      proposal: classification.documentAsk,
-      observedAt: new Date(),
-    });
-
-    if (opened.kind === "noop") await ctx.log(`document_ask: open noop reason=${opened.reason}`);
-  }
+  // The document ask is not one of them: it travels in run state to `open-document-ask`.
 
   // Best-effort and outside the row transaction. The 5-minute rail poll recovers a lost frame.
   if (written) {
@@ -648,6 +642,19 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       senderContext,
       // Reused by `close-loop-todos`; a second read could see a newer inbound.
       userAlreadyReplied,
+      // Not gated on `written`: an older ask that loses the row race is still an ask.
+      // Set on every path, so a stale ask cannot survive into this run.
+      documentAsk:
+        classification.documentAsk && ctxData.document.accountId
+          ? {
+              source: {
+                accountId: ctxData.document.accountId,
+                messageId: ctxData.document.sourceId,
+              },
+              proposal: classification.documentAsk,
+            }
+          : undefined,
+      documentAskOpenRetries: 0,
     },
     nextStep: EMAIL_TRIAGE_EDGES.classify,
   };
@@ -785,7 +792,7 @@ export async function runEmailTriageApplyLabel<State extends EmailTriageOperatio
     );
   }
 
-  // Every path forwards to `close-loop-todos` (#1168). A fault must not throw:
+  // Every path forwards to the next step (#1168). A fault must not throw:
   // that ends the run before the retraction. `applied_label_id` stays NULL, so the
   // next inbound re-labels.
   let flags: Awaited<ReturnType<typeof resolveFeatureFlags>>;
@@ -852,6 +859,94 @@ export async function runEmailTriageApplyLabel<State extends EmailTriageOperatio
     state: { ...ctx.state },
     nextStep: EMAIL_TRIAGE_EDGES["apply-label"],
   };
+}
+
+/** Defer delays for a faulted open. Past the last one the ask is logged as lost. */
+const DOCUMENT_ASK_OPEN_RETRY_DELAYS_MS = [60_000, 5 * 60_000, 15 * 60_000] as const;
+
+/**
+ * Opens the ask `classify` proposed. A fault must not throw: that fails the run
+ * terminally and `close-loop-todos` never runs. It defers on the bounded schedule
+ * instead. `classify` is the only caller of `open`, so a lost ask stays lost.
+ */
+export async function runEmailTriageOpenDocumentAsk<State extends EmailTriageOperationState>(
+  ctx: StepContext<State>,
+): Promise<StepResult<State, EmailTriageStepName>> {
+  const next: StepResult<State, EmailTriageStepName> = {
+    kind: "next",
+    state: { ...ctx.state },
+    nextStep: EMAIL_TRIAGE_EDGES["open-document-ask"],
+  };
+
+  const documentAsk = ctx.state.documentAsk;
+
+  if (!documentAsk) return next;
+
+  // `ctx.log` is an outbox insert on the same pool `open` uses, so a pool fault can
+  // fail it too. A log fault must not escape: it falls back to the process log, with
+  // the open fault as its allowlisted diagnostic, until `StepContext.log` is best-effort.
+  const log = async (message: string, openErr?: unknown) => {
+    try {
+      await ctx.log(message);
+    } catch (logErr) {
+      logger.warn(
+        {
+          err: logErr,
+          ...(openErr === undefined ? {} : { openError: safeErrorDiagnostic(openErr) }),
+          event: "triage_document_ask_log_fault",
+          runId: ctx.runId,
+          sourceMessageId: documentAsk.source.messageId,
+          retries: ctx.state.documentAskOpenRetries ?? 0,
+        },
+        "triage: document-ask step log failed",
+      );
+    }
+  };
+
+  try {
+    // Idempotent per source message, so a deferred re-entry is safe.
+    const opened = await documentAskReducer.open({
+      userId: ctx.userId,
+      source: documentAsk.source,
+      proposal: documentAsk.proposal,
+      observedAt: new Date(),
+    });
+
+    if (opened.kind === "noop") await log(`document_ask: open noop reason=${opened.reason}`);
+
+    return next;
+  } catch (err) {
+    const retries = ctx.state.documentAskOpenRetries ?? 0;
+    const delay = DOCUMENT_ASK_OPEN_RETRY_DELAYS_MS[retries];
+    // Bounded so the line stays under the progress-message cap.
+    const reason = toMessage(err).slice(0, 500);
+
+    if (delay === undefined) {
+      // The progress row is reaped after 7 days, so the loss also goes to the process log.
+      logger.warn(
+        {
+          openError: safeErrorDiagnostic(err),
+          event: "triage_document_ask_lost",
+          runId: ctx.runId,
+          sourceMessageId: documentAsk.source.messageId,
+          retries,
+        },
+        "triage: document ask lost after retries",
+      );
+      await log(`document_ask: open failed after ${retries} retries; ask lost: ${reason}`, err);
+
+      return next;
+    }
+
+    await log(`document_ask: open failed (retry ${retries + 1}): ${reason}`, err);
+
+    return {
+      kind: "defer",
+      state: { ...ctx.state, documentAskOpenRetries: retries + 1 },
+      retryAt: new Date(Date.now() + delay),
+      reason: "retry_scheduled",
+    };
+  }
 }
 
 type SentDocumentStatus =
@@ -1018,6 +1113,7 @@ async function gatherObservations(args: {
 export const emailTriageSteps = {
   classify: { id: "classify", run: runEmailTriageClassify },
   "apply-label": { id: "apply-label", run: runEmailTriageApplyLabel },
+  "open-document-ask": { id: "open-document-ask", run: runEmailTriageOpenDocumentAsk },
   "close-loop-todos": { id: "close-loop-todos", run: runEmailTriageCloseLoopTodos },
 } as const;
 
@@ -1028,6 +1124,9 @@ export const EMAIL_TRIAGE_INITIAL_STEP = "classify" satisfies EmailTriageStepNam
 
 export const EMAIL_TRIAGE_EDGES = {
   classify: "apply-label",
-  "apply-label": "close-loop-todos",
+  // The ask opens after the label, so an ask fault cannot delay or remove the label.
+  // It opens before `close-loop-todos`, which ends the run and owns the summary.
+  "apply-label": "open-document-ask",
+  "open-document-ask": "close-loop-todos",
   "close-loop-todos": null,
 } as const satisfies Record<EmailTriageStepName, EmailTriageStepName | null>;
