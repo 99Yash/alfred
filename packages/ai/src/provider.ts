@@ -21,6 +21,7 @@ import {
   type RouteLeg,
   type RouteReasoning,
 } from "./provider-adapter";
+import { isGatewayMintedError } from "./gateway";
 import { identifyLanguageModel } from "./models";
 
 export type { ChatModelTier };
@@ -282,14 +283,16 @@ export function withFallback(primary: LanguageModelV4, fallback: LanguageModelV4
     if (isCallerAbort(e)) return false;
 
     if (APICallError.isInstance(e) && e.statusCode !== undefined) {
+      // A provider's own spend cap switches. The gateway's credit pool is the same for
+      // every leg, so a gateway money fault does not.
+      if (isQuotaOrBillingError(e)) return !isGatewayMintedError(e);
+
       // A 429 switches, but a gateway `2018` budget 429 is shared across providers,
       // so the fallback rarely escapes it. A provider's own account limit it does escape.
       const code = e.statusCode;
       const isClientBug = code >= 400 && code < 500 && code !== 408 && code !== 429;
 
-      // A spend cap arrives as a 4xx (a gateway credit fault as a 402) but is not our bug,
-      // so it switches like a 429.
-      if (isClientBug && !isQuotaOrBillingError(e)) return false;
+      if (isClientBug) return false;
     }
 
     return true;
