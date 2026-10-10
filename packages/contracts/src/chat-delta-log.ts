@@ -1,6 +1,7 @@
 /**
- * The one dedupe rule for `chat.delta` and `chat.reasoning` frames. The web bubble and the
- * server's failed-closure fold both apply it in outbox order, from a different floor.
+ * The one dedupe rule for `chat.delta` and `chat.reasoning` frames. The web bubble applies it
+ * in arrival order, and the server's failed-closure fold applies it in outbox `id` order. Each
+ * starts from a different floor.
  *
  * `attempt` grows on every step commit and on every stale-lease reclaim. Each frame carries
  * `fromSeq`, the committed `seq` its attempt started after. A higher attempt cuts every applied
@@ -12,10 +13,10 @@
  * ordered, so a frame that arrives after a higher `seq` of its own attempt is lost from the
  * stream until the saved row replaces it.
  *
- * The cut is not independent of order across steps. When a later step's frame arrives before
- * the reclaim attempt's frames, that step cuts only above its own `fromSeq`. The superseded
- * attempt's text below it stays, and the reclaim attempt's frames then drop as a lower attempt.
- * The bubble shows that splice until the terminal frame swaps in the saved row, which is correct.
+ * Across steps, the cut depends on order. When a later step's frame arrives before the reclaim
+ * attempt's frames, that step cuts only above its own `fromSeq`. The superseded attempt's text
+ * below it stays, and the reclaim attempt's frames then drop as a lower attempt. The bubble
+ * shows that splice until the saved row replaces it. The saved row is correct.
  */
 
 /** A point in the stream: the committed `deltaSeq` and `segmentIndex` of a run. */
