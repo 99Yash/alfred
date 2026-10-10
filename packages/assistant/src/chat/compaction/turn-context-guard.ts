@@ -11,7 +11,8 @@ import { and, asc, eq } from "drizzle-orm";
 import { assessChatRequestPressure } from "./chat-request-pressure";
 import { CHAT_MAX_OUTPUT_TOKENS } from "./constants";
 import { conversationSummaryMessage } from "./chat-context-assembly";
-import { loadChatThreadContext, type ChatSummaryWatermark } from "./chat-context-store";
+import { loadChatThreadContext } from "./chat-context-store";
+import type { ChatMessageWatermark } from "./chat-message-watermark";
 import { compactWithRetry } from "@alfred/assistant/execution";
 import { compactTranscript } from "@alfred/assistant/execution";
 import { compactConversationSynchronously } from "./synchronous-conversation-compaction";
@@ -85,7 +86,7 @@ async function loadForegroundCompactionBoundary(
   userId: string,
   threadId: string,
   latestUserMessageId: string | undefined,
-): Promise<{ compaction: ChatSummaryWatermark; replayTail: ChatSummaryWatermark } | null> {
+): Promise<{ compaction: ChatMessageWatermark; replayTail: ChatMessageWatermark } | null> {
   const rows = await db()
     .select({
       id: chatMessages.id,

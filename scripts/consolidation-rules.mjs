@@ -697,13 +697,24 @@ export const RULES = [
   {
     id: "no-type-alias-shim",
     // `import type { Foo } from "./constants"; export type Bar = Foo` — a shim
-    // that adds a name without adding a fact. Only the constants seam is gated
-    // here; generic `Pick<>` / `Exclude<>` / `z.infer` aliases are not.
-    re: /import\s+type\s*\{[^}]*\}\s*from\s*["'][^"']*\/constants["'][^;]*;[^;]*export\s+type\s+\w+\s*=\s*\w+\s*;/,
+    // that adds a name without adding a fact. The right-hand side is a bare
+    // identifier or dotted path, so a real derivation (`Pick<>`, `z.infer`,
+    // `typeof x[number]`) is not matched: only a rename is. `owners` holds the
+    // sanctioned renames, each carrying a doc comment naming the fact it
+    // encodes; a new one joins `owners` with that reason, or states it inline.
+    re: /import\s+(?:type\s+)?\{[^}]*\}\s*from\s*["'][^"']+["']\s*;[^;]*export\s+type\s+\w+\s*=\s*[\w.]+\s*;/,
     scope: "chain",
     severity: "gate",
-    owners: ["packages/extraction/src/index.ts", "packages/assistant/src/chat/compaction/index.ts"],
-    fix: "Do not alias an imported constants type with `export type X = Y`. Import Y directly where you need it, or define X in its owning module. An alias that only renames is a second door.",
+    owners: [
+      // Renames that carry a fact, each documented at the alias:
+      "packages/contracts/src/chat.ts", // @deprecated TurnKickResponse → TurnStartResponse
+      "packages/assistant/src/knowledge/reader.ts", // ActiveEntity* rows are pinned to the active run
+      "packages/assistant/src/execution/sub-agent-join.ts", // ParkWake is a signal wake plus a persisted deadline
+      "packages/ai/src/metering/metered.ts", // CallKind is api_call_log.kind, owned by @alfred/contracts
+      "packages/assistant/src/connections/mcp/built-ins.ts", // the catalog owns the provider key space
+      "apps/web/src/lib/shell/app-sidebar/types.ts", // the sidebar and header share one actions shape
+    ],
+    fix: "Do not alias an imported type with `export type X = Y` when Y is just another name for the same shape. Import Y directly, or define X in the module that owns it. An alias earns its place only when it states a fact — a deprecation, an invariant, an ownership boundary — in the doc comment above it; a bare rename is a second door.",
   },
   {
     id: "no-function-wrapper-shim",

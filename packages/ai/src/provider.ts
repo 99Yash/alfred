@@ -26,8 +26,6 @@ import { identifyLanguageModel } from "./models";
 
 export type { ChatModelTier };
 
-export type ChatProviderOptions = SharedV4ProviderOptions;
-
 export const MEDIA_INPUT_MODALITIES = ["text", "image", "audio", "video", "pdf"] as const;
 
 export type MediaInputModality = (typeof MEDIA_INPUT_MODALITIES)[number];
@@ -95,12 +93,12 @@ export type ModelRouteName = keyof typeof MODEL_ROUTES;
 export interface ModelRouteHandle {
   model(): LanguageModelV4;
   /** Only the exceptions. The generic reasoning is already on the model. */
-  providerOptions(): ChatProviderOptions;
+  providerOptions(): SharedV4ProviderOptions;
   reasoning(): RouteReasoning;
 }
 
 function createRouteHandle(definition: ModelRoute): ModelRouteHandle {
-  const providerOptions: ChatProviderOptions = definition.providerOptions ?? {};
+  const providerOptions: SharedV4ProviderOptions = definition.providerOptions ?? {};
   let model: LanguageModelV4 | undefined;
 
   return {

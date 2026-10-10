@@ -1,10 +1,9 @@
-import type { AskUserAnswer, AskUserInput, AskUserQuestion } from "@alfred/contracts";
+import type { AskUserAnswer, AskUserInput, AskUserQuestion, JsonObject } from "@alfred/contracts";
 import { ASK_USER_LIMITS } from "@alfred/contracts";
 import { Check, ChevronLeft, ChevronRight } from "lucide-react";
 import { useState } from "react";
 import { MarkdownRenderer } from "~/components/markdown-renderer";
 import { AppTextarea } from "~/components/ui/v2";
-import type { JsonRecord } from "~/lib/json-record";
 import { cn } from "~/lib/utils";
 import { answersOf, isAnswerEmpty, withAnswers } from "./ask-user";
 
@@ -21,7 +20,7 @@ export function AskUserQuestionPanel({
 }: {
   input: AskUserInput;
   /** Answers are written here, not onto `input`: parsed defaults would look like edits. */
-  rawValue: JsonRecord;
+  rawValue: JsonObject;
   onChange: (value: unknown) => void;
   disabled?: boolean | undefined;
   idPrefix: string;
