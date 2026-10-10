@@ -268,6 +268,7 @@ export function isCapacityError(err: unknown): boolean {
 /**
  * Retry the primary on transient errors, then switch to `fallback`.
  * A plain 4xx does not switch: it means our request is wrong, and a weaker model would hide the bug.
+ * A gateway credit fault does not switch: every leg draws on the same Unified Billing pool.
  * Fallback covers only errors raised before a stream starts.
  *
  * Stateless on purpose: it builds a new retryable model per call. ai-retry keeps the serving leg

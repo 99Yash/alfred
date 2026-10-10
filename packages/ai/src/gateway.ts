@@ -1,7 +1,7 @@
 import { anthropic, createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI, google } from "@ai-sdk/google";
 import { createOpenAI, openai } from "@ai-sdk/openai";
-import { safeJsonParse } from "@alfred/contracts";
+import { parseJsonWith } from "@alfred/contracts";
 import { cloudflareGatewayConfig, serverEnv } from "@alfred/env/server";
 import type { APICallError } from "ai";
 import { z } from "zod";
@@ -58,7 +58,7 @@ const gatewayErrorBodySchema = z.object({ internalCode: z.number() });
  * 402). A provider error body has no such field.
  */
 export function isGatewayMintedError(e: APICallError): boolean {
-  return gatewayErrorBodySchema.safeParse(safeJsonParse(e.responseBody ?? "")).success;
+  return parseJsonWith(e.responseBody ?? "", gatewayErrorBodySchema) !== null;
 }
 
 export function createGateway(config: GatewayConfig | undefined): Gateway {
