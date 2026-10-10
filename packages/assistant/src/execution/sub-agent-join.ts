@@ -1,3 +1,4 @@
+import type { WakeCondition } from "@alfred/contracts";
 import type { SafeToParkWake } from "@alfred/assistant/tool-runtime";
 
 import {
@@ -28,7 +29,11 @@ export type ParkWake = SafeToParkWake;
 
 function mintParkWake(childRunId: string, deadlineAt: string): ParkWake {
   // SAFETY: the only mint; every park it builds carries a deadline.
-  return { kind: "signal", name: subAgentDoneSignalName(childRunId), deadlineAt } as ParkWake;
+  return {
+    kind: "signal",
+    name: subAgentDoneSignalName(childRunId),
+    deadlineAt,
+  } satisfies Extract<WakeCondition, { kind: "signal" }> & { deadlineAt: string } as ParkWake;
 }
 
 /** Injected so the protocol is testable without a DB or Redis. */
@@ -53,6 +58,7 @@ export async function joinChildRun(
 
   // The child's own signal can be lost in a race, skipped by a cancel, or dropped by a crash.
   // The Redis job is the fast path. The deadline in the wake is the backstop if the job is lost.
+  // The deadline counts from the join, not from the park commit, the same as the Redis delay.
   const deadlineAt = new Date(Date.now() + AWAIT_SUB_AGENT_CEILING_MS).toISOString();
   await deps.scheduleWake({
     childRunId: args.childRunId,
