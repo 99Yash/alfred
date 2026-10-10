@@ -81,7 +81,7 @@ const FAILURE_PRESENTATION = {
   { message: string; retry: "same" | "without_attachments" | "none" }
 >;
 
-/** Failed rows saved before `errorKind` existed. */
+/** Failed rows with no `errorKind`: saved before it existed, or a kind this bundle does not know. */
 const LEGACY_FAILURE = { message: "This reply didn't finish.", retry: "same" } as const;
 
 const FAILURE_ACTION_CLASS = cn(
