@@ -638,7 +638,7 @@ async function dischargeCancelObligations(args: {
     if (parentRunId) await enqueueRun(parentRunId);
   } catch (err) {
     console.warn(
-      "[agent] sub-agent parent signal failed for cancelled run; dead-man timer will retry",
+      "[agent] sub-agent parent signal failed for cancelled run",
       args.runId,
       toMessage(err),
     );
@@ -823,7 +823,7 @@ export async function cancelRunInTx(
   });
 
   // Each child has its own fence, so cancel the children too (#559b).
-  // The only tx that locks two runs, parent first; a child's own cancel wakes its parent after commit.
+  // Parent row first, then each child row (see `cancelSpawnedChildrenInTx`).
   const childObligations = await cancelSpawnedChildrenInTx(tx, {
     parentRunId: args.runId,
     userId: row.userId,
@@ -863,7 +863,8 @@ export async function cancelRunInTx(
 /**
  * Cancel each live sub-agent child on the parent's tx (#559b).
  * The status guard ends the recursion, so a metadata cycle cannot loop.
- * Lock order: the parent row (already held), then each child row. No other tx locks two runs.
+ * Lock order: the parent row (already held), then each child row. Never lock a parent run in a tx
+ * that holds one of its children, so a child's own cancel wakes its parent after commit.
  * Returns one `afterCommit` per child.
  */
 async function cancelSpawnedChildrenInTx(
