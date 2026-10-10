@@ -59,7 +59,7 @@ Every phase sets at minimum `phase`; most also set one more field. The shape it 
   "slug": "arch-20260727",
   "source": ".campaign/arch-20260727/source.html",
   "baseBranch": "main",
-  "policy": { "maxReviewRounds": 3, "stopAt": "merge", "isolation": "worktree" },
+  "policy": { "maxReviewRounds": 3, "stopAt": "merge", "isolation": "worktree" }, // optional "queueFrozen": true refuses `add`
   "items": [
     {
       "id": "09",
@@ -406,7 +406,9 @@ yourself, and a verdict.
    unproven with named residual risk), and the review rounds it took.
 3. Queue any follow-ups the review deferred as **new items** with
    `campaign-state.mjs add`, each with its own item file at the path `add` prints. This
-   is where scope discovered mid-item goes to live.
+   is where scope discovered mid-item goes to live. When `policy.queueFrozen` is true,
+   `add` refuses: write each follow-up as one `campaign-state.mjs note` line
+   (`- [NN follow-up] ...`) and add no item.
 4. **If this item produced a durable, repeatable lesson, run `/learn`.** Not a
    summary of the change — the repo's git history already holds that. The bar is a
    non-obvious, costly, _recurring_ trap: the ordering that has to happen first, the
