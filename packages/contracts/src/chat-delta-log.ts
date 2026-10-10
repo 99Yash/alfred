@@ -14,7 +14,7 @@
  */
 
 /** A point in the stream: the committed `deltaSeq` and `segmentIndex` of a run. */
-export interface ChatDeltaPosition {
+interface ChatDeltaPosition {
   seq: number;
   segment: number;
 }
