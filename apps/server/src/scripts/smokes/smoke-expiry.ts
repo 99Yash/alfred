@@ -1,14 +1,15 @@
 /**
  * Smoke test for approval expiry on real Postgres and Redis, with a stub tool.
- * It calls `expireStaging` directly instead of waiting 24h for the job.
+ * It backdates `expires_at` and calls `expireStaging` directly instead of waiting 24h for the job.
  * Covers: staging sets `expires_at` and queues a job; expiry wakes the run and a
  * re-dispatch returns 'auto-expired' without executing; a human decision wins;
  * `removeApprovalExpiryJob` cancels the timer.
+ * The smoke user has no real Google credential, so it stubs `gmail` connection health as active.
  *
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/smokes/smoke-expiry.ts
  */
 
-import { getStringPath } from "@alfred/contracts";
+import { getStringPath, type IntegrationAvailabilitySnapshot } from "@alfred/contracts";
 import {
   approvalExpiryJobId,
   getApprovalExpiryQueue,
@@ -16,6 +17,7 @@ import {
 } from "@alfred/assistant/tool-runtime";
 
 import { dispatchToolCall } from "@alfred/assistant/tool-runtime/dispatch";
+import { _setIntegrationAvailabilityReaderForTests } from "@alfred/assistant/tool-runtime/test-support";
 import { expireStaging } from "@alfred/assistant/execution";
 import { clearToolRegistryForTests, liveTool, registerTools } from "@alfred/assistant/tool-runtime";
 import { closeConnections, warmPool } from "@alfred/db";
@@ -36,6 +38,14 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 const SMOKE_USER_EMAIL = "smoke-expiry@alfred.local";
+
+const GMAIL_CONNECTED: IntegrationAvailabilitySnapshot = {
+  integrations: new Map([["gmail", { health: "active", accountLabel: null }]]),
+  providers: new Map(),
+  passthroughEnabled: new Map(),
+};
+
+let restoreAvailabilityReader: (() => void) | undefined;
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(`[smoke-expiry] ${message}`);
@@ -97,6 +107,14 @@ async function parkRunOnApproval(runId: string, stagingId: string): Promise<void
     .where(eq(agentRuns.id, runId));
 }
 
+/** Move `expires_at` into the past, as if the 24h window ran out. */
+async function backdateExpiry(stagingId: string): Promise<void> {
+  await db()
+    .update(actionStagings)
+    .set({ expiresAt: new Date(Date.now() - 1000) })
+    .where(eq(actionStagings.id, stagingId));
+}
+
 const sendDraftInput = z
   .object({
     to: z.array(z.string().email()).min(1).max(25),
@@ -121,7 +139,10 @@ async function stageGatedDraft(userId: string, runId: string, toolCallId: string
     fence: { generation: 0 },
   });
 
-  assert(staged.kind === "staged", `expected 'staged', got '${staged.kind}'`);
+  assert(
+    staged.kind === "staged",
+    `expected 'staged', got '${staged.kind}': ${getStringPath(staged, "result", "message") ?? "no message"}`,
+  );
 
   return staged.stagingId;
 }
@@ -145,6 +166,9 @@ async function main(): Promise<void> {
       },
     }),
   ]);
+  restoreAvailabilityReader = _setIntegrationAvailabilityReaderForTests(() =>
+    Promise.resolve(GMAIL_CONNECTED),
+  );
 
   const userId = await findOrCreateSmokeUser();
   await ensureDefaultActionPolicyForUser(userId);
@@ -176,6 +200,7 @@ async function main(): Promise<void> {
 
   // 2. expireStaging on a parked, pending row
   await parkRunOnApproval(runId1, stagedId);
+  await backdateExpiry(stagedId);
   const expired = await expireStaging({ stagingId: stagedId, userId });
   assert(expired.status === "expired", `expireStaging expected 'expired', got '${expired.status}'`);
   assert(draftExec === 0, "expiry must not execute the tool");
@@ -290,6 +315,7 @@ try {
   console.error("[smoke-expiry] FAIL", err);
   process.exitCode = 1;
 } finally {
+  restoreAvailabilityReader?.();
   await closeRedis();
   await closeConnections();
 }
