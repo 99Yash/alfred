@@ -29,6 +29,8 @@ export {
   type DocumentAskResolution,
   type GmailMessageLocator,
   type OpenDocumentAskInput,
+  startDocumentAskReconciler,
+  stopDocumentAskReconciler,
 } from "./document-asks";
 
 export {
