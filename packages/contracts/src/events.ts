@@ -92,13 +92,19 @@ export const inboxUpdatedSchema = z.object({
 
 /**
  * A coalesced chunk of chat text, not one token, so each token is not an outbox row.
- * `seq` orders and dedupes per (runId, messageId). Ephemeral: the persisted message is the truth.
+ * `seq` is one counter for the whole run, carried across steps. It orders and dedupes the frames
+ * of one attempt. A higher attempt cuts every frame above its `fromSeq` (`applyChatDelta`).
+ * Ephemeral: the persisted message is the truth.
  */
 export const chatDeltaSchema = z.object({
   runId: z.string().min(1).max(120),
   threadId: z.string().min(1).max(120),
   messageId: z.string().min(1).max(120),
   seq: z.number().int().nonnegative(),
+  /** The run's step attempt that streamed it. 0 on rows written before the field existed. */
+  attempt: z.number().int().nonnegative().default(0),
+  /** The committed `seq` this attempt started after. Cut point when a higher attempt arrives. */
+  fromSeq: z.number().int().nonnegative().default(0),
   text: z.string().max(CHAT_DELTA_MAX),
   /**
    * Tool calls split a turn's text into segments. Segment N is the narration before tool step N;
@@ -113,6 +119,10 @@ export const chatReasoningSchema = z.object({
   threadId: z.string().min(1).max(120),
   messageId: z.string().min(1).max(120),
   seq: z.number().int().nonnegative(),
+  /** The run's step attempt that streamed it. 0 on rows written before the field existed. */
+  attempt: z.number().int().nonnegative().default(0),
+  /** The committed reasoning `seq` this attempt started after. */
+  fromSeq: z.number().int().nonnegative().default(0),
   text: z.string().max(CHAT_DELTA_MAX),
 });
 

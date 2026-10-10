@@ -78,7 +78,12 @@ function stubStop(opts?: { stopAfter?: number }): TurnStopController {
   };
 }
 
-const ctx = { userId: "user-1", runId: "run-1" };
+const ctx = {
+  userId: "user-1",
+  runId: "run-1",
+  attempt: 1,
+  state: { deltaSeq: 0, reasoningSeq: 0 },
+};
 
 describe("streamModelTurn", () => {
   test("coalesces reply text into a single sequenced chat.delta", async () => {

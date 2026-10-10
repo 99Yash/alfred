@@ -1,4 +1,11 @@
-import { runStatusSchema, sanitizeToolResult } from "@alfred/contracts";
+import {
+  applyChatDelta,
+  createChatDeltaLog,
+  runStatusSchema,
+  sanitizeToolResult,
+  type ChatErrorKind,
+  type ChatMessageUsage,
+} from "@alfred/contracts";
 import { eventPayloadSchemas } from "@alfred/contracts/events";
 import { db } from "@alfred/db";
 import {
@@ -14,7 +21,12 @@ import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { logger } from "@alfred/logging";
 import { finalizeRunArtifacts } from "@alfred/assistant/artifacts";
 import { scheduleThreadIdleExtraction } from "./idle-capture-queue";
-import { aggregateRunUsage } from "@alfred/assistant/execution";
+import {
+  aggregateRunUsage,
+  withStepLease,
+  type AgentDbExecutor,
+  type StepLease,
+} from "@alfred/assistant/execution";
 import { routeEffort } from "@alfred/ai";
 import { sanitizeVoice } from "@alfred/ai/voice";
 import { scheduleConversationCompactionIfNeeded } from "./compaction";
@@ -72,12 +84,20 @@ const CLOSURE_POLICY = {
   },
 } as const satisfies Record<ChatTurnOutcome["kind"], ClosurePolicy>;
 
+/**
+ * Who writes the row. A step body passes its lease, so a body whose lease was reclaimed
+ * writes nothing. `null` only for the executor's `onTerminal` hook, which runs after the
+ * last lease ends.
+ */
+type CloseWriter = StepLease | null;
+
 /** Idempotent on `messageId`. Callers use the named finalizers below. */
 async function closeChatTurn(
   userId: string,
   runId: string,
   state: ChatRunState,
   outcome: ChatTurnOutcome,
+  writer: CloseWriter,
 ): Promise<void> {
   const policy = CLOSURE_POLICY[outcome.kind];
 
@@ -86,18 +106,63 @@ async function closeChatTurn(
   const now = new Date();
   const fields = sanitizeChatMessageFields(state);
   const reasoningMs = state.reasoningMs > 0 ? state.reasoningMs : null;
+  // Slow reads stay outside the fence, so the run row lock is held only for the write.
+  const usage = await aggregateRunUsage(runId, routeEffort(state.tier));
 
-  // Exhaustive: a new ending leaves `written` unassigned and fails the build.
-  let written: { id: string }[];
+  // Exhaustive: a new ending leaves `write` unassigned and fails the build.
+  let write: (tx: AgentDbExecutor) => Promise<{ id: string }[]>;
 
   switch (outcome.kind) {
-    case "failed":
-      written = await insertFailedRow(userId, runId, state, fields, reasoningMs, outcome.error);
+    case "failed": {
+      // The raw error leaks vendor URLs, so store only `errorKind`. The client owns the copy.
+      const errorKind = await classifyChatTurnFailure(userId, state, outcome.error);
+      logger.warn(
+        {
+          err: outcome.error,
+          event: "chat_turn_failed",
+          runId,
+          attempt: writer?.attempt,
+          threadId: state.threadId,
+          errorKind,
+        },
+        "Chat turn failed",
+      );
+      write = (tx) =>
+        insertFailedRow(tx, userId, runId, state, { fields, reasoningMs, usage, errorKind });
       break;
+    }
+
     case "completed":
     case "cancelled":
-      written = await upsertCompletedRow(userId, runId, state, fields, reasoningMs, now);
+      write = (tx) =>
+        upsertCompletedRow(tx, userId, runId, state, { fields, reasoningMs, usage, now });
       break;
+  }
+
+  let written: { id: string }[];
+
+  if (writer === null) {
+    written = await write(db());
+  } else {
+    const fenced = await withStepLease(writer, write);
+
+    // The live attempt owns the row and the client release, so do not republish here.
+    if (!fenced.ok) {
+      logger.warn(
+        {
+          event: "chat_turn_close_superseded",
+          runId,
+          attempt: writer.attempt,
+          cause: fenced.cause,
+          outcome: outcome.kind,
+        },
+        "Skipped the chat row write: this attempt no longer owns the run",
+      );
+
+      return;
+    }
+
+    written = fenced.value;
   }
 
   // A prior attempt already wrote the row but may have died before releasing the
@@ -163,17 +228,21 @@ async function publishCompletedFrame(
   emitReplicachePokes([userId]);
 }
 
+/** The row columns {@link closeChatTurn} computes before the fenced write. */
+interface ChatRowFields {
+  fields: SanitizedChatMessageFields;
+  reasoningMs: number | null;
+  usage: ChatMessageUsage | null;
+}
+
 /** Insert the completed row. On conflict it replaces only a `failed` row of this thread. */
 async function upsertCompletedRow(
+  tx: AgentDbExecutor,
   userId: string,
   runId: string,
   state: ChatRunState,
-  fields: SanitizedChatMessageFields,
-  reasoningMs: number | null,
-  now: Date,
+  { fields, reasoningMs, usage, now }: ChatRowFields & { now: Date },
 ): Promise<{ id: string }[]> {
-  const usage = await aggregateRunUsage(runId, routeEffort(state.tier));
-
   // `and()` can return undefined, and an undefined `setWhere` silently removes the guard.
   const onlyIfPreviousAttemptFailed = and(
     eq(chatMessages.status, "failed"),
@@ -187,7 +256,7 @@ async function upsertCompletedRow(
     );
   }
 
-  return await db()
+  return await tx
     .insert(chatMessages)
     .values({
       id: state.messageId,
@@ -228,22 +297,13 @@ async function upsertCompletedRow(
  * completed reply. It carries `usage` too, because a failed turn can be the most expensive one.
  */
 async function insertFailedRow(
+  tx: AgentDbExecutor,
   userId: string,
   runId: string,
   state: ChatRunState,
-  fields: SanitizedChatMessageFields,
-  reasoningMs: number | null,
-  error: unknown,
+  { fields, reasoningMs, usage, errorKind }: ChatRowFields & { errorKind: ChatErrorKind },
 ): Promise<{ id: string }[]> {
-  // The raw error leaks vendor URLs, so store only `errorKind`. The client owns the copy.
-  const errorKind = await classifyChatTurnFailure(userId, state, error);
-  const usage = await aggregateRunUsage(runId, routeEffort(state.tier));
-  logger.warn(
-    { err: error, event: "chat_turn_failed", runId, threadId: state.threadId, errorKind },
-    "Chat turn failed",
-  );
-
-  return await db()
+  return await tx
     .insert(chatMessages)
     .values({
       id: state.messageId,
@@ -291,13 +351,13 @@ function armTurnFollowups(userId: string, runId: string, state: ChatRunState): v
   });
 }
 
-/** Persist a finished turn and arm its followups. */
+/** Persist a finished turn and arm its followups. Only while `lease` still owns the run. */
 export async function finalizeAssistantMessage(
   userId: string,
-  runId: string,
   state: ChatRunState,
+  lease: StepLease,
 ): Promise<void> {
-  await closeChatTurn(userId, runId, state, { kind: "completed" });
+  await closeChatTurn(userId, lease.runId, state, { kind: "completed" }, lease);
 }
 
 /**
@@ -309,17 +369,21 @@ export async function finalizeCancelledMessage(
   runId: string,
   state: ChatRunState,
 ): Promise<void> {
-  await closeChatTurn(userId, runId, state, { kind: "cancelled" });
+  await closeChatTurn(userId, runId, state, { kind: "cancelled" }, null);
 }
 
-/** Persist a `failed` row with whatever streamed, and release the client. */
+/**
+ * Persist a `failed` row with whatever streamed, and release the client.
+ * A step body passes its lease; only the executor's `onTerminal` hook passes `null`.
+ */
 export async function finalizeFailedMessage(
   userId: string,
   runId: string,
   state: ChatRunState,
   err: unknown,
+  lease: StepLease | null,
 ): Promise<void> {
-  await closeChatTurn(userId, runId, state, { kind: "failed", error: err });
+  await closeChatTurn(userId, runId, state, { kind: "failed", error: err }, lease);
 }
 
 /**
@@ -347,13 +411,11 @@ export async function foldUncommittedDeltas(
       )
       .orderBy(asc(eventsOutbox.id));
 
-    // The client's dedupe (`chat-stream-state.ts`): drop a `seq` at or below the highest
-    // seen. A reclaimed attempt restarts at the committed `deltaSeq`, so its repeats drop.
-    // Two differences remain: this walks outbox `id` order, not frame order, and a skipped
-    // lower-segment row does not advance the maximum. Both can only keep more text than
-    // the bubble showed, never less.
-    const segments = new Map<number, string>();
-    let deltaSeq = state.deltaSeq;
+    // The bubble's own rule, applied in outbox `id` order (the bubble applies it in arrival
+    // order), so a reclaimed attempt's text replaces the older attempt's uncommitted text here
+    // as it does on screen. The floor is the
+    // committed position: committed rows still raise the attempt, but never append.
+    const log = createChatDeltaLog({ seq: state.deltaSeq, segment: state.segmentIndex });
 
     for (const row of rows) {
       const delta = eventPayloadSchemas["chat.delta"].safeParse(row.payload);
@@ -366,23 +428,17 @@ export async function foldUncommittedDeltas(
         continue;
       }
 
-      // Committed segments are already closed onto the narration trail.
-      if (delta.data.seq <= deltaSeq || delta.data.segmentIndex < state.segmentIndex) continue;
-      deltaSeq = delta.data.seq;
-      segments.set(
-        delta.data.segmentIndex,
-        (segments.get(delta.data.segmentIndex) ?? "") + delta.data.text,
-      );
+      applyChatDelta(log, { ...delta.data, segment: delta.data.segmentIndex });
     }
 
-    if (segments.size === 0) return state;
+    if (log.segments.size === 0) return state;
 
     // A shallow copy is enough: `closeNarrationSegment` replaces the array, it does not push.
-    const folded: ChatRunState = { ...state, deltaSeq };
+    const folded: ChatRunState = { ...state, deltaSeq: log.seq };
 
     // `keepText` stays true even when `reissuePending` is set, unlike `closeLeadInNarration`:
     // the outbox proves the user saw this text.
-    for (const [index, text] of [...segments].sort(([a], [b]) => a - b)) {
+    for (const [index, text] of [...log.segments].sort(([a], [b]) => a - b)) {
       while (folded.segmentIndex < index) {
         closeNarrationSegment(folded, { keepText: true, advanceWhenNothingKept: true });
       }

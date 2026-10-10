@@ -1,4 +1,9 @@
-import type { ChatConnectNudge } from "@alfred/contracts";
+import {
+  applyChatDelta,
+  createChatDeltaLog,
+  type ChatConnectNudge,
+  type ChatDeltaLog,
+} from "@alfred/contracts";
 import type { EventPayload } from "@alfred/contracts/events";
 import type { SyncedChatNarration } from "@alfred/sync";
 import { frameThreadId, type EventStreamFrame } from "~/lib/events/frame";
@@ -86,21 +91,19 @@ interface StreamRef {
   runId: string;
   /** Outbox serial of the frame that mounted this turn. A replayed older turn cannot replace it. */
   mountId: number;
-  /** Full received text per narration segment. */
-  segments: Map<number, string>;
+  /** Full received text per narration segment, deduped across seqs and attempts. */
+  text: ChatDeltaLog;
   /** Highest segment index seen. */
   currentSegment: number;
   /** Eased chars shown of `shownSegment`. */
   shown: number;
   shownSegment: number;
-  reasoning: string;
+  /** Reasoning has one segment, 0. Read it through {@link reasoningText}. */
+  reasoningLog: ChatDeltaLog;
   reasoningShown: number;
   reasoningStartTs: number | null;
   reasoningMs: number | null;
   replyStarted: boolean;
-  /** Last applied seq; drops replay duplicates. */
-  deltaSeq: number;
-  reasoningSeq: number;
   tools: Map<string, StreamingToolCall>;
   /** Keyed by integration slug. */
   connectNudges: Map<string, ChatConnectNudge>;
@@ -203,17 +206,15 @@ function ensureStreamRef(
     messageId,
     runId,
     mountId: frameId,
-    segments: new Map(),
+    text: createChatDeltaLog({ seq: 0, segment: 0 }),
     currentSegment: 0,
     shown: 0,
     shownSegment: 0,
-    reasoning: "",
+    reasoningLog: createChatDeltaLog({ seq: 0, segment: 0 }),
     reasoningShown: 0,
     reasoningStartTs: null,
     reasoningMs: null,
     replyStarted: false,
-    deltaSeq: 0,
-    reasoningSeq: 0,
     tools: new Map(),
     connectNudges: new Map(),
     subAgents: new Map(),
@@ -308,22 +309,33 @@ export function applyChatFrame(
 
     if (r === null || r.stopped) return false;
 
-    if (p.seq <= r.reasoningSeq) return false;
+    const applied = applyChatDelta(r.reasoningLog, {
+      seq: p.seq,
+      attempt: p.attempt,
+      fromSeq: p.fromSeq,
+      segment: 0,
+      text: p.text,
+    });
+
+    if (applied === "dropped") return false;
     clearApprovalWait(r);
-    r.reasoningSeq = p.seq;
+
+    // A reclaimed attempt cut the older attempt's thinking.
+    if (applied === "rewound") {
+      r.reasoningShown = Math.min(r.reasoningShown, reasoningText(r).length);
+    }
 
     if (r.reasoningStartTs === null) r.reasoningStartTs = now;
-    r.reasoning += p.text;
     markChatTimingByAssistant(
       p.messageId,
       "first_reasoning_frame",
-      { seq: p.seq, chars: p.text.length, totalReasoningChars: r.reasoning.length },
+      { seq: p.seq, chars: p.text.length, totalReasoningChars: reasoningText(r).length },
       { threadId: cell.threadId, runId: p.runId },
     );
     markChatTimingByAssistant(
       p.messageId,
       "last_reasoning_frame",
-      { seq: p.seq, chars: p.text.length, totalReasoningChars: r.reasoning.length },
+      { seq: p.seq, chars: p.text.length, totalReasoningChars: reasoningText(r).length },
       { threadId: cell.threadId, runId: p.runId, repeat: "update", log: false },
     );
 
@@ -336,9 +348,18 @@ export function applyChatFrame(
 
     if (r === null || r.stopped) return false;
 
-    if (p.seq <= r.deltaSeq) return false;
+    const segment = p.segmentIndex ?? 0;
+
+    const applied = applyChatDelta(r.text, {
+      seq: p.seq,
+      attempt: p.attempt,
+      fromSeq: p.fromSeq,
+      segment,
+      text: p.text,
+    });
+
+    if (applied === "dropped") return false;
     clearApprovalWait(r);
-    r.deltaSeq = p.seq;
 
     // The first reply token freezes the thinking duration.
     if (!r.replyStarted) {
@@ -350,15 +371,18 @@ export function applyChatFrame(
     }
 
     // A higher segment closes the prior one into the narration trail.
-    const segment = p.segmentIndex ?? 0;
-    r.segments.set(segment, (r.segments.get(segment) ?? "") + p.text);
-
     if (segment > r.currentSegment) r.currentSegment = segment;
+
+    // A reclaimed attempt cut the older attempt's uncommitted text, maybe whole segments.
+    if (applied === "rewound") {
+      r.currentSegment = Math.max(0, ...r.text.segments.keys());
+      r.shown = Math.min(r.shown, (r.text.segments.get(r.shownSegment) ?? "").length);
+    }
 
     const detail = {
       seq: p.seq,
       chars: p.text.length,
-      totalTextChars: r.segments.get(segment)?.length ?? 0,
+      totalTextChars: r.text.segments.get(segment)?.length ?? 0,
     };
 
     markChatTimingByAssistant(p.messageId, "first_delta_frame", detail, {
@@ -504,8 +528,9 @@ export function applyChatFrame(
 /** Cut both buffers at what is shown and mark the turn done and stopped. */
 function freezeAndFinalizeTurn(ref: StreamRef, error: string | null): void {
   const eased = anchorEasedSegment(ref);
-  ref.segments.set(eased.segment, eased.text.slice(0, eased.shown));
-  ref.reasoning = ref.reasoning.slice(0, ref.reasoningShown);
+  // This bypasses the logs' marks. Safe: the ref is `stopped` below, so no later delta reads them.
+  ref.text.segments.set(eased.segment, eased.text.slice(0, eased.shown));
+  ref.reasoningLog.segments.set(0, reasoningText(ref).slice(0, ref.reasoningShown));
 
   if (error !== null) ref.error = error;
   ref.stopped = true;
@@ -547,6 +572,10 @@ function ease(shown: number, full: number): number {
   return shown < full ? Math.min(full, shown + Math.max(2, Math.ceil((full - shown) / 8))) : shown;
 }
 
+function reasoningText(ref: StreamRef): string {
+  return ref.reasoningLog.segments.get(0) ?? "";
+}
+
 interface EasedSegment {
   segment: number;
   text: string;
@@ -565,7 +594,7 @@ function anchorEasedSegment(ref: StreamRef): EasedSegment {
 
   return {
     segment: ref.shownSegment,
-    text: ref.segments.get(ref.shownSegment) ?? "",
+    text: ref.text.segments.get(ref.shownSegment) ?? "",
     shown: ref.shown,
   };
 }
@@ -582,11 +611,12 @@ export function tickDrip(
   if (!ref) return null;
   const eased = anchorEasedSegment(ref);
   const shown = ease(eased.shown, eased.text.length);
-  ref.reasoningShown = ease(ref.reasoningShown, ref.reasoning.length);
+  const reasoning = reasoningText(ref);
+  ref.reasoningShown = ease(ref.reasoningShown, reasoning.length);
   ref.shown = shown;
   const narration: SyncedChatNarration[] = [];
 
-  for (const [index, text] of ref.segments) {
+  for (const [index, text] of ref.text.segments) {
     if (index < ref.currentSegment && text.trim().length > 0) narration.push({ index, text });
   }
 
@@ -598,8 +628,8 @@ export function tickDrip(
       runId: ref.runId,
       text: eased.text.slice(0, shown),
       narration,
-      reasoning: ref.reasoning.slice(0, ref.reasoningShown),
-      reasoningActive: ref.reasoning.length > 0 && !ref.replyStarted && !ref.done,
+      reasoning: reasoning.slice(0, ref.reasoningShown),
+      reasoningActive: reasoning.length > 0 && !ref.replyStarted && !ref.done,
       reasoningMs: ref.reasoningMs,
       tools: [...ref.tools.values()],
       connectNudges: [...ref.connectNudges.values()],
@@ -613,7 +643,7 @@ export function tickDrip(
       done: ref.done,
       error: ref.error,
     },
-    caughtUp: shown >= eased.text.length && ref.reasoningShown >= ref.reasoning.length,
+    caughtUp: shown >= eased.text.length && ref.reasoningShown >= reasoning.length,
   };
 }
 

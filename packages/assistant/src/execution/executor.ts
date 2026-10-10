@@ -148,6 +148,30 @@ async function commitGuardedRunUpdate(
   await tx.update(agentRuns).set(set).where(eq(agentRuns.id, run.id));
 }
 
+/** The step identity a side effect outside the commit fences on. `StepContext` satisfies it. */
+export type StepLease = Pick<StepContext<unknown>, "runId" | "attempt" | "fence">;
+
+/**
+ * Run `write` in one transaction that first locks the run row with the commit's own predicate.
+ * Returns the cause and runs nothing when this attempt no longer owns the run, so a body whose
+ * lease was reclaimed cannot write over the live attempt.
+ * Lock order is `agent_runs` then the caller's tables, the same as `leaseRun`.
+ * It opens its own transaction, so the caller must not hold the `agent_runs` row lock in an
+ * outer transaction: the inner lock would wait on it.
+ */
+export async function withStepLease<T>(
+  lease: StepLease,
+  write: (tx: DbTransaction) => Promise<T>,
+): Promise<{ ok: true; value: T } | { ok: false; cause: SupersedeCause }> {
+  return await db().transaction(async (tx) => {
+    const cause = await guardRunOwnership(tx, lease.runId, lease.attempt, lease.fence.generation);
+
+    if (cause) return { ok: false, cause };
+
+    return { ok: true, value: await write(tx) };
+  });
+}
+
 /**
  * The one builder for the executor's `agent.run` failed frame (ADR-0073).
  * `tx` is required so a cancel that rolls back the status write also drops this frame.

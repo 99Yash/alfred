@@ -66,6 +66,7 @@ export {
   EFFECT_RECEIPT_CAP,
   effectReceiptColumns,
   toEffectReceipt,
+  withStepLease,
 } from "./index.domain";
 
 export type {
@@ -88,6 +89,7 @@ export type {
   StartApprovalNotificationWorkerOpts,
   ChildRunOutcome,
   AgentDbExecutor,
+  StepLease,
 } from "./index.domain";
 
 export {

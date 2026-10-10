@@ -21,6 +21,7 @@ import {
 } from "@alfred/assistant/chat/chat-turn-closure";
 import { chatRunStateSchema, type ChatRunState } from "@alfred/assistant/chat/chat-turn-state";
 import { CHAT_TURN_WORKFLOW_SLUG } from "@alfred/assistant/chat/chat-turn";
+import type { StepLease } from "@alfred/assistant/execution";
 import { resetToolFixtures } from "@alfred/assistant/tool-runtime/test-support";
 import { dbBackedSkip } from "../support/db-backed";
 
@@ -65,6 +66,8 @@ async function seedTerminalRowWithArtifact(
   messageId: string;
   artifactId: string;
   state: ChatRunState;
+  /** The seeded run's live lease, as `chatTurnStep` holds it. */
+  lease: StepLease;
 }> {
   const { userId, threadId } = await seedThread();
   const runId = `run_${randomUUID().slice(0, 12)}`;
@@ -119,7 +122,15 @@ async function seedTerminalRowWithArtifact(
     narration: [],
   });
 
-  return { userId, threadId, runId, messageId, artifactId: artifact.id, state };
+  return {
+    userId,
+    threadId,
+    runId,
+    messageId,
+    artifactId: artifact.id,
+    state,
+    lease: { runId, attempt: 1, fence: { generation: 0 } },
+  };
 }
 
 async function readArtifactStatus(artifactId: string): Promise<string | undefined> {
@@ -152,12 +163,10 @@ describe("chat-turn closure artifact strand (campaign 52, DB-backed)", { skip: S
 
   test("a failed retry over a completed row flips the stranded artifact to complete", async () => {
     // `chatTurnStep`'s catch re-enters a faulted completed close as `finalizeFailedMessage`.
-    const { userId, runId, messageId, artifactId, state } = await seedTerminalRowWithArtifact(
-      "complete",
-      "generating",
-    );
+    const { userId, runId, messageId, artifactId, state, lease } =
+      await seedTerminalRowWithArtifact("complete", "generating");
 
-    await finalizeFailedMessage(userId, runId, state, new Error("late fault"));
+    await finalizeFailedMessage(userId, runId, state, new Error("late fault"), lease);
 
     assert.equal(
       await readArtifactStatus(artifactId),
@@ -174,12 +183,12 @@ describe("chat-turn closure artifact strand (campaign 52, DB-backed)", { skip: S
   });
 
   test("a failed retry over a failed row flips the stranded artifact to error", async () => {
-    const { userId, runId, artifactId, state } = await seedTerminalRowWithArtifact(
+    const { userId, runId, artifactId, state, lease } = await seedTerminalRowWithArtifact(
       "failed",
       "generating",
     );
 
-    await finalizeFailedMessage(userId, runId, state, new Error("second fault"));
+    await finalizeFailedMessage(userId, runId, state, new Error("second fault"), lease);
 
     assert.equal(
       await readArtifactStatus(artifactId),
@@ -190,12 +199,12 @@ describe("chat-turn closure artifact strand (campaign 52, DB-backed)", { skip: S
 
   test("a retry over an already-complete artifact leaves it complete and does not throw", async () => {
     // The first close's artifact update committed before the fault.
-    const { userId, runId, artifactId, state } = await seedTerminalRowWithArtifact(
+    const { userId, runId, artifactId, state, lease } = await seedTerminalRowWithArtifact(
       "complete",
       "complete",
     );
 
-    await finalizeFailedMessage(userId, runId, state, new Error("late fault"));
+    await finalizeFailedMessage(userId, runId, state, new Error("late fault"), lease);
 
     assert.equal(
       await readArtifactStatus(artifactId),
@@ -205,12 +214,12 @@ describe("chat-turn closure artifact strand (campaign 52, DB-backed)", { skip: S
   });
 
   test("a completed retry over a completed row also flips a stranded artifact", async () => {
-    const { userId, runId, artifactId, state } = await seedTerminalRowWithArtifact(
+    const { userId, artifactId, state, lease } = await seedTerminalRowWithArtifact(
       "complete",
       "generating",
     );
 
-    await finalizeAssistantMessage(userId, runId, state);
+    await finalizeAssistantMessage(userId, state, lease);
 
     assert.equal(
       await readArtifactStatus(artifactId),
