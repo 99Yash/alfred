@@ -234,6 +234,7 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
       credentialId,
       messageId,
       documentId: scheduled[0]!.documentId,
+      scheduleObserve: async () => {},
       deps: {
         getFreshAccessToken: async () => "fake-token",
         getMessage: async () => message,
@@ -389,6 +390,7 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
       credentialId,
       messageId,
       documentId: scheduled[0]!.documentId,
+      scheduleObserve: async () => {},
       deps: {
         getFreshAccessToken: async () => "fake-token",
         getMessage: async () => message,
@@ -469,6 +471,7 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
       credentialId,
       messageId,
       documentId: scheduled[0]!.documentId,
+      scheduleObserve: async () => {},
       deps: {
         getFreshAccessToken: async () => "fake-token",
         getMessage: async () => message,

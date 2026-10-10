@@ -33,7 +33,7 @@ import {
   type GmailMediaIngestDeps,
   type GmailMediaIngestResult,
 } from "./gmail-media";
-import { documentAskReducer } from "../document-asks";
+import { observeDocumentAskCarrier, type ScheduleDocumentAskObserve } from "../document-asks";
 
 /**
  * Gmail ingestion: writes `documents` and `ingestion_state` and indexes the corpus. The provider
@@ -432,6 +432,8 @@ export async function runGmailMediaIngest(args: {
   credentialId: string;
   messageId: string;
   documentId: string;
+  /** Re-observes a carrier whose ask a sibling's live media blocks. */
+  scheduleObserve: ScheduleDocumentAskObserve;
   /** Test seam. */
   deps?: RunGmailMediaIngestDeps | undefined;
 }): Promise<GmailMediaIngestResult> {
@@ -458,13 +460,16 @@ export async function runGmailMediaIngest(args: {
 
   try {
     // The reducer reads everything it needs from the persisted rows.
-    await documentAskReducer.observe({
-      userId: cred.userId,
-      carrier: { accountId: cred.accountId, messageId: message.id },
-      observedAt: new Date(),
-    });
+    await observeDocumentAskCarrier(
+      {
+        userId: cred.userId,
+        carrier: { accountId: cred.accountId, messageId: message.id },
+        observedAt: new Date(),
+      },
+      args.scheduleObserve,
+    );
   } catch (err) {
-    // Keep the job retryable: the flag was already cleared above.
+    // Keep the job retryable: the flag was already cleared above. A retried schedule is deduped.
     await setMediaPending(args.documentId, true);
     throw err;
   }
