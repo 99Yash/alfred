@@ -16,6 +16,9 @@ import type { BoundedRedis } from "@alfred/db/redis";
  * Under `maxWaitMs` the caller sleeps, then sends. Over it, the caller gets a retryable 429
  * that never reaches the wire, and retry, fallback, and the chat capacity ladder take over.
  * The wait counts against the SDK's `totalMs` only, so the cap must sit under the tightest caller.
+ *
+ * The edge also sends `internalCode 2021` "Insufficient wholesale credits" as a 402: the Unified
+ * Billing credit pool is empty for every provider, so `withFallback` does not switch on it.
  */
 
 /**

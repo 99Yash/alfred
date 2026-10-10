@@ -1,7 +1,10 @@
 import { anthropic, createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI, google } from "@ai-sdk/google";
 import { createOpenAI, openai } from "@ai-sdk/openai";
+import { parseJsonWith } from "@alfred/contracts";
 import { cloudflareGatewayConfig, serverEnv } from "@alfred/env/server";
+import type { APICallError } from "ai";
+import { z } from "zod";
 
 import { throttledGatewayFetch } from "./gateway-throttle";
 import {
@@ -45,6 +48,17 @@ function openaiGatewayFetch(token: string): typeof globalThis.fetch {
 
     return fetch(input, { ...init, headers });
   };
+}
+
+const gatewayErrorBodySchema = z.object({ internalCode: z.number() });
+
+/**
+ * The Cloudflare edge made this error itself: its `AiGatewayError` body carries a top-level
+ * numeric `internalCode` (`2003` and `2018` are 429s, `2021` is the Unified Billing credit
+ * 402). A provider error body has no such field.
+ */
+export function isGatewayMintedError(e: APICallError): boolean {
+  return parseJsonWith(e.responseBody ?? "", gatewayErrorBodySchema) !== null;
 }
 
 export function createGateway(config: GatewayConfig | undefined): Gateway {
