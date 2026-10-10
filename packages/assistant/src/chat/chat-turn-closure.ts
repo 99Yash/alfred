@@ -3,7 +3,6 @@ import {
   createChatDeltaLog,
   runStatusSchema,
   sanitizeToolResult,
-  toMessage,
   type ChatErrorKind,
   type ChatMessageUsage,
 } from "@alfred/contracts";
@@ -19,7 +18,7 @@ import {
 import { and, asc, eq, sql } from "drizzle-orm";
 import { publishEvent } from "@alfred/assistant/triggers";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
-import { logger } from "@alfred/logging";
+import { logger, safeErrorDiagnostic } from "@alfred/logging";
 import { finalizeRunArtifacts } from "@alfred/assistant/artifacts";
 import { scheduleThreadIdleExtraction } from "./idle-capture-queue";
 import {
@@ -379,7 +378,9 @@ export async function finalizeCancelledMessage(
  *
  * Never rejects. A step catch rethrows the turn's own fault after this call, so the
  * executor fails the run with that fault and its closure classifies it, not a write
- * fault. The closure then retries the write; the insert does nothing on conflict.
+ * fault. For a step catch, the closure then retries the write; the insert does nothing
+ * on conflict. For the closure itself (`lease` is `null`), nothing retries: a write
+ * fault is final, no row lands, and the bubble waits for the client stall watchdog.
  */
 export async function finalizeFailedMessage(
   userId: string,
@@ -393,9 +394,10 @@ export async function finalizeFailedMessage(
   } catch (writeErr) {
     logger.warn(
       {
-        // Only `err` goes through the error serializer, so the turn fault rides as text.
+        // Only `err` goes through the redacting serializer. The turn fault rides as its
+        // allowlisted diagnostic: a raw message can hold chat text or a vendor URL.
         err: writeErr,
-        turnError: toMessage(err),
+        turnError: safeErrorDiagnostic(err),
         event: "chat_turn_failed_write_fault",
         runId,
         attempt: lease?.attempt,
