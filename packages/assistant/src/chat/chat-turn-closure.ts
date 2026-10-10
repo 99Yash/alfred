@@ -121,6 +121,7 @@ async function closeChatTurn(
           err: outcome.error,
           event: "chat_turn_failed",
           runId,
+          attempt: writer?.attempt,
           threadId: state.threadId,
           errorKind,
         },

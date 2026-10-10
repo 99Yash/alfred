@@ -4,13 +4,18 @@
  *
  * `attempt` grows on every step commit and on every stale-lease reclaim. Each frame carries
  * `fromSeq`, the committed `seq` its attempt started after. A higher attempt cuts every applied
- * frame above its `fromSeq`, so the cut does not depend on which of its frames arrives first.
- * For a normal next step nothing sits above `fromSeq`, so nothing is cut. A lower attempt is a
- * superseded body that still runs, so it drops.
+ * frame above its `fromSeq`, so within one reclaim the cut does not depend on which of the new
+ * attempt's frames arrives first. For a normal next step nothing sits above `fromSeq`, so
+ * nothing is cut. A lower attempt is a superseded body that still runs, so it drops.
  *
  * Within one attempt, a frame at or below the highest applied `seq` drops. Delivery is not
  * ordered, so a frame that arrives after a higher `seq` of its own attempt is lost from the
  * stream until the saved row replaces it.
+ *
+ * The cut is not independent of order across steps. When a later step's frame arrives before
+ * the reclaim attempt's frames, that step cuts only above its own `fromSeq`. The superseded
+ * attempt's text below it stays, and the reclaim attempt's frames then drop as a lower attempt.
+ * The bubble shows that splice until the terminal frame swaps in the saved row, which is correct.
  */
 
 /** A point in the stream: the committed `deltaSeq` and `segmentIndex` of a run. */
