@@ -9,7 +9,7 @@ import {
   type ChatModelTier,
 } from "@alfred/contracts";
 import { findApiCallError, isCallerAbort } from "./abort";
-import { APICallError, type ToolSet } from "ai";
+import { APICallError, RetryError, type ToolSet } from "ai";
 // Narrower than `ai`'s `LanguageModel`, which also admits gateway string ids.
 import type { LanguageModel as LanguageModelV4 } from "ai-retry";
 import { createRetryableModel, error, or, timeout } from "ai-retry/language-model";
@@ -270,6 +270,7 @@ export function isCapacityError(err: unknown): boolean {
  * A plain 4xx does not switch: it means our request is wrong, and a weaker model would hide the bug.
  * A gateway credit fault does not switch: every leg draws on the same Unified Billing pool.
  * Fallback covers only errors raised before a stream starts.
+ * When `primary` is itself a `withFallback`, the rule reads the error that ended its chain.
  *
  * Stateless on purpose: it builds a new retryable model per call. ai-retry keeps the serving leg
  * in an instance field, so concurrent calls on one memoized route sent retries to the wrong leg.
@@ -280,17 +281,24 @@ export function isCapacityError(err: unknown): boolean {
 export function withFallback(primary: LanguageModelV4, fallback: LanguageModelV4): LanguageModelV4 {
   // Raw `error`, not `.not()`: `.not()` of an error condition also matches successful results.
   const shouldSwitch = error((e) => {
-    // A deliberate cancel (hedge loser, stop button) must not bill a second call.
-    if (isCallerAbort(e)) return false;
+    // A composite primary (a route of 3+ legs) throws ai-retry's `RetryError` after more than
+    // one attempt. Decide on the error that ended its chain, so the rule is the same at every
+    // depth. This trusts ai-retry to put that error last in `errors`.
+    let fault = e;
 
-    if (APICallError.isInstance(e) && e.statusCode !== undefined) {
+    while (RetryError.isInstance(fault)) fault = fault.lastError;
+
+    // A deliberate cancel (hedge loser, stop button) must not bill a second call.
+    if (isCallerAbort(fault)) return false;
+
+    if (APICallError.isInstance(fault) && fault.statusCode !== undefined) {
       // A provider's own spend cap switches. The gateway's credit pool is the same for
       // every leg, so a gateway money fault does not.
-      if (isQuotaOrBillingError(e)) return !isGatewayMintedError(e);
+      if (isQuotaOrBillingError(fault)) return !isGatewayMintedError(fault);
 
       // A 429 switches, but a gateway `2018` budget 429 is shared across providers,
       // so the fallback rarely escapes it. A provider's own account limit it does escape.
-      const code = e.statusCode;
+      const code = fault.statusCode;
       const isClientBug = code >= 400 && code < 500 && code !== 408 && code !== 429;
 
       if (isClientBug) return false;
