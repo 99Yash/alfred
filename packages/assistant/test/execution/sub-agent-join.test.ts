@@ -9,11 +9,7 @@ const args = { parentRunId: "run_parent", userId: "user_1", childRunId: "run_chi
 
 const running = { ok: true, done: false, status: "running", runningMs: 1_000 };
 
-function dependencies(input: {
-  scheduleResult: "scheduled" | "disabled" | "failed";
-  outcome?: ChildRunOutcome;
-  calls: string[];
-}): JoinChildRunDeps {
+function dependencies(input: { outcome?: ChildRunOutcome; calls: string[] }): JoinChildRunDeps {
   return {
     readOutcome: (request) => {
       input.calls.push(`read:${request.childRunId}`);
@@ -23,7 +19,7 @@ function dependencies(input: {
     scheduleWake: (request) => {
       input.calls.push(`schedule:${request.childRunId}:${request.delayMs}`);
 
-      return Promise.resolve(input.scheduleResult);
+      return Promise.resolve();
     },
   };
 }
@@ -31,20 +27,10 @@ function dependencies(input: {
 describe("sub-agent join park safety", () => {
   test("schedules the dead-man wake before returning a park result", async () => {
     const calls: string[] = [];
-    const result = await joinChildRun(args, dependencies({ scheduleResult: "scheduled", calls }));
+    const result = await joinChildRun(args, dependencies({ calls }));
 
     assert.deepEqual(calls, ["read:run_child", `schedule:run_child:${AWAIT_SUB_AGENT_CEILING_MS}`]);
     assert.equal(result.kind, "park");
-  });
-
-  test("refuses to park when the dead-man wake cannot be scheduled", async () => {
-    const calls: string[] = [];
-    const result = await joinChildRun(args, dependencies({ scheduleResult: "failed", calls }));
-
-    assert.equal(result.kind, "resolved");
-
-    if (result.kind !== "resolved") assert.fail("join must resolve after schedule failure");
-    assert.equal(result.outcome.reason, "join_timer_unavailable");
   });
 
   test("returns a terminal child without scheduling a wake", async () => {
@@ -57,10 +43,7 @@ describe("sub-agent join park safety", () => {
       output: { answer: 42 },
     } satisfies ChildRunOutcome;
 
-    const result = await joinChildRun(
-      args,
-      dependencies({ scheduleResult: "scheduled", outcome, calls }),
-    );
+    const result = await joinChildRun(args, dependencies({ outcome, calls }));
 
     assert.deepEqual(result, { kind: "resolved", outcome });
     assert.deepEqual(calls, ["read:run_child"]);

@@ -120,7 +120,7 @@ export {
   type WorkflowReadinessVerdict,
 } from "./workflows/readiness-port";
 
-export { joinChildRun, type JoinChildRunDeps, type ParkSignal } from "./sub-agent-join";
+export { joinChildRun, type JoinChildRunDeps, type ParkWake } from "./sub-agent-join";
 
 export { scheduleSubAgentJoinWakeJob } from "./sub-agent-join-wake-queue";
 
