@@ -79,7 +79,7 @@ async function processSubAgentJoinWakeJob(
 
     return { status: woken ? "woken" : "noop", childRunId, parentRunId };
   } catch (err) {
-    // Rethrow so BullMQ retries. This job is the only backstop for a stranded parent.
+    // Rethrow so BullMQ retries. This job is the fast path; the reconciler below is the backstop.
     console.warn(
       "[sub-agent-join:wake-worker] wake failed for",
       childRunId,
@@ -143,7 +143,8 @@ async function wakeOverdueJoinsOnce(now: Date, signal: AbortSignal): Promise<num
         await enqueueRun(row.id);
       } catch (err) {
         // The resume sweep picks up a `runnable` run, so a lost enqueue only adds latency. During a
-        // Redis outage the enqueue hangs instead of failing, and this pass stalls (item 30).
+        // Redis outage the enqueue hangs instead of failing, and this pass stalls until
+        // Redis returns (a follow-up moves the enqueue out of the pass).
         console.warn(
           "[sub-agent-join:wake-reconciler] failed to enqueue",
           row.id,

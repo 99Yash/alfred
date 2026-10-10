@@ -112,9 +112,9 @@ export const wakeConditionSchema = z.discriminatedUnion("kind", [
     /**
      * When the wait gives up. Optional so wakes parked before it existed still parse, and because
      * the interrupt seams still accept a raw signal wake. The join reconciler gives any signal wake
-     * without it the sub-agent ceiling from its park time. Item 29 makes it required.
+     * without it the sub-agent ceiling from its park time. A follow-up makes it required.
      */
-    deadlineAt: z.string().datetime().optional(),
+    deadlineAt: z.iso.datetime().optional(),
   }),
 ]);
 
