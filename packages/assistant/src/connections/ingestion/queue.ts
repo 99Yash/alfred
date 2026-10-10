@@ -29,6 +29,7 @@ import { assertGmailPushOidcConfigured } from "@alfred/integrations/google";
 import { deliverInboundReceipt } from "./inbound-deliver";
 import { runDeliveryAlertSweepForAllUsers } from "./delivery-alert-sweep";
 import { backfillReceiptDocuments } from "./receipt-corpus-backfill";
+import { observeDocumentAskCarrier, type ScheduleDocumentAskObserve } from "../document-asks";
 
 /**
  * Ingestion queue: Gmail sync, chat media, user-model refolds and inbound receipt delivery.
@@ -148,6 +149,13 @@ export type IngestionJobData =
       messageId: string;
       /** Mail document that carries the `mediaPending` flag. */
       documentId: string;
+    }
+  | {
+      /** Re-observe one sent carrier after a sibling's media barrier closes. */
+      kind: "document_ask.observe";
+      userId: string;
+      accountId: string;
+      messageId: string;
     }
   | {
       /** Re-project the active Gmail kind user-model. No active projection means no-op. */
@@ -349,6 +357,27 @@ export async function enqueueGmailMediaIngest(args: {
     },
   );
 }
+
+/**
+ * Schedule one carrier re-observe at `at`. The dedup id includes `at`: a simple-mode key is held
+ * until its job completes, so an id without it would drop the next re-observe a job schedules.
+ */
+export const enqueueDocumentAskObserve: ScheduleDocumentAskObserve = async ({
+  userId,
+  carrier,
+  at,
+}) => {
+  await getIngestionQueue().add(
+    "document_ask.observe",
+    { kind: "document_ask.observe", userId, ...carrier },
+    {
+      delay: Math.max(0, at.getTime() - Date.now()),
+      deduplication: {
+        id: `document_ask.observe.${carrier.accountId}.${carrier.messageId}.${at.getTime()}`,
+      },
+    },
+  );
+};
 
 async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown> {
   return processIngestionJobData(job.data);
@@ -580,10 +609,35 @@ async function processIngestionJobData(data: IngestionJobData): Promise<unknown>
         credentialId: data.credentialId,
         messageId: data.messageId,
         documentId: data.documentId,
+        scheduleObserve: enqueueDocumentAskObserve,
       });
 
       console.log(
         `[ingestion:worker] gmail.media_ingest message=${data.messageId} ${formatMediaTally(result)}`,
+      );
+
+      return result;
+    }
+
+    case "document_ask.observe": {
+      const result = await observeDocumentAskCarrier(
+        {
+          userId: data.userId,
+          carrier: { accountId: data.accountId, messageId: data.messageId },
+          observedAt: new Date(),
+        },
+        enqueueDocumentAskObserve,
+      );
+
+      const detail =
+        result.kind === "deferred"
+          ? ` retryAt=${result.retryAt.toISOString()}`
+          : result.kind === "noop"
+            ? ` reason=${result.reason}`
+            : ` resolutions=${result.resolutions.length}`;
+
+      console.log(
+        `[ingestion:worker] document_ask.observe message=${data.messageId} ${result.kind}${detail}`,
       );
 
       return result;
