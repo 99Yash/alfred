@@ -306,8 +306,12 @@ export const syncedChatMessageSchema = z.object({
   reasoning: z.string().nullable().default(null),
   reasoningMs: z.number().nullable().default(null),
   status: z.enum(["complete", "failed"]),
-  /** Why a failed turn failed. Null on complete rows. */
-  errorKind: chatErrorKindSchema.nullable().default(null),
+  /**
+   * Why a failed turn failed. Null on complete rows, on older rows, and on a kind this
+   * build does not know (a stale tab after a deploy, or a server rolled back past a
+   * newer row), so the row still parses and renders the generic failure copy.
+   */
+  errorKind: chatErrorKindSchema.nullable().default(null).catch(null),
   toolCalls: z.array(syncedChatToolCallSchema).nullable(),
   /** Interleaved with `toolCalls` by `segmentIndex`. */
   narration: z.array(syncedChatNarrationSchema).nullable().default(null),
