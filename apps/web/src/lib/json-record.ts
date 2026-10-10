@@ -5,9 +5,7 @@ import {
   type JsonValue,
 } from "@alfred/contracts";
 
-export type JsonRecord = JsonObject;
-
-export function asRecord(value: unknown): JsonRecord | null {
+export function asRecord(value: unknown): JsonObject | null {
   const parsed = jsonObjectSchema.safeParse(value);
 
   return parsed.success ? parsed.data : null;
@@ -27,7 +25,7 @@ function isFiniteNumber(value: JsonValue | undefined): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
-export function parseJsonRecord(value: string | undefined): JsonRecord | null {
+export function parseJsonRecord(value: string | undefined): JsonObject | null {
   if (!value) return null;
 
   try {

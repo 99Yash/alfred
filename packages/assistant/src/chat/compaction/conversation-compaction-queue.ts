@@ -6,8 +6,8 @@ import { createRedisConnection, isQueueEnabled } from "@alfred/db/redis";
 import {
   markConversationCompactionRequested,
   recordConversationCompactionFailure,
-  type ChatSummaryWatermark,
 } from "./chat-context-store";
+import type { ChatMessageWatermark } from "./chat-message-watermark";
 import { compactConversationSynchronously } from "./synchronous-conversation-compaction";
 
 const CONVERSATION_COMPACTION_QUEUE_NAME = "conversation-compaction";
@@ -72,9 +72,9 @@ export async function enqueueConversationCompaction(
   args: {
     userId: string;
     threadId: string;
-    throughWatermark: ChatSummaryWatermark;
+    throughWatermark: ChatMessageWatermark;
     replayTail: readonly AgentTranscriptMessage[];
-    replayTailWatermark: ChatSummaryWatermark;
+    replayTailWatermark: ChatMessageWatermark;
   },
   dependencies: ConversationCompactionQueueDependencies = {},
 ): Promise<"scheduled" | "deduplicated" | "disabled"> {

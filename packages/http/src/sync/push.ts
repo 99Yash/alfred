@@ -15,8 +15,6 @@ import type { ReplicacheModel } from "./model";
 import { serverMutators, type MutatorFollowUp, type MutatorResult } from "./write";
 import type { DbTransaction } from "@alfred/db";
 
-export type PushRequestBody = ReplicacheModel.Push;
-
 // Only the empty success body. Replicache's `ClientStateNotFound` and
 // `VersionNotSupported` push errors are never sent: the route schema rejects
 // any `pushVersion` but 1, and `handlePush` binds an unknown client group
@@ -122,7 +120,7 @@ async function getLMID(tx: DbTransaction, clientID: string): Promise<number> {
 
 export async function handlePush(
   userId: string,
-  body: PushRequestBody,
+  body: ReplicacheModel.Push,
 ): Promise<PushResponse | { forbidden: true }> {
   const { clientGroupID, mutations } = body;
 

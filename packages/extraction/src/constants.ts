@@ -8,15 +8,13 @@ import type { ContentFormat } from "@alfred/contracts";
 
 export type ExtractionDoor = "chatUpload" | "fetchUrl" | "gmailAttachment";
 
-export interface PdfExtractionLimits {
+export interface ExtractionLimits {
   readonly maxBytes: number;
   readonly maxCharacters: number;
   readonly maxParseMilliseconds: number;
   /** Truncate output over `maxCharacters` instead of returning `limit_exceeded`. */
   readonly truncateOnOutputExceed?: boolean | undefined;
 }
-
-export type ExtractionLimits = PdfExtractionLimits;
 
 const CHAT_PDF_EXTRACTION_CHARACTER_LIMIT = 100_000;
 
@@ -47,7 +45,7 @@ export const REALTIME_PDF_EXTRACTION_LIMITS = {
     truncateOnOutputExceed: true,
   },
 } as const satisfies Readonly<
-  Record<"chatUpload" | "fetchUrl" | "gmailAttachment", PdfExtractionLimits>
+  Record<"chatUpload" | "fetchUrl" | "gmailAttachment", ExtractionLimits>
 >;
 
 /** Limits for docx and xlsx. */

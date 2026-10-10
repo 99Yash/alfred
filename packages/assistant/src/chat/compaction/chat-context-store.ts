@@ -10,8 +10,6 @@ import {
 } from "./conversation-summary";
 import type { ChatMessageWatermark } from "./chat-message-watermark";
 
-export type ChatSummaryWatermark = ChatMessageWatermark;
-
 export interface LoadedChatThreadContext extends Omit<ChatThreadContext, "summary"> {
   summary: ConversationSummary | null;
   invalidSummary: boolean;
@@ -42,11 +40,11 @@ export interface PersistConversationSummaryArgs {
   userId: string;
   threadId: string;
   summary: unknown;
-  watermark: ChatSummaryWatermark;
+  watermark: ChatMessageWatermark;
   expectedGeneration: number;
-  expectedWatermark: ChatSummaryWatermark | null;
+  expectedWatermark: ChatMessageWatermark | null;
   estimatedReplayTokens: number;
-  replayEstimateWatermark: ChatSummaryWatermark;
+  replayEstimateWatermark: ChatMessageWatermark;
   eligibleSources: EligibleConversationSummarySources;
 }
 
@@ -112,9 +110,9 @@ export async function persistConversationReplayEstimate(
     userId: string;
     threadId: string;
     expectedGeneration: number;
-    expectedWatermark: ChatSummaryWatermark | null;
+    expectedWatermark: ChatMessageWatermark | null;
     estimatedReplayTokens: number;
-    watermark: ChatSummaryWatermark;
+    watermark: ChatMessageWatermark;
   },
   ex: AgentDbExecutor = db(),
 ): Promise<boolean> {
