@@ -541,7 +541,7 @@ export async function signalParentOfSubAgent(childRunId: string): Promise<string
     const outcome = subAgentOutcomeFromStatus(rows[0]?.status);
 
     if (outcome) {
-      await emitSubAgentWaitSpan({ ex: db(), parentRunId: sub.parentRunId, childRunId, outcome });
+      await emitSubAgentWaitSpan({ parentRunId: sub.parentRunId, childRunId, outcome });
     }
   }
 
@@ -559,13 +559,12 @@ function subAgentOutcomeFromStatus(status: string | undefined): SubAgentWaitOutc
  * `ended_at`.
  */
 async function emitSubAgentWaitSpan(args: {
-  ex: AgentDbExecutor;
   parentRunId: string;
   childRunId: string;
   outcome: SubAgentWaitOutcome;
 }): Promise<void> {
   try {
-    const rows = await args.ex
+    const rows = await db()
       .select({ stepId: agentSteps.stepId, endedAt: agentSteps.endedAt })
       .from(agentSteps)
       .where(and(eq(agentSteps.runId, args.parentRunId), eq(agentSteps.status, "interrupted")))
@@ -617,8 +616,6 @@ async function dischargeCancelObligations(args: {
   reason: string;
   /** Their queued expiry and notification jobs must be removed too. */
   rejectedStagingIds: string[];
-  /** A parent woken in the tx; enqueue it after commit so it sees the runnable row. */
-  wokenParentRunId: string | null;
 }): Promise<void> {
   await finalizeCancelledRun(args.runId, args.reason);
   await dischargeStagingSweep(args);
@@ -633,16 +630,18 @@ async function dischargeCancelObligations(args: {
     );
   }
 
-  if (args.wokenParentRunId) {
-    try {
-      await enqueueRun(args.wokenParentRunId);
-    } catch (err) {
-      console.warn(
-        "[agent] failed to enqueue woken parent run; dead-man timer will retry",
-        args.wokenParentRunId,
-        toMessage(err),
-      );
-    }
+  // A parent waiting on this sub-agent would otherwise hang until its dead-man timer (ADR-0073).
+  // After commit, so the cancel tx never locks the parent after the child.
+  try {
+    const parentRunId = await signalParentOfSubAgent(args.runId);
+
+    if (parentRunId) await enqueueRun(parentRunId);
+  } catch (err) {
+    console.warn(
+      "[agent] sub-agent parent signal failed for cancelled run; dead-man timer will retry",
+      args.runId,
+      toMessage(err),
+    );
   }
 }
 
@@ -757,7 +756,6 @@ export async function cancelRunInTx(
       status: agentRuns.status,
       currentStep: agentRuns.currentStep,
       attempt: agentRuns.attempt,
-      metadata: agentRuns.metadata,
     })
     .from(agentRuns)
     .where(eq(agentRuns.id, args.runId))
@@ -793,27 +791,6 @@ export async function cancelRunInTx(
     .where(eq(agentRuns.id, args.runId));
   await recordWorkflowLastRun(tx, row, "cancelled", now);
 
-  // A parent waiting on this sub-agent would otherwise hang until its dead-man timer (ADR-0073).
-  let wokenParentRunId: string | null = null;
-  const sub = readSubAgentMetadata(row.metadata);
-
-  if (sub) {
-    const signalOutcome = await signalRunInTx(tx, {
-      runId: sub.parentRunId,
-      match: { kind: "signal", name: subAgentDoneSignalName(args.runId) },
-    });
-
-    if (signalOutcome === "woken") {
-      wokenParentRunId = sub.parentRunId;
-      await emitSubAgentWaitSpan({
-        ex: tx,
-        parentRunId: sub.parentRunId,
-        childRunId: args.runId,
-        outcome: "cancelled",
-      });
-    }
-  }
-
   const rejectedStagings = await tx
     .update(actionStagings)
     .set({
@@ -846,7 +823,7 @@ export async function cancelRunInTx(
   });
 
   // Each child has its own fence, so cancel the children too (#559b).
-  // After the parent's write, so a child sees its parent terminal and skips the join wake.
+  // The only tx that locks two runs, parent first; a child's own cancel wakes its parent after commit.
   const childObligations = await cancelSpawnedChildrenInTx(tx, {
     parentRunId: args.runId,
     userId: row.userId,
@@ -866,7 +843,6 @@ export async function cancelRunInTx(
           runId: args.runId,
           reason: args.reason,
           rejectedStagingIds,
-          wokenParentRunId,
         });
       } else {
         await dischargeStagingSweep({ runId: args.runId, reason: args.reason, rejectedStagingIds });
@@ -887,6 +863,7 @@ export async function cancelRunInTx(
 /**
  * Cancel each live sub-agent child on the parent's tx (#559b).
  * The status guard ends the recursion, so a metadata cycle cannot loop.
+ * Lock order: the parent row (already held), then each child row. No other tx locks two runs.
  * Returns one `afterCommit` per child.
  */
 async function cancelSpawnedChildrenInTx(
