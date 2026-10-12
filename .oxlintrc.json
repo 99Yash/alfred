@@ -553,7 +553,7 @@
       //   result because every tool's `execute_result` is free-form JSON
       //   unless a TOOL_OUTPUT_SCHEMAS entry says otherwise.
       // A new open-`unknown` return anywhere else in product source is an error.
-      // oxlint-disarm: anti-slop/no-unknown-returns — each entry returns a value that IS untyped at its boundary (a parser, a provider response, a BullMQ `Promise<unknown>` no caller reads, a free-form tool result), so `unknown` is the honest contract rather than an erased type.
+      // oxlint-disarm: anti-slop/no-unknown-returns — each entry returns a value that IS untyped at its boundary (a parser, a provider or store passthrough, a free-form tool result), so `unknown` is the honest contract rather than an erased type.
       "files": [
         "packages/contracts/src/json.ts",
         "packages/contracts/src/guards.ts",
