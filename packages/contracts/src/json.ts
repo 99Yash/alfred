@@ -1,18 +1,17 @@
-/** JSON parsing that returns `unknown` or a validated value. Never `JSON.parse(raw) as T`. */
+/** JSON parsing that returns a `JsonValue` or a validated value. Never `JSON.parse(raw) as T`. */
 
 import type { z } from "zod";
 import type { JsonValue } from "./user-model";
 
 /**
- * `JSON.parse` that returns `unknown`, and `null` on malformed input.
+ * `JSON.parse` that returns a `JsonValue`, and `null` on malformed input.
+ * Without a reviver, `JSON.parse` can only produce JSON values, so no cast is needed.
  * Valid `"null"` also returns `null`; check the raw string if that matters.
  */
-// oxlint-disable-next-line anti-slop/no-unknown-returns -- `JSON.parse` output has no static shape; callers parse it with a schema, per packages/contracts/AGENTS.md.
-export function safeJsonParse(raw: string): unknown {
+export function safeJsonParse(raw: string): JsonValue {
   try {
     return JSON.parse(raw);
   } catch {
-    // oxlint-disable-next-line anti-slop/no-known-value-widening -- the malformed-input arm returns `null` under the same `unknown` contract as a parsed value.
     return null;
   }
 }
