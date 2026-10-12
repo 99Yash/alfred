@@ -465,7 +465,7 @@
       //   login-search sanitizeRedirect) narrow webhook,
       //   provider, and persisted-JSON fields at the ingestion edge;
       // - unknown renderers (contracts text toDisplayText,
-      //   relationship and user-context fact strings, metering captureInput,
+      //   metering captureInput,
       //   langfuse metadata scrub, logger error diagnostics,
       //   credential envelope open and vault classify) branch
       //   `unknown` into text for display, logs, or redaction, which is
@@ -499,14 +499,11 @@
         "packages/assistant/src/connections/mcp/protocol.ts",
         "packages/assistant/src/connections/hosted-endpoint.ts",
         "packages/assistant/src/knowledge/fact-policy.ts",
-        "packages/assistant/src/knowledge/user-context.ts",
         "packages/assistant/src/knowledge/extractor.ts",
         "packages/assistant/src/tool-runtime/discovery.ts",
         "packages/assistant/src/tool-runtime/internal/dispatch/pipeline.ts",
         "packages/assistant/src/tool-runtime/internal/tools/fetch-url.ts",
-        "packages/assistant/src/execution/run-bottlenecks.ts",
         "packages/assistant/src/execution/workflows/tool-preview.ts",
-        "packages/assistant/src/triage/sender-relationship.ts",
         "packages/integrations/src/github/client.ts",
         "packages/db/src/credential-envelope.ts",
         "packages/db/src/credential-vault-maintenance.ts",
@@ -542,7 +539,7 @@
       //   `unknown` as their contract — narrowing belongs at callers via a
       //   schema, per packages/contracts/AGENTS.md;
       // - provider and store passthroughs (rest-passthrough parseBody, redis
-      //   eval, rate-limit Redis port) return what the provider or store
+      //   eval port, which rate-limit reuses) return what the provider or store
       //   returned, which has no static shape — bound and redact at the call
       //   site instead. Typed provider clients (authed-json, provider-client,
       //   google/sentry/notion) take a schema and are NOT listed;
@@ -563,7 +560,6 @@
         "packages/contracts/src/errors.ts",
         "packages/integrations/src/shared/rest-passthrough.ts",
         "packages/db/src/redis.ts",
-        "packages/auth/src/rate-limit.ts",
         "packages/assistant/src/tool-runtime/internal/registry.ts",
         "packages/assistant/src/tool-runtime/internal/dispatch/pipeline.ts",
         "packages/assistant/src/tool-runtime/internal/tools/fetch-url.ts",

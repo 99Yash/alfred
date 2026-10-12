@@ -4,7 +4,7 @@
  * the todo gate reads the typed `isColdContact`, because the model did not
  * reliably apply `cold_sender:` itself.
  */
-import { bucketSignificance, type SignificanceBand } from "@alfred/contracts";
+import { bucketSignificance, isNonBlankString, type SignificanceBand } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { userFacts } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
@@ -36,7 +36,7 @@ function reciprocityPhrase(stats: { inbound: number; outbound: number }): string
 }
 
 function factString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
+  return isNonBlankString(value) ? value.trim() : null;
 }
 
 /** `"Founder, Acme"` from the job title and employer facts, or null. */

@@ -230,7 +230,7 @@ function nonNegativeMs(startedAt: Date, endedAt: Date): number {
 
 function toNumber(value: string | number | null): number {
   if (value == null) return 0;
-  const n = typeof value === "number" ? value : Number(value);
+  const n = Number(value);
 
   return Number.isFinite(n) ? n : 0;
 }
