@@ -459,10 +459,8 @@
       //   narrow `unknown` process.env, webhook, and model-output fields
       //   inside the Zod boundary that owns them;
       // - provider and external-payload readers (fact-policy content
-      //   probes, hosted-endpoint parseUrl, mcp protocol TTL,
-      //   discovery textFromContent, conversation transcript helpers)
-      //   narrow webhook,
-      //   provider, and persisted-JSON fields at the ingestion edge;
+      //   probes, hosted-endpoint parseUrl) narrow webhook, provider, and
+      //   persisted-JSON fields at the ingestion edge;
       // - unknown renderers (contracts text toDisplayText,
       //   metering captureInput,
       //   langfuse metadata scrub, logger error diagnostics,
@@ -474,7 +472,7 @@
       //   pipeline PropertyKey symbol arm and scratch-key error strings, undici resource capability
       //   probes in fetch-url, window/matchMedia/requestIdle/crypto
       //   capability probes, ReactNode discrimination in chat text
-      //   renderers, markdown code-class prop, extractor transcript union,
+      //   renderers, extractor transcript union,
       //   auth credential-adapter seal walk over better-auth's loosely-typed
       //   adapter payloads) narrow an already-typed union whose arms differ
       //   by representation — `?.`, `??`, and the contracts guards
@@ -494,11 +492,9 @@
         "packages/extraction/src/extract-pdf-protocol.ts",
         "packages/assistant/src/knowledge/signature.ts",
         "packages/assistant/src/connections/mcp/client.ts",
-        "packages/assistant/src/connections/mcp/protocol.ts",
         "packages/assistant/src/connections/hosted-endpoint.ts",
         "packages/assistant/src/knowledge/fact-policy.ts",
         "packages/assistant/src/knowledge/extractor.ts",
-        "packages/assistant/src/tool-runtime/discovery.ts",
         "packages/assistant/src/tool-runtime/internal/dispatch/pipeline.ts",
         "packages/assistant/src/tool-runtime/internal/tools/fetch-url.ts",
         "packages/assistant/src/execution/workflows/tool-preview.ts",
@@ -513,7 +509,6 @@
         "apps/web/src/lib/eden.ts",
         "apps/web/src/lib/toast.tsx",
         "apps/web/src/lib/chat/animate-text.tsx",
-        "apps/web/src/components/markdown-renderer/markdown-pre.tsx",
         "apps/web/src/components/ui/v2/theme.tsx",
         "apps/web/src/main.tsx"
       ],
@@ -558,7 +553,6 @@
         "packages/assistant/src/tool-runtime/internal/dispatch/pipeline.ts",
         "packages/assistant/src/tool-runtime/internal/tools/fetch-url.ts",
         "packages/assistant/src/execution/workflows/tool-preview.ts",
-        "packages/assistant/src/chat/compaction/conversation-summary-generator.ts",
         "packages/assistant/src/chat/chat-attachments.ts",
         "packages/ai/src/replay/trajectory.ts",
         "packages/ai/src/metering/wrappers.ts"
