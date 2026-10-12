@@ -44,21 +44,25 @@ export interface Trajectory {
 const TOOL_SPAN_PREFIX = "tool:";
 
 /** Sort object keys recursively, so key order does not affect equality. */
+// oxlint-disable-next-line anti-slop/no-unknown-returns -- the key sort returns its unknown input with the same shape; only key order changes.
 export function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalize);
 
   if (isRecord(value)) {
-    return Object.keys(value)
-      .sort()
-      .reduce<Record<string, unknown>>((out, key) => {
-        const v = value[key];
+    return (
+      Object.keys(value)
+        .sort()
+        // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- the key-sorted rebuild keeps the input's keys, so no narrower key type exists.
+        .reduce<Record<string, unknown>>((out, key) => {
+          const v = value[key];
 
-        // An absent key and an explicit `undefined` must compare equal.
-        if (v === undefined) return out;
-        out[key] = canonicalize(v);
+          // An absent key and an explicit `undefined` must compare equal.
+          if (v === undefined) return out;
+          out[key] = canonicalize(v);
 
-        return out;
-      }, {});
+          return out;
+        }, {})
+    );
   }
 
   return value;

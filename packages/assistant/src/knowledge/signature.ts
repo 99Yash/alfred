@@ -12,10 +12,12 @@ export function valueSignature(value: unknown): string {
 function canonicalize(value: unknown): string {
   if (value === null) return "null";
 
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- the hash input dispatches on the runtime type of an unknown value; stored hashes depend on this exact branch.
   if (typeof value === "string") {
     return JSON.stringify(value.normalize("NFKC").toLowerCase());
   }
 
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- the hash input dispatches on the runtime type of an unknown value; stored hashes depend on this exact branch.
   if (typeof value === "number" || typeof value === "boolean") {
     return JSON.stringify(value);
   }

@@ -305,20 +305,6 @@
       }
     },
     {
-      // One file where no-known-value-widening is off ON PURPOSE — its widened
-      // type is the honest contract, not discarded evidence:
-      // - packages/contracts/src/json.ts: safeJsonParse erases to `unknown` by design;
-      //   its catch arm returns a literal, which the rule rejects against any
-      //   unknown-returning signature.
-      // The bar for removing a file from this list is a change that keeps the
-      // contract AND satisfies the rule — not a reworded cast.
-      // oxlint-disarm: anti-slop/no-known-value-widening — the file's widened type is the honest contract (an erased `unknown`), not discarded evidence.
-      "files": ["packages/contracts/src/json.ts"],
-      "rules": {
-        "anti-slop/no-known-value-widening": "off"
-      }
-    },
-    {
       // no-unsafe-dictionary-type is at `error` for product source; test and
       // eval scopes are exempt ON PURPOSE. The rule asks an open dictionary
       // to name its value contract, which is load-bearing when the bag crosses
@@ -430,12 +416,13 @@
     },
     {
       // no-runtime-typeof stays off ON PURPOSE in the honest-boundary
-      // files below. Each file IS a walker over a runtime representation, so
-      // nearly every line in it would carry the same per-site reason:
-      // - canonical unknown-walkers and serializers (contracts guards, web
-      //   eden restoreWireTimestamps, signature canonicalize, tool-preview
-      //   pruneForPreview) dispatch on the runtime representation because the
-      //   representation IS the contract being established;
+      // files below. Each file IS a walker or decoder over a runtime
+      // representation, so nearly every line in it would carry the same
+      // per-site reason:
+      // - canonical unknown-walkers (contracts guards, web eden
+      //   restoreWireTimestamps, tool-preview pruneForPreview) dispatch on the
+      //   runtime representation because the representation IS the contract
+      //   being established;
       // - the PDF child-process protocol decoder (extraction
       //   extract-pdf-protocol) checks each frame field by hand, because a
       //   Zod port costs a module load per child spawn.
@@ -447,7 +434,6 @@
       "files": [
         "packages/contracts/src/guards.ts",
         "packages/extraction/src/extract-pdf-protocol.ts",
-        "packages/assistant/src/knowledge/signature.ts",
         "packages/assistant/src/execution/workflows/tool-preview.ts",
         "apps/web/src/lib/eden.ts"
       ],
@@ -457,21 +443,17 @@
     },
     {
       // no-unknown-returns stays off ON PURPOSE in the honest-boundary
-      // files below. Each is a boundary parser or canonicalizer that takes or
-      // emits `unknown` as its contract (json safeJsonParse, guards getPath,
-      // log-redaction walk, tool-preview pruneForPreview, trajectory
-      // canonicalize); narrowing belongs at callers via a schema, per
-      // packages/contracts/AGENTS.md. Other honest `unknown` returns (store
-      // passthroughs, Zod preprocessors, the tool-runtime execute seam)
-      // carry their own `oxlint-disable-next-line` with the reason. A new
-      // open-`unknown` return anywhere else in product source is an error.
-      // oxlint-disarm: anti-slop/no-unknown-returns — each entry is a boundary parser or canonicalizer whose contract IS an untyped value, so `unknown` is the honest return rather than an erased type.
+      // files below. Each is a canonical unknown-walker whose contract IS an
+      // untyped value (guards getPath, tool-preview pruneForPreview);
+      // narrowing belongs at callers via a schema, per
+      // packages/contracts/AGENTS.md. Every other honest `unknown` return in
+      // product source carries its own `oxlint-disable-next-line` with the
+      // reason. A new open-`unknown` return anywhere else in product source
+      // is an error.
+      // oxlint-disarm: anti-slop/no-unknown-returns — each entry is a canonical unknown-walker whose contract IS an untyped value, so `unknown` is the honest return rather than an erased type.
       "files": [
-        "packages/contracts/src/json.ts",
         "packages/contracts/src/guards.ts",
-        "packages/contracts/src/log-redaction.ts",
-        "packages/assistant/src/execution/workflows/tool-preview.ts",
-        "packages/ai/src/replay/trajectory.ts"
+        "packages/assistant/src/execution/workflows/tool-preview.ts"
       ],
       "rules": {
         "anti-slop/no-unknown-returns": "off"
@@ -479,23 +461,18 @@
     },
     {
       // no-unsafe-dictionary-type stays off ON PURPOSE in the honest-boundary
-      // files below. Each carries a dynamic dictionary that is not debt per
+      // files below. Each carries dynamic dictionaries that are not debt per
       // the narrow-record-types decision table: canonical guards and rebuilds
-      // (guards, log-redaction, tool-preview), a parser staging buffer
-      // (gmail-document-metadata), local boundary helpers
-      // (extract-pdf-protocol), and a key-sorting rebuild (trajectory). Other
-      // honest open dictionaries (the sanitize, bound and passthrough-bounds
-      // rebuilds, the Better Auth credential-adapter rows) carry their own
-      // `oxlint-disable-next-line` with the reason. A new open-dictionary
-      // spelling anywhere else in product source is an error.
-      // oxlint-disarm: anti-slop/no-unsafe-dictionary-type — each entry carries a dynamic dictionary that is not debt per the narrow-record-types decision table: a canonical guard or rebuild, a parser staging buffer, or a local boundary helper.
+      // (guards, tool-preview) and local boundary helpers
+      // (extract-pdf-protocol). Every other honest open dictionary in product
+      // source carries its own `oxlint-disable-next-line` with the reason. A
+      // new open-dictionary spelling anywhere else in product source is an
+      // error.
+      // oxlint-disarm: anti-slop/no-unsafe-dictionary-type — each entry carries a dynamic dictionary that is not debt per the narrow-record-types decision table: a canonical guard or rebuild, or a local boundary helper.
       "files": [
         "packages/contracts/src/guards.ts",
-        "packages/contracts/src/log-redaction.ts",
-        "packages/contracts/src/gmail-document-metadata.ts",
         "packages/assistant/src/execution/workflows/tool-preview.ts",
-        "packages/extraction/src/extract-pdf-protocol.ts",
-        "packages/ai/src/replay/trajectory.ts"
+        "packages/extraction/src/extract-pdf-protocol.ts"
       ],
       "rules": {
         "anti-slop/no-unsafe-dictionary-type": "off"

@@ -7,10 +7,12 @@ import type { JsonValue } from "./user-model";
  * `JSON.parse` that returns `unknown`, and `null` on malformed input.
  * Valid `"null"` also returns `null`; check the raw string if that matters.
  */
+// oxlint-disable-next-line anti-slop/no-unknown-returns -- `JSON.parse` output has no static shape; callers parse it with a schema, per packages/contracts/AGENTS.md.
 export function safeJsonParse(raw: string): unknown {
   try {
     return JSON.parse(raw);
   } catch {
+    // oxlint-disable-next-line anti-slop/no-known-value-widening -- the malformed-input arm returns `null` under the same `unknown` contract as a parsed value.
     return null;
   }
 }
