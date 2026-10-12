@@ -212,9 +212,17 @@ export class AlfredAgent<CTX = unknown> {
   }
 }
 
-async function resolve<T, CTX>(v: T | ((ctx: CTX) => Promise<T> | T), ctx: CTX): Promise<T> {
-  // SAFETY: the typeof check proves v is the function arm of the union.
-  return typeof v === "function" ? await (v as (c: CTX) => Promise<T> | T)(ctx) : v;
+/** The value types a setting can resolve to. None is callable, so a function is always the thunk. */
+type SettingValue = string | LanguageModel;
+
+type Thunk<T, CTX> = (ctx: CTX) => Promise<T> | T;
+
+function isThunk<T extends SettingValue, CTX>(v: T | Thunk<T, CTX>): v is Thunk<T, CTX> {
+  return typeof v === "function";
+}
+
+async function resolve<T extends SettingValue, CTX>(v: T | Thunk<T, CTX>, ctx: CTX): Promise<T> {
+  return isThunk(v) ? await v(ctx) : v;
 }
 
 /** Drop `execute` and sort by name. The order reaches the wire, and the cache prefix is byte-exact. */

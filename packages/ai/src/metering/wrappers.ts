@@ -69,6 +69,15 @@ function extractTextUsage(
   };
 }
 
+interface CapturedToolCall {
+  toolName: string;
+  toolCallId: string;
+  input: unknown;
+}
+
+/** The bare text, or the turn's text (when there is some) and its proposed tool calls. */
+type CapturedOutput = string | { text?: string; toolCalls: CapturedToolCall[] };
+
 /**
  * The generation output for the trace. A tool-call turn often has no text, and a staged or
  * rejected call never gets a tool span, so the proposed calls are kept here.
@@ -76,8 +85,8 @@ function extractTextUsage(
  */
 export function captureOutput(args: {
   text: string;
-  toolCalls?: readonly { toolName: string; toolCallId: string; input: unknown }[];
-}): unknown {
+  toolCalls?: readonly CapturedToolCall[];
+}): CapturedOutput {
   const { text, toolCalls } = args;
 
   if (toolCalls && toolCalls.length > 0) {

@@ -296,19 +296,15 @@ export function hasCredentialQuery(url: URL): boolean {
   return false;
 }
 
-function parseUrl(input: unknown): URL {
-  if (typeof input !== "string" && !(input instanceof URL)) {
-    throw new HostedEndpointError("malformed_url", "The endpoint URL is invalid.");
-  }
-
+function parseUrl(input: string | URL): URL {
   try {
-    return new URL(input instanceof URL ? input.href : input);
+    return new URL(input);
   } catch {
     throw new HostedEndpointError("malformed_url", "The endpoint URL is malformed.");
   }
 }
 
-export function validatePublicWebUrl(input: unknown): URL {
+export function validatePublicWebUrl(input: string | URL): URL {
   const url = parseUrl(input);
 
   if (url.protocol !== "http:" && url.protocol !== "https:") {
@@ -355,7 +351,10 @@ function parseExpectedOrigin(input: string): string {
  * Public HTTPS URL with no fragment, pinned to `expectedOrigin` when there is one.
  * Pass `null` for a URL never stored, not the URL's own origin: that would make the pin a tautology.
  */
-export function validatePinnedHttpsEndpoint(input: unknown, expectedOrigin: string | null): URL {
+export function validatePinnedHttpsEndpoint(
+  input: string | URL,
+  expectedOrigin: string | null,
+): URL {
   const url = validatePublicWebUrl(input);
 
   if (url.protocol !== "https:") {
@@ -558,7 +557,7 @@ export function createGuardedFetch(options: GuardedFetchOptions): typeof globalT
   return async (input, init) => {
     const { url, method, headers, body, signal } = requestFacts(input, init);
 
-    const validate = (candidate: unknown): URL =>
+    const validate = (candidate: string | URL): URL =>
       validatePinnedHttpsEndpoint(candidate, expectedOrigin);
 
     let current = validate(url);

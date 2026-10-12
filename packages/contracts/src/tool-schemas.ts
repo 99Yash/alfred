@@ -23,7 +23,7 @@ import {
 } from "./artifacts";
 import { contextSearchRequestSchema } from "./context-search";
 import { githubSearchQueryIssues, sanitizeGithubSearchQuery } from "./github-search";
-import { isRecord } from "./guards";
+import { enumGuard, isRecord } from "./guards";
 import { mcpCallInput, mcpToolInspectInputSchema, mcpToolSearchInputSchema } from "./mcp";
 import { restPassthroughRequestSchema } from "./passthrough";
 import { todoSourceSchema } from "./todos";
@@ -166,6 +166,8 @@ export function coerceJsonArrayFields<S extends z.ZodType<any>>(
 
 const CALENDAR_WINDOW_VALUES = ["today", "tomorrow", "next_7_days"] as const;
 
+const isCalendarWindowValue = enumGuard(CALENDAR_WINDOW_VALUES);
+
 const calendarListEventsObject = z
   .object({
     timeMin: z.iso
@@ -207,11 +209,9 @@ function promoteWindowSynonym(value: unknown): unknown {
   const obj = Object.assign({}, value);
 
   if (obj.window !== undefined) return obj;
-  // SAFETY: widening only types the `.includes` receiver.
-  const windowValues = CALENDAR_WINDOW_VALUES as readonly string[];
 
   for (const [key, val] of Object.entries(obj)) {
-    if (typeof val === "string" && windowValues.includes(val)) {
+    if (isCalendarWindowValue(val)) {
       obj.window = val;
       delete obj[key];
       break;

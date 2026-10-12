@@ -19,22 +19,18 @@ export function permissiveMcpOAuthAuthorizationForTests(
     resource: new URL(resource.href),
     fetch,
     authorizeServer: (input) => {
-      const server = new URL(input instanceof URL ? input.href : String(input));
+      const server = new URL(input);
 
       return {
         issuer: server.href,
         origin: server.origin,
-        validateEndpoint: (candidate) =>
-          new URL(candidate instanceof URL ? candidate.href : String(candidate)),
-        validateTokenEndpoint: (candidate) =>
-          new URL(candidate instanceof URL ? candidate.href : String(candidate)),
-        validateRegistrationEndpoint: (candidate) =>
-          new URL(candidate instanceof URL ? candidate.href : String(candidate)),
+        validateEndpoint: (candidate) => new URL(candidate),
+        validateTokenEndpoint: (candidate) => new URL(candidate),
+        validateRegistrationEndpoint: (candidate) => new URL(candidate),
       };
     },
-    validateDiscoveryEndpoint: (input) =>
-      new URL(input instanceof URL ? input.href : String(input)),
-    validateResourceEndpoint: (input) => new URL(input instanceof URL ? input.href : String(input)),
+    validateDiscoveryEndpoint: (input) => new URL(input),
+    validateResourceEndpoint: (input) => new URL(input),
   };
 }
 

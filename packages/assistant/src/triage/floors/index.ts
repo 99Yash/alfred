@@ -84,7 +84,8 @@ function floor<N extends string, R extends FloorResult>(
  *  3. `spam` demotes reply lanes only. After `senderKind` so the audit names the
  *     sender reason when both match; the category is the same.
  *  4. `meeting` last: it only fires on a surviving `meeting` tag.
- * A new floor also needs an entry in `FLOOR_TRACE_PROJECTIONS`; the compiler asks for it.
+ * A new floor also needs an entry in `FLOOR_TRACE_PROJECTIONS` and a step in
+ * `applyFloors`; the compiler asks for both.
  */
 const FLOOR_SEQUENCE = [
   floor(
@@ -139,18 +140,24 @@ export interface FloorOutcome {
 }
 
 export function applyFloors(classification: TriageClassification, ctx: FloorContext): FloorOutcome {
-  let current = classification;
-  const modelIdTags: string[] = [];
-  const audits: Record<string, unknown> = {};
+  // Positional, so FLOOR_SEQUENCE alone sets the order. A new floor leaves `audits`
+  // without its FloorAudits key, so the compiler asks for its step here.
+  const [first, second, third, fourth] = FLOOR_SEQUENCE;
+  const firstStep = first.run(classification, ctx);
+  const secondStep = second.run(firstStep.classification, ctx);
+  const thirdStep = third.run(secondStep.classification, ctx);
+  const fourthStep = fourth.run(thirdStep.classification, ctx);
 
-  for (const step of FLOOR_SEQUENCE) {
-    const result = step.run(current, ctx);
-    current = result.classification;
-    audits[step.name] = result.audit;
-
-    if (result.modelIdTag) modelIdTags.push(result.modelIdTag);
-  }
-
-  // SAFETY: the loop above fills every FLOOR_SEQUENCE entry before returning.
-  return { classification: current, audits: audits as FloorAudits, modelIdTags };
+  return {
+    classification: fourthStep.classification,
+    audits: {
+      [first.name]: firstStep.audit,
+      [second.name]: secondStep.audit,
+      [third.name]: thirdStep.audit,
+      [fourth.name]: fourthStep.audit,
+    },
+    modelIdTags: [firstStep, secondStep, thirdStep, fourthStep].flatMap((step) =>
+      step.modelIdTag ? [step.modelIdTag] : [],
+    ),
+  };
 }

@@ -9,6 +9,7 @@ import {
   classifyConnectedAccount,
   getPath,
   isFactKey,
+  isNonBlankString,
   isNonEmptyString,
   isRecord,
   PREF_FACT_PREFIX,
@@ -61,7 +62,7 @@ function isServiceSenderRelationshipKey(canonicalKey: string): boolean {
 
 /** True if a nested field has any reviewable content. */
 function fieldHasContent(value: unknown): boolean {
-  if (typeof value === "string") return value.trim().length > 0;
+  if (isNonBlankString(value)) return true;
 
   if (typeof value === "number" || typeof value === "boolean") return true;
 
@@ -74,7 +75,7 @@ function fieldHasContent(value: unknown): boolean {
 
 /** True when a `relationship:<email>` value has nothing to review: blank, empty, or not a string or object. */
 export function isUninformativeRelationshipValue(value: unknown): boolean {
-  if (typeof value === "string") return value.trim().length === 0;
+  if (isNonBlankString(value)) return false;
 
   if (isRecord(value)) return !Object.values(value).some(fieldHasContent);
 

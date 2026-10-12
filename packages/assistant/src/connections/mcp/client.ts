@@ -3,6 +3,7 @@ import {
   canonicalJson,
   enumGuard,
   isIndexable,
+  isNonEmptyString,
   isRecord,
   jsonObjectSchema,
   mcpContentKindValues,
@@ -974,7 +975,7 @@ function assertSafeSchema(
 
       if (
         (key === "$ref" || key === "$dynamicRef" || key === "$recursiveRef") &&
-        (typeof child !== "string" || !child.startsWith("#"))
+        (!isNonEmptyString(child) || !child.startsWith("#"))
       ) {
         throw new McpClientError(
           "invalid_schema",
@@ -982,7 +983,7 @@ function assertSafeSchema(
         );
       }
 
-      if (key === "pattern" && typeof child === "string" && child.length > MAX_SCHEMA_REGEX_CHARS) {
+      if (key === "pattern" && isNonEmptyString(child) && child.length > MAX_SCHEMA_REGEX_CHARS) {
         throw new McpClientError(
           "invalid_schema",
           `MCP tool '${toolName}' ${direction} schema contains an oversized regex`,

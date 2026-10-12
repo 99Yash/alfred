@@ -39,7 +39,7 @@ const DARK_QUERY = "(prefers-color-scheme: dark)";
 
 /** `null` without a window (SSR) or `matchMedia`, so each caller picks its own fallback. */
 function safeMatchMedia(query: string): MediaQueryList | null {
-  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return null;
+  if (typeof window === "undefined" || !("matchMedia" in window)) return null;
 
   return window.matchMedia(query);
 }

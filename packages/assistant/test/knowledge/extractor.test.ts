@@ -96,7 +96,7 @@ describe("extractPropositionsFromThread", () => {
     const out = await extractPropositionsFromThread({
       userId: "usr_1",
       threadId: "thread_1",
-      transcript: [],
+      transcript: buildThreadTranscript([]),
       generate,
     });
 
@@ -118,7 +118,7 @@ describe("extractPropositionsFromThread", () => {
     const out = await extractPropositionsFromThread({
       userId: "usr_1",
       threadId: "thread_1",
-      transcript: dvdThread,
+      transcript: buildThreadTranscript(dvdThread),
       generate,
     });
 
@@ -161,7 +161,7 @@ describe("extractPropositionsFromThread", () => {
         extractPropositionsFromThread({
           userId: "usr_1",
           threadId: "thread_1",
-          transcript: dvdThread,
+          transcript: buildThreadTranscript(dvdThread),
           generate,
         }),
       /verificationClass|enum|expected/i,

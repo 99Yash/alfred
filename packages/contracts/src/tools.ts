@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { enumGuard } from "./guards";
+import { enumGuard, isIndexable } from "./guards";
 import {
   INTEGRATION_ACTIONS,
   INTEGRATION_DISPLAY_NAMES,
@@ -674,7 +674,7 @@ function stringifyCanonical(value: unknown, seen: WeakSet<object>): string {
     return "null";
   }
 
-  if (typeof value === "object" && value !== null) {
+  if (isIndexable(value)) {
     const toJSON = Reflect.get(value, "toJSON");
 
     if (typeof toJSON === "function") {
@@ -686,22 +686,15 @@ function stringifyCanonical(value: unknown, seen: WeakSet<object>): string {
     if (seen.has(value)) throw new TypeError("Cannot hash circular tool input");
     seen.add(value);
 
-    const items = value.map((item) => {
-      const itemType = typeof item;
-
-      if (itemType === "undefined" || itemType === "function" || itemType === "symbol") {
-        return "null";
-      }
-
-      return stringifyCanonical(item, seen);
-    });
+    // An undefined, function, or symbol item renders as "null" through the scalar arms above.
+    const items = value.map((item) => stringifyCanonical(item, seen));
 
     seen.delete(value);
 
     return `[${items.join(",")}]`;
   }
 
-  if (typeof value === "object" && value !== null) {
+  if (isIndexable(value)) {
     const objectValue = value;
 
     if (seen.has(objectValue)) throw new TypeError("Cannot hash circular tool input");

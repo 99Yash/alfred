@@ -50,10 +50,8 @@ function scheduleObservabilityInit() {
       })
       .catch(() => {});
 
-  const requestIdle = window.requestIdleCallback;
-
-  if (typeof requestIdle === "function") {
-    requestIdle(load, { timeout: 2_000 });
+  if ("requestIdleCallback" in window) {
+    window.requestIdleCallback(load, { timeout: 2_000 });
 
     return;
   }

@@ -112,7 +112,9 @@ export const INGEST_POLICY = {
   "text/csv": { kind: "degrade-text", maxBytes: 10 * MB, contentFormat: "text" },
 } as const satisfies Readonly<Record<string, IngestPolicyEntry>>;
 
-const ingestPolicyByMime: Readonly<Record<string, IngestPolicyEntry>> = INGEST_POLICY;
+const ingestPolicyByMime: ReadonlyMap<string, IngestPolicyEntry> = new Map(
+  Object.entries(INGEST_POLICY),
+);
 
 /** Types whose full chat ingest path works today. */
 const CHAT_UPLOAD_ALLOWED_TYPES = new Set<string>([
@@ -160,7 +162,7 @@ export const MAX_ATTACHMENT_BYTES = Math.max(
 export function classifyUpload(mime: string): IngestPolicyEntry | null {
   const normalized = normalizeMimeType(mime);
 
-  return ingestPolicyByMime[normalized] ?? null;
+  return ingestPolicyByMime.get(normalized) ?? null;
 }
 
 export function isChatUploadAllowed(mime: string): boolean {

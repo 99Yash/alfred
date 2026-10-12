@@ -7,12 +7,19 @@ import { BriefingLink, BriefingRef } from "./briefing-link";
 
 type RemarkPlugin = NonNullable<ComponentProps<typeof ReactMarkdown>["remarkPlugins"]>[number];
 
+/** The element that mdast-util-to-hast renders for a `briefingRef` node. */
+interface BriefingRefData {
+  hName: string;
+  hProperties: { kind: string; label: string; href?: string };
+}
+
 /** The mdast fields we touch, so web needs no `mdast`/`unified` import. */
 interface MdNode {
   type: string;
   value?: string | undefined;
   children?: MdNode[] | undefined;
-  data?: Record<string, unknown> | undefined;
+  /** Other plugins can set any `data` on an incoming node. This plugin only writes it. */
+  data?: object | undefined;
 }
 
 /**
@@ -44,7 +51,7 @@ export function briefingRefsPlugin(gather: BriefingGather | null): RemarkPlugin 
                   label: segment.label,
                   ...(segment.href ? { href: segment.href } : {}),
                 },
-              },
+              } satisfies BriefingRefData,
             },
       );
 
