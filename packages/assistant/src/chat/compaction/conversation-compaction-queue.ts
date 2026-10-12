@@ -162,9 +162,7 @@ export async function closeConversationCompactionQueue(): Promise<void> {
   queue = undefined;
 }
 
-async function processConversationCompactionJob(
-  job: Job<ConversationCompactionJobData>,
-): Promise<unknown> {
+async function processConversationCompactionJob(job: Job<ConversationCompactionJobData>) {
   const data = jobDataSchema.parse(job.data);
   const requestedAt = new Date(data.requestedAt);
 

@@ -1,4 +1,4 @@
-import { isIndexable, type TransportErrorKind } from "@alfred/contracts";
+import { getStringField, isIndexable, type TransportErrorKind } from "@alfred/contracts";
 
 /**
  * Classify a thrown fetch error. undici puts the code on `err.cause.code`;
@@ -34,9 +34,8 @@ export function classifyTransportError(err: unknown): TransportErrorKind {
 
 function errorName(err: unknown): string | null {
   if (err instanceof Error) return err.name;
-  const name = readStringField(err, "name");
 
-  return name;
+  return getStringField(err, "name") ?? null;
 }
 
 /**
@@ -44,22 +43,15 @@ function errorName(err: unknown): string | null {
  * which would turn every failure into `connection_reset`.
  */
 function transportCode(err: unknown): string | null {
-  const top = readStringField(err, "code");
+  const top = getStringField(err, "code");
 
   if (top) return top;
 
   if (isIndexable(err)) {
     const cause = Reflect.get(err, "cause");
 
-    return readStringField(cause, "code");
+    return getStringField(cause, "code") ?? null;
   }
 
   return null;
-}
-
-function readStringField(value: unknown, field: string): string | null {
-  if (!isIndexable(value)) return null;
-  const read = Reflect.get(value, field);
-
-  return typeof read === "string" ? read : null;
 }

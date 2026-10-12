@@ -71,7 +71,7 @@ export async function closeBriefingQueue(): Promise<void> {
   }
 }
 
-async function processBriefingJob(job: Job<BriefingJobData>): Promise<unknown> {
+async function processBriefingJob(job: Job<BriefingJobData>) {
   const data = job.data;
 
   switch (data.kind) {

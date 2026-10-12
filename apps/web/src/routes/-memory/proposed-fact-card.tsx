@@ -1,3 +1,4 @@
+import { toDisplayText } from "@alfred/contracts";
 import type { SyncedFact } from "@alfred/sync";
 import { Check, X } from "lucide-react";
 import { AppButton, AppCard } from "~/components/ui/v2";
@@ -6,15 +7,6 @@ import { ConfidenceChip } from "./confidence-chip";
 const CONFIRM_LEADING = <Check size={12} />;
 
 const REJECT_LEADING = <X size={12} />;
-
-function formatValue(value: unknown): string {
-  if (typeof value === "string") return value;
-
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  const serialized = JSON.stringify(value, null, 2);
-
-  return serialized ?? "Unknown value";
-}
 
 function formatSource(fact: SyncedFact): string {
   return fact.source.kind.replaceAll("_", " ");
@@ -36,7 +28,7 @@ export function ProposedFactCard({
         <ConfidenceChip confidence={fact.confidence} />
       </div>
       <div className="rounded-md bg-app-bg-2 px-3 py-2 font-mono text-[12px] wrap-break-word whitespace-pre-wrap text-app-fg-4">
-        {formatValue(fact.value)}
+        {toDisplayText(fact.value, 2)}
       </div>
       <div className="text-[11px] text-app-fg-3 tabular-nums">
         {formatSource(fact)} · {new Date(fact.createdAt).toLocaleString()}

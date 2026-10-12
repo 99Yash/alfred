@@ -6,6 +6,7 @@ import {
   isQuestionApproval,
   isRecord,
   jsonValueSchema,
+  toDisplayText,
   type JsonValue,
   type ToolName,
 } from "@alfred/contracts";
@@ -250,13 +251,7 @@ function summarizeInput(input: JsonValue): Array<{ label: string; value: string 
 }
 
 function formatValue(value: unknown): string {
-  if (typeof value === "string") return value;
-
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-
-  if (value == null) return "None";
-
-  return JSON.stringify(value);
+  return value == null ? "None" : toDisplayText(value);
 }
 
 function truncate(value: string, max: number): string {

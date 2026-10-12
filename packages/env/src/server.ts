@@ -1,16 +1,17 @@
 import { z } from "zod";
 import { agentWorkerConcurrencySchema } from "./pool";
 
+/** A blank `FOO=` line reads as unset, so the optional schema behind it does not fail boot. */
+function blankAsUnset(v: unknown) {
+  return typeof v === "string" && v.trim() === "" ? undefined : v;
+}
+
 /** Optional secret. A blank `FOO=` line counts as unset instead of failing boot. */
-const optionalSecret = () =>
-  z.preprocess(
-    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
-    z.string().min(1).optional(),
-  );
+const optionalSecret = () => z.preprocess(blankAsUnset, z.string().min(1).optional());
 
 const optionalBooleanString = () =>
   z.preprocess(
-    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    blankAsUnset,
     z
       .enum(["true", "false"])
       .optional()
@@ -20,7 +21,7 @@ const optionalBooleanString = () =>
 // Optional 32+ char secret. Surrounding whitespace fails boot: it would change every HMAC keyed off it.
 const optionalLongSecret = () =>
   z.preprocess(
-    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    blankAsUnset,
     z
       .string()
       .min(32)
@@ -40,7 +41,7 @@ const KEK_BYTES = 32;
  */
 const credentialKek = () =>
   z.preprocess(
-    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    blankAsUnset,
     z
       .string({ error: `required — generate with \`openssl rand -base64 ${KEK_BYTES}\`` })
       .refine((v) => v === v.trim(), {
@@ -98,7 +99,7 @@ const serverEnvSchema = z
      * Not the gateway's own `rate_limiting_limit`; if one is set, keep this below it.
      */
     CLOUDFLARE_AI_GATEWAY_RPM: z.preprocess(
-      (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+      blankAsUnset,
       z.coerce
         .number()
         .int()
@@ -109,7 +110,7 @@ const serverEnvSchema = z
     ),
     /** Overrides the pacer burst. Capped so it cannot eat the margin below the gateway limit. */
     CLOUDFLARE_AI_GATEWAY_BURST: z.preprocess(
-      (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+      blankAsUnset,
       z.coerce.number().int().min(0).max(10).optional(),
     ),
     /** Legacy. Only a `cfut_` value is read, as an alias for `CLOUDFLARE_AI_GATEWAY_TOKEN`. */
@@ -142,7 +143,7 @@ const serverEnvSchema = z
      * and quota) and `1` elsewhere. Errors are reported at any rate.
      */
     SENTRY_TRACES_SAMPLE_RATE: z.preprocess(
-      (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+      blankAsUnset,
       z.coerce.number().min(0).max(1).optional(),
     ),
     LANGFUSE_PUBLIC_KEY: z.string().optional(),
@@ -192,33 +193,21 @@ const serverEnvSchema = z
     /** Notion OAuth. Optional; Notion stays unconfigured until all three are set. */
     NOTION_OAUTH_CLIENT_ID: optionalSecret(),
     NOTION_OAUTH_CLIENT_SECRET: optionalSecret(),
-    NOTION_OAUTH_REDIRECT_URI: z.preprocess(
-      (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
-      z.url().optional(),
-    ),
+    NOTION_OAUTH_REDIRECT_URI: z.preprocess(blankAsUnset, z.url().optional()),
     /** Vercel integration. The slug builds `https://vercel.com/integrations/<slug>/new`. */
     VERCEL_CLIENT_ID: optionalSecret(),
     VERCEL_CLIENT_SECRET: optionalSecret(),
-    VERCEL_REDIRECT_URI: z.preprocess(
-      (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
-      z.url().optional(),
-    ),
+    VERCEL_REDIRECT_URI: z.preprocess(blankAsUnset, z.url().optional()),
     VERCEL_APP_SLUG: optionalSecret(),
     /** Verifies `sentry-hook-signature`. While unset, every Sentry delivery is rejected. */
     SENTRY_WEBHOOK_CLIENT_SECRET: optionalSecret(),
     /** S3-compatible storage for chat uploads (ADR-0065). Uploads are off until it is set. */
     CHAT_S3_BUCKET: optionalSecret(),
     CHAT_S3_REGION: optionalSecret(),
-    CHAT_S3_ENDPOINT: z.preprocess(
-      (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
-      z.url().optional(),
-    ),
+    CHAT_S3_ENDPOINT: z.preprocess(blankAsUnset, z.url().optional()),
     CHAT_S3_ACCESS_KEY_ID: optionalSecret(),
     CHAT_S3_SECRET_ACCESS_KEY: optionalSecret(),
-    CHAT_S3_PUBLIC_BASE_URL: z.preprocess(
-      (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
-      z.url().optional(),
-    ),
+    CHAT_S3_PUBLIC_BASE_URL: z.preprocess(blankAsUnset, z.url().optional()),
     CHAT_S3_FORCE_PATH_STYLE: z
       .string()
       .optional()

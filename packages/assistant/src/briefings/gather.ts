@@ -886,36 +886,25 @@ async function resolveWeatherLocation(
   return parsed ?? weatherFallbackFor(timezone);
 }
 
+/** A stored coordinate: a number, or a string `parseFloat` reads. `z.number()` rejects NaN and Infinity. */
+const storedCoordSchema = z
+  .union([z.number(), z.string().transform((value) => Number.parseFloat(value))])
+  .pipe(z.number());
+
 function parseWeatherLocation(value: unknown): WeatherFallbackLocation | null {
   if (!isRecord(value)) return null;
-  const record = value;
-  const lat = parseCoord(record.lat ?? record.latitude);
-  const lng = parseCoord(record.lng ?? record.lon ?? record.longitude);
+  const lat = storedCoordSchema.safeParse(value.lat ?? value.latitude);
+  const lng = storedCoordSchema.safeParse(value.lng ?? value.lon ?? value.longitude);
 
-  if (lat === null || lng === null) return null;
+  if (!lat.success || !lng.success) return null;
 
   const label =
-    typeof record.label === "string"
-      ? record.label
-      : typeof record.city === "string"
-        ? record.city
-        : typeof record.name === "string"
-          ? record.name
-          : `${lat},${lng}`;
+    getStringPath(value, "label") ??
+    getStringPath(value, "city") ??
+    getStringPath(value, "name") ??
+    `${lat.data},${lng.data}`;
 
-  return { lat, lng, label };
-}
-
-function parseCoord(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-
-  if (typeof value === "string") {
-    const n = Number.parseFloat(value);
-
-    return Number.isFinite(n) ? n : null;
-  }
-
-  return null;
+  return { lat: lat.data, lng: lng.data, label };
 }
 
 function describeWeatherCode(code: number): string {

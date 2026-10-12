@@ -5,7 +5,6 @@ import {
   getStringPath,
   gmailEmailMessagePayloadSchema,
   identityRefSchema,
-  isRecord,
   observationInsertSchema,
   parseGmailDocumentMetadata,
   type GmailDocumentMetadata,
@@ -184,10 +183,13 @@ function headersFromList(headers: unknown): HeaderLookup {
   }
 
   for (const h of headers) {
-    if (!isRecord(h) || typeof h.name !== "string" || typeof h.value !== "string") continue;
-    const key = h.name.trim().toLowerCase();
+    const name = getStringPath(h, "name");
+    const value = getStringPath(h, "value");
 
-    if (key && !out.has(key)) out.set(key, h.value);
+    if (name === undefined || value === undefined) continue;
+    const key = name.trim().toLowerCase();
+
+    if (key && !out.has(key)) out.set(key, value);
   }
 
   return { get: (name) => normalizeHeader(out.get(name.toLowerCase()) ?? null) };
@@ -221,9 +223,9 @@ function firstNonEmpty(...values: readonly (string | null | undefined)[]): strin
 }
 
 function internalDateFromRaw(raw: unknown): Date | null {
-  const value = getPath(raw, "internalDate");
+  const value = getStringPath(raw, "internalDate");
 
-  if (typeof value !== "string") return null;
+  if (value === undefined) return null;
   const ms = Number(value);
 
   if (!Number.isFinite(ms)) return null;

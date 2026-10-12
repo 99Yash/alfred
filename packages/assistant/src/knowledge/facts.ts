@@ -3,6 +3,7 @@ import {
   clamp01,
   memorySourceSchema,
   parseMemorySourceOrDefault,
+  toDisplayText,
   type MemorySource,
 } from "@alfred/contracts";
 import { db, rowsFromExecute } from "@alfred/db";
@@ -300,16 +301,7 @@ export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null
 
 /** One-line preview for toasts, at most 280 chars. */
 function previewValue(value: unknown): string {
-  let s: string;
-
-  if (typeof value === "string") s = value;
-  else {
-    try {
-      s = JSON.stringify(value);
-    } catch {
-      s = String(value);
-    }
-  }
+  const s = toDisplayText(value);
 
   return s.length > 280 ? s.slice(0, 277) + "…" : s;
 }

@@ -1,4 +1,4 @@
-import { isIndexable } from "@alfred/contracts";
+import { getStringField, isIndexable } from "@alfred/contracts";
 import type { LanguageModel } from "ai";
 import { z } from "zod";
 
@@ -30,14 +30,11 @@ export function isModelObject(model: LanguageModel): model is ModelObject {
 
 /** Read `provider` and `modelId` off the model, with the provider normalized. */
 export function identifyLanguageModel(model: LanguageModel): ModelIdentifiers {
-  if (isIndexable(model)) {
-    const provider = Reflect.get(model, "provider");
-    const modelId = Reflect.get(model, "modelId");
+  const provider = getStringField(model, "provider");
+  const modelId = getStringField(model, "modelId");
 
-    // eslint-disable-next-line anti-slop/no-runtime-typeof -- SDK object field check, not JSON boundary parsing; `isIndexable` already proved indexability
-    if (typeof provider === "string" && typeof modelId === "string") {
-      return { provider: normalizeProvider(provider), modelId };
-    }
+  if (provider !== undefined && modelId !== undefined) {
+    return { provider: normalizeProvider(provider), modelId };
   }
 
   return { provider: "unknown", modelId: String(model) };
