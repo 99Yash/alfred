@@ -316,11 +316,12 @@ alias-aware; a bare `Intl.DateTimeFormat` trial once broke briefings on `"UTC"`)
 one-line alias of `isIanaTimezone` so its call sites read in domain terms. Guarded by a `check-consolidation-drift.mjs`
 rule that bans a hand-rolled `function isValidTimezone`.
 
-**Not a target (deliberate pattern):** the four `getJson` in the Google
-integration (`docs`/`calendar`/`drive`/`gmail`) are 2-line wrappers that bind a
-service tag onto the single `googleJson` transport in `google/http.ts` — the
-documented per-module vocabulary pattern, not duplication. jscpd doesn't flag
-them (below its 8-line floor). Leave them.
+**Resolved:** the Google integration modules had per-file JSON wrappers that only added `.then((raw) => schema.parse(raw))` to `googleJson`. The
+schema now goes into the client: `googleJson(service, schema, request)` in
+`google/http.ts`, `authedJson(schema, ...)`, and `ProviderClient.json(schema, path)`
+parse at the client boundary and return the schema's output type. Do not add a new
+per-file wrapper that only binds the service tag. Pass `uncheckedResponse` when a
+call only needs success.
 
 **Not a target (throwaway):** the `parseTargetEmails` / `resolveTargets` /
 `parseEmails` repeats all live in one-shot `server/src/scripts/backfills/*-committed.ts`.

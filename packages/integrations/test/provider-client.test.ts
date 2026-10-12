@@ -2,12 +2,13 @@ import { HttpError } from "@alfred/contracts";
 import assert from "node:assert/strict";
 import { afterEach, describe, test } from "node:test";
 
+import { uncheckedResponse } from "../src/shared/authed-json";
 import { defineProviderClient } from "../src/shared/provider-client";
 import { isRetrySafeMethod } from "../src/shared/retry";
 
 /**
  * Retry follows the method, so a POST is never re-sent. `bodyPolicy` is required, so no provider inherits a leak.
- * Also: fresh auth per request, a pinned query the caller cannot override, and JSON as `unknown`.
+ * Also: fresh auth per request, a pinned query the caller cannot override, and JSON through the caller's schema.
  */
 
 const realFetch = globalThis.fetch;
@@ -67,7 +68,7 @@ describe("defineProviderClient", () => {
       n < 3 ? new Response("nope", { status: 500 }) : new Response(JSON.stringify({ ok: true })),
     );
 
-    const body = await client().json("/thing");
+    const body = await client().json(uncheckedResponse, "/thing");
     assert.deepEqual(body, { ok: true });
     assert.equal(calls.methods.length, 3);
   });
@@ -77,13 +78,16 @@ describe("defineProviderClient", () => {
     // omitting an optional field, this was the unwritable case: absence meant the
     // built-in 3-attempt policy, so a provider retried by accident.
     const calls = stubFetch(() => new Response("nope", { status: 500 }));
-    await assert.rejects(client({ retry: "none" }).json("/thing"), HttpError);
+    await assert.rejects(client({ retry: "none" }).json(uncheckedResponse, "/thing"), HttpError);
     assert.equal(calls.methods.length, 1);
   });
 
   test("a POST is NEVER retried, even with a retry envelope configured", async () => {
     const calls = stubFetch(() => new Response("upstream broke", { status: 500 }));
-    await assert.rejects(client().json("/thing", { method: "POST", body: { a: 1 } }), HttpError);
+    await assert.rejects(
+      client().json(uncheckedResponse, "/thing", { method: "POST", body: { a: 1 } }),
+      HttpError,
+    );
     // One attempt only: a write that may already have landed is not re-sent.
     assert.equal(calls.methods.length, 1);
   });
@@ -93,7 +97,11 @@ describe("defineProviderClient", () => {
       n < 2 ? new Response("nope", { status: 503 }) : new Response(JSON.stringify({ ok: 1 })),
     );
 
-    const body = await client().json("/thing", { method: "PUT", idempotent: true });
+    const body = await client().json(uncheckedResponse, "/thing", {
+      method: "PUT",
+      idempotent: true,
+    });
+
     assert.deepEqual(body, { ok: 1 });
     assert.equal(calls.methods.length, 2);
   });
@@ -105,7 +113,7 @@ describe("defineProviderClient", () => {
 
     try {
       await assert.rejects(
-        client({ bodyPolicy: "omit" }).json("/pages/x", { label: "/pages/:id" }),
+        client({ bodyPolicy: "omit" }).json(uncheckedResponse, "/pages/x", { label: "/pages/:id" }),
         (err: unknown) => {
           assert.ok(err instanceof HttpError);
           assert.equal(err.status, 400);
@@ -124,7 +132,7 @@ describe("defineProviderClient", () => {
   // its posture. This pins what the stated bounded posture does.
   test('bodyPolicy "summarize" keeps a bounded body slice on the error', async () => {
     stubFetch(() => new Response("upstream said no", { status: 404 }));
-    await assert.rejects(client().json("/thing"), (err: unknown) => {
+    await assert.rejects(client().json(uncheckedResponse, "/thing"), (err: unknown) => {
       assert.ok(err instanceof HttpError);
       assert.match(err.body, /upstream said no/);
 
@@ -136,7 +144,7 @@ describe("defineProviderClient", () => {
     const calls = stubFetch(() => new Response(JSON.stringify({})));
     await client({
       resolve: async () => ({ headers: {}, fixedQuery: { teamId: "team_real" } }),
-    }).json("/v10/projects", { query: { teamId: "team_spoofed", limit: 5 } });
+    }).json(uncheckedResponse, "/v10/projects", { query: { teamId: "team_spoofed", limit: 5 } });
     const url = new URL(calls.urls[0] ?? "");
     assert.equal(url.searchParams.get("teamId"), "team_real");
     assert.equal(url.searchParams.get("limit"), "5");
@@ -154,14 +162,16 @@ describe("defineProviderClient", () => {
       },
     });
 
-    await c.json("/a");
-    await c.json("/b");
+    await c.json(uncheckedResponse, "/a");
+    await c.json(uncheckedResponse, "/b");
     assert.equal(resolves, 2);
   });
 
   test("an undefined query value is dropped rather than serialized", async () => {
     const calls = stubFetch(() => new Response(JSON.stringify({})));
-    await client().json("/v6/deployments", { query: { limit: 20, projectId: undefined } });
+    await client().json(uncheckedResponse, "/v6/deployments", {
+      query: { limit: 20, projectId: undefined },
+    });
     const url = new URL(calls.urls[0] ?? "");
     assert.equal(url.searchParams.has("projectId"), false);
     assert.equal(url.searchParams.get("limit"), "20");
@@ -169,6 +179,6 @@ describe("defineProviderClient", () => {
 
   test("an empty body resolves to {}", async () => {
     stubFetch(() => new Response(null, { status: 200 }));
-    assert.deepEqual(await client().json("/empty"), {});
+    assert.deepEqual(await client().json(uncheckedResponse, "/empty"), {});
   });
 });

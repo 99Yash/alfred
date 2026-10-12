@@ -1,7 +1,8 @@
 import { toMessage } from "@alfred/contracts";
 import { z } from "zod";
 import type { RetryPolicy } from "../shared/retry";
-import { googleJson, uncheckedResponse } from "./http";
+import { uncheckedResponse } from "../shared/authed-json";
+import { googleJson } from "./http";
 
 /** Gmail REST client without `googleapis`. */
 
@@ -92,7 +93,11 @@ export async function listMessages(
 
   if (args.labelIds) for (const l of args.labelIds) url.searchParams.append("labelIds", l);
 
-  const parsed = await getJson(listMessagesResponseSchema, url.toString(), args.accessToken, retry);
+  const parsed = await googleJson("gmail", listMessagesResponseSchema, {
+    url: url.toString(),
+    accessToken: args.accessToken,
+    retry,
+  });
 
   return {
     messages: parsed.messages ?? [],
@@ -114,7 +119,11 @@ export async function getMessage(
   const url = new URL(`${API_BASE}/messages/${args.id}`);
   url.searchParams.set("format", args.format ?? "full");
 
-  return getJson(messageSchema, url.toString(), args.accessToken, retry);
+  return googleJson("gmail", messageSchema, {
+    url: url.toString(),
+    accessToken: args.accessToken,
+    retry,
+  });
 }
 
 const threadMessageMinSchema = z.object({
@@ -138,30 +147,17 @@ export async function getThreadMessageLabels(args: {
 }): Promise<ThreadMessageLabels[]> {
   const url = new URL(`${API_BASE}/threads/${args.threadId}`);
   url.searchParams.set("format", "minimal");
-  const parsed = await getJson(threadGetMinResponseSchema, url.toString(), args.accessToken);
+
+  const parsed = await googleJson("gmail", threadGetMinResponseSchema, {
+    url: url.toString(),
+    accessToken: args.accessToken,
+  });
 
   return (parsed.messages ?? []).map((m) => ({
     id: m.id,
     labelIds: m.labelIds ?? [],
   }));
 }
-
-/** The schema is required, so an unvalidated response cannot reach a caller. */
-const getJson = <T>(
-  schema: z.ZodType<T>,
-  url: string,
-  accessToken: string,
-  retry: RetryPolicy | "none" = "none",
-): Promise<T> =>
-  googleJson("gmail", "GET", url, accessToken, undefined, retry).then((raw) => schema.parse(raw));
-
-const postJson = <T>(
-  schema: z.ZodType<T>,
-  url: string,
-  accessToken: string,
-  payload: unknown,
-): Promise<T> =>
-  googleJson("gmail", "POST", url, accessToken, payload).then((raw) => schema.parse(raw));
 
 // users.history.list: delta sync from a baseline historyId
 
@@ -225,7 +221,11 @@ export async function listHistory(args: ListHistoryArgs): Promise<ListHistoryRes
   if (args.pageToken) url.searchParams.set("pageToken", args.pageToken);
 
   if (args.maxResults) url.searchParams.set("maxResults", String(args.maxResults));
-  const parsed = await getJson(historyListResponseSchema, url.toString(), args.accessToken);
+
+  const parsed = await googleJson("gmail", historyListResponseSchema, {
+    url: url.toString(),
+    accessToken: args.accessToken,
+  });
 
   return {
     entries: parsed.history ?? [],
@@ -273,12 +273,12 @@ export async function startWatch(args: StartWatchArgs): Promise<StartWatchResult
     ...(args.labelFilterAction ? { labelFilterAction: args.labelFilterAction } : {}),
   };
 
-  const parsed = await postJson(
-    watchResponseSchema,
-    `${API_BASE}/watch`,
-    args.accessToken,
+  const parsed = await googleJson("gmail", watchResponseSchema, {
+    method: "POST",
+    url: `${API_BASE}/watch`,
+    accessToken: args.accessToken,
     payload,
-  );
+  });
 
   return {
     historyId: parsed.historyId,
@@ -287,7 +287,12 @@ export async function startWatch(args: StartWatchArgs): Promise<StartWatchResult
 }
 
 export async function stopWatch(args: { accessToken: string }): Promise<void> {
-  await postJson(uncheckedResponse, `${API_BASE}/stop`, args.accessToken, {});
+  await googleJson("gmail", uncheckedResponse, {
+    method: "POST",
+    url: `${API_BASE}/stop`,
+    accessToken: args.accessToken,
+    payload: {},
+  });
 }
 
 // users.labels and messages.modify
@@ -307,7 +312,10 @@ const listLabelsResponseSchema = z.object({
 });
 
 export async function listLabels(args: { accessToken: string }): Promise<GmailLabel[]> {
-  const parsed = await getJson(listLabelsResponseSchema, `${API_BASE}/labels`, args.accessToken);
+  const parsed = await googleJson("gmail", listLabelsResponseSchema, {
+    url: `${API_BASE}/labels`,
+    accessToken: args.accessToken,
+  });
 
   return parsed.labels ?? [];
 }
@@ -327,7 +335,12 @@ export async function createLabel(args: CreateLabelArgs): Promise<GmailLabel> {
     labelListVisibility: args.labelListVisibility ?? "labelShow",
   };
 
-  return postJson(labelSchema, `${API_BASE}/labels`, args.accessToken, payload);
+  return googleJson("gmail", labelSchema, {
+    method: "POST",
+    url: `${API_BASE}/labels`,
+    accessToken: args.accessToken,
+    payload,
+  });
 }
 
 export interface ModifyMessageLabelsArgs {
@@ -345,12 +358,12 @@ export async function modifyMessageLabels(args: ModifyMessageLabelsArgs): Promis
     ...(args.removeLabelIds?.length ? { removeLabelIds: args.removeLabelIds } : {}),
   };
 
-  return postJson(
-    messageSchema,
-    `${API_BASE}/messages/${args.messageId}/modify`,
-    args.accessToken,
+  return googleJson("gmail", messageSchema, {
+    method: "POST",
+    url: `${API_BASE}/messages/${args.messageId}/modify`,
+    accessToken: args.accessToken,
     payload,
-  );
+  });
 }
 
 export interface BatchModifyMessagesArgs {
@@ -379,7 +392,12 @@ export async function batchModifyMessages(args: BatchModifyMessagesArgs): Promis
     ...(args.removeLabelIds?.length ? { removeLabelIds: args.removeLabelIds } : {}),
   };
 
-  await postJson(uncheckedResponse, `${API_BASE}/messages/batchModify`, args.accessToken, payload);
+  await googleJson("gmail", uncheckedResponse, {
+    method: "POST",
+    url: `${API_BASE}/messages/batchModify`,
+    accessToken: args.accessToken,
+    payload,
+  });
 }
 
 export interface SendMessageArgs {
@@ -440,12 +458,12 @@ export async function sendMessage(args: SendMessageArgs): Promise<SendMessageRes
     ...(args.threadId ? { threadId: args.threadId } : {}),
   };
 
-  const parsed = await postJson(
-    messageSchema,
-    `${API_BASE}/messages/send`,
-    args.accessToken,
+  const parsed = await googleJson("gmail", messageSchema, {
+    method: "POST",
+    url: `${API_BASE}/messages/send`,
+    accessToken: args.accessToken,
     payload,
-  );
+  });
 
   return { id: parsed.id, threadId: parsed.threadId };
 }
@@ -554,7 +572,13 @@ export async function getAttachment(
   retry: RetryPolicy | "none" = "none",
 ): Promise<GetAttachmentResult> {
   const url = `${API_BASE}/messages/${encodeURIComponent(args.messageId)}/attachments/${encodeURIComponent(args.attachmentId)}`;
-  const parsed = await getJson(getAttachmentResponseSchema, url, args.accessToken, retry);
+
+  const parsed = await googleJson("gmail", getAttachmentResponseSchema, {
+    url,
+    accessToken: args.accessToken,
+    retry,
+  });
+
   const dataBase64Url = parsed.data ?? "";
   // Node's base64 decoder accepts the URL-safe alphabet and missing padding.
   const bytes = dataBase64Url ? Buffer.from(dataBase64Url, "base64") : Buffer.alloc(0);

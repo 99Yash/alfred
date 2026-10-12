@@ -54,13 +54,12 @@ export async function readLiveSentryIssue(args: {
 
   const path = `/organizations/${encodeURIComponent(organization)}/issues/${encodeURIComponent(args.issueId)}/`;
 
-  const raw = await authedJson(
+  const issue = await authedJson(
+    liveSentryIssueSchema,
     { headers: { Authorization: `Bearer ${cred.accessToken}`, Accept: "application/json" } },
     { url: `${SENTRY_API}${path}`, signal: args.signal },
     { provider: "sentry", urlLabel: path, bodyPolicy: "summarize" },
   );
-
-  const issue = liveSentryIssueSchema.parse(raw);
 
   // Fail closed rather than borrow another issue's state.
   if (issue.id !== args.issueId) {

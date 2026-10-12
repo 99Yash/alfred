@@ -1,4 +1,4 @@
-import { z } from "zod";
+import type { z } from "zod";
 import { authedJson } from "../shared/authed-json";
 import type { RetryPolicy } from "../shared/retry";
 
@@ -9,20 +9,28 @@ import type { RetryPolicy } from "../shared/retry";
 
 export type GoogleService = "calendar" | "gmail" | "drive" | "docs" | "sheets" | "slides";
 
-/** For calls that only need success. Passing it says "response unchecked" out loud. */
-export const uncheckedResponse: z.ZodType<unknown> = z.unknown();
+export interface GoogleJsonRequest {
+  /** Default `"GET"`. */
+  method?: "GET" | "POST" | "PUT" | undefined;
+  url: string;
+  accessToken: string;
+  /** A non-GET sends `payload ?? {}`. */
+  payload?: unknown;
+  /** Default `"none"`. */
+  retry?: RetryPolicy | "none" | undefined;
+  signal?: AbortSignal | undefined;
+}
 
-/** A non-GET sends `payload ?? {}`. An empty response gives `{}`. */
-export async function googleJson(
+/** An empty response gives `{}`, then `schema` parses it. */
+export async function googleJson<T>(
   service: GoogleService,
-  method: "GET" | "POST" | "PUT",
-  url: string,
-  accessToken: string,
-  payload?: unknown,
-  retry: RetryPolicy | "none" = "none",
-  signal?: AbortSignal | undefined,
-): Promise<unknown> {
+  schema: z.ZodType<T>,
+  request: GoogleJsonRequest,
+): Promise<T> {
+  const { method = "GET", url, accessToken, payload, retry = "none", signal } = request;
+
   return authedJson(
+    schema,
     {
       headers: {
         Authorization: `Bearer ${accessToken}`,

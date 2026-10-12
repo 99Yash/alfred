@@ -91,7 +91,12 @@ export async function getDocument(
   retry: RetryPolicy | "none" = "none",
 ): Promise<GetDocumentResult> {
   const url = `${API_BASE}/${encodeURIComponent(args.documentId)}`;
-  const parsed = await getJson(documentSchema, url, args.accessToken, retry);
+
+  const parsed = await googleJson("docs", documentSchema, {
+    url,
+    accessToken: args.accessToken,
+    retry,
+  });
 
   const lines: string[] = [];
   const headings: DocumentHeading[] = [];
@@ -140,11 +145,3 @@ function collectElement(
     }
   }
 }
-
-const getJson = <T>(
-  schema: z.ZodType<T>,
-  url: string,
-  accessToken: string,
-  retry: RetryPolicy | "none",
-): Promise<T> =>
-  googleJson("docs", "GET", url, accessToken, undefined, retry).then((raw) => schema.parse(raw));

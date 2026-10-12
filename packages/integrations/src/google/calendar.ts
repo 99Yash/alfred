@@ -79,7 +79,12 @@ export async function listEvents(
   url.searchParams.set("orderBy", orderBy);
   url.searchParams.set("maxResults", String(args.maxResults ?? 50));
 
-  const parsed = await getJson(listEventsResponseSchema, url.toString(), args.accessToken, retry);
+  const parsed = await googleJson("calendar", listEventsResponseSchema, {
+    url: url.toString(),
+    accessToken: args.accessToken,
+    retry,
+  });
+
   const events = (parsed.items ?? []).filter((e) => e.status !== "cancelled");
 
   return { events, timeZone: parsed.timeZone };
@@ -121,23 +126,10 @@ export async function createEvent(args: CreateEventArgs): Promise<CalendarEvent>
     attendees: args.attendees?.map((email) => ({ email })),
   };
 
-  return postJson(eventSchema, url.toString(), args.accessToken, payload);
+  return googleJson("calendar", eventSchema, {
+    method: "POST",
+    url: url.toString(),
+    accessToken: args.accessToken,
+    payload,
+  });
 }
-
-const getJson = <T>(
-  schema: z.ZodType<T>,
-  url: string,
-  accessToken: string,
-  retry: RetryPolicy | "none",
-): Promise<T> =>
-  googleJson("calendar", "GET", url, accessToken, undefined, retry).then((raw) =>
-    schema.parse(raw),
-  );
-
-const postJson = <T>(
-  schema: z.ZodType<T>,
-  url: string,
-  accessToken: string,
-  payload: unknown,
-): Promise<T> =>
-  googleJson("calendar", "POST", url, accessToken, payload).then((raw) => schema.parse(raw));
