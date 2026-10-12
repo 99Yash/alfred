@@ -79,7 +79,10 @@ function capArrays(value: unknown): ArrayCapResult {
  * Keep leading entries while they fit, recurse into an overflowing container,
  * and end with a truncation marker so the model sees the result is clipped.
  */
-function pruneToBudget(value: unknown, budget: number): unknown {
+function pruneToBudget(
+  value: unknown,
+  budget: number,
+): string | unknown[] | Record<string, unknown> {
   if (Array.isArray(value)) {
     const out: unknown[] = [];
     // Reserve room for the closing "]" and a possible sentinel element.

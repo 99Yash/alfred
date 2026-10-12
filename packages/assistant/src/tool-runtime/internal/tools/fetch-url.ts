@@ -265,6 +265,16 @@ function sniffBinaryType(bytes: Buffer): string | null {
 
 /* ── safe HTTP transport ──────────────────────────────────────────────── */
 
+/**
+ * A streamed response body. undici's body is a Node `Readable` with these
+ * cleanup methods; a test stub or a plain iterable has none of them.
+ */
+export interface ResponseBody extends AsyncIterable<Uint8Array> {
+  destroy?: (err?: Error) => void;
+  dump?: (opts?: { limit: number; signal?: AbortSignal }) => Promise<void>;
+  once?: (event: "error", listener: (err: Error) => void) => void;
+}
+
 /** The transport result. Tests stub this seam. */
 export interface RawResponse {
   finalUrl: string;
@@ -273,7 +283,7 @@ export interface RawResponse {
   contentType: string;
   charset: string | null;
   contentLength: number | null;
-  body: AsyncIterable<Uint8Array>;
+  body: ResponseBody;
   redirectChain?: string[];
 }
 
@@ -298,7 +308,7 @@ export interface FetchUrlDeps {
 export interface UndiciResponseLike {
   statusCode: number;
   headers: Record<string, string | string[] | undefined>;
-  body: AsyncIterable<Uint8Array>;
+  body: ResponseBody;
 }
 
 export type HttpRequester = (
@@ -486,17 +496,10 @@ function contentCharset(header: string | null | undefined): string | null {
   return match?.[2]?.trim().toLowerCase() || null;
 }
 
-async function disposeBody(body: AsyncIterable<Uint8Array>): Promise<void> {
-  // SAFETY: undici's body has optional dump/once/destroy methods its type omits.
-  const disposable = body as {
-    destroy?: (err?: Error) => void;
-    dump?: (opts?: { limit: number; signal?: AbortSignal }) => Promise<void>;
-    once?: (event: "error", listener: (err: Error) => void) => unknown;
-  };
-
-  if (typeof disposable.dump === "function") {
+async function disposeBody(body: ResponseBody): Promise<void> {
+  if (body.dump) {
     try {
-      await disposable.dump({ limit: 131_072 });
+      await body.dump({ limit: 131_072 });
 
       return;
     } catch {
@@ -504,10 +507,10 @@ async function disposeBody(body: AsyncIterable<Uint8Array>): Promise<void> {
     }
   }
 
-  if (typeof disposable.destroy === "function") {
+  if (body.destroy) {
     // Undici can emit an async AbortError after destroy(). Unhandled, it crashes the process.
-    disposable.once?.("error", () => {});
-    disposable.destroy();
+    body.once?.("error", () => {});
+    body.destroy();
   }
 }
 
@@ -526,12 +529,12 @@ function decoderForEncoding(encoding: string): Transform | null {
 }
 
 interface DecodedBody {
-  body: AsyncIterable<Uint8Array>;
+  body: ResponseBody;
   decoded: boolean;
 }
 
 export function decodeResponseBody(
-  body: AsyncIterable<Uint8Array>,
+  body: ResponseBody,
   contentEncoding: string | undefined,
   finalUrl: string,
 ): DecodedBody {
@@ -567,7 +570,7 @@ export function decodeResponseBody(
 
   for (const decoder of decoders) stream = stream.pipe(decoder);
 
-  const decodedBody: AsyncIterable<Uint8Array> & { destroy: (err?: Error) => void } = {
+  const decodedBody: ResponseBody = {
     [Symbol.asyncIterator]() {
       // SAFETY: Node streams are runtime AsyncIterables; the DOM type omits it.
       return stream[Symbol.asyncIterator]() as AsyncIterator<Uint8Array>;
@@ -577,10 +580,7 @@ export function decodeResponseBody(
       source.destroy(err);
 
       for (const decoder of decoders) decoder.destroy(err);
-      // SAFETY: the declared type omits `destroy`; presence is probed before the call.
-      const destroySource = (body as { destroy?: (err?: Error) => void }).destroy;
-
-      if (typeof destroySource === "function") destroySource.call(body, err);
+      body.destroy?.(err);
     },
   };
 
@@ -713,7 +713,7 @@ export async function safeRequest(
 
 /** Read at most `maxBytes`; report `overflow` if the body had more. */
 async function readBounded(
-  body: AsyncIterable<Uint8Array>,
+  body: ResponseBody,
   maxBytes: number,
 ): Promise<{ bytes: Buffer; overflow: boolean }> {
   const chunks: Buffer[] = [];
@@ -724,10 +724,7 @@ async function readBounded(
     total += buf.length;
 
     if (total > maxBytes) {
-      // SAFETY: undici's body exposes an optional `destroy` its type omits.
-      const destroy = (body as { destroy?: () => void }).destroy;
-
-      if (typeof destroy === "function") destroy.call(body);
+      body.destroy?.();
 
       return { bytes: Buffer.alloc(0), overflow: true };
     }

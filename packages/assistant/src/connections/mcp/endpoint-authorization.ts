@@ -31,11 +31,11 @@ export interface McpAuthorizedOAuthServer {
   readonly issuer: string;
   readonly origin: string;
   /** Validate issuer and authorization URLs against this server's origin. */
-  validateEndpoint(input: unknown): URL;
+  validateEndpoint(input: string | URL): URL;
   /** Validate the token endpoint and remember its exact URL for the fetch guard. */
-  validateTokenEndpoint(input: unknown): URL;
+  validateTokenEndpoint(input: string | URL): URL;
   /** Validate the registration endpoint and remember its exact URL for the fetch guard. */
-  validateRegistrationEndpoint(input: unknown): URL;
+  validateRegistrationEndpoint(input: string | URL): URL;
 }
 
 /** OAuth authority derived from one live endpoint authorization generation. */
@@ -43,11 +43,11 @@ export interface McpAuthorizedOAuth {
   readonly resource: URL;
   readonly fetch: FetchLike;
   /** Select one authorization-server origin and reject any later authority change. */
-  authorizeServer(input: unknown): McpAuthorizedOAuthServer;
+  authorizeServer(input: string | URL): McpAuthorizedOAuthServer;
   /** Validate credential-free discovery URLs before they enter the guarded fetch. */
-  validateDiscoveryEndpoint(input: unknown): URL;
+  validateDiscoveryEndpoint(input: string | URL): URL;
   /** Validate resource metadata and URLs against the persisted MCP resource origin. */
-  validateResourceEndpoint(input: unknown): URL;
+  validateResourceEndpoint(input: string | URL): URL;
 }
 
 /** Protocol authority that cannot be confused with the broader OAuth discovery guard. */
@@ -103,7 +103,7 @@ export interface HostedMcpEndpointAuthorizerDependencies {
 }
 
 /** Guards for a URL with no stored origin: a new owner endpoint or an OAuth discovery hop. */
-export function validatePublicHttpsEndpoint(input: unknown): URL {
+export function validatePublicHttpsEndpoint(input: string | URL): URL {
   return validatePinnedHttpsEndpoint(input, null);
 }
 
@@ -128,7 +128,7 @@ function createAuthorizedOAuth(
   let serverOrigin: string | null = null;
   const oauthEndpointHrefs = new Set<string>();
 
-  const authorizeServer = (input: unknown): McpAuthorizedOAuthServer => {
+  const authorizeServer = (input: string | URL): McpAuthorizedOAuthServer => {
     const server = validatePublicHttpsEndpoint(input);
 
     if (
@@ -152,7 +152,7 @@ function createAuthorizedOAuth(
     serverIssuer = server.href;
     serverOrigin = server.origin;
 
-    const validateOAuthEndpoint = (candidate: unknown): URL => {
+    const validateOAuthEndpoint = (candidate: string | URL): URL => {
       const endpoint = validatePinnedHttpsEndpoint(candidate, null);
 
       const vercelSiblings =
@@ -173,7 +173,7 @@ function createAuthorizedOAuth(
     return Object.freeze({
       issuer: server.href,
       origin: server.origin,
-      validateEndpoint: (candidate: unknown) =>
+      validateEndpoint: (candidate: string | URL) =>
         validatePinnedHttpsEndpoint(candidate, server.origin),
       validateTokenEndpoint: validateOAuthEndpoint,
       validateRegistrationEndpoint: validateOAuthEndpoint,
@@ -212,7 +212,7 @@ function createAuthorizedOAuth(
     fetch,
     authorizeServer,
     validateDiscoveryEndpoint: validatePublicHttpsEndpoint,
-    validateResourceEndpoint: (input: unknown) =>
+    validateResourceEndpoint: (input: string | URL) =>
       validatePinnedHttpsEndpoint(input, resource.origin),
   });
 }

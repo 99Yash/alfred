@@ -1,6 +1,7 @@
 import {
   normalizeMimeType,
   summarizeBody,
+  type JsonValue,
   type RestPassthroughRequest,
   type SupportedRestSlug,
 } from "@alfred/contracts";
@@ -152,14 +153,17 @@ function isBinary(contentType: string | null): boolean {
   return true;
 }
 
-function parseBody(text: string, contentType: string | null): unknown {
+function parseBody(text: string, contentType: string | null): JsonValue {
   if (text.length === 0) return null;
   const type = normalizeMimeType(contentType);
   const looksJson = type.includes("json") || type === "";
 
   if (looksJson) {
     try {
-      return JSON.parse(text);
+      // `JSON.parse` with no reviver only builds JSON values, so its `any` is a `JsonValue`.
+      const parsed: JsonValue = JSON.parse(text);
+
+      return parsed;
     } catch {
       // For example an HTML 5xx page labeled JSON.
       return { nonJson: true, preview: summarizeBody(text) };

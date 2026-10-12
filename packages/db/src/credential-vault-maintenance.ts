@@ -27,11 +27,11 @@ type PersistedTokenState =
   | { readonly state: "openable" }
   | { readonly state: "unopenable" };
 
-/** Takes `unknown`, because old plaintext rows do not match the Drizzle column type. */
-function classifyPersisted(value: unknown, vault: CredentialVault): PersistedTokenState {
-  if (value === null || value === undefined) return { state: "absent" };
+/** Includes bare `string`, because old plaintext rows do not match the sealed Drizzle column type. */
+type PersistedToken = string | SealedCredentialSecret | null;
 
-  if (typeof value !== "string") return { state: "unopenable" };
+function classifyPersisted(value: PersistedToken, vault: CredentialVault): PersistedTokenState {
+  if (value === null) return { state: "absent" };
 
   if (!vault.isSealed(value)) return { state: "plaintext", plaintext: value };
 
@@ -45,7 +45,7 @@ function classifyPersisted(value: unknown, vault: CredentialVault): PersistedTok
 }
 
 function sealPending<Field extends string>(
-  row: Readonly<Record<Field, unknown>>,
+  row: Readonly<Record<Field, PersistedToken>>,
   fields: readonly Field[],
   vault: CredentialVault,
 ): Partial<Record<Field, SealedCredentialSecret>> {
@@ -76,7 +76,7 @@ function asUnbranded<Field extends string>(
 }
 
 function countUnsealed<Field extends string>(
-  row: Readonly<Record<Field, unknown>>,
+  row: Readonly<Record<Field, PersistedToken>>,
   fields: readonly Field[],
   vault: CredentialVault,
 ) {

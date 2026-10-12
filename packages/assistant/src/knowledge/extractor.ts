@@ -25,8 +25,8 @@ export const MAX_TRANSCRIPT_CHARS = 12_000;
 export interface ExtractThreadArgs {
   userId: string;
   threadId: string;
-  /** Finished turns, oldest first, or an already-rendered transcript. */
-  transcript: ThreadTurn[] | string;
+  /** The rendered transcript, e.g. from {@link buildThreadTranscript}. Capped again before the call. */
+  transcript: string;
   /** Forwarded to the metering log and Langfuse trace. */
   runId?: string;
   stepId?: string;
@@ -160,10 +160,7 @@ function defaultGenerate(args: ExtractThreadArgs): GenerateObject {
 export async function extractPropositionsFromThread(
   args: ExtractThreadArgs,
 ): Promise<ChatProposition[]> {
-  const transcript =
-    typeof args.transcript === "string"
-      ? capRenderedTranscript(args.transcript)
-      : buildThreadTranscript(args.transcript);
+  const transcript = capRenderedTranscript(args.transcript);
 
   if (transcript.trim().length === 0) return [];
 
