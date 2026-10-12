@@ -92,3 +92,15 @@ The tool is lazy and has no prompt guidance until slice #1019, so the boss has l
 - **Guidance.** The tool description carries the when-to-ask rubric: ask only when a wrong guess wastes work, ask every question in one call, two to four options, the recommended option first with "(Recommended)" in its label, no "Other" option, and no question for the user in a sub-agent brief. The chat prompt gains one sentence that points at the tool.
 
 The residual risk "the tool is lazy and has no prompt guidance" is retired. A new residual risk replaces it: no recorded ambiguous turn has yet shown that the model calls the tool instead of ending its reply with questions.
+
+**Amendment (2026-10-12, #1019) — an open answer also goes through the tool.** A decision-point probe on three recorded production turns found one miss. Asked to mute security alerts for "projects I no longer maintain", the boss looked up 39 repositories and then ended its reply with "send me the repo names". The answer was an open list, and a two-to-four-option tool did not look like a fit. The tool description now adds two rules and widens one:
+
+- If the reply would end by asking the user to choose or to supply something needed to finish, call the tool instead.
+- An open answer, such as names or a list, also goes through the tool: the likeliest choices become options, and the free-text field takes the rest.
+- The "no 'Other' option" rule now covers any option that only invites free text, such as "Name them". Without this, the model's first fix offered "Name specific repos (Recommended)", which returns no names when picked.
+
+The chat prompt does not change. The kernel grows by 303 B (12,083 → 12,386 B, about 76 tokens), and `schema-budget.test.ts` records it.
+
+Measured at each turn's recorded decision point with the current prompt and tool surface, three trials per turn unless stated: the repos turn moved from 0/3 to 8/9 `system.ask_user`; the Polylane scope turn, which already called the tool live on 2026-09-26, stays 3/3; three clear turns stay 0/9. A fourth recorded turn ("do not tag stocks emails as urgent") once ended in a scope question in prose. The current model acts on it with `system.remember` in 3/3 trials, both before and after this change. That request is specific enough to act on under "prefer acting to asking", so this ADR does not count it as a miss. This is a recorded-trajectory probe with stubbed tool results after the cut, not a full replay of both builds.
+
+The residual risk above is narrowed, not retired: production has only three recorded ambiguous turns, so the fire rate rests on a small sample.

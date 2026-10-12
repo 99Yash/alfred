@@ -19,7 +19,7 @@ import { registerBuiltinTools } from "../../src/tool-runtime/builtin-tools";
  * about one small tool above it. Raise a ceiling on purpose: the bump is the review signal.
  */
 
-// Measured 2026-10-08: kernel 12,083 B / ~3,021 tok across 10 tools; full 89,578 B across 72 tools.
+// Measured 2026-10-12: kernel 12,386 B / ~3,097 tok across 10 tools; full 89,881 B across 72 tools.
 const KERNEL_SCHEMA_BYTES_CEILING = 13_000;
 
 const KERNEL_SCHEMA_TOKENS_CEILING = 3_300;
