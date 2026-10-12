@@ -67,7 +67,7 @@ and just signal how load-bearing each surface is.
 
 Validate external / persisted / protocol data instead of asserting it.
 
-- `isRecord`, `isIndexable`, `isNonEmptyString`
+- `isRecord`, `isIndexable`, `isNonEmptyString`, `isNonBlankString` (has a non-whitespace character; does not trim)
 - `toRecord` (unknown → `Record` or `{}`), `toStringArray` (element-checked)
 - `flattenJson` (`src/flatten-json.ts`): bounded scalar leaves with paths from unknown JSON; used by inbound receipt descriptions.
 - `getPath`, `getStringPath`, `getIdPath` (safe nested read; `getIdPath` collapses a string or integer provider id to one string)

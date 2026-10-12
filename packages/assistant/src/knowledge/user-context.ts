@@ -10,7 +10,7 @@ import {
   userFacts,
   userPreferences,
 } from "@alfred/db/schemas";
-import { memorySourceSchema, type MemorySource } from "@alfred/contracts";
+import { isNonBlankString, memorySourceSchema, type MemorySource } from "@alfred/contracts";
 import { and, asc, desc, eq, gt, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { USER_FACING_MEMORY_CHUNK_KINDS } from "./chunks";
 
@@ -181,7 +181,7 @@ function isIdentityFactKey(key: string): key is IdentityFactKey {
 function stringIdentityValue(rows: FactContextRow[], key: IdentityFactKey): string | null {
   const value = rows.find((row) => row.key === key)?.value;
 
-  return typeof value === "string" && value.trim() ? value : null;
+  return isNonBlankString(value) ? value : null;
 }
 
 function sourceRank(source: MemorySource): number {

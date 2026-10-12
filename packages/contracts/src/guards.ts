@@ -28,6 +28,11 @@ export function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
 }
 
+/** True for a string with a non-whitespace character. It does not trim the value. */
+export function isNonBlankString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
 /** True for a 1-indexed PDF page number. Extractors produce these, not models. */
 export function isValidPage(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 1;

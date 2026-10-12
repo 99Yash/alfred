@@ -1,5 +1,5 @@
 import { toMessage } from "@alfred/contracts";
-import { createRedisConnection, incrementExpiringCounter } from "@alfred/db/redis";
+import { createRedisConnection, incrementExpiringCounter, type EvalRedis } from "@alfred/db/redis";
 import type { ServerEnv } from "@alfred/env/server";
 import type { BetterAuthOptions } from "better-auth";
 
@@ -33,14 +33,9 @@ type RateLimitOptions = NonNullable<BetterAuthOptions["rateLimit"]>;
 
 type RateLimitStorage = NonNullable<RateLimitOptions["customStorage"]>;
 
-/** Not `Pick<BoundedRedis, …>`: ioredis overloads stop a test double from matching that. */
-type RateLimitRedis = {
-  eval(script: string, numkeys: number, ...args: (string | number)[]): Promise<unknown>;
-};
+let rateLimitRedis: EvalRedis | undefined;
 
-let rateLimitRedis: RateLimitRedis | undefined;
-
-function getRateLimitRedis(): RateLimitRedis {
+function getRateLimitRedis(): EvalRedis {
   // Not `"fail-fast"`: that handle rejects its first command even when Redis is healthy.
   rateLimitRedis ??= createRedisConnection("command");
 
@@ -90,7 +85,7 @@ const sharedFallback = createFallbackStore();
 
 /** `redis` and `fallback` are parameters so tests can drive the outage path. */
 export function createAuthRateLimitStorage(
-  redis: () => RateLimitRedis = getRateLimitRedis,
+  redis: () => EvalRedis = getRateLimitRedis,
   fallback = sharedFallback,
 ): RateLimitStorage {
   function degrade(err: unknown): void {
