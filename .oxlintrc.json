@@ -459,17 +459,15 @@
       //   z.custom, replay-state preprocess, weather schemas transform)
       //   narrow `unknown` process.env, webhook, and model-output fields
       //   inside the Zod boundary that owns them;
-      // - provider and external-payload readers (gmail-reducer,
-      //   fact-policy content probes, hosted-endpoint parseUrl, github
-      //   client, mcp protocol TTL, discovery textFromContent, conversation
-      //   transcript helpers, login-search sanitizeRedirect, briefings gather
-      //   parseCoord) narrow webhook,
+      // - provider and external-payload readers (fact-policy content
+      //   probes, hosted-endpoint parseUrl, github client, mcp protocol TTL,
+      //   discovery textFromContent, conversation transcript helpers,
+      //   login-search sanitizeRedirect) narrow webhook,
       //   provider, and persisted-JSON fields at the ingestion edge;
-      // - unknown renderers (memory formatters, approval notification
-      //   formatValue, facts previewValue, contracts text toDisplayText,
+      // - unknown renderers (contracts text toDisplayText,
       //   relationship and user-context fact strings, metering captureInput,
-      //   langfuse metadata scrub, logger error diagnostics, passthrough
-      //   transport error fields, credential envelope open and vault classify) branch
+      //   langfuse metadata scrub, logger error diagnostics,
+      //   credential envelope open and vault classify) branch
       //   `unknown` into text for display, logs, or redaction, which is
       //   the boundary;
       // - typed-union discriminators with no helper spelling (toast
@@ -500,17 +498,12 @@
         "packages/assistant/src/connections/mcp/client.ts",
         "packages/assistant/src/connections/mcp/protocol.ts",
         "packages/assistant/src/connections/hosted-endpoint.ts",
-        "packages/assistant/src/knowledge/gmail-reducer.ts",
         "packages/assistant/src/knowledge/fact-policy.ts",
-        "packages/assistant/src/knowledge/facts.ts",
         "packages/assistant/src/knowledge/user-context.ts",
         "packages/assistant/src/knowledge/extractor.ts",
         "packages/assistant/src/tool-runtime/discovery.ts",
         "packages/assistant/src/tool-runtime/internal/dispatch/pipeline.ts",
         "packages/assistant/src/tool-runtime/internal/tools/fetch-url.ts",
-        "packages/assistant/src/tool-runtime/internal/tools/passthrough/transport.ts",
-        "packages/assistant/src/briefings/gather.ts",
-        "packages/assistant/src/execution/approval-notification-worker.ts",
         "packages/assistant/src/execution/run-bottlenecks.ts",
         "packages/assistant/src/execution/workflows/tool-preview.ts",
         "packages/assistant/src/triage/sender-relationship.ts",
@@ -531,9 +524,7 @@
         "apps/web/src/components/markdown-renderer/markdown-pre.tsx",
         "apps/web/src/components/ui/v2/theme.tsx",
         "apps/web/src/main.tsx",
-        "apps/web/src/routes/-login/login-search.ts",
-        "apps/web/src/routes/-memory/memory-page.tsx",
-        "apps/web/src/routes/-memory/proposed-fact-card.tsx"
+        "apps/web/src/routes/-login/login-search.ts"
       ],
       "rules": {
         "anti-slop/no-runtime-typeof": "off"
@@ -554,10 +545,6 @@
       //   provider-client, sentry/notion/google clients, redis eval,
       //   rate-limit Redis port) return what the provider or store returned,
       //   which has no static shape — bound and redact at the call site instead;
-      // - queue processors (knowledge/briefings/automation/ingestion/chat-memory
-      //   queues, compaction queue, idle-capture queue) return through
-      //   BullMQ's `Processor` contract, whose `Promise<unknown>` no caller
-      //   reads (`returnValue` has no readers);
       // - framework seams (tool-runtime registry execute/redactInput,
       //   dispatch pipeline, triggers TriggerConsumer.accept,
       //   google-credential-lifecycle is typed at its port — the fetch-url
@@ -585,15 +572,9 @@
         "packages/assistant/src/tool-runtime/internal/dispatch/pipeline.ts",
         "packages/assistant/src/tool-runtime/internal/tools/fetch-url.ts",
         "packages/assistant/src/triggers/index.ts",
-        "packages/assistant/src/knowledge/queue.ts",
         "packages/assistant/src/execution/workflows/tool-preview.ts",
-        "packages/assistant/src/connections/ingestion/queue.ts",
         "packages/assistant/src/chat/compaction/conversation-summary-generator.ts",
-        "packages/assistant/src/chat/compaction/conversation-compaction-queue.ts",
         "packages/assistant/src/chat/chat-attachments.ts",
-        "packages/assistant/src/chat/idle-capture-queue.ts",
-        "packages/assistant/src/briefings/queue.ts",
-        "packages/assistant/src/automation/queue.ts",
         "packages/ai/src/replay/trajectory.ts",
         "packages/ai/src/metering/wrappers.ts"
       ],

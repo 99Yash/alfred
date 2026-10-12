@@ -1,3 +1,4 @@
+import { toDisplayText } from "@alfred/contracts";
 import type { SyncedFact } from "@alfred/sync";
 import { Brain, Sparkles } from "lucide-react";
 import { useMemo } from "react";
@@ -5,15 +6,6 @@ import { AppCard } from "~/components/ui/v2";
 import { ProposedFactCard } from "./proposed-fact-card";
 import { SectionHeading } from "./section-heading";
 import { useMemoryFacts } from "./use-memory-facts";
-
-function formatValue(value: unknown): string {
-  if (typeof value === "string") return value;
-
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  const serialized = JSON.stringify(value);
-
-  return serialized ?? "Unknown value";
-}
 
 export function MemoryPage() {
   const { facts, loading, error, retry, confirmFact, rejectFact } = useMemoryFacts();
@@ -146,7 +138,7 @@ export function MemoryPage() {
                           {fact.key}
                         </code>
                         <span className="flex-1 truncate font-mono text-[12px] text-app-fg-4">
-                          {formatValue(fact.value)}
+                          {toDisplayText(fact.value)}
                         </span>
                         <button
                           type="button"

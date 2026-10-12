@@ -71,6 +71,9 @@ Validate external / persisted / protocol data instead of asserting it.
 - `toRecord` (unknown → `Record` or `{}`), `toStringArray` (element-checked)
 - `flattenJson` (`src/flatten-json.ts`): bounded scalar leaves with paths from unknown JSON; used by inbound receipt descriptions.
 - `getPath`, `getStringPath`, `getIdPath` (safe nested read; `getIdPath` collapses a string or integer provider id to one string)
+- `getStringField(value, key)` — one string property of an error or SDK
+  instance, which `getStringPath` rejects because `isRecord` does. Use it in
+  place of `isIndexable` + `Reflect.get` + `typeof`.
 - `parseEmailAddress` — an alias of `extractEmailAddress`. The address/domain grammar itself is
   a separate leaf, `src/domain.ts`, not `src/guards.ts`: `extractEmailAddress`,
   `normalizeEmailAddress`, `emailDomain`, `splitEmail`.
@@ -192,8 +195,9 @@ provider we called; `ApiError` is the _outbound_ failure we answer a client with
   because a parallel campaign owns that directory and this campaign may not edit
   it — a whole-file exemption, so a second fold landing in one of those files is
   unrefused until the markers replace it.
-- `toDisplayText(value)` — an `unknown` value as text for a reader: a string as
-  it is, anything else as JSON, and a missing value as `null`. Use it in place of
+- `toDisplayText(value, indent?)` — an `unknown` value as text for a reader: a
+  string as it is, anything else as JSON, and a missing value as `null`. `indent`
+  pretty-prints the JSON. Use it in place of
   `typeof v === "string" ? v : JSON.stringify(v)`, which `no-runtime-typeof`
   rejects in product source.
 

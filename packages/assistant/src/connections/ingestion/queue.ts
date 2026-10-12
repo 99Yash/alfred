@@ -350,11 +350,11 @@ export async function enqueueGmailMediaIngest(args: {
   );
 }
 
-async function processIngestionJob(job: Job<IngestionJobData>): Promise<unknown> {
+async function processIngestionJob(job: Job<IngestionJobData>) {
   return processIngestionJobData(job.data);
 }
 
-async function processIngestionJobData(data: IngestionJobData): Promise<unknown> {
+async function processIngestionJobData(data: IngestionJobData) {
   switch (data.kind) {
     case "gmail.ingest_recent": {
       const result = await ingestRecentGmail({

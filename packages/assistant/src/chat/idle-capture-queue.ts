@@ -171,7 +171,7 @@ export async function closeChatMemoryQueue(): Promise<void> {
   }
 }
 
-async function processChatMemoryJob(job: Job<ChatMemoryJobData>): Promise<unknown> {
+async function processChatMemoryJob(job: Job<ChatMemoryJobData>) {
   const data = chatMemoryJobDataSchema.parse(job.data);
   let runId: string;
 

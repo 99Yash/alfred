@@ -70,7 +70,7 @@ export async function closeMemoryQueue(): Promise<void> {
   }
 }
 
-async function processMemoryJob(job: Job<MemoryJobData>): Promise<unknown> {
+async function processMemoryJob(job: Job<MemoryJobData>) {
   const data = job.data;
 
   switch (data.kind) {

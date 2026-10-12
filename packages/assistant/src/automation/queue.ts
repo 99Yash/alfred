@@ -61,7 +61,7 @@ export async function closeWorkflowsQueue(): Promise<void> {
   }
 }
 
-async function processWorkflowsJob(job: Job<WorkflowsJobData>): Promise<unknown> {
+async function processWorkflowsJob(job: Job<WorkflowsJobData>) {
   switch (job.data.kind) {
     case "workflows.tick":
       return dispatchDueCronWorkflows();

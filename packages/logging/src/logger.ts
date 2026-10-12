@@ -1,4 +1,4 @@
-import { isHttpError, isIndexable, SENSITIVE_LOG_PATHS } from "@alfred/contracts";
+import { getStringField, isHttpError, isIndexable, SENSITIVE_LOG_PATHS } from "@alfred/contracts";
 import { nodeEnv } from "@alfred/env/server";
 import pino, { type DestinationStream } from "pino";
 import { AppError } from "@alfred/contracts/app-errors";
@@ -27,31 +27,24 @@ const RESPONSE_BODY_LOG_CAP = 4_000;
 function devErrorDiagnostics(err: unknown): Partial<SafeErrorLog> {
   const out: Partial<SafeErrorLog> = {};
 
-  const message = err instanceof Error ? stringField(err, "message") : undefined;
+  const message = err instanceof Error ? getStringField(err, "message") : undefined;
 
   if (message) out.message = message;
   const statusCode: unknown = Reflect.get(isIndexable(err) ? err : {}, "statusCode");
 
   if (typeof statusCode === "number") out.statusCode = statusCode;
-  const url = stringField(err, "url");
+  const url = getStringField(err, "url");
 
   if (url) out.url = url;
-  const responseBody = stringField(err, "responseBody");
+  const responseBody = getStringField(err, "responseBody");
 
   if (responseBody) out.responseBody = responseBody.slice(0, RESPONSE_BODY_LOG_CAP);
 
   return out;
 }
 
-function stringField(value: unknown, key: string): string | undefined {
-  if (!isIndexable(value)) return undefined;
-  const field = Reflect.get(value, key);
-
-  return typeof field === "string" ? field : undefined;
-}
-
 function isPostgresDiagnostic(value: unknown): boolean {
-  const code = stringField(value, "code");
+  const code = getStringField(value, "code");
 
   return code !== undefined && /^[0-9A-Z]{5}$/.test(code);
 }
@@ -72,23 +65,23 @@ export function serializeError(err: unknown, verbose = false): SafeErrorLog {
     }
 
     const database = {
-      code: stringField(databaseSource, "code"),
-      constraint: stringField(databaseSource, "constraint"),
-      schema: stringField(databaseSource, "schema"),
-      table: stringField(databaseSource, "table"),
-      column: stringField(databaseSource, "column"),
+      code: getStringField(databaseSource, "code"),
+      constraint: getStringField(databaseSource, "constraint"),
+      schema: getStringField(databaseSource, "schema"),
+      table: getStringField(databaseSource, "table"),
+      column: getStringField(databaseSource, "column"),
     };
 
     const hasDatabaseField = Object.values(database).some((value) => value !== undefined);
 
-    const stack = stringField(error, "stack")
+    const stack = getStringField(error, "stack")
       ?.split("\n")
       .filter((line) => /^\s*at\s/.test(line))
       .join("\n")
       .trim();
 
     return {
-      type: stringField(error, "name") ?? typeof err,
+      type: getStringField(error, "name") ?? typeof err,
       ...(stack ? { stack } : {}),
       ...(hasDatabaseField ? { database } : {}),
       ...(verbose ? devErrorDiagnostics(err) : {}),

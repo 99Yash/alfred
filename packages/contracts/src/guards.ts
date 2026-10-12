@@ -66,6 +66,17 @@ export function getStringPath(value: unknown, ...keys: string[]): string | undef
 }
 
 /**
+ * A string property of any indexable value. Unlike `getStringPath`, it reads errors and
+ * SDK instances, which `isRecord` rejects. `undefined` if the field is missing or not a string.
+ */
+export function getStringField(value: unknown, key: string): string | undefined {
+  if (!isIndexable(value)) return undefined;
+  const field = Reflect.get(value, key);
+
+  return typeof field === "string" ? field : undefined;
+}
+
+/**
  * Read a provider id that may be a string or an integer, as a string.
  * Webhooks send ids both ways, and the columns that store them are text.
  */
