@@ -90,6 +90,7 @@ export function readGmailAttachmentFirstCarrier(row: {
 }
 
 function repairPersistedField(
+  // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- a persisted metadata candidate is a staging copy of unknown JSON; repair deletes an invalid key before the schema parse.
   candidate: Record<string, unknown>,
   key: GmailDocumentMetadataKey,
   schema: z.ZodType<unknown>,
