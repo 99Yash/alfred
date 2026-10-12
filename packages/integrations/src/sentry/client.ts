@@ -30,8 +30,9 @@ function sentryPassthroughProfile(token: string): RestPassthroughProfile {
   return { baseUrl: SENTRY_API, headers: sentryHeaders(token) };
 }
 
-async function sentryGet(token: string, path: string): Promise<unknown> {
+async function sentryGet<T>(schema: z.ZodType<T>, token: string, path: string): Promise<T> {
   return authedJson(
+    schema,
     { headers: sentryHeaders(token) },
     { url: `${SENTRY_API}${path}` },
     { provider: "sentry", urlLabel: path, bodyPolicy: "summarize" },
@@ -57,9 +58,7 @@ export async function sentryValidateToken(args: {
 }): Promise<SentryConnection> {
   const slug = encodeURIComponent(args.organization);
 
-  const organization = organizationSchema.parse(
-    await sentryGet(args.token, `/organizations/${slug}/`),
-  );
+  const organization = await sentryGet(organizationSchema, args.token, `/organizations/${slug}/`);
 
   return { organization };
 }

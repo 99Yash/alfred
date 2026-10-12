@@ -2,7 +2,7 @@ import { HttpError } from "@alfred/contracts";
 import assert from "node:assert/strict";
 import { afterEach, describe, test } from "node:test";
 
-import { authedJson } from "../src/shared/authed-json";
+import { authedJson, uncheckedResponse } from "../src/shared/authed-json";
 
 /** `authedJson`: a non-2xx is an `HttpError`, a 2xx is parsed JSON, and an empty body is `{}`. */
 
@@ -37,6 +37,7 @@ describe("authedJson", () => {
     stubFetch(new Response(JSON.stringify({ ok: true, n: 2 }), { status: 200 }));
 
     const body = await authedJson(
+      uncheckedResponse,
       { headers: { Authorization: "Bearer tok" } },
       { url: "https://api.example.com/thing" },
       { provider: "example" },
@@ -49,6 +50,7 @@ describe("authedJson", () => {
     stubFetch(new Response(null, { status: 200 }));
 
     const body = await authedJson(
+      uncheckedResponse,
       { headers: {} },
       { url: "https://api.example.com/empty" },
       { provider: "example" },
@@ -61,6 +63,7 @@ describe("authedJson", () => {
     stubFetch(new Response("upstream said no", { status: 404 }));
     await assert.rejects(
       authedJson(
+        uncheckedResponse,
         { headers: {} },
         { url: "https://api.example.com/missing", method: "GET" },
         { provider: "example", urlLabel: "the/redacted/path" },
@@ -81,7 +84,12 @@ describe("authedJson", () => {
   test("urlLabel defaults to the request URL when omitted", async () => {
     stubFetch(new Response("boom", { status: 500 }));
     await assert.rejects(
-      authedJson({ headers: {} }, { url: "https://api.example.com/x" }, { provider: "example" }),
+      authedJson(
+        uncheckedResponse,
+        { headers: {} },
+        { url: "https://api.example.com/x" },
+        { provider: "example" },
+      ),
       (err: unknown) => {
         assert.ok(err instanceof HttpError);
         assert.equal(err.url, "https://api.example.com/x");
@@ -100,6 +108,7 @@ describe("authedJson", () => {
     try {
       await assert.rejects(
         authedJson(
+          uncheckedResponse,
           { headers: {} },
           { url: "https://api.example.com/forbidden", method: "POST" },
           { provider: "notion-like", urlLabel: "/v1/pages/x", bodyPolicy: "omit" },
@@ -133,6 +142,7 @@ describe("authedJson", () => {
 
     try {
       const body = await authedJson(
+        uncheckedResponse,
         { headers: {} },
         { url: "https://api.example.com/ok" },
         { provider: "example", bodyPolicy: "omit" },

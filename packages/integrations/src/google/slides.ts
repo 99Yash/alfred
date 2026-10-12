@@ -42,15 +42,14 @@ export interface CreatePresentationResult {
 export async function createPresentation(
   args: CreatePresentationArgs,
 ): Promise<CreatePresentationResult> {
-  const parsed = await sendJson(
-    createPresentationResponseSchema,
-    "POST",
-    API_BASE,
-    args.accessToken,
-    {
+  const parsed = await googleJson("slides", createPresentationResponseSchema, {
+    method: "POST",
+    url: API_BASE,
+    accessToken: args.accessToken,
+    payload: {
       title: args.title,
     },
-  );
+  });
 
   return { presentationId: parsed.presentationId, title: parsed.title };
 }
@@ -72,7 +71,12 @@ export async function getPresentation(
   retry: RetryPolicy | "none" = "none",
 ): Promise<GetPresentationResult> {
   const url = `${API_BASE}/${encodeURIComponent(args.presentationId)}`;
-  const parsed = await sendJson(presentationSchema, "GET", url, args.accessToken, undefined, retry);
+
+  const parsed = await googleJson("slides", presentationSchema, {
+    url,
+    accessToken: args.accessToken,
+    retry,
+  });
 
   return {
     presentationId: parsed.presentationId,
@@ -98,8 +102,11 @@ export async function batchUpdatePresentation(
 ): Promise<BatchUpdatePresentationResult> {
   const url = `${API_BASE}/${encodeURIComponent(args.presentationId)}:batchUpdate`;
 
-  const parsed = await sendJson(batchUpdateResponseSchema, "POST", url, args.accessToken, {
-    requests: args.requests,
+  const parsed = await googleJson("slides", batchUpdateResponseSchema, {
+    method: "POST",
+    url,
+    accessToken: args.accessToken,
+    payload: { requests: args.requests },
   });
 
   return { replies: parsed.replies ?? [] };
@@ -120,13 +127,3 @@ export async function addSlide(args: {
     ],
   });
 }
-
-const sendJson = <T>(
-  schema: z.ZodType<T>,
-  method: "GET" | "POST",
-  url: string,
-  accessToken: string,
-  payload?: unknown,
-  retry: RetryPolicy | "none" = "none",
-): Promise<T> =>
-  googleJson("slides", method, url, accessToken, payload, retry).then((raw) => schema.parse(raw));

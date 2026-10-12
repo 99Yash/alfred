@@ -64,13 +64,12 @@ export async function listFiles(
   url.searchParams.set("supportsAllDrives", "true");
   url.searchParams.set("includeItemsFromAllDrives", "true");
 
-  const parsed = await getJson(
-    listFilesResponseSchema,
-    url.toString(),
-    args.accessToken,
+  const parsed = await googleJson("drive", listFilesResponseSchema, {
+    url: url.toString(),
+    accessToken: args.accessToken,
     retry,
-    args.signal,
-  );
+    signal: args.signal,
+  });
 
   return { files: parsed.files ?? [], nextPageToken: parsed.nextPageToken };
 }
@@ -89,7 +88,12 @@ export async function getFile(
   url.searchParams.set("fields", FILE_FIELDS);
   url.searchParams.set("supportsAllDrives", "true");
 
-  return getJson(fileSchema, url.toString(), args.accessToken, retry, args.signal);
+  return googleJson("drive", fileSchema, {
+    url: url.toString(),
+    accessToken: args.accessToken,
+    retry,
+    signal: args.signal,
+  });
 }
 
 /** Cap so a large file cannot flood the caller's context. */
@@ -147,17 +151,6 @@ export async function downloadFile(
 
   return { fileId: args.fileId, mimeType: mimeType ?? "application/octet-stream", text, truncated };
 }
-
-const getJson = <T>(
-  schema: z.ZodType<T>,
-  url: string,
-  accessToken: string,
-  retry: RetryPolicy | "none",
-  signal?: AbortSignal | undefined,
-): Promise<T> =>
-  googleJson("drive", "GET", url, accessToken, undefined, retry, signal).then((raw) =>
-    schema.parse(raw),
-  );
 
 async function getText(
   url: string,

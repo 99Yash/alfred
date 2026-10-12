@@ -1,11 +1,12 @@
 import { type ErrorBodyPolicy } from "@alfred/contracts";
+import type { z } from "zod";
 
 import { authedFetch } from "./authed-fetch";
 import { fetchWithRetry, isRetrySafeMethod, type RetryPolicy } from "./retry";
 import { throwUpstreamError } from "./upstream-error";
 
 /**
- * Shared JSON client for providers: fresh auth, URL, retry, non-2xx to HttpError, parse as `unknown`.
+ * Shared JSON client for providers: fresh auth, URL, retry, non-2xx to HttpError, parse with the caller's schema.
  * `resolve()` runs on every request so short-lived tokens stay fresh.
  * Not for binary responses or non-JSON envelopes such as GraphQL `{data,errors}`.
  */
@@ -48,8 +49,11 @@ export interface ProviderRequest {
 }
 
 export interface ProviderClient {
-  /** Returns parsed JSON as `unknown`. An empty body gives `{}`; a non-2xx throws {@link HttpError}. */
-  json(path: string, request?: ProviderRequest): Promise<unknown>;
+  /**
+   * Returns the JSON body parsed by `schema`. An empty body gives `{}`; a non-2xx throws
+   * {@link HttpError}; a schema mismatch throws `ZodError` and never retries.
+   */
+  json<T>(schema: z.ZodType<T>, path: string, request?: ProviderRequest): Promise<T>;
 }
 
 function buildUrl(
@@ -73,7 +77,7 @@ function buildUrl(
 
 export function defineProviderClient(config: ProviderClientConfig): ProviderClient {
   return {
-    async json(path, request = {}) {
+    async json(schema, path, request = {}) {
       const { headers, fixedQuery } = await config.resolve();
       const url = buildUrl(config.baseUrl, path, request.query, fixedQuery);
 
@@ -97,7 +101,7 @@ export function defineProviderClient(config: ProviderClientConfig): ProviderClie
 
       const text = await res.text();
 
-      return text ? JSON.parse(text) : {};
+      return schema.parse(text ? JSON.parse(text) : {});
     },
   };
 }

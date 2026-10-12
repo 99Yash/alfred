@@ -61,15 +61,12 @@ export interface CreateSpreadsheetResult {
 export async function createSpreadsheet(
   args: CreateSpreadsheetArgs,
 ): Promise<CreateSpreadsheetResult> {
-  const parsed = await sendJson(
-    createSpreadsheetResponseSchema,
-    "POST",
-    API_BASE,
-    args.accessToken,
-    {
-      properties: { title: args.title },
-    },
-  );
+  const parsed = await googleJson("sheets", createSpreadsheetResponseSchema, {
+    method: "POST",
+    url: API_BASE,
+    accessToken: args.accessToken,
+    payload: { properties: { title: args.title } },
+  });
 
   return {
     spreadsheetId: parsed.spreadsheetId,
@@ -95,7 +92,12 @@ export async function getValues(
   retry: RetryPolicy | "none" = "none",
 ): Promise<GetValuesResult> {
   const url = `${API_BASE}/${encodeURIComponent(args.spreadsheetId)}/values/${encodeURIComponent(args.range)}`;
-  const parsed = await sendJson(valueRangeSchema, "GET", url, args.accessToken, undefined, retry);
+
+  const parsed = await googleJson("sheets", valueRangeSchema, {
+    url,
+    accessToken: args.accessToken,
+    retry,
+  });
 
   return {
     range: parsed.range,
@@ -125,17 +127,16 @@ export async function updateValues(args: UpdateValuesArgs): Promise<UpdateValues
 
   url.searchParams.set("valueInputOption", args.valueInputOption ?? "USER_ENTERED");
 
-  const parsed = await sendJson(
-    updateValuesResponseSchema,
-    "PUT",
-    url.toString(),
-    args.accessToken,
-    {
+  const parsed = await googleJson("sheets", updateValuesResponseSchema, {
+    method: "PUT",
+    url: url.toString(),
+    accessToken: args.accessToken,
+    payload: {
       range: args.range,
       majorDimension: "ROWS",
       values: args.values,
     },
-  );
+  });
 
   return { updatedRange: parsed.updatedRange, updatedCells: parsed.updatedCells };
 }
@@ -162,17 +163,16 @@ export async function appendValues(args: AppendValuesArgs): Promise<AppendValues
   url.searchParams.set("valueInputOption", args.valueInputOption ?? "USER_ENTERED");
   url.searchParams.set("insertDataOption", "INSERT_ROWS");
 
-  const parsed = await sendJson(
-    appendValuesResponseSchema,
-    "POST",
-    url.toString(),
-    args.accessToken,
-    {
+  const parsed = await googleJson("sheets", appendValuesResponseSchema, {
+    method: "POST",
+    url: url.toString(),
+    accessToken: args.accessToken,
+    payload: {
       range: args.range,
       majorDimension: "ROWS",
       values: args.values,
     },
-  );
+  });
 
   return {
     updatedRange: parsed.updates?.updatedRange,
@@ -196,8 +196,11 @@ export async function batchUpdateSpreadsheet(
 ): Promise<BatchUpdateSpreadsheetResult> {
   const url = `${API_BASE}/${encodeURIComponent(args.spreadsheetId)}:batchUpdate`;
 
-  const parsed = await sendJson(batchUpdateResponseSchema, "POST", url, args.accessToken, {
-    requests: args.requests,
+  const parsed = await googleJson("sheets", batchUpdateResponseSchema, {
+    method: "POST",
+    url,
+    accessToken: args.accessToken,
+    payload: { requests: args.requests },
   });
 
   return { replies: parsed.replies ?? [] };
@@ -215,13 +218,3 @@ export async function addSheet(args: {
     requests: [{ addSheet: { properties: { title: args.title } } }],
   });
 }
-
-const sendJson = <T>(
-  schema: z.ZodType<T>,
-  method: "GET" | "POST" | "PUT",
-  url: string,
-  accessToken: string,
-  payload?: unknown,
-  retry: RetryPolicy | "none" = "none",
-): Promise<T> =>
-  googleJson("sheets", method, url, accessToken, payload, retry).then((raw) => schema.parse(raw));

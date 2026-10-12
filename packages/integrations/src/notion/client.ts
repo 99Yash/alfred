@@ -3,7 +3,7 @@
 import { z } from "zod";
 
 import type { ProviderBindOptions } from "../shared/provider";
-import { authedJson } from "../shared/authed-json";
+import { authedJson, uncheckedResponse } from "../shared/authed-json";
 import { getActiveBearerCredential } from "../shared/credentials";
 import { restPassthroughCapability, type RestPassthroughProfile } from "../shared/rest-passthrough";
 import type { RetryPolicy } from "../shared/retry";
@@ -28,14 +28,16 @@ function notionPassthroughProfile(token: string): RestPassthroughProfile {
  * `bodyPolicy: "omit"`: Notion error bodies can echo request fragments, so the body
  * is logged but never rides the thrown error.
  */
-async function notionFetch(
+async function notionFetch<T>(
+  schema: z.ZodType<T>,
   accessToken: string,
   path: string,
   init?: { method?: string; body?: unknown },
   retry: RetryPolicy | "none" = "none",
   idempotent?: true,
-): Promise<unknown> {
+): Promise<T> {
   return authedJson(
+    schema,
     {
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -168,8 +170,13 @@ async function notionSearch(
     ...(args.filter !== "all" ? { filter: { value: args.filter, property: "object" } } : {}),
   };
 
-  const json = notionSearchResponseSchema.parse(
-    await notionFetch(accessToken, "/search", { method: "POST", body }, retry, true),
+  const json = await notionFetch(
+    notionSearchResponseSchema,
+    accessToken,
+    "/search",
+    { method: "POST", body },
+    retry,
+    true,
   );
 
   return {
@@ -200,13 +207,16 @@ async function notionGetPage(
 ): Promise<NotionPage> {
   const id = encodeURIComponent(args.pageId);
 
-  const [pageRaw, blocksRaw] = await Promise.all([
-    notionFetch(accessToken, `/pages/${id}`, undefined, retry),
-    notionFetch(accessToken, `/blocks/${id}/children?page_size=100`, undefined, retry),
+  const [page, blocks] = await Promise.all([
+    notionFetch(notionPageSchema, accessToken, `/pages/${id}`, undefined, retry),
+    notionFetch(
+      notionBlockChildrenResponseSchema,
+      accessToken,
+      `/blocks/${id}/children?page_size=100`,
+      undefined,
+      retry,
+    ),
   ]);
-
-  const page = notionPageSchema.parse(pageRaw);
-  const blocks = notionBlockChildrenResponseSchema.parse(blocksRaw);
 
   return {
     id: page.id,
@@ -237,7 +247,7 @@ async function appendChildrenInBatches(
   const id = encodeURIComponent(blockId);
 
   for (let i = 0; i < children.length; i += NOTION_MAX_CHILDREN_PER_REQUEST) {
-    await notionFetch(accessToken, `/blocks/${id}/children`, {
+    await notionFetch(uncheckedResponse, accessToken, `/blocks/${id}/children`, {
       method: "PATCH",
       body: { children: children.slice(i, i + NOTION_MAX_CHILDREN_PER_REQUEST) },
     });
@@ -260,18 +270,16 @@ async function notionCreatePage(
   // Create with the first 100 blocks, then PATCH the rest in batches of 100.
   const children = paragraphBlocks(args.content);
 
-  const json = notionCreatedPageSchema.parse(
-    await notionFetch(accessToken, "/pages", {
-      method: "POST",
-      body: {
-        parent: { type: "page_id", page_id: args.parentPageId },
-        properties: {
-          title: { title: [{ type: "text", text: { content: args.title } }] },
-        },
-        children: children.slice(0, NOTION_MAX_CHILDREN_PER_REQUEST),
+  const json = await notionFetch(notionCreatedPageSchema, accessToken, "/pages", {
+    method: "POST",
+    body: {
+      parent: { type: "page_id", page_id: args.parentPageId },
+      properties: {
+        title: { title: [{ type: "text", text: { content: args.title } }] },
       },
-    }),
-  );
+      children: children.slice(0, NOTION_MAX_CHILDREN_PER_REQUEST),
+    },
+  });
 
   const pageId = json.id;
 

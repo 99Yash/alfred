@@ -182,9 +182,9 @@ export function createGithubClient(options: GithubClientOptions) {
     const { owner, repo, number } = args;
     const path = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/${number}`;
 
-    const pr = pullRequestSchema.parse(
-      await client.json(path, { label: `repos/${owner}/${repo}/pulls/${number}` }),
-    );
+    const pr = await client.json(pullRequestSchema, path, {
+      label: `repos/${owner}/${repo}/pulls/${number}`,
+    });
 
     return {
       number: pr.number,
@@ -220,18 +220,16 @@ export function createGithubClient(options: GithubClientOptions) {
       sort?: "created" | "updated" | "comments";
       order?: "asc" | "desc";
     }): Promise<SearchResult> {
-      const json = searchIssuesResponseSchema.parse(
-        await client.json("/search/issues", {
-          label: "search/issues",
-          query: {
-            q: args.q,
-            advanced_search: "true",
-            per_page: Math.min(Math.max(args.perPage ?? 30, 1), 100),
-            sort: args.sort,
-            order: args.order,
-          },
-        }),
-      );
+      const json = await client.json(searchIssuesResponseSchema, "/search/issues", {
+        label: "search/issues",
+        query: {
+          q: args.q,
+          advanced_search: "true",
+          per_page: Math.min(Math.max(args.perPage ?? 30, 1), 100),
+          sort: args.sort,
+          order: args.order,
+        },
+      });
 
       return {
         totalCount: json.total_count,
@@ -302,9 +300,9 @@ export function createGithubClient(options: GithubClientOptions) {
       const { owner, repo, number } = args;
       const path = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${number}`;
 
-      const issue = issueSchema.parse(
-        await client.json(path, { label: `repos/${owner}/${repo}/issues/${number}` }),
-      );
+      const issue = await client.json(issueSchema, path, {
+        label: `repos/${owner}/${repo}/issues/${number}`,
+      });
 
       // Labels come as objects or bare strings.
       const labels = (issue.labels ?? [])

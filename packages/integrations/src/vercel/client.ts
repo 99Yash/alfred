@@ -144,12 +144,10 @@ export function createVercelClient(options: VercelClientOptions) {
     passthrough,
 
     async projects(args?: { limit?: number }): Promise<VercelProject[]> {
-      const json = listProjectsResponseSchema.parse(
-        await client.json("/v10/projects", {
-          label: "/v10/projects",
-          query: { limit: args?.limit ?? 20 },
-        }),
-      );
+      const json = await client.json(listProjectsResponseSchema, "/v10/projects", {
+        label: "/v10/projects",
+        query: { limit: args?.limit ?? 20 },
+      });
 
       return json.projects.map((p) => ({
         id: p.id,
@@ -164,12 +162,10 @@ export function createVercelClient(options: VercelClientOptions) {
       projectId?: string | undefined;
       limit?: number | undefined;
     }): Promise<VercelDeployment[]> {
-      const json = listDeploymentsResponseSchema.parse(
-        await client.json("/v7/deployments", {
-          label: "/v7/deployments",
-          query: { limit: args?.limit ?? 20, projectId: args?.projectId },
-        }),
-      );
+      const json = await client.json(listDeploymentsResponseSchema, "/v7/deployments", {
+        label: "/v7/deployments",
+        query: { limit: args?.limit ?? 20, projectId: args?.projectId },
+      });
 
       return json.deployments.map((d) => {
         const org = d.meta?.githubCommitOrg ?? d.meta?.githubOrg;
@@ -197,18 +193,16 @@ export function createVercelClient(options: VercelClientOptions) {
       name: string;
       target?: "production" | "preview" | undefined;
     }): Promise<VercelRedeployResult> {
-      const json = redeployResponseSchema.parse(
-        await client.json("/v13/deployments", {
-          label: "/v13/deployments",
-          method: "POST",
-          query: { forceNew: 1 },
-          body: {
-            deploymentId: args.deploymentId,
-            name: args.name,
-            ...(args.target ? { target: args.target } : {}),
-          },
-        }),
-      );
+      const json = await client.json(redeployResponseSchema, "/v13/deployments", {
+        label: "/v13/deployments",
+        method: "POST",
+        query: { forceNew: 1 },
+        body: {
+          deploymentId: args.deploymentId,
+          name: args.name,
+          ...(args.target ? { target: args.target } : {}),
+        },
+      });
 
       // A 2xx with no id is a failure, not a success with no handle.
       const uid = json.uid ?? json.id;

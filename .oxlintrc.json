@@ -541,10 +541,11 @@
       //   metering captureOutput) take or emit
       //   `unknown` as their contract — narrowing belongs at callers via a
       //   schema, per packages/contracts/AGENTS.md;
-      // - provider clients (rest-passthrough parseBody, authed-json,
-      //   provider-client, sentry/notion/google clients, redis eval,
-      //   rate-limit Redis port) return what the provider or store returned,
-      //   which has no static shape — bound and redact at the call site instead;
+      // - provider and store passthroughs (rest-passthrough parseBody, redis
+      //   eval, rate-limit Redis port) return what the provider or store
+      //   returned, which has no static shape — bound and redact at the call
+      //   site instead. Typed provider clients (authed-json, provider-client,
+      //   google/sentry/notion) take a schema and are NOT listed;
       // - framework seams (tool-runtime registry execute/redactInput,
       //   dispatch pipeline, triggers TriggerConsumer.accept,
       //   google-credential-lifecycle is typed at its port — the fetch-url
@@ -561,11 +562,6 @@
         "packages/contracts/src/tool-schemas.ts",
         "packages/contracts/src/errors.ts",
         "packages/integrations/src/shared/rest-passthrough.ts",
-        "packages/integrations/src/shared/authed-json.ts",
-        "packages/integrations/src/shared/provider-client.ts",
-        "packages/integrations/src/sentry/client.ts",
-        "packages/integrations/src/notion/client.ts",
-        "packages/integrations/src/google/http.ts",
         "packages/db/src/redis.ts",
         "packages/auth/src/rate-limit.ts",
         "packages/assistant/src/tool-runtime/internal/registry.ts",
