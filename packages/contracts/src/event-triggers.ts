@@ -189,7 +189,7 @@ export type RawReceiptType = "raw" extends EventType ? never : "raw";
 
 export const RAW_EVENT_TYPE: RawReceiptType = "raw";
 
-export function isRawEventType(value: string): value is RawReceiptType {
+export function isRawEventType(value: unknown): value is RawReceiptType {
   return value === RAW_EVENT_TYPE;
 }
 

@@ -50,7 +50,15 @@ const issueSchema = z.object({
   user: z.object({ login: z.string() }).nullable().optional(),
   comments: z.number().optional(),
   body: z.string().nullable().optional(),
-  labels: z.array(z.union([z.string(), z.object({ name: z.string().optional() })])).optional(),
+  /** Labels come as objects or bare strings; both parse to the name. */
+  labels: z
+    .array(
+      z.union([
+        z.string(),
+        z.object({ name: z.string().optional() }).transform((label) => label.name ?? ""),
+      ]),
+    )
+    .optional(),
   repository_url: z.string().optional(),
 });
 
@@ -304,10 +312,7 @@ export function createGithubClient(options: GithubClientOptions) {
         label: `repos/${owner}/${repo}/issues/${number}`,
       });
 
-      // Labels come as objects or bare strings.
-      const labels = (issue.labels ?? [])
-        .map((label) => (typeof label === "string" ? label : (label.name ?? "")))
-        .filter((label) => label.length > 0);
+      const labels = (issue.labels ?? []).filter((label) => label.length > 0);
 
       return {
         number: issue.number,

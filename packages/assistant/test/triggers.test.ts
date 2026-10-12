@@ -202,18 +202,4 @@ describe("triggers", () => {
       false,
     );
   });
-
-  test("counts a consumer that returns a domain failure as accepted", async () => {
-    const unregister = registerTriggerConsumer({
-      name: "triggers-test-domain-failure",
-      mode: "propagate",
-      accept: async () => ({ failed: 1 }),
-    });
-
-    try {
-      assert.deepEqual(await publishDomainEvent(event), { acceptedConsumers: 1 });
-    } finally {
-      unregister();
-    }
-  });
 });

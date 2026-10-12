@@ -316,7 +316,7 @@
       // - packages/integrations/src/shared/rest-passthrough.ts: parseBody contains
       //   JSON.parse's `any` behind an explicit `unknown`; its arms return literals
       //   (null, the non-JSON marker) that the rule rejects at an unknown seam.
-      // - packages/integrations/../attachments.ts (contracts): ingestPolicyByMime is
+      // - packages/contracts/src/attachments.ts: ingestPolicyByMime is
       //   the deliberately widened VIEW of the literal INGEST_POLICY table for
       //   open-ended MIME-type lookups; the literal stays the single source of truth.
       // The bar for removing a file from this list is a change that keeps the
@@ -455,14 +455,13 @@
       //   contract being established;
       // - schema-boundary validators (contracts tool-schemas and
       //   tool-fields preprocessors, events z.custom, env server
-      //   preprocessors, extraction protocol validators, triggers
-      //   z.custom, replay-state preprocess, weather schemas transform)
+      //   preprocessors, extraction protocol validators)
       //   narrow `unknown` process.env, webhook, and model-output fields
       //   inside the Zod boundary that owns them;
       // - provider and external-payload readers (fact-policy content
-      //   probes, hosted-endpoint parseUrl, github client, mcp protocol TTL,
-      //   discovery textFromContent, conversation transcript helpers,
-      //   login-search sanitizeRedirect) narrow webhook,
+      //   probes, hosted-endpoint parseUrl, mcp protocol TTL,
+      //   discovery textFromContent, conversation transcript helpers)
+      //   narrow webhook,
       //   provider, and persisted-JSON fields at the ingestion edge;
       // - unknown renderers (contracts text toDisplayText,
       //   metering captureInput,
@@ -493,7 +492,6 @@
         "packages/contracts/src/tool-fields.ts",
         "packages/env/src/server.ts",
         "packages/extraction/src/extract-pdf-protocol.ts",
-        "packages/assistant/src/triggers/index.ts",
         "packages/assistant/src/knowledge/signature.ts",
         "packages/assistant/src/connections/mcp/client.ts",
         "packages/assistant/src/connections/mcp/protocol.ts",
@@ -504,7 +502,6 @@
         "packages/assistant/src/tool-runtime/internal/dispatch/pipeline.ts",
         "packages/assistant/src/tool-runtime/internal/tools/fetch-url.ts",
         "packages/assistant/src/execution/workflows/tool-preview.ts",
-        "packages/integrations/src/github/client.ts",
         "packages/db/src/credential-envelope.ts",
         "packages/db/src/credential-vault-maintenance.ts",
         "packages/auth/src/credential-adapter.ts",
@@ -514,14 +511,11 @@
         "packages/ai/src/metering/langfuse.ts",
         "packages/ai/src/metering/wrappers.ts",
         "apps/web/src/lib/eden.ts",
-        "apps/web/src/lib/events/replay-state.ts",
-        "apps/web/src/lib/weather/schemas.ts",
         "apps/web/src/lib/toast.tsx",
         "apps/web/src/lib/chat/animate-text.tsx",
         "apps/web/src/components/markdown-renderer/markdown-pre.tsx",
         "apps/web/src/components/ui/v2/theme.tsx",
-        "apps/web/src/main.tsx",
-        "apps/web/src/routes/-login/login-search.ts"
+        "apps/web/src/main.tsx"
       ],
       "rules": {
         "anti-slop/no-runtime-typeof": "off"
@@ -544,7 +538,7 @@
       //   site instead. Typed provider clients (authed-json, provider-client,
       //   google/sentry/notion) take a schema and are NOT listed;
       // - framework seams (tool-runtime registry execute/redactInput,
-      //   dispatch pipeline, triggers TriggerConsumer.accept,
+      //   dispatch pipeline,
       //   google-credential-lifecycle is typed at its port — the fetch-url
       //   undici lifecycle cast carries its own SAFETY note) erase the
       //   result because every tool's `execute_result` is free-form JSON
@@ -563,7 +557,6 @@
         "packages/assistant/src/tool-runtime/internal/registry.ts",
         "packages/assistant/src/tool-runtime/internal/dispatch/pipeline.ts",
         "packages/assistant/src/tool-runtime/internal/tools/fetch-url.ts",
-        "packages/assistant/src/triggers/index.ts",
         "packages/assistant/src/execution/workflows/tool-preview.ts",
         "packages/assistant/src/chat/compaction/conversation-summary-generator.ts",
         "packages/assistant/src/chat/chat-attachments.ts",

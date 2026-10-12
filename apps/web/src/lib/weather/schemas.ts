@@ -31,9 +31,13 @@ export const weatherSnapshotSchema = z.object({
 export type WeatherSnapshot = z.infer<typeof weatherSnapshotSchema>;
 
 /** geojs sends a number or a numeric string. */
-const coordinateSchema = z
-  .union([z.number(), z.string().regex(/^-?\d+(\.\d+)?$/)])
-  .transform((value) => (typeof value === "string" ? Number.parseFloat(value) : value));
+const coordinateSchema = z.union([
+  z.number(),
+  z
+    .string()
+    .regex(/^-?\d+(\.\d+)?$/)
+    .transform((value) => Number.parseFloat(value)),
+]);
 
 /** All optional; `ipLocation` checks completeness. */
 export const geoJsLocationSchema = z.object({

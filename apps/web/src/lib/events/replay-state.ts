@@ -4,18 +4,23 @@ import { isTerminalStatus } from "@alfred/contracts/agent";
 
 import type { EventStreamFrame } from "./frame";
 
+const replayStateObjectSchema = z.object({
+  cursor: z.number().int().nonnegative(),
+  activeRuns: z.record(z.string(), z.number().int().nonnegative()),
+  // Runs whose terminal frame was applied, so a later frame cannot re-arm them.
+  // `.default({})` parses older `{ cursor, activeRuns }` values.
+  completedRuns: z.record(z.string(), z.number().int().nonnegative()).default({}),
+});
+
 export const replayStateSchema = z
-  .preprocess(
-    (value) =>
-      typeof value === "number" ? { cursor: value, activeRuns: {}, completedRuns: {} } : value,
-    z.object({
-      cursor: z.number().int().nonnegative(),
-      activeRuns: z.record(z.string(), z.number().int().nonnegative()),
-      // Runs whose terminal frame was applied, so a later frame cannot re-arm them.
-      // `.default({})` parses older `{ cursor, activeRuns }` values.
-      completedRuns: z.record(z.string(), z.number().int().nonnegative()).default({}),
-    }),
-  )
+  .union([
+    // The oldest stored value is a bare cursor number.
+    z
+      .number()
+      .transform((cursor): z.input<typeof replayStateObjectSchema> => ({ cursor, activeRuns: {} }))
+      .pipe(replayStateObjectSchema),
+    replayStateObjectSchema,
+  ])
   .default({ cursor: 0, activeRuns: {}, completedRuns: {} });
 
 export type ReplayState = z.infer<typeof replayStateSchema>;
