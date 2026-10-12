@@ -383,9 +383,11 @@ export const systemTools: readonly RegisteredTool[] = [
     description:
       `Ask the user ${ASK_USER_LIMITS.questions.min} to ${ASK_USER_LIMITS.questions.max} questions and wait for the answers before you continue. ` +
       "Ask only when the request is ambiguous and a wrong guess would waste work; never ask for something you can look up. " +
+      "If your reply would end by asking the user to choose or to supply something you need to finish, call this instead. " +
+      "This includes an open answer, such as names or a list: offer the likeliest choices as options, and the free-text answer takes the rest. " +
       "Ask every question in one call, because each call pauses the turn. " +
       `Give each question ${ASK_USER_LIMITS.options.min} to ${ASK_USER_LIMITS.options.max} options. Put the option you recommend first and end its label with "(Recommended)". ` +
-      "Never add an 'Other' option; the card always adds a free-text answer. " +
+      "Never add an option that only invites free text, such as 'Other' or 'Name them'; the card always adds a free-text answer. " +
       "Never put a question for the user in a sub-agent brief; ask here first. Never fill `answers` yourself.",
     // A question needs a person on a live thread. Kernel: the prompt sends every ambiguous request here.
     availability: { surface: "kernel", requiresLiveChat: true, callers: ["boss"] },
