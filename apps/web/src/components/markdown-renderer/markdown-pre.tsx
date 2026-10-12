@@ -2,8 +2,8 @@ import { Children, isValidElement, type ReactNode } from "react";
 import type { Components } from "react-markdown";
 import { CodeBlock } from "./code-block";
 
-function languageOf(className: unknown): string | undefined {
-  if (typeof className !== "string") return undefined;
+function languageOf(className: string | undefined): string | undefined {
+  if (className === undefined) return undefined;
 
   return /language-(\w+)/.exec(className)?.[1];
 }

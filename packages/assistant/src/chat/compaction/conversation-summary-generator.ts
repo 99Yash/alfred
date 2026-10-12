@@ -45,7 +45,7 @@ type SummaryRunner = (args: {
   route: ConversationSummaryModelRoute;
   abortSignal?: AbortSignal | undefined;
   timeoutMs?: number | undefined;
-}) => Promise<unknown>;
+}) => Promise<ConversationSummary>;
 
 export type ConversationSummaryModelRoute = "primary" | "fallback";
 
@@ -146,7 +146,7 @@ async function runConversationSummaryModel(args: {
   route: ConversationSummaryModelRoute;
   abortSignal?: AbortSignal | undefined;
   timeoutMs?: number | undefined;
-}): Promise<unknown> {
+}): Promise<ConversationSummary> {
   const modelRoute = conversationSummaryRoutes[args.route];
 
   const result = await meteredGenerateObject(

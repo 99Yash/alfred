@@ -15,12 +15,19 @@ import {
   type Tool,
   type Transport,
 } from "@modelcontextprotocol/client";
+import { z } from "zod";
 import type { McpAuthorizedProtocol } from "./endpoint-authorization";
 import type { JsonObject } from "@alfred/contracts";
 import { isMcpTransportFailure, McpClientError } from "./errors";
 import type { McpTraceContext } from "./trace";
 
 const HEADER_MISMATCH_ERROR_CODE = -32020;
+
+// A missing or malformed server TTL means "do not cache". Zod 4 numbers reject NaN and Infinity.
+const cacheTtlSchema = z
+  .number()
+  .catch(0)
+  .transform((ttl) => Math.min(Math.max(0, ttl), MAX_CACHE_TTL_MS));
 
 /** A list-change stream that lived less than this is not reopened. */
 const MIN_RELISTEN_LIFETIME_MS = 10_000;
@@ -338,7 +345,7 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
 
     return {
       tools: result.tools,
-      ttlMs: normalizeCacheTtl(result.ttlMs),
+      ttlMs: cacheTtlSchema.parse(result.ttlMs),
       cacheScope: result.cacheScope === "public" ? "public" : "private",
       ...(result.nextCursor ? { nextCursor: result.nextCursor } : {}),
     };
@@ -363,12 +370,6 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
       },
     );
   }
-}
-
-function normalizeCacheTtl(value: unknown): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) return 0;
-
-  return Math.min(Math.max(0, value), MAX_CACHE_TTL_MS);
 }
 
 export function isMcpSessionExpiredError(err: unknown): boolean {

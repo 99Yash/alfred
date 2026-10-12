@@ -1,5 +1,4 @@
 import {
-  getStringPath,
   isToolName,
   isWriteRiskTier,
   MCP_LIST_TOOLS_MAX_LIMIT,
@@ -15,6 +14,7 @@ import {
 import { readIntegrationAvailability } from "@alfred/assistant/connections";
 import { searchMcpToolsLocal } from "@alfred/assistant/connections/mcp";
 import { resolveMcpCallRiskTier } from "@alfred/assistant/tool-runtime/mcp";
+import { z } from "zod";
 import {
   evaluateToolAvailability,
   evaluateToolCatalog,
@@ -241,7 +241,7 @@ export function latestUserPrompt(
 
     if (message?.role !== "user") continue;
 
-    return textFromContent(message.content).slice(0, 8_000);
+    return promptTextSchema.parse(message.content).slice(0, 8_000);
   }
 
   return "";
@@ -504,18 +504,18 @@ function meaningfulTokens(value: string): Set<string> {
   return new Set(value.split(" ").filter((token) => token.length > 1 && !STOP_WORDS.has(token)));
 }
 
-function textFromContent(content: unknown): string {
-  if (typeof content === "string") return content;
+// A part with no string `text` (an image or a file) drops out instead of failing the prompt.
+const promptPartTextSchema = z
+  .union([z.string(), z.object({ text: z.string() }).transform((part) => part.text)])
+  .optional()
+  .catch(undefined);
 
-  if (!Array.isArray(content)) return "";
-
-  return content
-    .flatMap((part) => {
-      if (typeof part === "string") return [part];
-
-      const text = getStringPath(part, "text");
-
-      return text === undefined ? [] : [text];
-    })
-    .join(" ");
-}
+/** Message content is a string or a content-part array. Any other shape reads as no text. */
+const promptTextSchema = z
+  .union([
+    z.string(),
+    z
+      .array(promptPartTextSchema)
+      .transform((parts) => parts.flatMap((text) => (text === undefined ? [] : [text])).join(" ")),
+  ])
+  .catch("");

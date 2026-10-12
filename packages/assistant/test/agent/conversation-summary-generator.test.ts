@@ -122,6 +122,8 @@ describe("conversation summary generator", () => {
 
   test("retries malformed primary output once, then falls back", async () => {
     const routes: string[] = [];
+    const fabricated = validSummary();
+    fabricated.instructions[0]!.sources[0]!.id = "msg_invented";
 
     const summary = await generateConversationSummary(
       { evidence, attribution: { userId: "user_1" } },
@@ -130,7 +132,7 @@ describe("conversation summary generator", () => {
         run: async ({ route }) => {
           routes.push(route);
 
-          if (routes.length < 3) return { malformed: true };
+          if (routes.length < 3) return fabricated;
 
           return validSummary();
         },
