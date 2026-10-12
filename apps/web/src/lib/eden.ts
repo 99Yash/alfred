@@ -1,3 +1,4 @@
+import type { JsonValue } from "@alfred/contracts";
 import { treaty } from "@elysiajs/eden";
 import type { App } from "@alfred/http";
 import type { z } from "zod";
@@ -19,20 +20,18 @@ export type EdenData<T extends (...args: never[]) => Promise<{ data: unknown }>>
   Awaited<ReturnType<T>>["data"]
 >;
 
-/** JSON as the server sent it, timestamps as ISO strings. */
-type WireBody = string | number | boolean | null | WireBody[] | { [key: string]: WireBody };
-
 /**
  * Eden turns every ISO-like string into a `Date`, which breaks zod string timestamps.
- * Turn them back. Any non-JSON leaf is a transport bug, so throw.
+ * Turn them back, so the result is JSON as the server sent it. Any non-JSON leaf is a
+ * transport bug, so throw.
  */
-function restoreWireTimestamps(value: unknown): WireBody {
+function restoreWireTimestamps(value: unknown): JsonValue {
   if (value instanceof Date) return value.toISOString();
 
   if (Array.isArray(value)) return value.map(restoreWireTimestamps);
 
   if (typeof value === "object" && value !== null) {
-    const out: { [key: string]: WireBody } = {};
+    const out: { [key: string]: JsonValue } = {};
 
     for (const [key, entry] of Object.entries(value)) out[key] = restoreWireTimestamps(entry);
 
