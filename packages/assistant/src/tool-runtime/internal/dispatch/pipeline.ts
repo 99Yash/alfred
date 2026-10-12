@@ -145,6 +145,7 @@ function rejectionSignature(
 }
 
 function pathPart(part: PropertyKey): string {
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- a `PropertyKey` is a string, number or symbol; the symbol arm has no text form.
   if (typeof part === "symbol") return "symbol";
 
   return String(part);
@@ -158,6 +159,7 @@ function safeUnknownToolCandidate(toolName: string): string | undefined {
   return summarizeBody(sanitizeErrorMessage(trimmed), 120);
 }
 
+// oxlint-disable-next-line anti-slop/no-unknown-returns -- a tool's redacted input is free-form at the registry seam; it goes to the trace as received.
 function redactTraceInput(tool: RegisteredTool, input: unknown): unknown | undefined {
   if (!tool.redactInput) return input;
 
@@ -1220,6 +1222,7 @@ async function executeToolWithSpan(
   tool: ReturnType<typeof getTool> & object,
   input: unknown,
   ctx: ToolExecuteContext,
+  // oxlint-disable-next-line anti-slop/no-unknown-returns -- a tool's `execute` result is free-form JSON unless a TOOL_OUTPUT_SCHEMAS entry parses it later.
 ): Promise<unknown> {
   const span = toolSpanStarter({
     runId: ctx.runId,

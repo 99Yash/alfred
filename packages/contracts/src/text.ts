@@ -17,5 +17,6 @@ export function collapseWhitespace(text: string): string {
  * display. Display text only, like `collapseWhitespace`.
  */
 export function toDisplayText(value: unknown, indent?: number): string {
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- display text renders an unknown value; a string shows as it is, and any other value shows as JSON.
   return typeof value === "string" ? value : JSON.stringify(value ?? null, null, indent);
 }

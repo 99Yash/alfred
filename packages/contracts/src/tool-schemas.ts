@@ -60,6 +60,7 @@ function withQueryAlias<S extends z.ZodType<any>>(canonical: "q" | "query", sche
   const alias = canonical === "q" ? "query" : "q";
 
   return z.preprocess((value) => {
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- a `z.preprocess` callback on raw model input; the string arm is the alias check inside the owning schema.
     if (isRecord(value) && typeof value[alias] === "string") {
       const rest = { ...value };
 
@@ -117,6 +118,7 @@ function blankFieldToOmitted<S extends z.ZodType<any>>(fields: readonly string[]
     let next = value;
 
     for (const field of fields) {
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- a `z.preprocess` callback on raw model input; the string arm is the blank-field check inside the owning schema.
       if (typeof next[field] === "string" && next[field].trim() === "") {
         if (next === value) next = { ...value };
         delete next[field];
@@ -143,6 +145,7 @@ export function coerceJsonArrayFields<S extends z.ZodType<any>>(
     for (const field of fields) {
       const raw = next[field];
 
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- a `z.preprocess` callback on raw model input; a non-string field goes to strict validation unchanged.
       if (typeof raw !== "string") continue;
       const trimmed = raw.trim();
 
@@ -204,6 +207,7 @@ const calendarListEventsObject = z
 // Models send the right window value under the wrong key (`timeframe`, `range`).
 // Rename any key that holds a window value to `window`. Safe, because no other
 // field accepts those values. A non-window value fails strict validation.
+// oxlint-disable-next-line anti-slop/no-unknown-returns -- a `z.preprocess` callback takes and returns raw model input; the owning schema parses the result.
 function promoteWindowSynonym(value: unknown): unknown {
   if (!isRecord(value)) return value;
   const obj = Object.assign({}, value);
@@ -239,6 +243,7 @@ function padDatetimeSeconds<S extends z.ZodType<any>>(fields: readonly string[],
     for (const field of fields) {
       const raw = next[field];
 
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- a `z.preprocess` callback on raw model input; a non-string field goes to strict validation unchanged.
       if (typeof raw !== "string") continue;
       const match = MINUTE_PRECISION_DATETIME_RE.exec(raw);
 
@@ -315,10 +320,12 @@ const driveFileId = z.string().min(1).max(200).describe("The Drive file id.");
  */
 const DRIVE_BARE_TERM_RE = /^[\w.-]+$/;
 
+// oxlint-disable-next-line anti-slop/no-unknown-returns -- a `z.preprocess` callback takes and returns raw model input; the owning schema parses the result.
 function promoteDriveBareQuery(value: unknown): unknown {
   if (!isRecord(value)) return value;
   const q = value.q;
 
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- a `z.preprocess` callback on raw model input; a non-string `q` goes to strict validation unchanged.
   if (typeof q !== "string") return value;
   const trimmed = q.trim();
 
@@ -444,6 +451,7 @@ function withGithubItemUrl<S extends z.ZodObject>(
       if (next === value) next = { ...value };
     };
 
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- a `z.preprocess` callback on raw model input; the string arm is the URL check inside the owning schema.
     if (typeof next.url === "string") {
       const match = GITHUB_ITEM_URL_RE.exec(next.url);
 
@@ -460,6 +468,7 @@ function withGithubItemUrl<S extends z.ZodObject>(
     }
 
     // A real repo name has no slash, so this can only be a slug.
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- a `z.preprocess` callback on raw model input; the string arm is the slug check inside the owning schema.
     if (typeof next.repo === "string" && !("owner" in next)) {
       const slug = GITHUB_OWNER_REPO_SLUG_RE.exec(next.repo.trim());
 
@@ -704,6 +713,7 @@ export const gmailSearchInput = withQueryAlias(
  */
 const GMAIL_RECIPIENT_FIELDS = ["to", "cc", "bcc"] as const;
 
+// oxlint-disable-next-line anti-slop/no-unknown-returns -- a `z.preprocess` callback takes and returns raw model input; the owning schema parses the result.
 function wrapScalarRecipients(value: unknown): unknown {
   if (!isRecord(value)) return value;
   let next = value;
@@ -711,6 +721,7 @@ function wrapScalarRecipients(value: unknown): unknown {
   for (const field of GMAIL_RECIPIENT_FIELDS) {
     const raw = next[field];
 
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- a `z.preprocess` callback on raw model input; a non-string field goes to strict validation unchanged.
     if (typeof raw !== "string") continue;
 
     if (raw.trim().startsWith("[")) continue;

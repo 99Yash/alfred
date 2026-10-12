@@ -42,6 +42,7 @@ export function sanitizeToolResult<T>(value: T): SanitizeResult<T> {
 }
 
 function sanitizeUnknown(value: unknown): SanitizeResult {
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- the sanitizer dispatches on the runtime representation of an unknown value; the string arm IS the scrub.
   if (typeof value === "string") {
     return { ...stripString(value), collisions: 0 };
   }
@@ -68,6 +69,7 @@ function sanitizeUnknown(value: unknown): SanitizeResult {
     let removed = 0;
     let collisions = 0;
     let changed = false;
+    // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- the rebuild copies an unknown record key by key; its keys are the input's, so no narrower key type exists.
     const out: Record<string, unknown> = {};
 
     for (const [key, v] of Object.entries(value)) {

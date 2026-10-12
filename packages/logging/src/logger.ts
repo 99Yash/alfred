@@ -32,6 +32,7 @@ function devErrorDiagnostics(err: unknown): Partial<SafeErrorLog> {
   if (message) out.message = message;
   const statusCode: unknown = Reflect.get(isIndexable(err) ? err : {}, "statusCode");
 
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- `statusCode` is read off an unknown thrown value for dev logs; a non-number is dropped, not parsed.
   if (typeof statusCode === "number") out.statusCode = statusCode;
   const url = getStringField(err, "url");
 
@@ -81,12 +82,14 @@ export function serializeError(err: unknown, verbose = false): SafeErrorLog {
       .trim();
 
     return {
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- the runtime type name IS the logged value when a thrown value has no `name`.
       type: getStringField(error, "name") ?? typeof err,
       ...(stack ? { stack } : {}),
       ...(hasDatabaseField ? { database } : {}),
       ...(verbose ? devErrorDiagnostics(err) : {}),
     };
   } catch {
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- the runtime type name IS the logged value when the diagnostics read throws.
     return { type: typeof err };
   }
 }

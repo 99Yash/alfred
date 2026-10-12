@@ -107,6 +107,7 @@ function captureInput(args: Pick<GenerateTextArgs, "instructions" | "prompt" | "
   const { instructions, prompt, messages } = args;
 
   if (messages !== undefined) {
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- `instructions` is a string or a system message; only the string arm needs a message wrapper.
     if (typeof instructions === "string") {
       return [{ role: "system", content: instructions }, ...messages];
     }

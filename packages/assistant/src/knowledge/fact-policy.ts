@@ -64,6 +64,7 @@ function isServiceSenderRelationshipKey(canonicalKey: string): boolean {
 function fieldHasContent(value: unknown): boolean {
   if (isNonBlankString(value)) return true;
 
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- a nested fact field is persisted JSON; a number or boolean scalar counts as content.
   if (typeof value === "number" || typeof value === "boolean") return true;
 
   if (Array.isArray(value)) return value.some(fieldHasContent);

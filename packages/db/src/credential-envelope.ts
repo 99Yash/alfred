@@ -139,6 +139,7 @@ export function createCredentialVault(kek: Uint8Array): CredentialVault {
   }
 
   function open(persisted: unknown): string {
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- a persisted column value is unknown until checked; a non-string is a typed vault error, not a parse.
     if (typeof persisted !== "string") throw new CredentialVaultError("not_a_string");
     const parts = persisted.split(FORMAT.separator);
 

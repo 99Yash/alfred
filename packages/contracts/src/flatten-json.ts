@@ -12,6 +12,7 @@ export function flattenJson(value: unknown) {
   function visit(node: unknown, path: string[]): void {
     if (++visited > 4096 || remaining <= 0 || path.length > 16) return;
 
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- the walker dispatches on the runtime representation of unknown JSON; the scalar arm IS the flatten.
     if (typeof node === "string" || typeof node === "number" || typeof node === "boolean") {
       const labelLength = path.join(".").length + 3;
 

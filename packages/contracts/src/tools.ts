@@ -660,6 +660,7 @@ export function canonicalJson(value: unknown): string {
 function stringifyCanonical(value: unknown, seen: WeakSet<object>): string {
   if (value === null) return "null";
 
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- canonical JSON dispatches on the runtime type of an unknown value; the type name IS the serializer's branch key.
   const valueType = typeof value;
 
   if (valueType === "string") return JSON.stringify(value);
@@ -677,6 +678,7 @@ function stringifyCanonical(value: unknown, seen: WeakSet<object>): string {
   if (isIndexable(value)) {
     const toJSON = Reflect.get(value, "toJSON");
 
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- `JSON.stringify` calls `toJSON` only when it is a function; the canonical form must match that check.
     if (typeof toJSON === "function") {
       return stringifyCanonical(toJSON.call(value), seen);
     }
@@ -704,6 +706,7 @@ function stringifyCanonical(value: unknown, seen: WeakSet<object>): string {
       .sort()
       .flatMap((key) => {
         const item = Reflect.get(objectValue, key);
+        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- `JSON.stringify` drops undefined, function and symbol members; the canonical form must drop the same members.
         const itemType = typeof item;
 
         if (itemType === "undefined" || itemType === "function" || itemType === "symbol") {

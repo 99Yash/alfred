@@ -238,6 +238,7 @@ async function hydrateContentForModel(
   budget: AttachmentHydrationBudget,
   cache: Map<string, HydratedAttachmentImage>,
   readStoredObject: StoredObjectReader,
+  // oxlint-disable-next-line anti-slop/no-unknown-returns -- message content is unknown model input; only attachment parts change, and the rest passes through as received.
 ): Promise<unknown> {
   if (!Array.isArray(content)) return content;
   const parts: unknown[] = [];

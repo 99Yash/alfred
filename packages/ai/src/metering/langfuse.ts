@@ -751,9 +751,10 @@ function stripParams(
   for (const [k, v] of Object.entries(meta)) {
     if (skip.has(k)) continue;
 
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Langfuse model params take a string or a number; the JsonValue's runtime type picks the arm, and a boolean becomes a string below.
     if (typeof v === "string" || typeof v === "number") {
       out[k] = v;
-    } else if (typeof v === "boolean") {
+    } else if (v === true || v === false) {
       out[k] = String(v);
     } else if (Array.isArray(v)) {
       // Keep only all-string arrays; the length check drops mixed ones.
