@@ -16,7 +16,9 @@ function pruneForPreview(
   maxArray: number,
   maxString: number,
   maxKeys: number,
+  // oxlint-disable-next-line anti-slop/no-unknown-returns -- the prune walk returns its unknown input cut to size; the shape is the input's, and the only reader is `JSON.stringify`.
 ): unknown {
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- the walk dispatches on the runtime representation of an unknown tool output; the string arm is the leaf it cuts.
   if (typeof value === "string") {
     return value.length > maxString ? `${value.slice(0, maxString - 1)}…` : value;
   }
@@ -26,13 +28,16 @@ function pruneForPreview(
   }
 
   if (isRecord(value)) {
-    return Object.entries(value)
-      .slice(0, maxKeys)
-      .reduce<Record<string, unknown>>((out, [k, v]) => {
-        out[k] = pruneForPreview(v, maxArray, maxString, maxKeys);
+    return (
+      Object.entries(value)
+        .slice(0, maxKeys)
+        // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- the rebuild copies an unknown record key by key; its keys are the input's, so no narrower key type exists.
+        .reduce<Record<string, unknown>>((out, [k, v]) => {
+          out[k] = pruneForPreview(v, maxArray, maxString, maxKeys);
 
-        return out;
-      }, {});
+          return out;
+        }, {})
+    );
   }
 
   return value;
@@ -48,6 +53,7 @@ export interface Preview {
 }
 
 export function preview(value: unknown): Preview {
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- a string tool output is shown as is, not as a JSON-quoted string; any other value goes through `JSON.stringify`.
   if (typeof value === "string") {
     return value.length > PREVIEW_CHARS
       ? { text: `${value.slice(0, PREVIEW_CHARS - 1)}…`, truncated: true }
