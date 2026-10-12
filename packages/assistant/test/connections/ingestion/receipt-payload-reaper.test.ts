@@ -4,7 +4,7 @@ import { after, describe, test } from "node:test";
 
 import { eventTypeName, rawEventTypeName } from "@alfred/contracts";
 import { closeConnections, db, withDbSession } from "@alfred/db";
-import type { SealedCredentialSecret } from "@alfred/db/credential-vault";
+import { unsealedTestSecret } from "../../support/unsealed-secret";
 import type { EventReceipt } from "@alfred/db/schemas";
 import { documents, eventReceipts, integrationCredentials, user } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
@@ -66,8 +66,7 @@ async function seedCredential(userId: string): Promise<string> {
       provider: "github",
       accountId: `${userId}-gh`,
       // Deliberate unsealed write: nothing here opens the token.
-      // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
-      accessToken: "test-token" as unknown as SealedCredentialSecret,
+      accessToken: unsealedTestSecret("test-token"),
       installationId: "1",
       status: "active",
     })

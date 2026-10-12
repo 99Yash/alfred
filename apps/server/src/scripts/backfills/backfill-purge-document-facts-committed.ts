@@ -27,7 +27,7 @@ import {
 } from "@alfred/assistant/knowledge/internal";
 import { warmPool } from "@alfred/db";
 import { closeScriptResources } from "../script-runtime";
-import { canonicalizeFactKey, getStringPath, toMessage } from "@alfred/contracts";
+import { canonicalizeFactKey, getStringPath, toDisplayText, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, user as userTable, userFacts } from "@alfred/db/schemas";
 import { and, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
@@ -106,7 +106,7 @@ function pickWinner(rows: ActiveFactRow[]): ActiveFactRow {
 }
 
 function preview(value: unknown): string {
-  const s = typeof value === "string" ? value : JSON.stringify(value);
+  const s = toDisplayText(value);
 
   const masked = s
     .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[email]")

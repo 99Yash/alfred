@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import { APICallError, generateText } from "ai";
-import type { LanguageModel } from "ai-retry";
 import { MockLanguageModelV4 } from "ai/test";
 
 import { withFallback } from "../src/provider";
+import { asModel } from "./support/mock-model";
 
 // From the mock, because `@ai-sdk/provider` is only a transitive dependency.
 type GenResult = Awaited<ReturnType<MockLanguageModelV4["doGenerate"]>>;
@@ -64,10 +64,6 @@ function okModel(modelId: string, text: string): MockLanguageModelV4 {
     doGenerate: async () => okResult(text),
   });
 }
-
-// Same spec, but `ai-retry` names its own `LanguageModel` type.
-// eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
-const asModel = (m: MockLanguageModelV4) => m as unknown as LanguageModel;
 
 async function run(primary: MockLanguageModelV4, fallback: MockLanguageModelV4) {
   return generateText({

@@ -192,6 +192,10 @@ provider we called; `ApiError` is the _outbound_ failure we answer a client with
   because a parallel campaign owns that directory and this campaign may not edit
   it — a whole-file exemption, so a second fold landing in one of those files is
   unrefused until the markers replace it.
+- `toDisplayText(value)` — an `unknown` value as text for a reader: a string as
+  it is, anything else as JSON, and a missing value as `null`. Use it in place of
+  `typeof v === "string" ? v : JSON.stringify(v)`, which `no-runtime-typeof`
+  rejects in product source.
 
 ### Env — `@alfred/env/server`
 

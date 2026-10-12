@@ -178,12 +178,8 @@ function isIdentityFactKey(key: string): key is IdentityFactKey {
   return identityKeyRank.has(key as IdentityFactKey);
 }
 
-function identityValue(rows: FactContextRow[], key: IdentityFactKey): unknown | null {
-  return rows.find((row) => row.key === key)?.value ?? null;
-}
-
 function stringIdentityValue(rows: FactContextRow[], key: IdentityFactKey): string | null {
-  const value = identityValue(rows, key);
+  const value = rows.find((row) => row.key === key)?.value;
 
   return typeof value === "string" && value.trim() ? value : null;
 }

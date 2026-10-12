@@ -1,7 +1,9 @@
 import {
+  isNonEmptyString,
   isRecord,
   INTEGRATION_SLUGS,
   SPAWN_SUB_AGENT_TOOL,
+  toDisplayText,
   withDefaults,
   type AgentTranscriptMessage,
 } from "@alfred/contracts";
@@ -37,12 +39,12 @@ export function awaitedChildRunId(input: unknown): string | null {
   if (!isRecord(input)) return null;
   const id = input.childRunId;
 
-  return typeof id === "string" && id.length > 0 ? id : null;
+  return isNonEmptyString(id) ? id : null;
 }
 
 /** Truncated, model-readable rendering of a folded child's output/error. */
 function renderChildOutcome(value: unknown): string {
-  const text = typeof value === "string" ? value : JSON.stringify(value ?? null);
+  const text = toDisplayText(value);
 
   return text.length > PREVIEW_CHARS ? `${text.slice(0, PREVIEW_CHARS)}…` : text;
 }

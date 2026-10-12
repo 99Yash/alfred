@@ -1,5 +1,5 @@
 import { route, meteredGenerateObject } from "@alfred/ai";
-import { confidenceSchema } from "@alfred/contracts";
+import { confidenceSchema, toDisplayText } from "@alfred/contracts";
 import { z } from "zod";
 import type { SkillLearnContext } from "./context";
 import { parseMentions, resolveMentions } from "./mentions";
@@ -76,7 +76,7 @@ function buildUserPrompt(args: { context: SkillLearnContext; prompt: string }): 
     lines.push(`(empty)`);
   } else {
     for (const f of args.context.facts) {
-      const v = typeof f.value === "string" ? f.value : JSON.stringify(f.value);
+      const v = toDisplayText(f.value);
       lines.push(`- ${f.key}: ${v}`);
     }
   }

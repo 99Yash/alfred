@@ -9,3 +9,12 @@ export function collapseWhitespace(text: string): string {
   // drift-ok: the one definition the `hand-rolled-whitespace-collapse` rule names.
   return text.replace(/\s+/g, " ").trim();
 }
+
+/**
+ * A value as text for a reader: a string as it is, anything else as JSON. A
+ * missing value reads as `null`, because `JSON.stringify(undefined)` returns
+ * `undefined`, not a string. Display text only, like `collapseWhitespace`.
+ */
+export function toDisplayText(value: unknown): string {
+  return typeof value === "string" ? value : JSON.stringify(value ?? null);
+}

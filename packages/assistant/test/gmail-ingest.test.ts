@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
 import { closeConnections, db } from "@alfred/db";
-import type { SealedCredentialSecret } from "@alfred/db/credential-vault";
+import { unsealedTestSecret } from "./support/unsealed-secret";
 import { documents, ingestionState, integrationCredentials, user } from "@alfred/db/schemas";
 import { findUnembeddedDocumentIds } from "@alfred/corpus";
 import { and, eq, inArray } from "drizzle-orm";
@@ -62,10 +62,8 @@ async function seedGoogleCredential(userId: string): Promise<string> {
       accountId: randomUUID(),
       accountLabel: `${userId}@example.test`,
       // Unsealed on purpose: the seed path reads only `user_id`.
-      // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
-      accessToken: "access-token" as unknown as SealedCredentialSecret,
-      // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
-      refreshToken: "refresh-token" as unknown as SealedCredentialSecret,
+      accessToken: unsealedTestSecret("access-token"),
+      refreshToken: unsealedTestSecret("refresh-token"),
       expiresAt: new Date(Date.now() + 3_600_000),
       scopes: [],
       status: "active",
