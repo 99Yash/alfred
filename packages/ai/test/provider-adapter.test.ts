@@ -5,7 +5,6 @@ import { getPath } from "@alfred/contracts";
 import { anthropic } from "@ai-sdk/anthropic";
 import { google } from "@ai-sdk/google";
 import { APICallError, generateText, tool, type ToolSet } from "ai";
-import type { LanguageModel } from "ai-retry";
 import { MockLanguageModelV4 } from "ai/test";
 import { z } from "zod";
 import { identifyLanguageModel, type ProviderId } from "../src/models";
@@ -15,6 +14,7 @@ import {
   createProviderRouteModel,
 } from "../src/provider-adapter";
 import { route, withFallback } from "../src/provider";
+import { asModel } from "./support/mock-model";
 
 type GenResult = Awaited<ReturnType<MockLanguageModelV4["doGenerate"]>>;
 
@@ -37,9 +37,6 @@ function mockModel(provider: ProviderId, modelId: string): MockLanguageModelV4 {
     doGenerate: async () => okResult(),
   });
 }
-
-// eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
-const asModel = (model: MockLanguageModelV4) => model as unknown as LanguageModel;
 
 function cacheControl(value: unknown): unknown {
   return getPath(value, "providerOptions", "anthropic", "cacheControl");

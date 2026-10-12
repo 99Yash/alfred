@@ -466,11 +466,10 @@
       //   parseCoord) narrow webhook,
       //   provider, and persisted-JSON fields at the ingestion edge;
       // - unknown renderers (memory formatters, approval notification
-      //   formatValue, facts previewValue, skill fact renderers,
-      //   relationship and user-context fact strings, finalize-guards
-      //   child-outcome render, metering captureInput, langfuse metadata
-      //   scrub, logger error diagnostics, passthrough transport error
-      //   fields, credential envelope open and vault classify) branch
+      //   formatValue, facts previewValue, contracts text toDisplayText,
+      //   relationship and user-context fact strings, metering captureInput,
+      //   langfuse metadata scrub, logger error diagnostics, passthrough
+      //   transport error fields, credential envelope open and vault classify) branch
       //   `unknown` into text for display, logs, or redaction, which is
       //   the boundary;
       // - typed-union discriminators with no helper spelling (toast
@@ -489,6 +488,7 @@
         "packages/contracts/src/guards.ts",
         "packages/contracts/src/sanitize.ts",
         "packages/contracts/src/bound.ts",
+        "packages/contracts/src/text.ts",
         "packages/contracts/src/flatten-json.ts",
         "packages/contracts/src/tools.ts",
         "packages/contracts/src/tool-schemas.ts",
@@ -509,13 +509,10 @@
         "packages/assistant/src/tool-runtime/internal/dispatch/pipeline.ts",
         "packages/assistant/src/tool-runtime/internal/tools/fetch-url.ts",
         "packages/assistant/src/tool-runtime/internal/tools/passthrough/transport.ts",
-        "packages/assistant/src/chat/finalize-guards.ts",
         "packages/assistant/src/briefings/gather.ts",
         "packages/assistant/src/execution/approval-notification-worker.ts",
         "packages/assistant/src/execution/run-bottlenecks.ts",
         "packages/assistant/src/execution/workflows/tool-preview.ts",
-        "packages/assistant/src/skills/compose.ts",
-        "packages/assistant/src/skills/distill.ts",
         "packages/assistant/src/triage/sender-relationship.ts",
         "packages/integrations/src/github/client.ts",
         "packages/db/src/credential-envelope.ts",
@@ -550,7 +547,7 @@
       //   getPath, passthrough-bounds, log-redaction walk, tool-schemas Zod
       //   preprocessors, errors causeOf, trajectory canonicalize,
       //   tool-preview pruneForPreview, chat-attachments hydration,
-      //   user-context identityValue, metering captureOutput) take or emit
+      //   metering captureOutput) take or emit
       //   `unknown` as their contract — narrowing belongs at callers via a
       //   schema, per packages/contracts/AGENTS.md;
       // - provider clients (rest-passthrough parseBody, authed-json,
@@ -588,7 +585,6 @@
         "packages/assistant/src/tool-runtime/internal/dispatch/pipeline.ts",
         "packages/assistant/src/tool-runtime/internal/tools/fetch-url.ts",
         "packages/assistant/src/triggers/index.ts",
-        "packages/assistant/src/knowledge/user-context.ts",
         "packages/assistant/src/knowledge/queue.ts",
         "packages/assistant/src/execution/workflows/tool-preview.ts",
         "packages/assistant/src/connections/ingestion/queue.ts",

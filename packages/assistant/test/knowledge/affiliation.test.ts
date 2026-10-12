@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
 import { getPath, getStringPath, observationInsertSchema } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
-import type { SealedCredentialSecret } from "@alfred/db/credential-vault";
+import { unsealedTestSecret } from "../support/unsealed-secret";
 import {
   integrationCredentials,
   observationFamilyHeads,
@@ -79,10 +79,8 @@ async function seedGoogleCredential(args: {
       accountId: args.accountId,
       accountLabel: accountEmail,
       // Unsealed on purpose: no code path here opens either token.
-      // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
-      accessToken: "access-token" as unknown as SealedCredentialSecret,
-      // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
-      refreshToken: "refresh-token" as unknown as SealedCredentialSecret,
+      accessToken: unsealedTestSecret("access-token"),
+      refreshToken: unsealedTestSecret("refresh-token"),
       expiresAt: new Date("2026-06-30T00:00:00.000Z"),
       scopes: [],
       metadata: hostedDomain ? { googleHostedDomain: hostedDomain } : {},

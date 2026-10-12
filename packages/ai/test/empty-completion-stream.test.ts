@@ -1,18 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import {
-  isStepCount,
-  streamText,
-  tool,
-  type FinishReason,
-  type LanguageModel,
-  type ToolSet,
-} from "ai";
+import { isStepCount, streamText, tool, type FinishReason, type ToolSet } from "ai";
 import { convertArrayToReadableStream, MockLanguageModelV4 } from "ai/test";
 import { z } from "zod";
 
 import { classifyStreamFinish } from "../src/agent";
+import { asModel } from "./support/mock-model";
 
 /**
  * Proves the real `streamText` pipeline surfaces an empty candidate as a clean "stop" with no content.
@@ -69,10 +63,6 @@ function toolCallParts(): StreamPart[] {
     }),
   ];
 }
-
-// SAFETY: this SDK-provided V4 mock implements the runtime branch streamText consumes.
-// eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
-const asModel = (m: MockLanguageModelV4) => m as unknown as LanguageModel;
 
 // No `execute`, as in production, so the SDK surfaces the call without running it.
 // SAFETY: under `exactOptionalPropertyTypes` a bare `Tool` is not assignable to `ToolSet[string]`.

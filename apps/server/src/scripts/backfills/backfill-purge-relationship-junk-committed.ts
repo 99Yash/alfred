@@ -24,7 +24,7 @@ import {
 } from "@alfred/assistant/knowledge/internal";
 import { warmPool } from "@alfred/db";
 import { closeScriptResources } from "../script-runtime";
-import { RELATIONSHIP_FACT_PREFIX, toMessage } from "@alfred/contracts";
+import { RELATIONSHIP_FACT_PREFIX, toDisplayText, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { user as userTable, userFacts } from "@alfred/db/schemas";
 import { and, eq, gt, inArray, isNull, like, or } from "drizzle-orm";
@@ -88,7 +88,7 @@ function maskRelKey(key: string): string {
 }
 
 function preview(value: unknown): string {
-  const s = typeof value === "string" ? value : JSON.stringify(value);
+  const s = toDisplayText(value);
 
   const masked = VERBOSE_VALUES
     ? s

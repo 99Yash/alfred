@@ -4,7 +4,7 @@ import { after, before, beforeEach, describe, test } from "node:test";
 
 import { isRecord, restPassthroughInput } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
-import type { SealedCredentialSecret } from "@alfred/db/credential-vault";
+import { unsealedTestSecret } from "../../support/unsealed-secret";
 import {
   actionStagings,
   agentRuns,
@@ -53,8 +53,7 @@ async function seedUser(): Promise<{ userId: string; runId: string }> {
       provider: "github",
       accountId: `${userId}-gh`,
       // Unsealed on purpose: nothing opens the token, and sealing needs the `serverEnv()` fixtures.
-      // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
-      accessToken: "test-token" as unknown as SealedCredentialSecret,
+      accessToken: unsealedTestSecret("test-token"),
       installationId: "1",
       status: "active",
     });

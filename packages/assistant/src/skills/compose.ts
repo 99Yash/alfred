@@ -1,4 +1,5 @@
 import { route, meteredGenerateText } from "@alfred/ai";
+import { toDisplayText } from "@alfred/contracts";
 import type { SkillDocumentationContext } from "./skill-documentation-context";
 
 /**
@@ -41,7 +42,7 @@ function buildUserPrompt(ctx: SkillDocumentationContext): string {
     lines.push(`(none)`);
   } else {
     for (const f of ctx.facts.slice(0, 60)) {
-      const v = typeof f.value === "string" ? f.value : JSON.stringify(f.value);
+      const v = toDisplayText(f.value);
       lines.push(`- ${f.key}: ${v}`);
     }
   }

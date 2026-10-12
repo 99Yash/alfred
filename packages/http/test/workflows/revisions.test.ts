@@ -37,6 +37,10 @@ import { GOOGLE_SCOPE } from "@alfred/contracts";
 
 const SKIP = dbBackedSkip("database");
 
+/** The plaintext token the credential rows below are seeded with. It is not a sealed envelope. */
+// eslint-disable-next-line anti-slop/no-chained-type-assertions -- a plaintext test token stands in for a sealed envelope
+const UNSEALED_TEST_TOKEN = "test-token" as unknown as SealedCredentialSecret;
+
 const createdUserIds: string[] = [];
 
 function definition(brief: string): WorkflowRevisionDefinition {
@@ -482,8 +486,7 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
         provider: "google",
         accountId: accountRef,
         accountLabel: "test@example.test",
-        // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
-        accessToken: "test-token" as unknown as SealedCredentialSecret,
+        accessToken: UNSEALED_TEST_TOKEN,
         scopes: [GOOGLE_SCOPE.gmail.readonly],
         status: "active",
       })
@@ -566,8 +569,7 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
         provider: "google",
         accountId: accountRef,
         accountLabel: "stale@example.test",
-        // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
-        accessToken: "test-token" as unknown as SealedCredentialSecret,
+        accessToken: UNSEALED_TEST_TOKEN,
         scopes: [GOOGLE_SCOPE.gmail.readonly],
         status: "active",
       })
