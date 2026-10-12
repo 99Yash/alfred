@@ -110,13 +110,16 @@ export function fieldValue(field: FieldSpec, record: JsonObject): FieldValue {
     case "email":
     case "datetime":
     case "textarea":
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- a form field reads raw JSON input; the JSON Schema field kind says which runtime type is valid.
       return typeof raw === "string" ? raw : undefined;
     case "number":
     case "integer":
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- a form field reads raw JSON input; the JSON Schema field kind says which runtime type is valid.
       return typeof raw === "number" && Number.isFinite(raw) ? raw : undefined;
     case "string_array":
       return toStringArray(raw);
     case "boolean":
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- a form field reads raw JSON input; the JSON Schema field kind says which runtime type is valid.
       return typeof raw === "boolean" ? raw : undefined;
     case "json":
       return raw;
@@ -160,10 +163,12 @@ function humanizeKey(key: string): string {
 }
 
 function asNumber(value: JsonObject[keyof JsonObject] | undefined): number | undefined {
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- a JSON Schema keyword is any JsonValue; only a finite number is a usable bound.
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 function asString(value: JsonObject[keyof JsonObject] | undefined): string | undefined {
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- a JSON Schema keyword is any JsonValue; only a string is a usable label.
   return typeof value === "string" ? value : undefined;
 }
 
@@ -171,6 +176,7 @@ function asString(value: JsonObject[keyof JsonObject] | undefined): string | und
 function primaryType(schema: JsonObject): string | undefined {
   const t = schema.type;
 
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- JSON Schema `type` is a string or an array of strings; the string arm is the common case.
   if (typeof t === "string") return t;
 
   if (Array.isArray(t)) {

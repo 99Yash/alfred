@@ -34,6 +34,7 @@ export function boundToolResult(
   value: unknown,
   maxStringChars: number = TOOL_RESULT_MAX_STRING_CHARS,
 ): BoundResult {
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- the bounder dispatches on the runtime representation of an unknown tool result; the string arm IS the clip.
   if (typeof value === "string") {
     return clipString(value, maxStringChars);
   }
@@ -57,6 +58,7 @@ export function boundToolResult(
   if (isRecord(value)) {
     let clipped = 0;
     let changed = false;
+    // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- the rebuild copies an unknown record key by key; its keys are the input's, so no narrower key type exists.
     const out: Record<string, unknown> = {};
 
     for (const [key, v] of Object.entries(value)) {

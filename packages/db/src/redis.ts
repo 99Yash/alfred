@@ -82,6 +82,7 @@ export type BoundedRedis = Omit<IORedis, "subscribe" | "psubscribe" | "ssubscrib
  * the `eval` overloads make a test double impossible without a cast.
  */
 export type EvalRedis = {
+  // oxlint-disable-next-line anti-slop/no-unknown-returns -- `EVAL` returns whatever the Lua script returns; the store has no static shape, so the caller parses it.
   eval(script: string, numkeys: number, ...args: (string | number)[]): Promise<unknown>;
 };
 

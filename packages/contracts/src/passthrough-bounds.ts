@@ -59,6 +59,7 @@ function capArrays(value: unknown): ArrayCapResult {
   if (isRecord(value)) {
     let dropped = 0;
     let changed = false;
+    // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- the rebuild copies an unknown record key by key; its keys are the input's, so no narrower key type exists.
     const out: Record<string, unknown> = {};
 
     for (const [key, v] of Object.entries(value)) {
@@ -82,6 +83,7 @@ function capArrays(value: unknown): ArrayCapResult {
 function pruneToBudget(
   value: unknown,
   budget: number,
+  // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- the pruned record keeps the input's keys, so no narrower key type exists.
 ): string | unknown[] | Record<string, unknown> {
   if (Array.isArray(value)) {
     const out: unknown[] = [];
@@ -107,6 +109,7 @@ function pruneToBudget(
   }
 
   if (isRecord(value)) {
+    // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- the rebuild copies an unknown record key by key; its keys are the input's, so no narrower key type exists.
     const out: Record<string, unknown> = {};
     let used = 2;
     const entries = Object.entries(value);
@@ -138,6 +141,7 @@ function pruneToBudget(
 const OVERFLOW = Symbol("overflow");
 
 /** OVERFLOW tells the parent to stop and append its marker. */
+// oxlint-disable-next-line anti-slop/no-unknown-returns -- a fitted child is any part of an unknown passthrough body; the caller stores it as received.
 function fitChild(child: unknown, remaining: number): unknown | typeof OVERFLOW {
   if (remaining <= 0) return OVERFLOW;
 

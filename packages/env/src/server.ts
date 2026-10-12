@@ -3,6 +3,7 @@ import { agentWorkerConcurrencySchema } from "./pool";
 
 /** A blank `FOO=` line reads as unset, so the optional schema behind it does not fail boot. */
 function blankAsUnset(v: unknown) {
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- a `z.preprocess` callback on raw `process.env`; the string arm is the blank-line check inside the owning schema.
   return typeof v === "string" && v.trim() === "" ? undefined : v;
 }
 

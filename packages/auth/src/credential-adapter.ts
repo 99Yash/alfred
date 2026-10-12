@@ -24,13 +24,16 @@ const ACCOUNT_MODEL = "account";
 const isSealedField = enumGuard(ACCOUNT_SECRET_FIELDS);
 
 /** Seal token fields on write. Better Auth only writes plaintext it got from us or a provider. */
+// oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- Better Auth passes the adapter an untyped row payload; the bound keeps the caller's own row type.
 function sealWrite<T extends Record<string, unknown>>(payload: T, vault: CredentialVault): T {
+  // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- the sealed copy has the payload's keys, so no narrower key type exists.
   let sealed: Record<string, unknown> | undefined;
 
   for (const field of ACCOUNT_SECRET_FIELDS) {
     if (!(field in payload)) continue;
     const value = payload[field];
 
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Better Auth types the adapter payload loosely; only a string token field is sealed.
     if (typeof value !== "string") continue;
     sealed ??= { ...payload };
     sealed[field] = vault.seal(value);
@@ -43,7 +46,9 @@ function sealWrite<T extends Record<string, unknown>>(payload: T, vault: Credent
 /** Open token fields on read. Plaintext throws: it means a row was never sealed. */
 function openRow<T>(row: T, vault: CredentialVault): T {
   if (!isRecord(row)) return row;
+  // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- Better Auth returns an untyped row; the key-by-key read needs an indexable view of it.
   const source: Record<string, unknown> = row;
+  // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- the opened copy has the row's keys, so no narrower key type exists.
   let opened: Record<string, unknown> | undefined;
 
   for (const field of ACCOUNT_SECRET_FIELDS) {
@@ -68,6 +73,7 @@ function openJoined<T>(
   if (join === undefined || !(ACCOUNT_MODEL in join)) return row;
 
   if (!isRecord(row)) return row;
+  // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- Better Auth returns an untyped row; the key-by-key read needs an indexable view of it.
   const source: Record<string, unknown> = row;
 
   if (!(ACCOUNT_MODEL in source)) return row;

@@ -167,6 +167,7 @@ type Shorthand = string | (Omit<CallToastOptions, "variant" | "type"> & { messag
 
 function shorthand(variant: ToastVariant, defaultPosition: ToastPosition) {
   return (input: Shorthand): string | number => {
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- `Shorthand` is a message string or an options object; the string arm wraps it.
     const opts = typeof input === "string" ? { message: input } : input;
 
     return callToast({ position: defaultPosition, ...opts, variant });

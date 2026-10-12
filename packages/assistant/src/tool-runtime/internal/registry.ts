@@ -148,6 +148,7 @@ export interface LiveToolArgs<
    */
   modelInputSchema?: z.ZodType<any>;
   /** Receives parsed input. A throw is recorded by the dispatcher. */
+  // oxlint-disable-next-line anti-slop/no-unknown-returns -- a tool's `execute` result is free-form JSON unless a TOOL_OUTPUT_SCHEMAS entry parses it later.
   execute: (input: z.infer<S>, ctx: ToolExecuteContext) => Promise<unknown>;
   /**
    * Scrub secrets before the input reaches a trace or a staging row (#293).
@@ -177,8 +178,10 @@ export interface RegisteredTool {
   inputSchema: z.ZodType<any>;
   /** Falls back to `inputSchema`, so it is always set. */
   modelInputSchema: z.ZodType<any>;
+  // oxlint-disable-next-line anti-slop/no-unknown-returns -- the registry erases each tool's `execute` result; it is free-form JSON unless a TOOL_OUTPUT_SCHEMAS entry parses it.
   execute: (input: unknown, ctx: ToolExecuteContext) => Promise<unknown>;
   /** See {@link LiveToolArgs.redactInput}. Erased to `unknown` at the registry boundary. */
+  // oxlint-disable-next-line anti-slop/no-unknown-returns -- the registry erases each tool's redacted input; it goes to the trace as received.
   redactInput?: (input: unknown) => unknown;
 }
 

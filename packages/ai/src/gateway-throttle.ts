@@ -165,6 +165,7 @@ export function throttledGatewayFetch(
 
 /** Typed off `fetch`, because this package builds without the DOM lib. */
 function requestUrl(input: Parameters<typeof globalThis.fetch>[0]): string {
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- `fetch` input is `string | URL | Request`; the string arm needs no read.
   if (typeof input === "string") return input;
 
   return input instanceof URL ? input.toString() : input.url;

@@ -7,6 +7,7 @@ import { Children, type ReactNode } from "react";
 export function animateWords(children: ReactNode): ReactNode {
   return Children.map(children, (child, childIndex) =>
     // Only raw strings split; inline elements pass through.
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- a `ReactNode` child is a string or an element; only the string arm splits into words.
     typeof child === "string" ? wrapString(child, childIndex) : child,
   );
 }
