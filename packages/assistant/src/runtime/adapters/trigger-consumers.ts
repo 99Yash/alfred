@@ -13,7 +13,10 @@ export function registerTriggerConsumers(): void {
     registerTriggerConsumer({
       name: "workflow-event-trigger",
       mode: "propagate",
-      accept: acceptEvent,
+      // The publish reads only fulfilled or rejected; tests read the result directly.
+      accept: async (event) => {
+        await acceptEvent(event);
+      },
     }),
     ...gmailIngestedTriggerConsumers().map((consumer) => registerTriggerConsumer(consumer)),
     ...objectStateFoldConsumers().map((consumer) => registerTriggerConsumer(consumer)),

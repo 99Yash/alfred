@@ -157,7 +157,7 @@ export const domainEventSchema = z
     ...domainEventIdentityShape,
     source: z.custom<EventSource>(isEventSource, "Unknown event source"),
     type: z.custom<EventType | RawReceiptType>(
-      (value) => isEventType(value) || (typeof value === "string" && isRawEventType(value)),
+      (value) => isEventType(value) || isRawEventType(value),
       "Unknown event type",
     ),
     /** Present exactly when `type` is `raw`. */
@@ -216,7 +216,7 @@ export interface TriggerConsumer {
   name: string;
   /** Required, so every consumer must choose. */
   mode: TriggerConsumerMode;
-  accept(event: DomainEvent): Promise<unknown>;
+  accept(event: DomainEvent): Promise<void>;
 }
 
 /** Register a trigger consumer. Returns the function that removes it. */
