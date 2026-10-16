@@ -1,21 +1,8 @@
 import { Errors } from "@alfred/contracts";
-import { db } from "@alfred/db";
-import { skills } from "@alfred/db/schemas";
-import { and, eq } from "drizzle-orm";
 import { Elysia, t } from "elysia";
-import { randomUUID } from "node:crypto";
-import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { authMacro } from "./middleware/auth";
 import { requireOnboarded } from "./middleware/onboarding";
-import { startRun } from "@alfred/assistant/execution";
-import { isUniqueViolation } from "@alfred/db/pg-errors";
-import {
-  recordSkillRun,
-  slugifyForUser,
-  LEARN_SKILL_WORKFLOW_SLUG,
-  learnSkillDedupKey,
-  type LearnSkillWorkflowInput,
-} from "@alfred/assistant/skills";
+import { createSkill, relearnSkill } from "@alfred/assistant/skills";
 
 /** Create or relearn a skill. The client never writes skills directly; it gets rows by pull. */
 export const skillsRoutes = new Elysia({ prefix: "/api/skills", normalize: "typebox" })
@@ -25,65 +12,7 @@ export const skillsRoutes = new Elysia({ prefix: "/api/skills", normalize: "type
     app
       .post(
         "/",
-        async ({ user, body }) => {
-          /* No `prompt` makes an empty draft with no learn run. */
-          const rawName = body.name?.trim() ?? "";
-          const name = rawName.length > 0 ? rawName : "Untitled skill";
-          const slug = await slugifyForUser(user.id, name);
-
-          const inserted = await db()
-            .insert(skills)
-            .values({
-              userId: user.id,
-              slug,
-              name,
-              status: "draft",
-              currentRevisionId: null,
-              isBuiltin: false,
-            })
-            .returning({ id: skills.id, slug: skills.slug });
-
-          const skill = inserted[0];
-
-          if (!skill) throw Errors.InternalServerError("Failed to insert skill");
-
-          const trimmedPrompt = body.prompt?.trim() ?? "";
-
-          if (trimmedPrompt.length === 0) {
-            /* Poke so the client has the row before its detail page renders. */
-            emitReplicachePokes([user.id], skill.id);
-
-            return { skillId: skill.id, slug: skill.slug, runId: null };
-          }
-
-          const input: LearnSkillWorkflowInput = {
-            skillId: skill.id,
-            prompt: trimmedPrompt,
-            reason: "manual",
-          };
-
-          const created = await startRun({
-            userId: user.id,
-            workflowSlug: LEARN_SKILL_WORKFLOW_SLUG,
-            input,
-            trigger: { kind: "manual" },
-            occurrence: {
-              kind: "manual",
-              requestId: `initial:${skill.id}`,
-            },
-          });
-
-          // Recorded now so the UI shows "in progress". `gather` re-records it
-          // idempotently, so enqueue before this commit is safe.
-          await recordSkillRun({
-            userId: user.id,
-            skillId: skill.id,
-            kind: "learn",
-            agentRunId: created.runId,
-          });
-
-          return { skillId: skill.id, slug: skill.slug, runId: created.runId };
-        },
+        ({ user, body }) => createSkill({ userId: user.id, name: body.name, prompt: body.prompt }),
         {
           body: t.Object({
             name: t.Optional(t.String({ maxLength: 200 })),
@@ -94,49 +23,21 @@ export const skillsRoutes = new Elysia({ prefix: "/api/skills", normalize: "type
       .post(
         "/:id/relearn",
         async ({ params, body, user }) => {
-          const owner = await db()
-            .select({ id: skills.id })
-            .from(skills)
-            .where(and(eq(skills.id, params.id), eq(skills.userId, user.id)))
-            .limit(1);
-
-          if (!owner[0]) throw Errors.NotFoundError("Skill not found");
-
-          const input: LearnSkillWorkflowInput = {
+          const outcome = await relearnSkill({
+            userId: user.id,
             skillId: params.id,
             prompt: body.prompt,
-            reason: "regen",
-          };
+          });
 
-          try {
-            const created = await startRun({
-              userId: user.id,
-              workflowSlug: LEARN_SKILL_WORKFLOW_SLUG,
-              input,
-              trigger: { kind: "manual" },
-              occurrence: {
-                kind: "manual",
-                requestId: randomUUID(),
-              },
-            });
-
-            // Same as above: `gather` re-records idempotently.
-            await recordSkillRun({
-              userId: user.id,
-              skillId: params.id,
-              kind: "learn",
-              agentRunId: created.runId,
-            });
-
-            return { runId: created.runId };
-          } catch (err) {
-            if (isUniqueViolation(err)) {
+          switch (outcome.kind) {
+            case "not_found":
+              throw Errors.NotFoundError("Skill not found");
+            case "in_flight":
               throw Errors.ConflictError("A learn run is already in flight for this skill", {
-                dedupKey: learnSkillDedupKey(params.id),
+                dedupKey: outcome.dedupKey,
               });
-            }
-
-            throw err;
+            case "started":
+              return { runId: outcome.runId };
           }
         },
         {

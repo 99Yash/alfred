@@ -7,8 +7,6 @@ export {
   learnSkillWorkflowInputSchema,
 } from "./workflow-input";
 
-export type { LearnSkillWorkflowInput } from "./workflow-input";
-
 export { MENTION_KINDS, parseMentions, parsedMentionSchema, resolveMentions } from "./mentions";
 
 export type { MentionKind, MentionRegistry, ParsedMention } from "./mentions";
@@ -23,7 +21,15 @@ export type { DistillResult, DistillSkillArgs, DistillSkillResult, SkillProposal
 
 export { learnSkillWorkflow } from "./learn-skill";
 
-export { slugifyForUser } from "./slug";
+// Authoring: the user's create and regenerate actions
+export { createSkill, relearnSkill } from "./authoring";
+
+export type {
+  CreateSkillArgs,
+  CreatedSkill,
+  RelearnSkillArgs,
+  RelearnSkillOutcome,
+} from "./authoring";
 
 // Revisions (shared)
 export { commitSkillRevision, finalizeSkillRun, recordSkillRun } from "./revisions";
