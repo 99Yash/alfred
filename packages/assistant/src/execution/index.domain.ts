@@ -3,12 +3,10 @@ import { registerRecipe } from "./registry";
 import {
   cancelRun,
   getRun,
-  lockStagingWithRunInTx,
   persistChatTurnRunInTx,
   redeliverRun,
   replayRun,
   wakeRun,
-  wakeRunInTx,
   startRun,
   startRunInTx,
 } from "./service";
@@ -26,8 +24,6 @@ export {
   startRunInTx,
   getRun,
   wakeRun,
-  wakeRunInTx,
-  lockStagingWithRunInTx,
   cancelRun,
   startAgentWorker,
   stopAgentWorker,
@@ -59,7 +55,7 @@ export type { RunStatus, WakeCondition } from "@alfred/contracts";
 
 export type { Step, StepContext, StepResult, Workflow, WorkflowInput } from "./registry";
 
-export type { CancelOutcome, SignalArgs, SignalOutcome } from "./service";
+export type { SignalArgs } from "./service";
 
 // Runtime helpers for the `chat` recipe. Execution never imports `chat`.
 export {
@@ -130,12 +126,18 @@ export { scheduleSubAgentJoinWakeJob } from "./sub-agent-join-wake-queue";
 
 // Approval workers (ADR-0034). Their scheduling stays in `tool-runtime`.
 export {
-  expireStaging,
   startApprovalExpiryWorker,
   stopApprovalExpiryWorker,
-  type ExpireStagingResult,
   type StartApprovalExpiryWorkerOpts,
 } from "./approval-expiry-worker";
+
+// The one owner of a staged action's decision and expiry (ADR-0034).
+export {
+  stagedAction,
+  type StagedActionDecision,
+  type StagedActionRefusal,
+  type StagedApproval,
+} from "./staged-action";
 
 export {
   startApprovalNotificationWorker,

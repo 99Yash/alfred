@@ -135,7 +135,7 @@ boss-turn proposes tool call → dispatcher receives { toolName, input, runId, t
         → run parks; boss-turn step yields with wakeCondition
 ```
 
-On resume (via `wakeRunInTx(tx, { runId, match: { kind: 'hil', approvalId: stagingId } })`; `signalRun` before #1331):
+On resume (via `wakeRunInTx(tx, { runId, match: { kind: 'hil', approvalId: stagingId } })`, which for a staging runs only inside `stagedAction({ userId, stagingId }).decide(...)` and `.expire()` in `packages/assistant/src/execution/staged-action.ts`; `signalRun` before #1331):
 
 ```
 load action_stagings row by stagingId
