@@ -1,7 +1,7 @@
 import { toMessage, type ReplyDraftProvenance } from "@alfred/contracts";
 import { isUniqueViolation } from "@alfred/db/pg-errors";
 import { startRun } from "@alfred/assistant/execution";
-import { findActiveSenderSuppression } from "@alfred/assistant/knowledge";
+import { senderSuppressions } from "@alfred/assistant/knowledge";
 import { resolveFeatureFlags } from "@alfred/assistant/settings";
 import {
   emailTriageClassifiedPayloadSchema,
@@ -55,18 +55,24 @@ async function readStandingInstruction(
   userId: string,
   payload: EmailTriageClassifiedPayload,
 ): Promise<ReplyStandingInstructionState> {
-  try {
-    const match = await findActiveSenderSuppression(userId, {
-      senderEmail: payload.sender.address,
-      accountId: payload.mailbox.accountId,
-      effect: "block_reply_draft",
-    });
+  const suppressions = await senderSuppressions({ userId, onReadFailure: "report" });
 
-    return match ? "suppress" : "none";
-  } catch (err) {
-    console.warn(`[${CONSUMER_NAME}] standing instruction read failed: ${toMessage(err)}`);
+  const outcome = suppressions.match(
+    { sender: payload.sender.address, accountId: payload.mailbox.accountId },
+    "block_reply_draft",
+  );
 
-    return "read_failed";
+  switch (outcome.kind) {
+    case "suppressed":
+      return "suppress";
+    case "none":
+      return "none";
+    case "read_failed":
+      console.warn(
+        `[${CONSUMER_NAME}] standing instruction read failed: ${toMessage(outcome.error)}`,
+      );
+
+      return "read_failed";
   }
 }
 

@@ -6,11 +6,10 @@ import {
 import { documentAskReducer, gmailMessageLocatorSchema } from "@alfred/assistant/connections";
 import { resolveFeatureFlags, resolveTimezone } from "@alfred/assistant/settings";
 import {
-  findActiveSenderSuppression,
-  findSenderSuppression,
   getSenderSignificance,
-  listActiveSuppressionInstructions,
   readUserContextLine,
+  senderSuppressions,
+  type SenderSuppressionMatch,
 } from "../knowledge";
 import {
   resolvePaymentTodoFromReceipt,
@@ -230,7 +229,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
   let written = false;
   let senderSignificanceBand: SignificanceBand | null = null;
   let todoSuggestion: ReturnType<typeof resolveTodoSuggestion> = null;
-  let standingSuppression: Awaited<ReturnType<typeof findActiveSenderSuppression>> = null;
+  let standingSuppression: SenderSuppressionMatch | null = null;
   let standingSuppressionReadFailed = false;
   let standingSuppressionReadError: string | null = null;
   // From one closure read, on reply runs only.
@@ -249,7 +248,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
         : null;
 
     const nextTodoSuggestion = resolveTodoSuggestion(classification, assistDateAnchor);
-    let nextStandingSuppression: Awaited<ReturnType<typeof findActiveSenderSuppression>> = null;
+    let nextStandingSuppression: SenderSuppressionMatch | null = null;
     let nextStandingSuppressionReadFailed = false;
     let nextStandingSuppressionReadError: string | null = null;
     let nextUserAlreadyReplied = false;
@@ -273,15 +272,24 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     }
 
     if (nextTodoSuggestion) {
-      try {
-        nextStandingSuppression = await findActiveSenderSuppression(ctx.userId, {
-          senderEmail: senderContextResult.senderAddress ?? ctxData.document.metadata.from ?? null,
+      const suppressions = await senderSuppressions({
+        userId: ctx.userId,
+        onReadFailure: "report",
+      });
+
+      const outcome = suppressions.match(
+        {
+          sender: senderContextResult.senderAddress ?? ctxData.document.metadata.from ?? null,
           accountId: ctxData.document.accountId,
-          effect: "block_todo_suggestion",
-        });
-      } catch (err) {
+        },
+        "block_todo_suggestion",
+      );
+
+      if (outcome.kind === "suppressed") nextStandingSuppression = outcome.match;
+
+      if (outcome.kind === "read_failed") {
         nextStandingSuppressionReadFailed = true;
-        nextStandingSuppressionReadError = toMessage(err);
+        nextStandingSuppressionReadError = toMessage(outcome.error);
       }
     }
 
@@ -1003,26 +1011,24 @@ async function gatherObservations(args: {
     triageSenderKindProjectionEnabled(args.userId).catch(() => false),
     // This sender's standing instruction, read before the model call. A blip
     // reads as "none" and sets `readFailed`, so the trace can tell none from unknown.
-    listActiveSuppressionInstructions(args.userId)
-      .then((all) => {
-        const match = findSenderSuppression(all, {
-          senderEmail: args.senderAddress ?? meta.from ?? null,
-          accountId: args.accountId,
-          effect: "deprioritize_triage_category",
-        });
+    senderSuppressions({ userId: args.userId, onReadFailure: "report" }).then((suppressions) => {
+      const outcome = suppressions.match(
+        { sender: args.senderAddress ?? meta.from ?? null, accountId: args.accountId },
+        "deprioritize_triage_category",
+      );
 
-        return {
-          instruction: match
+      return {
+        instruction:
+          outcome.kind === "suppressed"
             ? {
-                factId: match.factId,
-                directive: match.value.directive,
-                phrasing: match.value.phrasing,
+                factId: outcome.match.factId,
+                directive: outcome.match.value.directive,
+                phrasing: outcome.match.value.phrasing,
               }
             : null,
-          readFailed: false,
-        };
-      })
-      .catch(() => ({ instruction: null, readFailed: true })),
+        readFailed: outcome.kind === "read_failed",
+      };
+    }),
     // Cold-start prior (ADR-0050 D1). One point read, never a memory search (#435).
     // A flag, because null alone cannot tell a failure from no chunk.
     readUserContextLine(args.userId)

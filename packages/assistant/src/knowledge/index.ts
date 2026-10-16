@@ -146,9 +146,7 @@ export {
   editStandingInstruction,
   forgetStandingInstruction,
   listStandingInstructions,
-  listActiveSuppressionInstructions,
-  findSenderSuppression,
-  findActiveSenderSuppression,
+  senderSuppressions,
   // Prefer the `tools` suppression coordinator: it also dismisses the matching todos.
   rememberSenderSuppression,
   type RememberSenderSuppressionArgs,
