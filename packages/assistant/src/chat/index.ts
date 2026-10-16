@@ -34,20 +34,6 @@ export {
 
 export { chatMemoryCaptureWorkflow } from "./chat-memory-capture";
 
-export {
-  claimChatAttachmentEnrichment,
-  enrichClaimedChatAttachment,
-  recordChatAttachmentEnrichmentFailure,
-} from "./attachments/attachment-enrichment";
-
-export {
-  attachmentObjectKeys,
-  deleteObjects,
-  deletePrefix,
-  isStorageConfigured,
-  pdfDegradedArtifactKey,
-} from "./attachments/storage";
-
-export { lockChatStorageKeys, withChatStorageKeyLock } from "./attachments/storage-coordination";
+export { registerChatMediaAdapter } from "./media-adapter";
 
 export { registerChatSystemToolAdapter } from "./system-tool-adapter";

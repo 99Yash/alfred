@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
 
-import { lockChatStorageKeys, withChatStorageKeyLock } from "@alfred/assistant/chat";
+import {
+  lockChatStorageKeys,
+  withChatStorageKeyLock,
+} from "@alfred/assistant/chat/attachments/storage-coordination";
 import { closeConnections, db } from "@alfred/db";
 import { pgErrorChain } from "@alfred/db/pg-errors";
 import { sql } from "drizzle-orm";
