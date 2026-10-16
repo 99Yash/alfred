@@ -6,8 +6,10 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { activateWorkflow, createWorkflowDraft } from "@alfred/assistant/automation";
 import { dispatchToolCall } from "@alfred/assistant/tool-runtime/dispatch";
 import { scratchpad, startRun, closeAgentQueue } from "@alfred/assistant/execution";
+import { SUB_AGENT_WORKFLOW_SLUG } from "@alfred/assistant/execution/sub-agent-metadata";
 import { closeConnections, warmPool } from "@alfred/db";
 import { closeRedis } from "@alfred/db/redis";
 import { registerAgentSystemToolAdapter } from "@alfred/assistant/execution/system-tool-adapter";
@@ -17,8 +19,15 @@ import { registerChatSystemToolAdapter } from "@alfred/assistant/chat";
 import { registerReplicachePokeAdapter } from "@alfred/assistant/realtime";
 import { isRecord } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { actionStagings, agentRuns, user as userTable, workflows } from "@alfred/db/schemas";
+import {
+  actionStagings,
+  agentRuns,
+  user as userTable,
+  workflowRevisions,
+  workflows,
+} from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
+import { registerBuiltinWorkflows } from "~/builtins";
 
 const SMOKE_USER_EMAIL = "smoke-sub-agents@alfred.local";
 
@@ -41,28 +50,53 @@ async function findOrCreateSmokeUser(): Promise<string> {
   return inserted[0].id;
 }
 
+/** Runs go first: a run pins its revision, and the workflow delete cascades to its revisions. */
 async function resetSmokeRows(userId: string): Promise<void> {
-  await db()
-    .delete(agentRuns)
-    .where(and(eq(agentRuns.userId, userId), eq(agentRuns.workflowSlug, WORKFLOW_SLUG)));
+  // The smoke user is dedicated, so this also removes the spawned child runs.
+  await db().delete(agentRuns).where(eq(agentRuns.userId, userId));
   await db()
     .delete(workflows)
     .where(and(eq(workflows.userId, userId), eq(workflows.slug, WORKFLOW_SLUG)));
+
+  const leftover = await db()
+    .select({ id: workflowRevisions.id })
+    .from(workflowRevisions)
+    .where(eq(workflowRevisions.userId, userId));
+
+  if (leftover.length > 0) {
+    throw new Error(`[smoke-sub-agents] ${leftover.length} workflow revision rows survived reset`);
+  }
 }
 
+/** `startRun` resolves an authored slug only through an approved, published revision. */
 async function createSmokeWorkflow(userId: string): Promise<void> {
-  await db()
-    .insert(workflows)
-    .values({
-      userId,
-      slug: WORKFLOW_SLUG,
+  const draft = await createWorkflowDraft({
+    userId,
+    slug: WORKFLOW_SLUG,
+    definition: {
       name: "Smoke sub-agents",
-      brief: "Use @gmail only when needed.",
+      description: null,
+      brief: "Spawn a sub-agent when a subtask needs its own investigation.",
       trigger: { kind: "manual" },
-      allowedIntegrations: ["gmail"],
-      status: "active",
-      isBuiltin: false,
-    });
+      allowedIntegrations: ["system"],
+      allowedTools: ["system.spawn_sub_agent", "system.write_scratch"],
+      requiredCapabilities: [{ tool: "system.spawn_sub_agent" }, { tool: "system.write_scratch" }],
+    },
+  });
+
+  if (!draft.ok) {
+    throw new Error(`[smoke-sub-agents] draft failed: ${JSON.stringify(draft.failure)}`);
+  }
+
+  const activated = await activateWorkflow({
+    userId,
+    workflowId: draft.workflow.id,
+    expectedRowVersion: draft.workflow.rowVersion,
+  });
+
+  if (!activated.ok) {
+    throw new Error(`[smoke-sub-agents] activation failed: ${JSON.stringify(activated.failure)}`);
+  }
 }
 
 function assertObject(value: unknown, label: string): asserts value is Record<string, unknown> {
@@ -73,6 +107,8 @@ function assertObject(value: unknown, label: string): asserts value is Record<st
 
 async function main(): Promise<void> {
   await warmPool();
+  // A spawned child runs the registered brief workflow, so `createRun` must resolve it here.
+  registerBuiltinWorkflows();
   registerBuiltinTools();
   // Install the same adapters the server boot installs, or the calls throw.
   registerAgentSystemToolAdapter();
@@ -128,8 +164,9 @@ async function main(): Promise<void> {
 
   if (!child) throw new Error("[smoke-sub-agents] child run row not found");
 
-  if (child.workflowSlug !== WORKFLOW_SLUG || child.brief !== SUB_AGENT_BRIEF) {
-    throw new Error("[smoke-sub-agents] child run did not preserve workflow slug + brief");
+  // A child never runs the parent's slug: it starts from a bare brief on the sub-agent workflow.
+  if (child.workflowSlug !== SUB_AGENT_WORKFLOW_SLUG || child.brief !== SUB_AGENT_BRIEF) {
+    throw new Error("[smoke-sub-agents] child run is not a sub-agent brief run");
   }
 
   assertObject(child.metadata, "child metadata");
@@ -205,8 +242,11 @@ async function main(): Promise<void> {
     allowedIntegrations: ["gmail"],
   });
 
-  if (nested.kind !== "invalid_input") {
-    throw new Error(`[smoke-sub-agents] nested spawn expected invalid_input, got ${nested.kind}`);
+  // The tool is boss-only, so the availability floor refuses a sub-agent caller before input checks.
+  if (nested.kind !== "not_allowed" || nested.unavailability !== "wrong_caller") {
+    throw new Error(
+      `[smoke-sub-agents] nested spawn expected not_allowed/wrong_caller, got ${nested.kind}`,
+    );
   }
 
   console.log("[smoke-sub-agents] nested spawn blocked");
