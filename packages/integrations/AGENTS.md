@@ -6,6 +6,7 @@
 
 - Every external HTTP call needs a timeout or passed `AbortSignal`.
 - Gate every Gmail mailbox mutation through `gmailMailboxWritesEnabled()`; do not inspect the underlying environment field directly.
+- Reach a Gmail mailbox through `gmailMailbox({ credentialId })` (or the user-bound client for tools); it resolves a fresh token for each call, so no caller holds one. The token-taking calls in `google/gmail.ts` are package-private, and `pnpm check` refuses a new import of them outside `google/mailbox.ts`.
 - Resolve stored Google OAuth tokens with `getFreshAccessToken(credentialId)`; do not read `accessToken` directly or call `refreshAccessToken` from application code. The credential boundary serializes expiring-token refreshes and persists `needs_reauth` when Google revokes a grant. A deliberately non-mutating forensic script may inspect a persisted, unexpired token only when refreshing would violate its read-only contract; document that exception in the script.
 - Build Google passthrough authority through the user-bound integrations root; application tools should pass the opaque `ctx.integrations.google.<service>.passthrough(credentialId)` capability to `runRestPassthrough` so tokens stay integration-owned and the capability's service slug keeps the read gate coupled to its pinned API namespace.
 - Bound and redact non-OK response bodies before returning or logging errors. Never log complete provider responses, tokens, webhook bodies, or error objects.

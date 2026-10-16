@@ -92,7 +92,6 @@ describe("labelSelfAuthoredMail (#285)", () => {
       {
         credentialId: "cred_1",
         messageId: "msg_1",
-        accessToken: "tok",
         currentLabelIds: ["INBOX"],
       },
       deps,
@@ -109,7 +108,6 @@ describe("labelSelfAuthoredMail (#285)", () => {
       {
         credentialId: "cred_1",
         messageId: "msg_1",
-        accessToken: "tok",
         currentLabelIds: ["INBOX", LABEL_ID],
       },
       deps,
@@ -122,10 +120,7 @@ describe("labelSelfAuthoredMail (#285)", () => {
   test("applies when currentLabelIds is absent (defensive: treat as unlabelled)", async () => {
     const { deps, addCalls } = makeDeps();
 
-    const res = await labelSelfAuthoredMail(
-      { credentialId: "cred_1", messageId: "msg_1", accessToken: "tok" },
-      deps,
-    );
+    const res = await labelSelfAuthoredMail({ credentialId: "cred_1", messageId: "msg_1" }, deps);
 
     assert.equal(res.labeled, true);
     assert.equal(addCalls.length, 1);
@@ -143,7 +138,6 @@ describe("labelSelfAuthoredMail (#285)", () => {
       {
         credentialId: "cred_1",
         messageId: "msg_1",
-        accessToken: "tok",
         currentLabelIds: ["INBOX"],
       },
       deps,
@@ -164,7 +158,6 @@ describe("labelSelfAuthoredMail (#285)", () => {
         {
           credentialId: "cred_1",
           messageId: "msg_1",
-          accessToken: "tok",
           currentLabelIds: ["INBOX"],
         },
         deps,
@@ -180,7 +173,6 @@ describe("labelSelfAuthoredMail (#285)", () => {
         {
           credentialId: "cred_1",
           messageId: "msg_1",
-          accessToken: "tok",
           currentLabelIds: ["INBOX"],
         },
         deps,

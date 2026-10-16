@@ -1,7 +1,7 @@
 /**
  * Read-only replay of reply re-eval (#282) and thread reconcile (#279) against the
  * dev DB and live Gmail. It writes nothing in the triage domain.
- * Exception (#453): `getFreshAccessToken` may refresh a credential and save it.
+ * Exception (#453): each `gmailMailbox` call may refresh a credential and save it.
  * The token is sealed, so reading it directly would bypass the vault.
  *
  * #282: for threads with a sent doc and a triage row, print the newest inbound doc
@@ -20,7 +20,7 @@ import {
 import { isSentGmailMetadata, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, emailTriage, integrationCredentials } from "@alfred/db/schemas";
-import { getFreshAccessToken, getThreadMessageLabels } from "@alfred/integrations/google";
+import { gmailMailbox, type GmailMailbox } from "@alfred/integrations/google";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
 const SCAN_LIMIT_282 = 8;
@@ -83,27 +83,11 @@ async function main() {
   const firstCred = creds[0]!;
   const userId = firstCred.userId;
   const credByAccount = new Map(creds.map((c) => [c.accountId, c.id]));
-  const tokenCache = new Map<string, string>();
 
-  async function tokenForAccount(accountId: string | null): Promise<string | null> {
+  function mailboxForAccount(accountId: string | null): GmailMailbox {
     const credId = (accountId && credByAccount.get(accountId)) ?? firstCred.id;
-    const cached = tokenCache.get(credId);
 
-    if (cached) return cached;
-
-    try {
-      // A needs-reauth credential throws here, so the live fetch is skipped.
-      const token = await getFreshAccessToken(credId);
-      tokenCache.set(credId, token);
-
-      return token;
-    } catch (err) {
-      console.warn(
-        `  token unavailable for cred=${credId} (${toMessage(err)}); skipping live fetch`,
-      );
-
-      return null;
-    }
+    return gmailMailbox({ credentialId: credId });
   }
 
   // #282: reply re-eval candidates.
@@ -217,18 +201,13 @@ async function main() {
     const docs = await loadThreadDocs(userId, threadId);
 
     if (docs.length <= 1) continue;
-    const token = await tokenForAccount(docs[0]!.accountId);
-
-    if (!token) {
-      console.log(`\nthread=${threadId}  → SKIP: no token`);
-      continue;
-    }
-
+    const mailbox = mailboxForAccount(docs[0]!.accountId);
     let liveIds: Set<string>;
     const liveFetchedAt = new Date();
 
     try {
-      const live = await getThreadMessageLabels({ accessToken: token, threadId });
+      // A needs-reauth credential throws here too, so the thread is skipped.
+      const live = await mailbox.getThreadMessageLabels({ threadId });
       liveIds = new Set(live.map((m) => m.id));
     } catch (err) {
       console.log(`\nthread=${threadId}  → SKIP (live fetch failed): ${toMessage(err)}`);

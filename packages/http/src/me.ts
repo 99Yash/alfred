@@ -25,8 +25,8 @@ import { briefings, documents, emailTriage, integrationCredentials } from "@alfr
 import {
   extractAttachments,
   extractMessageHtml,
-  batchModifyMessages,
   getFreshAccessToken,
+  gmailMailbox,
   listEvents,
   type ExtractedAttachment,
   type GmailMessage,
@@ -585,11 +585,9 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
             const cred = accountId ? credByAccount.get(accountId) : fallbackCred;
 
             if (!cred) continue;
-            const accessToken = await getFreshAccessToken(cred.id);
             // Not behind `gmailMailboxWritesEnabled()`: that gate stops dev and prod background
             // label writes from fighting over one mailbox. This write runs only on a user click.
-            await batchModifyMessages({
-              accessToken,
+            await gmailMailbox({ credentialId: cred.id }).batchModifyMessages({
               messageIds: group.map((r) => r.sourceId),
               removeLabelIds: ["UNREAD"],
             });

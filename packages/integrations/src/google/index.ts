@@ -39,45 +39,29 @@ export type {
 export { downloadFile, exportFile, getFile, listFiles } from "./drive";
 
 export type {
-  BatchModifyMessagesArgs,
-  CreateLabelArgs,
   ExtractedAttachment,
   ExtractedMessage,
-  GetAttachmentArgs,
   GetAttachmentResult,
   GmailHistoryEntry,
   GmailLabel,
   GmailMessage,
   GmailMessageRef,
-  ListHistoryArgs,
   ListHistoryResult,
-  ModifyMessageLabelsArgs,
-  SendMessageArgs,
   SendMessageResult,
-  StartWatchArgs,
   StartWatchResult,
 } from "./gmail";
 
 export type { GoogleService } from "./http";
 
+// The token-taking Gmail calls stay inside this package: reach a mailbox through `gmailMailbox`.
 export {
-  batchModifyMessages,
-  createLabel,
   extractAttachments,
   extractMessageContent,
   extractMessageHtml,
-  getAttachment,
-  getMessage,
-  getThreadMessageLabels,
   isHistoryGoneError,
-  listHistory,
-  listLabels,
-  listMessages,
-  modifyMessageLabels,
-  sendMessage,
-  startWatch,
-  stopWatch,
 } from "./gmail";
+
+export { gmailMailbox, type GmailMailbox } from "./mailbox";
 
 export {
   assertGmailPushOidcConfigured,

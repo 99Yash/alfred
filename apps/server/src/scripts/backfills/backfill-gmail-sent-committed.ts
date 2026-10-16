@@ -21,7 +21,7 @@ import { closeScriptResources } from "../script-runtime";
 import { toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { integrationCredentials, user as userTable } from "@alfred/db/schemas";
-import { getFreshAccessToken, listMessages } from "@alfred/integrations/google";
+import { gmailMailbox } from "@alfred/integrations/google";
 import { ingestRecentGmail } from "@alfred/assistant/connections/ingestion/internal";
 import { and, eq, inArray } from "drizzle-orm";
 
@@ -143,13 +143,12 @@ async function previewCredential(
   maxMessages: number,
   pageSize: number,
 ): Promise<number> {
-  const accessToken = await getFreshAccessToken(t.credentialId);
+  const mailbox = gmailMailbox({ credentialId: t.credentialId });
   const ids: string[] = [];
   let pageToken: string | undefined;
 
   while (ids.length < maxMessages) {
-    const page = await listMessages({
-      accessToken,
+    const page = await mailbox.listMessages({
       q: query,
       maxResults: Math.min(pageSize, maxMessages - ids.length),
       pageToken,

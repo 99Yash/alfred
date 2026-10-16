@@ -25,11 +25,10 @@ import { integrationCredentials, user as userTable } from "@alfred/db/schemas";
 import { gmailMailboxWritesEnabled } from "@alfred/env/server";
 import {
   ALFRED_SELF_LABEL_NAME,
-  batchModifyMessages,
   ensureAlfredSelfLabel,
-  getFreshAccessToken,
-  listMessages,
+  gmailMailbox,
   selfSenderEmail,
+  type GmailMailbox,
 } from "@alfred/integrations/google";
 import { and, eq, inArray } from "drizzle-orm";
 
@@ -157,7 +156,7 @@ async function resolveTargets(emails: string[]): Promise<TargetCredential[]> {
 
 /** List candidate self-mail message ids (read-only) up to the cap. */
 async function listCandidateIds(
-  accessToken: string,
+  mailbox: GmailMailbox,
   query: string,
   maxMessages: number,
 ): Promise<string[]> {
@@ -165,8 +164,7 @@ async function listCandidateIds(
   let pageToken: string | undefined;
 
   while (ids.length < maxMessages) {
-    const page = await listMessages({
-      accessToken,
+    const page = await mailbox.listMessages({
       q: query,
       maxResults: Math.min(GMAIL_PAGE_SIZE, maxMessages - ids.length),
       pageToken,
@@ -197,9 +195,9 @@ async function processCredential(
   console.log(
     `\n=== ${t.email}${t.accountLabel ? ` (${t.accountLabel})` : ""} (credential=${t.credentialId}) ===`,
   );
-  const accessToken = await getFreshAccessToken(t.credentialId);
+  const mailbox = gmailMailbox({ credentialId: t.credentialId });
   const query = buildQuery(selfAddrs);
-  const ids = await listCandidateIds(accessToken, query, maxMessages);
+  const ids = await listCandidateIds(mailbox, query, maxMessages);
   console.log(`  ${ids.length} unlabelled self-mail message(s) match (cap ${maxMessages})`);
 
   if (ids.length === 0) return 0;
@@ -212,11 +210,11 @@ async function processCredential(
     return 0;
   }
 
-  const labelId = await ensureAlfredSelfLabel(t.credentialId, { accessToken });
+  const labelId = await ensureAlfredSelfLabel(t.credentialId);
   let labelled = 0;
 
   for (const batch of chunk(ids, GMAIL_BATCH_MODIFY_CAP)) {
-    await batchModifyMessages({ accessToken, messageIds: batch, addLabelIds: [labelId] });
+    await mailbox.batchModifyMessages({ messageIds: batch, addLabelIds: [labelId] });
     labelled += batch.length;
   }
 

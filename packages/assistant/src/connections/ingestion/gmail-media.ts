@@ -12,7 +12,11 @@ import {
   type ExtractionDoor,
   type MediaExtractionResult,
 } from "@alfred/extraction";
-import { extractAttachments, getAttachment, type GmailMessage } from "@alfred/integrations/google";
+import {
+  extractAttachments,
+  type GmailMailbox,
+  type GmailMessage,
+} from "@alfred/integrations/google";
 import type { ExtractedAttachment } from "@alfred/integrations/google";
 import { and, eq, inArray, or, sql } from "drizzle-orm";
 
@@ -59,13 +63,6 @@ export interface GmailMediaIngestResult extends GmailMediaTally {
 }
 
 export interface GmailMediaIngestDeps {
-  getAttachment?:
-    | ((args: {
-        accessToken: string;
-        messageId: string;
-        attachmentId: string;
-      }) => Promise<{ bytes: Uint8Array; size: number }>)
-    | undefined;
   /** Test seam for extraction. Formats are limited by what this object accepts. */
   media?: Pick<Extraction, "extract" | "isSupported" | "wouldExceed"> | undefined;
   indexDocument?: ((args: { documentId: string }) => Promise<IndexDocumentResult>) | undefined;
@@ -75,7 +72,8 @@ export interface GmailMediaIngestArgs {
   userId: string;
   accountId: string;
   message: GmailMessage;
-  accessToken: string;
+  /** The mailbox the message came from. Tests pass a fake. */
+  mailbox: Pick<GmailMailbox, "getAttachment">;
   /** The mail row's timestamp. Attachments share it so a thread reads as one timeline. */
   authoredAt: Date | null;
   deps?: GmailMediaIngestDeps | undefined;
@@ -222,7 +220,6 @@ export async function ingestGmailMediaAttachments(
     return { ...ZERO_MEDIA_TALLY, documentIds: [] };
   }
 
-  const getAttachmentFn = args.deps?.getAttachment ?? getAttachment;
   const indexDocumentFn = args.deps?.indexDocument ?? indexDocument;
 
   // Tests inject `media` to avoid the child process.
@@ -331,8 +328,7 @@ export async function ingestGmailMediaAttachments(
     let bytes: Uint8Array;
 
     try {
-      const fetched = await getAttachmentFn({
-        accessToken: args.accessToken,
+      const fetched = await args.mailbox.getAttachment({
         messageId: args.message.id,
         attachmentId: att.attachmentId,
       });

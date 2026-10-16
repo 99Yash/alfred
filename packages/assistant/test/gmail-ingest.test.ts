@@ -198,15 +198,16 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
       window: "5m",
       maxMessages: 10,
       deps: {
-        getFreshAccessToken: async () => "fake-token",
-        listMessages: async () => ({
-          messages: [{ id: messageId, threadId }],
-          nextPageToken: undefined,
-        }),
-        getMessage: async () => {
-          getMessageCalls++;
+        mailbox: {
+          listMessages: async () => ({
+            messages: [{ id: messageId, threadId }],
+            nextPageToken: undefined,
+          }),
+          getMessage: async () => {
+            getMessageCalls++;
 
-          return message;
+            return message;
+          },
         },
         scheduleMediaIngest: async (args) => {
           scheduled.push(args);
@@ -233,13 +234,14 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
       messageId,
       documentId: scheduled[0]!.documentId,
       deps: {
-        getFreshAccessToken: async () => "fake-token",
-        getMessage: async () => message,
-        media: {
+        mailbox: {
+          getMessage: async () => message,
           getAttachment: async () => ({
             bytes: new Uint8Array(Buffer.from("%PDF-1.4 fake")),
             size: 1024,
           }),
+        },
+        media: {
           media: pdfOnlyMedia(async () => ({
             kind: "extracted" as const,
             format: "pdf" as const,
@@ -289,15 +291,16 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
       window: "5m",
       maxMessages: 10,
       deps: {
-        getFreshAccessToken: async () => "fake-token",
-        listMessages: async () => ({
-          messages: [{ id: messageId, threadId }],
-          nextPageToken: undefined,
-        }),
-        getMessage: async () => {
-          getMessageCalls++;
+        mailbox: {
+          listMessages: async () => ({
+            messages: [{ id: messageId, threadId }],
+            nextPageToken: undefined,
+          }),
+          getMessage: async () => {
+            getMessageCalls++;
 
-          return message;
+            return message;
+          },
         },
         scheduleMediaIngest: async (args) => {
           scheduled.push(args);
@@ -353,15 +356,16 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
     const scheduled: { messageId: string; documentId: string }[] = [];
 
     const pollDeps = () => ({
-      getFreshAccessToken: async () => "fake-token",
-      listMessages: async () => ({
-        messages: [{ id: messageId, threadId }],
-        nextPageToken: undefined,
-      }),
-      getMessage: async () => {
-        getMessageCalls++;
+      mailbox: {
+        listMessages: async () => ({
+          messages: [{ id: messageId, threadId }],
+          nextPageToken: undefined,
+        }),
+        getMessage: async () => {
+          getMessageCalls++;
 
-        return message;
+          return message;
+        },
       },
       scheduleMediaIngest: async (args: { messageId: string; documentId: string }) => {
         scheduled.push(args);
@@ -388,12 +392,13 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
       messageId,
       documentId: scheduled[0]!.documentId,
       deps: {
-        getFreshAccessToken: async () => "fake-token",
-        getMessage: async () => message,
-        media: {
+        mailbox: {
+          getMessage: async () => message,
           getAttachment: async () => {
             throw new Error("transient getAttachment failure");
           },
+        },
+        media: {
           media: pdfOnlyMedia(async () => {
             throw new Error("extraction must not run when the fetch fails");
           }),
@@ -450,12 +455,13 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
       credentialId,
       maxMessages: 10,
       deps: {
-        getFreshAccessToken: async () => "fake-token",
-        listMessages: async () => ({
-          messages: [{ id: messageId, threadId }],
-          nextPageToken: undefined,
-        }),
-        getMessage: async () => message,
+        mailbox: {
+          listMessages: async () => ({
+            messages: [{ id: messageId, threadId }],
+            nextPageToken: undefined,
+          }),
+          getMessage: async () => message,
+        },
         scheduleMediaIngest: async (args) => {
           scheduled.push(args);
         },
@@ -468,13 +474,14 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
       messageId,
       documentId: scheduled[0]!.documentId,
       deps: {
-        getFreshAccessToken: async () => "fake-token",
-        getMessage: async () => message,
-        media: {
+        mailbox: {
+          getMessage: async () => message,
           getAttachment: async () => ({
             bytes: new Uint8Array(Buffer.from("%PDF-1.4")),
             size: 1024,
           }),
+        },
+        media: {
           media: pdfOnlyMedia(async () => ({
             kind: "extracted" as const,
             format: "pdf" as const,

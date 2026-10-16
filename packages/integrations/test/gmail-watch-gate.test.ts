@@ -20,10 +20,15 @@ describe("Gmail watch mailbox-write gate (#278)", () => {
           calls.token++;
           throw new Error("token fetch should not run");
         },
-        startWatch: async () => {
-          calls.startWatch++;
-          throw new Error("startWatch should not run");
-        },
+        mailbox: () => ({
+          startWatch: async () => {
+            calls.startWatch++;
+            throw new Error("startWatch should not run");
+          },
+          stopWatch: async () => {
+            throw new Error("stopWatch should not run");
+          },
+        }),
         db: (() => {
           calls.db++;
           throw new Error("db should not run");
@@ -42,10 +47,15 @@ describe("Gmail watch mailbox-write gate (#278)", () => {
       { accessToken: "token", credentialId: "cred_disabled" },
       {
         mailboxWritesEnabled: () => false,
-        stopWatch: async () => {
-          stopCalls++;
-          throw new Error("stopWatch should not run");
-        },
+        mailbox: () => ({
+          startWatch: async () => {
+            throw new Error("startWatch should not run");
+          },
+          stopWatch: async () => {
+            stopCalls++;
+            throw new Error("stopWatch should not run");
+          },
+        }),
       },
     );
 
@@ -67,10 +77,15 @@ describe("Gmail watch mailbox-write gate (#278)", () => {
         calls.token++;
         throw new Error("token fetch should not run");
       },
-      stopWatch: async () => {
-        calls.stopWatch++;
-        throw new Error("stopWatch should not run");
-      },
+      mailbox: () => ({
+        startWatch: async () => {
+          throw new Error("startWatch should not run");
+        },
+        stopWatch: async () => {
+          calls.stopWatch++;
+          throw new Error("stopWatch should not run");
+        },
+      }),
       db: (() => ({
         update: () => {
           calls.dbUpdate++;
