@@ -15,9 +15,10 @@ import type {
 import {
   closesOpenAsk,
   closureCandidate,
-  GOOGLE_SCOPE,
   getObjectDef,
   getStringPath,
+  holdsAnyScope,
+  INTEGRATIONS,
   isRecord,
   parseEventTypeName,
   parseGmailDocumentMetadata,
@@ -726,14 +727,9 @@ export async function gatherCalendarContribution(
       ),
     );
 
-  const calendarCreds = creds.filter((cred) => {
-    const granted = toStringArray(cred.scopes);
-
-    return (
-      granted.includes(GOOGLE_SCOPE.calendar.readonly) ||
-      granted.includes(GOOGLE_SCOPE.calendar.events)
-    );
-  });
+  const calendarCreds = creds.filter((cred) =>
+    holdsAnyScope(toStringArray(cred.scopes), INTEGRATIONS.calendar.credential.anyOfScopes),
+  );
 
   if (calendarCreds.length === 0) return null;
 
