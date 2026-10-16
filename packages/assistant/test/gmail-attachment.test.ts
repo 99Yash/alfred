@@ -101,10 +101,9 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       userId,
       accountId,
       message,
-      accessToken: "fake-token",
+      mailbox: { getAttachment: async () => ({ bytes, size: bytes.byteLength }) },
       authoredAt: new Date(),
       deps: {
-        getAttachment: async () => ({ bytes, size: bytes.byteLength }),
         media: pdfOnlyMedia(async () => ({
           kind: "extracted" as const,
           format: "pdf" as const,
@@ -204,12 +203,15 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
     let getAttachmentCalls = 0;
     let indexCalls = 0;
 
-    const deps = {
+    const mailbox = {
       getAttachment: async () => {
         getAttachmentCalls++;
 
         return { bytes: new Uint8Array(Buffer.from("%PDF-1.4")), size: 9 };
       },
+    };
+
+    const deps = {
       media: pdfOnlyMedia(async () => ({
         kind: "extracted" as const,
         format: "pdf" as const,
@@ -233,7 +235,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       userId,
       accountId,
       message,
-      accessToken: "t",
+      mailbox,
       authoredAt: new Date(),
       deps,
     });
@@ -247,7 +249,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       userId,
       accountId,
       message,
-      accessToken: "t",
+      mailbox,
       authoredAt: new Date(),
       deps,
     });
@@ -282,8 +284,9 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
     const bytes = new Uint8Array(Buffer.from("%PDF-1.4"));
     let indexCalls = 0;
 
+    const mailbox = { getAttachment: async () => ({ bytes, size: bytes.byteLength }) };
+
     const deps = {
-      getAttachment: async () => ({ bytes, size: bytes.byteLength }),
       media: pdfOnlyMedia(async () => ({
         kind: "extracted" as const,
         format: "pdf" as const,
@@ -307,7 +310,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       userId,
       accountId,
       message,
-      accessToken: "t",
+      mailbox,
       authoredAt: new Date(),
       deps,
     });
@@ -326,7 +329,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       userId,
       accountId,
       message,
-      accessToken: "t",
+      mailbox,
       authoredAt: new Date(),
       deps,
     });
@@ -369,8 +372,9 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       filename: "resume.pdf",
     });
 
+    const mailbox = { getAttachment: async () => ({ bytes, size: bytes.byteLength }) };
+
     const depsFor = () => ({
-      getAttachment: async () => ({ bytes, size: bytes.byteLength }),
       media: pdfOnlyMedia(async () => ({
         kind: "extracted" as const,
         format: "pdf" as const,
@@ -394,7 +398,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       userId,
       accountId,
       message: firstMessage,
-      accessToken: "t",
+      mailbox,
       authoredAt: new Date("2026-08-01T10:00:00Z"),
       deps: depsFor(),
     });
@@ -416,7 +420,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       userId,
       accountId,
       message: secondMessage,
-      accessToken: "t",
+      mailbox,
       authoredAt: new Date("2026-08-02T10:00:00Z"),
       deps: depsFor(),
     });
@@ -454,7 +458,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       userId,
       accountId,
       message: secondMessage,
-      accessToken: "t",
+      mailbox,
       authoredAt: new Date("2026-08-02T10:00:00Z"),
       deps: depsFor(),
     });
@@ -539,10 +543,9 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       userId,
       accountId,
       message,
-      accessToken: "t",
+      mailbox: { getAttachment: async () => ({ bytes, size: bytes.byteLength }) },
       authoredAt: new Date(),
       deps: {
-        getAttachment: async () => ({ bytes, size: bytes.byteLength }),
         media: pdfOnlyMedia(async () => ({
           kind: "needs_ocr" as const,
           format: "pdf" as const,

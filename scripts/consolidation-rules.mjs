@@ -496,6 +496,20 @@ export const RULES = [
     fix: "Resolve Google tokens with getFreshAccessToken from @alfred/integrations/google. The persisted accessToken and a manual refresh are both the stale path — and the token is a secret, so never log or persist it on an error.",
   },
   {
+    id: "raw-gmail-token-call",
+    // The token-taking Gmail REST calls, imported or re-exported. Each one makes
+    // its caller resolve a token and thread it through, which is how a token got
+    // held across a batch or read before a refresh. `@alfred/integrations/google`
+    // no longer exports them, and the package `exports` map refuses a deep
+    // import, so other packages cannot reach them; this row fences the
+    // integrations package's own files and a re-export that would reopen the door.
+    re: /\b(?:import|export)\s*(?:\{[^}]*\b(?:listMessages|getMessage|getThreadMessageLabels|listHistory|startWatch|stopWatch|listLabels|createLabel|modifyMessageLabels|batchModifyMessages|sendMessage|getAttachment)\b[^}]*\}|\*)\s*from\s*["'][^"']*\/gmail["']/,
+    scope: "chain",
+    severity: "gate",
+    owners: ["packages/integrations/src/google/mailbox.ts"],
+    fix: "Call gmailMailbox({ credentialId }) from @alfred/integrations/google and use its methods (listMessages, getMessage, batchModifyMessages, …). Each call resolves a fresh token through getFreshAccessToken, so no caller holds one. Inside the package, gmailMailboxFor(resolver) binds another resolver.",
+  },
+  {
     id: "raw-provider-client",
     re: /new\s+Anthropic\(|createAnthropic\(|createGoogleGenerativeAI\(/,
     severity: "hint",

@@ -56,7 +56,7 @@ import {
   type TriageCategory,
   toMessage,
 } from "@alfred/contracts";
-import { getFreshAccessToken, getMessage } from "@alfred/integrations/google";
+import { gmailMailbox } from "@alfred/integrations/google";
 import { logger, safeErrorDiagnostic } from "@alfred/logging";
 import { triageRunReasonSchema } from "./workflow-input";
 import { z } from "zod";
@@ -870,10 +870,7 @@ async function sentDocumentStatusAtClassifyTime(
   if (!ambiguous) return { kind: "not-sent" };
 
   try {
-    const accessToken = await getFreshAccessToken(ctxData.credentialId);
-
-    const message = await getMessage({
-      accessToken,
+    const message = await gmailMailbox({ credentialId: ctxData.credentialId }).getMessage({
       id: ctxData.document.sourceId,
       format: "minimal",
     });

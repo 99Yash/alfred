@@ -17,8 +17,7 @@ import { agentRuns, documents, emailTriage, integrationCredentials } from "@alfr
 import {
   applyTriageLabel,
   ensureAlfredLabels,
-  getMessage,
-  getFreshAccessToken,
+  gmailMailbox,
   TRIAGE_CATEGORIES,
   type TriageCategory,
 } from "@alfred/integrations/google";
@@ -89,8 +88,10 @@ async function pollRun(runId: string, label: string) {
 }
 
 async function fetchMessageLabelIds(credentialId: string, messageId: string): Promise<string[]> {
-  const accessToken = await getFreshAccessToken(credentialId);
-  const message = await getMessage({ accessToken, id: messageId, format: "metadata" });
+  const message = await gmailMailbox({ credentialId }).getMessage({
+    id: messageId,
+    format: "metadata",
+  });
 
   return message.labelIds ?? [];
 }

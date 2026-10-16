@@ -3,7 +3,7 @@ import { integrationCredentials } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getFreshAccessToken } from "./credentials";
-import { startWatch, stopWatch } from "./gmail";
+import { gmailMailboxFor, type GmailMailbox } from "./mailbox";
 import { toMessage, withDefaults } from "@alfred/contracts";
 import { gmailMailboxWritesEnabled } from "@alfred/env/server";
 
@@ -39,16 +39,15 @@ export function readGmailWatchState(metadata: unknown): GmailWatchState | null {
 interface GmailWatchDeps {
   mailboxWritesEnabled: typeof gmailMailboxWritesEnabled;
   getFreshAccessToken: typeof getFreshAccessToken;
-  startWatch: typeof startWatch;
-  stopWatch: typeof stopWatch;
+  /** The mailbox over a token source. Uninstall and the post-delete stop pass a resolved token. */
+  mailbox: (accessToken: () => Promise<string>) => Pick<GmailMailbox, "startWatch" | "stopWatch">;
   db: typeof db;
 }
 
 const DEFAULT_DEPS: GmailWatchDeps = {
   mailboxWritesEnabled: gmailMailboxWritesEnabled,
   getFreshAccessToken,
-  startWatch,
-  stopWatch,
+  mailbox: (accessToken) => gmailMailboxFor(accessToken),
   db,
 };
 
@@ -76,13 +75,12 @@ export async function installGmailWatch(
     return null;
   }
 
-  const accessToken = await d.getFreshAccessToken(args.credentialId);
-
-  const watch = await d.startWatch({
-    accessToken,
-    topicName: args.topicName,
-    labelIds: args.labelIds,
-  });
+  const watch = await d
+    .mailbox(() => d.getFreshAccessToken(args.credentialId))
+    .startWatch({
+      topicName: args.topicName,
+      labelIds: args.labelIds,
+    });
 
   const now = new Date().toISOString();
 
@@ -123,10 +121,12 @@ export async function uninstallGmailWatch(
 
   // Non-prod must not stop prod's watch (#278), but still clears local state.
   if (d.mailboxWritesEnabled()) {
+    // Resolved before the best-effort stop: a credential with no usable token fails the uninstall
+    // and keeps the watch state, rather than dropping it as if the channel were stopped.
     const accessToken = await d.getFreshAccessToken(credentialId);
     await stopGmailWatchWithAccessToken(
       { accessToken, credentialId },
-      { mailboxWritesEnabled: d.mailboxWritesEnabled, stopWatch: d.stopWatch },
+      { mailboxWritesEnabled: d.mailboxWritesEnabled, mailbox: d.mailbox },
     );
   } else {
     console.warn(
@@ -143,13 +143,17 @@ export async function uninstallGmailWatch(
     .where(eq(integrationCredentials.id, credentialId));
 }
 
-/** For a credential about to be deleted: stops the remote watch, leaves metadata alone. */
+/**
+ * For a credential about to be deleted: stops the remote watch, leaves metadata alone. Takes a
+ * token, not a credential id, because the caller resolves it before the row is deleted and stops
+ * the channel after the delete commits. Everything else uses a credential-bound mailbox.
+ */
 export async function stopGmailWatchWithAccessToken(
   args: {
     accessToken: string;
     credentialId?: string | undefined;
   },
-  deps: Partial<Pick<GmailWatchDeps, "mailboxWritesEnabled" | "stopWatch">> = {},
+  deps: Partial<Pick<GmailWatchDeps, "mailboxWritesEnabled" | "mailbox">> = {},
 ): Promise<void> {
   const d = withDefaults(DEFAULT_DEPS, deps);
 
@@ -161,7 +165,7 @@ export async function stopGmailWatchWithAccessToken(
   }
 
   try {
-    await d.stopWatch({ accessToken: args.accessToken });
+    await d.mailbox(async () => args.accessToken).stopWatch();
   } catch (err) {
     // `users.stop` returns 204 even with no channel. Do not block cleanup.
     const suffix = args.credentialId ? ` for ${args.credentialId}` : "";

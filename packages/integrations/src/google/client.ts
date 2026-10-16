@@ -14,17 +14,15 @@ import {
   type GetFileArgs,
   type ListFilesArgs,
 } from "./drive";
-import {
-  getMessage,
-  listMessages,
-  sendMessage,
-  type GetMessageArgs,
-  type GmailMessage,
-  type ListMessagesResult,
-  type ListMessagesArgs,
-  type SendMessageResult,
-  type SendMessageArgs,
+import type {
+  GetMessageArgs,
+  GmailMessage,
+  ListMessagesResult,
+  ListMessagesArgs,
+  SendMessageResult,
+  SendMessageArgs,
 } from "./gmail";
+import { gmailMailboxFor } from "./mailbox";
 import { googlePassthroughProfile } from "./passthrough";
 import {
   addSheet,
@@ -150,23 +148,27 @@ export function createGoogleClient(
         googlePassthroughProfile(service, await tokenFor(credentialId, authority)),
     });
 
+  // The same mailbox `gmailMailbox` returns, behind this client's owner-checked resolver.
+  const mailbox = (credentialId: string, authority: GoogleAuthority) =>
+    gmailMailboxFor(() => tokenFor(credentialId, authority), retry);
+
   return {
     gmail: {
       listMessages: ({
         credentialId,
         ...args
       }: WithCredentialId<ListMessagesArgs>): Promise<ListMessagesResult> =>
-        withToken("gmail_read", credentialId, args, listMessages),
+        mailbox(credentialId, "gmail_read").listMessages(args),
       getMessage: ({
         credentialId,
         ...args
       }: WithCredentialId<GetMessageArgs>): Promise<GmailMessage> =>
-        withToken("gmail_read", credentialId, args, getMessage),
+        mailbox(credentialId, "gmail_read").getMessage(args),
       sendMessage: ({
         credentialId,
         ...args
       }: WithCredentialId<SendMessageArgs>): Promise<SendMessageResult> =>
-        withToken("gmail_send", credentialId, args, sendMessage),
+        mailbox(credentialId, "gmail_send").sendMessage(args),
       passthrough: (credentialId: string) => passthrough("gmail", "gmail_read", credentialId),
     },
     calendar: {

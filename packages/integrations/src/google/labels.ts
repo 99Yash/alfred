@@ -10,8 +10,7 @@ import {
 import { db } from "@alfred/db";
 import { integrationCredentials } from "@alfred/db/schemas";
 import { eq, sql } from "drizzle-orm";
-import { getFreshAccessToken } from "./credentials";
-import { createLabel, getThreadMessageLabels, listLabels, modifyMessageLabels } from "./gmail";
+import { gmailMailbox, type GmailMailbox } from "./mailbox";
 
 /**
  * Triage labels (ADR-0025 #1). Reuses the user's numbered labels ("2: action needed")
@@ -58,7 +57,7 @@ export interface AlfredLabelMap {
  */
 export async function ensureAlfredLabels(
   credentialId: string,
-  opts: { force?: boolean; accessToken?: string } = {},
+  opts: { force?: boolean } = {},
 ): Promise<AlfredLabelMap> {
   if (!opts.force) {
     const cached = await loadCachedLabels(credentialId);
@@ -66,9 +65,8 @@ export async function ensureAlfredLabels(
     if (cached) return cached;
   }
 
-  // Reuse the caller's token to avoid a second read and a concurrent refresh near expiry.
-  const accessToken = opts.accessToken ?? (await getFreshAccessToken(credentialId));
-  const existing = await listLabels({ accessToken });
+  const mailbox = gmailMailbox({ credentialId });
+  const existing = await mailbox.listLabels();
   const existingByName = new Map(existing.map((l) => [l.name, l.id] as const));
 
   // SAFETY: the loop below fills every TRIAGE_CATEGORIES key before any read.
@@ -81,10 +79,10 @@ export async function ensureAlfredLabels(
     if (!id) {
       // A parallel create returns 409; re-list to recover the id.
       try {
-        const created = await createLabel({ accessToken, name });
+        const created = await mailbox.createLabel({ name });
         id = created.id;
       } catch (err) {
-        const recovered = await findLabelByName(accessToken, name);
+        const recovered = await findLabelByName(mailbox, name);
 
         if (recovered) {
           id = recovered;
@@ -107,8 +105,11 @@ export async function ensureAlfredLabels(
   return map;
 }
 
-async function findLabelByName(accessToken: string, name: string): Promise<string | undefined> {
-  const all = await listLabels({ accessToken });
+async function findLabelByName(
+  mailbox: Pick<GmailMailbox, "listLabels">,
+  name: string,
+): Promise<string | undefined> {
+  const all = await mailbox.listLabels();
 
   return all.find((l) => l.name === name)?.id;
 }
@@ -164,10 +165,10 @@ export async function findThreadSiblingsWithAlfredLabels(args: {
   threadId: string;
   excludeMessageId: string;
 }): Promise<Array<{ messageId: string; labelId: string }>> {
-  const accessToken = await getFreshAccessToken(args.credentialId);
-  const alfredLabels = await ensureAlfredLabels(args.credentialId, { accessToken });
+  const alfredLabels = await ensureAlfredLabels(args.credentialId);
   const alfredIds = new Set(alfredLabels.allIds);
-  const messages = await getThreadMessageLabels({ accessToken, threadId: args.threadId });
+  const mailbox = gmailMailbox({ credentialId: args.credentialId });
+  const messages = await mailbox.getThreadMessageLabels({ threadId: args.threadId });
   const siblings: Array<{ messageId: string; labelId: string }> = [];
 
   for (const m of messages) {
@@ -212,8 +213,8 @@ export interface ApplyTriageLabelResult {
 export async function applyTriageLabel(
   args: ApplyTriageLabelArgs,
 ): Promise<ApplyTriageLabelResult> {
-  const accessToken = await getFreshAccessToken(args.credentialId);
-  const labels = await ensureAlfredLabels(args.credentialId, { accessToken });
+  const mailbox = gmailMailbox({ credentialId: args.credentialId });
+  const labels = await ensureAlfredLabels(args.credentialId);
   const targetId = labels.byCategory[args.category];
 
   const removeLabelIds: string[] = [];
@@ -224,8 +225,7 @@ export async function applyTriageLabel(
     removeLabelIds.push(args.previousLabelId);
   }
 
-  await modifyMessageLabels({
-    accessToken,
+  await mailbox.modifyMessageLabels({
     messageId: args.messageId,
     addLabelIds: [targetId],
     removeLabelIds: removeLabelIds.length ? removeLabelIds : undefined,
@@ -238,8 +238,7 @@ export async function applyTriageLabel(
     if (sibling.messageId === args.messageId) continue;
 
     try {
-      await modifyMessageLabels({
-        accessToken,
+      await mailbox.modifyMessageLabels({
         messageId: sibling.messageId,
         removeLabelIds: [sibling.labelId],
       });
@@ -273,7 +272,7 @@ export const ALFRED_SELF_LABEL_NAME = "Alfred";
 /** Same pattern as `ensureAlfredLabels`, cached on `metadata.alfredSelfLabel`. */
 export async function ensureAlfredSelfLabel(
   credentialId: string,
-  opts: { force?: boolean; accessToken?: string } = {},
+  opts: { force?: boolean } = {},
 ): Promise<string> {
   if (!opts.force) {
     const cached = await loadCachedSelfLabel(credentialId);
@@ -281,15 +280,15 @@ export async function ensureAlfredSelfLabel(
     if (cached) return cached;
   }
 
-  const accessToken = opts.accessToken ?? (await getFreshAccessToken(credentialId));
-  let id = await findLabelByName(accessToken, ALFRED_SELF_LABEL_NAME);
+  const mailbox = gmailMailbox({ credentialId });
+  let id = await findLabelByName(mailbox, ALFRED_SELF_LABEL_NAME);
 
   if (!id) {
     try {
-      const created = await createLabel({ accessToken, name: ALFRED_SELF_LABEL_NAME });
+      const created = await mailbox.createLabel({ name: ALFRED_SELF_LABEL_NAME });
       id = created.id;
     } catch (err) {
-      const recovered = await findLabelByName(accessToken, ALFRED_SELF_LABEL_NAME);
+      const recovered = await findLabelByName(mailbox, ALFRED_SELF_LABEL_NAME);
 
       if (recovered) {
         id = recovered;
@@ -332,29 +331,21 @@ async function persistCachedSelfLabel(credentialId: string, id: string): Promise
 
 /** Test seam. */
 export interface LabelSelfMailDeps {
-  ensureLabel: (args: {
-    credentialId: string;
-    accessToken: string;
-    force?: boolean | undefined;
-  }) => Promise<string>;
-  addLabel: (args: { accessToken: string; messageId: string; labelId: string }) => Promise<void>;
+  ensureLabel: (args: { credentialId: string; force?: boolean | undefined }) => Promise<string>;
+  addLabel: (args: { credentialId: string; messageId: string; labelId: string }) => Promise<void>;
 }
 
 const defaultLabelSelfMailDeps: LabelSelfMailDeps = {
-  ensureLabel: ({ credentialId, accessToken, force }) =>
-    ensureAlfredSelfLabel(credentialId, {
-      accessToken,
-      ...(force !== undefined ? { force } : {}),
-    }),
-  addLabel: async ({ accessToken, messageId, labelId }) => {
-    await modifyMessageLabels({ accessToken, messageId, addLabelIds: [labelId] });
+  ensureLabel: ({ credentialId, force }) =>
+    ensureAlfredSelfLabel(credentialId, force !== undefined ? { force } : {}),
+  addLabel: async ({ credentialId, messageId, labelId }) => {
+    await gmailMailbox({ credentialId }).modifyMessageLabels({ messageId, addLabelIds: [labelId] });
   },
 };
 
 export interface LabelSelfAuthoredMailArgs {
   credentialId: string;
   messageId: string;
-  accessToken: string;
   /**
    * Skips the write when the label is already here. The 5-minute poll re-lists
    * self-mail every time, because it never becomes a `documents` row.
@@ -367,19 +358,19 @@ export async function labelSelfAuthoredMail(
   args: LabelSelfAuthoredMailArgs,
   deps: LabelSelfMailDeps = defaultLabelSelfMailDeps,
 ): Promise<{ labeled: boolean; labelId: string }> {
-  const { credentialId, messageId, accessToken } = args;
-  let labelId = await deps.ensureLabel({ credentialId, accessToken });
+  const { credentialId, messageId } = args;
+  let labelId = await deps.ensureLabel({ credentialId });
 
   if (args.currentLabelIds?.includes(labelId)) {
     return { labeled: false, labelId };
   }
 
   try {
-    await deps.addLabel({ accessToken, messageId, labelId });
+    await deps.addLabel({ credentialId, messageId, labelId });
   } catch (err) {
     if (!isHttpError(err) || err.status !== 404) throw err;
-    labelId = await deps.ensureLabel({ credentialId, accessToken, force: true });
-    await deps.addLabel({ accessToken, messageId, labelId });
+    labelId = await deps.ensureLabel({ credentialId, force: true });
+    await deps.addLabel({ credentialId, messageId, labelId });
   }
 
   return { labeled: true, labelId };

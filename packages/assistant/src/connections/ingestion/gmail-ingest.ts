@@ -12,14 +12,12 @@ import { documents, ingestionState, integrationCredentials } from "@alfred/db/sc
 import { gmailMailboxWritesEnabled } from "@alfred/env/server";
 import {
   extractMessageContent,
-  getFreshAccessToken,
-  getMessage,
+  gmailMailbox,
   isHistoryGoneError,
   isSelfAuthored,
   labelSelfAuthoredMail,
-  listHistory,
-  listMessages,
   type GmailHistoryEntry,
+  type GmailMailbox,
   type GmailMessage,
   type GmailWatchState,
 } from "@alfred/integrations/google";
@@ -100,7 +98,7 @@ const DEFAULT_QUERY = "newer_than:30d";
 
 export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestRecentResult> {
   const cred = await loadCredentialOrThrow(args.credentialId);
-  const accessToken = await getFreshAccessToken(args.credentialId);
+  const mailbox = gmailMailbox({ credentialId: args.credentialId });
 
   const query = args.query ?? DEFAULT_QUERY;
   const cap = args.maxMessages ?? 500;
@@ -110,8 +108,7 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
   let pageToken: string | undefined;
 
   while (refs.length < cap) {
-    const page = await listMessages({
-      accessToken,
+    const page = await mailbox.listMessages({
       q: query,
       maxResults: Math.min(pageSize, cap - refs.length),
       pageToken,
@@ -137,8 +134,8 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
 
   for (const ref of refs) {
     try {
-      const message = await getMessage({ accessToken, id: ref.id, format: "full" });
-      const result = await persistMessage(cred, message, accessToken);
+      const message = await mailbox.getMessage({ id: ref.id, format: "full" });
+      const result = await persistMessage(cred, message);
 
       if (result.outcome === "inserted") {
         inserted++;
@@ -270,7 +267,6 @@ function internalDateToDate(internalDate: string | undefined): Date | null {
 async function persistMessage(
   cred: CredentialContext,
   message: GmailMessage,
-  accessToken: string,
 ): Promise<PersistMessageResult> {
   const { userId, accountId } = cred;
   const extracted = extractMessageContent(message);
@@ -283,7 +279,6 @@ async function persistMessage(
         await labelSelfAuthoredMail({
           credentialId: cred.credentialId,
           messageId: message.id,
-          accessToken,
           currentLabelIds: message.labelIds ?? undefined,
         });
       } catch (err) {
@@ -435,11 +430,9 @@ export async function runGmailMediaIngest(args: {
   /** Test seam. */
   deps?: RunGmailMediaIngestDeps | undefined;
 }): Promise<GmailMediaIngestResult> {
-  const getFreshAccessTokenFn = args.deps?.getFreshAccessToken ?? getFreshAccessToken;
-  const getMessageFn = args.deps?.getMessage ?? getMessage;
+  const mailbox = args.deps?.mailbox ?? gmailMailbox({ credentialId: args.credentialId });
   const cred = await loadCredentialOrThrow(args.credentialId);
-  const accessToken = await getFreshAccessTokenFn(args.credentialId);
-  const message = await getMessageFn({ accessToken, id: args.messageId, format: "full" });
+  const message = await mailbox.getMessage({ id: args.messageId, format: "full" });
   const extracted = extractMessageContent(message);
 
   if (isSelfAuthored(extracted.from)) return { ...ZERO_MEDIA_TALLY, documentIds: [] };
@@ -448,7 +441,7 @@ export async function runGmailMediaIngest(args: {
     userId: cred.userId,
     accountId: cred.accountId,
     message,
-    accessToken,
+    mailbox,
     authoredAt: internalDateToDate(message.internalDate),
     ...(args.deps?.media ? { deps: args.deps.media } : {}),
   });
@@ -481,8 +474,7 @@ export async function runGmailMediaIngest(args: {
 }
 
 export interface RunGmailMediaIngestDeps {
-  getFreshAccessToken?: typeof getFreshAccessToken | undefined;
-  getMessage?: typeof getMessage | undefined;
+  mailbox?: Pick<GmailMailbox, "getMessage" | "getAttachment"> | undefined;
   media?: GmailMediaIngestDeps | undefined;
 }
 
@@ -714,7 +706,7 @@ export interface PollHistoryResult {
 export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHistoryResult> {
   const startedAt = new Date();
   const cred = await loadCredentialOrThrow(args.credentialId);
-  const accessToken = await getFreshAccessToken(args.credentialId);
+  const mailbox = gmailMailbox({ credentialId: args.credentialId });
   const cursorBefore = await loadHistoryCursor(args.credentialId);
 
   if (!cursorBefore) {
@@ -753,8 +745,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
 
   try {
     while (pagesFetched < maxPages) {
-      const page = await listHistory({
-        accessToken,
+      const page = await mailbox.listHistory({
         startHistoryId: cursorBefore,
         pageToken,
       });
@@ -841,8 +832,8 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
 
   for (const [id, addedHistoryId] of messageIds) {
     try {
-      const message = await getMessage({ accessToken, id, format: "full" });
-      const result = await persistMessage(cred, message, accessToken);
+      const message = await mailbox.getMessage({ id, format: "full" });
+      const result = await persistMessage(cred, message);
 
       if (result.outcome === "inserted") {
         inserted++;
@@ -939,9 +930,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
 // ---------------------------------------------------------------------------
 
 export interface PollRecentDeps {
-  listMessages?: typeof listMessages | undefined;
-  getMessage?: typeof getMessage | undefined;
-  getFreshAccessToken?: typeof getFreshAccessToken | undefined;
+  mailbox?: Pick<GmailMailbox, "listMessages" | "getMessage"> | undefined;
   /** Deferred attachment ingest sink. Production wires `enqueueGmailMediaIngest`. */
   scheduleMediaIngest?: ScheduleGmailMediaIngest | undefined;
 }
@@ -994,15 +983,12 @@ export interface PollRecentResult {
  * through `pollGmailHistory` catches what this misses.
  */
 export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentResult> {
-  const listMessagesFn = args.deps?.listMessages ?? listMessages;
-  const getMessageFn = args.deps?.getMessage ?? getMessage;
-  const getFreshAccessTokenFn = args.deps?.getFreshAccessToken ?? getFreshAccessToken;
+  const mailbox = args.deps?.mailbox ?? gmailMailbox({ credentialId: args.credentialId });
   const scheduleMediaIngest = args.deps?.scheduleMediaIngest;
 
   // Independent reads, so run them together.
-  const [cred, accessToken, state] = await Promise.all([
+  const [cred, state] = await Promise.all([
     loadCredentialOrThrow(args.credentialId),
-    getFreshAccessTokenFn(args.credentialId),
     loadIngestionState(args.credentialId),
   ]);
 
@@ -1019,8 +1005,7 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
   let pageToken: string | undefined;
 
   while (refs.length < cap) {
-    const page = await listMessagesFn({
-      accessToken,
+    const page = await mailbox.listMessages({
       q: `newer_than:${windowExpr}`,
       maxResults: Math.min(100, cap - refs.length),
       pageToken,
@@ -1052,8 +1037,8 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
 
   await mapConcurrent(unknownRefs, concurrency, async (ref) => {
     try {
-      const message = await getMessageFn({ accessToken, id: ref.id, format: "full" });
-      const result = await persistMessage(cred, message, accessToken);
+      const message = await mailbox.getMessage({ id: ref.id, format: "full" });
+      const result = await persistMessage(cred, message);
 
       if (result.outcome === "inserted") {
         inserted++;

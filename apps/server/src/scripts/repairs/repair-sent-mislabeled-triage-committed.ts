@@ -28,12 +28,7 @@ import {
   type IntegrationCredential,
 } from "@alfred/db/schemas";
 import { gmailMailboxWritesEnabled } from "@alfred/env/server";
-import {
-  ensureAlfredLabels,
-  getFreshAccessToken,
-  getThreadMessageLabels,
-  modifyMessageLabels,
-} from "@alfred/integrations/google";
+import { ensureAlfredLabels, gmailMailbox, type GmailMailbox } from "@alfred/integrations/google";
 import { and, eq, sql } from "drizzle-orm";
 import { closeScriptResources } from "../script-runtime";
 
@@ -153,7 +148,7 @@ function isGoneInGmail(err: unknown): boolean {
 }
 
 async function stripAlfredLabelsFromMessage(args: {
-  accessToken: string;
+  mailbox: GmailMailbox;
   messageId: string;
   labelIds: readonly string[];
   alfredLabelIds: ReadonlySet<string>;
@@ -163,8 +158,7 @@ async function stripAlfredLabelsFromMessage(args: {
   if (removeLabelIds.length === 0) return false;
 
   try {
-    await modifyMessageLabels({
-      accessToken: args.accessToken,
+    await args.mailbox.modifyMessageLabels({
       messageId: args.messageId,
       removeLabelIds,
     });
@@ -206,8 +200,8 @@ async function repairCaseA(args: {
     const docs = await loadThreadDocs(args.userId, args.threadId);
     const category: TriageCategory = current.category;
     const credId = resolveGoogleCredentialId(args.userCreds, current.pointedAccountId);
-    const accessToken = await getFreshAccessToken(credId);
-    const liveMessages = await getThreadMessageLabels({ accessToken, threadId: args.threadId });
+    const mailbox = gmailMailbox({ credentialId: credId });
+    const liveMessages = await mailbox.getThreadMessageLabels({ threadId: args.threadId });
     const liveSourceIds = new Set(liveMessages.map((m) => m.id));
     const inbound = newestLiveInbound(docs, liveSourceIds, current.pointedAccountId);
 
@@ -229,7 +223,7 @@ async function repairCaseA(args: {
       throw new Error(`inbound target message is not live in Gmail: ${target.document.sourceId}`);
     }
 
-    const labels = await ensureAlfredLabels(target.credentialId, { accessToken });
+    const labels = await ensureAlfredLabels(target.credentialId);
     const targetLabelId = labels.byCategory[category];
     const alfredLabelIds = new Set(labels.allIds);
 
@@ -237,7 +231,7 @@ async function repairCaseA(args: {
 
     const strippedOriginalSent = originalLiveMessage
       ? await stripAlfredLabelsFromMessage({
-          accessToken,
+          mailbox,
           messageId: originalLiveMessage.id,
           labelIds: originalLiveMessage.labelIds,
           alfredLabelIds,
@@ -248,8 +242,7 @@ async function repairCaseA(args: {
       (labelId) => alfredLabelIds.has(labelId) && labelId !== targetLabelId,
     );
 
-    await modifyMessageLabels({
-      accessToken,
+    await mailbox.modifyMessageLabels({
       messageId: target.document.sourceId,
       addLabelIds: [targetLabelId],
       removeLabelIds: targetRemoveLabelIds.length ? targetRemoveLabelIds : undefined,
@@ -261,7 +254,7 @@ async function repairCaseA(args: {
       if (message.id === target.document.sourceId || message.id === args.originalSourceId) continue;
 
       const stripped = await stripAlfredLabelsFromMessage({
-        accessToken,
+        mailbox,
         messageId: message.id,
         labelIds: message.labelIds,
         alfredLabelIds,
@@ -324,13 +317,11 @@ async function repairCaseB(args: {
     }
 
     const credId = resolveGoogleCredentialId(args.userCreds, current.pointedAccountId);
-    const accessToken = await getFreshAccessToken(credId);
-    const labels = await ensureAlfredLabels(credId, { accessToken });
+    const labels = await ensureAlfredLabels(credId);
     let strippedOriginalSent = false;
 
     try {
-      await modifyMessageLabels({
-        accessToken,
+      await gmailMailbox({ credentialId: credId }).modifyMessageLabels({
         messageId: current.pointedSourceId,
         removeLabelIds: labels.allIds,
       });

@@ -1,7 +1,7 @@
 import { mapConcurrent, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, emailTriage } from "@alfred/db/schemas";
-import { getFreshAccessToken, getThreadMessageLabels } from "@alfred/integrations/google";
+import { gmailMailbox } from "@alfred/integrations/google";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { gmailSentSql } from "./sent-mail";
 import { triageThreadLockKey } from "./store";
@@ -141,7 +141,7 @@ export async function reconcileGmailThreads(
 
   if (multi.length === 0) return empty;
 
-  const accessToken = await getFreshAccessToken(args.credentialId);
+  const mailbox = gmailMailbox({ credentialId: args.credentialId });
   const protectedDocumentIds = new Set(args.protectedDocumentIds ?? []);
   let threadsReconciled = 0;
   let docsDeleted = 0;
@@ -151,7 +151,7 @@ export async function reconcileGmailThreads(
   await mapConcurrent(multi, RECONCILE_CONCURRENCY, async (threadId) => {
     try {
       const liveFetchedAt = new Date();
-      const live = await getThreadMessageLabels({ accessToken, threadId });
+      const live = await mailbox.getThreadMessageLabels({ threadId });
       const liveIds = new Set(live.map((message) => message.id));
 
       if (liveIds.size === 0) return;
@@ -273,11 +273,11 @@ export async function findNewestLiveInboundGmailDocuments(args: {
     );
   }
 
-  const accessToken = await getFreshAccessToken(args.credentialId);
+  const mailbox = gmailMailbox({ credentialId: args.credentialId });
   const targets: LiveInboundGmailDocument[] = [];
   await mapConcurrent(distinct, RECONCILE_CONCURRENCY, async (threadId) => {
     try {
-      const live = await getThreadMessageLabels({ accessToken, threadId });
+      const live = await mailbox.getThreadMessageLabels({ threadId });
       const liveIds = live.map((message) => message.id);
 
       if (liveIds.length === 0) return;
