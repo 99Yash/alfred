@@ -10,9 +10,11 @@ import {
   type StandingInstructionValue,
 } from "@alfred/contracts";
 
-import { findSenderSuppression } from "@alfred/assistant/knowledge";
-// Internal type, not in the `knowledge` barrel.
-import { type ActiveSuppressionInstruction } from "@alfred/assistant/knowledge/standing-instructions";
+// Internal, not in the `knowledge` barrel.
+import {
+  senderSuppressionsOf,
+  type ActiveSuppressionInstruction,
+} from "@alfred/assistant/knowledge/standing-instructions";
 
 function instruction(overrides: Partial<StandingInstructionValue> = {}): StandingInstructionValue {
   return standingInstructionValueSchema.parse({
@@ -51,16 +53,19 @@ describe("normalizeEmailAddress", () => {
   });
 });
 
-describe("findSenderSuppression", () => {
+describe("senderSuppressions match", () => {
   test("matches cross-account sender suppressions by canonical email and effect", () => {
-    const match = findSenderSuppression([active(instruction())], {
-      senderEmail: "Ben Book <BEN@example.com>",
-      accountId: "google-work",
-      effect: "block_todo_suggestion",
-    });
+    const outcome = senderSuppressionsOf([active(instruction())]).match(
+      { sender: "Ben Book <BEN@example.com>", accountId: "google-work" },
+      "block_todo_suggestion",
+    );
 
-    assert.equal(match?.factId, "fact_1");
-    assert.equal(match?.matchedEmail, "ben@example.com");
+    assert.equal(outcome.kind, "suppressed");
+    assert.equal(outcome.kind === "suppressed" ? outcome.match.factId : null, "fact_1");
+    assert.equal(
+      outcome.kind === "suppressed" ? outcome.match.matchedEmail : null,
+      "ben@example.com",
+    );
   });
 
   test("honors account-specific suppressions when present", () => {
@@ -73,33 +78,32 @@ describe("findSenderSuppression", () => {
       },
     });
 
+    const suppressions = senderSuppressionsOf([active(value)]);
+
     assert.equal(
-      findSenderSuppression([active(value)], {
-        senderEmail: "ben@example.com",
-        accountId: "google-personal",
-        effect: "exclude_briefing_priority",
-      }),
-      null,
+      suppressions.match(
+        { sender: "ben@example.com", accountId: "google-personal" },
+        "exclude_briefing_priority",
+      ).kind,
+      "none",
     );
     assert.equal(
-      findSenderSuppression([active(value)], {
-        senderEmail: "ben@example.com",
-        accountId: "google-work",
-        effect: "exclude_briefing_priority",
-      })?.factId,
-      "fact_1",
+      suppressions.match(
+        { sender: "ben@example.com", accountId: "google-work" },
+        "exclude_briefing_priority",
+      ).kind,
+      "suppressed",
     );
   });
 
   test("derives membership at read time — the stored effects array never filters", () => {
     const value = instruction({ effects: ["exclude_briefing_priority"] });
     assert.equal(
-      findSenderSuppression([active(value)], {
-        senderEmail: "ben@example.com",
-        accountId: null,
-        effect: "block_todo_suggestion",
-      })?.factId,
-      "fact_1",
+      senderSuppressionsOf([active(value)]).match(
+        { sender: "ben@example.com", accountId: null },
+        "block_todo_suggestion",
+      ).kind,
+      "suppressed",
     );
   });
 });

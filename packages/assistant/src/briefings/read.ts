@@ -18,11 +18,7 @@ import type {
 import { db } from "@alfred/db";
 import { briefings, documents, emailTriage, type Briefing } from "@alfred/db/schemas";
 import { and, desc, eq, gt, inArray, isNotNull, sql } from "drizzle-orm";
-import {
-  findSenderSuppression,
-  getSenderSignificanceBatch,
-  listActiveSuppressionInstructions,
-} from "../knowledge";
+import { getSenderSignificanceBatch, senderSuppressions } from "../knowledge";
 import { inZone } from "@alfred/assistant/time";
 
 /**
@@ -131,15 +127,15 @@ export async function listEmailsSinceWatermark(
     conditions.push(gt(documents.ingestedAt, args.sinceIngestedAt));
   }
 
-  const [surfaced, suppressionInstructions] = await Promise.all([
+  const [surfaced, suppressions] = await Promise.all([
     // Anchor on the frozen "until" so the signal does not depend on wall-clock time.
     listRecentlySurfacedKeys({ userId: args.userId, before: args.untilIngestedAt }),
     // The agent writes prose from this list, not from `gather`, so suppression applies here too.
-    listActiveSuppressionInstructions(args.userId),
+    senderSuppressions({ userId: args.userId, onReadFailure: "throw" }),
   ]);
 
   const rows: EmailListRow[] = [];
-  const hasSuppression = suppressionInstructions.length > 0;
+  const hasSuppression = !suppressions.isEmpty;
   const pageSize = hasSuppression ? Math.max(limit, EMAIL_LIST_SUPPRESSION_PAGE_SIZE) : limit;
   let offset = 0;
 
@@ -181,13 +177,12 @@ export async function listEmailsSinceWatermark(
       if (hasSuppression) {
         const from = parseGmailDocumentMetadata(row.metadata).from;
 
-        const suppressed = findSenderSuppression(suppressionInstructions, {
-          senderEmail: from ?? null,
-          accountId: row.accountId,
-          effect: "exclude_briefing_priority",
-        });
+        const suppression = suppressions.match(
+          { sender: from ?? null, accountId: row.accountId },
+          "exclude_briefing_priority",
+        );
 
-        if (suppressed) continue;
+        if (suppression.kind === "suppressed") continue;
       }
 
       rows.push(row);
@@ -546,15 +541,14 @@ export async function readEmailDocument(args: {
   if (!row) return null;
   const meta = parseGmailDocumentMetadata(row.metadata);
 
-  const suppressionInstructions = await listActiveSuppressionInstructions(args.userId);
+  const suppressions = await senderSuppressions({ userId: args.userId, onReadFailure: "throw" });
 
-  const suppressed = findSenderSuppression(suppressionInstructions, {
-    senderEmail: meta.from ?? null,
-    accountId: row.accountId,
-    effect: "exclude_briefing_priority",
-  });
+  const suppression = suppressions.match(
+    { sender: meta.from ?? null, accountId: row.accountId },
+    "exclude_briefing_priority",
+  );
 
-  if (suppressed) return null;
+  if (suppression.kind === "suppressed") return null;
 
   const full = row.content ?? "";
   const truncated = full.length > READ_EMAIL_BODY_CHAR_CAP;

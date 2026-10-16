@@ -12,7 +12,7 @@ import {
 } from "@alfred/contracts";
 import { z } from "zod";
 import type { StepContext, StepResult, Workflow } from "@alfred/assistant/execution";
-import { findActiveSenderSuppression } from "@alfred/assistant/knowledge";
+import { senderSuppressions } from "@alfred/assistant/knowledge";
 import { executeToolCallRound, withdrawToolCallApproval } from "@alfred/assistant/tool-runtime";
 import { resolveFeatureFlags } from "@alfred/assistant/settings";
 import {
@@ -171,17 +171,18 @@ async function runGate(ctx: StepContext<State>): Promise<StepResult<State>> {
 
   let standingInstruction: ReplyStandingInstructionState = "none";
 
-  try {
-    const match = await findActiveSenderSuppression(ctx.userId, {
-      senderEmail: senderContextResult.senderAddress,
-      accountId: document.accountId,
-      effect: "block_reply_draft",
-    });
+  const suppressions = await senderSuppressions({ userId: ctx.userId, onReadFailure: "report" });
 
-    if (match) standingInstruction = "suppress";
-  } catch (err) {
+  const suppression = suppressions.match(
+    { sender: senderContextResult.senderAddress, accountId: document.accountId },
+    "block_reply_draft",
+  );
+
+  if (suppression.kind === "suppressed") standingInstruction = "suppress";
+
+  if (suppression.kind === "read_failed") {
     standingInstruction = "read_failed";
-    await ctx.log(`gate: standing instruction read failed: ${toMessage(err)}`);
+    await ctx.log(`gate: standing instruction read failed: ${toMessage(suppression.error)}`);
   }
 
   const state: State = {

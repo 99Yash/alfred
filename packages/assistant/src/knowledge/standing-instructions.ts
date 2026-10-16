@@ -42,19 +42,77 @@ export interface ActiveSuppressionInstruction {
   validFrom: Date;
 }
 
-export interface SenderSuppressionLookup {
-  senderEmail: string | null | undefined;
-  accountId?: string | null;
-  /** Audit echo only: an active suppression binds every consumer, so this never filters. */
-  effect: SuppressionEffect;
+/** One message's sender, as the consumer holds it. */
+interface SuppressionSender {
+  /** A bare address or a raw `From` header. An unparseable value matches nothing. */
+  sender: string | null | undefined;
+  /** The mailbox the message reached. A per-account instruction matches only its own mailbox. */
+  accountId: string | null;
 }
 
 export type SenderSuppressionMatch = ActiveSuppressionInstruction & {
   matchedEmail: string;
+  /** Audit echo only: an active suppression binds every consumer, so the effect never filters. */
   effect: SuppressionEffect;
   /** Which target kind matched. The only trace of whether a domain target ever fires. */
   matchedVia: StandingInstructionTargetKind;
 };
+
+type SenderSuppressionOutcome =
+  | { kind: "suppressed"; match: SenderSuppressionMatch }
+  | { kind: "none" }
+  | { kind: "read_failed"; error: unknown };
+
+type LoadedSenderSuppressionOutcome = Exclude<SenderSuppressionOutcome, { kind: "read_failed" }>;
+
+/** A user's active sender suppressions, read once. `match` is pure, so one read serves a loop. */
+interface SenderSuppressions<Outcome extends SenderSuppressionOutcome> {
+  /** No active suppression. A failed read is never empty, so `match` still reports it. */
+  readonly isEmpty: boolean;
+  match(sender: SuppressionSender, effect: SuppressionEffect): Outcome;
+}
+
+/**
+ * Each consumer owns its read-failure policy, so the caller must state it:
+ * - `"throw"`: the returned promise rejects with the read error. `match` never reports `read_failed`.
+ * - `"report"`: the promise always resolves. On a failed read, every `match` returns `read_failed`.
+ */
+export function senderSuppressions(args: {
+  userId: string;
+  onReadFailure: "throw";
+}): Promise<SenderSuppressions<LoadedSenderSuppressionOutcome>>;
+export function senderSuppressions(args: {
+  userId: string;
+  onReadFailure: "report";
+}): Promise<SenderSuppressions<SenderSuppressionOutcome>>;
+export async function senderSuppressions(args: {
+  userId: string;
+  onReadFailure: "throw" | "report";
+}): Promise<SenderSuppressions<SenderSuppressionOutcome>> {
+  if (args.onReadFailure === "throw") {
+    return senderSuppressionsOf(await listActiveSuppressionInstructions(args.userId));
+  }
+
+  try {
+    return senderSuppressionsOf(await listActiveSuppressionInstructions(args.userId));
+  } catch (error) {
+    return { isEmpty: false, match: () => ({ kind: "read_failed", error }) };
+  }
+}
+
+/** Pure, for tests that build the instructions by hand. Consumers read with `senderSuppressions`. */
+export function senderSuppressionsOf(
+  instructions: readonly ActiveSuppressionInstruction[],
+): SenderSuppressions<LoadedSenderSuppressionOutcome> {
+  return {
+    isEmpty: instructions.length === 0,
+    match(sender, effect) {
+      const match = findSenderSuppression(instructions, sender, effect);
+
+      return match ? { kind: "suppressed", match } : { kind: "none" };
+    },
+  };
+}
 
 export const rememberSenderSuppressionArgsSchema = z.object({
   userId: z.string().min(1),
@@ -351,7 +409,7 @@ function findTargetOverlaps(
 }
 
 /** Every active `suppress` instruction. No effect filter: a suppression binds every consumer. */
-export async function listActiveSuppressionInstructions(
+async function listActiveSuppressionInstructions(
   userId: string,
 ): Promise<ActiveSuppressionInstruction[]> {
   const facts = await db()
@@ -369,15 +427,6 @@ export async function listActiveSuppressionInstructions(
 
       return true;
     });
-}
-
-export async function findActiveSenderSuppression(
-  userId: string,
-  lookup: SenderSuppressionLookup,
-): Promise<SenderSuppressionMatch | null> {
-  const instructions = await listActiveSuppressionInstructions(userId);
-
-  return findSenderSuppression(instructions, lookup);
 }
 
 // ─── Management (user-driven: list / forget / edit) ─────────────────────────
@@ -731,15 +780,16 @@ function isStrongerSuppressionMatch(
   return candidate.factId > incumbent.factId;
 }
 
-export function findSenderSuppression(
+function findSenderSuppression(
   instructions: readonly ActiveSuppressionInstruction[],
-  lookup: SenderSuppressionLookup,
+  lookup: SuppressionSender,
+  effect: SuppressionEffect,
 ): SenderSuppressionMatch | null {
-  const email = normalizeEmailAddress(lookup.senderEmail);
+  const email = normalizeEmailAddress(lookup.sender);
 
   if (!email) return null;
 
-  const accountId = lookup.accountId ?? null;
+  const accountId = lookup.accountId;
 
   let best: ActiveSuppressionInstruction | null = null;
 
@@ -768,7 +818,7 @@ export function findSenderSuppression(
     ...best,
     value,
     matchedEmail: email,
-    effect: lookup.effect,
+    effect,
     matchedVia: best.value.target.kind,
   };
 }

@@ -58,7 +58,7 @@ import {
 } from "@alfred/assistant/connections/verified-pull";
 import { getPreference } from "@alfred/assistant/settings";
 import { getMcpExecutionBroker } from "@alfred/assistant/tool-runtime/mcp";
-import { findSenderSuppression, listActiveSuppressionInstructions } from "../knowledge";
+import { senderSuppressions } from "../knowledge";
 import {
   addDays,
   formatDay,
@@ -193,7 +193,7 @@ export async function gatherBriefingDigest(
   const maxPerBucket = args.maxPerBucket ?? DEFAULT_MAX_PER_BUCKET;
 
   // One query, then partition in JS.
-  const [rows, suppressionInstructions] = await Promise.all([
+  const [rows, suppressions] = await Promise.all([
     db()
       .select({
         // `emailTriage.documentId` can dangle after a purge; the joined id cannot.
@@ -221,7 +221,7 @@ export async function gatherBriefingDigest(
         ),
       )
       .orderBy(desc(documents.authoredAt)),
-    listActiveSuppressionInstructions(args.userId),
+    senderSuppressions({ userId: args.userId, onReadFailure: "throw" }),
   ]);
 
   const newPriorityBucket = (): BriefingItem[] => [];
@@ -267,18 +267,17 @@ export async function gatherBriefingDigest(
 
     const from = meta.from ?? null;
 
-    const instructionSuppression = findSenderSuppression(suppressionInstructions, {
-      senderEmail: from,
-      accountId: r.accountId,
-      effect: "exclude_briefing_priority",
-    });
+    const instructionSuppression = suppressions.match(
+      { sender: from, accountId: r.accountId },
+      "exclude_briefing_priority",
+    );
 
-    if (instructionSuppression) {
+    if (instructionSuppression.kind === "suppressed") {
       suppressedByInstruction.push({
         documentId: r.documentId,
         category: cat,
         sender: from,
-        factId: instructionSuppression.factId,
+        factId: instructionSuppression.match.factId,
         effect: "exclude_briefing_priority",
       });
       continue;
