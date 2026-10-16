@@ -7,7 +7,7 @@
 import { closeConnections, warmPool } from "@alfred/db";
 import { db } from "@alfred/db";
 import { apiCallLog, chunks, documents, user as userTable } from "@alfred/db/schemas";
-import { indexDocument, search } from "@alfred/corpus";
+import { corpus, indexDocument } from "@alfred/corpus";
 import { and, desc, eq } from "drizzle-orm";
 import { createHash } from "node:crypto";
 
@@ -123,9 +123,8 @@ async function main() {
   console.log("[smoke-embed] re-embed is a no-op ✓");
 
   // One embed call: query
-  const hits = await search({
+  const hits = await corpus({ userId }).search({
     query: "what's our quarterly revenue and cash runway?",
-    userId,
     source: SMOKE_DOC.source,
     limit: 3,
   });

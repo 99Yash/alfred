@@ -4,7 +4,7 @@
  */
 
 import { integrations } from "@alfred/integrations";
-import { search } from "@alfred/corpus";
+import { corpus } from "@alfred/corpus";
 import { RETRY_BASE_DELAY_MS, type RetryPolicy } from "@alfred/integrations/shared";
 
 import type { ToolExecuteContext, ToolExecuteContextFields } from "./internal/registry";
@@ -19,7 +19,7 @@ const TOOL_DISPATCH_RETRY: RetryPolicy = {
   maxDelayMs: 1_000,
 };
 
-/** A function, not a literal, so `integrations` cannot bind a different user than `userId`. */
+/** A function, not a literal, so no bind can name a different user than `userId`. */
 export function toolExecuteContext(fields: ToolExecuteContextFields): ToolExecuteContext {
   return {
     ...fields,
@@ -28,6 +28,6 @@ export function toolExecuteContext(fields: ToolExecuteContextFields): ToolExecut
       retry: TOOL_DISPATCH_RETRY,
       accountRef: fields.accountRef,
     }),
-    corpus: { search },
+    corpus: corpus({ userId: fields.userId }),
   };
 }
