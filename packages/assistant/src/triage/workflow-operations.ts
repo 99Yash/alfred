@@ -4,13 +4,8 @@ import {
   type EmailTriageClassifiedPayload,
 } from "@alfred/assistant/triggers";
 import { documentAskReducer, gmailMessageLocatorSchema } from "@alfred/assistant/connections";
-import { resolveFeatureFlags, resolveTimezone } from "@alfred/assistant/settings";
-import {
-  getSenderSignificance,
-  readUserContextLine,
-  senderSuppressions,
-  type SenderSuppressionOutcome,
-} from "../knowledge";
+import { resolveFeatureFlags } from "@alfred/assistant/settings";
+import { getSenderSignificance, readUserContextLine, senderSuppressions } from "../knowledge";
 import {
   resolvePaymentTodoFromReceipt,
   resolveTodosForGmailSource,
@@ -19,9 +14,6 @@ import {
 import {
   classifyEmail,
   DEFAULT_TRIAGE_CATEGORY,
-  resolveTodoSuggestion,
-  todoSuppressionReason,
-  type AssistDateAnchor,
   type ClassifyAudit,
   type TriageClassification,
 } from "./classify";
@@ -46,7 +38,8 @@ import {
   type TriageDocumentContext,
 } from "./store";
 import { reconcileThreadLabel } from "./tags";
-import { getThreadState, readGmailThreadClosure, userRepliedAfterMessage } from "./thread-state";
+import { getThreadState } from "./thread-state";
+import { decideTriageTodo, type TriageTodoDecision } from "./todo-decision";
 import { assembleObservations, type Observations } from "./observations";
 import type { StepContext, StepResult } from "@alfred/assistant/execution";
 import {
@@ -219,8 +212,6 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     }
   }
 
-  const authoredAt = ctxData.document.authoredAt;
-
   let classification: TriageClassification;
   let model: string;
   let audit: ClassifyAudit | null = null;
@@ -228,71 +219,24 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
   // This run owns the row. Gates the side effects below on both paths (#157).
   let written = false;
   let senderSignificanceBand: SignificanceBand | null = null;
-  let todoSuggestion: ReturnType<typeof resolveTodoSuggestion> = null;
-  // Stays `none` when no todo is proposed: the read runs only for a proposed todo.
-  let standingSuppression: SenderSuppressionOutcome = { kind: "none" };
-  // From one closure read, on reply runs only.
-  // `userAlreadyReplied` (newest message is the user's) gates the retraction.
-  // `documentRepliedAfter` (user replied after THIS message) gates the mint.
-  // They differ once a newer inbound exists, so the mint cannot use the first.
-  let userAlreadyReplied = false;
-  let documentRepliedAfter = false;
-  let closureReadFailed = false;
-
-  const resolveTodoAndStandingSuppression = async () => {
-    // Resolve the zone only when a todo is proposed; `resolveTimezone` hits the DB.
-    const assistDateAnchor: AssistDateAnchor | null =
-      authoredAt && classification.todoSuggestion
-        ? { sentAt: authoredAt, timezone: await resolveTimezone(ctx.userId) }
-        : null;
-
-    const nextTodoSuggestion = resolveTodoSuggestion(classification, assistDateAnchor);
-    let nextStandingSuppression: SenderSuppressionOutcome = { kind: "none" };
-    let nextUserAlreadyReplied = false;
-    let nextDocumentRepliedAfter = false;
-    let nextClosureReadFailed = false;
-
-    // Gate on the reason, not on a new todo: a reply run may retract an older live todo (ADR-0050).
-    if (ctx.state.reason === "reply") {
-      try {
-        // Read the whole thread, so a fresh inbound after an old reply still counts as open.
-        const closure = await readGmailThreadClosure({ userId: ctx.userId, sourceThreadId });
-        nextUserAlreadyReplied = closure.userHasReplied;
-        nextDocumentRepliedAfter = userRepliedAfterMessage(
-          closure.lastUserReplyAt,
-          ctxData.document.authoredAt,
-        );
-      } catch {
-        // Unknown closure mints the todo and makes `close-loop-todos` a no-op.
-        nextClosureReadFailed = true;
-      }
-    }
-
-    if (nextTodoSuggestion) {
-      const suppressions = await senderSuppressions({
-        userId: ctx.userId,
-        onReadFailure: "report",
-      });
-
-      nextStandingSuppression = suppressions.match(
-        {
-          sender: senderContextResult.senderAddress ?? ctxData.document.metadata.from ?? null,
-          accountId: ctxData.document.accountId,
-        },
-        "block_todo_suggestion",
-      );
-    }
-
-    return {
-      todoSuggestion: nextTodoSuggestion,
-      standingSuppression: nextStandingSuppression,
-      userAlreadyReplied: nextUserAlreadyReplied,
-      documentRepliedAfter: nextDocumentRepliedAfter,
-      closureReadFailed: nextClosureReadFailed,
-    };
-  };
-
+  // Before the row write on both paths, so the stored trace holds the facts the side effects use.
+  let todo: TriageTodoDecision;
   const reusedExistingRow = Boolean(existing && existing.runId === ctx.runId);
+
+  const decideTodo = () =>
+    decideTriageTodo({
+      userId: ctx.userId,
+      sourceThreadId,
+      reason: ctx.state.reason,
+      classification,
+      document: ctxData.document,
+      senderAddress: senderContextResult.senderAddress,
+      // On reuse there are no observations, so read the row's verdict (#517 D1).
+      isColdContact:
+        observations?.senderRelationshipIsCold ??
+        (reusedExistingRow ? (existing?.senderRelationshipIsCold ?? false) : false),
+      actionItemsEnabled: flags.actionItems,
+    });
 
   if (reusedExistingRow && existing) {
     classification = {
@@ -311,13 +255,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     // A prior attempt may have written the row and died before the side effects (#157).
     written = true;
     senderSignificanceBand = existing.senderSignificanceBand ?? null;
-    ({
-      todoSuggestion,
-      standingSuppression,
-      userAlreadyReplied,
-      documentRepliedAfter,
-      closureReadFailed,
-    } = await resolveTodoAndStandingSuppression());
+    todo = await decideTodo();
     await ctx.log(`classify: reuse existing thread row category=${classification.category}`);
   } else {
     // Before the try, so the fallback path still has them for the trace.
@@ -374,14 +312,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
 
     senderSignificanceBand = senderSignificance?.band ?? null;
 
-    // Before the row write, so the stored trace holds the facts the side effects use.
-    ({
-      todoSuggestion,
-      standingSuppression,
-      userAlreadyReplied,
-      documentRepliedAfter,
-      closureReadFailed,
-    } = await resolveTodoAndStandingSuppression());
+    todo = await decideTodo();
 
     const decisionTrace =
       observations == null
@@ -391,8 +322,8 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
             observations,
             audit,
             classification,
-            todoSuggested: Boolean(todoSuggestion),
-            standingSuppression,
+            todoSuggested: todo.outcome.kind !== "none",
+            standingSuppression: todo.standingSuppression,
           });
 
     // `written` is false when a run for a newer message owns the row; then skip
@@ -500,13 +431,14 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     }
   }
 
-  if (standingSuppression.kind === "read_failed") {
+  if (todo.standingSuppression.kind === "read_failed") {
     await ctx.log(
-      `standing_instruction: read failed for block_todo_suggestion (suppressing todo): ${toMessage(standingSuppression.error)}`,
+      `standing_instruction: read failed for block_todo_suggestion (suppressing todo): ${toMessage(todo.standingSuppression.error)}`,
     );
   }
 
-  if (closureReadFailed) {
+  // Unknown closure mints the todo and makes `close-loop-todos` a no-op.
+  if (todo.closure.kind === "read_failed") {
     await ctx.log(
       `close-loop-todos: thread closure read failed for ${sourceThreadId} (treating as not-replied)`,
     );
@@ -559,48 +491,41 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
 
   // Rail todo (ADR-0050). `suggest_todo` merges on source overlap, so a re-run
   // does not duplicate. A failure is non-fatal: the label and row are the contract.
-  const suppression = todoSuggestion
-    ? todoSuppressionReason({
-        sender: ctxData.document.metadata.from ?? null,
-        subject: ctxData.document.title,
-        signalText: [
-          ctxData.document.title,
-          ctxData.document.content,
-          ctxData.document.metadata.snippet ?? null,
-        ]
-          .filter(Boolean)
-          .join("\n"),
-        // Not persisted, so absent on reuse; the tracker-sender regex covers that.
-        collabActivity: classification.collabActivity ?? null,
-        // On reuse there are no observations, so read the row's verdict (#517 D1).
-        category: classification.category,
-        isColdContact:
-          observations?.senderRelationshipIsCold ??
-          (reusedExistingRow ? (existing?.senderRelationshipIsCold ?? false) : false),
-        // Per message on purpose. `observations.thread` and `newestDirection` both
-        // read `sent` on a fresh inbound after an old reply and withheld its todo.
-        userRepliedAfterMessage: documentRepliedAfter,
-      })
-    : null;
+  if (written && todo.outcome.kind === "suppressed") {
+    const { suppression } = todo.outcome;
 
-  if (written && todoSuggestion && standingSuppression.kind === "suppressed") {
-    const { match } = standingSuppression;
+    switch (suppression.kind) {
+      case "standing_instruction": {
+        const { match } = suppression;
 
-    await ctx.log(
-      `suggest_todo: suppressed reason=standing_instruction ` +
-        `effect=${match.effect} fact=${match.factId} sender=${match.matchedEmail}`,
-    );
-  } else if (written && todoSuggestion && standingSuppression.kind === "read_failed") {
-    await ctx.log(`suggest_todo: suppressed reason=standing_instruction_read_failed`);
-  } else if (written && todoSuggestion && suppression) {
-    await ctx.log(`suggest_todo: suppressed reason=${suppression}`);
-  } else if (written && todoSuggestion && flags.actionItems) {
+        await ctx.log(
+          `suggest_todo: suppressed reason=standing_instruction ` +
+            `effect=${match.effect} fact=${match.factId} sender=${match.matchedEmail}`,
+        );
+        break;
+      }
+
+      case "standing_instruction_read_failed":
+        await ctx.log(`suggest_todo: suppressed reason=standing_instruction_read_failed`);
+        break;
+
+      case "gate":
+        await ctx.log(`suggest_todo: suppressed reason=${suppression.reason}`);
+        break;
+
+      case "action_items_off":
+        // No log line: the user turned action items off.
+        break;
+    }
+  } else if (written && todo.outcome.kind === "mint") {
+    const { todo: suggestion } = todo.outcome;
+
     try {
       const suggested = await suggestTodo({
         userId: ctx.userId,
         agentRunId: ctx.runId,
-        name: todoSuggestion.name,
-        assist: todoSuggestion.assist,
+        name: suggestion.name,
+        assist: suggestion.assist,
         // A `loop` ref folds a tracker that re-notifies on new threads into one todo (#355).
         sources: gmailTodoSources({
           threadId: sourceThreadId,
@@ -633,7 +558,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       rationale: classification.rationale,
       senderContext,
       // Reused by `close-loop-todos`; a second read could see a newer inbound.
-      userAlreadyReplied,
+      userAlreadyReplied: todo.closure.kind === "read" && todo.closure.userAlreadyReplied,
       // Not gated on `written`: an older ask that loses the row race is still an ask.
       // Set on every path, so a stale ask cannot survive into this run.
       documentAsk:

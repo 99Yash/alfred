@@ -116,6 +116,10 @@ export { senderExtractionEvent } from "./sender-extraction-event";
 
 export type { SenderExtractionEvent } from "./sender-extraction-event";
 
+export { decideTriageTodo } from "./todo-decision";
+
+export type { TriageTodoDecision } from "./todo-decision";
+
 export {
   gatherObservations,
   runEmailTriageApplyLabel,
