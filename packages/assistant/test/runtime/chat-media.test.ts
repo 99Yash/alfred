@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { createChatMediaHandler } from "../../src/runtime/adapters/chat-media";
+import { createChatMediaHandler } from "@alfred/assistant/chat/media-adapter";
 import {
   claimChatMediaEnrichment,
   cleanupChatMediaPrefix,

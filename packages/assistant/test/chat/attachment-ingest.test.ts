@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { describe, test } from "node:test";
 
 import { extractChatPdfText } from "@alfred/assistant/chat/attachment-ingest";
-import { pdfDegradedArtifactKey } from "@alfred/assistant/chat";
+import { pdfDegradedArtifactKey } from "@alfred/assistant/chat/attachments/storage";
 
 async function pdfFixture(name: string): Promise<Uint8Array> {
   return new Uint8Array(

@@ -79,9 +79,9 @@ refold failures reject the ingestion job so worker retry and monitoring remain
 effective.
 
 Chat attachment enrichment scheduling and chat-media ingestion jobs enter
-through the ingestion-owned chat-media interface. Runtime composition
-registers one chat adapter before ingestion workers start. The adapter owns the
-attachment claim and enqueue-failure transition, enrichment behavior, object
+through the ingestion-owned chat-media interface. Chat owns the adapter and
+exposes it as `registerChatMediaAdapter`; runtime composition registers it before
+ingestion workers start. The adapter owns the attachment claim and enqueue-failure transition, enrichment behavior, object
 storage checks and deletion, and durable-key lookup for pending-upload cleanup.
 The ingestion queue owns BullMQ job envelopes, delay, deduplication, retry, and
 retention settings. Missing composition and processing failures reject the job
