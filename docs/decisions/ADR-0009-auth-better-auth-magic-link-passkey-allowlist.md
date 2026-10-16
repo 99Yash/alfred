@@ -1,6 +1,8 @@
-# ADR-0009 — Auth: Better Auth + magic link + passkey + allowlist
+# ADR-0009 — Auth: Better Auth + Google social sign-in + allowlist
 
-**Decision.** Better Auth with both email-magic-link and passkey enabled. A signup hook enforces a one-email allowlist (env var). Same shape as `@milkpod/auth`.
+**Status (2026-10-16).** The title used to read "magic link + passkey + allowlist". That was the plan, not the shipped system. Alfred signs in with **Google social sign-in only**, and the one-email allowlist gates it. There is no email, OTP, magic-link, or passkey path. The filename keeps the old slug so that links do not break. The Decision paragraph below records the original plan; the 2026-07-30 correction records what shipped.
+
+**Original decision.** Better Auth with both email-magic-link and passkey enabled. A signup hook enforces a one-email allowlist (env var). Same shape as `@milkpod/auth`.
 
 **Why.**
 
@@ -18,6 +20,8 @@ So the ADR's decision — magic link plus passkey — is entirely **unbuilt**, n
 
 - **There is no recovery path today.** If the Google grant is lost, there is no second way in. At a one-user allowlist that is an acceptable risk, not an oversight — but it is a real one, and it is the reason this ADR should not be closed.
 - **`account.accountLinking.disableImplicitLinking` was considered and rejected** while closing CVE-2026-53516 (#455). With one provider it can never fire, and if magic link later ships first for a given user it would refuse the subsequent Google link with no in-app escape. The version floor (`^1.6.11`, which defaults `requireLocalEmailVerified` to true) is what closes the CVE. Revisit the flag when a second provider and a `linkSocial()` control land together.
+- **The original plan brings back the account-linking surface.** Today Google is the only sign-in path, so no local account exists for a Google callback to link onto. A magic-link sign-in creates a local account for an email address, and a later Google sign-in for that address links onto it. That is the pre-account-takeover pattern of CVE-2026-53516 (#455). Thus, do not treat magic link or passkey as a small addition. It is a change to account linking: keep the `^1.6.11` floor, decide on `disableImplicitLinking`, and add the `linkSocial()` control in the same change.
+- **Moving past one user has a cost that this ADR does not control.** Removing the allowlist is one commit, but the Google scopes that Alfred holds are restricted scopes. A public app with more users needs Google verification and a recurring CASA security assessment. ADR-0044 records the ceiling.
 
 **Alternatives.**
 
