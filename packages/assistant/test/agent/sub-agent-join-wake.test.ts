@@ -179,7 +179,7 @@ async function queuedAgentRunIds(): Promise<Set<string>> {
 }
 
 /**
- * Polls: `signalParentOfSubAgent` runs `emitSubAgentWaitSpan` between the
+ * Polls: `wakeParentOfSubAgent` runs `emitSubAgentWaitSpan` between the
  * parent commit and the enqueue, so one read can miss a healthy wake (PR #786).
  */
 async function assertAgentRunQueued(runId: string): Promise<void> {

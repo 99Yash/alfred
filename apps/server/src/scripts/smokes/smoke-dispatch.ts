@@ -8,7 +8,9 @@
  * after a reject, and idempotent `cancelRun`.
  */
 
-import { cancelRun, signalRun } from "@alfred/assistant/execution";
+import { cancelRun } from "@alfred/assistant/execution";
+// No enqueue: this smoke resumes the run itself, through `dispatchToolCall`.
+import { signalRun } from "@alfred/assistant/execution/service";
 
 import { getStringPath } from "@alfred/contracts";
 

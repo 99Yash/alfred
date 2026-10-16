@@ -14,7 +14,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { redeliverRun, signalRun, startRun, closeAgentQueue } from "@alfred/assistant/execution";
+import { startRun, wakeRun, closeAgentQueue } from "@alfred/assistant/execution";
 import { warmPool } from "@alfred/db";
 import { GOOGLE_SCOPE, getStringPath } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -216,7 +216,7 @@ async function autoApprove(staging: PendingStaging): Promise<void> {
       rowVersion: sql`${actionStagings.rowVersion} + 1`,
     })
     .where(eq(actionStagings.id, staging.id));
-  await signalRun({
+  await wakeRun({
     runId: staging.runId,
     match: {
       kind: "hil",
@@ -224,7 +224,6 @@ async function autoApprove(staging: PendingStaging): Promise<void> {
       approvalKind: "action_staging",
     },
   });
-  await redeliverRun(staging.runId);
   console.log(`[smoke-boss]   auto-approved ${staging.toolName} (${staging.id})`);
 }
 

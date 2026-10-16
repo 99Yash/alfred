@@ -387,20 +387,95 @@ export type SignalOutcome =
 
 type AgentTx = DbTransaction;
 
-/** Move a `waiting` run to `runnable` if its wake condition matches. Returns whether it woke. */
+/**
+ * How a wake hands the run to the agent queue after commit.
+ * - `best_effort`: enqueue only a run that this wake moved to `runnable`, and log a failed
+ *   enqueue. The resume sweep picks up every `runnable` run, so a lost enqueue only adds latency.
+ * - `propagate`: for a caller that retries on a throw, such as a BullMQ job. Every call enqueues
+ *   the run, because an earlier attempt can wake it and then stop before its enqueue. A failed
+ *   enqueue throws. A redundant job is harmless: the worker leases only a `pending` or `runnable`
+ *   run.
+ */
+export type WakeEnqueuePolicy = "best_effort" | "propagate";
+
+export interface WakeRunArgs extends SignalArgs {
+  /** Defaults to `best_effort`. */
+  enqueue?: WakeEnqueuePolicy | undefined;
+}
+
+export interface WakeTxResult {
+  outcome: SignalOutcome;
+  /**
+   * Enqueue the run. Call it once, after commit: an earlier enqueue lets the worker read the row
+   * before it is `runnable`. Resolves true when it enqueued the run.
+   */
+  afterCommit: () => Promise<boolean>;
+}
+
+/**
+ * Wake a parked run, then enqueue it after commit. Returns whether this call woke it.
+ * The wake commits first, so with `best_effort` a failed enqueue cannot fail the wake.
+ */
+export async function wakeRun(args: WakeRunArgs): Promise<boolean> {
+  const { outcome, afterCommit } = await db().transaction((tx) => wakeRunInTx(tx, args));
+  await afterCommit();
+
+  return outcome === "woken";
+}
+
+/**
+ * {@link wakeRun} inside the caller's tx. Call `afterCommit` after commit.
+ * It locks the run row, so a caller that also locks a staging of the run must lock the run first:
+ * use {@link lockStagingWithRunInTx}. An FK INSERT into a child of `agent_runs`
+ * (`action_stagings`, `agent_steps`, ...) also locks the run (`KEY SHARE`), with no visible
+ * `.for(...)`.
+ */
+export async function wakeRunInTx(tx: AgentTx, args: WakeRunArgs): Promise<WakeTxResult> {
+  const outcome = await signalRunInTx(tx, args);
+  const policy = args.enqueue ?? "best_effort";
+
+  return { outcome, afterCommit: () => enqueueAfterWake(args.runId, outcome, policy) };
+}
+
+async function enqueueAfterWake(
+  runId: string,
+  outcome: SignalOutcome,
+  policy: WakeEnqueuePolicy,
+): Promise<boolean> {
+  if (policy === "propagate") {
+    await enqueueRun(runId);
+
+    return true;
+  }
+
+  if (outcome !== "woken") return false;
+
+  try {
+    await enqueueRun(runId);
+
+    return true;
+  } catch (err) {
+    console.warn(
+      "[agent] failed to enqueue woken run; resume sweep will retry",
+      runId,
+      toMessage(err),
+    );
+
+    return false;
+  }
+}
+
+/**
+ * Move a `waiting` run to `runnable` and do not enqueue it. Returns whether it woke.
+ * Only for a test or smoke that then drives the run itself. All other callers use {@link wakeRun}.
+ */
 export async function signalRun(args: SignalArgs): Promise<boolean> {
   const outcome = await db().transaction((tx) => signalRunInTx(tx, args));
 
   return outcome === "woken";
 }
 
-/**
- * {@link signalRun} inside the caller's tx. It locks the run row, so a caller that also locks a
- * staging of the run must lock the run first: use {@link lockStagingWithRunInTx}. An FK INSERT
- * into a child of `agent_runs` (`action_stagings`, `agent_steps`, ...) also locks the run
- * (`KEY SHARE`), with no visible `.for(...)`.
- */
-export async function signalRunInTx(tx: AgentTx, args: SignalArgs): Promise<SignalOutcome> {
+async function signalRunInTx(tx: AgentTx, args: SignalArgs): Promise<SignalOutcome> {
   const match = args.match ?? { kind: "any" };
 
   const rows = await tx
@@ -477,7 +552,7 @@ export type StagingDecisionRow = Pick<
  * An FK INSERT into a child of `agent_runs` also locks the run (`KEY SHARE`), with no visible
  * `.for(...)`, so a tx that locks a staging and then inserts such a child must lock the run first.
  * The run row stays locked until commit. Do not call a helper that opens its own transaction on
- * this run (`withStepLease`, `signalRun`, `cancelRun`): Postgres cannot see a wait across two
+ * this run (`withStepLease`, `wakeRun`, `cancelRun`): Postgres cannot see a wait across two
  * connections, so the request hangs.
  * Returns null when the staging does not exist for this user.
  */
@@ -518,10 +593,13 @@ export async function lockStagingWithRunInTx(
 }
 
 /**
- * Wake the parent that waits on this finished sub-agent (ADR-0073).
- * Returns the parent id if it woke, so the caller can enqueue it. Idempotent.
+ * Wake the parent that waits on this finished sub-agent (ADR-0073), then enqueue it after commit.
+ * Returns whether this call woke it. Idempotent.
  */
-export async function signalParentOfSubAgent(childRunId: string): Promise<string | null> {
+export async function wakeParentOfSubAgent(
+  childRunId: string,
+  opts: { enqueue?: WakeEnqueuePolicy } = {},
+): Promise<boolean> {
   const rows = await db()
     .select({ metadata: agentRuns.metadata, status: agentRuns.status })
     .from(agentRuns)
@@ -530,13 +608,19 @@ export async function signalParentOfSubAgent(childRunId: string): Promise<string
 
   const sub = readSubAgentMetadata(rows[0]?.metadata);
 
-  if (!sub) return null;
+  if (!sub) return false;
 
-  const woken = await signalRun({
-    runId: sub.parentRunId,
-    match: { kind: "signal", name: subAgentDoneSignalName(childRunId) },
-  });
+  const wake = await db().transaction((tx) =>
+    wakeRunInTx(tx, {
+      runId: sub.parentRunId,
+      match: { kind: "signal", name: subAgentDoneSignalName(childRunId) },
+      enqueue: opts.enqueue,
+    }),
+  );
 
+  const woken = wake.outcome === "woken";
+
+  // Before the enqueue, so a `propagate` enqueue failure still records the wait.
   if (woken) {
     const outcome = subAgentOutcomeFromStatus(rows[0]?.status);
 
@@ -545,7 +629,9 @@ export async function signalParentOfSubAgent(childRunId: string): Promise<string
     }
   }
 
-  return woken ? sub.parentRunId : null;
+  await wake.afterCommit();
+
+  return woken;
 }
 
 function subAgentOutcomeFromStatus(status: string | undefined): SubAgentWaitOutcome | null {
@@ -633,9 +719,7 @@ async function dischargeCancelObligations(args: {
   // A parent waiting on this sub-agent would otherwise hang until its dead-man timer (ADR-0073).
   // After commit, so the cancel tx never locks the parent after the child.
   try {
-    const parentRunId = await signalParentOfSubAgent(args.runId);
-
-    if (parentRunId) await enqueueRun(parentRunId);
+    await wakeParentOfSubAgent(args.runId);
   } catch (err) {
     console.warn(
       "[agent] sub-agent parent signal failed for cancelled run",

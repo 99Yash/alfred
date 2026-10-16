@@ -11,8 +11,7 @@ import { agentRuns } from "@alfred/db/schemas";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { Worker, type Job } from "bullmq";
 import { createRedisConnection } from "@alfred/db/redis";
-import { enqueueRun } from "./queue";
-import { signalParentOfSubAgent, signalRun } from "./service";
+import { wakeParentOfSubAgent, wakeRun } from "./service";
 import {
   AWAIT_SUB_AGENT_CEILING_MS,
   SUB_AGENT_JOIN_WAKE_QUEUE_NAME,
@@ -71,11 +70,9 @@ async function processSubAgentJoinWakeJob(
   const { childRunId, parentRunId } = subAgentJoinWakeJobDataSchema.parse(job.data);
 
   try {
-    const woken = await signalParentOfSubAgent(childRunId);
-    // Always enqueue; a redundant enqueue is harmless. A prior attempt may have woken
-    // the parent and died before enqueueing it, so `woken` is null but the parent needs a job.
-    const target = woken ?? parentRunId;
-    await enqueueRun(target);
+    // `propagate`: an enqueue failure throws, and a retry enqueues the parent that an earlier
+    // attempt woke.
+    const woken = await wakeParentOfSubAgent(childRunId, { enqueue: "propagate" });
 
     return { status: woken ? "woken" : "noop", childRunId, parentRunId };
   } catch (err) {
@@ -93,7 +90,7 @@ async function processSubAgentJoinWakeJob(
 /**
  * Wake `waiting` runs whose signal wake deadline is past, and return how many woke. It matches on
  * the wake name the row holds, so a race with the live job or the child signal resolves under the
- * row lock in `signalRunInTx`. `now` comes from the app clock, the same clock that wrote the
+ * row lock in `wakeRun`. `now` comes from the app clock, the same clock that wrote the
  * deadline. A signal wake with no deadline falls back to its park time plus the sub-agent
  * ceiling: the park write is the last writer of `lastCheckpointAt` on a `waiting` row. That is
  * every such wake, not only a legacy row: `StepResult.interrupt.wake` and
@@ -131,27 +128,14 @@ async function wakeOverdueJoinsOnce(now: Date, signal: AbortSignal): Promise<num
     if (deadlineMs > now.getTime()) continue;
 
     try {
-      const didWake = await signalRun({
+      // During a Redis outage the enqueue hangs instead of failing, and this pass stalls until
+      // Redis returns (a follow-up moves the enqueue out of the pass).
+      const didWake = await wakeRun({
         runId: row.id,
         match: { kind: "signal", name: wake.data.name },
       });
 
-      if (!didWake) continue;
-      woken += 1;
-
-      try {
-        await enqueueRun(row.id);
-      } catch (err) {
-        // The resume sweep picks up a `runnable` run, so a lost enqueue only adds latency. During a
-        // Redis outage the enqueue hangs instead of failing, and this pass stalls until
-        // Redis returns (a follow-up moves the enqueue out of the pass).
-        console.warn(
-          "[sub-agent-join:wake-reconciler] failed to enqueue",
-          row.id,
-          toMessage(err),
-          "— resume sweep will retry",
-        );
-      }
+      if (didWake) woken += 1;
     } catch (err) {
       console.warn("[sub-agent-join:wake-reconciler] failed to wake", row.id, toMessage(err));
     }

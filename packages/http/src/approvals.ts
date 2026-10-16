@@ -6,8 +6,7 @@ import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { authMacro } from "./middleware/auth";
 import {
   lockStagingWithRunInTx,
-  redeliverRun,
-  signalRunInTx,
+  wakeRunInTx,
   type CancelOutcome,
   type SignalOutcome,
 } from "@alfred/assistant/execution";
@@ -26,7 +25,6 @@ import {
   Errors,
   isQuestionApproval,
   jsonValueSchema,
-  toMessage,
 } from "@alfred/contracts";
 import {
   prepareWorkflowApprovalEdit,
@@ -43,7 +41,8 @@ interface DecisionOutcome {
   runId: string;
   decision: Decision;
   status: "approved" | "rejected";
-  shouldEnqueue: boolean;
+  /** Set by `approve` and `reject`. Run it after commit. Resolves true if it enqueued the run. */
+  wakeAfterCommit?: () => Promise<boolean>;
   /** Set only by a real `cancel_run`. Run it after commit. Never throws. */
   cancelAfterCommit?: () => Promise<void>;
   /** Emitted after commit, so the span needs no second row read. */
@@ -162,12 +161,12 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
             }
 
             // Match on the staging id alone; the wake already carries the kind (ADR-0099).
-            const signalOutcome = await signalRunInTx(tx, {
+            const wake = await wakeRunInTx(tx, {
               runId: row.runId,
               match: { kind: "hil", approvalId: params.stagingId },
             });
 
-            const conflict = signalOutcomeConflict(signalOutcome);
+            const conflict = signalOutcomeConflict(wake.outcome);
 
             if (conflict) return { conflict };
             await tx
@@ -189,15 +188,13 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
               runId: row.runId,
               decision,
               status: "approved",
-              shouldEnqueue: signalOutcome === "woken",
+              wakeAfterCommit: wake.afterCommit,
               approvalWait: approvalWaitEmit(
                 row,
                 isQuestionApproval(row.toolName) ? "answered" : "approved",
               ),
             };
           }
-
-          let shouldEnqueue = false;
 
           if (decision === "cancel_run") {
             const { outcome: cancelOutcome, afterCommit } = await cancelRunInTx(tx, {
@@ -214,22 +211,19 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
               runId: row.runId,
               decision,
               status: "rejected",
-              shouldEnqueue,
               cancelAfterCommit: afterCommit,
               approvalWait: approvalWaitEmit(row, "cancelled"),
             };
-          } else {
-            const signalOutcome = await signalRunInTx(tx, {
-              runId: row.runId,
-              match: { kind: "hil", approvalId: params.stagingId },
-            });
-
-            const conflict = signalOutcomeConflict(signalOutcome);
-
-            if (conflict) return { conflict };
-            shouldEnqueue = signalOutcome === "woken";
           }
 
+          const wake = await wakeRunInTx(tx, {
+            runId: row.runId,
+            match: { kind: "hil", approvalId: params.stagingId },
+          });
+
+          const conflict = signalOutcomeConflict(wake.outcome);
+
+          if (conflict) return { conflict };
           await tx
             .update(actionStagings)
             .set({
@@ -246,7 +240,7 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
             runId: row.runId,
             decision,
             status: "rejected",
-            shouldEnqueue,
+            wakeAfterCommit: wake.afterCommit,
             approvalWait: approvalWaitEmit(
               row,
               isQuestionApproval(row.toolName) ? "dismissed" : "rejected",
@@ -284,21 +278,7 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
         // Idempotent, so a repeat after a cancel is harmless.
         await removeApprovalNotificationJob(params.stagingId);
         await removeApprovalExpiryJob(params.stagingId);
-
-        let enqueued = false;
-
-        if (outcome.shouldEnqueue) {
-          try {
-            await redeliverRun(outcome.runId);
-            enqueued = true;
-          } catch (err) {
-            console.warn(
-              "[approvals] failed to enqueue woken run; resume sweep will retry",
-              outcome.runId,
-              toMessage(err),
-            );
-          }
-        }
+        const enqueued = (await outcome.wakeAfterCommit?.()) ?? false;
 
         // Best effort: backdated to the staging's `createdAt`, closed now.
         if (outcome.approvalWait) {

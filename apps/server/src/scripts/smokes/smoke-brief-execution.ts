@@ -11,7 +11,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { redeliverRun, signalRun, startRun, closeAgentQueue } from "@alfred/assistant/execution";
+import { startRun, wakeRun, closeAgentQueue } from "@alfred/assistant/execution";
 import { warmPool } from "@alfred/db";
 import { getStringPath, toRecord } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -134,11 +134,10 @@ async function autoApprove(staging: PendingStaging): Promise<void> {
     })
     .where(eq(actionStagings.id, staging.id));
 
-  await signalRun({
+  await wakeRun({
     runId: staging.runId,
     match: { kind: "hil", approvalId: staging.id, approvalKind: "action_staging" },
   });
-  await redeliverRun(staging.runId);
   console.log(`[smoke-brief-execution]   auto-approved ${staging.toolName} (${staging.id})`);
 }
 
@@ -228,7 +227,7 @@ function isStringArray(v: unknown): v is string[] {
 
 async function main(): Promise<void> {
   await warmPool();
-  // Register here too, so direct calls like signalRun resolve in this process.
+  // Register here too, so direct calls like wakeRun resolve in this process.
   registerBuiltinWorkflows();
 
   const target = await pickGoogleConnectedUser();

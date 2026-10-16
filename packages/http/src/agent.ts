@@ -6,7 +6,7 @@ import {
   getRun,
   replayRun,
   redeliverRun,
-  signalRun,
+  wakeRun,
   listPublicWorkflows,
 } from "@alfred/assistant/execution";
 import type { SignalArgs } from "@alfred/assistant/execution";
@@ -145,10 +145,9 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
             }
           }
 
-          const woken = await signalRun({ runId: params.runId, match });
+          const woken = await wakeRun({ runId: params.runId, match });
 
           if (!woken) throw Errors.ConflictError("Run not waiting on a matching condition");
-          await redeliverRun(params.runId);
 
           return { ok: true };
         },
