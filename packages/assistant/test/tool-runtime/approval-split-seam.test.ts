@@ -14,7 +14,7 @@ import {
   scheduleApprovalNotificationJob,
 } from "@alfred/assistant/tool-runtime";
 import {
-  expireStaging,
+  stagedAction,
   startApprovalExpiryWorker,
   startApprovalNotificationWorker,
   stopApprovalExpiryWorker,
@@ -24,7 +24,7 @@ import {
 /**
  * Approval queue names and job-id formats must not change: a delayed job in flight
  * at deploy would land on a queue no worker reads. Also checks the owner indexes
- * export the helpers. `smoke-expiry` covers `expireStaging` against a live DB.
+ * export the helpers. `smoke-expiry` covers `stagedAction(...).expire()` against a live DB.
  */
 describe("approvals split — queue identity + owner-index reachability", () => {
   test("queue-name constants are byte-identical to before the split", () => {
@@ -52,7 +52,7 @@ describe("approvals split — queue identity + owner-index reachability", () => 
 
   test("workers + expiry transition are reachable from the agent index", () => {
     for (const fn of [
-      expireStaging,
+      stagedAction,
       startApprovalExpiryWorker,
       stopApprovalExpiryWorker,
       startApprovalNotificationWorker,

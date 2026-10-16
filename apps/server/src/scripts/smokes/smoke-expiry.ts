@@ -1,6 +1,7 @@
 /**
  * Smoke test for approval expiry on real Postgres and Redis, with a stub tool.
- * It backdates `expires_at` and calls `expireStaging` directly instead of waiting 24h for the job.
+ * It backdates `expires_at` and calls `stagedAction(...).expire()` directly instead of waiting 24h
+ * for the job.
  * Covers: staging sets `expires_at` and queues a job; the deferred gate no-ops expiry before
  * `expires_at`; expiry wakes the run and a re-dispatch returns 'auto-expired' without executing;
  * a human decision wins; `removeApprovalExpiryJob` cancels the timer.
@@ -24,7 +25,7 @@ import {
 
 import { dispatchToolCall } from "@alfred/assistant/tool-runtime/dispatch";
 import { stubIntegrationHealthForTests } from "@alfred/assistant/tool-runtime/test-support";
-import { expireStaging } from "@alfred/assistant/execution";
+import { stagedAction } from "@alfred/assistant/execution";
 import { closeAgentQueue, getAgentQueue } from "@alfred/assistant/execution/queue";
 import { clearToolRegistryForTests, liveTool, registerTools } from "@alfred/assistant/tool-runtime";
 import { warmPool } from "@alfred/db";
@@ -233,13 +234,13 @@ async function main(): Promise<void> {
   assert(queuedJob, "dispatcher must enqueue a staging-expire job for a gated row");
   console.log("[smoke-expiry] 1. staging: expires_at set, expiry job queued ✓");
 
-  // 2. expireStaging on a parked, pending row
+  // 2. expire on a parked, pending row
   await parkRunOnApproval(runId1, stagedId);
 
-  const early = await expireStaging({ stagingId: stagedId, userId });
+  const early = await stagedAction({ userId, stagingId: stagedId }).expire();
   assert(
-    early.status === "deferred",
-    `expireStaging before expires_at expected 'deferred', got '${early.status}'`,
+    early.kind === "deferred",
+    `expire before expires_at expected 'deferred', got ${JSON.stringify(early)}`,
   );
 
   const deferredRow = (
@@ -260,8 +261,8 @@ async function main(): Promise<void> {
   console.log("[smoke-expiry] 2. deferred: expiry before expires_at is a no-op ✓");
 
   await backdateExpiry(stagedId);
-  const expired = await expireStaging({ stagingId: stagedId, userId });
-  assert(expired.status === "expired", `expireStaging expected 'expired', got '${expired.status}'`);
+  const expired = await stagedAction({ userId, stagingId: stagedId }).expire();
+  assert(expired.kind === "expired", `expire expected 'expired', got ${JSON.stringify(expired)}`);
   assert(draftExec === 0, "expiry must not execute the tool");
 
   const expiredRow = (
@@ -312,10 +313,12 @@ async function main(): Promise<void> {
   assert(draftExec === 0, "re-dispatch of expired row must not execute the tool");
   console.log("[smoke-expiry] 2. re-dispatch: synthesized auto-expired rejection, tool not run ✓");
 
-  const expiredAgain = await expireStaging({ stagingId: stagedId, userId });
+  const expiredAgain = await stagedAction({ userId, stagingId: stagedId }).expire();
   assert(
-    expiredAgain.status === "skipped" && expiredAgain.reason === "expired",
-    `second expireStaging expected skipped/expired, got '${expiredAgain.status}'/'${expiredAgain.reason}'`,
+    expiredAgain.kind === "refused" &&
+      expiredAgain.reason.refusal === "already_decided" &&
+      expiredAgain.reason.status === "expired",
+    `second expire expected already_decided/expired, got ${JSON.stringify(expiredAgain)}`,
   );
   console.log("[smoke-expiry] 2. idempotent: second expire is a no-op ✓");
 
@@ -327,10 +330,12 @@ async function main(): Promise<void> {
     .set({ status: "approved", decidedAt: new Date() })
     .where(eq(actionStagings.id, decidedId));
 
-  const skipped = await expireStaging({ stagingId: decidedId, userId });
+  const skipped = await stagedAction({ userId, stagingId: decidedId }).expire();
   assert(
-    skipped.status === "skipped" && skipped.reason === "approved",
-    `expireStaging on approved row expected skipped/approved, got '${skipped.status}'/'${skipped.reason}'`,
+    skipped.kind === "refused" &&
+      skipped.reason.refusal === "already_decided" &&
+      skipped.reason.status === "approved",
+    `expire on approved row expected already_decided/approved, got ${JSON.stringify(skipped)}`,
   );
 
   const stillApproved = (

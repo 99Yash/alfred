@@ -1,69 +1,15 @@
-import { db } from "@alfred/db";
-import { actionStagings } from "@alfred/db/schemas";
-import { eq, sql } from "drizzle-orm";
 import { Elysia, t } from "elysia";
-import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { authMacro } from "./middleware/auth";
 import {
-  lockStagingWithRunInTx,
-  wakeRunInTx,
-  type CancelOutcome,
-  type SignalOutcome,
+  stagedAction,
+  type StagedActionDecision,
+  type StagedActionRefusal,
 } from "@alfred/assistant/execution";
-import { cancelRunInTx } from "@alfred/assistant/execution/service";
-import {
-  removeApprovalExpiryJob,
-  removeApprovalNotificationJob,
-  scheduleApprovalExpiryJob,
-} from "@alfred/assistant/tool-runtime";
-import {
-  startApprovalWaitSpan,
-  type ApprovalWaitOutcome,
-} from "@alfred/assistant/execution/runtime-spans";
-import {
-  askUserDecidedInput,
-  Errors,
-  isQuestionApproval,
-  jsonValueSchema,
-} from "@alfred/contracts";
-import {
-  prepareWorkflowApprovalEdit,
-  restageWorkflowApproval,
-  type WorkflowApprovalEditPreparation,
-} from "@alfred/assistant/automation";
+import { Errors, jsonValueSchema, type JsonValue } from "@alfred/contracts";
+import { prepareStagedApproval } from "@alfred/assistant/automation";
 import { requireOnboarded } from "./middleware/onboarding";
 
-type Decision = "approve" | "reject" | "cancel_run";
-
-const CANCEL_RUN_REASON = "cancelled_by_user";
-
-interface DecisionOutcome {
-  runId: string;
-  decision: Decision;
-  status: "approved" | "rejected";
-  /** Set by `approve` and `reject`. Run it after commit. Resolves true if it enqueued the run. */
-  wakeAfterCommit?: () => Promise<boolean>;
-  /** Set only by a real `cancel_run`. Run it after commit. Never throws. */
-  cancelAfterCommit?: () => Promise<void>;
-  /** Emitted after commit, so the span needs no second row read. */
-  approvalWait?: ApprovalWaitEmit;
-}
-
-interface RefreshedOutcome {
-  runId: string;
-  status: "pending";
-  refreshed: true;
-  expiresAt: Date;
-}
-
-interface ApprovalWaitEmit {
-  runId: string;
-  startedAt: Date;
-  toolName: string;
-  integration: string;
-  riskTier: string;
-  outcome: ApprovalWaitOutcome;
-}
+type Decision = StagedActionDecision["decision"];
 
 /** Records a decision on an `action_stagings` row, then wakes or cancels the parked run. */
 export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize: "typebox" })
@@ -84,215 +30,40 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
         const editedInput =
           body.editedInput === undefined ? undefined : jsonValueSchema.parse(body.editedInput);
 
-        // The plain-reject check needs the locked row, so it runs below.
-        if (decision === "cancel_run" && !reason) {
-          throw Errors.BadRequestError("Rejecting an action requires a reason");
-        }
+        const { expectedRowVersion } = body;
+        const action = stagedAction({ userId: user.id, stagingId: params.stagingId });
 
-        // Read outside the transaction, so the row lock stays short.
-        let workflowEdit: WorkflowApprovalEditPreparation = { kind: "not_workflow" };
-
-        if (decision === "approve") {
-          workflowEdit = await prepareWorkflowApprovalEdit({
-            userId: user.id,
-            stagingId: params.stagingId,
-            expectedRowVersion: body.expectedRowVersion,
-            editedInput,
-          });
-
-          if (workflowEdit.kind === "invalid") {
-            throw Errors.BadRequestError(workflowEdit.message);
-          }
-        }
-
-        const outcome = await db().transaction<
-          | DecisionOutcome
-          | RefreshedOutcome
-          | { notFound: true }
-          | { conflict: string }
-          | { badRequest: string }
-        >(async (tx) => {
-          const row = await lockStagingWithRunInTx(tx, {
-            stagingId: params.stagingId,
-            userId: user.id,
-          });
-
-          if (!row) return { notFound: true };
-
-          if (!row.requiresApproval) {
-            return { conflict: "Action does not require approval" };
-          }
-
-          if (row.status !== "pending") {
-            return { conflict: `Action is already ${row.status}` };
-          }
-
-          if (row.rowVersion !== body.expectedRowVersion) {
-            return { conflict: "The approval changed. Review the latest contract." };
-          }
-
-          // A question needs no reason: dismissal is the answer (ADR-0099).
-          if (decision === "reject" && !reason && !isQuestionApproval(row.toolName)) {
-            return { badRequest: "Rejecting an action requires a reason" };
-          }
-
-          const now = new Date();
-
-          if (decision === "approve") {
-            // Validate answers here, so a bad answer list is a 400 on the card (ADR-0099).
-            if (isQuestionApproval(row.toolName) && editedInput !== undefined) {
-              const answered = askUserDecidedInput.safeParse(editedInput);
-
-              if (!answered.success) {
-                const issue = answered.error.issues[0];
-                const where = issue?.path.length ? ` at ${issue.path.join(".")}` : "";
-
-                return {
-                  badRequest: `Answers do not fit the questions${where}: ${issue?.message ?? "invalid input"}`,
-                };
-              }
-            }
-
-            // An edited workflow needs a second approval of fields the user has seen.
-            if (workflowEdit.kind === "prepared" && workflowEdit.requiresReview) {
-              const expiresAt = await restageWorkflowApproval(tx, row.id, workflowEdit.input);
-
-              return { runId: row.runId, status: "pending", refreshed: true, expiresAt };
-            }
-
-            // Match on the staging id alone; the wake already carries the kind (ADR-0099).
-            const wake = await wakeRunInTx(tx, {
-              runId: row.runId,
-              match: { kind: "hil", approvalId: params.stagingId },
-            });
-
-            const conflict = signalOutcomeConflict(wake.outcome);
-
-            if (conflict) return { conflict };
-            await tx
-              .update(actionStagings)
-              .set({
-                status: "approved",
-                // The MCP broker requires `dispatching` before it reserves an invocation.
-                outcome: "dispatching",
-                decidedInput:
-                  workflowEdit.kind === "prepared"
-                    ? jsonValueSchema.parse(workflowEdit.input)
-                    : editedInput,
-                decidedAt: now,
-                rowVersion: sql`${actionStagings.rowVersion} + 1`,
-              })
-              .where(eq(actionStagings.id, row.id));
-
-            return {
-              runId: row.runId,
-              decision,
-              status: "approved",
-              wakeAfterCommit: wake.afterCommit,
-              approvalWait: approvalWaitEmit(
-                row,
-                isQuestionApproval(row.toolName) ? "answered" : "approved",
-              ),
-            };
-          }
-
-          if (decision === "cancel_run") {
-            const { outcome: cancelOutcome, afterCommit } = await cancelRunInTx(tx, {
-              runId: row.runId,
-              reason: CANCEL_RUN_REASON,
-              pendingApprovalRejectReason: reason,
-            });
-
-            const conflict = cancelOutcomeConflict(cancelOutcome);
-
-            if (conflict) return { conflict };
-
-            return {
-              runId: row.runId,
-              decision,
-              status: "rejected",
-              cancelAfterCommit: afterCommit,
-              approvalWait: approvalWaitEmit(row, "cancelled"),
-            };
-          }
-
-          const wake = await wakeRunInTx(tx, {
-            runId: row.runId,
-            match: { kind: "hil", approvalId: params.stagingId },
-          });
-
-          const conflict = signalOutcomeConflict(wake.outcome);
-
-          if (conflict) return { conflict };
-          await tx
-            .update(actionStagings)
-            .set({
-              status: "rejected",
-              // `refused`, not `failed`: the provider was never called.
-              outcome: "refused",
-              rejectReason: reason ?? null,
-              decidedAt: now,
-              rowVersion: sql`${actionStagings.rowVersion} + 1`,
-            })
-            .where(eq(actionStagings.id, row.id));
-
-          return {
-            runId: row.runId,
+        const outcome = await action.decide(
+          await toStagedActionDecision({
             decision,
-            status: "rejected",
-            wakeAfterCommit: wake.afterCommit,
-            approvalWait: approvalWaitEmit(
-              row,
-              isQuestionApproval(row.toolName) ? "dismissed" : "rejected",
-            ),
-          };
-        });
-
-        if ("notFound" in outcome) throw Errors.NotFoundError("Approval not found");
-
-        if ("conflict" in outcome) throw Errors.ConflictError(outcome.conflict);
-
-        if ("badRequest" in outcome) throw Errors.BadRequestError(outcome.badRequest);
-
-        emitReplicachePokes([user.id], params.stagingId);
-
-        if ("refreshed" in outcome) {
-          await removeApprovalExpiryJob(params.stagingId);
-          await scheduleApprovalExpiryJob({
-            stagingId: params.stagingId,
+            reason,
+            editedInput,
+            expectedRowVersion,
             userId: user.id,
-            delayMs: outcome.expiresAt.getTime() - Date.now(),
-          });
+            stagingId: params.stagingId,
+          }),
+        );
 
+        if (outcome.kind === "refused") throw refusalError(outcome.reason);
+
+        if (outcome.kind === "invalid") throw Errors.BadRequestError(outcome.message);
+
+        if (outcome.kind === "restaged") {
           return {
             ok: true,
             runId: outcome.runId,
-            status: outcome.status,
+            status: "pending" as const,
             refreshed: true,
             enqueued: false,
           };
         }
 
-        // Without it, a cancelled chat turn's streaming bubble hangs forever.
-        await outcome.cancelAfterCommit?.();
-        // Idempotent, so a repeat after a cancel is harmless.
-        await removeApprovalNotificationJob(params.stagingId);
-        await removeApprovalExpiryJob(params.stagingId);
-        const enqueued = (await outcome.wakeAfterCommit?.()) ?? false;
-
-        // Best effort: backdated to the staging's `createdAt`, closed now.
-        if (outcome.approvalWait) {
-          const wait = outcome.approvalWait;
-          startApprovalWaitSpan({
-            runId: wait.runId,
-            startedAt: wait.startedAt,
-            toolName: wait.toolName,
-            integration: wait.integration,
-            riskTier: wait.riskTier,
-          }).end(wait.outcome, new Date());
-        }
-
-        return { ok: true, runId: outcome.runId, status: outcome.status, enqueued };
+        return {
+          ok: true,
+          runId: outcome.runId,
+          status: outcome.status,
+          enqueued: outcome.enqueued,
+        };
       },
       {
         params: t.Object({ stagingId: t.String({ minLength: 1, maxLength: 120 }) }),
@@ -312,46 +83,64 @@ function parseDecision(value: string): Decision | null {
   return null;
 }
 
-function approvalWaitEmit(
-  row: { runId: string; createdAt: Date; toolName: string; integration: string; riskTier: string },
-  outcome: ApprovalWaitOutcome,
-): ApprovalWaitEmit {
-  return {
-    runId: row.runId,
-    startedAt: row.createdAt,
-    toolName: row.toolName,
-    integration: row.integration,
-    riskTier: row.riskTier,
-    outcome,
-  };
+/** The checks that need no row lock. The plain-reject reason check needs the row, so it is in `decide`. */
+async function toStagedActionDecision(args: {
+  decision: Decision;
+  reason: string | undefined;
+  editedInput: JsonValue | undefined;
+  expectedRowVersion: number;
+  userId: string;
+  stagingId: string;
+}): Promise<StagedActionDecision> {
+  const { decision, reason, expectedRowVersion } = args;
+
+  if (decision === "cancel_run") {
+    if (!reason) throw Errors.BadRequestError("Rejecting an action requires a reason");
+
+    return { decision, expectedRowVersion, reason };
+  }
+
+  if (decision === "reject") return { decision, expectedRowVersion, reason };
+
+  const prepared = await prepareStagedApproval({
+    userId: args.userId,
+    stagingId: args.stagingId,
+    expectedRowVersion,
+    editedInput: args.editedInput,
+  });
+
+  if (prepared.kind === "invalid") throw Errors.BadRequestError(prepared.message);
+
+  return { decision, expectedRowVersion, approval: prepared.approval };
 }
 
-/**
- * `null` only if the run woke. `not_waiting` is a conflict: recording the decision
- * would retire the row while the gated tool call never gets the answer.
- */
-function signalOutcomeConflict(outcome: SignalOutcome): string | null {
-  if (outcome === "woken") return null;
-
-  if (outcome === "not_found") return "Run not found";
-
-  if (outcome === "not_waiting") return "Run is not waiting for an approval";
-
-  if (outcome === "wake_mismatch") return "Run is not waiting for this approval";
-
-  if (outcome === "already_terminal") return "Run has already finished";
-  const unhandled: never = outcome;
-
-  return unhandled;
+/** `not_found` is a 404. Every other refusal is a 409 conflict with the card's current state. */
+function refusalError(reason: StagedActionRefusal): Error {
+  switch (reason.refusal) {
+    case "not_found":
+      return Errors.NotFoundError("Approval not found");
+    case "not_gated":
+      return Errors.ConflictError("Action does not require approval");
+    case "already_decided":
+      return Errors.ConflictError(`Action is already ${reason.status}`);
+    case "stale_version":
+      return Errors.ConflictError("The approval changed. Review the latest contract.");
+    case "run_unavailable":
+      return Errors.ConflictError(runUnavailableMessage(reason.run));
+  }
 }
 
-function cancelOutcomeConflict(outcome: CancelOutcome): string | null {
-  if (outcome === "cancelled") return null;
-
-  if (outcome === "not_found") return "Run not found";
-
-  if (outcome === "already_terminal") return "Run has already finished";
-  const unhandled: never = outcome;
-
-  return unhandled;
+function runUnavailableMessage(
+  run: Extract<StagedActionRefusal, { refusal: "run_unavailable" }>["run"],
+): string {
+  switch (run) {
+    case "not_found":
+      return "Run not found";
+    case "not_waiting":
+      return "Run is not waiting for an approval";
+    case "wake_mismatch":
+      return "Run is not waiting for this approval";
+    case "already_terminal":
+      return "Run has already finished";
+  }
 }

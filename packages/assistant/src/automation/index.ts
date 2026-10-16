@@ -36,11 +36,7 @@ export type {
   WorkflowServiceResult,
 } from "./revisions";
 
-export {
-  prepareWorkflowApprovalEdit,
-  restageWorkflowApproval,
-  type WorkflowApprovalEditPreparation,
-} from "./approval-activation";
+export { prepareStagedApproval, type StagedApprovalPreparation } from "./approval-activation";
 
 export { acceptEvent } from "./events";
 

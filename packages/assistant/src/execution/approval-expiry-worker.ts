@@ -8,16 +8,13 @@
 
 import { db } from "@alfred/db";
 import { actionStagings, agentRuns } from "@alfred/db/schemas";
-import { and, asc, eq, lte, sql } from "drizzle-orm";
+import { and, asc, eq, lte } from "drizzle-orm";
 import { DelayedError, Worker, type Job } from "bullmq";
-import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { createRedisConnection } from "@alfred/db/redis";
-import { lockStagingWithRunInTx, wakeRunInTx } from "./service";
-import { startApprovalWaitSpan } from "./runtime-spans";
+import { stagedAction, type ExpireOutcome } from "./staged-action";
 import {
   APPROVAL_EXPIRY_QUEUE_NAME,
   approvalExpiryJobDataSchema,
-  removeApprovalNotificationJob,
   type ApprovalExpiryJobData,
 } from "@alfred/assistant/tool-runtime";
 import { toMessage } from "@alfred/contracts";
@@ -60,13 +57,11 @@ export async function stopApprovalExpiryWorker(): Promise<void> {
   _worker = undefined;
 }
 
-async function processApprovalExpiryJob(
-  job: Job<ApprovalExpiryJobData>,
-): Promise<ExpireStagingResult> {
+async function processApprovalExpiryJob(job: Job<ApprovalExpiryJobData>): Promise<ExpireOutcome> {
   const { stagingId, userId } = approvalExpiryJobDataSchema.parse(job.data);
-  const result = await expireStaging({ stagingId, userId });
+  const result = await stagedAction({ userId, stagingId }).expire();
 
-  if (result.status === "deferred") {
+  if (result.kind === "deferred") {
     await job.moveToDelayed(result.expiresAt.getTime(), job.token);
     throw new DelayedError();
   }
@@ -74,110 +69,10 @@ async function processApprovalExpiryJob(
   return result;
 }
 
-export type ExpireStagingResult =
-  | {
-      status: "expired";
-      stagingId: string;
-      runId: string;
-      enqueued: boolean;
-      reason?: undefined;
-    }
-  | { status: "skipped"; stagingId: string; reason: string }
-  | { status: "deferred"; stagingId: string; expiresAt: Date; reason?: undefined };
-
-/** Idempotent: a row that is no longer pending returns `skipped`. */
-export async function expireStaging(args: {
-  stagingId: string;
-  userId: string;
-}): Promise<ExpireStagingResult> {
-  const { stagingId, userId } = args;
-
-  // One tx with the run and staging locks, so a racing human decision either wins or waits.
-  const outcome = await db().transaction<
-    | {
-        kind: "expired";
-        runId: string;
-        wakeAfterCommit: () => Promise<boolean>;
-        startedAt: Date;
-        toolName: string;
-        integration: string;
-        riskTier: string;
-      }
-    | { kind: "skipped"; reason: string }
-    | { kind: "deferred"; expiresAt: Date }
-  >(async (tx) => {
-    const row = await lockStagingWithRunInTx(tx, { stagingId, userId });
-
-    if (!row) return { kind: "skipped", reason: "missing" };
-
-    if (row.status !== "pending") return { kind: "skipped", reason: row.status };
-
-    if (!row.requiresApproval) return { kind: "skipped", reason: "not_gated" };
-
-    if (row.expiresAt && row.expiresAt.getTime() > Date.now()) {
-      return { kind: "deferred", expiresAt: row.expiresAt };
-    }
-
-    // Match on the staging id alone; the wake already carries the kind (ADR-0099).
-    const wake = await wakeRunInTx(tx, {
-      runId: row.runId,
-      match: { kind: "hil", approvalId: stagingId },
-    });
-
-    // Expire only if the run is parked on this approval.
-    if (wake.outcome !== "woken") {
-      return { kind: "skipped", reason: `signal_${wake.outcome}` };
-    }
-
-    const now = new Date();
-    await tx
-      .update(actionStagings)
-      .set({
-        status: "expired",
-        // The provider was never called (#559a).
-        outcome: "refused",
-        rejectReason: "auto-expired",
-        decidedAt: now,
-        rowVersion: sql`${actionStagings.rowVersion} + 1`,
-      })
-      .where(eq(actionStagings.id, row.id));
-
-    return {
-      kind: "expired",
-      runId: row.runId,
-      wakeAfterCommit: wake.afterCommit,
-      startedAt: row.createdAt,
-      toolName: row.toolName,
-      integration: row.integration,
-      riskTier: row.riskTier,
-    };
-  });
-
-  if (outcome.kind === "skipped") return { status: "skipped", reason: outcome.reason, stagingId };
-
-  if (outcome.kind === "deferred") {
-    return { status: "deferred", stagingId, expiresAt: outcome.expiresAt };
-  }
-
-  emitReplicachePokes([userId], stagingId);
-  startApprovalWaitSpan({
-    runId: outcome.runId,
-    startedAt: outcome.startedAt,
-    toolName: outcome.toolName,
-    integration: outcome.integration,
-    riskTier: outcome.riskTier,
-  }).end("expired", new Date());
-  // So a queued notification cannot email about an expired action.
-  await removeApprovalNotificationJob(stagingId);
-  const enqueued = await outcome.wakeAfterCommit();
-
-  return { status: "expired", stagingId, runId: outcome.runId, enqueued };
-}
-
 /**
  * Expire overdue gated rows whose run still waits, and return how many expired. The join keeps
  * a row whose run left `waiting` out of the batch, so it cannot starve the rest. `now` comes from
- * the app clock, the same clock `expireStaging` checks, so a row cannot loop on `deferred`.
+ * the app clock, the same clock `expire` checks, so a row cannot loop on `deferred`.
  */
 async function expireOverdueStagingsOnce(now: Date, signal: AbortSignal): Promise<number> {
   const overdue = await db()
@@ -201,9 +96,9 @@ async function expireOverdueStagingsOnce(now: Date, signal: AbortSignal): Promis
     if (signal.aborted) break;
 
     try {
-      const result = await expireStaging({ stagingId: row.id, userId: row.userId });
+      const result = await stagedAction({ userId: row.userId, stagingId: row.id }).expire();
 
-      if (result.status === "expired") expired += 1;
+      if (result.kind === "expired") expired += 1;
     } catch (err) {
       console.warn("[approvals:expiry-reconciler] failed to expire", row.id, toMessage(err));
     }

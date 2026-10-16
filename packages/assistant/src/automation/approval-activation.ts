@@ -1,31 +1,31 @@
 import {
   activateWorkflowInputSchema,
-  APPROVAL_EXPIRY_MS,
   canonicalJson,
   hashToolInput,
   jsonValueSchema,
+  type JsonValue,
 } from "@alfred/contracts";
-import { db, type DbTransaction } from "@alfred/db";
+import { db } from "@alfred/db";
 import { actionStagings } from "@alfred/db/schemas";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
+import type { StagedApproval } from "@alfred/assistant/execution";
 import { refreshWorkflowActivationProposal, type WorkflowServiceFailure } from "./revisions";
 
-export type WorkflowApprovalEditPreparation =
-  | { kind: "not_workflow" }
+export type StagedApprovalPreparation =
   | { kind: "invalid"; message: string }
-  | {
-      kind: "prepared";
-      input: ReturnType<typeof activateWorkflowInputSchema.parse>;
-      requiresReview: boolean;
-    };
+  | { kind: "prepared"; approval: StagedApproval };
 
-/** Validate and canonicalize an edited workflow card before the decision lock. */
-export async function prepareWorkflowApprovalEdit(args: {
+/**
+ * Turn an approve click into what `stagedAction(...).decide` writes. It reads outside the decision
+ * transaction, so the row lock stays short. A workflow activation card is validated and
+ * canonicalized here. Every other card approves the user's edit as sent.
+ */
+export async function prepareStagedApproval(args: {
   userId: string;
   stagingId: string;
   expectedRowVersion: number;
-  editedInput?: unknown;
-}): Promise<WorkflowApprovalEditPreparation> {
+  editedInput: JsonValue | undefined;
+}): Promise<StagedApprovalPreparation> {
   const [candidate] = await db()
     .select({
       toolName: actionStagings.toolName,
@@ -35,7 +35,9 @@ export async function prepareWorkflowApprovalEdit(args: {
     .from(actionStagings)
     .where(and(eq(actionStagings.id, args.stagingId), eq(actionStagings.userId, args.userId)));
 
-  if (candidate?.toolName !== "system.activate_workflow") return { kind: "not_workflow" };
+  if (candidate?.toolName !== "system.activate_workflow") {
+    return { kind: "prepared", approval: { kind: "decide", decidedInput: args.editedInput } };
+  }
 
   if (candidate.rowVersion !== args.expectedRowVersion) {
     return { kind: "invalid", message: "The approval changed. Review the latest contract." };
@@ -69,38 +71,30 @@ export async function prepareWorkflowApprovalEdit(args: {
     return { kind: "invalid", message: workflowRefreshFailureMessage(refreshed.failure) };
   }
 
+  // #374: one parse feeds every column, so readers can trust the display column.
+  const input = jsonValueSchema.parse(refreshed.input);
+
+  const requiresReview =
+    canonicalJson(reviewedDerivedContract(staged.data)) !==
+    canonicalJson(reviewedDerivedContract(refreshed.input));
+
+  if (!requiresReview) {
+    return { kind: "prepared", approval: { kind: "decide", decidedInput: input } };
+  }
+
+  // Server-derived fields changed, so the user must approve the card again after seeing them.
   return {
     kind: "prepared",
-    input: refreshed.input,
-    requiresReview:
-      canonicalJson(reviewedDerivedContract(staged.data)) !==
-      canonicalJson(reviewedDerivedContract(refreshed.input)),
+    approval: {
+      kind: "restage",
+      revision: {
+        proposedInput: input,
+        // There is no redactor for workflow activation yet; add one here if needed.
+        displayInput: input,
+        proposedInputHash: hashToolInput("system.activate_workflow", refreshed.input),
+      },
+    },
   };
-}
-
-/** Keep an edited card pending when server-derived fields changed. */
-export async function restageWorkflowApproval(
-  tx: DbTransaction,
-  stagingId: string,
-  input: ReturnType<typeof activateWorkflowInputSchema.parse>,
-): Promise<Date> {
-  const expiresAt = new Date(Date.now() + APPROVAL_EXPIRY_MS);
-  // #374: one parse feeds both columns, so readers can trust the display column.
-  // There is no redactor for workflow activation yet; add one here if needed.
-  const stagedInput = jsonValueSchema.parse(input);
-  await tx
-    .update(actionStagings)
-    .set({
-      proposedInput: stagedInput,
-      displayInput: stagedInput,
-      proposedInputHash: hashToolInput("system.activate_workflow", input),
-      decidedInput: null,
-      expiresAt,
-      rowVersion: sql`${actionStagings.rowVersion} + 1`,
-    })
-    .where(eq(actionStagings.id, stagingId));
-
-  return expiresAt;
 }
 
 function reviewedDerivedContract(input: ReturnType<typeof activateWorkflowInputSchema.parse>) {
