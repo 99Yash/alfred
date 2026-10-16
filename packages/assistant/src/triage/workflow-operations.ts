@@ -4,7 +4,7 @@ import {
   type EmailTriageClassifiedPayload,
 } from "@alfred/assistant/triggers";
 import { documentAskReducer, gmailMessageLocatorSchema } from "@alfred/assistant/connections";
-import { resolveFeatureFlags } from "@alfred/assistant/settings";
+import { settings, type FeatureFlags, type UserSettings } from "@alfred/assistant/settings";
 import { getSenderSignificance, readUserContextLine, senderSuppressions } from "../knowledge";
 import {
   resolvePaymentTodoFromReceipt,
@@ -117,8 +117,10 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     output: { skipped: true, reason, ...extra },
   });
 
+  // One bind for the step: the flags, the sender-kind switch, and the todo zone share one load.
+  const userSettings = settings({ userId: ctx.userId });
   // Tagging gates the label, action items gate the todo. Both off: skip before any cost.
-  const flags = await resolveFeatureFlags(ctx.userId);
+  const flags = await userSettings.flags();
 
   if (!flags.emailTagging && !flags.actionItems) {
     await ctx.log(`classify: skipped reason=triage-disabled (tagging + action-items off)`);
@@ -226,6 +228,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
   const decideTodo = () =>
     decideTriageTodo({
       userId: ctx.userId,
+      settings: userSettings,
       sourceThreadId,
       reason: ctx.state.reason,
       classification,
@@ -261,6 +264,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     // Before the try, so the fallback path still has them for the trace.
     observations = await gatherObservations({
       userId: ctx.userId,
+      settings: userSettings,
       documentId: ctx.state.documentId,
       sourceThreadId,
       document: ctxData.document,
@@ -623,7 +627,7 @@ export async function runEmailTriageCloseLoopTodos<State extends EmailTriageOper
   // Best-effort from here, flag read included. The label already landed (#1168).
   try {
     // Same flag as the mint: with action items off, leave rail rows alone.
-    const flags = await resolveFeatureFlags(ctx.userId);
+    const flags = await settings({ userId: ctx.userId }).flags();
 
     if (!flags.actionItems) {
       await ctx.log(
@@ -712,10 +716,10 @@ export async function runEmailTriageApplyLabel<State extends EmailTriageOperatio
   // Every path forwards to the next step (#1168). A fault must not throw:
   // that ends the run before the retraction. `applied_label_id` stays NULL, so the
   // next inbound re-labels.
-  let flags: Awaited<ReturnType<typeof resolveFeatureFlags>>;
+  let flags: FeatureFlags;
 
   try {
-    flags = await resolveFeatureFlags(ctx.userId);
+    flags = await settings({ userId: ctx.userId }).flags();
   } catch (err) {
     await ctx.log(`apply-label failed (non-fatal): ${toMessage(err)}`);
 
@@ -892,6 +896,8 @@ async function sentDocumentStatusAtClassifyTime(
  */
 export async function gatherObservations(args: {
   userId: string;
+  /** The same user's bind. The live classify passes its step bind. */
+  settings: UserSettings;
   documentId: string;
   sourceThreadId: string;
   document: { title: string | null; content: string; metadata: GmailDocumentMetadata };
@@ -917,7 +923,7 @@ export async function gatherObservations(args: {
       messageCount: 0,
       recentMessages: [],
     })),
-    triageSenderKindProjectionEnabled(args.userId).catch(() => false),
+    triageSenderKindProjectionEnabled(args.settings).catch(() => false),
     // This sender's standing instruction, read before the model call. A blip
     // reads as "none" and sets `readFailed`, so the trace can tell none from unknown.
     senderSuppressions({ userId: args.userId, onReadFailure: "report" }).then((suppressions) => {

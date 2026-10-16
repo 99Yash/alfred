@@ -6,17 +6,12 @@ import { closeConnections, db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
 import { inArray, like } from "drizzle-orm";
 
-import {
-  deletePreferenceRow,
-  getPreference,
-  setPreference,
-  upsertPreference,
-} from "../src/settings";
+import { settings } from "../src/settings";
 import { dbBackedSkip } from "./support/db-backed";
 
 /**
- * `upsertPreference` and `deletePreferenceRow` on a caller's transaction.
- * The Replicache `prefSet`/`prefDelete` mutators use them, so writes must commit and roll back with the push.
+ * `settings({ userId, exec: tx })` writes on a caller's transaction.
+ * The Replicache `prefSet`/`prefDelete` mutators bind this way, so writes must commit and roll back with the push.
  */
 const SKIP = dbBackedSkip("database");
 
@@ -49,55 +44,55 @@ describe("settings preference tx cores (DB-backed)", { skip: SKIP }, () => {
     await closeConnections();
   });
 
-  test("upsertPreference against a committed tx writes the row and bumps rowVersion", async () => {
+  test("set on a committed tx writes the row and bumps rowVersion", async () => {
     const userId = await seedUser();
 
     await db().transaction(async (tx) => {
-      await upsertPreference(tx, { userId, key: "tone", value: "concise" });
+      await settings({ userId, exec: tx }).set("tone", "concise");
     });
-    const first = await getPreference(userId, "tone");
+    const first = await settings({ userId }).get("tone");
     assert.equal(first?.value, "concise", "the committed tx write is readable");
     assert.equal(first?.rowVersion, 0, "first write starts at rowVersion 0");
 
     await db().transaction(async (tx) => {
-      await upsertPreference(tx, { userId, key: "tone", value: "verbose" });
+      await settings({ userId, exec: tx }).set("tone", "verbose");
     });
-    const second = await getPreference(userId, "tone");
+    const second = await settings({ userId }).get("tone");
     assert.equal(second?.value, "verbose", "last write wins");
     assert.equal(second?.rowVersion, 1, "a second tx upsert bumps rowVersion");
   });
 
-  test("a throw after upsertPreference rolls the write back — no row survives", async () => {
+  test("a throw after a tx-bound set rolls the write back — no row survives", async () => {
     const userId = await seedUser();
 
     await assert.rejects(
       db().transaction(async (tx) => {
-        await upsertPreference(tx, { userId, key: "tone", value: "concise" });
+        await settings({ userId, exec: tx }).set("tone", "concise");
         throw new Error("boom");
       }),
       /boom/,
     );
 
     assert.equal(
-      await getPreference(userId, "tone"),
+      await settings({ userId }).get("tone"),
       null,
       "the aborted tx leaves no preference row",
     );
   });
 
-  test("deletePreferenceRow inside a rolled-back tx leaves the row present", async () => {
+  test("a tx-bound delete inside a rolled-back tx leaves the row present", async () => {
     const userId = await seedUser();
-    await setPreference({ userId, key: "tone", value: "concise" });
+    await settings({ userId }).set("tone", "concise");
 
     await assert.rejects(
       db().transaction(async (tx) => {
-        await deletePreferenceRow(tx, userId, "tone");
+        await settings({ userId, exec: tx }).delete("tone");
         throw new Error("boom");
       }),
       /boom/,
     );
 
-    const read = await getPreference(userId, "tone");
+    const read = await settings({ userId }).get("tone");
     assert.equal(read?.value, "concise", "the aborted delete leaves the row intact");
   });
 });

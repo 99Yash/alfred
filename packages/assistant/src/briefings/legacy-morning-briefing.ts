@@ -10,6 +10,7 @@ import { send } from "@alfred/assistant/delivery";
 import { inZone, parseLocalDateKey } from "@alfred/assistant/time";
 import { composeBriefing } from "./compose";
 import { gatherBriefingWithSuppressionAudit, type BriefingInstructionSuppression } from "./gather";
+import { settings } from "@alfred/assistant/settings";
 import { resolveBriefingPreferences } from "./preferences";
 import { renderBriefingEmailHtml, resolveBriefingReferences } from "./references";
 import {
@@ -107,7 +108,7 @@ export const morningBriefingWorkflow: Workflow<State> = {
     gather: {
       id: "gather",
       async run(ctx) {
-        const prefs = await resolveBriefingPreferences(ctx.userId);
+        const prefs = await resolveBriefingPreferences(settings({ userId: ctx.userId }));
         const timezone = prefs.timezone;
 
         // Persisted state is a plain string; a fresh run mints one.

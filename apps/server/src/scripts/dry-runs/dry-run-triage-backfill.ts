@@ -11,7 +11,7 @@
  *
  * Run:  pnpm --filter server tsx --env-file=.env src/scripts/dry-runs/dry-run-triage-backfill.ts
  */
-import { resolveFeatureFlags } from "@alfred/assistant/settings";
+import { settings } from "@alfred/assistant/settings";
 import {
   classifyEmail,
   decideTriageTodo,
@@ -88,8 +88,10 @@ async function main() {
       continue;
     }
 
-    // Prod skips the run before any model cost when both flags are off.
-    const flags = await resolveFeatureFlags(t.userId);
+    // One bind per thread, like the live classify step. Prod skips the run before any
+    // model cost when both flags are off.
+    const userSettings = settings({ userId: t.userId });
+    const flags = await userSettings.flags();
 
     if (!flags.emailTagging && !flags.actionItems) {
       killed++;
@@ -115,6 +117,7 @@ async function main() {
 
     const observations = await gatherObservations({
       userId: t.userId,
+      settings: userSettings,
       documentId: docRow.id,
       sourceThreadId: src.id,
       document: ctxData.document,
@@ -155,6 +158,7 @@ async function main() {
     // gathered observation, as on the live non-reuse path.
     const { outcome, closure } = await decideTriageTodo({
       userId: t.userId,
+      settings: userSettings,
       sourceThreadId: src.id,
       reason: "reply",
       classification,

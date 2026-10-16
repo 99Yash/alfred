@@ -51,7 +51,7 @@ import { createRedisConnection, type BoundedRedis } from "@alfred/db/redis";
 import { resolveBriefingPreferences } from "@alfred/assistant/briefings/preferences";
 import { enqueueBriefingRun } from "@alfred/assistant/briefings/queue";
 import { notSentGmailDocumentWhere } from "@alfred/assistant/triage/sent-mail";
-import { resolveTimezone } from "@alfred/assistant/settings";
+import { settings } from "@alfred/assistant/settings";
 import { inZone } from "@alfred/assistant/time";
 import { sanitizeEmailHtml } from "@alfred/assistant/triage/email-html";
 import {
@@ -657,7 +657,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
 
           if (!row) return { items: [], connected: false };
 
-          const { start, end } = inZone(await resolveTimezone(u.id)).dayBounds();
+          const { start, end } = inZone(await settings({ userId: u.id }).timezone()).dayBounds();
 
           const accessToken = await getFreshAccessToken(row.id);
 
@@ -701,7 +701,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
         "/briefings/latest",
         async ({ user: u }): Promise<{ briefing: MeLatestBriefing | null }> => {
           // Today only, so the chip never shows a stale day. The newest slot wins.
-          const today = inZone(await resolveTimezone(u.id)).day();
+          const today = inZone(await settings({ userId: u.id }).timezone()).day();
 
           const rows = await db()
             .select({
@@ -737,7 +737,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
       )
       .post("/briefings/run", async ({ user: u }) => {
         // `reason: "manual"` skips morning suppression, so the slot always sends.
-        const prefs = await resolveBriefingPreferences(u.id);
+        const prefs = await resolveBriefingPreferences(settings({ userId: u.id }));
         const zone = inZone(prefs.timezone);
         const briefingDate = zone.day();
         const slot: BriefingSlot = zone.hour() >= prefs.eveningHour ? "evening" : "morning";

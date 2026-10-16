@@ -1,4 +1,4 @@
-import { db, type DbRoot, type DbTransaction } from "@alfred/db";
+import { type DbRoot, type DbTransaction } from "@alfred/db";
 import {
   userPreferenceInsertSchema,
   userPreferences,
@@ -29,7 +29,7 @@ export type PreferenceRow = Omit<UserPreference, "source" | "createdAt" | "updat
   source: MemorySource;
 };
 
-function rowToPref(r: UserPreference): PreferenceRow {
+export function rowToPref(r: UserPreference): PreferenceRow {
   return {
     ...r,
     source: parseMemorySourceOrDefault(r.source, { kind: "user" }, `user_preferences:${r.id}`),
@@ -37,13 +37,27 @@ function rowToPref(r: UserPreference): PreferenceRow {
 }
 
 /** `db()` or a Replicache push `tx`. */
-export type PreferenceWriteExecutor = DbRoot | DbTransaction;
+export type PreferenceExecutor = DbRoot | DbTransaction;
+
+/** Every row the user owns, ordered by key. The one `user_preferences` read. */
+export async function readPreferenceRows(
+  exec: PreferenceExecutor,
+  userId: string,
+): Promise<PreferenceRow[]> {
+  const rows = await exec
+    .select()
+    .from(userPreferences)
+    .where(eq(userPreferences.userId, userId))
+    .orderBy(asc(userPreferences.key));
+
+  return rows.map(rowToPref);
+}
 
 /**
  * The only `user_preferences` upsert. Returns the builder un-awaited, so the caller may add `.returning()`.
  * Last write wins: unlike `user_facts`, a preference has no provenance to keep.
  */
-export function upsertPreference(exec: PreferenceWriteExecutor, args: SetPreferenceArgs) {
+export function upsertPreference(exec: PreferenceExecutor, args: SetPreferenceArgs) {
   const source: MemorySource = args.source ?? { kind: "user" };
 
   return exec
@@ -60,46 +74,8 @@ export function upsertPreference(exec: PreferenceWriteExecutor, args: SetPrefere
 }
 
 /** The only `user_preferences` delete. Returns the builder un-awaited. */
-export function deletePreferenceRow(exec: PreferenceWriteExecutor, userId: string, key: string) {
+export function deletePreferenceRow(exec: PreferenceExecutor, userId: string, key: string) {
   return exec
     .delete(userPreferences)
     .where(and(eq(userPreferences.userId, userId), eq(userPreferences.key, key)));
-}
-
-export async function setPreference(args: SetPreferenceArgs): Promise<PreferenceRow> {
-  const parsed = setPreferenceArgsSchema.parse(args);
-  const [row] = await upsertPreference(db(), parsed).returning();
-
-  if (!row) throw new Error("[settings.preferences] setPreference returned no row");
-
-  return rowToPref(row);
-}
-
-export async function getPreference(userId: string, key: string): Promise<PreferenceRow | null> {
-  const [row] = await db()
-    .select()
-    .from(userPreferences)
-    .where(and(eq(userPreferences.userId, userId), eq(userPreferences.key, key)))
-    .limit(1);
-
-  return row ? rowToPref(row) : null;
-}
-
-export async function getPreferences(userId: string): Promise<PreferenceRow[]> {
-  const rows = await db()
-    .select()
-    .from(userPreferences)
-    .where(eq(userPreferences.userId, userId))
-    .orderBy(asc(userPreferences.key));
-
-  return rows.map(rowToPref);
-}
-
-/** Revert to the default. */
-export async function deletePreference(userId: string, key: string): Promise<boolean> {
-  const result = await deletePreferenceRow(db(), userId, key).returning({
-    id: userPreferences.id,
-  });
-
-  return result.length > 0;
 }

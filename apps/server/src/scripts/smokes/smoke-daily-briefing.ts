@@ -24,6 +24,7 @@ import {
   resolveBriefingPreferences,
   closeBriefingQueue,
 } from "@alfred/assistant/briefings";
+import { settings } from "@alfred/assistant/settings";
 import { inZone } from "@alfred/assistant/time";
 import { startRun, closeAgentQueue } from "@alfred/assistant/execution";
 import { warmPool } from "@alfred/db";
@@ -133,7 +134,7 @@ async function main() {
       (cli.noSend ? " [--no-send]" : ""),
   );
 
-  const prefs = await resolveBriefingPreferences(u.id);
+  const prefs = await resolveBriefingPreferences(settings({ userId: u.id }));
   const briefingDate = inZone(prefs.timezone).day();
   console.log(
     `[smoke-daily-briefing] tz=${prefs.timezone} morningHour=${prefs.deliveryHour} ` +

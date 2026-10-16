@@ -1,5 +1,6 @@
 import { gatherBriefingWithSuppressionAudit, type BriefingInstructionSuppression } from "./gather";
 import { inZone, parseLocalDateKey } from "@alfred/assistant/time";
+import { settings } from "@alfred/assistant/settings";
 import { resolveBriefingPreferences } from "./preferences";
 import { fetchLatestWatermark, isQuietMorning } from "./read";
 import {
@@ -74,7 +75,7 @@ export interface DailyBriefingOperationState {
 export async function runDailyBriefingGather<State extends DailyBriefingOperationState>(
   ctx: StepContext<State>,
 ): Promise<StepResult<State>> {
-  const prefs = await resolveBriefingPreferences(ctx.userId);
+  const prefs = await resolveBriefingPreferences(settings({ userId: ctx.userId }));
   const timezone = prefs.timezone;
 
   // Persisted JSON, so the date comes back as a string.

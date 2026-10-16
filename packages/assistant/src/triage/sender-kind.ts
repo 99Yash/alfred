@@ -4,7 +4,7 @@ import {
   type EntityKindClassification,
   type EntityNodeKind,
 } from "@alfred/contracts";
-import { getPreference } from "@alfred/assistant/settings";
+import type { UserSettings } from "@alfred/assistant/settings";
 import type { ActiveEntityProfile } from "../knowledge";
 import { userModelReader } from "../knowledge";
 
@@ -30,8 +30,10 @@ export type TriageSenderKindSignal = {
   displayName: string;
 };
 
-export async function triageSenderKindProjectionEnabled(userId: string): Promise<boolean> {
-  const row = await getPreference(userId, TRIAGE_SENDER_KIND_FEATURE_KEY);
+export async function triageSenderKindProjectionEnabled(
+  userSettings: UserSettings,
+): Promise<boolean> {
+  const row = await userSettings.get(TRIAGE_SENDER_KIND_FEATURE_KEY);
 
   return row ? flagOn(row.value) : true;
 }

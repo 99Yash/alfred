@@ -7,10 +7,10 @@ import { closeConnections, db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
 import { inArray, like } from "drizzle-orm";
 
-import { resolveFeatureFlags, setPreference } from "../src/settings";
+import { settings } from "../src/settings";
 import { dbBackedSkip } from "./support/db-backed";
 
-/** `resolveFeatureFlags`: an unset flag is on; only `false`, `"false"`, or `0` turns it off. */
+/** `settings({ userId }).flags()`: an unset flag is on; only `false`, `"false"`, or `0` turns it off. */
 const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-flags-";
@@ -45,7 +45,7 @@ describe("settings feature flags (DB-backed)", { skip: SKIP }, () => {
 
   test("a user with no preference rows resolves all four flags ON (UNSET = ON)", async () => {
     const userId = await seedUser();
-    const flags = await resolveFeatureFlags(userId);
+    const flags = await settings({ userId }).flags();
     assert.deepEqual(flags, {
       morningBriefing: true,
       eveningRecap: true,
@@ -57,12 +57,12 @@ describe("settings feature flags (DB-backed)", { skip: SKIP }, () => {
 
   test('an explicit false / "false" / 0 turns exactly that flag OFF', async () => {
     const userId = await seedUser();
-    await setPreference({ userId, key: FEATURE_FLAG_KEYS.morningBriefing, value: false });
-    await setPreference({ userId, key: FEATURE_FLAG_KEYS.eveningRecap, value: "false" });
-    await setPreference({ userId, key: FEATURE_FLAG_KEYS.emailTagging, value: 0 });
+    await settings({ userId }).set(FEATURE_FLAG_KEYS.morningBriefing, false);
+    await settings({ userId }).set(FEATURE_FLAG_KEYS.eveningRecap, "false");
+    await settings({ userId }).set(FEATURE_FLAG_KEYS.emailTagging, 0);
     // actionItems is unset, so it stays on.
 
-    const flags = await resolveFeatureFlags(userId);
+    const flags = await settings({ userId }).flags();
     assert.deepEqual(flags, {
       morningBriefing: false,
       eveningRecap: false,
@@ -74,12 +74,12 @@ describe("settings feature flags (DB-backed)", { skip: SKIP }, () => {
 
   test("any truthy stored value resolves the flag ON", async () => {
     const userId = await seedUser();
-    await setPreference({ userId, key: FEATURE_FLAG_KEYS.morningBriefing, value: true });
-    await setPreference({ userId, key: FEATURE_FLAG_KEYS.eveningRecap, value: "true" });
-    await setPreference({ userId, key: FEATURE_FLAG_KEYS.emailTagging, value: 1 });
-    await setPreference({ userId, key: FEATURE_FLAG_KEYS.actionItems, value: "on" });
+    await settings({ userId }).set(FEATURE_FLAG_KEYS.morningBriefing, true);
+    await settings({ userId }).set(FEATURE_FLAG_KEYS.eveningRecap, "true");
+    await settings({ userId }).set(FEATURE_FLAG_KEYS.emailTagging, 1);
+    await settings({ userId }).set(FEATURE_FLAG_KEYS.actionItems, "on");
 
-    const flags = await resolveFeatureFlags(userId);
+    const flags = await settings({ userId }).flags();
     assert.deepEqual(flags, {
       morningBriefing: true,
       eveningRecap: true,

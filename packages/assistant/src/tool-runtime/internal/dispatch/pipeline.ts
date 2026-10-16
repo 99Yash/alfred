@@ -90,7 +90,7 @@ import {
   type ToolExecuteContext,
 } from "../registry";
 import { readIntegrationAvailability } from "@alfred/assistant/connections";
-import { resolveTimezone } from "@alfred/assistant/settings";
+import { settings } from "@alfred/assistant/settings";
 
 type DispatchToolCallRoundAdapter = Parameters<typeof registerToolCallRoundAdapter>[0];
 
@@ -522,7 +522,7 @@ const validateInputStage: DispatchStage<ResolvedDispatch, ValidatedDispatch> = a
     stepId: args.stepId,
     toolCallId: args.toolCallId,
     userId: args.userId,
-    timezone: args.timezone ?? (await resolveTimezone(args.userId)),
+    timezone: args.timezone ?? (await settings({ userId: args.userId }).timezone()),
     caller,
     runContext: args.runContext,
     threadId: args.threadId,

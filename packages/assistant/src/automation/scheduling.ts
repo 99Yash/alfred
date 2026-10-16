@@ -8,7 +8,7 @@ import {
 } from "@alfred/contracts";
 import { CronExpressionParser } from "cron-parser";
 import { isValidTimezone } from "@alfred/assistant/time";
-import { resolveTimezone } from "@alfred/assistant/settings";
+import { settings } from "@alfred/assistant/settings";
 
 /**
  * Workflow scheduling (ADR-0027). Cron is parsed at write time and after each fire,
@@ -56,7 +56,7 @@ export async function resolveWorkflowTimezone(
     return parseIanaTimezone(trigger.timezone);
   }
 
-  return resolveTimezone(userId);
+  return settings({ userId }).timezone();
 }
 
 /**

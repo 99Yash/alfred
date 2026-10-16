@@ -30,6 +30,7 @@ import {
   type ClassifyEmailArgs,
   type TriageClassification,
 } from "@alfred/assistant/triage";
+import { settings } from "@alfred/assistant/settings";
 import { notSentGmailDocumentWhere } from "@alfred/assistant/triage/sent-mail";
 import { toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -177,6 +178,7 @@ async function replayDocument(
 
   const observations = await gatherObservations({
     userId: selected.userId,
+    settings: settings({ userId: selected.userId }),
     documentId,
     sourceThreadId: selected.sourceThreadId,
     document: ctxData.document,

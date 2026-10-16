@@ -3,7 +3,7 @@ import { Queue, Worker, type Job } from "bullmq";
 import { createRedisConnection } from "@alfred/db/redis";
 import { selectEmailableUsers } from "@alfred/assistant/delivery";
 import { startRun } from "@alfred/assistant/execution";
-import { resolveFeatureFlags } from "@alfred/assistant/settings";
+import { settings } from "@alfred/assistant/settings";
 import { inZone } from "@alfred/assistant/time";
 import { resolveBriefingPreferences } from "./preferences";
 import { DAILY_BRIEFING_WORKFLOW_SLUG } from "./workflow-input";
@@ -98,16 +98,19 @@ async function handleTick(now: Date = new Date()): Promise<TickResult> {
 
   for (const u of users) {
     try {
+      // A new bind per user per tick: the hours, the zone, and the slot flags share one load.
+      const userSettings = settings({ userId: u.id });
+
       const [prefs, flags] = await Promise.all([
-        resolveBriefingPreferences(u.id),
-        resolveFeatureFlags(u.id),
+        resolveBriefingPreferences(userSettings),
+        userSettings.flags(),
       ]);
 
       const zone = inZone(prefs.timezone);
       const localHour = zone.hour(now);
       const briefingDate = zone.day(now);
 
-      // A disabled slot never creates a run. Unset means on (see resolveFeatureFlags).
+      // A disabled slot never creates a run. Unset means on (see `FeatureFlags`).
       const allSlots: Array<{ slot: BriefingSlot; hour: number; enabled: boolean }> = [
         { slot: "morning", hour: prefs.deliveryHour, enabled: flags.morningBriefing },
         { slot: "evening", hour: prefs.eveningHour, enabled: flags.eveningRecap },

@@ -14,7 +14,7 @@ import { z } from "zod";
 import type { StepContext, StepResult, Workflow } from "@alfred/assistant/execution";
 import { senderSuppressions } from "@alfred/assistant/knowledge";
 import { executeToolCallRound, withdrawToolCallApproval } from "@alfred/assistant/tool-runtime";
-import { resolveFeatureFlags } from "@alfred/assistant/settings";
+import { settings } from "@alfred/assistant/settings";
 import {
   extractSenderContext,
   getThreadState,
@@ -111,7 +111,7 @@ function finish(
 }
 
 async function runGate(ctx: StepContext<State>): Promise<StepResult<State>> {
-  const flags = await resolveFeatureFlags(ctx.userId);
+  const flags = await settings({ userId: ctx.userId }).flags();
   const flagged = { ...ctx.state, featureFlagEnabled: flags.replyDrafting };
 
   if (flagged.invocation === "post_triage" && !flags.replyDrafting) {

@@ -783,6 +783,28 @@ const OBJECT_STATE_FILE = "packages/assistant/src/connections/object-state/store
  */
 const LINE_CASES = [
   {
+    name: "module-scope-settings-bind — a bind held at module scope",
+    caught: true,
+    rule: "module-scope-settings-bind",
+    code: `const ownerSettings = settings({ userId: OWNER_ID });`,
+  },
+  {
+    name: "module-scope-settings-bind — an exported, typed module-scope bind",
+    caught: true,
+    rule: "module-scope-settings-bind",
+    code: `export const ownerSettings: UserSettings = settings({ userId });`,
+  },
+  {
+    name: "module-scope-settings-bind — a bind inside a function body is the intended form",
+    caught: false,
+    code: `  const userSettings = settings({ userId: ctx.userId });`,
+  },
+  {
+    name: "module-scope-settings-bind — a one-shot read through a fresh bind",
+    caught: false,
+    code: `const prefs = await resolveBriefingPreferences(settings({ userId }));`,
+  },
+  {
     name: "boot-error-plain-extends — a No…RegisteredError left on plain Error",
     caught: true,
     code: `export class NoFooHandlerRegisteredError extends Error {`,

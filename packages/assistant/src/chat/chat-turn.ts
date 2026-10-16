@@ -25,7 +25,7 @@ import { publishEvent } from "@alfred/assistant/triggers";
 import { logger } from "@alfred/logging";
 import { buildThreadArtifactsContext } from "@alfred/assistant/artifacts";
 import { readIntegrationAvailability } from "@alfred/assistant/connections";
-import { resolveTimezone, selfIdentityGrounding } from "@alfred/assistant/settings";
+import { selfIdentityGrounding, settings } from "@alfred/assistant/settings";
 import {
   appendModelResponseMessages,
   appendSystemNote,
@@ -344,7 +344,7 @@ const chatTurnStep: Step<ChatRunState> = {
       }
 
       if (state.timezone === undefined) {
-        state.timezone = await resolveTimezone(ctx.userId);
+        state.timezone = await settings({ userId: ctx.userId }).timezone();
       }
 
       const timezone = parseIanaTimezone(state.timezone);

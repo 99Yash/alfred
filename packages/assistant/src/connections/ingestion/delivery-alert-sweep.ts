@@ -11,7 +11,7 @@ import { emailSends } from "@alfred/db/schemas";
 import { renderDeliveryAlertEmail } from "@alfred/mailer";
 import { and, desc, eq, gt } from "drizzle-orm";
 import { selectEmailableUsers, send } from "@alfred/assistant/delivery";
-import { emailLogoUrl, resolveTimezone, webOrigin } from "@alfred/assistant/settings";
+import { emailLogoUrl, settings, webOrigin } from "@alfred/assistant/settings";
 import { inZone, type LocalDateKey } from "@alfred/assistant/time";
 import { readIntegrationAvailability } from "../availability";
 import { readDeliveryAlerts, type DeliveryAlertVerdict } from "../delivery-alerts";
@@ -55,7 +55,7 @@ export async function runDeliveryAlertSweep(
 
   if (due.length === 0) return { userId, alerts: alerts.length, sent: 0 };
 
-  const day = inZone(await resolveTimezone(userId)).day(now);
+  const day = inZone(await settings({ userId }).timezone()).day(now);
   const failures: string[] = [];
   let sent = 0;
 
