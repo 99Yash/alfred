@@ -20,13 +20,12 @@ import {
   type InboundEventSource,
   type JsonObject,
   type JsonValue,
-  type ToolRunContext,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
-import { executeToolCallRound, toolNamesForIntegrations } from "@alfred/assistant/tool-runtime";
+import { toolNamesForIntegrations } from "@alfred/assistant/tool-runtime";
 import { compactTranscript, compactWithRetry } from "../run-compaction";
 import {
   estimateNextTurnInputTokens,
@@ -45,7 +44,6 @@ import {
 import { toolEventOutcome } from "./tool-event-outcome";
 import { writeScratch } from "../scratchpad/index";
 import { readIntegrationAvailability, readReceiptDocument } from "@alfred/assistant/connections";
-import { buildConnectedSummaryFromAvailability } from "../connected-summary";
 import { formatDateGrounding } from "../grounding";
 import { composeAgentInstructions } from "@alfred/ai/voice";
 import { resolveTimezone, selfIdentityGrounding } from "@alfred/assistant/settings";
@@ -54,6 +52,7 @@ import {
   systemToolKernel,
   toolRuntimeForRun,
   toolSurfaceStateFields,
+  type ToolRunIdentity,
 } from "../tool-surface";
 import {
   readSubAgentMetadata,
@@ -61,7 +60,7 @@ import {
   SUB_AGENT_WORKFLOW_SLUG,
 } from "../sub-agent-metadata";
 import { isTerminalStatus } from "@alfred/contracts";
-import type { Step, Workflow, WorkflowInput } from "../registry";
+import type { Step, StepContext, Workflow, WorkflowInput } from "../registry";
 import { getRun } from "../service";
 import { pendingToolCallSchema } from "./pending-tool-call";
 import { BRIEF_TURN_CAP_MAX, openBriefTurnRetries } from "./turn-budgets";
@@ -69,30 +68,6 @@ import { checkWorkflowReadiness } from "./readiness-port";
 
 // Sub-agents run on this workflow, so the slugs are one value.
 export const USER_AUTHORED_BRIEF_WORKFLOW_SLUG = SUB_AGENT_WORKFLOW_SLUG;
-
-type BriefToolRunIdentity =
-  | {
-      caller: "boss";
-      runContext: ToolRunContext & { caller: "boss" };
-    }
-  | {
-      caller: { subId: string };
-      runContext: ToolRunContext & { caller: "sub_agent" };
-    };
-
-function briefToolRunIdentity(
-  subAgent: { subId: string } | null | undefined,
-): BriefToolRunIdentity {
-  return subAgent
-    ? {
-        caller: { subId: subAgent.subId },
-        runContext: { caller: "sub_agent", interaction: "background" },
-      }
-    : {
-        caller: "boss",
-        runContext: { caller: "boss", interaction: "background" },
-      };
-}
 
 const briefRunStateSchema = z
   .object({
@@ -121,6 +96,39 @@ const briefRunStateSchema = z
   .transform((state) => foldToolSurfaceState(state));
 
 type BriefRunState = z.infer<typeof briefRunStateSchema>;
+
+/**
+ * The tool-run identity of one brief run. The boss-turn and dispatch steps both build it from here.
+ * A chat-spawned child reports through its parent. Its chat address does not let it read or change
+ * the chat, and its scratchpad is the parent run's.
+ */
+function briefToolRunIdentity(
+  ctx: Pick<StepContext<BriefRunState>, "userId" | "runId">,
+  state: BriefRunState,
+): ToolRunIdentity {
+  const run = {
+    userId: ctx.userId,
+    runId: ctx.runId,
+    workflow: USER_AUTHORED_BRIEF_WORKFLOW_SLUG,
+    scratchpadRunId: state.subAgent?.parentRunId ?? ctx.runId,
+    timezone: state.timezone ? parseIanaTimezone(state.timezone) : undefined,
+    allowedIntegrations: state.allowedIntegrations,
+    allowedTools: state.allowedTools?.filter(isToolName),
+    requiredCapabilities: state.requiredCapabilities,
+  };
+
+  return state.subAgent
+    ? {
+        ...run,
+        caller: { subId: state.subAgent.subId },
+        runContext: { caller: "sub_agent", interaction: "background" },
+      }
+    : {
+        ...run,
+        caller: "boss",
+        runContext: { caller: "boss", interaction: "background" },
+      };
+}
 
 const COMPACT_TRANSCRIPT_STEP_ID = "compact-transcript";
 
@@ -225,28 +233,9 @@ const bossTurnStep: Step<BriefRunState> = {
     }
 
     const grounding = formatDateGrounding(parseIanaTimezone(state.timezone));
-    // A chat-spawned child reports through its parent. Its chat address does not let it read or
-    // change the chat.
-    const toolRunContext = briefToolRunIdentity(subAgent).runContext;
     const availability = await readIntegrationAvailability(ctx.userId);
-
-    const tools = toolRuntimeForRun({
-      userId: ctx.userId,
-      runId: ctx.runId,
-      workflow: USER_AUTHORED_BRIEF_WORKFLOW_SLUG,
-      spanCaller: subAgent ? `sub:${subAgent.subId}` : "boss",
-      context: toolRunContext,
-      allowedIntegrations: state.allowedIntegrations,
-      availability,
-    });
-
-    if (state.connectedSummary === undefined) {
-      state.connectedSummary = buildConnectedSummaryFromAvailability(
-        availability,
-        state.allowedIntegrations,
-        tools.context,
-      );
-    }
+    const tools = toolRuntimeForRun(briefToolRunIdentity(ctx, state), availability);
+    state.connectedSummary ??= tools.connectedSummary();
 
     if (state.selfIdentity === undefined) {
       state.selfIdentity = selfIdentityGrounding();
@@ -387,8 +376,6 @@ const dispatchToolsStep: Step<BriefRunState> = {
 
     let transcript = [...ctx.transcript];
 
-    const runIdentity = briefToolRunIdentity(state.subAgent);
-
     // Stream this child's tool calls into the parent's chat turn (ADR-0073); null means no card.
     const chatTarget = await subAgentToolCardTarget(
       state.subAgent,
@@ -397,23 +384,12 @@ const dispatchToolsStep: Step<BriefRunState> = {
       parentRunStillOpen,
     );
 
-    const round = await executeToolCallRound({
+    const round = await toolRuntimeForRun(briefToolRunIdentity(ctx, state)).dispatch({
+      stepId: "dispatch-tools",
+      fence: ctx.fence,
       calls: state.pendingToolCalls,
       transcript,
       activeNames: state.activeTools,
-      run: {
-        runId: ctx.runId,
-        stepId: "dispatch-tools",
-        userId: ctx.userId,
-        workflow: USER_AUTHORED_BRIEF_WORKFLOW_SLUG,
-        fence: ctx.fence,
-        ...runIdentity,
-        scratchpadRunId: state.subAgent?.parentRunId ?? ctx.runId,
-        timezone: state.timezone ? parseIanaTimezone(state.timezone) : undefined,
-        allowedIntegrations: state.allowedIntegrations,
-        allowedTools: state.allowedTools?.filter(isToolName),
-        requiredCapabilities: state.requiredCapabilities,
-      },
       onCallStarted: async (call, activeNames) => {
         if (chatTarget && shouldPublishToolStarted(activeNames, call.toolName)) {
           await publishEvent({

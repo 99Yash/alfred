@@ -6,10 +6,17 @@ import {
 import type { ToolSet } from "@alfred/ai";
 import { z } from "zod";
 import {
+  callerLabel,
+  executeToolCallRound,
   resolveToolSurface,
   restoreToolSurface,
   selectToolPreload,
+  type ProposedToolCall,
+  type ToolCallActor,
+  type ToolCallRoundOutcome,
+  type ToolCallRun,
 } from "@alfred/assistant/tool-runtime";
+import { buildConnectedSummaryFromAvailability } from "./connected-summary";
 import { startToolPreloadSpan, startToolSurfaceSpan } from "./runtime-spans";
 
 export function systemToolKernel(): ToolName[] {
@@ -199,8 +206,34 @@ async function applyPromptToolPreload(args: {
   args.state.preloadApplied = true;
 }
 
+/**
+ * The run facts that every step of one agent run shares: who calls, for which run, and under which
+ * caps. A workflow builds it once from run state; each step passes it to {@link toolRuntimeForRun}.
+ */
+export type ToolRunIdentity = Omit<ToolCallRun, "stepId" | "fence" | "caller" | "runContext"> &
+  ToolCallActor & {
+    allowedIntegrations: readonly string[];
+  };
+
+type ToolCallRoundInput<Call extends ProposedToolCall> = Parameters<
+  typeof executeToolCallRound<Call>
+>[0];
+
+/** One dispatch round. The run identity comes from the runtime; the step supplies the rest. */
+type ToolRound<Call extends ProposedToolCall> = Omit<ToolCallRoundInput<Call>, "run"> &
+  Pick<ToolCallRun, "stepId" | "fence">;
+
 export interface ToolRunTools {
   readonly context: ToolRunContext;
+  forModel(activeTools: readonly ToolName[]): ToolSet;
+  /** Run one tool round under this run's identity, or return its durable wait. */
+  dispatch<Call extends ProposedToolCall>(
+    round: ToolRound<Call>,
+  ): Promise<ToolCallRoundOutcome<Call>>;
+}
+
+/** The model-turn view. It exists only when the step passed the availability snapshot it read. */
+export interface ToolTurnTools extends ToolRunTools {
   preload(
     state: {
       activeTools: ToolName[];
@@ -209,39 +242,63 @@ export interface ToolRunTools {
     },
     transcript: readonly { role: string; content: unknown }[],
   ): Promise<void>;
-  forModel(activeTools: readonly ToolName[]): ToolSet;
+  /**
+   * The connected-integration grounding line for the system prompt (ADR-0053). Pure over the
+   * snapshot. The workflow pins it into run state once, because the system prompt hash depends on it.
+   */
+  connectedSummary(): string;
 }
 
-export function toolRuntimeForRun(args: {
-  userId: string;
-  runId: string;
-  workflow: string;
-  spanCaller: string;
-  context: ToolRunContext;
-  allowedIntegrations: readonly string[];
-  availability: IntegrationAvailabilitySnapshot;
-}): ToolRunTools {
-  return {
-    context: args.context,
-    preload: (state, transcript) =>
-      applyPromptToolPreload({
-        state,
-        allowedIntegrations: args.allowedIntegrations,
-        userId: args.userId,
-        runId: args.runId,
-        workflow: args.workflow,
-        spanCaller: args.spanCaller,
-        transcript,
-        context: args.context,
-        availability: args.availability,
-      }),
+/**
+ * Bind one step's tool runtime. A model-turn step passes the availability snapshot it read; a
+ * dispatch step passes none, so it never reads availability.
+ */
+export function toolRuntimeForRun(
+  identity: ToolRunIdentity,
+  availability: IntegrationAvailabilitySnapshot,
+): ToolTurnTools;
+export function toolRuntimeForRun(identity: ToolRunIdentity): ToolRunTools;
+export function toolRuntimeForRun(
+  identity: ToolRunIdentity,
+  availability?: IntegrationAvailabilitySnapshot,
+): ToolRunTools | ToolTurnTools {
+  const spanCaller = callerLabel(identity.caller);
+
+  const tools: ToolRunTools = {
+    context: identity.runContext,
     forModel: (activeTools) =>
       buildTurnToolSurface({
         activeTools,
-        context: args.context,
-        runId: args.runId,
-        workflow: args.workflow,
-        spanCaller: args.spanCaller,
+        context: identity.runContext,
+        runId: identity.runId,
+        workflow: identity.workflow,
+        spanCaller,
       }),
+    dispatch: ({ stepId, fence, ...round }) =>
+      executeToolCallRound({ ...round, run: { ...identity, stepId, fence } }),
+  };
+
+  if (availability === undefined) return tools;
+
+  return {
+    ...tools,
+    preload: (state, transcript) =>
+      applyPromptToolPreload({
+        state,
+        allowedIntegrations: identity.allowedIntegrations,
+        userId: identity.userId,
+        runId: identity.runId,
+        workflow: identity.workflow,
+        spanCaller,
+        transcript,
+        context: identity.runContext,
+        availability,
+      }),
+    connectedSummary: () =>
+      buildConnectedSummaryFromAvailability(
+        availability,
+        identity.allowedIntegrations,
+        identity.runContext,
+      ),
   };
 }

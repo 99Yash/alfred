@@ -146,16 +146,11 @@ describe("runtime.tool_surface", () => {
       returnedToolNames = Object.keys(
         toolRuntimeForRun({
           userId: "user_1",
-          context: { caller: "boss", interaction: "live_chat" },
           runId: "run_real_surface",
           workflow: "__chat-turn__",
-          spanCaller: "boss",
+          caller: "boss",
+          runContext: { caller: "boss", interaction: "live_chat" },
           allowedIntegrations: ["calendar"],
-          availability: {
-            integrations: new Map(),
-            providers: new Map(),
-            passthroughEnabled: new Map(),
-          },
         }).forModel(activeTools),
       ).sort();
     });

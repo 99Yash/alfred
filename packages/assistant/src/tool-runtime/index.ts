@@ -143,7 +143,8 @@ interface ToolCallRunBase {
   requiredCapabilities?: readonly WorkflowRequiredCapability[] | undefined;
 }
 
-type ToolCallActor =
+/** Who proposes the calls: the boss, or one sub-agent with its matching run context. */
+export type ToolCallActor =
   | { caller: "boss"; runContext: ToolRunContext & { caller: "boss" } }
   | {
       caller: { subId: string };

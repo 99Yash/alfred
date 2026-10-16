@@ -24,7 +24,6 @@ export {
   compactWithRetry,
   estimateSerializedTokens,
   estimateTranscriptTokens,
-  buildConnectedSummaryFromAvailability,
   formatRuntimeTimeGrounding,
   resolveRuntimeGroundingAnchor,
   RUNTIME_GROUNDING_PARK_GRACE_MS,
@@ -89,6 +88,7 @@ export type {
   ChildRunOutcome,
   AgentDbExecutor,
   StepLease,
+  ToolRunIdentity,
 } from "./index.domain";
 
 export {
