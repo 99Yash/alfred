@@ -66,8 +66,6 @@ export {
   estimateTranscriptTokens,
 } from "./run-compaction";
 
-export { buildConnectedSummaryFromAvailability } from "./connected-summary";
-
 export {
   formatRuntimeTimeGrounding,
   resolveRuntimeGroundingAnchor,
@@ -81,6 +79,8 @@ export {
   toolSurfaceStateFields,
   uniqueToolNames,
 } from "./tool-surface";
+
+export type { ToolRunIdentity } from "./tool-surface";
 
 export { toolNamesFromState } from "./tool-surface-usage";
 

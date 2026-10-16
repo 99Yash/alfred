@@ -26,10 +26,8 @@ import { logger } from "@alfred/logging";
 import { buildThreadArtifactsContext } from "@alfred/assistant/artifacts";
 import { readIntegrationAvailability } from "@alfred/assistant/connections";
 import { resolveTimezone, selfIdentityGrounding } from "@alfred/assistant/settings";
-import { executeToolCallRound } from "@alfred/assistant/tool-runtime";
 import {
   appendModelResponseMessages,
-  buildConnectedSummaryFromAvailability,
   appendSystemNote,
   CAPACITY_RETRY_DELAYS_MS,
   CAPACITY_RETRY_JITTER_MS,
@@ -47,6 +45,8 @@ import {
   toolEventOutcome,
   toolRuntimeForRun,
   type Step,
+  type StepContext,
+  type ToolRunIdentity,
   type Workflow,
 } from "@alfred/assistant/execution";
 import {
@@ -77,7 +77,6 @@ import {
   fullAssistantText,
   interruptChatRun,
   type ChatRunState,
-  type PendingToolCall,
 } from "./chat-turn-state";
 import { awaitedChildRunId, crossFinalizeBoundary } from "./finalize-guards";
 import { carryForwardThreadTools } from "./thread-tool-carryover";
@@ -94,6 +93,25 @@ const CHAT_TOOL_RUN_CONTEXT = {
   caller: "boss",
   interaction: "live_chat",
 } as const satisfies ToolRunContext;
+
+/** The tool-run identity of one chat turn. The turn and dispatch steps both build it from here. */
+function chatToolRunIdentity(
+  ctx: Pick<StepContext<ChatRunState>, "userId" | "runId">,
+  state: ChatRunState,
+): ToolRunIdentity {
+  return {
+    userId: ctx.userId,
+    runId: ctx.runId,
+    workflow: CHAT_TURN_WORKFLOW_SLUG,
+    caller: "boss",
+    runContext: CHAT_TOOL_RUN_CONTEXT,
+    threadId: state.threadId,
+    messageId: state.messageId,
+    scratchpadRunId: ctx.runId,
+    timezone: state.timezone ? parseIanaTimezone(state.timezone) : undefined,
+    allowedIntegrations: state.allowedIntegrations,
+  };
+}
 
 /** Warn when the input estimate undercounts billed input by more than this ratio. */
 const CHAT_INPUT_ESTIMATE_WARN_UNDERSHOOT_RATIO = 0.1;
@@ -332,23 +350,8 @@ const chatTurnStep: Step<ChatRunState> = {
       const timezone = parseIanaTimezone(state.timezone);
       const availability = await readIntegrationAvailability(ctx.userId);
 
-      const tools = toolRuntimeForRun({
-        userId: ctx.userId,
-        runId: ctx.runId,
-        workflow: CHAT_TURN_WORKFLOW_SLUG,
-        spanCaller: "boss",
-        context: CHAT_TOOL_RUN_CONTEXT,
-        allowedIntegrations: state.allowedIntegrations,
-        availability,
-      });
-
-      if (state.connectedSummary === undefined) {
-        state.connectedSummary = buildConnectedSummaryFromAvailability(
-          availability,
-          state.allowedIntegrations,
-          tools.context,
-        );
-      }
+      const tools = toolRuntimeForRun(chatToolRunIdentity(ctx, state), availability);
+      state.connectedSummary ??= tools.connectedSummary();
 
       if (state.selfIdentity === undefined) {
         // An older checkpoint already pinned a prompt without this block; adding it fails the hash.
@@ -807,24 +810,12 @@ const dispatchToolsStep: Step<ChatRunState> = {
 
         const roundStartedMs = Date.now();
 
-        const round = await executeToolCallRound<PendingToolCall>({
+        const round = await toolRuntimeForRun(chatToolRunIdentity(ctx, state)).dispatch({
+          stepId: "dispatch-tools",
+          fence: ctx.fence,
           calls,
           transcript,
           activeNames: state.activeTools,
-          run: {
-            runId: ctx.runId,
-            stepId: "dispatch-tools",
-            userId: ctx.userId,
-            workflow: CHAT_TURN_WORKFLOW_SLUG,
-            fence: ctx.fence,
-            caller: "boss",
-            runContext: CHAT_TOOL_RUN_CONTEXT,
-            threadId: state.threadId,
-            messageId: state.messageId,
-            scratchpadRunId: ctx.runId,
-            timezone: state.timezone ? parseIanaTimezone(state.timezone) : undefined,
-            allowedIntegrations: state.allowedIntegrations,
-          },
         });
 
         state.dispatchMs += Math.max(0, Date.now() - roundStartedMs);
