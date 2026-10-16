@@ -8,10 +8,10 @@ import {
   user,
   type UserFact,
   userFacts,
-  userPreferences,
 } from "@alfred/db/schemas";
 import { isNonBlankString, memorySourceSchema, type MemorySource } from "@alfred/contracts";
 import { and, asc, desc, eq, gt, ilike, inArray, isNull, or, sql } from "drizzle-orm";
+import { settings, type UserSettings } from "@alfred/assistant/settings";
 import { USER_FACING_MEMORY_CHUNK_KINDS } from "./chunks";
 
 /** Sections `include` can select. */
@@ -31,6 +31,8 @@ export interface ReadUserContextOptions {
   query?: string | undefined;
   /** Only these sections are filled; profile is always kept. Bounded either way. */
   include?: readonly UserContextSection[] | undefined;
+  /** The caller's bind for this user. Pass it so `preferences` reuses its load; else a new bind. */
+  settings?: UserSettings | undefined;
 }
 
 export interface UserContext {
@@ -351,13 +353,9 @@ export async function readUserContext(
         ),
       )
       .orderBy(userFacts.key, desc(userFacts.confidence), desc(userFacts.updatedAt)),
+    // Ordered by key; the first PREF_LIMIT rows, as before.
     wants("preferences")
-      ? db()
-          .select({ key: userPreferences.key, value: userPreferences.value })
-          .from(userPreferences)
-          .where(eq(userPreferences.userId, userId))
-          .orderBy(asc(userPreferences.key))
-          .limit(PREF_LIMIT)
+      ? (options.settings ?? settings({ userId })).all().then((rows) => rows.slice(0, PREF_LIMIT))
       : Promise.resolve([]),
     // Relationships need the entities to resolve endpoint names.
     // SAFETY: the skipped tier contributes no rows; EntityRow[] is the shared element type of these Promise.all branches.

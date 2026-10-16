@@ -243,7 +243,10 @@ a `LocalDateKey`. Before the brands, `localStartOfDay(timezone, key)` compiled.
   `.all()` on the same bind all read that load. Bind once per request, workflow
   step, or job item and pass the bind down, so a flow that reads the zone and a
   flag costs one SELECT. The load never expires, so never hold a bind at module
-  scope (`pnpm check` rejects one) or across a long loop over many users. At a boundary, `parseIanaTimezone` /
+  scope (`pnpm check` rejects one) or across a long loop over many users. The bind
+  is also the only `user_preferences` reader and writer (`.set`, `.setIfUnset`,
+  `.delete`; pass `exec: tx` to stay in a transaction). `pnpm check` rejects a raw
+  `userPreferences` query outside `settings/` and the Replicache pull. At a boundary, `parseIanaTimezone` /
   `ianaTimezoneSchema` / `isIanaTimezone` (`@alfred/contracts`).
 - **A day key from outside** enters through `parseLocalDateKey` (throws) or
   `isLocalDateKey` (for a Zod `refine` or a filter). Both reject a truncated key

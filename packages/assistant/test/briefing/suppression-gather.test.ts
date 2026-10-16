@@ -9,6 +9,7 @@ import { inArray, like } from "drizzle-orm";
 
 import { closeReplicachePokeBridge } from "@alfred/assistant/realtime";
 import { gatherBriefingWithSuppressionAudit } from "@alfred/assistant/briefings/gather";
+import { settings } from "@alfred/assistant/settings";
 import { isQuietMorning } from "@alfred/assistant/briefings/read";
 import { closeRedis } from "@alfred/db/redis";
 import { dbBackedSkip } from "../support/db-backed";
@@ -85,6 +86,7 @@ async function gateFor(userId: string): Promise<{
 }> {
   const { gather } = await gatherBriefingWithSuppressionAudit({
     userId,
+    settings: settings({ userId }),
     briefingDate: "2026-06-27",
     slot: "morning",
     timezone: TIMEZONE,

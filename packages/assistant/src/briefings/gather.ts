@@ -56,7 +56,7 @@ import {
   gatherVerifiedPulls,
   verifyApprovedMcpHealth,
 } from "@alfred/assistant/connections/verified-pull";
-import { settings } from "@alfred/assistant/settings";
+import { type UserSettings } from "@alfred/assistant/settings";
 import { getMcpExecutionBroker } from "@alfred/assistant/tool-runtime/mcp";
 import { senderSuppressions } from "../knowledge";
 import {
@@ -156,6 +156,8 @@ export interface GatherBriefingDigestArgs {
 
 export interface GatherBriefingArgs {
   userId: string;
+  /** The step's bind for `userId`. The weather location reads from its load, not a new SELECT. */
+  settings: UserSettings;
   /** YYYY-MM-DD calendar date in the user's timezone. */
   briefingDate: LocalDateKey;
   slot?: BriefingSlot;
@@ -513,7 +515,7 @@ export async function gatherBriefingWithSuppressionAudit(
       slot,
     }),
     gatherWeatherContribution({
-      userId: args.userId,
+      settings: args.settings,
       briefingDate: args.briefingDate,
       timezone: args.timezone,
     }),
@@ -796,11 +798,11 @@ function calendarEventToContributionEvent(
 }
 
 async function gatherWeatherContribution(args: {
-  userId: string;
+  settings: UserSettings;
   briefingDate: LocalDateKey;
   timezone: IanaTimezone;
 }): Promise<WeatherContribution | null> {
-  const location = await resolveWeatherLocation(args.userId, args.timezone);
+  const location = await resolveWeatherLocation(args.settings, args.timezone);
 
   if (!location) return null;
 
@@ -872,10 +874,10 @@ const openMeteoSchema = z.object({
 });
 
 async function resolveWeatherLocation(
-  userId: string,
+  userSettings: UserSettings,
   timezone: IanaTimezone,
 ): Promise<WeatherFallbackLocation | null> {
-  const pref = await settings({ userId }).get("location");
+  const pref = await userSettings.get("location");
   const parsed = parseWeatherLocation(pref?.value);
 
   return parsed ?? weatherFallbackFor(timezone);

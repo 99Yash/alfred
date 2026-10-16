@@ -1,9 +1,10 @@
 import { Errors } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { user, userPreferences } from "@alfred/db/schemas";
+import { user } from "@alfred/db/schemas";
 import { eq, sql } from "drizzle-orm";
 import { Elysia, t } from "elysia";
 import { authMacro } from "./middleware/auth";
+import { settings } from "@alfred/assistant/settings";
 import { isValidTimezone } from "@alfred/assistant/time";
 
 /** Onboarding state. `routeToOnboarding` comes from `user.onboarded_at`; the client gates on it. */
@@ -45,12 +46,7 @@ export const onboardingRoutes = new Elysia({ prefix: "/api/me/onboarding", norma
             const tz = body?.timezone;
 
             if (tz && isValidTimezone(tz)) {
-              await tx
-                .insert(userPreferences)
-                .values({ userId: u.id, key: "timezone", value: tz, source: { kind: "user" } })
-                .onConflictDoNothing({
-                  target: [userPreferences.userId, userPreferences.key],
-                });
+              await settings({ userId: u.id, exec: tx }).setIfUnset("timezone", tz);
             }
 
             return updated;
