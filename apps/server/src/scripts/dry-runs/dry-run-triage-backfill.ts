@@ -4,17 +4,27 @@
  * title and category. Writes no todo or triage state, but each classify logs an
  * `api_call_log` cost row.
  *
+ * The todo decision replays a live reply re-eval run (`reason: "reply"`, `force`):
+ * the thread's newest inbound document, the whole-thread closure read, the
+ * `block_todo_suggestion` standing instruction, the structural gate and the
+ * `actionItems` flag, in the order and with the read-failure policy of
+ * `runEmailTriageClassify` (`packages/assistant/src/triage/workflow-operations.ts`).
+ *
  * Run:  pnpm --filter server tsx --env-file=.env src/scripts/dry-runs/dry-run-triage-backfill.ts
  */
+import { senderSuppressions } from "@alfred/assistant/knowledge";
+import { resolveFeatureFlags, resolveTimezone } from "@alfred/assistant/settings";
 import {
   classifyEmail,
   extractSenderContext,
   gatherObservations,
   loadTriageContext,
+  readGmailThreadClosure,
   resolveTodoSuggestion,
   todoSuppressionReason,
 } from "@alfred/assistant/triage";
-import { resolveTimezone } from "@alfred/assistant/settings";
+import { notSentGmailDocumentWhere } from "@alfred/assistant/triage/sent-mail";
+import { userRepliedAfterMessage } from "@alfred/assistant/triage/thread-state";
 import { toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, todos, user as userTable } from "@alfred/db/schemas";
@@ -56,7 +66,8 @@ async function main() {
       continue;
     }
 
-    // thread id to its newest document
+    // Thread id to its newest inbound document. Prod never triages sent mail, and
+    // a reply re-eval re-keys on the newest inbound document.
     const docRow = (
       await db()
         .select({ id: documents.id })
@@ -66,6 +77,7 @@ async function main() {
             eq(documents.userId, t.userId),
             eq(documents.sourceThreadId, src.id),
             eq(documents.source, "gmail"),
+            notSentGmailDocumentWhere(),
           ),
         )
         .orderBy(desc(documents.authoredAt))
@@ -73,8 +85,19 @@ async function main() {
     )[0];
 
     if (!docRow) {
-      console.log(`? ${header}\n    source thread ${src.id} not in local documents — skipped\n`);
+      console.log(
+        `? ${header}\n    source thread ${src.id} has no local inbound document — skipped\n`,
+      );
       unresolved++;
+      continue;
+    }
+
+    // Prod skips the run before any model cost when both flags are off.
+    const flags = await resolveFeatureFlags(t.userId);
+
+    if (!flags.emailTagging && !flags.actionItems) {
+      killed++;
+      console.log(`✗ KILL ${header}\n    → triage-disabled (tagging + action-items off)\n`);
       continue;
     }
 
@@ -140,6 +163,50 @@ async function main() {
         : null,
     );
 
+    // Like prod's reply run: read the whole thread. A failed read fails open, so
+    // the todo stays mintable.
+    let documentRepliedAfter = false;
+    let closureNote = "";
+
+    try {
+      const closure = await readGmailThreadClosure({ userId: t.userId, sourceThreadId: src.id });
+      documentRepliedAfter = userRepliedAfterMessage(
+        closure.lastUserReplyAt,
+        ctxData.document.authoredAt,
+      );
+    } catch (err) {
+      closureNote = ` | closure read failed (treated as not-replied): ${toMessage(err)}`;
+    }
+
+    // Like prod: read the standing instruction only for a proposed todo. A failed
+    // read fails closed and suppresses the todo.
+    let standingSuppression: string | null = null;
+
+    if (resolved) {
+      const suppressions = await senderSuppressions({
+        userId: t.userId,
+        onReadFailure: "report",
+      });
+
+      const outcome = suppressions.match(
+        {
+          sender: scResult.senderAddress ?? ctxData.document.metadata.from ?? null,
+          accountId: ctxData.document.accountId,
+        },
+        "block_todo_suggestion",
+      );
+
+      if (outcome.kind === "suppressed") {
+        standingSuppression =
+          `standing_instruction effect=${outcome.match.effect} ` +
+          `fact=${outcome.match.factId} sender=${outcome.match.matchedEmail}`;
+      }
+
+      if (outcome.kind === "read_failed") {
+        standingSuppression = `standing_instruction_read_failed: ${toMessage(outcome.error)}`;
+      }
+    }
+
     const suppression = resolved
       ? todoSuppressionReason({
           sender: ctxData.document.metadata.from ?? null,
@@ -155,18 +222,27 @@ async function main() {
           collabActivity: classification.collabActivity ?? null,
           category: classification.category,
           isColdContact: observations.senderRelationshipIsCold,
+          userRepliedAfterMessage: documentRepliedAfter,
         })
       : null;
 
-    if (resolved && !suppression) {
+    // Prod's precedence: standing instruction, its read failure, the structural
+    // gate, then the action-items flag.
+    let killReason: string | null = null;
+
+    if (!resolved) killReason = `${decision}${note}`;
+    else if (standingSuppression) killReason = `suppressed: ${standingSuppression}`;
+    else if (suppression) killReason = `suppressed: ${suppression}`;
+    else if (!flags.actionItems) killReason = "action-items flag off";
+
+    if (resolved && killReason == null) {
       kept++;
       console.log(
-        `✓ KEEP ${header}\n    → cat=${cat} | ${author} | new title: "${resolved.name}"\n`,
+        `✓ KEEP ${header}\n    → cat=${cat} | ${author} | new title: "${resolved.name}"${closureNote}\n`,
       );
     } else {
       killed++;
-      const why = suppression ? `suppressed: ${suppression}` : `${decision}${note}`;
-      console.log(`✗ KILL ${header}\n    → cat=${cat} | ${author} | ${why}\n`);
+      console.log(`✗ KILL ${header}\n    → cat=${cat} | ${author} | ${killReason}${closureNote}\n`);
     }
   }
 
