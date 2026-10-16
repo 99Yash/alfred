@@ -35,9 +35,9 @@ import {
   type StoredOAuthTokens,
 } from "@modelcontextprotocol/client";
 import { and, eq, gt, lt } from "drizzle-orm";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 import { z } from "zod";
-import { rememberOAuthNonce, signOAuthState } from "@alfred/assistant/connections";
+import { oauthHandshake } from "@alfred/assistant/connections";
 import {
   builtInClientUnavailableMessage,
   resolveBuiltInClient,
@@ -88,6 +88,9 @@ const MCP_OAUTH_FETCH_TIMEOUT_MS = 30_000;
 const MCP_OAUTH_REFRESH_SKEW_MS = 60_000;
 
 const MCP_OAUTH_ATTEMPT_TTL_MS = 10 * 60_000;
+
+/** `GET /api/integrations/mcp/callback` completes this handshake with its own `oauthHandshake("mcp")`. */
+const handshake = oauthHandshake("mcp");
 
 type OAuthCredentialPatch = Partial<
   Pick<
@@ -532,16 +535,8 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
   }
 
   async state(): Promise<string> {
-    const nonce = randomBytes(24).toString("base64url");
-    await rememberOAuthNonce({
-      provider: `mcp:${this.#connectionId}`,
-      nonce,
+    const state = await handshake.begin({
       userId: this.#userId,
-    });
-
-    const state = signOAuthState({
-      userId: this.#userId,
-      nonce,
       connectionId: this.#connectionId,
     });
 

@@ -73,16 +73,6 @@ export {
 
 export { oauthHandshake, type OAuthHandshake, type OAuthHandshakeState } from "./oauth-state";
 
-/** MCP OAuth only. Curated provider routes use `oauthHandshake`; `pnpm check` enforces it. */
-export {
-  consumeOAuthNonce,
-  rememberOAuthNonce,
-  signOAuthState,
-  verifyOAuthState,
-  type IssueNonceArgs,
-  type SignedOAuthState,
-} from "./oauth-state";
-
 export { publishGoogleCallbackCompleted } from "./google-callback-events";
 
 export { readRawReceiptInventory, seenRawKinds } from "./raw-receipt-inventory";
