@@ -301,6 +301,24 @@ export const RULES = [
     fix: "Use parseOAuthScopeList(scope) from @alfred/contracts — the one grammar that accepts both RFC 6749 space lists and GitHub's comma list.",
   },
   {
+    id: "oauth-state-primitive",
+    // The OAuth state primitives, called outside the handshake. Each curated
+    // callback once had to remember the step that makes the nonce a CSRF and
+    // replay defense: compare the user that the nonce was minted for with the
+    // user in the signed state. A route that calls `verifyOAuthState` alone
+    // accepts a replayed state. The MCP flow keeps the primitives because its
+    // nonce namespace (`mcp:<connectionId>`) and encoding differ.
+    re: /\b(?:rememberOAuthNonce|consumeOAuthNonce|signOAuthState|verifyOAuthState)\b/,
+    severity: "gate",
+    owners: [
+      "packages/assistant/src/connections/oauth-state.ts",
+      "packages/assistant/src/connections/index.ts",
+      "packages/assistant/src/connections/mcp/oauth.ts",
+      "packages/http/src/mcp.ts",
+    ],
+    fix: "Bind oauthHandshake(PROVIDER) from @alfred/assistant/connections once per route module; call .begin({ userId }) on connect and .complete(state) on callback. It signs, remembers and consumes the nonce, and checks the user, in one operation.",
+  },
+  {
     id: "read-write-github-mcp-endpoint",
     // ADR-0094: read-only is a property of the RESOURCE, so the whole rule is
     // the value of one constant. The `/mcp` root and `/mcp/readonly` are two

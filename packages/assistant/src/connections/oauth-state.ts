@@ -1,7 +1,7 @@
-import type { CredentialProvider } from "@alfred/contracts";
+import { Errors, type CredentialProvider } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import { z } from "zod";
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { createRedisConnection, type BoundedRedis } from "@alfred/db/redis";
 import { workflowRecoveryStateSchema } from "./ingestion/workflow-recovery";
 
@@ -9,6 +9,10 @@ import { workflowRecoveryStateSchema } from "./ingestion/workflow-recovery";
  * OAuth state nonces in Redis. The one-time nonce is the CSRF and replay defense;
  * the HMAC only proves the state was not forged. Without it, a leaked state
  * could bind an attacker's account to a victim's user.
+ *
+ * Curated provider routes use `oauthHandshake(provider)`, which runs every check in one
+ * operation. The four primitives below stay exported only for the MCP flow, whose nonce
+ * namespace and encoding differ; `pnpm check` (`oauth-state-primitive`) holds that line.
  */
 
 const KEY_PREFIX = "oauth:state:";
@@ -92,4 +96,45 @@ export function verifyOAuthState(raw: string): SignedOAuthState | null {
   } catch {
     return null;
   }
+}
+
+/** What a curated connect route carries through the provider redirect and gets back on callback. */
+export type OAuthHandshakeState = Omit<SignedOAuthState, "nonce" | "connectionId">;
+
+export interface OAuthHandshake {
+  /** Mints and remembers a one-time nonce for `state.userId`, then returns the signed `state` param. */
+  begin(state: OAuthHandshakeState): Promise<string>;
+  /**
+   * Accepts a callback `state` once. In order: HMAC and shape (400 "Invalid state"), then the
+   * nonce is consumed, then it must have been minted for the same user (400 "Invalid or expired
+   * state"). The nonce is consumed before the user check, so a mismatched state is still spent.
+   */
+  complete(rawState: string): Promise<OAuthHandshakeState>;
+}
+
+/**
+ * The state handshake for one curated provider. Bind it once per route module, so connect and
+ * callback share the nonce namespace: a callback can only consume a nonce its own connect minted.
+ */
+export function oauthHandshake(provider: CredentialProvider): OAuthHandshake {
+  return {
+    async begin({ userId, ...extras }) {
+      const nonce = randomBytes(16).toString("hex");
+      await rememberOAuthNonce({ provider, nonce, userId });
+
+      return signOAuthState({ userId, nonce, ...extras });
+    },
+    async complete(rawState) {
+      const decoded = verifyOAuthState(rawState);
+
+      if (!decoded) throw Errors.BadRequestError("Invalid state");
+      const storedUserId = await consumeOAuthNonce(provider, decoded.nonce);
+
+      if (!storedUserId || storedUserId !== decoded.userId) {
+        throw Errors.BadRequestError("Invalid or expired state");
+      }
+
+      return decoded;
+    },
+  };
 }

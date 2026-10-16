@@ -71,6 +71,9 @@ export {
   type ReconciledObject,
 } from "./object-state";
 
+export { oauthHandshake, type OAuthHandshake, type OAuthHandshakeState } from "./oauth-state";
+
+/** MCP OAuth only. Curated provider routes use `oauthHandshake`; `pnpm check` enforces it. */
 export {
   consumeOAuthNonce,
   rememberOAuthNonce,

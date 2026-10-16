@@ -10,15 +10,9 @@ import {
   upsertGithubCredential,
 } from "@alfred/integrations/github";
 import { deleteIntegrationCredential } from "@alfred/integrations/shared";
-import { randomBytes } from "node:crypto";
 import { Elysia, t } from "elysia";
 import { eq } from "drizzle-orm";
-import {
-  consumeOAuthNonce,
-  rememberOAuthNonce,
-  signOAuthState,
-  verifyOAuthState,
-} from "@alfred/assistant/connections";
+import { oauthHandshake } from "@alfred/assistant/connections";
 import { authMacro } from "../middleware/auth";
 import { requireOnboarded } from "../middleware/onboarding";
 
@@ -30,6 +24,8 @@ import { requireOnboarded } from "../middleware/onboarding";
 
 const PROVIDER = "github" satisfies CredentialProvider;
 
+const handshake = oauthHandshake(PROVIDER);
+
 export const githubIntegrationRoutes = new Elysia({
   prefix: integrationRoutePrefix(PROVIDER),
   normalize: "typebox",
@@ -39,9 +35,7 @@ export const githubIntegrationRoutes = new Elysia({
   // No `requireOnboarded`: onboarding step 2 links here.
   .guard({ auth: true }, (app) =>
     app.get("/connect", async ({ user, set }) => {
-      const nonce = randomBytes(16).toString("hex");
-      await rememberOAuthNonce({ provider: PROVIDER, nonce, userId: user.id });
-      const state = signOAuthState({ userId: user.id, nonce });
+      const state = await handshake.begin({ userId: user.id });
       set.status = 302;
       set.headers["Location"] = buildInstallUrl(state);
 
@@ -80,15 +74,7 @@ export const githubIntegrationRoutes = new Elysia({
         return null;
       }
 
-      const decoded = verifyOAuthState(query.state);
-
-      if (!decoded) throw Errors.BadRequestError("Invalid state");
-
-      const storedUserId = await consumeOAuthNonce(PROVIDER, decoded.nonce);
-
-      if (!storedUserId || storedUserId !== decoded.userId) {
-        throw Errors.BadRequestError("Invalid or expired state");
-      }
+      const { userId } = await handshake.complete(query.state);
 
       if (!query.installation_id) throw Errors.BadRequestError("Missing installation_id");
       const installationId = query.installation_id;
@@ -140,7 +126,7 @@ export const githubIntegrationRoutes = new Elysia({
 
       const [credential, userRow] = await Promise.all([
         upsertGithubCredential({
-          userId: decoded.userId,
+          userId,
           accountId,
           accountLabel: accountLogin,
           accessToken,
@@ -160,7 +146,7 @@ export const githubIntegrationRoutes = new Elysia({
         db()
           .select({ onboardedAt: user.onboardedAt })
           .from(user)
-          .where(eq(user.id, decoded.userId))
+          .where(eq(user.id, userId))
           .limit(1),
       ]);
 

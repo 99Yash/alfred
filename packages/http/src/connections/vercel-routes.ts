@@ -7,19 +7,15 @@ import {
   vercelCredentialMetadata,
 } from "@alfred/integrations/vercel";
 import { deleteIntegrationCredential, upsertBearerCredential } from "@alfred/integrations/shared";
-import { randomBytes } from "node:crypto";
 import { Elysia, t } from "elysia";
-import {
-  consumeOAuthNonce,
-  rememberOAuthNonce,
-  signOAuthState,
-  verifyOAuthState,
-} from "@alfred/assistant/connections";
+import { oauthHandshake } from "@alfred/assistant/connections";
 import { authMacro } from "../middleware/auth";
 import { requireOnboarded } from "../middleware/onboarding";
 
 /** Vercel install flow. The `code` becomes a non-expiring bearer token. */
 const PROVIDER = "vercel" satisfies CredentialProvider;
+
+const handshake = oauthHandshake(PROVIDER);
 
 export const vercelIntegrationRoutes = new Elysia({
   prefix: integrationRoutePrefix(PROVIDER),
@@ -34,9 +30,7 @@ export const vercelIntegrationRoutes = new Elysia({
           throw Errors.ServiceUnavailableError("Vercel integration is not configured");
         }
 
-        const nonce = randomBytes(16).toString("hex");
-        await rememberOAuthNonce({ provider: PROVIDER, nonce, userId: user.id });
-        const state = signOAuthState({ userId: user.id, nonce });
+        const state = await handshake.begin({ userId: user.id });
         set.status = 302;
         set.headers["Location"] = buildVercelInstallUrl(state);
 
@@ -73,21 +67,13 @@ export const vercelIntegrationRoutes = new Elysia({
 
       if (!query.code || !query.state) throw Errors.BadRequestError("Missing code or state");
 
-      const decoded = verifyOAuthState(query.state);
-
-      if (!decoded) throw Errors.BadRequestError("Invalid state");
-      const storedUserId = await consumeOAuthNonce(PROVIDER, decoded.nonce);
-
-      if (!storedUserId || storedUserId !== decoded.userId) {
-        throw Errors.BadRequestError("Invalid or expired state");
-      }
-
+      const { userId } = await handshake.complete(query.state);
       const tokens = await exchangeVercelCode(query.code);
       // Team and personal installs must be separate credential rows.
       const accountId = tokens.teamId ?? tokens.userId ?? tokens.installationId ?? "vercel";
       const label = tokens.teamId ? `team ${tokens.teamId}` : (tokens.userId ?? accountId);
       await upsertBearerCredential({
-        userId: decoded.userId,
+        userId,
         provider: PROVIDER,
         accountId,
         accountLabel: label,

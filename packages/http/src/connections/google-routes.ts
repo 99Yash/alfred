@@ -19,7 +19,6 @@ import {
   scopesForFeatures,
   uninstallGmailWatch,
 } from "@alfred/integrations/google";
-import { randomBytes } from "node:crypto";
 import { Elysia, t } from "elysia";
 import { and, eq } from "drizzle-orm";
 import {
@@ -28,14 +27,11 @@ import {
   resolveWorkflowRecoveryTarget,
 } from "@alfred/assistant/connections/ingestion";
 import {
-  consumeOAuthNonce,
   disconnectGoogleCredentialConnection,
   GoogleCredentialNotFoundError,
+  oauthHandshake,
   publishGoogleCallbackCompleted,
-  rememberOAuthNonce,
-  signOAuthState,
   upsertGoogleCredentialConnection,
-  verifyOAuthState,
 } from "@alfred/assistant/connections";
 import { authMacro } from "../middleware/auth";
 import { requireOnboarded } from "../middleware/onboarding";
@@ -65,6 +61,8 @@ async function assertCredentialOwned(id: string, userId: string): Promise<void> 
 }
 
 const PROVIDER = "google" satisfies CredentialProvider;
+
+const handshake = oauthHandshake(PROVIDER);
 
 export const googleIntegrationRoutes = new Elysia({
   prefix: integrationRoutePrefix(PROVIDER),
@@ -113,12 +111,8 @@ export const googleIntegrationRoutes = new Elysia({
             ? { workflowId: query.workflowId, revisionId: query.revisionId }
             : undefined;
 
-        const nonce = randomBytes(16).toString("hex");
-        await rememberOAuthNonce({ provider: PROVIDER, nonce, userId: user.id });
-
-        const state = signOAuthState({
+        const state = await handshake.begin({
           userId: user.id,
-          nonce,
           ...(workflowRecovery ? { workflowRecovery } : {}),
         });
 
@@ -283,21 +277,12 @@ export const googleIntegrationRoutes = new Elysia({
         throw Errors.BadRequestError("Missing code or state");
       }
 
-      const decoded = verifyOAuthState(query.state);
-
-      if (!decoded) throw Errors.BadRequestError("Invalid state");
-
-      // Consuming the nonce makes a captured `state` single-use.
-      const storedUserId = await consumeOAuthNonce(PROVIDER, decoded.nonce);
-
-      if (!storedUserId || storedUserId !== decoded.userId) {
-        throw Errors.BadRequestError("Invalid or expired state");
-      }
-
+      // `complete` consumes the nonce, so a captured `state` is single-use.
+      const { userId, workflowRecovery } = await handshake.complete(query.state);
       const tokens = await exchangeCode(query.code);
 
       const { credentialId } = await upsertGoogleCredentialConnection({
-        userId: decoded.userId,
+        userId,
         accountId: tokens.accountId,
         accountEmail: tokens.accountEmail,
         accessToken: tokens.access_token,
@@ -326,24 +311,24 @@ export const googleIntegrationRoutes = new Elysia({
         });
       });
 
-      await publishGoogleCallbackCompleted(decoded.userId, credentialId);
+      await publishGoogleCallbackCompleted(userId, credentialId);
 
       // A user still onboarding goes back to step 2.
       const userRow = await db()
         .select({ onboardedAt: user.onboardedAt })
         .from(user)
-        .where(eq(user.id, decoded.userId))
+        .where(eq(user.id, userId))
         .limit(1);
 
       const stillOnboarding = userRow[0]?.onboardedAt === null;
       const connectedParam = `google_connected=${encodeURIComponent(tokens.accountEmail)}`;
       let target = stillOnboarding ? `/onboarding?step=2&${connectedParam}` : `/?${connectedParam}`;
 
-      if (!stillOnboarding && decoded.workflowRecovery) {
+      if (!stillOnboarding && workflowRecovery) {
         target = await resolveWorkflowRecoveryTarget({
-          userId: decoded.userId,
-          workflowId: decoded.workflowRecovery.workflowId,
-          revisionId: decoded.workflowRecovery.revisionId,
+          userId,
+          workflowId: workflowRecovery.workflowId,
+          revisionId: workflowRecovery.revisionId,
         });
       }
 
