@@ -9,6 +9,7 @@ import { inArray, like } from "drizzle-orm";
 
 import { closeReplicachePokeBridge } from "@alfred/assistant/realtime";
 import { gatherBriefingWithSuppressionAudit } from "@alfred/assistant/briefings/gather";
+import { settings } from "@alfred/assistant/settings";
 import { listEmailsSinceWatermark } from "@alfred/assistant/briefings/read";
 import { rememberSenderSuppression } from "@alfred/assistant/knowledge";
 import { parseLocalDateKey } from "@alfred/assistant/time";
@@ -92,6 +93,7 @@ async function seedEmail(args: {
 async function gatherFor(userId: string) {
   return gatherBriefingWithSuppressionAudit({
     userId,
+    settings: settings({ userId }),
     briefingDate: BRIEFING_DATE,
     slot: "morning",
     timezone: TIMEZONE,

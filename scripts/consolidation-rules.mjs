@@ -491,6 +491,23 @@ export const RULES = [
     fix: "Bind settings({ userId }) inside the request, workflow step, or job item that reads it. A bind keeps its first load and never re-reads, so a module-scope bind serves a stale zone and stale flags until the process restarts.",
   },
   {
+    id: "raw-user-preferences-query",
+    // `settings({ userId })` is the one gateway to `user_preferences` (ADR-0089).
+    // A raw query beside it pays a second SELECT the bind already loaded, and a
+    // raw write skips the `row_version` bump and the key/value validation.
+    re: /\.(?:from|(?:left|right|inner|full)Join|insert|update|delete)\(\s*userPreferences\b/,
+    scope: "chain",
+    severity: "gate",
+    owners: [
+      // The settings gateway's own read, upsert, insert-if-absent, and delete.
+      "packages/assistant/src/settings/preferences.ts",
+      // The Replicache pull diffs `row_version` per key inside the pull tx; it
+      // reads the sync model, not the user's settings.
+      "packages/http/src/sync/read/preferences.ts",
+    ],
+    fix: "Read and write user_preferences through settings({ userId[, exec: tx] }) from @alfred/assistant/settings: get / all / timezone / flags for reads (one SELECT per bind), set / setIfUnset / delete for writes. Pass the bind the flow already holds instead of taking a second one.",
+  },
+  {
     id: "hand-rolled-utc-offset-parse",
     // The `longOffset` → "GMT-05:00" parse. One reader owns it; a second copy
     // is how the same zone got three different offset answers.

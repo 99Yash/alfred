@@ -63,14 +63,18 @@ export async function gatherReplyContext(args: {
     throw new Error("[reply-drafting] gather requires a mailbox and Gmail thread");
   }
 
+  // One bind, so the user-context preferences and the zone share one SELECT.
+  const userSettings = settings({ userId: args.userId });
+
   const [userContext, profile, timezone, thread] = await Promise.all([
     readUserContext(args.userId, {
       subjectEmail: args.sender ?? undefined,
       include: ["profile", "facts", "preferences", "entities", "relationships"],
+      settings: userSettings,
     }),
     // Audience inference belongs to #238; read the generic profile only.
     getStyleProfile(args.userId, "gmail", "generic"),
-    settings({ userId: args.userId }).timezone(),
+    userSettings.timezone(),
     getThreadState({
       userId: args.userId,
       sourceThreadId: document.sourceThreadId,

@@ -6,6 +6,7 @@ import { firstValidTimezone, TIMEZONE_PREFERENCE_KEYS } from "@alfred/assistant/
 import { featureFlagsFrom, type FeatureFlags } from "./flags";
 import {
   deletePreferenceRow,
+  insertPreferenceIfAbsent,
   readPreferenceRows,
   rowToPref,
   setPreferenceArgsSchema,
@@ -96,6 +97,26 @@ export function settings({ userId, exec }: { userId: string; exec?: PreferenceEx
       if (!row) throw new Error("[settings] set returned no row");
 
       return rowToPref(row);
+    },
+
+    /**
+     * Validates, then inserts only when the user has no row for `key`. An existing row is kept
+     * as it is, so a value the user chose is never overwritten. `false` when a row was there.
+     */
+    async setIfUnset(
+      key: string,
+      value: SetPreferenceArgs["value"],
+      options?: Pick<SetPreferenceArgs, "source">,
+    ): Promise<boolean> {
+      const parsed = setPreferenceArgsSchema.parse({ userId, key, value, source: options?.source });
+
+      const inserted = await insertPreferenceIfAbsent(executor(), parsed).returning({
+        id: userPreferences.id,
+      });
+
+      view = undefined;
+
+      return inserted.length > 0;
     },
 
     /** Reverts `key` to its default. `false` when the user had no row for it. */

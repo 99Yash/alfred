@@ -118,6 +118,36 @@ const CASES = [
     code: `.from(eventReceipts)`,
   })),
   {
+    name: "raw-user-preferences-query — a select split across lines",
+    caught: true,
+    rule: "raw-user-preferences-query",
+    code: `db()
+  .select({ key: userPreferences.key })
+  .from(
+    userPreferences
+  )`,
+  },
+  {
+    name: "raw-user-preferences-query — a write in a tx",
+    caught: true,
+    rule: "raw-user-preferences-query",
+    code: `await tx.insert(userPreferences).values(row).onConflictDoNothing();`,
+  },
+  {
+    name: "raw-user-preferences-query — a read through the bind",
+    caught: false,
+    code: `const rows = await settings({ userId }).all();`,
+  },
+  ...[
+    "packages/assistant/src/settings/preferences.ts",
+    "packages/http/src/sync/read/preferences.ts",
+  ].map((file) => ({
+    name: `raw-user-preferences-query — sanctioned owner: ${file}`,
+    caught: false,
+    file,
+    code: `.from(userPreferences)`,
+  })),
+  {
     name: "as-loose-record — direct boundary assertion",
     caught: true,
     code: `const payload = input as Record<string, unknown>;`,

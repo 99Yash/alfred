@@ -108,7 +108,9 @@ export const morningBriefingWorkflow: Workflow<State> = {
     gather: {
       id: "gather",
       async run(ctx) {
-        const prefs = await resolveBriefingPreferences(settings({ userId: ctx.userId }));
+        // One bind for the step: the briefing preferences and the gather's weather location share its load.
+        const userSettings = settings({ userId: ctx.userId });
+        const prefs = await resolveBriefingPreferences(userSettings);
         const timezone = prefs.timezone;
 
         // Persisted state is a plain string; a fresh run mints one.
@@ -171,6 +173,7 @@ export const morningBriefingWorkflow: Workflow<State> = {
         try {
           const gathered = await gatherBriefingWithSuppressionAudit({
             userId: ctx.userId,
+            settings: userSettings,
             briefingDate,
             slot: ctx.state.slot,
             timezone,

@@ -26,12 +26,9 @@ import {
   type SupportedPassthroughSlug,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import {
-  integrationCredentials,
-  userPreferences,
-  type IntegrationCredential,
-} from "@alfred/db/schemas";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { integrationCredentials, type IntegrationCredential } from "@alfred/db/schemas";
+import { asc, eq } from "drizzle-orm";
+import { settings } from "@alfred/assistant/settings";
 import { gmailPushStaleStatus, readGmailDeliveryFacts } from "./ingestion/gmail-delivery-facts";
 import { readDeliveryAlerts, toDeliveryAlerts } from "./delivery-alerts";
 
@@ -227,16 +224,9 @@ function resolveIntegrationAvailability(
 async function loadIntegrationAvailability(
   userId: string,
 ): Promise<IntegrationAvailabilitySnapshot> {
-  const passthroughKeys = Object.values(PASSTHROUGH_PREFERENCE_KEYS);
-
   const [byProvider, prefRows] = await Promise.all([
     loadCredentialRowsByProvider(userId),
-    db()
-      .select({ key: userPreferences.key, value: userPreferences.value })
-      .from(userPreferences)
-      .where(
-        and(eq(userPreferences.userId, userId), inArray(userPreferences.key, passthroughKeys)),
-      ),
+    settings({ userId }).all(),
   ]);
 
   const prefByKey = new Map(prefRows.map((row) => [row.key, row.value]));

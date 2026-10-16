@@ -75,7 +75,9 @@ export interface DailyBriefingOperationState {
 export async function runDailyBriefingGather<State extends DailyBriefingOperationState>(
   ctx: StepContext<State>,
 ): Promise<StepResult<State>> {
-  const prefs = await resolveBriefingPreferences(settings({ userId: ctx.userId }));
+  // One bind for the step: the briefing preferences and the gather's weather location share its load.
+  const userSettings = settings({ userId: ctx.userId });
+  const prefs = await resolveBriefingPreferences(userSettings);
   const timezone = prefs.timezone;
 
   // Persisted JSON, so the date comes back as a string.
@@ -163,6 +165,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
     // the agent still writes the prose.
     const gathered = await gatherBriefingWithSuppressionAudit({
       userId: ctx.userId,
+      settings: userSettings,
       briefingDate,
       slot: ctx.state.slot,
       timezone,

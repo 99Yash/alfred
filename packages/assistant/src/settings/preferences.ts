@@ -73,6 +73,19 @@ export function upsertPreference(exec: PreferenceExecutor, args: SetPreferenceAr
     });
 }
 
+/**
+ * The only `user_preferences` insert that keeps an existing row. A row for the key, from any
+ * source, wins; the insert then does nothing. Returns the builder un-awaited.
+ */
+export function insertPreferenceIfAbsent(exec: PreferenceExecutor, args: SetPreferenceArgs) {
+  const source: MemorySource = args.source ?? { kind: "user" };
+
+  return exec
+    .insert(userPreferences)
+    .values({ userId: args.userId, key: args.key, value: args.value, source })
+    .onConflictDoNothing({ target: [userPreferences.userId, userPreferences.key] });
+}
+
 /** The only `user_preferences` delete. Returns the builder un-awaited. */
 export function deletePreferenceRow(exec: PreferenceExecutor, userId: string, key: string) {
   return exec
