@@ -79,6 +79,7 @@ import { reconcileInflightInvocations } from "@alfred/assistant/tool-runtime/mcp
 import { toMessage } from "@alfred/contracts";
 import { closeConnections, warmPool } from "@alfred/db";
 import { closeRedis } from "@alfred/db/redis";
+import type { Queue } from "bullmq";
 import { registerRuntimeAdapters, unregisterRuntimeAdapters } from "./adapters/runtime-adapters";
 
 /** Called once per newly created user, after the host installs the hook. */
@@ -116,14 +117,168 @@ export async function runShutdownStep(label: string, step: () => Promise<void>):
   }
 }
 
+/** A BullMQ module: one worker, the queue it consumes, and the crons it schedules on that queue. */
+interface WorkerService {
+  readonly kind: "worker";
+  /** Shutdown logs read `<label> worker` and `<label> queue`. */
+  readonly label: string;
+  readonly start: () => Promise<void>;
+  readonly stop: () => Promise<void>;
+  readonly close: () => Promise<void>;
+  /** `schedule` writes its schedulers on `queue`, so a boot with scheduled jobs off clears that queue. */
+  readonly repeatable?: {
+    readonly queue: () => Queue;
+    readonly schedule: () => Promise<void>;
+  };
+}
+
+/** An in-process recovery loop. It has no queue and runs only when scheduled jobs are enabled. */
+interface ScheduledLoop {
+  readonly kind: "scheduled-loop";
+  /** The shutdown log label. */
+  readonly label: string;
+  readonly start: () => void;
+  readonly stop: () => Promise<void>;
+}
+
+type BackgroundService = WorkerService | ScheduledLoop;
+
+/**
+ * Teardown order. Each group stops every member, then closes every member's
+ * queue, so a worker that enqueues onto a sibling's queue shares its group:
+ * the chat-memory worker enqueues agent runs, so it stops before the agent
+ * queue closes. The scheduled loops stop first; no step waits on them, and
+ * row locks keep the receipt-payload reaper safe beside the workers.
+ * The names here and the keys of `backgroundServices` must match exactly.
+ */
+const SHUTDOWN_ORDER = [
+  ["receiptPayloadReaper", "documentAskReconciler", "mcpConnectionRecovery"],
+  ["agent", "subAgentJoinWake", "chatMemory", "conversationCompaction"],
+  ["approvalNotification"],
+  ["approvalExpiry"],
+  ["ingestion"],
+  ["memory"],
+  ["briefing"],
+  ["workflows"],
+] as const;
+
+type BackgroundServiceName = (typeof SHUTDOWN_ORDER)[number][number];
+
+/**
+ * Every background module, in boot order. Workers start in this order, then
+ * (with scheduled jobs on) the loops start and the repeatables register in
+ * this order. `satisfies` rejects a key that `SHUTDOWN_ORDER` does not name
+ * and a name that has no record, so no module can start without a teardown.
+ */
+function backgroundServices(config: RuntimeConfig) {
+  return {
+    agent: {
+      kind: "worker",
+      label: "agent",
+      // The pool ceiling derives from this same value (#437), so throughput cannot outrun the pool.
+      start: () => startAgentWorker({ concurrency: config.workerConcurrency }),
+      stop: stopAgentWorker,
+      close: closeAgentQueue,
+    },
+    subAgentJoinWake: {
+      kind: "worker",
+      label: "sub-agent join-wake",
+      start: startSubAgentJoinWakeWorker,
+      stop: stopSubAgentJoinWakeWorker,
+      close: closeSubAgentJoinWakeQueue,
+    },
+    ingestion: {
+      kind: "worker",
+      label: "ingestion",
+      start: startIngestionWorker,
+      stop: stopIngestionWorker,
+      close: closeIngestionQueue,
+      repeatable: { queue: getIngestionQueue, schedule: scheduleRepeatableIngestionJobs },
+    },
+    memory: {
+      kind: "worker",
+      label: "memory",
+      start: startMemoryWorker,
+      stop: stopMemoryWorker,
+      close: closeMemoryQueue,
+      repeatable: { queue: getMemoryQueue, schedule: scheduleRepeatableMemoryJobs },
+    },
+    chatMemory: {
+      kind: "worker",
+      label: "chat-memory",
+      start: startChatMemoryWorker,
+      stop: stopChatMemoryWorker,
+      close: closeChatMemoryQueue,
+    },
+    conversationCompaction: {
+      kind: "worker",
+      label: "conversation-compaction",
+      start: startConversationCompactionWorker,
+      stop: stopConversationCompactionWorker,
+      close: closeConversationCompactionQueue,
+    },
+    briefing: {
+      kind: "worker",
+      label: "briefing",
+      start: startBriefingWorker,
+      stop: stopBriefingWorker,
+      close: closeBriefingQueue,
+      repeatable: { queue: getBriefingQueue, schedule: scheduleRepeatableBriefingJobs },
+    },
+    workflows: {
+      kind: "worker",
+      label: "workflows",
+      start: startWorkflowsWorker,
+      stop: stopWorkflowsWorker,
+      close: closeWorkflowsQueue,
+      repeatable: { queue: getWorkflowsQueue, schedule: scheduleRepeatableWorkflowsJobs },
+    },
+    approvalNotification: {
+      kind: "worker",
+      label: "approval-notification",
+      start: startApprovalNotificationWorker,
+      stop: stopApprovalNotificationWorker,
+      close: closeApprovalNotificationQueue,
+    },
+    approvalExpiry: {
+      kind: "worker",
+      label: "approval-expiry",
+      start: startApprovalExpiryWorker,
+      stop: stopApprovalExpiryWorker,
+      close: closeApprovalExpiryQueue,
+    },
+    mcpConnectionRecovery: {
+      kind: "scheduled-loop",
+      label: "MCP connection recovery",
+      start: startMcpConnectionRecovery,
+      stop: stopMcpConnectionRecovery,
+    },
+    // Frees old `event_receipts` bodies. After `drainMs`, `stop()` may return
+    // while one reaper `UPDATE` still runs.
+    receiptPayloadReaper: {
+      kind: "scheduled-loop",
+      label: "receipt-payload reaper",
+      start: startReceiptPayloadReaper,
+      stop: stopReceiptPayloadReaper,
+    },
+    // Re-runs document-ask threads that a lost media job left. Gated: dev needs
+    // no recovery, and an ungated pass would resolve rows under DB tests.
+    documentAskReconciler: {
+      kind: "scheduled-loop",
+      label: "document-ask reconciler",
+      start: startDocumentAskReconciler,
+      stop: stopDocumentAskReconciler,
+    },
+  } satisfies Record<BackgroundServiceName, BackgroundService>;
+}
+
 /**
  * Delete every persisted repeatable job scheduler and return the count.
  * BullMQ keeps schedulers in Redis across restarts, so skipping
  * `scheduleRepeatable*` alone still fires a prior run's crons.
  * Reads the live set, so a scheduler added later is covered too.
  */
-async function clearPersistedJobSchedulers(): Promise<number> {
-  const queues = [getIngestionQueue(), getMemoryQueue(), getBriefingQueue(), getWorkflowsQueue()];
+async function clearPersistedJobSchedulers(queues: readonly Queue[]): Promise<number> {
   let removed = 0;
 
   for (const queue of queues) {
@@ -141,8 +296,11 @@ async function clearPersistedJobSchedulers(): Promise<number> {
   return removed;
 }
 
-/** The runtime owns registration order, worker start order, and reverse teardown order. */
+/** The runtime owns registration order, worker start order, and teardown order. */
 export function createAssistantRuntime(config: RuntimeConfig): AssistantRuntime {
+  const services: Record<BackgroundServiceName, BackgroundService> = backgroundServices(config);
+  const bootOrder = Object.values(services);
+
   return {
     async start(): Promise<void> {
       await warmPool();
@@ -173,35 +331,29 @@ export function createAssistantRuntime(config: RuntimeConfig): AssistantRuntime 
       await seedBuiltinWorkflowsForAllUsers();
       await startPolicyBustSubscriber();
 
-      // The pool ceiling derives from this same value (#437), so throughput cannot outrun the pool.
-      await startAgentWorker({ concurrency: config.workerConcurrency });
-      await startSubAgentJoinWakeWorker();
-      await startIngestionWorker();
-      await startMemoryWorker();
-      await startChatMemoryWorker();
-      await startConversationCompactionWorker();
-      await startBriefingWorker();
-      await startWorkflowsWorker();
-      await startApprovalNotificationWorker();
-      await startApprovalExpiryWorker();
+      for (const service of bootOrder) {
+        if (service.kind === "worker") await service.start();
+      }
 
       // Crons spend money and send mail with nobody watching, so they are off
       // outside production unless enabled. `pnpm dev` runs under `tsx watch`,
       // which can outlive its terminal: one orphan once ran for three days.
       // Workers still run: they only act on jobs someone enqueued.
       if (scheduledJobsEnabled()) {
-        startMcpConnectionRecovery();
-        // Frees old `event_receipts` bodies. Gated like the crons; `stop()` stops it.
-        startReceiptPayloadReaper();
-        // Re-runs document-ask threads that a lost media job left. Gated: dev needs no recovery,
-        // and an ungated pass would resolve rows under DB tests.
-        startDocumentAskReconciler();
-        await scheduleRepeatableIngestionJobs();
-        await scheduleRepeatableMemoryJobs();
-        await scheduleRepeatableBriefingJobs();
-        await scheduleRepeatableWorkflowsJobs();
+        for (const service of bootOrder) {
+          if (service.kind === "scheduled-loop") service.start();
+        }
+
+        for (const service of bootOrder) {
+          if (service.kind === "worker" && service.repeatable) await service.repeatable.schedule();
+        }
       } else {
-        const removed = await clearPersistedJobSchedulers();
+        const removed = await clearPersistedJobSchedulers(
+          bootOrder.flatMap((service) =>
+            service.kind === "worker" && service.repeatable ? [service.repeatable.queue()] : [],
+          ),
+        );
+
         console.log(
           `[runtime] scheduled jobs are OFF — workers still run, but no cron will fire${
             removed > 0 ? `; removed ${removed} scheduler(s) a previous run left in Redis` : ""
@@ -211,34 +363,30 @@ export function createAssistantRuntime(config: RuntimeConfig): AssistantRuntime 
     },
 
     async stop(): Promise<void> {
-      // Keep the order, but attempt every step. The reaper's position is not
-      // load-bearing: no step waits on it. Row locks keep it safe beside the workers.
-      // After `drainMs`, `stop()` may return while one reaper `UPDATE` still runs.
-      await runShutdownStep("receipt-payload reaper", stopReceiptPayloadReaper);
-      await runShutdownStep("document-ask reconciler", stopDocumentAskReconciler);
-      await runShutdownStep("MCP connection recovery", stopMcpConnectionRecovery);
-      const agentWorkerStopped = await runShutdownStep("agent worker", stopAgentWorker);
-      await runShutdownStep("sub-agent join-wake worker", stopSubAgentJoinWakeWorker);
-      // This worker enqueues agent runs, so it stops before the agent queue closes.
-      await runShutdownStep("chat-memory worker", stopChatMemoryWorker);
-      await runShutdownStep("conversation-compaction worker", stopConversationCompactionWorker);
-      await runShutdownStep("agent queue", closeAgentQueue);
-      await runShutdownStep("sub-agent join-wake queue", closeSubAgentJoinWakeQueue);
-      await runShutdownStep("chat-memory queue", closeChatMemoryQueue);
-      await runShutdownStep("conversation-compaction queue", closeConversationCompactionQueue);
-      await runShutdownStep("approval-notification worker", stopApprovalNotificationWorker);
-      await runShutdownStep("approval-notification queue", closeApprovalNotificationQueue);
-      await runShutdownStep("approval-expiry worker", stopApprovalExpiryWorker);
-      await runShutdownStep("approval-expiry queue", closeApprovalExpiryQueue);
-      const ingestionWorkerStopped = await runShutdownStep("ingestion worker", stopIngestionWorker);
-      await runShutdownStep("ingestion queue", closeIngestionQueue);
-      await runShutdownStep("memory worker", stopMemoryWorker);
-      await runShutdownStep("memory queue", closeMemoryQueue);
-      await runShutdownStep("briefing worker", stopBriefingWorker);
-      await runShutdownStep("briefing queue", closeBriefingQueue);
-      await runShutdownStep("workflows worker", stopWorkflowsWorker);
-      await runShutdownStep("workflows queue", closeWorkflowsQueue);
+      // Keep the order, but attempt every step.
+      const stopped = new Set<BackgroundServiceName>();
+
+      for (const group of SHUTDOWN_ORDER) {
+        for (const name of group) {
+          const service = services[name];
+          const label = service.kind === "worker" ? `${service.label} worker` : service.label;
+
+          if (await runShutdownStep(label, service.stop)) stopped.add(name);
+        }
+
+        for (const name of group) {
+          const service = services[name];
+
+          if (service.kind === "worker") {
+            await runShutdownStep(`${service.label} queue`, service.close);
+          }
+        }
+      }
+
       console.log("Worker shutdown attempted");
+
+      const agentWorkerStopped = stopped.has("agent");
+      const ingestionWorkerStopped = stopped.has("ingestion");
 
       // A worker that failed to stop keeps its adapters, so a leased job still finds them.
       if (!agentWorkerStopped) {
