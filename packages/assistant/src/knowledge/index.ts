@@ -152,6 +152,7 @@ export {
   type RememberSenderSuppressionArgs,
   type RememberSenderSuppressionResult,
   type SenderSuppressionMatch,
+  type SenderSuppressionOutcome,
 } from "./standing-instructions";
 
 export { startMemoryWorker, stopMemoryWorker, closeMemoryQueue } from "./queue";

@@ -143,8 +143,7 @@ test("senderExtractionEvent records the sender-kind demotion breadcrumb", () => 
     },
     classification: classification({ collabActivity: "other_activity" }),
     todoSuggested: false,
-    standingSuppression: null,
-    standingSuppressionReadFailed: false,
+    standingSuppression: { kind: "none" },
   });
 
   assert.equal(event.senderKind, "group");
@@ -197,8 +196,7 @@ test("senderExtractionEvent still reports every floor on the audit-less path", (
     audit: null,
     classification: classification(),
     todoSuggested: false,
-    standingSuppression: null,
-    standingSuppressionReadFailed: false,
+    standingSuppression: { kind: "none" },
   });
 
   assert.deepEqual(
@@ -251,8 +249,7 @@ function eventFor(outcome: FloorOutcome) {
     },
     classification: outcome.classification,
     todoSuggested: false,
-    standingSuppression: null,
-    standingSuppressionReadFailed: false,
+    standingSuppression: { kind: "none" },
   });
 }
 

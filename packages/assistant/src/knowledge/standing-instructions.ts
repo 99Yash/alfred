@@ -58,7 +58,7 @@ export type SenderSuppressionMatch = ActiveSuppressionInstruction & {
   matchedVia: StandingInstructionTargetKind;
 };
 
-type SenderSuppressionOutcome =
+export type SenderSuppressionOutcome =
   | { kind: "suppressed"; match: SenderSuppressionMatch }
   | { kind: "none" }
   | { kind: "read_failed"; error: unknown };

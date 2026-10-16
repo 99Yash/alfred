@@ -11,7 +11,7 @@ import type { FloorAudits } from "./floors";
 import type { Observations } from "./observations";
 import type { SenderContextResult } from "./sender-context";
 import type { TriageSenderKindSignal } from "./sender-kind";
-import type { SenderSuppressionMatch } from "../knowledge";
+import type { SenderSuppressionOutcome } from "../knowledge";
 
 /** One floor's audit as flat trace fields. `null` means no floor ran (the fallback path). */
 type FloorTraceProjection<K extends keyof FloorAudits> = (
@@ -146,12 +146,15 @@ export function senderExtractionEvent(args: {
   audit: ClassifyAudit | null;
   classification: TriageClassification;
   todoSuggested: boolean;
-  standingSuppression: SenderSuppressionMatch | null;
-  standingSuppressionReadFailed: boolean;
+  /** The `block_todo_suggestion` read. Flattened below into the stored trace fields. */
+  standingSuppression: SenderSuppressionOutcome;
 }): SenderExtractionEvent {
   const { context } = args.senderContextResult;
   const obs = args.observations;
   const audit = args.audit;
+
+  const standingMatch =
+    args.standingSuppression.kind === "suppressed" ? args.standingSuppression.match : null;
 
   return {
     // sender
@@ -193,11 +196,11 @@ export function senderExtractionEvent(args: {
     finalConfidence: args.classification.confidence,
     finalCollabActivity: args.classification.collabActivity ?? null,
     todoSuggested: args.todoSuggested,
-    standingInstructionSuppressedTodo: Boolean(args.standingSuppression),
-    standingInstructionFactId: args.standingSuppression?.factId ?? null,
-    standingInstructionEffect: args.standingSuppression?.effect ?? null,
-    standingInstructionMatchedVia: args.standingSuppression?.matchedVia ?? null,
-    standingInstructionReadFailed: args.standingSuppressionReadFailed,
+    standingInstructionSuppressedTodo: standingMatch !== null,
+    standingInstructionFactId: standingMatch?.factId ?? null,
+    standingInstructionEffect: standingMatch?.effect ?? null,
+    standingInstructionMatchedVia: standingMatch?.matchedVia ?? null,
+    standingInstructionReadFailed: args.standingSuppression.kind === "read_failed",
     standingInstructionCategoryFactId: obs.standingInstruction?.factId ?? null,
     standingInstructionCategoryReadFailed: obs.standingInstructionReadFailed,
     userContextPresent: obs.userContext !== null,

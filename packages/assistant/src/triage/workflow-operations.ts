@@ -9,7 +9,7 @@ import {
   getSenderSignificance,
   readUserContextLine,
   senderSuppressions,
-  type SenderSuppressionMatch,
+  type SenderSuppressionOutcome,
 } from "../knowledge";
 import {
   resolvePaymentTodoFromReceipt,
@@ -229,9 +229,8 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
   let written = false;
   let senderSignificanceBand: SignificanceBand | null = null;
   let todoSuggestion: ReturnType<typeof resolveTodoSuggestion> = null;
-  let standingSuppression: SenderSuppressionMatch | null = null;
-  let standingSuppressionReadFailed = false;
-  let standingSuppressionReadError: string | null = null;
+  // Stays `none` when no todo is proposed: the read runs only for a proposed todo.
+  let standingSuppression: SenderSuppressionOutcome = { kind: "none" };
   // From one closure read, on reply runs only.
   // `userAlreadyReplied` (newest message is the user's) gates the retraction.
   // `documentRepliedAfter` (user replied after THIS message) gates the mint.
@@ -248,9 +247,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
         : null;
 
     const nextTodoSuggestion = resolveTodoSuggestion(classification, assistDateAnchor);
-    let nextStandingSuppression: SenderSuppressionMatch | null = null;
-    let nextStandingSuppressionReadFailed = false;
-    let nextStandingSuppressionReadError: string | null = null;
+    let nextStandingSuppression: SenderSuppressionOutcome = { kind: "none" };
     let nextUserAlreadyReplied = false;
     let nextDocumentRepliedAfter = false;
     let nextClosureReadFailed = false;
@@ -277,27 +274,18 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
         onReadFailure: "report",
       });
 
-      const outcome = suppressions.match(
+      nextStandingSuppression = suppressions.match(
         {
           sender: senderContextResult.senderAddress ?? ctxData.document.metadata.from ?? null,
           accountId: ctxData.document.accountId,
         },
         "block_todo_suggestion",
       );
-
-      if (outcome.kind === "suppressed") nextStandingSuppression = outcome.match;
-
-      if (outcome.kind === "read_failed") {
-        nextStandingSuppressionReadFailed = true;
-        nextStandingSuppressionReadError = toMessage(outcome.error);
-      }
     }
 
     return {
       todoSuggestion: nextTodoSuggestion,
       standingSuppression: nextStandingSuppression,
-      standingSuppressionReadFailed: nextStandingSuppressionReadFailed,
-      standingSuppressionReadError: nextStandingSuppressionReadError,
       userAlreadyReplied: nextUserAlreadyReplied,
       documentRepliedAfter: nextDocumentRepliedAfter,
       closureReadFailed: nextClosureReadFailed,
@@ -326,8 +314,6 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     ({
       todoSuggestion,
       standingSuppression,
-      standingSuppressionReadFailed,
-      standingSuppressionReadError,
       userAlreadyReplied,
       documentRepliedAfter,
       closureReadFailed,
@@ -392,8 +378,6 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     ({
       todoSuggestion,
       standingSuppression,
-      standingSuppressionReadFailed,
-      standingSuppressionReadError,
       userAlreadyReplied,
       documentRepliedAfter,
       closureReadFailed,
@@ -409,7 +393,6 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
             classification,
             todoSuggested: Boolean(todoSuggestion),
             standingSuppression,
-            standingSuppressionReadFailed,
           });
 
     // `written` is false when a run for a newer message owns the row; then skip
@@ -517,9 +500,9 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     }
   }
 
-  if (standingSuppressionReadError) {
+  if (standingSuppression.kind === "read_failed") {
     await ctx.log(
-      `standing_instruction: read failed for block_todo_suggestion (suppressing todo): ${standingSuppressionReadError}`,
+      `standing_instruction: read failed for block_todo_suggestion (suppressing todo): ${toMessage(standingSuppression.error)}`,
     );
   }
 
@@ -600,13 +583,14 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       })
     : null;
 
-  if (written && todoSuggestion && standingSuppression) {
+  if (written && todoSuggestion && standingSuppression.kind === "suppressed") {
+    const { match } = standingSuppression;
+
     await ctx.log(
       `suggest_todo: suppressed reason=standing_instruction ` +
-        `effect=${standingSuppression.effect} fact=${standingSuppression.factId} ` +
-        `sender=${standingSuppression.matchedEmail}`,
+        `effect=${match.effect} fact=${match.factId} sender=${match.matchedEmail}`,
     );
-  } else if (written && todoSuggestion && standingSuppressionReadFailed) {
+  } else if (written && todoSuggestion && standingSuppression.kind === "read_failed") {
     await ctx.log(`suggest_todo: suppressed reason=standing_instruction_read_failed`);
   } else if (written && todoSuggestion && suppression) {
     await ctx.log(`suggest_todo: suppressed reason=${suppression}`);
