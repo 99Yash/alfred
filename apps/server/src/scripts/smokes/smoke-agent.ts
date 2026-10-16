@@ -6,7 +6,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { getStringPath } from "@alfred/contracts";
-import { redeliverRun, signalRun, startRun, closeAgentQueue } from "@alfred/assistant/execution";
+import { startRun, wakeRun, closeAgentQueue } from "@alfred/assistant/execution";
 import { warmPool } from "@alfred/db";
 import { db } from "@alfred/db";
 import { agentRuns, agentSteps, user as userTable } from "@alfred/db/schemas";
@@ -88,13 +88,12 @@ async function main() {
 
   if (wake.kind !== "hil") throw new Error(`unexpected wake kind ${wake.kind}`);
 
-  const woken = await signalRun({
+  const woken = await wakeRun({
     runId,
     match: { kind: "hil", approvalId: wake.approvalId },
   });
 
   if (!woken) throw new Error("signal failed to wake the run");
-  await redeliverRun(runId);
   console.log("[smoke] approval signaled; waiting for completion…");
 
   const done = await pollUntil(runId, isTerminal, "completion");

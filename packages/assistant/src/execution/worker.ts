@@ -6,8 +6,8 @@ import { AGENT_QUEUE_NAME, enqueueRun, type AgentJobData } from "./queue";
 import {
   findResumableRunIds,
   heartbeatRun,
-  signalParentOfSubAgent,
   STALE_RUN_LEASE_MS,
+  wakeParentOfSubAgent,
 } from "./service";
 import { toMessage, unrefTimer } from "@alfred/contracts";
 
@@ -119,9 +119,7 @@ async function processAgentJob(job: Job<AgentJobData>): Promise<void> {
     // Wake a parent waiting on this child (ADR-0073). A no-op for other runs.
     if (outcome.kind === "completed" || outcome.kind === "failed" || outcome.kind === "blocked") {
       try {
-        const parentRunId = await signalParentOfSubAgent(runId);
-
-        if (parentRunId) await enqueueRun(parentRunId);
+        await wakeParentOfSubAgent(runId);
       } catch (err) {
         console.warn("[agent:worker] sub-agent parent signal failed for", runId, toMessage(err));
       }

@@ -12,7 +12,7 @@ import { and, asc, eq, lte, sql } from "drizzle-orm";
 import { DelayedError, Worker, type Job } from "bullmq";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { createRedisConnection } from "@alfred/db/redis";
-import { lockStagingWithRunInTx, redeliverRun, signalRunInTx } from "./service";
+import { lockStagingWithRunInTx, wakeRunInTx } from "./service";
 import { startApprovalWaitSpan } from "./runtime-spans";
 import {
   APPROVAL_EXPIRY_QUEUE_NAME,
@@ -97,7 +97,7 @@ export async function expireStaging(args: {
     | {
         kind: "expired";
         runId: string;
-        shouldEnqueue: boolean;
+        wakeAfterCommit: () => Promise<boolean>;
         startedAt: Date;
         toolName: string;
         integration: string;
@@ -119,14 +119,14 @@ export async function expireStaging(args: {
     }
 
     // Match on the staging id alone; the wake already carries the kind (ADR-0099).
-    const signalOutcome = await signalRunInTx(tx, {
+    const wake = await wakeRunInTx(tx, {
       runId: row.runId,
       match: { kind: "hil", approvalId: stagingId },
     });
 
     // Expire only if the run is parked on this approval.
-    if (signalOutcome !== "woken") {
-      return { kind: "skipped", reason: `signal_${signalOutcome}` };
+    if (wake.outcome !== "woken") {
+      return { kind: "skipped", reason: `signal_${wake.outcome}` };
     }
 
     const now = new Date();
@@ -145,7 +145,7 @@ export async function expireStaging(args: {
     return {
       kind: "expired",
       runId: row.runId,
-      shouldEnqueue: true,
+      wakeAfterCommit: wake.afterCommit,
       startedAt: row.createdAt,
       toolName: row.toolName,
       integration: row.integration,
@@ -169,21 +169,7 @@ export async function expireStaging(args: {
   }).end("expired", new Date());
   // So a queued notification cannot email about an expired action.
   await removeApprovalNotificationJob(stagingId);
-
-  let enqueued = false;
-
-  if (outcome.shouldEnqueue) {
-    try {
-      await redeliverRun(outcome.runId);
-      enqueued = true;
-    } catch (err) {
-      console.warn(
-        "[approvals] failed to enqueue run after expiry; resume sweep will retry",
-        outcome.runId,
-        toMessage(err),
-      );
-    }
-  }
+  const enqueued = await outcome.wakeAfterCommit();
 
   return { status: "expired", stagingId, runId: outcome.runId, enqueued };
 }
