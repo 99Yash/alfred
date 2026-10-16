@@ -210,6 +210,8 @@ from Step 2; never re-run a completed version.
 - Observation backfill (prereq): `apps/server/src/scripts/backfills/backfill-gmail-observations-committed.ts`.
 - Classifier: `packages/assistant/src/knowledge/entity-kind-classifier.ts`.
 - Fold: `packages/assistant/src/knowledge/gmail-kind-fold.ts`.
+- Run writer shared by the script and the re-fold (kinds + `works_at` edges, kind-only
+  checksum): `packages/assistant/src/knowledge/gmail-projection-run.ts`.
 - Lifecycle writers (start/complete/activate + guards): `packages/assistant/src/knowledge/projection.ts`.
 - Consumer: `packages/assistant/src/triage/sender-kind.ts` — the reader call site.
   Do not confuse it with `packages/assistant/src/triage/floors/sender-kind.ts`, a

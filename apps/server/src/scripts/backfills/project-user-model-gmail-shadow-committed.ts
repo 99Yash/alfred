@@ -15,12 +15,9 @@
  */
 import {
   activateProjectionVersion,
-  completeProjectionRun,
-  projectGmailKindProfiles,
-  projectGmailWorksAtEdges,
+  foldGmailProjectionRun,
   requireEntityIdNamespace,
-  startProjectionRun,
-  writeProjectionCursor,
+  type FoldGmailProjectionRunResult,
 } from "@alfred/assistant/knowledge";
 import { warmPool } from "@alfred/db";
 import { closeScriptResources } from "../script-runtime";
@@ -33,8 +30,6 @@ import {
 } from "@alfred/contracts";
 import { db, rowsFromExecute } from "@alfred/db";
 import {
-  entityEdges,
-  entityProfiles,
   integrationCredentials,
   observationFamilyHeads,
   observations,
@@ -85,13 +80,7 @@ interface TargetUser {
   readonly excludeEmailValues: readonly string[];
 }
 
-interface AttemptResult {
-  readonly runId: string;
-  readonly reusedRun: boolean;
-  readonly profileCount: number;
-  readonly checksum: string;
-  readonly edgesWritten: number;
-  readonly edgeChecksum: string;
+interface AttemptResult extends FoldGmailProjectionRunResult {
   readonly sourceHighWatermark: ProjectionSourceHighWatermark;
 }
 
@@ -252,112 +241,32 @@ async function runAttempt(args: {
 }): Promise<AttemptResult> {
   const runBody = async (): Promise<AttemptResult> =>
     db().transaction(async (tx) => {
-      const started = await startProjectionRun(
+      const folded = await foldGmailProjectionRun(
         {
           userId: args.target.userId,
-          projectionName: USER_MODEL_PROJECTION_NAME,
           projectionVersion: args.projectionVersion,
           sourceHighWatermark: args.sourceHighWatermark,
-        },
-        tx,
-      );
-
-      if (started.reused) {
-        await tx
-          .delete(entityProfiles)
-          .where(
-            and(
-              eq(entityProfiles.userId, args.target.userId),
-              eq(entityProfiles.projectionRunId, started.run.id),
-            ),
-          );
-        await tx
-          .delete(entityEdges)
-          .where(
-            and(
-              eq(entityEdges.userId, args.target.userId),
-              eq(entityEdges.projectionRunId, started.run.id),
-            ),
-          );
-      }
-
-      const projected = await projectGmailKindProfiles(
-        {
-          userId: args.target.userId,
-          projectionRunId: started.run.id,
-          projectionVersion: args.projectionVersion,
-          gmailHighWatermark: args.sourceHighWatermark.gmail,
           excludeEmailValues: args.target.excludeEmailValues,
         },
         tx,
       );
 
-      const edged = await projectGmailWorksAtEdges(
-        {
-          userId: args.target.userId,
-          projectionRunId: started.run.id,
-          projectionVersion: args.projectionVersion,
-          gmailHighWatermark: args.sourceHighWatermark.gmail,
-          excludeEmailValues: args.target.excludeEmailValues,
-        },
-        tx,
-      );
-
+      // A throw here rolls the whole run back, cursor and completion included.
       if (
         args.expected &&
-        (projected.checksum !== args.expected.checksum ||
-          projected.profileCount !== args.expected.profileCount ||
-          edged.edgesWritten !== args.expected.edgesWritten ||
-          edged.checksum !== args.expected.edgeChecksum)
+        (folded.checksum !== args.expected.checksum ||
+          folded.profileCount !== args.expected.profileCount ||
+          folded.edgesWritten !== args.expected.edgesWritten ||
+          folded.edgeChecksum !== args.expected.edgeChecksum)
       ) {
         throw new Error(
           `committed projection diverged from dry validation for ${args.target.email}: ` +
             `dry=${args.expected.checksum}/${args.expected.profileCount}/${args.expected.edgesWritten}/${args.expected.edgeChecksum}, ` +
-            `commit=${projected.checksum}/${projected.profileCount}/${edged.edgesWritten}/${edged.checksum}`,
+            `commit=${folded.checksum}/${folded.profileCount}/${folded.edgesWritten}/${folded.edgeChecksum}`,
         );
       }
 
-      if (args.sourceHighWatermark.gmail) {
-        await writeProjectionCursor(
-          {
-            userId: args.target.userId,
-            projectionName: USER_MODEL_PROJECTION_NAME,
-            projectionVersion: args.projectionVersion,
-            projectionRunId: started.run.id,
-            source: "gmail",
-            cursor: args.sourceHighWatermark.gmail,
-          },
-          tx,
-        );
-      }
-
-      await completeProjectionRun(
-        {
-          runId: started.run.id,
-          userId: args.target.userId,
-          // Persist the kind checksum only. `recomputeChecksumAtWatermark` recomputes
-          // only the kind fold, so adding edges would block every refold as logic drift.
-          // This script checks `edgeChecksum` in memory instead.
-          checksum: projected.checksum,
-          completedAt: new Date(),
-          rowCounts: {
-            entity_profiles: projected.profileCount,
-            entity_edges: edged.edgesWritten,
-          },
-          sourceHighWatermark: args.sourceHighWatermark,
-        },
-        tx,
-      );
-
-      const result: AttemptResult = {
-        runId: started.run.id,
-        reusedRun: started.reused,
-        profileCount: projected.profileCount,
-        checksum: projected.checksum,
-        edgesWritten: edged.edgesWritten,
-        edgeChecksum: edged.checksum,
-        sourceHighWatermark: args.sourceHighWatermark,
-      };
+      const result: AttemptResult = { ...folded, sourceHighWatermark: args.sourceHighWatermark };
 
       if (!args.commit) throw new DryRunRollback(result);
 

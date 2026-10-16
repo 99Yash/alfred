@@ -29,6 +29,12 @@ export { projectGmailKindProfiles, type ProjectGmailKindProfilesResult } from ".
 export { projectGmailWorksAtEdges, type ProjectGmailWorksAtEdgesResult } from "./gmail-edge-fold";
 
 export {
+  foldGmailProjectionRun,
+  type FoldGmailProjectionRunArgs,
+  type FoldGmailProjectionRunResult,
+} from "./gmail-projection-run";
+
+export {
   globalReferentIdentity,
   referentKeyForEmail,
   senderScopedReferentIdentity,
