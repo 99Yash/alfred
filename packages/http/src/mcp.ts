@@ -24,7 +24,7 @@ import type { McpConnection, McpToolPolicyRow } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
 import { Elysia, t, type Context } from "elysia";
 import { z } from "zod";
-import { consumeOAuthNonce, verifyOAuthState } from "@alfred/assistant/connections";
+import { oauthHandshake } from "@alfred/assistant/connections";
 import {
   addUserMcpServer,
   boundedMcpErrorText,
@@ -69,6 +69,9 @@ import { authMacro } from "./middleware/auth";
 import { requireOnboarded } from "./middleware/onboarding";
 
 const callbackParamsSchema = z.object({ state: z.string().min(1) });
+
+/** `McpOAuthProvider.state()` begins this handshake; the callback below completes it. */
+const handshake = oauthHandshake("mcp");
 
 const endpointAuthorizer = getMcpEndpointAuthorizer();
 
@@ -746,16 +749,8 @@ export const mcpIntegrationRoutes = new Elysia({
     const parsed = callbackParamsSchema.safeParse({ state: params.get("state") });
 
     if (!parsed.success) throw Errors.BadRequestError("Missing or invalid OAuth state");
-    const decoded = verifyOAuthState(parsed.data.state);
-
-    if (!decoded?.connectionId) throw Errors.BadRequestError("Invalid OAuth state");
-    const storedUserId = await consumeOAuthNonce(`mcp:${decoded.connectionId}`, decoded.nonce);
-
-    if (!storedUserId || storedUserId !== decoded.userId) {
-      throw Errors.BadRequestError("Invalid or expired OAuth state");
-    }
-
-    const connection = await readOwnedConnection(decoded.connectionId, decoded.userId);
+    const { userId, connectionId } = await handshake.complete(parsed.data.state);
+    const connection = await readOwnedConnection(connectionId, userId);
 
     if (!connection) throw Errors.BadRequestError("MCP connection no longer exists");
 
