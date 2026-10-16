@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
 
-import { search } from "../src/search";
+import { corpus } from "../src/search";
 import { closeConnections, db } from "@alfred/db";
 import { chunks, documents, user } from "@alfred/db/schemas";
 import { inArray } from "drizzle-orm";
@@ -132,10 +132,9 @@ describe("corpus search occurrences (DB-backed)", { skip: SKIP }, () => {
     await seedChunk(attachmentDocId, userId, "resume text about distributed systems");
     await seedChunk(mailDocId, userId, "plain mail body");
 
-    const hits = await search({
+    const hits = await corpus({ userId }).search({
       query: "distributed systems resume",
       queryEmbedding: QUERY_VECTOR,
-      userId,
       limit: 10,
     });
 

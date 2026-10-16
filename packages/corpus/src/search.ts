@@ -10,7 +10,7 @@ import { chunks, documents, type Document } from "@alfred/db/schemas";
 import { and, eq, isNotNull, sql } from "drizzle-orm";
 import { extractPageFromMetadata } from "./chunk-metadata";
 
-export interface SearchArgs {
+interface SearchArgs {
   query: string;
   /** Pass this when several searches share one query, to pay for one embedding. */
   queryEmbedding?: number[];
@@ -26,9 +26,9 @@ export interface SearchArgs {
  * For `gmail_attachment` it packs only the first carrier's ids: do not split it;
  * use `occurrences` for each carrier.
  */
-export type RecordIdentity = Pick<Document, "sourceId" | "sourceThreadId" | "accountId">;
+type RecordIdentity = Pick<Document, "sourceId" | "sourceThreadId" | "accountId">;
 
-export interface SearchHit {
+interface SearchHit {
   chunkId: string;
   documentId: string;
   source: Document["source"];
@@ -56,15 +56,28 @@ export interface SearchHit {
 /** A hit as the model sees it: `SearchHit` without `record`. */
 export type ModelFacingHit = Omit<SearchHit, "record">;
 
-/** Drop `record`. A field added beside it reaches the model. */
-export function toModelFacingHit(hit: SearchHit): ModelFacingHit {
-  const { record: _record, ...rest } = hit;
+/** One user's corpus. Every read is scoped to that user and returns {@link ModelFacingHit}s. */
+export interface Corpus {
+  search(args: Omit<SearchArgs, "userId">): Promise<ModelFacingHit[]>;
+}
 
-  return rest;
+/**
+ * Bind a user once: `corpus({ userId }).search({ query })`. Tools get it as `ctx.corpus`.
+ * `userId` and `record` stay inside this module, so a caller cannot rescope a bound read
+ * or see the provider identity. A field added beside `record` reaches the model.
+ */
+export function corpus({ userId }: { userId: string }): Corpus {
+  return {
+    async search(args) {
+      const hits = await search({ ...args, userId });
+
+      return hits.map(({ record: _record, ...hit }) => hit);
+    },
+  };
 }
 
 /** Top chunks by cosine similarity, with their parent document. `<=>` is distance, so similarity = 1 - distance. */
-export async function search(args: SearchArgs): Promise<SearchHit[]> {
+async function search(args: SearchArgs): Promise<SearchHit[]> {
   const limit = args.limit ?? 10;
 
   const queryVec =

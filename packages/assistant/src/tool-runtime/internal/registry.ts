@@ -28,7 +28,7 @@ import {
 } from "@alfred/contracts";
 // Type-only: the values pull `@alfred/db` into every tool declaration. `../context` binds them.
 import type { Integrations } from "@alfred/integrations";
-import type { SearchArgs, SearchHit } from "@alfred/corpus";
+import type { Corpus } from "@alfred/corpus";
 import { z } from "zod";
 import { joinToolInput } from "../join-contract";
 import {
@@ -93,10 +93,8 @@ export interface ToolExecuteContext {
    * Lazy: each client resolves its credential per request.
    */
   integrations: Integrations;
-  /** Corpus reads bound to this call's user. */
-  corpus: {
-    search(args: SearchArgs): Promise<SearchHit[]>;
-  };
+  /** Corpus reads bound to this call's user. Hits are model-facing. */
+  corpus: Corpus;
   /** The user's zone, so "today" means the user's day, not the server's UTC day. */
   timezone: IanaTimezone;
   caller: "boss" | { subId: string };

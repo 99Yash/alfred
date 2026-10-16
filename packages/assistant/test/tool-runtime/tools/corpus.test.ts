@@ -6,8 +6,7 @@ import { parseIanaTimezone } from "@alfred/contracts";
 import { getTool } from "../../../src/tool-runtime/internal/registry";
 import { registerBuiltinTools } from "../../../src/tool-runtime/builtin-tools";
 import { toolExecuteContext } from "../../../src/tool-runtime/context";
-import type { SearchArgs, SearchHit } from "@alfred/corpus";
-import type { ModelFacingHit } from "@alfred/corpus";
+import type { Corpus, ModelFacingHit } from "@alfred/corpus";
 
 describe("system.corpus_search", () => {
   const tool = (() => {
@@ -25,12 +24,11 @@ describe("system.corpus_search", () => {
     assert.equal(tool.availability?.surface, undefined);
   });
 
-  test("routes the query through the injected corpus bind, bound to the call's user", async () => {
-    const hit: SearchHit = {
+  test("routes the query through the user-bound corpus and returns its hits", async () => {
+    const hit: ModelFacingHit = {
       chunkId: "chk_1",
       documentId: "doc_1",
       source: "gmail_attachment",
-      record: { sourceId: "msg_1:att_1", sourceThreadId: "thread_1", accountId: "acc_1" },
       title: "resume.pdf",
       position: 0,
       page: 2,
@@ -39,7 +37,7 @@ describe("system.corpus_search", () => {
       authoredAt: new Date("2026-08-01T00:00:00Z"),
     };
 
-    const seen: SearchArgs[] = [];
+    const seen: Parameters<Corpus["search"]>[0][] = [];
 
     const ctx = {
       ...toolExecuteContext({
@@ -53,12 +51,12 @@ describe("system.corpus_search", () => {
         runContext: { caller: "boss" as const, interaction: "background" as const },
       }),
       corpus: {
-        search: async (args: SearchArgs) => {
+        search: async (args) => {
           seen.push(args);
 
           return [hit];
         },
-      },
+      } satisfies Corpus,
     };
 
     // SAFETY: this tool's execute builds `{ ok, query, hits }`.
@@ -68,13 +66,11 @@ describe("system.corpus_search", () => {
       hits: ModelFacingHit[];
     };
 
-    assert.deepEqual(seen, [{ query: "resume platform team", userId: "user_1" }]);
+    // The tool passes no user: the bind in `toolExecuteContext` owns it.
+    assert.deepEqual(seen, [{ query: "resume platform team" }]);
     assert.equal(result.ok, true);
     assert.equal(result.query, "resume platform team");
-    // `record` feeds the evidence card. The model gets a `ModelFacingHit` without it.
-    assert.ok(result.hits[0] && !("record" in result.hits[0]));
-    const { record: _record, ...modelHit } = hit;
-    assert.deepEqual(result.hits, [modelHit]);
+    assert.deepEqual(result.hits, [hit]);
   });
 
   test("passes an empty result through as a valid answer", async () => {
@@ -90,8 +86,8 @@ describe("system.corpus_search", () => {
         runContext: { caller: "boss" as const, interaction: "background" as const },
       }),
       corpus: {
-        search: async (): Promise<SearchHit[]> => [],
-      },
+        search: async () => [],
+      } satisfies Corpus,
     };
 
     // SAFETY: this tool's execute builds `{ ok, hits }`.

@@ -1,7 +1,7 @@
 import { embed } from "@alfred/ai/embeddings";
 import { db } from "@alfred/db";
 import { skillRevisions, skills, user, userFacts } from "@alfred/db/schemas";
-import { search, toModelFacingHit, type ModelFacingHit } from "@alfred/corpus";
+import { corpus, type ModelFacingHit } from "@alfred/corpus";
 import { and, desc, eq } from "drizzle-orm";
 import { recallMemory, type RecallMemoryHit } from "@alfred/assistant/knowledge";
 
@@ -22,7 +22,7 @@ export interface SkillDocumentationContext {
     currentBody: string;
   };
   facts: Array<{ key: string; value: unknown; confidence: number }>;
-  /** `toModelFacingHit` strips the corpus `record`, so the run store holds no credential identity. */
+  /** The corpus returns hits without `record`, so the run store holds no credential identity. */
   documentHits: ModelFacingHit[];
   memoryHits: RecallMemoryHit[];
   /** Drives the email's provenance line. */
@@ -94,10 +94,9 @@ export async function collectSkillDocumentationContext(args: {
     idempotencyKey: `skill-doc-context:${userId}:${skillRow.id}:${skillRow.currentRevisionId}`,
   });
 
-  const [searchHits, memoryHits] = await Promise.all([
-    search({
+  const [documentHits, memoryHits] = await Promise.all([
+    corpus({ userId }).search({
       query: revRow.body,
-      userId,
       limit: CHUNK_HIT_LIMIT,
       queryEmbedding,
     }),
@@ -108,9 +107,6 @@ export async function collectSkillDocumentationContext(args: {
       queryEmbedding,
     }),
   ]);
-
-  // The run store keeps these hits as-is, so strip identity now.
-  const documentHits = searchHits.map(toModelFacingHit);
 
   const sourceCounts: Record<string, number> = {};
 

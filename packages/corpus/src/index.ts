@@ -21,6 +21,6 @@ export { retryPending } from "./retry-pending";
 
 export type { RetryPendingArgs, RetryPendingResult } from "./retry-pending";
 
-export { search, toModelFacingHit } from "./search";
+export { corpus } from "./search";
 
-export type { ModelFacingHit, RecordIdentity, SearchArgs, SearchHit } from "./search";
+export type { Corpus, ModelFacingHit } from "./search";

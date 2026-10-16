@@ -19,14 +19,14 @@ import {
   reconcileEvidence,
   type ReconcileCandidates,
 } from "@alfred/assistant/connections";
-import { search, toModelFacingHit, type ModelFacingHit } from "@alfred/corpus";
+import { corpus, type ModelFacingHit } from "@alfred/corpus";
 import { logger } from "@alfred/logging";
 import { boundCardText, cardNamesObjectRef } from "./object-ref";
 import { defineContextSource, type ContextSource } from "./registry";
 import { compareByScoreThenId, renderContent } from "./vector-source";
 
 /**
- * Ingested-document source (#424, ADR-0101): maps corpus `search` hits to cards.
+ * Ingested-document source (#424, ADR-0101): maps corpus search hits to cards.
  * No retrieval logic of its own. One source for every ingested provider; the
  * provider rides the citation label.
  *
@@ -69,17 +69,16 @@ export function createDocumentContextSource(): ContextSource {
 }
 
 async function readDocuments(request: ContextSearchRequest, signal: AbortSignal) {
-  const hits = await search({
+  // Model-facing hits: the corpus keeps provider plumbing out of every card.
+  const hits = await corpus({ userId: request.userId }).search({
     query: request.query,
-    userId: request.userId,
     limit: request.limit,
   });
 
-  // Strip the corpus `record`, so no provider plumbing reaches a card.
-  const modelFacing = [...hits].map(toModelFacingHit).sort(compareByScoreThenId);
-  const objects = await namedObjectByCardId(request.userId, modelFacing, signal);
+  hits.sort(compareByScoreThenId);
+  const objects = await namedObjectByCardId(request.userId, hits, signal);
 
-  const evidence = modelFacing.map((hit) =>
+  const evidence = hits.map((hit) =>
     documentHitToEvidenceCard(hit, objects.get(documentCardId(hit))),
   );
 
@@ -148,7 +147,7 @@ async function namedObjectByCardId(
 
 /**
  * One hit as a card. The handle points at the parent document.
- * Takes `ModelFacingHit`, not `SearchHit`, so it cannot see the corpus `record`.
+ * Takes `ModelFacingHit`, so it cannot see the corpus `record`.
  * Pure: `object` is resolved once per page in `readDocuments`.
  */
 function documentHitToEvidenceCard(hit: ModelFacingHit, object?: EvidenceObjectRef): EvidenceCard {
