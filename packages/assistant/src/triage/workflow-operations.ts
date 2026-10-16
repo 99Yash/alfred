@@ -980,8 +980,11 @@ async function sentDocumentStatusAtClassifyTime(
   }
 }
 
-/** The IO for `assembleObservations` (ADR-0051 §4a). Every read is best-effort. */
-async function gatherObservations(args: {
+/**
+ * The IO for `assembleObservations` (ADR-0051 §4a). Every read is best-effort.
+ * Dry-run scripts call this too, so a replay sees the facts the live classify sees.
+ */
+export async function gatherObservations(args: {
   userId: string;
   documentId: string;
   sourceThreadId: string;

@@ -22,16 +22,10 @@ import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import {
-  assembleObservations,
   classifyEmail as currentClassifyEmail,
   extractSenderContext,
-  getSenderPrior,
-  getThreadState,
-  isKnownContact,
+  gatherObservations,
   loadTriageContext,
-  resolveSenderKind,
-  resolveSenderRelationship,
-  senderKeyFor,
   triageClassificationSchema,
   type ClassifyEmailArgs,
   type TriageClassification,
@@ -181,65 +175,15 @@ async function replayDocument(
     body: ctxData.document.content,
   });
 
-  const senderKey = senderKeyFor(sender.context, sender.senderAddress);
-  const isHumanSender = sender.context.effectiveAuthor === "person";
-
-  const [senderPrior, thread, senderKind] = await Promise.all([
-    senderKey
-      ? getSenderPrior(selected.userId, senderKey).catch(() => null)
-      : Promise.resolve(null),
-    getThreadState({
-      userId: selected.userId,
-      sourceThreadId: selected.sourceThreadId,
-      excludeDocumentId: documentId,
-    }).catch(() => ({
-      lastUserReplyAt: null,
-      newestDirection: null,
-      messageCount: 0,
-      recentMessages: [],
-    })),
-    resolveSenderKind(selected.userId, sender.senderAddress).catch(() => null),
-  ]);
-
-  const usePersonTreatment = isHumanSender && senderKind == null;
-
-  const [knownContact, relationship] = await Promise.all([
-    usePersonTreatment && sender.senderAddress
-      ? isKnownContact(selected.userId, sender.senderAddress).catch(() => false)
-      : Promise.resolve(false),
-    resolveSenderRelationship({
-      userId: selected.userId,
-      senderAddress: sender.senderAddress,
-      isHumanSender: usePersonTreatment,
-    }).catch(() => ({ descriptor: null, isColdContact: false })),
-  ]);
-
-  const meta = ctxData.document.metadata;
-  const labelIds = meta.labelIds ?? [];
-
-  const signalText = [
-    meta.from,
-    meta.to,
-    meta.cc,
-    meta.snippet,
-    ctxData.document.title,
-    ctxData.document.content,
-    ...labelIds,
-  ]
-    .filter(Boolean)
-    .join("\n");
-
-  const observations = assembleObservations({
-    senderKey,
-    senderPrior,
+  const observations = await gatherObservations({
+    userId: selected.userId,
+    documentId,
+    sourceThreadId: selected.sourceThreadId,
+    document: ctxData.document,
+    accountId: ctxData.document.accountId,
     persona: ctxData.persona,
-    thread,
-    knownContact,
-    senderRelationship: relationship.descriptor,
-    senderRelationshipIsCold: relationship.isColdContact,
-    senderKind,
-    labelIds,
-    signalText,
+    senderContext: sender.context,
+    senderAddress: sender.senderAddress,
   });
 
   try {

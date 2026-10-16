@@ -117,6 +117,7 @@ export { senderExtractionEvent } from "./sender-extraction-event";
 export type { SenderExtractionEvent } from "./sender-extraction-event";
 
 export {
+  gatherObservations,
   runEmailTriageApplyLabel,
   runEmailTriageClassify,
   type EmailTriageOperationState,

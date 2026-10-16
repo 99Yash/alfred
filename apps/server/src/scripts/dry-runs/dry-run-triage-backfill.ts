@@ -7,17 +7,11 @@
  * Run:  pnpm --filter server tsx --env-file=.env src/scripts/dry-runs/dry-run-triage-backfill.ts
  */
 import {
-  assembleObservations,
   classifyEmail,
   extractSenderContext,
-  getSenderPrior,
-  getThreadState,
-  isKnownContact,
-  resolveSenderKind,
-  resolveSenderRelationship,
+  gatherObservations,
   loadTriageContext,
   resolveTodoSuggestion,
-  senderKeyFor,
   todoSuppressionReason,
 } from "@alfred/assistant/triage";
 import { resolveTimezone } from "@alfred/assistant/settings";
@@ -99,62 +93,16 @@ async function main() {
     });
 
     const senderContext = scResult.context;
-    const senderKey = senderKeyFor(senderContext, scResult.senderAddress);
-    const meta = ctxData.document.metadata;
-    const labelIds = meta.labelIds ?? [];
-    const isHumanSender = senderContext.effectiveAuthor === "person";
 
-    const [senderPrior, thread, senderKind] = await Promise.all([
-      senderKey ? getSenderPrior(t.userId, senderKey).catch(() => null) : Promise.resolve(null),
-      getThreadState({
-        userId: t.userId,
-        sourceThreadId: src.id,
-        excludeDocumentId: docRow.id,
-      }).catch(() => ({
-        lastUserReplyAt: null,
-        newestDirection: null,
-        messageCount: 0,
-        recentMessages: [],
-      })),
-      resolveSenderKind(t.userId, scResult.senderAddress),
-    ]);
-
-    const usePersonTreatment = isHumanSender && senderKind == null;
-
-    const [knownContact, relationship] = await Promise.all([
-      usePersonTreatment && scResult.senderAddress
-        ? isKnownContact(t.userId, scResult.senderAddress).catch(() => false)
-        : Promise.resolve(false),
-      resolveSenderRelationship({
-        userId: t.userId,
-        senderAddress: scResult.senderAddress,
-        isHumanSender: usePersonTreatment,
-      }).catch(() => ({ descriptor: null, isColdContact: false })),
-    ]);
-
-    const signalText = [
-      meta.from,
-      meta.to,
-      meta.cc,
-      meta.snippet,
-      ctxData.document.title,
-      ctxData.document.content,
-      ...labelIds,
-    ]
-      .filter(Boolean)
-      .join("\n");
-
-    const observations = assembleObservations({
-      senderKey,
-      senderPrior,
+    const observations = await gatherObservations({
+      userId: t.userId,
+      documentId: docRow.id,
+      sourceThreadId: src.id,
+      document: ctxData.document,
+      accountId: ctxData.document.accountId,
       persona: ctxData.persona,
-      thread,
-      knownContact,
-      senderRelationship: relationship.descriptor,
-      senderRelationshipIsCold: relationship.isColdContact,
-      senderKind,
-      labelIds,
-      signalText,
+      senderContext,
+      senderAddress: scResult.senderAddress,
     });
 
     let classification;
@@ -196,7 +144,14 @@ async function main() {
       ? todoSuppressionReason({
           sender: ctxData.document.metadata.from ?? null,
           subject: ctxData.document.title,
-          signalText,
+          // The text prod's todo gate reads, not the wider classify signal text.
+          signalText: [
+            ctxData.document.title,
+            ctxData.document.content,
+            ctxData.document.metadata.snippet ?? null,
+          ]
+            .filter(Boolean)
+            .join("\n"),
           collabActivity: classification.collabActivity ?? null,
           category: classification.category,
           isColdContact: observations.senderRelationshipIsCold,

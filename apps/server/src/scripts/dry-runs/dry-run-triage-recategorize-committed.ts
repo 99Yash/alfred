@@ -14,16 +14,10 @@
  */
 import type { ClassifyAudit } from "@alfred/assistant/triage";
 import {
-  assembleObservations,
   classifyEmail,
   extractSenderContext,
-  getSenderPrior,
-  getThreadState,
-  isKnownContact,
+  gatherObservations,
   loadTriageContext,
-  resolveSenderKind,
-  resolveSenderRelationship,
-  senderKeyFor,
 } from "@alfred/assistant/triage";
 import { warmPool } from "@alfred/db";
 import { closeScriptResources } from "../script-runtime";
@@ -115,69 +109,16 @@ async function processUser(u: TargetUser): Promise<Set<string>> {
     });
 
     const senderContext = scResult.context;
-    const senderKey = senderKeyFor(senderContext, scResult.senderAddress);
-    const meta = ctxData.document.metadata;
-    const labelIds = meta.labelIds ?? [];
-    const isHumanSender = senderContext.effectiveAuthor === "person";
 
-    const [senderPrior, thread, senderKind] = await Promise.all([
-      senderKey ? getSenderPrior(u.userId, senderKey).catch(() => null) : Promise.resolve(null),
-      row.threadId
-        ? getThreadState({
-            userId: u.userId,
-            sourceThreadId: row.threadId,
-            excludeDocumentId: row.documentId,
-          }).catch(() => ({
-            lastUserReplyAt: null,
-            newestDirection: null,
-            messageCount: 0,
-            recentMessages: [],
-          }))
-        : Promise.resolve({
-            lastUserReplyAt: null,
-            newestDirection: null,
-            messageCount: 0,
-            recentMessages: [],
-          }),
-      resolveSenderKind(u.userId, scResult.senderAddress),
-    ]);
-
-    const usePersonTreatment = isHumanSender && senderKind == null;
-
-    const [knownContact, relationship] = await Promise.all([
-      usePersonTreatment && scResult.senderAddress
-        ? isKnownContact(u.userId, scResult.senderAddress).catch(() => false)
-        : Promise.resolve(false),
-      resolveSenderRelationship({
-        userId: u.userId,
-        senderAddress: scResult.senderAddress,
-        isHumanSender: usePersonTreatment,
-      }).catch(() => ({ descriptor: null, isColdContact: false })),
-    ]);
-
-    const signalText = [
-      meta.from,
-      meta.to,
-      meta.cc,
-      meta.snippet,
-      ctxData.document.title,
-      ctxData.document.content,
-      ...labelIds,
-    ]
-      .filter(Boolean)
-      .join("\n");
-
-    const observations = assembleObservations({
-      senderKey,
-      senderPrior,
+    const observations = await gatherObservations({
+      userId: u.userId,
+      documentId: row.documentId,
+      sourceThreadId: row.threadId,
+      document: ctxData.document,
+      accountId: ctxData.document.accountId,
       persona: ctxData.persona,
-      thread,
-      knownContact,
-      senderRelationship: relationship.descriptor,
-      senderRelationshipIsCold: relationship.isColdContact,
-      senderKind,
-      labelIds,
-      signalText,
+      senderContext,
+      senderAddress: scResult.senderAddress,
     });
 
     let newCategory: string;
@@ -213,7 +154,7 @@ async function processUser(u: TargetUser): Promise<Set<string>> {
     transitions.set(key, (transitions.get(key) ?? 0) + 1);
 
     if (oldCategory !== newCategory) {
-      const from = meta.from ?? "?";
+      const from = ctxData.document.metadata.from ?? "?";
 
       changed.push(
         `  ${key} | ${mechanism} | ${from} | ${(ctxData.document.title ?? "").slice(0, 60)}`,
