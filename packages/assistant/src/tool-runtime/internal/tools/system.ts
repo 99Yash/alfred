@@ -28,7 +28,6 @@ import {
   writeScratchInput,
 } from "@alfred/contracts";
 import type { AskUserResult, IanaTimezone } from "@alfred/contracts";
-import { AppError } from "@alfred/contracts/app-errors";
 import {
   appendArtifactPage,
   appendArtifactSection,
@@ -36,7 +35,7 @@ import {
   updateArtifact,
   type ArtifactWriteContext,
 } from "@alfred/assistant/artifacts";
-import type { ToolExecuteContext } from "@alfred/assistant/tool-runtime";
+import type { SystemToolScratchpad, ToolExecuteContext } from "@alfred/assistant/tool-runtime";
 import {
   activateWorkflow,
   authorWorkflow,
@@ -45,30 +44,32 @@ import {
   editInstruction,
   forgetInstruction,
   listInstructions,
-  promoteScratch,
   readChatHistory,
   readChildRunOutcome,
-  readScratch,
   readUserContext,
   recoverWorkflow,
   rememberSenderSuppressionAndDismissTodos,
   resolveTodo,
+  scratchpad,
   spawnSubAgent,
   spawnSubAgentInputSchema,
   startToolLoadSpan,
   startToolSearchSpan,
   suggestTodo,
   webSearch,
-  writeScratch,
 } from "@alfred/assistant/tool-runtime";
 import { inZone } from "@alfred/assistant/time";
 import { redactCredentialUrl, runFetchUrl } from "./fetch-url";
 import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
-import { parseScratchToolKey } from "./scratch-key";
 import {
   resolveExactToolLoad,
   searchAvailableTools,
 } from "@alfred/assistant/tool-runtime/discovery";
+
+/** The scratchpad this call reaches: the parent's for a sub-agent, written as the caller. */
+function callerScratchpad(ctx: ToolExecuteContext): SystemToolScratchpad {
+  return scratchpad({ runId: ctx.scratchpadRunId, writer: ctx.caller });
+}
 
 /**
  * Artifact provenance from the call context, or a refusal outside a chat turn (ADR-0075).
@@ -439,18 +440,9 @@ export const systemTools: readonly RegisteredTool[] = [
       "Read a value from the run scratchpad using shared.<path> or scratch.<subId>.<path>.",
     staging: "fast_path",
     inputSchema: readScratchInput,
+    refuseInput: (input, ctx) => callerScratchpad(ctx).refusal({ verb: "read", key: input.key }),
     execute: async (input, ctx) => {
-      const target = parseScratchToolKey(input.key);
-
-      const entry =
-        target.zone === "shared"
-          ? await readScratch({ runId: ctx.scratchpadRunId, zone: "shared", path: target.path })
-          : await readScratch({
-              runId: ctx.scratchpadRunId,
-              zone: "scratch",
-              subId: target.subId,
-              path: target.path,
-            });
+      const entry = await callerScratchpad(ctx).read(input.key);
 
       if (!entry) return { ok: true, key: input.key, found: false };
 
@@ -465,28 +457,9 @@ export const systemTools: readonly RegisteredTool[] = [
       "Write a value to the run scratchpad using shared.<path> or scratch.<subId>.<path>.",
     staging: "fast_path",
     inputSchema: writeScratchInput,
+    refuseInput: (input, ctx) => callerScratchpad(ctx).refusal({ verb: "write", key: input.key }),
     execute: async (input, ctx) => {
-      const target = parseScratchToolKey(input.key);
-      const writtenBy = ctx.caller === "boss" ? "boss" : ctx.caller.subId;
-
-      if (target.zone === "shared") {
-        await writeScratch({
-          runId: ctx.scratchpadRunId,
-          zone: "shared",
-          path: target.path,
-          value: input.value,
-          writtenBy,
-        });
-      } else {
-        await writeScratch({
-          runId: ctx.scratchpadRunId,
-          zone: "scratch",
-          subId: target.subId,
-          path: target.path,
-          value: input.value,
-          writtenBy,
-        });
-      }
+      const { writtenBy } = await callerScratchpad(ctx).write(input.key, input.value);
 
       return { ok: true, key: input.key, writtenBy };
     },
@@ -499,20 +472,14 @@ export const systemTools: readonly RegisteredTool[] = [
     availability: { callers: ["boss"] },
     staging: "fast_path",
     inputSchema: promoteScratchInput,
+    refuseInput: (input, ctx) =>
+      callerScratchpad(ctx).refusal({
+        verb: "promote",
+        fromKey: input.fromKey,
+        toKey: input.toKey,
+      }),
     execute: async (input, ctx) => {
-      const from = parseScratchToolKey(input.fromKey);
-      const to = parseScratchToolKey(input.toKey);
-
-      if (from.zone !== "scratch" || to.zone !== "shared") {
-        throw new AppError("tool_input_invalid");
-      }
-
-      const entry = await promoteScratch({
-        runId: ctx.scratchpadRunId,
-        fromSubId: from.subId,
-        fromPath: from.path,
-        toSharedPath: to.path,
-      });
+      const entry = await callerScratchpad(ctx).promote(input.fromKey, input.toKey);
 
       if (!entry) return { ok: true, promoted: false, fromKey: input.fromKey, toKey: input.toKey };
 

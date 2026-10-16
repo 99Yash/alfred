@@ -42,7 +42,7 @@ import {
   toolCardTerminal,
 } from "./tool-card-events";
 import { toolEventOutcome } from "./tool-event-outcome";
-import { writeScratch } from "../scratchpad/index";
+import { scratchpad } from "../scratchpad/index";
 import { readIntegrationAvailability, readReceiptDocument } from "@alfred/assistant/connections";
 import { formatDateGrounding } from "../grounding";
 import { composeAgentInstructions } from "@alfred/ai/voice";
@@ -446,13 +446,12 @@ const dispatchToolsStep: Step<BriefRunState> = {
     if (isSubAgent) {
       // Sub-agents do not compact; the error goes to scratch so the boss can split the work again.
       const subAgent = state.subAgent!;
-      await writeScratch({
+      await scratchpad({
         runId: subAgent.parentRunId,
-        zone: "scratch",
+        writer: { subId: subAgent.subId },
+      }).write(`scratch.${subAgent.subId}.error`, {
+        reason: "context_pressure_in_subagent",
         subId: subAgent.subId,
-        path: "error",
-        value: { reason: "context_pressure_in_subagent", subId: subAgent.subId },
-        writtenBy: subAgent.subId,
       });
       throw new Error("context_pressure_in_subagent");
     }
@@ -650,13 +649,8 @@ async function writeSubAgentSummary(args: {
   text: string;
 }): Promise<{ text: string; scratchKey: string }> {
   const scratchKey = `scratch.${args.subId}.summary`;
-  await writeScratch({
-    runId: args.parentRunId,
-    zone: "scratch",
-    subId: args.subId,
-    path: "summary",
-    value: { text: args.text },
-    writtenBy: args.subId,
+  await scratchpad({ runId: args.parentRunId, writer: { subId: args.subId } }).write(scratchKey, {
+    text: args.text,
   });
 
   return { text: args.text, scratchKey };

@@ -209,9 +209,13 @@ describe("runtime adapter lifecycle", () => {
             toolResult: null,
             editedByUser: false,
           }),
-        readScratch: () => Promise.resolve(null),
-        writeScratch: () => Promise.resolve(undefined),
-        promoteScratch: () => Promise.resolve(null),
+        scratchpad: () => ({
+          refusal: () => null,
+          read: () => Promise.resolve(null),
+          write: (_key, value) =>
+            Promise.resolve({ value, zone: "shared", writtenBy: "boss", writtenAt: 0 }),
+          promote: () => Promise.resolve(null),
+        }),
       };
 
       const chat: SystemToolChatHistoryAdapter = {

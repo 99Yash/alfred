@@ -2,18 +2,15 @@ import assert from "node:assert/strict";
 import { afterEach, describe, test } from "node:test";
 
 import {
-  promoteScratch,
-  readScratch,
   readChildRunOutcome,
   registerSystemToolAgentAdapter,
   resolveAwaitSubAgent,
+  scratchpad,
   spawnSubAgent,
-  writeScratch,
   type AwaitSubAgentDispatchResult,
   type SpawnSubAgentRequest,
   type SystemToolAgentAdapter,
-  type SystemToolScratchRead,
-  type SystemToolScratchWrite,
+  type SystemToolScratchpad,
 } from "@alfred/assistant/tool-runtime";
 
 function typecheckSafeParkCapability(): void {
@@ -43,19 +40,14 @@ const spawnArgs: SpawnSubAgentRequest = {
 
 const childArgs = { parentRunId: "run_parent", userId: "user_1", childRunId: "run_child" };
 
-const scratchReadArgs = { runId: "run_parent", zone: "shared" as const, path: "facts" };
+const scratchpadArgs = { runId: "run_parent", writer: "boss" as const };
 
-const scratchWriteArgs = {
-  ...scratchReadArgs,
-  value: { answer: 42 },
-  writtenBy: "boss",
-};
-
-const scratchPromoteArgs = {
-  runId: "run_parent",
-  fromSubId: "research-1",
-  fromPath: "facts",
-  toSharedPath: "facts",
+const stubScratchpad: SystemToolScratchpad = {
+  refusal: () => null,
+  read: () => Promise.resolve(null),
+  write: (_key, value) =>
+    Promise.resolve({ value, zone: "shared", writtenBy: "boss", writtenAt: 0 }),
+  promote: () => Promise.resolve(null),
 };
 
 let unregister: (() => void) | undefined;
@@ -71,9 +63,7 @@ describe("system-tool agent seam without a registered adapter", () => {
     assert.throws(() => spawnSubAgent(spawnArgs), { message });
     assert.throws(() => readChildRunOutcome(childArgs), { message });
     assert.throws(() => resolveAwaitSubAgent(childArgs), { message });
-    assert.throws(() => readScratch(scratchReadArgs), { message });
-    assert.throws(() => writeScratch(scratchWriteArgs), { message });
-    assert.throws(() => promoteScratch(scratchPromoteArgs), { message });
+    assert.throws(() => scratchpad(scratchpadArgs), { message });
   });
 });
 
@@ -83,9 +73,7 @@ describe("system-tool agent seam with a registered adapter", () => {
       spawn?: SpawnSubAgentRequest;
       child?: typeof childArgs;
       join?: typeof childArgs;
-      scratchRead?: SystemToolScratchRead;
-      scratchWrite?: SystemToolScratchWrite;
-      scratchPromote?: typeof scratchPromoteArgs;
+      scratchpad?: Parameters<SystemToolAgentAdapter["scratchpad"]>[0];
     }
 
     const seen: SeenOps = {};
@@ -107,20 +95,6 @@ describe("system-tool agent seam with a registered adapter", () => {
       editedByUser: false as const,
     };
 
-    const scratchReadResult = {
-      value: { answer: 42 },
-      zone: "shared",
-      writtenBy: "boss",
-      writtenAt: 0,
-    } as const;
-
-    const scratchPromoteResult = {
-      value: { answer: 42 },
-      zone: "shared",
-      writtenBy: "boss",
-      writtenAt: 0,
-    } as const;
-
     const adapter: SystemToolAgentAdapter = {
       spawnSubAgent: (args) => {
         seen.spawn = args;
@@ -137,20 +111,10 @@ describe("system-tool agent seam with a registered adapter", () => {
 
         return Promise.resolve(joinResult);
       },
-      readScratch: (args) => {
-        seen.scratchRead = args;
+      scratchpad: (args) => {
+        seen.scratchpad = args;
 
-        return Promise.resolve(scratchReadResult);
-      },
-      writeScratch: (args) => {
-        seen.scratchWrite = args;
-
-        return Promise.resolve(undefined);
-      },
-      promoteScratch: (args) => {
-        seen.scratchPromote = args;
-
-        return Promise.resolve(scratchPromoteResult);
+        return stubScratchpad;
       },
     };
 
@@ -159,16 +123,12 @@ describe("system-tool agent seam with a registered adapter", () => {
     assert.equal(await spawnSubAgent(spawnArgs), spawnResult);
     assert.equal(await readChildRunOutcome(childArgs), childResult);
     assert.equal(await resolveAwaitSubAgent(childArgs), joinResult);
-    assert.equal(await readScratch(scratchReadArgs), scratchReadResult);
-    assert.equal(await writeScratch(scratchWriteArgs), undefined);
-    assert.equal(await promoteScratch(scratchPromoteArgs), scratchPromoteResult);
+    assert.equal(scratchpad(scratchpadArgs), stubScratchpad);
 
     assert.equal(seen.spawn, spawnArgs);
     assert.equal(seen.child, childArgs);
     assert.equal(seen.join, childArgs);
-    assert.equal(seen.scratchRead, scratchReadArgs);
-    assert.equal(seen.scratchWrite, scratchWriteArgs);
-    assert.equal(seen.scratchPromote, scratchPromoteArgs);
+    assert.equal(seen.scratchpad, scratchpadArgs);
   });
 
   test("a second distinct adapter is rejected", () => {
@@ -190,9 +150,7 @@ describe("system-tool agent seam with a registered adapter", () => {
           toolResult: null,
           editedByUser: false,
         }),
-      readScratch: () => Promise.resolve(null),
-      writeScratch: () => Promise.resolve(undefined),
-      promoteScratch: () => Promise.resolve(null),
+      scratchpad: () => stubScratchpad,
     };
 
     unregister = registerSystemToolAgentAdapter(first);
