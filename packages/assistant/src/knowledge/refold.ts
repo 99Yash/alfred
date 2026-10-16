@@ -9,7 +9,6 @@ import {
 } from "@alfred/contracts";
 import { db, rowsFromExecute } from "@alfred/db";
 import {
-  entityProfiles,
   integrationCredentials,
   observationFamilyHeads,
   observations,
@@ -20,14 +19,10 @@ import {
 import { and, desc, eq, gt, lte, sql } from "drizzle-orm";
 import { type DbTransaction } from "@alfred/db";
 import { projectGmailKindProfiles } from "./gmail-kind-fold";
+import { foldGmailProjectionRun } from "./gmail-projection-run";
 import { requireEntityIdNamespace } from "./namespace";
 import { liveObservationHeadJoin } from "./observations";
-import {
-  activateProjectionVersion,
-  completeProjectionRun,
-  startProjectionRun,
-  writeProjectionCursor,
-} from "./projection";
+import { activateProjectionVersion } from "./projection";
 import { userModelReader } from "./reader";
 
 /**
@@ -36,7 +31,8 @@ import { userModelReader } from "./reader";
  *
  * Auto-activation needs frozen logic: the fold is recomputed at the active run's
  * own watermark, inside a rolled-back transaction, and must match its stored
- * checksum. A mismatch blocks, and a human re-activates. This path never makes the
+ * checksum. The stored checksum covers kinds only, so edges do not take part in
+ * this gate. A mismatch blocks, and a human re-activates. This path never makes the
  * first activation. Adding or removing a Google account also changes the input and
  * blocks; that fails closed.
  */
@@ -124,67 +120,16 @@ export async function refoldActiveGmailKindProjection(
     return { status: "skipped", reason: "up-to-date" };
   }
 
-  // Frozen logic and new observations: fold into a new version and activate.
+  // Frozen logic and new observations: fold kinds and `works_at` edges into a new
+  // version, the same run the backfill writes, and activate it.
   const projectionVersion = active.activeVersion + 1;
 
-  const completed = await db().transaction(async (tx) => {
-    const started = await startProjectionRun(
-      {
-        userId,
-        projectionName: USER_MODEL_PROJECTION_NAME,
-        projectionVersion,
-        sourceHighWatermark,
-      },
+  const completed = await db().transaction((tx) =>
+    foldGmailProjectionRun(
+      { userId, projectionVersion, sourceHighWatermark, excludeEmailValues },
       tx,
-    );
-
-    if (started.reused) {
-      await tx
-        .delete(entityProfiles)
-        .where(
-          and(
-            eq(entityProfiles.userId, userId),
-            eq(entityProfiles.projectionRunId, started.run.id),
-          ),
-        );
-    }
-
-    const projected = await projectGmailKindProfiles(
-      {
-        userId,
-        projectionRunId: started.run.id,
-        projectionVersion,
-        gmailHighWatermark: gmailCursor,
-        excludeEmailValues,
-      },
-      tx,
-    );
-
-    await writeProjectionCursor(
-      {
-        userId,
-        projectionName: USER_MODEL_PROJECTION_NAME,
-        projectionVersion,
-        projectionRunId: started.run.id,
-        source: "gmail",
-        cursor: gmailCursor,
-      },
-      tx,
-    );
-    await completeProjectionRun(
-      {
-        runId: started.run.id,
-        userId,
-        checksum: projected.checksum,
-        completedAt: new Date(),
-        rowCounts: { entity_profiles: projected.profileCount },
-        sourceHighWatermark,
-      },
-      tx,
-    );
-
-    return { runId: started.run.id, ...projected };
-  });
+    ),
+  );
 
   await activateProjectionVersion({
     userId,
@@ -193,7 +138,8 @@ export async function refoldActiveGmailKindProjection(
   });
   console.log(
     `[user-model.refold] ACTIVATED user=${userId} version=${projectionVersion} ` +
-      `profiles=${completed.profileCount} checksum=${completed.checksum}`,
+      `profiles=${completed.profileCount} edges=${completed.edgesWritten} ` +
+      `checksum=${completed.checksum}`,
   );
 
   return {
