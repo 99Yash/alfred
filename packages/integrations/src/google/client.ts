@@ -49,7 +49,7 @@ import {
   type GetPresentationArgs,
 } from "./slides";
 import type { GoogleService } from "./http";
-import { GOOGLE_SCOPE } from "@alfred/contracts";
+import { GOOGLE_SCOPE, holdsAnyScope } from "@alfred/contracts";
 
 type WithCredentialId<T extends { accessToken: string }> = Omit<T, "accessToken"> & {
   credentialId: string;
@@ -94,9 +94,7 @@ export class GoogleCredentialSelectionError extends Error {
 }
 
 function hasAuthority(credential: CredentialRow, authority: GoogleAuthority): boolean {
-  const granted = new Set(credential.scopes);
-
-  return AUTHORITY_SCOPES[authority].some((scope) => granted.has(scope));
+  return holdsAnyScope(credential.scopes, AUTHORITY_SCOPES[authority]);
 }
 
 async function credentialsForAuthority(

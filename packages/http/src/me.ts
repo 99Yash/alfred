@@ -1,5 +1,6 @@
 import {
   GOOGLE_SCOPE,
+  holdsAnyScope,
   INBOX_DEFAULT_LIMIT,
   INBOX_MAX_LIMIT,
   TRIAGE_RAIL_SUPPRESSED_CATEGORIES,
@@ -8,6 +9,7 @@ import {
   encodeInboxCursor,
   Errors,
   extractGmailDocumentBody,
+  INTEGRATIONS,
   isUsageRunCategory,
   parseGmailDocumentMetadata,
   parseInboxCursor,
@@ -547,9 +549,6 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
             byAccount.set(key, bucket);
           }
 
-          // Removing a label needs `gmail.modify`.
-          const modifyScope = GOOGLE_SCOPE.gmail.modify;
-
           const creds = await db()
             .select({
               id: integrationCredentials.id,
@@ -565,11 +564,10 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
               ),
             );
 
-          const modifyCreds = creds.filter((c) => {
-            const granted = toStringArray(c.scopes);
-
-            return granted.includes(modifyScope);
-          });
+          // Removing a label needs `gmail.modify`.
+          const modifyCreds = creds.filter((c) =>
+            holdsAnyScope(toStringArray(c.scopes), [GOOGLE_SCOPE.gmail.modify]),
+          );
 
           if (modifyCreds.length === 0) {
             throw Errors.ConflictError(
@@ -653,14 +651,9 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
               ),
             );
 
-          const row = creds.find((c) => {
-            const granted = toStringArray(c.scopes);
-
-            return (
-              granted.includes(GOOGLE_SCOPE.calendar.readonly) ||
-              granted.includes(GOOGLE_SCOPE.calendar.events)
-            );
-          });
+          const row = creds.find((c) =>
+            holdsAnyScope(toStringArray(c.scopes), INTEGRATIONS.calendar.credential.anyOfScopes),
+          );
 
           if (!row) return { items: [], connected: false };
 

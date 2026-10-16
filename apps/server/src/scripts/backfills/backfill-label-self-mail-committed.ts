@@ -19,7 +19,7 @@
  */
 import { warmPool } from "@alfred/db";
 import { closeScriptResources } from "../script-runtime";
-import { GOOGLE_SCOPE, parseEmailAddress, toMessage } from "@alfred/contracts";
+import { GOOGLE_SCOPE, holdsAnyScope, parseEmailAddress, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { integrationCredentials, user as userTable } from "@alfred/db/schemas";
 import { gmailMailboxWritesEnabled } from "@alfred/env/server";
@@ -108,7 +108,7 @@ interface TargetCredential {
 
 /** Label creation + batchModify require a Gmail mutation grant. */
 function hasGmailModifyScope(scopes: string[]): boolean {
-  return scopes.includes(GOOGLE_SCOPE.gmail.modify);
+  return holdsAnyScope(scopes, [GOOGLE_SCOPE.gmail.modify]);
 }
 
 async function resolveTargets(emails: string[]): Promise<TargetCredential[]> {
