@@ -12,6 +12,7 @@
  *   RECAT_THREAD_IDS=19a1b2c3d4e5f6a7,19b2c3d4e5f6a7b8 \
  *     node dist/scripts/dry-runs/dry-run-triage-recategorize-committed.js
  */
+import { settings } from "@alfred/assistant/settings";
 import type { ClassifyAudit } from "@alfred/assistant/triage";
 import {
   classifyEmail,
@@ -112,6 +113,7 @@ async function processUser(u: TargetUser): Promise<Set<string>> {
 
     const observations = await gatherObservations({
       userId: u.userId,
+      settings: settings({ userId: u.userId }),
       documentId: row.documentId,
       sourceThreadId: row.threadId,
       document: ctxData.document,

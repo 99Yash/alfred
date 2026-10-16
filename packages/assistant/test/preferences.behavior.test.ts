@@ -7,7 +7,7 @@ import { closeConnections, db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
 import { inArray, like } from "drizzle-orm";
 
-import { deletePreference, getPreference, getPreferences, setPreference } from "../src/settings";
+import { settings } from "../src/settings";
 import { dbBackedSkip } from "./support/db-backed";
 
 /**
@@ -47,12 +47,12 @@ describe("settings preferences (DB-backed)", { skip: SKIP }, () => {
     await closeConnections();
   });
 
-  test("setPreference then getPreference returns the written value", async () => {
+  test("set then get returns the written value", async () => {
     const userId = await seedUser();
-    const written = await setPreference({ userId, key: "tone", value: "concise" });
+    const written = await settings({ userId }).set("tone", "concise");
     assert.equal(written.value, "concise");
 
-    const read = await getPreference(userId, "tone");
+    const read = await settings({ userId }).get("tone");
     assert.ok(read, "the written preference must be readable");
     assert.equal(read.value, "concise");
     assert.equal(read.key, "tone");
@@ -61,64 +61,69 @@ describe("settings preferences (DB-backed)", { skip: SKIP }, () => {
 
   test("source omitted defaults to { kind: 'user' }", async () => {
     const userId = await seedUser();
-    const written = await setPreference({ userId, key: "tone", value: "warm" });
+    const written = await settings({ userId }).set("tone", "warm");
     assert.deepEqual(written.source, { kind: "user" });
 
-    const read = await getPreference(userId, "tone");
+    const read = await settings({ userId }).get("tone");
     assert.deepEqual(read?.source, { kind: "user" });
   });
 
   test("an agent-suggested source round-trips through the gateway", async () => {
     const userId = await seedUser();
 
-    const written = await setPreference({
-      userId,
-      key: "reply_length",
-      value: "short",
+    const written = await settings({ userId }).set("reply_length", "short", {
       source: { kind: "agent" },
     });
 
     assert.deepEqual(written.source, { kind: "agent" });
-    const read = await getPreference(userId, "reply_length");
+    const read = await settings({ userId }).get("reply_length");
     assert.deepEqual(read?.source, { kind: "agent" });
   });
 
-  test("a second setPreference on the same (userId,key) upserts and bumps rowVersion", async () => {
+  test("a second set on the same (userId,key) upserts and bumps rowVersion", async () => {
     const userId = await seedUser();
-    const first = await setPreference({ userId, key: "tone", value: "concise" });
+    const first = await settings({ userId }).set("tone", "concise");
     assert.equal(first.rowVersion, 0, "first write starts at rowVersion 0");
 
-    const second = await setPreference({ userId, key: "tone", value: "verbose" });
+    const second = await settings({ userId }).set("tone", "verbose");
     assert.equal(second.value, "verbose", "last write wins");
     assert.equal(second.rowVersion, 1, "conflicting write bumps rowVersion");
 
-    const rows = await getPreferences(userId);
+    const rows = await settings({ userId }).all();
     assert.equal(rows.length, 1, "upsert keeps a single row per (userId,key)");
   });
 
-  test("getPreferences returns a user's rows ordered by key ascending", async () => {
+  test("all returns a user's rows ordered by key ascending", async () => {
     const userId = await seedUser();
     // Insert out of key order; the read must sort them.
-    await setPreference({ userId, key: "tone", value: "concise" });
-    await setPreference({ userId, key: "briefing_hour", value: 7 });
-    await setPreference({ userId, key: "reply_length", value: "short" });
+    await settings({ userId }).set("tone", "concise");
+    await settings({ userId }).set("briefing_hour", 7);
+    await settings({ userId }).set("reply_length", "short");
 
-    const rows = await getPreferences(userId);
+    const rows = await settings({ userId }).all();
     assert.deepEqual(
       rows.map((r) => r.key),
       ["briefing_hour", "reply_length", "tone"],
-      "getPreferences must order by key asc",
+      "all must order by key asc",
     );
   });
 
-  test("deletePreference returns true then getPreference is null; deleting an absent key is false", async () => {
+  test("delete returns true then get is null; deleting an absent key is false", async () => {
     const userId = await seedUser();
-    await setPreference({ userId, key: "tone", value: "concise" });
+    await settings({ userId }).set("tone", "concise");
 
-    assert.equal(await deletePreference(userId, "tone"), true, "delete of an existing key is true");
-    assert.equal(await getPreference(userId, "tone"), null, "the deleted key reads back as null");
     assert.equal(
-      await deletePreference(userId, "tone"),
+      await settings({ userId }).delete("tone"),
+      true,
+      "delete of an existing key is true",
+    );
+    assert.equal(
+      await settings({ userId }).get("tone"),
+      null,
+      "the deleted key reads back as null",
+    );
+    assert.equal(
+      await settings({ userId }).delete("tone"),
       false,
       "delete of an already-absent key is false",
     );

@@ -46,7 +46,7 @@ import { scratchpad } from "../scratchpad/index";
 import { readIntegrationAvailability, readReceiptDocument } from "@alfred/assistant/connections";
 import { formatDateGrounding } from "../grounding";
 import { composeAgentInstructions } from "@alfred/ai/voice";
-import { resolveTimezone, selfIdentityGrounding } from "@alfred/assistant/settings";
+import { selfIdentityGrounding, settings } from "@alfred/assistant/settings";
 import {
   foldToolSurfaceState,
   systemToolKernel,
@@ -229,7 +229,7 @@ const bossTurnStep: Step<BriefRunState> = {
     const subAgent = state.subAgent;
 
     if (state.timezone === undefined) {
-      state.timezone = await resolveTimezone(ctx.userId);
+      state.timezone = await settings({ userId: ctx.userId }).timezone();
     }
 
     const grounding = formatDateGrounding(parseIanaTimezone(state.timezone));

@@ -1,6 +1,6 @@
 import { assertIanaTimezone, isIanaTimezone, type IanaTimezone } from "@alfred/contracts";
 
-/** Pure zone helpers: no preference read, no database. The preference resolver is `settings.resolveTimezone`. */
+/** Pure zone helpers: no preference read, no database. The preference resolver is `settings({ userId }).timezone()`. */
 
 /**
  * Checked at load, not cast. `Intl.supportedValuesOf` omits `"UTC"`, which once
@@ -14,7 +14,7 @@ export const DEFAULT_USER_TIMEZONE: IanaTimezone = ((): IanaTimezone => {
 })();
 
 /**
- * Zone precedence, canonical key first (ADR-0082). `settings.resolveTimezone`
+ * Zone precedence, canonical key first (ADR-0082). `settings({ userId }).timezone()`
  * and `resolveBriefingPreferences` both map this tuple, so the two zones
  * cannot diverge (#229). `briefing.timezone` is the legacy fallback.
  */

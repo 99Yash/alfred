@@ -56,7 +56,7 @@ import {
   gatherVerifiedPulls,
   verifyApprovedMcpHealth,
 } from "@alfred/assistant/connections/verified-pull";
-import { getPreference } from "@alfred/assistant/settings";
+import { settings } from "@alfred/assistant/settings";
 import { getMcpExecutionBroker } from "@alfred/assistant/tool-runtime/mcp";
 import { senderSuppressions } from "../knowledge";
 import {
@@ -875,7 +875,7 @@ async function resolveWeatherLocation(
   userId: string,
   timezone: IanaTimezone,
 ): Promise<WeatherFallbackLocation | null> {
-  const pref = await getPreference(userId, "location");
+  const pref = await settings({ userId }).get("location");
   const parsed = parseWeatherLocation(pref?.value);
 
   return parsed ?? weatherFallbackFor(timezone);

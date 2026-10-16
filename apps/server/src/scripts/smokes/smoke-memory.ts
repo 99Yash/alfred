@@ -18,7 +18,7 @@ import {
   supersedeFact,
   writeMemoryChunk,
 } from "@alfred/assistant/knowledge";
-import { getPreference, getPreferences, setPreference } from "@alfred/assistant/settings";
+import { settings } from "@alfred/assistant/settings";
 import {
   embedMemoryChunk,
   findPendingEmbedChunks,
@@ -172,16 +172,18 @@ async function main() {
 
   // 9. preferences round-trip
   const prefKey = `smoke:tone:${runTag}`;
-  const set1 = await setPreference({ userId, key: prefKey, value: "concise" });
-  assert(set1.value === "concise", `setPreference value mismatch`);
-  const set2 = await setPreference({ userId, key: prefKey, value: "warm but concise" });
+  // One bind: the reads after the writes prove a write drops the bind's loaded view.
+  const userSettings = settings({ userId });
+  const set1 = await userSettings.set(prefKey, "concise");
+  assert(set1.value === "concise", `settings.set value mismatch`);
+  const set2 = await userSettings.set(prefKey, "warm but concise");
   assert(set2.rowVersion > set1.rowVersion, `rowVersion should bump on overwrite`);
-  const fetched = await getPreference(userId, prefKey);
-  assert(fetched && fetched.value === "warm but concise", `getPreference mismatch`);
-  const all_prefs = await getPreferences(userId);
+  const fetched = await userSettings.get(prefKey);
+  assert(fetched && fetched.value === "warm but concise", `settings.get mismatch`);
+  const all_prefs = await userSettings.all();
   assert(
     all_prefs.find((p) => p.key === prefKey),
-    `getPreferences should include our key`,
+    `settings.all should include our key`,
   );
   console.log(
     `[smoke] 9. preferences round-trip ok (rowVersion ${set1.rowVersion} → ${set2.rowVersion})`,

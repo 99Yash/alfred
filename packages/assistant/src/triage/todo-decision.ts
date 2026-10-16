@@ -1,4 +1,4 @@
-import { resolveTimezone } from "@alfred/assistant/settings";
+import type { UserSettings } from "@alfred/assistant/settings";
 import {
   senderSuppressions,
   type SenderSuppressionMatch,
@@ -57,6 +57,8 @@ export type TriageTodoDecision = {
 
 export async function decideTriageTodo(args: {
   userId: string;
+  /** The same user's bind. The caller's step bind, so the zone shares its flag load. */
+  settings: UserSettings;
   sourceThreadId: string;
   /** Only `reply` reads the thread closure. */
   reason: TriageRunReason | undefined;
@@ -71,10 +73,10 @@ export async function decideTriageTodo(args: {
 }): Promise<TriageTodoDecision> {
   const { document, classification } = args;
 
-  // Resolve the zone only when a todo is proposed; `resolveTimezone` hits the DB.
+  // Read the zone only when a todo is proposed. The step bind usually holds it already.
   const assistDateAnchor: AssistDateAnchor | null =
     document.authoredAt && classification.todoSuggestion
-      ? { sentAt: document.authoredAt, timezone: await resolveTimezone(args.userId) }
+      ? { sentAt: document.authoredAt, timezone: await args.settings.timezone() }
       : null;
 
   const todo = resolveTodoSuggestion(classification, assistDateAnchor);

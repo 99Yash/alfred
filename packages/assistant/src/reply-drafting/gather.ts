@@ -10,7 +10,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { readUserContext } from "@alfred/assistant/knowledge";
 import { getStyleProfile } from "@alfred/assistant/knowledge/style-profiles";
-import { resolveTimezone } from "@alfred/assistant/settings";
+import { settings } from "@alfred/assistant/settings";
 import { inZone } from "@alfred/assistant/time";
 import { getThreadState } from "@alfred/assistant/triage";
 
@@ -70,7 +70,7 @@ export async function gatherReplyContext(args: {
     }),
     // Audience inference belongs to #238; read the generic profile only.
     getStyleProfile(args.userId, "gmail", "generic"),
-    resolveTimezone(args.userId),
+    settings({ userId: args.userId }).timezone(),
     getThreadState({
       userId: args.userId,
       sourceThreadId: document.sourceThreadId,

@@ -5,7 +5,7 @@ import {
   DEFAULT_BRIEFING_EVENING_HOUR,
   DEFAULT_BRIEFING_TIMEZONE,
 } from "@alfred/contracts/briefing-constants";
-import { getPreference } from "@alfred/assistant/settings";
+import type { UserSettings } from "@alfred/assistant/settings";
 import {
   firstValidTimezone,
   isValidTimezone,
@@ -15,7 +15,7 @@ import {
 /**
  * Briefing hours and zone live in `user_preferences`. Zone order comes from
  * {@link TIMEZONE_PREFERENCE_KEYS} via {@link firstValidTimezone}, the same path as
- * `settings.resolveTimezone`, so delivery and date reasoning agree (#229). Then UTC.
+ * `settings({ userId }).timezone()`, so delivery and date reasoning agree (#229). Then UTC.
  */
 
 export { DEFAULT_BRIEFING_DELIVERY_HOUR, DEFAULT_BRIEFING_EVENING_HOUR, DEFAULT_BRIEFING_TIMEZONE };
@@ -37,12 +37,14 @@ interface BriefingPreferenceValues {
   eveningHour: unknown;
 }
 
-export async function resolveBriefingPreferences(userId: string): Promise<BriefingPreferences> {
-  // Every `getPreference` call starts before the first await, so this is one round-trip.
+/** Reads through the caller's bind, so a caller that also reads flags pays for one load. */
+export async function resolveBriefingPreferences(
+  userSettings: UserSettings,
+): Promise<BriefingPreferences> {
   const [tzRows, hourRow, eveRow] = await Promise.all([
-    Promise.all(TIMEZONE_PREFERENCE_KEYS.map((key) => getPreference(userId, key))),
-    getPreference(userId, "briefing.delivery_hour"),
-    getPreference(userId, "briefing.evening_hour"),
+    Promise.all(TIMEZONE_PREFERENCE_KEYS.map((key) => userSettings.get(key))),
+    userSettings.get("briefing.delivery_hour"),
+    userSettings.get("briefing.evening_hour"),
   ]);
 
   return resolveBriefingPreferenceValues({

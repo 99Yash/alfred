@@ -2,7 +2,7 @@ import { toMessage, type ReplyDraftProvenance } from "@alfred/contracts";
 import { isUniqueViolation } from "@alfred/db/pg-errors";
 import { startRun } from "@alfred/assistant/execution";
 import { senderSuppressions } from "@alfred/assistant/knowledge";
-import { resolveFeatureFlags } from "@alfred/assistant/settings";
+import { settings } from "@alfred/assistant/settings";
 import {
   emailTriageClassifiedPayloadSchema,
   type DomainEvent,
@@ -80,7 +80,7 @@ export async function acceptEmailTriageClassified(event: DomainEvent): Promise<v
   if (event.source !== "email-triage" || event.type !== "classified") return;
   const payload = emailTriageClassifiedPayloadSchema.parse(event.payload);
 
-  const flags = await resolveFeatureFlags(event.userId);
+  const flags = await settings({ userId: event.userId }).flags();
 
   if (!flags.replyDrafting) return;
 

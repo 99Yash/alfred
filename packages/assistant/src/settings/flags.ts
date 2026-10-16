@@ -1,38 +1,33 @@
-import { FEATURE_FLAG_KEYS, isFeatureFlagOn, type FeatureFlagKey } from "@alfred/contracts";
-import { getPreference } from "./preferences";
+import {
+  FEATURE_FLAG_KEYS,
+  isFeatureFlagOn,
+  type FeatureFlagId,
+  type FeatureFlagKey,
+} from "@alfred/contracts";
+import type { PreferenceRow } from "./preferences";
 
 /**
- * Background-agent toggles from Settings > Features. Keys and defaults live in `@alfred/contracts`.
- * An unset flag takes its default: ON for most, OFF for `replyDrafting`, which stages mail.
- * Morning and evening share the `daily-briefing` workflow; `briefings/queue.ts` gates each slot.
- * Tagging and action items share one `email-triage` classify call, with separate gated outputs.
+ * Background-agent toggles from Settings > Features, one boolean per `FEATURE_FLAG_KEYS` entry.
+ * Keys and defaults live in `@alfred/contracts`. An unset flag takes its default: ON for most,
+ * OFF for `replyDrafting`, which stages mail (ADR-0098; a `manual` run of `reply-drafting`
+ * ignores it). Morning and evening share the `daily-briefing` workflow; `briefings/queue.ts`
+ * gates each slot. Tagging (Gmail category labels) and action items (`suggested` todos) share
+ * one `email-triage` classify call, with separate gated outputs.
  */
-export interface FeatureFlags {
-  morningBriefing: boolean;
-  eveningRecap: boolean;
-  /** Gmail category labels. */
-  emailTagging: boolean;
-  /** `suggested` todos from triage. */
-  actionItems: boolean;
-  /** ADR-0098. A `manual` run of `reply-drafting` ignores this flag. */
-  replyDrafting: boolean;
-}
+export type FeatureFlags = { readonly [Id in FeatureFlagId]: boolean };
 
-async function getFeatureFlag(userId: string, key: FeatureFlagKey): Promise<boolean> {
-  const row = await getPreference(userId, key);
+/** `rowFor` finds the user's row for a key; an absent row takes the contract default. */
+export function featureFlagsFrom(
+  rowFor: (key: FeatureFlagKey) => PreferenceRow | undefined,
+): FeatureFlags {
+  const on = (id: FeatureFlagId) =>
+    isFeatureFlagOn(FEATURE_FLAG_KEYS[id], rowFor(FEATURE_FLAG_KEYS[id])?.value);
 
-  return isFeatureFlagOn(key, row?.value);
-}
-
-export async function resolveFeatureFlags(userId: string): Promise<FeatureFlags> {
-  const [morningBriefing, eveningRecap, emailTagging, actionItems, replyDrafting] =
-    await Promise.all([
-      getFeatureFlag(userId, FEATURE_FLAG_KEYS.morningBriefing),
-      getFeatureFlag(userId, FEATURE_FLAG_KEYS.eveningRecap),
-      getFeatureFlag(userId, FEATURE_FLAG_KEYS.emailTagging),
-      getFeatureFlag(userId, FEATURE_FLAG_KEYS.actionItems),
-      getFeatureFlag(userId, FEATURE_FLAG_KEYS.replyDrafting),
-    ]);
-
-  return { morningBriefing, eveningRecap, emailTagging, actionItems, replyDrafting };
+  return {
+    morningBriefing: on("morningBriefing"),
+    eveningRecap: on("eveningRecap"),
+    emailTagging: on("emailTagging"),
+    actionItems: on("actionItems"),
+    replyDrafting: on("replyDrafting"),
+  };
 }

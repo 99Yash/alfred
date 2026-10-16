@@ -5,7 +5,7 @@ import { documents, driftMetrics, emailTriage, todos } from "@alfred/db/schemas"
 import { selfSenderEmail } from "@alfred/integrations/google";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { send, type SendArgs, type SendResult } from "@alfred/assistant/delivery";
-import { resolveTimezone } from "@alfred/assistant/settings";
+import { settings } from "@alfred/assistant/settings";
 import { DEFAULT_USER_TIMEZONE, inZone } from "@alfred/assistant/time";
 
 /**
@@ -238,7 +238,7 @@ export async function runDriftHealthCheck(
 
   const timezone =
     breached.length > 0
-      ? (options.timezone ?? (await resolveTimezone(userId)))
+      ? (options.timezone ?? (await settings({ userId }).timezone()))
       : DEFAULT_USER_TIMEZONE;
 
   const today = inZone(timezone).day(now);

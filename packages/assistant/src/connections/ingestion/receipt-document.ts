@@ -3,7 +3,7 @@ import { sha256 } from "@alfred/corpus";
 import { db, type DbTransaction } from "@alfred/db";
 import { documents, eventReceipts, type Document, type EventReceipt } from "@alfred/db/schemas";
 import { and, count, eq, gte, lt, sql, type SQL } from "drizzle-orm";
-import { resolveTimezone } from "@alfred/assistant/settings";
+import { settings } from "@alfred/assistant/settings";
 import { inZone } from "@alfred/assistant/time";
 import { INBOUND_SOURCES } from "../ingress";
 import { INBOUND_DAILY_EMBED_CAP, INBOUND_DAILY_EMBED_CAP_REASON } from "../receipt-corpus-policy";
@@ -80,7 +80,7 @@ export type ReceiptProjection = {
 
 /**
  * Derive the kind and resolve the user's zone. Run it before any transaction opens:
- * `resolveTimezone` uses a pooled connection, and holding a transaction through it can exhaust the
+ * the zone read uses a pooled connection, and holding a transaction through it can exhaust the
  * pool. Kind: `rawKind`, else the parsed typed name, else `eventType`.
  */
 export async function prepareReceiptProjection(
@@ -89,7 +89,7 @@ export async function prepareReceiptProjection(
   const kind =
     facts.rawKind ?? parseEventTypeName(facts.provider, facts.eventType) ?? facts.eventType;
 
-  const timezone = await resolveTimezone(facts.userId);
+  const timezone = await settings({ userId: facts.userId }).timezone();
 
   // SAFETY: the brand's only mint.
   return {
