@@ -14,7 +14,6 @@ import type {
 } from "@alfred/contracts";
 import {
   APPROVAL_EXPIRY_MS,
-  getStringPath,
   hashToolInput,
   hashToolRequest,
   INTEGRATION_ACTIONS,
@@ -77,7 +76,6 @@ import {
   scheduleApprovalExpiryJob,
   scheduleApprovalNotificationJob,
 } from "../../index";
-import { parseScratchToolKey, type ScratchToolKey } from "../tools/scratch-key";
 import {
   countRunPassthroughCalls,
   PASSTHROUGH_PER_RUN_CEILING,
@@ -533,13 +531,14 @@ const validateInputStage: DispatchStage<ResolvedDispatch, ValidatedDispatch> = a
     accountRef: workflowCapabilities[0]?.accountRef,
   });
 
-  const scratchAccessError = validateScratchToolAccess({ toolName, input, caller });
+  // A refusal that depends on the caller, which the schema cannot express. Its owner decides it.
+  const refusal = tool.refuseInput?.(input, ctx) ?? null;
 
-  if (scratchAccessError) {
+  if (refusal !== null) {
     recordRejection({
       dispatch: args,
       outcome: "invalid_input",
-      reason: scratchAccessError,
+      reason: refusal,
       toolName,
       tool,
       input,
@@ -550,7 +549,7 @@ const validateInputStage: DispatchStage<ResolvedDispatch, ValidatedDispatch> = a
       result: {
         status: "invalid_input",
         toolName,
-        message: scratchAccessError,
+        message: refusal,
       },
     };
   }
@@ -1622,72 +1621,4 @@ function synthesizeUnansweredQuestions(args: {
 function extractStoredError(stored: unknown): PublicAppError {
   // Old rows may hold raw exception text, so re-render from the catalog.
   return publicAppErrorFromStored(stored);
-}
-
-function validateScratchToolAccess(args: {
-  toolName: ToolName;
-  input: unknown;
-  caller: ToolExecuteContext["caller"];
-}): string | null {
-  if (args.toolName === "system.read_scratch") {
-    const key = getStringPath(args.input, "key") ?? null;
-    const target = parseScratchAccessKey(key);
-
-    if (target.error !== null) return target.error;
-
-    if (
-      args.caller !== "boss" &&
-      target.key.zone === "scratch" &&
-      target.key.subId !== args.caller.subId
-    ) {
-      return `Sub-agent '${args.caller.subId}' cannot read scratch for '${target.key.subId}'`;
-    }
-
-    return null;
-  }
-
-  if (args.toolName === "system.write_scratch") {
-    const key = getStringPath(args.input, "key") ?? null;
-    const target = parseScratchAccessKey(key);
-
-    if (target.error !== null) return target.error;
-
-    if (args.caller === "boss") {
-      return target.key.zone === "shared" ? null : "Boss can only write shared.<path> scratch keys";
-    }
-
-    return target.key.zone === "scratch" && target.key.subId === args.caller.subId
-      ? null
-      : `Sub-agent '${args.caller.subId}' can only write scratch.${args.caller.subId}.<path> keys`;
-  }
-
-  if (args.toolName === "system.promote") {
-    // The floor already limits callers to the boss. This checks the keys.
-    const from = parseScratchAccessKey(getStringPath(args.input, "fromKey") ?? null);
-
-    if (from.error !== null) return from.error;
-    const to = parseScratchAccessKey(getStringPath(args.input, "toKey") ?? null);
-
-    if (to.error !== null) return to.error;
-
-    if (from.key.zone !== "scratch") return "system.promote fromKey must be scratch.<subId>.<path>";
-
-    if (to.key.zone !== "shared") return "system.promote toKey must be shared.<path>";
-
-    return null;
-  }
-
-  return null;
-}
-
-type ScratchAccessTarget = { key: ScratchToolKey; error: null } | { key: null; error: string };
-
-function parseScratchAccessKey(key: string | null): ScratchAccessTarget {
-  if (key === null) return { key: null, error: "Scratch key must be a string" };
-
-  try {
-    return { key: parseScratchToolKey(key), error: null };
-  } catch (err) {
-    return { key: null, error: toMessage(err) };
-  }
 }

@@ -145,6 +145,12 @@ export interface LiveToolArgs<
    * (`answers` on `system.ask_user`, ADR-0099). Must be a subset of `inputSchema`.
    */
   modelInputSchema?: z.ZodType<any>;
+  /**
+   * A refusal that depends on who calls, which the schema cannot express. Dispatch runs it on
+   * parsed input before any staging or execute, and returns a non-null text as `invalid_input`.
+   * Must be side-effect free and must not throw. The rule's owner supplies the text.
+   */
+  refuseInput?: (input: z.infer<S>, ctx: ToolExecuteContext) => string | null;
   /** Receives parsed input. A throw is recorded by the dispatcher. */
   // oxlint-disable-next-line anti-slop/no-unknown-returns -- a tool's `execute` result is free-form JSON unless a TOOL_OUTPUT_SCHEMAS entry parses it later.
   execute: (input: z.infer<S>, ctx: ToolExecuteContext) => Promise<unknown>;
@@ -176,6 +182,8 @@ export interface RegisteredTool {
   inputSchema: z.ZodType<any>;
   /** Falls back to `inputSchema`, so it is always set. */
   modelInputSchema: z.ZodType<any>;
+  /** See {@link LiveToolArgs.refuseInput}. Erased to `unknown` at the registry boundary. */
+  refuseInput?: (input: unknown, ctx: ToolExecuteContext) => string | null;
   // oxlint-disable-next-line anti-slop/no-unknown-returns -- the registry erases each tool's `execute` result; it is free-form JSON unless a TOOL_OUTPUT_SCHEMAS entry parses it.
   execute: (input: unknown, ctx: ToolExecuteContext) => Promise<unknown>;
   /** See {@link LiveToolArgs.redactInput}. Erased to `unknown` at the registry boundary. */
@@ -406,6 +414,12 @@ export function liveTool<
       ? {
           resolveRiskTier: (input: unknown, ctx: ToolExecuteContext) =>
             args.resolveRiskTier!(args.inputSchema.parse(input), ctx),
+        }
+      : {}),
+    ...(args.refuseInput
+      ? {
+          refuseInput: (input: unknown, ctx: ToolExecuteContext) =>
+            args.refuseInput!(args.inputSchema.parse(input), ctx),
         }
       : {}),
   };

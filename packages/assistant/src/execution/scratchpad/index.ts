@@ -1,6 +1,7 @@
 /**
  * Per-run scratchpad (ADR-0036): live in Redis, snapshotted to Postgres when the run ends.
- * The dispatcher enforces zones; these helpers trust their caller.
+ * `scratchpad({ runId, writer })` binds one writer and owns the zone rules. The snapshot is a
+ * run-level operation and has no writer.
  */
 
 import {
@@ -12,7 +13,8 @@ import {
   sharedKey,
   subAgentKey,
 } from "@alfred/contracts";
-import type { ScratchEntry, ScratchZone } from "@alfred/contracts";
+import type { ScratchEntry } from "@alfred/contracts";
+import type { ToolCallActor } from "@alfred/assistant/tool-runtime";
 import { db } from "@alfred/db";
 import { agentRunContext, type AgentRunContextRow } from "@alfred/db/schemas";
 import { sql } from "drizzle-orm";
@@ -50,16 +52,176 @@ function client(): BoundedRedis {
   return _client;
 }
 
-type SharedTarget = { runId: string; zone: "shared"; path: string };
+/** Who acts on the scratchpad: the boss, or one sub-agent. The same value as the tool caller. */
+export type ScratchWriter = ToolCallActor["caller"];
 
-type ScratchTarget = { runId: string; zone: "scratch"; subId: string; path: string };
+type SharedTarget = { zone: "shared"; path: string };
 
-type ScratchTargetArgs = SharedTarget | ScratchTarget;
+type SubAgentTarget = { zone: "scratch"; subId: string; path: string };
 
-function resolveKey(target: ScratchTargetArgs): string {
+type ScratchTarget = SharedTarget | SubAgentTarget;
+
+/** One operation, named by logical keys: `shared.<path>` or `scratch.<subId>.<path>`. */
+export type ScratchOperation =
+  | { verb: "read"; key: string }
+  | { verb: "write"; key: string }
+  | { verb: "promote"; fromKey: string; toKey: string };
+
+/** The refusal text that dispatch returns as `invalid_input`. */
+type Refusal = { ok: false; refusal: string };
+
+type Admission<T> = { ok: true; target: T } | Refusal;
+
+function refuse(refusal: string): Refusal {
+  return { ok: false, refusal };
+}
+
+function keyPartRefusal(name: "subId" | "path", value: string | undefined): string | null {
+  return !value || value.includes(":")
+    ? `Scratch key ${name} must be non-empty and contain no ':'`
+    : null;
+}
+
+function parseLogicalKey(key: string): Admission<ScratchTarget> {
+  const [zone, first, second, ...rest] = key.split(".");
+
+  if (zone === "shared" && first !== undefined && second === undefined) {
+    const pathRefusal = keyPartRefusal("path", first);
+
+    if (pathRefusal !== null) return refuse(pathRefusal);
+
+    return { ok: true, target: { zone: "shared", path: first } };
+  }
+
+  if (zone === "scratch" && first !== undefined && second !== undefined && rest.length === 0) {
+    const partRefusal = keyPartRefusal("subId", first) ?? keyPartRefusal("path", second);
+
+    if (partRefusal !== null) return refuse(partRefusal);
+
+    return { ok: true, target: { zone: "scratch", subId: first, path: second } };
+  }
+
+  return refuse("Scratch key must be shared.<path> or scratch.<subId>.<path>");
+}
+
+// The zone rules (ADR-0036), decided only here. Only the boss writes `shared.*` and promotes.
+// A sub-agent reads `shared.*` and its own zone, and writes only its own zone.
+
+function admitRead(writer: ScratchWriter, key: string): Admission<ScratchTarget> {
+  const parsed = parseLogicalKey(key);
+
+  if (!parsed.ok || writer === "boss") return parsed;
+
+  const { target } = parsed;
+
+  if (target.zone === "scratch" && target.subId !== writer.subId) {
+    return refuse(`Sub-agent '${writer.subId}' cannot read scratch for '${target.subId}'`);
+  }
+
+  return parsed;
+}
+
+function admitWrite(writer: ScratchWriter, key: string): Admission<ScratchTarget> {
+  const parsed = parseLogicalKey(key);
+
+  if (!parsed.ok) return parsed;
+
+  const { target } = parsed;
+
+  if (writer === "boss") {
+    return target.zone === "shared"
+      ? parsed
+      : refuse("Boss can only write shared.<path> scratch keys");
+  }
+
+  return target.zone === "scratch" && target.subId === writer.subId
+    ? parsed
+    : refuse(`Sub-agent '${writer.subId}' can only write scratch.${writer.subId}.<path> keys`);
+}
+
+function admitPromote(
+  writer: ScratchWriter,
+  fromKey: string,
+  toKey: string,
+): Admission<{ from: SubAgentTarget; to: SharedTarget }> {
+  // The `system.promote` caller floor already keeps a sub-agent from reaching this.
+  if (writer !== "boss") return refuse(`Sub-agent '${writer.subId}' cannot promote scratch keys`);
+
+  const from = parseLogicalKey(fromKey);
+
+  if (!from.ok) return from;
+  const to = parseLogicalKey(toKey);
+
+  if (!to.ok) return to;
+
+  if (from.target.zone !== "scratch") {
+    return refuse("system.promote fromKey must be scratch.<subId>.<path>");
+  }
+
+  if (to.target.zone !== "shared") return refuse("system.promote toKey must be shared.<path>");
+
+  return { ok: true, target: { from: from.target, to: to.target } };
+}
+
+function admit(writer: ScratchWriter, operation: ScratchOperation): Admission<unknown> {
+  switch (operation.verb) {
+    case "read":
+      return admitRead(writer, operation.key);
+    case "write":
+      return admitWrite(writer, operation.key);
+    case "promote":
+      return admitPromote(writer, operation.fromKey, operation.toKey);
+  }
+}
+
+/** A verb called with a refused operation throws here, before any span or I/O. */
+function admitted<T>(admission: Admission<T>): T {
+  if (!admission.ok) throw new Error(`[scratchpad] ${admission.refusal}`);
+
+  return admission.target;
+}
+
+/**
+ * One run's scratchpad as one writer sees it. Keys are logical: `shared.<path>` or
+ * `scratch.<subId>.<path>`. The writer sets `writtenBy` and decides which keys it may touch.
+ */
+export interface Scratchpad {
+  /** The refusal text for `operation`, or `null` when the zone rules admit it. No I/O. */
+  refusal(operation: ScratchOperation): string | null;
+  /** `null` when the key is absent or its entry is corrupt. Throws on a refused key. */
+  read<T = unknown>(key: string): Promise<ScratchEntry<T> | null>;
+  /** Returns the stored envelope. Throws on a refused key. */
+  write<T>(key: string, value: T): Promise<ScratchEntry<T>>;
+  /**
+   * Copy a sub-agent value into `shared.*`. Not atomic, but the boss is the only `shared.*`
+   * writer. `null` when the source is missing. Throws on a refused pair.
+   */
+  promote(fromKey: string, toKey: string): Promise<ScratchEntry<unknown> | null>;
+}
+
+/** Bind one run's scratchpad to the writer that acts on it. */
+export function scratchpad(args: { runId: string; writer: ScratchWriter }): Scratchpad {
+  const { runId, writer } = args;
+  const writtenBy = writer === "boss" ? "boss" : writer.subId;
+
+  return {
+    refusal: (operation) => {
+      const admission = admit(writer, operation);
+
+      return admission.ok ? null : admission.refusal;
+    },
+    read: (key) => readEntry(runId, admitted(admitRead(writer, key))),
+    write: (key, value) =>
+      writeEntry({ runId, target: admitted(admitWrite(writer, key)), value, writtenBy }),
+    promote: (fromKey, toKey) =>
+      promoteEntry({ runId, ...admitted(admitPromote(writer, fromKey, toKey)), writtenBy }),
+  };
+}
+
+function resolveKey(runId: string, target: ScratchTarget): string {
   return target.zone === "shared"
-    ? sharedKey(target.runId, target.path)
-    : subAgentKey(target.runId, target.subId, target.path);
+    ? sharedKey(runId, target.path)
+    : subAgentKey(runId, target.subId, target.path);
 }
 
 /** Returns the bytes written. No span, so a promote emits only its own span. */
@@ -81,25 +243,18 @@ async function fetchEntry(
   return { raw, entry: parseJsonWith(raw, scratchEntrySchema) };
 }
 
-export interface WriteScratchArgs<T = unknown> {
+async function writeEntry<T>(args: {
   runId: string;
-  zone: ScratchZone;
-  /** Required for the `scratch` zone. */
-  subId?: string;
-  path: string;
+  target: ScratchTarget;
   value: T;
-  /** `'boss'` or a sub-agent id. */
   writtenBy: string;
-}
-
-export async function writeScratch<T>(args: WriteScratchArgs<T>): Promise<void> {
-  const target = toTarget(args);
-  const fullKey = resolveKey(target);
+}): Promise<ScratchEntry<T>> {
+  const fullKey = resolveKey(args.runId, args.target);
 
   const span = startScratchSpan(
     buildScratchWriteSpanInput({
       runId: args.runId,
-      zone: target.zone,
+      zone: args.target.zone,
       logicalKey: logicalScratchKey(args.runId, fullKey),
       writtenBy: args.writtenBy,
       startedAt: new Date(),
@@ -109,35 +264,29 @@ export async function writeScratch<T>(args: WriteScratchArgs<T>): Promise<void> 
   try {
     const entry: ScratchEntry<T> = {
       value: args.value,
-      zone: target.zone,
+      zone: args.target.zone,
       writtenBy: args.writtenBy,
       writtenAt: Date.now(),
     };
 
     const byteSize = await putEntry(fullKey, entry);
     span.end({ status: "ok", metadata: { byteSize } });
+
+    return entry;
   } catch (err) {
     span.end({ status: "error", level: "ERROR" });
     throw err;
   }
 }
 
-export interface ReadScratchArgs {
-  runId: string;
-  zone: ScratchZone;
-  subId?: string;
-  path: string;
-}
-
-export async function readScratch<T>(args: ReadScratchArgs): Promise<ScratchEntry<T> | null> {
-  const target = toTarget(args);
-  const fullKey = resolveKey(target);
+async function readEntry<T>(runId: string, target: ScratchTarget): Promise<ScratchEntry<T> | null> {
+  const fullKey = resolveKey(runId, target);
 
   const span = startScratchSpan(
     buildScratchReadSpanInput({
-      runId: args.runId,
+      runId,
       zone: target.zone,
-      logicalKey: logicalScratchKey(args.runId, fullKey),
+      logicalKey: logicalScratchKey(runId, fullKey),
       startedAt: new Date(),
     }),
   );
@@ -162,34 +311,15 @@ export async function readScratch<T>(args: ReadScratchArgs): Promise<ScratchEntr
   }
 }
 
-export interface PromoteScratchArgs {
+async function promoteEntry(args: {
   runId: string;
-  fromSubId: string;
-  fromPath: string;
-  toSharedPath: string;
-  /** Defaults to `'boss'`. */
-  writtenBy?: string;
-}
-
-/**
- * Boss only: copy a sub-agent value into `shared.*`. Not atomic, but the boss is the only
- * `shared.*` writer.
- * Returns `null` if the source is missing.
- */
-export async function promoteScratch(
-  args: PromoteScratchArgs,
-): Promise<ScratchEntry<unknown> | null> {
-  const from: ScratchTarget = {
-    runId: args.runId,
-    zone: "scratch",
-    subId: args.fromSubId,
-    path: args.fromPath,
-  };
-
-  const to: SharedTarget = { runId: args.runId, zone: "shared", path: args.toSharedPath };
-  const fromKey = resolveKey(from);
-  const toKey = resolveKey(to);
-  const writtenBy = args.writtenBy ?? "boss";
+  from: SubAgentTarget;
+  to: SharedTarget;
+  writtenBy: string;
+}): Promise<ScratchEntry<unknown> | null> {
+  const fromKey = resolveKey(args.runId, args.from);
+  const toKey = resolveKey(args.runId, args.to);
+  const { writtenBy } = args;
 
   const span = startScratchSpan(
     buildScratchPromoteSpanInput({
@@ -351,21 +481,4 @@ async function snapshotScratchToPostgresCore(
   onCounts(counts);
 
   return rows.length;
-}
-
-function toTarget(args: {
-  runId: string;
-  zone: ScratchZone;
-  subId?: string;
-  path: string;
-}): ScratchTargetArgs {
-  if (args.zone === "shared") {
-    return { runId: args.runId, zone: "shared", path: args.path };
-  }
-
-  if (!args.subId) {
-    throw new Error("[scratchpad] subId is required when zone='scratch'");
-  }
-
-  return { runId: args.runId, zone: "scratch", subId: args.subId, path: args.path };
 }

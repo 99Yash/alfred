@@ -291,21 +291,21 @@ export type AwaitSubAgentDispatchResult =
       wake: SafeToParkWake;
     };
 
-export type SystemToolScratchRead =
-  | { runId: string; zone: "shared"; path: string }
-  | { runId: string; zone: "scratch"; subId: string; path: string };
+/** Mirrors `ScratchOperation` in `execution/scratchpad/index.ts` (ADR-0089). */
+export type SystemToolScratchOperation =
+  | { verb: "read"; key: string }
+  | { verb: "write"; key: string }
+  | { verb: "promote"; fromKey: string; toKey: string };
 
-export type SystemToolScratchWrite = SystemToolScratchRead & {
-  value: unknown;
-  writtenBy: string;
-};
-
-export interface SystemToolScratchPromote {
-  runId: string;
-  fromSubId: string;
-  fromPath: string;
-  toSharedPath: string;
-  writtenBy?: string | undefined;
+/**
+ * Mirrors `Scratchpad` in `execution/scratchpad/index.ts` (ADR-0089): one run's scratchpad bound
+ * to one writer. It owns the zone rules; `refusal` is the text dispatch returns as `invalid_input`.
+ */
+export interface SystemToolScratchpad {
+  refusal(operation: SystemToolScratchOperation): string | null;
+  read(key: string): Promise<ScratchEntry<unknown> | null>;
+  write(key: string, value: unknown): Promise<ScratchEntry<unknown>>;
+  promote(fromKey: string, toKey: string): Promise<ScratchEntry<unknown> | null>;
 }
 
 /** Mirrors the `spawnSubAgent` result in `execution/sub-agents.ts` (ADR-0089). */
@@ -341,9 +341,7 @@ export interface SystemToolAgentAdapter {
   spawnSubAgent(args: SpawnSubAgentRequest): Promise<SpawnSubAgentResult>;
   readChildRunOutcome(args: JoinChildRunRequest): Promise<ChildRunOutcomeResult>;
   resolveAwaitSubAgent(args: JoinChildRunRequest): Promise<AwaitSubAgentDispatchResult>;
-  readScratch(args: SystemToolScratchRead): Promise<ScratchEntry<unknown> | null>;
-  writeScratch(args: SystemToolScratchWrite): Promise<void>;
-  promoteScratch(args: SystemToolScratchPromote): Promise<ScratchEntry<unknown> | null>;
+  scratchpad(args: { runId: string; writer: ToolCallActor["caller"] }): SystemToolScratchpad;
 }
 
 const systemToolAgentAdapterPort = bootPort<SystemToolAgentAdapter>("system-tool agent adapter");
@@ -465,18 +463,12 @@ export function resolveAwaitSubAgent(
   return requireSystemToolAgentAdapter().resolveAwaitSubAgent(args);
 }
 
-export function readScratch(args: SystemToolScratchRead): Promise<ScratchEntry<unknown> | null> {
-  return requireSystemToolAgentAdapter().readScratch(args);
-}
-
-export function writeScratch(args: SystemToolScratchWrite): Promise<void> {
-  return requireSystemToolAgentAdapter().writeScratch(args);
-}
-
-export function promoteScratch(
-  args: SystemToolScratchPromote,
-): Promise<ScratchEntry<unknown> | null> {
-  return requireSystemToolAgentAdapter().promoteScratch(args);
+/** The calling run's scratchpad, bound to the caller as its writer. */
+export function scratchpad(args: {
+  runId: string;
+  writer: ToolCallActor["caller"];
+}): SystemToolScratchpad {
+  return requireSystemToolAgentAdapter().scratchpad(args);
 }
 
 export type SystemToolRequest<Name extends keyof typeof TOOL_INPUT_SCHEMAS> = {

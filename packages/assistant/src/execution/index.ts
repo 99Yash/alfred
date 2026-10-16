@@ -97,10 +97,8 @@ export {
   RUNTIME_SCRATCH_PROMOTE,
   RUNTIME_SCRATCH_SNAPSHOT,
   _setScratchRuntimeSpanStarterForTests,
-  writeScratch,
-  readScratch,
-  promoteScratch,
+  scratchpad,
   snapshotScratchToPostgres,
 } from "./scratchpad/index";
 
-export type { WriteScratchArgs, ReadScratchArgs, PromoteScratchArgs } from "./scratchpad/index";
+export type { Scratchpad, ScratchOperation, ScratchWriter } from "./scratchpad/index";

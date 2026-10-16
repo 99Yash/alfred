@@ -1,20 +1,18 @@
 /**
  * Smoke test for the scratchpad on real Redis and Postgres: round-trip, promote,
- * zone enforcement in the dispatcher tools, idempotent snapshot, and health spans.
+ * zone enforcement through the dispatched tools, idempotent snapshot, and health spans.
  *
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/smokes/smoke-scratchpad.ts
  */
 
 import {
   _setScratchRuntimeSpanStarterForTests,
-  promoteScratch,
-  readScratch,
   RUNTIME_SCRATCH_PROMOTE,
   RUNTIME_SCRATCH_READ,
   RUNTIME_SCRATCH_SNAPSHOT,
   RUNTIME_SCRATCH_WRITE,
+  scratchpad,
   snapshotScratchToPostgres,
-  writeScratch,
 } from "@alfred/assistant/execution";
 
 import { dispatchToolCall } from "@alfred/assistant/tool-runtime/dispatch";
@@ -113,22 +111,13 @@ async function main(): Promise<void> {
   const runId = await createSmokeRun(userId);
   console.log(`[smoke-scratchpad] user=${userId} run=${runId}`);
 
-  // 1. Round-trip on both zones.
-  await writeScratch({
-    runId,
-    zone: "scratch",
-    subId: "subA",
-    path: "findings",
-    value: { topic: "inbox-debt", count: 42 },
-    writtenBy: "subA",
-  });
+  const boss = scratchpad({ runId, writer: "boss" });
+  const subA = scratchpad({ runId, writer: { subId: "subA" } });
 
-  const subRead = await readScratch<{ topic: string; count: number }>({
-    runId,
-    zone: "scratch",
-    subId: "subA",
-    path: "findings",
-  });
+  // 1. Round-trip on both zones.
+  await subA.write("scratch.subA.findings", { topic: "inbox-debt", count: 42 });
+
+  const subRead = await subA.read<{ topic: string; count: number }>("scratch.subA.findings");
 
   if (!subRead || subRead.value.topic !== "inbox-debt" || subRead.value.count !== 42) {
     throw new Error("[smoke-scratchpad] sub-agent round-trip failed");
@@ -136,14 +125,8 @@ async function main(): Promise<void> {
 
   console.log("[smoke-scratchpad] round-trip ok (scratch.subA.findings)");
 
-  await writeScratch({
-    runId,
-    zone: "shared",
-    path: "goal",
-    value: "answer inbox by EOD",
-    writtenBy: "boss",
-  });
-  const sharedRead = await readScratch<string>({ runId, zone: "shared", path: "goal" });
+  await boss.write("shared.goal", "answer inbox by EOD");
+  const sharedRead = await boss.read<string>("shared.goal");
 
   if (sharedRead?.value !== "answer inbox by EOD") {
     throw new Error("[smoke-scratchpad] shared round-trip failed");
@@ -152,22 +135,13 @@ async function main(): Promise<void> {
   console.log("[smoke-scratchpad] round-trip ok (shared.goal)");
 
   // 2. Promote.
-  const promoted = await promoteScratch({
-    runId,
-    fromSubId: "subA",
-    fromPath: "findings",
-    toSharedPath: "findings",
-  });
+  const promoted = await boss.promote("scratch.subA.findings", "shared.findings");
 
   if (!promoted || !deepEqual(promoted.value, { topic: "inbox-debt", count: 42 })) {
     throw new Error("[smoke-scratchpad] promote failed");
   }
 
-  const promotedRead = await readScratch<{ topic: string; count: number }>({
-    runId,
-    zone: "shared",
-    path: "findings",
-  });
+  const promotedRead = await boss.read<{ topic: string; count: number }>("shared.findings");
 
   if (promotedRead?.writtenBy !== "boss") {
     throw new Error("[smoke-scratchpad] promoted entry lost writtenBy='boss'");
@@ -195,11 +169,7 @@ async function main(): Promise<void> {
     );
   }
 
-  const dispatchShared = await readScratch<{ ok: boolean }>({
-    runId,
-    zone: "shared",
-    path: "dispatch",
-  });
+  const dispatchShared = await boss.read<{ ok: boolean }>("shared.dispatch");
 
   if (dispatchShared?.value.ok !== true || dispatchShared.writtenBy !== "boss") {
     throw new Error("[smoke-scratchpad] boss shared write did not land");
@@ -222,12 +192,7 @@ async function main(): Promise<void> {
     throw new Error(`[smoke-scratchpad] sub own write expected executed, got ${subWrite.kind}`);
   }
 
-  const dispatchSub = await readScratch<string>({
-    runId,
-    zone: "scratch",
-    subId: "subA",
-    path: "dispatch",
-  });
+  const dispatchSub = await subA.read<string>("scratch.subA.dispatch");
 
   if (dispatchSub?.value !== "sub-owned" || dispatchSub.writtenBy !== "subA") {
     throw new Error("[smoke-scratchpad] sub-agent own scratch write did not land");
@@ -309,11 +274,7 @@ async function main(): Promise<void> {
     );
   }
 
-  const dispatchPromoted = await readScratch<string>({
-    runId,
-    zone: "shared",
-    path: "dispatch_promoted",
-  });
+  const dispatchPromoted = await boss.read<string>("shared.dispatch_promoted");
 
   if (dispatchPromoted?.value !== "sub-owned") {
     throw new Error("[smoke-scratchpad] dispatcher promote did not copy the sub-agent value");
@@ -475,19 +436,19 @@ async function main(): Promise<void> {
   const seedConn = createRedisConnection("command");
 
   try {
-    // Bypass writeScratch to write an unparseable envelope.
+    // Bypass the scratchpad to write an unparseable envelope.
     await seedConn.set(`alfred:scratch:${runId}:shared.corrupt`, "{ not valid json", "EX", 300);
   } finally {
     await seedConn.quit().catch(() => seedConn.disconnect());
   }
 
-  // Unparseable: hit=true, corrupt=true, and readScratch returns null.
-  if ((await readScratch({ runId, zone: "shared", path: "corrupt" })) !== null) {
+  // Unparseable: hit=true, corrupt=true, and the read returns null.
+  if ((await boss.read("shared.corrupt")) !== null) {
     throw new Error("[smoke-scratchpad] corrupt read should degrade to null");
   }
 
   // Genuinely absent: hit=false, corrupt=false.
-  if ((await readScratch({ runId, zone: "shared", path: "absent" })) !== null) {
+  if ((await boss.read("shared.absent")) !== null) {
     throw new Error("[smoke-scratchpad] absent read should be null");
   }
 

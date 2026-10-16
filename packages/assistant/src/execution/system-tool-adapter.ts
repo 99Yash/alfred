@@ -4,11 +4,7 @@ import {
   type JoinChildRunRequest,
   type SystemToolAgentAdapter,
 } from "@alfred/assistant/tool-runtime";
-import {
-  promoteScratch as promoteScratchEntry,
-  readScratch as readScratchEntry,
-  writeScratch as writeScratchEntry,
-} from "./scratchpad/index";
+import { scratchpad } from "./scratchpad/index";
 import { joinChildRun } from "./sub-agent-join";
 import { readChildRunOutcome, spawnSubAgent } from "./sub-agents";
 
@@ -30,16 +26,14 @@ async function resolveAwaitSubAgent(
 }
 
 /**
- * Spawn and await for the system tools; installed at boot so tool-runtime does not import execution
+ * Spawn, await, and the writer-bound scratchpad for the system tools; installed at boot so tool-runtime does not import execution
  * (ADR-0089).
  */
 const agentSystemToolAdapter: SystemToolAgentAdapter = {
   spawnSubAgent,
   readChildRunOutcome,
   resolveAwaitSubAgent,
-  readScratch: readScratchEntry,
-  writeScratch: writeScratchEntry,
-  promoteScratch: promoteScratchEntry,
+  scratchpad,
 };
 
 export function registerAgentSystemToolAdapter(): () => void {

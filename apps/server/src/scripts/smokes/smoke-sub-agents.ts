@@ -7,7 +7,7 @@
 
 import { randomUUID } from "node:crypto";
 import { dispatchToolCall } from "@alfred/assistant/tool-runtime/dispatch";
-import { readScratch, startRun, closeAgentQueue } from "@alfred/assistant/execution";
+import { scratchpad, startRun, closeAgentQueue } from "@alfred/assistant/execution";
 import { closeConnections, warmPool } from "@alfred/db";
 import { closeRedis } from "@alfred/db/redis";
 import { registerAgentSystemToolAdapter } from "@alfred/assistant/execution/system-tool-adapter";
@@ -232,12 +232,9 @@ async function main(): Promise<void> {
     );
   }
 
-  const parentScratch = await readScratch<{ threads: number }>({
-    runId: parent.runId,
-    zone: "scratch",
-    subId: "subA",
-    path: "findings",
-  });
+  const parentScratch = await scratchpad({ runId: parent.runId, writer: "boss" }).read<{
+    threads: number;
+  }>("scratch.subA.findings");
 
   if (parentScratch?.value.threads !== 3 || parentScratch.writtenBy !== "subA") {
     throw new Error("[smoke-sub-agents] child scratch write did not land on parent run");
