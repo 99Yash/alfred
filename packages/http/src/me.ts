@@ -586,6 +586,8 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
 
             if (!cred) continue;
             const accessToken = await getFreshAccessToken(cred.id);
+            // Not behind `gmailMailboxWritesEnabled()`: that gate stops dev and prod background
+            // label writes from fighting over one mailbox. This write runs only on a user click.
             await batchModifyMessages({
               accessToken,
               messageIds: group.map((r) => r.sourceId),

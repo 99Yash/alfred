@@ -16,11 +16,8 @@ import { toMessage } from "@alfred/contracts";
  */
 const BRIEFING_QUEUE_NAME = "briefing-cron";
 
-export type BriefingJobData =
-  /** Hourly; fans out to matching users. */
-  | { kind: "briefing.tick" }
-  /** From the smoke script or the "Generate briefing" button. */
-  | { kind: "briefing.run"; userId: string; slot?: BriefingSlot; reason?: "manual" | "forced" };
+/** Hourly; fans out to matching users. */
+export type BriefingJobData = { kind: "briefing.tick" };
 
 let _queue: Queue<BriefingJobData> | undefined;
 
@@ -77,12 +74,9 @@ async function processBriefingJob(job: Job<BriefingJobData>) {
   switch (data.kind) {
     case "briefing.tick":
       return handleTick(new Date(job.timestamp));
-    case "briefing.run":
-      return handleManualRun(data.userId, data.slot ?? "morning", data.reason ?? "manual");
-    default: {
-      const _exhaustive: never = data;
-      throw new Error(`unknown briefing job kind: ${JSON.stringify(_exhaustive)}`);
-    }
+    default:
+      // A one-member type does not narrow to `never`, so this has no exhaustive check.
+      throw new Error(`unknown briefing job kind: ${JSON.stringify(data)}`);
   }
 }
 
@@ -162,28 +156,17 @@ async function handleTick(now: Date = new Date()): Promise<TickResult> {
   return { scanned: users.length, enqueued, skipped };
 }
 
-async function handleManualRun(
-  userId: string,
-  slot: BriefingSlot,
-  reason: "manual" | "forced",
-): Promise<{ runId: string }> {
-  const prefs = await resolveBriefingPreferences(userId);
-  const briefingDate = inZone(prefs.timezone).day();
-
-  return enqueueBriefingRun({ userId, slot, briefingDate, reason });
-}
-
 interface EnqueueBriefingRunArgs {
   userId: string;
-  slot?: BriefingSlot;
+  slot: BriefingSlot;
   briefingDate: string;
   reason: "cron" | "manual" | "forced";
   scheduledFor?: string;
 }
 
-/** Create and enqueue a `daily-briefing` run. Used by the tick, the smoke script, and `POST /api/me/briefings/run`. */
+/** Create and enqueue a `daily-briefing` run. Used by the tick and `POST /api/me/briefings/run`. */
 export async function enqueueBriefingRun(args: EnqueueBriefingRunArgs): Promise<{ runId: string }> {
-  const slot = args.slot ?? "morning";
+  const { slot } = args;
 
   const trigger =
     args.reason === "cron"
