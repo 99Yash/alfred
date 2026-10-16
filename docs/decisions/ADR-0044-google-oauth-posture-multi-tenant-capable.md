@@ -76,3 +76,15 @@ Therefore:
 **Operational steps (manual, owner).** In the GCP console add `gmail.modify`, full `drive`, and `documents` to the OAuth consent screen scope list (GCP will warn "requires verification" — save anyway; unverified-under-cap usage is unaffected). Confirm publishing status remains **In production**. Re-consent the owner account once to pick up the broadened grant.
 
 **What's unchanged.** Multi-tenant _architecture_ (per-user `integration_credentials`, `user_id` partitioning) stays — it costs nothing and keeps "go public" a non-rewrite if the never-public stance ever reverses. Production-unverified posture stays. The write _surface_ is still gated by ADR-0043 (registry + `allowed_integrations` + action policy); broadening the OAuth grant unblocks write tools but does not register or auto-authorize any.
+
+**Amendment (2026-10-16) — the restricted-scope ceiling, named (#463).**
+
+The 2026-06-08 amendment says "single-tenant forever". This section records the cost to reverse that stance, so that a future "add a second user" plan does not find it late. Removing ADR-0009's allowlist is one commit. The Google side is not.
+
+- **Alfred holds restricted scopes.** `gmail.modify` (which subsumes `gmail.readonly`) and full `drive` are **restricted**, not only sensitive. Google's Gmail scope page lists `gmail.readonly` and `gmail.modify` in the restricted tier.
+- **Today Alfred is inside two allowances.** Google's restricted-scope page exempts personal use: "used by only a few users, all of whom are known personally to you". The unverified Production app also has a 100-new-user cap. The 100-user number comes from the user-cap page, not from the restricted-scope page.
+- **A published app past those allowances needs two things.** First, a **verified production app**: published brand verification, then restricted-scope verification. Second, a **CASA security assessment**, because Alfred stores and transmits Gmail and Drive data on its own server. CASA is the Cloud Application Security Assessment of the App Defense Alliance. A Google-approved independent assessor does it, and the standard is based on OWASP ASVS.
+- **The assessment recurs.** Google requires reverification at least every 12 months after the assessor's Letter of Assessment (LOA) approval date. Thus, multi-user is a yearly paid audit for as long as Alfred holds a restricted scope, not a one-time submission.
+- **Ways around it.** Drop every restricted scope (this reverses the 2026-06-08 grant-all), or use the self-host-per-user path in **Open**, where each user is the OAuth developer for their own client.
+
+Sources (checked 2026-10-16): [restricted-scope verification](https://developers.google.com/identity/protocols/oauth2/production-readiness/restricted-scope-verification), [Gmail scopes](https://developers.google.com/workspace/gmail/api/auth/scopes), [CASA](https://appdefensealliance.dev/casa), [app audience/user cap](https://support.google.com/cloud/answer/15549945).

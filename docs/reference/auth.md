@@ -53,6 +53,10 @@ Three things about it are load-bearing.
 - **A Redis outage degrades, it does not disable.** Each counter falls back to a per-process `Map` and logs one warning per request. That is the limiter Better Auth would run on its own — the limit never lifts, and an outage never locks the only user out of the sign-in path.
 - **`advanced.ipAddress.trustedProxies` decides the bucket.** Without it, Better Auth trusts a single-value `x-forwarded-for` only, and every request carrying its own header shares one bucket. The list holds the private ranges that Railway's edge uses, which is the same list the web service's `Caddyfile` trusts. It is correct only while the API is reachable through that edge alone.
 
+## Multi-user ceiling
+
+The allowlist is the only code that keeps Alfred single-user, but removing it is not enough to serve more users. Sign-in uses the same Google OAuth client as the integrations, and that client requests restricted scopes (`gmail.modify`, full `drive`). A published app past Google's personal-use allowance and the 100-user cap of an unverified app needs a verified production app and a CASA security assessment, renewed at least every 12 months. [ADR-0044](../decisions/ADR-0044-google-oauth-posture-multi-tenant-capable.md) records the facts and the sources. Adding magic link or passkey also reopens account linking; see [ADR-0009](../decisions/ADR-0009-auth-better-auth-magic-link-passkey-allowlist.md).
+
 ## GCP setup
 
 `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` are the same OAuth client used by the Gmail/Calendar integration flow at `/api/integrations/google/callback`. Better Auth derives its own callback URL: `${BETTER_AUTH_URL}/api/auth/callback/google`. Both URIs must be listed in the OAuth client's authorized redirect URIs in GCP Console. Calendar additionally requires the Google Calendar API to be enabled in the GCP project.
