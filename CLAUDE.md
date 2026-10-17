@@ -25,14 +25,14 @@ Alfred is a personal assistant.
 
 - Do not add tests. This includes value-equality tests, type fixtures with `@ts-expect-error` probes, and schema round-trip tests. Make the compiler, a runtime parse at the owning boundary, or a `pnpm check` gate carry the proof instead. When a behavior cannot be proved that way, state the residual risk in the PR body.
 - Read [decisions.md](./decisions.md) before changing architecture. It is a snapshot table plus an index; the ADRs themselves are one file each under `[docs/decisions/](./docs/decisions/)`. Open the two or three that touch your change, not all of them.
-- Write each PR body for a reviewer who knows the Alfred product but does not know the changed flow. Use the sections `Where this change sits`, `Why this change is needed`, `What this change does`, and `Preserved behavior`. Explain the user or background flow, the old and new ownership, the main implementation changes, and the invariants that must not change in ASD STE-100 English.
-- Relevant or appropriate locations of handoff docs: at /private/tmp/claude-501/-Users-yash-Developer-self-alfred/... or ./.handoff here along with ./.lessons.
+- Write each PR body for a reviewer who knows the Alfred product but does not know the changed flow. Use the sections `Where this change sits`, `Why this change is needed`, `What this change does`, and `Preserved behavior`. Explain the user or background flow, the old and new ownership, the main implementation changes, and the invariants that must not change in ASD STE-100 English. Wait for CI with `node scripts/wait-pr-checks.mjs <n>`, not a hand-written `gh pr checks` loop.
+- Relevant or appropriate locations of handoff docs: at /private/tmp/claude-501/-Users-yash-Developer-self-alfred/handoff/<name>.md or ./.handoff/ here along with ./.lessons.
 
 ## References
 
 - [Code style and review checklist](./docs/reference/code-style.md) and [structural review](./docs/reference/structural-review.md)
 - [Shared helpers — reach for these before writing new ones](./docs/reference/shared-helpers.md)
-- [Schema placement and catalog](./docs/reference/schemas.md)
+- [Schema placement and catalog](./docs/reference/schemas.md) (tables live in `packages/db/src/schema/`)
 - [Architecture and package boundaries](./docs/reference/architecture.md)
 - [Tool-runtime boot-seam map](./docs/reference/tool-runtime-map.md)
 - [TypeScript configuration](./docs/reference/typescript.md)
