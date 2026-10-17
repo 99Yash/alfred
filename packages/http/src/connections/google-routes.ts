@@ -175,7 +175,7 @@ export const googleIntegrationRoutes = new Elysia({
 
           if (!updated[0]) throw Errors.NotFoundError("Credential not found");
 
-          return { credentialId: updated[0].id, persona: updated[0].persona };
+          return { id: updated[0].id, persona: updated[0].persona };
         },
         {
           params: t.Object({ id: t.String() }),
@@ -212,7 +212,7 @@ export const googleIntegrationRoutes = new Elysia({
             );
           }
 
-          return { credentialId: params.id, watch: state };
+          return { id: params.id, watch: state };
         },
         {
           params: t.Object({ id: t.String() }),
@@ -224,7 +224,7 @@ export const googleIntegrationRoutes = new Elysia({
           await assertCredentialOwned(params.id, user.id);
           await uninstallGmailWatch(params.id);
 
-          return { credentialId: params.id, ok: true };
+          return { id: params.id, ok: true };
         },
         {
           params: t.Object({ id: t.String() }),
@@ -236,7 +236,7 @@ export const googleIntegrationRoutes = new Elysia({
           await assertCredentialOwned(params.id, user.id);
           const state = await getGmailWatchState(params.id);
 
-          return { credentialId: params.id, watch: state };
+          return { id: params.id, watch: state };
         },
         {
           params: t.Object({ id: t.String() }),
@@ -256,7 +256,7 @@ export const googleIntegrationRoutes = new Elysia({
             maxMessages: body?.maxMessages,
           });
 
-          return { jobId: job.id, credentialId: params.id };
+          return { id: params.id, jobId: job.id };
         },
         {
           params: t.Object({ id: t.String() }),

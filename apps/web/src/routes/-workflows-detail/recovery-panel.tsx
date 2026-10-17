@@ -40,7 +40,7 @@ export function RecoveryPanel({ workflowId, revisionId }: RecoveryPanelProps) {
     );
   }
 
-  if (recovery.isError || !recovery.data.ok) {
+  if (recovery.isError || recovery.data.status === "failed") {
     return (
       <AppCard className="flex items-start gap-3 px-4 py-3 text-sm text-rose-700">
         <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
