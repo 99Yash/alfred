@@ -1,10 +1,4 @@
-import {
-  canonicalizeVercelTargetId,
-  emailDomain,
-  INTEGRATIONS,
-  parseEmailAddress,
-  parseGitBranchRef,
-} from "@alfred/contracts";
+import { canonicalizeVercelTargetId, parseGitBranchRef } from "@alfred/contracts";
 import {
   vercelClientForUser,
   type VercelClient,
@@ -342,14 +336,11 @@ export const vercelVerifiedPullProvider: VerifiedPullProvider<
   targetKind: "deployment_target",
   attemptKeyKind: "deployment_id",
 
-  /** Exact Vercel domain (not `info.vercel.com` marketing) plus a failure word. Only triggers a read. */
-  digestSignalsFailure(items) {
-    return items.some((item) => {
-      if (emailDomain(parseEmailAddress(item.from)) !== INTEGRATIONS.vercel.domain) return false;
-
-      return /fail|error|unable to deploy/i.test(`${item.subject ?? ""} ${item.snippet ?? ""}`);
-    });
-  },
+  /**
+   * The `repository_dispatch` push folds every real failure into the target row, which puts the
+   * row in rotation, so a failure mail would read nothing new (#1357).
+   */
+  digestSignalsFailure: null,
 
   /**
    * Segments cannot hold `#`, so a three-part split is exact. The id is lowercased,

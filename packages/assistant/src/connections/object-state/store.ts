@@ -157,14 +157,14 @@ export interface ObjectStateStore {
    * Verified pull candidates (#1351): rows never pulled first, then the oldest pull. Among rows
    * never pulled, active rows go first, then the newest. A pull that proves nothing still rotates,
    * so no row holds a slot forever. A row with `demoteAfterAbsentReads` absent reads in a row is
-   * left out until a push moves its `updated_at` past its last pull.
+   * left out until a push moves its `updated_at` past its last pull. `null` leaves no row out.
    */
   listPullCandidates(
     userId: string,
     provider: ObjectStateProvider,
     filter: Required<Pick<ObjectListFilter, "kind" | "limit">> & {
       stateCategories: readonly StateCategory[];
-      demoteAfterAbsentReads: number;
+      demoteAfterAbsentReads: number | null;
     },
   ): Promise<ObjectState[]>;
   /**
@@ -654,11 +654,13 @@ export const objectStateStore: ObjectStateStore = {
           eq(integrationObjects.kind, filter.kind),
           inArray(integrationObjects.stateCategory, [...filter.stateCategories]),
           // A push since the last pull puts a demoted row back; `markPulled` restarts its count.
-          or(
-            isNull(integrationObjectPulls.objectId),
-            lt(integrationObjectPulls.absentReads, filter.demoteAfterAbsentReads),
-            gt(integrationObjects.updatedAt, integrationObjectPulls.pulledAt),
-          ),
+          filter.demoteAfterAbsentReads === null
+            ? undefined
+            : or(
+                isNull(integrationObjectPulls.objectId),
+                lt(integrationObjectPulls.absentReads, filter.demoteAfterAbsentReads),
+                gt(integrationObjects.updatedAt, integrationObjectPulls.pulledAt),
+              ),
         ),
       )
       .orderBy(

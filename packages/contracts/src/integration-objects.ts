@@ -411,8 +411,8 @@ export const INTEGRATION_OBJECT_DEFS = {
         closesAskFrom: "stored_projection",
         absorbing: [],
       },
-      // Empty `closesAskOn`, as for Railway: no Vercel mail has ever arrived (#1167),
-      // so no text grammar proposes keys yet. Restore `["resolved"]` with one.
+      // Empty `closesAskOn`, as for Railway: no text grammar proposes keys from Vercel
+      // failure mail yet (#1357). Restore `["resolved"]` with one.
       deployment_target: {
         closesAskOn: [],
         // The dispatch carries Vercel's own state, so nothing reorders into a false close.
