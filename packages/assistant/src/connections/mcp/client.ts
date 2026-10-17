@@ -34,7 +34,6 @@ import type {
   McpAuthorizedProtocol,
   McpEndpointAuthorizer,
   McpEndpointConnection,
-  McpEndpointOAuthPolicy,
 } from "./endpoint-authorization";
 import { compareMcpToolNames, sha256Canonical } from "./hash";
 import {
@@ -104,8 +103,6 @@ export interface McpRawClientOptions extends McpClientLimits {
   /** The authorizer validates this on every connect. */
   endpoint: McpEndpointConnection;
   endpointAuthorizer: McpEndpointAuthorizer;
-  /** Built-in OAuth endpoint policy; absent for user-added servers. */
-  oauthPolicy?: McpEndpointOAuthPolicy | undefined;
   /** For `oauth`, the transport gets only the token, so it cannot refresh and replay `tools/call`. */
   auth: McpClientAuth;
   authProvider?: SdkMcpProtocolClientOptions["authProvider"];
@@ -322,7 +319,6 @@ export class McpRawClient {
           requestTimeoutMs: this.#limits.requestTimeoutMs,
         },
         auth.mode === "api_key" ? auth.reader : undefined,
-        this.#options.oauthPolicy,
       );
 
       switch (auth.mode) {

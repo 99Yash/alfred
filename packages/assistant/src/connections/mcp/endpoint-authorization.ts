@@ -1,4 +1,4 @@
-import { isNonEmptyString, type McpApiKeyPlacement, type Redacted } from "@alfred/contracts";
+import { type McpApiKeyPlacement, type Redacted } from "@alfred/contracts";
 import type { McpServer } from "@alfred/db/schemas";
 import type { FetchLike } from "@modelcontextprotocol/client";
 import {
@@ -19,12 +19,6 @@ export type McpEndpointConnection = Pick<McpServer, "endpointUrl" | "endpointOri
 /** The client's `requestTimeoutMs`, so the dispatcher cannot cut a request off earlier. */
 export interface McpEndpointNetworkPolicy {
   requestTimeoutMs: number;
-}
-
-/** Provider-owned OAuth endpoint policy injected by the built-in registry. */
-export interface McpEndpointOAuthPolicy {
-  readonly authorizationServerIssuer: string;
-  readonly oauthEndpointOrigins: readonly string[];
 }
 
 export interface McpAuthorizedOAuthServer {
@@ -76,7 +70,6 @@ export interface McpEndpointAuthorizer {
     connection: McpEndpointConnection,
     network: McpEndpointNetworkPolicy,
     apiKey?: McpApiKeyCredentialReader,
-    oauthPolicy?: McpEndpointOAuthPolicy,
   ): Promise<McpAuthorizedEndpoint>;
 }
 
@@ -85,10 +78,9 @@ export async function withMcpEndpointAuthorization<T>(
   authorizer: McpEndpointAuthorizer,
   connection: McpEndpointConnection,
   network: McpEndpointNetworkPolicy,
-  oauthPolicy: McpEndpointOAuthPolicy | undefined,
   operation: (authorization: McpAuthorizedEndpoint) => Promise<T>,
 ): Promise<T> {
-  const authorization = await authorizer.authorize(connection, network, undefined, oauthPolicy);
+  const authorization = await authorizer.authorize(connection, network);
 
   try {
     return await operation(authorization);
@@ -122,7 +114,6 @@ function createAuthorizedOAuth(
   resource: URL,
   guardedFetch: FetchLike,
   network: McpEndpointNetworkPolicy,
-  oauthPolicy?: McpEndpointOAuthPolicy,
 ): McpAuthorizedOAuth {
   let serverIssuer: string | null = null;
   let serverOrigin: string | null = null;
@@ -130,17 +121,6 @@ function createAuthorizedOAuth(
 
   const authorizeServer = (input: string | URL): McpAuthorizedOAuthServer => {
     const server = validatePublicHttpsEndpoint(input);
-
-    if (
-      oauthPolicy !== undefined &&
-      (!isNonEmptyString(oauthPolicy.authorizationServerIssuer) ||
-        server.href !== oauthPolicy.authorizationServerIssuer)
-    ) {
-      throw new HostedEndpointError(
-        "origin_mismatch",
-        "OAuth authorization server does not match the configured issuer.",
-      );
-    }
 
     if (serverIssuer !== null && serverIssuer !== server.href) {
       throw new HostedEndpointError(
@@ -155,10 +135,7 @@ function createAuthorizedOAuth(
     const validateOAuthEndpoint = (candidate: string | URL): URL => {
       const endpoint = validatePinnedHttpsEndpoint(candidate, null);
 
-      const vercelSiblings =
-        oauthPolicy?.oauthEndpointOrigins.some((origin) => origin === endpoint.origin) === true;
-
-      if (endpoint.origin !== server.origin && !vercelSiblings) {
+      if (endpoint.origin !== server.origin) {
         throw new HostedEndpointError(
           "origin_mismatch",
           "OAuth token and registration endpoints are not authorized for this server.",
@@ -255,7 +232,6 @@ export class HostedMcpEndpointAuthorizer implements McpEndpointAuthorizer {
     connection: McpEndpointConnection,
     network: McpEndpointNetworkPolicy,
     apiKey?: McpApiKeyCredentialReader,
-    oauthPolicy?: McpEndpointOAuthPolicy,
   ): Promise<McpAuthorizedEndpoint> {
     const endpoint = validatePinnedHttpsEndpoint(connection.endpointUrl, connection.endpointOrigin);
 
@@ -280,12 +256,7 @@ export class HostedMcpEndpointAuthorizer implements McpEndpointAuthorizer {
     let closeFlight: Promise<void> | null = null;
 
     return Object.freeze({
-      oauth: createAuthorizedOAuth(
-        endpoint,
-        createGuardedFetch({ requester }),
-        network,
-        oauthPolicy,
-      ),
+      oauth: createAuthorizedOAuth(endpoint, createGuardedFetch({ requester }), network),
       protocol: Object.freeze({
         endpoint: new URL(endpoint.href),
         fetch: createGuardedFetch({
