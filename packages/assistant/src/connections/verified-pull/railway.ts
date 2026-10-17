@@ -111,8 +111,9 @@ export async function readRailwayDeploymentStatus(
 ): Promise<VerifiedPullReading | null> {
   try {
     const read = await prepareRailwayRead(userId);
+    const reading = read ? await readRailwayDeploymentStatusFromSession(read, target) : null;
 
-    return read ? await readRailwayDeploymentStatusFromSession(read, target) : null;
+    return reading === "absent" ? null : reading;
   } catch {
     return null;
   }
@@ -121,10 +122,11 @@ export async function readRailwayDeploymentStatus(
 /** Never 1: then the server's order alone would pick the verdict. */
 const RAILWAY_DEPLOYMENT_READ_LIMIT = 10;
 
+/** `absent` when the list was read and held no deployment with a known status. */
 async function readRailwayDeploymentStatusFromSession(
   read: RailwayReadSession,
   target: RailwayPullTarget,
-): Promise<VerifiedPullReading | null> {
+): Promise<VerifiedPullReading | "absent" | null> {
   // `prepared.call` checks these against the live schema and throws on drift.
   const parsed = await readRailwayTool(
     read.connectionId,
@@ -161,7 +163,7 @@ async function readRailwayDeploymentStatusFromSession(
 
   const [latest] = candidates;
 
-  if (!latest?.status) return null;
+  if (!latest?.status) return "absent";
 
   return {
     status: latest.status,

@@ -61,7 +61,11 @@ export interface VerifiedPullProvider<Target, Session, Names> {
   openSession(userId: string): Promise<Session | null>;
   /** Display names only, never identity. */
   resolveNames(session: Session): Promise<Map<string, Names>>;
-  readStatus(session: Session, target: Target): Promise<VerifiedPullReading | null>;
+  /**
+   * `absent`: every read succeeded and none held a readable attempt for the target. `null`: a
+   * fault. Neither proves a state, but only `absent` counts toward demotion.
+   */
+  readStatus(session: Session, target: Target): Promise<VerifiedPullReading | "absent" | null>;
   mintReceipt(target: Target, reading: VerifiedPullReading): VerifiedPullReceipt;
   toActivityItem(result: VerifiedPullResult<Target, Names>): IntegrationActivityItem;
 }
@@ -110,6 +114,12 @@ export interface VerifiedPull {
 export const MAX_VERIFIED_PULL_TARGETS = 5;
 
 /**
+ * Absent reads in a row before the rotation skips a row. Old previews fall out of the provider's
+ * deployment list and can never be read again, so without this they fill the slots.
+ */
+const DEMOTE_AFTER_ABSENT_READS = 3;
+
+/**
  * Read and fold each target. Dedup is by attempt, not by outcome, so a new
  * attempt with the same status still advances the row. A folded attempt folds
  * again when the row disagrees with the read: an attempt read `pending` that is
@@ -148,7 +158,17 @@ export async function pullVerifiedTargets<Target, Session, Names>(
 
     const reading = session ? await source.readStatus(session, target).catch(() => null) : null;
 
-    if (!reading) {
+    const identity = { provider: source.provider, kind: source.targetKind, externalId: targetId };
+
+    if (reading !== null) {
+      await objectStateStore.recordPullRead(
+        userId,
+        identity,
+        reading === "absent" ? "absent" : "proved",
+      );
+    }
+
+    if (reading === null || reading === "absent") {
       results.push({
         target,
         targetId,
@@ -234,6 +254,7 @@ async function gatherVerifiedPull<Target, Session, Names>(
       kind: source.targetKind,
       stateCategories: ["failed", "active"],
       limit: MAX_VERIFIED_PULL_TARGETS,
+      demoteAfterAbsentReads: DEMOTE_AFTER_ABSENT_READS,
     });
 
     // Stamp before the read, so a row that reads as unverified or throws still rotates (#1351).

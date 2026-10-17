@@ -54,8 +54,11 @@ interface VercelDeploymentReading {
 interface VercelReadSession {
   client: VercelClient;
   projects: readonly VercelProjectRef[];
-  /** Projects of a repo the scan missed, by lowercased `owner/repo`. One lookup per repo per gather. */
-  repoProjects: Map<string, Promise<VercelProjectRef[]>>;
+  /**
+   * Projects of a repo the scan missed, by lowercased `owner/repo`, or `null` after a fault. One
+   * lookup per repo per gather.
+   */
+  repoProjects: Map<string, Promise<VercelProjectRef[] | null>>;
   /** One read per project per gather, shared by every target. */
   deployments: Map<string, Promise<VercelDeploymentReading[] | null>>;
 }
@@ -181,12 +184,12 @@ function readProjectDeployments(
 /**
  * Projects linked to the repo, by Vercel's `repoUrl` filter (#1351). Measured 2026-10-17: the
  * filter matches the owner case-sensitively, so send the display case, not the lowercased id. Only
- * an exact link counts, and a fault finds none.
+ * an exact link counts. A fault returns `null`, so it is not taken for a repo with no project.
  */
 function lookupRepoProjects(
   session: VercelReadSession,
   repoFullName: string,
-): Promise<VercelProjectRef[]> {
+): Promise<VercelProjectRef[] | null> {
   const repo = repoFullName.toLowerCase();
   const cached = session.repoProjects.get(repo);
 
@@ -195,7 +198,7 @@ function lookupRepoProjects(
   const pending = session.client
     .projects({ limit: VERCEL_PROJECT_SCAN_LIMIT, repoUrl: `https://github.com/${repoFullName}` })
     .then((listed) => listed.map(toProjectRef).filter((project) => linksRepo(project, repo)))
-    .catch(() => []);
+    .catch(() => null);
 
   session.repoProjects.set(repo, pending);
 
@@ -204,12 +207,12 @@ function lookupRepoProjects(
 
 /**
  * Projects linked to the target's repo, or with an unknown link. The scan holds only the most
- * recent projects, so a repo it does not link is looked up.
+ * recent projects, so a repo it does not link is looked up. `null` when that lookup faults.
  */
 async function candidateProjects(
   session: VercelReadSession,
   target: VercelPullTarget,
-): Promise<VercelProjectRef[]> {
+): Promise<VercelProjectRef[] | null> {
   const repo = target.repoFullName.toLowerCase();
 
   const scanned = session.projects.filter(
@@ -218,22 +221,35 @@ async function candidateProjects(
 
   if (scanned.some((project) => project.linkedRepo !== null)) return scanned;
 
-  return [...scanned, ...(await lookupRepoProjects(session, target.repoFullName))];
+  const looked = await lookupRepoProjects(session, target.repoFullName);
+
+  return looked ? [...scanned, ...looked] : null;
 }
 
-/** The newest deployment across candidate projects that names this target, or `null`. */
+/**
+ * The newest deployment across candidate projects that names this target. `absent` only when every
+ * candidate project was read; a fault that hides a match returns `null`.
+ */
 async function readVercelDeploymentStatusFromSession(
   session: VercelReadSession,
   target: VercelPullTarget,
-): Promise<VerifiedPullReading | null> {
+): Promise<VerifiedPullReading | "absent" | null> {
   const targetId = canonicalizeVercelTargetId(target);
 
   if (!targetId) return null;
 
-  let latest: VerifiedPullReading | null = null;
+  const projects = await candidateProjects(session, target);
 
-  for (const project of await candidateProjects(session, target)) {
+  if (!projects) return null;
+
+  let latest: VerifiedPullReading | null = null;
+  let faulted = false;
+
+  for (const project of projects) {
     const readings = await readProjectDeployments(session, project);
+
+    if (!readings) faulted = true;
+
     const match = readings?.find((item) => item.targetId === targetId);
 
     if (!match) continue;
@@ -244,7 +260,7 @@ async function readVercelDeploymentStatusFromSession(
     if (!latest || matchTime > latestTime) latest = match.reading;
   }
 
-  return latest;
+  return latest ?? (faulted ? null : "absent");
 }
 
 /** Any failure returns `null`, never a guessed state. */
@@ -254,8 +270,9 @@ export async function readVercelDeploymentStatus(
 ): Promise<VerifiedPullReading | null> {
   try {
     const session = await openVercelRead(userId);
+    const reading = session ? await readVercelDeploymentStatusFromSession(session, target) : null;
 
-    return session ? await readVercelDeploymentStatusFromSession(session, target) : null;
+    return reading === "absent" ? null : reading;
   } catch {
     return null;
   }

@@ -1,0 +1,1 @@
+ALTER TABLE "integration_object_pulls" ADD COLUMN "absent_reads" integer DEFAULT 0 NOT NULL;
