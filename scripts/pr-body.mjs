@@ -125,6 +125,12 @@ const CLOSING_LIST_RE = new RegExp(
 );
 
 /**
+ * Fenced blocks and inline code spans. GitHub does not read an issue reference inside
+ * code, so a body that QUOTES the wrong form (as this rule's own PR does) closes nothing.
+ */
+const CODE_RE = /^ {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?^ {0,3}\1[^\n]*$|(`+)[^`]*?\2/gm;
+
+/**
  * Why the body's closing keywords would leave issues open, or null when they would not.
  *
  * Exported so the fixtures can drive it without a full four-section body.
@@ -133,7 +139,8 @@ const CLOSING_LIST_RE = new RegExp(
  * @returns {string|null}
  */
 export function closingListFailure(body) {
-  const lists = [...body.matchAll(CLOSING_LIST_RE)].map((match) => `\`${match[0]}\``);
+  const prose = body.replace(CODE_RE, " ");
+  const lists = [...prose.matchAll(CLOSING_LIST_RE)].map((match) => `\`${match[0]}\``);
 
   if (lists.length === 0) return null;
 

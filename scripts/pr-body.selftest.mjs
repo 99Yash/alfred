@@ -261,6 +261,7 @@ function closingKeywordListIsRefused() {
     "Resolved: #5, #6, and #7",
     "CLOSES 99Yash/alfred#1, 99Yash/alfred#2",
     "Fix #3 & #4",
+    "Moves `scheduledFireTime` out. Closes #8, #9",
   ];
 
   const accepted = [
@@ -269,6 +270,8 @@ function closingKeywordListIsRefused() {
     "Closes #1",
     "Refs #1, #2",
     "Follows #1340, #1341 and #1342.",
+    "GitHub closes only the first issue in `Closes #1, #2`.",
+    "```\nCloses #1, #2\n```",
   ];
 
   return [
