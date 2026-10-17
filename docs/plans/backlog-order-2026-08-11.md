@@ -1,3 +1,8 @@
+---
+status: done
+evidence: "Its live queue closed: #232, #559, #560, #561, #573. packages/api is deleted."
+---
+
 # Backlog order, 2026-08-11
 
 > **Status.** Live. This file supersedes

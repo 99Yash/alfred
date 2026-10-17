@@ -51,6 +51,8 @@ Revealer 3 is the one this document used to leave as taste. [Required knowledge]
 Discovery is breadth-first; depth is earned. The microscope **confirms** a structural smell and **tries to break** a behavioral claim — it does not discover missing structure by itself.
 
 - **Pass 1 — orient.** Recover the change's intent, claimed invariants, affected domain facts, and trust boundaries. Without this, up has no domain to model and down has no claim to prove.
+  - **Check the premise against data before any code is written.** A factual premise in an issue, plan, or PR body ("X never happens", "Y is not connected", a plan's `proposed`) is a claim. Settle it with a query, a log, or `git log`, and cite the result.
+    Why: #1357 said no Vercel mail reached Alfred, and a query found three that matched; `vercel-mcp-retirement.md` read `proposed` after #1259 had done its first step. Plans now carry a checked `status:` ([docs/plans/README.md](../plans/README.md)).
 - **Pass 2 — wide, shallow, cheap (up-discovery).** Map where each fact, operation, and shape lives and how many homes it has. Collect candidate smells whose fix may not exist yet. Do not deep-read every function or dependency internal.
 - **Pass 3 — bounded surface sweep.** Run the known review rules across authored changed code, and reconcile generated artifacts against their sources. The prompts are comprehensive within the checklist's vocabulary; their application can still require judgment.
 - **Pass 4 — deep, only where earned (down-proof).** Trace risky claimed invariants and candidate restructures through callers, state, dependencies, and failure modes. Try to falsify them with concrete sequences and use evidence at the boundary where the claim actually lives.

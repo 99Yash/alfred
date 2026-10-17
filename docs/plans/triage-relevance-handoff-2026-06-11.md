@@ -1,3 +1,8 @@
+---
+status: done
+evidence: "Its shipped items merged as #112 to #115 (2026-06-11); standing instructions followed in #311."
+---
+
 # Triage relevance — session handoff (2026-06-11)
 
 **Purpose.** Continuity artifact for a fresh context window. Captures the chronological

@@ -1,3 +1,8 @@
+---
+status: done
+evidence: "Milestone 1 shipped 2026-04-27; #1 merged 2026-04-29."
+---
+
 # Alfred — Scaffolding Plan (handoff doc)
 
 This document is a self-contained brief for the agent that will scaffold the alfred repo. You don't need to have participated in the design conversation — read this plus `../../decisions.md` and you have everything.

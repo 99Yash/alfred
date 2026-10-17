@@ -1,3 +1,8 @@
+---
+status: proposed
+evidence: "Nothing built; no research.discover tool and no merged PR."
+---
+
 # Research source discovery (v1)
 
 > **Status:** design proposal. Nothing is built yet.

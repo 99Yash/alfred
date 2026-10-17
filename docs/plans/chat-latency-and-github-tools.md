@@ -1,3 +1,8 @@
+---
+status: done
+evidence: "Investigation closed with its fixes; github.search is in contracts tools. Later spawn fixes in #957 and #1308."
+---
+
 # Chat turn: latency, blank-UI, and GitHub tools — investigation + fixes
 
 **Date:** 2026-06-06

@@ -1,3 +1,8 @@
+---
+status: done
+evidence: "Batches 1 to 6 merged: #448, #449, #450, #451, #456."
+---
+
 # Type-duplication cleanup — investigation & plan (v1)
 
 **Date:** 2026-07-08

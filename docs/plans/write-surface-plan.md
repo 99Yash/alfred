@@ -1,3 +1,8 @@
+---
+status: done
+evidence: "#66 (policy editor) and #67 (Gmail send) merged; the write tools and use-action-policy UI exist."
+---
+
 # Implementation plan — write surface + user-controlled permissions
 
 Implements ADR-0043 (write surface gated by user action policy), ADR-0044 (OAuth

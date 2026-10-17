@@ -1,3 +1,8 @@
+---
+status: done
+evidence: "DAILY_BRIEFING_WORKFLOW_SLUG is wired in briefings/queue.ts; morning-briefing is a retired slug; the pause flag is gone."
+---
+
 # Daily-briefing cutover plan
 
 **Status:** implemented on branch `daily-briefing-cutover` (2026-06-10). The

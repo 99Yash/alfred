@@ -1,3 +1,8 @@
+---
+status: superseded
+evidence: "Phases 1 to 3a landed (#465, #513). ADR-0086 and artifact-expression-system-v1.md took over the deferred phases."
+---
+
 # Implementation plan — pristine artifacts (design-system + verified floor)
 
 **Status:** implemented through Phase 2a + Phase 3a; later phases remain proposed. Record

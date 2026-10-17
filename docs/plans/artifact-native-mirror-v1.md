@@ -1,3 +1,8 @@
+---
+status: superseded
+evidence: "pristine-artifacts-v1.md (ADR-0083) demotes its Option B to an escape hatch. No create_deck or buildDeckRequests in the tree, and no merged PR."
+---
+
 # Implementation plan — artifact-first deliverables + native Workspace mirror
 
 **Status:** proposed (needs ADR + grill before build)

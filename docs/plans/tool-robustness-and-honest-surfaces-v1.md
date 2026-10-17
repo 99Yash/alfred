@@ -1,3 +1,8 @@
+---
+status: done
+evidence: "#222, #267, #268, #269 closed 2026-06-25."
+---
+
 # Tool robustness & honest surfaces — build plan (#222, #267, #268, #269)
 
 **Date:** 2026-06-25

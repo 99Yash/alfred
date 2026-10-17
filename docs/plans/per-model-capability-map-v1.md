@@ -1,3 +1,8 @@
+---
+status: superseded
+evidence: "Built in #314 (2026-06-28), then replaced by the ADR-0078 amendment of 2026-08-09; MODEL_CAPABILITIES no longer exists."
+---
+
 # Per-model capability map — v1 (#313)
 
 > **Status: BUILT (2026-06-28).** ADR-0078 recorded in `decisions.md`. Shipped:

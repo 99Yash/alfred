@@ -1,3 +1,8 @@
+---
+status: in-progress
+evidence: "#1031 and #1032 closed via #1040 and #1042. The enable slices #1034, #1036, #1037 are open."
+---
+
 # Provider-native tool loading — v1
 
 > Status: implementation started 2026-07-29. Application protocol wrappers and

@@ -1,3 +1,8 @@
+---
+status: done
+evidence: "#465 (2026-07-09), #528, #647 merged; #287 closed. apps/web/src/routes/-chat/artifact-sidebar.tsx exists."
+---
+
 # Artifact sidebar v1 — implementation plan (ADR-0075 design)
 
 Status: **in progress** (branch `feat/artifact-sidebar`, worktree off `main`).

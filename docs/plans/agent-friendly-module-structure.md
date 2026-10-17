@@ -1,3 +1,8 @@
+---
+status: in-progress
+evidence: "Phases 0 to 6 landed (#622 to #703; @alfred/api deleted). Phase 7 is open: the ./tool-runtime/* and ./chat/* wildcards and the webFeatureImports baseline remain."
+---
+
 # Agent-friendly module structure
 
 > **Status:** active migration plan. Phases 0–5 are complete. Phase 6 has landed its

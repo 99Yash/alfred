@@ -1,3 +1,8 @@
+---
+status: in-progress
+evidence: "Phase 1a merged in #513 (2026-07-15). Sprites, diagram archetypes, the expression dial, theme packs, and the headless render service are not built."
+---
+
 # Implementation plan — artifact expression system (motion / marks / diagrams under a governed dial, and the render-surface inflection)
 
 **Status:** proposed (2026-07-15). Records **ADR-0086**. Extends ADR-0075 (artifact epic,

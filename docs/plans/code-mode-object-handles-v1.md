@@ -1,3 +1,8 @@
+---
+status: proposed
+evidence: "#535, #898 and epic #271 open. Only docs PRs merged (#536, #869); no handle or sandbox code."
+---
+
 # Code Mode / Object Handles — rung-(b) v1
 
 **Status:** Designed (grilled 2026-07-21). **Substrate amended 2026-08-19, and again 2026-08-26** — see [Substrate](#substrate-amended-2026-08-19-dependency-narrowed-2026-08-26). Decision record: ADR-0087 (extends ADR-0074 rung-(b)). Epic: #271. Issues: #535 (build), #898 (trajectory scorers).

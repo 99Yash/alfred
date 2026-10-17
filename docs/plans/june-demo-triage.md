@@ -1,3 +1,8 @@
+---
+status: superseded
+evidence: "Dated backlog for the June demo; the backlog-order docs replaced it."
+---
+
 # June demo triage backlog
 
 Goal: make Alfred demo-ready by June 30, 2026 without adding more integrations. The demo spine is

@@ -1,3 +1,8 @@
+---
+status: superseded
+evidence: "backlog-order-2026-08-11.md supersedes it."
+---
+
 # Backlog order, 2026-07-30
 
 > **Status.** Live. This file is the single priority order for the repo as of

@@ -1,3 +1,8 @@
+---
+status: done
+evidence: "#534 merged 2026-07-20; tool-runtime passthrough gate, bounds, and rest-adapter exist."
+---
+
 # General Invocation Tier v1 — read-only passthrough (breadth)
 
 **Status:** PRD / ready-for-agent · **Date:** 2026-07-19

@@ -1,3 +1,8 @@
+---
+status: done
+evidence: "#485 merged 2026-07-13; #369 and #370 closed. packages/assistant/src/chat/compaction/ exists."
+---
+
 # Chat compaction and overflow resilience — v1 (#369, #370)
 
 > **Status.** Grilled and locked 2026-07-11; implementation active in PR #485.

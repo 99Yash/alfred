@@ -198,24 +198,46 @@ async function readRailwayDeploymentStatusFromSession(
   };
 }
 
-/** Exact match only: an unknown status reads as `null`. */
+/** Railway deployment statuses this build knows. The schema keeps the wire value a `string`. */
+const RAILWAY_DEPLOYMENT_STATUSES = [
+  "SUCCESS",
+  "FAILED",
+  "CRASHED",
+  "BUILDING",
+  "DEPLOYING",
+  "QUEUED",
+  "PENDING",
+  "INITIALIZING",
+  "WAITING",
+  "SLEEPING",
+  "REMOVED",
+] as const;
+
+const railwayDeploymentStatusSchema = z.enum(RAILWAY_DEPLOYMENT_STATUSES);
+
+/** `satisfies` forces a verdict for every known status. `null`: the deployment proves no health. */
+const VERDICT_BY_RAILWAY_STATUS = {
+  SUCCESS: "success",
+  FAILED: "failure",
+  CRASHED: "failure",
+  BUILDING: "pending",
+  DEPLOYING: "pending",
+  QUEUED: "pending",
+  PENDING: "pending",
+  INITIALIZING: "pending",
+  WAITING: "pending",
+  SLEEPING: null,
+  REMOVED: null,
+} satisfies Record<(typeof RAILWAY_DEPLOYMENT_STATUSES)[number], VerifiedPullStatus | null>;
+
+/**
+ * `null` for a status that proves no health and for an unknown one. The read treats both alike: the
+ * target is there, so a list with no readable status is a fault, never `absent`.
+ */
 function collapseRailwayStatus(status: string): VerifiedPullStatus | null {
-  switch (status) {
-    case "SUCCESS":
-      return "success";
-    case "FAILED":
-    case "CRASHED":
-      return "failure";
-    case "BUILDING":
-    case "DEPLOYING":
-    case "QUEUED":
-    case "PENDING":
-    case "INITIALIZING":
-    case "WAITING":
-      return "pending";
-    default:
-      return null;
-  }
+  const known = railwayDeploymentStatusSchema.safeParse(status);
+
+  return known.success ? VERDICT_BY_RAILWAY_STATUS[known.data] : null;
 }
 
 function parseProviderInstant(value: string | null): Date | null {

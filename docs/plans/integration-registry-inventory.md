@@ -1,3 +1,8 @@
+---
+status: done
+evidence: "Led to ADR-0093; registry PRs #944, #945, #947, #948 merged 2026-09-03."
+---
+
 # Integration registry — inventory of every per-integration record
 
 > Status: inventory, 2026-09-02. Not a design. The design comes after this list is agreed.

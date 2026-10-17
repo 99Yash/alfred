@@ -1,3 +1,8 @@
+---
+status: done
+evidence: "#330 and #331 closed 2026-06-28 and 06-29; knowledge/fact-policy.ts exists."
+---
+
 # Memory capture hardening (#330, epic #218)
 
 Fixes #330: the per-document fact-extraction path harvests **transactional email metadata and third-party attributes as durable `user_facts`**, and there is **no conflict detection** for single-valued identity keys. This is the capture-side root of the identity-hallucination bug (read-side companion #329 shipped in #332). Recurrence of `.lessons/user-facts-document-metadata-noise.md` — the prior prompt-rubric + narrow-deny-list fix did not hold.

@@ -1,3 +1,8 @@
+---
+status: done
+evidence: "PRs A to J built; the first activation is not checked against production."
+---
+
 # User-model P1 Gmail shadow
 
 **Status:** PRs A-J built (classifier, kind fold, projection script, live

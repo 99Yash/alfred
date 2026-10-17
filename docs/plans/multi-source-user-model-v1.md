@@ -1,3 +1,8 @@
+---
+status: in-progress
+evidence: "P0 and P1 built (#356 to #359). P2 to P5 open; epic #218 open."
+---
+
 # Multi-source user-model substrate — v1
 
 Status: **design locked 2026-06-23** (grill-with-docs). Lands as **ADR-0067** (extends ADR-0012/0056/0057/0062; amends ADR-0057's direct-upsert capture model; under the #218 user-model spine). **Re-scopes ADR-0066/triage-user-model-v1**: that rewrite becomes a _consumer_ of this graph rather than building its own entity cleanup, dist-list gate, and backfill.

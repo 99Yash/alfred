@@ -1,3 +1,8 @@
+---
+status: done
+evidence: "#219 closed 2026-06-27 by #311; drift-audit/metrics.ts exists."
+---
+
 # Observability: background-workflow decision traces + drift metrics (#219)
 
 **Status:** PR-A implemented (decision traces, 2026-06-27); PR-B implemented (drift metrics, 2026-06-27). Completes #219. Recommends a future ADR when the full #219 substrate lands.

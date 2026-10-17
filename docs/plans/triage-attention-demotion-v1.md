@@ -1,3 +1,8 @@
+---
+status: superseded
+evidence: "Shipped (contracts attention.ts), then ADR-0066 and triage-user-model-v1.md folded the attention axis into the category."
+---
+
 # Triage attention-demotion — v1 (#210, epic #218 Tier 2)
 
 Fixes #210: triage over-tags attention (urgent + action_needed ≈ 26% of inbox; suggested-todo acceptance ≈ 1%). The diagnosis is structural, not a rubric tune — the classifier decides demand from message **shape**, blind to the user's standing relative to the sender and to recurrence. Folds in **#230** (briefing calls busy days "quiet") — the inverse symptom of the same "presentation doesn't reflect reality" root.

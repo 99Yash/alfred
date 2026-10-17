@@ -1,3 +1,8 @@
+---
+status: superseded
+evidence: "Shelved 2026-06-27 with no code. Its pieces shipped separately: compaction #485, artifacts, passthrough #534."
+---
+
 # Context working-set / Code Mode / self-syncing — considered & SHELVED (2026-06-27)
 
 **Status: SHELVED.** No code. Re-open only when a real workflow hits the context wall (see trigger below). This doc preserves the design map so the thinking isn't lost.

@@ -1,3 +1,8 @@
+---
+status: done
+evidence: "#607 merged; #547 closed 2026-09-05; mcp/trace.ts and the finishAuth path exist."
+---
+
 # MCP `2026-07-28` client migration
 
 Status: in progress
