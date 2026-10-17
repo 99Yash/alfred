@@ -14,6 +14,7 @@ import { VERCEL_PULL_EVENT_TYPE } from "../object-state/vercel-reducer";
 import {
   MAX_VERIFIED_PULL_TARGETS,
   type VerifiedPullProvider,
+  type VerifiedPullRead,
   type VerifiedPullReading,
   type VerifiedPullReceipt,
   type VerifiedPullStatus,
@@ -205,43 +206,12 @@ function lookupRepoProjects(
   return pending;
 }
 
-/**
- * Projects linked to the target's repo, or with an unknown link. The scan holds only the most
- * recent projects, so a repo it does not link is looked up. `null` when that lookup faults.
- */
-async function candidateProjects(
+/** The newest reading across the projects that names the target, and whether any list faulted. */
+async function newestTargetReading(
   session: VercelReadSession,
-  target: VercelPullTarget,
-): Promise<VercelProjectRef[] | null> {
-  const repo = target.repoFullName.toLowerCase();
-
-  const scanned = session.projects.filter(
-    (project) => project.linkedRepo === null || linksRepo(project, repo),
-  );
-
-  if (scanned.some((project) => project.linkedRepo !== null)) return scanned;
-
-  const looked = await lookupRepoProjects(session, target.repoFullName);
-
-  return looked ? [...scanned, ...looked] : null;
-}
-
-/**
- * The newest deployment across candidate projects that names this target. `absent` only when every
- * candidate project was read; a fault that hides a match returns `null`.
- */
-async function readVercelDeploymentStatusFromSession(
-  session: VercelReadSession,
-  target: VercelPullTarget,
-): Promise<VerifiedPullReading | "absent" | null> {
-  const targetId = canonicalizeVercelTargetId(target);
-
-  if (!targetId) return null;
-
-  const projects = await candidateProjects(session, target);
-
-  if (!projects) return null;
-
+  projects: readonly VercelProjectRef[],
+  targetId: string,
+): Promise<{ latest: VerifiedPullReading | null; faulted: boolean }> {
   let latest: VerifiedPullReading | null = null;
   let faulted = false;
 
@@ -260,10 +230,46 @@ async function readVercelDeploymentStatusFromSession(
     if (!latest || matchTime > latestTime) latest = match.reading;
   }
 
-  return latest ?? (faulted ? null : "absent");
+  return { latest, faulted };
 }
 
-/** Any failure returns `null`, never a guessed state. */
+/**
+ * The newest deployment that names this target, across scanned projects linked to its repo or with
+ * an unknown link. The scan holds only the most recent projects, so the repo is also looked up when
+ * the scan links no project to it, and before a miss counts as `absent`. A fault that could hide a
+ * match returns `null`.
+ */
+async function readVercelDeploymentStatusFromSession(
+  session: VercelReadSession,
+  target: VercelPullTarget,
+): Promise<VerifiedPullRead> {
+  const targetId = canonicalizeVercelTargetId(target);
+
+  if (!targetId) return null;
+
+  const repo = target.repoFullName.toLowerCase();
+
+  const scanned = session.projects.filter(
+    (project) => project.linkedRepo === null || linksRepo(project, repo),
+  );
+
+  const fromScan = await newestTargetReading(session, scanned, targetId);
+
+  if (fromScan.latest && scanned.some((project) => project.linkedRepo !== null)) {
+    return fromScan.latest;
+  }
+
+  const repoProjects = await lookupRepoProjects(session, target.repoFullName);
+
+  // Cached per gather, so the scanned projects are not read again.
+  const all = await newestTargetReading(session, [...scanned, ...(repoProjects ?? [])], targetId);
+
+  if (all.latest) return all.latest;
+
+  return repoProjects === null || all.faulted ? null : "absent";
+}
+
+/** Any failure, and a read that finds the target `absent`, returns `null`, never a guessed state. */
 export async function readVercelDeploymentStatus(
   userId: string,
   target: VercelPullTarget,

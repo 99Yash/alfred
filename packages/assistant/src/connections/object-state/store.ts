@@ -653,6 +653,7 @@ export const objectStateStore: ObjectStateStore = {
           eq(integrationObjects.provider, provider),
           eq(integrationObjects.kind, filter.kind),
           inArray(integrationObjects.stateCategory, [...filter.stateCategories]),
+          // A push since the last pull puts a demoted row back; `markPulled` restarts its count.
           or(
             isNull(integrationObjectPulls.objectId),
             lt(integrationObjectPulls.absentReads, filter.demoteAfterAbsentReads),
@@ -686,6 +687,7 @@ export const objectStateStore: ObjectStateStore = {
         target: integrationObjectPulls.objectId,
         set: {
           pulledAt: sql`excluded.pulled_at`,
+          // The same push rule that puts a demoted row back in `listPullCandidates`.
           absentReads: sql`case when (
             select ${integrationObjects.updatedAt} from ${integrationObjects}
             where ${integrationObjects.id} = excluded.object_id

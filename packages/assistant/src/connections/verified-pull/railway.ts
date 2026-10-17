@@ -11,6 +11,7 @@ import { z } from "zod";
 import {
   MAX_VERIFIED_PULL_TARGETS,
   type VerifiedPullProvider,
+  type VerifiedPullRead,
   type VerifiedPullReading,
   type VerifiedPullReceipt,
   type VerifiedPullStatus,
@@ -104,7 +105,7 @@ async function readRailwayTool<Schema extends z.ZodType>(
   return parsed.success ? parsed.data : null;
 }
 
-/** Any failure returns `null`, never a guessed state. */
+/** Any failure, and a read that finds the target `absent`, returns `null`, never a guessed state. */
 export async function readRailwayDeploymentStatus(
   userId: string,
   target: RailwayPullTarget,
@@ -122,11 +123,15 @@ export async function readRailwayDeploymentStatus(
 /** Never 1: then the server's order alone would pick the verdict. */
 const RAILWAY_DEPLOYMENT_READ_LIMIT = 10;
 
-/** `absent` when the list was read and held no deployment with a known status. */
+/**
+ * `absent` when the list was read and held no deployment of the target. A list of deployments with
+ * no known status, such as a sleeping service's `SLEEPING` and `REMOVED`, is `null`: the target is
+ * there, but this build cannot read it.
+ */
 async function readRailwayDeploymentStatusFromSession(
   read: RailwayReadSession,
   target: RailwayPullTarget,
-): Promise<VerifiedPullReading | "absent" | null> {
+): Promise<VerifiedPullRead> {
   // `prepared.call` checks these against the live schema and throws on drift.
   const parsed = await readRailwayTool(
     read.connectionId,
@@ -145,12 +150,15 @@ async function readRailwayDeploymentStatusFromSession(
 
   // Do not trust server order. Take the newest deployment with a known status;
   // no instant sorts last, and ties keep server order.
-  const candidates = parsed.deployments
-    .filter(
-      (deployment) =>
-        (deployment.serviceId == null || deployment.serviceId === target.serviceId) &&
-        (deployment.environmentId == null || deployment.environmentId === target.environmentId),
-    )
+  const ofTarget = parsed.deployments.filter(
+    (deployment) =>
+      (deployment.serviceId == null || deployment.serviceId === target.serviceId) &&
+      (deployment.environmentId == null || deployment.environmentId === target.environmentId),
+  );
+
+  if (ofTarget.length === 0) return "absent";
+
+  const candidates = ofTarget
     .map((deployment) => ({
       deployment,
       status: collapseRailwayStatus(deployment.status),
@@ -163,7 +171,7 @@ async function readRailwayDeploymentStatusFromSession(
 
   const [latest] = candidates;
 
-  if (!latest?.status) return "absent";
+  if (!latest?.status) return null;
 
   return {
     status: latest.status,

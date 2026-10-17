@@ -18,6 +18,12 @@ export interface VerifiedPullReading {
   url: string | null;
 }
 
+/**
+ * One read's result. `absent`: every read succeeded and none held the target. `null`: a fault, or a
+ * target this build cannot read. Neither proves a state, but only `absent` counts toward demotion.
+ */
+export type VerifiedPullRead = VerifiedPullReading | "absent" | null;
+
 /** The body the provider's reducer folds. */
 export interface VerifiedPullReceipt {
   eventType: string;
@@ -61,11 +67,7 @@ export interface VerifiedPullProvider<Target, Session, Names> {
   openSession(userId: string): Promise<Session | null>;
   /** Display names only, never identity. */
   resolveNames(session: Session): Promise<Map<string, Names>>;
-  /**
-   * `absent`: every read succeeded and none held a readable attempt for the target. `null`: a
-   * fault. Neither proves a state, but only `absent` counts toward demotion.
-   */
-  readStatus(session: Session, target: Target): Promise<VerifiedPullReading | "absent" | null>;
+  readStatus(session: Session, target: Target): Promise<VerifiedPullRead>;
   mintReceipt(target: Target, reading: VerifiedPullReading): VerifiedPullReceipt;
   toActivityItem(result: VerifiedPullResult<Target, Names>): IntegrationActivityItem;
 }
@@ -156,16 +158,17 @@ export async function pullVerifiedTargets<Target, Session, Names>(
       continue;
     }
 
-    const reading = session ? await source.readStatus(session, target).catch(() => null) : null;
+    const reading: VerifiedPullRead = session
+      ? await source.readStatus(session, target).catch(() => null)
+      : null;
 
     const identity = { provider: source.provider, kind: source.targetKind, externalId: targetId };
 
     if (reading !== null) {
-      await objectStateStore.recordPullRead(
-        userId,
-        identity,
-        reading === "absent" ? "absent" : "proved",
-      );
+      // A lost count only delays demotion, so it must not drop the gather's lines.
+      await objectStateStore
+        .recordPullRead(userId, identity, reading === "absent" ? "absent" : "proved")
+        .catch(() => undefined);
     }
 
     if (reading === null || reading === "absent") {
