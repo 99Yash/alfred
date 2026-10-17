@@ -28,7 +28,6 @@ import { oauthHandshake } from "@alfred/assistant/connections";
 import {
   addUserMcpServer,
   boundedMcpErrorText,
-  builtInOAuthPolicyForEndpoint,
   builtInProviderForEndpoint,
   ensureBuiltInConnection,
   getMcpConnectionManager,
@@ -116,7 +115,6 @@ export async function completeMcpOAuthCallback(input: {
     dependencies.endpointAuthorizer,
     connection.server,
     OAUTH_NETWORK,
-    builtInOAuthPolicyForEndpoint(connection.server.endpointUrl),
     async (authorized) => {
       const provider = dependencies.providerForConnection({
         id: connection.id,
@@ -256,7 +254,6 @@ async function beginAuthorization(input: {
       endpointAuthorizer,
       connection.server,
       OAUTH_NETWORK,
-      builtInOAuthPolicyForEndpoint(connection.server.endpointUrl),
       async (authorized) => {
         const provider = mcpOAuthProviderForConnection({
           id: connection.id,

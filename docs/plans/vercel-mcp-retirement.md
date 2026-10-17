@@ -1,6 +1,6 @@
 # Retire the Vercel MCP built-in; serve the pull from the curated Vercel grant
 
-Status: proposed
+Status: delivered in code (steps 1 to 3); gate 1's live measurement is still open
 
 Decides: [ADR-0093](../decisions/ADR-0093-integration-registry-one-entry-per-integration.md)
 rule 1, [ADR-0062](../decisions/ADR-0062-integration-object-state-memory-a-deterministic.md)
@@ -88,20 +88,42 @@ a configurable redirect URL, and it is already built: `oauth.ts`, `client.ts`,
 
 ## What is already done
 
+Before this plan, #1259 put
 `BuiltInDefinition.clientRegistrationRedirects: "loopback-only"` on the Vercel
 entry, with a fourth `BuiltInClientResolution` arm and a sentence from
-`builtInClientUnavailableMessage`. The integrations card now states that Vercel
-only accepts clients running on the owner's own computer, instead of showing a
-raw `400 invalid_redirect_uri` from the authorization server. The
-`VERCEL_MCP_STORED_ISSUER` constant is marked unverified, because registration
-being refused means no authorized connection exists to read its stored bytes
-off.
+`builtInClientUnavailableMessage`, and marked `VERCEL_MCP_STORED_ISSUER`
+unverified. Step 2 has since deleted the entry and the constant. The field, the
+arm and the sentence stay, with no entry using them; the sentence no longer
+names Vercel.
 
 ## Delivery sequence
 
 ### 1. Repoint the verified pull at the curated grant
 
-Status: proposed
+Status: done in code, not yet measured (#1259 swapped the transport; #1193 follow-up
+fixed the preview claim). The live gate below is still open.
+
+What shipped differs from the bullets in three places, and the code is the
+record:
+
+- The reads are `GET /v10/projects` and `GET /v7/deployments`, which are the
+  versions Vercel's REST reference documents on 2026-10-17, not `/v9` and `/v6`.
+- The pull calls no `GET /v2/teams`. The curated install already returns the
+  `team_id`, and the client pins it as `?teamId=` on every call, so there is no
+  team to choose. The probe below reads `/v2/teams` to measure it, and nothing
+  else does.
+- The REST swap first folded Vercel's `target: null` (a preview deployment)
+  into "no claim", so no preview target could ever close. The client now
+  reports `environment`: `target` as sent, `preview` for `null`, and no claim
+  for an absent `target` or a deployment that names a `customEnvironment`.
+  That is the rule the MCP-era provider had.
+
+Every response is parsed by a Zod schema in `packages/integrations/src/vercel/client.ts`.
+A non-2xx, a timeout (`INTEGRATION_FETCH_TIMEOUT_MS`), or a body the schema
+refuses throws, and the provider turns every throw into `null`, so the driver
+reads it as unverified. To measure, run the untracked probe
+`references/scratch/vercel-rest-probe.ts` with a real token: it issues only the
+three GETs and reports whether each body passes the client's schemas.
 
 - Read the bearer credential the existing Vercel credential layer already
   stores, rather than opening an MCP connection.
@@ -120,7 +142,13 @@ unmeasured or drifted shape reads as unverified rather than as fact.
 
 ### 2. Drop the Vercel MCP built-in
 
-Status: proposed
+Status: done in code (#1193 follow-up). The registry and catalog entries, the
+three constants, and the `vercelSiblings` exception are gone. The registry's
+`oauthPolicy` field and `McpEndpointOAuthPolicy` went with them, because Vercel
+was their only user: an issuer pin and an origin list that no entry sets enforce
+nothing. The four web tables stay, because the curated grant still uses the
+`vercel` slug. The stored `https://mcp.vercel.com/` rows are a plain data
+delete for the owner to run, recorded in the PR; no migration ships.
 
 - Remove the `vercel` entry from `BUILT_IN_REGISTRY` and from
   `BUILT_IN_MCP_CATALOG`, plus the four web tables the entry needs
@@ -138,7 +166,9 @@ Status: proposed
 
 ### 3. Re-point the integrations card
 
-Status: proposed
+Status: done in code (#1193 follow-up). The curated `INTEGRATIONS.vercel` entry
+already rendered its own card. With the MCP tile gone it is the only Vercel
+tile, and its page copy now says that the deployment reads use this grant.
 
 - The Vercel tile renders from the curated grant's connection, on the same
   `INTEGRATIONS` slug the rest of the curated providers use. The card is
@@ -159,8 +189,9 @@ Status: proposed
 
 ## Residual risk
 
-The REST response shapes for `/v2/teams`, `/v9/projects` and `/v6/deployments`
-are written from Vercel's API documentation and have not been read off the live
+The REST response shapes for `/v10/projects` and `/v7/deployments` (and
+`/v2/teams`, which only the probe reads) are written from Vercel's API
+documentation and have not been read off the live
 wire. That is why gate 1 requires measuring them, and why an unrecognised shape
 must read as unverified rather than defaulting to a value. This is the same
 exposure the MCP path carried, and it is the reason the pull has never closed

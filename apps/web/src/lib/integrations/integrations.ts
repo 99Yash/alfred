@@ -253,6 +253,9 @@ const INTEGRATION_PAGE_COPY = {
       heading: "Deployment Intelligence",
       detail:
         "Alfred can list projects, check recent deployments and their state, and redeploy an existing deployment.",
+      extraHeading: "One Vercel connection",
+      extraDetail:
+        "When Vercel reports a failed deploy, Alfred reads the current deployment state over this same grant instead of guessing from the alert. Vercel has no MCP tile: its MCP server accepts only clients running on your own computer.",
     },
   },
   sentry: {

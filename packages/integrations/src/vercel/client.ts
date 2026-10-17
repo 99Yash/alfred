@@ -39,20 +39,19 @@ export interface VercelDeploymentGit {
   ref: string | null;
 }
 
-const listProjectsResponseSchema = z.object({
-  projects: z.array(
-    z.object({
-      id: z.string(),
-      name: z.string(),
-      framework: z.string().nullish(),
-      latestDeployments: z.array(z.object({ readyState: z.string().nullish() })).optional(),
-      link: z
-        .object({ org: z.string().nullish(), repo: z.string().nullish() })
-        .nullish()
-        .catch(null),
-    }),
-  ),
+const projectSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  framework: z.string().nullish(),
+  latestDeployments: z.array(z.object({ readyState: z.string().nullish() })).optional(),
+  link: z.object({ org: z.string().nullish(), repo: z.string().nullish() }).nullish().catch(null),
 });
+
+/** Vercel documents `/v10/projects` as `{ projects, pagination }` or as a bare array. */
+const listProjectsResponseSchema = z.union([
+  z.object({ projects: z.array(projectSchema) }).transform((body) => body.projects),
+  z.array(projectSchema),
+]);
 
 export interface VercelDeployment {
   uid: string;
@@ -60,6 +59,12 @@ export interface VercelDeployment {
   url: string | null;
   state: string | null;
   target: string | null;
+  /**
+   * The environment the deployment itself claims: `target` as sent, or `preview` for
+   * Vercel's documented `null`. `null` here means no claim: the body omits `target`,
+   * or names a custom environment, whose `target` does not name it.
+   */
+  environment: string | null;
   createdAt: number | null;
   git: VercelDeploymentGit | null;
 }
@@ -73,6 +78,8 @@ const listDeploymentsResponseSchema = z.object({
       state: z.string().nullish(),
       readyState: z.string().nullish(),
       target: z.string().nullish(),
+      // Read for presence only, so a drifted shape still withholds the `preview` reading.
+      customEnvironment: z.unknown().optional(),
       created: z.number().nullish(),
       createdAt: z.number().nullish(),
       meta: z
@@ -100,6 +107,20 @@ export interface VercelRedeployResult {
   uid: string;
   url: string | null;
   state: string | null;
+}
+
+/** Absent `target` is no claim. `null` is Vercel's preview, unless a custom environment owns it. */
+function claimedEnvironment(deployment: {
+  target?: string | null | undefined;
+  customEnvironment?: unknown;
+}): string | null {
+  if (deployment.customEnvironment !== undefined && deployment.customEnvironment !== null) {
+    return null;
+  }
+
+  if (deployment.target === undefined) return null;
+
+  return deployment.target ?? "preview";
 }
 
 export interface VercelAuthResolver {
@@ -149,7 +170,7 @@ export function createVercelClient(options: VercelClientOptions) {
         query: { limit: args?.limit ?? 20 },
       });
 
-      return json.projects.map((p) => ({
+      return json.map((p) => ({
         id: p.id,
         name: p.name,
         framework: p.framework ?? null,
@@ -177,6 +198,7 @@ export function createVercelClient(options: VercelClientOptions) {
           url: d.url ?? null,
           state: d.state ?? d.readyState ?? null,
           target: d.target ?? null,
+          environment: claimedEnvironment(d),
           createdAt: d.createdAt ?? d.created ?? null,
           // Half a repo is no repo: it would build an `owner/` target.
           git: org && repo ? { org, repo, ref: d.meta?.githubCommitRef ?? null } : null,

@@ -9,7 +9,6 @@ import { integrationDisplayName, type BuiltInMCPProvider } from "@alfred/contrac
 import { envFieldValue, type ServerEnv } from "@alfred/env/server";
 
 import { hostedEndpointKey } from "../hosted-endpoint";
-import type { McpEndpointOAuthPolicy } from "./endpoint-authorization";
 import {
   GITHUB_MCP_ENDPOINT_HREF,
   GITHUB_MCP_ISSUER,
@@ -19,9 +18,6 @@ import {
   POLYLANE_MCP_ENDPOINT_HREF,
   RAILWAY_MCP_ENDPOINT_HREF,
   SENTRY_MCP_ENDPOINT_HREF,
-  VERCEL_MCP_ENDPOINT_HREF,
-  VERCEL_MCP_OAUTH_ENDPOINT_ORIGINS,
-  VERCEL_MCP_STORED_ISSUER,
 } from "./constants";
 
 export type BuiltInOAuthConfig = {
@@ -75,6 +71,8 @@ type BuiltInDefinition = {
    * `"loopback-only"`: the server's dynamic registration accepts only
    * `http://localhost` callbacks and answers `400 invalid_redirect_uri` otherwise.
    * Judged per callback, so a local Alfred connects and a hosted one is refused up front.
+   * No entry sets it today. Vercel did, and left the registry for its curated grant
+   * (`docs/plans/vercel-mcp-retirement.md`); the seam stays for the next such server.
    */
   readonly clientRegistrationRedirects?: "loopback-only" | undefined;
   /**
@@ -94,8 +92,6 @@ type BuiltInDefinition = {
    * Stripping the keyword fails: GitHub enforces the header in the modern era.
    */
   readonly pinLegacyProtocol: boolean;
-  /** Provider-owned OAuth issuer and endpoint-origin policy, when discovery needs one. */
-  readonly oauthPolicy?: McpEndpointOAuthPolicy | undefined;
   readonly initialState: {
     readonly authServerIdentity: string;
     readonly status: "disconnected";
@@ -178,25 +174,6 @@ export const BUILT_IN_REGISTRY = {
     pinLegacyProtocol: false,
     initialState: BUILT_IN_INITIAL_STATE,
   },
-  vercel: {
-    instanceKey: "default",
-    canonicalResource: VERCEL_MCP_ENDPOINT_HREF,
-    endpointHref: VERCEL_MCP_ENDPOINT_HREF,
-    // Registration accepts only loopback callbacks, so only a local Alfred can connect.
-    // A pinned client would not help: this check runs first. Untested whether
-    // Vercel accepts an `https://` callback for its own `client_id`.
-    clientRegistrationRedirects: "loopback-only",
-    // `offline_access` gets the refresh token that keeps the connection `ready`.
-    scopes: ["openid", "offline_access"],
-    // The catalog has writes and purchases. The verified pull calls only list tools.
-    readOnlyCatalog: false,
-    pinLegacyProtocol: false,
-    oauthPolicy: {
-      authorizationServerIssuer: VERCEL_MCP_STORED_ISSUER,
-      oauthEndpointOrigins: VERCEL_MCP_OAUTH_ENDPOINT_ORIGINS,
-    },
-    initialState: BUILT_IN_INITIAL_STATE,
-  },
 } as const satisfies Record<BuiltInMCPProvider, BuiltInDefinition>;
 
 /** The catalog owns the key space, not `keyof typeof BUILT_IN_REGISTRY`. */
@@ -227,10 +204,7 @@ export function builtInAuthorizationScopes(endpointUrl: string): readonly string
  * Client config for a stored endpoint; all off for a user-added server.
  * Kept off the barrel. The risk gate uses {@link builtInReadOnlyResource}.
  */
-type BuiltInClientPolicy = Pick<
-  BuiltInDefinition,
-  "readOnlyCatalog" | "pinLegacyProtocol" | "oauthPolicy"
->;
+type BuiltInClientPolicy = Pick<BuiltInDefinition, "readOnlyCatalog" | "pinLegacyProtocol">;
 
 export function builtInClientPolicy(endpointUrl: string): BuiltInClientPolicy {
   const definition = lookupBuiltInHref(endpointUrl);
@@ -238,15 +212,7 @@ export function builtInClientPolicy(endpointUrl: string): BuiltInClientPolicy {
   return {
     readOnlyCatalog: definition?.readOnlyCatalog ?? false,
     pinLegacyProtocol: definition?.pinLegacyProtocol ?? false,
-    oauthPolicy: definition?.oauthPolicy,
   };
-}
-
-/** OAuth wire policy for a built-in endpoint, absent for user-added servers. */
-export function builtInOAuthPolicyForEndpoint(
-  endpointUrl: string,
-): McpEndpointOAuthPolicy | undefined {
-  return lookupBuiltInHref(endpointUrl)?.oauthPolicy;
 }
 
 /** True for a built-in read-only resource (ADR-0096). False when unsure, so the `high` floor holds. */
@@ -343,8 +309,7 @@ export function builtInClientUnavailableMessage(
   if (resolution.reason === "authorization_server_requires_loopback") {
     return (
       `${integrationDisplayName(resolution.provider)} only accepts OAuth clients that run on this ` +
-      "computer, so it cannot be connected to Alfred's server. Use Alfred's Vercel integration " +
-      "instead."
+      "computer, so it cannot be connected to Alfred's server."
     );
   }
 

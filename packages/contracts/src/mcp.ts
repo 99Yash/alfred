@@ -321,11 +321,6 @@ export const BUILT_IN_MCP_CATALOG = {
     label: "Railway MCP",
     blurb: "Read Railway deployment status.",
   },
-  vercel: {
-    slug: "vercel",
-    label: "Vercel MCP",
-    blurb: "Read Vercel projects and deployment status.",
-  },
   polylane: {
     slug: "polylane",
     label: "Polylane MCP",

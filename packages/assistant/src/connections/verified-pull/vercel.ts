@@ -21,7 +21,10 @@ import {
  * both fold into one `owner/repo#branch#environment` target row.
  *
  * Reads go over the curated Vercel grant, not Vercel MCP: its auth server accepts
- * only loopback redirects (`docs/plans/vercel-mcp-retirement.md`).
+ * only loopback redirects (`docs/plans/vercel-mcp-retirement.md`). The client reads
+ * `/v10/projects` and `/v7/deployments` with the install's `team_id` as `?teamId=`.
+ * Both shapes come from Vercel's docs and are not yet measured on the wire, so a body
+ * the client's schema refuses throws, and the throw reads as unverified here.
  * A deployment counts only if it names its own repo, branch, and environment.
  */
 /** The identity the dispatch and the pull share. */
@@ -121,12 +124,12 @@ function readProjectDeployments(
         const branch = deployment.git?.ref ? parseGitBranchRef(deployment.git.ref) : null;
 
         // Only the deployment's own claim names a target; never infer it from the project.
-        if (!status || !branch || !deployment.git || deployment.target === null) continue;
+        if (!status || !branch || !deployment.git || !deployment.environment) continue;
 
         const target: VercelPullTarget = {
           repoFullName: `${deployment.git.org}/${deployment.git.repo}`,
           branch,
-          environment: deployment.target ?? "preview",
+          environment: deployment.environment,
         };
 
         const targetId = canonicalizeVercelTargetId(target);
