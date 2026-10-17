@@ -238,7 +238,7 @@ function useRecordDecision<Decision extends RecordedDecision>({
         );
       }
 
-      if (data && "refreshed" in data && data.refreshed) {
+      if (data?.status === "restaged") {
         toast.info({
           message: "Review the refreshed contract",
           description:

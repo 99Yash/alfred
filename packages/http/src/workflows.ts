@@ -55,7 +55,7 @@ export const workflowRoutes = new Elysia({ prefix: "/api/workflows", normalize: 
             revisionId: query.revisionId,
           });
 
-          if (!result.ok) return result;
+          if (!result.ok) return { status: "failed" as const, failure: result.failure };
 
           if (!result.activationProposal) {
             const recovery = workflowRecoveryNavigation({
@@ -65,7 +65,6 @@ export const workflowRoutes = new Elysia({ prefix: "/api/workflows", normalize: 
             });
 
             return {
-              ok: true as const,
               status: "blocked" as const,
               workflowId: result.workflow.id,
               revisionId: result.revision.id,
@@ -75,7 +74,6 @@ export const workflowRoutes = new Elysia({ prefix: "/api/workflows", normalize: 
           }
 
           return {
-            ok: true as const,
             status: "ready_to_activate" as const,
             workflowId: result.workflow.id,
             revisionId: result.revision.id,

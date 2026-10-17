@@ -48,22 +48,12 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
 
         if (outcome.kind === "invalid") throw Errors.BadRequestError(outcome.message);
 
+        // A refreshed contract keeps the card pending, and the owner approves it again.
         if (outcome.kind === "restaged") {
-          return {
-            ok: true,
-            runId: outcome.runId,
-            status: "pending" as const,
-            refreshed: true,
-            enqueued: false,
-          };
+          return { status: "restaged" as const, runId: outcome.runId };
         }
 
-        return {
-          ok: true,
-          runId: outcome.runId,
-          status: outcome.status,
-          enqueued: outcome.enqueued,
-        };
+        return { status: outcome.status, runId: outcome.runId, enqueued: outcome.enqueued };
       },
       {
         params: t.Object({ stagingId: t.String({ minLength: 1, maxLength: 120 }) }),
