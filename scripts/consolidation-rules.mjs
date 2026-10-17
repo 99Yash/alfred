@@ -81,7 +81,8 @@ export const RULES = [
     id: "humanize-integration-slug",
     // `humanizeSlug(tool.integration)` / `humanizeSlug(integration)` — title-casing
     // an integration slug renders `github` as "Github" and `imessage` as "Imessage".
-    re: /\bhumanizeSlug\(\s*[\w.]*\bintegration\b/,
+    // `integrationSlug` is the same value under its longer name.
+    re: /\bhumanizeSlug\(\s*[\w.]*\bintegration(?:Slug)?\b/,
     severity: "gate",
     fix: "Index INTEGRATION_DISPLAY_NAMES[slug] from @alfred/contracts with a typed IntegrationSlug, or call integrationDisplayName(value) for an unchecked string. humanizeSlug is for action and field slugs, not integration names.",
   },
@@ -107,8 +108,11 @@ export const RULES = [
   {
     id: "as-string-array",
     // `x as string[]` — the unchecked element-type assertion. `as string[] | ...`
-    // (a union) is a different, narrower shape and is left alone.
-    re: /\bas\s+string\[\](?!\s*[|&])/,
+    // (a union) is a different, narrower shape and is left alone. The generic
+    // spellings `as Array<string>` / `as ReadonlyArray<string>` are the same
+    // assertion. `as readonly string[]` is not read here: it is the widening
+    // cast `hand-rolled-enum-guard` owns.
+    re: /\bas\s+(?:string\[\]|(?:Readonly)?Array\s*<\s*string\s*>)(?!\s*[|&])/,
     severity: "gate",
     owners: ["packages/contracts/src/guards.ts"],
     fix: "Use toStringArray(x) from @alfred/contracts — it checks the element type at runtime instead of asserting it.",
@@ -120,7 +124,11 @@ export const RULES = [
     // with "op ANY/ALL (array) requires array on right side". The briefing
     // sender-significance read failed on every run for weeks this way, and a
     // best-effort catch hid it.
-    re: /\bANY\(\$\{/,
+    //
+    // SQL is case-blind and allows a space before the paren, so `any (${list})`
+    // is the same bug. The `sql.param(…)` form this row's fix names binds ONE
+    // array parameter, so it is the cure and must not match.
+    re: /\bANY\s*\(\s*\$\{(?!\s*sql\.param\()/i,
     severity: "gate",
     fix: "Use inArray(expr, list) from drizzle-orm inside the template (`WHERE ${inArray(sql`lower(alias)`, list)}`), or pass one array parameter with a cast: `ANY(${sql.param(list)}::text[])`.",
   },
@@ -282,8 +290,9 @@ export const RULES = [
   },
   {
     id: "canonical-param-key",
-    // The `.toLowerCase().replace(/[_-]/g, "")` key-canonicalization idiom.
-    re: /\.toLowerCase\(\)\.replace\(\s*\/\[_-\]\/g\s*,\s*""\s*\)/,
+    // The `.toLowerCase().replace(/[_-]/g, "")` key-canonicalization idiom, with
+    // the class in either order and through `replaceAll`.
+    re: /\.toLowerCase\(\)\.replace(?:All)?\(\s*\/\[(?:_-|-_)\]\/g\s*,\s*""\s*\)/,
     severity: "gate",
     owners: ["packages/contracts/src/tool-schemas.ts"],
     fix: "Use canonicalParamKey(key) from @alfred/contracts — the one canonical key-folding function.",
@@ -294,8 +303,9 @@ export const RULES = [
     // two grammars: `/\s+/` in the MCP provider and `/[,\s]+/` in the GitHub
     // App. GitHub returns a COMMA list, so the whitespace-only copy read
     // `repo,read:org` as one opaque scope and every "already granted?" test
-    // answered no forever.
-    re: /\bscope\w*\b[^;\n]*\.split\(/i,
+    // answered no forever. The identifier may carry a prefix (`grantedScopes`,
+    // `tokenScope`), because a word boundary before `scope` let those through.
+    re: /\b\w*scope\w*\b[^;\n]*\.split\(/i,
     severity: "gate",
     owners: ["packages/contracts/src/oauth-scopes.ts"],
     fix: "Use parseOAuthScopeList(scope) from @alfred/contracts — the one grammar that accepts both RFC 6749 space lists and GitHub's comma list.",
@@ -340,7 +350,10 @@ export const RULES = [
     id: "hand-rolled-timezone-validator",
     // A hand-rolled `function isValidTimezone` — this exact `Intl.DateTimeFormat`
     // trial was copied verbatim into web, sync, and api before consolidation.
-    re: /\bfunction\s+isValidTimezone\b/,
+    // `isValidTimeZone` follows Intl's own `timeZone` casing, and an arrow bound
+    // to a const is the same function. A const bound to another NAME
+    // (`isValidTimezone = isIanaTimezone`) is an alias, not a hand-rolled trial.
+    re: /\bfunction\s+isValidTime[Zz]one\b|\b(?:const|let|var)\s+isValidTime[Zz]one\b[^=]*=\s*(?:async\s+)?(?:function\b|\([^)]*\)\s*(?::[^=]+)?=>|\w+\s*=>)/,
     severity: "gate",
     fix: "Use isIanaTimezone from @alfred/contracts — the one memoized, alias-aware timezone validator. Don't hand-roll an Intl.DateTimeFormat trial.",
   },
@@ -366,8 +379,10 @@ export const RULES = [
     id: "raw-process-env",
     // The repo invariant, promoted out of prose. Only the env package's own
     // schema readers and Drizzle's standalone config may touch process.env;
-    // tests//scripts/ are skipped by the path filter, not listed here.
-    re: /\bprocess\.env\b/,
+    // tests//scripts/ are skipped by the path filter, not listed here. A named
+    // `env` import from `node:process` reads the same object without the
+    // `process.` prefix.
+    re: /\bprocess\.env\b|\bimport\s*\{[^}]*\benv\b[^}]*\}\s*from\s*["'](?:node:)?process["']/,
     severity: "gate",
     owners: [
       "packages/env/src/server.ts",
@@ -382,7 +397,9 @@ export const RULES = [
     // does NOT match the stack-preferring variant
     // (`err instanceof Error ? (err.stack ?? err.message) : String(err)`) or a
     // domain-specific fallback (`: "Invalid JSON"`), which are different calls.
+    // `scope: "chain"`: the formatter breaks a long ternary before `?` and `:`.
     re: /instanceof\s+Error\s*\?\s*\w+\.message\s*:\s*String\(/,
+    scope: "chain",
     severity: "gate",
     owners: ["packages/contracts/src/errors.ts"],
     fix: "Use toMessage(err) from @alfred/contracts — the one caught-error-to-string helper.",
@@ -649,7 +666,10 @@ export const RULES = [
     // `AttributedCall` field is already widened, so the flag catches nothing
     // there. Anchored on the defaults-naming convention: `{ ...input,
     // ...sanitized }` and friends are overlays, not defaults resolution.
+    // `scope: "chain"`: the formatter puts each spread of a long literal on its
+    // own line.
     re: /\{\s*\.\.\.(?:[A-Z][A-Z0-9_]{2,}|default[A-Z]\w*|defaults)\s*,\s*\.\.\./,
+    scope: "chain",
     severity: "gate",
     fix: "Use withDefaults(DEFAULTS, overrides) from @alfred/contracts — it ignores override keys whose value is undefined, so a default can't be zeroed by a present-undefined.",
   },
@@ -727,8 +747,9 @@ export const RULES = [
     id: "raw-ioredis-construction",
     // A hand-built ioredis client. The default import is spelled `IORedis`
     // here and `Redis` in ioredis' own docs, so both spellings are banned.
-    // Zero call sites outside the owner, hence "gate" on day one.
-    re: /\bnew\s+(?:IORedis|Redis)\s*\(/,
+    // Zero call sites outside the owner, hence "gate" on day one. A cluster
+    // client (`new Redis.Cluster(…)`) is a hand-built client too.
+    re: /\bnew\s+(?:IORedis|Redis)(?:\.Cluster)?\s*\(/,
     severity: "gate",
     owners: ["packages/db/src/redis.ts"],
     fix: 'Use createRedisConnection(kind) from @alfred/db/redis. Its RedisConnectionKind table is the one place that decides what a connection does during an outage — a hand-built client silently picks "waits forever".',
@@ -823,8 +844,9 @@ export const RULES = [
     id: "no-type-re-export-shim",
     // `import type { Foo } from "./constants"; export type { Foo }` — same
     // second-door problem for types. Also catches `export type { Foo } from "./constants"`
-    // outside the barrel.
-    re: /export\s+type\s*\{[^}]*\}\s*from\s*["'][^"']*\/constants["']/,
+    // outside the barrel. The inline modifier (`export { type Foo } from …`) is
+    // the same re-export.
+    re: /export\s+(?:type\s*\{|\{(?=[^}]*\btype\s))[^}]*\}\s*from\s*["'][^"']*\/constants["']/,
     severity: "gate",
     owners: ["packages/extraction/src/index.ts", "packages/assistant/src/chat/compaction/index.ts"],
     fix: "Do not re-export a type through a logic file. Import it from ./constants where you use it. Only the barrel (index.ts) may re-export a constants type.",
@@ -856,7 +878,10 @@ export const RULES = [
     // `export function foo(){ return bar }` where bar is an import — a
     // function that only forwards to a constant. Prefer the constant itself.
     // This is intentionally narrow: single return, no args handling, no logic.
+    // `scope: "chain"`: the formatter puts the body on its own line, so a line
+    // rule saw only a hand-collapsed one-liner.
     re: /export\s+function\s+\w+\s*\([^)]*\)\s*\{\s*return\s+\w+\s*;?\s*\}/,
+    scope: "chain",
     severity: "gate",
     fix: "Do not wrap a constant in a function that only returns it. Export the constant or import it directly. A forwarding function is a second door.",
   },

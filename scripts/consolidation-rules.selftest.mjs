@@ -10,12 +10,19 @@
 //
 // Only add a fixture when the answer is load-bearing: a false positive would
 // block a build and a false negative would let a real bug through.
+//
+// Every `gate` row is load-bearing by definition, because it fails the build.
+// So every gate needs at least one must-catch fixture that names it, and
+// `gateCoverageFailures` fails `pnpm check` when one has none. There is no
+// allowlist of uncovered gates on purpose: a row in such a list pre-authorizes
+// the exact hole this file exists to expose. `raw-gmail-token-call` let a
+// namespace import through for as long as it had no fixture.
 
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { matchChains, matchLine, REGISTRY_UNION } from "./consolidation-rules.mjs";
+import { matchChains, matchLine, REGISTRY_UNION, RULES } from "./consolidation-rules.mjs";
 
 /**
  * The file whose `export type …Slug` / `…Provider` names the
@@ -91,7 +98,9 @@ const GMAIL_SIBLING_FILE = "packages/integrations/src/google/client.ts";
  *   path. `rule` names the rule id that must fire: `selfTestFailures` asserts the
  *   match attributes to it, so a dead row cannot hide behind another rule's
  *   match (a-green-lint-run-cannot-tell-an-armed-fence-from-a-dead-one).
- *   Optional so older fixtures keep today's behavior; item 47 generalizes this.
+ *   Required when `caught` is true, because the named ids are also what
+ *   {@link gateCoverageFailures} counts. A must-ignore fixture omits it: it
+ *   asserts that NO rule in the lane fires.
  *   `lanes` defaults to `"gate"`; a `hint` row needs `"all"`, because a hint
  *   never fires in the gate lane `pnpm check` enforces.
  */
@@ -99,6 +108,7 @@ const CASES = [
   {
     name: "receipt read must select the typed view, including across line breaks",
     caught: true,
+    rule: "unfiltered-event-receipt-read",
     code: `.from(
  eventReceipts
 )`,
@@ -106,6 +116,7 @@ const CASES = [
   {
     name: "receipt joins must select the typed view",
     caught: true,
+    rule: "unfiltered-event-receipt-read",
     code: `.innerJoin(eventReceipts, condition)`,
   },
   {
@@ -156,11 +167,13 @@ const CASES = [
   {
     name: "as-loose-record — direct boundary assertion",
     caught: true,
+    rule: "as-loose-record",
     code: `const payload = input as Record<string, unknown>;`,
   },
   {
     name: "as-loose-record — multiline record assertion nested in ReadonlyArray",
     caught: true,
+    rule: "as-loose-record",
     code: `const rows = input as ReadonlyArray<
       Record< string, unknown >
     >;`,
@@ -178,6 +191,7 @@ const CASES = [
   {
     name: "D1 verbatim — markRunFailed, the write that resurrected cancelled runs (#530)",
     caught: true,
+    rule: "unguarded-agent-run-status-write",
     code: `
 async function markRunFailed(runId: string, error: string): Promise<void> {
   await db()
@@ -194,6 +208,7 @@ async function markRunFailed(runId: string, error: string): Promise<void> {
   {
     name: "nested error object BEFORE status — invisible to a brace-bounded regex",
     caught: true,
+    rule: "unguarded-agent-run-status-write",
     code: `
   await tx
     .update(agentRuns)
@@ -203,26 +218,31 @@ async function markRunFailed(runId: string, error: string): Promise<void> {
   {
     name: "hand-collapsed one-liner",
     caught: true,
+    rule: "unguarded-agent-run-status-write",
     code: `  await tx.update(agentRuns).set({ status: "cancelled" }).where(eq(agentRuns.id, id));`,
   },
   {
     name: "spread payload with shorthand status",
     caught: true,
+    rule: "unguarded-agent-run-status-write",
     code: `await tx.update(agentRuns).set({ ...base, status }).where(eq(agentRuns.id, id));`,
   },
   {
     name: "computed status key",
     caught: true,
+    rule: "unguarded-agent-run-status-write",
     code: `await tx.update(agentRuns).set({ ["status"]: next }).where(eq(agentRuns.id, id));`,
   },
   {
     name: "status upsert",
     caught: true,
+    rule: "unguarded-agent-run-status-upsert",
     code: `await tx.insert(agentRuns).values(row).onConflictDoUpdate({ target: agentRuns.id, set: { status } });`,
   },
   {
     name: "raw status SQL",
     caught: true,
+    rule: "raw-agent-run-status-sql",
     code: "await tx.execute(sql`UPDATE agent_runs SET status = 'failed' WHERE id = ${id}`);",
   },
   {
@@ -271,6 +291,7 @@ async function markRunFailed(runId: string, error: string): Promise<void> {
   {
     name: "empty drift-ok reason does not exempt",
     caught: true,
+    rule: "unguarded-agent-run-status-write",
     code: `
   await tx
     // drift-ok:
@@ -281,12 +302,14 @@ async function markRunFailed(runId: string, error: string): Promise<void> {
   {
     name: "db-backed-skip-hand-rolled — the inline ternary guard, the shape 12 suites carried",
     caught: true,
+    rule: "db-backed-skip-hand-rolled",
     file: TEST_TREE_FILE,
     code: `const SKIP = process.env.DATABASE_URL ? false : "DATABASE_URL not set — skipping DB-backed test";`,
   },
   {
     name: "db-backed-skip-hand-rolled — the databaseEnv() variant conflates absent with malformed",
     caught: true,
+    rule: "db-backed-skip-hand-rolled",
     file: TEST_TREE_FILE,
     code: `    return Boolean(databaseEnv().DATABASE_URL);`,
   },
@@ -296,12 +319,14 @@ async function markRunFailed(runId: string, error: string): Promise<void> {
     // prose — escaped it silently. The rule pairs two lookaheads instead.
     name: "db-backed-skip-hand-rolled — a destructured read puts the variable name first",
     caught: true,
+    rule: "db-backed-skip-hand-rolled",
     file: TEST_TREE_FILE,
     code: `const { DATABASE_URL } = process.env;`,
   },
   {
     name: "db-backed-skip-hand-rolled — a destructured read off serverEnv() fires too",
     caught: true,
+    rule: "db-backed-skip-hand-rolled",
     file: TEST_TREE_FILE,
     code: `  const { REDIS_URL } = serverEnv();`,
   },
@@ -336,6 +361,7 @@ async function markRunFailed(runId: string, error: string): Promise<void> {
   {
     name: "hand-rolled-nested-transaction — the two restated savepoint sites (push.ts, service.ts)",
     caught: true,
+    rule: "hand-rolled-nested-transaction",
     code: `
 async function applyMutation(tx: DbTransaction) {
   await tx.transaction(async (subTx: DbTx) => {
@@ -354,6 +380,7 @@ const row = await db().transaction(async (tx) => {
   {
     name: "hand-rolled-nested-transaction — an adapter-interface call without its marker fires (the marker is what saves it)",
     caught: true,
+    rule: "hand-rolled-nested-transaction",
     code: `
   transaction: (callback) =>
     adapter.transaction((trx) => callback(decorateOperations(trx, resolved) as typeof trx)),`,
@@ -373,46 +400,55 @@ const row = await db().transaction(async (tx) => {
   {
     name: "hand-rolled-object-closure — the category tested against the closing literals",
     caught: true,
+    rule: "hand-rolled-object-closure",
     code: `if (card.object.stateCategory === "resolved") return "closed";`,
   },
   {
     name: "hand-rolled-object-closure — the same test written the other way round",
     caught: true,
+    rule: "hand-rolled-object-closure",
     code: `if ("abandoned" === object.stateCategory) markHandled(object);`,
   },
   {
     name: "hand-rolled-object-closure — the local rename the sanctioned reader itself makes",
     caught: true,
+    rule: "hand-rolled-object-closure",
     code: `if (category === "resolved") return "closed";`,
   },
   {
     name: "hand-rolled-object-closure — the inversion, which calls a failed build closed",
     caught: true,
+    rule: "hand-rolled-object-closure",
     code: `if (stateCategory !== "active") markHandled(object);`,
   },
   {
     name: "hand-rolled-object-closure — the membership test re-implemented over the tuple",
     caught: true,
+    rule: "hand-rolled-object-closure",
     code: `const closed = LOOP_CLOSING_STATE_CATEGORIES.includes(row.stateCategory);`,
   },
   {
     name: "hand-rolled-object-closure — the same membership test spelled with some()",
     caught: true,
+    rule: "hand-rolled-object-closure",
     code: `const closed = LOOP_CLOSING_STATE_CATEGORIES.some((c) => c === row.category);`,
   },
   {
     name: "hand-rolled-object-closure — the tuple reaching includes() through a cast",
     caught: true,
+    rule: "hand-rolled-object-closure",
     code: `  return (LOOP_CLOSING_STATE_CATEGORIES as readonly string[]).includes(category);`,
   },
   {
     name: "hand-rolled-object-closure — the tuple spelled out inline as an array literal",
     caught: true,
+    rule: "hand-rolled-object-closure",
     code: `const closed = ["resolved", "abandoned"].includes(category);`,
   },
   {
     name: "hand-rolled-object-closure — the switch a closed union invites, whose case is a later line",
     caught: true,
+    rule: "hand-rolled-object-closure",
     code: `
 switch (stateCategory) {
   case "active":
@@ -475,21 +511,25 @@ switch (category) {
   {
     name: "hand-rolled-object-closure — the sibling export that answers the same question in one argument",
     caught: true,
+    rule: "hand-rolled-object-closure",
     code: `if (isTerminalCategory(object.stateCategory)) return "closed";`,
   },
   {
     name: "hand-rolled-object-closure — the sharper spelling of the same wrong reading",
     caught: true,
+    rule: "hand-rolled-object-closure",
     code: `const closed = isTerminalCategory(category) && category !== "failed";`,
   },
   {
     name: "hand-rolled-object-closure — the membership test spelled through a Set",
     caught: true,
+    rule: "hand-rolled-object-closure",
     code: `const closed = new Set(LOOP_CLOSING_STATE_CATEGORIES).has(category);`,
   },
   {
     name: "hand-rolled-object-closure — the membership test spelled with find()",
     caught: true,
+    rule: "hand-rolled-object-closure",
     code: `const hit = LOOP_CLOSING_STATE_CATEGORIES.find((c) => c === row.category);`,
   },
   {
@@ -931,6 +971,194 @@ switch (resultCategory) {
     lanes: "all",
     code: `  return domain === "stripe.email" || domain.endsWith(".stripe.com");`,
   },
+  {
+    // `error-to-message` — the caught-error fold `toMessage` replaced (30d7e067).
+    name: "error-to-message — the one-line fold",
+    caught: true,
+    rule: "error-to-message",
+    code: `  return err instanceof Error ? err.message : String(err);`,
+  },
+  {
+    // Why the rule is `scope: "chain"`: the formatter breaks a long ternary.
+    name: "error-to-message — the ternary the formatter split across lines",
+    caught: true,
+    rule: "error-to-message",
+    code: `    const message =
+      error instanceof Error
+        ? error.message
+        : String(error);`,
+  },
+  {
+    name: "error-to-message — the stack-preferring variant is a different call",
+    caught: false,
+    code: `  const detail = err instanceof Error ? (err.stack ?? err.message) : String(err);`,
+  },
+  {
+    name: "error-to-message — a domain-specific fallback is a different call",
+    caught: false,
+    code: `  const reason = err instanceof Error ? err.message : "Invalid JSON";`,
+  },
+  {
+    name: "error-to-message — the helper's own body",
+    caught: false,
+    file: "packages/contracts/src/errors.ts",
+    code: `  return err instanceof Error ? err.message : String(err);`,
+  },
+  {
+    // `spread-over-defaults` — the defaults merges `withDefaults` replaced (f5c88a44).
+    name: "spread-over-defaults — a SCREAMING_CASE defaults object under the overrides",
+    caught: true,
+    rule: "spread-over-defaults",
+    code: `  const d: ReconcileThreadLabelDeps = { ...DEFAULT_DEPS, ...deps };`,
+  },
+  {
+    name: "spread-over-defaults — a defaultFoo object under the overrides",
+    caught: true,
+    rule: "spread-over-defaults",
+    code: `  const guardDeps = { ...defaultGuardUnreportedToolFailuresDeps, ...deps };`,
+  },
+  {
+    // Why the rule is `scope: "chain"`: a long literal puts each spread on its own line.
+    name: "spread-over-defaults — the literal the formatter split across lines",
+    caught: true,
+    rule: "spread-over-defaults",
+    code: `  const options = {
+    ...DEFAULT_RETRY_OPTIONS,
+    ...overrides,
+  };`,
+  },
+  {
+    name: "spread-over-defaults — an overlay of two inputs is not defaults resolution",
+    caught: false,
+    code: `  const payload = { ...input, ...sanitized };`,
+  },
+  {
+    name: "spread-over-defaults — withDefaults is the intended form",
+    caught: false,
+    code: `  const d = withDefaults(DEFAULT_DEPS, deps);`,
+  },
+  {
+    // `sha256-over-json-stringify` — the evidence hashes sha256Canonical replaced (dea6a7bd).
+    name: "sha256-over-json-stringify — the one-line evidence hash",
+    caught: true,
+    rule: "sha256-over-json-stringify",
+    code: `  return createHash("sha256").update(JSON.stringify(value)).digest("hex");`,
+  },
+  {
+    name: "sha256-over-json-stringify — the chain the formatter split across lines",
+    caught: true,
+    rule: "sha256-over-json-stringify",
+    code: `  return createHash("sha256")
+    .update(JSON.stringify(content))
+    .digest("hex");`,
+  },
+  {
+    name: "sha256-over-json-stringify — hashing raw bytes is a different operation",
+    caught: false,
+    code: `  return createHash("sha256").update(rawBody).digest("hex");`,
+  },
+  {
+    name: "sha256-over-json-stringify — sha256Canonical is the intended form",
+    caught: false,
+    code: `  const evidenceHash = sha256Canonical(value);`,
+  },
+  {
+    // `no-constants-re-export` — the two-line shim 8281ff65 removed from
+    // `chat-request-pressure.ts`.
+    name: "no-constants-re-export — a logic file importing then exporting a constant",
+    caught: true,
+    rule: "no-constants-re-export",
+    file: "packages/assistant/src/chat/compaction/chat-request-pressure.ts",
+    code: `import {
+  CHAT_HYDRATED_IMAGE_TOKENS,
+  CHAT_MAX_OUTPUT_TOKENS,
+  CHAT_SYNC_COMPACTION_RATIO,
+} from "./constants";
+
+export { CHAT_HYDRATED_IMAGE_TOKENS, CHAT_MAX_OUTPUT_TOKENS };`,
+  },
+  {
+    name: "no-constants-re-export — the same shim through a parent constants module",
+    caught: true,
+    rule: "no-constants-re-export",
+    file: "packages/assistant/src/action-policies/resolve.ts",
+    code: `import { DEFAULT_APPROVAL_NOTIFY_DELAY_MS } from "../constants";
+export { DEFAULT_APPROVAL_NOTIFY_DELAY_MS };`,
+  },
+  {
+    name: "no-constants-re-export — the barrel is the sanctioned re-exporter",
+    caught: false,
+    file: "packages/extraction/src/index.ts",
+    code: `import { REALTIME_PDF_EXTRACTION_LIMITS } from "./constants";
+export { REALTIME_PDF_EXTRACTION_LIMITS };`,
+  },
+  {
+    name: "no-constants-re-export — importing a constant to use it is the intended form",
+    caught: false,
+    code: `import { CHAT_MAX_OUTPUT_TOKENS } from "./compaction/constants";
+
+const reserve = CHAT_MAX_OUTPUT_TOKENS * 2;`,
+  },
+  {
+    // `no-type-alias-shim` — a bare rename of an imported type.
+    name: "no-type-alias-shim — an imported type renamed with no new fact",
+    caught: true,
+    rule: "no-type-alias-shim",
+    code: `import type { ConversationRow } from "./reader";
+
+export type ActiveConversation = ConversationRow;`,
+  },
+  {
+    name: "no-type-alias-shim — a derivation adds a fact and is not a rename",
+    caught: false,
+    code: `import type { ConversationRow } from "./reader";
+
+export type ConversationHeader = Pick<ConversationRow, "id" | "title">;`,
+  },
+  {
+    name: "no-type-alias-shim — a sanctioned rename that documents its fact",
+    caught: false,
+    file: "packages/contracts/src/chat.ts",
+    code: `import type { TurnStartResponse } from "./chat-turn";
+
+export type TurnKickResponse = TurnStartResponse;`,
+  },
+  {
+    // `no-function-wrapper-shim` — a function that only forwards to a constant.
+    name: "no-function-wrapper-shim — the hand-collapsed one-liner",
+    caught: true,
+    rule: "no-function-wrapper-shim",
+    code: `export function maxMutations() { return MAX_MUTATIONS; }`,
+  },
+  {
+    // Why the rule is `scope: "chain"`: the formatter puts the body on its own
+    // line, and the line rule this used to be matched none of these.
+    name: "no-function-wrapper-shim — the wrapper the formatter wrote across three lines",
+    caught: true,
+    rule: "no-function-wrapper-shim",
+    code: `export function maxMutations() {
+  return MAX_MUTATIONS;
+}`,
+  },
+  {
+    name: "no-function-wrapper-shim — a body with logic is not a forwarder",
+    caught: false,
+    code: `export function maxMutations() {
+  return clampLimit(MAX_MUTATIONS);
+}`,
+  },
+  {
+    // Residue, locked: a return-typed getter is left alone, because the three
+    // live ones (`getEventStreamStatus`, `stagingStore`, `getOnUserCreatedHooks`)
+    // read a module `let` binding that changes at run time. That is a live
+    // read, not a constant behind a second door, and no regex sees the
+    // binding's `const`/`let`.
+    name: "no-function-wrapper-shim — a typed getter over a live module binding",
+    caught: false,
+    code: `export function getEventStreamStatus(): EventStreamStatus {
+  return eventStreamStatus;
+}`,
+  },
 ];
 
 // Line-scope fixtures. `boot-error-plain-extends` is a per-line rule, so it is
@@ -978,6 +1206,7 @@ const LINE_CASES = [
   {
     name: "boot-error-plain-extends — a No…RegisteredError left on plain Error",
     caught: true,
+    rule: "boot-error-plain-extends",
     code: `export class NoFooHandlerRegisteredError extends Error {`,
   },
   {
@@ -998,46 +1227,55 @@ const LINE_CASES = [
   {
     name: "partial-integration-slug-record — a sparse slug-keyed table (the PR #943 shape)",
     caught: true,
+    rule: "partial-integration-slug-record",
     code: `const BRAND_BY_SLUG = { gmail: "gmail" } satisfies Partial<Record<IntegrationSlug, string>>;`,
   },
   {
     name: "partial-integration-slug-record — a Map from a catalog id to a loadable slug",
     caught: true,
+    rule: "partial-integration-slug-record",
     code: `const PROVIDER_ID_TO_SLUG = new Map<string, LoadableIntegrationSlug>([`,
   },
   {
     name: "partial-integration-slug-record — a Partial over a derived live-provider union",
     caught: true,
+    rule: "partial-integration-slug-record",
     code: `const PAGE_BY_SLUG: Partial<Record<LiveProviderSlug, string>> = {};`,
   },
   {
     name: "partial-integration-slug-record — a Partial over the catalog union",
     caught: true,
+    rule: "partial-integration-slug-record",
     code: `const ACCENT = { github: "#181925" } satisfies Partial<Record<CatalogSlug, string>>;`,
   },
   {
     name: "partial-integration-slug-record — a Partial over the transition passthrough alias",
     caught: true,
+    rule: "partial-integration-slug-record",
     code: `const GATE: Partial<Record<SupportedIntegrationSlug, boolean>> = {};`,
   },
   {
     name: "partial-integration-slug-record — a Partial over the credential-provider union",
     caught: true,
+    rule: "partial-integration-slug-record",
     code: `const FACTORY: Partial<Record<CredentialProvider, ProviderFactory>> = {};`,
   },
   {
     name: "partial-integration-slug-record — a literal Map from a catalog id to a live-provider slug",
     caught: true,
+    rule: "partial-integration-slug-record",
     code: `const ID_TO_SLUG = new Map<string, LiveProviderSlug>([["google_gmail", "gmail"]]);`,
   },
   {
     name: "partial-integration-slug-record — a literal Map keyed by a loadable slug",
     caught: true,
+    rule: "partial-integration-slug-record",
     code: `const LABEL = new Map<LoadableIntegrationSlug, string>([["gmail", "Mail"]]);`,
   },
   {
     name: "partial-integration-slug-record — a literal Map keyed by the slug with a generic value",
     caught: true,
+    rule: "partial-integration-slug-record",
     code: `const GLYPH_FALLBACK = new Map<IntegrationSlug, LucideIcon>([`,
   },
   {
@@ -1066,11 +1304,13 @@ const LINE_CASES = [
     // closed rather than merely asserted.
     name: "read-write-github-mcp-endpoint — the `/mcp` root this branch moved away from",
     caught: true,
+    rule: "read-write-github-mcp-endpoint",
     code: `export const GITHUB_MCP_ENDPOINT_HREF = "https://api.githubcopilot.com/mcp" as const;`,
   },
   {
     name: "read-write-github-mcp-endpoint — a trailing slash does not make the root read-only",
     caught: true,
+    rule: "read-write-github-mcp-endpoint",
     code: `const endpoint = new URL("https://api.githubcopilot.com/mcp/");`,
   },
   {
@@ -1100,6 +1340,7 @@ const LINE_CASES = [
     // quiet on the ~30 `.for("update")` sites elsewhere in the same package.
     name: "object-state-row-lock-mode — FOR UPDATE on an object-state row re-opens the cross-table cycle",
     caught: true,
+    rule: "object-state-row-lock-mode",
     code: `      .for("update")`,
     file: OBJECT_STATE_FILE,
   },
@@ -1264,22 +1505,360 @@ const LINE_CASES = [
     lanes: "all",
     code: String.raw`  if (!/^\d{4}-\d{2}-\d{2}$/.test(validFrom)) return null;`,
   },
+  {
+    // `humanize-integration-slug` — the tool-catalog title 81f046df replaced.
+    name: "humanize-integration-slug — a tool's integration title-cased",
+    caught: true,
+    rule: "humanize-integration-slug",
+    code: `  const name = humanizeSlug(tool.integration);`,
+  },
+  {
+    name: "humanize-integration-slug — the same value under its longer name",
+    caught: true,
+    rule: "humanize-integration-slug",
+    code: "  const label = `${humanizeSlug(row.integrationSlug)} account`;",
+  },
+  {
+    name: "humanize-integration-slug — an action slug is what humanizeSlug is for",
+    caught: false,
+    code: `    title: overrides.title ?? humanizeSlug(input.action),`,
+  },
+  {
+    name: "humanize-integration-slug — the display-name reader is the intended form",
+    caught: false,
+    code: "    ? `${humanizeSlug(action)} in ${integrationDisplayName(integration)}`",
+  },
+  {
+    // `as-string-array` — the unchecked element-type assertion.
+    name: "as-string-array — an unknown value asserted to a string array",
+    caught: true,
+    rule: "as-string-array",
+    code: `  const labels = payload.labels as string[];`,
+  },
+  {
+    name: "as-string-array — the generic spelling of the same assertion",
+    caught: true,
+    rule: "as-string-array",
+    code: `  const labels = payload.labels as ReadonlyArray<string>;`,
+  },
+  {
+    name: "as-string-array — a union assertion is a different, narrower shape",
+    caught: false,
+    code: `  const labels = payload.labels as string[] | undefined;`,
+  },
+  {
+    name: "as-string-array — the readonly widening cast belongs to hand-rolled-enum-guard",
+    caught: false,
+    code: `  return (EVENT_TYPES as readonly string[]).includes(value);`,
+  },
+  {
+    name: "as-string-array — the guard module owns the assertion",
+    caught: false,
+    file: "packages/contracts/src/guards.ts",
+    code: `  return value as string[];`,
+  },
+  {
+    // `sql-any-of-interpolated-list` — the briefing alias read 1395cb95 fixed.
+    name: "sql-any-of-interpolated-list — the sender-significance alias read",
+    caught: true,
+    rule: "sql-any-of-interpolated-list",
+    code: "            WHERE lower(alias) = ANY(${targetList})",
+  },
+  {
+    name: "sql-any-of-interpolated-list — lower-case SQL with a space before the paren",
+    caught: true,
+    rule: "sql-any-of-interpolated-list",
+    code: "      AND id = any (${ids})",
+  },
+  {
+    // The second form the row's own fix names. It binds ONE array parameter,
+    // so it is the cure, and the regex once flagged it.
+    name: "sql-any-of-interpolated-list — one array parameter with a cast is the intended form",
+    caught: false,
+    code: "            WHERE lower(alias) = ANY(${sql.param(targetList)}::text[])",
+  },
+  {
+    name: "sql-any-of-interpolated-list — inArray inside the template is the intended form",
+    caught: false,
+    code: "            WHERE ${inArray(sql`lower(alias)`, targetList)}",
+  },
+  {
+    // `canonical-param-key` — the key fold 052cc8cf replaced.
+    name: "canonical-param-key — the hand-rolled key fold",
+    caught: true,
+    rule: "canonical-param-key",
+    code: `const canon = (key: string): string => key.toLowerCase().replace(/[_-]/g, "");`,
+  },
+  {
+    name: "canonical-param-key — the class in the other order, through replaceAll",
+    caught: true,
+    rule: "canonical-param-key",
+    code: `  const folded = key.toLowerCase().replaceAll(/[-_]/g, "");`,
+  },
+  {
+    name: "canonical-param-key — folding separators to a space is a label, not a key",
+    caught: false,
+    code: `  const label = key.toLowerCase().replace(/[_-]/g, " ");`,
+  },
+  {
+    name: "canonical-param-key — the helper's own module",
+    caught: false,
+    file: "packages/contracts/src/tool-schemas.ts",
+    code: `  return key.toLowerCase().replace(/[_-]/g, "");`,
+  },
+  {
+    // `hand-split-oauth-scope` — the two grammars 7b2d6a42 merged.
+    name: "hand-split-oauth-scope — the GitHub App's comma-and-space split",
+    caught: true,
+    rule: "hand-split-oauth-scope",
+    code: String.raw`    scopes: parsed.data.scope ? parsed.data.scope.split(/[,\s]+/).filter(Boolean) : [],`,
+  },
+  {
+    name: "hand-split-oauth-scope — the MCP provider's whitespace-only split",
+    caught: true,
+    rule: "hand-split-oauth-scope",
+    code: String.raw`  return scope?.split(/\s+/).filter(Boolean) ?? [];`,
+  },
+  {
+    name: "hand-split-oauth-scope — a prefixed identifier",
+    caught: true,
+    rule: "hand-split-oauth-scope",
+    code: `  const granted = grantedScopes.split(",");`,
+  },
+  {
+    name: "hand-split-oauth-scope — the one grammar is the intended form",
+    caught: false,
+    code: `    scopes: parseOAuthScopeList(parsed.data.scope),`,
+  },
+  {
+    name: "hand-split-oauth-scope — the grammar's own module",
+    caught: false,
+    file: "packages/contracts/src/oauth-scopes.ts",
+    code: String.raw`  return scope.split(/[,\s]+/).filter(Boolean);`,
+  },
+  {
+    // `hand-rolled-timezone-validator` — the Intl trial 7d2df21f deleted from
+    // web, sync and api.
+    name: "hand-rolled-timezone-validator — the copied function declaration",
+    caught: true,
+    rule: "hand-rolled-timezone-validator",
+    code: `function isValidTimezone(tz: string): boolean {`,
+  },
+  {
+    name: "hand-rolled-timezone-validator — an arrow under Intl's own casing",
+    caught: true,
+    rule: "hand-rolled-timezone-validator",
+    code: `export const isValidTimeZone = (tz: string): boolean => {`,
+  },
+  {
+    name: "hand-rolled-timezone-validator — an alias of the shared validator is not a trial",
+    caught: false,
+    file: "packages/assistant/src/time/user-timezone.ts",
+    code: `export const isValidTimezone = isIanaTimezone;`,
+  },
+  {
+    name: "hand-rolled-timezone-validator — calling the shared validator",
+    caught: false,
+    code: `  if (!isIanaTimezone(tz)) return null;`,
+  },
+  {
+    // `as-tool-name` — the casts 514702ef removed.
+    name: "as-tool-name — a string asserted to a tool name",
+    caught: true,
+    rule: "as-tool-name",
+    code: `    const toolName = "system.fetch_url" as ToolName;`,
+  },
+  {
+    name: "as-tool-name — narrowing with isToolName is the intended form",
+    caught: false,
+    code: `  if (!isToolName(name)) return undefined;`,
+  },
+  {
+    name: "as-tool-name — a test fixture is outside the gate's path filter",
+    caught: false,
+    file: TEST_TREE_FILE,
+    code: `    const toolName = "system.fetch_url" as ToolName;`,
+  },
+  {
+    // `raw-process-env` — the env invariant.
+    name: "raw-process-env — a direct read of the process env",
+    caught: true,
+    rule: "raw-process-env",
+    code: `  const apiKey = process.env.ANTHROPIC_API_KEY;`,
+  },
+  {
+    name: "raw-process-env — a named env import reads the same object",
+    caught: true,
+    rule: "raw-process-env",
+    code: `import { env } from "node:process";`,
+  },
+  {
+    name: "raw-process-env — serverEnv() is the intended form",
+    caught: false,
+    code: `  const { ANTHROPIC_API_KEY } = serverEnv();`,
+  },
+  {
+    name: "raw-process-env — the env package's own schema reader",
+    caught: false,
+    file: "packages/env/src/server.ts",
+    code: `  const parsed = serverSchema.safeParse(process.env);`,
+  },
+  {
+    name: "raw-process-env — a test tree is outside the gate's path filter",
+    caught: false,
+    file: TEST_TREE_FILE,
+    code: `  const apiKey = process.env.ANTHROPIC_API_KEY;`,
+  },
+  {
+    // `hand-built-api-error` — the subclasses f8ac8ba2 collapsed into `Errors`.
+    name: "hand-built-api-error — a per-kind subclass",
+    caught: true,
+    rule: "hand-built-api-error",
+    code: `export class NotFoundError extends ApiError {`,
+  },
+  {
+    name: "hand-built-api-error — a direct construction pairing a code by hand",
+    caught: true,
+    rule: "hand-built-api-error",
+    code: '  throw new ApiError("NOT_FOUND", `Run ${id} not found`);',
+  },
+  {
+    name: "hand-built-api-error — an Errors factory is the intended form",
+    caught: false,
+    code: `  throw Errors.NotFoundError("Run not found");`,
+  },
+  {
+    name: "hand-built-api-error — catching by code is the intended form",
+    caught: false,
+    code: `  if (isApiError(err, "NOT_FOUND")) return null;`,
+  },
+  {
+    name: "hand-built-api-error — the module that owns the class",
+    caught: false,
+    file: "packages/contracts/src/api-errors.ts",
+    code: `    return new ApiError(code, message);`,
+  },
+  {
+    // `hand-rolled-utc-offset-parse` — the copies 44b9ee85 and a0b11b12 folded
+    // into `inZone(tz).offsetMs`.
+    name: "hand-rolled-utc-offset-parse — a second longOffset formatter",
+    caught: true,
+    rule: "hand-rolled-utc-offset-parse",
+    code: `      timeZoneName: "longOffset",`,
+  },
+  {
+    name: "hand-rolled-utc-offset-parse — a second GMT offset parse",
+    caught: true,
+    rule: "hand-rolled-utc-offset-parse",
+    code: String.raw`  const match = /^GMT(?:(?<sign>[+-])(?<hours>\d{1,2})(?::(?<minutes>\d{2}))?)?$/.exec(value);`,
+  },
+  {
+    name: "hand-rolled-utc-offset-parse — the one reader owns the parse",
+    caught: false,
+    file: "packages/assistant/src/time/local-time.ts",
+    code: `      timeZoneName: "longOffset",`,
+  },
+  {
+    // `briefing-schedule-section.tsx` renders this label and never reads a
+    // number out of it, so it is a display, not a second offset answer.
+    name: "hand-rolled-utc-offset-parse — a shortOffset display label is not a parse",
+    caught: false,
+    file: "apps/web/src/routes/-settings/briefing-schedule-section.tsx",
+    code: `      timeZoneName: "shortOffset",`,
+  },
+  {
+    // `raw-ioredis-construction` — the hand-built clients 2b31a2c1 removed.
+    name: "raw-ioredis-construction — a hand-built client under the IORedis import",
+    caught: true,
+    rule: "raw-ioredis-construction",
+    code: `  const conn = new IORedis(url, {`,
+  },
+  {
+    name: "raw-ioredis-construction — the docs' Redis spelling",
+    caught: true,
+    rule: "raw-ioredis-construction",
+    code: `  const conn = new Redis(url);`,
+  },
+  {
+    name: "raw-ioredis-construction — a hand-built cluster client",
+    caught: true,
+    rule: "raw-ioredis-construction",
+    code: `  const cluster = new Redis.Cluster(nodes);`,
+  },
+  {
+    name: "raw-ioredis-construction — createRedisConnection is the intended form",
+    caught: false,
+    code: `  const conn = createRedisConnection("queue");`,
+  },
+  {
+    name: "raw-ioredis-construction — the one door owns the constructor",
+    caught: false,
+    file: "packages/db/src/redis.ts",
+    code: `  return new IORedis(url, {`,
+  },
+  {
+    // `no-type-re-export-shim` — the line 8281ff65 removed from `extract-pdf.ts`.
+    name: "no-type-re-export-shim — a logic file re-exporting a constants type",
+    caught: true,
+    rule: "no-type-re-export-shim",
+    file: "packages/extraction/src/extract-pdf.ts",
+    code: `export type { PdfExtractionLimits } from "./constants";`,
+  },
+  {
+    name: "no-type-re-export-shim — the inline type modifier is the same re-export",
+    caught: true,
+    rule: "no-type-re-export-shim",
+    file: "packages/extraction/src/extract-pdf.ts",
+    code: `export { type PdfExtractionLimits } from "./constants";`,
+  },
+  {
+    name: "no-type-re-export-shim — the barrel is the sanctioned re-exporter",
+    caught: false,
+    file: "packages/extraction/src/index.ts",
+    code: `export type { PdfExtractionLimits } from "./constants";`,
+  },
+  {
+    name: "no-type-re-export-shim — a type from a module that is not constants",
+    caught: false,
+    code: `export type { ChatMediaPart } from "./types";`,
+  },
 ];
 
 /** @returns {string[]} One message per failed fixture; empty when all pass. */
+/**
+ * One message per `gate` rule that no must-catch fixture names. A gate is
+ * covered only by a fixture with `caught: true` and `rule: <its id>`, and the
+ * attribution check in {@link selfTestFailures} then proves that fixture really
+ * fires the row. A match that lands on a gate by accident does not count.
+ * @returns {string[]}
+ */
+function gateCoverageFailures() {
+  const named = new Set(
+    [...CASES, ...LINE_CASES].filter((fixture) => fixture.caught).map((fixture) => fixture.rule),
+  );
+
+  return RULES.filter((rule) => rule.severity === "gate" && !named.has(rule.id)).map(
+    (rule) =>
+      `gate rule ${rule.id} has no must-catch fixture: add one with \`rule: "${rule.id}"\` to ${rule.scope === "chain" ? "CASES" : "LINE_CASES"}`,
+  );
+}
+
+/** @returns {string[]} One message per failed fixture; empty when all pass. */
 export function selfTestFailures() {
-  const failures = registryUnionFailures();
+  const failures = [...registryUnionFailures(), ...gateCoverageFailures()];
 
   for (const { name, caught, code, file, rule, lanes } of CASES) {
     const hits = matchChains(code, file ?? FILE, lanes ?? "gate");
 
-    if (hits.length > 0 !== caught) {
+    if (caught && rule === undefined) {
+      failures.push(`fixture "${name}" must catch but names no \`rule\``);
+    } else if (hits.length > 0 !== caught) {
       failures.push(
         caught
           ? `missed a case it must catch: ${name}`
           : `flagged a case it must ignore: ${name} (matched line ${hits[0].line})`,
       );
-    } else if (rule !== undefined && caught) {
+    } else if (caught && rule !== undefined) {
       const ids = hits.map((h) => h.rule.id);
 
       if (!ids.includes(rule)) {
@@ -1295,13 +1874,15 @@ export function selfTestFailures() {
       .split("\n")
       .flatMap((line) => matchLine(line, file ?? LINE_FILE, lanes ?? "gate"));
 
-    if (hits.length > 0 !== caught) {
+    if (caught && rule === undefined) {
+      failures.push(`fixture "${name}" must catch but names no \`rule\``);
+    } else if (hits.length > 0 !== caught) {
       failures.push(
         caught
           ? `missed a case it must catch: ${name}`
           : `flagged a case it must ignore: ${name} (${hits[0].id})`,
       );
-    } else if (rule !== undefined && caught) {
+    } else if (caught && rule !== undefined) {
       const ids = hits.map((h) => h.id);
 
       if (!ids.includes(rule)) {
