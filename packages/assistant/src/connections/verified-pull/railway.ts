@@ -1,4 +1,9 @@
-import { canonicalizeRailwayTargetId, getPath } from "@alfred/contracts";
+import {
+  canonicalizeRailwayTargetId,
+  emailDomain,
+  getPath,
+  parseEmailAddress,
+} from "@alfred/contracts";
 import {
   builtInProviderForEndpoint,
   getMcpConnectionManager,
@@ -122,6 +127,18 @@ export async function readRailwayDeploymentStatus(
 
 /** Never 1: then the server's order alone would pick the verdict. */
 const RAILWAY_DEPLOYMENT_READ_LIMIT = 10;
+
+/** Failure mails come from `notify.railway.app`, so a subdomain also counts. */
+const RAILWAY_SENDER_DOMAINS: readonly string[] = ["railway.app", "railway.com"];
+
+function isRailwaySender(from: string | null | undefined): boolean {
+  const domain = emailDomain(parseEmailAddress(from));
+
+  return (
+    domain !== null &&
+    RAILWAY_SENDER_DOMAINS.some((base) => domain === base || domain.endsWith(`.${base}`))
+  );
+}
 
 /**
  * `absent` when the list was read and held no deployment of the target. A list of deployments with
@@ -363,9 +380,7 @@ export const railwayVerifiedPullProvider: VerifiedPullProvider<
   /** A Railway sender plus a failure word. Only triggers a read. */
   digestSignalsFailure(items) {
     return items.some((item) => {
-      const from = item.from ?? "";
-
-      if (!/railway\.(app|com)/i.test(from)) return false;
+      if (!isRailwaySender(item.from)) return false;
 
       return /fail|error|crash|timed out|unable to deploy/i.test(
         `${item.subject ?? ""} ${item.snippet ?? ""}`,
