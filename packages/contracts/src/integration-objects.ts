@@ -4,7 +4,7 @@
  * definition per provider, which Postgres cannot check.
  */
 
-import { enumGuard } from "./guards";
+import { enumGuard, getStringPath } from "./guards";
 import { canonicalizeIdentityValue } from "./user-model";
 
 export const OBJECT_STATE_CATEGORIES = ["active", "resolved", "failed", "abandoned"] as const;
@@ -224,19 +224,41 @@ export type VercelDeploymentOutcome = (typeof VERCEL_DEPLOYMENT_OUTCOMES)[number
 
 /**
  * Vercel dispatch action to outcome. Any other action, from any dispatcher, means nothing.
- * `client_payload.state.type` repeats the action suffix, so only the action is read.
+ * Vercel's list is `vercel/repository-dispatch` `types.ts`, plus `ready` from its GitHub docs.
+ * `canceled`, `ignored`, and `skipped` stay out on purpose: each says the build did not run to an
+ * end, so none is a verdict on the target. An `error` that is not a deletion stays `failure`:
+ * Vercel types `error` with one optional detail, so without it the deployment itself errored.
  */
 const VERCEL_DISPATCH_ACTION_OUTCOMES: ReadonlyMap<string, VercelDeploymentOutcome> = new Map([
   ["vercel.deployment.error", "failure"],
+  ["vercel.deployment.failed", "failure"],
   ["vercel.deployment.success", "success"],
   ["vercel.deployment.ready", "success"],
   ["vercel.deployment.promoted", "success"],
   ["vercel.deployment.pending", "pending"],
 ]);
 
-/** `null` for an unknown action. It must never read as a success. */
-export function vercelDeploymentOutcome(action: string | null): VercelDeploymentOutcome | null {
-  if (action === null) return null;
+/**
+ * A retention deletion. Vercel sends it as `vercel.deployment.error` with
+ * `client_payload.state.detail: "deployment_deleted"`, so the action alone cannot tell it from a
+ * failed build. Measured 2026-10-17: every prod `error` receipt (298) was a deletion.
+ */
+export function isVercelDeploymentDeletion(action: string | null, payload: unknown): boolean {
+  return (
+    action === "vercel.deployment.error" &&
+    getStringPath(payload, "client_payload", "state", "detail") === "deployment_deleted"
+  );
+}
+
+/**
+ * Outcome of one dispatch body. `null` for an unknown action and for a deletion: neither is
+ * evidence about the target's health. It must never read as a success.
+ */
+export function vercelDeploymentOutcome(
+  action: string | null,
+  payload: unknown,
+): VercelDeploymentOutcome | null {
+  if (action === null || isVercelDeploymentDeletion(action, payload)) return null;
 
   return VERCEL_DISPATCH_ACTION_OUTCOMES.get(action) ?? null;
 }

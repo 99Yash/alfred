@@ -36,7 +36,10 @@ export interface VerifiedPullResult<Target, Names> {
   names: Names | null;
   /** The row's state after the fold, which the briefing prints. */
   status: VerifiedPullStatus | null;
-  /** `duplicate`: this attempt already folded. `stale`: the store kept a newer row, and the fields show the row. */
+  /**
+   * `duplicate`: this attempt already folded, and the row agrees. `stale`: the row disagrees with
+   * the read, after a refused fold or on a duplicate, and the fields show the row.
+   */
   outcome: "applied" | "duplicate" | "stale" | "unverified";
   attemptId: string | null;
   url: string | null;
@@ -178,23 +181,22 @@ export async function pullVerifiedTargets<Target, Session, Names>(
 
     if (folded) {
       result.outcome = "duplicate";
-      results.push(result);
-      continue;
+    } else {
+      const receipt = source.mintReceipt(target, reading);
+
+      await objectStateStore.applyEvent({
+        userId,
+        provider: source.provider,
+        eventType: receipt.eventType,
+        action: null,
+        payload: receipt.payload,
+        // No receipt row, so a JS clock instant (zero microseconds).
+        deliveredAt: deliveryInstantNow(),
+      });
     }
 
-    const receipt = source.mintReceipt(target, reading);
-
-    await objectStateStore.applyEvent({
-      userId,
-      provider: source.provider,
-      eventType: receipt.eventType,
-      action: null,
-      payload: receipt.payload,
-      // No receipt row, so a JS clock instant (zero microseconds).
-      deliveredAt: deliveryInstantNow(),
-    });
-
-    // The recency guard may refuse a stale read, so trust the row, not the read.
+    // The recency guard may refuse a stale read, and a later fold may cover a duplicate, so trust
+    // the row, not the read.
     const stored = await objectStateStore.getByIdentity(userId, {
       provider: source.provider,
       kind: source.targetKind,

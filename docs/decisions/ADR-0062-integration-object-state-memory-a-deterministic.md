@@ -78,6 +78,8 @@ no matter how old the pull is.
 
 **Amended 2026-10-17 (#1193).** The Vercel pull reads over the curated grant only: `GET /v10/projects` and `GET /v7/deployments`, with the install's `team_id` as `?teamId=` and no team listing. A deployment's environment is its own `target`, `preview` when Vercel sends `null`, and no claim when `target` is absent or a custom environment owns the deployment. The shapes are still not measured on the live wire, so a non-2xx, a timeout, or a body the schema refuses reads as unverified and the loop stays live. Behavioral acceptance still needs one real failed Vercel deployment folded and then closed by a later success.
 
+**Amended 2026-10-17 (#1167).** The Vercel push reads the dispatch action and `client_payload.state.detail`, not the action alone. Vercel sends a retention deletion as `vercel.deployment.error` with detail `deployment_deleted`, and that folds no state, because a deletion says nothing about the target's health. Measured in production: all 298 `error` receipts were deletions, and they had marked about 62 targets failed while their latest deployment was READY. A real build failure arrives as `vercel.deployment.failed` (2 receipts) and folds `failure`. `canceled`, `ignored`, and `skipped` fold nothing. The verified pull re-reads the target row on a duplicate attempt too, so a verdict line never contradicts the row. Folds that are already wrong stay wrong: the store has no way to undo a fold, and its recency guard refuses a replay of older receipts.
+
 **Amended 2026-09-24 (#1196).** One generic `mcp` provider now carries
 owner-reviewed connection health without reopening the per-provider registry.
 The owner approves a bounded projection under one exact MCP descriptor: the

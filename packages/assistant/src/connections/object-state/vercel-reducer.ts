@@ -15,7 +15,7 @@ import type { ObjectStateDelta } from "./store";
  * delta plus a target delta (`owner/repo#branch#environment`), which closes by succession. The push
  * is a GitHub `repository_dispatch`: Vercel writes `client_payload`, and only
  * `repository.full_name` comes from GitHub's envelope. A bare type check, not the exhaustive switch
- * `reduceGithubEvent` uses: this file folds one GitHub type. Action meaning lives in
+ * `reduceGithubEvent` uses: this file folds one GitHub type. Action and detail meaning live in
  * `vercelDeploymentOutcome`, shared with the briefing line. Unproven input folds nothing
  * (ADR-0048-D).
  */
@@ -35,8 +35,8 @@ export function reduceVercelEvent(
 
   if (!isRecord(payload)) return [];
 
-  // Re-validate the token: the reducer trusts no caller, not even ingress.
-  const token = vercelDeploymentOutcome(action);
+  // Re-validate the token: the reducer trusts no caller, not even ingress. A deletion folds nothing.
+  const token = vercelDeploymentOutcome(action, payload);
 
   if (!token) return [];
 
