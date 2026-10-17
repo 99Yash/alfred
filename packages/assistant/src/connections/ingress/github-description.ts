@@ -1,9 +1,11 @@
 import {
   collapseWhitespace,
   isEventTypeForSource,
+  isVercelDeploymentDeletion,
   parseGitBranchRef,
   vercelDeploymentOutcome,
   type EventTypeForSource,
+  type VercelDeploymentOutcome,
 } from "@alfred/contracts";
 import { z } from "zod";
 import type { InboundDescription } from "./descriptor";
@@ -48,11 +50,19 @@ const githubWebhookPayloadSchema = z.object({
       environment: z.string().optional(),
       git: z.object({ ref: z.string().optional() }).optional(),
       project: z.object({ name: z.string().optional() }).optional(),
+      // Kept, not stripped: `vercelDeploymentOutcome` reads the deletion detail from it.
+      state: z.object({ detail: z.string().optional() }).optional(),
     })
     .optional(),
 });
 
 type GithubWebhookPayload = z.infer<typeof githubWebhookPayloadSchema>;
+
+const DISPATCH_STATUS_BY_OUTCOME = {
+  success: "succeeded",
+  failure: "failed",
+  pending: "open",
+} as const satisfies Record<VercelDeploymentOutcome, InboundDescription["status"]>;
 
 function describeGithubActivity(
   eventType: EventTypeForSource<"github">,
@@ -104,13 +114,17 @@ function describeGithubActivity(
 
     case "repository_dispatch": {
       // Same table the reducer uses. An unknown action stays `open`, never green.
-      const outcome = vercelDeploymentOutcome(action ?? null);
+      const outcome = vercelDeploymentOutcome(action, payload);
+      // A deletion is retention, not a verdict, so it gets a line but no status.
+      const deleted = isVercelDeploymentDeletion(action, payload);
 
-      if (!outcome) return { title: `Repository dispatch${where}`, status: "open", url: undefined };
+      if (!outcome && !deleted) {
+        return { title: `Repository dispatch${where}`, status: "open", url: undefined };
+      }
 
       const deployment = payload.client_payload ?? {};
       // Display only: `ready` or `promoted` is finer than `success`.
-      const said = action?.replace(/^vercel\.deployment\./, "") ?? outcome;
+      const said = deleted ? "deleted" : (action ?? "").replace(/^vercel\.deployment\./, "");
       // The deployment's branch: a dispatch's top-level `ref` is always the default branch.
       // A ref that names no branch (a tag) shows raw.
       const gitRef = deployment.git?.ref;
@@ -119,7 +133,7 @@ function describeGithubActivity(
 
       return {
         title: `Deployment ${said}${branch}${environment}${where}`,
-        status: outcome === "failure" ? "failed" : outcome === "success" ? "succeeded" : "open",
+        status: outcome ? DISPATCH_STATUS_BY_OUTCOME[outcome] : undefined,
         url: deployment.url,
       };
     }

@@ -36,7 +36,10 @@ export interface VerifiedPullResult<Target, Names> {
   names: Names | null;
   /** The row's state after the fold, which the briefing prints. */
   status: VerifiedPullStatus | null;
-  /** `duplicate`: this attempt already folded. `stale`: the store kept a newer row, and the fields show the row. */
+  /**
+   * `duplicate`: this attempt already folded, and the row agrees. `stale`: the recency guard refused
+   * the fold, and the fields show the row.
+   */
   outcome: "applied" | "duplicate" | "stale" | "unverified";
   attemptId: string | null;
   url: string | null;
@@ -108,8 +111,10 @@ export const MAX_VERIFIED_PULL_TARGETS = 5;
 
 /**
  * Read and fold each target. Dedup is by attempt, not by outcome, so a new
- * attempt with the same status still advances the row. The verdict is re-read
- * from the row, so a stale read that lost never prints.
+ * attempt with the same status still advances the row. A folded attempt folds
+ * again when the row disagrees with the read: an attempt read `pending` that is
+ * now `success`, or a row a deleted deployment marked failed (#1167). The
+ * verdict is re-read from the row, so a stale read that lost never prints.
  */
 export async function pullVerifiedTargets<Target, Session, Names>(
   source: VerifiedPullProvider<Target, Session, Names>,
@@ -176,7 +181,7 @@ export async function pullVerifiedTargets<Target, Session, Names>(
       reading.attemptId,
     );
 
-    if (folded) {
+    if (folded && (await readTargetRow(source, userId, targetId)).status === reading.status) {
       result.outcome = "duplicate";
       results.push(result);
       continue;
@@ -195,18 +200,7 @@ export async function pullVerifiedTargets<Target, Session, Names>(
     });
 
     // The recency guard may refuse a stale read, so trust the row, not the read.
-    const stored = await objectStateStore.getByIdentity(userId, {
-      provider: source.provider,
-      kind: source.targetKind,
-      externalId: targetId,
-    });
-
-    const storedStatus =
-      stored?.nativeState === "success" ||
-      stored?.nativeState === "failure" ||
-      stored?.nativeState === "pending"
-        ? stored.nativeState
-        : null;
+    const { row: stored, status: storedStatus } = await readTargetRow(source, userId, targetId);
 
     if (!stored || storedStatus === reading.status) {
       results.push(result);
@@ -276,6 +270,28 @@ async function gatherVerifiedPull<Target, Session, Names>(
   } catch {
     return [];
   }
+}
+
+/** The target row and its status in the pull's vocabulary; `null` status for any other state. */
+async function readTargetRow<Target, Session, Names>(
+  source: VerifiedPullProvider<Target, Session, Names>,
+  userId: string,
+  targetId: string,
+): Promise<{ row: ObjectState | null; status: VerifiedPullStatus | null }> {
+  const row = await objectStateStore.getByIdentity(userId, {
+    provider: source.provider,
+    kind: source.targetKind,
+    externalId: targetId,
+  });
+
+  const status =
+    row?.nativeState === "success" ||
+    row?.nativeState === "failure" ||
+    row?.nativeState === "pending"
+      ? row.nativeState
+      : null;
+
+  return { row, status };
 }
 
 function rowsToTargets<Target, Session, Names>(
