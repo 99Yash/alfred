@@ -18,7 +18,21 @@ import {
   integrationObjects,
 } from "@alfred/db/schemas";
 import { escapeLike } from "@alfred/db/helpers";
-import { and, desc, eq, getTableColumns, gte, inArray, like, lt, lte, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  getTableColumns,
+  gt,
+  gte,
+  inArray,
+  isNull,
+  like,
+  lt,
+  lte,
+  or,
+  sql,
+} from "drizzle-orm";
 import {
   type DeliveryInstant,
   deliveryInstantOf,
@@ -142,20 +156,32 @@ export interface ObjectStateStore {
   /**
    * Verified pull candidates (#1351): rows never pulled first, then the oldest pull. Among rows
    * never pulled, active rows go first, then the newest. A pull that proves nothing still rotates,
-   * so no row holds a slot forever.
+   * so no row holds a slot forever. A row with `demoteAfterAbsentReads` absent reads in a row is
+   * left out until a push moves its `updated_at` past its last pull.
    */
   listPullCandidates(
     userId: string,
     provider: ObjectStateProvider,
     filter: Required<Pick<ObjectListFilter, "kind" | "limit">> & {
       stateCategories: readonly StateCategory[];
+      demoteAfterAbsentReads: number;
     },
   ): Promise<ObjectState[]>;
   /**
    * Stamp a pull on each object, one millisecond apart in the given order, so the rotation is a
-   * strict queue and no batch splits on a tie. Empty input skips the database.
+   * strict queue and no batch splits on a tie. A push since the last pick restarts the absent-read
+   * count. Empty input skips the database.
    */
   markPulled(userId: string, objectIds: readonly string[], pulledAt: Date): Promise<void>;
+  /**
+   * Count an absent read on the object's pull stamp, or clear the count after a read that proved a
+   * state. A fault records nothing. An object with no pull stamp is left alone.
+   */
+  recordPullRead(
+    userId: string,
+    identity: ObjectIdentity,
+    read: "absent" | "proved",
+  ): Promise<void>;
 }
 
 type ReduceFn = (eventType: string, action: string | null, payload: unknown) => ObjectStateDelta[];
@@ -627,6 +653,12 @@ export const objectStateStore: ObjectStateStore = {
           eq(integrationObjects.provider, provider),
           eq(integrationObjects.kind, filter.kind),
           inArray(integrationObjects.stateCategory, [...filter.stateCategories]),
+          // A push since the last pull puts a demoted row back; `markPulled` restarts its count.
+          or(
+            isNull(integrationObjectPulls.objectId),
+            lt(integrationObjectPulls.absentReads, filter.demoteAfterAbsentReads),
+            gt(integrationObjects.updatedAt, integrationObjectPulls.pulledAt),
+          ),
         ),
       )
       .orderBy(
@@ -653,7 +685,34 @@ export const objectStateStore: ObjectStateStore = {
       )
       .onConflictDoUpdate({
         target: integrationObjectPulls.objectId,
-        set: { pulledAt: sql`excluded.pulled_at` },
+        set: {
+          pulledAt: sql`excluded.pulled_at`,
+          // The same push rule that puts a demoted row back in `listPullCandidates`.
+          absentReads: sql`case when (
+            select ${integrationObjects.updatedAt} from ${integrationObjects}
+            where ${integrationObjects.id} = excluded.object_id
+          ) > ${integrationObjectPulls.pulledAt} then 0 else ${integrationObjectPulls.absentReads} end`,
+        },
       });
+  },
+
+  async recordPullRead(userId, identity, read) {
+    const object = db()
+      .select({ id: integrationObjects.id })
+      .from(integrationObjects)
+      .where(objectIdentityWhere(userId, identity));
+
+    await db()
+      .update(integrationObjectPulls)
+      .set({
+        absentReads: read === "absent" ? sql`${integrationObjectPulls.absentReads} + 1` : 0,
+      })
+      .where(
+        and(
+          eq(integrationObjectPulls.userId, userId),
+          inArray(integrationObjectPulls.objectId, object),
+          ...(read === "proved" ? [gt(integrationObjectPulls.absentReads, 0)] : []),
+        ),
+      );
   },
 };

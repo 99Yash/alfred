@@ -18,6 +18,12 @@ export interface VerifiedPullReading {
   url: string | null;
 }
 
+/**
+ * One read's result. `absent`: every read succeeded and none held the target. `null`: a fault, or a
+ * target this build cannot read. Neither proves a state, but only `absent` counts toward demotion.
+ */
+export type VerifiedPullRead = VerifiedPullReading | "absent" | null;
+
 /** The body the provider's reducer folds. */
 export interface VerifiedPullReceipt {
   eventType: string;
@@ -61,7 +67,7 @@ export interface VerifiedPullProvider<Target, Session, Names> {
   openSession(userId: string): Promise<Session | null>;
   /** Display names only, never identity. */
   resolveNames(session: Session): Promise<Map<string, Names>>;
-  readStatus(session: Session, target: Target): Promise<VerifiedPullReading | null>;
+  readStatus(session: Session, target: Target): Promise<VerifiedPullRead>;
   mintReceipt(target: Target, reading: VerifiedPullReading): VerifiedPullReceipt;
   toActivityItem(result: VerifiedPullResult<Target, Names>): IntegrationActivityItem;
 }
@@ -110,6 +116,12 @@ export interface VerifiedPull {
 export const MAX_VERIFIED_PULL_TARGETS = 5;
 
 /**
+ * Absent reads in a row before the rotation skips a row. Old previews fall out of the provider's
+ * deployment list and can never be read again, so without this they fill the slots.
+ */
+const DEMOTE_AFTER_ABSENT_READS = 3;
+
+/**
  * Read and fold each target. Dedup is by attempt, not by outcome, so a new
  * attempt with the same status still advances the row. A folded attempt folds
  * again when the row disagrees with the read: an attempt read `pending` that is
@@ -146,9 +158,20 @@ export async function pullVerifiedTargets<Target, Session, Names>(
       continue;
     }
 
-    const reading = session ? await source.readStatus(session, target).catch(() => null) : null;
+    const reading: VerifiedPullRead = session
+      ? await source.readStatus(session, target).catch(() => null)
+      : null;
 
-    if (!reading) {
+    const identity = { provider: source.provider, kind: source.targetKind, externalId: targetId };
+
+    if (reading !== null) {
+      // A lost count only delays demotion, so it must not drop the gather's lines.
+      await objectStateStore
+        .recordPullRead(userId, identity, reading === "absent" ? "absent" : "proved")
+        .catch(() => undefined);
+    }
+
+    if (reading === null || reading === "absent") {
       results.push({
         target,
         targetId,
@@ -234,6 +257,7 @@ async function gatherVerifiedPull<Target, Session, Names>(
       kind: source.targetKind,
       stateCategories: ["failed", "active"],
       limit: MAX_VERIFIED_PULL_TARGETS,
+      demoteAfterAbsentReads: DEMOTE_AFTER_ABSENT_READS,
     });
 
     // Stamp before the read, so a row that reads as unverified or throws still rotates (#1351).

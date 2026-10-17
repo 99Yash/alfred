@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { createId, lifecycle_dates } from "../helpers";
 import { user } from "./auth";
 import { entities } from "./memory";
@@ -147,6 +147,11 @@ export const integrationObjectPulls = pgTable(
       .notNull()
       .references(() => integrationObjects.id, { onDelete: "cascade" }),
     pulledAt: timestamp("pulled_at", { withTimezone: true }).notNull(),
+    /**
+     * Reads in a row that succeeded and found no readable attempt for the object. A fault does not
+     * count, a read that proves a state clears it, and a push since the last pick restarts it.
+     */
+    absentReads: integer("absent_reads").notNull().default(0),
     ...lifecycle_dates,
   },
   (t) => [uniqueIndex("integration_object_pulls_object_idx").on(t.objectId)],
