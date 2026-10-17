@@ -50,11 +50,13 @@ interface VercelDeploymentReading {
 interface VercelReadSession {
   client: VercelClient;
   projects: readonly VercelProjectRef[];
+  /** Projects of a repo the scan missed, by lowercased `owner/repo`. One lookup per repo per gather. */
+  repoProjects: Map<string, Promise<VercelProjectRef[]>>;
   /** One read per project per gather, shared by every target. */
   deployments: Map<string, Promise<VercelDeploymentReading[] | null>>;
 }
 
-/** Sent as the list limit, so it also caps the deployments calls per session. */
+/** Sent as the list limit of the scan and of each repo lookup, so it also caps the deployments calls. */
 const VERCEL_PROJECT_SCAN_LIMIT = 10;
 
 /** Safe only because `/v6/deployments` is newest first: the cap drops the oldest. */
@@ -74,6 +76,7 @@ async function openVercelRead(userId: string): Promise<VercelReadSession | null>
         name: project.name,
         linkedRepo: project.linkedRepo,
       })),
+      repoProjects: new Map(),
       deployments: new Map(),
     };
   } catch {
@@ -166,16 +169,55 @@ function readProjectDeployments(
   return pending;
 }
 
-/** Projects linked to the target's repo, or with an unknown link. */
-function candidateProjects(
+/**
+ * Projects linked to the repo, by Vercel's `repoUrl` filter (#1351). Measured 2026-10-17: the
+ * filter matches the owner case-sensitively, so send the display case, not the lowercased id. Only
+ * an exact link counts, and a fault finds none.
+ */
+function lookupRepoProjects(
+  session: VercelReadSession,
+  repoFullName: string,
+): Promise<VercelProjectRef[]> {
+  const repo = repoFullName.toLowerCase();
+  const cached = session.repoProjects.get(repo);
+
+  if (cached) return cached;
+
+  const pending = session.client
+    .projects({ limit: VERCEL_PROJECT_SCAN_LIMIT, repoUrl: `https://github.com/${repoFullName}` })
+    .then((listed) =>
+      listed
+        .filter((project) => project.linkedRepo?.toLowerCase() === repo)
+        .map((project) => ({
+          projectId: project.id,
+          name: project.name,
+          linkedRepo: project.linkedRepo,
+        })),
+    )
+    .catch(() => []);
+
+  session.repoProjects.set(repo, pending);
+
+  return pending;
+}
+
+/**
+ * Projects linked to the target's repo, or with an unknown link. The scan holds only the most
+ * recent projects, so a repo it does not link is looked up.
+ */
+async function candidateProjects(
   session: VercelReadSession,
   target: VercelPullTarget,
-): VercelProjectRef[] {
+): Promise<VercelProjectRef[]> {
   const repo = target.repoFullName.toLowerCase();
 
-  return session.projects.filter(
+  const scanned = session.projects.filter(
     (project) => project.linkedRepo === null || project.linkedRepo.toLowerCase() === repo,
   );
+
+  if (scanned.some((project) => project.linkedRepo !== null)) return scanned;
+
+  return [...scanned, ...(await lookupRepoProjects(session, target.repoFullName))];
 }
 
 /** The newest deployment across candidate projects that names this target, or `null`. */
@@ -189,7 +231,7 @@ async function readVercelDeploymentStatusFromSession(
 
   let latest: VerifiedPullReading | null = null;
 
-  for (const project of candidateProjects(session, target)) {
+  for (const project of await candidateProjects(session, target)) {
     const readings = await readProjectDeployments(session, project);
     const match = readings?.find((item) => item.targetId === targetId);
 

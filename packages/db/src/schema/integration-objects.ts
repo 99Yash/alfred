@@ -126,6 +126,32 @@ export const integrationObjectRelations = pgTable(
   ],
 );
 
+// ---------------------------------------------------------------------------
+// integration_object_pulls
+// ---------------------------------------------------------------------------
+
+/**
+ * When the verified pull last chose an object (#1351). Not a column on the object, because a stamp
+ * there would move `updated_at`, and every `list` caller orders by it.
+ */
+export const integrationObjectPulls = pgTable(
+  "integration_object_pulls",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => createId("iobjp")),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    objectId: text("object_id")
+      .notNull()
+      .references(() => integrationObjects.id, { onDelete: "cascade" }),
+    pulledAt: timestamp("pulled_at", { withTimezone: true }).notNull(),
+    ...lifecycle_dates,
+  },
+  (t) => [uniqueIndex("integration_object_pulls_object_idx").on(t.objectId)],
+);
+
 export type IntegrationObject = typeof integrationObjects.$inferSelect;
 
 export type NewIntegrationObject = typeof integrationObjects.$inferInsert;

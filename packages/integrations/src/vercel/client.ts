@@ -164,10 +164,14 @@ export function createVercelClient(options: VercelClientOptions) {
     /** Read-only passthrough profile (ADR-0074). The read gate lives in `@alfred/assistant`. */
     passthrough,
 
-    async projects(args?: { limit?: number }): Promise<VercelProject[]> {
+    /** `repoUrl` is Vercel's documented filter, such as `https://github.com/owner/repo`. */
+    async projects(args?: {
+      limit?: number;
+      repoUrl?: string | undefined;
+    }): Promise<VercelProject[]> {
       const json = await client.json(listProjectsResponseSchema, "/v10/projects", {
         label: "/v10/projects",
-        query: { limit: args?.limit ?? 20 },
+        query: { limit: args?.limit ?? 20, repoUrl: args?.repoUrl },
       });
 
       return json.map((p) => ({

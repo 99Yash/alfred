@@ -221,8 +221,8 @@ export async function pullVerifiedTargets<Target, Session, Names>(
 }
 
 /**
- * Pick targets in order: failed rows, active rows, a bootstrap when there are no rows,
- * or all rows when a failure mail arrived. Otherwise do nothing.
+ * Pick targets in order: failed and active rows in pull rotation, a bootstrap when there are no
+ * rows, or all rows when a failure mail arrived. Otherwise do nothing.
  * Never throws; a fault returns no lines (ADR-0048-D).
  */
 async function gatherVerifiedPull<Target, Session, Names>(
@@ -230,22 +230,20 @@ async function gatherVerifiedPull<Target, Session, Names>(
   args: { userId: string; digestItems: readonly VerifiedPullTriggerItem[] },
 ): Promise<IntegrationActivityItem[]> {
   try {
-    const failed = await objectStateStore.list(args.userId, source.provider, {
+    const candidates = await objectStateStore.listPullCandidates(args.userId, source.provider, {
       kind: source.targetKind,
-      stateCategory: "failed",
+      stateCategories: ["failed", "active"],
       limit: MAX_VERIFIED_PULL_TARGETS,
     });
 
-    const active =
-      failed.length < MAX_VERIFIED_PULL_TARGETS
-        ? await objectStateStore.list(args.userId, source.provider, {
-            kind: source.targetKind,
-            stateCategory: "active",
-            limit: MAX_VERIFIED_PULL_TARGETS - failed.length,
-          })
-        : [];
+    // Stamp before the read, so a row that reads as unverified or throws still rotates (#1351).
+    await objectStateStore.markPulled(
+      args.userId,
+      candidates.map((row) => row.objectId),
+      new Date(),
+    );
 
-    let targets = rowsToTargets(source, [...failed, ...active]);
+    let targets = rowsToTargets(source, candidates);
 
     if (targets.length === 0) {
       const known = await objectStateStore.list(args.userId, source.provider, {

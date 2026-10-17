@@ -14,10 +14,11 @@ import {
   type IntegrationObject,
   type IntegrationObjectKey,
   integrationObjectKeys,
+  integrationObjectPulls,
   integrationObjects,
 } from "@alfred/db/schemas";
 import { escapeLike } from "@alfred/db/helpers";
-import { and, desc, eq, getTableColumns, gte, inArray, like, lt, lte } from "drizzle-orm";
+import { and, desc, eq, getTableColumns, gte, inArray, like, lt, lte, sql } from "drizzle-orm";
 import {
   type DeliveryInstant,
   deliveryInstantOf,
@@ -138,6 +139,17 @@ export interface ObjectStateStore {
     provider: ObjectStateProvider,
     filter?: ObjectListFilter,
   ): Promise<ObjectState[]>;
+  /**
+   * Verified pull candidates (#1351): rows never pulled first, then the oldest pull, then failed
+   * rows, then the newest. A pull that proves nothing still rotates, so no row holds a slot forever.
+   */
+  listPullCandidates(
+    userId: string,
+    provider: ObjectStateProvider,
+    filter: { kind: string; stateCategories: readonly StateCategory[]; limit: number },
+  ): Promise<ObjectState[]>;
+  /** Stamp a pull on each object. Empty input skips the database. */
+  markPulled(userId: string, objectIds: readonly string[], pulledAt: Date): Promise<void>;
 }
 
 type ReduceFn = (eventType: string, action: string | null, payload: unknown) => ObjectStateDelta[];
@@ -588,5 +600,41 @@ export const objectStateStore: ObjectStateStore = {
       .limit(limit);
 
     return rows.map(rowToObjectState);
+  },
+
+  async listPullCandidates(userId, provider, filter) {
+    if (filter.stateCategories.length === 0) return [];
+
+    const limit = Math.min(Math.max(1, filter.limit), MAX_OBJECT_LIST_LIMIT);
+
+    const rows = await db()
+      .select(getTableColumns(integrationObjects))
+      .from(integrationObjects)
+      .leftJoin(integrationObjectPulls, eq(integrationObjectPulls.objectId, integrationObjects.id))
+      .where(
+        and(
+          eq(integrationObjects.userId, userId),
+          eq(integrationObjects.provider, provider),
+          eq(integrationObjects.kind, filter.kind),
+          inArray(integrationObjects.stateCategory, [...filter.stateCategories]),
+        ),
+      )
+      .orderBy(
+        sql`${integrationObjectPulls.pulledAt} asc nulls first`,
+        sql`${integrationObjects.stateCategory} = 'failed' desc`,
+        desc(integrationObjects.updatedAt),
+      )
+      .limit(limit);
+
+    return rows.map(rowToObjectState);
+  },
+
+  async markPulled(userId, objectIds, pulledAt) {
+    if (objectIds.length === 0) return;
+
+    await db()
+      .insert(integrationObjectPulls)
+      .values(objectIds.map((objectId) => ({ userId, objectId, pulledAt })))
+      .onConflictDoUpdate({ target: integrationObjectPulls.objectId, set: { pulledAt } });
   },
 };
