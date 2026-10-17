@@ -2,7 +2,7 @@ import type { BriefingSlot } from "@alfred/contracts";
 import { Queue, Worker, type Job } from "bullmq";
 import { createRedisConnection } from "@alfred/db/redis";
 import { selectEmailableUsers } from "@alfred/assistant/delivery";
-import { startRun } from "@alfred/assistant/execution";
+import { scheduledFireTime, startRun } from "@alfred/assistant/execution";
 import { settings } from "@alfred/assistant/settings";
 import { inZone } from "@alfred/assistant/time";
 import { resolveBriefingPreferences } from "./preferences";
@@ -73,7 +73,7 @@ async function processBriefingJob(job: Job<BriefingJobData>) {
 
   switch (data.kind) {
     case "briefing.tick":
-      return handleTick(new Date(job.timestamp));
+      return handleTick(scheduledFireTime(job));
     default:
       // A one-member type does not narrow to `never`, so this has no exhaustive check.
       throw new Error(`unknown briefing job kind: ${JSON.stringify(data)}`);

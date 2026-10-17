@@ -51,6 +51,8 @@ export { persistChatTurnRunInTx, redeliverRun, replayRun };
 
 export { closeAgentQueue, closeSubAgentJoinWakeQueue };
 
+export { scheduledFireTime } from "./job-scheduler";
+
 export type { RunStatus, WakeCondition } from "@alfred/contracts";
 
 export type { Step, StepContext, StepResult, Workflow, WorkflowInput } from "./registry";

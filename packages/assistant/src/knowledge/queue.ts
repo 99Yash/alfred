@@ -4,7 +4,7 @@ import { Queue, Worker, type Job } from "bullmq";
 import { randomUUID } from "node:crypto";
 import { db } from "@alfred/db";
 import { createRedisConnection } from "@alfred/db/redis";
-import { startRun } from "@alfred/assistant/execution";
+import { scheduledFireTime, startRun } from "@alfred/assistant/execution";
 import { runDriftHealthCheck } from "./drift-audit/index";
 import { embedMemoryChunk, findPendingEmbedChunks, recordMemoryEmbedFailure } from "./chunks";
 import { toMessage } from "@alfred/contracts";
@@ -76,7 +76,7 @@ async function processMemoryJob(job: Job<MemoryJobData>) {
   switch (data.kind) {
     case "memory.extract.daily": {
       const users = await db().select({ id: userTable.id }).from(userTable);
-      const scheduledFor = new Date(job.timestamp).toISOString();
+      const scheduledFor = scheduledFireTime(job).toISOString();
       let enqueued = 0;
 
       for (const u of users) {
