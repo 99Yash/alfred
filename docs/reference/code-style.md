@@ -209,7 +209,7 @@ Four rules from the 2026-10-17 verified-pull retro. Each defect compiled, passed
 - **Name the clock of every timestamp, and compare only timestamps of one clock.** Creation, delivery (`deliveredAt`), provider event (`providerEventTime`), and fire time are different clocks.
   Why: BullMQ `job.timestamp` is the creation time of a scheduler job, one interval before its fire time, so every briefing read the previous hour. Taught by #1358 (`scheduledFireTime`).
 - **A provider status map is exhaustive.** List the provider's statuses in a tuple, map them with `satisfies Record<Status, …>` or a `never`-guarded switch, and make a value outside the set an explicit fault, never a default such as `absent`.
-  Why: an unknown Vercel state was skipped like a missing deployment, so the target could read as `absent` and count toward demotion. See `VERDICT_BY_VERCEL_STATE` and the Sentry `NATIVE_STATE_BY_REST_STATUS`.
+  Why: an unknown Vercel state was skipped like a missing deployment, so the target could read as `absent` and count toward demotion. Taught by #1364 (`VERDICT_BY_VERCEL_STATE`; the Sentry `NATIVE_STATE_BY_REST_STATUS` is the same shape).
 
 ## 4. Frontend (apps/web)
 
