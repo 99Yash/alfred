@@ -19,7 +19,7 @@ import { ChatContext } from "~/components/chat-context";
 import { AppThemeProvider } from "~/components/ui/v2/theme";
 import { authClient } from "~/lib/auth/auth-client";
 import { client } from "~/lib/eden";
-import { useIsPublicRoute } from "~/lib/shell/public-route";
+import { useIsPublicRoute, usePrivateRouteHref } from "~/lib/shell/public-route";
 import type { ShellThreadViewModel } from "~/lib/shell/thread-view-model";
 import {
   onboardingHintBelongsToAnotherUser,
@@ -308,15 +308,17 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = location.pathname;
   const onPreviewChatRoute = pathname === "/preview/chat" || pathname.startsWith("/preview/chat/");
   const mustRedirectToLogin = !isPending && !sessionUser && !chromeless;
+  // Not `location`: it runs ahead of the matches mid-navigation and wrapped `/login` in itself.
+  const privateRouteHref = usePrivateRouteHref();
+  const loginTarget = !isPending && !sessionUser ? privateRouteHref : undefined;
   useEffect(() => {
-    if (!mustRedirectToLogin) return;
-    const target = location.pathname + location.searchStr;
+    if (loginTarget === undefined) return;
     void navigate({
       to: "/login",
-      search: { redirect: target === "/" ? undefined : target },
+      search: { redirect: loginTarget === "/" ? undefined : loginTarget },
       replace: true,
     });
-  }, [mustRedirectToLogin, location.pathname, location.searchStr, navigate]);
+  }, [loginTarget, navigate]);
 
   // ⌘K toggles the palette. ⌘J starts a new chat, because the browser keeps ⌘N.
   const authed = !isPending && !!session?.user && !chromeless;
