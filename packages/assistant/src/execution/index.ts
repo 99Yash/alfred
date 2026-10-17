@@ -19,6 +19,7 @@ export {
   redeliverRun,
   closeAgentQueue,
   closeSubAgentJoinWakeQueue,
+  scheduledFireTime,
   CHARS_PER_TOKEN,
   compactTranscript,
   compactWithRetry,
