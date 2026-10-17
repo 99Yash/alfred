@@ -70,6 +70,11 @@ const NO_CHECKS_MESSAGE = /no checks reported/i;
 /** `gh` exits 1 with this message for a PR number that does not exist. */
 const NO_SUCH_PR_MESSAGE = /could not resolve to a pullrequest/i;
 
+/**
+ * @param {number} code
+ * @param {string} [message]
+ * @returns {never}
+ */
 function stop(code, message) {
   if (message !== undefined) {
     (code === EXIT_GREEN ? console.log : console.error)(message);
@@ -88,8 +93,10 @@ function positiveNumber(flag, raw) {
   return value;
 }
 
+/** @param {string[]} argv */
 function parseArgs(argv) {
   const options = {
+    /** @type {string | null} */
     pr: null,
     repo: DEFAULT_REPO,
     intervalSeconds: DEFAULT_INTERVAL_SECONDS,
@@ -118,9 +125,11 @@ function parseArgs(argv) {
     }
   }
 
-  if (options.pr === null) stop(EXIT_UNKNOWN, `wait-pr-checks: a PR number is required.\n${USAGE}`);
+  const { pr } = options;
 
-  return options;
+  if (pr === null) return stop(EXIT_UNKNOWN, `wait-pr-checks: a PR number is required.\n${USAGE}`);
+
+  return { ...options, pr };
 }
 
 const options = parseArgs(process.argv.slice(2));
@@ -135,7 +144,11 @@ function log(line) {
   console.log(`[${clock()}] #${options.pr} ${line}`);
 }
 
-/** Runs `gh` with an argument array. Any outcome but exit 0 (or 8) is `ok: false`. */
+/**
+ * Runs `gh` with an argument array. Any outcome but exit 0 (or 8) is `ok: false`.
+ * @param {string[]} args
+ * @returns {{ ok: true; value: unknown } | { ok: false; stderr: string; reason: string }}
+ */
 function gh(args) {
   const run = spawnSync("gh", [...args, "--repo", options.repo], {
     encoding: "utf8",
@@ -306,6 +319,7 @@ const stackedNote =
 
 if (stackedNote !== null) log(`WARNING: ${stackedNote}`);
 
+/** @type {number | null} */
 let emptySince = null;
 
 let emptyReported = false;
