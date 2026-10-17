@@ -1,4 +1,5 @@
-import { EMBEDDING_DIMENSIONS, embed } from "@alfred/ai/embeddings";
+import { EMBEDDING_DIMENSIONS } from "@alfred/ai";
+import { embed } from "@alfred/ai/embeddings";
 import { db } from "@alfred/db";
 import { buildEmbedFailureSet, EMBED_SUCCESS_RESET, formatVectorFloat32 } from "@alfred/db/helpers";
 import {

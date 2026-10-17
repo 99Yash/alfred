@@ -1053,9 +1053,24 @@ switch (resultCategory) {
     .digest("hex");`,
   },
   {
+    name: "sha256-over-json-stringify — the hasher bound first, then fed JSON",
+    caught: true,
+    rule: "sha256-over-json-stringify",
+    code: `  const hash = createHash("sha256");
+  hash.update(JSON.stringify(payload));
+  return hash.digest("hex");`,
+  },
+  {
     name: "sha256-over-json-stringify — hashing raw bytes is a different operation",
     caught: false,
     code: `  return createHash("sha256").update(rawBody).digest("hex");`,
+  },
+  {
+    name: "sha256-over-json-stringify — a bound hasher fed raw bytes is a different operation",
+    caught: false,
+    code: `  const hash = createHash("sha256");
+  hash.update(rawBody);
+  const summary = JSON.stringify(meta);`,
   },
   {
     name: "sha256-over-json-stringify — sha256Canonical is the intended form",
@@ -1086,6 +1101,29 @@ export { CHAT_HYDRATED_IMAGE_TOKENS, CHAT_MAX_OUTPUT_TOKENS };`,
 export { DEFAULT_APPROVAL_NOTIFY_DELAY_MS };`,
   },
   {
+    // The `extract-pdf.ts` head 8281ff65 removed. The `import type` and the
+    // `export type … from` lines between the value import and its export hid
+    // it from the adjacency regex this rule used to be.
+    name: "no-constants-re-export — statements between the import and the export",
+    caught: true,
+    rule: "no-constants-re-export",
+    file: "packages/extraction/src/extract-pdf.ts",
+    code: `import { REALTIME_PDF_EXTRACTION_LIMITS } from "./constants";
+import type { PdfExtractionLimits } from "./constants";
+
+export type { PdfExtractionLimits } from "./constants";
+export { REALTIME_PDF_EXTRACTION_LIMITS };`,
+  },
+  {
+    name: "no-constants-re-export — a value re-export from constants, split by the formatter",
+    caught: true,
+    rule: "no-constants-re-export",
+    code: `export {
+  EMBEDDING_DIMENSIONS,
+  VOYAGE_MAX_BATCH_INPUTS,
+} from "./constants";`,
+  },
+  {
     name: "no-constants-re-export — the barrel is the sanctioned re-exporter",
     caught: false,
     file: "packages/extraction/src/index.ts",
@@ -1093,11 +1131,94 @@ export { DEFAULT_APPROVAL_NOTIFY_DELAY_MS };`,
 export { REALTIME_PDF_EXTRACTION_LIMITS };`,
   },
   {
+    name: "no-constants-re-export — the chat barrel re-exports a compaction constant",
+    caught: false,
+    file: "packages/assistant/src/chat/index.ts",
+    code: `export { CHAT_MAX_OUTPUT_TOKENS } from "./compaction/constants";`,
+  },
+  {
+    name: "no-constants-re-export — the mcp barrel re-exports its constants",
+    caught: false,
+    file: "packages/assistant/src/connections/mcp/index.ts",
+    code: `export {
+  MCP_DEFAULT_REQUEST_TIMEOUT_MS,
+  McpRawClient,
+  type McpCallEnvelope,
+} from "./client";
+
+export { RAILWAY_MCP_ENDPOINT_HREF, RAILWAY_MCP_STORED_ISSUER } from "./constants";`,
+  },
+  {
     name: "no-constants-re-export — importing a constant to use it is the intended form",
     caught: false,
     code: `import { CHAT_MAX_OUTPUT_TOKENS } from "./compaction/constants";
 
-const reserve = CHAT_MAX_OUTPUT_TOKENS * 2;`,
+const reserve = CHAT_MAX_OUTPUT_TOKENS * 2;
+
+export { reserve };`,
+  },
+  {
+    name: "no-constants-re-export — re-exporting a name from a module that is not constants",
+    caught: false,
+    code: `import { buildPrompt } from "./prompt";
+
+export { buildPrompt };`,
+  },
+  {
+    // `no-type-re-export-shim` — the line 8281ff65 removed from `extract-pdf.ts`.
+    name: "no-type-re-export-shim — a logic file re-exporting a constants type",
+    caught: true,
+    rule: "no-type-re-export-shim",
+    file: "packages/extraction/src/extract-pdf.ts",
+    code: `export type { PdfExtractionLimits } from "./constants";`,
+  },
+  {
+    name: "no-type-re-export-shim — the inline type modifier is the same re-export",
+    caught: true,
+    rule: "no-type-re-export-shim",
+    file: "packages/extraction/src/extract-pdf.ts",
+    code: `export { type PdfExtractionLimits } from "./constants";`,
+  },
+  {
+    // The line rule this used to be saw only one line, so the formatter's
+    // split of a long specifier list hid it.
+    name: "no-type-re-export-shim — a type re-export split by the formatter",
+    caught: true,
+    rule: "no-type-re-export-shim",
+    file: "packages/extraction/src/extract-pdf.ts",
+    code: `export type {
+  PdfExtractionLimits,
+  ExtractionDoor,
+} from "./constants";`,
+  },
+  {
+    // The two-statement form the rule comment names. No regex matched it.
+    name: "no-type-re-export-shim — a constants type imported, then exported",
+    caught: true,
+    rule: "no-type-re-export-shim",
+    file: "packages/extraction/src/extract-pdf.ts",
+    code: `import type { PdfExtractionLimits } from "./constants";
+import { truncateExtractedForLimit } from "./extract-pdf-protocol";
+
+export type { PdfExtractionLimits };`,
+  },
+  {
+    name: "no-type-re-export-shim — the barrel is the sanctioned re-exporter",
+    caught: false,
+    file: "packages/extraction/src/index.ts",
+    code: `export type { PdfExtractionLimits } from "./constants";`,
+  },
+  {
+    name: "no-type-re-export-shim — a type from a module that is not constants",
+    caught: false,
+    code: `export type { ChatMediaPart } from "./types";`,
+  },
+  {
+    name: "no-type-re-export-shim — a type imported from a module that is not constants",
+    caught: false,
+    code: `import type { ChatMediaPart } from "./types";
+
+export type { ChatMediaPart };`,
   },
   {
     // `no-type-alias-shim` — a bare rename of an imported type.
@@ -1109,6 +1230,27 @@ const reserve = CHAT_MAX_OUTPUT_TOKENS * 2;`,
 export type ActiveConversation = ConversationRow;`,
   },
   {
+    // The adjacency regex this rule used to be saw only an alias directly
+    // after the last import. One statement between them hid it.
+    name: "no-type-alias-shim — statements between the import and the alias",
+    caught: true,
+    rule: "no-type-alias-shim",
+    code: `import type { ConversationRow } from "./reader";
+import { z } from "zod";
+
+const titleSchema = z.string();
+
+export type ActiveConversation = ConversationRow;`,
+  },
+  {
+    name: "no-type-alias-shim — a renamed import is still a rename",
+    caught: true,
+    rule: "no-type-alias-shim",
+    code: `import { type ConversationRow as Row } from "./reader";
+
+export type ActiveConversation = Row;`,
+  },
+  {
     name: "no-type-alias-shim — a derivation adds a fact and is not a rename",
     caught: false,
     code: `import type { ConversationRow } from "./reader";
@@ -1118,9 +1260,22 @@ export type ConversationHeader = Pick<ConversationRow, "id" | "title">;`,
   {
     name: "no-type-alias-shim — a sanctioned rename that documents its fact",
     caught: false,
-    file: "packages/contracts/src/chat.ts",
-    code: `import type { TurnStartResponse } from "./chat-turn";
+    file: "packages/assistant/src/execution/sub-agent-join.ts",
+    code: `import type { SafeToParkWake } from "@alfred/assistant/tool-runtime";
 
+/** A signal wake plus a persisted deadline. */
+export type ParkWake = SafeToParkWake;`,
+  },
+  {
+    // `contracts/src/chat.ts` aliases its own `TurnStartResponse` for a
+    // deprecation. The rule reads only an imported name, so it needs no owner row.
+    name: "no-type-alias-shim — a rename of a type the file defines is not an import shim",
+    caught: false,
+    code: `import { z } from "zod";
+
+export type TurnStartResponse = z.infer<typeof turnStartResponseSchema>;
+
+/** @deprecated Use \`TurnStartResponse\`. */
 export type TurnKickResponse = TurnStartResponse;`,
   },
   {
@@ -1795,32 +1950,6 @@ const LINE_CASES = [
     caught: false,
     file: "packages/db/src/redis.ts",
     code: `  return new IORedis(url, {`,
-  },
-  {
-    // `no-type-re-export-shim` — the line 8281ff65 removed from `extract-pdf.ts`.
-    name: "no-type-re-export-shim — a logic file re-exporting a constants type",
-    caught: true,
-    rule: "no-type-re-export-shim",
-    file: "packages/extraction/src/extract-pdf.ts",
-    code: `export type { PdfExtractionLimits } from "./constants";`,
-  },
-  {
-    name: "no-type-re-export-shim — the inline type modifier is the same re-export",
-    caught: true,
-    rule: "no-type-re-export-shim",
-    file: "packages/extraction/src/extract-pdf.ts",
-    code: `export { type PdfExtractionLimits } from "./constants";`,
-  },
-  {
-    name: "no-type-re-export-shim — the barrel is the sanctioned re-exporter",
-    caught: false,
-    file: "packages/extraction/src/index.ts",
-    code: `export type { PdfExtractionLimits } from "./constants";`,
-  },
-  {
-    name: "no-type-re-export-shim — a type from a module that is not constants",
-    caught: false,
-    code: `export type { ChatMediaPart } from "./types";`,
   },
 ];
 

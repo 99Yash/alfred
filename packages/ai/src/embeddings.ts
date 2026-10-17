@@ -10,12 +10,6 @@ import {
 } from "./constants";
 import { metered } from "./metering/metered";
 
-export {
-  EMBEDDING_DIMENSIONS,
-  VOYAGE_MAX_BATCH_INPUTS,
-  VOYAGE_MAX_BATCH_TOKENS,
-} from "./constants";
-
 import type { CallAttribution } from "./metering/metered";
 
 // Voyage embeddings at 1024 dimensions, one model for indexing and queries (ADR-0021).

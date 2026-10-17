@@ -60,6 +60,36 @@
  */
 export const REGISTRY_UNION = String.raw`(?:(?:\w*Integration|LiveProvider|Planned|Catalog|Google|GithubApp|Bearer|TokenPaste|Supported\w*)Slug|(?:Bearer|Credential)Provider)`;
 
+/** The module path of a `constants` module, as it sits between the quotes. */
+const CONSTANTS_MODULE = String.raw`[^"']*\/constants`;
+
+/**
+ * A named import, anywhere earlier in the file, that binds the name in group 1
+ * from a module whose path matches `from`. The bound name is the local one: the
+ * alias when the specifier renames (`A as B` binds `B`).
+ *
+ * For use inside a lookbehind that a rule places after it captures group 1 at
+ * the second statement (`(?<=${importBinding(…)}[\s\S]*)`). That is how a shim
+ * rule relates the two statements without either one sitting next to the
+ * other: an adjacency regex (`import …;[^;]*export …`) let one statement
+ * between them hide the shim, which is how the `extract-pdf.ts` shim that
+ * 8281ff65 removed got past the rule written for it. The match then covers
+ * only the second statement, so a `// drift-ok:` marker for another rule
+ * between the two statements does not exempt it.
+ * @param {string} from Regex source for the module path.
+ */
+const importBinding = (from) =>
+  String.raw`\bimport\s*(?:type\s+)?\{[^}]*?\b\1(?=\s*[,}])[^}]*\}\s*from\s*["']${from}["']`;
+
+/**
+ * An `export { … }` (or `export type { … }` when `typeOnly`) with no `from`,
+ * whose specifier list holds the local name `\1` — captured here — and that
+ * re-exports an import of that name from a `constants` module.
+ * @param {boolean} typeOnly
+ */
+const constantsReExport = (typeOnly) =>
+  String.raw`\bexport\s*${typeOnly ? String.raw`type\s*` : ""}\{[^}]*?\b(\w+)(?=\s*(?:as\s+\w+\s*)?[,}])(?![^}]*\}\s*from\b)(?<=${importBinding(CONSTANTS_MODULE)}[\s\S]*)`;
+
 /** @type {ConsolidationRule[]} */
 export const RULES = [
   {
@@ -816,8 +846,10 @@ export const RULES = [
     // so dedup silently misses and an append-only log double-counts. Chain
     // scope, because a formatter splits `.update(` onto its own line. Hashing
     // raw bytes (`createHash("sha256").update(rawString)`) is a different
-    // operation and is left alone.
-    re: /createHash\(\s*["']sha256["']\s*\)\s*\.update\(\s*JSON\.stringify\(/,
+    // operation and is left alone. The two-statement form
+    // (`const h = createHash("sha256"); h.update(JSON.stringify(v))`) relates
+    // the `.update(` receiver to a sha256 hasher bound earlier in the file.
+    re: /createHash\(\s*["']sha256["']\s*\)\s*\.update\(\s*JSON\.stringify\(|\b(\w+)\s*\.update\(\s*JSON\.stringify\((?<=\b\1(?:\s*:\s*\w+)?\s*=\s*createHash\(\s*["']sha256["']\s*\)[\s\S]*)/,
     scope: "chain",
     severity: "gate",
     fix: "Use sha256Canonical(value) from @alfred/db/hash — SHA-256 over canonicalJson (keys sorted, present-undefined skipped), prefixed `sha256:`. It is the one content hash for observations.evidence_hash and every other dedup / change-detection digest. If the digest is audit-only and never compared, append `// drift-ok: <why order-dependence is safe here>`.",
@@ -828,15 +860,24 @@ export const RULES = [
     // `index.ts` (the barrel) is the only sanctioned re-exporter. A logic file
     // that does `import { X } from "./constants"; export { X }` creates a second
     // door — two places answer the same fact and nothing makes them agree.
-    // The chain form catches the two-line shim; the barrel is allowlisted.
-    re: /import\s*\{[^}]*\}\s*from\s*["'][^"']*\/constants["'][^;]*;[^;]*export\s*\{[^}]*\}/,
+    //
+    // Two shapes. The import-then-export shim relates the exported name to an
+    // import of that name anywhere earlier in the file (see `importBinding`),
+    // so any number of statements between the two cannot hide it. The
+    // one-statement `export { X } from "./constants"` is the same second door
+    // without the local binding. `scope: "chain"`, because the formatter
+    // splits a long specifier list across lines. The barrels are owners.
+    re: new RegExp(
+      `${constantsReExport(false)}|` +
+        String.raw`\bexport\s*\{[^}]*\}\s*from\s*["']${CONSTANTS_MODULE}["']`,
+    ),
     scope: "chain",
     severity: "gate",
     owners: [
       "packages/extraction/src/index.ts",
       "packages/assistant/src/chat/compaction/index.ts",
       "packages/assistant/src/chat/index.ts",
-      "packages/http/src/sync/model.ts",
+      "packages/assistant/src/connections/mcp/index.ts",
     ],
     fix: "Do not re-export a constant through a logic file. Import from ./constants where you use it, or export from the barrel (index.ts) if it is a public contract. A logic file that imports then exports the same name is a second door.",
   },
@@ -845,8 +886,15 @@ export const RULES = [
     // `import type { Foo } from "./constants"; export type { Foo }` — same
     // second-door problem for types. Also catches `export type { Foo } from "./constants"`
     // outside the barrel. The inline modifier (`export { type Foo } from …`) is
-    // the same re-export.
-    re: /export\s+(?:type\s*\{|\{(?=[^}]*\btype\s))[^}]*\}\s*from\s*["'][^"']*\/constants["']/,
+    // the same re-export. The two-statement form relates the name to its
+    // import anywhere earlier in the file, as `no-constants-re-export` does.
+    // `scope: "chain"`, because the formatter splits a long specifier list
+    // across lines, and a line rule saw neither that nor the two-statement form.
+    re: new RegExp(
+      String.raw`\bexport\s+(?:type\s*\{|\{(?=[^}]*\btype\s))[^}]*\}\s*from\s*["']${CONSTANTS_MODULE}["']|` +
+        constantsReExport(true),
+    ),
+    scope: "chain",
     severity: "gate",
     owners: ["packages/extraction/src/index.ts", "packages/assistant/src/chat/compaction/index.ts"],
     fix: "Do not re-export a type through a logic file. Import it from ./constants where you use it. Only the barrel (index.ts) may re-export a constants type.",
@@ -859,12 +907,16 @@ export const RULES = [
     // `typeof x[number]`) is not matched: only a rename is. `owners` holds the
     // sanctioned renames, each carrying a doc comment naming the fact it
     // encodes; a new one joins `owners` with that reason, or states it inline.
-    re: /import\s+(?:type\s+)?\{[^}]*\}\s*from\s*["'][^"']+["']\s*;[^;]*export\s+type\s+\w+\s*=\s*[\w.]+\s*;/,
+    // The alias's first segment must be bound by a named import anywhere
+    // earlier in the file (see `importBinding`), so statements between the
+    // import and the alias do not hide it.
+    re: new RegExp(
+      String.raw`\bexport\s+type\s+\w+\s*=\s*(\w+)(?=(?:\.\w+)*\s*;)(?<=${importBinding(String.raw`[^"']+`)}[\s\S]*)`,
+    ),
     scope: "chain",
     severity: "gate",
     owners: [
       // Renames that carry a fact, each documented at the alias:
-      "packages/contracts/src/chat.ts", // @deprecated TurnKickResponse → TurnStartResponse
       "packages/assistant/src/knowledge/reader.ts", // ActiveEntity* rows are pinned to the active run
       "packages/assistant/src/execution/sub-agent-join.ts", // ParkWake is a signal wake plus a persisted deadline
       "packages/ai/src/metering/metered.ts", // CallKind is api_call_log.kind, owned by @alfred/contracts

@@ -1,11 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import {
-  batchForVoyage,
-  VOYAGE_MAX_BATCH_INPUTS,
-  VOYAGE_MAX_BATCH_TOKENS,
-} from "../src/embeddings";
+import { VOYAGE_MAX_BATCH_INPUTS, VOYAGE_MAX_BATCH_TOKENS } from "../src/constants";
+import { batchForVoyage } from "../src/embeddings";
 
 /** A text of `tokens` estimated tokens (4 chars per token, same as the batcher). */
 function text(tokens: number): string {
