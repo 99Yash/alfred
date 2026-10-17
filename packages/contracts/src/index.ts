@@ -49,6 +49,7 @@ export {
   domainSchema,
   emailDomain,
   extractEmailAddress,
+  isDomainOrSubdomain,
   normalizeEmailAddress,
   splitEmail,
 } from "./domain";

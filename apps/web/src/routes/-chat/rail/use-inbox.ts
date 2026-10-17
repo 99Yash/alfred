@@ -1,6 +1,7 @@
 import {
   collapseWhitespace,
   INBOX_DEFAULT_LIMIT,
+  isDomainOrSubdomain,
   isTriageCategory,
   parseEmailAddress,
   type TriageCategory,
@@ -283,17 +284,13 @@ function senderDomain(raw: string | null): string {
 function brandFor(domain: string): IntegrationBrand | null {
   if (!domain) return null;
 
-  if (matchesDomain(domain, "github.com")) return "github";
+  if (isDomainOrSubdomain(domain, "github.com")) return "github";
 
-  if (matchesDomain(domain, "linear.app")) return "linear";
+  if (isDomainOrSubdomain(domain, "linear.app")) return "linear";
 
-  if (matchesDomain(domain, "slack.com")) return "slack";
+  if (isDomainOrSubdomain(domain, "slack.com")) return "slack";
 
   return null;
-}
-
-function matchesDomain(host: string, base: string): boolean {
-  return host === base || host.endsWith(`.${base}`);
 }
 
 function initialFor(name: string): string {

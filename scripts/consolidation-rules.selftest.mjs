@@ -80,6 +80,12 @@ const TEST_TREE_FILE = "packages/assistant/test/flags.behavior.test.ts";
 const KNOWLEDGE_OWNER_FILE = "packages/assistant/src/knowledge/entity-kind-classifier.ts";
 
 /**
+ * A non-owner file beside `gmail.ts`. `raw-gmail-token-call` exempts only
+ * `mailbox.ts`, so the sibling that imports `./gmail` is where a fixture lives.
+ */
+const GMAIL_SIBLING_FILE = "packages/integrations/src/google/client.ts";
+
+/**
  * @type {{name: string, caught: boolean, code: string, file?: string, rule?: string, lanes?: "gate"|"all"}[]} `file`
  *   defaults to {@link FILE}; name it only when the rule under test scopes on the
  *   path. `rule` names the rule id that must fire: `selfTestFailures` asserts the
@@ -790,6 +796,141 @@ switch (resultCategory) {
     caught: false,
     code: `  const windowValues = CALENDAR_WINDOW_VALUES as readonly string[];`,
   },
+  {
+    // `raw-gmail-token-call` fences the token-taking Gmail calls inside the
+    // integrations package. The namespace and dynamic spellings name no call,
+    // so they reached every one of them before the specifier branch existed.
+    name: "raw-gmail-token-call — a named import of a token call",
+    caught: true,
+    rule: "raw-gmail-token-call",
+    file: GMAIL_SIBLING_FILE,
+    code: `import {
+  extractMessageContent,
+  listMessages,
+} from "./gmail";`,
+  },
+  {
+    name: "raw-gmail-token-call — a namespace import reaches every token call",
+    caught: true,
+    rule: "raw-gmail-token-call",
+    file: GMAIL_SIBLING_FILE,
+    code: `import * as gmail from "./gmail";`,
+  },
+  {
+    name: "raw-gmail-token-call — a bare export * re-opens the door",
+    caught: true,
+    rule: "raw-gmail-token-call",
+    file: "packages/integrations/src/google/index.ts",
+    code: `export * from "./gmail";`,
+  },
+  {
+    name: "raw-gmail-token-call — a namespace re-export",
+    caught: true,
+    rule: "raw-gmail-token-call",
+    file: "packages/integrations/src/google/index.ts",
+    code: `export * as gmail from "./gmail";`,
+  },
+  {
+    name: "raw-gmail-token-call — a specifier with a .ts extension",
+    caught: true,
+    rule: "raw-gmail-token-call",
+    file: "packages/integrations/src/index.ts",
+    code: `import { sendMessage } from "./google/gmail.ts";`,
+  },
+  {
+    name: "raw-gmail-token-call — a dynamic import",
+    caught: true,
+    rule: "raw-gmail-token-call",
+    file: GMAIL_SIBLING_FILE,
+    code: `const gmail = await import("./gmail.js");`,
+  },
+  {
+    name: "raw-gmail-token-call — the pure parsers re-exported from the barrel",
+    caught: false,
+    file: "packages/integrations/src/google/index.ts",
+    code: `export {
+  extractAttachments,
+  extractMessageContent,
+  extractMessageHtml,
+  isHistoryGoneError,
+} from "./gmail";`,
+  },
+  {
+    name: "raw-gmail-token-call — type-only imports of the argument shapes",
+    caught: false,
+    file: GMAIL_SIBLING_FILE,
+    code: `import type { GetMessageArgs, GmailMessage, SendMessageArgs } from "./gmail";`,
+  },
+  {
+    name: "raw-gmail-token-call — the mailbox is the sanctioned door",
+    caught: false,
+    file: GMAIL_SIBLING_FILE,
+    code: `import { gmailMailboxFor } from "./mailbox";`,
+  },
+  {
+    name: "raw-gmail-token-call — the assistant's gmail tool module is a different file",
+    caught: false,
+    file: "packages/assistant/src/tool-runtime/builtin-tools.ts",
+    code: `import * as gmail from "./internal/tools/gmail";`,
+  },
+  {
+    name: "raw-gmail-token-call — the owner imports the token calls",
+    caught: false,
+    file: "packages/integrations/src/google/mailbox.ts",
+    code: `import { batchModifyMessages, listMessages } from "./gmail";`,
+  },
+  {
+    // `hand-rolled-domain-match` — the variable-base spelling of "is this the
+    // domain or a subdomain". The two-direction form in entity-kind-classifier
+    // is the case the backreferences exist for.
+    name: "hand-rolled-domain-match — the inline callback, split by the formatter",
+    caught: true,
+    rule: "hand-rolled-domain-match",
+    code: `  return SERVICE_DOMAIN_SUFFIXES.some(
+    (suffix) => domain === suffix || domain.endsWith(\`.\${suffix}\`),
+  );`,
+  },
+  {
+    name: "hand-rolled-domain-match — the reversed operand order",
+    caught: true,
+    rule: "hand-rolled-domain-match",
+    code: `    candidate === domain || domain.endsWith(\`.\${candidate}\`) || candidate.endsWith(\`.\${domain}\`)`,
+  },
+  {
+    name: "hand-rolled-domain-match — the string-concatenation spelling",
+    caught: true,
+    rule: "hand-rolled-domain-match",
+    code: `  return host === base || host.endsWith("." + base);`,
+  },
+  {
+    name: "hand-rolled-domain-match — a proper-subdomain test has no equality half",
+    caught: false,
+    code: `  return domain.endsWith(\`.\${suffix}\`);`,
+  },
+  {
+    name: "hand-rolled-domain-match — the helper's own body",
+    caught: false,
+    file: "packages/contracts/src/domain.ts",
+    code: `  return domain === base || domain.endsWith(\`.\${base}\`);`,
+  },
+  {
+    name: "hand-rolled-domain-match — the equality and the suffix test name different values",
+    caught: false,
+    code: `  return host === base || other.endsWith(\`.\${base}\`);`,
+  },
+  {
+    name: "hand-rolled-domain-literal-match — a written-out host",
+    caught: true,
+    rule: "hand-rolled-domain-literal-match",
+    lanes: "all",
+    code: `  return domain === "sentry.io" || domain.endsWith(".sentry.io");`,
+  },
+  {
+    name: "hand-rolled-domain-literal-match — a different host on each side",
+    caught: false,
+    lanes: "all",
+    code: `  return domain === "stripe.email" || domain.endsWith(".stripe.com");`,
+  },
 ];
 
 // Line-scope fixtures. `boot-error-plain-extends` is a per-line rule, so it is
@@ -1038,6 +1179,90 @@ const LINE_CASES = [
     caught: false,
     lanes: "all",
     code: `  if (typeof head !== "object" || prev === null) return head;`,
+  },
+  {
+    // `oauth-state-primitive` keeps the nonce and state primitives private to
+    // the handshake. A route that calls one alone accepts a replayed state.
+    name: "oauth-state-primitive — a route verifying the state without the handshake",
+    caught: true,
+    rule: "oauth-state-primitive",
+    file: "packages/api/src/modules/integrations/github-app.ts",
+    code: `  const signed = verifyOAuthState(query.state);`,
+  },
+  {
+    name: "oauth-state-primitive — a route remembering its own nonce",
+    caught: true,
+    rule: "oauth-state-primitive",
+    file: "packages/api/src/modules/integrations/github-app.ts",
+    code: `  await rememberOAuthNonce(nonce, userId);`,
+  },
+  {
+    name: "oauth-state-primitive — the handshake is the intended door",
+    caught: false,
+    file: "packages/api/src/modules/integrations/github-app.ts",
+    code: `  const { state } = await handshake.begin({ userId });`,
+  },
+  {
+    name: "oauth-state-primitive — the module that holds the primitives",
+    caught: false,
+    file: "packages/assistant/src/connections/oauth-state.ts",
+    code: `      const signed = verifyOAuthState(rawState);`,
+  },
+  {
+    // `bullmq-job-timestamp` — the creation time read as a fire time (#1358).
+    name: "bullmq-job-timestamp — a scheduler tick dated from the creation time",
+    caught: true,
+    rule: "bullmq-job-timestamp",
+    code: `      return handleTick(new Date(job.timestamp));`,
+  },
+  {
+    name: "bullmq-job-timestamp — a receiver named for the job",
+    caught: true,
+    rule: "bullmq-job-timestamp",
+    code: `  const createdAt = bullJob.timestamp;`,
+  },
+  {
+    name: "bullmq-job-timestamp — the identity fallback for a request id",
+    caught: false,
+    code: "        requestId: `memory-job:${job.id ?? job.timestamp}`,",
+  },
+  {
+    name: "bullmq-job-timestamp — a timestamp on a value that is not a job",
+    caught: false,
+    code: "  return sql`(${effectiveAt}, ${id}) > (${new Date(key.timestamp)}, ${key.invocationId})`;",
+  },
+  {
+    name: "bullmq-job-timestamp — the helper reads it, and owns it",
+    caught: false,
+    file: "packages/assistant/src/execution/job-scheduler.ts",
+    code: `  return new Date(job.timestamp + (job.opts.delay ?? 0));`,
+  },
+  {
+    // `sender-regex-test` — a regex literal over the raw sender (#1360).
+    name: "sender-regex-test — the Railway matcher before #1360",
+    caught: true,
+    rule: "sender-regex-test",
+    lanes: "all",
+    code: String.raw`  return /railway\.(app|com)/i.test(from ?? "");`,
+  },
+  {
+    name: "sender-regex-test — a property chain ending in the sender",
+    caught: true,
+    rule: "sender-regex-test",
+    lanes: "all",
+    code: String.raw`  if (/@vercel\.com>?$/.test(email.senderAddress)) return "vercel";`,
+  },
+  {
+    name: "sender-regex-test — a named sender constant is not a literal",
+    caught: false,
+    lanes: "all",
+    code: `  return GITHUB_NOTIFICATION_RE.test(sender ?? "");`,
+  },
+  {
+    name: "sender-regex-test — a date field ending in From is not a sender",
+    caught: false,
+    lanes: "all",
+    code: String.raw`  if (!/^\d{4}-\d{2}-\d{2}$/.test(validFrom)) return null;`,
   },
 ];
 

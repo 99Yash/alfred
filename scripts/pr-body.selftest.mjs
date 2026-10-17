@@ -9,7 +9,7 @@
 // and the mutation here is always a REMOVED section, because that is the only move a
 // contributor makes by accident.
 
-import { prBodyFailures, statesCondition } from "./pr-body.mjs";
+import { closingListFailure, prBodyFailures, statesCondition } from "./pr-body.mjs";
 
 function equal(actual, expected, label) {
   const left = JSON.stringify(actual);
@@ -249,6 +249,48 @@ function statesConditionIsWired() {
   ];
 }
 
+/**
+ * GitHub links only the first issue after one closing keyword, so `Closes #1, #2` merges
+ * with #2 still open. Each list spelling must be refused, and the per-issue form that
+ * GitHub does read must pass, so the rule cannot be satisfied by refusing every keyword.
+ */
+function closingKeywordListIsRefused() {
+  const refused = [
+    "Closes #1, #2",
+    "fixes #12 and #13",
+    "Resolved: #5, #6, and #7",
+    "CLOSES 99Yash/alfred#1, 99Yash/alfred#2",
+    "Fix #3 & #4",
+  ];
+
+  const accepted = [
+    "Closes #1, closes #2",
+    "Fixes #12. Fixes #13.",
+    "Closes #1",
+    "Refs #1, #2",
+    "Follows #1340, #1341 and #1342.",
+  ];
+
+  return [
+    ...refused.flatMap((line) =>
+      closingListFailure(line) === null ? [`a closing list is accepted: ${line}`] : [],
+    ),
+    ...accepted.flatMap((line) =>
+      closingListFailure(line) === null ? [] : [`a valid reference is refused: ${line}`],
+    ),
+    ...drive("a full body with a closing list is refused", {
+      body: `${fullBody()}\n\nCloses #1, #2`,
+      ok: false,
+      missing: [],
+    }),
+    ...drive("a full body that repeats the keyword is accepted", {
+      body: `${fullBody()}\n\nCloses #1, closes #2`,
+      ok: true,
+      missing: [],
+    }),
+  ];
+}
+
 export function prBodySelfTestFailures() {
   return [
     ...completeBodyIsAccepted(),
@@ -259,5 +301,6 @@ export function prBodySelfTestFailures() {
     ...unreadableBodyIsRefused(),
     ...proseMentionIsNotASection(),
     ...statesConditionIsWired(),
+    ...closingKeywordListIsRefused(),
   ];
 }
