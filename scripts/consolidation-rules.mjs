@@ -878,9 +878,6 @@ export const RULES = [
       "packages/assistant/src/chat/compaction/index.ts",
       "packages/assistant/src/chat/index.ts",
       "packages/assistant/src/connections/mcp/index.ts",
-      // The `@alfred/ai/embeddings` package entry: `corpus` and `knowledge`
-      // read EMBEDDING_DIMENSIONS through this subpath, not the root barrel.
-      "packages/ai/src/embeddings.ts",
     ],
     fix: "Do not re-export a constant through a logic file. Import from ./constants where you use it, or export from the barrel (index.ts) if it is a public contract. A logic file that imports then exports the same name is a second door.",
   },
