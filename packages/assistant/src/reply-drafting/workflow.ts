@@ -11,9 +11,15 @@ import {
   type ReplyDraftTriageSnapshot,
 } from "@alfred/contracts";
 import { z } from "zod";
-import type { StepContext, StepResult, Workflow } from "@alfred/assistant/execution";
+import {
+  toolRuntimeForRun,
+  type StepContext,
+  type StepResult,
+  type ToolRunIdentity,
+  type Workflow,
+} from "@alfred/assistant/execution";
 import { senderSuppressions } from "@alfred/assistant/knowledge";
-import { executeToolCallRound, withdrawToolCallApproval } from "@alfred/assistant/tool-runtime";
+import { withdrawToolCallApproval } from "@alfred/assistant/tool-runtime";
 import { settings } from "@alfred/assistant/settings";
 import {
   extractSenderContext,
@@ -369,6 +375,27 @@ async function runStage(ctx: StepContext<State>): Promise<StepResult<State>> {
   return result;
 }
 
+/**
+ * The tool-run identity of one reply-drafting run. It allows exactly one tool on the one mailbox
+ * that `gather` checked. No integration is in the run envelope, and dispatch reads the absent list
+ * and the empty list as the same empty set.
+ */
+function replyToolRunIdentity(
+  ctx: Pick<StepContext<State>, "userId" | "runId">,
+  accountRef: string,
+): ToolRunIdentity {
+  return {
+    userId: ctx.userId,
+    runId: ctx.runId,
+    workflow: REPLY_DRAFTING_WORKFLOW_SLUG,
+    caller: "boss",
+    runContext: { caller: "boss", interaction: "background" },
+    allowedIntegrations: [],
+    allowedTools: ["gmail.send_draft"],
+    requiredCapabilities: [{ tool: "gmail.send_draft", accountRef }],
+  };
+}
+
 async function dispatchReply(ctx: StepContext<State>): Promise<StepResult<State>> {
   const { prepared, mailbox } = ctx.state;
 
@@ -403,23 +430,14 @@ async function dispatchReply(ctx: StepContext<State>): Promise<StepResult<State>
     }
   }
 
-  const round = await executeToolCallRound({
+  const round = await toolRuntimeForRun(replyToolRunIdentity(ctx, mailbox.accountId)).dispatch({
+    stepId: "stage",
+    fence: ctx.fence,
     calls: [
       { toolCallId: REPLY_TOOL_CALL_ID, toolName: "gmail.send_draft", input: prepared.input },
     ],
     transcript: ctx.transcript,
     activeNames: ["gmail.send_draft"],
-    run: {
-      runId: ctx.runId,
-      stepId: "stage",
-      userId: ctx.userId,
-      workflow: REPLY_DRAFTING_WORKFLOW_SLUG,
-      fence: ctx.fence,
-      caller: "boss",
-      runContext: { caller: "boss", interaction: "background" },
-      allowedTools: ["gmail.send_draft"],
-      requiredCapabilities: [{ tool: "gmail.send_draft", accountRef: mailbox.accountId }],
-    },
   });
 
   if (round.kind === "waiting") {

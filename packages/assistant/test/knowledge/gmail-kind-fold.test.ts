@@ -6,14 +6,16 @@ import { user } from "@alfred/db/schemas";
 import { gmailEmailMessagePayloadSchema, USER_MODEL_PROJECTION_NAME } from "@alfred/contracts";
 import { inArray } from "drizzle-orm";
 import {
-  activateProjectionVersion,
   appendObservationFamilyMember,
-  completeProjectionRun,
-  projectGmailKindProfiles,
-  startProjectionRun,
   userModelReader,
   type InsertObservationResult,
 } from "@alfred/assistant/knowledge";
+import { projectGmailKindProfiles } from "../../src/knowledge/gmail-kind-fold";
+import {
+  activateProjectionVersion,
+  completeProjectionRun,
+  startProjectionRun,
+} from "../../src/knowledge/projection";
 import { dbBackedSkip } from "../support/db-backed";
 
 const ID_PREFIX = "test-gmail-kind-fold-";
