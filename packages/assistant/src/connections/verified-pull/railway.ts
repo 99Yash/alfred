@@ -2,6 +2,7 @@ import {
   canonicalizeRailwayTargetId,
   emailDomain,
   getPath,
+  isDomainOrSubdomain,
   parseEmailAddress,
 } from "@alfred/contracts";
 import {
@@ -135,8 +136,7 @@ function isRailwaySender(from: string | null | undefined): boolean {
   const domain = emailDomain(parseEmailAddress(from));
 
   return (
-    domain !== null &&
-    RAILWAY_SENDER_DOMAINS.some((base) => domain === base || domain.endsWith(`.${base}`))
+    domain !== null && RAILWAY_SENDER_DOMAINS.some((base) => isDomainOrSubdomain(domain, base))
   );
 }
 

@@ -106,6 +106,48 @@ export function statesSection(body, section) {
 }
 
 /**
+ * One issue reference: `#12`, or `owner/repo#12` across repositories.
+ */
+const ISSUE_REF = String.raw`(?:[\w.-]+\/[\w.-]+)?#\d+`;
+
+/**
+ * A closing keyword followed by a LIST of issues: `Closes #1, #2`, `Fixes #3 and #4`,
+ * `resolved: #5, #6, and #7`.
+ *
+ * GitHub links only the first issue in such a list to the pull request, so a merge
+ * closes #1 and leaves the others open with no warning. The keyword must be repeated
+ * per issue (`Closes #1, closes #2`). That form does not match here: after the comma
+ * comes a keyword, not a `#`.
+ */
+const CLOSING_LIST_RE = new RegExp(
+  String.raw`\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b:?\s+${ISSUE_REF}(?:(?:\s*,\s*(?:and\s+)?|\s+and\s+|\s*&\s*)${ISSUE_REF})+`,
+  "gi",
+);
+
+/**
+ * Fenced blocks and inline code spans. GitHub does not read an issue reference inside
+ * code, so a body that QUOTES the wrong form (as this rule's own PR does) closes nothing.
+ */
+const CODE_RE = /^ {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?^ {0,3}\1[^\n]*$|(`+)[^`]*?\2/gm;
+
+/**
+ * Why the body's closing keywords would leave issues open, or null when they would not.
+ *
+ * Exported so the fixtures can drive it without a full four-section body.
+ *
+ * @param {string} body
+ * @returns {string|null}
+ */
+export function closingListFailure(body) {
+  const prose = body.replace(CODE_RE, " ");
+  const lists = [...prose.matchAll(CLOSING_LIST_RE)].map((match) => `\`${match[0]}\``);
+
+  if (lists.length === 0) return null;
+
+  return `${lists.join(", ")} closes only the first issue: GitHub reads one closing keyword per issue. Repeat the keyword for each issue, as in \`Closes #1, closes #2\`.`;
+}
+
+/**
  * What a pull request's body is missing, or why it could not be judged.
  *
  * Three refusals rather than an empty list, because a checker that cannot see the body
@@ -114,6 +156,9 @@ export function statesSection(body, section) {
  *   - `missing` when there is no body at all;
  *   - `unreadable` when `gh` failed, so the answer is not "this PR complies";
  *   - `thin` when the body is too short to hold four claims.
+ *
+ * A body that lists several issues after one closing keyword also fails, with that
+ * reason, because the merge would close only the first.
  *
  * @param {{title: string|null, body: string|null, readError?: string|null}} pr
  * @returns {{ok: boolean, missing: string[], reason: string|null}}
@@ -136,9 +181,10 @@ export function prBodyFailures({ title, body, readError = null }) {
   }
 
   const missing = REQUIRED_SECTIONS.filter((section) => !statesSection(body, section));
+  const closing = closingListFailure(body);
 
   if (missing.length > 0) {
-    return { ok: false, missing, reason: null };
+    return { ok: false, missing, reason: closing };
   }
 
   const lines = body.split("\n").filter((line) => !isHeading(line));
@@ -150,6 +196,8 @@ export function prBodyFailures({ title, body, readError = null }) {
       reason: `its body carries all four headings but only ${lines.length} line(s) of prose, which cannot be four written claims however they are formatted. A floor of ${MIN_BODY_LINES} is a measured gap between the observed bodies, not a word count.`,
     };
   }
+
+  if (closing !== null) return { ok: false, missing: [], reason: closing };
 
   return { ok: true, missing: [], reason: null };
 }

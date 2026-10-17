@@ -1,5 +1,6 @@
 // Fails when the pull request for this branch does not carry the four sections
-// `CLAUDE.md` asks for.
+// `CLAUDE.md` asks for, or when one closing keyword lists several issues
+// (`Closes #1, #2`), which closes only the first on merge.
 //
 // This is a check about a DOCUMENT, not about source, and it is the only gate in the
 // repo that reads GitHub rather than the working tree. It runs `gh`, so it fails
@@ -19,7 +20,7 @@
 
 import { spawnSync } from "node:child_process";
 
-import { prBodyFailures, viewArguments } from "./pr-body.mjs";
+import { closingListFailure, prBodyFailures, viewArguments } from "./pr-body.mjs";
 import { prBodySelfTestFailures } from "./pr-body.selftest.mjs";
 
 // A clean run of a scan that read nothing is indistinguishable from a clean run of a
@@ -115,6 +116,10 @@ if (result.missing.length > 0) {
 }
 
 if (result.reason !== null) console.error(result.reason);
+
+// The sections note explains a missing or thin body. A body that fails only on a
+// closing-keyword list has all four sections, so the note would mislead there.
+if (result.missing.length === 0 && result.reason === closingListFailure(pr.body)) process.exit(1);
 
 console.error(
   "\nCLAUDE.md asks for these four sections so a reviewer who knows the Alfred product but not this flow can read the diff's claims: `Where this change sits`, `Why this change is needed`, `What this change does`, `Preserved behavior`. Heading style is free — `### Why this change is needed`, `**Why this change is needed**` and `Why this change is needed:` all count. What is checked is that each claim is findable.\n",

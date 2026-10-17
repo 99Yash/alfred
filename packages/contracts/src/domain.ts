@@ -53,6 +53,16 @@ export function emailDomain(value: string | null | undefined): string | null {
   return parsed ? parsed.domain : null;
 }
 
+/**
+ * True when `domain` is `base` or a subdomain of it (`notify.railway.app` for
+ * `railway.app`). The match is on whole labels, so `evilrailway.app` is not one.
+ * Both values must already be normalized: the comparison is case-sensitive, like
+ * the `emailDomain` and `normalizeDomain` output its callers pass.
+ */
+export function isDomainOrSubdomain(domain: string, base: string): boolean {
+  return domain === base || domain.endsWith(`.${base}`);
+}
+
 /** Normalize and validate a domain. Use it wherever a domain is stored or compared. */
 export const domainSchema: z.ZodType<string, string> = z
   .string()

@@ -530,7 +530,15 @@ export const RULES = [
     // no longer exports them, and the package `exports` map refuses a deep
     // import, so other packages cannot reach them; this row fences the
     // integrations package's own files and a re-export that would reopen the door.
-    re: /\b(?:import|export)\s*(?:\{[^}]*\b(?:listMessages|getMessage|getThreadMessageLabels|listHistory|startWatch|stopWatch|listLabels|createLabel|modifyMessageLabels|batchModifyMessages|sendMessage|getAttachment)\b[^}]*\}|\*)\s*from\s*["'][^"']*\/gmail["']/,
+    //
+    // A namespace import (`import * as gmail from "./gmail"`, `export * as g`)
+    // and a dynamic `import("./gmail")` reach every token call without naming
+    // one, so they match on the specifier alone. The specifier may carry a
+    // `.ts` / `.js` extension. The path must be the sibling `./gmail` or end in
+    // `google/gmail`, so the assistant's `./internal/tools/gmail` tool module is
+    // not this file. A named import of the pure parsers (`extractMessageContent`,
+    // the types) stays legal.
+    re: /\b(?:import|export)\s*(?:\{[^}]*\b(?:listMessages|getMessage|getThreadMessageLabels|listHistory|startWatch|stopWatch|listLabels|createLabel|modifyMessageLabels|batchModifyMessages|sendMessage|getAttachment)\b[^}]*\}|\*(?:\s*as\s+\w+)?)\s*from\s*["'](?:[^"']*\/google\/|\.\.?\/)gmail(?:\.[cm]?[jt]s)?["']|\bimport\(\s*["'](?:[^"']*\/google\/|\.\.?\/)gmail(?:\.[cm]?[jt]s)?["']\s*\)/,
     scope: "chain",
     severity: "gate",
     owners: ["packages/integrations/src/google/mailbox.ts"],
@@ -549,6 +557,60 @@ export const RULES = [
     fix: "Use parseEmailAddress(value) from @alfred/contracts to pull an address out of a `Name <addr>` header and normalize it. It is also the single source of self-mail matching.",
   },
   {
+    id: "sender-regex-test",
+    // An inline regex literal run with `.test(` over a sender value:
+    // `/railway\.(app|com)/i.test(from)`. A substring test on the raw header
+    // also matches the display name and a look-alike host (`railway.app.evil.io`,
+    // `"Railway" <x@evil.io>`); the Railway matcher shipped that way until #1360.
+    // `raw-email-normalize` only sees the `.match(/<(?` header split, so it
+    // missed this spelling.
+    //
+    // The argument is an identifier (or a property chain ending in one) named
+    // `from`, `fromHeader`/`fromAddress`/`fromEmail`, `sender…` or `…Sender…`.
+    // A bare `…From` suffix is left out: `validFrom` and `dateFrom` are dates,
+    // not senders. Only a regex LITERAL matches: the named constants
+    // (`MONITORING_SENDER_RE.test(sender)` and its siblings in triage) test an
+    // address substring or a display word, which is a different question, and
+    // they predate the helpers. `hint`, because a display-name test
+    // (`/^alfred/i.test(sender)`) is a fair use too.
+    re: /\/[dgimsuvy]*\.test\(\s*(?:\w+\??\.)*(?:from|from(?:Header|Address|Addr|Email)|sender\w*|\w+(?:Sender\w*|FromHeader|FromAddress|FromAddr|FromEmail))\b/,
+    severity: "hint",
+    fix: "Read the sender's domain with emailDomain(parseEmailAddress(from)) from @alfred/contracts, then compare it with isDomainOrSubdomain(domain, base). A regex over the raw header also matches the display name and a look-alike host.",
+  },
+  {
+    id: "hand-rolled-domain-match",
+    // `host === base || host.endsWith(`.${base}`)` — "is this the domain or a
+    // subdomain of it", with the base in a variable. Five copies existed (web
+    // inbox brand, Railway sender, two in entity-kind-classifier) before
+    // `isDomainOrSubdomain`. Either operand order of the `===` matches, and so
+    // does the `"." + base` spelling. `scope: "chain"`, because the formatter
+    // breaks the `||` across lines inside a `.some(` callback.
+    //
+    // A bare `x.endsWith(`.${base}`)` with no equality half is a different
+    // question (a PROPER subdomain only), and `identity-affiliation.ts` asks it
+    // on purpose: `squarespace.com` itself can be an employer, its children
+    // cannot. The rule does not match that spelling.
+    re: /\b([\w.]+)\s*===\s*([\w.]+)\s*\|\|\s*(?:\1\.endsWith\(\s*(?:`\.\$\{\s*\2\s*\}`|["']\.["']\s*\+\s*\2\s*\))|\2\.endsWith\(\s*(?:`\.\$\{\s*\1\s*\}`|["']\.["']\s*\+\s*\1\s*\)))/,
+    scope: "chain",
+    severity: "gate",
+    owners: ["packages/contracts/src/domain.ts"],
+    fix: "Use isDomainOrSubdomain(domain, base) from @alfred/contracts. It matches whole labels and expects normalized (lowercase) values, as emailDomain and normalizeDomain return them. For a proper subdomain only, keep the bare endsWith.",
+  },
+  {
+    id: "hand-rolled-domain-literal-match",
+    // The same idiom with the base written out: `domain === "sentry.io" ||
+    // domain.endsWith(".sentry.io")`. `hint`, because six such sites predate
+    // the helper: three in `triage/sender-context.ts`, and one each in
+    // `object-state/sentry-adapter.ts`, `hosted-endpoint.ts` and the web
+    // `briefing-link.tsx`. The backreference pins both
+    // halves to one value and one host, so a different host on either side does
+    // not match.
+    re: /\b([\w.]+)\s*===\s*(["'])([\w.-]+)\2\s*\|\|\s*\1\.endsWith\(\s*(["'])\.\3\4\s*\)/,
+    scope: "chain",
+    severity: "hint",
+    fix: 'Use isDomainOrSubdomain(domain, "sentry.io") from @alfred/contracts. It expects normalized (lowercase) values, as emailDomain and normalizeDomain return them.',
+  },
+  {
     id: "hand-rolled-no-reply-regex",
     // A `no[-_.]?reply` / `no[-_]?reply` alternation inside a regex literal.
     // `hint`, not `gate`: two SERVICE_LOCAL_PREFIX_RE declarations legitimately
@@ -558,6 +620,23 @@ export const RULES = [
     severity: "hint",
     owners: ["packages/contracts/src/identity-affiliation.ts"],
     fix: "hasServiceWordSuffix(localPart) from @alfred/contracts owns the SUFFIX half of the no-reply family (`messages-noreply`, `nse_alerts`, `store-news`) and carries the prod measurement behind it. Reach for it before re-spelling the alternation. A PREFIX test (`^noreply-…`) is a different question and stays in its owning module.",
+  },
+  {
+    id: "bullmq-job-timestamp",
+    // `job.timestamp` is when BullMQ CREATED the job. For a job scheduler
+    // (`upsertJobScheduler`) the next job is created when the previous one runs,
+    // so the field lags its fire time by one interval. A tick that read it as
+    // "now" dated briefings and daily memory runs one interval early (#1358).
+    // The receiver must be named `job` or end in `Job` (`bullJob`), so an
+    // unrelated `.timestamp` (`key.timestamp` in mcp/recovery.ts) is not read.
+    //
+    // `job.id ?? job.timestamp` is an IDENTITY fallback for a request id, not a
+    // time reading (knowledge/queue.ts). The lookbehind skips a `.timestamp`
+    // that is the right side of an `id ??`, so that site needs no marker.
+    re: /(?<!\bid\s*\?\?\s*(?:\w+\.)?)\b(?:job|\w+Job)\.timestamp\b/,
+    severity: "gate",
+    owners: ["packages/assistant/src/execution/job-scheduler.ts"],
+    fix: "Use scheduledFireTime(job) from @alfred/assistant/execution for the time a job scheduler fired this job for. BullMQ sets job.timestamp when it creates the job, one interval before a scheduled job runs. For when the job really started, read job.processedOn. If the value is an identity, not a time, append `// drift-ok: <what it identifies>`.",
   },
   {
     id: "spread-over-defaults",

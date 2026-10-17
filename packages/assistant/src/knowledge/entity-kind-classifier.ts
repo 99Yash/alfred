@@ -5,6 +5,7 @@ import {
   gmailEmailMessagePayloadSchema,
   hasServiceWordSuffix,
   identityRefSchema,
+  isDomainOrSubdomain,
   integrationObjectKeySegment,
   INTEGRATION_OBJECT_KIND_SEGMENTS,
   isServiceEvidenceCode,
@@ -372,9 +373,7 @@ export function isExactGroupLocal(localPart: string): boolean {
 }
 
 function isServiceDomain(domain: string): boolean {
-  return SERVICE_DOMAIN_SUFFIXES.some(
-    (suffix) => domain === suffix || domain.endsWith(`.${suffix}`),
-  );
+  return SERVICE_DOMAIN_SUFFIXES.some((suffix) => isDomainOrSubdomain(domain, suffix));
 }
 
 function hasAutoSubmittedServiceSignal(value: string | null | undefined): boolean {
@@ -447,9 +446,7 @@ function restatesOwnDomain(value: string, domain: string): boolean {
 
   if (classifyBareDomain({ domain: candidate }) === null) return false;
 
-  return (
-    candidate === domain || domain.endsWith(`.${candidate}`) || candidate.endsWith(`.${domain}`)
-  );
+  return isDomainOrSubdomain(domain, candidate) || isDomainOrSubdomain(candidate, domain);
 }
 
 export interface ClassifyContactKindInput {
