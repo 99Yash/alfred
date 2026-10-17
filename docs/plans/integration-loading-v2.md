@@ -1,3 +1,8 @@
+---
+status: done
+evidence: "ADR-0053 accepted; dispatch floor in #577 and #893; system.load_integration retired."
+---
+
 # Deterministic connected tools (eager declaration + dispatch floor)
 
 **Date:** 2026-06-07

@@ -1,3 +1,8 @@
+---
+status: done
+evidence: "#248 (2026-06-22) and #872 (2026-08-20) merged. The chat_attachments table and chat/attachments/attachments.ts exist."
+---
+
 # Chat file uploads — v1 (ADR-0065)
 
 > **Status.** SHIPPED. Verified in code 2026-07-26: the composer has a real file

@@ -1,3 +1,8 @@
+---
+status: superseded
+evidence: "Largely built, then replaced by triage v3 (ADR-0051) and briefing v3 (ADR-0048)."
+---
+
 # Triage + briefing v2 — implementation plan
 
 Rebuilds m9 (email triage) and m10 (morning briefing) under [ADR-0042](../decisions/ADR-0042-email-triage-v2-layered-pipeline-with.md) and [ADR-0041](../decisions/ADR-0041-daily-briefing-v2-cross-source-llm-compose.md) plus the inline amendments to ADR-0025, ADR-0031, ADR-0033. The two ADRs are independent but share foundations (contracts package, OAuth scopes, observability) and one cross-cutting consumer (the briefing's email gather contributor reads triage rollup).

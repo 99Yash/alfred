@@ -1,3 +1,8 @@
+---
+status: in-progress
+evidence: "Seam 1 (ingress, ADR-0097) shipped in #973, #978, #983. Epic #554 open; #564 to #567 open."
+---
+
 # Composable automation substrate v1 — kernel, workspace, execution ladder
 
 **Status:** PRD / design draft · **Date:** 2026-07-25

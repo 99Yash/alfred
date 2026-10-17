@@ -1,3 +1,8 @@
+---
+status: done
+evidence: "Epic #553 and slices #555 to #561 closed; #610 and #972 merged."
+---
+
 # User-Authored Workflows v1 — chat-authored, interpreted, revisioned, capability-gated
 
 **Status:** PRD / researched draft · **Date:** 2026-07-22  

@@ -4,6 +4,7 @@ import {
   type VercelClient,
   type VercelProject,
 } from "@alfred/integrations/vercel";
+import { z } from "zod";
 import { VERCEL_PULL_EVENT_TYPE } from "../object-state/vercel-reducer";
 import {
   MAX_VERIFIED_PULL_TARGETS,
@@ -22,8 +23,8 @@ import {
  * Reads go over the curated Vercel grant, not Vercel MCP: its auth server accepts
  * only loopback redirects (`docs/plans/vercel-mcp-retirement.md`). The client reads
  * `/v10/projects` and `/v7/deployments` with the install's `team_id` as `?teamId=`.
- * Both shapes come from Vercel's docs and are not yet measured on the wire, so a body
- * the client's schema refuses throws, and the throw reads as unverified here.
+ * Both shapes were measured from the production container on 2026-10-17 and matched (#1193).
+ * A body the client's schema refuses still throws, and the throw reads as unverified here.
  * A deployment counts only if it names its own repo, branch, and environment.
  */
 /** The identity the dispatch and the pull share. */
@@ -46,6 +47,14 @@ interface VercelDeploymentReading {
   reading: VerifiedPullReading;
 }
 
+/** One project's deployment list. */
+interface VercelProjectDeployments {
+  /** Readable deployments, newest first. */
+  readings: VercelDeploymentReading[];
+  /** Targets with a deployment in a state outside `VERCEL_DEPLOYMENT_STATES`. A miss on one is a fault. */
+  unknownStateTargets: ReadonlySet<string>;
+}
+
 interface VercelReadSession {
   client: VercelClient;
   projects: readonly VercelProjectRef[];
@@ -55,13 +64,13 @@ interface VercelReadSession {
    */
   repoProjects: Map<string, Promise<VercelProjectRef[] | null>>;
   /** One read per project per gather, shared by every target. */
-  deployments: Map<string, Promise<VercelDeploymentReading[] | null>>;
+  deployments: Map<string, Promise<VercelProjectDeployments | null>>;
 }
 
 /** Sent as the list limit of the scan and of each repo lookup, so it also caps the deployments calls. */
 const VERCEL_PROJECT_SCAN_LIMIT = 10;
 
-/** Safe only because `/v6/deployments` is newest first: the cap drops the oldest. */
+/** Safe only because `/v7/deployments` is newest first: the cap drops the oldest. */
 const VERCEL_DEPLOYMENT_READ_LIMIT = 100;
 
 function toProjectRef(project: VercelProject): VercelProjectRef {
@@ -91,20 +100,40 @@ async function openVercelRead(userId: string): Promise<VercelReadSession | null>
   }
 }
 
-/** Exact match only: `CANCELED`, `DELETED`, or an unknown state reads as `null`. */
-function collapseVercelState(state: string | null | undefined): VerifiedPullStatus | null {
-  switch (state) {
-    case "READY":
-      return "success";
-    case "ERROR":
-      return "failure";
-    case "BUILDING":
-    case "INITIALIZING":
-    case "QUEUED":
-      return "pending";
-    default:
-      return null;
-  }
+/** Vercel's documented deployment states. The client keeps the wire value a `string`. */
+const VERCEL_DEPLOYMENT_STATES = [
+  "READY",
+  "ERROR",
+  "BUILDING",
+  "INITIALIZING",
+  "QUEUED",
+  "CANCELED",
+  "DELETED",
+] as const;
+
+const vercelDeploymentStateSchema = z.enum(VERCEL_DEPLOYMENT_STATES);
+
+/**
+ * `satisfies` forces a verdict for every documented state. `null`: the deployment proves no health,
+ * so it is skipped, and a target with only such deployments can read as `absent`.
+ */
+const VERDICT_BY_VERCEL_STATE = {
+  READY: "success",
+  ERROR: "failure",
+  BUILDING: "pending",
+  INITIALIZING: "pending",
+  QUEUED: "pending",
+  CANCELED: null,
+  DELETED: null,
+} satisfies Record<(typeof VERCEL_DEPLOYMENT_STATES)[number], VerifiedPullStatus | null>;
+
+/** `"unknown"` for a missing state or one this build does not know: a miss is then a fault. */
+function collapseVercelState(
+  state: string | null | undefined,
+): VerifiedPullStatus | null | "unknown" {
+  const known = vercelDeploymentStateSchema.safeParse(state);
+
+  return known.success ? VERDICT_BY_VERCEL_STATE[known.data] : "unknown";
 }
 
 function parseProviderInstant(value: number | string | null | undefined): Date | null {
@@ -115,11 +144,11 @@ function parseProviderInstant(value: number | string | null | undefined): Date |
   return Number.isNaN(time.getTime()) ? null : time;
 }
 
-/** Readable deployments of one project, newest first, cached per gather. `null` proves nothing. */
+/** Deployments of one project, cached per gather. `null` proves nothing. */
 function readProjectDeployments(
   session: VercelReadSession,
   project: VercelProjectRef,
-): Promise<VercelDeploymentReading[] | null> {
+): Promise<VercelProjectDeployments | null> {
   const cached = session.deployments.get(project.projectId);
 
   if (cached) return cached;
@@ -128,13 +157,14 @@ function readProjectDeployments(
     .deployments({ projectId: project.projectId, limit: VERCEL_DEPLOYMENT_READ_LIMIT })
     .then((deployments) => {
       const readings: VercelDeploymentReading[] = [];
+      const unknownStateTargets = new Set<string>();
 
       for (const deployment of deployments) {
         const status = collapseVercelState(deployment.state);
         const branch = deployment.git?.ref ? parseGitBranchRef(deployment.git.ref) : null;
 
         // Only the deployment's own claim names a target; never infer it from the project.
-        if (!status || !branch || !deployment.git || !deployment.environment) continue;
+        if (status === null || !branch || !deployment.git || !deployment.environment) continue;
 
         const target: VercelPullTarget = {
           repoFullName: `${deployment.git.org}/${deployment.git.repo}`,
@@ -145,6 +175,11 @@ function readProjectDeployments(
         const targetId = canonicalizeVercelTargetId(target);
 
         if (!targetId) continue;
+
+        if (status === "unknown") {
+          unknownStateTargets.add(targetId);
+          continue;
+        }
 
         const url = deployment.url ?? null;
 
@@ -162,11 +197,13 @@ function readProjectDeployments(
       }
 
       // Do not trust server order. No instant sorts last; ties keep server order.
-      return readings.sort(
+      readings.sort(
         (a, b) =>
           (b.reading.providerEventTime?.getTime() ?? Number.NEGATIVE_INFINITY) -
           (a.reading.providerEventTime?.getTime() ?? Number.NEGATIVE_INFINITY),
       );
+
+      return { readings, unknownStateTargets };
     })
     // An error proves nothing, so return `null`, never a partial reading.
     .catch(() => null);
@@ -200,7 +237,10 @@ function lookupRepoProjects(
   return pending;
 }
 
-/** The newest reading across the projects that names the target, and whether any list faulted. */
+/**
+ * The newest reading across the projects that names the target. `faulted`: a list faulted, or held
+ * a deployment of the target in an unknown state, so a miss proves nothing.
+ */
 async function newestTargetReading(
   session: VercelReadSession,
   projects: readonly VercelProjectRef[],
@@ -210,11 +250,11 @@ async function newestTargetReading(
   let faulted = false;
 
   for (const project of projects) {
-    const readings = await readProjectDeployments(session, project);
+    const listed = await readProjectDeployments(session, project);
 
-    if (!readings) faulted = true;
+    if (!listed || listed.unknownStateTargets.has(targetId)) faulted = true;
 
-    const match = readings?.find((item) => item.targetId === targetId);
+    const match = listed?.readings.find((item) => item.targetId === targetId);
 
     if (!match) continue;
 
@@ -291,7 +331,7 @@ export async function discoverVercelTargets(
     const targets = new Map<string, VercelPullTarget>();
 
     for (const project of session.projects) {
-      for (const item of (await readProjectDeployments(session, project)) ?? []) {
+      for (const item of (await readProjectDeployments(session, project))?.readings ?? []) {
         if (targets.size >= limit) return [...targets.values()];
 
         if (!targets.has(item.targetId)) targets.set(item.targetId, item.target);

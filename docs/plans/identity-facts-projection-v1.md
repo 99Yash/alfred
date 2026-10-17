@@ -1,3 +1,8 @@
+---
+status: in-progress
+evidence: "Slice 1a and PR A merged (#341, #343). PR B (the identity_facts reducer) and PR C (cutover) are not built."
+---
+
 # Identity facts as a projection over the observation log (v1)
 
 **Status:** DESIGNED (grilled 2026-06-29). ADR-0080. Projection not built.

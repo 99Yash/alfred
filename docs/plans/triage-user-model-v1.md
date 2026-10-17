@@ -1,3 +1,8 @@
+---
+status: in-progress
+evidence: "Slices merged (#389, #444, #480, #1110). No observation-contract types and no recategorize or backfill scripts; #210 and #218 open."
+---
+
 # Triage user-model — v1 (the significance-weighted category consumer)
 
 Fixes the root cause behind triage over-tagging (#210/#218): the classifier reasons about _what a mail says_, blind to **who the user is**, **whether the mail is even theirs to act on**, and **how much its sender/stakes matter**. Over-tagging is the symptom; the absent user-model is the disease. Designed in one grill (2026-06-23) as **ADR-0066** (amends ADR-0048/0059/0060), then re-scoped by **ADR-0067**: this plan now owns the **category semantics and consumer cutover**, while the entity cleanup, identities, "You" inputs, fact hygiene, and backfill substrate come from the multi-source observation-log foundation.

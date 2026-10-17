@@ -1,3 +1,8 @@
+---
+status: done
+evidence: "#512 merged 2026-07-15; system.append_artifact_section exists."
+---
+
 # Incremental document authoring — v1 plan (ADR-0085, Gap 2)
 
 **Status:** IMPLEMENTED and **live re-probe PASSED (2026-07-14)** — the acceptance gate is met. Code + unit/write-path tests green, `pnpm check-types` clean. See "Live re-probe results" at the bottom.

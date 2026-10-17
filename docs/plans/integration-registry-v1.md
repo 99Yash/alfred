@@ -1,3 +1,8 @@
+---
+status: done
+evidence: "PRs 1 to 4 merged 2026-09-03: #944, #945, #947, #948."
+---
+
 # Integration registry v1 — one entry per integration, the slug is the only key
 
 > **Status.** In progress. PR 1 (contracts) merged as #944, PR 2 (server) as #945, and PR 3 (web)

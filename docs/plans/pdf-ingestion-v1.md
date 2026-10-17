@@ -1,3 +1,8 @@
+---
+status: done
+evidence: "#649 closed 2026-08-20; ADR-0091 and @alfred/extraction exist (#867 to #879)."
+---
+
 # Grounded PDF ingestion — actualization plan for issue #649
 
 Status: researched, not started. Sources: issue #649, three seam maps of this repo (2026-08-19),

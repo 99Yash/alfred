@@ -1,3 +1,8 @@
+---
+status: proposed
+evidence: "Nothing built; no chat-captured or proposed skill code."
+---
+
 # User-defined skills (v1)
 
 > **Status:** design proposal. Nothing is built yet.

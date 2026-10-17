@@ -1,3 +1,8 @@
+---
+status: done
+evidence: "#321 merged 2026-06-28; #292, #293, #294 closed."
+---
+
 # Security hardening — #292 / #293 / #294 (under #286)
 
 Locked via /grilling on 2026-06-28. **One PR: `fix/286-security-hardening`** covering all

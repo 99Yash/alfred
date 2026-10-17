@@ -1,3 +1,8 @@
+---
+status: done
+evidence: "#212 closed 2026-06-21; connections/object-state/store.ts exists."
+---
+
 # Integration object-state memory — v1 vertical slice (#212, ADR-0062)
 
 Tier 1 of epic #218. Implements ADR-0062 for the **GitHub PR / CI** case only; resolves the "merged PR shows failing for days" briefing loop. Honors ADR-0048 (`absence never closes`).

@@ -1,3 +1,8 @@
+---
+status: in-progress
+evidence: "Raw client, OAuth, broker, and UI built (#926 to #1131). The Code Mode binding is absent and ADR-0018 is not amended."
+---
+
 # Alfred MCP client — raw transport and execution-broker decision map
 
 Status: bootstrap scoped 2026-07-21

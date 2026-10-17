@@ -1,3 +1,8 @@
+---
+status: proposed
+evidence: "No meeting_preps table and no prepare_meeting tool; list_meeting_preps returns an empty list."
+---
+
 # Meeting prep v1 (MEET-001) — implementation plan
 
 Implements **[ADR-0054](../decisions/ADR-0054-meeting-prep-persisted-per-occurrence-packet.md)** (meeting prep: persisted

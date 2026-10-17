@@ -1,3 +1,8 @@
+---
+status: proposed
+evidence: "Only prerequisites closed (#216, #249 via #433). No envelope, pinning, or escalation in code."
+---
+
 # Model router v1 — chat effort-envelope router (PRD + build plan)
 
 > **Status.** Design grilled and locked 2026-06-22. **No code yet.** This supersedes the

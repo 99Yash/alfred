@@ -198,6 +198,19 @@ For the lint vs review split on these ownership rules, see `code-asserts.md` —
 - **Webhook signatures** verified with a timing-safe compare, against the **raw** body (re-parsed JSON breaks HMAC).
 - **Migrations:** `db:generate` → `db:migrate`. Never `db:push` outside local exploration (see [database.md](./database.md)). New endpoints inherit auth + rate-limiting via `.guard()` / `.onError()` — don't leave a route uncovered (see [elysia.md](./elysia.md)).
 
+### Results, queue keys, and clocks
+
+Four rules from the 2026-10-17 verified-pull retro. Each defect compiled, passed review, and was found in production data.
+
+- **One return value means one state.** When a read can fault and can also find nothing, give the miss its own variant (`VerifiedPullRead`: a reading, `"absent"`, or `null` for a fault).
+  Why: a counter of misses that also counts faults demotes healthy rows during a provider outage. Taught by #1356.
+- **Never use `updatedAt` or another `$onUpdate` column as a queue or scheduling key.** Put the queue position in its own column or table (`integration_object_pulls`).
+  Why: a pass that writes nothing never moves the key, so the same rows win every turn (#1351); a stamp on the row moves `updatedAt` and reorders every reader that sorts by it. Taught by #1355.
+- **Name the clock of every timestamp, and compare only timestamps of one clock.** Creation, delivery (`deliveredAt`), provider event (`providerEventTime`), and fire time are different clocks.
+  Why: BullMQ `job.timestamp` is the creation time of a scheduler job, one interval before its fire time, so every briefing read the previous hour. Taught by #1358 (`scheduledFireTime`).
+- **A provider status map is exhaustive.** List the provider's statuses in a tuple, map them with `satisfies Record<Status, …>` or a `never`-guarded switch, and make a value outside the set an explicit fault, never a default such as `absent`.
+  Why: an unknown Vercel state was skipped like a missing deployment, so the target could read as `absent` and count toward demotion. See `VERDICT_BY_VERCEL_STATE` and the Sentry `NATIVE_STATE_BY_REST_STATUS`.
+
 ## 4. Frontend (apps/web)
 
 - **Effects:** clean up subscriptions/timers; verify dependency arrays (missing dep = stale closure, extra dep = loop). Guard against state updates after unmount.
@@ -237,5 +250,7 @@ Escape hatch `// tautology-ok: <reason>` is chain-aware (like `// drift-ok:`) �
 9. Webhook HMAC verified against re-parsed (not raw) body.
 10. Unbilled `Promise.all` work that keeps running after a sibling fails.
 11. Tautological test — `assert.equal(fn(x), fn(x))`, rebuilt `0..N-1` oracle, literal pin with no `why`, `assert.ok(x)` alone, or `calls.length` alone (§5).
+12. One `null` for both a fault and a miss, an `updatedAt` queue key, a timestamp with no named clock, or a status map with a silent default (§3, Results, queue keys, and clocks).
+13. A PR built on an issue's factual premise that nobody checked against data ([structural-review.md](./structural-review.md#breadth-discovers-depth-proves), pass 1).
 
 > Before claiming a library _can't_ do something, check its `.d.ts`, its repo, or the relevant reference doc here. Most "limitations" are a missing option name.

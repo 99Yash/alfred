@@ -1,3 +1,8 @@
+---
+status: in-progress
+evidence: "PR 1 (the catalog) merged as #941. PRs 2 to 5 not built; FAILURE_PRESENTATION is still in message-bubble.tsx."
+---
+
 # Typed failures v1 — one catalog, one classifier per seam, a structured fix
 
 > **Status.** PR 1 (the catalog) built on branch `feat/typed-failures-catalog`, 2026-09-02.

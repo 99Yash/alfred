@@ -1,3 +1,8 @@
+---
+status: in-progress
+evidence: "#398 (trigger and extractor) closed. #399, #400, #401 open; chat-memory-capture.ts carries TODO(#399)."
+---
+
 # Chat → memory capture v1 — implicit learning from conversations
 
 Status: **design grill-locked 2026-07-04; tightened 2026-07-04**. This is the build spec for the **chat→memory** path of **ADR-0057 §4**, re-grounded on the **ADR-0067** observation-log substrate (which post-dates the original ADR-0057 plan). Builds on **ADR-0056** (autonomous-write + tiered-notify + always-reversible), **ADR-0060** (standing instructions), **ADR-0079** (#330 capture gate), **ADR-0080** (identity-fact projection). Record as an **amendment to ADR-0057** + a pilot note on **ADR-0067**, not a new ADR — the substrate already made the architectural decision.

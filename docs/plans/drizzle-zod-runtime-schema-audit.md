@@ -1,3 +1,8 @@
+---
+status: done
+evidence: "The createInsertSchema derivations it decided are in packages/db/src/schema/memory.ts."
+---
+
 # Drizzle–Zod runtime-schema audit
 
 **Date:** 2026-07-11

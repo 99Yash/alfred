@@ -1,3 +1,8 @@
+---
+status: done
+evidence: "Phases 1 to 9 checked; spawn_sub_agent, action policies, and staging exist."
+---
+
 # m13 — Boss + sub-agent orchestration (implementation plan)
 
 m13 fills the user-authored workflow execution gap left after the planned m12 `user_authored_brief_execution_pending_m13` stub was scoped out, then ships the full boss-agent runtime. It lands three new ADRs in one milestone: **0034** (HIL approval + action staging), **0035** (transcript compaction at 60%), **0036** (Redis-primary scratchpad with Postgres terminal snapshot), on top of **0016** (sub-agent fan-out) and **0026** (`AlfredAgent` per-turn driver).

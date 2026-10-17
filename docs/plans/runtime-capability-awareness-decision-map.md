@@ -1,3 +1,8 @@
+---
+status: in-progress
+evidence: "Only the prompt preamble shipped (selfIdentityGrounding, #999). No system.describe_capabilities tool."
+---
+
 # Runtime capability awareness decision map
 
 Working name: "sentient" / "self-aware" AI. Product name still open.

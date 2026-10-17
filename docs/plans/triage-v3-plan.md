@@ -1,3 +1,8 @@
+---
+status: done
+evidence: "Phases 0 to 4 landed 2026-06-05; docs/reference/triage.md describes v3."
+---
+
 # Triage v3 — implementation plan
 
 Implements **[ADR-0051](../decisions/ADR-0051-email-triage-v3-cheap-model-always-made-smart.md)** (email triage v3: cheap-model-always,

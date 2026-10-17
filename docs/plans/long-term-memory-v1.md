@@ -1,3 +1,8 @@
+---
+status: in-progress
+evidence: "Slice 1 and P0, P1, P3, P4a shipped. P2 (update_fact) and SI-1 to SI-6 are open; epic #218 open."
+---
+
 # Long-term memory v1 — grounding + persistent memory foundation
 
 Status: design locked 2026-06-11 (grill-with-docs); **vertical slice 1 locked 2026-06-15** (grill-with-docs). Decisions: **ADR-0056** (governance) + **ADR-0057** (capture + significance + chat→memory) + **ADR-0058** (store: Postgres over a graph DB; build the intelligence, don't buy the store) + **ADR-0059** (directional triage significance — un-defers D1, **reorders P3 + P4a ahead of vertical slice 1**, splits P4 into P4a/P4b, 2026-06-15 grill-with-docs) + **ADR-0060** (standing-instructions generalization — prose-first central store + deterministic-enforcement carve-out, 2026-06-17 grill-with-docs; build order under _Standing instructions — generalization build order_). Glossary terms in [CONTEXT.md](../../CONTEXT.md) under _Long-term memory_ + _Run grounding_ (incl. _Suppression standing instruction_, _Resolve-at-write_, _Recurrence-decay_). Backlog rows `GROUND-001/002/003`, `MEM-002` in [june-demo-triage.md](./june-demo-triage.md).

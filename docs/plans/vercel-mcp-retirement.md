@@ -1,6 +1,15 @@
+---
+status: done
+evidence: "#1259 (transport), #1350 (steps 2 and 3), #1353, #1355, #1356. Gate 1 measured in production 2026-10-17 (#1193)."
+---
+
 # Retire the Vercel MCP built-in; serve the pull from the curated Vercel grant
 
-Status: delivered in code (steps 1 to 3); gate 1's live measurement is still open
+Status: done. Steps 1 to 3 are in code (#1259, #1350). Gate 1 was met in production on
+2026-10-17 (#1193): the `/v10/projects` and `/v7/deployments` bodies passed the client's
+schemas from the production container. A probe branch on `99Yash/olivia` went READY,
+ERROR, then READY, and after each step the pull read the same deployment that the
+target row held. #1353, #1355, and #1356 fixed what the live pull then showed. The "not yet measured" lines below are the record from before that.
 
 Decides: [ADR-0093](../decisions/ADR-0093-integration-registry-one-entry-per-integration.md)
 rule 1, [ADR-0062](../decisions/ADR-0062-integration-object-state-memory-a-deterministic.md)
