@@ -18,18 +18,20 @@ import { USER_MODEL_PROJECTION_NAME } from "@alfred/contracts";
 import { and, eq, inArray } from "drizzle-orm";
 
 import {
-  activateProjectionVersion,
   appendObservationFamilyMember,
-  completeProjectionRun,
   EntityIdentityConflictError,
   ensureEntityNode,
-  failProjectionRun,
   insertObservation,
   recordEntityIdentity,
-  startProjectionRun,
   userModelReader,
-  writeProjectionCursor,
 } from "@alfred/assistant/knowledge";
+import {
+  activateProjectionVersion,
+  completeProjectionRun,
+  failProjectionRun,
+  startProjectionRun,
+  writeProjectionCursor,
+} from "../../src/knowledge/projection";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**

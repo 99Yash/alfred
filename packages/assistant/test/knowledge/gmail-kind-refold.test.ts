@@ -6,14 +6,16 @@ import { observations, projectionRuns, user } from "@alfred/db/schemas";
 import { gmailEmailMessagePayloadSchema, USER_MODEL_PROJECTION_NAME } from "@alfred/contracts";
 import { and, desc, eq, inArray, lte, sql } from "drizzle-orm";
 import {
-  activateProjectionVersion,
   appendObservationFamilyMember,
-  completeProjectionRun,
-  projectGmailKindProfiles,
   refoldActiveGmailKindProjection,
-  startProjectionRun,
   userModelReader,
 } from "@alfred/assistant/knowledge";
+import { projectGmailKindProfiles } from "../../src/knowledge/gmail-kind-fold";
+import {
+  activateProjectionVersion,
+  completeProjectionRun,
+  startProjectionRun,
+} from "../../src/knowledge/projection";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**

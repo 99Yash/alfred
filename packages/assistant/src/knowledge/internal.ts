@@ -24,3 +24,6 @@ export { loadSelfIdentity } from "./self-identity";
 export { embedMemoryChunk, findPendingEmbedChunks } from "./chunks";
 
 export { isRejected } from "./rejected";
+
+// Activation is a backfill decision after its dry runs agree. The refold activates in-module.
+export { activateProjectionVersion } from "./projection";

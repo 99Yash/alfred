@@ -5,14 +5,13 @@ import { closeConnections, db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
 import { gmailEmailMessagePayloadSchema, USER_MODEL_PROJECTION_NAME } from "@alfred/contracts";
 import { inArray } from "drizzle-orm";
+import { appendObservationFamilyMember, userModelReader } from "@alfred/assistant/knowledge";
+import { projectGmailKindProfiles } from "../../src/knowledge/gmail-kind-fold";
 import {
   activateProjectionVersion,
-  appendObservationFamilyMember,
   completeProjectionRun,
-  projectGmailKindProfiles,
   startProjectionRun,
-  userModelReader,
-} from "@alfred/assistant/knowledge";
+} from "../../src/knowledge/projection";
 import { resolveSenderKind } from "@alfred/assistant/triage";
 import { dbBackedSkip } from "../support/db-backed";
 

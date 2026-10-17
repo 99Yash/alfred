@@ -24,10 +24,8 @@ export {
   type GmailReductionResult,
 } from "./gmail-reducer";
 
-export { projectGmailKindProfiles, type ProjectGmailKindProfilesResult } from "./gmail-kind-fold";
-
-export { projectGmailWorksAtEdges, type ProjectGmailWorksAtEdgesResult } from "./gmail-edge-fold";
-
+// The one door to a completed Gmail projection run. The run primitives (`./projection`) and the
+// kind and edge folds stay private, so no caller writes a partial run.
 export {
   foldGmailProjectionRun,
   type FoldGmailProjectionRunArgs,
@@ -63,14 +61,6 @@ export {
 } from "./affiliation";
 
 export { ensureEntityNode, recordEntityIdentity, EntityIdentityConflictError } from "./entities";
-
-export {
-  activateProjectionVersion,
-  completeProjectionRun,
-  failProjectionRun,
-  startProjectionRun,
-  writeProjectionCursor,
-} from "./projection";
 
 export { userModelReader, type ActiveEntityProfile } from "./reader";
 

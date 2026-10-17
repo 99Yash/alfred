@@ -14,11 +14,11 @@
  *   node dist/scripts/backfills/project-user-model-gmail-shadow-committed.js --emails=yash.k@oliv.ai --projection-version=1 --commit --activate
  */
 import {
-  activateProjectionVersion,
   foldGmailProjectionRun,
   requireEntityIdNamespace,
   type FoldGmailProjectionRunResult,
 } from "@alfred/assistant/knowledge";
+import { activateProjectionVersion } from "@alfred/assistant/knowledge/internal";
 import { warmPool } from "@alfred/db";
 import { closeScriptResources } from "../script-runtime";
 import {
