@@ -211,6 +211,17 @@ Four rules from the 2026-10-17 verified-pull retro. Each defect compiled, passed
 - **A provider status map is exhaustive.** List the provider's statuses in a tuple, map them with `satisfies Record<Status, …>` or a `never`-guarded switch, and make a value outside the set an explicit fault, never a default such as `absent`.
   Why: an unknown Vercel state was skipped like a missing deployment, so the target could read as `absent` and count toward demotion. Taught by #1364 (`VERDICT_BY_VERCEL_STATE`; the Sentry `NATIVE_STATE_BY_REST_STATUS` is the same shape).
 
+### One owner per state change
+
+Three rules from the 2026-10-16 facade round (#1338–#1348, #1361). The owner is a bound facade, `thing({ identity }).verb()`: `stagedAction`, `settings`, `gmailMailbox`, `scratchpad`, `toolRuntimeForRun`.
+
+- **Scripts, dry runs, and backfills call the live owner. They never copy its logic.** When the owner lacks a verb the caller needs, add the verb to the owner (`setIfUnset`, #1347). Do not import the primitive.
+  Why: three triage dry runs copied `gatherObservations` and skipped its gates (#1335), a backfill copied the todo decision (#1337, merged into one owner by #1338), and the refold copy of the projection writer stopped writing `works_at` edges (#1348).
+- **Do not export a primitive from a package barrel only so a test can reach it.** The test imports it from `src/`; `check:architecture` scans only `src`.
+  Why: the projection-run primitives stayed public "because tests use them", and a public primitive is the door that the next copy uses. Taught by #1361.
+- **Bind the credential, not the token.** A client takes a credential id and gets a fresh token for each call. A caller never holds a token across a batch or passes one down.
+  Why: Gmail callers held one token across batches of up to 500 messages, so a long batch could fail after the token expired. Taught by #1343 (`gmailMailbox({ credentialId })`; the `raw-gmail-token-call` gate covers Gmail only).
+
 ## 4. Frontend (apps/web)
 
 - **Effects:** clean up subscriptions/timers; verify dependency arrays (missing dep = stale closure, extra dep = loop). Guard against state updates after unmount.
@@ -252,5 +263,6 @@ Escape hatch `// tautology-ok: <reason>` is chain-aware (like `// drift-ok:`) �
 11. Tautological test — `assert.equal(fn(x), fn(x))`, rebuilt `0..N-1` oracle, literal pin with no `why`, `assert.ok(x)` alone, or `calls.length` alone (§5).
 12. One `null` for both a fault and a miss, an `updatedAt` queue key, a timestamp with no named clock, or a status map with a silent default (§3, Results, queue keys, and clocks).
 13. A PR built on an issue's factual premise that nobody checked against data ([structural-review.md](./structural-review.md#breadth-discovers-depth-proves), pass 1).
+14. A script or backfill that copies an owner's logic, a barrel export kept only for a test, or a caller that holds a provider token (§3, One owner per state change).
 
 > Before claiming a library _can't_ do something, check its `.d.ts`, its repo, or the relevant reference doc here. Most "limitations" are a missing option name.
