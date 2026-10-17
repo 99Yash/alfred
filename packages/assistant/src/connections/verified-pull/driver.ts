@@ -248,7 +248,7 @@ export async function pullVerifiedTargets<Target, Session, Names>(
 
 /**
  * Pick targets in pull rotation: failed and active rows, or a bootstrap when there are no rows.
- * A failure mail widens the pool to resolved and demoted rows (#1357). The mail can be about a
+ * A failure mail adds resolved and demoted rows to the pool (#1357). The mail can be about a
  * target the pull last proved green, and a provider with no push has no other signal for it.
  * Never throws; a fault returns no lines (ADR-0048-D).
  */
@@ -257,13 +257,13 @@ async function gatherVerifiedPull<Target, Session, Names>(
   args: { userId: string; digestItems: readonly VerifiedPullTriggerItem[] },
 ): Promise<IntegrationActivityItem[]> {
   try {
-    const mailed = source.digestSignalsFailure?.(args.digestItems) ?? false;
+    const failureMailed = source.digestSignalsFailure?.(args.digestItems) ?? false;
 
     const candidates = await objectStateStore.listPullCandidates(args.userId, source.provider, {
       kind: source.targetKind,
-      stateCategories: mailed ? ["failed", "active", "resolved"] : ["failed", "active"],
+      stateCategories: failureMailed ? ["failed", "active", "resolved"] : ["failed", "active"],
       limit: MAX_VERIFIED_PULL_TARGETS,
-      demoteAfterAbsentReads: mailed ? null : DEMOTE_AFTER_ABSENT_READS,
+      demoteAfterAbsentReads: failureMailed ? null : DEMOTE_AFTER_ABSENT_READS,
     });
 
     // Stamp before the read, so a row that reads as unverified or throws still rotates (#1351).
