@@ -140,15 +140,21 @@ export interface ObjectStateStore {
     filter?: ObjectListFilter,
   ): Promise<ObjectState[]>;
   /**
-   * Verified pull candidates (#1351): rows never pulled first, then the oldest pull, then failed
-   * rows, then the newest. A pull that proves nothing still rotates, so no row holds a slot forever.
+   * Verified pull candidates (#1351): rows never pulled first, then the oldest pull. Among rows
+   * never pulled, active rows go first, then the newest. A pull that proves nothing still rotates,
+   * so no row holds a slot forever.
    */
   listPullCandidates(
     userId: string,
     provider: ObjectStateProvider,
-    filter: { kind: string; stateCategories: readonly StateCategory[]; limit: number },
+    filter: Required<Pick<ObjectListFilter, "kind" | "limit">> & {
+      stateCategories: readonly StateCategory[];
+    },
   ): Promise<ObjectState[]>;
-  /** Stamp a pull on each object. Empty input skips the database. */
+  /**
+   * Stamp a pull on each object, one millisecond apart in the given order, so the rotation is a
+   * strict queue and no batch splits on a tie. Empty input skips the database.
+   */
   markPulled(userId: string, objectIds: readonly string[], pulledAt: Date): Promise<void>;
 }
 
@@ -166,6 +172,10 @@ const REDUCERS = {
 const DEFAULT_OBJECT_LIST_LIMIT = 100;
 
 const MAX_OBJECT_LIST_LIMIT = 250;
+
+function clampListLimit(limit: number): number {
+  return Math.min(Math.max(1, limit), MAX_OBJECT_LIST_LIMIT);
+}
 
 function rowToObjectState(row: IntegrationObject): ObjectState {
   return {
@@ -584,7 +594,7 @@ export const objectStateStore: ObjectStateStore = {
     }
 
     const requestedLimit = filter?.limit ?? DEFAULT_OBJECT_LIST_LIMIT;
-    const limit = Math.min(Math.max(1, requestedLimit), MAX_OBJECT_LIST_LIMIT);
+    const limit = clampListLimit(requestedLimit);
 
     // In a window, order by resolve time, so the limit keeps fresh resolves over later
     // re-projections.
@@ -605,7 +615,7 @@ export const objectStateStore: ObjectStateStore = {
   async listPullCandidates(userId, provider, filter) {
     if (filter.stateCategories.length === 0) return [];
 
-    const limit = Math.min(Math.max(1, filter.limit), MAX_OBJECT_LIST_LIMIT);
+    const limit = clampListLimit(filter.limit);
 
     const rows = await db()
       .select(getTableColumns(integrationObjects))
@@ -621,7 +631,7 @@ export const objectStateStore: ObjectStateStore = {
       )
       .orderBy(
         sql`${integrationObjectPulls.pulledAt} asc nulls first`,
-        sql`${integrationObjects.stateCategory} = 'failed' desc`,
+        sql`${integrationObjects.stateCategory} = ${"active" satisfies StateCategory} desc`,
         desc(integrationObjects.updatedAt),
       )
       .limit(limit);
@@ -634,7 +644,16 @@ export const objectStateStore: ObjectStateStore = {
 
     await db()
       .insert(integrationObjectPulls)
-      .values(objectIds.map((objectId) => ({ userId, objectId, pulledAt })))
-      .onConflictDoUpdate({ target: integrationObjectPulls.objectId, set: { pulledAt } });
+      .values(
+        objectIds.map((objectId, index) => ({
+          userId,
+          objectId,
+          pulledAt: new Date(pulledAt.getTime() + index),
+        })),
+      )
+      .onConflictDoUpdate({
+        target: integrationObjectPulls.objectId,
+        set: { pulledAt: sql`excluded.pulled_at` },
+      });
   },
 };

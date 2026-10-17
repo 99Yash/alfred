@@ -159,3 +159,5 @@ export type NewIntegrationObject = typeof integrationObjects.$inferInsert;
 export type IntegrationObjectKey = typeof integrationObjectKeys.$inferSelect;
 
 export type IntegrationObjectRelation = typeof integrationObjectRelations.$inferSelect;
+
+export type IntegrationObjectPull = typeof integrationObjectPulls.$inferSelect;

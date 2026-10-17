@@ -5,7 +5,11 @@ import {
   parseEmailAddress,
   parseGitBranchRef,
 } from "@alfred/contracts";
-import { vercelClientForUser, type VercelClient } from "@alfred/integrations/vercel";
+import {
+  vercelClientForUser,
+  type VercelClient,
+  type VercelProject,
+} from "@alfred/integrations/vercel";
 import { VERCEL_PULL_EVENT_TYPE } from "../object-state/vercel-reducer";
 import {
   MAX_VERIFIED_PULL_TARGETS,
@@ -62,6 +66,15 @@ const VERCEL_PROJECT_SCAN_LIMIT = 10;
 /** Safe only because `/v6/deployments` is newest first: the cap drops the oldest. */
 const VERCEL_DEPLOYMENT_READ_LIMIT = 100;
 
+function toProjectRef(project: VercelProject): VercelProjectRef {
+  return { projectId: project.id, name: project.name, linkedRepo: project.linkedRepo };
+}
+
+/** `repo` is a lowercased `owner/repo`. */
+function linksRepo(project: VercelProjectRef, repo: string): boolean {
+  return project.linkedRepo?.toLowerCase() === repo;
+}
+
 /** `null` for no grant or a refused grant; the driver treats both the same. */
 async function openVercelRead(userId: string): Promise<VercelReadSession | null> {
   try {
@@ -71,11 +84,7 @@ async function openVercelRead(userId: string): Promise<VercelReadSession | null>
 
     return {
       client,
-      projects: listed.map((project) => ({
-        projectId: project.id,
-        name: project.name,
-        linkedRepo: project.linkedRepo,
-      })),
+      projects: listed.map(toProjectRef),
       repoProjects: new Map(),
       deployments: new Map(),
     };
@@ -185,15 +194,7 @@ function lookupRepoProjects(
 
   const pending = session.client
     .projects({ limit: VERCEL_PROJECT_SCAN_LIMIT, repoUrl: `https://github.com/${repoFullName}` })
-    .then((listed) =>
-      listed
-        .filter((project) => project.linkedRepo?.toLowerCase() === repo)
-        .map((project) => ({
-          projectId: project.id,
-          name: project.name,
-          linkedRepo: project.linkedRepo,
-        })),
-    )
+    .then((listed) => listed.map(toProjectRef).filter((project) => linksRepo(project, repo)))
     .catch(() => []);
 
   session.repoProjects.set(repo, pending);
@@ -212,7 +213,7 @@ async function candidateProjects(
   const repo = target.repoFullName.toLowerCase();
 
   const scanned = session.projects.filter(
-    (project) => project.linkedRepo === null || project.linkedRepo.toLowerCase() === repo,
+    (project) => project.linkedRepo === null || linksRepo(project, repo),
   );
 
   if (scanned.some((project) => project.linkedRepo !== null)) return scanned;
