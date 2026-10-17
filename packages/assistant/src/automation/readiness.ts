@@ -3,7 +3,7 @@ import {
   canonicalJson,
   eventDeliveryAccounts,
   holdsAnyScope,
-  humanizeSlug,
+  integrationDisplayName,
   integrationFromToolName,
   isIntegrationSlug,
   isToolName,
@@ -164,7 +164,7 @@ export function resolveWorkflowApprovalDisplay(
     const account = {
       provider,
       accountRef,
-      accountLabel: row?.accountLabel ?? `${humanizeSlug(provider)} account`,
+      accountLabel: row?.accountLabel ?? `${integrationDisplayName(provider)} account`,
     };
 
     resolvedAccounts.set(`${provider}:${accountRef}`, account);
@@ -457,7 +457,7 @@ function triggerProblem(
   if (!selected) {
     return {
       code: "choose_account",
-      message: `Choose the connected ${INTEGRATIONS[integration].displayName} account for the ${humanizeSlug(trigger.source)} trigger from the available account labels.`,
+      message: `Choose the connected ${INTEGRATIONS[integration].displayName} account for the ${integrationDisplayName(trigger.source)} trigger from the available account labels.`,
       field: "trigger",
       recoveryAction: { kind: "choose_account", integration },
     };
@@ -482,7 +482,7 @@ function deliveryProblem(
 
   return {
     code: notReady ? "trigger_not_ready" : "trigger_degraded",
-    message: `${humanizeSlug(source)} event delivery is ${notReady ? "not ready" : "degraded"}: ${health.reason}.`,
+    message: `${integrationDisplayName(source)} event delivery is ${notReady ? "not ready" : "degraded"}: ${health.reason}.`,
     field: "trigger",
     ...(recoveryAction ? { recoveryAction } : {}),
   };
