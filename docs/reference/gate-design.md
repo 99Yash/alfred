@@ -93,7 +93,6 @@ Each row is a rule from [code-style.md](./code-style.md) tagged `review` or `par
 
 | Rule (code-style section) | Mechanism | Feasibility |
 | --- | --- | --- |
-| `import type` for a value used only inside `typeof` (§1 Drizzle rows) | Lint: `typescript/consistent-type-imports` (ships with oxlint, autofix) | High |
 | Name the rule on a suppression and keep the reason after ` -- ` (§1 Suppressions) | Regex row: a directive with no rule name or no ` -- ` is one comment on one line | High |
 | Drop the conditional-spread wrapper (§2 `exactOptionalPropertyTypes`) | Lint: raise `unicorn/no-useless-spread` from the default `warn` to `error` | High |
 | No stray `console.log` (§4) | Lint: `no-console` in an `apps/web` override. Two `console.info` sites in `apps/web/src/lib/chat/timing.ts` decide first | High |

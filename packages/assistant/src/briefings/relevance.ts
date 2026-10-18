@@ -2,7 +2,7 @@ import {
   BRIEFING_LOOP_RELEVANCE_OBJECT_TITLE_MAX,
   briefingLoopRelevanceSchema,
   getObjectDef,
-  INTEGRATION_OBJECT_DEFS,
+  type INTEGRATION_OBJECT_DEFS,
   isBuiltInObjectStateProvider,
   parseGithubPullRequestUrl,
   redactSecrets,

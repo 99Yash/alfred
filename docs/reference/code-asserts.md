@@ -31,6 +31,7 @@ where to put a new invariant.
 | An async function where a void callback is expected (`onClick={async …}`, `.finally(async …)`), or a promise in a condition or spread | `typescript/no-misused-promises` (`error`, type-aware) | `.oxlintrc.json` |
 | A switch over a union that misses a member, with or without a `default` | `typescript/switch-exhaustiveness-check` (`error`, type-aware) | `.oxlintrc.json` |
 | A template literal that interpolates an object, `unknown`, or `never` | `typescript/restrict-template-expressions` (`error`, type-aware) | `.oxlintrc.json` |
+| A value imported only for a type position, such as `typeof` | `typescript/consistent-type-imports` (`error`) | `.oxlintrc.json` |
 
 ### The two config-hygiene rules, and why they are separate from the `anti-slop` set
 

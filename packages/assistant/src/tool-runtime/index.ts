@@ -1,8 +1,8 @@
 import type { ToolSet } from "@alfred/ai";
 import {
-  activateWorkflowInput,
-  authorWorkflowInput,
-  readChatHistoryInput,
+  type activateWorkflowInput,
+  type authorWorkflowInput,
+  type readChatHistoryInput,
   type ActivateWorkflowInput,
   type AgentTranscriptMessage,
   type CancellationFence,

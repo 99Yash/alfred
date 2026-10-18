@@ -1,5 +1,5 @@
 import {
-  calendarListEventsInput,
+  type calendarListEventsInput,
   fieldValue,
   toolInputFields,
   toJsonValue,

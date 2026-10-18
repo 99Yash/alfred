@@ -4,7 +4,7 @@ import { cn } from "~/lib/utils";
 import { ApprovalModePicker } from "../approval-mode-picker";
 import { ModelTierPicker } from "../model-tier-picker";
 import type { ChatModelTier } from "@alfred/contracts";
-import { useMicRecording } from "../mic-recording";
+import type { useMicRecording } from "../mic-recording";
 import { Tip } from "../tip";
 import { KeyHint } from "./key-hint";
 

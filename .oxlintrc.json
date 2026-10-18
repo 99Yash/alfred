@@ -89,6 +89,19 @@
     "tailwindcss/enforce-sort-order": ["error", { "entryPoint": "apps/web/src/index.css" }],
     "tailwindcss/enforce-shorthand": "error",
     "tailwindcss/no-deprecated-classes": ["error", { "entryPoint": "apps/web/src/index.css" }],
+    // Syntax rules from oxlint's built-in plugins, each adopted at zero by the same bar.
+    // consistent-type-imports: an import used only as a type, including only inside `typeof`,
+    // takes `type`. `verbatimModuleSyntax` already fails `tsc` on a type imported without it,
+    // but a value imported only for `typeof` compiles and stays in the runtime import graph.
+    // `fixStyle` matches the tree: a mixed import marks each type inline. The fixer then
+    // writes `import { type X }` for a declaration whose every name is a type; rewrite that as
+    // `import type { X }`, because the inline form keeps a side-effect import of the module.
+    // `disallowTypeAnnotations` is off: an `import("…")` type is erased, and the
+    // `test/type/*.type-test.ts` fixtures need it to probe the exports map.
+    "typescript/consistent-type-imports": [
+      "error",
+      { "disallowTypeAnnotations": false, "fixStyle": "inline-type-imports" }
+    ],
     // Type-aware rules. `options.typeAware` above runs them through oxlint-tsgolint (the tsgo
     // compiler, a root devDependency), so every oxlint invocation — `pnpm lint`, the edit-time
     // hook, the check:oxlint-config probe — reads types with no CLI flag to keep in step. A

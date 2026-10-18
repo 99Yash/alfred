@@ -16,7 +16,7 @@ import { workflows } from "@alfred/db/schemas";
 import { and, eq, like } from "drizzle-orm";
 import { availableSlug, slugBase } from "@alfred/contracts/slug";
 import { workflowScheduleSummary } from "./scheduling";
-import { readFreshIntegrationAvailability } from "@alfred/assistant/connections";
+import type { readFreshIntegrationAvailability } from "@alfred/assistant/connections";
 import { workflowToolCatalog, type WorkflowToolCatalog } from "@alfred/assistant/tool-runtime";
 import { readWorkflowReadinessContext } from "./readiness-context";
 import { resolveWorkflowCapabilities, type WorkflowReadinessProblem } from "./readiness";

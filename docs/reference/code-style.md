@@ -37,7 +37,7 @@ type DocArg = Pick<Document, "id" | "title" | "content" | "source" | "authoredAt
 - Everything-but-a-few → `Omit<Document, ...>`.
 - A row mapped to a wire/Replicache shape → keep `r: Document` (the named row type) as the **input** and let the output be its own declared type (this is the `rowToFact` / `rowToEntity` / `rowToBriefing` idiom — see `packages/assistant/src/knowledge/facts.ts`, `packages/assistant/src/knowledge/entity-graph.ts`, `packages/assistant/src/briefings/store.ts`).
 - Insert payloads → the table's `New*` export where one exists (`NewArtifact`, `NewBriefing`, `NewIntegrationObject`), else `typeof table.$inferInsert` — never a hand-written `{ ... }`. Add a `New<Table>` export when you first need one; don't hand-roll the insert shape.
-- A type-only use (only inside `typeof`) takes `import type` so nothing lands in the runtime bundle — required by `verbatimModuleSyntax` (see [typescript.md](./typescript.md)). _Partly: `verbatimModuleSyntax` fails `tsc` on a type imported without `type`; a value imported only for `typeof` compiles, so that case is review._
+- A type-only use (only inside `typeof`) takes `import type` so nothing lands in the runtime bundle — required by `verbatimModuleSyntax` (see [typescript.md](./typescript.md)). _Gate: `verbatimModuleSyntax` fails `tsc` on a type imported without `type`, and `typescript/consistent-type-imports` fails a value imported only for `typeof`._
 
 ### Zod schemas → `z.infer`
 

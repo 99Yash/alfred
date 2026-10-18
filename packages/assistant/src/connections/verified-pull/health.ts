@@ -43,7 +43,7 @@ import {
   type ObjectState,
 } from "@alfred/assistant/connections";
 import { and, desc, eq, sql } from "drizzle-orm";
-import { z } from "zod";
+import type { z } from "zod";
 
 /** Subject and from are untrusted text. */
 export interface ApprovedMcpHealthLoop {

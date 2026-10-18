@@ -10,7 +10,7 @@ import {
   factCreateArgsSchema,
   factEditArgsSchema,
   factRejectArgsSchema,
-  mutatorArgsSchemas,
+  type mutatorArgsSchemas,
   noteCreateArgsSchema,
   policySetDefaultModeArgsSchema,
   policySetIntegrationModeArgsSchema,
