@@ -87,7 +87,7 @@ describe("Notion configured client", () => {
       const auth = new Headers(init?.headers).get("Authorization") ?? "";
       authorization.push(auth);
 
-      const body = String(input).includes("/pages/")
+      const body = String(input instanceof Request ? input.url : input).includes("/pages/")
         ? {
             id: "page_1",
             properties: {

@@ -522,10 +522,11 @@ export function requestFacts(
   init: RequestInit | undefined,
 ): HostedRequestFacts {
   const request = input instanceof Request ? input : null;
+  const url = input instanceof Request ? input.url : input instanceof URL ? input.href : input;
   const headers = init?.headers != null ? new Headers(init.headers) : new Headers(request?.headers);
 
   return {
-    url: request?.url ?? (input instanceof URL ? input.href : String(input)),
+    url,
     method: (init?.method ?? request?.method ?? "GET").toUpperCase(),
     headers,
     body: init?.body ?? request?.body ?? undefined,

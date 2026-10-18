@@ -33,5 +33,6 @@ function canonicalize(value: unknown): string {
     return `{${parts.join(",")}}`;
   }
 
+  // oxlint-disable-next-line typescript/no-base-to-string -- stored rejected_inferences hashes depend on this exact output; a value that is not JSON keeps hashing as `String(value)`.
   return JSON.stringify(String(value));
 }

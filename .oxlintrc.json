@@ -172,7 +172,10 @@
     // - no-redundant-type-constituents: a union member another member absorbs (`unknown | X`,
     //   `"a" | string`). Write the wide type and say the rest in the doc comment, derive the
     //   exact union, or keep autocomplete with `"a" | (string & {})`.
-    "typescript/no-base-to-string": "off",
+    // - no-base-to-string: `String(v)` or a template on a value that may be an object prints
+    //   `[object Object]`. Narrow the value at its boundary, or pick the text you mean
+    //   (`toDisplayText`, `toMessage`, `JSON.stringify` of a JSON value).
+    "typescript/no-base-to-string": "error",
     "typescript/no-duplicate-type-constituents": "off",
     "typescript/no-meaningless-void-operator": "off",
     "typescript/no-misused-spread": "off",

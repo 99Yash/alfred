@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { jsonValueSchema, toJsonValue } from "@alfred/contracts";
+import { getStringPath, jsonValueSchema, toJsonValue } from "@alfred/contracts";
 
 describe("toJsonValue", () => {
   test("normalizes values with JSON serialization semantics", () => {
@@ -25,11 +25,14 @@ describe("toJsonValue", () => {
     assert.equal(toJsonValue(undefined), null);
   });
 
-  test("degrades BigInt and cycles to a JSON marker", () => {
+  test("degrades BigInt and cycles to a JSON marker that says why", () => {
     const circular: Record<string, unknown> = {};
     Object.assign(circular, { self: circular });
 
-    assert.deepEqual(toJsonValue(1n), { unserializable: "1" });
-    assert.deepEqual(toJsonValue(circular), { unserializable: "[object Object]" });
+    assert.deepEqual(toJsonValue(1n), { unserializable: "Do not know how to serialize a BigInt" });
+    assert.match(
+      getStringPath(toJsonValue(circular), "unserializable") ?? "",
+      /^Converting circular structure to JSON/,
+    );
   });
 });

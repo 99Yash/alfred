@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import type { AgentTranscriptMessage } from "@alfred/contracts";
+import { toDisplayText, type AgentTranscriptMessage } from "@alfred/contracts";
 import type { ChildRunOutcome } from "@alfred/assistant/execution/sub-agents";
 import { AWAIT_SUB_AGENT_CEILING_MS } from "@alfred/assistant/execution/sub-agent-join-wake-queue";
 import {
@@ -154,7 +154,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
     assert.deepEqual(rec.scheduleCalls, [], "no fresh timer is armed for a past-ceiling child");
     assert.deepEqual(state.foldedChildRunIds, ["child_a"]);
     const folded = result?.kind === "next" ? result.transcript : undefined;
-    assert.match(String(folded?.[0]?.content ?? ""), /could not be awaited/);
+    assert.match(toDisplayText(folded?.[0]?.content), /could not be awaited/);
   });
 
   test("a terminal child is folded and regenerates an informed answer", async () => {
@@ -178,7 +178,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
     assert.deepEqual(state.foldedChildRunIds, ["child_a"]);
     const folded = result?.kind === "next" ? result.transcript : undefined;
     assert.match(
-      String(folded?.[0]?.content ?? ""),
+      toDisplayText(folded?.[0]?.content),
       /finished without you awaiting it — it completed/,
       "the fold carries the terminal result for the regenerated answer",
     );
@@ -331,7 +331,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
       "the regenerate transcript ends in the synthetic fold",
     );
     assert.match(
-      String(forwarded.at(-1)?.content ?? ""),
+      toDisplayText(forwarded.at(-1)?.content),
       /finished without you awaiting it — it completed/,
     );
     assert.ok(

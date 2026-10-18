@@ -35,6 +35,7 @@ where to put a new invariant.
 | An `await` of a non-thenable, `delete` on an array element, `for…in` over an array, a string passed as code to `setTimeout` / `new Function`, unary minus on a non-number, or a default value that can never apply | `typescript/await-thenable`, `no-array-delete`, `no-for-in-array`, `no-implied-eval`, `no-unsafe-unary-minus`, `no-useless-default-assignment` (`error`, type-aware) | `.oxlintrc.json` |
 | A method read as a value (`const f = obj.method`, `.map(obj.method)`), which loses its `this` | `typescript/unbound-method` (`error`, type-aware) | `.oxlintrc.json` |
 | A union member that another member absorbs (`unknown \| X`, `"a" \| string`) | `typescript/no-redundant-type-constituents` (`error`, type-aware) | `.oxlintrc.json` |
+| `String(v)` or a template on a value that may be an object, which prints `[object Object]` | `typescript/no-base-to-string` (`error`, type-aware) | `.oxlintrc.json` |
 | A value imported only for a type position, such as `typeof` | `typescript/consistent-type-imports` (`error`) | `.oxlintrc.json` |
 | A suppression directive with no rule name, or no reason after ` -- ` | `gate: suppression-without-reason` | `scripts/consolidation-rules.mjs` |
 | A spread that only copies, such as `{ ...(x ? { k: x } : {}) }` alone in a literal | `unicorn/no-useless-spread` (`error`) | `.oxlintrc.json` |
@@ -88,7 +89,7 @@ a restated copy or a declared omission per group.
 `.oxlintrc.json` sets `options.typeAware`, so every oxlint run (`pnpm lint`,
 the edit-time hook, the `check:oxlint-config` probe) also runs the rules that
 need type information, through the `oxlint-tsgolint` root devDependency. A
-missing tsgolint binary fails the run instead of skipping the rules. Seventeen
+missing tsgolint binary fails the run instead of skipping the rules. Eighteen
 rules are at `error`, each adopted at zero:
 
 - `typescript/no-floating-promises`, with the `node:test` registrars
@@ -146,6 +147,15 @@ rules are at `error`, each adopted at zero:
   its source (`Awaited<ReturnType<Job["getState"]>>`). To keep editor
   completion for known literals in an open string, write
   `"a" | "b" | (string & {})`; the rule accepts it.
+- `typescript/no-base-to-string`, default options. `String(v)`, `v.toString()`
+  or a template on a value whose type may be an object without its own
+  `toString` prints `[object Object]`. Narrow the value at its boundary when it
+  can only be a primitive at run time (a fetch `input` is
+  `input instanceof Request ? input.url : input`). Otherwise pick the text you
+  mean: `toDisplayText` for a reader, `toMessage` for a caught error,
+  `JSON.stringify` for a `JsonValue`. The one directive is the
+  `rejected_inferences` hash in `knowledge/signature.ts`, whose stored hashes
+  depend on the `String(value)` fallback.
 
 The rules read a test or eval file through its package's `tsconfig.test.json`
 or `tsconfig.eval.json`: the root `tsconfig.json` is a solution file that
@@ -158,12 +168,12 @@ directive check reports it if it outlives the errors.
 
 Turning type-aware on also arms the type-aware rules in oxlint's default
 `correctness` set at `warn`. The config sets each of them explicitly, so the run
-reports only the rules it chose: the six above, `unbound-method` and
-`no-redundant-type-constituents` at `error`, and the ones that
-still have hits on the tree `"off"` (`no-base-to-string`,
-`no-duplicate-type-constituents`, `no-meaningless-void-operator`,
-`no-misused-spread` and `require-array-sort-compare`). The queued follow-ups are
-those and `no-unnecessary-condition`. Each lands alone in its own change:
+reports only the rules it chose: the six above, `unbound-method`,
+`no-redundant-type-constituents` and `no-base-to-string` at `error`, and the
+ones that still have hits on the tree `"off"`
+(`no-duplicate-type-constituents`, `no-meaningless-void-operator`,
+`no-misused-spread` and `require-array-sort-compare`). The queued follow-ups
+are those and `no-unnecessary-condition`. Each lands alone in its own change:
 drive the tree to zero, then set the rule to `error`.
 
 These are the cheap place for a new invariant **if it can be phrased as a
