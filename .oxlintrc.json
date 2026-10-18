@@ -102,6 +102,10 @@
       "error",
       { "disallowTypeAnnotations": false, "fixStyle": "inline-type-imports" }
     ],
+    // no-useless-spread: oxlint's default set has it at `warn`, which `pnpm lint` does not
+    // fail on. Its common hit here is `{ ...(x ? { k: x } : {}) }` with nothing else in the
+    // literal; pass the conditional itself (docs/reference/code-style.md §2).
+    "unicorn/no-useless-spread": "error",
     // Type-aware rules. `options.typeAware` above runs them through oxlint-tsgolint (the tsgo
     // compiler, a root devDependency), so every oxlint invocation — `pnpm lint`, the edit-time
     // hook, the check:oxlint-config probe — reads types with no CLI flag to keep in step. A
