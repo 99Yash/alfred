@@ -1668,6 +1668,102 @@ export function cacheRef(): Cache {
   return cache;
 }`,
   },
+  {
+    // A namespace member is the same second door as a named import of it.
+    name: "no-function-wrapper-shim — a typed wrapper over a namespace member",
+    caught: true,
+    rule: "no-function-wrapper-shim",
+    code: `import * as C from "./constants";
+
+export function maxMutations(): number {
+  return C.MAX_MUTATIONS;
+}`,
+  },
+  {
+    // TypeScript hoists imports, so an import below the wrapper is the same shim.
+    name: "no-function-wrapper-shim — a typed wrapper above its import",
+    caught: true,
+    rule: "no-function-wrapper-shim",
+    code: `export function maxMutations(): number {
+  return MAX_MUTATIONS;
+}
+
+import { MAX_MUTATIONS } from "./constants";`,
+  },
+  {
+    name: "no-function-wrapper-shim — a generic wrapper",
+    caught: true,
+    rule: "no-function-wrapper-shim",
+    code: `import { DEFAULTS } from "./constants";
+
+export function defaults<T extends Record<string, unknown>>(): T {
+  return DEFAULTS;
+}`,
+  },
+  {
+    name: "no-function-wrapper-shim — a wrapper with an object return type",
+    caught: true,
+    rule: "no-function-wrapper-shim",
+    code: `import { SYNC_OPTIONS } from "./constants";
+
+export function syncOptions(): { batch: number; retries?: number } {
+  return SYNC_OPTIONS;
+}`,
+  },
+  {
+    name: "no-function-wrapper-shim — an arrow whose return type holds an arrow",
+    caught: true,
+    rule: "no-function-wrapper-shim",
+    code: `import { onIdle } from "./idle";
+
+export const idleHandler = (): (() => void) => onIdle;`,
+  },
+  {
+    name: "no-function-wrapper-shim — an arrow typed on the variable",
+    caught: true,
+    rule: "no-function-wrapper-shim",
+    code: `import { MAX_MUTATIONS } from "./constants";
+
+export const maxMutations: () => number = () => MAX_MUTATIONS;`,
+  },
+  {
+    // A later declarator of a module `let` is a live read too.
+    name: "no-function-wrapper-shim — an untyped getter over the second declarator of a let",
+    caught: false,
+    code: `let retries = 0,
+  lastError = null;
+
+export function getLastError() {
+  return lastError;
+}`,
+  },
+  {
+    // The parameter guard reads the parameter list, so a return type that ends
+    // in a paren does not make the wrapper look untyped over an unresolved name.
+    name: "no-function-wrapper-shim — a wrapper that returns its parameter under a paren return type",
+    caught: false,
+    code: `export function asListener(listener: Listener): (() => void) {
+  return listener;
+}`,
+  },
+  {
+    // Only a namespace member is related. A named import can be a mutable
+    // object, so a getter over its property can be a live read.
+    name: "no-function-wrapper-shim — a typed getter over a property of a named import",
+    caught: false,
+    code: `import { runtimeConfig } from "./runtime-config";
+
+export function apiUrl(): string {
+  return runtimeConfig.apiUrl;
+}`,
+  },
+  {
+    name: "no-function-wrapper-shim — an arrow typed on the variable over a module let",
+    caught: false,
+    code: `let current: Mode = "idle";
+
+export const currentMode: () => Mode = () => current;`,
+  },
 ];
 
 // Line-scope fixtures. `boot-error-plain-extends` is a per-line rule, so it is
