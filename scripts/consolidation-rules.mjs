@@ -64,6 +64,12 @@ export const REGISTRY_UNION = String.raw`(?:(?:\w*Integration|LiveProvider|Plann
 const CONSTANTS_MODULE = String.raw`[^"']*\/constants`;
 
 /**
+ * The UTF-8 bytes of a `JSON.stringify(…)`, up to its open paren: through a new
+ * `TextEncoder` or through an encoder bound to a name (`encoder.encode(…)`).
+ */
+const ENCODED_JSON = String.raw`(?:new\s+TextEncoder\(\s*\)|\w+)\s*\.encode\(\s*JSON\.stringify\(`;
+
+/**
  * An import that binds the name in group 1 from a module whose path matches
  * `from`. Every binding form counts, because each one gives the file a local
  * name that a later `export { … }` or alias can hand out again:
@@ -917,10 +923,25 @@ export const RULES = [
     // key-order pre-image, not the digest, and `sha256Canonical` is the fix for
     // each. `createHmac` is not read: a MAC is checked over the bytes that came
     // with it, and `sha256Canonical` takes no key, so the fix text is wrong there.
-    re: /createHash\([^()]*\)\s*\.update\(\s*JSON\.stringify\(|\b(\w+)\s*\.update\(\s*JSON\.stringify\((?<=\b\1(?:\s*:\s*\w+)?\s*=\s*createHash\([^()]*\)[\s\S]*)/,
+    //
+    // The Web Crypto form has the same pre-image:
+    // `crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(v)))`,
+    // or a bound encoder (`encoder.encode(…)`). The bytes may also be bound
+    // first (`const bytes = …encode(JSON.stringify(v)); subtle.digest(alg, bytes)`):
+    // the digest argument is related to a `const`/`let`/`var` of that name
+    // bound earlier in the file to encoded JSON. A digest over any other bytes
+    // (`encode(rawBody)`, `await file.arrayBuffer()`) is left alone.
+    re: new RegExp(
+      [
+        String.raw`createHash\([^()]*\)\s*\.update\(\s*JSON\.stringify\(`,
+        String.raw`\b(\w+)\s*\.update\(\s*JSON\.stringify\((?<=\b\1(?:\s*:\s*\w+)?\s*=\s*createHash\([^()]*\)[\s\S]*)`,
+        String.raw`\bsubtle\s*\.digest\(\s*[^,()]*,\s*${ENCODED_JSON}`,
+        String.raw`\bsubtle\s*\.digest\(\s*[^,()]*,\s*(\w+)\s*\)(?<=\b(?:const|let|var)\s+\2(?:\s*:\s*\w+)?\s*=\s*${ENCODED_JSON}[\s\S]*)`,
+      ].join("|"),
+    ),
     scope: "chain",
     severity: "gate",
-    fix: "Use sha256Canonical(value) from @alfred/db/hash — SHA-256 over canonicalJson (keys sorted, present-undefined skipped), prefixed `sha256:`. It is the one content hash for observations.evidence_hash and every other dedup / change-detection digest. If the digest is audit-only and never compared, append `// drift-ok: <why order-dependence is safe here>`.",
+    fix: "Use sha256Canonical(value) from @alfred/db/hash — SHA-256 over canonicalJson (keys sorted, present-undefined skipped), prefixed `sha256:`. It is the one content hash for observations.evidence_hash and every other dedup / change-detection digest. In browser code, where @alfred/db is out of reach, encode canonicalJson(value) from @alfred/contracts for crypto.subtle.digest in place of JSON.stringify. If the digest is audit-only and never compared, append `// drift-ok: <why order-dependence is safe here>`.",
   },
   {
     id: "no-constants-re-export",
@@ -962,10 +983,14 @@ export const RULES = [
     // outside the barrel. The inline modifier (`export { type Foo } from …`) is
     // the same re-export. The two-statement form relates the name to its
     // import anywhere in the file, as `no-constants-re-export` does.
+    // `export type * from "./constants"` and `export type * as C from
+    // "./constants"` re-export every type at once, so they are a wider second
+    // door than a specifier list. `no-constants-re-export` does not read them,
+    // because `type` sits between `export` and `*`.
     // `scope: "chain"`, because the formatter splits a long specifier list
     // across lines, and a line rule saw neither that nor the two-statement form.
     re: new RegExp(
-      String.raw`\bexport\s+(?:type\s*\{|\{(?=[^}]*\btype\s))[^}]*\}\s*from\s*["']${CONSTANTS_MODULE}["']|` +
+      String.raw`\bexport\s+(?:(?:type\s*\{|\{(?=[^}]*\btype\s))[^}]*\}|type\s*\*(?:\s*as\s+\w+)?)\s*from\s*["']${CONSTANTS_MODULE}["']|` +
         constantsReExport(true),
     ),
     scope: "chain",

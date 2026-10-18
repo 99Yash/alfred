@@ -1076,6 +1076,46 @@ switch (resultCategory) {
   return hash.digest("hex");`,
   },
   {
+    // The Web Crypto digest has the same key-order pre-image.
+    name: "sha256-over-json-stringify — a Web Crypto digest over encoded JSON",
+    caught: true,
+    rule: "sha256-over-json-stringify",
+    code: `  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(JSON.stringify(value)),
+  );`,
+  },
+  {
+    name: "sha256-over-json-stringify — a Web Crypto digest through a bound encoder",
+    caught: true,
+    rule: "sha256-over-json-stringify",
+    code: `  const encoder = new TextEncoder();
+  const digest = await crypto.subtle.digest("SHA-256", encoder.encode(JSON.stringify(value)));`,
+  },
+  {
+    name: "sha256-over-json-stringify — encoded JSON bound first, then digested",
+    caught: true,
+    rule: "sha256-over-json-stringify",
+    code: `  const bytes = new TextEncoder().encode(JSON.stringify(payload));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);`,
+  },
+  {
+    name: "sha256-over-json-stringify — a Web Crypto digest over encoded raw text",
+    caught: false,
+    code: `  const bytes = new TextEncoder().encode(rawBody);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  const inline = await crypto.subtle.digest("SHA-256", encoder.encode(rawBody));`,
+  },
+  {
+    // `attachment-ingest.ts` encodes JSON to write it, not to hash it.
+    name: "sha256-over-json-stringify — a Web Crypto digest over other bytes beside encoded JSON",
+    caught: false,
+    code: `  const artifact = new TextEncoder().encode(JSON.stringify(meta));
+  await writeObject(key, artifact, "application/json");
+  const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+  const fileDigest = await crypto.subtle.digest("SHA-256", fileBytes);`,
+  },
+  {
     name: "sha256-over-json-stringify — hashing raw bytes is a different operation",
     caught: false,
     code: `  return createHash("sha256").update(rawBody).digest("hex");`,
@@ -1330,10 +1370,36 @@ import type { PdfExtractionLimits } from "./constants";`,
 export type { Limits };`,
   },
   {
+    name: "no-type-re-export-shim — a logic file star-re-exporting the types of a constants module",
+    caught: true,
+    rule: "no-type-re-export-shim",
+    file: "packages/extraction/src/extract-pdf.ts",
+    code: `export type * from "./constants";`,
+  },
+  {
+    name: "no-type-re-export-shim — a logic file re-exporting constants types as a namespace",
+    caught: true,
+    rule: "no-type-re-export-shim",
+    file: "packages/extraction/src/extract-pdf.ts",
+    code: `export type * as Limits from "../constants";`,
+  },
+  {
     name: "no-type-re-export-shim — the barrel is the sanctioned re-exporter",
     caught: false,
     file: "packages/extraction/src/index.ts",
     code: `export type { PdfExtractionLimits } from "./constants";`,
+  },
+  {
+    name: "no-type-re-export-shim — the barrel may star-re-export the types of constants",
+    caught: false,
+    file: "packages/extraction/src/index.ts",
+    code: `export type * from "./constants";
+export type * as Limits from "./constants";`,
+  },
+  {
+    name: "no-type-re-export-shim — a type star re-export of a module that is not constants",
+    caught: false,
+    code: `export type * from "./prompt";`,
   },
   {
     name: "no-type-re-export-shim — a type from a module that is not constants",
