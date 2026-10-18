@@ -10,6 +10,7 @@
  */
 
 import { parseEmailAddress } from "./guards";
+import { INTEGRATION_DISPLAY_NAMES, isIntegrationSlug, type IntegrationSlug } from "./integrations";
 
 const GITHUB_REPO_RE = /\[([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)\]/;
 
@@ -54,6 +55,26 @@ export const LOOP_ENTITY_PROVIDERS = [
 ] as const;
 
 export type LoopEntityProvider = (typeof LOOP_ENTITY_PROVIDERS)[number];
+
+/**
+ * Names of the providers outside the integration registry, in brand casing (`ClickUp`).
+ * A registry slug reads `INTEGRATION_DISPLAY_NAMES`. If a provider joins the registry,
+ * its key here stops compiling.
+ */
+const NON_REGISTRY_PROVIDER_NAMES = {
+  clickup: "ClickUp",
+  jira: "Jira",
+  asana: "Asana",
+  trello: "Trello",
+  issue: "Issue tracker",
+  monitoring: "Monitoring",
+} satisfies Record<Exclude<LoopEntityProvider, IntegrationSlug>, string>;
+
+export function loopEntityProviderName(provider: LoopEntityProvider): string {
+  return isIntegrationSlug(provider)
+    ? INTEGRATION_DISPLAY_NAMES[provider]
+    : NON_REGISTRY_PROVIDER_NAMES[provider];
+}
 
 const TRACKER_SENDER_PATTERNS = [
   { key: "clickup", re: /\bclickup\b|tasks\.clickup\.com/i },

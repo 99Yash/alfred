@@ -185,9 +185,12 @@ export const RULES = [
     // and `source.kind` are action and kind slugs, which humanizeSlug is for.
     // An optional-chain step (`row?.provider`, `source?.kind`) reads the same
     // as a `.` step on both sides of the name.
+    // The compiler is the first guard: `humanizeSlug`'s parameter rejects a value whose
+    // type is or includes an `IntegrationSlug` literal, whatever its name (`v`, `slug`).
+    // This rule is the backstop for a slug typed plain `string`, which the compiler accepts.
     re: /\bhumanizeSlug\(\s*[\w.?]*?(?:\b(?:integration|provider|source)|(?<=[a-z\d])(?:Integration|Provider|Source))(?:Slug)?(?:\??\.slug)?(?![\w.]|\?\.)/,
     severity: "gate",
-    fix: "Index INTEGRATION_DISPLAY_NAMES[slug] from @alfred/contracts with a typed IntegrationSlug, or call integrationDisplayName(value) for an unchecked string. humanizeSlug is for action and field slugs, not integration names.",
+    fix: "Index INTEGRATION_DISPLAY_NAMES[slug] from @alfred/contracts with a typed IntegrationSlug, or call integrationDisplayName(value) for an unchecked string. A LoopEntityProvider (MCP identity provider) reads loopEntityProviderName(provider). humanizeSlug is for action and field slugs, not integration names.",
   },
   {
     id: "partial-integration-slug-record",
