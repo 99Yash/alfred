@@ -108,6 +108,37 @@ const importedInFile = (from) =>
 const exposedModuleConst = String.raw`(?:export\s+const\s+\1\b|const\s+\1\s*(?::[^=;]*)?=\s*(?:["'\x60]|-?\d|true\b|false\b|null\b))`;
 
 /**
+ * Bounded pieces of a `no-function-wrapper-shim` head. Each one stops inside
+ * the wrapper it starts at, so a head cannot run on into the next function:
+ * - `wrapperGenerics`: `<T>`, `<T extends A<B>>`, with no parens, braces or `;`.
+ * - `wrapperObjectType`: an inline object type one level deep (`{ a: T; b?: U }`).
+ *   Its first member is `name:` and it holds no parens, `=` or nested braces, so
+ *   a function body (which does not start with a label) is not read as a type.
+ * - `wrapperParenType`: a parenthesized type two levels deep (`(() => void)`),
+ *   so an arrow return type can hold a `=>` without ending at it.
+ */
+const wrapperGenerics = String.raw`(?:<[^(){};]*>)?`;
+const wrapperObjectType = String.raw`\{\s*(?:readonly\s+)?\w+\??\s*:[^{}()=]*\}`;
+const wrapperParenType = String.raw`\((?:[^()]|\([^()]*\))*\)`;
+
+/**
+ * True when a namespace import anywhere in the file (above or below) binds the
+ * name in group 1: `* as X`, `D, * as X`. Only a namespace member
+ * (`return C.X`) is related this way. A named or default import can be a
+ * mutable object, so a getter over one of its properties can be a live read.
+ */
+const wrapperNamespace = String.raw`\bimport\b\s*(?:type\b\s*)?(?:\w+\s*,\s*)?\*\s*as\s+\1\b\s*from\s*["'][^"']+["']`;
+const wrapperNamespaceInFile = String.raw`(?:(?<=${wrapperNamespace}[\s\S]*)|(?=[\s\S]*${wrapperNamespace}))`;
+
+/**
+ * A module-level `let`/`var` that binds the name in group 1, also as a later
+ * declarator (`let a = 1, b = 2`). The regex does not parse declarators, so a
+ * comma in an initializer also counts (`let a = f(x, b)` binds `b` here). That
+ * error can only skip a getter. It cannot flag one.
+ */
+const wrapperModuleLet = String.raw`(?:^|\n)(?:export\s+)?(?:let|var)\s+(?:[^;]*?,\s*)?\1\b`;
+
+/**
  * An `export { … }` (or `export type { … }` when `typeOnly`) with no `from`,
  * whose specifier list holds the local name `\1` — captured here — and that
  * re-exports an import of that name from a `constants` module.
@@ -982,31 +1013,46 @@ export const RULES = [
     // The rule relates the returned name (group 1) to how the file binds it,
     // because a getter over a module `let` (`getEventStreamStatus`,
     // `stagingStore`) is a live read, not a second door. It flags when:
-    //   - a named import anywhere earlier in the file binds the name (see
-    //     `importBinding`), with or without a return type; or
+    //   - an import anywhere in the file, above or below the wrapper, binds
+    //     the name (see `importedInFile`), with or without a return type; or
+    //   - the body is a namespace member (`return C.X`) and a namespace import
+    //     binds `C` (see `wrapperNamespaceInFile`); or
     //   - a module-level (column 0) `const` binds it, before or after the
     //     function, and that `const` is exported or holds a primitive literal.
     //     An unexported container (`const _hooks: Hook[] = []` behind
     //     `getOnUserCreatedHooks(): readonly Hook[]`) is left alone: the return
     //     type can narrow it, and nothing else exposes it; or
-    //   - the wrapper has no return type and a module-level `let`/`var` does
-    //     not bind the name. An unresolved name still matches in this untyped
+    //   - the wrapper has no return type (on the function or on the variable)
+    //     and a module-level `let`/`var` does not bind the name (see
+    //     `wrapperModuleLet`). An unresolved name still matches in this untyped
     //     form, which keeps every catch of the old regex except a live read.
     // It never flags a name that is a parameter of the wrapper.
     re: new RegExp(
-      // The wrapper, up to and including the returned name.
-      String.raw`\bexport\s+(?:function\s+\w+\s*\([^)]*\)(?:\s*:[^{};]*)?\s*\{\s*return\s+|const\s+\w+\s*=\s*\([^)]*\)(?:\s*:[^=;]*)?\s*=>\s*)(\w+)` +
+      // The wrapper, up to and including the returned name. A function may be
+      // generic and may have a return type, also an inline object type. An
+      // arrow may be generic, may have a type on the variable
+      // (`f: () => T = () => X`) and may have a return type, also one with a
+      // parenthesized `=>` (`(): (() => void) => X`).
+      String.raw`\bexport\s+(?:function\s+\w+\s*${wrapperGenerics}\s*\([^)]*\)(?:\s*:(?:[^{};]|${wrapperObjectType})*)?\s*\{\s*return\s+` +
+        String.raw`|const\s+\w+\s*(?::(?:[^=;]|=>)*?)?\s*=\s*${wrapperGenerics}\s*\([^)]*\)(?:\s*:(?:[^=;(){]|${wrapperParenType}|${wrapperObjectType})*)?\s*=>\s*)(\w+)(?:\.\w+)?` +
         // The body ends at the name: `}` for a function, `;` for an arrow.
-        String.raw`(?:(?<=return\s+\1)\s*;?\s*\}|(?<==>\s*\1)\s*;)` +
+        String.raw`(?:(?<=return\s+[\w.]+)\s*;?\s*\}|(?<==>\s*[\w.]+)\s*;)` +
+        // A namespace member (`return C.X`) flags when a namespace import of
+        // `C` is anywhere in the file.
+        String.raw`(?:(?<=\b\1\.\w+\s*;?\s*\}?)${wrapperNamespaceInFile}` +
+        String.raw`|(?<!\.\w+\s*;?\s*\}?)` +
         // Not a parameter of the wrapper (`identity(value) { return value; }`).
-        String.raw`(?<!\([^)]*\b\1\b[^)]*\)[^()]*\1\s*;?\s*\}?)` +
-        // Then one of: a named import binds it; an exposed module `const`
-        // binds it, before or after the wrapper; or the wrapper is untyped
-        // and no module `let`/`var` binds it.
-        String.raw`(?:(?<=${importBinding(String.raw`[^"']+`)}[\s\S]*)` +
+        // The guard starts at the wrapper name and reads each paren group up to
+        // the body, so parens in the return type do not hide the parameters.
+        String.raw`(?<!\bexport\s+(?:function|const)\s+\w+[^;{}]*?\([^)]*\b\1\b[^)]*\)[^;]*?(?:\{\s*return\s+|=>\s*)\1\s*;?\s*\}?)` +
+        // Then one of: an import binds it, above or below the wrapper; an
+        // exposed module `const` binds it, before or after the wrapper; or
+        // the wrapper is untyped and no module `let`/`var` binds it.
+        String.raw`(?:${importedInFile(String.raw`[^"']+`)}` +
         String.raw`|(?<=(?:^|\n)${exposedModuleConst}[\s\S]*)` +
         String.raw`|(?=[\s\S]*\n${exposedModuleConst})` +
-        String.raw`|(?<=\)\s*(?:\{\s*return\s+|=>\s*)\1\s*;?\s*\}?)(?<!(?:^|\n)(?:export\s+)?(?:let|var)\s+\1\b[\s\S]*)(?![\s\S]*\n(?:export\s+)?(?:let|var)\s+\1\b))`,
+        String.raw`|(?<=\b(?:function\s+\w+\s*${wrapperGenerics}\s*\([^)]*\)\s*\{\s*return\s+|const\s+\w+\s*=\s*${wrapperGenerics}\s*\([^)]*\)\s*=>\s*)\1\s*;?\s*\}?)` +
+        String.raw`(?<!${wrapperModuleLet}[\s\S]*)(?![\s\S]*${wrapperModuleLet})))`,
     ),
     scope: "chain",
     severity: "gate",
