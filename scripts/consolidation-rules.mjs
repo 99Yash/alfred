@@ -111,8 +111,13 @@ export const RULES = [
     id: "humanize-integration-slug",
     // `humanizeSlug(tool.integration)` / `humanizeSlug(integration)` — title-casing
     // an integration slug renders `github` as "Github" and `imessage` as "Imessage".
-    // `integrationSlug` is the same value under its longer name.
-    re: /\bhumanizeSlug\(\s*[\w.]*\bintegration(?:Slug)?\b/,
+    // `integrationSlug` is the same value under its longer name. A credential or
+    // MCP identity `provider` and an event-trigger `source` hold the same slugs
+    // (`humanizeSlug(provider)` showed "Github account", #1367), so the rule also
+    // reads those names, bare, as a property, or camel-suffixed (`credentialProvider`).
+    // The name must end the argument (`provider.slug` aside): `integration.action`
+    // and `source.kind` are action and kind slugs, which humanizeSlug is for.
+    re: /\bhumanizeSlug\(\s*[\w.]*?(?:\b(?:integration|provider|source)|(?<=[a-z\d])(?:Integration|Provider|Source))(?:Slug)?(?:\.slug)?(?![\w.])/,
     severity: "gate",
     fix: "Index INTEGRATION_DISPLAY_NAMES[slug] from @alfred/contracts with a typed IntegrationSlug, or call integrationDisplayName(value) for an unchecked string. humanizeSlug is for action and field slugs, not integration names.",
   },
