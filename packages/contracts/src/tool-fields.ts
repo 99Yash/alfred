@@ -75,7 +75,7 @@ export type FieldSpec =
       multiline: true;
     });
 
-export type FieldValue = string | number | boolean | JsonValue | undefined;
+export type FieldValue = JsonValue | undefined;
 
 /**
  * Read one field off an unvalidated input, typed by `field.kind`.

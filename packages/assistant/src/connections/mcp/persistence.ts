@@ -321,7 +321,7 @@ export type OwnedCurrentCatalogSliceRow = OwnedCurrentCatalogRow & {
 
 export type OwnedCurrentCatalogDescriptorRow = OwnedCurrentCatalogRow & {
   /** The exact selected descriptor, or null when the current catalog has no such name. */
-  descriptor: unknown | null;
+  descriptor: unknown;
 };
 
 export type OwnedCurrentCatalogPosition = Pick<

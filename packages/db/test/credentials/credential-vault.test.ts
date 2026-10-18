@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { describe, test } from "node:test";
 
+import { toDisplayText } from "@alfred/contracts";
+
 import {
   createCredentialVault,
   CredentialVaultError,
@@ -259,7 +261,7 @@ describe("credential vault: isSealed", () => {
       // A JWT is the closest real token shape; it must not read as sealed.
       "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxIn0.signature",
     ]) {
-      assert.equal(vault.isSealed(value), false, `isSealed should reject ${String(value)}`);
+      assert.equal(vault.isSealed(value), false, `isSealed should reject ${toDisplayText(value)}`);
     }
   });
 });

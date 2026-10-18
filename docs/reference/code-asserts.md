@@ -37,6 +37,9 @@ where to put a new invariant.
 | A string spread into an array, or a promise, a function, a `Map`, or a class instance spread into an object | `typescript/no-misused-spread` (`error`, type-aware) | `.oxlintrc.json` |
 | A union or intersection that names one type twice, or `\| undefined` on an optional parameter | `typescript/no-duplicate-type-constituents` (`error`, type-aware) | `.oxlintrc.json` |
 | `.sort()` with no comparator on numbers, tuples, objects, or an untyped `.mjs` array | `typescript/require-array-sort-compare` (`error`, type-aware) | `.oxlintrc.json` |
+| A method read as a value (`const f = obj.method`, `.map(obj.method)`), which loses its `this` | `typescript/unbound-method` (`error`, type-aware) | `.oxlintrc.json` |
+| A union member that another member absorbs (`unknown \| X`, `"a" \| string`) | `typescript/no-redundant-type-constituents` (`error`, type-aware) | `.oxlintrc.json` |
+| `String(v)` or a template on a value that may be an object, which prints `[object Object]` | `typescript/no-base-to-string` (`error`, type-aware) | `.oxlintrc.json` |
 | A value imported only for a type position, such as `typeof` | `typescript/consistent-type-imports` (`error`) | `.oxlintrc.json` |
 | A suppression directive with no rule name, or no reason after ` -- ` | `gate: suppression-without-reason` | `scripts/consolidation-rules.mjs` |
 | A spread that only copies, such as `{ ...(x ? { k: x } : {}) }` alone in a literal | `unicorn/no-useless-spread` (`error`) | `.oxlintrc.json` |
@@ -159,6 +162,30 @@ in this list is at `error` and was adopted at zero:
     `localeCompare` changes the order and varies with ICU data. The rule
     applies to `.mjs`, `.js` and `.cjs` too, where an array without a JSDoc
     type is `any[]` and needs the comparator.
+- `typescript/unbound-method`, default options. A method
+  read as a value (`const f = obj.method`, `.map(obj.method)`, a destructured
+  method) loses its `this`. Bind it (`obj.method.bind(obj)`) or wrap it in an
+  arrow. Declare an interface member that no implementation reads `this` from
+  as a function-typed property (`readonly encode: (name: string) => string`),
+  not a method signature; the rule then has nothing to report. A prototype
+  patch that calls the saved original with `.call(this, …)` carries a
+  directive.
+- `typescript/no-redundant-type-constituents`, default options. A union member
+  that another member absorbs (`unknown | undefined`, `Promise<unknown> |
+  unknown`, `"active" | string`) says nothing to the compiler. Write the wide
+  type and put the intent in the doc comment, or derive the exact union from
+  its source (`Awaited<ReturnType<Job["getState"]>>`). To keep editor
+  completion for known literals in an open string, write
+  `"a" | "b" | (string & {})`; the rule accepts it.
+- `typescript/no-base-to-string`, default options. `String(v)`, `v.toString()`
+  or a template on a value whose type may be an object without its own
+  `toString` prints `[object Object]`. Narrow the value at its boundary when it
+  can only be a primitive at run time (a fetch `input` is
+  `input instanceof Request ? input.url : input`). Otherwise pick the text you
+  mean: `toDisplayText` for a reader, `toMessage` for a caught error,
+  `JSON.stringify` for a `JsonValue`. The one directive is the
+  `rejected_inferences` hash in `knowledge/signature.ts`, whose stored hashes
+  depend on the `String(value)` fallback.
 
 The rules read a test or eval file through its package's `tsconfig.test.json`
 or `tsconfig.eval.json`: the root `tsconfig.json` is a solution file that
@@ -171,10 +198,9 @@ directive check reports it if it outlives the errors.
 
 Turning type-aware on also arms the type-aware rules in oxlint's default
 `correctness` set at `warn`. The config sets each of them explicitly, so the run
-reports only the rules it chose: the ones listed above at `error`, and the
-ones that still have hits on the tree `"off"` (`no-base-to-string`,
-`no-redundant-type-constituents` and `unbound-method`). The queued follow-ups are those rules and
-`no-unnecessary-condition`. Each lands alone in its own change:
+reports only the rules it chose, and every one of them is now at `error`
+(the list above). The queued follow-up is `no-unnecessary-condition`. It
+lands alone in its own change:
 drive the tree to zero, then set the rule to `error`.
 
 These are the cheap place for a new invariant **if it can be phrased as a

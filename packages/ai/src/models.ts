@@ -37,5 +37,6 @@ export function identifyLanguageModel(model: LanguageModel): ModelIdentifiers {
     return { provider: normalizeProvider(provider), modelId };
   }
 
-  return { provider: "unknown", modelId: String(model) };
+  // A gateway model id is the string itself; a model object without the fields has no id to read.
+  return { provider: "unknown", modelId: isIndexable(model) ? "unknown" : model };
 }

@@ -64,7 +64,7 @@ export interface StreamedTurn {
    * Publish the reply the #407 gate withheld, then the sanitizer tail, in that order.
    * A no-op until the caller clears `state.reissuePending`.
    */
-  releaseWithheldReply(): Promise<void>;
+  readonly releaseWithheldReply: () => Promise<void>;
 }
 
 /**

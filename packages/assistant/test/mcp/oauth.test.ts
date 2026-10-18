@@ -337,7 +337,10 @@ describe("MCP OAuth provider", () => {
     let tokenRequests = 0;
 
     const endpointAuthorization = authorization(async (input) => {
-      assert.equal(String(input), "https://auth.example.test/token");
+      assert.equal(
+        String(input instanceof Request ? input.url : input),
+        "https://auth.example.test/token",
+      );
       tokenRequests += 1;
 
       return new Response(
@@ -670,7 +673,8 @@ describe("built-in GitHub MCP OAuth client (#934)", () => {
       codeVerifier: "verifier-123",
       redirectUri: "https://alfred.example.test/api/integrations/mcp/callback",
       fetchFn: async (_url, init) => {
-        body = new URLSearchParams(String(init?.body));
+        assert.ok(init?.body instanceof URLSearchParams, "the token request posts a form body");
+        body = new URLSearchParams(init.body);
         authorizationHeader = new Headers(init?.headers).get("Authorization");
 
         return new Response(JSON.stringify({ access_token: "gh-token", token_type: "Bearer" }), {

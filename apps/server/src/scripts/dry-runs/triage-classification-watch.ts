@@ -42,11 +42,10 @@ const TRACE_KIND = "triage.classification" satisfies DecisionTraceKind;
 type TraceRecord = DecisionTraceFor<typeof TRACE_KIND>;
 
 /** Type-check a trace key, so a rename breaks the build. Never put a bare string after `->>`. */
-const traceKey = (key: keyof TraceRecord & string): string => key;
+const traceKey = (key: keyof TraceRecord): string => key;
 
 /** `trace ->> '<key>'`. The `::text` cast is optional; it names `jsonb ->> text`, not `->> int`. */
-const traceText = (key: keyof TraceRecord & string): SQL =>
-  sql`(t.trace ->> ${traceKey(key)}::text)`;
+const traceText = (key: keyof TraceRecord): SQL => sql`(t.trace ->> ${traceKey(key)}::text)`;
 
 /** Exhaustive over `spamFloorOutcome`, so a new member is a compile error, not a missing bucket. */
 const SPAM_FLOOR_OUTCOMES = {

@@ -732,7 +732,8 @@ function stringifyCanonical(value: unknown, seen: WeakSet<object>): string {
 
   if (valueType === "string") return JSON.stringify(value);
 
-  if (valueType === "number") return Number.isFinite(value) ? String(value) : "null";
+  // For a finite number, `JSON.stringify` and `String` produce the same text.
+  if (valueType === "number") return Number.isFinite(value) ? JSON.stringify(value) : "null";
 
   if (valueType === "boolean") return value ? "true" : "false";
 

@@ -14,7 +14,7 @@ async function capturedCreateEventUrl(attendees?: string[]): Promise<URL> {
   const realFetch = globalThis.fetch;
   let requestedUrl: URL | null = null;
   globalThis.fetch = (async (input) => {
-    requestedUrl = new URL(String(input));
+    requestedUrl = new URL(input instanceof Request ? input.url : input);
 
     return new Response(JSON.stringify({ id: "evt_test" }), {
       status: 200,

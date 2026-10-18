@@ -292,6 +292,7 @@ let caseFailures = [];
 
 let casesRun = 0;
 
+// oxlint-disable-next-line typescript/unbound-method -- the patch below replaces the prototype method and calls the original with `.call(this, …)`, so it must hold the unbound function.
 const runFixtures = RuleTester.prototype.run;
 
 RuleTester.prototype.run = function captureInvalidCases(ruleName, rule, tests) {

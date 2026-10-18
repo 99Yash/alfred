@@ -126,10 +126,10 @@
     // no-misused-promises and restrict-template-expressions keep their defaults.
     //
     // Turning type-aware on also arms every type-aware rule in oxlint's default `correctness`
-    // set at `warn`, which `pnpm lint` does not fail on. Each one is set explicitly below, at
-    // `error` or `off`, so the run reports only the rules this file chose. The queued follow-up
-    // (no-unnecessary-condition) and the default rules still off each land alone: tree to zero
-    // first, then the rule at `error`.
+    // set at `warn`, which `pnpm lint` does not fail on. Each one is set explicitly below at
+    // `error`, so the run reports only the rules this file chose. The queued follow-up
+    // (no-unnecessary-condition) lands the same way: tree to zero first, then the rule at
+    // `error`.
     "typescript/no-floating-promises": [
       "error",
       {
@@ -179,11 +179,18 @@
     "typescript/no-misused-spread": "error",
     "typescript/no-duplicate-type-constituents": "error",
     "typescript/require-array-sort-compare": "error",
-    // The default rules below still have hits on the tree. Each is off until its own change
-    // drives the tree to zero.
-    "typescript/no-base-to-string": "off",
-    "typescript/no-redundant-type-constituents": "off",
-    "typescript/unbound-method": "off",
+    // Three more default rules that had hits, each driven to zero before it landed:
+    // - unbound-method: a method read as a value loses `this`. Bind it or wrap it in an arrow;
+    //   declare a member that never reads `this` as a function-typed property.
+    // - no-redundant-type-constituents: a union member another member absorbs (`unknown | X`,
+    //   `"a" | string`). Write the wide type and say the rest in the doc comment, derive the
+    //   exact union, or keep autocomplete with `"a" | (string & {})`.
+    // - no-base-to-string: `String(v)` or a template on a value that may be an object prints
+    //   `[object Object]`. Narrow the value at its boundary, or pick the text you mean
+    //   (`toDisplayText`, `toMessage`, `JSON.stringify` of a JSON value).
+    "typescript/no-base-to-string": "error",
+    "typescript/no-redundant-type-constituents": "error",
+    "typescript/unbound-method": "error",
     "typescript/no-restricted-types": [
       "error",
       {

@@ -105,7 +105,7 @@ export interface WorkflowInput {
   userId: string;
   trigger: AgentRunTrigger;
   brief?: string | undefined;
-  input?: unknown | undefined;
+  input?: unknown;
   metadata?: JsonObject | undefined;
 }
 

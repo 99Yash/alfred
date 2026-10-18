@@ -416,7 +416,7 @@ describe("dispatch staging machine (DB-free)", () => {
     // A cancel lands after the gate's fence read and before the effect.
     // Only the pre-execute re-read can refuse. The written row must close `failed`, not stay
     // `pending`.
-    const upsert = store.upsertStaging;
+    const upsert = store.upsertStaging.bind(store);
     store.upsertStaging = async (values) => {
       const result = await upsert(values);
       store.seedRun(RUN_ID, "running", { generation: 1 });

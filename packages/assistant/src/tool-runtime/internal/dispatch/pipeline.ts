@@ -158,7 +158,7 @@ function safeUnknownToolCandidate(toolName: string): string | undefined {
 }
 
 // oxlint-disable-next-line anti-slop/no-unknown-returns -- a tool's redacted input is free-form at the registry seam; it goes to the trace as received.
-function redactTraceInput(tool: RegisteredTool, input: unknown): unknown | undefined {
+function redactTraceInput(tool: RegisteredTool, input: unknown): unknown {
   if (!tool.redactInput) return input;
 
   try {
