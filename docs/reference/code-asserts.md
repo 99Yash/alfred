@@ -32,6 +32,7 @@ where to put a new invariant.
 | A switch over a union that misses a member, with or without a `default` | `typescript/switch-exhaustiveness-check` (`error`, type-aware) | `.oxlintrc.json` |
 | A template literal that interpolates an object, `unknown`, or `never` | `typescript/restrict-template-expressions` (`error`, type-aware) | `.oxlintrc.json` |
 | An `any` that flows into a return, an argument, a call, a member read, or an assignment in TypeScript source | `typescript/no-unsafe-return`, `-argument`, `-call`, `-member-access`, `-assignment` (`error`, type-aware; off for `.mjs`/`.js`/`.cjs`) | `.oxlintrc.json` |
+| An `await` of a non-thenable, `delete` on an array element, `for…in` over an array, a string passed as code to `setTimeout` / `new Function`, unary minus on a non-number, or a default value that can never apply | `typescript/await-thenable`, `no-array-delete`, `no-for-in-array`, `no-implied-eval`, `no-unsafe-unary-minus`, `no-useless-default-assignment` (`error`, type-aware) | `.oxlintrc.json` |
 | A value imported only for a type position, such as `typeof` | `typescript/consistent-type-imports` (`error`) | `.oxlintrc.json` |
 | A suppression directive with no rule name, or no reason after ` -- ` | `gate: suppression-without-reason` | `scripts/consolidation-rules.mjs` |
 | A spread that only copies, such as `{ ...(x ? { k: x } : {}) }` alone in a literal | `unicorn/no-useless-spread` (`error`) | `.oxlintrc.json` |
@@ -85,8 +86,8 @@ a restated copy or a declared omission per group.
 `.oxlintrc.json` sets `options.typeAware`, so every oxlint run (`pnpm lint`,
 the edit-time hook, the `check:oxlint-config` probe) also runs the rules that
 need type information, through the `oxlint-tsgolint` root devDependency. A
-missing tsgolint binary fails the run instead of skipping the rules. Nine rules
-are at `error`, each adopted at zero:
+missing tsgolint binary fails the run instead of skipping the rules. Fifteen
+rules are at `error`, each adopted at zero:
 
 - `typescript/no-floating-promises`, with the `node:test` registrars
   (`describe`, `it`, `suite`, `test`) as known-safe calls, because the runner
@@ -119,6 +120,15 @@ are at `error`, each adopted at zero:
   `JSON.parse` the family suppresses. The rules are off for `.mjs`, `.js` and
   `.cjs` (the last `overrides` entry), where JSDoc-typed code runs with
   `noImplicitAny` off and `any` is the default type.
+- Six rules from oxlint's default `correctness` set, default options, adopted
+  with zero hits in TypeScript and JavaScript sources:
+  `typescript/await-thenable` (an `await` of a value that is not a thenable),
+  `no-array-delete` (`delete` on an array element), `no-for-in-array`
+  (`for…in` over an array), `no-implied-eval` (a string passed to
+  `setTimeout`, `setInterval` or `new Function`), `no-unsafe-unary-minus`
+  (unary minus on a value that is not a `number` or `bigint`) and
+  `no-useless-default-assignment` (a default value for a binding whose type
+  does not include `undefined`). They apply to `.mjs`, `.js` and `.cjs` too.
 
 The rules read a test or eval file through its package's `tsconfig.test.json`
 or `tsconfig.eval.json`: the root `tsconfig.json` is a solution file that
@@ -130,10 +140,14 @@ names the baseline. Remove the directive with the baseline entry; the unused-
 directive check reports it if it outlives the errors.
 
 Turning type-aware on also arms the type-aware rules in oxlint's default
-`correctness` set at `warn`. The config turns each of them `"off"`, so the run
-reports only the rules it chose. The queued follow-up is
-`no-unnecessary-condition`. It lands alone in its own change: drive the tree to
-zero, then add the rule at `error`.
+`correctness` set at `warn`. The config sets each of them explicitly, so the run
+reports only the rules it chose: the six above at `error`, and the seven that
+still have hits on the tree `"off"` (`no-base-to-string`,
+`no-duplicate-type-constituents`, `no-meaningless-void-operator`,
+`no-misused-spread`, `no-redundant-type-constituents`,
+`require-array-sort-compare` and `unbound-method`). The queued follow-ups are
+those seven and `no-unnecessary-condition`. Each lands alone in its own change:
+drive the tree to zero, then set the rule to `error`.
 
 These are the cheap place for a new invariant **if it can be phrased as a
 syntax shape**. The vendored `anti-slop` set is deliberately small; a new
