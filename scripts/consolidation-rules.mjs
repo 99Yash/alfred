@@ -64,22 +64,40 @@ export const REGISTRY_UNION = String.raw`(?:(?:\w*Integration|LiveProvider|Plann
 const CONSTANTS_MODULE = String.raw`[^"']*\/constants`;
 
 /**
- * A named import, anywhere earlier in the file, that binds the name in group 1
- * from a module whose path matches `from`. The bound name is the local one: the
- * alias when the specifier renames (`A as B` binds `B`).
+ * An import that binds the name in group 1 from a module whose path matches
+ * `from`. Every binding form counts, because each one gives the file a local
+ * name that a later `export { … }` or alias can hand out again:
+ * - named: `{ X }`, `{ type X }`, `{ A as X }` (the local name, so `A as X`
+ *   binds `X`), also after a default (`D, { X }`);
+ * - default: `X`, `X, { … }`, `X, * as NS`;
+ * - namespace: `* as X`, `D, * as X`.
  *
- * For use inside a lookbehind that a rule places after it captures group 1 at
- * the second statement (`(?<=${importBinding(…)}[\s\S]*)`). That is how a shim
- * rule relates the two statements without either one sitting next to the
- * other: an adjacency regex (`import …;[^;]*export …`) let one statement
- * between them hide the shim, which is how the `extract-pdf.ts` shim that
- * 8281ff65 removed got past the rule written for it. The match then covers
- * only the second statement, so a `// drift-ok:` marker for another rule
- * between the two statements does not exempt it.
+ * Use it through `importedInFile`, never on its own.
  * @param {string} from Regex source for the module path.
  */
 const importBinding = (from) =>
-  String.raw`\bimport\s*(?:type\s+)?\{[^}]*?\b\1(?=\s*[,}])[^}]*\}\s*from\s*["']${from}["']`;
+  String.raw`\bimport\b\s*(?:type\b\s*)?(?:` +
+  String.raw`(?:\w+\s*,\s*)?\{[^}]*?\b\1(?=\s*[,}])[^}]*\}` +
+  String.raw`|\1\b(?:\s*,\s*(?:\{[^}]*\}|\*\s*as\s+\w+))?` +
+  String.raw`|(?:\w+\s*,\s*)?\*\s*as\s+\1\b` +
+  String.raw`)\s*from\s*["']${from}["']`;
+
+/**
+ * True at a position when an import anywhere in the file binds group 1 (see
+ * `importBinding`). A rule places it after it captures group 1 at the second
+ * statement. That is how a shim rule relates the two statements without either
+ * one sitting next to the other: an adjacency regex (`import …;[^;]*export …`)
+ * let one statement between them hide the shim, which is how the
+ * `extract-pdf.ts` shim that 8281ff65 removed got past the rule written for it.
+ *
+ * The import may come before (lookbehind) or after (lookahead) the second
+ * statement. TypeScript hoists imports, so an import below its re-export is the
+ * same shim. The match covers only the second statement, so a `// drift-ok:`
+ * marker for another rule between the two statements does not exempt it.
+ * @param {string} from Regex source for the module path.
+ */
+const importedInFile = (from) =>
+  String.raw`(?:(?<=${importBinding(from)}[\s\S]*)|(?=[\s\S]*${importBinding(from)}))`;
 
 /**
  * An `export { … }` (or `export type { … }` when `typeOnly`) with no `from`,
@@ -88,7 +106,7 @@ const importBinding = (from) =>
  * @param {boolean} typeOnly
  */
 const constantsReExport = (typeOnly) =>
-  String.raw`\bexport\s*${typeOnly ? String.raw`type\s*` : ""}\{[^}]*?\b(\w+)(?=\s*(?:as\s+\w+\s*)?[,}])(?![^}]*\}\s*from\b)(?<=${importBinding(CONSTANTS_MODULE)}[\s\S]*)`;
+  String.raw`\bexport\s*${typeOnly ? String.raw`type\s*` : ""}\{[^}]*?\b(\w+)(?=\s*(?:as\s+\w+\s*)?[,}])(?![^}]*\}\s*from\b)${importedInFile(CONSTANTS_MODULE)}`;
 
 /** @type {ConsolidationRule[]} */
 export const RULES = [
@@ -848,8 +866,12 @@ export const RULES = [
     // raw bytes (`createHash("sha256").update(rawString)`) is a different
     // operation and is left alone. The two-statement form
     // (`const h = createHash("sha256"); h.update(JSON.stringify(v))`) relates
-    // the `.update(` receiver to a sha256 hasher bound earlier in the file.
-    re: /createHash\(\s*["']sha256["']\s*\)\s*\.update\(\s*JSON\.stringify\(|\b(\w+)\s*\.update\(\s*JSON\.stringify\((?<=\b\1(?:\s*:\s*\w+)?\s*=\s*createHash\(\s*["']sha256["']\s*\)[\s\S]*)/,
+    // the `.update(` receiver to a hasher bound earlier in the file. Any
+    // algorithm counts (`md5`, `sha1`, `sha512`, a variable): the bug is the
+    // key-order pre-image, not the digest, and `sha256Canonical` is the fix for
+    // each. `createHmac` is not read: a MAC is checked over the bytes that came
+    // with it, and `sha256Canonical` takes no key, so the fix text is wrong there.
+    re: /createHash\([^()]*\)\s*\.update\(\s*JSON\.stringify\(|\b(\w+)\s*\.update\(\s*JSON\.stringify\((?<=\b\1(?:\s*:\s*\w+)?\s*=\s*createHash\([^()]*\)[\s\S]*)/,
     scope: "chain",
     severity: "gate",
     fix: "Use sha256Canonical(value) from @alfred/db/hash — SHA-256 over canonicalJson (keys sorted, present-undefined skipped), prefixed `sha256:`. It is the one content hash for observations.evidence_hash and every other dedup / change-detection digest. If the digest is audit-only and never compared, append `// drift-ok: <why order-dependence is safe here>`.",
@@ -862,8 +884,11 @@ export const RULES = [
     // door — two places answer the same fact and nothing makes them agree.
     //
     // Two shapes. The import-then-export shim relates the exported name to an
-    // import of that name anywhere earlier in the file (see `importBinding`),
-    // so any number of statements between the two cannot hide it. The
+    // import that binds that name anywhere in the file, above or below the
+    // export (see `importedInFile`), so any number of statements between the
+    // two cannot hide it. A default import (`import X from`) and a namespace
+    // import (`import * as C from`) of a constants module are the same second
+    // door as a named one when the file exports `X` or `C` again. The
     // one-statement `export { X } from "./constants"` is the same second door
     // without the local binding. `scope: "chain"`, because the formatter
     // splits a long specifier list across lines. The barrels are owners.
@@ -887,7 +912,7 @@ export const RULES = [
     // second-door problem for types. Also catches `export type { Foo } from "./constants"`
     // outside the barrel. The inline modifier (`export { type Foo } from …`) is
     // the same re-export. The two-statement form relates the name to its
-    // import anywhere earlier in the file, as `no-constants-re-export` does.
+    // import anywhere in the file, as `no-constants-re-export` does.
     // `scope: "chain"`, because the formatter splits a long specifier list
     // across lines, and a line rule saw neither that nor the two-statement form.
     re: new RegExp(
@@ -907,11 +932,13 @@ export const RULES = [
     // `typeof x[number]`) is not matched: only a rename is. `owners` holds the
     // sanctioned renames, each carrying a doc comment naming the fact it
     // encodes; a new one joins `owners` with that reason, or states it inline.
-    // The alias's first segment must be bound by a named import anywhere
-    // earlier in the file (see `importBinding`), so statements between the
-    // import and the alias do not hide it.
+    // The alias's first segment must be bound by an import anywhere in the
+    // file, above or below the alias (see `importedInFile`), so statements
+    // between them do not hide it. A default import counts (`import Foo from`
+    // then `= Foo`), and so does a namespace import (`import * as M from` then
+    // `= M.Thing`): each is a bare new name for a type that the module owns.
     re: new RegExp(
-      String.raw`\bexport\s+type\s+\w+\s*=\s*(\w+)(?=(?:\.\w+)*\s*;)(?<=${importBinding(String.raw`[^"']+`)}[\s\S]*)`,
+      String.raw`\bexport\s+type\s+\w+\s*=\s*(\w+)(?=(?:\.\w+)*\s*;)${importedInFile(String.raw`[^"']+`)}`,
     ),
     scope: "chain",
     severity: "gate",

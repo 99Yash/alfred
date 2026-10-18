@@ -1061,6 +1061,21 @@ switch (resultCategory) {
   return hash.digest("hex");`,
   },
   {
+    // The bug is the key-order pre-image, not the algorithm.
+    name: "sha256-over-json-stringify — another algorithm over JSON is the same bug",
+    caught: true,
+    rule: "sha256-over-json-stringify",
+    code: `  return createHash("md5").update(JSON.stringify(value)).digest("hex");`,
+  },
+  {
+    name: "sha256-over-json-stringify — a hasher bound with another algorithm, then fed JSON",
+    caught: true,
+    rule: "sha256-over-json-stringify",
+    code: `  const hash = createHash(algorithm);
+  hash.update(JSON.stringify(payload));
+  return hash.digest("hex");`,
+  },
+  {
     name: "sha256-over-json-stringify — hashing raw bytes is a different operation",
     caught: false,
     code: `  return createHash("sha256").update(rawBody).digest("hex");`,
@@ -1071,6 +1086,18 @@ switch (resultCategory) {
     code: `  const hash = createHash("sha256");
   hash.update(rawBody);
   const summary = JSON.stringify(meta);`,
+  },
+  {
+    name: "sha256-over-json-stringify — another algorithm over raw bytes is a different operation",
+    caught: false,
+    code: `  return createHash("sha1").update(rawBody).digest("hex");`,
+  },
+  {
+    // A MAC is checked over the bytes that came with it, and sha256Canonical
+    // takes no key, so the fix text does not apply.
+    name: "sha256-over-json-stringify — an HMAC is a signature, not a content hash",
+    caught: false,
+    code: `  const sig = createHmac("sha256", secret).update(JSON.stringify(payload)).digest("hex");`,
   },
   {
     name: "sha256-over-json-stringify — sha256Canonical is the intended form",
@@ -1124,6 +1151,48 @@ export { REALTIME_PDF_EXTRACTION_LIMITS };`,
 } from "./constants";`,
   },
   {
+    // TypeScript hoists imports, so an import below its re-export is the same shim.
+    name: "no-constants-re-export — the import below the export",
+    caught: true,
+    rule: "no-constants-re-export",
+    file: "packages/assistant/src/action-policies/resolve.ts",
+    code: `export { DEFAULT_APPROVAL_NOTIFY_DELAY_MS };
+
+import { DEFAULT_APPROVAL_NOTIFY_DELAY_MS } from "../constants";`,
+  },
+  {
+    name: "no-constants-re-export — a default import of constants, exported again",
+    caught: true,
+    rule: "no-constants-re-export",
+    code: `import LIMITS from "./constants";
+
+export { LIMITS };`,
+  },
+  {
+    name: "no-constants-re-export — a namespace import of constants, exported again",
+    caught: true,
+    rule: "no-constants-re-export",
+    code: `import * as constants from "./constants";
+
+export { constants };`,
+  },
+  {
+    name: "no-constants-re-export — a named import after a default, exported again",
+    caught: true,
+    rule: "no-constants-re-export",
+    code: `import LIMITS, { DEFAULT_APPROVAL_NOTIFY_DELAY_MS } from "./constants";
+
+export { DEFAULT_APPROVAL_NOTIFY_DELAY_MS };`,
+  },
+  {
+    name: "no-constants-re-export — the barrel may re-export a namespace of constants",
+    caught: false,
+    file: "packages/extraction/src/index.ts",
+    code: `import * as constants from "./constants";
+
+export { constants };`,
+  },
+  {
     name: "no-constants-re-export — the barrel is the sanctioned re-exporter",
     caught: false,
     file: "packages/extraction/src/index.ts",
@@ -1156,6 +1225,22 @@ export { RAILWAY_MCP_ENDPOINT_HREF, RAILWAY_MCP_STORED_ISSUER } from "./constant
 const reserve = CHAT_MAX_OUTPUT_TOKENS * 2;
 
 export { reserve };`,
+  },
+  {
+    name: "no-constants-re-export — a local name exported above an import of a constant",
+    caught: false,
+    code: `export { reserve };
+
+import { CHAT_MAX_OUTPUT_TOKENS } from "./compaction/constants";
+
+const reserve = CHAT_MAX_OUTPUT_TOKENS * 2;`,
+  },
+  {
+    name: "no-constants-re-export — a namespace from a module that is not constants",
+    caught: false,
+    code: `import * as prompt from "./prompt";
+
+export { prompt };`,
   },
   {
     name: "no-constants-re-export — re-exporting a name from a module that is not constants",
@@ -1203,6 +1288,24 @@ import { truncateExtractedForLimit } from "./extract-pdf-protocol";
 export type { PdfExtractionLimits };`,
   },
   {
+    name: "no-type-re-export-shim — the type import below the export",
+    caught: true,
+    rule: "no-type-re-export-shim",
+    file: "packages/extraction/src/extract-pdf.ts",
+    code: `export type { PdfExtractionLimits };
+
+import type { PdfExtractionLimits } from "./constants";`,
+  },
+  {
+    name: "no-type-re-export-shim — a namespace type import of constants, exported again",
+    caught: true,
+    rule: "no-type-re-export-shim",
+    file: "packages/extraction/src/extract-pdf.ts",
+    code: `import type * as Limits from "./constants";
+
+export type { Limits };`,
+  },
+  {
     name: "no-type-re-export-shim — the barrel is the sanctioned re-exporter",
     caught: false,
     file: "packages/extraction/src/index.ts",
@@ -1219,6 +1322,15 @@ export type { PdfExtractionLimits };`,
     code: `import type { ChatMediaPart } from "./types";
 
 export type { ChatMediaPart };`,
+  },
+  {
+    name: "no-type-re-export-shim — a local type exported above an import of constants",
+    caught: false,
+    code: `export type { PdfDoor };
+
+import type { PdfExtractionLimits } from "./constants";
+
+type PdfDoor = { limits: PdfExtractionLimits };`,
   },
   {
     // `no-type-alias-shim` — a bare rename of an imported type.
@@ -1249,6 +1361,38 @@ export type ActiveConversation = ConversationRow;`,
     code: `import { type ConversationRow as Row } from "./reader";
 
 export type ActiveConversation = Row;`,
+  },
+  {
+    // TypeScript hoists imports, so an import below its alias is the same shim.
+    name: "no-type-alias-shim — the import below the alias",
+    caught: true,
+    rule: "no-type-alias-shim",
+    code: `export type ActiveConversation = ConversationRow;
+
+import type { ConversationRow } from "./reader";`,
+  },
+  {
+    name: "no-type-alias-shim — a default import renamed",
+    caught: true,
+    rule: "no-type-alias-shim",
+    code: `import type ConversationRow from "./reader";
+
+export type ActiveConversation = ConversationRow;`,
+  },
+  {
+    name: "no-type-alias-shim — a namespace member renamed",
+    caught: true,
+    rule: "no-type-alias-shim",
+    code: `import type * as reader from "./reader";
+
+export type ActiveConversation = reader.ConversationRow;`,
+  },
+  {
+    name: "no-type-alias-shim — a derivation over a namespace member is not a rename",
+    caught: false,
+    code: `import type * as reader from "./reader";
+
+export type ConversationHeader = Pick<reader.ConversationRow, "id" | "title">;`,
   },
   {
     name: "no-type-alias-shim — a derivation adds a fact and is not a rename",
