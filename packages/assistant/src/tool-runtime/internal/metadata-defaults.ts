@@ -3,7 +3,7 @@
  * tool is findable by capability without hand-written copy (#413).
  */
 
-import { humanizeSlug } from "@alfred/contracts";
+import { humanizeSlug, type ActionSlug, type IntegrationSlug } from "@alfred/contracts";
 import { z } from "zod";
 import type { ToolDiscoveryMetadata } from "./registry";
 
@@ -63,7 +63,8 @@ const PLUMBING_FIELD_TOKENS = new Set([
 
 export interface DeriveToolDiscoveryInput {
   integration: ProviderLabel;
-  action: string;
+  /** Any registry action. `liveTool` passes its `ActionSlug<I>`, so the closed union reaches `humanizeSlug`. */
+  action: ActionSlug<IntegrationSlug>;
   description: string;
   /** Read for its top-level field names. */
   inputSchema: z.ZodType<any>;

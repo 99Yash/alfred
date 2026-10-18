@@ -7,13 +7,14 @@ import {
   workflowReadinessOutputSchema,
   type EffectReceipt,
   type WorkflowRecoveryAction,
+  type RunDeferReason,
   type WorkflowRunOutcome,
 } from "@alfred/contracts";
 import type { DbTransaction } from "@alfred/db";
 import { actionStagings, workflows, type ActionStaging, type AgentRun } from "@alfred/db/schemas";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { and, asc, eq, sql } from "drizzle-orm";
-import { isInternalWorkflowSlug, type RunDeferReason } from "./registry";
+import { isInternalWorkflowSlug } from "./registry";
 
 // The typed outcome stored with every terminal or deferred status write (#561).
 

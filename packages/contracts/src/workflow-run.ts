@@ -9,9 +9,43 @@ import {
   workflowRecoveryActionSchema,
   workflowRecoveryNavigationSchema,
 } from "./agent";
+import { enumGuard } from "./guards";
+import { TOOL_UNAVAILABILITY_CODES } from "./integration-availability";
 import { TOOL_RISK_TIERS } from "./tools";
 
-/** Persisted on a blocked run. `code` stays an open string so a retired code still parses. */
+/** Why a deferred run waits. `deferredRunOutcomeSchema.code` is one of these when this build wrote it. */
+export const RUN_DEFER_REASONS = ["provider_unhealthy", "retry_scheduled"] as const;
+
+export type RunDeferReason = (typeof RUN_DEFER_REASONS)[number];
+
+export const isRunDeferReason = enumGuard(RUN_DEFER_REASONS);
+
+/** Every code that the readiness check gives a problem (`workflowReadinessProblemSchema.code`). */
+export const WORKFLOW_READINESS_PROBLEM_CODES = [
+  ...TOOL_UNAVAILABILITY_CODES,
+  "no_tool_surface",
+  "choose_account",
+  "resource_not_granted",
+  /** The user must act (`connect`); the workflow blocks (#976). */
+  "trigger_not_ready",
+  /** Time or an operator fixes delivery (ADR-0097); the run defers. */
+  "trigger_degraded",
+] as const;
+
+export type WorkflowReadinessProblemCode = (typeof WORKFLOW_READINESS_PROBLEM_CODES)[number];
+
+/**
+ * `blockedRunOutcomeSchema.code` when this build wrote it: the first readiness problem's code,
+ * or `blocked` when the run output names none.
+ */
+export const BLOCKED_RUN_CODES = [...WORKFLOW_READINESS_PROBLEM_CODES, "blocked"] as const;
+
+export const isBlockedRunCode = enumGuard(BLOCKED_RUN_CODES);
+
+/**
+ * Persisted on a blocked run. `code` stays an open string so a retired code still parses; a
+ * reader narrows it with `isBlockedRunCode` or `WORKFLOW_READINESS_PROBLEM_CODES`.
+ */
 export const workflowReadinessProblemSchema = z.object({
   code: z.string(),
   message: z.string(),
