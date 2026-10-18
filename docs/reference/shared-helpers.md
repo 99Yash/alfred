@@ -60,6 +60,7 @@ candidate `gate` rule — see [Closing the loop](#closing-the-loop).
 | any calendar-day, wall-clock, or UTC-offset reading                                           | `settings({ userId }).timezone()` for the zone, then the `@alfred/assistant/time` module — `inZone(tz).day()` / `.hour()` / `.dayBounds()` / `.startOf(key)` / `.clock()` / `.format(at)`, and `addDays` / `weekdayIndex` / `formatDay` on the key ([full list](#timezone--alfredassistanttime-packagesassistantsrctime)) | `@alfred/assistant/time`      | `Intl` glue per call site; day math in milliseconds; reading `getUTCDate()` off a user's instant; passing a bare `string` where `IanaTimezone` / `LocalDateKey` is expected |
 | get a language-model handle and reasoning policy                                              | `route`                                                                                                                                                                                                                                                                                                            | `@alfred/ai`                  | constructing a provider client                                                                                                                                              |
 | hash a JSON value for dedup, idempotency, or change detection | `sha256Canonical(value)` | `@alfred/db/hash` | `createHash("sha256").update(JSON.stringify(v))` — key-insertion-order dependent; **the `alfred/sha256-over-json-stringify` lint rule bans it** |
+| hash raw text (a document body, a key, a prompt) to hex | `sha256Hex(text)` | `@alfred/db/hash` | an exported `createHash("sha256").update(text).digest("hex")` helper in another module — **the `alfred/no-exported-hasher` lint rule bans it** |
 | run a query and read typed rows                                                               | `rowsFromExecute` + named Drizzle row types                                                                                                                                                                                                                                                                        | `@alfred/db`                  | `(res as Row[])`                                                                                                                                                            |
 | restrict a query or partial index to live `agent_runs`                                        | `runIsNotTerminal(t.status)`                                                                                                                                                                                                                                                                                       | `@alfred/db` schemas          | `status NOT IN ('completed', 'failed', 'cancelled')` written out per site                                                                                                   |
 | merge Tailwind class names (web)                                                              | `cn(...)`                                                                                                                                                                                                                                                                                                          | `apps/web/src/lib/utils.ts`   | template-string concatenation                                                                                                                                               |
@@ -302,8 +303,16 @@ a `LocalDateKey`. Before the brands, `localStartOfDay(timezone, key)` compiled.
   workflow revision content hash. A `JSON.stringify` pre-image hashes the same
   logical payload differently per key order, so it cannot be a dedup key; the
   `alfred/sha256-over-json-stringify` lint rule (`scripts/oxlint/alfred/`) bans
-  it. Hashing raw bytes (a webhook body, a document) is a different operation
-  and stays on `createHash` directly.
+  it. Hashing raw text (a webhook body, a document, a key) is a different
+  operation: use `sha256Hex(text)` (`@alfred/db/hash`), 64 hex characters with
+  no prefix.
+- `@alfred/db/hash` is the one module that may export a hash helper. The
+  `alfred/no-exported-hasher` lint rule reports a function exported from any
+  other module whose parameter flows into a digest, and a re-export of
+  `sha256Hex` or `sha256Canonical`. So the sha256 rule can treat every call of
+  the two owner helpers as a digest, in any file. A private helper over
+  `createHash` (raw key bytes, a trace id) stays legal, because the sha256 rule
+  reads its calls in its own file.
 
 ### Models — `@alfred/ai`
 

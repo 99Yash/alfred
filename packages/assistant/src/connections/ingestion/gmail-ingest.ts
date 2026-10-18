@@ -6,8 +6,9 @@ import {
   mapConcurrent,
   toMessage,
 } from "@alfred/contracts";
-import { indexDocument, sha256 } from "@alfred/corpus";
+import { indexDocument } from "@alfred/corpus";
 import { db } from "@alfred/db";
+import { sha256Hex } from "@alfred/db/hash";
 import { documents, ingestionState, integrationCredentials } from "@alfred/db/schemas";
 import { gmailMailboxWritesEnabled } from "@alfred/env/server";
 import {
@@ -301,7 +302,7 @@ async function persistMessage(
     body: extracted.body,
   });
 
-  const contentHash = sha256(content);
+  const contentHash = sha256Hex(content);
   const labelIds = message.labelIds ?? [];
   const isSent = labelIds.includes("SENT");
 

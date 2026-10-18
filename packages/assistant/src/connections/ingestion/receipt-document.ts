@@ -1,6 +1,6 @@
 import { parseEventTypeName, type IanaTimezone, type InboundEventSource } from "@alfred/contracts";
-import { sha256 } from "@alfred/corpus";
 import { db, type DbTransaction } from "@alfred/db";
+import { sha256Hex } from "@alfred/db/hash";
 import { documents, eventReceipts, type Document, type EventReceipt } from "@alfred/db/schemas";
 import { and, count, eq, gte, lt, sql, type SQL } from "drizzle-orm";
 import { settings } from "@alfred/assistant/settings";
@@ -142,7 +142,7 @@ export async function writeReceiptDocument(
       accountId: identity.accountId,
       title: description.title,
       content: description.body,
-      contentHash: sha256(description.body),
+      contentHash: sha256Hex(description.body),
       raw: identity.payload,
       url: description.url,
       authoredAt: identity.deliveredAt,

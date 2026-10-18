@@ -12,6 +12,7 @@ import {
   type SharedThreadSummary,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
+import { sha256Hex } from "@alfred/db/hash";
 import {
   artifacts,
   chatAttachments,
@@ -20,7 +21,7 @@ import {
   sharedThreads,
 } from "@alfred/db/schemas";
 import type { Artifact, ChatMessage, SharedThread } from "@alfred/db/schemas";
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { and, asc, count, desc, eq, inArray } from "drizzle-orm";
 
 /**
@@ -117,7 +118,7 @@ interface Snapshot {
 
 /** Same digest exactly when the page renders the same, so an edit or rename mints a new share. */
 function snapshotDigest(snapshot: Snapshot): string {
-  return createHash("sha256").update(canonicalJson(snapshot)).digest("hex");
+  return sha256Hex(canonicalJson(snapshot));
 }
 
 async function attachmentCountsByMessage(messageIds: string[]): Promise<Map<string, number>> {

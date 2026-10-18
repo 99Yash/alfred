@@ -203,12 +203,51 @@ const key = hashOf(rawBody);
 const summary = JSON.stringify(meta);`,
     },
     {
-      // Out of scope for a one-file rule, recorded here as the limit: the helper's body
-      // is in another file, so nothing relates its parameter to a hasher.
-      name: "hole 5 — a helper in another file is not read",
+      // An import from a module that is not a hash owner is not a sink. That module
+      // cannot export a hasher: alfred/no-exported-hasher reports one there.
+      name: "hole 5 — an import from a module that is not a hash owner",
+      filename: "packages/assistant/src/knowledge/digest.ts",
       code: `import { hashOf } from "./hash";
+import { sha256Hex } from "@alfred/db";
 
-const key = hashOf(JSON.stringify(payload));`,
+const key = hashOf(JSON.stringify(payload));
+const other = sha256Hex(JSON.stringify(payload));`,
+    },
+
+    // Owner hashers in another file (scripts/oxlint/alfred/shared/hash-owners.ts).
+    {
+      // The owner module defines the helper. Its body digests a parameter, and no call
+      // in the file passes JSON.
+      name: "the owner module defines its hashers",
+      filename: "packages/db/src/hash.ts",
+      code: `import { canonicalJson } from "@alfred/contracts";
+import { createHash } from "node:crypto";
+
+export function sha256Hex(text: string): string {
+  return createHash("sha256").update(text).digest("hex");
+}
+
+export function sha256Canonical(value: unknown): string {
+  return \`sha256:\${sha256Hex(canonicalJson(value))}\`;
+}`,
+    },
+    {
+      name: "an owner hasher over raw text or a structured value",
+      code: `import { sha256Canonical, sha256Hex } from "@alfred/db/hash";
+
+const key = sha256Hex(rawBody);
+const evidence = sha256Canonical({ kind, payload });
+const summary = JSON.stringify(meta);`,
+    },
+    {
+      // The scope manager resolves the callee, so a parameter that shadows the import
+      // is not the owner hasher.
+      name: "a parameter that shadows an owner hasher import",
+      code: `import { sha256Hex } from "@alfred/db/hash";
+
+function run(sha256Hex: (text: string) => string) {
+  return sha256Hex(JSON.stringify(payload));
+}`,
     },
   ],
   invalid: [
@@ -448,6 +487,63 @@ const digest = await digestOf("meta", \`v1:\${JSON.stringify(meta)}\`);`,
         `  return createHash("sha256").update(kind).update(JSON.stringify(value)).digest("hex");`,
       ),
       errors: [error],
+    },
+
+    // Owner hashers in another file (scripts/oxlint/alfred/shared/hash-owners.ts). Each
+    // case below was missed when the rule read only same-file helpers.
+    {
+      name: "a named import of the owner string hasher over JSON",
+      code: `import { sha256Hex } from "@alfred/db/hash";
+
+const key = sha256Hex(JSON.stringify(payload));`,
+      errors: [helperError("sha256Hex")],
+    },
+    {
+      name: "a renamed import of the owner string hasher over JSON in a template",
+      code: `import { sha256Hex as digest } from "@alfred/db/hash";
+
+const key = digest(\`v1:\${JSON.stringify(payload)}\`);`,
+      errors: [helperError("digest")],
+    },
+    {
+      name: "a namespace import of the owner module over bound JSON",
+      code: `import * as hash from "@alfred/db/hash";
+
+const body = JSON.stringify(payload);
+const key = hash.sha256Hex(body);`,
+      errors: [helperError("hash.sha256Hex")],
+    },
+    {
+      // A relative specifier resolves from the file: `../hash.ts` and `../hash`.
+      name: "a relative import of the owner module over JSON",
+      filename: "packages/db/src/workflow/occurrence.ts",
+      code: `import { sha256Hex } from "../hash.ts";
+import * as owner from "../hash";
+
+const key = sha256Hex(JSON.stringify(payload));
+const other = owner.sha256Hex(JSON.stringify(payload));`,
+      errors: [helperError("sha256Hex"), helperError("owner.sha256Hex")],
+    },
+    {
+      // `canonicalJson` of a string is the string itself, so its keys stay in order.
+      name: "the owner canonical hasher over JSON",
+      code: `import { sha256Canonical } from "@alfred/db/hash";
+
+const evidence = sha256Canonical({ kind, body: JSON.stringify(payload) });`,
+      errors: [helperError("sha256Canonical")],
+    },
+    {
+      // A same-file helper over an owner hasher is read like any same-file helper.
+      name: "a same-file helper whose parameter flows into the owner hasher",
+      code: `import { sha256Hex } from "@alfred/db/hash";
+
+function keyOf(text: string): string {
+  return sha256Hex(\`key:\${text}\`);
+}
+
+const key = keyOf(JSON.stringify(payload));
+const raw = keyOf(rawBody);`,
+      errors: [helperError("keyOf")],
     },
   ],
 });

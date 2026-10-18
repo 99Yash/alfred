@@ -7,6 +7,7 @@
 import { parseOAuthScopeList } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { credentialVault, type CredentialVault } from "@alfred/db/credential-vault";
+import { sha256Hex } from "@alfred/db/hash";
 import {
   mcpConnections,
   mcpOauthAuthorizationAttempts,
@@ -35,7 +36,6 @@ import {
   type StoredOAuthTokens,
 } from "@modelcontextprotocol/client";
 import { and, eq, gt, lt } from "drizzle-orm";
-import { createHash } from "node:crypto";
 import { z } from "zod";
 import { oauthHandshake } from "@alfred/assistant/connections";
 import {
@@ -335,10 +335,6 @@ function canonicalIssuer(value: string): string {
   return new URL(value).href;
 }
 
-function stateHash(value: string): string {
-  return createHash("sha256").update(value).digest("hex");
-}
-
 function parseAuthorizationServerMetadata(
   value: unknown,
   server: McpAuthorizedOAuthServer,
@@ -540,7 +536,7 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
       connectionId: this.#connectionId,
     });
 
-    this.#attemptStateHash = stateHash(state);
+    this.#attemptStateHash = sha256Hex(state);
     await this.#store.createAttempt({
       connectionId: this.#connectionId,
       userId: this.#userId,
@@ -737,7 +733,7 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
   }
 
   async matchesState(state: string): Promise<boolean> {
-    const candidate = stateHash(state);
+    const candidate = sha256Hex(state);
 
     const attempt = await this.#store.readAttempt({
       connectionId: this.#connectionId,

@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { ARTIFACT_DOCUMENT_DESIGN_PROMPT } from "@alfred/artifacts-design";
 import {
   artifactFormatSchema,
@@ -6,6 +5,7 @@ import {
   chatModelTierSchema,
   type AgentTranscriptMessage,
 } from "@alfred/contracts";
+import { sha256Hex } from "@alfred/db/hash";
 import { z } from "zod";
 import {
   foldToolSurfaceState,
@@ -134,7 +134,7 @@ export function assertStableChatSystem(
   state: Pick<ChatRunState, "systemPromptHash">,
   systemPrompt: string,
 ): void {
-  const hash = createHash("sha256").update(systemPrompt).digest("hex");
+  const hash = sha256Hex(systemPrompt);
 
   if (state.systemPromptHash === undefined) {
     state.systemPromptHash = hash;

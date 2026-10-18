@@ -1,12 +1,12 @@
 import { isRecord } from "@alfred/contracts";
-import { createHash } from "node:crypto";
+import { sha256Hex } from "@alfred/db/hash";
 
 /**
  * Stable hash of `(key, value)` for `rejected_inferences`. Keys sort recursively;
  * strings are NFKC and lowercased, so "Alice@Oliv.ai" matches "alice@oliv.ai".
  */
 export function valueSignature(value: unknown): string {
-  return createHash("sha256").update(canonicalize(value)).digest("hex");
+  return sha256Hex(canonicalize(value));
 }
 
 function canonicalize(value: unknown): string {

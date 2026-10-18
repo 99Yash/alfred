@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
   eventTypeName,
   jsonObjectSchema,
@@ -8,6 +7,7 @@ import {
   type InboundEventSource,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
+import { sha256Hex } from "@alfred/db/hash";
 import { eventReceipts, type EventReceipt, type NewEventReceipt } from "@alfred/db/schemas";
 import { report } from "@alfred/logging/report";
 import { and, eq } from "drizzle-orm";
@@ -95,7 +95,7 @@ export async function receiveInboundDelivery(
 
   const { owner } = attribution;
 
-  const payloadHash = createHash("sha256").update(args.raw).digest("hex");
+  const payloadHash = sha256Hex(args.raw);
   const receipt = { source, owner, payload, payloadHash };
 
   if (projection.kind === "raw") {

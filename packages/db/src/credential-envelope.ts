@@ -92,6 +92,7 @@ function belongsToEnvelopeFamily(persisted: unknown): persisted is SealedCredent
 }
 
 /** AES-256-GCM envelope vault. `credential-vault.ts` supplies the production key. */
+// oxlint-disable-next-line alfred/no-exported-hasher -- digests the raw key bytes into a key id; the parameter is a 32-byte key, never text, and `@alfred/db/credential-envelope` is blocked in package exports
 export function createCredentialVault(kek: Uint8Array): CredentialVault {
   if (kek.length !== FORMAT.keyBytes) {
     throw new CredentialVaultError("invalid_key_length");

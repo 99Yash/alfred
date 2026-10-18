@@ -1,5 +1,6 @@
 import { embedMany, voyageInputPricePerMtokUsd } from "@alfred/ai/embeddings";
 import { db } from "@alfred/db";
+import { sha256Hex } from "@alfred/db/hash";
 import { buildEmbedFailureSet, EMBED_SUCCESS_RESET } from "@alfred/db/helpers";
 import { chunks, documents, type Document } from "@alfred/db/schemas";
 import { and, desc, eq, isNull, notExists, sql } from "drizzle-orm";
@@ -12,7 +13,6 @@ import {
   maxTokensForPrice,
   type EmbedBudgetSlice,
 } from "./embed-policy";
-import { sha256 } from "./hash";
 
 /**
  * Record an embed failure (`buildEmbedFailureSet`). A 400/413/422 dead-letters
@@ -128,7 +128,7 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
   const toEmbedHashes: string[] = [];
 
   for (const chunk of splits) {
-    const hash = sha256(chunk.content);
+    const hash = sha256Hex(chunk.content);
     const existing = existingByPosition.get(chunk.position);
 
     if (existing && existing.hash === hash && existing.page === (chunk.page ?? null)) continue;

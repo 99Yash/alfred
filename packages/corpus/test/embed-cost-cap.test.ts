@@ -4,10 +4,10 @@ import { after, before, describe, test } from "node:test";
 
 import { findUnembeddedDocumentIds, indexDocument } from "../src/index";
 import { closeConnections, db } from "@alfred/db";
+import { sha256Hex } from "@alfred/db/hash";
 import { chunks, documents, user } from "@alfred/db/schemas";
 import { and, eq, inArray, like } from "drizzle-orm";
 import { dbBackedSkip } from "./support/db-backed";
-import { sha256 } from "../src/hash";
 
 /**
  * A cost-capped document must become terminal for the sweep, not stay half-embedded.
@@ -48,7 +48,7 @@ async function seedDocument(userId: string): Promise<string> {
       source: SOURCE,
       sourceId: randomUUID(),
       content,
-      contentHash: sha256(content),
+      contentHash: sha256Hex(content),
     })
     .returning({ id: documents.id });
 

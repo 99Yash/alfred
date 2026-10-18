@@ -3,8 +3,9 @@ import {
   toMessage,
   type AttachmentContentReference,
 } from "@alfred/contracts";
-import { indexDocument, sha256, type IndexDocumentResult } from "@alfred/corpus";
+import { indexDocument, type IndexDocumentResult } from "@alfred/corpus";
 import { db } from "@alfred/db";
+import { sha256Hex } from "@alfred/db/hash";
 import { documents, type Document } from "@alfred/db/schemas";
 import {
   extraction,
@@ -375,7 +376,7 @@ export async function ingestGmailMediaAttachments(
     const pages = result.pages && result.pages.length > 0 ? result.pages : null;
 
     const sourceId = sourceIdOf(att);
-    const contentHash = sha256(content);
+    const contentHash = sha256Hex(content);
 
     // Dedup layer 2: identical content under another `messageId:attachmentId` is one row (a resume
     // forwarded to ten recruiters). The unique hash index is the race backstop. The hash covers

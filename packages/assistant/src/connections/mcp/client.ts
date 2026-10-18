@@ -15,6 +15,7 @@ import {
   type McpContentKind,
   type McpResultProvenance,
 } from "@alfred/contracts";
+import { sha256Canonical } from "@alfred/db/hash";
 import type {
   CacheScope,
   JsonSchemaType,
@@ -35,7 +36,7 @@ import type {
   McpEndpointAuthorizer,
   McpEndpointConnection,
 } from "./endpoint-authorization";
-import { compareMcpToolNames, sha256Canonical } from "./hash";
+import { compareMcpToolNames } from "./hash";
 import {
   McpOAuthAuthorizationRequiredError,
   type McpBoundOAuthSession,
