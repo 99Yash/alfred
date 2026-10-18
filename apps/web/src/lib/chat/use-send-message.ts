@@ -14,7 +14,7 @@ import { uploadAttachment } from "./upload-attachments";
 import type { ChatAttachmentDescriptor } from "@alfred/contracts";
 import { API_URL } from "~/lib/eden";
 
-export type SendResult =
+type SendResult =
   | { ok: true; runId: string | null; assistantMessageId: string }
   | { ok: false; reason: "busy"; blockingRunId: string | null }
   | { ok: false; reason: "error" | "empty" };

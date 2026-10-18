@@ -39,7 +39,7 @@ export type AddUserMcpServerResult = {
 };
 
 /** A built-in's URL. Adding it here would share the built-in's rows without its ADR-0094/0095 pins. */
-export class BuiltInMcpEndpointError extends Error {
+class BuiltInMcpEndpointError extends Error {
   constructor(readonly provider: string) {
     super(`This endpoint is the built-in ${provider} server. Connect it from its own card.`);
     this.name = "BuiltInMcpEndpointError";

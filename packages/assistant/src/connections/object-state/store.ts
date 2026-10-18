@@ -88,7 +88,7 @@ export interface ObjectState {
   stateDeliveredAt: Date | null;
 }
 
-export interface ApplyEventArgs {
+interface ApplyEventArgs {
   userId: string;
   provider: ObjectStateProvider;
   eventType: string;
@@ -102,7 +102,7 @@ export interface ApplyEventArgs {
   deliveredAt: DeliveryInstant;
 }
 
-export interface ObjectListFilter {
+interface ObjectListFilter {
   kind?: string;
   stateCategory?: StateCategory;
   limit?: number;

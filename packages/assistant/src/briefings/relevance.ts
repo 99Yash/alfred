@@ -33,7 +33,7 @@ import {
  */
 
 /** Distinct objects one briefing reads live. Same as `MAX_VERIFIED_PULL_TARGETS`. */
-export const MAX_RELEVANCE_OBJECTS = 5;
+const MAX_RELEVANCE_OBJECTS = 5;
 
 /** In gather order, before the per-bucket cap. */
 export interface RelevanceLoop {
@@ -251,7 +251,7 @@ async function assessLoopRelevanceInner(args: {
  * Fan reads out to one verdict per loop. Readers only build non-closing verdicts,
  * and every verdict passes {@link briefingLoopRelevanceSchema}; a rejection becomes `unverifiable`.
  */
-export function finalizeLoopRelevanceVerdicts(args: {
+function finalizeLoopRelevanceVerdicts(args: {
   loops: readonly RelevanceLoop[];
   objectByLoop: ReadonlyMap<string, ObjectState | null>;
   verdictByObject: ReadonlyMap<string, ObjectVerdict>;
@@ -327,9 +327,7 @@ export function finalizeLoopRelevanceVerdicts(args: {
 }
 
 /** The first distinct readable objects, capped across providers. */
-export function selectRelevanceReadTargets(
-  objects: readonly ObjectState[],
-): readonly ObjectState[] {
+function selectRelevanceReadTargets(objects: readonly ObjectState[]): readonly ObjectState[] {
   const distinct = new Map<string, ObjectState>();
 
   for (const state of objects) {

@@ -5,23 +5,9 @@ export {
   type DeliveryInstant,
 } from "./delivery-instant";
 
-export {
-  objectStateStore,
-  type ApplyEventArgs,
-  type ObjectListFilter,
-  type ObjectState,
-  type ObjectStateDelta,
-  type ObjectStateRef,
-  type ObjectStateStore,
-} from "./store";
+export { objectStateStore, type ObjectState, type ObjectStateStore } from "./store";
 
-export {
-  type CandidateKey,
-  type ClosureReading,
-  type KeyProposal,
-  type ReconcileSubject,
-  type SubjectText,
-} from "./adapter";
+export { type CandidateKey, type ClosureReading } from "./adapter";
 
 export {
   firstClosingObject,

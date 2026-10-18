@@ -15,5 +15,3 @@ export { LandingBackground } from "./landing-background";
 export { LandingCtaSection } from "./landing-cta-section";
 
 export { LandingFooter } from "./landing-footer";
-
-export { TopAnnouncement } from "./top-announcement";

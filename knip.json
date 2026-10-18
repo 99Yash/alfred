@@ -11,28 +11,38 @@
   "rules": {
     "duplicates": "off"
   },
+  // `pnpm check:knip` runs in `pnpm check` and in CI (`check:ci`) and must stay at
+  // zero. It reports knip's default issue types (files, dependencies, unlisted,
+  // unresolved, exports, types, enum and namespace members, catalog) plus the two
+  // add-ons below, which flag an unused member of an export that is itself used
+  // through a namespace import. `cycles` stays out: import cycles are a module-design
+  // question with their own owner (`check:architecture`), not dead code.
+  // A configuration hint (a stale `entry`/`ignore*` row) also fails the gate, through
+  // `--treat-config-hints-as-errors` in the script, so a blind spot cannot outlive
+  // the code it covered.
+  "include": ["nsExports", "nsTypes"],
   // An export tagged `@public` is intentional API that knip's static graph can't
   // see reaching — an Elysia route response type consumed only through Eden's
   // `typeof app` inference, for example. Tag such an export, don't un-export it.
   "tags": ["-public"],
   "ignore": [
     // Scratch/spike surfaces, kept deliberately unwired to the app.
-    "scripts/spikes/**"
+    "scripts/spikes/**",
+    // Generated upstream type file, vendored verbatim (see its UPSTREAM.md). Its unused
+    // type exports are upstream's surface; un-exporting them would fork the copy.
+    "scripts/oxlint/anti-slop/vendor/eslint-stylistic/padding-line-options.d.ts"
   ],
   "workspaces": {
     ".": {
-      // `scripts/oxlint/anti-slop/index.ts` and `scripts/oxlint/alfred/index.ts` are
-      // loaded by oxlint through the `jsPlugins` entries in `.oxlintrc.json`, which knip
-      // does not read. Their rules and fixtures hang off them; `pnpm check:oxlint-plugin`
-      // is what actually holds each one to being registered and enforced.
+      // knip's oxlint plugin reads the `jsPlugins` in `.oxlintrc.json`, so the two plugin
+      // `index.ts` files are entries without a row here. The `*.rule-test.ts` files hang
+      // off nothing; `pnpm check:oxlint-plugin` runs them. `.agents` is a symlink to
+      // `.claude`, so `.claude/hooks/*.mjs` covers both.
       "entry": [
         "scripts/*.mjs",
-        "scripts/oxlint/anti-slop/index.ts",
         "scripts/oxlint/anti-slop/rules/*.rule-test.ts",
-        "scripts/oxlint/alfred/index.ts",
         "scripts/oxlint/alfred/rules/*.rule-test.ts",
-        ".claude/hooks/*.mjs",
-        ".agents/hooks/*.mjs"
+        ".claude/hooks/*.mjs"
       ]
     },
     "apps/server": {

@@ -10,7 +10,7 @@ import { RiskPill } from "./risk-pill";
 import { ToolIcon } from "./tool-icon";
 import { useApprovalDecision, type WriteDecision } from "./use-approval-decision";
 
-export type { RecordedDecision, WriteDecision } from "./use-approval-decision";
+export type { WriteDecision } from "./use-approval-decision";
 
 // Hoisted so `leading` gets a stable element.
 const ICON_X = <X size={14} />;

@@ -104,7 +104,7 @@ interface McpManagerGeneration {
   closeFailure: string | null;
 }
 
-export class McpConnectionNotFoundError extends Error {
+class McpConnectionNotFoundError extends Error {
   constructor(connectionId: string) {
     super(`MCP connection '${connectionId}' does not exist`);
     this.name = "McpConnectionNotFoundError";

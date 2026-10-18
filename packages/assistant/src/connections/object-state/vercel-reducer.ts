@@ -19,7 +19,7 @@ import type { ObjectStateDelta } from "./store";
  * `vercelDeploymentOutcome`, shared with the briefing line. Unproven input folds nothing
  * (ADR-0048-D).
  */
-export const VERCEL_DISPATCH_EVENT_TYPE: EventTypeForSource<"github"> = "repository_dispatch";
+const VERCEL_DISPATCH_EVENT_TYPE: EventTypeForSource<"github"> = "repository_dispatch";
 
 /** Synthetic verified-pull type (#1193). Only `mintVercelPullReceipt` mints it. */
 export const VERCEL_PULL_EVENT_TYPE = "deployment_status" as const;

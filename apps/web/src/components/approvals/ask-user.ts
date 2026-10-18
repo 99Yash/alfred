@@ -17,7 +17,7 @@ import { asRecord } from "~/lib/json-record";
  * tool previews are untyped JSON, so they are parsed here against the contract.
  */
 
-export const EMPTY_ANSWER: AskUserAnswer = Object.freeze({
+const EMPTY_ANSWER: AskUserAnswer = Object.freeze({
   selectedOptions: [],
   customAnswer: null,
 });
@@ -81,7 +81,7 @@ export function withAnswers(rawInput: JsonObject, answers: readonly AskUserAnswe
   return next;
 }
 
-export interface AnsweredQuestion {
+interface AnsweredQuestion {
   question: AskUserQuestion;
   answer: AskUserAnswer;
 }

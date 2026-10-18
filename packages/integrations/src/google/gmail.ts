@@ -551,7 +551,7 @@ function walkAttachments(part: MessagePart | undefined, out: ExtractedAttachment
   for (const sub of part.parts ?? []) walkAttachments(sub, out);
 }
 
-export const getAttachmentResponseSchema = z.object({
+const getAttachmentResponseSchema = z.object({
   size: z.number().optional(),
   data: z.string().optional(),
 });

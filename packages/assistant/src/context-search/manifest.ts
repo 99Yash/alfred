@@ -61,7 +61,7 @@ function costRank(costClass: SourceCostClass): number {
 }
 
 /** Shared by selection and expansion routing, so both price a source the same way (#1078). */
-export function exceedsCostBudget(manifest: SourceManifest, budget: SourceCostBudget): boolean {
+function exceedsCostBudget(manifest: SourceManifest, budget: SourceCostBudget): boolean {
   return costRank(manifest.cost?.class ?? "unknown") > costRank(budget);
 }
 

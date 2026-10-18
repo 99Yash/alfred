@@ -119,7 +119,7 @@ export interface McpHealthMappingController {
   readonly onClear: () => void;
 }
 
-export function useMcpHealthMapping(
+function useMcpHealthMapping(
   connectionId: string,
   ref: ExternalToolRef,
 ): McpHealthMappingController {
@@ -426,7 +426,7 @@ function MappingForm({
 }
 
 /** The view, without the query and mutation hook. */
-export function McpHealthMappingView({
+function McpHealthMappingView({
   state,
   loading,
   readError,

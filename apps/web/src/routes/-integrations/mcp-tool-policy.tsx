@@ -20,7 +20,7 @@ import { client } from "~/lib/eden";
 import { MCP_TOOL_POLICY_QUERY_KEY, type McpToolPolicyState } from "./helpers";
 
 /** `note` is `null` when blank, as the contract expects. */
-export interface McpToolPolicyDraft {
+interface McpToolPolicyDraft {
   readonly riskTier: ToolRiskTier;
   readonly effectClass: McpEffectClass;
   readonly retryContract: McpRetryContract;
@@ -71,10 +71,7 @@ export interface McpToolPolicyController {
  * and catalog revision, since a review binds to a descriptor.
  * Both writes invalidate on settle; the server owns `policyRevision`.
  */
-export function useMcpToolPolicy(
-  connectionId: string,
-  ref: ExternalToolRef,
-): McpToolPolicyController {
+function useMcpToolPolicy(connectionId: string, ref: ExternalToolRef): McpToolPolicyController {
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
 
@@ -266,13 +263,13 @@ function McpToolPolicyForm({ initial, pending, onSave, onClear }: McpToolPolicyF
   );
 }
 
-export interface McpToolPolicyReviewViewProps extends McpToolPolicyController {}
+interface McpToolPolicyReviewViewProps extends McpToolPolicyController {}
 
 /**
  * The review view without hooks, so `renderToStaticMarkup` reaches every arm (no jsdom).
  * `catalog_stale` and `not_found` are states, not errors.
  */
-export function McpToolPolicyReviewView({
+function McpToolPolicyReviewView({
   state,
   loading,
   readError,

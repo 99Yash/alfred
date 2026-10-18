@@ -42,7 +42,7 @@ function isInfrastructureHop(address: string): boolean {
  * The leftmost entry is client-controlled, so reading it lets a caller spoof a fresh bucket.
  * `null` puts the caller in one shared bucket.
  */
-export function clientAddressFromForwardedFor(header: string | null | undefined): string | null {
+function clientAddressFromForwardedFor(header: string | null | undefined): string | null {
   if (!header) return null;
 
   const hops = header

@@ -29,7 +29,7 @@ function createSseHeaders(): Headers {
  * a name with a line break would end the frame and inject a second one.
  * At run time, `isKnownEventKind` in `@alfred/assistant` realtime is the real guard.
  */
-export type SseEventName = EventKind | "poke";
+type SseEventName = EventKind | "poke";
 
 /** One SSE frame, as its parts rather than as wire text. */
 export interface SseFrame {

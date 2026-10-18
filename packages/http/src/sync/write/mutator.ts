@@ -4,7 +4,7 @@ import type { ZodType } from "zod";
 /** `{ applied: false }` means the target row did not exist (`triageTagOverride`). */
 export type MutatorResult = void | { applied: boolean };
 
-export type MutatorRun<A> = (tx: DbTransaction, args: A, userId: string) => Promise<MutatorResult>;
+type MutatorRun<A> = (tx: DbTransaction, args: A, userId: string) => Promise<MutatorResult>;
 
 /** Work the push handler runs after the transaction commits. */
 export type MutatorFollowUp =

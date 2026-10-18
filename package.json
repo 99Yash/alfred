@@ -28,6 +28,7 @@
     "bench:run": "node scripts/bench/run.mjs",
     "bench:grade": "node scripts/bench/grade.mjs",
     "bench:selftest": "node scripts/bench/manifest.selftest.mjs",
+    "bench:aggregate": "node scripts/bench/aggregate.mjs",
     "check:duplicates": "jscpd apps packages --threshold 1 --reporters console",
     "schemas": "node scripts/schema-catalog.mjs",
     "schemas:dupes": "node scripts/schema-catalog.mjs --dupes",
@@ -36,6 +37,7 @@
     "check:oxlint-config": "node scripts/check-oxlint-config.mjs",
     "check:pr-body": "node scripts/check-pr-body.mjs",
     "check:oxlint-plugin": "node scripts/check-oxlint-plugin.mjs",
+    "check:knip": "knip --treat-config-hints-as-errors",
     "lint": "oxlint --config .oxlintrc.json --report-unused-disable-directives-severity=error",
     "lint:fix": "oxlint --config .oxlintrc.json --fix --fix-suggestions",
     "lint:fix:all": "oxlint --config .oxlintrc.json --fix-dangerously",
@@ -48,8 +50,8 @@
     "db:predeploy": "pnpm --filter @alfred/db db:migrate && pnpm --filter @alfred/db db:sync-prices",
     "format": "oxfmt --write --ignore-path .gitignore --ignore-path .prettierignore apps packages scripts package.json pnpm-workspace.yaml turbo.json .oxlintrc.json .oxfmtrc.json",
     "format:check": "oxfmt --check --ignore-path .gitignore --ignore-path .prettierignore apps packages scripts package.json pnpm-workspace.yaml turbo.json .oxlintrc.json .oxfmtrc.json",
-    "check": "pnpm check:script-paths && pnpm check:test-id-prefixes && pnpm check:architecture && pnpm check:web-boundaries && pnpm check:exports && pnpm check:type-fixtures && pnpm check:test-typecheck-baseline && pnpm check:imports && pnpm check:consolidation && pnpm check:test-tautology && pnpm check:doc-symbols && pnpm check:prose-locators && pnpm check:plan-status && pnpm check:campaign-state && pnpm check:schema-catalog && pnpm check:constraint-snapshot && pnpm check:duplicates && pnpm check:oxlint-config && pnpm check:oxlint-plugin && pnpm lint && pnpm format:check",
-    "check:ci": "pnpm check:script-paths && pnpm check:test-id-prefixes && pnpm check:architecture && pnpm check:web-boundaries && pnpm check:exports && pnpm check:type-fixtures && pnpm check:test-typecheck-baseline && pnpm check:imports && pnpm check:consolidation && pnpm check:test-tautology && pnpm check:doc-symbols && pnpm check:prose-locators && pnpm check:plan-status && pnpm check:campaign-state && pnpm check:schema-catalog && pnpm check:constraint-snapshot && pnpm check:oxlint-config && pnpm check:oxlint-plugin && pnpm lint && pnpm format:check",
+    "check": "pnpm check:script-paths && pnpm check:test-id-prefixes && pnpm check:architecture && pnpm check:web-boundaries && pnpm check:exports && pnpm check:type-fixtures && pnpm check:test-typecheck-baseline && pnpm check:imports && pnpm check:consolidation && pnpm check:test-tautology && pnpm check:doc-symbols && pnpm check:prose-locators && pnpm check:plan-status && pnpm check:campaign-state && pnpm check:schema-catalog && pnpm check:constraint-snapshot && pnpm check:duplicates && pnpm check:oxlint-config && pnpm check:oxlint-plugin && pnpm check:knip && pnpm lint && pnpm format:check",
+    "check:ci": "pnpm check:script-paths && pnpm check:test-id-prefixes && pnpm check:architecture && pnpm check:web-boundaries && pnpm check:exports && pnpm check:type-fixtures && pnpm check:test-typecheck-baseline && pnpm check:imports && pnpm check:consolidation && pnpm check:test-tautology && pnpm check:doc-symbols && pnpm check:prose-locators && pnpm check:plan-status && pnpm check:campaign-state && pnpm check:schema-catalog && pnpm check:constraint-snapshot && pnpm check:oxlint-config && pnpm check:oxlint-plugin && pnpm check:knip && pnpm lint && pnpm format:check",
     "test:deterministic": "pnpm -r --no-bail --filter=!@alfred/db test",
     "verify:fast": "pnpm check && pnpm check-types",
     "verify:ci": "pnpm check:ci && pnpm check-types",
@@ -57,11 +59,7 @@
     "verify:db": "pnpm db:migrate && pnpm -r --no-bail --workspace-concurrency=1 test:db",
     "doctor": "npx -y react-doctor@latest",
     "dup": "jscpd apps packages",
-    "dup:report": "jscpd apps packages --reporters json,html",
-    "knip": "knip"
-  },
-  "dependencies": {
-    "ai": "catalog:"
+    "dup:report": "jscpd apps packages --reporters json,html"
   },
   "devDependencies": {
     "@oxlint/plugins": "^1.82.0",

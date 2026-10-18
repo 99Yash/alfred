@@ -482,7 +482,7 @@ export function createPinnedDispatcher(deps: {
  * No `dispatcher`: @types/node types it from `undici-types`, which the `undici`
  * `Dispatcher` does not satisfy. {@link dispatcherRequester} adds it back.
  */
-export type GuardedRequestInit = Omit<RequestInit, "dispatcher"> & { duplex?: "half" };
+type GuardedRequestInit = Omit<RequestInit, "dispatcher"> & { duplex?: "half" };
 
 /** Sends one already-validated hop. */
 export type GuardedFetchRequester = (input: string, init: GuardedRequestInit) => Promise<Response>;

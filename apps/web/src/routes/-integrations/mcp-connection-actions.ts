@@ -6,14 +6,14 @@ import { client } from "~/lib/eden";
 import { MCP_CONNECTIONS_QUERY_KEY, type McpConnection } from "./helpers";
 
 /** The action in flight; its spinner disables the others. */
-export type McpConnectionPendingAction = "reconnect" | "disconnect" | "rename" | "remove";
+type McpConnectionPendingAction = "reconnect" | "disconnect" | "rename" | "remove";
 
 /**
  * Outcome of the last action. `blocked_remove` is the unresolved-invocation
  * refusal, shown with the recovery anchor. One value, so a refusal and a later
  * failure cannot both render.
  */
-export type McpConnectionActionError =
+type McpConnectionActionError =
   | { readonly kind: "blocked_remove"; readonly action: "remove"; readonly message: string }
   | {
       readonly kind: "action_failed";

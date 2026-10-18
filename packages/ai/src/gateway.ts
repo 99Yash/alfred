@@ -61,7 +61,7 @@ export function isGatewayMintedError(e: APICallError): boolean {
   return parseJsonWith(e.responseBody ?? "", gatewayErrorBodySchema) !== null;
 }
 
-export function createGateway(config: GatewayConfig | undefined): Gateway {
+function createGateway(config: GatewayConfig | undefined): Gateway {
   if (!config) {
     return {
       kind: "direct",

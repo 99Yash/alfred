@@ -24,7 +24,7 @@ export const factProposalSchema = z.object({
 
 export type FactProposal = z.infer<typeof factProposalSchema>;
 
-export const extractionResultSchema = z.object({
+const extractionResultSchema = z.object({
   proposals: z.array(factProposalSchema).max(20),
 });
 

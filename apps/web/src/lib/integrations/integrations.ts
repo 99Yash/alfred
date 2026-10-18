@@ -19,10 +19,10 @@ export type IntegrationCategory =
   | "Development"
   | "Your Integrations";
 
-export type IntegrationActionLabel = "Manage" | "Connect" | "Coming Soon" | "Add";
+type IntegrationActionLabel = "Manage" | "Connect" | "Coming Soon" | "Add";
 
 /** Web-only page copy. Registry facts come from `INTEGRATIONS`. */
-export interface IntegrationPageCopy {
+interface IntegrationPageCopy {
   readonly description: string;
   readonly category: IntegrationCategory;
   readonly capabilities: ReadonlyArray<string>;
