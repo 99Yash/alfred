@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, test } from "node:test";
+import { describe, test, type TestContext } from "node:test";
 import { applyServerEnvFixtures } from "./support/server-env";
 
 applyServerEnvFixtures({
@@ -50,7 +50,7 @@ const userSession = {
   },
 };
 
-function mockUserLookup(t: any, rows: Array<{ onboardedAt: Date | null }>) {
+function mockUserLookup(t: TestContext, rows: Array<{ onboardedAt: Date | null }>) {
   const database = db();
 
   return t.mock.method(database, "select", () => ({

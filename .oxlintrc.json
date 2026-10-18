@@ -145,6 +145,12 @@
     "typescript/no-misused-promises": "error",
     "typescript/switch-exhaustiveness-check": "error",
     "typescript/restrict-template-expressions": "error",
+    // The no-unsafe-* family, each driven to zero before it landed: an `any` may not flow
+    // into a return, an argument, a call, a member read, or an assignment. Type external,
+    // persisted, and protocol data as `unknown` and parse it at the owning boundary
+    // (CLAUDE.md) instead of letting `any` carry it. They are off for JavaScript sources
+    // in the last "overrides" entry; JSDoc-typed `.mjs` is `any` by construction.
+    "typescript/no-unsafe-return": "error",
     "typescript/await-thenable": "off",
     "typescript/no-array-delete": "off",
     "typescript/no-base-to-string": "off",
@@ -580,6 +586,20 @@
       ],
       "rules": {
         "anti-slop/no-unsafe-dictionary-type": "off"
+      }
+    },
+    {
+      // The no-unsafe-* family stays off ON PURPOSE for JavaScript sources: the
+      // repo-level gate scripts and hooks are JSDoc-typed `.mjs` checked with
+      // `noImplicitAny: false` (scripts/tsconfig.json), so an unannotated
+      // parameter or a parsed manifest is `any` by construction. The rules there
+      // reported about 3,400 such reads on adoption, none of them an escaped
+      // boundary. TypeScript sources everywhere, scripts/oxlint/** included,
+      // keep the rules at `error`.
+      // oxlint-disarm: typescript/no-unsafe-return — JSDoc-typed `.mjs` runs with noImplicitAny off, so `any` is the default type there, not an escaped boundary.
+      "files": ["**/*.mjs", "**/*.js", "**/*.cjs"],
+      "rules": {
+        "typescript/no-unsafe-return": "off"
       }
     }
   ]

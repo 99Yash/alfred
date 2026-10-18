@@ -1,5 +1,6 @@
 import {
   normalizeMimeType,
+  parseJsonText,
   summarizeBody,
   type JsonValue,
   type RestPassthroughRequest,
@@ -160,10 +161,7 @@ function parseBody(text: string, contentType: string | null): JsonValue {
 
   if (looksJson) {
     try {
-      // `JSON.parse` with no reviver only builds JSON values, so its `any` is a `JsonValue`.
-      const parsed: JsonValue = JSON.parse(text);
-
-      return parsed;
+      return parseJsonText(text);
     } catch {
       // For example an HTML 5xx page labeled JSON.
       return { nonJson: true, preview: summarizeBody(text) };

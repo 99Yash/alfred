@@ -52,7 +52,7 @@ function sanitizeUnknown(value: unknown): SanitizeResult {
     let collisions = 0;
     let changed = false;
 
-    const out = value.map((item) => {
+    const out = value.map((item: unknown) => {
       const r = sanitizeToolResult(item);
       removed += r.removed;
       collisions += r.collisions;

@@ -112,7 +112,9 @@ const LIVE_STATE_READERS = {
 function liveStateReaderRegistration(state: ObjectState): LiveStateReaderRegistration | null {
   const registrations = LIVE_STATE_READERS[state.provider];
 
-  for (const [kind, registration] of Object.entries(registrations)) {
+  for (const [kind, registration] of Object.entries<LiveStateReaderRegistration | null>(
+    registrations,
+  )) {
     if (kind === state.kind && registration?.accepts(state)) return registration;
   }
 
