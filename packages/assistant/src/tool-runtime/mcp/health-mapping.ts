@@ -212,7 +212,7 @@ export async function reviewMcpHealthMapping(
 
     // The published descriptor decides read-only, not the owner's checkbox.
     // Built-in providers own their object state, so no MCP mapping for them.
-    if (input.readOnly !== true || !isReadOnlyMcpToolIdentity(identity)) {
+    if (!isReadOnlyMcpToolIdentity(identity)) {
       return { status: "not_read_only" };
     }
 

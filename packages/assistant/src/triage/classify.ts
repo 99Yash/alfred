@@ -761,7 +761,7 @@ export function resolveTodoSuggestion(
 
   if (classification.todoDecision?.outcome !== "proposed") return null;
 
-  if (noteMarksFailingOutcome(classification.todoDecision?.note)) return null;
+  if (noteMarksFailingOutcome(classification.todoDecision.note)) return null;
 
   if (TODO_INELIGIBLE_CATEGORIES.has(classification.category)) return null;
   const name = sanitizeTodoName(suggestion.name);

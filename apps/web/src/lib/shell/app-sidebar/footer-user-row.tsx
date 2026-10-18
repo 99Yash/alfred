@@ -51,7 +51,7 @@ function useUserRow() {
   const navigate = useNavigate();
   const [signingOut, setSigningOut] = useState(false);
 
-  const email = session?.user?.email ?? "";
+  const email = session?.user.email ?? "";
   const name = displayName(session?.user);
   const initial = (name || email || "·").charAt(0).toUpperCase();
 

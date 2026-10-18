@@ -479,7 +479,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
               cc: meta.cc ?? null,
               subject: row.subject ?? null,
               snippet: meta.snippet ?? null,
-              body: normalizeBodyForReader(row.content ?? "", {
+              body: normalizeBodyForReader(row.content, {
                 from: meta.from,
                 to: meta.to,
                 cc: meta.cc,

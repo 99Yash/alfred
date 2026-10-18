@@ -115,7 +115,7 @@ function rowToProfile(r: StyleProfile): StyleProfileRow {
     audienceBucket: styleAudienceBucketSchema.parse(r.audienceBucket),
     status: styleProfileStatusSchema.parse(r.status),
     examples: unknownArraySchema.parse(r.examples ?? []),
-    sourceMsgIds: stringArraySchema.parse(r.sourceMsgIds ?? []),
+    sourceMsgIds: stringArraySchema.parse(r.sourceMsgIds),
   };
 }
 

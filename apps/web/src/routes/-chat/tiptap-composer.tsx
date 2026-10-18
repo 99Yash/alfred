@@ -15,25 +15,9 @@ import { cn } from "~/lib/utils";
 import { useMentionConnections } from "./mention-connection";
 import { filterMentionOptions, getMentionOption, type MentionOption } from "./mention-options";
 
-/** Like Tiptap's `editor.isEmpty`, for the initial doc before the editor mounts. */
-function isInitialContentEmpty(initialJSON?: JSONContent): boolean {
-  if (!initialJSON) return true;
-  const content = initialJSON.content;
-
-  if (!content || content.length === 0) return true;
-
-  if (content.length === 1) {
-    const only = content[0];
-
-    if (only?.type === "paragraph" && (!only.content || only.content.length === 0)) return true;
-  }
-
-  return false;
-}
-
 /** Touch or pen input: Enter inserts a newline there, since Shift+Enter is unreliable. */
 function isCoarsePointer(): boolean {
-  return typeof window !== "undefined" && Boolean(window.matchMedia?.("(pointer: coarse)").matches);
+  return typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
 }
 
 export interface SuggestionRenderState {
@@ -232,14 +216,14 @@ export function TiptapComposer({
         }
 
         // Ghost text, only while empty. `editor` is set before any keydown fires.
-        const ghostActive = Boolean(ghostTextRef.current) && (editor?.isEmpty ?? false);
+        const ghostActive = Boolean(ghostTextRef.current) && editor.isEmpty;
 
         if (ghostActive && event.key === "Tab") {
           event.preventDefault();
           const ghost = ghostTextRef.current;
 
           if (ghost) {
-            editor?.chain().focus("end").insertContent(ghost).run();
+            editor.chain().focus("end").insertContent(ghost).run();
             onGhostAcceptRef.current?.();
           }
 
@@ -268,23 +252,22 @@ export function TiptapComposer({
     },
   });
 
-  const isEmpty = editor?.isEmpty ?? isInitialContentEmpty(initialJSON);
+  const isEmpty = editor.isEmpty;
 
   useEffect(() => {
-    if (!editor) return;
     editor.setEditable(!disabled);
   }, [editor, disabled]);
 
   useImperativeHandle(
     ref,
     () => ({
-      focusEnd: () => editor?.commands.focus("end"),
+      focusEnd: () => editor.commands.focus("end"),
       insertText: (text) => {
-        if (!editor || disabledRef.current) return;
+        if (disabledRef.current) return;
         editor.chain().focus("end").insertContent(text).run();
       },
       insertAtTrigger: () => {
-        if (!editor || disabledRef.current) return;
+        if (disabledRef.current) return;
         // Suggestion's `allowedPrefixes` defaults to [' '], so the `@` needs a space or doc start before it.
         const { from } = editor.state.selection;
         const prev = from > 1 ? editor.state.doc.textBetween(from - 1, from, "\n", "\n") : "";
@@ -295,8 +278,8 @@ export function TiptapComposer({
           .insertContent(needsSpace ? " @" : "@")
           .run();
       },
-      clear: () => editor?.commands.clearContent(true),
-      isEmpty: () => editor?.isEmpty ?? true,
+      clear: () => editor.commands.clearContent(true),
+      isEmpty: () => editor.isEmpty,
     }),
     [editor],
   );

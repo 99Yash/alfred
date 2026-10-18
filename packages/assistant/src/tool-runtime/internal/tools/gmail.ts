@@ -93,11 +93,7 @@ export const gmailTools: readonly RegisteredTool[] = [
               )
           : [];
 
-      const cachedBySourceId = new Map(
-        cachedRows
-          .filter((row) => row.sourceId !== null)
-          .map((row) => [row.sourceId!, row] as const),
-      );
+      const cachedBySourceId = new Map(cachedRows.map((row) => [row.sourceId, row] as const));
 
       // `messages.list` returns only ids. Fill headers from the `documents` cache, and
       // fetch them live for uncached hits. A failed fetch leaves nulls.

@@ -839,7 +839,7 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
     case "approved": {
       // Execute what the user approved from the row, never `args.input`, so a
       // re-dispatch cannot slip in an unapproved payload.
-      const editedByUser = row.decidedInput !== null && row.decidedInput !== undefined;
+      const editedByUser = row.decidedInput !== null;
       const useInput = editedByUser ? row.decidedInput : row.proposedInput;
       // A user edit may break the schema. Fail the row instead of throwing.
       const reparsed = tool.inputSchema.safeParse(useInput);
@@ -898,7 +898,7 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
         kind: "executed",
         stagingId: row.id,
         toolResult: row.executeResult,
-        editedByUser: row.decidedInput !== null && row.decidedInput !== undefined,
+        editedByUser: row.decidedInput !== null,
         sanitized: row.executeSanitized,
       };
 

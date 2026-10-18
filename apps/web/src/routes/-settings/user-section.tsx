@@ -62,8 +62,8 @@ const COMMUNICATION_CHANNELS: ReadonlyArray<AppSegmentedItem<CommunicationChanne
 
 export function UserSection() {
   const { data: session } = authClient.useSession();
-  const name = session?.user?.name ?? "";
-  const email = session?.user?.email ?? "";
+  const name = session?.user.name ?? "";
+  const email = session?.user.email ?? "";
 
   const [channel, setChannel] = useState<CommunicationChannel>("email");
   const [autoApprove, setAutoApprove] = useState(false);

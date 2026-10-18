@@ -214,7 +214,7 @@ export async function listEmailsSinceWatermark(
       category: toTriageCategory(r.triageCategory) ?? "fyi",
       significanceBand: bandFor(senders[i] ?? null),
       // Rows arrive newest-first.
-      occurredAtMs: (r.authoredAt ?? r.ingestedAt)?.getTime() ?? null,
+      occurredAtMs: (r.authoredAt ?? r.ingestedAt).getTime(),
     })),
   );
 
@@ -243,7 +243,7 @@ export async function listEmailsSinceWatermark(
       attentionBand: toTriageCategory(r.triageCategory)
         ? (attention[i]?.band ?? "normal")
         : "normal",
-      contentLength: Number(r.contentLength ?? 0),
+      contentLength: Number(r.contentLength),
     } satisfies EmailListItem;
   });
 }
@@ -446,6 +446,7 @@ export function collectSurfacedThreadIds(gathers: Array<BriefingGather | null>):
     if (!categories) continue;
 
     for (const items of Object.values(categories)) {
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- briefings.gather is jsonb.$type<BriefingGather>() read here without a parse; an old row can predate the shape.
       for (const item of items ?? []) {
         if (item.threadId) ids.add(item.threadId);
       }
@@ -465,6 +466,7 @@ export function collectSurfacedLoopKeys(gathers: Array<BriefingGather | null>): 
     if (!categories) continue;
 
     for (const items of Object.values(categories)) {
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- briefings.gather is jsonb.$type<BriefingGather>() read here without a parse; an old row can predate the shape.
       for (const item of items ?? []) {
         const key = deriveLoopKey(item.subject, { sender: item.sender });
 
@@ -499,6 +501,7 @@ export function collectSurfacedKeys(rows: ReadonlyArray<SurfacedBriefingPayload>
     if (!categories) continue;
 
     for (const items of Object.values(categories)) {
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- briefings.gather is jsonb.$type<BriefingGather>() read here without a parse; an old row can predate the shape.
       for (const item of items ?? []) {
         if (!surfacedDocumentIds.has(item.documentId)) continue;
 
@@ -550,7 +553,7 @@ export async function readEmailDocument(args: {
 
   if (suppression.kind === "suppressed") return null;
 
-  const full = row.content ?? "";
+  const full = row.content;
   const truncated = full.length > READ_EMAIL_BODY_CHAR_CAP;
 
   return {

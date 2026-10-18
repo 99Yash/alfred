@@ -1463,7 +1463,7 @@ export class McpExecutionBroker {
       argsHash,
       effectClass: resolved.effectClass,
       // Omit absent keys: Drizzle binds NULL for an undefined key but DEFAULT for a missing one.
-      ...(connection?.currentCatalogRevisionId
+      ...(connection.currentCatalogRevisionId
         ? { catalogRevisionId: connection.currentCatalogRevisionId }
         : {}),
       ...(resolved.descriptorHashValue ? { descriptorHash: resolved.descriptorHashValue } : {}),

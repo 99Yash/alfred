@@ -646,12 +646,10 @@ export function traceTags(meta: MeteredMeta): string[] | undefined {
 
   if (meta.role) tags.push(`role:${meta.role}`);
 
-  if (meta.kind) {
-    const shape = CALL_SHAPE[meta.kind];
-    tags.push(`call_kind:${shape}`);
+  const shape = CALL_SHAPE[meta.kind];
+  tags.push(`call_kind:${shape}`);
 
-    if (meta.kind !== shape) tags.push(`cost_kind:${meta.kind}`);
-  }
+  if (meta.kind !== shape) tags.push(`cost_kind:${meta.kind}`);
 
   return tags.length > 0 ? tags : undefined;
 }

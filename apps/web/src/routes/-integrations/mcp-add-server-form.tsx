@@ -111,6 +111,7 @@ export function McpAddServerForm() {
         );
       }
 
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- Eden treaty `data` is the server's JSON typed by its route, not parsed here; an empty body or a skewed deploy can leave it null.
       if (!response.data) throw new Error("Add MCP server failed");
 
       return response.data;

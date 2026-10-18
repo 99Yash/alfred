@@ -58,7 +58,7 @@ export function buildGithubSearchQuery(
   }
 
   if (input.author) parts.push(`author:${input.author}`);
-  const state = input.state ?? "all";
+  const state = input.state;
 
   switch (state) {
     case "open":

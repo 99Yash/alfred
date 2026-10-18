@@ -239,12 +239,11 @@ export async function rememberSenderSuppression(
       .where(activeStandingInstructionsWhere(parsed.userId))
       .orderBy(desc(userFacts.validFrom));
 
-    const locked = rivals
-      .map(instructionFromFact)
-      .filter(
-        (candidate): candidate is ActiveSuppressionInstruction =>
-          candidate !== null && candidate.value.action === "suppress",
-      );
+    const locked = rivals.map(instructionFromFact).filter(
+      (candidate): candidate is ActiveSuppressionInstruction =>
+        // oxlint-disable-next-line typescript/no-unnecessary-condition -- `suppress` is the only standing-instruction action today; the check keeps a second action out of this path when it lands.
+        candidate !== null && candidate.value.action === "suppress",
+    );
 
     // The locked read is the snapshot both remaining paths report from.
     // It can still miss a concurrent row: `now()` freezes at BEGIN, so lock order is not time order.
@@ -423,6 +422,7 @@ async function listActiveSuppressionInstructions(
     .filter((instruction): instruction is ActiveSuppressionInstruction => {
       if (!instruction) return false;
 
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- `suppress` is the only standing-instruction action today; the check keeps a second action out of this path when it lands.
       if (instruction.value.action !== "suppress") return false;
 
       return true;
@@ -794,7 +794,7 @@ function findSenderSuppression(
   let best: ActiveSuppressionInstruction | null = null;
 
   for (const instruction of instructions) {
-    // Unreachable while `suppress` is the only action; it guards the day a second one lands.
+    // oxlint-disable-next-line typescript/no-unnecessary-condition -- `suppress` is the only standing-instruction action today; the check keeps a second action out of this path when it lands.
     if (instruction.value.action !== "suppress") continue;
 
     const { target } = instruction.value;

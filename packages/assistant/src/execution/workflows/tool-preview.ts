@@ -63,6 +63,7 @@ export function preview(value: unknown): Preview {
   let full: string;
 
   try {
+    // oxlint-disable-next-line typescript/no-unnecessary-condition -- lib.d.ts types JSON.stringify as string, but it returns undefined for undefined, a function, or a symbol.
     full = JSON.stringify(value) ?? "";
   } catch {
     full = String(value);
@@ -73,6 +74,7 @@ export function preview(value: unknown): Preview {
   // Prune so the preview stays valid JSON under the cap.
   try {
     for (const [maxArray, maxString, maxKeys] of PREVIEW_TIERS) {
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- lib.d.ts types JSON.stringify as string, but it returns undefined for undefined, a function, or a symbol.
       const pruned = JSON.stringify(pruneForPreview(value, maxArray, maxString, maxKeys)) ?? "";
 
       if (pruned && pruned.length <= PREVIEW_CHARS) return { text: pruned, truncated: true };

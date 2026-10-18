@@ -255,7 +255,7 @@ function fallbackSections(gather: BriefingGather): FullBriefing["sections"] {
 
   if (emailCount > 0) {
     const references = Object.values(gather.email.categories)
-      .flatMap((items) => items ?? [])
+      .flatMap((items) => items)
       .slice(0, 8)
       .map((item) => `email:${item.documentId}`);
 
@@ -318,10 +318,7 @@ function fallbackSections(gather: BriefingGather): FullBriefing["sections"] {
 }
 
 function countEmailItems(gather: BriefingGather): number {
-  return Object.values(gather.email.categories).reduce(
-    (sum, items) => sum + (items?.length ?? 0),
-    0,
-  );
+  return Object.values(gather.email.categories).reduce((sum, items) => sum + items.length, 0);
 }
 
 function errorMessage(err: unknown): string {

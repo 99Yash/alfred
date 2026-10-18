@@ -143,11 +143,7 @@ export function Composer({
 
   // Stays enabled while streaming, so submits queue (#489).
   const canSend =
-    !composerDisabled &&
-    !sending &&
-    (!isEmpty || hasAttachments) &&
-    !mic.recording &&
-    !transcribing;
+    !composerDisabled && (!isEmpty || hasAttachments) && !mic.recording && !transcribing;
 
   const insertAtTrigger = useCallback(() => {
     if (disabled || sending) return;

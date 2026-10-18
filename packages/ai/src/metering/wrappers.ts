@@ -59,7 +59,7 @@ function extractTextUsage(
     responseMeta: {
       finishReason: result.finishReason,
       toolCallCount: result.toolCalls.length,
-      stepCount: result.steps?.length,
+      stepCount: result.steps.length,
       ...(steps ? { stepModels: steps.map((s) => `${s.provider}/${s.model}`) } : {}),
     },
     ...(steps ? { steps } : {}),
@@ -208,9 +208,9 @@ function extractEmbedUsage(result: EmbedResult): MeteredResult {
 
 export function usageFromSdk(usage: LanguageModelUsage | undefined, cacheWriteTtl?: "5m" | "1h") {
   if (!usage) return undefined;
-  const noCacheTokens = usage.inputTokenDetails?.noCacheTokens;
-  const cacheReadTokens = usage.inputTokenDetails?.cacheReadTokens;
-  const cacheWriteTokens = usage.inputTokenDetails?.cacheWriteTokens;
+  const noCacheTokens = usage.inputTokenDetails.noCacheTokens;
+  const cacheReadTokens = usage.inputTokenDetails.cacheReadTokens;
+  const cacheWriteTokens = usage.inputTokenDetails.cacheWriteTokens;
 
   return {
     inputTokens: usage.inputTokens,
@@ -349,7 +349,7 @@ export function meteredStreamText(
           responseMeta: {
             finishReason: event.finishReason,
             toolCallCount: event.toolCalls.length,
-            stepCount: event.steps?.length,
+            stepCount: event.steps.length,
             ...(steps ? { stepModels: steps.map((s) => `${s.provider}/${s.model}`) } : {}),
           },
           ...(steps ? { steps } : {}),

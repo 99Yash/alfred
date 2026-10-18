@@ -340,7 +340,7 @@ export function createVoiceStreamSanitizer(): VoiceStreamSanitizer {
     }
 
     if (char === "-") {
-      if (atLineStart && mode === "prose") {
+      if (atLineStart) {
         lineStartHyphens = "-";
 
         return;

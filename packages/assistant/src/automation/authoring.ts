@@ -192,9 +192,7 @@ function activationProposalFor(args: {
   timezone: IanaTimezone;
 }): ActivateWorkflowInput {
   const timezone =
-    args.definition.trigger.kind === "cron"
-      ? (args.definition.trigger.timezone ?? args.timezone)
-      : args.timezone;
+    args.definition.trigger.kind === "cron" ? args.definition.trigger.timezone : args.timezone;
 
   return buildWorkflowActivationProposal({
     workflowId: args.workflow.id,

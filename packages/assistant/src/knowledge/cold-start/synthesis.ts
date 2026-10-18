@@ -101,8 +101,8 @@ export async function synthesizeColdStart(args: SynthesizeColdStartArgs): Promis
     citations: mergeCitations(args.anchor, args.aspects),
     meta: {
       finishReason: result.finishReason,
-      inputTokens: result.usage?.inputTokens,
-      outputTokens: result.usage?.outputTokens,
+      inputTokens: result.usage.inputTokens,
+      outputTokens: result.usage.outputTokens,
     },
   };
 }

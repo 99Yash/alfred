@@ -31,6 +31,7 @@ export function useLatestBriefing(opts?: { poll?: boolean }) {
     queryFn: async () => {
       const res = await client.api.me.briefings.latest.get();
 
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- Eden treaty `data` is the server's JSON typed by its route, not parsed here; an empty body or a skewed deploy can leave it null.
       if (res.error || !res.data) return null;
       const b = res.data.briefing;
 

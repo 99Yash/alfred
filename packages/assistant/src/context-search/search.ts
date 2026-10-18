@@ -256,16 +256,13 @@ function reportAfterExpansion(
   }
 
   // Without this, a rejected refresh would keep `ok` and report nothing.
-  if (report.status === "ok" || report.status === "empty") {
-    if (outcome?.failure !== undefined) {
-      return { sourceId: report.sourceId, status: "error", evidenceCount, reason: outcome.failure };
-    }
+  // Only `ok` and `empty` remain here.
+  if (outcome?.failure !== undefined) {
+    return { sourceId: report.sourceId, status: "error", evidenceCount, reason: outcome.failure };
+  }
 
-    if (report.status === "empty" && evidenceCount > 0) {
-      return { sourceId: report.sourceId, status: "ok", evidenceCount };
-    }
-
-    return { ...report, evidenceCount };
+  if (report.status === "empty" && evidenceCount > 0) {
+    return { sourceId: report.sourceId, status: "ok", evidenceCount };
   }
 
   return { ...report, evidenceCount };

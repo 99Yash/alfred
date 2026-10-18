@@ -247,7 +247,7 @@ function prepareTools(tools: ToolSet): ToolSet {
 type ToolSetEntry = ToolSet[string];
 
 function stripExecute(t: ToolSetEntry): ToolSetEntry {
-  if (!("execute" in t) || t.execute === undefined) return t;
+  if (!("execute" in t)) return t;
   const { execute: _execute, ...rest } = t;
 
   return rest;

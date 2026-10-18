@@ -154,7 +154,7 @@ function emailPanelItems(
   const items: BriefingSourcePanelItem[] = [];
 
   for (const [category, categoryItems] of Object.entries(gather.email.categories)) {
-    for (const item of categoryItems ?? []) {
+    for (const item of categoryItems) {
       items.push({
         id: item.documentId,
         title: item.subject,

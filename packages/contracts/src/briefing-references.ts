@@ -67,7 +67,7 @@ export function resolveBriefingReferences(
   let cursor = 0;
 
   for (const match of markdown.matchAll(REFERENCE_RE)) {
-    const start = match.index ?? 0;
+    const start = match.index;
 
     if (start > cursor) {
       segments.push({ kind: "text", text: markdown.slice(cursor, start) });
@@ -152,7 +152,7 @@ function buildReferenceEntityMap(gather: BriefingGather): Map<BriefingReference,
   const entities = new Map<BriefingReference, ReferenceEntity>();
 
   for (const items of Object.values(gather.email.categories)) {
-    for (const item of items ?? []) {
+    for (const item of items) {
       const reference = briefingReference("email", item.documentId);
       entities.set(reference, {
         reference,

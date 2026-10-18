@@ -24,10 +24,11 @@ function queueKey(threadId: string | undefined): string {
 }
 
 function safeRandomId(): string {
-  if (typeof crypto === "undefined")
+  // lib.dom types `randomUUID` as always present; browsers expose it only in secure contexts.
+  if (typeof crypto === "undefined" || !("randomUUID" in crypto))
     return `q_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
-  return crypto.randomUUID?.() ?? `q_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  return crypto.randomUUID();
 }
 
 export interface ChatQueue {

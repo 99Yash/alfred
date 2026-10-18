@@ -32,7 +32,7 @@ export function parseMentions(text: string): ParsedMention[] {
   for (const match of text.matchAll(MENTION_RE)) {
     const [full, prefix, slug] = match;
 
-    if (!slug || match.index === undefined) continue;
+    if (!slug) continue;
     const atOffset = full.indexOf("@");
     const slugLower = slug.toLowerCase();
     // The regex is case-insensitive; compare the lower-cased prefix.

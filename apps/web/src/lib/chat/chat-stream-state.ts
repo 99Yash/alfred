@@ -169,7 +169,7 @@ export function applyStreamingToolEvent(
     resultPreview: event.resultPreview ?? previous?.resultPreview,
     resultTruncated: event.resultTruncated ?? previous?.resultTruncated,
     sanitized: event.sanitized ?? previous?.sanitized,
-    segmentIndex: event.segmentIndex ?? previous?.segmentIndex ?? 0,
+    segmentIndex: event.segmentIndex,
     startedTs: previous?.startedTs ?? now,
     // A replayed terminal event keeps the first end time.
     endedTs: event.status === "started" ? null : (previous?.endedTs ?? now),
@@ -267,39 +267,38 @@ export function applyChatFrame(
 
     if (!r || r.messageId !== p.messageId || r.runId !== p.runId) return false;
 
-    if (p.phase === "compaction_started" || p.phase === "compaction_finished") {
-      r.compacting = p.phase === "compaction_started";
-      // Compaction means the turn moves again. The two labels never show together.
-      r.awaitingCapacity = false;
+    switch (p.phase) {
+      case "compaction_started":
+      case "compaction_finished":
+        r.compacting = p.phase === "compaction_started";
+        // Compaction means the turn moves again. The two labels never show together.
+        r.awaitingCapacity = false;
 
-      return true;
+        return true;
+      case "capacity_retry":
+        r.awaitingCapacity = true;
+        r.compacting = false;
+
+        return true;
+      case "completed":
+        markChatTimingByAssistant(p.messageId, "completion_event", undefined, {
+          threadId: cell.threadId,
+          runId: p.runId,
+          summarize: true,
+        });
+        r.done = true;
+        r.awaitingApproval = false;
+        r.compacting = false;
+        r.awaitingCapacity = false;
+
+        return true;
+      default: {
+        // A new phase must fail to compile, not fall into the completion branch.
+        const _exhaustive: never = p.phase;
+
+        return _exhaustive;
+      }
     }
-
-    if (p.phase === "capacity_retry") {
-      r.awaitingCapacity = true;
-      r.compacting = false;
-
-      return true;
-    }
-
-    if (p.phase === "completed") {
-      markChatTimingByAssistant(p.messageId, "completion_event", undefined, {
-        threadId: cell.threadId,
-        runId: p.runId,
-        summarize: true,
-      });
-      r.done = true;
-      r.awaitingApproval = false;
-      r.compacting = false;
-      r.awaitingCapacity = false;
-
-      return true;
-    }
-
-    // A new phase must fail to compile, not fall into the completion branch.
-    const _exhaustive: never = p.phase;
-
-    return _exhaustive;
   }
 
   if (frame.kind === "chat.reasoning") {
@@ -348,7 +347,7 @@ export function applyChatFrame(
 
     if (r === null || r.stopped) return false;
 
-    const segment = p.segmentIndex ?? 0;
+    const segment = p.segmentIndex;
 
     const applied = applyChatDelta(r.text, {
       seq: p.seq,
