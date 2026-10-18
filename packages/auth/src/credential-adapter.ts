@@ -81,7 +81,7 @@ function openJoined<T>(
 
   // `one-to-one` yields an object, the other relation types yield an array.
   const resolved = Array.isArray(joined)
-    ? joined.map((entry) => openRow(entry, vault))
+    ? joined.map((entry: unknown) => openRow(entry, vault))
     : openRow(joined, vault);
 
   // SAFETY: only the account join value changes, so T's shape holds.

@@ -73,7 +73,7 @@ describe("an executed result carries `editedByUser` to the model", () => {
     );
 
     assert.ok(Array.isArray(message.content), "expected tool-result content");
-    const content = message.content[0];
+    const content: unknown = message.content[0];
     assert.ok(isRecord(content), "expected a tool-result part");
     const output = content.output;
     assert.ok(isRecord(output) && output.type === "json", "expected a json tool-result output");

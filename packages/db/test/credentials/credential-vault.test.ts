@@ -1,3 +1,4 @@
+/* oxlint-disable typescript/no-unsafe-argument, typescript/no-unsafe-call, typescript/no-unsafe-member-access, typescript/no-unsafe-assignment -- this file sits in the tsconfig.test.json typecheck baseline: it reads a SealedCredentialSecret as a string, so the type-aware rules read compiler error types. Delete this line with the baseline entry. */
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { describe, test } from "node:test";

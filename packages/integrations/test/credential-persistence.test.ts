@@ -458,6 +458,7 @@ describe("credential backfill (DB-backed)", { skip: SKIP }, () => {
     ensureCredentialTestEnv();
     const userId = await seedUser("test-vault-future-version");
     const current = credentialVault().seal("token-from-a-future-version");
+    // oxlint-disable-next-line typescript/no-unsafe-call, typescript/no-unsafe-member-access -- this file sits in the tsconfig.test.json typecheck baseline: a SealedCredentialSecret has no `split`, so the type-aware rules read a compiler error type. Delete this line with the baseline entry.
     const unsupported = `acv0.${current.split(".").slice(1).join(".")}`;
 
     const [seeded] = await db()

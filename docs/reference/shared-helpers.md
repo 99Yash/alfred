@@ -202,6 +202,7 @@ provider we called; `ApiError` is the _outbound_ failure we answer a client with
 ### JSON — `@alfred/contracts` (`src/json.ts`)
 
 - `safeJsonParse`, `parseJsonWith` (overloaded: with/without fallback), `toJsonValue`
+- `parseJsonText`: `JSON.parse` typed as `JsonValue`; it throws on malformed input, for a caller whose malformed branch differs from `null`
 
 ### Sanitize — `@alfred/contracts` (`src/sanitize.ts`)
 

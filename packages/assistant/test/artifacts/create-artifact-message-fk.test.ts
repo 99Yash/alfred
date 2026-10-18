@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
 
-import { closeConnections, db } from "@alfred/db";
+import { closeConnections, db, rowsFromExecute } from "@alfred/db";
 import { agentRuns, artifacts, chatMessages, chatThreads, user } from "@alfred/db/schemas";
 import { eq, inArray, sql } from "drizzle-orm";
 
@@ -64,8 +64,8 @@ describe("createArtifact message_id FK ordering", { skip: SKIP }, () => {
         and c.conname = 'artifacts_message_id_chat_messages_id_fk'
     `);
 
-    const row = Array.isArray(result) ? result[0] : result.rows[0];
-    assert.equal(Number((row as { count: number }).count), 1);
+    const [row] = rowsFromExecute<{ count: number | string }>(result);
+    assert.equal(Number(row?.count), 1);
   });
 
   test("creates before the message exists, then associates it at turn finalization", async () => {

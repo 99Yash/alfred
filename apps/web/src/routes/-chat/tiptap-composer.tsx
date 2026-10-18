@@ -1,3 +1,4 @@
+import { getStringField } from "@alfred/contracts";
 import Mention from "@tiptap/extension-mention";
 import {
   EditorContent,
@@ -144,7 +145,8 @@ export function TiptapComposer({
       }).configure({
         // So `editor.getText()` keeps the mention.
         renderText({ node }) {
-          const label = node.attrs.label ?? node.attrs.id ?? "";
+          const label =
+            getStringField(node.attrs, "label") ?? getStringField(node.attrs, "id") ?? "";
 
           return `@${label}`;
         },
@@ -351,8 +353,9 @@ export function TiptapComposer({
  * A chip can outlive its connection (disconnect after insert); then it dims and gets a tooltip.
  */
 function MentionChipNodeView({ node }: NodeViewProps) {
-  const id: string = node.attrs.id ?? "";
-  const label: string = node.attrs.label ?? id;
+  // Tiptap types `attrs` as `Record<string, any>`; read the two string fields.
+  const id = getStringField(node.attrs, "id") ?? "";
+  const label = getStringField(node.attrs, "label") ?? id;
   const option = getMentionOption(id);
   const Icon = option?.icon;
   const connections = useMentionConnections();

@@ -1,3 +1,4 @@
+/* oxlint-disable typescript/no-unsafe-member-access -- this file sits in the tsconfig.test.json typecheck baseline: `persist` is read off a possibly undefined dependency type, so the type-aware rules read compiler error types. Delete this line with the baseline entry. */
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 

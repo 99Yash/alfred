@@ -4,6 +4,8 @@
  * Do not use `ipapi.co` without a proxy: its free-tier 429s carry no CORS headers.
  */
 
+import type { z } from "zod";
+
 import {
   bigDataCloudReverseSchema,
   geoJsLocationSchema,
@@ -29,17 +31,24 @@ interface ResolvedLocation {
   label: string;
 }
 
-/** Throws a labeled error on non-2xx or bad JSON. */
-async function fetchJson<T>(url: URL, source: string): Promise<T> {
+/** Throws a labeled error on non-2xx, bad JSON, or a body the schema rejects. */
+async function fetchJson<T>(url: URL, source: string, schema: z.ZodType<T>): Promise<T> {
   const res = await fetch(url, { signal: AbortSignal.timeout(WEATHER_FETCH_TIMEOUT_MS) });
 
   if (!res.ok) throw new Error(`${source}: ${res.status}`);
+  let body: unknown;
 
   try {
-    return await res.json();
+    body = await res.json();
   } catch {
     throw new Error(`${source}: invalid JSON response`);
   }
+
+  const parsed = schema.safeParse(body);
+
+  if (!parsed.success) throw new Error(`${source}: invalid response`);
+
+  return parsed.data;
 }
 
 /** Fahrenheit for the listed countries, else Celsius. */
@@ -93,11 +102,12 @@ async function reverseGeocode(lat: number, lon: number): Promise<string | null> 
     url.searchParams.set("latitude", String(lat));
     url.searchParams.set("longitude", String(lon));
     url.searchParams.set("localityLanguage", "en");
-    const data = await fetchJson(url, "bigdatacloud");
-    const parsed = bigDataCloudReverseSchema.safeParse(data);
 
-    if (!parsed.success) return null;
-    const { city, locality, principalSubdivision } = parsed.data;
+    const { city, locality, principalSubdivision } = await fetchJson(
+      url,
+      "bigdatacloud",
+      bigDataCloudReverseSchema,
+    );
 
     return city ?? locality ?? principalSubdivision ?? null;
   } catch {
@@ -107,11 +117,12 @@ async function reverseGeocode(lat: number, lon: number): Promise<string | null> 
 
 /** Coarse IP location. */
 async function ipLocation(): Promise<ResolvedLocation> {
-  const data = await fetchJson(new URL("https://get.geojs.io/v1/ip/geo.json"), "geojs");
-  const parsed = geoJsLocationSchema.safeParse(data);
+  const { latitude, longitude, city, region } = await fetchJson(
+    new URL("https://get.geojs.io/v1/ip/geo.json"),
+    "geojs",
+    geoJsLocationSchema,
+  );
 
-  if (!parsed.success) throw new Error("geojs: invalid response");
-  const { latitude, longitude, city, region } = parsed.data;
   const label = city ?? region;
 
   if (latitude === undefined || longitude === undefined || label === undefined) {
@@ -149,12 +160,9 @@ export async function fetchWeather(): Promise<WeatherSnapshot> {
 
   if (unit === "F") url.searchParams.set("temperature_unit", "fahrenheit");
 
-  const data = await fetchJson(url, "open-meteo");
-  const parsed = openMeteoResponseSchema.safeParse(data);
+  const { current } = await fetchJson(url, "open-meteo", openMeteoResponseSchema);
 
-  if (!parsed.success || !parsed.data.current) {
-    throw new Error("open-meteo: invalid response");
-  }
+  if (!current) throw new Error("open-meteo: invalid response");
 
-  return { ...parsed.data.current, unit, city: label };
+  return { ...current, unit, city: label };
 }

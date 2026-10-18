@@ -31,6 +31,7 @@ where to put a new invariant.
 | An async function where a void callback is expected (`onClick={async …}`, `.finally(async …)`), or a promise in a condition or spread | `typescript/no-misused-promises` (`error`, type-aware) | `.oxlintrc.json` |
 | A switch over a union that misses a member, with or without a `default` | `typescript/switch-exhaustiveness-check` (`error`, type-aware) | `.oxlintrc.json` |
 | A template literal that interpolates an object, `unknown`, or `never` | `typescript/restrict-template-expressions` (`error`, type-aware) | `.oxlintrc.json` |
+| An `any` that flows into a return, an argument, a call, a member read, or an assignment in TypeScript source | `typescript/no-unsafe-return`, `-argument`, `-call`, `-member-access`, `-assignment` (`error`, type-aware; off for `.mjs`/`.js`/`.cjs`) | `.oxlintrc.json` |
 | A value imported only for a type position, such as `typeof` | `typescript/consistent-type-imports` (`error`) | `.oxlintrc.json` |
 | A suppression directive with no rule name, or no reason after ` -- ` | `gate: suppression-without-reason` | `scripts/consolidation-rules.mjs` |
 | A spread that only copies, such as `{ ...(x ? { k: x } : {}) }` alone in a literal | `unicorn/no-useless-spread` (`error`) | `.oxlintrc.json` |
@@ -84,7 +85,7 @@ a restated copy or a declared omission per group.
 `.oxlintrc.json` sets `options.typeAware`, so every oxlint run (`pnpm lint`,
 the edit-time hook, the `check:oxlint-config` probe) also runs the rules that
 need type information, through the `oxlint-tsgolint` root devDependency. A
-missing tsgolint binary fails the run instead of skipping the rules. Four rules
+missing tsgolint binary fails the run instead of skipping the rules. Nine rules
 are at `error`, each adopted at zero:
 
 - `typescript/no-floating-promises`, with the `node:test` registrars
@@ -104,13 +105,35 @@ are at `error`, each adopted at zero:
 - `typescript/restrict-template-expressions`, default options. For a value
   the compiler types as `never` in an exhaustive `default`, print it with
   `String(value)`.
+- The `no-unsafe-*` family, default options: `typescript/no-unsafe-return`,
+  `no-unsafe-argument`, `no-unsafe-call`, `no-unsafe-member-access` and
+  `no-unsafe-assignment`. An `any` may not flow into a return, an argument, a
+  call, a member read, or an assignment. Bind a value that a library or the
+  standard library types as `any` (`res.json()`, `JSON.parse`, `Reflect.get`,
+  `signal.reason`, a computed `import()`) to `unknown` and narrow or parse it
+  at the boundary. A `.map` callback over SDK values declares its return type,
+  so an `any` field lands in a schema's `unknown` slot. `Array.isArray` on a
+  `ReadonlyArray` or on `JsonValue` narrows each element to `any`: iterate the
+  typed array, or use a guard that returns `readonly T[]`. JSON text becomes a
+  `JsonValue` through `parseJsonText` / `safeJsonParse`, which own the one
+  `JSON.parse` the family suppresses. The rules are off for `.mjs`, `.js` and
+  `.cjs` (the last `overrides` entry), where JSDoc-typed code runs with
+  `noImplicitAny` off and `any` is the default type.
+
+The rules read a test or eval file through its package's `tsconfig.test.json`
+or `tsconfig.eval.json`: the root `tsconfig.json` is a solution file that
+references them, so the TypeScript project service finds the program that a
+package's `src`-only `tsconfig.json` does not contain. A file that a
+`tsconfig.test.json` excludes (the typecheck baseline) has compiler errors, and
+the rules report the error types as unsafe. Those files carry a directive that
+names the baseline. Remove the directive with the baseline entry; the unused-
+directive check reports it if it outlives the errors.
 
 Turning type-aware on also arms the type-aware rules in oxlint's default
 `correctness` set at `warn`. The config turns each of them `"off"`, so the run
-reports only the rules it chose. The queued follow-ups are the `no-unsafe-*`
-family (`no-unsafe-argument`, `-assignment`, `-call`, `-member-access`,
-`-return`) and `no-unnecessary-condition`. Each one lands alone in its own
-change: drive the tree to zero, then add the rule at `error`.
+reports only the rules it chose. The queued follow-up is
+`no-unnecessary-condition`. It lands alone in its own change: drive the tree to
+zero, then add the rule at `error`.
 
 These are the cheap place for a new invariant **if it can be phrased as a
 syntax shape**. The vendored `anti-slop` set is deliberately small; a new

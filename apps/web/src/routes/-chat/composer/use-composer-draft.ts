@@ -1,4 +1,4 @@
-import { isRecord, safeJsonParse } from "@alfred/contracts";
+import { getStringField, isRecord, safeJsonParse } from "@alfred/contracts";
 import type { JSONContent } from "@tiptap/react";
 import { useCallback, useMemo, useState } from "react";
 import { safeGet, safeRemove, safeSet } from "~/lib/storage/storage";
@@ -86,7 +86,8 @@ function extractTextFromJSON(json: JSONContent): string {
     if (node.type === "text" && node.text !== undefined) {
       out += node.text;
     } else if (node.type === "mention") {
-      const label = node.attrs?.label ?? node.attrs?.id ?? "";
+      // Tiptap types `attrs` as `Record<string, any>`; read the two string fields.
+      const label = getStringField(node.attrs, "label") ?? getStringField(node.attrs, "id") ?? "";
       out += `@${label}`;
     }
 

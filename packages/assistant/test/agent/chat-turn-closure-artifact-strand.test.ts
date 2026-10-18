@@ -104,6 +104,7 @@ async function seedTerminalRowWithArtifact(
       messageId,
       kind: "document",
       title: "Draft",
+      // oxlint-disable-next-line typescript/no-unsafe-assignment -- this file sits in the tsconfig.test.json typecheck baseline: `ArtifactStatus` is no longer exported, so the type-aware rules read a compiler error type. Delete this line with the baseline entry.
       status: artifactStatus,
     })
     .returning({ id: artifacts.id });

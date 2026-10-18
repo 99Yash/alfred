@@ -11,7 +11,7 @@ import { extractEmailAddress } from "./domain";
  */
 export function isRecord(value: unknown): value is Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
-  const proto = Object.getPrototypeOf(value);
+  const proto: unknown = Object.getPrototypeOf(value);
 
   return proto === Object.prototype || proto === null;
 }
@@ -76,7 +76,7 @@ export function getStringPath(value: unknown, ...keys: string[]): string | undef
  */
 export function getStringField(value: unknown, key: string): string | undefined {
   if (!isIndexable(value)) return undefined;
-  const field = Reflect.get(value, key);
+  const field: unknown = Reflect.get(value, key);
 
   return typeof field === "string" ? field : undefined;
 }

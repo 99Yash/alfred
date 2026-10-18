@@ -1,3 +1,4 @@
+/* oxlint-disable typescript/no-unsafe-assignment -- this file sits in the tsconfig.test.json typecheck baseline: `SealedCredentialSecret` is imported from a package that does not export it, so the type-aware rules read compiler error types. Delete this line with the baseline entry. */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";

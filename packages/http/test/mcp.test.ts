@@ -117,6 +117,7 @@ describe("mcpIntegrationRoutes", () => {
     assert.ok(inspectRoute);
 
     const toolsProbe = new Elysia().get("/tools", ({ query }) => query, {
+      // oxlint-disable-next-line typescript/no-unsafe-member-access -- Elysia types InternalRoute.hooks as AnyLocalHook, which resolves to `any`; the probe hands the route's own schema back to Elysia untouched.
       query: toolsRoute.hooks.query,
     });
 
@@ -140,6 +141,7 @@ describe("mcpIntegrationRoutes", () => {
     }
 
     const inspectProbe = new Elysia().get("/inspect", ({ query }) => query, {
+      // oxlint-disable-next-line typescript/no-unsafe-member-access -- Elysia types InternalRoute.hooks as AnyLocalHook, which resolves to `any`; the probe hands the route's own schema back to Elysia untouched.
       query: inspectRoute.hooks.query,
     });
 
@@ -175,6 +177,7 @@ describe("mcpIntegrationRoutes", () => {
     assert.ok(route);
 
     const validationProbe = new Elysia().get("/recovery", ({ query }) => query, {
+      // oxlint-disable-next-line typescript/no-unsafe-member-access -- Elysia types InternalRoute.hooks as AnyLocalHook, which resolves to `any`; the probe hands the route's own schema back to Elysia untouched.
       query: route.hooks.query,
     });
 
@@ -215,6 +218,7 @@ describe("mcpIntegrationRoutes", () => {
 
         return null;
       },
+      // oxlint-disable-next-line typescript/no-unsafe-member-access -- Elysia types InternalRoute.hooks as AnyLocalHook, which resolves to `any`; the probe hands the route's own schema back to Elysia untouched.
       { body: route.hooks.body },
     );
 
@@ -270,6 +274,7 @@ describe("mcpIntegrationRoutes", () => {
 
         return null;
       },
+      // oxlint-disable-next-line typescript/no-unsafe-member-access -- Elysia types InternalRoute.hooks as AnyLocalHook, which resolves to `any`; the probe hands the route's own schema back to Elysia untouched.
       { body: route.hooks.body },
     );
 

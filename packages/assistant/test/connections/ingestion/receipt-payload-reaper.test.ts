@@ -578,9 +578,9 @@ function signalAbortingAfterReads(reads: number): AbortSignal {
   let seen = 0;
 
   return new Proxy(controller.signal, {
-    get(target, prop, receiver) {
+    get(target, prop, receiver): unknown {
       if (prop === "aborted") return seen++ >= reads;
-      const value = Reflect.get(target, prop, receiver);
+      const value: unknown = Reflect.get(target, prop, receiver);
 
       return typeof value === "function" ? value.bind(target) : value;
     },

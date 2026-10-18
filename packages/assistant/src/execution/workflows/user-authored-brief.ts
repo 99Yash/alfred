@@ -327,11 +327,13 @@ const bossTurnStep: Step<BriefRunState> = {
 
     if (result.kind === "tool-calls") {
       state.emptyRetries = 0;
-      state.pendingToolCalls = result.toolCalls.map((call) => ({
-        toolCallId: call.toolCallId,
-        toolName: call.toolName,
-        input: call.input,
-      }));
+      state.pendingToolCalls = result.toolCalls.map(
+        (call): BriefRunState["pendingToolCalls"][number] => ({
+          toolCallId: call.toolCallId,
+          toolName: call.toolName,
+          input: call.input,
+        }),
+      );
 
       return {
         kind: "next",

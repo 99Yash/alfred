@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { text } from "node:stream/consumers";
 import { after, before, test } from "node:test";
 import { toNodeHandler } from "@modelcontextprotocol/node";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
@@ -74,10 +75,7 @@ before(async () => {
     }
 
     if (req.url === "/legacy-mcp" && req.method === "POST") {
-      const chunks: Buffer[] = [];
-
-      for await (const chunk of req) chunks.push(Buffer.from(chunk));
-      const message = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      const message: unknown = JSON.parse(await text(req));
       assert.ok(isRecord(message));
       const id = message.id;
 
@@ -229,7 +227,7 @@ test("McpRawClient negotiates, catalogs, and calls a real Streamable HTTP server
     endpoint: { endpointUrl: endpoint.href, endpointOrigin: endpoint.origin },
     // Production uses the SSRF authorizer. Only this test policy admits loopback HTTP.
     endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(async (input, init) => {
-      const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
+      const body: unknown = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
 
       if (isRecord(body) && typeof body.method === "string") {
         wire.push({
@@ -408,7 +406,7 @@ test("modern connect fails when the advertised list-change subscription cannot o
     connectionId: "conn_modern_subscription_failure_test",
     endpoint: { endpointUrl: endpoint.href, endpointOrigin: endpoint.origin },
     endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(async (input, init) => {
-      const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
+      const body: unknown = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
 
       if (isRecord(body) && body.method === "subscriptions/listen") {
         return Response.json(
@@ -465,7 +463,7 @@ test("the real SDK does not replay tools/call after auth or header failures", as
       },
     },
     endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(async (input, init) => {
-      const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
+      const body: unknown = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
 
       if (isRecord(body) && body.method === "tools/call") {
         unauthorizedCalls += 1;
@@ -509,7 +507,7 @@ test("the real SDK does not replay tools/call after auth or header failures", as
       requiredScopes.push(scopes);
     },
     endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(async (input, init) => {
-      const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
+      const body: unknown = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
 
       if (isRecord(body) && body.method === "tools/call") {
         insufficientScopeCalls += 1;
@@ -570,7 +568,7 @@ test("the real SDK does not replay tools/call after auth or header failures", as
     connectionId: "conn_no_header_replay_test",
     endpoint: { endpointUrl: endpoint.href, endpointOrigin: endpoint.origin },
     endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(async (input, init) => {
-      const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
+      const body: unknown = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
 
       if (isRecord(body) && body.method === "tools/call") {
         mismatchCalls += 1;

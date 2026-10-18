@@ -1,0 +1,31 @@
+{
+  // Not a build. `check-types` never reads this file; each package runs its own `tsc`.
+  //
+  // This file exists for the type-aware lint (`oxlint` through tsgolint) and for editors.
+  // Both find a file's program through the TypeScript project service: the nearest
+  // `tsconfig.json` first, and when that project does not contain the file, an ancestor
+  // config whose `references` do. A package's `tsconfig.json` includes only `src`, so
+  // without this file every `test/` and `evals/` file falls into an inferred project:
+  // default `lib` (no `Promise.withResolvers`), no `~/*` paths, and every unresolved
+  // name typed as an error type that the `typescript/no-unsafe-*` rules then report.
+  //
+  // List each package's `tsconfig.test.json` and `tsconfig.eval.json` here. A package
+  // whose test project is missing from this list lints its tests in that inferred project.
+  "files": [],
+  "references": [
+    { "path": "./apps/web/tsconfig.test.json" },
+    { "path": "./packages/ai/tsconfig.test.json" },
+    { "path": "./packages/artifacts-design/tsconfig.test.json" },
+    { "path": "./packages/assistant/tsconfig.eval.json" },
+    { "path": "./packages/assistant/tsconfig.test.json" },
+    { "path": "./packages/auth/tsconfig.test.json" },
+    { "path": "./packages/contracts/tsconfig.test.json" },
+    { "path": "./packages/corpus/tsconfig.test.json" },
+    { "path": "./packages/db/tsconfig.test.json" },
+    { "path": "./packages/extraction/tsconfig.test.json" },
+    { "path": "./packages/http/tsconfig.test.json" },
+    { "path": "./packages/integrations/tsconfig.test.json" },
+    { "path": "./packages/logging/tsconfig.test.json" },
+    { "path": "./packages/sync/tsconfig.test.json" }
+  ]
+}

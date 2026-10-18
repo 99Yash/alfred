@@ -148,15 +148,13 @@ export function useInboxDetail(documentId: string | null) {
             const display = parseSenderDisplay(rawSender);
             const email = parseSenderEmail(rawSender);
 
-            const attachments: InboxAttachment[] = Array.isArray(m.attachments)
-              ? m.attachments.map((a) => ({
-                  partId: a.partId ?? null,
-                  attachmentId: a.attachmentId,
-                  filename: a.filename,
-                  mimeType: a.mimeType,
-                  size: a.size,
-                }))
-              : [];
+            const attachments: InboxAttachment[] = m.attachments.map((a) => ({
+              partId: a.partId ?? null,
+              attachmentId: a.attachmentId,
+              filename: a.filename,
+              mimeType: a.mimeType,
+              size: a.size,
+            }));
 
             return {
               documentId: m.documentId,

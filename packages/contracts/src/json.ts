@@ -4,13 +4,22 @@ import type { z } from "zod";
 import type { JsonValue } from "./user-model";
 
 /**
- * `JSON.parse` that returns a `JsonValue`, and `null` on malformed input.
- * Without a reviver, `JSON.parse` can only produce JSON values, so no cast is needed.
+ * `JSON.parse`, typed as what it builds. Without a reviver it can only produce JSON values.
+ * Throws a `SyntaxError` on malformed input. Use it when malformed input needs its own
+ * branch; otherwise use `safeJsonParse` or `parseJsonWith`.
+ */
+export function parseJsonText(raw: string): JsonValue {
+  // oxlint-disable-next-line typescript/no-unsafe-return -- lib.es5 types JSON.parse as `any`; with no reviver it builds only JSON values, and this is the one site that states that.
+  return JSON.parse(raw);
+}
+
+/**
+ * `parseJsonText` that returns `null` on malformed input instead of throwing.
  * Valid `"null"` also returns `null`; check the raw string if that matters.
  */
 export function safeJsonParse(raw: string): JsonValue {
   try {
-    return JSON.parse(raw);
+    return parseJsonText(raw);
   } catch {
     return null;
   }
