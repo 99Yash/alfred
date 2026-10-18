@@ -283,6 +283,121 @@ export function getRetries() {
   return retries;
 }`,
     },
+    // ---------------------------------------------------------------------
+    // Read or change from the initializer, not from method names. Each case
+    // below was flagged by the name-list rule: it counted `get` and `has` as
+    // reads on any receiver, and a spread or a template as a read of any value.
+    // ---------------------------------------------------------------------
+    {
+      // A method of a user object can change the object through `this`,
+      // whatever its name. `X.get()` and `X.has()` are changes.
+      name: "a typed getter over a user object whose read-named methods write",
+      code: `const X = {
+  state: 0,
+  get() {
+    return this.state++;
+  },
+  has(key: string) {
+    this.state += key.length;
+    return true;
+  },
+};
+
+X.get();
+
+export function seen(key: string): boolean {
+  return X.has(key);
+}
+
+export function getX(): Readonly<typeof X> {
+  return X;
+}`,
+    },
+    {
+      // An imported `Map` is not the global constructor, so `X` has no known
+      // shape and `X.has(k)` counts as a change. A local class is the same.
+      name: "typed getters over consts built by a shadowed Map or Set",
+      code: `import { Map } from "immutable";
+
+class Set<T> {
+  has(value: T): boolean {
+    return track(value);
+  }
+}
+
+const X = new Map<string, number>();
+const Y = new Set<string>();
+
+export function known(key: string): boolean {
+  return X.has(key) || Y.has(key);
+}
+
+export function getX(): ReadonlyMap<string, number> {
+  return X;
+}
+
+export function getY(): Readonly<Set<string>> {
+  return Y;
+}`,
+    },
+    {
+      // A call result, an import and a function property have no known shape,
+      // so a read-named method on each counts as a change.
+      name: "typed getters over consts whose receiver shape is unknown",
+      code: `const registry = createRegistry();
+const table = { lookup: buildLookup() };
+
+export function has(key: string): boolean {
+  return registry.has(key) && table.lookup.has(key);
+}
+
+export function getRegistry(): Readonly<Registry> {
+  return registry;
+}
+
+export function getTable(): Readonly<typeof table> {
+  return table;
+}`,
+    },
+    {
+      // A coercion runs `toString`, and a getter runs on a read: each can
+      // change the object. A spread hands on `items`, which other code can
+      // then change through the copy.
+      name: "typed getters over consts that a coercion, a getter or a shallow copy can change",
+      code: `const LABEL = {
+  n: 0,
+  toString() {
+    return String(this.n++);
+  },
+};
+const COUNTER = {
+  n: 0,
+  get next() {
+    return this.n++;
+  },
+};
+const STORE = { items: [] as string[] };
+
+export function render(): void {
+  log(\`\${LABEL}\`);
+
+  if (COUNTER.next > 0) log("tick");
+  const copy = { ...STORE };
+  copy.items.push("a");
+}
+
+export function getLabel(): Readonly<typeof LABEL> {
+  return LABEL;
+}
+
+export function getCounter(): Readonly<typeof COUNTER> {
+  return COUNTER;
+}
+
+export function getStore(): Readonly<typeof STORE> {
+  return STORE;
+}`,
+    },
   ],
   invalid: [
     {
@@ -651,6 +766,68 @@ export function maxMutations({ MAX_MUTATIONS: limit }: Options): number {
 
 export function maxEntries() {
   return MAX_ENTRIES;
+}`,
+      errors: [error],
+    },
+    // ---------------------------------------------------------------------
+    // Read or change from the initializer, not from method names. The first
+    // case was missed by the name-list rule: it counted every call argument
+    // as a change, even a string.
+    // ---------------------------------------------------------------------
+    {
+      // `DEFAULTS.url` is a string literal in the initializer, so handing it
+      // to `fetch` cannot change `DEFAULTS`.
+      name: "a typed getter over a const whose primitive property is a call argument",
+      code: `const DEFAULTS = { url: "https://api.example.com/v1", timeoutMs: 5000 };
+
+export function ping(): Promise<Response> {
+  return fetch(DEFAULTS.url);
+}
+
+export function getDefaults(): Readonly<typeof DEFAULTS> {
+  return DEFAULTS;
+}`,
+      errors: [error],
+    },
+    {
+      // The path resolves through two object literals to `new Set()`, a
+      // built-in whose `has` cannot change it.
+      name: "a typed getter over a const whose nested Set is only queried",
+      code: `const X = { a: { items: new Set<string>() } };
+
+export function known(k: string): boolean {
+  return X.a.items.has(k);
+}
+
+export function getX(): Readonly<typeof X> {
+  return X;
+}`,
+      errors: [error],
+    },
+    {
+      // Each reference resolves through the initializer: a primitive in any
+      // position, an element of an all-primitive array literal, a built-in
+      // method, a spread or an iteration that hands on only primitives.
+      name: "a typed getter over a const that the module reads in each resolved way",
+      code: `const CONFIG = {
+  retry: { max: 3, label: "retry" },
+  kinds: ["email", "event"],
+  byId: new Map<string, number>(),
+};
+
+export function describe(id: string): string {
+  schedule(CONFIG.retry.max, CONFIG.kinds[0], CONFIG.kinds.at(1));
+
+  for (const kind of CONFIG.kinds) log(kind);
+  log(...CONFIG.kinds, { ...CONFIG.retry }, CONFIG.kinds.join(","));
+
+  if (CONFIG.byId.get(id) === undefined && CONFIG.byId.size > 0) log("miss");
+
+  return \`\${CONFIG.retry.label.toUpperCase()} \${CONFIG.kinds.length}\`;
+}
+
+export function getConfig(): Readonly<typeof CONFIG> {
+  return CONFIG;
 }`,
       errors: [error],
     },
