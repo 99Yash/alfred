@@ -1,5 +1,6 @@
 import {
   humanizeSlug,
+  integrationDisplayName,
   jsonObjectSchema,
   mcpHealthMappingDefinitionSchema,
   MCP_HEALTH_MAPPING_NOTE_MAX,
@@ -69,7 +70,7 @@ const MAPPING_IDENTITY_PROVIDERS =
   );
 
 const IDENTITY_PROVIDER_OPTIONS: ReadonlyArray<AppSelectOption> = MAPPING_IDENTITY_PROVIDERS.map(
-  (provider) => ({ value: provider, label: humanizeSlug(provider) }),
+  (provider) => ({ value: provider, label: integrationDisplayName(provider) }),
 );
 
 function tokensFromDefinition(definition: McpHealthMappingDefinition) {
