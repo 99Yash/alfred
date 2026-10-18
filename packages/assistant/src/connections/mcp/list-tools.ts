@@ -22,9 +22,9 @@ import {
   type McpToolInspectionResult,
   type McpToolSearchInput,
 } from "@alfred/contracts";
+import { sha256Canonical } from "@alfred/db/hash";
 import { z } from "zod";
 import { MCP_DISCOVERY_SCAN_BUDGET } from "./discovery-policy";
-import { sha256Canonical } from "./hash";
 import {
   listOwnedCurrentCatalogSlices,
   readOwnedCurrentCatalogDescriptor,

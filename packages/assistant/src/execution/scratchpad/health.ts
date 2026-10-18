@@ -5,7 +5,7 @@
 
 import { startRuntimeSpan, type RuntimeSpanCloser, type RuntimeSpanInput } from "@alfred/ai";
 import type { ScratchZone } from "@alfred/contracts";
-import { createHash } from "node:crypto";
+import { sha256Hex } from "@alfred/db/hash";
 
 export const RUNTIME_SCRATCH_READ = "runtime.scratch.read";
 
@@ -17,7 +17,7 @@ export const RUNTIME_SCRATCH_SNAPSHOT = "runtime.scratch.snapshot";
 
 /** Hashes the dotted key without the run id, so one key groups across runs. */
 export function hashScratchKey(logicalKey: string): string {
-  return `sha256:${createHash("sha256").update(logicalKey).digest("hex").slice(0, 16)}`;
+  return `sha256:${sha256Hex(logicalKey).slice(0, 16)}`;
 }
 
 export interface ScratchReadSpanArgs {

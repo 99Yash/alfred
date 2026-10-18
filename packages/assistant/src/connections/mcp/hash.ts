@@ -1,9 +1,6 @@
 import type { Tool } from "@modelcontextprotocol/client";
 import { sha256Canonical } from "@alfred/db/hash";
 
-/** Re-exported so MCP callers import every hash from one place. */
-export { sha256Canonical };
-
 /** UTF-16 code-unit order. Never use `localeCompare`: it would reorder every stored catalog. */
 export function compareMcpToolNames(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;

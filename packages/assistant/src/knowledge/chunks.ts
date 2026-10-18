@@ -1,6 +1,7 @@
 import { EMBEDDING_DIMENSIONS } from "@alfred/ai";
 import { embed } from "@alfred/ai/embeddings";
 import { db } from "@alfred/db";
+import { sha256Hex } from "@alfred/db/hash";
 import { buildEmbedFailureSet, EMBED_SUCCESS_RESET, formatVectorFloat32 } from "@alfred/db/helpers";
 import {
   memoryChunkInsertSchema,
@@ -15,7 +16,6 @@ import {
   type MemorySource,
 } from "@alfred/contracts";
 import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
-import { createHash } from "node:crypto";
 import { z } from "zod";
 
 /** `memory_chunks.kind` values. The union derives from the tuple. */
@@ -75,17 +75,13 @@ function rowToChunk(r: MemoryChunk): MemoryChunkRow {
   };
 }
 
-function hashContent(s: string): string {
-  return createHash("sha256").update(s).digest("hex");
-}
-
 /**
  * Insert a memory chunk, idempotent on `(user_id, kind, content_hash)`.
  * `embedding` starts NULL; `embedMemoryChunk` fills it later.
  */
 export async function writeMemoryChunk(args: WriteMemoryChunkArgs): Promise<MemoryChunkRow> {
   const parsed = writeMemoryChunkArgsSchema.parse(args);
-  const contentHash = hashContent(parsed.content);
+  const contentHash = sha256Hex(parsed.content);
 
   const [row] = await db()
     .insert(memoryChunks)
@@ -212,7 +208,7 @@ export async function recallMemory(args: RecallMemoryArgs): Promise<RecallMemory
     (await embed(args.query, {
       inputType: "query",
       userId: args.userId,
-      idempotencyKey: `memory-recall:${args.userId}:${hashContent(args.query)}`,
+      idempotencyKey: `memory-recall:${args.userId}:${sha256Hex(args.query)}`,
     }));
 
   assertQueryEmbedding(queryVec);

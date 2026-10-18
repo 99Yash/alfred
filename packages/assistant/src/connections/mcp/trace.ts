@@ -1,5 +1,6 @@
 import { startRuntimeSpan, type RuntimeMetaValue, type RuntimeSpanCloser } from "@alfred/ai";
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { sha256Hex } from "@alfred/db/hash";
+import { randomBytes, randomUUID } from "node:crypto";
 
 export interface McpTraceContext {
   /** Local run trace identity; never sent to the MCP peer. */
@@ -18,7 +19,7 @@ export interface McpTraceSpan {
 }
 
 function w3cTraceId(traceId: string): string {
-  const derived = createHash("sha256").update(traceId).digest("hex").slice(0, 32);
+  const derived = sha256Hex(traceId).slice(0, 32);
 
   return /^0+$/.test(derived) ? "00000000000000000000000000000001" : derived;
 }

@@ -38,6 +38,11 @@ but it gives no hint while an agent writes the file.
   returning `inGateScope(context.filename, context.cwd)` from `before()`
   (`shared/scope.ts`). It reads `isSkippedPath`, so the scope cannot drift from
   the table, and the rule needs no `overrides` entry in `.oxlintrc.json`.
+- `shared/digest-flow.ts` is the value flow into a hash digest (sinks, reaching
+  writes, parameters, same-file helpers), and `shared/hash-owners.ts` is the
+  closed list of modules that may export a hasher. `sha256-over-json-stringify`
+  and `no-exported-hasher` both read them, so the two rules cannot disagree on
+  what a digest or an owner is.
 
 ## How a rule is proven
 
@@ -66,7 +71,8 @@ fails the build.
 
 ## Rules
 
-| Rule                         | What it rejects                                                                                                                                                    |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `no-function-wrapper-shim`   | an exported function that only returns a constant or an imported name (a second door to the same value)                                                            |
-| `sha256-over-json-stringify` | a hash digest (`createHash(…).update`, a bound hasher, `subtle.digest`) over `JSON.stringify` output, whose pre-image depends on key order. Use `sha256Canonical`. |
+| Rule                         | What it rejects                                                                                                                                                                                                                      |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `no-exported-hasher`         | a function exported from a module that is not a hash owner (`shared/hash-owners.ts`), whose parameter flows into a digest, and a re-export of an owner hasher. Hash through `sha256Hex` or `sha256Canonical` from `@alfred/db/hash`. |
+| `no-function-wrapper-shim`   | an exported function that only returns a constant or an imported name (a second door to the same value)                                                                                                                              |
+| `sha256-over-json-stringify` | a hash digest (`createHash(…).update`, a bound hasher, `subtle.digest`, an imported owner hasher `sha256Hex`/`sha256Canonical`) over `JSON.stringify` output, whose pre-image depends on key order. Use `sha256Canonical`.           |

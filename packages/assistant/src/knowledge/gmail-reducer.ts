@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
   canonicalizeIdentityValue,
   getPath,
@@ -15,7 +14,7 @@ import {
   type ObservationParticipant,
   type ObservationParticipantRole,
 } from "@alfred/contracts";
-import { sha256Canonical } from "@alfred/db/hash";
+import { sha256Canonical, sha256Hex } from "@alfred/db/hash";
 import type { GmailPayloadSignals } from "./entity-kind-classifier";
 
 const GMAIL_REDUCER_VERSION = 1;
@@ -105,7 +104,7 @@ export function reduceGmailDocument(row: GmailDocumentForReduction): GmailReduct
     accountId: row.accountId,
     isSent,
     subject,
-    subjectHash: subject ? `sha256:${sha256(subject)}` : null,
+    subjectHash: subject ? `sha256:${sha256Hex(subject)}` : null,
     headers: {
       messageId: normalizeHeader(headers.get("message-id")),
       inReplyTo: normalizeHeader(headers.get("in-reply-to")),
@@ -417,8 +416,4 @@ function canonicalParticipantForHash(participant: ObservationParticipant): JsonV
     displayName: participant.displayName ?? null,
     raw: participant.raw ?? null,
   };
-}
-
-function sha256(value: string): string {
-  return createHash("sha256").update(value).digest("hex");
 }

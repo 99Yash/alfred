@@ -60,13 +60,17 @@
     "anti-slop/no-runtime-typeof": ["error", { "allowInTypeGuards": true }],
     "anti-slop/no-unknown-returns": "error",
     "anti-slop/no-unsafe-dictionary-type": "error",
-    // Alfred's own rules (scripts/oxlint/alfred/, first-party, see its README). Each one was
-    // a regex gate in scripts/consolidation-rules.mjs that needed scope analysis to stop
-    // missing cases and flagging look-alikes. Each keeps that gate's file scope by itself
-    // (`inGateScope` reads `isSkippedPath`), so neither needs an "overrides" entry here.
+    // Alfred's own rules (scripts/oxlint/alfred/, first-party, see its README). The first two
+    // were regex gates in scripts/consolidation-rules.mjs that needed scope analysis to stop
+    // missing cases and flagging look-alikes; no-exported-hasher was born here. Each keeps the
+    // gate's file scope by itself (`inGateScope` reads `isSkippedPath`), so none needs an
+    // "overrides" entry here.
     // no-function-wrapper-shim: an exported function that only returns a constant or an
     // imported name. sha256-over-json-stringify: a hash digest over JSON.stringify output,
-    // whose pre-image depends on key order; use sha256Canonical.
+    // whose pre-image depends on key order; use sha256Canonical. no-exported-hasher: a
+    // function outside @alfred/db/hash that is exported and hashes its parameter, which
+    // keeps the set of cross-file hashers closed for the sha256 rule.
+    "alfred/no-exported-hasher": "error",
     "alfred/no-function-wrapper-shim": "error",
     "alfred/sha256-over-json-stringify": "error",
     // The tailwind rules sit at `error` by the same bar: zero violations on promotion, and

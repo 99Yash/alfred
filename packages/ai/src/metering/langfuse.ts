@@ -1,5 +1,6 @@
+import { sha256Hex } from "@alfred/db/hash";
 import { serverEnv } from "@alfred/env/server";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { LangfuseSpanProcessor } from "@langfuse/otel";
 import {
   propagateAttributes,
@@ -91,13 +92,13 @@ export function _setLangfuseRuntimeForTests(provider: BasicTracerProvider): () =
  * Same hash as `w3cTraceId` in the MCP trace module, so MCP peers see this trace id.
  */
 export function langfuseTraceId(logicalTraceId: string): string {
-  const derived = createHash("sha256").update(logicalTraceId).digest("hex").slice(0, 32);
+  const derived = sha256Hex(logicalTraceId).slice(0, 32);
 
   return /^0+$/.test(derived) ? "00000000000000000000000000000001" : derived;
 }
 
 function traceSpanContext(logicalTraceId: string): SpanContext {
-  const digest = createHash("sha256").update(logicalTraceId).digest("hex");
+  const digest = sha256Hex(logicalTraceId);
 
   return {
     traceId: langfuseTraceId(logicalTraceId),

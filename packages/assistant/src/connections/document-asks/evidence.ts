@@ -1,5 +1,5 @@
 import { getContentFormat, type ContentFormat } from "@alfred/contracts";
-import { sha256 } from "@alfred/corpus";
+import { sha256Hex } from "@alfred/db/hash";
 import { classifyGmailAttachmentContent } from "./classifier";
 
 export interface DocumentAskOccurrence {
@@ -28,7 +28,7 @@ export function projectDocumentAskEvidence(input: {
 
   if (!format || !input.content.trim() || !input.contentHash) return null;
 
-  if (sha256(input.content) !== input.contentHash) return null;
+  if (sha256Hex(input.content) !== input.contentHash) return null;
 
   const contentKind = classifyGmailAttachmentContent({
     content: input.content,
