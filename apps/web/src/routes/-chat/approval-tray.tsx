@@ -713,7 +713,7 @@ function PermissionsAffordance({
               id={`permissions-always-${staging.id}`}
               checked={alwaysAllowed}
               onCheckedChange={(checked) => {
-                if (!preview) void onFlip(checked === true);
+                if (!preview) onFlip(checked === true);
               }}
               className="mt-0.5 shrink-0"
             />
