@@ -111,7 +111,10 @@ teaching/
 # Claude Code workspace: local by default, so personal skills/settings stay out.
 # The un-ignored paths are the shareable machinery and ARE tracked — a new shared
 # hook or skill needs its own `!` line here, or `git status` will never show it.
+# `settings.json` holds only the `hooks` block that registers .claude/hooks/;
+# personal permissions go in the still-ignored `settings.local.json`.
 .claude/*
+!.claude/settings.json
 !.claude/hooks/
 !.claude/skills/
 .claude/skills/*

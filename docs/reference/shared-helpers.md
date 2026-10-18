@@ -16,7 +16,11 @@ you to remember:
    a fact stated to an agent cannot disagree.
    A fact that only the syntax tree can state (scope, nesting, read versus
    write) is an AST rule in `scripts/oxlint/alfred/` instead, which `pnpm lint`
-   enforces. The edit-time hook does not read it.
+   enforces. `helper-hints.mjs` does not read it. `.claude/hooks/lint-on-edit.mjs`
+   runs oxlint with the root config on each `.ts`/`.tsx` file an agent writes,
+   so those rules also speak at edit time. Both hooks are registered in the
+   tracked `.claude/settings.json`. Claude Code asks each user to trust project
+   hooks before it runs them.
 2. **This doc** — the full catalog and the colocation rule for helpers whose
    absence no regex can spot.
 3. **`codebases guide alfred "<intent>"`** — semantic search over this repo's

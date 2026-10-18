@@ -23,8 +23,10 @@
 //
 // A gate that needs scope or AST structure (which binding a name resolves to)
 // is an oxlint rule in scripts/oxlint/alfred/ instead, enforced by `pnpm lint`.
-// `sha256-over-json-stringify` and `no-function-wrapper-shim` moved there. The
-// edit-time hook does not read those rules.
+// `sha256-over-json-stringify` and `no-function-wrapper-shim` moved there.
+// helper-hints.mjs does not read those rules; `.claude/hooks/lint-on-edit.mjs`
+// runs oxlint on each file an agent writes, so they speak at edit time too.
+// Both hooks are registered in `.claude/settings.json`.
 
 /**
  * @typedef {object} ConsolidationRule
