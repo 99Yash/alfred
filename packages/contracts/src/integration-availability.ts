@@ -56,14 +56,17 @@ export interface IntegrationAvailabilitySnapshot {
   passthroughEnabled: ReadonlyMap<SupportedPassthroughSlug, boolean>;
 }
 
-export type ToolUnavailabilityCode =
-  | "not_allowed"
-  | "wrong_caller"
-  | "requires_thread"
-  | "not_connected"
-  | "needs_reauth"
-  | "missing_scope"
-  | "feature_disabled";
+export const TOOL_UNAVAILABILITY_CODES = [
+  "not_allowed",
+  "wrong_caller",
+  "requires_thread",
+  "not_connected",
+  "needs_reauth",
+  "missing_scope",
+  "feature_disabled",
+] as const;
+
+export type ToolUnavailabilityCode = (typeof TOOL_UNAVAILABILITY_CODES)[number];
 
 export type ToolAvailabilityResult =
   | { available: true }

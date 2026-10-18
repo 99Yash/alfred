@@ -120,11 +120,13 @@ column carries. A public failure is `{ code, params?, message, fix }`. Consumers
   default. `FIX_KINDS` is derived from a record over `Fix["kind"]`, so it cannot lag the type.
 - `INTEGRATION_DISPLAY_NAMES` (in `src/integrations/projections.ts`) — the name every surface uses for a slug,
   indexed with a typed `IntegrationSlug`. `integrationDisplayName(value)` takes an unchecked
-  string and falls back to `humanizeSlug`. `humanizeSlug` does not compile for a value whose
-  type is or includes an `IntegrationSlug`; `humanizeSlug(x.integration)` on a plain `string`
-  is a consolidation gate. Both stop `github` rendering as "Github". A slug typed plain
-  `string` that gets past both still keeps the registry's letter case (`github` gives
-  "GitHub"). A slug that the registry renames does not (`system` gives "System", not "Alfred").
+  string, asks the registry first, and title-cases only a value that is not a slug.
+  `humanizeSlug` takes only a closed literal union: it does not compile for a type that is or
+  includes an `IntegrationSlug`, or for an open string type (`string`, `string | "a"`,
+  `` `${string}_x` ``). An open string can hold `system`, which is "Alfred" as an integration
+  and "System" as anything else, so narrow it to its owning schema's union, or call
+  `integrationDisplayName` if it can be a provider. `humanizeSlug(x.provider)` is also a
+  consolidation gate, for a closed provider union that holds no registry slug.
 - `loopEntityProviderName(provider)` (in `src/loop-key.ts`) — the name of a `LoopEntityProvider`
   (MCP identity provider). Registry slugs read `INTEGRATION_DISPLAY_NAMES`; the rest
   (`clickup` → "ClickUp") read a table next to `LOOP_ENTITY_PROVIDERS`.

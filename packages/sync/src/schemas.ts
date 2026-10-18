@@ -37,7 +37,12 @@ import {
   type PolicyMode,
   type ToolName,
 } from "@alfred/contracts";
-import { isoDateTimeStringSchema, runStatusSchema, workflowTriggerSchema } from "@alfred/contracts";
+import {
+  agentRunTriggerKindSchema,
+  isoDateTimeStringSchema,
+  runStatusSchema,
+  workflowTriggerSchema,
+} from "@alfred/contracts";
 import { z } from "zod";
 
 // Do not re-export `isoDateTimeStringSchema`; import it from `@alfred/contracts`.
@@ -153,7 +158,7 @@ export const syncedActionStagingSchema = z.object({
   workflowName: z.string(),
   /** Display-only subset of `agent_runs.trigger`. Never the raw payload or document ids (ADR-0034). */
   trigger: z.object({
-    kind: z.string(),
+    kind: agentRunTriggerKindSchema,
     source: z.string().nullish(),
     type: z.string().nullish(),
     /** The provider kind a raw event run fired under (#990). */

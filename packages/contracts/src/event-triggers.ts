@@ -317,7 +317,10 @@ export function parseEventTypeName<S extends EventSource>(
   return isEventTypeForSource(source, type) ? type : null;
 }
 
-/** `Sentry comment.created` for a raw trigger, `Gmail message` for a typed one. */
+/**
+ * `Sentry comment.created` for a raw trigger, `Gmail message` for a typed one. A stored `type`
+ * is an open string, so a type that no source declares now (a retired type) shows the source only.
+ */
 export function eventTriggerPhrase(trigger: {
   source: string;
   type?: string | null | undefined;
@@ -327,9 +330,12 @@ export function eventTriggerPhrase(trigger: {
 
   if (trigger.rawKind) return `${source} ${trigger.rawKind}`;
 
-  const noun = trigger.type
-    ? humanizeSlug(trigger.type.replace(/_received$/, "")).toLowerCase()
-    : "";
+  const noun =
+    trigger.type && isEventType(trigger.type)
+      ? humanizeSlug(trigger.type)
+          .toLowerCase()
+          .replace(/ received$/, "")
+      : "";
 
   return noun ? `${source} ${noun}` : source;
 }

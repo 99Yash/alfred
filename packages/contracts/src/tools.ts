@@ -173,43 +173,65 @@ interface IntegrationSlugUseIntegrationDisplayName {
 }
 
 /**
- * Each registry slug whose display name only changes the letter case of the slug
- * (`github` to "GitHub", `mcp` to "MCP", `imessage` to "iMessage"), with that name. A slug
- * that the registry renames (`system` to "Alfred") is not here: a field, code or action named
- * `system` that is not the integration must stay "System".
+ * The parameter type when an open string type reaches {@link humanizeSlug}: plain `string`,
+ * a union that holds `string`, or a template pattern such as `` `${string}_received` ``. No
+ * value has this type, so the call fails to compile. An open string can hold `system`, and no
+ * single answer is right for it: "System" for a field or code, "Alfred" for the integration.
  */
-const REGISTRY_CASED_SLUGS: ReadonlyMap<string, string> = new Map(
-  INTEGRATION_SLUGS.flatMap((slug): [string, string][] => {
-    const name = INTEGRATION_DISPLAY_NAMES[slug];
-
-    return name.toLowerCase() === slug.replaceAll("_", " ") ? [[slug, name]] : [];
-  }),
-);
+interface OpenStringNarrowToItsOwningUnionOrCallIntegrationDisplayName {
+  readonly "Narrow the value to the literal union of its owning schema or tuple, or call integrationDisplayName if it can be a provider": never;
+}
 
 /**
- * `send_draft` to `Send Draft`. Not for integration slugs: a value whose type is or includes
- * an `IntegrationSlug` fails to compile. Use {@link integrationDisplayName}.
+ * `true` for each member of `S` that has no finite set of values. `Record<"a", 1>` requires
+ * the key `a`, so `{}` is not assignable to it. `Record<string, 1>` and a template-pattern key
+ * make an index signature, so `{}` is assignable.
+ */
+type OpenStringMember<S extends string> = S extends unknown
+  ? {} extends Record<S, 1>
+    ? true
+    : false
+  : never;
+
+/**
+ * The formatting of {@link humanizeSlug}, without its type gate. Module-private on purpose: the
+ * open-string callers in this module ask the registry first ({@link integrationDisplayName}) or
+ * format a position that cannot hold an integration ({@link humanizeToolName}).
+ */
+function titleCaseSlug(value: string): string {
+  return value.replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
+/**
+ * `send_draft` to `Send Draft`, for a member of a closed literal union (a `z.enum`, a `const`
+ * tuple element, a `.$type<>()` column). Two argument types fail to compile:
  *
- * A plain `string` compiles, so a slug typed `string` still gets through. When the whole value
- * is a slug whose registry name only changes its letter case, the result is the registry name
- * (`github` to "GitHub", not "Github"). That name is correct for any value spelled that way.
- * A renamed slug still gets through: `system` gives "System", not "Alfred".
+ * - A type that is or includes an `IntegrationSlug`. Use `INTEGRATION_DISPLAY_NAMES[slug]`.
+ * - An open string type (`string`, `string | "a"`, `` `${string}_x` ``). Narrow it to the
+ *   literal union of its owning schema, or call {@link integrationDisplayName} if the value
+ *   can be a provider.
+ *
+ * So no value that reaches this function can be a registry slug, and it needs no registry
+ * casing (`github` to "GitHub").
  */
 export function humanizeSlug<S extends string>(
   value: S &
-    ([Extract<S, IntegrationSlug>] extends [never]
-      ? unknown
-      : IntegrationSlugUseIntegrationDisplayName),
+    (true extends OpenStringMember<S>
+      ? OpenStringNarrowToItsOwningUnionOrCallIntegrationDisplayName
+      : [Extract<S, IntegrationSlug>] extends [never]
+        ? unknown
+        : IntegrationSlugUseIntegrationDisplayName),
 ): string {
-  return (
-    REGISTRY_CASED_SLUGS.get(value) ??
-    value.replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase())
-  );
+  return titleCaseSlug(value);
 }
 
-/** An unknown slug falls back to {@link humanizeSlug}. */
+/**
+ * The display name of a value that may be an integration slug. An unknown value is title-cased
+ * like {@link humanizeSlug}. This is the only open-string entry to that formatting: a value that
+ * can name a provider must ask the registry first.
+ */
 export function integrationDisplayName(value: string): string {
-  return isIntegrationSlug(value) ? INTEGRATION_DISPLAY_NAMES[value] : humanizeSlug(value);
+  return isIntegrationSlug(value) ? INTEGRATION_DISPLAY_NAMES[value] : titleCaseSlug(value);
 }
 
 export interface ToolLabel {
@@ -679,7 +701,13 @@ export function toolCategoryOf(toolName: string): ToolCategory | null {
   return isToolName(toolName) ? TOOL_CATEGORIES[toolName] : null;
 }
 
-/** The label `title`, or `${action} in ${integration}` for an unregistered tool. */
+/**
+ * The label `title`, or `${action} in ${integration}` for an unregistered tool. A stored
+ * tool name is an open string (`effectReceiptSchema` keeps a retired name parseable), so the
+ * fallback formats it with the private `titleCaseSlug`. The position settles the ambiguity
+ * that `humanizeSlug` refuses: the part before the dot goes through the registry, and the part
+ * after it is an action, never an integration.
+ */
 export function humanizeToolName(toolName: string): string {
   if (isToolName(toolName)) return TOOL_LABELS[toolName].title;
   const separator = toolName.indexOf(".");
@@ -687,7 +715,7 @@ export function humanizeToolName(toolName: string): string {
   const action = separator > 0 ? toolName.slice(separator + 1) : "";
 
   return action
-    ? `${humanizeSlug(action)} in ${integrationDisplayName(integration)}`
+    ? `${titleCaseSlug(action)} in ${integrationDisplayName(integration)}`
     : integrationDisplayName(integration);
 }
 
