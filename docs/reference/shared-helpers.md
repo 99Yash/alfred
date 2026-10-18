@@ -119,7 +119,9 @@ column carries. A public failure is `{ code, params?, message, fix }`. Consumers
   indexed with a typed `IntegrationSlug`. `integrationDisplayName(value)` takes an unchecked
   string and falls back to `humanizeSlug`. `humanizeSlug` does not compile for a value whose
   type is or includes an `IntegrationSlug`; `humanizeSlug(x.integration)` on a plain `string`
-  is a consolidation gate. Both stop `github` rendering as "Github".
+  is a consolidation gate. Both stop `github` rendering as "Github". A slug typed plain
+  `string` that gets past both still keeps the registry's letter case (`github` gives
+  "GitHub"). A slug that the registry renames does not (`system` gives "System", not "Alfred").
 - `loopEntityProviderName(provider)` (in `src/loop-key.ts`) — the name of a `LoopEntityProvider`
   (MCP identity provider). Registry slugs read `INTEGRATION_DISPLAY_NAMES`; the rest
   (`clickup` → "ClickUp") read a table next to `LOOP_ENTITY_PROVIDERS`.

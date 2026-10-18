@@ -173,9 +173,27 @@ interface IntegrationSlugUseIntegrationDisplayName {
 }
 
 /**
- * `send_draft` to `Send Draft`. Not for integration slugs (`Github`): a value whose type
- * is or includes an `IntegrationSlug` fails to compile. Use {@link integrationDisplayName}.
- * A plain `string` compiles, so a slug typed `string` still gets through.
+ * Each registry slug whose display name only changes the letter case of the slug
+ * (`github` to "GitHub", `mcp` to "MCP", `imessage` to "iMessage"), with that name. A slug
+ * that the registry renames (`system` to "Alfred") is not here: a field, code or action named
+ * `system` that is not the integration must stay "System".
+ */
+const REGISTRY_CASED_SLUGS: ReadonlyMap<string, string> = new Map(
+  INTEGRATION_SLUGS.flatMap((slug): [string, string][] => {
+    const name = INTEGRATION_DISPLAY_NAMES[slug];
+
+    return name.toLowerCase() === slug.replaceAll("_", " ") ? [[slug, name]] : [];
+  }),
+);
+
+/**
+ * `send_draft` to `Send Draft`. Not for integration slugs: a value whose type is or includes
+ * an `IntegrationSlug` fails to compile. Use {@link integrationDisplayName}.
+ *
+ * A plain `string` compiles, so a slug typed `string` still gets through. When the whole value
+ * is a slug whose registry name only changes its letter case, the result is the registry name
+ * (`github` to "GitHub", not "Github"). That name is correct for any value spelled that way.
+ * A renamed slug still gets through: `system` gives "System", not "Alfred".
  */
 export function humanizeSlug<S extends string>(
   value: S &
@@ -183,7 +201,10 @@ export function humanizeSlug<S extends string>(
       ? unknown
       : IntegrationSlugUseIntegrationDisplayName),
 ): string {
-  return value.replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase());
+  return (
+    REGISTRY_CASED_SLUGS.get(value) ??
+    value.replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase())
+  );
 }
 
 /** An unknown slug falls back to {@link humanizeSlug}. */
