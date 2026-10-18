@@ -11,6 +11,7 @@
   //
   // List each package's `tsconfig.test.json` and `tsconfig.eval.json` here. A package
   // whose test project is missing from this list lints its tests in that inferred project.
+  // `pnpm check:oxlint-config` fails when this list and the tracked projects differ.
   "files": [],
   "references": [
     { "path": "./apps/web/tsconfig.test.json" },

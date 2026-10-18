@@ -4,7 +4,9 @@
 // resolves to anything, when a scoped copy of a fence has drifted from the root list
 // it restates, and when a gitignore line hides a tracked source file from oxlint's and
 // oxfmt's file walk — a mechanism the `--config` pin is measured NOT to close, because
-// the walk happens before any config is consulted.
+// the walk happens before any config is consulted — and when the root `tsconfig.json`
+// `references`, which give test and eval files their real program in the type-aware
+// lint, drift from the tracked `tsconfig.test.json` / `tsconfig.eval.json` projects.
 //
 // The rules live in ./oxlint-config.mjs so fixtures can exercise them; this file is
 // the enforcing consumer.
@@ -23,9 +25,11 @@ import {
   oxlintScripts,
   restrictedGroupCopyFailures,
   restrictedImportSites,
+  ROOT_TSCONFIG,
   restrictedSpecifierFailures,
   resolvedOxlintConfig,
   rootConfigFailures,
+  rootTsconfigReferenceFailures,
   strayOxlintConfigs,
   unpinnedLintScripts,
   unwalkedSourceFailures,
@@ -222,6 +226,17 @@ if (unwalked.failures.length > 0) {
   );
 }
 
+const lintedProjects = rootTsconfigReferenceFailures(ROOT);
+
+if (lintedProjects.failures.length > 0) {
+  console.error(`Root ${ROOT_TSCONFIG} references out of step with the test and eval projects:`);
+
+  for (const failure of lintedProjects.failures) console.error(`- ${failure}`);
+  console.error(
+    `The type-aware lint reaches a test/ or evals/ file through an ancestor config whose "references" contain it, and ${ROOT_TSCONFIG} is that ancestor. check-types never reads it, so a project left off the list lints in an inferred project and a stale entry reads as coverage, both with pnpm lint green.\n`,
+  );
+}
+
 // The dead exemptions. A stripped probe config (each candidate rule removed
 // from its own override) is driven through the repo's own oxlint, scoped to
 // exactly the listed files, and every path the rule no longer fires on is
@@ -258,6 +273,10 @@ console.log(
 );
 
 console.log(
+  `Root ${ROOT_TSCONFIG} references: ${lintedProjects.references} entr(ies) for ${lintedProjects.projects} enumerated test/eval project(s).`,
+);
+
+console.log(
   `Dead exemptions: ${deadEntries.checked} file/rule pair(s) driven through the stripped probe, ${deadEntries.dead.length} without a diagnostic.`,
 );
 
@@ -272,7 +291,8 @@ if (
   disarms.failures.length > 0 ||
   mixedScopes.length > 0 ||
   deadEntries.failures.length > 0 ||
-  unwalked.failures.length > 0
+  unwalked.failures.length > 0 ||
+  lintedProjects.failures.length > 0
 ) {
   process.exit(1);
 }
