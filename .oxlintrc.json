@@ -127,9 +127,8 @@
     //
     // Turning type-aware on also arms every type-aware rule in oxlint's default `correctness`
     // set at `warn`, which `pnpm lint` does not fail on. Each one is turned off below so the
-    // run reports only the rules this file chose. The queued follow-ups (the no-unsafe-*
-    // family and no-unnecessary-condition) and these default rules each land alone: tree to
-    // zero first, then the rule at `error`.
+    // run reports only the rules this file chose. The queued follow-up (no-unnecessary-condition)
+    // and these default rules each land alone: tree to zero first, then the rule at `error`.
     "typescript/no-floating-promises": [
       "error",
       {
