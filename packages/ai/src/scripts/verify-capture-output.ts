@@ -105,7 +105,9 @@ async function main() {
   const calls = isRecord(out) ? out.toolCalls : undefined;
   const firstCall: unknown = Array.isArray(calls) ? calls[0] : undefined;
   const toolName = getStringField(firstCall, "toolName");
-  console.log(`generation output: ${JSON.stringify(out)?.slice(0, 300)}`);
+  // An observation with no output decodes to undefined, which JSON.stringify returns as undefined.
+  const outPreview = out === undefined ? "undefined" : JSON.stringify(out).slice(0, 300);
+  console.log(`generation output: ${outPreview}`);
   console.log(
     toolName !== undefined
       ? `\n✅ tool call captured in generation output (toolName=${toolName})`

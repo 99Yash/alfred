@@ -53,7 +53,7 @@ async function turn(label: string, transcript: ModelMessage[]): Promise<void> {
 
   const { read, created } = cacheStats(res.finalStep.providerMetadata);
   console.log(
-    `${label}: input=${res.usage.inputTokens} usage.cached=${res.usage.inputTokenDetails?.cacheReadTokens ?? "?"} cached_read=${read} cache_created=${created} → "${res.text.slice(0, 50)}"`,
+    `${label}: input=${res.usage.inputTokens} usage.cached=${res.usage.inputTokenDetails.cacheReadTokens ?? "?"} cached_read=${read} cache_created=${created} → "${res.text.slice(0, 50)}"`,
   );
   console.log(
     `   raw anthropic meta: ${JSON.stringify(res.finalStep.providerMetadata?.anthropic)}`,

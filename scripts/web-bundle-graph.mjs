@@ -648,7 +648,9 @@ export async function recordBundleGraph(root) {
   let allCompleted = true;
 
   for (const app of apps) {
-    let completed = false;
+    // A property, not a `let`: `buildEnd` sets it from inside vite, and a local boolean read
+    // after the build stays narrowed to its `false` initializer.
+    const run = { completed: false };
 
     const recorder = {
       name: "alfred-web-bundle-graph-recorder",
@@ -670,7 +672,7 @@ export async function recordBundleGraph(root) {
           if (info.isEntry) graph.entries.push(id);
         }
 
-        completed = true;
+        run.completed = true;
       },
     };
 
@@ -708,13 +710,13 @@ export async function recordBundleGraph(root) {
       );
     }
 
-    if (!completed) {
+    if (!run.completed) {
       failures.push(
         `the recorder's buildEnd hook never ran for ${app}, so nothing was recorded for it.`,
       );
     }
 
-    allCompleted = allCompleted && completed;
+    allCompleted = allCompleted && run.completed;
   }
 
   graph.completed = allCompleted;

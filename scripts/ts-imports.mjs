@@ -75,8 +75,8 @@ export function parseImports(source) {
     const token = tokens[index];
 
     if (token.kind !== "identifier") continue;
-    const next = tokens[index + 1];
-    const argument = tokens[index + 2];
+    const next = tokens.at(index + 1);
+    const argument = tokens.at(index + 2);
 
     if (
       (token.value === "import" || token.value === "require") &&

@@ -379,7 +379,12 @@ function commandGet(statePath, flags) {
   process.stdout.write(`${JSON.stringify(item, null, 2)}\n`);
 }
 
-const [command, ...argv] = process.argv.slice(2);
+const cliArgs = process.argv.slice(2);
+
+// `.at(0)` keeps the `undefined` an empty argv yields; scripts/ runs without noUncheckedIndexedAccess.
+const command = cliArgs.at(0);
+
+const argv = cliArgs.slice(1);
 
 const { flags, rest } = parseArgs(argv);
 
@@ -396,6 +401,9 @@ switch (command) {
   case "get":
     commandGet(resolveStatePath(flags), flags);
     break;
+  case undefined:
+    die("unknown command (none) — expected set, add, note, or get");
+    break;
   default:
-    die(`unknown command ${command ?? "(none)"} — expected set, add, note, or get`);
+    die(`unknown command ${command} — expected set, add, note, or get`);
 }

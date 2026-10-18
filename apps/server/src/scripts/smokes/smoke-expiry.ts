@@ -191,6 +191,9 @@ async function main(): Promise<void> {
   clearToolRegistryForTests();
 
   let draftExec = 0;
+  // Read the counter through a call: the tool's execute closure bumps it, and a direct
+  // `draftExec === 0` read stays narrowed to the literal after the first assert.
+  const draftExecCount = (): number => draftExec;
   registerTools([
     liveTool({
       integration: "gmail",
@@ -257,13 +260,13 @@ async function main(): Promise<void> {
     parkedRun?.status === "waiting" && parkedRun.wakeCondition !== null,
     `deferred run expected 'waiting' with its wake, got '${parkedRun?.status}'`,
   );
-  assert(draftExec === 0, "deferred expiry must not execute the tool");
+  assert(draftExecCount() === 0, "deferred expiry must not execute the tool");
   console.log("[smoke-expiry] 2. deferred: expiry before expires_at is a no-op ✓");
 
   await backdateExpiry(stagedId);
   const expired = await stagedAction({ userId, stagingId: stagedId }).expire();
   assert(expired.kind === "expired", `expire expected 'expired', got ${JSON.stringify(expired)}`);
-  assert(draftExec === 0, "expiry must not execute the tool");
+  assert(draftExecCount() === 0, "expiry must not execute the tool");
 
   const expiredRow = (
     await db().select().from(actionStagings).where(eq(actionStagings.id, stagedId))
@@ -310,7 +313,7 @@ async function main(): Promise<void> {
     getStringPath(reDispatched, "result", "reason") === "auto-expired",
     "re-dispatch must synthesize reason='auto-expired'",
   );
-  assert(draftExec === 0, "re-dispatch of expired row must not execute the tool");
+  assert(draftExecCount() === 0, "re-dispatch of expired row must not execute the tool");
   console.log("[smoke-expiry] 2. re-dispatch: synthesized auto-expired rejection, tool not run ✓");
 
   const expiredAgain = await stagedAction({ userId, stagingId: stagedId }).expire();

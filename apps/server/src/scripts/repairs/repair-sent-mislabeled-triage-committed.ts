@@ -424,7 +424,7 @@ async function main() {
       const docs = await loadThreadDocs(userId, threadId);
       const inbound = newestInbound(docs);
       console.log(
-        `\nthread=${threadId} cat=${row.category} classified=${row.classifiedAt?.toISOString() ?? "?"}`,
+        `\nthread=${threadId} cat=${row.category} classified=${row.classifiedAt.toISOString()}`,
       );
       console.log(
         `  points_at_SENT=${row.documentId} (from=${row.pointedFrom ?? "?"}) appliedLabel=${row.appliedLabelId ?? "none"}`,

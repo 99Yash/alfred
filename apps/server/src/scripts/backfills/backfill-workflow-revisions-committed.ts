@@ -110,7 +110,7 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
         allowedTools: definition.allowedTools,
         requiredCapabilities: definition.requiredCapabilities,
         // The row's creation time is the closest approval time on record.
-        approvedAt: publishes ? (row.createdAt ?? new Date()) : null,
+        approvedAt: publishes ? row.createdAt : null,
       });
       await tx
         .update(workflows)
