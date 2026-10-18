@@ -127,9 +127,8 @@
     //
     // Turning type-aware on also arms every type-aware rule in oxlint's default `correctness`
     // set at `warn`, which `pnpm lint` does not fail on. Each one is set explicitly below at
-    // `error`, so the run reports only the rules this file chose. The queued follow-up
-    // (no-unnecessary-condition) lands the same way: tree to zero first, then the rule at
-    // `error`.
+    // `error`, so the run reports only the rules this file chose. A new type-aware rule lands
+    // the same way: tree to zero first, then the rule at `error`.
     "typescript/no-floating-promises": [
       "error",
       {
@@ -184,9 +183,7 @@
     // when the type is an assertion over unvalidated data (`jsonb.$type<X>()` rows that predate X,
     // `JSON.parse`, `res.json()`, a hand-typed frame), fix the type or parse at the boundary.
     // `while (true)` and `for (;;)` stay legal; a variable typed as the literal `true` does not.
-    // Staged rollout: product source (apps/*/src, packages/*/src) is clean and at `error`. Tests,
-    // ops scripts, repo scripts, and JavaScript are off in the two "overrides" entries just above
-    // the JavaScript one, until their own changes clear them.
+    // It applies to every surface, tests and JavaScript included, with no override.
     "typescript/no-unnecessary-condition": [
       "error",
       { "allowConstantLoopConditions": "only-allowed-literals" }
@@ -625,31 +622,6 @@
       ],
       "rules": {
         "anti-slop/no-unsafe-dictionary-type": "off"
-      }
-    },
-    {
-      // no-unnecessary-condition is a staged rollout. Product source, ops scripts, repo scripts
-      // and JavaScript are cleared; tests and evals still carry hits. Each later change clears
-      // one test surface and removes its globs here. Shrink this list; do not add non-test
-      // paths to it. The paths are explicit, one per package, so a new test folder starts
-      // with the rule on.
-      "files": [
-        "apps/server/evals/**",
-        "apps/web/test/**",
-        "packages/ai/test/**",
-        "packages/artifacts-design/test/**",
-        "packages/auth/test/**",
-        "packages/contracts/test/**",
-        "packages/corpus/test/**",
-        "packages/db/test/**",
-        "packages/extraction/test/**",
-        "packages/http/test/**",
-        "packages/integrations/test/**",
-        "packages/logging/test/**",
-        "packages/sync/test/**"
-      ],
-      "rules": {
-        "typescript/no-unnecessary-condition": "off"
       }
     },
     {

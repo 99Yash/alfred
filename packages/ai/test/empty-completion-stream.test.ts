@@ -142,13 +142,13 @@ describe("classifyStreamFinish over a real streamText drain", () => {
   test("empty content-filter → stopped (safety block won't self-heal on retry)", async () => {
     const { outcome } = await driveStream([START, RESPONSE_META, finishPart("content-filter")]);
     assert.equal(outcome.kind, "stopped");
-    assert.equal(outcome.kind === "stopped" ? outcome.reason : undefined, "content-filter");
+    assert.equal(outcome.reason, "content-filter");
   });
 
   test("empty length → stopped (budget exhausted, not a transient empty)", async () => {
     const { outcome } = await driveStream([START, RESPONSE_META, finishPart("length")]);
     assert.equal(outcome.kind, "stopped");
-    assert.equal(outcome.kind === "stopped" ? outcome.reason : undefined, "length");
+    assert.equal(outcome.reason, "length");
   });
 
   test("streamed tool call with no prose → tool-calls (tool calls outrank empty)", async () => {

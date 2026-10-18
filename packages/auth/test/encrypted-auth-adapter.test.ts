@@ -221,9 +221,9 @@ describe("encryptedAuthAdapter: account reads are opened", () => {
     });
 
     assert.equal(row?.accessToken, ACCESS);
-    assert.equal(row?.refreshToken, REFRESH);
-    assert.equal(row?.idToken, ID_TOKEN);
-    assert.equal(row?.scope, "email profile");
+    assert.equal(row.refreshToken, REFRESH);
+    assert.equal(row.idToken, ID_TOKEN);
+    assert.equal(row.scope, "email profile");
   });
 
   test("findMany opens every row", async () => {
@@ -242,7 +242,7 @@ describe("encryptedAuthAdapter: account reads are opened", () => {
     });
 
     assert.equal(row?.scope, "email");
-    assert.ok(!("accessToken" in (row ?? {})));
+    assert.ok(!("accessToken" in row));
   });
 
   test("a plaintext row fails closed instead of passing through", async () => {
@@ -454,7 +454,7 @@ describe("encryptedAuthAdapter: declared joins", () => {
     });
 
     assert.equal(row?.token, "sess_plain");
-    assert.equal(row?.account[0]?.accessToken, ACCESS);
+    assert.equal(row.account[0]?.accessToken, ACCESS);
   });
 
   test("an outer model may filter on a same-named field while joining account", async () => {

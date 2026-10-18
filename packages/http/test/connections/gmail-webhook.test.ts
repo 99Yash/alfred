@@ -75,7 +75,7 @@ describe("parseGmailPushEnvelope", () => {
       assert.deepEqual(
         parseGmailPushEnvelope(body),
         { messageId: undefined, notification: null },
-        `body ${JSON.stringify(body) ?? "undefined"}`,
+        `body ${JSON.stringify(body)}`,
       );
     }
   });

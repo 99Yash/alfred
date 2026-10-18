@@ -83,7 +83,7 @@ describe("serverMutators fact invariants (DB-backed, #330)", { skip: SKIP }, () 
     const confirmed = rows.find((row) => row.id === proposedId);
     assert.equal(old?.status, "superseded");
     assert.equal(confirmed?.status, "confirmed");
-    assert.equal(confirmed?.supersedesId, oldId);
+    assert.equal(confirmed.supersedesId, oldId);
   });
 
   test("factCreate canonicalizes aliases and supersedes conflicting active truth", async () => {
@@ -115,7 +115,7 @@ describe("serverMutators fact invariants (DB-backed, #330)", { skip: SKIP }, () 
     const created = rows.find((row) => row.id === newId);
     assert.equal(old?.status, "superseded");
     assert.equal(created?.key, "employer");
-    assert.equal(created?.status, "confirmed");
-    assert.equal(created?.supersedesId, oldId);
+    assert.equal(created.status, "confirmed");
+    assert.equal(created.supersedesId, oldId);
   });
 });

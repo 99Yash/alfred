@@ -282,10 +282,8 @@ describe("event replay state", () => {
 
     assert.equal(frame.kind, "chat.message");
 
-    if (frame.kind === "chat.message") {
-      const phase: EventPayload<"chat.message">["phase"] = frame.payload.phase;
-      assert.equal(phase, "completed");
-    }
+    const phase: EventPayload<"chat.message">["phase"] = frame.payload.phase;
+    assert.equal(phase, "completed");
   });
 
   test("controllers re-read shared storage so a stale tab cannot lower the cursor", () => {
