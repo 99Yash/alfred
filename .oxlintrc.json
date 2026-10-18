@@ -169,11 +169,14 @@
     // drives the tree to zero, then it is set to `error` here:
     // - unbound-method: a method read as a value loses `this`. Bind it or wrap it in an arrow;
     //   declare a member that never reads `this` as a function-typed property.
+    // - no-redundant-type-constituents: a union member another member absorbs (`unknown | X`,
+    //   `"a" | string`). Write the wide type and say the rest in the doc comment, derive the
+    //   exact union, or keep autocomplete with `"a" | (string & {})`.
     "typescript/no-base-to-string": "off",
     "typescript/no-duplicate-type-constituents": "off",
     "typescript/no-meaningless-void-operator": "off",
     "typescript/no-misused-spread": "off",
-    "typescript/no-redundant-type-constituents": "off",
+    "typescript/no-redundant-type-constituents": "error",
     "typescript/require-array-sort-compare": "off",
     "typescript/unbound-method": "error",
     "typescript/no-restricted-types": [

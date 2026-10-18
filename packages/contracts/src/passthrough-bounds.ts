@@ -140,9 +140,9 @@ function pruneToBudget(
 
 const OVERFLOW = Symbol("overflow");
 
-/** OVERFLOW tells the parent to stop and append its marker. */
+/** The fitted child, or OVERFLOW to tell the parent to stop and append its marker. */
 // oxlint-disable-next-line anti-slop/no-unknown-returns -- a fitted child is any part of an unknown passthrough body; the caller stores it as received.
-function fitChild(child: unknown, remaining: number): unknown | typeof OVERFLOW {
+function fitChild(child: unknown, remaining: number): unknown {
   if (remaining <= 0) return OVERFLOW;
 
   if (approxBytes(child) <= remaining) return child;

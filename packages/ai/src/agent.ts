@@ -212,8 +212,11 @@ export class AlfredAgent<CTX = unknown> {
   }
 }
 
-/** The value types a setting can resolve to. None is callable, so a function is always the thunk. */
-type SettingValue = string | LanguageModel;
+/**
+ * The value types a setting can resolve to. None is callable, so a function is always the thunk.
+ * `string` already covers a model id, so only the model objects come from `LanguageModel`.
+ */
+type SettingValue = string | Exclude<LanguageModel, string>;
 
 type Thunk<T, CTX> = (ctx: CTX) => Promise<T> | T;
 

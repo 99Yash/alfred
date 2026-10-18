@@ -1,7 +1,8 @@
 import { closeConnections } from "@alfred/db";
 import { closeRedis } from "@alfred/db/redis";
 
-type ResourceCloser = () => Promise<unknown> | unknown;
+/** A closer may return a promise; `closeScriptResources` awaits whatever it returns. */
+type ResourceCloser = () => unknown;
 
 /** Run each closer in order, then Redis and the DB. One failure does not stop the rest. */
 export async function closeScriptResources(...resourceClosers: ResourceCloser[]): Promise<void> {

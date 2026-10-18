@@ -27,7 +27,7 @@ interface InvalidInputToolResult {
   status: "invalid_input";
   toolName: ToolName;
   message: string;
-  issues?: unknown | undefined;
+  issues?: unknown;
 }
 
 interface UnknownToolResult {
