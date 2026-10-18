@@ -143,7 +143,9 @@ export const RULES = [
     // reads those names, bare, as a property, or camel-suffixed (`credentialProvider`).
     // The name must end the argument (`provider.slug` aside): `integration.action`
     // and `source.kind` are action and kind slugs, which humanizeSlug is for.
-    re: /\bhumanizeSlug\(\s*[\w.]*?(?:\b(?:integration|provider|source)|(?<=[a-z\d])(?:Integration|Provider|Source))(?:Slug)?(?:\.slug)?(?![\w.])/,
+    // An optional-chain step (`row?.provider`, `source?.kind`) reads the same
+    // as a `.` step on both sides of the name.
+    re: /\bhumanizeSlug\(\s*[\w.?]*?(?:\b(?:integration|provider|source)|(?<=[a-z\d])(?:Integration|Provider|Source))(?:Slug)?(?:\??\.slug)?(?![\w.]|\?\.)/,
     severity: "gate",
     fix: "Index INTEGRATION_DISPLAY_NAMES[slug] from @alfred/contracts with a typed IntegrationSlug, or call integrationDisplayName(value) for an unchecked string. humanizeSlug is for action and field slugs, not integration names.",
   },

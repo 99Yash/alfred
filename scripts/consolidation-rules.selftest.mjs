@@ -1971,6 +1971,23 @@ const LINE_CASES = [
     code: `  const name = humanizeSlug(provider.slug);`,
   },
   {
+    name: "humanize-integration-slug — a provider read through an optional chain",
+    caught: true,
+    rule: "humanize-integration-slug",
+    code: "  const label = `${humanizeSlug(row?.provider)} account`;",
+  },
+  {
+    name: "humanize-integration-slug — a provider record's slug through an optional chain",
+    caught: true,
+    rule: "humanize-integration-slug",
+    code: `  const name = humanizeSlug(provider?.slug);`,
+  },
+  {
+    name: "humanize-integration-slug — a source's kind through an optional chain is a kind slug",
+    caught: false,
+    code: `  const label = humanizeSlug(source?.kind);`,
+  },
+  {
     name: "humanize-integration-slug — an action slug is what humanizeSlug is for",
     caught: false,
     code: `    title: overrides.title ?? humanizeSlug(input.action),`,
