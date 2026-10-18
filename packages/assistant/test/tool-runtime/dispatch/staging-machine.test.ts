@@ -567,7 +567,7 @@ describe("dispatch staging machine (DB-free)", () => {
   test("a pending pre-floor Calendar invite is promoted to approval before resume", async () => {
     const toolCallId = "tc_calendar_invite_before_floor";
 
-    const input = calendarCreateEventTool.inputSchema.parse({
+    const input: unknown = calendarCreateEventTool.inputSchema.parse({
       summary: "Legacy planning",
       start: "2026-08-12T10:00:00+05:30",
       end: "2026-08-12T11:00:00+05:30",
@@ -608,7 +608,7 @@ describe("dispatch staging machine (DB-free)", () => {
   test("a policy change does not promote a pending medium-risk autonomous row", async () => {
     const toolCallId = "tc_calendar_policy_change";
 
-    const input = calendarCreateEventTool.inputSchema.parse({
+    const input: unknown = calendarCreateEventTool.inputSchema.parse({
       summary: "Focus block",
       start: "2026-08-12T10:00:00+05:30",
       end: "2026-08-12T11:00:00+05:30",

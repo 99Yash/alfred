@@ -105,6 +105,6 @@ function abortController(controller: AbortController, reason: unknown): void {
 
 function throwIfAborted(signal: AbortSignal): void {
   if (!signal.aborted) return;
-  const reason = signal.reason;
+  const reason: unknown = signal.reason;
   throw reason instanceof Error ? reason : new Error("Operation aborted");
 }

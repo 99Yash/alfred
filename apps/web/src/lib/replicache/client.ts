@@ -1,4 +1,4 @@
-import { Replicache } from "replicache";
+import { Replicache, type PullerResultV1 } from "replicache";
 import { summarizeBody } from "@alfred/contracts";
 import type { ClientMutators } from "@alfred/sync";
 import { clientMutators } from "@alfred/sync";
@@ -75,13 +75,15 @@ export function createReplicache(
         });
 
         if (response.ok) {
-          const body = await response.json();
-          options.onPullSuccess?.();
-
-          return {
-            response: body,
+          const pulled: PullerResultV1 = {
+            // oxlint-disable-next-line typescript/no-unsafe-assignment -- Replicache owns the pull-response contract: it asserts every puller result ("Invalid puller result") before it reads one, and PullerResultV1 has no `unknown` slot to hand the body over in.
+            response: await response.json(),
             httpRequestInfo: { httpStatusCode: response.status, errorMessage: "" },
           };
+
+          options.onPullSuccess?.();
+
+          return pulled;
         }
 
         const httpRequestInfo = await failureInfo(response);

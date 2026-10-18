@@ -77,6 +77,7 @@ import {
   fullAssistantText,
   interruptChatRun,
   type ChatRunState,
+  type PendingToolCall,
 } from "./chat-turn-state";
 import { awaitedChildRunId, crossFinalizeBoundary } from "./finalize-guards";
 import { carryForwardThreadTools } from "./thread-tool-carryover";
@@ -665,12 +666,14 @@ const chatTurnStep: Step<ChatRunState> = {
           state.inFlightTailStart = continuationTranscript.length;
         }
 
-        state.pendingToolCalls = toolCalls.map((call) => ({
-          toolCallId: call.toolCallId,
-          toolName: call.toolName,
-          input: call.input,
-          segmentIndex: state.segmentIndex,
-        }));
+        state.pendingToolCalls = toolCalls.map(
+          (call): PendingToolCall => ({
+            toolCallId: call.toolCallId,
+            toolName: call.toolName,
+            input: call.input,
+            segmentIndex: state.segmentIndex,
+          }),
+        );
         closeLeadInNarration(state);
 
         return { kind: "next", state, transcript: nextTranscript, nextStep: "dispatch-tools" };

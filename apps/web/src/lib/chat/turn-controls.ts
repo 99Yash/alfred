@@ -17,7 +17,7 @@ export async function transcribeRecording(blob: Blob): Promise<string> {
   });
 
   if (!res.ok) {
-    const body = await res.json().catch(() => null);
+    const body: unknown = await res.json().catch(() => null);
     throw new Error(apiErrorMessage(body, `Transcription failed (${res.status})`));
   }
 

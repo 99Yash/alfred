@@ -11,7 +11,7 @@ export function parseMcpToolResult<Schema extends z.ZodType>(
 ): z.infer<Schema> | null {
   const structured = getPath(result, "structuredContent");
   const content = getPath(result, "content");
-  const [block] = Array.isArray(content) && content.length === 1 ? content : [];
+  const block: unknown = Array.isArray(content) && content.length === 1 ? content[0] : undefined;
   const text = getStringPath(block, "type") === "text" ? getStringPath(block, "text") : undefined;
 
   const payload =

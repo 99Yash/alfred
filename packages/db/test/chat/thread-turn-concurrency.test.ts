@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
 
-import { closeConnections, db } from "@alfred/db";
+import { closeConnections, db, rowsFromExecute } from "@alfred/db";
 import { CHAT_THREAD_ACTIVE_RUN_INDEX, agentRuns, chatThreads, user } from "@alfred/db/schemas";
 import { and, eq, inArray, sql } from "drizzle-orm";
 
@@ -105,8 +105,8 @@ describe("per-thread turn concurrency guard (#488)", { skip: SKIP }, () => {
         and indexname = ${CHAT_THREAD_ACTIVE_RUN_INDEX}
     `);
 
-    const row = Array.isArray(result) ? result[0] : result.rows[0];
-    assert.equal(Number((row as { count: number }).count), 1);
+    const [row] = rowsFromExecute<{ count: number | string }>(result);
+    assert.equal(Number(row?.count), 1);
   });
 
   test("a second overlapping start on one thread is rejected → exactly one run", async () => {

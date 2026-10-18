@@ -143,7 +143,7 @@ export function apiErrorMessage(value: unknown, fallback: string): string {
   if (value instanceof Error && value.message.length > 0) return value.message;
 
   if (isIndexable(value)) {
-    const message = Reflect.get(value, "message");
+    const message: unknown = Reflect.get(value, "message");
 
     if (isNonEmptyString(message)) return message;
   }

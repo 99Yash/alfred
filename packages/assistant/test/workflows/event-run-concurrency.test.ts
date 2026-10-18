@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 
 import type { AgentRunTrigger } from "@alfred/contracts";
-import { closeConnections, db } from "@alfred/db";
+import { closeConnections, db, rowsFromExecute } from "@alfred/db";
 import {
   EVENT_ACTIVE_RUN_INDEX,
   RUN_DEDUP_KEY_INDEX,
@@ -284,8 +284,8 @@ describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
         and indexname = ${EVENT_ACTIVE_RUN_INDEX}
     `);
 
-    const row = Array.isArray(result) ? result[0] : result.rows[0];
-    assert.equal(Number((row as { count: number }).count), 1);
+    const [row] = rowsFromExecute<{ count: number | string }>(result);
+    assert.equal(Number(row?.count), 1);
   });
 
   test("a second run for the same in-flight event is rejected → exactly one run", async () => {

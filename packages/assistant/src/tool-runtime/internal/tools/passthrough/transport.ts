@@ -48,7 +48,7 @@ function transportCode(err: unknown): string | null {
   if (top) return top;
 
   if (isIndexable(err)) {
-    const cause = Reflect.get(err, "cause");
+    const cause: unknown = Reflect.get(err, "cause");
 
     return getStringField(cause, "code") ?? null;
   }

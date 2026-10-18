@@ -17,10 +17,10 @@ function decodeChunk(chunk: unknown, decoder = new TextDecoder()): string {
 async function readAvailable(res: Response): Promise<string> {
   const reader = res.body?.getReader();
   assert.ok(reader, "response has a body");
-  const { value } = await reader.read();
+  const first = await reader.read();
   await reader.cancel();
 
-  return decodeChunk(value);
+  return decodeChunk(first.value);
 }
 
 /** One `enqueue` is one chunk, so each chunk is one frame and asserts can be byte-exact. */
@@ -31,10 +31,10 @@ async function readChunks(res: Response, count: number): Promise<string[]> {
   const chunks: string[] = [];
 
   for (let i = 0; i < count; i += 1) {
-    const { value, done } = await reader.read();
+    const next = await reader.read();
 
-    if (done) break;
-    chunks.push(decodeChunk(value, decoder));
+    if (next.done) break;
+    chunks.push(decodeChunk(next.value, decoder));
   }
 
   await reader.cancel();
