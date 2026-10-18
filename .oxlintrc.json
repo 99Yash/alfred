@@ -15,7 +15,11 @@
   // both directions, including a marker that has gone stale or vacuous. Do not spell a marker in prose up
   // here: this header is the ROOT site's own region, and the root may not exempt itself from its own group.
   "plugins": null,
-  "jsPlugins": ["oxlint-tailwindcss", "./scripts/oxlint/anti-slop/index.ts"],
+  "jsPlugins": [
+    "oxlint-tailwindcss",
+    "./scripts/oxlint/anti-slop/index.ts",
+    "./scripts/oxlint/alfred/index.ts"
+  ],
   "categories": {},
   "rules": {
     // The vendored anti-slop rules (scripts/oxlint/anti-slop/, see its README for the
@@ -56,6 +60,13 @@
     "anti-slop/no-runtime-typeof": ["error", { "allowInTypeGuards": true }],
     "anti-slop/no-unknown-returns": "error",
     "anti-slop/no-unsafe-dictionary-type": "error",
+    // The first-party alfred rules (scripts/oxlint/alfred/, see its README). Each one was a
+    // regex gate in scripts/consolidation-rules.mjs that needed scope analysis to stop
+    // missing cases and flagging look-alikes.
+    // sha256-over-json-stringify: a hash digest over JSON.stringify output, whose pre-image
+    // depends on key order. Use sha256Canonical. Its file scope is the old gate's scope: the
+    // two "overrides" entries at the bottom of this file turn it off where the gate skipped.
+    "alfred/sha256-over-json-stringify": "error",
     // The tailwind rules sit at `error` by the same bar: zero violations on promotion, and
     // `pnpm lint` does not fail on `warn`, so a warn-level rule here enforced nothing.
     // `pnpm check:oxlint-plugin` drives only the vendored anti-slop rules, not these.
@@ -472,6 +483,27 @@
       ],
       "rules": {
         "anti-slop/no-unsafe-dictionary-type": "off"
+      }
+    },
+    {
+      // alfred/sha256-over-json-stringify keeps the file scope it had as a consolidation
+      // gate (`isSkippedPath` in scripts/consolidation-rules.mjs): test and eval files are
+      // out of scope. The non-test half of that scope is the NEXT entry, because a
+      // test/eval entry may not carry a non-test glob.
+      "files": ["**/test/**", "**/*.test.ts", "**/*.test.tsx", "**/evals/**", "**/*.eval.ts"],
+      "rules": {
+        "alfred/sha256-over-json-stringify": "off"
+      }
+    },
+    {
+      // alfred/sha256-over-json-stringify stays off in the rest of the old gate's skipped
+      // scope: every scripts/ tree (repo-level and ops), module mocks, and generated
+      // source. None of these computes a dedup or change-detection digest that product
+      // code compares.
+      // oxlint-disarm: alfred/sha256-over-json-stringify — scripts, mocks and generated files were outside the consolidation gate this rule replaces; none of them computes a digest that product code compares.
+      "files": ["**/scripts/**", "**/__mocks__/**", "**/*.gen.ts"],
+      "rules": {
+        "alfred/sha256-over-json-stringify": "off"
       }
     }
   ]
