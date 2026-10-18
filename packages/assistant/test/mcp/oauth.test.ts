@@ -103,7 +103,6 @@ class MemoryStore implements McpOAuthCredentialStore {
     const attempt = this.attempts.get(input.stateHash);
     assert.equal(attempt?.userId, input.userId);
 
-    if (!attempt) throw new Error("missing attempt");
     attempt.codeVerifier = input.codeVerifier;
   }
 
@@ -224,7 +223,7 @@ describe("MCP OAuth provider", () => {
 
     const tokens = await oauth.tokens({ issuer: "https://auth.example.test/" });
     assert.equal(tokens?.access_token, "access-two");
-    assert.equal(tokens?.refresh_token, "refresh-one");
+    assert.equal(tokens.refresh_token, "refresh-one");
     assert.deepEqual(store.grantedScopes, ["read", "write"]);
   });
 
@@ -537,8 +536,8 @@ describe("MCP OAuth credentials are sealed at rest", () => {
     // The owning read path still returns the original plaintext.
     const tokens = await oauth.tokens({ issuer: ISSUER });
     assert.equal(tokens?.access_token, "access-plain");
-    assert.equal(tokens?.refresh_token, "refresh-plain");
-    assert.equal(tokens?.id_token, "id-plain");
+    assert.equal(tokens.refresh_token, "refresh-plain");
+    assert.equal(tokens.id_token, "id-plain");
   });
 
   test("saveClientInformation seals the client secret while the public read returns it", async () => {
@@ -634,8 +633,8 @@ describe("built-in GitHub MCP OAuth client (#934)", () => {
     const info = await oauth.clientInformation({ issuer: GITHUB_MCP_ISSUER });
 
     assert.equal(info?.client_id, "gh-client-id");
-    assert.equal(info?.client_secret, "gh-client-secret");
-    assert.equal(info?.issuer, GITHUB_MCP_ISSUER);
+    assert.equal(info.client_secret, "gh-client-secret");
+    assert.equal(info.issuer, GITHUB_MCP_ISSUER);
   });
 
   test("declares the auth method the SDK reads off client information", async () => {
@@ -675,7 +674,7 @@ describe("built-in GitHub MCP OAuth client (#934)", () => {
       fetchFn: async (_url, init) => {
         assert.ok(init?.body instanceof URLSearchParams, "the token request posts a form body");
         body = new URLSearchParams(init.body);
-        authorizationHeader = new Headers(init?.headers).get("Authorization");
+        authorizationHeader = new Headers(init.headers).get("Authorization");
 
         return new Response(JSON.stringify({ access_token: "gh-token", token_type: "Bearer" }), {
           headers: { "content-type": "application/json" },
@@ -685,7 +684,7 @@ describe("built-in GitHub MCP OAuth client (#934)", () => {
 
     assert.equal(tokens.access_token, "gh-token");
     assert.equal(body?.get("client_id"), "gh-client-id");
-    assert.equal(body?.get("client_secret"), "gh-client-secret");
+    assert.equal(body.get("client_secret"), "gh-client-secret");
     assert.equal(authorizationHeader, null);
   });
 
@@ -699,7 +698,7 @@ describe("built-in GitHub MCP OAuth client (#934)", () => {
 
     // The row holds discovery only. A durable copy would pin the secret and survive rotation.
     assert.equal(store.row?.clientInformation, null);
-    assert.equal(store.row?.clientSecret, null);
+    assert.equal(store.row.clientSecret, null);
   });
 
   test("a rotated secret reaches the next exchange with no reconsent", async () => {

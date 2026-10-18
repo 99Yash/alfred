@@ -68,8 +68,8 @@ describe("startToolCallBatchSpan", () => {
     const { opened } = capture(() => startToolCallBatchSpan(bossRun, 4).end("committed", []));
     assert.equal(opened.length, 1);
     assert.equal(opened[0]?.name, "runtime.dispatch.batch");
-    assert.equal(opened[0]?.runId, "run_batch");
-    assert.deepEqual(opened[0]?.metadata, {
+    assert.equal(opened[0].runId, "run_batch");
+    assert.deepEqual(opened[0].metadata, {
       stepId: "dispatch-tools",
       workflow: "__chat-turn__",
       caller: "boss",
@@ -129,9 +129,9 @@ describe("startToolCallBatchSpan", () => {
     );
 
     assert.equal(ended[0]?.metadata?.invalidInput, 1);
-    assert.equal(ended[0]?.metadata?.unknownTool, 1);
-    assert.equal(ended[0]?.metadata?.notAllowed, 1);
-    assert.equal(ended[0]?.metadata?.featureDisabled, 1);
+    assert.equal(ended[0].metadata.unknownTool, 1);
+    assert.equal(ended[0].metadata.notAllowed, 1);
+    assert.equal(ended[0].metadata.featureDisabled, 1);
   });
 
   test("staged and parked terminals carry their own status with a folded summary", () => {
@@ -140,14 +140,14 @@ describe("startToolCallBatchSpan", () => {
     );
 
     assert.equal(staged.ended[0]?.status, "staged");
-    assert.equal(staged.ended[0]?.metadata?.staged, 1);
+    assert.equal(staged.ended[0].metadata?.staged, 1);
 
     const parked = capture(() =>
       startToolCallBatchSpan(bossRun, 1).end("parked", [result("parked")]),
     );
 
     assert.equal(parked.ended[0]?.status, "parked");
-    assert.equal(parked.ended[0]?.metadata?.parked, 1);
+    assert.equal(parked.ended[0].metadata?.parked, 1);
   });
 
   test("an error terminal records level ERROR and no summary", () => {
@@ -210,7 +210,7 @@ describe("runtime.tool_load (single owner for every load path)", () => {
     );
 
     assert.equal(opened[0]?.name, "runtime.tool_load");
-    assert.deepEqual(opened[0]?.metadata, {
+    assert.deepEqual(opened[0].metadata, {
       source: "inactive_bounce",
       caller: "boss",
       toolName: "calendar.list_events",

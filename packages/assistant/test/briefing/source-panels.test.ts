@@ -56,8 +56,8 @@ describe("buildBriefingSourcePanels", () => {
       ["day_of_week"],
     );
     assert.equal(panels[0]?.items.length, 1);
-    assert.equal(panels[0]?.items[0]?.title, "Saturday");
-    assert.deepEqual(panels[0]?.items[0]?.metadata, { weekend: "true" });
+    assert.equal(panels[0].items[0]?.title, "Saturday");
+    assert.deepEqual(panels[0].items[0].metadata, { weekend: "true" });
   });
 
   test("panels come back in source order with their fixed labels", () => {
@@ -129,11 +129,11 @@ describe("buildBriefingSourcePanels", () => {
 
     const item = emailPanel?.items[0];
     assert.equal(item?.id, "doc_pay");
-    assert.equal(item?.title, "Payment failed");
-    assert.equal(item?.subtitle, "Railway");
-    assert.equal(item?.href, "https://mail.google.com/mail/u/0/#all/thr_pay");
-    assert.equal(item?.reference, briefingReference("email", "doc_pay"));
-    assert.deepEqual(item?.metadata, { category: "payment", snippet: "update your card" });
+    assert.equal(item.title, "Payment failed");
+    assert.equal(item.subtitle, "Railway");
+    assert.equal(item.href, "https://mail.google.com/mail/u/0/#all/thr_pay");
+    assert.equal(item.reference, briefingReference("email", "doc_pay"));
+    assert.deepEqual(item.metadata, { category: "payment", snippet: "update your card" });
   });
 
   test("a thread-less email item gets no href but keeps its reference", () => {
@@ -158,7 +158,7 @@ describe("buildBriefingSourcePanels", () => {
     assert.equal(emailPanel?.items[0]?.href, undefined);
     assert.equal(emailPanel?.items[0]?.reference, briefingReference("email", "doc_nothread"));
     // compactMetadata drops an empty snippet.
-    assert.deepEqual(emailPanel?.items[0]?.metadata, { category: "urgent" });
+    assert.deepEqual(emailPanel.items[0].metadata, { category: "urgent" });
   });
 
   test("referenced items sort ahead of unreferenced ones and are flagged in metadata", () => {
@@ -183,8 +183,8 @@ describe("buildBriefingSourcePanels", () => {
       emailPanel?.items.map((i) => i.id),
       ["c", "a", "b"],
     );
-    assert.equal(emailPanel?.items[0]?.metadata?.referenced, "true");
-    assert.equal(emailPanel?.items[1]?.metadata?.referenced, undefined);
+    assert.equal(emailPanel.items[0]?.metadata?.referenced, "true");
+    assert.equal(emailPanel.items[1]?.metadata?.referenced, undefined);
   });
 
   test("calendar and activity subtitles are the current unformatted joins", () => {
@@ -211,12 +211,12 @@ describe("buildBriefingSourcePanels", () => {
 
     const calendar = panels.find((p) => p.source === "calendar");
     assert.equal(calendar?.items[0]?.subtitle, "2026-06-27T09:30:00Z - 2026-06-27T09:45:00Z");
-    assert.deepEqual(calendar?.items[0]?.metadata, { attendees: "1" });
-    assert.equal(calendar?.items[0]?.reference, briefingReference("meeting", "evt_1"));
+    assert.deepEqual(calendar.items[0].metadata, { attendees: "1" });
+    assert.equal(calendar.items[0].reference, briefingReference("meeting", "evt_1"));
 
     const activity = panels.find((p) => p.source === "integration_activity");
     assert.equal(activity?.items[0]?.subtitle, "github · o/r · github.pull request.closed");
-    assert.deepEqual(activity?.items[0]?.metadata, {
+    assert.deepEqual(activity.items[0].metadata, {
       category: "work",
       occurredAt: "2026-06-27T09:00:00.000Z",
       events: "3",
@@ -237,9 +237,9 @@ describe("buildBriefingSourcePanels", () => {
 
     const weather = panels.find((p) => p.source === "weather");
     assert.equal(weather?.items[0]?.title, "Clear");
-    assert.equal(weather?.items[0]?.subtitle, "28C now, 33C high");
+    assert.equal(weather.items[0].subtitle, "28C now, 33C high");
     // compactMetadata checks the string, so 0mm keeps a "0" entry.
-    assert.deepEqual(weather?.items[0]?.metadata, {
+    assert.deepEqual(weather.items[0].metadata, {
       feelsLikeC: "32",
       precipitationMm: "0",
       forecast: "Sunny",

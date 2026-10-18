@@ -164,7 +164,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
     const first = await dispatchToolCall(args);
     assert.equal(first.kind, "executed");
     assert.equal(executeCount, before + 1, "first dispatch runs the tool once");
-    const firstResult = first.kind === "executed" ? first.toolResult : undefined;
+    const firstResult = first.toolResult;
 
     const second = await dispatchToolCall(args);
     assert.equal(second.kind, "executed");
@@ -174,7 +174,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       "re-dispatch must short-circuit on the executed row, not run the tool again",
     );
     assert.deepEqual(
-      second.kind === "executed" ? second.toolResult : undefined,
+      second.toolResult,
       firstResult,
       "re-dispatch returns the STORED result (same call number), not a fresh execution",
     );
@@ -204,16 +204,12 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
 
     const first = await dispatchToolCall(args);
     assert.equal(first.kind, "executed");
-    assert.equal(
-      first.kind === "executed" ? first.sanitized : undefined,
-      true,
-      "first execution flags the boundary strip",
-    );
+    assert.equal(first.sanitized, true, "first execution flags the boundary strip");
 
     const second = await dispatchToolCall(args);
     assert.equal(second.kind, "executed");
     assert.equal(
-      second.kind === "executed" ? second.sanitized : undefined,
+      second.sanitized,
       true,
       "the idempotent replay must re-emit the persisted sanitize verdict",
     );
@@ -312,7 +308,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       .where(and(eq(actionStagings.runId, runId), eq(actionStagings.toolCallId, toolCallId)));
 
     assert.deepEqual(row?.executeError, publicAppError("tool_input_invalid"));
-    assert.doesNotMatch(JSON.stringify(row?.executeError), /edited-private-value|slug|42/);
+    assert.doesNotMatch(JSON.stringify(row.executeError), /edited-private-value|slug|42/);
   });
 
   test("#293 redacts proposed_input for an autonomous tool while execute sees the raw url", async () => {
@@ -448,7 +444,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
 
     const inserted = await upsert("pending");
     assert.equal(inserted[0]?.wasInserted, true, "first upsert is a genuine insert");
-    assert.equal(inserted[0]?.status, "pending");
+    assert.equal(inserted[0].status, "pending");
 
     // The user approves and edits between dispatch and resume.
     await db()
@@ -460,8 +456,8 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
     const conflicted = await upsert("pending");
     assert.equal(conflicted[0]?.wasInserted, false, "re-upsert on conflict is not an insert");
     assert.equal(
-      conflicted[0]?.id,
-      inserted[0]?.id,
+      conflicted[0].id,
+      inserted[0].id,
       "conflict returns the existing row, not a new one",
     );
 
@@ -469,11 +465,11 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
     assert.equal(rows.length, 1);
     assert.equal(rows[0]?.status, "approved", "no-op SET must not revert status to pending");
     assert.deepEqual(
-      rows[0]?.decidedInput,
+      rows[0].decidedInput,
       { slug: "edited" },
       "no-op SET must not clobber decided_input",
     );
-    assert.equal(rows[0]?.rowVersion, 7, "no-op SET rewrites row_version to itself, not the seed");
+    assert.equal(rows[0].rowVersion, 7, "no-op SET rewrites row_version to itself, not the seed");
   });
 
   // Postgres half of the store contract. Nested so the parent's setup and user cleanup cover it.

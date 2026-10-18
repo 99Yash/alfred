@@ -267,8 +267,8 @@ test("McpRawClient negotiates, catalogs, and calls a real Streamable HTTP server
 
   await client.connect(TEST_TRACE);
   assert.equal(client.negotiatedServer?.protocolEra, "post_2026_07_28");
-  assert.equal(client.negotiatedServer?.protocolVersion, "2026-07-28");
-  assert.equal(client.negotiatedServer?.serverName, "alfred-mcp-test");
+  assert.equal(client.negotiatedServer.protocolVersion, "2026-07-28");
+  assert.equal(client.negotiatedServer.serverName, "alfred-mcp-test");
   assert.ok(wire.some((entry) => entry.method === "server/discover"));
   assert.ok(wire.some((entry) => entry.method === "subscriptions/listen"));
   assert.ok(!wire.some((entry) => entry.method === "initialize"));
@@ -359,8 +359,8 @@ test("McpRawClient falls back to a 2025-11-25 Streamable HTTP server", async () 
 
   await client.connect();
   assert.equal(client.negotiatedServer?.protocolEra, "pre_2026_07_28");
-  assert.equal(client.negotiatedServer?.protocolVersion, "2025-11-25");
-  assert.equal(client.negotiatedServer?.serverName, "alfred-legacy-test");
+  assert.equal(client.negotiatedServer.protocolVersion, "2025-11-25");
+  assert.equal(client.negotiatedServer.serverName, "alfred-legacy-test");
   assert.equal(observedLegacyMethods.filter((method) => method === "server/discover").length, 1);
   assert.equal(observedLegacyMethods.filter((method) => method === "initialize").length, 1);
   assert.ok(isRecord(observedLegacyInitialize));

@@ -212,8 +212,6 @@ describe("system.search_context", () => {
 
       assert.equal(outcome.kind, "completed");
 
-      if (outcome.kind !== "completed") return;
-
       const [message] = outcome.transcript;
       assert.ok(message && message.role === "tool");
 

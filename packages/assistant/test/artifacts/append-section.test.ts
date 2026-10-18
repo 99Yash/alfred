@@ -143,8 +143,6 @@ describe("appendArtifactSection write path", { skip: SKIP }, () => {
 
     assert.equal(created.ok, true);
 
-    if (!created.ok) return;
-
     const r1 = await appendArtifactSection(ctx, {
       artifactId: created.artifactId,
       markdown: "## Middle\n\nSecond section.",
@@ -152,7 +150,7 @@ describe("appendArtifactSection write path", { skip: SKIP }, () => {
 
     assert.equal(r1.ok, true);
 
-    if (r1.ok) assert.equal(r1.contentChars, (await readMarkdown(created.artifactId)).length);
+    assert.equal(r1.contentChars, (await readMarkdown(created.artifactId)).length);
 
     await appendArtifactSection(ctx, {
       artifactId: created.artifactId,
@@ -170,8 +168,6 @@ describe("appendArtifactSection write path", { skip: SKIP }, () => {
     const created = await createArtifact(ctx, { title: "Empty start", kind: "document" });
     assert.equal(created.ok, true);
 
-    if (!created.ok) return;
-
     await appendArtifactSection(ctx, {
       artifactId: created.artifactId,
       markdown: "## Only section",
@@ -184,8 +180,6 @@ describe("appendArtifactSection write path", { skip: SKIP }, () => {
     const created = await createArtifact(ctx, { title: "Deck", kind: "pages", format: "slides" });
     assert.equal(created.ok, true);
 
-    if (!created.ok) return;
-
     const result = await appendArtifactSection(ctx, {
       artifactId: created.artifactId,
       markdown: "## Nope",
@@ -193,7 +187,7 @@ describe("appendArtifactSection write path", { skip: SKIP }, () => {
 
     assert.equal(result.ok, false);
 
-    if (!result.ok) assert.equal(result.status, "wrong_kind");
+    assert.equal(result.status, "wrong_kind");
   });
 
   test("returns not_found for an unknown artifactId", async () => {
@@ -206,7 +200,7 @@ describe("appendArtifactSection write path", { skip: SKIP }, () => {
 
     assert.equal(result.ok, false);
 
-    if (!result.ok) assert.equal(result.status, "not_found");
+    assert.equal(result.status, "not_found");
   });
 
   test("refuses accumulation past the stored document cap with content_limit", async () => {
@@ -221,8 +215,6 @@ describe("appendArtifactSection write path", { skip: SKIP }, () => {
 
     assert.equal(created.ok, true);
 
-    if (!created.ok) return;
-
     const result = await appendArtifactSection(ctx, {
       artifactId: created.artifactId,
       markdown: "y".repeat(10),
@@ -230,7 +222,7 @@ describe("appendArtifactSection write path", { skip: SKIP }, () => {
 
     assert.equal(result.ok, false);
 
-    if (!result.ok) assert.equal(result.status, "content_limit");
+    assert.equal(result.status, "content_limit");
     assert.equal((await readMarkdown(created.artifactId)).length, DOCUMENT_MARKDOWN_MAX - 5);
   });
 
@@ -244,8 +236,6 @@ describe("appendArtifactSection write path", { skip: SKIP }, () => {
     });
 
     assert.equal(created.ok, true);
-
-    if (!created.ok) return;
 
     const [b, c] = await Promise.all([
       appendArtifactSection(ctx, { artifactId: created.artifactId, markdown: "B" }),

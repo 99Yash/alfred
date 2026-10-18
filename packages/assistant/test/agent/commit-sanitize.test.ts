@@ -202,7 +202,7 @@ describe("commit sanitizes executor jsonb sinks (DB-backed)", { skip: SKIP }, ()
 
     const first = await runOnce(runId);
     assert.equal(first.kind, "advanced", "the poisoned `next` commit must succeed, not throw");
-    assert.equal(first.kind === "advanced" ? first.nextStep : undefined, "poison-done");
+    assert.equal(first.nextStep, "poison-done");
 
     const staged = await db()
       .select({ payload: pendingActions.payload })
@@ -211,7 +211,7 @@ describe("commit sanitizes executor jsonb sinks (DB-backed)", { skip: SKIP }, ()
 
     const payload = staged[0]?.payload as { body: string; nested: { x: string } } | undefined;
     assert.equal(payload?.body, "stagedpayload", "NUL stripped from staged payload string");
-    assert.equal(payload?.nested.x, "s", "lone surrogate stripped from nested staged value");
+    assert.equal(payload.nested.x, "s", "lone surrogate stripped from nested staged value");
 
     const tr = await db()
       .select({
@@ -234,8 +234,8 @@ describe("commit sanitizes executor jsonb sinks (DB-backed)", { skip: SKIP }, ()
     const defaultTrace = byKey.get("default");
     const secondaryTrace = byKey.get("secondary");
     assert.equal(defaultTrace?.kind, "triage.classification", "trace kind discriminator persisted");
-    assert.equal(defaultTrace?.workflowSlug, SLUG, "workflowSlug denormalized onto the trace row");
-    assert.equal(defaultTrace?.stepId, "poison-next", "trace keyed to the emitting step");
+    assert.equal(defaultTrace.workflowSlug, SLUG, "workflowSlug denormalized onto the trace row");
+    assert.equal(defaultTrace.stepId, "poison-next", "trace keyed to the emitting step");
     assert.ok(defaultTrace, "default trace row exists");
     assert.ok(secondaryTrace, "secondary trace row exists");
     assert.equal(
@@ -271,7 +271,7 @@ describe("commit sanitizes executor jsonb sinks (DB-backed)", { skip: SKIP }, ()
       "msgid",
       "NUL stripped from committed output",
     );
-    const transcript = row?.transcript as AgentTranscriptMessage[];
+    const transcript = row.transcript as AgentTranscriptMessage[];
     assert.equal(
       transcript[0]?.content,
       "final  answer",

@@ -149,9 +149,9 @@ describe("dispatchToolCall rejection tracing", () => {
       assert.equal(result.kind, "unknown_tool");
       assert.equal(captured.length, 1);
       assert.equal(captured[0]?.toolName, "<unknown>");
-      assert.equal(captured[0]?.candidateToolName, "list_events");
-      assert.equal(captured[0]?.signature, "<unknown>:list_events:unknown_tool");
-      assert.equal(captured[0]?.input, undefined);
+      assert.equal(captured[0].candidateToolName, "list_events");
+      assert.equal(captured[0].signature, "<unknown>:list_events:unknown_tool");
+      assert.equal(captured[0].input, undefined);
     } finally {
       restore();
     }
@@ -185,9 +185,9 @@ describe("dispatchToolCall rejection tracing", () => {
       assert.equal(result.kind, "invalid_input");
       assert.equal(captured.length, 1);
       assert.equal(captured[0]?.toolName, "system.load_tool");
-      assert.equal(captured[0]?.outcome, "invalid_input");
-      assert.equal(captured[0]?.signature, "system.load_tool:invalid_input:invalid_type@slug");
-      assert.equal(captured[0]?.input, undefined);
+      assert.equal(captured[0].outcome, "invalid_input");
+      assert.equal(captured[0].signature, "system.load_tool:invalid_input:invalid_type@slug");
+      assert.equal(captured[0].input, undefined);
     } finally {
       restore();
     }
@@ -210,8 +210,8 @@ describe("dispatchToolCall rejection tracing", () => {
       assert.equal(result.kind, "inactive_tool");
       assert.equal(captured.length, 1);
       assert.equal(captured[0]?.outcome, "inactive_tool");
-      assert.equal(captured[0]?.signature, "system.fetch_url:inactive_tool");
-      assert.equal(captured[0]?.input, undefined);
+      assert.equal(captured[0].signature, "system.fetch_url:inactive_tool");
+      assert.equal(captured[0].input, undefined);
     } finally {
       restore();
     }

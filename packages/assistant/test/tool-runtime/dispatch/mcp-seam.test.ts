@@ -296,8 +296,8 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
     const rows = await stagingRowsFor(runId, toolCallId);
     assert.equal(rows.length, 1);
     assert.equal(rows[0]?.status, "pending", "the high floor parks a fresh mcp.call for approval");
-    assert.equal(rows[0]?.riskTier, "high", "the persisted tier is the floor, not a downgrade");
-    assert.equal(rows[0]?.requiresApproval, true);
+    assert.equal(rows[0].riskTier, "high", "the persisted tier is the floor, not a downgrade");
+    assert.equal(rows[0].requiresApproval, true);
   });
 
   test("a reviewed per-descriptor downgrade lets a real mcp.call run without approval", async () => {
@@ -360,8 +360,8 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       "low",
       "the reviewed downgrade is the persisted effective tier",
     );
-    assert.equal(rows[0]?.requiresApproval, false, "the resolved tier drove the approval decision");
-    assert.equal(rows[0]?.status, "executed");
+    assert.equal(rows[0].requiresApproval, false, "the resolved tier drove the approval decision");
+    assert.equal(rows[0].status, "executed");
   });
 
   test("an approved mcp.call routes through the broker with ctx.stagingId set to the row id", async () => {
@@ -391,7 +391,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
 
     const staged = await dispatchToolCall(args);
     assert.equal(staged.kind, "staged");
-    const stagingId = staged.kind === "staged" ? staged.stagingId : null;
+    const stagingId = staged.stagingId;
     assert.ok(stagingId);
 
     await db()
@@ -408,11 +408,11 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       stagingId,
       "the broker's ledger row is keyed to the staging row that authorized the call",
     );
-    assert.equal(broker.lastInput?.userId, userId);
-    assert.equal(broker.lastInput?.ref.remoteName, "create_issue");
-    assert.deepEqual(broker.lastInput?.arguments, { title: "hi" });
+    assert.equal(broker.lastInput.userId, userId);
+    assert.equal(broker.lastInput.ref.remoteName, "create_issue");
+    assert.deepEqual(broker.lastInput.arguments, { title: "hi" });
 
-    assert.deepEqual(executed.kind === "executed" ? executed.toolResult : undefined, {
+    assert.deepEqual(executed.toolResult, {
       status: "completed",
       result: { ok: true },
     });
@@ -531,7 +531,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
     });
 
     assert.equal(repeated.kind, "executed");
-    assert.deepEqual(repeated.kind === "executed" ? repeated.toolResult : null, {
+    assert.deepEqual(repeated.toolResult, {
       status: "unknown",
       retry: "blocked",
       message:
@@ -574,7 +574,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       .where(eq(mcpInvocation.stagingId, stagingId));
 
     assert.ok(prior?.resolvedAt);
-    assert.equal(prior?.resolutionReason, "superseded_by_user_successor");
+    assert.equal(prior.resolutionReason, "superseded_by_user_successor");
   });
 
   test("a stale duplicate dispatcher cannot reopen staging after broker success", async () => {
@@ -711,7 +711,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
 
       assert.equal(settledInvocation?.effectOutcome, "succeeded");
       assert.equal(settledStaging?.outcome, "succeeded");
-      assert.ok(settledStaging?.result, "the matching outer commit enriches the aggregate result");
+      assert.ok(settledStaging.result, "the matching outer commit enriches the aggregate result");
 
       releaseStaleCommit.resolve();
       const repeated = await repeatedWorker;
@@ -773,16 +773,12 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
     });
 
     assert.equal(result.kind, "executed");
-    assert.equal(
-      result.kind === "executed" ? result.stagingId : "set",
-      null,
-      "the fast path writes no staging row",
-    );
+    assert.equal(result.stagingId, null, "the fast path writes no staging row");
     const rows = await stagingRowsFor(runId, toolCallId);
     assert.equal(rows.length, 0, "mcp.list_tools never stages");
     assert.equal(broker.calls, 0, "local discovery never calls the MCP execution provider");
 
-    const toolResult = result.kind === "executed" ? result.toolResult : undefined;
+    const toolResult = result.toolResult;
     assert.ok(isRecord(toolResult));
     assert.equal(toolResult.status, "tools");
     assert.ok(Array.isArray(toolResult.tools));

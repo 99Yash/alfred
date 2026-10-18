@@ -202,7 +202,7 @@ describe("resolveToolAvailability reads the credential snapshot only when it cou
 
     assert.equal(result.available, false);
 
-    if (!result.available) assert.equal(result.code, "wrong_caller");
+    assert.equal(result.code, "wrong_caller");
   });
 
   test("a credential-bearing tool DOES read the snapshot, and honors its health", async () => {
@@ -237,6 +237,6 @@ describe("resolveToolAvailability reads the credential snapshot only when it cou
     assert.equal(reads, 1);
     assert.equal(result.available, false);
 
-    if (!result.available) assert.equal(result.code, "needs_reauth");
+    assert.equal(result.code, "needs_reauth");
   });
 });

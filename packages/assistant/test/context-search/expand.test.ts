@@ -90,7 +90,7 @@ describe("the expansion phase — a stale card is upgraded in place", () => {
       // Replaced, not appended: one card in, one card out.
       assert.equal(result.evidence.length, 1);
       assert.equal(result.evidence[0]?.id, "live:1");
-      assert.equal(result.evidence[0]?.time?.freshness, "live");
+      assert.equal(result.evidence[0].time?.freshness, "live");
 
       // The expander received the handle the card carried, whole.
       assert.deepEqual(handles, [STALE_HANDLE]);
@@ -107,7 +107,7 @@ describe("the expansion phase — a stale card is upgraded in place", () => {
       const origin = reportFor(result, "expand-test:stale");
 
       assert.equal(origin?.status, "ok");
-      assert.equal(origin?.evidenceCount, 0);
+      assert.equal(origin.evidenceCount, 0);
 
       const packed = packEvidenceCards(result);
 
@@ -147,7 +147,7 @@ describe("the expansion phase — a stale card is upgraded in place", () => {
       const live = reportFor(result, "expand-test:live");
 
       assert.equal(live?.status, "skipped");
-      assert.equal(live?.status === "skipped" ? live.reason : undefined, "expansion-only");
+      assert.equal(live.reason, "expansion-only");
     } finally {
       for (const dispose of disposers.reverse()) dispose();
     }
@@ -207,7 +207,7 @@ describe("the expansion phase — routing reads the declaration alone", () => {
       const live = reportFor(result, "expand-test:live");
 
       assert.equal(live?.status, "skipped");
-      assert.equal(live?.status === "skipped" ? live.reason : undefined, "expansion-only");
+      assert.equal(live.reason, "expansion-only");
     } finally {
       for (const dispose of disposers.reverse()) dispose();
     }
@@ -341,12 +341,12 @@ describe("the expansion phase — a failure costs the read nothing", () => {
       const origin = reportFor(result, "expand-test:stale");
 
       assert.equal(origin?.status, "ok");
-      assert.equal(origin?.evidenceCount, 1);
+      assert.equal(origin.evidenceCount, 1);
 
       const live = reportFor(result, "expand-test:live");
 
       assert.equal(live?.status, "error");
-      assert.equal(live?.evidenceCount, 0);
+      assert.equal(live.evidenceCount, 0);
 
       const packed = packEvidenceCards(result);
 
@@ -398,7 +398,7 @@ describe("the expansion phase — a failure costs the read nothing", () => {
 
       // The source was consulted only for a handle, never asked the query. The `expansion-only` skip stands.
       assert.equal(live?.status, "skipped");
-      assert.equal(live?.status === "skipped" ? live.reason : undefined, "expansion-only");
+      assert.equal(live.reason, "expansion-only");
     } finally {
       for (const dispose of disposers.reverse()) dispose();
     }

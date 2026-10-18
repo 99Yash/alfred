@@ -400,10 +400,9 @@ describe("mcp connection manager lifecycle", () => {
       prepared.catalog.tools.map((entry) => entry.name),
       ["tool_b"],
     );
-    assert.deepEqual(
-      persistence.revisions.get(persistence.connection.currentCatalogRevisionId ?? ""),
-      ["tool_b"],
-    );
+    assert.deepEqual(persistence.revisions.get(persistence.connection.currentCatalogRevisionId), [
+      "tool_b",
+    ]);
   });
 
   test("disconnect cancels publication from a refresh that races with its ownership check", async () => {

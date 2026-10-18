@@ -175,8 +175,8 @@ describe("commit attempt-guard (DB-backed)", { skip: SKIP }, () => {
     assert.equal(outcome.kind, "advanced");
     const run = await readRun(runId);
     assert.equal(run?.attempt, 6, "attempt advances");
-    assert.equal(run?.currentStep, "dispatch-tools", "step advances");
-    assert.equal(run?.status, "runnable");
+    assert.equal(run.currentStep, "dispatch-tools", "step advances");
+    assert.equal(run.status, "runnable");
     assert.equal(await readStepStatus(runId, 5), "completed", "the step row is marked completed");
   });
 
@@ -196,8 +196,8 @@ describe("commit attempt-guard (DB-backed)", { skip: SKIP }, () => {
     assert.equal(outcome.kind, "deferred");
     const run = await readRun(runId);
     assert.equal(run?.status, "deferred");
-    assert.equal(run?.attempt, 3);
-    assert.equal(run?.deferredUntil?.toISOString(), retryAt.toISOString());
+    assert.equal(run.attempt, 3);
+    assert.equal(run.deferredUntil?.toISOString(), retryAt.toISOString());
     assert.equal(await readStepStatus(runId, 2), "deferred");
   });
 
@@ -234,10 +234,10 @@ describe("commit attempt-guard (DB-backed)", { skip: SKIP }, () => {
     );
 
     assert.equal(outcome.kind, "skipped", "the superseded commit is a benign skip");
-    assert.equal(outcome.kind === "skipped" ? outcome.reason : undefined, "superseded_by_reclaim");
+    assert.equal(outcome.reason, "superseded_by_reclaim");
     const run = await readRun(runId);
     assert.equal(run?.attempt, 6, "attempt is NOT advanced by the superseded worker");
-    assert.equal(run?.currentStep, STEP, "the run did NOT advance to the next step");
+    assert.equal(run.currentStep, STEP, "the run did NOT advance to the next step");
     assert.equal(
       await readStepStatus(runId, 5),
       "running",
@@ -261,7 +261,7 @@ describe("commit attempt-guard (DB-backed)", { skip: SKIP }, () => {
     assert.equal(outcome.kind, "skipped");
     const run = await readRun(runId);
     assert.equal(run?.status, "running", "the run is NOT marked completed by the stale worker");
-    assert.equal(run?.attempt, 4);
+    assert.equal(run.attempt, 4);
   });
 
   test("superseded failure: a stale throw does not terminal-fail the newer attempt", async () => {
@@ -270,10 +270,10 @@ describe("commit attempt-guard (DB-backed)", { skip: SKIP }, () => {
     const outcome = await runOnce(runId);
 
     assert.equal(outcome.kind, "skipped", "the stale failure commit is a benign skip");
-    assert.equal(outcome.kind === "skipped" ? outcome.reason : undefined, "superseded_by_reclaim");
+    assert.equal(outcome.reason, "superseded_by_reclaim");
     const run = await readRun(runId);
     assert.equal(run?.status, "running", "the stale worker did NOT mark the run failed");
-    assert.equal(run?.attempt, 6, "the newer attempt remains in charge");
+    assert.equal(run.attempt, 6, "the newer attempt remains in charge");
     assert.equal(
       await readStepStatus(runId, 5),
       "running",

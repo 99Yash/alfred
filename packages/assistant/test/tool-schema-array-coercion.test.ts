@@ -201,7 +201,7 @@ function discoverArrayFields(schema: z.ZodType): string[] {
     .filter(([, v]) => {
       const isArray = (t: unknown) => t === "array" || (Array.isArray(t) && t.includes("array"));
 
-      return isArray(v?.type) || (v?.anyOf ?? []).some((b) => isArray(b?.type));
+      return isArray(v.type) || (v.anyOf ?? []).some((b) => isArray(b.type));
     })
     .map(([k]) => k);
 }
@@ -271,7 +271,7 @@ describe("tool-schema array-field coercion (cross-integration)", () => {
         const advertisesArray =
           prop?.type === "array" ||
           (Array.isArray(prop?.type) && prop.type.includes("array")) ||
-          (prop?.anyOf ?? []).some((b) => b?.type === "array");
+          (prop?.anyOf ?? []).some((b) => b.type === "array");
 
         assert.ok(advertisesArray, `${field} must still be an array in the model-facing schema`);
       });

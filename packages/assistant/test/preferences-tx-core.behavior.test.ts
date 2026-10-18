@@ -52,14 +52,14 @@ describe("settings preference tx cores (DB-backed)", { skip: SKIP }, () => {
     });
     const first = await settings({ userId }).get("tone");
     assert.equal(first?.value, "concise", "the committed tx write is readable");
-    assert.equal(first?.rowVersion, 0, "first write starts at rowVersion 0");
+    assert.equal(first.rowVersion, 0, "first write starts at rowVersion 0");
 
     await db().transaction(async (tx) => {
       await settings({ userId, exec: tx }).set("tone", "verbose");
     });
     const second = await settings({ userId }).get("tone");
     assert.equal(second?.value, "verbose", "last write wins");
-    assert.equal(second?.rowVersion, 1, "a second tx upsert bumps rowVersion");
+    assert.equal(second.rowVersion, 1, "a second tx upsert bumps rowVersion");
   });
 
   test("a throw after a tx-bound set rolls the write back — no row survives", async () => {

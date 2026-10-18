@@ -253,9 +253,9 @@ describe("dispatch staging machine (DB-free)", () => {
     assert.equal(executeCount, 1);
     const [row] = store.rows();
     assert.equal(row?.status, "executed");
-    assert.equal(row?.requiresApproval, false);
-    assert.deepEqual(row?.executeResult, { ok: true, slug: "github", call: 1 });
-    assert.equal(row?.rowVersion, 2, "insert then commit");
+    assert.equal(row.requiresApproval, false);
+    assert.deepEqual(row.executeResult, { ok: true, slug: "github", call: 1 });
+    assert.equal(row.rowVersion, 2, "insert then commit");
   });
 
   test("a staged tool result is normalized before return and persistence", async () => {
@@ -269,7 +269,7 @@ describe("dispatch staging machine (DB-free)", () => {
     };
 
     assert.equal(result.kind, "executed");
-    assert.deepEqual(result.kind === "executed" ? result.toolResult : undefined, expected);
+    assert.deepEqual(result.toolResult, expected);
     assert.deepEqual(store.rows()[0]?.executeResult, expected);
   });
 
@@ -296,7 +296,7 @@ describe("dispatch staging machine (DB-free)", () => {
     assert.equal(executeCount, 1, "the executed arm must short-circuit, not re-run the tool");
     assert.equal(second.kind, "executed");
     assert.deepEqual(
-      second.kind === "executed" ? second.toolResult : undefined,
+      second.toolResult,
       first.kind === "executed" ? first.toolResult : "different",
       "the replay serves the STORED result",
     );
@@ -325,8 +325,8 @@ describe("dispatch staging machine (DB-free)", () => {
     assert.equal(result.kind, "failed");
     const [row] = store.rows();
     assert.equal(row?.status, "failed");
-    assert.deepEqual(row?.executeError, publicAppError("tool_execution_failed"));
-    assert.equal(row?.executeResult, null, "a failed commit writes no result");
+    assert.deepEqual(row.executeError, publicAppError("tool_execution_failed"));
+    assert.equal(row.executeResult, null, "a failed commit writes no result");
   });
 
   test("re-dispatching a failed call returns the stored error without re-executing", async () => {
@@ -336,10 +336,7 @@ describe("dispatch staging machine (DB-free)", () => {
 
     assert.equal(executeCount, 1);
     assert.equal(second.kind, "failed");
-    assert.deepEqual(
-      second.kind === "failed" ? second.error : undefined,
-      publicAppError("tool_execution_failed"),
-    );
+    assert.deepEqual(second.error, publicAppError("tool_execution_failed"));
   });
 
   test("retry suppression synthesizes the prior rejection and writes NO new row", async () => {
@@ -352,7 +349,7 @@ describe("dispatch staging machine (DB-free)", () => {
 
     assert.equal(result.kind, "rejected");
     assert.equal(result.stagingId, null, "a suppressed retry has no row of its own");
-    assert.deepEqual(result.kind === "rejected" ? result.result : undefined, {
+    assert.deepEqual(result.result, {
       status: "rejected_by_user",
       toolName: "system.load_tool",
       proposedInput: { slug: "github" },
@@ -380,10 +377,7 @@ describe("dispatch staging machine (DB-free)", () => {
 
     assert.equal(result.kind, "rejected");
     assert.equal(result.stagingId, null);
-    assert.match(
-      result.kind === "rejected" ? JSON.stringify(result.result) : "",
-      /run is already cancelled/,
-    );
+    assert.match(JSON.stringify(result.result), /run is already cancelled/);
     assert.equal(store.rows().length, 0, "a cancelled run must not stage");
     assert.equal(executeCount, 0);
   });
@@ -397,10 +391,7 @@ describe("dispatch staging machine (DB-free)", () => {
 
     assert.equal(result.kind, "fenced");
     assert.equal(result.stagingId, null);
-    assert.match(
-      result.kind === "fenced" ? JSON.stringify(result.result) : "",
-      /run was cancelled while this call was pending/,
-    );
+    assert.match(JSON.stringify(result.result), /run was cancelled while this call was pending/);
     assert.equal(store.rows().length, 0, "a fenced run must not stage");
     assert.equal(executeCount, 0);
   });
@@ -430,7 +421,7 @@ describe("dispatch staging machine (DB-free)", () => {
     assert.equal(executeCount, 0, "the effect must not fire after a mid-dispatch cancel");
     const [row] = store.rows();
     assert.ok(row, "the upsert already wrote the row before the cancel landed");
-    assert.equal(result.kind === "fenced" ? result.stagingId : null, row.id);
+    assert.equal(result.stagingId, row.id);
     assert.equal(row.status, "failed");
     assert.equal(
       row.outcome,
@@ -446,10 +437,7 @@ describe("dispatch staging machine (DB-free)", () => {
     );
 
     assert.equal(result.kind, "rejected");
-    assert.match(
-      result.kind === "rejected" ? JSON.stringify(result.result) : "",
-      /run is unavailable/,
-    );
+    assert.match(JSON.stringify(result.result), /run is unavailable/);
     assert.equal(executeCount, 0);
   });
 
@@ -464,7 +452,7 @@ describe("dispatch staging machine (DB-free)", () => {
 
     assert.equal(result.kind, "staged", "a `high`-tier tool always confirms, even under autonomy");
     assert.equal(executeCount, 0, "a staged call must not execute");
-    assert.deepEqual(result.kind === "staged" ? result.wake : undefined, {
+    assert.deepEqual(result.wake, {
       kind: "hil",
       approvalId: result.stagingId,
       approvalKind: "action_staging",
@@ -472,8 +460,8 @@ describe("dispatch staging machine (DB-free)", () => {
     });
     const [row] = store.rows();
     assert.equal(row?.status, "pending");
-    assert.equal(row?.requiresApproval, true);
-    assert.ok(row?.expiresAt instanceof Date, "a gated row gets a hard expiry");
+    assert.equal(row.requiresApproval, true);
+    assert.ok(row.expiresAt instanceof Date, "a gated row gets a hard expiry");
   });
 
   test("#374: a gated secret-bearing tool stages raw input for resume, redacted for display", async () => {
@@ -519,7 +507,7 @@ describe("dispatch staging machine (DB-free)", () => {
     assert.equal(executeCount, 1);
     const [row] = store.rows();
     assert.equal(row?.riskTier, "medium");
-    assert.equal(row?.requiresApproval, false);
+    assert.equal(row.requiresApproval, false);
     assert.deepEqual(lastExecutedInput, { calendarId: "primary", ...input });
   });
 
@@ -548,8 +536,8 @@ describe("dispatch staging machine (DB-free)", () => {
     assert.equal(executeCount, 0);
     const [row] = store.rows();
     assert.equal(row?.riskTier, "high");
-    assert.equal(row?.requiresApproval, true);
-    assert.deepEqual(row?.proposedInput, {
+    assert.equal(row.requiresApproval, true);
+    assert.deepEqual(row.proposedInput, {
       calendarId: "primary",
       ...input,
     });
@@ -602,7 +590,7 @@ describe("dispatch staging machine (DB-free)", () => {
     assert.equal(executeCount, 0, "an old autonomous row must not execute the invite");
     const [row] = store.rows();
     assert.equal(row?.riskTier, "high");
-    assert.equal(row?.requiresApproval, true);
+    assert.equal(row.requiresApproval, true);
   });
 
   test("a policy change does not promote a pending medium-risk autonomous row", async () => {
@@ -688,7 +676,7 @@ describe("dispatch staging machine (DB-free)", () => {
     const result = await dispatchToolCall(args);
 
     assert.equal(result.kind, "executed");
-    assert.equal(result.kind === "executed" ? result.editedByUser : undefined, true);
+    assert.equal(result.editedByUser, true);
     assert.deepEqual(lastExecutedInput, { slug: "edited" });
   });
 
@@ -712,7 +700,7 @@ describe("dispatch staging machine (DB-free)", () => {
     const stored = store.readBack(store.rows()[0]!.id);
     assert.equal(stored?.status, "failed");
     assert.doesNotMatch(
-      JSON.stringify(stored?.executeError),
+      JSON.stringify(stored.executeError),
       /edited-private-value/,
       "the rejected payload must not leak into the persisted error",
     );
@@ -730,7 +718,7 @@ describe("dispatch staging machine (DB-free)", () => {
 
     assert.equal(result.kind, "rejected");
     assert.equal(result.stagingId, rowId, "the status arm answers off the existing row");
-    assert.match(result.kind === "rejected" ? JSON.stringify(result.result) : "", /user said no/);
+    assert.match(JSON.stringify(result.result), /user said no/);
     assert.equal(executeCount, 1, "only the first, pre-rejection dispatch executed");
   });
 
@@ -742,7 +730,7 @@ describe("dispatch staging machine (DB-free)", () => {
     const result = await dispatchToolCall(args);
 
     assert.equal(result.kind, "rejected");
-    assert.match(result.kind === "rejected" ? JSON.stringify(result.result) : "", /auto-expired/);
+    assert.match(JSON.stringify(result.result), /auto-expired/);
   });
 
   test("re-dispatching a toolCallId under a different toolName fails loud", async () => {
@@ -799,7 +787,6 @@ describe("dispatch staging machine (DB-free)", () => {
 
     assert.equal(result.kind, "blocked", "an unresolved identical effect is blocked");
 
-    if (result.kind !== "blocked") return;
     assert.equal(result.stagingId, null, "the barrier fires before any row exists");
     assert.equal(
       isUnknownEffectEnvelope(result.result),

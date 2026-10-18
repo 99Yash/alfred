@@ -40,7 +40,7 @@ where to put a new invariant.
 | A method read as a value (`const f = obj.method`, `.map(obj.method)`), which loses its `this` | `typescript/unbound-method` (`error`, type-aware) | `.oxlintrc.json` |
 | A union member that another member absorbs (`unknown \| X`, `"a" \| string`) | `typescript/no-redundant-type-constituents` (`error`, type-aware) | `.oxlintrc.json` |
 | `String(v)` or a template on a value that may be an object, which prints `[object Object]` | `typescript/no-base-to-string` (`error`, type-aware) | `.oxlintrc.json` |
-| A `?.`, `??`, truthiness check, or compare whose operand's type already decides the result | `typescript/no-unnecessary-condition` (`error`, type-aware; staged: off for tests and evals until the test lanes land) | `.oxlintrc.json` |
+| A `?.`, `??`, truthiness check, or compare whose operand's type already decides the result | `typescript/no-unnecessary-condition` (`error`, type-aware; every surface, tests included) | `.oxlintrc.json` |
 | A value imported only for a type position, such as `typeof` | `typescript/consistent-type-imports` (`error`) | `.oxlintrc.json` |
 | A suppression directive with no rule name, or no reason after ` -- ` | `gate: suppression-without-reason` | `scripts/consolidation-rules.mjs` |
 | A spread that only copies, such as `{ ...(x ? { k: x } : {}) }` alone in a literal | `unicorn/no-useless-spread` (`error`) | `.oxlintrc.json` |
@@ -197,9 +197,8 @@ in this list is at `error` and was adopted at zero:
   guard: fix the type or parse at the boundary, else add a directive that names
   the unvalidated boundary. A field that a callback or another method changes
   during an `await` stays narrowed; read it through a method call instead of an
-  inline read. Staged: off for tests and evals until the test lanes land;
-  product source, ops scripts (`src/scripts`), repo `scripts/` and JavaScript
-  are at `error`.
+  inline read. It applies to every surface, tests and JavaScript included,
+  with no override.
 
 The rules read a test or eval file through its package's `tsconfig.test.json`
 or `tsconfig.eval.json`: the root `tsconfig.json` is a solution file that
@@ -214,7 +213,7 @@ Turning type-aware on also arms the type-aware rules in oxlint's default
 `correctness` set at `warn`. The config sets each of them explicitly, so the run
 reports only the rules it chose, and every one of them is now at `error`
 (the list above). `no-unnecessary-condition` is not in that default set; it is
-set explicitly too, and its staged overrides shrink as each surface is cleared.
+set explicitly too, at `error` with no override.
 
 These are the cheap place for a new invariant **if it can be phrased as a
 syntax shape**. The vendored `anti-slop` set is deliberately small; a new

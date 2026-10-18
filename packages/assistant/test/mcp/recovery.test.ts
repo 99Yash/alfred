@@ -130,10 +130,10 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
 
     assert.equal(operations.length, 1);
     assert.equal(operations[0]?.invocationId, seeded.invocationId);
-    assert.deepEqual(operations[0]?.displayInput, { invoiceId: "inv_42" });
-    assert.equal(operations[0]?.connection.label, "Recovery MCP");
+    assert.deepEqual(operations[0].displayInput, { invoiceId: "inv_42" });
+    assert.equal(operations[0].connection.label, "Recovery MCP");
     assert.ok(!JSON.stringify(operations).includes(other.invocationId));
-    assert.ok(!("proposedInput" in (operations[0] ?? {})));
+    assert.ok(!("proposedInput" in operations[0]));
   });
 
   test("pages by effective timestamp and invocation id without gaps or duplicates", async () => {
@@ -204,6 +204,7 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
 
   test("the list is a pure read: unsettled rows are counted, boot normalizes them, then paging lists each once", async () => {
     assert.ok(
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- fixture precondition between two exported constants; the assert fails if a later change reorders them.
       MCP_SETTLEMENT_REPAIR_BATCH_SIZE < MCP_RECOVERY_PAGE_SIZE,
       "the regression must not rely on repair work exceeding one product page",
     );
@@ -392,10 +393,10 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
       .where(eq(actionStagings.id, seeded.stagingId));
 
     assert.equal(invocation?.effectOutcome, "failed");
-    assert.equal(invocation?.retryDisposition, "safe");
-    assert.ok(invocation?.resolvedAt);
+    assert.equal(invocation.retryDisposition, "safe");
+    assert.ok(invocation.resolvedAt);
     assert.equal(staging?.outcome, "failed");
-    assert.equal(staging?.status, "failed");
+    assert.equal(staging.status, "failed");
     assert.equal((await listMcpRecoveryOperations({ userId: seeded.userId })).operations.length, 0);
   });
 
@@ -502,7 +503,7 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
       .where(eq(mcpInvocation.successorOf, seeded.invocationId));
 
     assert.equal(invocation?.resolvedAt, null);
-    assert.equal(invocation?.effectOutcome, "unknown");
+    assert.equal(invocation.effectOutcome, "unknown");
     assert.equal(staging?.outcome, "unknown");
     assert.equal(successors.length, 0);
   });

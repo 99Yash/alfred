@@ -255,9 +255,9 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
       .from(workflows)
       .where(eq(workflows.id, proposal.workflowId));
 
-    assert.equal(workflow?.status, "active");
-    assert.equal(workflow?.currentRevisionId, revisions[1]?.id);
-    assert.equal(workflow?.publishedRevisionId, revisions[1]?.id);
+    assert.equal(workflow.status, "active");
+    assert.equal(workflow.currentRevisionId, revisions[1]?.id);
+    assert.equal(workflow.publishedRevisionId, revisions[1]?.id);
 
     const firstManual = await createRun({
       userId,
@@ -288,8 +288,8 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
       .from(agentRuns)
       .where(eq(agentRuns.id, firstManual.runId));
 
-    assert.equal(manualRun?.brief, editedBrief);
-    assert.equal(manualRun?.workflowRevisionId, revisions[1]?.id);
+    assert.equal(manualRun.brief, editedBrief);
+    assert.equal(manualRun.workflowRevisionId, revisions[1]?.id);
 
     await db()
       .update(agentRuns)
@@ -342,8 +342,8 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
       .from(workflows)
       .where(eq(workflows.id, proposal.workflowId));
 
-    assert.equal(workflow?.status, "draft");
-    assert.equal(workflow?.publishedRevisionId, null);
+    assert.equal(workflow.status, "draft");
+    assert.equal(workflow.publishedRevisionId, null);
   });
 
   test("a schedule edit is rebuilt into a fresh contract before activation", async () => {
@@ -383,7 +383,6 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
 
     assert.equal(refreshed.ok, true);
 
-    if (!refreshed.ok) return;
     assert.equal(refreshed.input.schedule.summary, "Every weekday at 9:00 AM (Asia/Kolkata)");
     assert.equal(
       refreshed.input.authoringProposal.scheduleSummary,

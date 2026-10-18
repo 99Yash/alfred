@@ -93,7 +93,7 @@ describe("runRestPassthrough — gate denial (never leaves Alfred)", () => {
     assert.equal(fetched, false, "gate must short-circuit before any network call");
     assert.equal(result.outcome, "rejected");
 
-    if (result.outcome === "rejected") assert.equal(result.reason, "method_not_read");
+    assert.equal(result.reason, "method_not_read");
   });
 
   test("an unlisted github POST is rejected (path_not_allowlisted), no fetch issued", async () => {
@@ -115,7 +115,7 @@ describe("runRestPassthrough — gate denial (never leaves Alfred)", () => {
     assert.equal(fetched, false);
     assert.equal(result.outcome, "rejected");
 
-    if (result.outcome === "rejected") assert.equal(result.reason, "path_not_allowlisted");
+    assert.equal(result.reason, "path_not_allowlisted");
   });
 });
 
@@ -124,9 +124,9 @@ describe("runRestPassthrough — HTTP envelope", () => {
     const result = await withMockedFetch(
       (capture) => {
         assert.equal(capture.url?.origin, "https://api.github.com");
-        assert.equal(capture.url?.pathname, "/repos/a/b/commits");
-        assert.equal(capture.url?.searchParams.get("per_page"), "5");
-        assert.equal(capture.url?.searchParams.get("sha"), "main");
+        assert.equal(capture.url.pathname, "/repos/a/b/commits");
+        assert.equal(capture.url.searchParams.get("per_page"), "5");
+        assert.equal(capture.url.searchParams.get("sha"), "main");
         assert.equal(capture.init?.method, "GET");
 
         return jsonResponse([{ sha: "abc" }]);
@@ -140,11 +140,9 @@ describe("runRestPassthrough — HTTP envelope", () => {
 
     assert.equal(result.outcome, "http");
 
-    if (result.outcome === "http") {
-      assert.equal(result.status, 200);
-      assert.equal(result.succeeded, true);
-      assert.deepEqual(result.body, [{ sha: "abc" }]);
-    }
+    assert.equal(result.status, 200);
+    assert.equal(result.succeeded, true);
+    assert.deepEqual(result.body, [{ sha: "abc" }]);
   });
 
   test("a pinned fixedQuery (Vercel teamId) cannot be overridden by the model's own query", async () => {
@@ -156,7 +154,7 @@ describe("runRestPassthrough — HTTP envelope", () => {
           "team_pinned",
           "the profile-pinned teamId must survive a model-supplied collision",
         );
-        assert.equal(capture.url?.searchParams.get("limit"), "20");
+        assert.equal(capture.url.searchParams.get("limit"), "20");
 
         return jsonResponse({ projects: [] });
       },
@@ -173,7 +171,7 @@ describe("runRestPassthrough — HTTP envelope", () => {
 
     assert.equal(result.outcome, "http");
 
-    if (result.outcome === "http") assert.equal(result.succeeded, true);
+    assert.equal(result.succeeded, true);
   });
 
   test("a 404 is honest: succeeded:false with the real status and the API error body preserved", async () => {
@@ -188,11 +186,9 @@ describe("runRestPassthrough — HTTP envelope", () => {
 
     assert.equal(result.outcome, "http");
 
-    if (result.outcome === "http") {
-      assert.equal(result.status, 404);
-      assert.equal(result.succeeded, false);
-      assert.deepEqual(result.body, { message: "Not Found" });
-    }
+    assert.equal(result.status, 404);
+    assert.equal(result.succeeded, false);
+    assert.deepEqual(result.body, { message: "Not Found" });
   });
 
   test("a Notion read-via-POST (/search) passes the gate and issues the fetch with the body", async () => {
@@ -202,7 +198,7 @@ describe("runRestPassthrough — HTTP envelope", () => {
       (capture) => {
         fetched = true;
         assert.equal(capture.init?.method, "POST");
-        assert.equal(capture.init?.body, JSON.stringify({ query: "roadmap" }));
+        assert.equal(capture.init.body, JSON.stringify({ query: "roadmap" }));
 
         return jsonResponse({ results: [] });
       },
@@ -216,7 +212,7 @@ describe("runRestPassthrough — HTTP envelope", () => {
     assert.equal(fetched, true, "an allowlisted read-via-POST must reach the network");
     assert.equal(result.outcome, "http");
 
-    if (result.outcome === "http") assert.equal(result.succeeded, true);
+    assert.equal(result.succeeded, true);
   });
 
   test("a 3xx is succeeded:false with the Location redacted to origin+path (no query)", async () => {
@@ -235,15 +231,13 @@ describe("runRestPassthrough — HTTP envelope", () => {
 
     assert.equal(result.outcome, "http");
 
-    if (result.outcome === "http") {
-      assert.equal(result.status, 302);
-      assert.equal(result.succeeded, false);
-      assert.deepEqual(result.body, {
-        redirect: true,
-        location: "https://downloads.example.com/blob",
-      });
-      assert.ok(!JSON.stringify(result.body).includes("SECRET"), "signed query must be redacted");
-    }
+    assert.equal(result.status, 302);
+    assert.equal(result.succeeded, false);
+    assert.deepEqual(result.body, {
+      redirect: true,
+      location: "https://downloads.example.com/blob",
+    });
+    assert.ok(!JSON.stringify(result.body).includes("SECRET"), "signed query must be redacted");
   });
 
   test("a binary response is represented by content type + byte count, succeeded:false, no bytes", async () => {
@@ -260,15 +254,13 @@ describe("runRestPassthrough — HTTP envelope", () => {
 
     assert.equal(result.outcome, "http");
 
-    if (result.outcome === "http") {
-      assert.equal(result.succeeded, false);
-      assert.deepEqual(result.body, {
-        binary: true,
-        contentType: "image/png",
-        byteCount: png.byteLength,
-        note: "Binary response omitted from the transcript. Use a curated download/export tool for the bytes.",
-      });
-    }
+    assert.equal(result.succeeded, false);
+    assert.deepEqual(result.body, {
+      binary: true,
+      contentType: "image/png",
+      byteCount: png.byteLength,
+      note: "Binary response omitted from the transcript. Use a curated download/export tool for the bytes.",
+    });
   });
 });
 
@@ -289,10 +281,8 @@ describe("runRestPassthrough — failure classification (never throws)", () => {
 
     assert.equal(result.outcome, "transport");
 
-    if (result.outcome === "transport") {
-      assert.equal(result.kind, "timeout");
-      assert.equal(result.retryable, true);
-    }
+    assert.equal(result.kind, "timeout");
+    assert.equal(result.retryable, true);
   });
 
   test("a URL that escapes the pinned namespace is a fail-closed invalid_path rejection", async () => {
@@ -321,6 +311,6 @@ describe("runRestPassthrough — failure classification (never throws)", () => {
     assert.equal(fetched, false);
     assert.equal(result.outcome, "rejected");
 
-    if (result.outcome === "rejected") assert.equal(result.reason, "invalid_path");
+    assert.equal(result.reason, "invalid_path");
   });
 });

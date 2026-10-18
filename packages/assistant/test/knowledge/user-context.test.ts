@@ -229,8 +229,8 @@ describe("readUserContext (DB-backed)", { skip: SKIP }, () => {
     assert.equal(ctx.confirmedFacts.length, 0, "facts section stays omitted when not requested");
     // Storage keys `employer`/`work_summary` map to DTO fields `currentCompany`/`currentWork`.
     assert.equal(ctx.profile?.currentCompany, "Oliv AI");
-    assert.equal(ctx.profile?.currentWork, "building Alfred");
-    assert.equal(ctx.profile?.bioSummary, "Yash works on Alfred at Oliv AI");
+    assert.equal(ctx.profile.currentWork, "building Alfred");
+    assert.equal(ctx.profile.bioSummary, "Yash works on Alfred at Oliv AI");
   });
 
   test("profile identity prefers trusted user facts over newer document noise", async () => {
@@ -269,9 +269,9 @@ describe("readUserContext (DB-backed)", { skip: SKIP }, () => {
     const ctx = await readUserContext(userId);
 
     assert.equal(ctx.profile?.currentCompany, "Oliv AI");
-    assert.equal(ctx.profile?.currentRole, "Software Engineer");
+    assert.equal(ctx.profile.currentRole, "Software Engineer");
     assert.deepEqual(
-      ctx.profile?.identityFacts.map((fact) => fact.key),
+      ctx.profile.identityFacts.map((fact) => fact.key),
       ["employer", "job_title"],
     );
     assert.ok(

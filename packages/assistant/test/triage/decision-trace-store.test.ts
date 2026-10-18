@@ -241,12 +241,12 @@ describe("triage decision trace persistence (DB-backed)", { skip: SKIP }, () => 
     const rows = await traceRows(runId);
     assert.equal(rows.length, 1, "store insert and executor ctx.trace must dedupe");
     assert.equal(rows[0]?.userId, userId, "trace user is derived from the run row");
-    assert.equal(rows[0]?.workflowSlug, workflowSlug, "trace workflow is derived from the run row");
-    assert.equal(rows[0]?.stepId, "classify");
-    assert.equal(rows[0]?.attempt, 0);
-    assert.equal(rows[0]?.decisionKey, "default");
+    assert.equal(rows[0].workflowSlug, workflowSlug, "trace workflow is derived from the run row");
+    assert.equal(rows[0].stepId, "classify");
+    assert.equal(rows[0].attempt, 0);
+    assert.equal(rows[0].decisionKey, "default");
     assert.equal(
-      (rows[0]?.trace as SenderExtractionEvent | undefined)?.senderRelationship,
+      (rows[0].trace as SenderExtractionEvent | undefined)?.senderRelationship,
       "strong two-way",
     );
   });

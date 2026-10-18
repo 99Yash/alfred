@@ -152,7 +152,6 @@ describe("executeToolCallRound", () => {
 
         assert.equal(outcome.kind, "completed");
 
-        if (outcome.kind !== "completed") return;
         assert.deepEqual(events, ["a", "b"]);
         assert.deepEqual(
           outcome.calls.map((item) => item.call.toolCallId),
@@ -245,7 +244,6 @@ describe("executeToolCallRound", () => {
 
         assert.equal(outcome.kind, "waiting");
 
-        if (outcome.kind !== "waiting") return;
         assert.equal(outcome.wake.kind, "hil");
         assert.deepEqual(dispatched, ["child", "send"]);
       },
@@ -286,7 +284,6 @@ describe("executeToolCallRound", () => {
 
         assert.equal(outcome.kind, "completed");
 
-        if (outcome.kind !== "completed") return;
         assert.deepEqual(outcome.activeNames, [
           "calendar.list_events",
           "gmail.search",
@@ -321,11 +318,10 @@ describe("executeToolCallRound", () => {
 
         assert.equal(outcome.kind, "completed");
 
-        if (outcome.kind !== "completed") return;
         assert.equal(outcome.calls[0]?.status, "failed");
-        assert.equal(outcome.calls[0]?.execution, "completed");
+        assert.equal(outcome.calls[0].execution, "completed");
         assert.equal(outcome.calls[1]?.status, "succeeded");
-        assert.equal(outcome.calls[1]?.sanitized, true);
+        assert.equal(outcome.calls[1].sanitized, true);
       },
     );
   });

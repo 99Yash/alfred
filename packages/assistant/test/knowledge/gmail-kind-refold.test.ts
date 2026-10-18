@@ -127,7 +127,6 @@ describe("refoldActiveGmailKindProjection (DB-backed)", { skip: SKIP_DB }, () =>
     const result = await refoldActiveGmailKindProjection(userId);
     assert.equal(result.status, "activated");
 
-    if (result.status !== "activated") return;
     assert.equal(result.projectionVersion, 2);
     assert.notEqual(result.checksum, initial.checksum);
 
@@ -167,7 +166,6 @@ describe("refoldActiveGmailKindProjection (DB-backed)", { skip: SKIP_DB }, () =>
     const result = await refoldActiveGmailKindProjection(userId);
     assert.equal(result.status, "activated");
 
-    if (result.status !== "activated") return;
     assert.equal(result.projectionVersion, 2);
     assert.notEqual(result.checksum, initial.checksum);
 
@@ -200,13 +198,12 @@ describe("refoldActiveGmailKindProjection (DB-backed)", { skip: SKIP_DB }, () =>
     const result = await refoldActiveGmailKindProjection(userId);
     assert.equal(result.status, "blocked");
 
-    if (result.status !== "blocked") return;
     assert.equal(result.reason, "logic-drift");
 
     // No silent re-activation.
     const active = await userModelReader(userId).getActivePointer();
     assert.equal(active?.activeRunId, initial.runId);
-    assert.equal(active?.activeVersion, 1);
+    assert.equal(active.activeVersion, 1);
   });
 });
 

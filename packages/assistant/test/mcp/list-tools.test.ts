@@ -129,6 +129,7 @@ describe("cross-connection MCP discovery (DB-backed, offline)", { skip: SKIP }, 
       new Set(result.tools.map((hit) => hit.ref.catalogRevision)),
       new Set([firstRevision, secondRevision]),
     );
+    // oxlint-disable-next-line typescript/no-unnecessary-condition -- asserts the runtime filter output that the result type already narrows to MCP refs.
     assert.ok(result.tools.every((hit) => hit.ref.kind === "mcp"));
     assert.ok(result.tools.every((hit) => hit.ref.remoteName === "search"));
     assert.deepEqual(
@@ -322,7 +323,7 @@ describe("cross-connection MCP discovery (DB-backed, offline)", { skip: SKIP }, 
     const secondCatalogBatch = await searchMcpToolsLocal({
       userId,
       query: "target_catalog",
-      cursor: firstCatalogBatch.nextCursor ?? undefined,
+      cursor: firstCatalogBatch.nextCursor,
     });
 
     assert.deepEqual(
@@ -351,7 +352,7 @@ describe("cross-connection MCP discovery (DB-backed, offline)", { skip: SKIP }, 
       userId,
       connectionId: descriptorConnection.id,
       query: "target_descriptor",
-      cursor: firstDescriptorBatch.nextCursor ?? undefined,
+      cursor: firstDescriptorBatch.nextCursor,
     });
 
     assert.deepEqual(
@@ -485,7 +486,7 @@ describe("cross-connection MCP discovery (DB-backed, offline)", { skip: SKIP }, 
     const secondPage = await searchMcpToolsLocal({
       userId,
       query: "cross_budget_target",
-      cursor: firstPage.nextCursor ?? undefined,
+      cursor: firstPage.nextCursor,
     });
 
     assert.deepEqual(secondPage.tools, []);
@@ -494,7 +495,7 @@ describe("cross-connection MCP discovery (DB-backed, offline)", { skip: SKIP }, 
     const thirdPage = await searchMcpToolsLocal({
       userId,
       query: "cross_budget_target",
-      cursor: secondPage.nextCursor ?? undefined,
+      cursor: secondPage.nextCursor,
     });
 
     assert.deepEqual(
@@ -538,7 +539,7 @@ describe("cross-connection MCP discovery (DB-backed, offline)", { skip: SKIP }, 
       userId,
       query: "target",
       limit: 1,
-      cursor: firstPage.nextCursor ?? undefined,
+      cursor: firstPage.nextCursor,
     });
 
     assert.deepEqual(secondPage.tools, []);
@@ -548,7 +549,7 @@ describe("cross-connection MCP discovery (DB-backed, offline)", { skip: SKIP }, 
       userId,
       query: "target",
       limit: 1,
-      cursor: secondPage.nextCursor ?? undefined,
+      cursor: secondPage.nextCursor,
     });
 
     assert.deepEqual(
@@ -610,7 +611,6 @@ describe("cross-connection MCP discovery (DB-backed, offline)", { skip: SKIP }, 
     const inspected = await inspectMcpToolLocal({ userId, ref });
     assert.equal(inspected.status, "tool");
 
-    if (inspected.status !== "tool") throw new Error("unreachable");
     assert.equal(inspected.tool.name, "__proto__");
   });
 
@@ -708,7 +708,6 @@ describe("cross-connection MCP discovery (DB-backed, offline)", { skip: SKIP }, 
     const inspected = await inspectMcpToolLocal({ userId, ref });
     assert.equal(inspected.status, "tool");
 
-    if (inspected.status !== "tool") throw new Error("unreachable");
     assert.deepEqual(inspected.ref, ref);
     assert.deepEqual(inspected.connection, {
       id: connection.id,

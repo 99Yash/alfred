@@ -25,6 +25,7 @@ const RAW_EXCERPT_LIMIT = 400;
 function excerpt(raw: unknown): string {
   const text = typeof raw === "string" ? raw : JSON.stringify(raw);
 
+  // oxlint-disable-next-line typescript/no-unnecessary-condition -- JSON.stringify returns undefined for an undefined or function input; the lib type says string.
   if (text === undefined) return String(raw);
 
   return text.length > RAW_EXCERPT_LIMIT ? `${text.slice(0, RAW_EXCERPT_LIMIT)}…` : text;
