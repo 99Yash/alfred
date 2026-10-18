@@ -1185,6 +1185,30 @@ export { constants };`,
 export { DEFAULT_APPROVAL_NOTIFY_DELAY_MS };`,
   },
   {
+    name: "no-constants-re-export — a logic file star-re-exporting a constants module",
+    caught: true,
+    rule: "no-constants-re-export",
+    code: `export * from "./constants";`,
+  },
+  {
+    name: "no-constants-re-export — a logic file re-exporting a constants module as a namespace",
+    caught: true,
+    rule: "no-constants-re-export",
+    code: `export * as LIMITS from "../constants";`,
+  },
+  {
+    name: "no-constants-re-export — the ai package root barrel star-re-exports its constants",
+    caught: false,
+    file: "packages/ai/src/index.ts",
+    code: `export * from "./embeddings";
+export * from "./constants";`,
+  },
+  {
+    name: "no-constants-re-export — a star re-export of a module that is not constants",
+    caught: false,
+    code: `export * from "./prompt";`,
+  },
+  {
     name: "no-constants-re-export — the barrel may re-export a namespace of constants",
     caught: false,
     file: "packages/extraction/src/index.ts",
@@ -1969,6 +1993,23 @@ const LINE_CASES = [
     caught: true,
     rule: "humanize-integration-slug",
     code: `  const name = humanizeSlug(provider.slug);`,
+  },
+  {
+    name: "humanize-integration-slug — a provider read through an optional chain",
+    caught: true,
+    rule: "humanize-integration-slug",
+    code: "  const label = `${humanizeSlug(row?.provider)} account`;",
+  },
+  {
+    name: "humanize-integration-slug — a provider record's slug through an optional chain",
+    caught: true,
+    rule: "humanize-integration-slug",
+    code: `  const name = humanizeSlug(provider?.slug);`,
+  },
+  {
+    name: "humanize-integration-slug — a source's kind through an optional chain is a kind slug",
+    caught: false,
+    code: `  const label = humanizeSlug(source?.kind);`,
   },
   {
     name: "humanize-integration-slug — an action slug is what humanizeSlug is for",
