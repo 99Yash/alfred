@@ -250,8 +250,8 @@ async function startChrome(): Promise<{
     { stdio: ["ignore", "ignore", "pipe"] },
   );
 
-  child.stderr?.setEncoding("utf8");
-  child.stderr?.on("data", (chunk: string) => {
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk: string) => {
     stderrLines.push(...chunk.split(/\r?\n/).filter(Boolean));
 
     if (stderrLines.length > CHROME_STDERR_TAIL_LINES) {

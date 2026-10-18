@@ -81,7 +81,7 @@ interface Recorder {
 
 function recorder(args: {
   children: Array<{ id: string; status: string }>;
-  outcomes: Record<string, ChildRunOutcome>;
+  outcomes: Partial<Record<string, ChildRunOutcome>>;
 }): Recorder {
   const scheduleCalls: string[] = [];
   const published: Array<{ kind: string; payload: Record<string, unknown> }> = [];
@@ -125,11 +125,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
     const result = await guardSpawnedChildren(baseCtx(state), state, [], rec.deps);
     assert.equal(result?.kind, "interrupt");
     assert.deepEqual(rec.scheduleCalls, ["child_a"], "the dead-man timer was scheduled");
-    assert.equal(
-      result?.kind === "interrupt" ? result.wake.kind : undefined,
-      "signal",
-      "parks on the child's completion signal",
-    );
+    assert.equal(result.wake.kind, "signal", "parks on the child's completion signal");
     // No result yet, so nothing to fold.
     assert.deepEqual(state.foldedChildRunIds, []);
   });
@@ -153,7 +149,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
     assert.equal(result?.kind, "next", "a stuck child past the ceiling does not park again");
     assert.deepEqual(rec.scheduleCalls, [], "no fresh timer is armed for a past-ceiling child");
     assert.deepEqual(state.foldedChildRunIds, ["child_a"]);
-    const folded = result?.kind === "next" ? result.transcript : undefined;
+    const folded = result.transcript;
     assert.match(toDisplayText(folded?.[0]?.content), /could not be awaited/);
   });
 
@@ -176,7 +172,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
     assert.equal(result?.kind, "next");
     assert.deepEqual(rec.scheduleCalls, [], "a terminal child is never parked on");
     assert.deepEqual(state.foldedChildRunIds, ["child_a"]);
-    const folded = result?.kind === "next" ? result.transcript : undefined;
+    const folded = result.transcript;
     assert.match(
       toDisplayText(folded?.[0]?.content),
       /finished without you awaiting it — it completed/,
@@ -190,14 +186,14 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
     const result = openChatTurnRetries(transcript).afterEmptyCompletion(state);
 
     assert.equal(result?.step.kind, "next");
-    assert.equal(result?.step.state.emptyCompletionRetries, 2);
+    assert.equal(result.step.state.emptyCompletionRetries, 2);
     assert.equal(state.emptyCompletionRetries, 1, "planning does not mutate checkpoint state");
     assert.strictEqual(
-      result?.step.transcript,
+      result.step.transcript,
       transcript,
       "the empty assistant response is never appended to the retry transcript",
     );
-    assert.deepEqual({ attempt: result?.attempt, max: result?.max }, { attempt: 2, max: 2 });
+    assert.deepEqual({ attempt: result.attempt, max: result.max }, { attempt: 2, max: 2 });
   });
 
   test("the empty-completion retry budget is bounded", () => {
@@ -211,14 +207,14 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
     const result = openChatTurnRetries(transcript).afterStreamTimeout(state);
 
     assert.equal(result?.step.kind, "next");
-    assert.equal(result?.step.state.streamTimeoutRetries, 1);
+    assert.equal(result.step.state.streamTimeoutRetries, 1);
     assert.equal(state.streamTimeoutRetries, 0, "planning does not mutate checkpoint state");
     assert.strictEqual(
-      result?.step.transcript,
+      result.step.transcript,
       transcript,
       "the retry re-issues the model call from the unchanged pre-turn transcript",
     );
-    assert.deepEqual({ attempt: result?.attempt, max: result?.max }, { attempt: 1, max: 1 });
+    assert.deepEqual({ attempt: result.attempt, max: result.max }, { attempt: 1, max: 1 });
   });
 
   test("the stream-timeout retry budget is bounded to one", () => {
@@ -293,7 +289,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
       "2026-07-15T03:58:00.000Z",
       "the park preserves grounding; the wake seam decides it once the gap is known",
     );
-    const forwarded = result?.kind === "interrupt" ? (result.transcript ?? []) : [];
+    const forwarded = result.transcript ?? [];
     assert.notEqual(
       forwarded.at(-1)?.role,
       "assistant",
@@ -324,7 +320,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
 
     const result = await guardSpawnedChildren(baseCtx(state), state, prematureTail(), rec.deps);
     assert.equal(result?.kind, "next");
-    const forwarded = result?.kind === "next" ? (result.transcript ?? []) : [];
+    const forwarded = result.transcript ?? [];
     assert.equal(
       forwarded.at(-1)?.role,
       "user",
@@ -359,7 +355,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
 
     const result = await guardSpawnedChildren(baseCtx(state), state, prematureTail(), rec.deps);
     assert.equal(result?.kind, "interrupt");
-    const forwarded = result?.kind === "interrupt" ? (result.transcript ?? []) : [];
+    const forwarded = result.transcript ?? [];
     assert.equal(
       forwarded.at(-1)?.role,
       "user",

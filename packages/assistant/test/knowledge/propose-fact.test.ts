@@ -68,7 +68,7 @@ describe("proposeFact capture invariants (DB-backed, #330)", { skip: SKIP }, () 
 
     assert.ok(fact, "alias key should persist under the canonical key");
     assert.equal(fact.key, "employer");
-    assert.equal((fact.source.meta as { originalKey?: string })?.originalKey, "current_company");
+    assert.equal((fact.source.meta as { originalKey?: string }).originalKey, "current_company");
     // Nothing stored under the alias spelling.
     assert.equal((await activeRows(userId, "current_company")).length, 0);
   });
@@ -268,9 +268,9 @@ describe("proposeFact capture invariants (DB-backed, #330)", { skip: SKIP }, () 
 
     assert.equal(conflict?.status, "proposed");
 
-    const confirmedConflict = conflict ? await confirmFact(conflict.id, userId) : null;
+    const confirmedConflict = await confirmFact(conflict.id, userId);
     assert.equal(confirmedConflict?.status, "confirmed");
-    assert.equal(confirmedConflict?.supersedesId, truth?.id);
+    assert.equal(confirmedConflict.supersedesId, truth.id);
 
     const rows = await activeRows(userId, "employer");
     const confirmed = rows.filter((r) => r.status === "confirmed");

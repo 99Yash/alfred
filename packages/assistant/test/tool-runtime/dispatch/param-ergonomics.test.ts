@@ -208,10 +208,10 @@ describe("param-ergonomics: measured fumbles validate first-try through dispatch
       assert.equal(
         parsed.success,
         true,
-        parsed.success ? "" : `bounced: ${JSON.stringify(parsed.error?.issues)}`,
+        parsed.success ? "" : `bounced: ${JSON.stringify(parsed.error.issues)}`,
       );
 
-      if (parsed.success && c.expect) c.expect(parsed.data as Record<string, unknown>);
+      if (c.expect) c.expect(parsed.data as Record<string, unknown>);
     });
   }
 });

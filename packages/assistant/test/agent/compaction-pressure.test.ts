@@ -40,6 +40,7 @@ describe("authored-brief compaction pressure (#369)", () => {
     const transcriptOnlyTokens = 25;
     const nextTurnInputTokens = 125;
 
+    // oxlint-disable-next-line typescript/no-unnecessary-condition -- fixture precondition between two literal fixture values; it documents why the old guard skipped.
     assert.ok(transcriptOnlyTokens <= pressureThresholdTokens, "old transcript-only guard skips");
     assert.equal(
       shouldSkipCompaction({

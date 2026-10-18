@@ -53,8 +53,6 @@ async function remember(userId: string, email: string, label: string): Promise<s
 
   assert.equal(result.ok, true);
 
-  if (!result.ok) throw new Error("unreachable");
-
   return result.factId;
 }
 
@@ -103,7 +101,7 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
     assert.equal(instructions.length, 1);
     assert.equal(instructions[0]?.factId, factId);
     assert.equal(
-      instructions[0] && standingInstructionTargetKey(instructions[0].target),
+      standingInstructionTargetKey(instructions[0].target),
       "sender_email:noisy@example.com",
     );
     assert.deepEqual([...instructions[0].effects].sort(), [...SUPPRESSION_EFFECTS].sort());
@@ -150,7 +148,7 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
     const result = await forgetStandingInstruction({ userId, factId, reason: "user asked" });
     assert.equal(result.ok, true);
 
-    if (result.ok) assert.equal(result.status, "forgotten");
+    assert.equal(result.status, "forgotten");
 
     const after = await listStandingInstructions(userId);
     assert.equal(after.instructions.length, 0);
@@ -201,7 +199,6 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
 
     assert.equal(result.ok, true);
 
-    if (!result.ok) throw new Error("unreachable");
     assert.equal(result.status, "edited");
     assert.notEqual(result.factId, factId);
     assert.equal(result.previousFactId, factId);
@@ -209,12 +206,12 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
     const active = (await listStandingInstructions(userId)).instructions;
     assert.equal(active.length, 1);
     assert.equal(active[0]?.factId, result.factId);
-    assert.equal(active[0]?.directive, "Quietly ignore the reframed sender.");
-    const target = active[0]?.target;
-    assert.equal(target?.kind === "sender_email" ? target.label : undefined, "New Label");
+    assert.equal(active[0].directive, "Quietly ignore the reframed sender.");
+    const target = active[0].target;
+    assert.equal(target.kind === "sender_email" ? target.label : undefined, "New Label");
     // Target sender is unchanged by a reframe.
     assert.equal(
-      active[0] && standingInstructionTargetKey(active[0].target),
+      standingInstructionTargetKey(active[0].target),
       "sender_email:reframe@example.com",
     );
   });
@@ -231,7 +228,7 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
 
     assert.equal(edited.ok, true);
 
-    if (!edited.ok || edited.status !== "edited") throw new Error("unreachable");
+    if (edited.status !== "edited") throw new Error("unreachable");
 
     const forgotten = await forgetStandingInstruction({
       userId,
@@ -270,7 +267,7 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
 
     assert.equal(first.ok, true);
 
-    if (!first.ok || first.status !== "edited") throw new Error("unreachable");
+    if (first.status !== "edited") throw new Error("unreachable");
 
     assert.deepEqual(
       await editStandingInstruction({
@@ -284,7 +281,7 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
     const active = (await listStandingInstructions(userId)).instructions;
     assert.equal(active.length, 1);
     assert.equal(active[0]?.factId, first.factId);
-    assert.equal(active[0]?.directive, "Use this new wording.");
+    assert.equal(active[0].directive, "Use this new wording.");
   });
 
   test("edit with no effective change returns unchanged without creating a successor", async () => {
@@ -300,7 +297,6 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
 
     assert.equal(result.ok, true);
 
-    if (!result.ok) throw new Error("unreachable");
     assert.equal(result.status, "unchanged");
     assert.equal(result.factId, factId);
     assert.equal(

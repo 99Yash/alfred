@@ -165,8 +165,8 @@ describe("tool discovery", () => {
     });
 
     assert.equal(found[0]?.name, "gmail.search");
-    assert.equal(found[0]?.reason, "exact tool name");
-    assert.equal("inputSchema" in (found[0] ?? {}), false, "search must not expose schemas");
+    assert.equal(found[0].reason, "exact tool name");
+    assert.equal("inputSchema" in found[0], false, "search must not expose schemas");
   });
 
   test("matches aliases", () => {
@@ -177,7 +177,7 @@ describe("tool discovery", () => {
     });
 
     assert.equal(found[0]?.name, "gmail.search");
-    assert.match(found[0]?.reason ?? "", /alias/);
+    assert.match(found[0].reason, /alias/);
   });
 
   test("matches tags, entities, and verbs", () => {
@@ -452,7 +452,7 @@ describe("evaluateToolAvailability reason codes (#413)", () => {
   test("not_connected when the provider has no credential", () => {
     const result = evaluateToolAvailability(empty, search, new Set(), ctx);
     assert.equal(result.available, false);
-    assert.equal(result.available === false && result.code, "not_connected");
+    assert.equal(result.code, "not_connected");
   });
 
   test("needs_reauth when a credential exists but is not active", () => {
@@ -565,7 +565,7 @@ describe("derived-metadata discovery (#413)", () => {
 
     const create = found.find((c) => c.name === "notion.create_page");
     assert.equal(create?.availability, "unavailable");
-    assert.equal(create?.unavailableReason, "Notion is not connected.");
+    assert.equal(create.unavailableReason, "Notion is not connected.");
     const get = found.find((c) => c.name === "notion.get_page");
     assert.equal(get?.availability, "available");
     assert.ok(

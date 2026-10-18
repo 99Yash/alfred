@@ -42,7 +42,6 @@ describe("exact active tool dispatch", () => {
     assert.equal(result.kind, "inactive_tool");
     assert.equal(executions, 0);
 
-    if (result.kind !== "inactive_tool") return;
     assert.deepEqual(result.result.recovery, {
       kind: "activate_and_reissue",
       toolName: "system.read_scratch",
@@ -104,7 +103,6 @@ describe("exact active tool dispatch", () => {
     assert.equal(result.kind, "not_allowed");
     assert.equal(executions, 0);
 
-    if (result.kind !== "not_allowed") return;
     assert.equal(result.result.status, "capability_mismatch");
   });
 
@@ -125,7 +123,6 @@ describe("exact active tool dispatch", () => {
     assert.equal(result.kind, "not_allowed");
     assert.equal(executions, 0);
 
-    if (result.kind !== "not_allowed") return;
     assert.equal(result.result.status, "capability_mismatch");
   });
 
@@ -145,7 +142,6 @@ describe("exact active tool dispatch", () => {
     assert.equal(result.kind, "not_allowed");
     assert.equal(executions, 0);
 
-    if (result.kind !== "not_allowed") return;
     assert.equal(result.result.status, "capability_mismatch");
   });
 

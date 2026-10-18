@@ -122,28 +122,24 @@ describe("runFetchUrl (stubbed transport)", () => {
     const r = await runFetchUrl({ url: "ftp://example.com/x" });
     assert.equal(r.ok, false);
 
-    if (!r.ok) assert.equal(r.reason, "blocked_host");
+    assert.equal(r.reason, "blocked_host");
   });
 
   test("rejects a private host before any socket and names the host", async () => {
     const r = await runFetchUrl({ url: "http://192.168.1.1/admin" });
     assert.equal(r.ok, false);
 
-    if (!r.ok) {
-      assert.equal(r.reason, "blocked_host");
-      assert.match(r.message, /'192\.168\.1\.1'/);
-    }
+    assert.equal(r.reason, "blocked_host");
+    assert.match(r.message, /'192\.168\.1\.1'/);
   });
 
   test("rejects a URL that embeds credentials before any socket", async () => {
     const r = await runFetchUrl({ url: "https://user:pw@example.com/" });
     assert.equal(r.ok, false);
 
-    if (!r.ok) {
-      assert.equal(r.reason, "blocked_host");
-      assert.doesNotMatch(JSON.stringify(r), /user:pw/);
-      assert.match(JSON.stringify(r), /\[REDACTED]@example\.com/);
-    }
+    assert.equal(r.reason, "blocked_host");
+    assert.doesNotMatch(JSON.stringify(r), /user:pw/);
+    assert.match(JSON.stringify(r), /\[REDACTED]@example\.com/);
   });
 
   // validateUrl refuses non-default ports before any socket opens.
@@ -157,10 +153,8 @@ describe("runFetchUrl (stubbed transport)", () => {
       const r = await runFetchUrl({ url });
       assert.equal(r.ok, false);
 
-      if (!r.ok) {
-        assert.equal(r.reason, "blocked_port");
-        assert.match(r.message, new RegExp(`port ${new URL(url).port} on 'example\\.com'`));
-      }
+      assert.equal(r.reason, "blocked_port");
+      assert.match(r.message, new RegExp(`port ${new URL(url).port} on 'example\\.com'`));
     });
   }
 
@@ -178,13 +172,11 @@ describe("runFetchUrl (stubbed transport)", () => {
       const r = await runFetchUrl({ url });
       assert.equal(r.ok, false);
 
-      if (!r.ok) {
-        assert.equal(r.reason, "credential_url");
-        assert.doesNotMatch(
-          JSON.stringify(r),
-          /abc123|sk_live_42|deadbeef|\bxyz\b|zzz|spacesecret|plussecret/,
-        );
-      }
+      assert.equal(r.reason, "credential_url");
+      assert.doesNotMatch(
+        JSON.stringify(r),
+        /abc123|sk_live_42|deadbeef|\bxyz\b|zzz|spacesecret|plussecret/,
+      );
     });
   }
 
@@ -202,13 +194,11 @@ describe("runFetchUrl (stubbed transport)", () => {
 
     assert.equal(r.ok, true);
 
-    if (r.ok) {
-      assert.equal(r.title, "Yash");
-      assert.match(r.text, /Hi/);
-      assert.match(r.text, /copy/);
-      assert.equal(r.truncated, false);
-      assert.equal(r.contentType, "text/html");
-    }
+    assert.equal(r.title, "Yash");
+    assert.match(r.text, /Hi/);
+    assert.match(r.text, /copy/);
+    assert.equal(r.truncated, false);
+    assert.equal(r.contentType, "text/html");
   });
 
   // A client-rendered shell: lots of markup, no text.
@@ -225,7 +215,7 @@ describe("runFetchUrl (stubbed transport)", () => {
 
     assert.equal(r.ok, false);
 
-    if (!r.ok) assert.equal(r.reason, "empty_content");
+    assert.equal(r.reason, "empty_content");
   });
 
   test("#509 does NOT flag a small legitimately-empty page", async () => {
@@ -237,7 +227,7 @@ describe("runFetchUrl (stubbed transport)", () => {
 
     assert.equal(r.ok, true);
 
-    if (r.ok) assert.equal(r.chars, 0);
+    assert.equal(r.chars, 0);
   });
 
   test("#510 escalates empty_content to the renderer and returns its text", async () => {
@@ -255,12 +245,10 @@ describe("runFetchUrl (stubbed transport)", () => {
 
     assert.equal(r.ok, true);
 
-    if (r.ok) {
-      assert.match(r.text, /building @opencode/);
-      assert.equal(r.title, "dax (@thdxr)");
-      assert.equal(r.contentType, "text/markdown");
-      assert.equal(r.finalUrl, "https://x.com/thdxr");
-    }
+    assert.match(r.text, /building @opencode/);
+    assert.equal(r.title, "dax (@thdxr)");
+    assert.equal(r.contentType, "text/markdown");
+    assert.equal(r.finalUrl, "https://x.com/thdxr");
   });
 
   test("#510 keeps honest empty_content when the renderer yields nothing", async () => {
@@ -274,7 +262,7 @@ describe("runFetchUrl (stubbed transport)", () => {
 
     assert.equal(r.ok, false);
 
-    if (!r.ok) assert.equal(r.reason, "empty_content");
+    assert.equal(r.reason, "empty_content");
   });
 
   test("#510 does not escalate a normal readable page", async () => {
@@ -311,10 +299,8 @@ describe("runFetchUrl (stubbed transport)", () => {
 
     assert.equal(r.ok, true);
 
-    if (r.ok) {
-      assert.match(r.text, /<not a tag>/);
-      assert.equal(r.contentType, "text/plain");
-    }
+    assert.match(r.text, /<not a tag>/);
+    assert.equal(r.contentType, "text/plain");
   });
 
   test("decodes a declared non-UTF-8 charset", async () => {
@@ -330,7 +316,7 @@ describe("runFetchUrl (stubbed transport)", () => {
 
     assert.equal(r.ok, true);
 
-    if (r.ok) assert.equal(r.text, "café");
+    assert.equal(r.text, "café");
   });
 
   test("does not default unknown content to HTML", async () => {
@@ -341,7 +327,7 @@ describe("runFetchUrl (stubbed transport)", () => {
 
     assert.equal(r.ok, true);
 
-    if (r.ok) assert.equal(r.contentType, "text/plain");
+    assert.equal(r.contentType, "text/plain");
   });
 
   test("extracts text from a PDF content type", async () => {
@@ -353,10 +339,8 @@ describe("runFetchUrl (stubbed transport)", () => {
     // Fake PDF data fails extraction: an error, not a rejection.
     assert.equal(r.ok, false);
 
-    if (!r.ok) {
-      assert.equal(r.reason, "unsupported_content_type");
-      assert.match(r.message, /invalid PDF/);
-    }
+    assert.equal(r.reason, "unsupported_content_type");
+    assert.match(r.message, /invalid PDF/);
   });
 
   test("returns extracted text with proven page markers for a valid PDF", async () => {
@@ -373,11 +357,9 @@ describe("runFetchUrl (stubbed transport)", () => {
 
     assert.equal(r.ok, true);
 
-    if (r.ok) {
-      assert.match(r.text, /\[page 1\]\n.*PAGE ONE MARKER alpha/s);
-      assert.match(r.text, /\[page 2\]\n.*PAGE TWO MARKER bravo/s);
-      assert.equal(r.truncated, false);
-    }
+    assert.match(r.text, /\[page 1\]\n.*PAGE ONE MARKER alpha/s);
+    assert.match(r.text, /\[page 2\]\n.*PAGE TWO MARKER bravo/s);
+    assert.equal(r.truncated, false);
   });
 
   test("extracts a PDF served as application/octet-stream after byte sniffing", async () => {
@@ -394,10 +376,8 @@ describe("runFetchUrl (stubbed transport)", () => {
 
     assert.equal(r.ok, true);
 
-    if (r.ok) {
-      assert.match(r.text, /\[page 1\]\n.*PAGE ONE MARKER alpha/s);
-      assert.equal(r.contentType, "application/octet-stream");
-    }
+    assert.match(r.text, /\[page 1\]\n.*PAGE ONE MARKER alpha/s);
+    assert.equal(r.contentType, "application/octet-stream");
   });
 
   test("returns an empty deterministic PDF result as an honest success", async () => {
@@ -458,7 +438,7 @@ describe("runFetchUrl (stubbed transport)", () => {
     // Fake PDF data fails extraction: an error, not a rejection.
     assert.equal(r.ok, false);
 
-    if (!r.ok) assert.equal(r.reason, "unsupported_content_type");
+    assert.equal(r.reason, "unsupported_content_type");
   });
 
   test("refuses a body with a NUL byte (not UTF-8 text)", async () => {
@@ -469,7 +449,7 @@ describe("runFetchUrl (stubbed transport)", () => {
 
     assert.equal(r.ok, false);
 
-    if (!r.ok) assert.equal(r.reason, "unsupported_content_type");
+    assert.equal(r.reason, "unsupported_content_type");
   });
 
   test("refuses a body with a late NUL byte beyond the sniff head", async () => {
@@ -480,7 +460,7 @@ describe("runFetchUrl (stubbed transport)", () => {
 
     assert.equal(r.ok, false);
 
-    if (!r.ok) assert.equal(r.reason, "unsupported_content_type");
+    assert.equal(r.reason, "unsupported_content_type");
   });
 
   test("maps a transport blocked_host error (e.g. redirect into private space)", async () => {
@@ -495,10 +475,8 @@ describe("runFetchUrl (stubbed transport)", () => {
     const r = await runFetchUrl({ url: "https://example.com/redirector" }, { transport });
     assert.equal(r.ok, false);
 
-    if (!r.ok) {
-      assert.equal(r.reason, "blocked_host");
-      assert.equal(r.finalUrl, "http://169.254.169.254/");
-    }
+    assert.equal(r.reason, "blocked_host");
+    assert.equal(r.finalUrl, "http://169.254.169.254/");
   });
 
   test("surfaces an HTTP error status", async () => {
@@ -509,10 +487,8 @@ describe("runFetchUrl (stubbed transport)", () => {
 
     assert.equal(r.ok, false);
 
-    if (!r.ok) {
-      assert.equal(r.reason, "http_error");
-      assert.match(r.message, /404/);
-    }
+    assert.equal(r.reason, "http_error");
+    assert.match(r.message, /404/);
   });
 
   test("disposes the body when surfacing an HTTP error", async () => {
@@ -544,7 +520,7 @@ describe("runFetchUrl (stubbed transport)", () => {
 
     assert.equal(r.ok, false);
 
-    if (!r.ok) assert.equal(r.reason, "too_large");
+    assert.equal(r.reason, "too_large");
   });
 
   test("disposes the body when declared content-length is too large", async () => {
@@ -583,7 +559,7 @@ describe("runFetchUrl (stubbed transport)", () => {
 
     assert.equal(r.ok, false);
 
-    if (!r.ok) assert.equal(r.reason, "too_large");
+    assert.equal(r.reason, "too_large");
   });
 
   test("#293 redacts a credential fragment on the OK path (fragment is fetched, not blocked)", async () => {
@@ -595,11 +571,9 @@ describe("runFetchUrl (stubbed transport)", () => {
 
     assert.equal(r.ok, true);
 
-    if (r.ok) {
-      assert.match(r.url, /access_token=\[REDACTED\]/);
-      assert.match(r.url, /state=ok/); // non-credential params survive
-      assert.doesNotMatch(r.url, /secretfrag/);
-    }
+    assert.match(r.url, /access_token=\[REDACTED\]/);
+    assert.match(r.url, /state=ok/); // non-credential params survive
+    assert.doesNotMatch(r.url, /secretfrag/);
   });
 
   test("#293 redacts credential params in finalUrl and the redirect chain", async () => {
@@ -616,12 +590,10 @@ describe("runFetchUrl (stubbed transport)", () => {
     const r = await runFetchUrl({ url: "https://example.com/start" }, { transport });
     assert.equal(r.ok, true);
 
-    if (r.ok) {
-      assert.match(r.finalUrl, /token=\[REDACTED\]/);
-      assert.match(r.finalUrl, /page=2/);
-      assert.deepEqual(r.redirects, ["https://example.com/start?sig=[REDACTED]"]);
-      assert.doesNotMatch(JSON.stringify(r), /finalsecret|hopsecret/);
-    }
+    assert.match(r.finalUrl, /token=\[REDACTED\]/);
+    assert.match(r.finalUrl, /page=2/);
+    assert.deepEqual(r.redirects, ["https://example.com/start?sig=[REDACTED]"]);
+    assert.doesNotMatch(JSON.stringify(r), /finalsecret|hopsecret/);
   });
 
   test("truncates a body past the char cap and flags it", async () => {
@@ -637,10 +609,8 @@ describe("runFetchUrl (stubbed transport)", () => {
 
     assert.equal(r.ok, true);
 
-    if (r.ok) {
-      assert.equal(r.truncated, true);
-      assert.equal(r.chars, FETCH_URL_MAX_TEXT_CHARS);
-    }
+    assert.equal(r.truncated, true);
+    assert.equal(r.chars, FETCH_URL_MAX_TEXT_CHARS);
   });
 });
 
@@ -906,6 +876,6 @@ describe("safeRequest (manual redirect re-validation)", () => {
     const r = await runFetchUrl({ url: "https://start.example/" }, { transport });
     assert.equal(r.ok, true);
 
-    if (r.ok) assert.deepEqual(r.redirects, ["https://start.example/"]);
+    assert.deepEqual(r.redirects, ["https://start.example/"]);
   });
 });

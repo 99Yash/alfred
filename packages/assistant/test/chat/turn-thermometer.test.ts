@@ -94,9 +94,9 @@ describe("emitTurnPhaseThermometer", () => {
 
     assert.equal(opened.length, 1);
     assert.equal(opened[0]?.name, RUNTIME_TURN_PHASES);
-    assert.equal(opened[0]?.runId, "run_1");
-    assert.equal(opened[0]?.startedAt, startedAt);
-    assert.deepEqual(opened[0]?.metadata, { turns: 2 });
+    assert.equal(opened[0].runId, "run_1");
+    assert.equal(opened[0].startedAt, startedAt);
+    assert.deepEqual(opened[0].metadata, { turns: 2 });
   });
 
   test("folds the three phase readings plus the precomputed dispatch share at end", () => {
@@ -151,7 +151,7 @@ describe("emitTurnPhaseThermometer", () => {
     );
 
     assert.equal(ended[0]?.status, "failed");
-    assert.equal(ended[0]?.level, "ERROR");
+    assert.equal(ended[0].level, "ERROR");
   });
 
   test("buildTurnPhaseSpanInput backdates to the run start for derived duration", () => {

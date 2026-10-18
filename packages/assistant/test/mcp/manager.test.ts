@@ -134,9 +134,9 @@ describe("mcp connection manager (DB-backed)", { skip: SKIP }, () => {
 
     const row = await readConnection(connId);
     assert.equal(row?.status, "ready");
-    assert.equal(row?.negotiatedProtocolVersion, "2025-11-25");
-    assert.ok(row?.currentCatalogRevisionId);
-    assert.ok(row?.lastConnectedAt);
+    assert.equal(row.negotiatedProtocolVersion, "2025-11-25");
+    assert.ok(row.currentCatalogRevisionId);
+    assert.ok(row.lastConnectedAt);
   });
 
   test("refreshCatalog is idempotent then advances on a catalog change", async () => {
@@ -173,8 +173,8 @@ describe("mcp connection manager (DB-backed)", { skip: SKIP }, () => {
 
     const second = await readConnection(connId);
     assert.equal(second?.status, "ready");
-    assert.ok(second?.currentCatalogRevisionId);
-    assert.notEqual(second?.currentCatalogRevisionId, first.currentCatalogRevisionId);
+    assert.ok(second.currentCatalogRevisionId);
+    assert.notEqual(second.currentCatalogRevisionId, first.currentCatalogRevisionId);
   });
 
   test("callTool routes through the ready client against the live revision", async () => {
@@ -210,7 +210,7 @@ describe("mcp connection manager (DB-backed)", { skip: SKIP }, () => {
 
     const row = await readConnection(connId);
     assert.equal(row?.status, "failed");
-    const lastError = row?.lastError ?? "";
+    const lastError = row.lastError ?? "";
     assert.ok(!lastError.includes(secret), "the upstream body's token must not be persisted");
     assert.match(lastError, /\[\+\d+ chars\]$/, "an over-long body must read as clipped");
     assert.ok(lastError.length < 600, `lastError should be bounded, got ${lastError.length}`);

@@ -87,15 +87,15 @@ describe("object-state adapter — exact references", () => {
       assert.equal(result.sources[0]?.status, "ok");
       assert.ok(card);
       assert.equal(card.object?.stateCategory, "resolved");
-      assert.equal(card.object?.nativeState, "merged");
-      assert.equal(card.object?.provider, "github");
-      assert.equal(card.object?.kind, "pull_request");
-      assert.equal(card.object?.externalId, "101");
-      assert.equal(card.object?.title, "Fix the bug");
-      assert.equal(card.object?.url, "https://github.com/o/r/pull/101");
-      assert.equal(card.object?.repo, "o/r");
+      assert.equal(card.object.nativeState, "merged");
+      assert.equal(card.object.provider, "github");
+      assert.equal(card.object.kind, "pull_request");
+      assert.equal(card.object.externalId, "101");
+      assert.equal(card.object.title, "Fix the bug");
+      assert.equal(card.object.url, "https://github.com/o/r/pull/101");
+      assert.equal(card.object.repo, "o/r");
       assert.equal(card.time?.freshness, "ingested");
-      assert.equal(card.time?.observedAt, "2026-06-02T00:00:00.000Z");
+      assert.equal(card.time.observedAt, "2026-06-02T00:00:00.000Z");
       assert.equal(card.source.id, "object-state");
     });
   });
@@ -117,7 +117,7 @@ describe("object-state adapter — exact references", () => {
       const card = result.evidence[0];
       assert.ok(card);
       assert.equal(card.object?.stateCategory, "active");
-      assert.equal(card.object?.nativeState, "open");
+      assert.equal(card.object.nativeState, "open");
       assert.equal(card.time?.freshness, "ingested");
     });
   });
@@ -200,10 +200,7 @@ describe("object-state adapter — exact references", () => {
       // `skipped`, not `empty`: "never asked" must not read as "asked and found nothing".
       assert.equal(result.evidence.length, 0);
       assert.equal(result.sources[0]?.status, "skipped");
-      assert.equal(
-        result.sources[0]?.status === "skipped" ? result.sources[0].reason : undefined,
-        "no-answering-read",
-      );
+      assert.equal(result.sources[0].reason, "no-answering-read");
     });
   });
 });

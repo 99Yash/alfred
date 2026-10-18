@@ -48,11 +48,11 @@ describe("github reducer (pure)", () => {
     for (const action of ["opened", "synchronize", "reopened"]) {
       const [delta] = reduceGithubEvent("pull_request", action, prPayload(7, SHA_A));
       assert.ok(delta, `${action} should produce a delta`);
-      assert.equal(delta?.kind, "pull_request");
-      assert.equal(delta?.externalId, "7");
-      assert.equal(delta?.nativeState, "open");
+      assert.equal(delta.kind, "pull_request");
+      assert.equal(delta.externalId, "7");
+      assert.equal(delta.nativeState, "open");
       assert.deepEqual(
-        delta?.keys.find((k) => k.keyKind === "head_sha"),
+        delta.keys.find((k) => k.keyKind === "head_sha"),
         { keyKind: "head_sha", keyValue: SHA_A },
       );
     }
@@ -86,7 +86,7 @@ describe("github reducer (pure)", () => {
 
     assert.equal(first?.externalId, "111");
     assert.equal(second?.externalId, "222");
-    assert.notEqual(first?.externalId, second?.externalId);
+    assert.notEqual(first.externalId, second.externalId);
   });
 
   test("non-lifecycle actions and non-PR events are no-ops", () => {
@@ -219,11 +219,11 @@ describe("objectStateStore contract (DB-backed)", { skip: SKIP }, () => {
 
     const ref = await objectStateStore.resolveByKey(userId, "github", "head_sha", SHA_A);
     assert.ok(ref, "head_sha should resolve to the PR");
-    assert.equal(ref?.externalId, "101");
+    assert.equal(ref.externalId, "101");
 
     const state = await objectStateStore.getState(userId, ref!);
     assert.equal(state?.stateCategory, "resolved");
-    assert.equal(state?.nativeState, "merged");
+    assert.equal(state.nativeState, "merged");
     assert.equal(
       closesOpenAsk("github", "pull_request", state!.stateCategory, "stored_projection"),
       "resolved",

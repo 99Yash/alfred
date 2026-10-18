@@ -103,7 +103,6 @@ describe("buildOrgAffiliationObservationInput", () => {
 
     assert.equal(res.ok, true);
 
-    if (!res.ok) return;
     assert.equal(res.domainClass, "corporate_domain");
     assert.deepEqual(res.input.payload, {
       accountId: "108412341234123412341",
@@ -126,7 +125,6 @@ describe("buildOrgAffiliationObservationInput", () => {
       const res = buildOrgAffiliationObservationInput(cred({}), { status, occurredAt: T0 });
       assert.equal(res.ok, true);
 
-      if (!res.ok) return;
       // The boundary re-derives domainClass and re-checks the hosted domain; a throw means a bad row.
       assert.doesNotThrow(() => observationInsertSchema.parse(res.input));
     }
@@ -140,7 +138,6 @@ describe("buildOrgAffiliationObservationInput", () => {
 
     assert.equal(res.ok, true);
 
-    if (!res.ok) return;
     assert.equal(res.domainClass, "consumer_email");
     assert.equal(getPath(res.input.payload, "verifiedHostedDomain"), null);
     assert.equal(getStringPath(res.input.payload, "orgDomain"), "gmail.com");
@@ -155,7 +152,6 @@ describe("buildOrgAffiliationObservationInput", () => {
 
     assert.equal(res.ok, true);
 
-    if (!res.ok) return;
     assert.equal(res.domainClass, "ambiguous_domain");
     assert.equal(getPath(res.input.payload, "verifiedHostedDomain"), null);
     assert.doesNotThrow(() => observationInsertSchema.parse(res.input));
@@ -170,7 +166,6 @@ describe("buildOrgAffiliationObservationInput", () => {
 
     assert.equal(res.ok, true);
 
-    if (!res.ok) return;
     assert.equal(res.domainClass, "corporate_domain");
     assert.equal(getPath(res.input.payload, "verifiedHostedDomain"), "oliv.ai");
     assert.equal(getStringPath(res.input.payload, "orgDomain"), "oliv.ai");
@@ -186,7 +181,6 @@ describe("buildOrgAffiliationObservationInput", () => {
 
     assert.equal(res.ok, true);
 
-    if (!res.ok) return;
     assert.equal(res.domainClass, "service_or_role_account");
     assert.doesNotThrow(() => observationInsertSchema.parse(res.input));
   });
@@ -199,7 +193,6 @@ describe("buildOrgAffiliationObservationInput", () => {
 
     assert.equal(res.ok, true);
 
-    if (!res.ok) return;
     assert.equal(getStringPath(res.input.payload, "accountEmail"), "yash.k@oliv.ai");
     assert.equal(getStringPath(res.input.payload, "orgDomain"), "oliv.ai");
   });
@@ -222,7 +215,6 @@ describe("buildOrgAffiliationObservationInput", () => {
 
       assert.equal(res.ok, false);
 
-      if (res.ok) return;
       assert.equal(res.reason, reason);
     });
   }
@@ -344,9 +336,9 @@ describe("recordOrgAffiliation lifecycle (DB-backed)", { skip: SKIP_DB }, () => 
     assert.equal(getStringPath(rows[0]?.payload, "status"), "connected");
     assert.equal(rows[0]?.supersedesObservationId, null);
     assert.equal(getStringPath(rows[1]?.payload, "status"), "disconnected");
-    assert.equal(rows[1]?.supersedesObservationId, rows[0]?.id);
+    assert.equal(rows[1]?.supersedesObservationId, rows[0].id);
     assert.equal(getStringPath(rows[2]?.payload, "status"), "connected");
-    assert.equal(rows[2]?.supersedesObservationId, rows[1]?.id);
+    assert.equal(rows[2]?.supersedesObservationId, rows[1].id);
 
     const [head] = await db()
       .select({ headObservationId: observationFamilyHeads.headObservationId })
@@ -358,7 +350,7 @@ describe("recordOrgAffiliation lifecycle (DB-backed)", { skip: SKIP_DB }, () => 
         ),
       );
 
-    assert.equal(head?.headObservationId, rows[2]?.id);
+    assert.equal(head?.headObservationId, rows[2].id);
   });
 
   test("same Google account changing domains disconnects the old family and connects the new one at change time", async () => {
@@ -498,6 +490,6 @@ describe("recordOrgAffiliation lifecycle (DB-backed)", { skip: SKIP_DB }, () => 
     assert.equal(rows[0]?.occurredAt.getTime(), connectAt.getTime());
     assert.equal(getStringPath(rows[1]?.payload, "domainClass"), "corporate_domain");
     assert.equal(rows[1]?.occurredAt.getTime(), changedAt.getTime());
-    assert.equal(rows[1]?.supersedesObservationId !== null, true);
+    assert.equal(rows[1].supersedesObservationId !== null, true);
   });
 });

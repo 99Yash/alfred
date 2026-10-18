@@ -202,14 +202,14 @@ describe("per-step stale-lease window honored by lease + sweep (DB-backed)", { s
     assert.equal(leased.kind, "none", "a live wide-window turn must not be reclaimed at 60s");
     const row = await runRow(runId);
     assert.equal(row?.status, "running", "the run stays owned by the presumed-live worker");
-    assert.equal(row?.attempt, 3, "attempt is NOT bumped — no reclaim, no duplicate model call");
+    assert.equal(row.attempt, 3, "attempt is NOT bumped — no reclaim, no duplicate model call");
   });
 
   test("leaseRun reclaims a wide-window step once its window elapses", async () => {
     const runId = await seedRunningRun("wide-step", ago(WIDE_MS + 60_000));
     const leased = await leaseRun(runId);
     assert.equal(leased.kind, "leased", "past the wide window, a dead worker is reclaimed");
-    assert.equal(leased.kind === "leased" ? leased.attempt : undefined, 4, "reclaim bumps attempt");
+    assert.equal(leased.attempt, 4, "reclaim bumps attempt");
   });
 
   test("leaseRun keeps the 60s default for a step that declares no window", async () => {

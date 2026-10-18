@@ -155,7 +155,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
 
     const read = await readConnection(connId);
     assert.equal(read?.status, "disconnected");
-    assert.deepEqual(read?.grantedScopes, []);
+    assert.deepEqual(read.grantedScopes, []);
 
     const updated = await updateConnection(connId, { status: "ready", lastError: null });
     assert.equal(updated?.status, "ready");
@@ -180,9 +180,9 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     });
 
     assert.equal(renamed?.label, "Renamed");
-    assert.equal(renamed?.instanceKey, "default");
-    assert.equal(renamed?.status, "ready");
-    assert.equal(renamed?.lastError, "kept");
+    assert.equal(renamed.instanceKey, "default");
+    assert.equal(renamed.status, "ready");
+    assert.equal(renamed.lastError, "kept");
   });
 
   test("deleteOwnedConnection is owner-scoped and refuses an unresolved invocation", async () => {
@@ -337,8 +337,8 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     assert.equal(renamed.credentialId, personalCredential.id);
     assert.equal(renamed.currentCatalogRevisionId, revision.id);
     assert.equal(unchangedWork?.label, "Work");
-    assert.equal(unchangedWork?.credentialId, workCredential.id);
-    assert.equal(unchangedWork?.currentCatalogRevisionId, null);
+    assert.equal(unchangedWork.credentialId, workCredential.id);
+    assert.equal(unchangedWork.currentCatalogRevisionId, null);
   });
 
   test("a same-owner connection cannot select a sibling OAuth credential", async () => {
@@ -704,7 +704,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     });
     policy = await readToolPolicy(connId, "create_issue", "sha256:desc1");
     assert.equal(policy?.riskTier, "low");
-    assert.equal(policy?.policyRevision, 2);
+    assert.equal(policy.policyRevision, 2);
 
     // A different descriptor hash is a miss: drift does not reuse a downgrade.
     assert.equal(await readToolPolicy(connId, "create_issue", "sha256:DRIFT"), undefined);
@@ -743,7 +743,6 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
 
     assert.equal(identity.status, "resolved");
 
-    if (identity.status !== "resolved") return;
     assert.equal(identity.connection.id, connId);
     assert.equal(identity.connection.currentCatalogRevisionId, revision.id);
     assert.equal(identity.descriptorHash, searchHash);
@@ -805,7 +804,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
 
     // The broker can read WHY it is blocked.
     const blocking = await findUnresolvedBarrier(barrierKey);
-    assert.ok(first.ok && blocking?.id === first.invocation.id);
+    assert.ok(blocking?.id === first.invocation.id);
 
     // Resolving the prior frees the barrier, so an identical insert now succeeds.
     assert.ok(first.ok);
@@ -905,8 +904,8 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
     assert.ok(byId.get(prepared.id)?.resolvedAt);
     const write = byId.get(writeInflight.id);
     assert.equal(write?.resolvedAt, null);
-    assert.equal(write?.effectOutcome, "unknown");
-    assert.equal(write?.retryDisposition, "blocked");
+    assert.equal(write.effectOutcome, "unknown");
+    assert.equal(write.retryDisposition, "blocked");
 
     const [writeStaging] = await db()
       .select({ outcome: actionStagings.outcome })
@@ -946,8 +945,8 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       .where(eq(mcpInvocation.id, crashed.id));
 
     assert.equal(recovered?.effectOutcome, "unknown");
-    assert.equal(recovered?.retryDisposition, "blocked");
-    assert.equal(recovered?.resolvedAt, null);
+    assert.equal(recovered.retryDisposition, "blocked");
+    assert.equal(recovered.resolvedAt, null);
 
     const [recoveredStaging] = await db()
       .select({ outcome: actionStagings.outcome })

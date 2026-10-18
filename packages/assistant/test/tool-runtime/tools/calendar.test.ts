@@ -199,7 +199,7 @@ describe("calendarListEventsInput window-key synonyms", () => {
       const r = calendarListEventsInput.safeParse({ [key]: "tomorrow" });
       assert.equal(r.success, true);
 
-      if (r.success) assert.equal((r.data as { window?: string }).window, "tomorrow");
+      assert.equal((r.data as { window?: string }).window, "tomorrow");
     });
   }
 
@@ -217,10 +217,8 @@ describe("calendarListEventsInput window-key synonyms", () => {
     const r = calendarListEventsInput.safeParse({ window: "tomorrow", partOfDay: "morning" });
     assert.equal(r.success, true);
 
-    if (r.success) {
-      assert.equal((r.data as { window?: string }).window, "tomorrow");
-      assert.equal((r.data as { partOfDay?: string }).partOfDay, "morning");
-    }
+    assert.equal((r.data as { window?: string }).window, "tomorrow");
+    assert.equal((r.data as { partOfDay?: string }).partOfDay, "morning");
   });
 
   test("still accepts the canonical window verbatim", () => {

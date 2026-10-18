@@ -50,7 +50,7 @@ describe("passthrough preference gate (feature_disabled)", () => {
 
     assert.equal(result.available, false);
 
-    if (!result.available) assert.equal(result.code, "feature_disabled");
+    assert.equal(result.code, "feature_disabled");
   });
 
   test("an explicitly-off preference is feature_disabled", () => {
@@ -63,7 +63,7 @@ describe("passthrough preference gate (feature_disabled)", () => {
 
     assert.equal(result.available, false);
 
-    if (!result.available) assert.equal(result.code, "feature_disabled");
+    assert.equal(result.code, "feature_disabled");
   });
 
   test("preference ON + integration connected → available", () => {
@@ -87,7 +87,7 @@ describe("passthrough preference gate (feature_disabled)", () => {
 
     assert.equal(result.available, false);
 
-    if (!result.available) assert.equal(result.code, "feature_disabled");
+    assert.equal(result.code, "feature_disabled");
   });
 
   test("preference ON but integration disconnected → honest connection reason, not feature_disabled", () => {
@@ -100,7 +100,7 @@ describe("passthrough preference gate (feature_disabled)", () => {
 
     assert.equal(result.available, false);
 
-    if (!result.available) assert.equal(result.code, "not_connected");
+    assert.equal(result.code, "not_connected");
   });
 
   test("preference ON but integration needs reauth → needs_reauth, not feature_disabled", () => {
@@ -113,6 +113,6 @@ describe("passthrough preference gate (feature_disabled)", () => {
 
     assert.equal(result.available, false);
 
-    if (!result.available) assert.equal(result.code, "needs_reauth");
+    assert.equal(result.code, "needs_reauth");
   });
 });

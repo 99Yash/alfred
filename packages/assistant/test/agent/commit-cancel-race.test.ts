@@ -327,14 +327,14 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
 
     assert.equal(outcome.kind, "skipped", "the commit onto a cancelled run is a benign skip");
     assert.equal(
-      outcome.kind === "skipped" ? outcome.reason : undefined,
+      outcome.reason,
       TERMINAL_SKIP_REASON,
       "and is reported as a terminal-status miss, not a lease reclaim",
     );
     const run = await readRun(runId);
-    assert.equal(run?.status, "cancelled", "the run is NOT resurrected to runnable");
-    assert.equal(run?.currentStep, STEP, "the run did NOT advance to the next step");
-    assert.equal(run?.attempt, 5, "the stale commit did not bump the attempt");
+    assert.equal(run.status, "cancelled", "the run is NOT resurrected to runnable");
+    assert.equal(run.currentStep, STEP, "the run did NOT advance to the next step");
+    assert.equal(run.attempt, 5, "the stale commit did not bump the attempt");
   });
 
   test("a cancel during the step body survives a step throw (no terminal-fail rewrite)", async () => {
@@ -347,9 +347,9 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
     const outcome = await runOnce(runId);
 
     assert.equal(outcome.kind, "skipped");
-    assert.equal(outcome.kind === "skipped" ? outcome.reason : undefined, TERMINAL_SKIP_REASON);
+    assert.equal(outcome.reason, TERMINAL_SKIP_REASON);
     const run = await readRun(runId);
-    assert.equal(run?.status, "cancelled", "the cancel reason is preserved over `failed`");
+    assert.equal(run.status, "cancelled", "the cancel reason is preserved over `failed`");
   });
 
   test("a cancelled run is not completed by a late `done` commit", async () => {
@@ -372,8 +372,8 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
     );
 
     assert.equal(outcome.kind, "skipped");
-    assert.equal(outcome.kind === "skipped" ? outcome.reason : undefined, TERMINAL_SKIP_REASON);
-    assert.equal((await readRun(runId))?.status, "cancelled");
+    assert.equal(outcome.reason, TERMINAL_SKIP_REASON);
+    assert.equal((await readRun(runId)).status, "cancelled");
     assert.deepEqual(
       terminalCalls,
       [{ runId, outcome: "cancelled", reason: "user_stopped" }],
@@ -420,8 +420,8 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
     assert.equal(await cancelRun({ runId, reason: "user_stopped" }), "cancelled");
 
     const run = await readRun(runId);
-    assert.equal(run?.status, "cancelled");
-    assert.equal(run?.cancellationGeneration, 1, "#559b: the fence advanced exactly once");
+    assert.equal(run.status, "cancelled");
+    assert.equal(run.cancellationGeneration, 1, "#559b: the fence advanced exactly once");
 
     const rows = await db()
       .select({
@@ -441,7 +441,7 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
     const unknownRow = rows.find((r) => r.toolCallId === "call_unknown");
 
     assert.equal(pendingRow?.status, "rejected", "the pending approval is rejected by cancel");
-    assert.equal(pendingRow?.rejectReason, "user_stopped", "the rejection records the cancel");
+    assert.equal(pendingRow.rejectReason, "user_stopped", "the rejection records the cancel");
     assert.equal(doneRow?.status, "executed", "a completed effect is preserved");
     assert.equal(
       unknownRow?.status,
@@ -481,15 +481,15 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
     );
 
     assert.equal(outcome.kind, "skipped");
-    assert.equal(outcome.kind === "skipped" ? outcome.reason : undefined, TERMINAL_SKIP_REASON);
+    assert.equal(outcome.reason, TERMINAL_SKIP_REASON);
     assert.equal(
       await countApprovalRequests(userId),
       0,
       "no approval was requested on a cancelled run whose stagings are already rejected",
     );
     const run = await readRun(runId);
-    assert.equal(run?.status, "cancelled", "the run is NOT parked back into waiting");
-    assert.equal(run?.wakeCondition, null, "the cancel's nulled wake condition survives");
+    assert.equal(run.status, "cancelled", "the run is NOT parked back into waiting");
+    assert.equal(run.wakeCondition, null, "the cancel's nulled wake condition survives");
     assert.deepEqual(await readStagingStatuses(runId), ["rejected"]);
   });
 
@@ -540,7 +540,7 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
     const outcome = await runOnce(runId);
 
     assert.equal(outcome.kind, "skipped", "the commit still rolls back");
-    assert.equal(outcome.kind === "skipped" ? outcome.reason : undefined, TERMINAL_SKIP_REASON);
+    assert.equal(outcome.reason, TERMINAL_SKIP_REASON);
     assert.deepEqual(
       terminalCalls,
       [{ runId, outcome: "cancelled", reason: "user_stopped" }],
@@ -632,25 +632,25 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
       [parked, "a parked child"],
     ] as const) {
       const child = await readRun(childRunId);
-      assert.equal(child?.status, "cancelled", `${label} is cancelled with its parent`);
+      assert.equal(child.status, "cancelled", `${label} is cancelled with its parent`);
       assert.equal(
-        getStringPath(child?.error, "reason"),
+        getStringPath(child.error, "reason"),
         "parent_run_cancelled",
         `${label} records WHY it stopped, not the parent's own reason`,
       );
       assert.equal(
-        child?.cancellationGeneration,
+        child.cancellationGeneration,
         1,
         `${label} advanced its OWN fence — its dispatch gate reads no other`,
       );
     }
 
     const done = await readRun(finished);
-    assert.equal(done?.status, "completed", "a child that already finished is left alone");
-    assert.equal(done?.cancellationGeneration, 0, "…and its fence never moved");
+    assert.equal(done.status, "completed", "a child that already finished is left alone");
+    assert.equal(done.cancellationGeneration, 0, "…and its fence never moved");
 
     const untouched = await readRun(stranger);
-    assert.equal(untouched?.status, "running", "another parent's child keeps running");
+    assert.equal(untouched.status, "running", "another parent's child keeps running");
   });
 
   test("#559b: a cascaded child sweeps its own stagings", async () => {
@@ -697,7 +697,7 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
       .where(eq(actionStagings.runId, childRunId));
 
     assert.equal(
-      rejected?.reason,
+      rejected.reason,
       "You stopped this run.",
       "the user-facing text stays the parent's — the user decided once, about one run",
     );
@@ -783,9 +783,9 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
       "reported as superseded so the caller skips instead of failing",
     );
     const run = await readRun(runId);
-    assert.equal(run?.status, "cancelled", "the run is NOT rewritten to failed");
-    assert.deepEqual(run?.error, cancelled?.error, "the cancel's reason payload is intact");
-    assert.deepEqual(run?.endedAt, cancelled?.endedAt, "and so is its endedAt");
+    assert.equal(run.status, "cancelled", "the run is NOT rewritten to failed");
+    assert.deepEqual(run.error, cancelled.error, "the cancel's reason payload is intact");
+    assert.deepEqual(run.endedAt, cancelled.endedAt, "and so is its endedAt");
     assert.deepEqual(terminalCalls, [], "and no failure closure ran on a cancelled turn");
     assert.deepEqual(
       await readFailedRunFrames(userId, runId),
@@ -809,7 +809,7 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
     );
 
     assert.equal(cause, null, "not superseded");
-    assert.equal((await readRun(runId))?.status, "failed");
+    assert.equal((await readRun(runId)).status, "failed");
     // This frame releases the client's replay barrier.
     assert.equal(
       (await readFailedRunFrames(userId, runId)).length,
@@ -835,13 +835,13 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
 
     assert.equal(cause, null, "not superseded");
     const run = await readRun(runId);
-    assert.equal(run?.status, "failed", "reaches terminal failed, not stuck running");
+    assert.equal(run.status, "failed", "reaches terminal failed, not stuck running");
 
     const frames = await readFailedRunFrames(userId, runId);
     assert.equal(frames.length, 1, "exactly one terminal agent.run/failed frame");
 
     const frameError = getStringPath(frames[0], "error");
-    const persisted = getStringPath(run?.error, "message");
+    const persisted = getStringPath(run.error, "message");
     assert.ok(frameError !== undefined, "the frame carries the bounded error");
     assert.ok(frameError.length <= AGENT_RUN_ERROR_MAX, "frame error is within the cap");
     assert.equal(
@@ -879,12 +879,12 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
 
     assert.equal(outcome.kind, "skipped");
     assert.equal(
-      outcome.kind === "skipped" ? outcome.reason : undefined,
+      outcome.reason,
       RECLAIM_SKIP_REASON,
       "the reclaim is reported, not the terminal status it left behind",
     );
     const run = await readRun(runId);
-    assert.equal(run?.status, "completed", "and the winner's terminal status is untouched");
-    assert.equal(run?.attempt, 4);
+    assert.equal(run.status, "completed", "and the winner's terminal status is untouched");
+    assert.equal(run.attempt, 4);
   });
 });

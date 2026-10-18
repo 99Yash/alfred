@@ -134,7 +134,7 @@ test("OAuth requests carry the connection's request deadline; protocol requests 
     assert.ok(signals[0] instanceof AbortSignal, "a bare OAuth request gets a deadline");
     assert.ok(signals[1] instanceof AbortSignal, "a caller signal is kept alongside the deadline");
     caller.abort();
-    assert.equal(signals[1]?.aborted, true);
+    assert.equal(signals[1].aborted, true);
     assert.equal(signals[2], undefined, "the protocol fetch adds no signal of its own");
   } finally {
     await authorized.close();

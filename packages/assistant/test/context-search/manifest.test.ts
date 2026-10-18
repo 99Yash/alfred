@@ -255,8 +255,8 @@ describe("searchContext — an excluded source is reported, not hidden", () => {
 
       // `skipped` is its own status: "never asked" must not read as "asked and found nothing".
       assert.equal(report?.status, "skipped");
-      assert.equal(report?.status === "skipped" ? report.reason : undefined, "unavailable");
-      assert.equal(report?.evidenceCount, 0);
+      assert.equal(report.reason, "unavailable");
+      assert.equal(report.evidenceCount, 0);
     } finally {
       for (const dispose of disposers.reverse()) dispose();
     }

@@ -101,7 +101,7 @@ describe("runtime.tool_surface", () => {
     );
 
     assert.equal(ended[0]?.metadata?.loadedCount, 0);
-    assert.equal(ended[0]?.metadata?.loadedTools, null);
+    assert.equal(ended[0].metadata.loadedTools, null);
   });
 
   test("a slow cold rebuild degrades the health band", () => {
@@ -158,10 +158,10 @@ describe("runtime.tool_surface", () => {
     assert.ok(returnedToolNames.includes("calendar.list_events"));
     assert.equal(opened[0]?.name, RUNTIME_TOOL_SURFACE);
     assert.equal(ended[0]?.metadata?.activeCount, returnedToolNames.length);
-    assert.equal(ended[0]?.metadata?.kernelCount, returnedToolNames.length - 1);
-    assert.equal(ended[0]?.metadata?.loadedCount, 1);
-    assert.equal(ended[0]?.metadata?.loadedTools, "calendar.list_events");
-    assert.ok(Number(ended[0]?.metadata?.schemaBytes) > 0);
-    assert.ok(Number(ended[0]?.metadata?.schemaTokens) > 0);
+    assert.equal(ended[0].metadata.kernelCount, returnedToolNames.length - 1);
+    assert.equal(ended[0].metadata.loadedCount, 1);
+    assert.equal(ended[0].metadata.loadedTools, "calendar.list_events");
+    assert.ok(Number(ended[0].metadata.schemaBytes) > 0);
+    assert.ok(Number(ended[0].metadata.schemaTokens) > 0);
   });
 });

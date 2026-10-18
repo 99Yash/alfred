@@ -113,8 +113,8 @@ describe("chat attachment enrichment", () => {
       salientEntities: [],
       evidence: [],
     });
-    assert.equal(persisted?.provider, "google");
-    assert.equal(persisted?.model, "gemini-2.5-flash");
+    assert.equal(persisted.provider, "google");
+    assert.equal(persisted.model, "gemini-2.5-flash");
   });
 
   test("records a bounded failure category and rethrows", async () => {

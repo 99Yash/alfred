@@ -94,11 +94,7 @@ describe("lease backstop (DB-backed)", { skip: SKIP }, () => {
 
     const leased = await leaseRun(runId);
     assert.equal(leased.kind, "leased", "stale-running with no prior reclaims must re-lease");
-    assert.equal(
-      leased.kind === "leased" ? leased.attempt : undefined,
-      6,
-      "reclaim bumps the attempt",
-    );
+    assert.equal(leased.attempt, 6, "reclaim bumps the attempt");
     assert.equal(await runStatus(runId), "running", "the run stays runnable, not failed");
 
     const orphan = await db()
@@ -107,7 +103,7 @@ describe("lease backstop (DB-backed)", { skip: SKIP }, () => {
       .where(and(eq(agentSteps.runId, runId), eq(agentSteps.attempt, 5)));
 
     assert.equal(orphan[0]?.status, "failed");
-    assert.equal((orphan[0]?.error as { reason?: string })?.reason, "lease_reclaimed");
+    assert.equal((orphan[0].error as { reason?: string }).reason, "lease_reclaimed");
   });
 
   test("the 2nd reclaim still recovers (one prior reclaim, under the limit)", async () => {
@@ -134,7 +130,7 @@ describe("lease backstop (DB-backed)", { skip: SKIP }, () => {
     // `backstopped` lets the caller run workflow failure closure.
     assert.equal(leased.kind, "backstopped", "the backstop signals a terminal failure");
     assert.match(
-      leased.kind === "backstopped" ? leased.error : "",
+      leased.error,
       /not progressing/,
       "the backstop hands back the synthetic clean message",
     );
@@ -145,7 +141,7 @@ describe("lease backstop (DB-backed)", { skip: SKIP }, () => {
       .from(agentRuns)
       .where(eq(agentRuns.id, runId));
 
-    const message = (rows[0]?.error as { message?: string })?.message ?? "";
+    const message = (rows[0]?.error as { message?: string } | null | undefined)?.message ?? "";
     assert.match(message, /not progressing/, "the terminal message is the synthetic clean string");
   });
 

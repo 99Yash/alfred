@@ -49,8 +49,8 @@ describe("systemToolKernel", () => {
     for (const name of kernel) {
       const tool = getTool(name);
       assert.ok(tool, `kernel tool ${name} must be registered`);
-      assert.equal(tool?.integration, "system");
-      assert.equal(tool?.availability?.surface, "kernel");
+      assert.equal(tool.integration, "system");
+      assert.equal(tool.availability?.surface, "kernel");
     }
   });
 

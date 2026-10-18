@@ -69,9 +69,9 @@ describe("accumulateDoc", () => {
     );
     const alice = c.get("alice.smith@acme.com");
     assert.equal(alice?.inbound, 1);
-    assert.equal(alice?.outbound, 1); // two-way → real relationship shape
-    assert.equal(alice?.firstSeenAt?.toISOString(), t1.toISOString());
-    assert.equal(alice?.lastSeenAt?.toISOString(), t2.toISOString());
+    assert.equal(alice.outbound, 1); // two-way → real relationship shape
+    assert.equal(alice.firstSeenAt?.toISOString(), t1.toISOString());
+    assert.equal(alice.lastSeenAt?.toISOString(), t2.toISOString());
   });
 
   test("a noreply/service envelope is not captured as a person", () => {

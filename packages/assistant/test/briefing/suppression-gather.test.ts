@@ -97,7 +97,7 @@ async function gateFor(userId: string): Promise<{
   const demandingCount = gather.day_shape?.demandingEmailCount;
 
   const emailCount = Object.values(gather.email.categories).reduce(
-    (sum, items) => sum + (items?.length ?? 0),
+    (sum, items) => sum + items.length,
     0,
   );
 

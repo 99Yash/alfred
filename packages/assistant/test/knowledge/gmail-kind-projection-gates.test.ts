@@ -152,7 +152,7 @@ describe("Gmail kind projection activation gates (DB-backed)", { skip: SKIP_DB }
     // --- Only a confident group or service demotes.
     const groupSignal = await resolveSenderKind(userId, "engineering@oliv.ai");
     assert.equal(groupSignal?.kind, "group");
-    assert.ok((groupSignal?.confidence ?? 0) >= 0.8);
+    assert.ok(groupSignal.confidence >= 0.8);
 
     const serviceSignal = await resolveSenderKind(userId, "noreply@github.com");
     assert.equal(serviceSignal?.kind, "service");

@@ -50,7 +50,7 @@ describe("assertReadableRestRequest — method gate", () => {
       const r = assertReadableRestRequest(github, rest({ method, path: "/repos/o/r" }));
       assert.equal(r.ok, false);
 
-      if (!r.ok) assert.equal(r.reason, "method_not_read", method);
+      assert.equal(r.reason, "method_not_read", method);
     }
   });
 });
@@ -64,7 +64,7 @@ describe("assertReadableRestRequest — read-via-POST allowlist", () => {
 
     assert.equal(r.ok, false);
 
-    if (!r.ok) assert.equal(r.reason, "path_not_allowlisted");
+    assert.equal(r.reason, "path_not_allowlisted");
   });
 
   test("Notion's allowlisted read-via-POST endpoints pass", () => {
@@ -79,7 +79,7 @@ describe("assertReadableRestRequest — read-via-POST allowlist", () => {
       const r = assertReadableRestRequest(notion, rest({ method: "POST", path }));
       assert.equal(r.ok, false, path);
 
-      if (!r.ok) assert.equal(r.reason, "path_not_allowlisted", path);
+      assert.equal(r.reason, "path_not_allowlisted", path);
     }
   });
 });
@@ -107,7 +107,7 @@ describe("assertReadableRestRequest — path hardening", () => {
       const r = assertReadableRestRequest(github, rest({ method: "GET", path }));
       assert.equal(r.ok, false, `${label} should be rejected`);
 
-      if (!r.ok) assert.equal(r.reason, "invalid_path", label);
+      assert.equal(r.reason, "invalid_path", label);
     });
   }
 
@@ -116,7 +116,7 @@ describe("assertReadableRestRequest — path hardening", () => {
     const r = assertReadableRestRequest(github, rest({ method: "GET", path }));
     assert.equal(r.ok, false);
 
-    if (!r.ok) assert.equal(r.reason, "invalid_path");
+    assert.equal(r.reason, "invalid_path");
   });
 
   test("a legitimate deep path with colons (Google-style method suffix) passes", () => {
@@ -136,7 +136,7 @@ describe("assertReadableRestRequest — auth-scope denylist", () => {
       const r = assertReadableRestRequest(github, rest({ path }));
       assert.equal(r.ok, false, path);
 
-      if (!r.ok) assert.equal(r.reason, "auth_scope_unreachable", path);
+      assert.equal(r.reason, "auth_scope_unreachable", path);
     }
   });
 
@@ -194,7 +194,7 @@ describe("assertReadableGraphqlRequest — read-only via AST, not text scan", ()
 
     assert.equal(r.ok, false);
 
-    if (!r.ok) assert.equal(r.reason, "graphql_non_query");
+    assert.equal(r.reason, "graphql_non_query");
   });
 
   test("a subscription is rejected as graphql_non_query", () => {
@@ -204,7 +204,7 @@ describe("assertReadableGraphqlRequest — read-only via AST, not text scan", ()
 
     assert.equal(r.ok, false);
 
-    if (!r.ok) assert.equal(r.reason, "graphql_non_query");
+    assert.equal(r.reason, "graphql_non_query");
   });
 
   test("a mixed document (query + mutation) is rejected even when a query is named", () => {
@@ -218,21 +218,21 @@ describe("assertReadableGraphqlRequest — read-only via AST, not text scan", ()
 
     assert.equal(r.ok, false);
 
-    if (!r.ok) assert.equal(r.reason, "graphql_non_query");
+    assert.equal(r.reason, "graphql_non_query");
   });
 
   test("an empty document (no operation) is rejected as graphql_non_query", () => {
     const r = assertReadableGraphqlRequest(graphql({ document: "fragment f on User { id }" }));
     assert.equal(r.ok, false);
 
-    if (!r.ok) assert.equal(r.reason, "graphql_non_query");
+    assert.equal(r.reason, "graphql_non_query");
   });
 
   test("an unparseable document is deny-by-default graphql_non_query", () => {
     const r = assertReadableGraphqlRequest(graphql({ document: "this is not graphql {{{" }));
     assert.equal(r.ok, false);
 
-    if (!r.ok) assert.equal(r.reason, "graphql_non_query");
+    assert.equal(r.reason, "graphql_non_query");
   });
 
   test("multiple queries without operationName are ambiguous", () => {
@@ -242,7 +242,7 @@ describe("assertReadableGraphqlRequest — read-only via AST, not text scan", ()
 
     assert.equal(r.ok, false);
 
-    if (!r.ok) assert.equal(r.reason, "graphql_operation_ambiguous");
+    assert.equal(r.reason, "graphql_operation_ambiguous");
   });
 
   test("multiple queries WITH a valid operationName pass", () => {
@@ -260,7 +260,7 @@ describe("assertReadableGraphqlRequest — read-only via AST, not text scan", ()
 
     assert.equal(r.ok, false);
 
-    if (!r.ok) assert.equal(r.reason, "graphql_operation_ambiguous");
+    assert.equal(r.reason, "graphql_operation_ambiguous");
   });
 });
 

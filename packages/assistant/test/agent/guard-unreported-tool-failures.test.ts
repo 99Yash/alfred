@@ -91,9 +91,9 @@ describe("guardUnreportedToolFailures", () => {
 
     assert.ok(result, "guard should take over finalization");
     assert.equal(result.kind, "next");
-    assert.equal(result.kind === "next" ? result.nextStep : undefined, "chat-turn");
+    assert.equal(result.nextStep, "chat-turn");
 
-    const transcript = result.kind === "next" ? result.transcript : undefined;
+    const transcript = result.transcript;
     assert.ok(transcript, "guard should append a corrective note to the transcript");
     const last = transcript.at(-1)!;
     assert.equal(last.role, "user");
@@ -134,7 +134,7 @@ describe("guardUnreportedToolFailures", () => {
     assert.ok(result, "same tool name success is not proof that the failed side effect recovered");
     assert.equal(result.kind, "next");
     assert.deepEqual(state.notedFailureToolCallIds, ["tc_1"]);
-    const transcript = result.kind === "next" ? result.transcript : undefined;
+    const transcript = result.transcript;
     assert.ok(transcript);
     const note = String(transcript.at(-1)!.content);
     assert.match(note, /sheets\.update_values/);
@@ -327,7 +327,7 @@ describe("guardUnreportedToolFailures", () => {
     const result = await guardUnreportedToolFailures(baseCtx(state), state, [], deps);
     assert.ok(result);
     assert.equal(result.kind, "next");
-    const transcript = result.kind === "next" ? result.transcript : undefined;
+    const transcript = result.transcript;
     assert.ok(transcript);
     const note = String(transcript.at(-1)!.content);
     assert.match(note, /sheets\.batch_update/);

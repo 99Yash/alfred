@@ -99,7 +99,6 @@ describe("tool-schema budget", () => {
     const tool = getTool("system.web_search");
     assert.ok(tool, "system.web_search should be registered");
 
-    if (!tool) return;
     const first = toolSchemaSize(tool);
     const second = toolSchemaSize(tool);
     assert.deepEqual(first, second);

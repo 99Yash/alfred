@@ -38,13 +38,13 @@ describe("[campaign-04 seam] authoredByGmail — SENT-flag authorship via isSent
   test("metadata.isSent === true is authorship by the connected mailbox (sent_flag)", () => {
     const r = authoredByUser(gmailDoc({ isSent: true }, "acc_work"), self);
     assert.equal(r.authoredByUser, true);
-    assert.equal(r.authoredByUser && r.proof.method, "sent_flag");
+    assert.equal(r.proof.method, "sent_flag");
   });
 
   test("a raw SENT labelId (no isSent flag) is also authorship — the OR signal", () => {
     const r = authoredByUser(gmailDoc({ labelIds: ["INBOX", "SENT"] }, "acc_work"), self);
     assert.equal(r.authoredByUser, true);
-    assert.equal(r.authoredByUser && r.proof.method, "sent_flag");
+    assert.equal(r.proof.method, "sent_flag");
   });
 
   test("SENT flag short-circuits BEFORE the From/account check — a third-party From still passes", () => {
@@ -55,7 +55,7 @@ describe("[campaign-04 seam] authoredByGmail — SENT-flag authorship via isSent
     );
 
     assert.equal(r.authoredByUser, true);
-    assert.equal(r.authoredByUser && r.proof.method, "sent_flag");
+    assert.equal(r.proof.method, "sent_flag");
   });
 
   test("QUIRK: the SENT labelId match is case-sensitive — 'Sent'/'sent' do NOT count", () => {
@@ -63,7 +63,7 @@ describe("[campaign-04 seam] authoredByGmail — SENT-flag authorship via isSent
     for (const label of ["Sent", "sent", "Sent Mail"]) {
       const r = authoredByUser(gmailDoc({ labelIds: [label] }, "acc_work"), self);
       assert.equal(r.authoredByUser, false, `labelIds ["${label}"] must not be sent`);
-      assert.equal(!r.authoredByUser && r.reason, "missing_author_identity");
+      assert.equal(r.reason, "missing_author_identity");
     }
   });
 
@@ -72,14 +72,14 @@ describe("[campaign-04 seam] authoredByGmail — SENT-flag authorship via isSent
     for (const isSent of [1, "true", "SENT", {}] as const) {
       const r = authoredByUser(gmailDoc({ isSent }, "acc_work"), self);
       assert.equal(r.authoredByUser, false, `isSent=${JSON.stringify(isSent)} must not be sent`);
-      assert.equal(!r.authoredByUser && r.reason, "missing_author_identity");
+      assert.equal(r.reason, "missing_author_identity");
     }
   });
 
   test("QUIRK: null metadata is treated as not-sent (and, with no From, missing_author_identity)", () => {
     const r = authoredByUser(gmailDoc(null, "acc_work"), self);
     assert.equal(r.authoredByUser, false);
-    assert.equal(!r.authoredByUser && r.reason, "missing_author_identity");
+    assert.equal(r.reason, "missing_author_identity");
   });
 });
 
@@ -92,42 +92,33 @@ describe("[campaign-04 seam] authoredByGmail — From-header normalization via e
     );
 
     assert.equal(r.authoredByUser, true);
-    assert.equal(
-      r.authoredByUser && r.proof.source === "gmail" && r.proof.fromEmail,
-      "yash@gmail.com",
-    );
+    assert.equal(r.proof.source === "gmail" && r.proof.fromEmail, "yash@gmail.com");
   });
 
   test("normalizes a bare (no angle brackets), upper-case From the same way", () => {
     const r = authoredByUser(gmailDoc({ from: "YASH@GMAIL.COM" }, "acc_personal"), self);
     assert.equal(r.authoredByUser, true);
-    assert.equal(
-      r.authoredByUser && r.proof.source === "gmail" && r.proof.fromEmail,
-      "yash@gmail.com",
-    );
+    assert.equal(r.proof.source === "gmail" && r.proof.fromEmail, "yash@gmail.com");
   });
 
   test("QUIRK: a Gmail +tag is NOT stripped — 'yash+work@gmail.com' ≠ self 'yash@gmail.com'", () => {
     // Keeps the +tag, unlike canonicalizeEmailForMatch. Stripping it would make this the user's mail.
     const r = authoredByUser(gmailDoc({ from: "Yash+Work@GMAIL.com" }, null), self);
     assert.equal(r.authoredByUser, false);
-    assert.equal(!r.authoredByUser && r.reason, "identity_mismatch");
-    assert.equal(
-      !r.authoredByUser && r.observed?.kind === "email" && r.observed.value,
-      "yash+work@gmail.com",
-    );
+    assert.equal(r.reason, "identity_mismatch");
+    assert.equal(r.observed?.kind === "email" && r.observed.value, "yash+work@gmail.com");
   });
 
   test("QUIRK: an unparseable From yields a null address → missing_author_identity", () => {
     const r = authoredByUser(gmailDoc({ from: "hello there" }, "acc_work"), self);
     assert.equal(r.authoredByUser, false);
-    assert.equal(!r.authoredByUser && r.reason, "missing_author_identity");
+    assert.equal(r.reason, "missing_author_identity");
   });
 
   test("QUIRK: a dot-less domain (e.g. 'user@localhost') is unparseable → missing_author_identity", () => {
     const r = authoredByUser(gmailDoc({ from: "user@localhost" }, "acc_work"), self);
     assert.equal(r.authoredByUser, false);
-    assert.equal(!r.authoredByUser && r.reason, "missing_author_identity");
+    assert.equal(r.reason, "missing_author_identity");
   });
 });
 
