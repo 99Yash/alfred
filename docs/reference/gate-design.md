@@ -44,7 +44,7 @@ When a rule needs the compiler to see across files and a lint rule cannot, close
 
 ### 2. Then type-aware lint
 
-Use a `typescript/*` rule for a fact that needs types but cannot be a signature: a promise that nobody awaits, an async callback where a void callback is expected, a switch that misses a union member, an object inside a template literal. Four rules are at `error` (#1387); `docs/reference/code-asserts.md` lists them with their options and the queued follow-ups.
+Use a `typescript/*` rule for a fact that needs types but cannot be a signature: a promise that nobody awaits, an async callback where a void callback is expected, a switch that misses a union member, an object inside a template literal. The [type-aware list in `code-asserts.md`](./code-asserts.md#type-aware-rules) names each rule at `error` with its options, and the rules still queued.
 
 The bar is the one the config states: drive the tree to zero, then add the rule at `error`, one rule per change. A rule at `warn` enforces nothing, because `pnpm lint` does not fail on a warning.
 
