@@ -241,7 +241,7 @@ function printCatalog(repoScan, pkgFilter) {
 
   let total = 0;
 
-  for (const [pkg, files] of [...packages].sort()) {
+  for (const [pkg, files] of [...packages].sort(([a], [b]) => (a < b ? -1 : 1))) {
     const count = files.reduce((sum, [, defs]) => sum + defs.length, 0);
     total += count;
     console.log(`\n@alfred/${pkg}  (${count})`);

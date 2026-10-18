@@ -137,7 +137,10 @@ describe("events_outbox retention", { skip: SKIP }, () => {
     const afterSecond = await survivors([seeded.freshPublished, seeded.oldUnpublished]);
 
     assert.equal(afterFirst.size, 2);
-    assert.deepEqual([...afterSecond].sort(), [...afterFirst].sort());
+    assert.deepEqual(
+      [...afterSecond].sort((a, b) => a - b),
+      [...afterFirst].sort((a, b) => a - b),
+    );
   });
 
   test("the cutoff moves with the clock it is given", async () => {

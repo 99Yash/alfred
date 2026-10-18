@@ -92,7 +92,7 @@ const CONTAINER_DATA_URI_MIME = {
  */
 function sniffAudioContainer(audio: Uint8Array): AudioContainer {
   const at = (offset: number, text: string): boolean =>
-    [...text].every((char, i) => audio[offset + i] === char.charCodeAt(0));
+    Array.from(text).every((char, i) => audio[offset + i] === char.charCodeAt(0));
 
   if (at(0, "RIFF") && at(8, "WAVE")) return "wav";
 

@@ -1,7 +1,17 @@
 import type { ChatModelTier } from "@alfred/contracts";
 import type { SyncedChatMessage } from "@alfred/sync";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { Brain, ClipboardCopy, Ellipsis, Pencil, Pin, PinOff, Trash2, Zap } from "lucide-react";
+import {
+  Brain,
+  ClipboardCopy,
+  Ellipsis,
+  Pencil,
+  Pin,
+  PinOff,
+  Trash2,
+  Zap,
+  type LucideIcon,
+} from "lucide-react";
 import { useState } from "react";
 import { useAppTheme } from "~/components/ui/v2";
 import { formatCost, formatTokens } from "~/lib/usage-format";
@@ -39,10 +49,7 @@ const radioItemClass = cn(menuItemClass, "relative pl-7 data-[state=checked]:tex
 const sectionLabelClass = "px-2 pt-2 pb-1 text-[11px] font-medium text-app-fg-2 select-none";
 
 /** Local icons: the picker's per-tier SVG does not read at 13px. */
-const TIER_ICON = { standard: Zap, deep: Brain } satisfies Record<
-  ChatModelTier,
-  typeof Zap | typeof Brain
->;
+const TIER_ICON = { standard: Zap, deep: Brain } satisfies Record<ChatModelTier, LucideIcon>;
 
 export interface ThreadMenuProps {
   /** Absent before the thread exists; then the menu does not mount. */

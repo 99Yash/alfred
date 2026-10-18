@@ -126,10 +126,10 @@
     // no-misused-promises and restrict-template-expressions keep their defaults.
     //
     // Turning type-aware on also arms every type-aware rule in oxlint's default `correctness`
-    // set at `warn`, which `pnpm lint` does not fail on. Each one is set explicitly below, at
-    // `error` or `off`, so the run reports only the rules this file chose. The queued follow-up
-    // (no-unnecessary-condition) and the default rules still off each land alone: tree to zero
-    // first, then the rule at `error`.
+    // set at `warn`, which `pnpm lint` does not fail on. Each one is set explicitly below at
+    // `error`, so the run reports only the rules this file chose. The queued follow-up
+    // (no-unnecessary-condition) lands the same way: tree to zero first, then the rule at
+    // `error`.
     "typescript/no-floating-promises": [
       "error",
       {
@@ -165,8 +165,21 @@
     "typescript/no-implied-eval": "error",
     "typescript/no-unsafe-unary-minus": "error",
     "typescript/no-useless-default-assignment": "error",
-    // The other seven default rules had hits on the tree. Each is off until its own change
-    // drives the tree to zero, then it is set to `error` here:
+    // Default `correctness` rules that had hits, each driven to zero before it landed, default
+    // options: `void` on an expression that is already `void`, a spread of a string (split a
+    // string into code points with `Array.from`, which states the intent), a union or
+    // intersection that repeats a member, and `.sort()` with no comparator. no-duplicate-type-
+    // constituents also reports `| undefined` on an optional PARAMETER; an optional property
+    // keeps it, because exactOptionalPropertyTypes is on. require-array-sort-compare keeps
+    // `ignoreStringArrays` on (its default): a `string[]` sorts by UTF-16 code unit, which is
+    // deterministic, and `localeCompare` would change that order. The rule targets numbers,
+    // tuples and objects, which a bare `.sort()` orders by their string form. It applies to
+    // `.mjs` too, where a JSDoc-untyped array is `any[]` and needs the comparator.
+    "typescript/no-meaningless-void-operator": "error",
+    "typescript/no-misused-spread": "error",
+    "typescript/no-duplicate-type-constituents": "error",
+    "typescript/require-array-sort-compare": "error",
+    // Three more default rules that had hits, each driven to zero before it landed:
     // - unbound-method: a method read as a value loses `this`. Bind it or wrap it in an arrow;
     //   declare a member that never reads `this` as a function-typed property.
     // - no-redundant-type-constituents: a union member another member absorbs (`unknown | X`,
@@ -176,11 +189,7 @@
     //   `[object Object]`. Narrow the value at its boundary, or pick the text you mean
     //   (`toDisplayText`, `toMessage`, `JSON.stringify` of a JSON value).
     "typescript/no-base-to-string": "error",
-    "typescript/no-duplicate-type-constituents": "off",
-    "typescript/no-meaningless-void-operator": "off",
-    "typescript/no-misused-spread": "off",
     "typescript/no-redundant-type-constituents": "error",
-    "typescript/require-array-sort-compare": "off",
     "typescript/unbound-method": "error",
     "typescript/no-restricted-types": [
       "error",

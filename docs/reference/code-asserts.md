@@ -33,6 +33,10 @@ where to put a new invariant.
 | A template literal that interpolates an object, `unknown`, or `never` | `typescript/restrict-template-expressions` (`error`, type-aware) | `.oxlintrc.json` |
 | An `any` that flows into a return, an argument, a call, a member read, or an assignment in TypeScript source | `typescript/no-unsafe-return`, `-argument`, `-call`, `-member-access`, `-assignment` (`error`, type-aware; off for `.mjs`/`.js`/`.cjs`) | `.oxlintrc.json` |
 | An `await` of a non-thenable, `delete` on an array element, `for…in` over an array, a string passed as code to `setTimeout` / `new Function`, unary minus on a non-number, or a default value that can never apply | `typescript/await-thenable`, `no-array-delete`, `no-for-in-array`, `no-implied-eval`, `no-unsafe-unary-minus`, `no-useless-default-assignment` (`error`, type-aware) | `.oxlintrc.json` |
+| `void` on a call that already returns nothing | `typescript/no-meaningless-void-operator` (`error`, type-aware) | `.oxlintrc.json` |
+| A string spread into an array, or a promise, a function, a `Map`, or a class instance spread into an object | `typescript/no-misused-spread` (`error`, type-aware) | `.oxlintrc.json` |
+| A union or intersection that names one type twice, or `\| undefined` on an optional parameter | `typescript/no-duplicate-type-constituents` (`error`, type-aware) | `.oxlintrc.json` |
+| `.sort()` with no comparator on numbers, tuples, objects, or an untyped `.mjs` array | `typescript/require-array-sort-compare` (`error`, type-aware) | `.oxlintrc.json` |
 | A method read as a value (`const f = obj.method`, `.map(obj.method)`), which loses its `this` | `typescript/unbound-method` (`error`, type-aware) | `.oxlintrc.json` |
 | A union member that another member absorbs (`unknown \| X`, `"a" \| string`) | `typescript/no-redundant-type-constituents` (`error`, type-aware) | `.oxlintrc.json` |
 | `String(v)` or a template on a value that may be an object, which prints `[object Object]` | `typescript/no-base-to-string` (`error`, type-aware) | `.oxlintrc.json` |
@@ -89,8 +93,8 @@ a restated copy or a declared omission per group.
 `.oxlintrc.json` sets `options.typeAware`, so every oxlint run (`pnpm lint`,
 the edit-time hook, the `check:oxlint-config` probe) also runs the rules that
 need type information, through the `oxlint-tsgolint` root devDependency. A
-missing tsgolint binary fails the run instead of skipping the rules. Eighteen
-rules are at `error`, each adopted at zero:
+missing tsgolint binary fails the run instead of skipping the rules. Each rule
+in this list is at `error` and was adopted at zero:
 
 - `typescript/no-floating-promises`, with the `node:test` registrars
   (`describe`, `it`, `suite`, `test`) as known-safe calls, because the runner
@@ -132,6 +136,32 @@ rules are at `error`, each adopted at zero:
   (unary minus on a value that is not a `number` or `bigint`) and
   `no-useless-default-assignment` (a default value for a binding whose type
   does not include `undefined`). They apply to `.mjs`, `.js` and `.cjs` too.
+- Rules from the same default set that had hits, each driven to zero before
+  it landed, default options:
+  - `typescript/no-meaningless-void-operator`: `void` on an expression that is
+    already `void`. Keep `void` for a promise you do not await; drop it on a
+    call that returns nothing.
+  - `typescript/no-misused-spread`: a string spread into an array, or a
+    `Promise`, a function, a `Map` or a class instance spread into an
+    object. Split a string into code points
+    with `Array.from(text)`, not `[...text]`. Do not use `.split("")`, which
+    splits UTF-16 units and so changes the result.
+  - `typescript/no-duplicate-type-constituents`: a union or intersection that
+    names the same type twice, such as `typeof Zap | typeof Brain` when both
+    are `LucideIcon`. It also reports `| undefined` on an optional parameter.
+    It does not report `| undefined` on an optional property: with
+    `exactOptionalPropertyTypes` on, `label?: string | undefined` is not
+    redundant, and the rule agrees.
+  - `typescript/require-array-sort-compare`: `.sort()` with no comparator on
+    an array that is not a `string[]`. `ignoreStringArrays` stays on (the
+    default): a `string[]` sorts by UTF-16 code unit, which is
+    deterministic. A bare `.sort()` orders numbers, tuples and objects by
+    their string form, so `[10, 9]` stays `[10, 9]`. Pass `(a, b) => a - b`
+    for numbers and compare the key for `Map` entries. For strings, keep
+    code-unit order with `(a, b) => (a < b ? -1 : a > b ? 1 : 0)`;
+    `localeCompare` changes the order and varies with ICU data. The rule
+    applies to `.mjs`, `.js` and `.cjs` too, where an array without a JSDoc
+    type is `any[]` and needs the comparator.
 - `typescript/unbound-method`, default options. A method
   read as a value (`const f = obj.method`, `.map(obj.method)`, a destructured
   method) loses its `this`. Bind it (`obj.method.bind(obj)`) or wrap it in an
@@ -168,12 +198,9 @@ directive check reports it if it outlives the errors.
 
 Turning type-aware on also arms the type-aware rules in oxlint's default
 `correctness` set at `warn`. The config sets each of them explicitly, so the run
-reports only the rules it chose: the six above, `unbound-method`,
-`no-redundant-type-constituents` and `no-base-to-string` at `error`, and the
-ones that still have hits on the tree `"off"`
-(`no-duplicate-type-constituents`, `no-meaningless-void-operator`,
-`no-misused-spread` and `require-array-sort-compare`). The queued follow-ups
-are those and `no-unnecessary-condition`. Each lands alone in its own change:
+reports only the rules it chose, and every one of them is now at `error`
+(the list above). The queued follow-up is `no-unnecessary-condition`. It
+lands alone in its own change:
 drive the tree to zero, then set the rule to `error`.
 
 These are the cheap place for a new invariant **if it can be phrased as a

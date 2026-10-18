@@ -66,6 +66,10 @@ const ALLOWED = new Map([
     "considerDefaultExhaustiveForUnions",
     "option of oxlint's typescript/switch-exhaustiveness-check, set in .oxlintrc.json",
   ],
+  [
+    "ignoreStringArrays",
+    "option of oxlint's typescript/require-array-sort-compare, left at its default",
+  ],
   // Future symbols documented in CONTEXT.md before code lands — design, not stale.
   [
     "getRelevantInstructions",

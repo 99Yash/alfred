@@ -406,7 +406,7 @@ export function proseLocatorFailures({ docs, sources, packages, listed, allowed 
     }
   }
 
-  failures.sort();
+  failures.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 
   return { failures, checked };
 }

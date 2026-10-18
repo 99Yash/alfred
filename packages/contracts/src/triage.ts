@@ -119,12 +119,16 @@ export const COLLAB_ACTIVITY_PASSIVE_KINDS = [
 
 export type PassiveCollabActivityKind = (typeof COLLAB_ACTIVITY_PASSIVE_KINDS)[number];
 
-// Compile error unless every kind is in exactly one of ownership or passive.
-export const COLLAB_ACTIVITY_PARTITION_CHECK: Record<
-  Exclude<CollabActivityKind, OwnershipCollabActivityKind | PassiveCollabActivityKind>,
-  never
-> &
-  Record<Extract<OwnershipCollabActivityKind, PassiveCollabActivityKind>, never> = {};
+// Compile error unless every kind is in exactly one of ownership or passive: a kind in neither
+// list is a key of `missing`, a kind in both is a key of `overlap`, and any key makes `{}`
+// unassignable.
+export const COLLAB_ACTIVITY_PARTITION_CHECK = { missing: {}, overlap: {} } satisfies {
+  missing: Record<
+    Exclude<CollabActivityKind, OwnershipCollabActivityKind | PassiveCollabActivityKind>,
+    never
+  >;
+  overlap: Record<Extract<OwnershipCollabActivityKind, PassiveCollabActivityKind>, never>;
+};
 
 export function isOwnershipCollabActivity(kind: CollabActivityKind): boolean {
   // SAFETY: every member is a CollabActivityKind; widening only lets .includes take `kind`.

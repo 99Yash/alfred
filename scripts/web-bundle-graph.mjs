@@ -469,7 +469,7 @@ export function bundleViolations(graph, { forbidden, surface }) {
     if (info.kind === "virtual") continue;
 
     if (info.kind === "builtin-stub") {
-      const named = [...builtins.keys()].sort();
+      const named = [...builtins.keys()].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
       violations.push({
         rule: "node-builtin",
         subject: id,
