@@ -5,7 +5,7 @@
  *     src/scripts/verify-capture-output.ts
  */
 import { serverEnv } from "@alfred/env/server";
-import { isRecord } from "@alfred/contracts";
+import { getStringField, isRecord } from "@alfred/contracts";
 import { jsonSchema, tool, type ToolSet } from "ai";
 import { randomUUID } from "node:crypto";
 import { flushLangfuse, langfuseTraceId } from "../metering/langfuse";
@@ -103,14 +103,15 @@ async function main() {
 
   const out = decodeLangfuseIo(gen.output);
   const calls = isRecord(out) ? out.toolCalls : undefined;
-  const ok = Array.isArray(calls) && calls.length > 0 && typeof calls[0]?.toolName === "string";
+  const firstCall: unknown = Array.isArray(calls) ? calls[0] : undefined;
+  const toolName = getStringField(firstCall, "toolName");
   console.log(`generation output: ${JSON.stringify(out)?.slice(0, 300)}`);
   console.log(
-    ok
-      ? `\n✅ tool call captured in generation output (toolName=${calls[0]!.toolName})`
+    toolName !== undefined
+      ? `\n✅ tool call captured in generation output (toolName=${toolName})`
       : "\n❌ generation output did NOT carry the tool call (regression — was NULL before the fix)",
   );
-  process.exit(ok ? 0 : 1);
+  process.exit(toolName !== undefined ? 0 : 1);
 }
 
 void main();

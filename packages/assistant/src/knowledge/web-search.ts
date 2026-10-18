@@ -84,9 +84,7 @@ function extractCitations(
     }
   };
 
-  if (Array.isArray(sources)) {
-    for (const s of sources) push(s?.url, s?.title);
-  }
+  for (const s of sources ?? []) push(s.url, s.title);
 
   const chunks = getPath(providerMetadata, "google", "groundingMetadata", "groundingChunks");
 

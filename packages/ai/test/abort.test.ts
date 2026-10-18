@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
+import { getStringField } from "@alfred/contracts";
+
 import { isCallerAbort } from "../src/abort";
 
 /**
@@ -11,7 +13,11 @@ describe("isCallerAbort", () => {
   test("matches a controller-initiated cancel", () => {
     const controller = new AbortController();
     controller.abort();
-    assert.equal(controller.signal.reason.name, "AbortError", "Node's abort reason shape");
+    assert.equal(
+      getStringField(controller.signal.reason, "name"),
+      "AbortError",
+      "Node's abort reason shape",
+    );
     assert.equal(isCallerAbort(controller.signal.reason), true);
     assert.equal(isCallerAbort(new DOMException("cancelled", "AbortError")), true);
   });

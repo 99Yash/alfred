@@ -1,4 +1,4 @@
-/* oxlint-disable typescript/no-unsafe-return -- this file sits in the tsconfig.test.json typecheck baseline: `McpConnection` does not resolve, so the type-aware rules read compiler error types. Delete this line with the baseline entry. */
+/* oxlint-disable typescript/no-unsafe-return, typescript/no-unsafe-member-access -- this file sits in the tsconfig.test.json typecheck baseline: `McpConnection` does not resolve, so the type-aware rules read compiler error types. Delete this line with the baseline entry. */
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
