@@ -1957,6 +1957,123 @@ export function maxMutations(): Parameters<(limit: typeof MAX_MUTATIONS) => void
   return MAX_MUTATIONS;
 }`,
   },
+  {
+    // A `const` binding cannot change, so a getter over an object literal that
+    // the file mentions nowhere else returns the same reference as an export.
+    name: "no-function-wrapper-shim — a typed wrapper over an unexported object const",
+    caught: true,
+    rule: "no-function-wrapper-shim",
+    code: `const DEFAULTS = { batch: 50, retries: 3 };
+
+export function getDefaults(): Defaults {
+  return DEFAULTS;
+}`,
+  },
+  {
+    // A `typeof` query is a type, not a read of the value.
+    name: "no-function-wrapper-shim — a typed arrow over an unexported as-const array",
+    caught: true,
+    rule: "no-function-wrapper-shim",
+    code: `const KINDS = ["email", "event"] as const;
+
+export type Kind = (typeof KINDS)[number];
+
+export const kinds = (): readonly Kind[] => KINDS;`,
+  },
+  {
+    // The initializer can be a call: the binding still cannot change.
+    name: "no-function-wrapper-shim — a typed wrapper over an unexported const with a call initializer",
+    caught: true,
+    rule: "no-function-wrapper-shim",
+    code: `export function sharedCache(): Cache {
+  return cache;
+}
+
+const cache: Cache = createCache({ max: 100 });`,
+  },
+  {
+    // The module writes to the value below the getter. The return type narrows
+    // a value that changes, as for `getOnUserCreatedHooks` above.
+    name: "no-function-wrapper-shim — a typed readonly view of a const that the module writes below it",
+    caught: false,
+    code: `const state: State = { count: 0 };
+
+export function readState(): Readonly<State> {
+  return state;
+}
+
+export function bump(): void {
+  state.count += 1;
+}`,
+  },
+  {
+    // A name in a parameter's type is not a parameter.
+    name: "no-function-wrapper-shim — a typed wrapper whose parameter type names it",
+    caught: true,
+    rule: "no-function-wrapper-shim",
+    code: `import { MAX_MUTATIONS } from "./constants";
+
+export function maxMutations(limit: typeof MAX_MUTATIONS): number {
+  return MAX_MUTATIONS;
+}`,
+  },
+  {
+    // A destructured parameter and a rest parameter are bindings too.
+    name: "no-function-wrapper-shim — wrappers that return a destructured or rest parameter",
+    caught: false,
+    code: `export function pick({ value, id }) {
+  return value;
+}
+
+export const rest = (first, ...others) => others;`,
+  },
+  {
+    name: "no-function-wrapper-shim — a wrapper with an object return type three levels deep",
+    caught: true,
+    rule: "no-function-wrapper-shim",
+    code: `import { SYNC_OPTIONS } from "./constants";
+
+export function syncOptions(): { retry: { backoff: { baseMs: number; maxMs?: number } } } {
+  return SYNC_OPTIONS;
+}`,
+  },
+  {
+    // A method member may take a function-typed parameter.
+    name: "no-function-wrapper-shim — a wrapper with a method that takes a function-typed parameter",
+    caught: true,
+    rule: "no-function-wrapper-shim",
+    code: `import { IDLE_SOURCE } from "./idle";
+
+export function idleSource(): { subscribe(listener: () => void): () => void } {
+  return IDLE_SOURCE;
+}`,
+  },
+  {
+    name: "no-function-wrapper-shim — an arrow whose return type nests parens three levels deep",
+    caught: true,
+    rule: "no-function-wrapper-shim",
+    code: `import { onIdle } from "./idle";
+
+export const idleHandler = (): ((cb: (at: number) => void) => void) => onIdle;`,
+  },
+  {
+    name: "no-function-wrapper-shim — a wrapper whose parameter list nests three levels deep",
+    caught: true,
+    rule: "no-function-wrapper-shim",
+    code: `import { MAX_MUTATIONS } from "./constants";
+
+export function maxMutations(onChange: (next: (n: number) => void) => void): number {
+  return MAX_MUTATIONS;
+}`,
+  },
+  {
+    // The parameter guard reads a parameter list three levels deep too.
+    name: "no-function-wrapper-shim — a wrapper that returns a parameter typed three levels deep",
+    caught: false,
+    code: `export function identity(cb: (next: (n: number) => void) => void) {
+  return cb;
+}`,
+  },
 ];
 
 // Line-scope fixtures. `boot-error-plain-extends` is a per-line rule, so it is
