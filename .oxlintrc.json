@@ -163,7 +163,7 @@
     "typescript/no-meaningless-void-operator": "off",
     "typescript/no-misused-spread": "off",
     "typescript/no-redundant-type-constituents": "off",
-    "typescript/no-unsafe-unary-minus": "off",
+    "typescript/no-unsafe-unary-minus": "error",
     "typescript/no-useless-default-assignment": "off",
     "typescript/require-array-sort-compare": "off",
     "typescript/unbound-method": "off",
