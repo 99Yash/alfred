@@ -70,7 +70,7 @@ The evidence, from 2026-10-17 and 2026-10-18:
 
 - `no-function-wrapper-shim` moved to chain scope in #1366, then took hole fixes in #1370, #1374, #1375 (`922c3c3f`, "round 3") and #1377 ("round 4"). The port in #1381 closed the six holes that #1377 left, with scope analysis, and #1382 decided read versus change from the initializer.
 - `sha256-over-json-stringify` took hole fixes in #1368, #1371, #1373, #1375 and #1378. #1380 ported it; #1385 then closed the cross-file case by closing the domain (above).
-- `no-constants-re-export`, `no-type-re-export-shim` and `no-type-alias-shim` took hole fixes in #1368, #1371, #1372 and #1373. Each one relates an export to an import anywhere in the file, which is a binding question.
+- `no-constants-re-export`, `no-type-re-export-shim` and `no-type-alias-shim` took hole fixes in #1368, #1371, #1372 and #1373. Each one relates an export to an import anywhere in the file, which is a binding question. #1388 ported all three to the `alfred` plugin.
 
 The compiler rules of the same days behaved differently. The `humanizeSlug` guard took two steps: #1376 rejected integration slug types and left plain `string` open, which #1379 patched at runtime; #1383 admitted only closed literal unions and deleted that patch. After #1383 there is no spelling left for a next round to find, because the rule is about the type of the argument, not its text. The exhaustive status maps of #1364 have needed no follow-up.
 
