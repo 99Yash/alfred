@@ -133,7 +133,8 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
 
     console.log(`  PURGE by reason:`);
 
-    for (const [reason, n] of [...byReason.entries()].sort()) console.log(`    ${reason}: ${n}`);
+    for (const [reason, n] of [...byReason.entries()].sort(([a], [b]) => (a < b ? -1 : 1)))
+      console.log(`    ${reason}: ${n}`);
 
     console.log(`  samples (${Math.min(junk.length, SAMPLE_LIMIT)} of ${junk.length}):`);
 

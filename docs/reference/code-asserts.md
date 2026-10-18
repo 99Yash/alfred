@@ -36,6 +36,7 @@ where to put a new invariant.
 | `void` on a call that already returns nothing | `typescript/no-meaningless-void-operator` (`error`, type-aware) | `.oxlintrc.json` |
 | A string spread into an array, or a promise, a function, a `Map`, or a class instance spread into an object | `typescript/no-misused-spread` (`error`, type-aware) | `.oxlintrc.json` |
 | A union or intersection that names one type twice, or `\| undefined` on an optional parameter | `typescript/no-duplicate-type-constituents` (`error`, type-aware) | `.oxlintrc.json` |
+| `.sort()` with no comparator on numbers, tuples, objects, or an untyped `.mjs` array | `typescript/require-array-sort-compare` (`error`, type-aware) | `.oxlintrc.json` |
 | A value imported only for a type position, such as `typeof` | `typescript/consistent-type-imports` (`error`) | `.oxlintrc.json` |
 | A suppression directive with no rule name, or no reason after ` -- ` | `gate: suppression-without-reason` | `scripts/consolidation-rules.mjs` |
 | A spread that only copies, such as `{ ...(x ? { k: x } : {}) }` alone in a literal | `unicorn/no-useless-spread` (`error`) | `.oxlintrc.json` |
@@ -148,6 +149,16 @@ in this list is at `error` and was adopted at zero:
     It does not report `| undefined` on an optional property: with
     `exactOptionalPropertyTypes` on, `label?: string | undefined` is not
     redundant, and the rule agrees.
+  - `typescript/require-array-sort-compare`: `.sort()` with no comparator on
+    an array that is not a `string[]`. `ignoreStringArrays` stays on (the
+    default): a `string[]` sorts by UTF-16 code unit, which is
+    deterministic. A bare `.sort()` orders numbers, tuples and objects by
+    their string form, so `[10, 9]` stays `[10, 9]`. Pass `(a, b) => a - b`
+    for numbers and compare the key for `Map` entries. For strings, keep
+    code-unit order with `(a, b) => (a < b ? -1 : a > b ? 1 : 0)`;
+    `localeCompare` changes the order and varies with ICU data. The rule
+    applies to `.mjs`, `.js` and `.cjs` too, where an array without a JSDoc
+    type is `any[]` and needs the comparator.
 
 The rules read a test or eval file through its package's `tsconfig.test.json`
 or `tsconfig.eval.json`: the root `tsconfig.json` is a solution file that
@@ -162,8 +173,7 @@ Turning type-aware on also arms the type-aware rules in oxlint's default
 `correctness` set at `warn`. The config sets each of them explicitly, so the run
 reports only the rules it chose: the ones listed above at `error`, and the
 ones that still have hits on the tree `"off"` (`no-base-to-string`,
-`no-redundant-type-constituents`, `require-array-sort-compare` and
-`unbound-method`). The queued follow-ups are those rules and
+`no-redundant-type-constituents` and `unbound-method`). The queued follow-ups are those rules and
 `no-unnecessary-condition`. Each lands alone in its own change:
 drive the tree to zero, then set the rule to `error`.
 

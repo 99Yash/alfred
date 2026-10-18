@@ -167,17 +167,22 @@
     "typescript/no-useless-default-assignment": "error",
     // Default `correctness` rules that had hits, each driven to zero before it landed, default
     // options: `void` on an expression that is already `void`, a spread of a string (split a
-    // string into code points with `Array.from`, which states the intent), and a union or
-    // intersection that repeats a member. That last rule also reports `| undefined` on an
-    // optional PARAMETER; an optional property keeps it, because exactOptionalPropertyTypes is on.
+    // string into code points with `Array.from`, which states the intent), a union or
+    // intersection that repeats a member, and `.sort()` with no comparator. no-duplicate-type-
+    // constituents also reports `| undefined` on an optional PARAMETER; an optional property
+    // keeps it, because exactOptionalPropertyTypes is on. require-array-sort-compare keeps
+    // `ignoreStringArrays` on (its default): a `string[]` sorts by UTF-16 code unit, which is
+    // deterministic, and `localeCompare` would change that order. The rule targets numbers,
+    // tuples and objects, which a bare `.sort()` orders by their string form. It applies to
+    // `.mjs` too, where a JSDoc-untyped array is `any[]` and needs the comparator.
     "typescript/no-meaningless-void-operator": "error",
     "typescript/no-misused-spread": "error",
     "typescript/no-duplicate-type-constituents": "error",
+    "typescript/require-array-sort-compare": "error",
     // The default rules below still have hits on the tree. Each is off until its own change
     // drives the tree to zero.
     "typescript/no-base-to-string": "off",
     "typescript/no-redundant-type-constituents": "off",
-    "typescript/require-array-sort-compare": "off",
     "typescript/unbound-method": "off",
     "typescript/no-restricted-types": [
       "error",

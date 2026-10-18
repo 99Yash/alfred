@@ -263,7 +263,7 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
     for (const p of purge) byReason.set(p.reason, (byReason.get(p.reason) ?? 0) + 1);
     console.log(`\n  PURGE by reason:`);
 
-    for (const [reason, n] of [...byReason.entries()].sort()) {
+    for (const [reason, n] of [...byReason.entries()].sort(([a], [b]) => (a < b ? -1 : 1))) {
       console.log(`    ${reason}: ${n}`);
     }
 
@@ -286,7 +286,8 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
       pairs.set(`→ ${rk.canonicalKey}`, (pairs.get(`→ ${rk.canonicalKey}`) ?? 0) + 1);
     }
 
-    for (const [k, n] of [...pairs.entries()].sort()) console.log(`    ${k}: ${n}`);
+    for (const [k, n] of [...pairs.entries()].sort(([a], [b]) => (a < b ? -1 : 1)))
+      console.log(`    ${k}: ${n}`);
   }
 
   if (collapse.length) {

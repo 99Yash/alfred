@@ -56,7 +56,7 @@ function collectFailures() {
 
   // Direct defs: exported vs local, both counted, names exact.
   const two = scanFile(FIXTURE_TWO_SCHEMAS);
-  const twoNames = two.map((def) => def.name).sort();
+  const twoNames = two.map((def) => def.name).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 
   if (twoNames.join(",") !== "internalGadget,widgetSchema") {
     failures.push(`FIXTURE_TWO_SCHEMAS names: [${twoNames.join(", ")}]`);
@@ -70,7 +70,7 @@ function collectFailures() {
 
   // Annotations, let-bindings, and composition off a known base.
   const ann = scanFile(FIXTURE_ANNOTATION_AND_EXPORTS);
-  const annNames = ann.map((def) => def.name).sort();
+  const annNames = ann.map((def) => def.name).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 
   if (!annNames.includes("framedSchema")) {
     failures.push(`annotation-parsed def missing framedSchema: [${annNames.join(", ")}]`);
