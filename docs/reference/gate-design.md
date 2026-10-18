@@ -93,7 +93,6 @@ Each row is a rule from [code-style.md](./code-style.md) tagged `review` or `par
 
 | Rule (code-style section) | Mechanism | Feasibility |
 | --- | --- | --- |
-| No stray `console.log` (§4) | Lint: `no-console` in an `apps/web` override. Two `console.info` sites in `apps/web/src/lib/chat/timing.ts` decide first | High |
 | CSS-variable shorthands over arbitrary values (§4) | Lint: `tailwindcss/enforce-canonical`, already in the installed plugin, autofix | High |
 | No explicit `any` (§2) | Lint: `typescript/no-explicit-any`. About 12 sites, all a `ZodType` of `any` in `packages/assistant/src/tool-runtime/` | Medium |
 | Minimize `!` (§2) | Lint: `typescript/no-non-null-assertion`. A rough grep finds about 14 sites in `src` | Medium |

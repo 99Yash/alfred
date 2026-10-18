@@ -550,6 +550,18 @@
       }
     },
     {
+      // no-console is at `error` for the web app's source, where a stray `console.log` reaches
+      // every user's devtools. `console.error` and `console.warn` stay allowed: they report a
+      // failure the UI also surfaces, and the web app has no logger to route them through.
+      // The DEV-only chat timing trace (apps/web/src/lib/chat/timing.ts) prints through
+      // `console.info` / `console.table` on purpose and carries its own directives. The rule
+      // is off by default, so no other scope changes.
+      "files": ["apps/web/src/**"],
+      "rules": {
+        "no-console": ["error", { "allow": ["error", "warn"] }]
+      }
+    },
+    {
       // no-unsafe-dictionary-type stays off ON PURPOSE in the honest-boundary
       // files below. Each carries dynamic dictionaries that are not debt per
       // the narrow-record-types decision table: the canonical guards and

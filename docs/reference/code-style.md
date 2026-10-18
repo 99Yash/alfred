@@ -232,7 +232,7 @@ Three rules from the 2026-10-16 facade round (#1338–#1348, #1361). The owner i
 - **Effects:** clean up subscriptions/timers; verify dependency arrays (missing dep = stale closure, extra dep = loop). Guard against state updates after unmount. _Review._
 - **Render every state** — loading, error, empty, populated. An async surface with no empty/error branch is unfinished. _Review._
 - **SSR-safe:** guard `window`/`document`/browser-only APIs. Sanitize any HTML you inject. _Review._
-- **No stray `console.log`**; surface errors to the user, don't swallow them. _Review._
+- **No stray `console.log`**; surface errors to the user, don't swallow them. _Partly: `no-console` fails any `console` call in `apps/web/src` except `console.error` and `console.warn`; surfacing an error to the user is review._
 - **Keys** are stable IDs, never array index. _Review._
 - **Accessibility:** keyboard-reachable interactive elements, ARIA where needed, never color as the only signal. Prefer CSS-variable shorthands over arbitrary values. _Review: the `tailwindcss/*` rules on are sort order, axis shorthands and deprecated classes, not this._
 
