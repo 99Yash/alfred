@@ -54,7 +54,7 @@ export function AuthPanel({ redirect }: { redirect?: string | undefined }) {
         <AppButton
           variant="primary"
           size="lg"
-          onClick={handleGoogle}
+          onClick={() => void handleGoogle()}
           loading={loading}
           leading={loading ? undefined : GOOGLE_LEADING}
           trailing={loading ? undefined : ARROW_TRAILING}

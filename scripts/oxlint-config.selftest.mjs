@@ -604,7 +604,8 @@ function readerRefusalFailures() {
   // `--print-config` can emit them, so they are driven against the reader directly —
   // it is a pure function of a resolved config, and a future release emitting any of
   // them must not read as zero groups.
-  for (const [label, value, expected] of [
+  /** @type {Array<[label: string, value: unknown, expected: string]>} */
+  const ruleValueCases = [
     ["a bare number rule value", 42, "neither a severity string nor a [severity, options] array"],
     ["an empty rule array", [], "neither a severity string nor a [severity, options] array"],
     [
@@ -622,7 +623,9 @@ function readerRefusalFailures() {
       ["deny", [{ patterns: "@alfred/x" }]],
       '"patterns" is "@alfred/x" rather than an array',
     ],
-  ]) {
+  ];
+
+  for (const [label, value, expected] of ruleValueCases) {
     const { failures: reported } = restrictedImportSites({
       rules: { "no-restricted-imports": value },
     });
@@ -635,11 +638,14 @@ function readerRefusalFailures() {
   }
 
   // A malformed `overrides` container hides every fence inside it.
-  for (const [label, overrides, expected] of [
+  /** @type {Array<[label: string, overrides: unknown, expected: string]>} */
+  const overridesCases = [
     ["a non-array overrides", {}, 'the resolved config\'s "overrides" is {} rather than an array'],
     ["a non-object overrides entry", [7], "overrides[0] is 7 rather than an object"],
     ["a non-object rules bag", [{ rules: 7 }], "overrides[0].rules is 7 rather than an object"],
-  ]) {
+  ];
+
+  for (const [label, overrides, expected] of overridesCases) {
     const { failures: reported } = restrictedImportSites({ overrides });
 
     if (reported.length !== 1 || !reported[0].includes(expected)) {

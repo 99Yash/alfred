@@ -481,7 +481,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
             <Conversation
               messages={messages}
               stream={stream}
-              onFollowUp={onSend}
+              onFollowUp={(text) => void onSend(text)}
               onRetry={onRetry}
               followUps={chipFollowUps}
               onOpenArtifact={artifact.open}

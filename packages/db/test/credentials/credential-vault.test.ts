@@ -21,7 +21,10 @@ function assertFailure(fn: () => unknown, failure: CredentialVaultFailure, secre
   try {
     fn();
   } catch (err) {
-    assert.ok(err instanceof CredentialVaultError, `expected CredentialVaultError, got ${err}`);
+    assert.ok(
+      err instanceof CredentialVaultError,
+      `expected CredentialVaultError, got ${String(err)}`,
+    );
     assert.equal(err.failure, failure);
 
     if (secret !== undefined) {
@@ -149,7 +152,7 @@ describe("credential vault: open fails closed", () => {
   });
 
   test("rejects a wrong part count", () => {
-    assertFailure(() => vault.open(`${envelope}.extra`), "malformed_envelope");
+    assertFailure(() => vault.open(`${String(envelope)}.extra`), "malformed_envelope");
     assertFailure(
       () => vault.open(envelope.split(".").slice(0, 8).join(".")),
       "malformed_envelope",

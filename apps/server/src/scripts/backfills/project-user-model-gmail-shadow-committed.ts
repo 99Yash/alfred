@@ -411,11 +411,11 @@ async function main() {
   console.log(COMMIT ? "\n# done" : "\n# DRY — re-run with --commit to persist");
 }
 
-main()
-  .catch((err) => {
-    console.error(toMessage(err));
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await closeScriptResources();
-  });
+try {
+  await main();
+} catch (err) {
+  console.error(toMessage(err));
+  process.exitCode = 1;
+} finally {
+  await closeScriptResources();
+}

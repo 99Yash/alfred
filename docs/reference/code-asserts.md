@@ -24,6 +24,10 @@ where to put a new invariant.
 | Duplicate helper bodies | `pnpm dup` (jscpd) — cure, not prevention |
 | A suppression that suppresses nothing (`eslint-disable` / `oxlint-disable` naming a rule that did not fire) | `oxlint --report-unused-disable-directives-severity=error`, wired into the root `lint` script |
 | A rule turned `"off"` for authored source with no stated reason | `scripts/oxlint-config.mjs` `blanketDisarmFailures` (via `check:oxlint-config`) |
+| A promise nobody awaits, catches, or marks with `void` | `typescript/no-floating-promises` (`error`, type-aware) | `.oxlintrc.json` |
+| An async function where a void callback is expected (`onClick={async …}`, `.finally(async …)`), or a promise in a condition or spread | `typescript/no-misused-promises` (`error`, type-aware) | `.oxlintrc.json` |
+| A switch over a union with no `default` that misses a member | `typescript/switch-exhaustiveness-check` (`error`, type-aware) | `.oxlintrc.json` |
+| A template literal that interpolates an object, `unknown`, or `never` | `typescript/restrict-template-expressions` (`error`, type-aware) | `.oxlintrc.json` |
 
 ### The two config-hygiene rules, and why they are separate from the `anti-slop` set
 
@@ -66,6 +70,35 @@ is the right shape; what it needs is a stated reason, not a shorter list.
 `no-restricted-imports` is excluded from this rule because it is the one rule here
 carrying several independent groups, and `restrictedGroupCopyFailures` already demands
 a restated copy or a declared omission per group.
+
+### Type-aware rules
+
+`.oxlintrc.json` sets `options.typeAware`, so every oxlint run (`pnpm lint`,
+the edit-time hook, the `check:oxlint-config` probe) also runs the rules that
+need type information, through the `oxlint-tsgolint` root devDependency. A
+missing tsgolint binary fails the run instead of skipping the rules. Four rules
+are at `error`, each adopted at zero:
+
+- `typescript/no-floating-promises`, with the `node:test` registrars
+  (`describe`, `it`, `suite`, `test`) as known-safe calls, because the runner
+  owns the promise they return.
+- `typescript/no-misused-promises`, default options. Mark a deliberate
+  fire-and-forget with `() => void run()`, the pattern the web app already
+  uses. A script's cleanup goes in a top-level `try` / `finally`, not in
+  `.finally(async …)`.
+- `typescript/switch-exhaustiveness-check`, with
+  `considerDefaultExhaustiveForUnions`: a deliberate catch-all `default` is
+  accepted, and a union switch without one must name every member.
+- `typescript/restrict-template-expressions`, default options. For a value
+  the compiler types as `never` in an exhaustive `default`, print it with
+  `String(value)`.
+
+Turning type-aware on also arms the type-aware rules in oxlint's default
+`correctness` set at `warn`. The config turns each of them `"off"`, so the run
+reports only the rules it chose. The queued follow-ups are the `no-unsafe-*`
+family (`no-unsafe-argument`, `-assignment`, `-call`, `-member-access`,
+`-return`) and `no-unnecessary-condition`. Each one lands alone in its own
+change: drive the tree to zero, then add the rule at `error`.
 
 These are the cheap place for a new invariant **if it can be phrased as a
 syntax shape**. The vendored `anti-slop` set is deliberately small; a new

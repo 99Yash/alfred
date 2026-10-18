@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createServer, type ServerResponse } from "node:http";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { after, before, test } from "node:test";
 import { toNodeHandler } from "@modelcontextprotocol/node";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
@@ -58,7 +58,7 @@ before(async () => {
   notifyModernToolsChanged = () => handler.notify.toolsChanged();
   const serveMcp = toNodeHandler(handler);
 
-  const httpServer = createServer(async (req, res) => {
+  const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     if (req.url === "/mcp") {
       await serveMcp(req, res);
 
@@ -190,7 +190,11 @@ before(async () => {
     }
 
     res.writeHead(404).end();
-  });
+  };
+
+  // node:http ignores a listener's return value, so a rejected handler would surface only as an
+  // unhandled rejection. `void` keeps that behavior and says so at the call site.
+  const httpServer = createServer((req, res) => void handleRequest(req, res));
 
   await new Promise<void>((resolve) => {
     httpServer.listen(0, "127.0.0.1", resolve);

@@ -431,7 +431,7 @@ export function PlanTab({
         <div className="flex justify-end">
           <AppButton
             variant="primary"
-            onClick={handleSave}
+            onClick={() => void handleSave()}
             disabled={invalid || !dirty || saving}
             title={
               invalid

@@ -98,6 +98,7 @@ function classifyFailures() {
 
     const abs = (relative) => join(root, relative);
 
+    /** @type {Array<[id: string, expected: ReturnType<typeof classifyModuleId>, label: string]>} */
     const cases = [
       [
         `${NUL}${abs("node_modules/react/jsx-runtime.js")}?commonjs-es-import`,

@@ -109,13 +109,13 @@ async function main() {
   console.log("\n# done");
 }
 
-main()
-  .catch((e) => {
-    // Message only: a serialized Error can leak DATABASE_URL.
-    console.error(toMessage(e));
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    // Close the queue so enqueued jobs are persisted before exit.
-    await closeScriptResources(closeAgentQueue);
-  });
+try {
+  await main();
+} catch (e) {
+  // Message only: a serialized Error can leak DATABASE_URL.
+  console.error(toMessage(e));
+  process.exitCode = 1;
+} finally {
+  // Close the queue so enqueued jobs are persisted before exit.
+  await closeScriptResources(closeAgentQueue);
+}

@@ -117,7 +117,7 @@ export function createReplicache(
   });
 
   source.addEventListener("poke", () => {
-    rep.pull();
+    void rep.pull();
   });
   source.onerror = () => {
     // A transient drop stays CONNECTING and retries. CLOSED means a 401.

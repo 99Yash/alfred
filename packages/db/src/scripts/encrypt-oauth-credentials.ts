@@ -46,9 +46,11 @@ async function main() {
   console.log("  → every persisted OAuth token is sealed and opens with the configured key.");
 }
 
-main()
-  .catch((err) => {
-    console.error(`[encrypt-oauth-credentials] failed: ${toMessage(err)}`);
-    process.exitCode = 1;
-  })
-  .finally(closeConnections);
+try {
+  await main();
+} catch (err) {
+  console.error(`[encrypt-oauth-credentials] failed: ${toMessage(err)}`);
+  process.exitCode = 1;
+} finally {
+  await closeConnections();
+}

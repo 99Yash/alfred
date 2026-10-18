@@ -2601,14 +2601,17 @@ const text = 'import "ignored-string"';
 
     // (xiii-d) The declared list's own shape, in the boundary that owns it. Without these
     // the comparison one hop down meets a number where a node name belongs.
-    for (const [declared, expected] of [
+    /** @type {Array<[declared: unknown, expected: string]>} */
+    const declaredShapeCases = [
       [
         [["shape-a", 42]],
         `${graph.declaredCyclesPath}[0] is not a list of node names: ["shape-a",42]`,
       ],
       [["shape-a"], `${graph.declaredCyclesPath}[0] is not a list of node names: "shape-a"`],
       [{}, `${graph.declaredCyclesPath} is missing or not an array`],
-    ]) {
+    ];
+
+    for (const [declared, expected] of declaredShapeCases) {
       const shapeFaults = baselineRatchetFaults(baselineWithGraph(graph, [], declared));
 
       if (!shapeFaults.some((fault) => fault === expected)) {

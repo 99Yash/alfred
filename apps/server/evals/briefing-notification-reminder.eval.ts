@@ -220,7 +220,9 @@ function modelForLane(lane: ModelLane): LanguageModel {
 
 async function runBriefingScenario(input: ScenarioRun): Promise<ComposeOutput> {
   const { scenario, modelLane } = input;
-  let dumped: { subject: string; bodyText: string; bodyMarkdown: string } | null = null;
+  // An array, not a `let` set inside `execute`: the compiler cannot see a closure assignment, so it
+  // narrowed a `let` to `null` and then to `never` after the guard below.
+  const dumps: Array<{ subject: string; bodyText: string; bodyMarkdown: string }> = [];
 
   const system = buildSystemPrompt({
     slot: "morning",
@@ -305,11 +307,11 @@ async function runBriefingScenario(input: ScenarioRun): Promise<ComposeOutput> {
             rationale: z.string().nullable().default(null),
           }),
           execute: async (input) => {
-            dumped = {
+            dumps.push({
               subject: input.subject,
               bodyText: input.bodyText,
               bodyMarkdown: input.bodyMarkdown,
-            };
+            });
 
             return { ok: true };
           },
@@ -322,6 +324,8 @@ async function runBriefingScenario(input: ScenarioRun): Promise<ComposeOutput> {
       note: `[${modelLane}] ERROR: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
+
+  const dumped = dumps.at(-1);
 
   if (!dumped) return EMPTY_OUTPUT;
   const { subject, bodyText, bodyMarkdown } = dumped;

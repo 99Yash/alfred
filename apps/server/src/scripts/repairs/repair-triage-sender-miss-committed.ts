@@ -266,12 +266,12 @@ async function main() {
   );
 }
 
-main()
-  .catch((e) => {
-    // Message only: a serialized Error can leak DATABASE_URL.
-    console.error(toMessage(e));
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await closeScriptResources(closeAgentQueue);
-  });
+try {
+  await main();
+} catch (e) {
+  // Message only: a serialized Error can leak DATABASE_URL.
+  console.error(toMessage(e));
+  process.exitCode = 1;
+} finally {
+  await closeScriptResources(closeAgentQueue);
+}

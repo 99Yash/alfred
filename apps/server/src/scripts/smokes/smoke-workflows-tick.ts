@@ -164,18 +164,18 @@ async function main() {
   console.log("[smoke-workflows-tick] ✅ all assertions passed");
 }
 
-main()
-  .catch((err) => {
-    console.error("[smoke-workflows-tick] failed:", err);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    try {
-      await closeAgentQueue();
-      await closeWorkflowsQueue();
-      await closeRedis();
-      await closeConnections();
-    } catch (err) {
-      console.error("[smoke-workflows-tick] cleanup error:", toMessage(err));
-    }
-  });
+try {
+  await main();
+} catch (err) {
+  console.error("[smoke-workflows-tick] failed:", err);
+  process.exitCode = 1;
+} finally {
+  try {
+    await closeAgentQueue();
+    await closeWorkflowsQueue();
+    await closeRedis();
+    await closeConnections();
+  } catch (err) {
+    console.error("[smoke-workflows-tick] cleanup error:", toMessage(err));
+  }
+}

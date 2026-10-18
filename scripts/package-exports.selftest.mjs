@@ -236,6 +236,7 @@ function malformedTargetFailures() {
 
   // The shape branches nothing on today's tree exercises, checked directly so a
   // regression in them is not hidden behind a fixture that happens to be clean.
+  /** @type {Array<[value: unknown, needle: string]>} */
   const shapeCases = [
     [{ ".": [] }, "empty array"],
     [{ ".": {} }, "empty object"],

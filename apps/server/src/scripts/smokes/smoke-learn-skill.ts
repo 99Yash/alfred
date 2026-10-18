@@ -239,14 +239,14 @@ async function main() {
   console.log("\n[smoke-learn-skill] PASS");
 }
 
-main()
-  .catch((err) => {
-    console.error(
-      "[smoke-learn-skill] FAIL",
-      err instanceof Error ? (err.stack ?? err.message) : err,
-    );
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await closeScriptResources(closeAgentQueue);
-  });
+try {
+  await main();
+} catch (err) {
+  console.error(
+    "[smoke-learn-skill] FAIL",
+    err instanceof Error ? (err.stack ?? err.message) : err,
+  );
+  process.exitCode = 1;
+} finally {
+  await closeScriptResources(closeAgentQueue);
+}

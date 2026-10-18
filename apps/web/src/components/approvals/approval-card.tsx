@@ -144,7 +144,7 @@ export function ApprovalCard({
               type="button"
               disabled={busy || reasonMissing}
               onClick={() =>
-                decide({
+                void decide({
                   decision: "cancel_run",
                   expectedRowVersion: staging.rowVersion,
                   reason: reason.trim(),
@@ -165,7 +165,7 @@ export function ApprovalCard({
               leading={ICON_REVISE_SM}
               disabled={busy || reasonMissing}
               onClick={() =>
-                decide({
+                void decide({
                   decision: "reject",
                   expectedRowVersion: staging.rowVersion,
                   reason: reason.trim(),
@@ -197,7 +197,7 @@ export function ApprovalCard({
           leading={edited ? ICON_PENCIL : ICON_CHECK}
           loading={busy}
           disabled={busy}
-          onClick={() => decide(approveDecision())}
+          onClick={() => void decide(approveDecision())}
         >
           {edited && staging.toolName === "system.activate_workflow"
             ? "Review changes"

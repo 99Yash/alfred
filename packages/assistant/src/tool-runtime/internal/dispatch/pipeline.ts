@@ -910,8 +910,9 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
       };
 
     default: {
-      // Fail instead of throwing, so the boss gets a tool result.
-      const diagnostic = `dispatcher saw unexpected staging status '${row.status}'`;
+      // Fail instead of throwing, so the boss gets a tool result. The cases above are exhaustive,
+      // so `row.status` is `never` here; `String` prints whatever an out-of-contract row holds.
+      const diagnostic = `dispatcher saw unexpected staging status '${String(row.status)}'`;
       const error = publicAppError("tool_execution_failed");
       recordRejection({
         dispatch: args,

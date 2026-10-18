@@ -336,15 +336,15 @@ async function main() {
   console.log(`[sync-prices] inserted=${inserted} unchanged=${unchanged}`);
 }
 
-main()
-  .catch((err) => {
-    console.error("[sync-prices] FAIL:", toMessage(err));
-    const cause = safeCauseMessage(err);
+try {
+  await main();
+} catch (err) {
+  console.error("[sync-prices] FAIL:", toMessage(err));
+  const cause = safeCauseMessage(err);
 
-    if (cause) console.error("[sync-prices] cause:", cause);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    const { closeConnections } = await import("../index");
-    await closeConnections().catch(() => {});
-  });
+  if (cause) console.error("[sync-prices] cause:", cause);
+  process.exitCode = 1;
+} finally {
+  const { closeConnections } = await import("../index");
+  await closeConnections().catch(() => {});
+}
