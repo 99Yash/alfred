@@ -43,14 +43,16 @@ export function boundToolResult(
     let clipped = 0;
     let changed = false;
 
-    const out = value.map((item) => {
+    const out: unknown[] = [];
+
+    for (const item of value) {
       const r = boundToolResult(item, maxStringChars);
       clipped += r.clipped;
 
       if (r.value !== item) changed = true;
 
-      return r.value;
-    });
+      out.push(r.value);
+    }
 
     return { value: changed ? out : value, clipped };
   }

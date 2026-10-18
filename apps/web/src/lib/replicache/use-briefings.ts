@@ -5,14 +5,14 @@ import type { ReadTransaction } from "replicache";
 import { useReplicacheStatus } from "./context";
 import { useReplicacheSubscription } from "./use-replicache-subscription";
 
-/** Morning before evening; unknown slots last. */
+/** Morning before evening. */
 const SLOT_ORDER = {
   morning: 0,
   evening: 1,
 } as const satisfies Record<BriefingSlot, number>;
 
 function compareSlots(a: SyncedBriefing, b: SyncedBriefing): number {
-  return (SLOT_ORDER[a.slot] ?? 9) - (SLOT_ORDER[b.slot] ?? 9);
+  return SLOT_ORDER[a.slot] - SLOT_ORDER[b.slot];
 }
 
 export interface BriefingsState {

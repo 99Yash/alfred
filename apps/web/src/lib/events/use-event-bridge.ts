@@ -9,7 +9,7 @@ export function useEventBridge(): void {
   const { data: session } = authClient.useSession();
 
   useEffect(() => {
-    const userId = session?.user?.id;
+    const userId = session?.user.id;
 
     if (!userId) return;
 
@@ -42,5 +42,5 @@ export function useEventBridge(): void {
     });
 
     return close;
-  }, [session?.user?.id, queryClient]);
+  }, [session?.user.id, queryClient]);
 }

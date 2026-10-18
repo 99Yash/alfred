@@ -389,7 +389,7 @@ function parseCalendarBodyActor(body: string): BodyActor | undefined {
     const angleEmail = angle?.[2];
 
     if (angleEmail) {
-      const name = (angle?.[1] ?? "")
+      const name = (angle[1] ?? "")
         .trim()
         .replace(/^"+|"+$/g, "")
         .trim();

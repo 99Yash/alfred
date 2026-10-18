@@ -6,7 +6,7 @@ import { openEventStream } from "./stream";
 /** Frames received this session for the signed-in user, newest first, capped at `limit`. */
 export function useEventStream(limit = 50): EventStreamFrame[] {
   const { data: session } = authClient.useSession();
-  const userId = session?.user?.id;
+  const userId = session?.user.id;
   const [frames, setFrames] = useState<EventStreamFrame[]>([]);
 
   // Reset during render when the user changes, not in an effect.
@@ -28,7 +28,7 @@ export function useEventStream(limit = 50): EventStreamFrame[] {
     });
 
     return close;
-  }, [session?.user?.id, limit]);
+  }, [session?.user.id, limit]);
 
   return frames;
 }

@@ -19,6 +19,7 @@ function approxBytes(value: unknown): number {
   let json: string;
 
   try {
+    // oxlint-disable-next-line typescript/no-unnecessary-condition -- lib.d.ts types JSON.stringify as string, but it returns undefined for undefined, a function, or a symbol.
     json = JSON.stringify(value) ?? "";
   } catch {
     return 0;

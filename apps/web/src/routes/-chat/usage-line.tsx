@@ -221,7 +221,7 @@ export function UsageLine({
   // Old rollups have `null`. Fold to 0 so an unknown never claims a warm or cold cache.
   const cacheWritten = usage.cacheWriteInputTokens ?? 0;
 
-  const effort = usage.effort ?? "no effort";
+  const effort = usage.effort;
   const effortLabel = effort.slice(0, 1).toUpperCase() + effort.slice(1);
 
   return (
@@ -342,7 +342,7 @@ export function UsageLine({
                 <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-app-amber-4" />
               ) : null}
               {Icon ? (
-                <Icon className="size-3.5 shrink-0" style={{ color: provider?.tint }} />
+                <Icon className="size-3.5 shrink-0" style={{ color: provider.tint }} />
               ) : null}
               <span className="font-medium">{modelLabel(m.model)}</span>
               <span className="text-app-fg-2">· {effortLabel}</span>

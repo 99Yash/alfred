@@ -338,6 +338,7 @@ export async function runMemoryFinalize<State extends MemoryExtractionOperationS
     processed: ctx.state.processed,
     // Needed: a run resumed from before this field shipped has it absent, and the
     // executor skips the schema `.default(0)` on this path.
+    // oxlint-disable-next-line typescript/no-unnecessary-condition -- persisted run state can predate `extractionErrors`; the resume path does not apply the schema default.
     errors: ctx.state.extractionErrors ?? 0,
     proposed: ctx.state.proposed,
     blocked: ctx.state.blocked,

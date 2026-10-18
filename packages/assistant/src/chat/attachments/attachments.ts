@@ -114,8 +114,8 @@ export async function assertPassThroughImageBytes(
       throw Errors.BadRequestError("File contents don't match the declared image type");
     }
 
-    const width = metadata.width ?? 0;
-    const height = metadata.height ?? 0;
+    const width = metadata.width;
+    const height = metadata.height;
 
     if (width < MIN_MODEL_IMAGE_EDGE_PX || height < MIN_MODEL_IMAGE_EDGE_PX) {
       throw Errors.BadRequestError("Image is too small to attach");

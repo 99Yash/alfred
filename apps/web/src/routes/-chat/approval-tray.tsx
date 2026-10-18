@@ -238,6 +238,7 @@ function useRecordDecision<Decision extends RecordedDecision>({
         );
       }
 
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- Eden treaty `data` is the server's JSON typed by its route, not parsed here; an empty body or a skewed deploy can leave it null.
       if (data?.status === "restaged") {
         toast.info({
           message: "Review the refreshed contract",
@@ -548,18 +549,19 @@ function InlineApprovalCard({
 
 /** Toast for a run-ending write decision. Approve and reject resume the run, so no toast. */
 function writeDecisionToast(decision: WriteDecision): DecisionToast | null {
-  if (decision.decision === "approve") return null;
+  switch (decision.decision) {
+    case "approve":
+    case "reject":
+      return null;
+    case "cancel_run":
+      return { tone: "info", message: "Run ended", description: "Alfred stopped this run." };
+    default: {
+      // A new `WriteDecision` arm fails to compile here.
+      const unhandled: never = decision;
 
-  if (decision.decision === "reject") return null;
-
-  if (decision.decision === "cancel_run") {
-    return { tone: "info", message: "Run ended", description: "Alfred stopped this run." };
+      return unhandled;
+    }
   }
-
-  // A new `WriteDecision` arm fails to compile here.
-  const unhandled: never = decision;
-
-  return unhandled;
 }
 
 /**
@@ -567,13 +569,16 @@ function writeDecisionToast(decision: WriteDecision): DecisionToast | null {
  * Kept so a future run-ending decision fails to compile here.
  */
 function questionDecisionToast(decision: QuestionDecision): DecisionToast | null {
-  if (decision.decision === "approve") return null;
+  switch (decision.decision) {
+    case "approve":
+    case "reject":
+      return null;
+    default: {
+      const unhandled: never = decision;
 
-  if (decision.decision === "reject") return null;
-
-  const unhandled: never = decision;
-
-  return unhandled;
+      return unhandled;
+    }
+  }
 }
 
 /**
@@ -744,16 +749,19 @@ function PermissionsAffordance({
 
 /** Trigger subline after a decision. Write cards only. */
 function ResolvedCopy({ kind, edited }: { kind: WriteDecision["decision"]; edited: boolean }) {
-  if (kind === "approve") {
-    return edited ? "Approved with changes — resuming the run." : "Approved — resuming the run.";
+  switch (kind) {
+    case "approve":
+      return edited ? "Approved with changes — resuming the run." : "Approved — resuming the run.";
+    case "reject":
+      return "Sent back to Alfred with a revision note.";
+    case "cancel_run":
+      return "Run ended at your request.";
+    default: {
+      const unhandled: never = kind;
+
+      return unhandled;
+    }
   }
-
-  if (kind === "reject") return "Sent back to Alfred with a revision note.";
-
-  if (kind === "cancel_run") return "Run ended at your request.";
-  const unhandled: never = kind;
-
-  return unhandled;
 }
 
 /**

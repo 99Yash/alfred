@@ -179,7 +179,7 @@ export function createVercelClient(options: VercelClientOptions) {
         name: p.name,
         framework: p.framework ?? null,
         latestDeploymentState: p.latestDeployments?.[0]?.readyState ?? null,
-        linkedRepo: p.link?.org && p.link?.repo ? `${p.link.org}/${p.link.repo}` : null,
+        linkedRepo: p.link?.org && p.link.repo ? `${p.link.org}/${p.link.repo}` : null,
       }));
     },
 

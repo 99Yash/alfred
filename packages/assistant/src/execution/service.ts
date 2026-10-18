@@ -178,7 +178,7 @@ export async function createRun(
   if (resolved.userAuthoredRow) {
     const row = resolved.userAuthoredRow;
     // A revision-backed run ignores caller overrides, so it runs exactly the revision it names.
-    brief = row.brief ?? undefined;
+    brief = row.brief;
     metadata = {
       ...metadata,
       allowedIntegrations: row.allowedIntegrations,
@@ -219,8 +219,7 @@ export async function createRun(
     workflowSlug,
     workflowRevisionId: resolved.userAuthoredRow?.revisionId ?? null,
     brief,
-    // SAFETY: workflow state is a plain JSON object.
-    state: (initialState as object) ?? {},
+    state: initialState ?? {},
     transcript,
     currentStep: workflow.initialStep,
     metadata,

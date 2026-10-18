@@ -318,17 +318,14 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
 
     todo = await decideTodo();
 
-    const decisionTrace =
-      observations == null
-        ? null
-        : senderExtractionEvent({
-            senderContextResult,
-            observations,
-            audit,
-            classification,
-            todoSuggested: todo.outcome.kind !== "none",
-            standingSuppression: todo.standingSuppression,
-          });
+    const decisionTrace = senderExtractionEvent({
+      senderContextResult,
+      observations,
+      audit,
+      classification,
+      todoSuggested: todo.outcome.kind !== "none",
+      standingSuppression: todo.standingSuppression,
+    });
 
     // `written` is false when a run for a newer message owns the row; then skip
     // the side effects. The trace commits in the same transaction as the row.
@@ -347,21 +344,19 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       todoDecision: classification.todoDecision ?? null,
       senderSignificanceBand: senderSignificance?.band ?? null,
       // The reuse path has no observations, so it reads this from the row (#517 D1).
-      senderRelationshipIsCold: observations?.senderRelationshipIsCold ?? null,
-      decisionTrace: decisionTrace
-        ? {
-            stepId: "classify",
-            attempt: ctx.attempt,
-            kind: "triage.classification",
-            trace: decisionTrace,
-          }
-        : undefined,
+      senderRelationshipIsCold: observations.senderRelationshipIsCold,
+      decisionTrace: {
+        stepId: "classify",
+        attempt: ctx.attempt,
+        kind: "triage.classification",
+        trace: decisionTrace,
+      },
       authoredAt: ctxData.document.authoredAt,
     });
 
     written = upserted.written;
 
-    if (written && decisionTrace) {
+    if (written) {
       ctx.trace("triage.classification", decisionTrace);
     }
   }

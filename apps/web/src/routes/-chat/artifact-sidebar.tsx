@@ -1,4 +1,9 @@
-import type { ArtifactFormat, ArtifactPage, ExternalFileContent } from "@alfred/contracts";
+import type {
+  ArtifactFormat,
+  ArtifactPage,
+  ExternalFileContent,
+  ExternalFileSource,
+} from "@alfred/contracts";
 import type { SyncedArtifact } from "@alfred/sync";
 import {
   AlertTriangle,
@@ -34,6 +39,11 @@ import type { LiveArtifactStream } from "~/lib/chat/use-artifact-stream";
 import { useArtifact } from "~/lib/replicache/use-artifacts";
 import { cn } from "~/lib/utils";
 import type { ChatSidePanelMode } from "~/routes/-chat/rail/models";
+
+/** A new source fails to compile here until it has a label. */
+const EXTERNAL_FILE_SOURCE_LABEL = {
+  drive: "Google Drive",
+} satisfies Record<ExternalFileSource, string>;
 
 /**
  * Artifact sidebar (ADR-0075 Phase 3): a `document` as markdown, `pages` as scaled iframes.
@@ -280,11 +290,11 @@ function ArtifactHeader({
       {isDocument && !documentView.generating && documentView.markdown.length > 0 ? (
         <CopyMarkdownButton markdown={documentView.markdown} />
       ) : null}
-      {isPages && pagesContent && pagesContent.length > 0 && artifact?.status !== "generating" ? (
+      {isPages && pagesContent && pagesContent.length > 0 && artifact.status !== "generating" ? (
         <DownloadPagesButton
           pages={pagesContent}
-          format={artifact?.format ?? "pdf"}
-          title={artifact?.title || "Artifact"}
+          format={artifact.format ?? "pdf"}
+          title={artifact.title || "Artifact"}
         />
       ) : null}
       {externalFile?.webViewLink ? (
@@ -341,7 +351,7 @@ function ArtifactSubline({
   // External files are complete at mint, so skip the lifecycle states.
   if (artifact.content?.kind === "external_file") {
     const { source, mimeType } = artifact.content;
-    const sourceLabel = source === "drive" ? "Google Drive" : source;
+    const sourceLabel = EXTERNAL_FILE_SOURCE_LABEL[source];
 
     return <span>{mimeType ? `${sourceLabel} · ${mimeType}` : sourceLabel}</span>;
   }

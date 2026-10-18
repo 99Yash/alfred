@@ -195,7 +195,7 @@ function SharedThreadBody({ urlSlug }: { urlSlug: string }) {
     );
   }
 
-  if (query.isError || !query.data) {
+  if (query.isError) {
     return <SharedThreadUnavailable error={query.error} onRetry={() => void query.refetch()} />;
   }
 

@@ -233,11 +233,13 @@ async function runExpansion(
   try {
     result = await plan.expander({ request, handle: plan.handle, signal });
   } catch (error) {
+    // oxlint-disable-next-line typescript/no-unnecessary-condition -- `signal.aborted` can flip during the await above; flow analysis keeps the earlier narrowing.
     if (signal.aborted) return { plan, card: undefined, failure: EXPANSION_TIMEOUT_FAILURE };
 
     return { plan, card: undefined, failure: sanitizeErrorMessage(toMessage(error)) };
   }
 
+  // oxlint-disable-next-line typescript/no-unnecessary-condition -- `signal.aborted` can flip during the await above; flow analysis keeps the earlier narrowing.
   if (signal.aborted) return { plan, card: undefined, failure: EXPANSION_TIMEOUT_FAILURE };
 
   // No card: the record is gone or had nothing new. Not a failure.

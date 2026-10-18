@@ -707,7 +707,7 @@ function usePrefersReducedMotion(): boolean {
 }
 
 function subscribeReducedMotion(onChange: () => void): () => void {
-  if (typeof window === "undefined" || !window.matchMedia) return () => {};
+  if (typeof window === "undefined") return () => {};
 
   const mql = window.matchMedia("(prefers-reduced-motion: reduce)");
   mql.addEventListener("change", onChange);
@@ -716,7 +716,7 @@ function subscribeReducedMotion(onChange: () => void): () => void {
 }
 
 function getReducedMotionSnapshot(): boolean {
-  if (typeof window === "undefined" || !window.matchMedia) return false;
+  if (typeof window === "undefined") return false;
 
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }

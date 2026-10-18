@@ -52,15 +52,17 @@ function sanitizeUnknown(value: unknown): SanitizeResult {
     let collisions = 0;
     let changed = false;
 
-    const out = value.map((item: unknown) => {
+    const out: unknown[] = [];
+
+    for (const item of value) {
       const r = sanitizeToolResult(item);
       removed += r.removed;
       collisions += r.collisions;
 
       if (r.value !== item) changed = true;
 
-      return r.value;
-    });
+      out.push(r.value);
+    }
 
     return { value: changed ? out : value, removed, collisions };
   }

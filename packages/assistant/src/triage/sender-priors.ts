@@ -98,7 +98,7 @@ async function loadSenderPriorFromDb(
 
   if (!row) return null;
 
-  return { categoryCounts: row.categoryCounts ?? {}, lastCategory: row.lastCategory };
+  return { categoryCounts: row.categoryCounts, lastCategory: row.lastCategory };
 }
 
 /** Null for a sender never classified. A Redis blip falls back to Postgres. */

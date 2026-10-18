@@ -90,7 +90,7 @@ export function HistoryTab({ workflow }: { workflow: SyncedWorkflow }) {
                   })
                 }
                 onRunAgain={(runId, revisionChoice) => replay.mutate({ runId, revisionChoice })}
-                runAgainPending={replay.isPending && replay.variables?.runId === row.id}
+                runAgainPending={replay.isPending && replay.variables.runId === row.id}
               />
             ))}
           </div>

@@ -188,6 +188,7 @@ export function McpConnectionCatalogPanel({ connection }: { connection: McpConne
         .connections({ id: connectionId })
         .tools.get({ query: pageParam ? { cursor: pageParam } : {} });
 
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- Eden treaty `data` is the server's JSON typed by its route, not parsed here; an empty body or a skewed deploy can leave it null.
       if (response.error || !response.data) {
         throw new Error("Could not load MCP tools");
       }
@@ -215,6 +216,7 @@ export function McpConnectionCatalogPanel({ connection }: { connection: McpConne
         .connections({ id: connectionId })
         .tools.inspect.get({ query: selected });
 
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- Eden treaty `data` is the server's JSON typed by its route, not parsed here; an empty body or a skewed deploy can leave it null.
       if (response.error || !response.data) {
         throw new Error("Could not load MCP tool");
       }

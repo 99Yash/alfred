@@ -224,7 +224,7 @@ export async function startIngestionWorker(opts: StartIngestionWorkerOpts = {}):
   // ingestion dark for 36h with no signal.
   _worker.on("failed", (job, err) => {
     console.error(
-      `[ingestion:worker] job failed kind=${job?.data?.kind ?? "?"} id=${job?.id ?? "?"} ` +
+      `[ingestion:worker] job failed kind=${job?.data.kind ?? "?"} id=${job?.id ?? "?"} ` +
         `attempt=${job?.attemptsMade ?? "?"}: ${err.message}`,
     );
   });

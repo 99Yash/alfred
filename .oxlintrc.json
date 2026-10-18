@@ -179,6 +179,18 @@
     "typescript/no-misused-spread": "error",
     "typescript/no-duplicate-type-constituents": "error",
     "typescript/require-array-sort-compare": "error",
+    // no-unnecessary-condition: a `?.`, `??`, truthiness check, or compare whose operand's type
+    // already decides the result. Delete the guard only when a real parse established the type;
+    // when the type is an assertion over unvalidated data (`jsonb.$type<X>()` rows that predate X,
+    // `JSON.parse`, `res.json()`, a hand-typed frame), fix the type or parse at the boundary.
+    // `while (true)` and `for (;;)` stay legal; a variable typed as the literal `true` does not.
+    // Staged rollout: product source (apps/*/src, packages/*/src) is clean and at `error`. Tests,
+    // ops scripts, repo scripts, and JavaScript are off in the two "overrides" entries just above
+    // the JavaScript one, until their own changes clear them.
+    "typescript/no-unnecessary-condition": [
+      "error",
+      { "allowConstantLoopConditions": "only-allowed-literals" }
+    ],
     // Three more default rules that had hits, each driven to zero before it landed:
     // - unbound-method: a method read as a value loses `this`. Bind it or wrap it in an arrow;
     //   declare a member that never reads `this` as a function-typed property.
@@ -613,6 +625,25 @@
       ],
       "rules": {
         "anti-slop/no-unsafe-dictionary-type": "off"
+      }
+    },
+    {
+      // no-unnecessary-condition is a staged rollout. Product source was cleared first; these
+      // surfaces still carry hits (2026-10-18: ~730 in tests, 17 in ops scripts, 12 in repo
+      // TypeScript scripts, 28 in JavaScript). Each later change clears one surface and removes
+      // its globs here. Shrink this list; do not add product paths to it. The test/eval half is
+      // its own entry because check:oxlint-config gives test scopes a separate disarm rule.
+      "files": ["**/test/**", "**/evals/**", "**/*.test.ts", "**/*.test.tsx"],
+      "rules": {
+        "typescript/no-unnecessary-condition": "off"
+      }
+    },
+    {
+      // The non-test half of the no-unnecessary-condition staged rollout (see the entry above).
+      // oxlint-disarm: typescript/no-unnecessary-condition — staged rollout: ops scripts, repo scripts, and JavaScript still carry hits; later lanes clear each surface and shrink this list.
+      "files": ["**/src/scripts/**", "scripts/**", "**/*.mjs", "**/*.js", "**/*.cjs"],
+      "rules": {
+        "typescript/no-unnecessary-condition": "off"
       }
     },
     {

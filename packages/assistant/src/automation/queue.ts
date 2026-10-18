@@ -63,6 +63,7 @@ export async function closeWorkflowsQueue(): Promise<void> {
 
 async function processWorkflowsJob(job: Job<WorkflowsJobData>) {
   switch (job.data.kind) {
+    // oxlint-disable-next-line typescript/no-unnecessary-condition -- BullMQ job.data is JSON read back from Redis and typed only by the queue generic; a stale or foreign job can carry another kind.
     case "workflows.tick":
       return dispatchDueCronWorkflows();
     default: {

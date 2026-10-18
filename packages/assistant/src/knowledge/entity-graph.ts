@@ -79,7 +79,7 @@ function rowToEntity(r: Entity): EntityRow {
     userId: r.userId,
     kind: entityKindSchema.parse(r.kind),
     canonicalName: r.canonicalName,
-    aliases: aliasesSchema.parse(r.aliases ?? []),
+    aliases: aliasesSchema.parse(r.aliases),
     metadata: jsonRecordSchema.parse(r.metadata),
     rowVersion: r.rowVersion,
   };
@@ -397,7 +397,7 @@ export async function previewContactKinds(
     const kind = contactKindSchema.parse(row.kind);
     const metadata = jsonRecordSchema.parse(row.metadata);
 
-    for (const alias of aliasesSchema.parse(row.aliases ?? [])) {
+    for (const alias of aliasesSchema.parse(row.aliases)) {
       const normalized = canonicalizeIdentityValue("email", alias);
       stored.set(normalized, { canonicalName: row.canonicalName, kind, metadata });
     }

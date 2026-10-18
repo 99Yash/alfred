@@ -55,7 +55,7 @@ export async function maybeGenerateThreadTitle(args: {
       .orderBy(asc(chatMessages.createdAt), asc(chatMessages.id))
       .limit(1);
 
-    const userText = firstUser[0]?.content?.trim() ?? "";
+    const userText = firstUser[0]?.content.trim() ?? "";
     const firstUserId = firstUser[0]?.id;
 
     const attachmentNames =

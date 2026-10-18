@@ -35,10 +35,11 @@ export type SendMessage = (
 const TURN_START_TIMEOUT_MS = 30_000;
 
 function safeRandomId(): string {
-  if (typeof crypto === "undefined")
+  // lib.dom types `randomUUID` as always present; browsers expose it only in secure contexts.
+  if (typeof crypto === "undefined" || !("randomUUID" in crypto))
     return `id_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
-  return crypto.randomUUID?.() ?? `id_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  return crypto.randomUUID();
 }
 
 /**
@@ -48,7 +49,7 @@ function safeRandomId(): string {
 export function useSendMessage(): SendMessage {
   const rep = useReplicache();
   const { data: session } = authClient.useSession();
-  const userId = session?.user?.id;
+  const userId = session?.user.id;
   const navigate = useNavigate();
 
   return useCallback(
@@ -256,6 +257,6 @@ export function useSendMessage(): SendMessage {
 
       return { ok: true, runId: null, assistantMessageId: userMessageId } satisfies SendResult;
     },
-    [rep, session?.user?.id, navigate],
+    [rep, session?.user.id, navigate],
   );
 }

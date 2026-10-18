@@ -27,7 +27,7 @@ function ModelChip({ model }: { model: string }) {
   return (
     <span className="inline-flex items-center gap-1 rounded-md bg-app-bg-a2 px-1.5 py-0.5 text-[11px] text-app-fg-3">
       {Icon ? (
-        <Icon className="size-3 shrink-0" style={{ color: provider?.tint }} aria-hidden />
+        <Icon className="size-3 shrink-0" style={{ color: provider.tint }} aria-hidden />
       ) : null}
       <span className="font-medium">{modelLabel(model)}</span>
     </span>

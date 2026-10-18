@@ -106,7 +106,7 @@ function syncLifecycleReducer(state: SyncLifecycle, action: SyncLifecycleAction)
 
 export function ReplicacheProvider({ children }: { children: React.ReactNode }) {
   const { data: session } = authClient.useSession();
-  const userId = session?.user?.id;
+  const userId = session?.user.id;
   const [sync, dispatch] = useReducer(syncLifecycleReducer, initialSyncLifecycle);
   const { rep, loadError, pullError, initialPullPending, retryNonce } = sync;
 
@@ -174,12 +174,16 @@ export function ReplicacheProvider({ children }: { children: React.ReactNode }) 
         }, ms);
       });
 
+    // A call, not a bare read: TypeScript keeps a `let` narrowed across `await`,
+    // so `cancelled` read after the loop guard types as `false` though cleanup sets it.
+    const isCancelled = () => cancelled;
+
     const load = async () => {
-      for (let attempt = 1; attempt <= MAX_ATTEMPTS && !cancelled; attempt++) {
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS && !isCancelled(); attempt++) {
         try {
           const { createReplicache } = await import("./client");
 
-          if (cancelled) return;
+          if (isCancelled()) return;
 
           const instance = createReplicache(userId, {
             onAuthError: handleAuthError,
@@ -213,7 +217,7 @@ export function ReplicacheProvider({ children }: { children: React.ReactNode }) 
 
           return;
         } catch (err) {
-          if (cancelled) return;
+          if (isCancelled()) return;
 
           if (attempt === MAX_ATTEMPTS) {
             dispatch({

@@ -29,7 +29,7 @@ export function SourceIcon({ source }: { source: GatherSourceSlug }) {
   const brand = SOURCE_BRAND.get(source);
 
   if (brand) return <IntegrationGlyph brand={brand} size={13} />;
-  const Icon = SOURCE_LUCIDE[source] ?? Activity;
+  const Icon = SOURCE_LUCIDE[source];
 
   return <Icon size={12} aria-hidden />;
 }

@@ -24,6 +24,7 @@ export function RecoveryPanel({ workflowId, revisionId }: RecoveryPanelProps) {
         .workflows({ id: workflowId })
         .recovery.post({}, { query: { revisionId } });
 
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- Eden treaty `data` is the server's JSON typed by its route, not parsed here; an empty body or a skewed deploy can leave it null.
       if (response.error || !response.data) throw new Error("Workflow recovery failed");
 
       return response.data;

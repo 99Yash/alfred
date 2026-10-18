@@ -34,6 +34,7 @@ function useToolTiers(): TierMap {
     queryFn: async () => {
       const res = await client.api.integrations["tool-tiers"].get();
 
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- Eden treaty `data` is the server's JSON typed by its route, not parsed here; an empty body or a skewed deploy can leave it null.
       if (res.error || !res.data) return new Map();
 
       return parseTierMap(res.data.tiers);

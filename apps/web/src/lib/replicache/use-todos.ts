@@ -54,7 +54,7 @@ function sortTodos(a: SyncedTodo, b: SyncedTodo): number {
 export function useTodos(): TodosState {
   const { rep, loadError, retry } = useReplicacheStatus();
   const { data: session } = authClient.useSession();
-  const userId = session?.user?.id;
+  const userId = session?.user.id;
   const [rows, setRows] = useState<SyncedTodo[] | null>(null);
 
   useEffect(() => {
@@ -86,7 +86,7 @@ export function useTodos(): TodosState {
         createdAt: new Date().toISOString(),
       });
     },
-    [rep, session?.user?.id],
+    [rep, session?.user.id],
   );
 
   const completeTodo = useCallback(

@@ -1007,13 +1007,13 @@ function ThreadComposer({ onSubmit }: { onSubmit: (prompt: string) => void }) {
   });
 
   const submit = () => {
-    const prompt = editor?.getText().trim() ?? "";
+    const prompt = editor.getText().trim();
 
     if (!prompt) return;
     onSubmit(prompt);
-    editor?.commands.clearContent();
+    editor.commands.clearContent();
     setValue("");
-    queueMicrotask(() => editor?.commands.focus());
+    queueMicrotask(() => editor.commands.focus());
   };
 
   // In an effect, not render: a discarded render would leak the ref write.
