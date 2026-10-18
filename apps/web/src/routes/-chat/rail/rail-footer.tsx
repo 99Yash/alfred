@@ -8,7 +8,7 @@ const CTA_CLASS = cn(
   "inline-flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2",
   "text-left",
   "text-[var(--app-accent-fg)]",
-  "bg-[image:var(--app-cta-bg)]",
+  "bg-(image:--app-cta-bg)",
   "shadow-[var(--app-button-primary-shadow)]",
   "app-press transition-[box-shadow,transform,filter]",
   "hover:brightness-[1.06]",

@@ -241,7 +241,16 @@ function connectActionFor(code: ToolUnavailabilityCode): ChatConnectNudge["actio
     case "missing_scope":
       // A credential exists but cannot act. Reconnecting repairs both.
       return "reconnect";
-    default:
+    // Connecting does not repair these; the chat shows no nudge.
+    case "feature_disabled":
+    case "not_allowed":
+    case "requires_thread":
+    case "wrong_caller":
       return undefined;
+    default: {
+      const _exhaustive: never = code;
+
+      return _exhaustive;
+    }
   }
 }

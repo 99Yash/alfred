@@ -294,7 +294,7 @@ function DimensionDropdownItem({ item }: { item: DimensionComposerMenuItem }) {
   const content = (
     <>
       {item.icon ? (
-        <span className="grid size-7 shrink-0 place-items-center rounded-xl bg-white/[0.045] text-white/58">
+        <span className="grid size-7 shrink-0 place-items-center rounded-xl bg-white/4.5 text-white/58">
           {item.icon}
         </span>
       ) : null}

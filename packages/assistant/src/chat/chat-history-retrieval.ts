@@ -1,4 +1,4 @@
-import { readChatHistoryInput } from "@alfred/contracts";
+import type { readChatHistoryInput } from "@alfred/contracts";
 import type {
   ChatHistoryAttachmentEvidence,
   ChatHistoryMessageEvidence,

@@ -177,6 +177,7 @@ export function constantsReExports(
   const found: ConstantsReExport[] = [];
 
   for (const statement of program.body) {
+    // oxlint-disable-next-line typescript/switch-exhaustiveness-check -- the ESTree statement union; only the four export forms below can re-export a binding.
     switch (statement.type) {
       case "ExportAllDeclaration": {
         if (!isConstantsModule(statement.source.value)) break;

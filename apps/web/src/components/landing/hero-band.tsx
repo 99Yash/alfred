@@ -20,8 +20,8 @@ export function HeroBand({
       <BandAtmosphere />
 
       {/* Hairlines at both edges. The top one is brighter, as light catches the near lip. */}
-      <div aria-hidden className="absolute inset-x-0 top-0 h-px bg-white/[0.09]" />
-      <div aria-hidden className="absolute inset-x-0 bottom-0 h-px bg-white/[0.05]" />
+      <div aria-hidden className="absolute inset-x-0 top-0 h-px bg-white/9" />
+      <div aria-hidden className="absolute inset-x-0 bottom-0 h-px bg-white/5" />
 
       {notch ? (
         <div
@@ -29,7 +29,7 @@ export function HeroBand({
             "absolute top-0 left-1/2 z-20 -translate-x-1/2",
             "flex h-[52px] items-center rounded-b-[26px] bg-[#0a0a0a] px-3 sm:px-5",
             // Fixed labels: on a narrow screen the row scrolls instead of wrapping in the rounded notch.
-            "max-w-[calc(100vw-1.5rem)] [scrollbar-width:none] overflow-x-auto [&::-webkit-scrollbar]:hidden",
+            "max-w-[calc(100vw-1.5rem)] scrollbar-none overflow-x-auto [&::-webkit-scrollbar]:hidden",
           )}
         >
           {notch}

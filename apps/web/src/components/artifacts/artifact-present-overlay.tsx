@@ -56,7 +56,7 @@ export function ArtifactPresentOverlay({
   const current = pages[safeIndex];
 
   return createPortal(
-    <div className="animate-artifact-fullscreen fixed inset-0 z-[80] flex flex-col bg-black/90 backdrop-blur-sm">
+    <div className="animate-artifact-fullscreen fixed inset-0 z-80 flex flex-col bg-black/90 backdrop-blur-sm">
       <div className="flex h-12 shrink-0 items-center justify-between px-4 text-white/80">
         <span className="truncate text-sm">{title}</span>
         <div className="flex items-center gap-3">

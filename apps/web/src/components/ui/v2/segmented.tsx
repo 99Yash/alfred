@@ -43,7 +43,7 @@ export function AppSegmented<T extends string = string>({
           "inline-flex items-center gap-1 rounded-xl p-1",
           glass
             ? // Always over the dark video, so literals: theme tokens go white-on-white in light mode.
-              "bg-white/[0.12] shadow-[0_1px_12px_rgba(0,0,0,0.18)] ring-1 ring-white/15 backdrop-blur-xl backdrop-saturate-150"
+              "bg-white/12 shadow-[0_1px_12px_rgba(0,0,0,0.18)] ring-1 ring-white/15 backdrop-blur-xl backdrop-saturate-150"
             : "bg-app-bg-2 ring-1 ring-app-bg-3",
           className,
         )}

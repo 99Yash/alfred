@@ -171,9 +171,7 @@ function HalfBanner({
     <div
       className={cn(
         "rounded-3xl border px-6 py-5",
-        tone === "app"
-          ? "border-indigo-400/25 bg-indigo-400/[0.04]"
-          : "border-white/10 bg-white/[0.02]",
+        tone === "app" ? "border-indigo-400/25 bg-indigo-400/4" : "border-white/10 bg-white/2",
       )}
     >
       <p
@@ -228,7 +226,7 @@ function ChatThreadSection() {
       title="Chat thread"
       recipe="Active conversation: user bubble, tool trace accordions, thought disclosures, search rows, prose, reactions, suggestions, bottom composer."
     >
-      <div className="overflow-hidden rounded-3xl border border-white/[0.08] bg-[rgb(12,12,12)] shadow-pop">
+      <div className="overflow-hidden rounded-3xl border border-white/8 bg-[rgb(12,12,12)] shadow-pop">
         <div className="h-[780px]">
           <DimensionChatThread />
         </div>
@@ -778,7 +776,7 @@ function StatusDotSection() {
         <StatusDot tone="muted" size="sm" />
       </Row>
       <Row label="in context">
-        <span className="frost-border inline-flex h-7 items-center gap-2 rounded-full bg-white/[0.04] px-3 text-[13px] text-gray-950">
+        <span className="frost-border inline-flex h-7 items-center gap-2 rounded-full bg-white/4 px-3 text-[13px] text-gray-950">
           <StatusDot tone="emerald" />
           Auto
         </span>
@@ -1569,17 +1567,17 @@ function FadeInOnScrollSection() {
           </button>
           <div key={key} className="space-y-3">
             <FadeInOnScroll delay={0}>
-              <div className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-neutral-200">
+              <div className="rounded-xl border border-white/10 bg-white/4 px-4 py-3 text-sm text-neutral-200">
                 Row 1 · delay 0ms
               </div>
             </FadeInOnScroll>
             <FadeInOnScroll delay={80}>
-              <div className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-neutral-200">
+              <div className="rounded-xl border border-white/10 bg-white/4 px-4 py-3 text-sm text-neutral-200">
                 Row 2 · delay 80ms
               </div>
             </FadeInOnScroll>
             <FadeInOnScroll delay={160}>
-              <div className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-neutral-200">
+              <div className="rounded-xl border border-white/10 bg-white/4 px-4 py-3 text-sm text-neutral-200">
                 Row 3 · delay 160ms
               </div>
             </FadeInOnScroll>

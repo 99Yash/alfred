@@ -190,8 +190,18 @@ function barrierRunId(frame: EventStreamFrame): BarrierRunId | null {
     case "chat.tool":
     case "approval.requested":
       return toBarrierRunId(frame);
-    default:
+    case "agent.run":
+    case "agent.progress":
+    case "tool.call":
+    case "artifact.delta":
+    case "inbox.updated":
+    case "memory.fact_learned":
       return speaksForNoRun(frame.kind);
+    default: {
+      const _exhaustive: never = frame;
+
+      return _exhaustive;
+    }
   }
 }
 
@@ -246,7 +256,21 @@ function releasedRunId(frame: EventStreamFrame): BarrierRunId | null {
       return isTerminalChatPhase(frame.payload.phase) ? toBarrierRunId(frame) : null;
     case "agent.run":
       return isTerminalRunPhase(frame.payload.phase) ? toBarrierRunId(frame) : null;
-    default:
+    // A run releases only on its own terminal message or phase.
+    case "agent.progress":
+    case "approval.requested":
+    case "artifact.delta":
+    case "chat.delta":
+    case "chat.reasoning":
+    case "chat.tool":
+    case "inbox.updated":
+    case "memory.fact_learned":
+    case "tool.call":
       return null;
+    default: {
+      const _exhaustive: never = frame;
+
+      return _exhaustive;
+    }
   }
 }

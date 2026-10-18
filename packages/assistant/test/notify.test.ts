@@ -123,7 +123,7 @@ describe("delivery.send (DB-backed)", { skip: SKIP }, () => {
   test("a Resend error surfaces as a failed result", async () => {
     const userId = await seedUser();
 
-    /* eslint-disable anti-slop/no-chained-type-assertions */
+    /* eslint-disable anti-slop/no-chained-type-assertions -- a stub client that implements only `emails.send` stands in for the Resend client */
     const failingClient = {
       emails: {
         send: async () => ({

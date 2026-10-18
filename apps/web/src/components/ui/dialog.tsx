@@ -43,7 +43,7 @@ export function DialogContent({
     <RadixDialog.Portal>
       <RadixDialog.Overlay
         className={cn(
-          "fixed inset-0 z-[100]",
+          "fixed inset-0 z-100",
           "bg-[rgb(var(--gray-0)/0.7)] backdrop-blur-[4px]",
           "data-[state=open]:animate-[dialog-overlay-in_180ms_cubic-bezier(0.2,0,0,1)]",
           "data-[state=closed]:animate-[dialog-overlay-out_140ms_cubic-bezier(0.2,0,0,1)]",
@@ -54,7 +54,7 @@ export function DialogContent({
         ref={ref}
         data-app-theme={dataTheme}
         className={cn(
-          "fixed top-1/2 left-1/2 z-[101]",
+          "fixed top-1/2 left-1/2 z-101",
           "-translate-x-1/2 -translate-y-1/2",
           "w-[calc(100vw-2rem)] max-w-lg",
           themed ? "app app-frost-overlay" : "frost-popover",

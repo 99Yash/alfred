@@ -89,6 +89,7 @@ function pullNativeState(token: string | undefined): "success" | "failure" | "pe
       return "failure";
     case "pending":
       return "pending";
+    case undefined:
     default:
       return null;
   }

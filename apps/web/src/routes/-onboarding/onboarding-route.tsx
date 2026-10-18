@@ -29,7 +29,7 @@ export function OnboardingRoute() {
   }, [isPending, session, navigate]);
 
   if (isPending || !session?.user) {
-    return <div className="min-h-[100dvh]" aria-hidden />;
+    return <div className="min-h-dvh" aria-hidden />;
   }
 
   const goToStep = (next: OnboardingStep) => {

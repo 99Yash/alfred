@@ -194,6 +194,7 @@ function mark(
   if (options?.log !== false) {
     const submit = turn.marks.get("submit");
     const previous = previousMark(turn, stage, at);
+    // oxlint-disable-next-line no-console -- the DEV-only timing trace; every entry point returns before this outside DEV.
     console.info(`[chat timing] ${stage}`, {
       sinceSubmitMs: submit ? round(at - submit.at) : null,
       sincePreviousMs: previous ? round(at - previous.at) : null,
@@ -227,6 +228,7 @@ function previousMark(
 
 function printSummary(turn: ChatTurnTiming, stage: string): void {
   const label = turn.assistantMessageId ?? turn.userMessageId ?? turn.clientTurnId;
+  /* oxlint-disable no-console -- the DEV-only timing summary; every entry point returns before this outside DEV. */
   console.groupCollapsed(`[chat timing] summary after ${stage}: ${label}`);
   console.table(timelineRows(turn));
   console.info({
@@ -237,6 +239,7 @@ function printSummary(turn: ChatTurnTiming, stage: string): void {
     contentChars: turn.contentChars,
   });
   console.groupEnd();
+  /* oxlint-enable no-console */
 }
 
 function timelineRows(turn: ChatTurnTiming): ChatTimingTimelineRow[] {

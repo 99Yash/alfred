@@ -67,11 +67,11 @@ export function AppModal({
   return (
     <Drawer.Root open={open} onOpenChange={onOpenChange}>
       <Drawer.Portal>
-        <Drawer.Overlay className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-[2px]" />
+        <Drawer.Overlay className="fixed inset-0 z-100 bg-black/50 backdrop-blur-[2px]" />
         <Drawer.Content
           data-app-theme={dataTheme}
           className={cn(
-            "app fixed inset-x-0 bottom-0 z-[101] flex max-h-[90vh] flex-col",
+            "app fixed inset-x-0 bottom-0 z-101 flex max-h-[90vh] flex-col",
             "rounded-t-3xl bg-app-bg-1 text-app-fg-4 outline-none",
             className,
           )}

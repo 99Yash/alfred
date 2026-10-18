@@ -149,7 +149,7 @@ function Slot({
 }) {
   const baseClassName = cn(
     "h-full overflow-hidden [grid-area:1/1]",
-    "transition-[opacity,transform,filter] duration-[420ms] ease-[cubic-bezier(0.32,0.72,0,1)]",
+    "transition-[opacity,transform,filter] duration-420 ease-[cubic-bezier(0.32,0.72,0,1)]",
     "motion-reduce:transition-none",
   );
 

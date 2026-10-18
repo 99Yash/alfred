@@ -76,6 +76,7 @@ function sharpFormatToMime(format: string | undefined): string | null {
       return "image/png";
     case "webp":
       return "image/webp";
+    case undefined:
     default:
       return null;
   }

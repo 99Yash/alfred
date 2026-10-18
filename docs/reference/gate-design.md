@@ -93,17 +93,11 @@ Each row is a rule from [code-style.md](./code-style.md) tagged `review` or `par
 
 | Rule (code-style section) | Mechanism | Feasibility |
 | --- | --- | --- |
-| `import type` for a value used only inside `typeof` (§1 Drizzle rows) | Lint: `typescript/consistent-type-imports` (ships with oxlint, autofix) | High |
-| Name the rule on a suppression and keep the reason after ` -- ` (§1 Suppressions) | Regex row: a directive with no rule name or no ` -- ` is one comment on one line | High |
-| Drop the conditional-spread wrapper (§2 `exactOptionalPropertyTypes`) | Lint: raise `unicorn/no-useless-spread` from the default `warn` to `error` | High |
-| No stray `console.log` (§4) | Lint: `no-console` in an `apps/web` override. Two `console.info` sites in `apps/web/src/lib/chat/timing.ts` decide first | High |
-| CSS-variable shorthands over arbitrary values (§4) | Lint: `tailwindcss/enforce-canonical`, already in the installed plugin, autofix | High |
 | No explicit `any` (§2) | Lint: `typescript/no-explicit-any`. About 12 sites, all a `ZodType` of `any` in `packages/assistant/src/tool-runtime/` | Medium |
 | Minimize `!` (§2) | Lint: `typescript/no-non-null-assertion`. A rough grep finds about 14 sites in `src` | Medium |
 | Check whether an assertion is needed (§2) | Type-aware: `typescript/no-unnecessary-type-assertion` | Medium |
 | Type guards over casts, for the single cast no row reads (§2) | Type-aware: `typescript/no-unsafe-type-assertion`. Expect a large first count | Low |
 | Boundary guards stay at the boundary (§2) | Compiler: a closed-domain parameter on `isRecord` / `getPath` that rejects an argument whose type is not `unknown` | Medium |
-| Exhaustive switch ends in a `never` default (§2, hit-list 7) | Type-aware: `considerDefaultExhaustiveForUnions` off. It conflicts with the catch-all `default` that #1387 accepted, so decide that first | Low |
 | Keys are stable IDs (§4) | Lint: `react/no-array-index-key` (add `react` to `plugins`). Seven sites, some of them static skeletons | Medium |
 | Effect dependencies (§4) | Lint: `react/exhaustive-deps` | Medium |
 | Accessibility (§4) | Lint: the `jsx-a11y` plugin, one rule per change | Medium |

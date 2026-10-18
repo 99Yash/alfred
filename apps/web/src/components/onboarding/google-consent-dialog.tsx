@@ -73,7 +73,7 @@ export function GoogleConsentDialog({
 function ConsentStep({ icon, title, body }: { icon: ReactNode; title: string; body: ReactNode }) {
   return (
     <li className="flex gap-3">
-      <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-full bg-white/[0.06] ring-1 ring-white/10">
+      <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-full bg-white/6 ring-1 ring-white/10">
         {icon}
       </span>
       <div className="space-y-0.5">

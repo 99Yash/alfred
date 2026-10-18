@@ -102,12 +102,25 @@ function categoryPredicate(category: UsageRunCategory): SQL {
       return and(isNotNull(agentRuns.id), notInArray(agentRuns.workflowSlug, KNOWN_SLUGS)) as SQL;
     case "uncategorized":
       return isNull(agentRuns.id);
-    default: {
+    case "briefing":
+    case "chat":
+    case "cold_start":
+    case "memory":
+    case "reply_drafting":
+    case "skill":
+    case "sub_agent":
+    case "triage": {
       const slugs = Object.entries(SLUG_CATEGORY)
         .filter(([, c]) => c === category)
         .map(([slug]) => slug);
 
       return inArray(agentRuns.workflowSlug, slugs);
+    }
+
+    default: {
+      const _exhaustive: never = category;
+
+      return _exhaustive;
     }
   }
 }

@@ -64,7 +64,7 @@ const rel = filePath.startsWith(ROOT) ? filePath.slice(ROOT.length + 1) : filePa
 // `isScannedPath` keeps this hook in step with the gate: a rule that names its own
 // `paths` (`db-backed-skip-hand-rolled` reaches every test tree) must be hinted in
 // the same files it gates, or the hint and the build disagree.
-if (!/\.tsx?$/.test(rel) || !isScannedPath(rel)) process.exit(0);
+if (!/\.(?:tsx?|mjs)$/.test(rel) || !isScannedPath(rel)) process.exit(0);
 
 const text = writtenText(String(payload.tool_name ?? ""), input);
 

@@ -1315,8 +1315,22 @@ function awaitSubAgentSpanOutput(result: DispatchResult): SubAgentSpanOutput {
       return { status: "parked", wake: result.wake };
     case "failed":
       return { status: "failed", error: result.error };
-    default:
+    case "blocked":
+    case "feature_disabled":
+    case "fenced":
+    case "inactive_tool":
+    case "invalid_input":
+    case "not_allowed":
+    case "rejected":
+    case "staged":
+    case "unanswered":
+    case "unknown_tool":
       return { status: result.kind };
+    default: {
+      const _exhaustive: never = result;
+
+      return _exhaustive;
+    }
   }
 }
 

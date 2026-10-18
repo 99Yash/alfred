@@ -319,7 +319,7 @@ function ArtifactDialog({
       aria-modal="true"
       aria-label={label}
       className={cn(
-        "app-fade-in fixed inset-0 z-[60] m-0 flex size-full max-h-none max-w-none",
+        "app-fade-in fixed inset-0 z-60 m-0 flex size-full max-h-none max-w-none",
         "overflow-hidden border-0 bg-transparent p-0",
         compact ? "items-center justify-center" : "flex-col",
       )}

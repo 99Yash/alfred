@@ -109,6 +109,7 @@ function pullRequestNativeState(
       return "open";
     case "closed":
       return merged === true ? "merged" : "closed";
+    case null:
     default:
       return null;
   }
@@ -194,6 +195,7 @@ function checkSuiteNativeState(conclusion: string | undefined): "success" | "fai
     case "timed_out":
     case "action_required":
       return "failure";
+    case undefined:
     default:
       return null;
   }
