@@ -66,10 +66,14 @@ const CONSTANTS_MODULE = String.raw`[^"']*\/constants`;
 /**
  * The rest of one call argument that holds a `JSON.stringify(…)`, alone or
  * joined with other text (`prefix + JSON.stringify(x)`, `` `v1:${JSON.stringify(x)}` ``),
- * up to its open paren. The text before it holds no paren, comma or `;`, so it
- * cannot leave the argument it starts in: `encode(rawText)` ends at its `)`.
+ * up to its open paren. The text before it can hold a closed paren group
+ * (`` `${a(b, c)}:${JSON.stringify(x)}` ``), a closed bracket group, and one
+ * open bracket group that holds the JSON (`[a, JSON.stringify(x)].join(":")`).
+ * Outside those groups it holds no paren, comma or `;`, so it cannot leave the
+ * argument it starts in: `encode(rawText)` ends at its `)`, and a comma at the
+ * top level of the call ends the argument.
  */
-const JSON_ARGUMENT = String.raw`[^(),;]*?\bJSON\.stringify\(`;
+const JSON_ARGUMENT = String.raw`(?:[^(),;\[]|\([^()]*\)|\[[^\[\]();]*\])*?(?:\[[^\[\]();]*?)?\bJSON\.stringify\(`;
 
 /**
  * The bytes of a `JSON.stringify(…)`, up to its open paren: through a new
@@ -81,13 +85,45 @@ const ENCODED_JSON = String.raw`(?:(?:new\s+TextEncoder\(\s*\)|\w+)\s*\.encode|\
 
 /**
  * The text between a binding and a use of the name in group `group`, when no
- * other `const`/`let`/`var` of that name sits between them. So a use relates to
- * the nearest binding above it, and a second function that binds the same name
- * to other bytes does not inherit the first binding.
+ * other binding of that name sits between them. So a use relates to the
+ * nearest binding above it, and a second function that binds the same name to
+ * other bytes does not inherit the first binding. These count as another
+ * binding:
+ * - a `const`/`let`/`var` of the name;
+ * - a plain assignment to the name (`bytes = other`, not `x.bytes = other`, not
+ *   `bytes === other`), also a bare arrow parameter (`bytes =>`);
+ * - the name in the parameter list of a `function` (the first paren group
+ *   after the keyword, outside a nested paren group);
+ * - the name in a paren group directly followed by `=>`, or by a return type
+ *   and `=>` (an arrow parameter list).
+ *
+ * A method parameter does not count (see the rule comment).
  * @param {number} group The capture group that holds the name.
  */
-const nearestBindingGap = (group) =>
-  String.raw`(?:(?!\b(?:const|let|var)\s+` + `\\${group}` + String.raw`\b)[\s\S])*`;
+const nearestBindingGap = (group) => {
+  const name = `\\${group}`;
+
+  const rebinding = [
+    String.raw`\b(?:const|let|var)\s+${name}\b`,
+    String.raw`(?<!\.)\b${name}\s*=(?!=)`,
+    String.raw`\bfunction\b[^(]*\([^()]*\b${name}\b`,
+    String.raw`\([^()]*\b${name}\b[^()]*\)\s*(?::[^=;{}()]*)?=>`,
+  ].join("|");
+
+  return String.raw`(?:(?!${rebinding})[\s\S])*`;
+};
+
+/**
+ * The whole call argument is a name (group `group`) whose nearest binding
+ * above it (see `nearestBindingGap`) is JSON: a `JSON.stringify(…)`, alone or
+ * joined (see `JSON_ARGUMENT`), or its bytes (see `ENCODED_JSON`). The binding
+ * is a `const`/`let`/`var` or a plain assignment (`=`, not `==` or `=>`).
+ * @param {number} group The capture group number this piece opens.
+ */
+const boundJsonArgument = (group) =>
+  String.raw`(\w+)\s*(?=[,)])(?<=(?<!\.)\b` +
+  `\\${group}` +
+  String.raw`(?:\s*:\s*\w+)?\s*=(?![=>])\s*(?:${ENCODED_JSON}|${JSON_ARGUMENT})${nearestBindingGap(group)})`;
 
 /**
  * An import that binds the name in group 1 from a module whose path matches
@@ -1027,14 +1063,24 @@ export const RULES = [
     // name above it (see `nearestBindingGap`), so a second function that binds
     // the same name to raw bytes is not flagged. `Buffer.from(JSON.stringify(v))`
     // counts as encoded JSON, and the JSON may be joined with other text inside
-    // the one argument (`prefix + JSON.stringify(v)`, a template literal), in
-    // `.update(` and in the encoder (see `JSON_ARGUMENT`).
+    // the one argument (`prefix + JSON.stringify(v)`, a template literal, after
+    // a call or inside an array literal), in `.update(` and in the encoder (see
+    // `JSON_ARGUMENT`).
+    //
+    // A hasher reads a bound name the same way a digest does: `.update(name)`
+    // on `createHash(…)` or on a bound hasher is flagged when the nearest
+    // binding of `name` is JSON, encoded or not (see `boundJsonArgument`).
+    // A plain assignment counts as a binding. A `function` or arrow parameter
+    // of the same name binds it again. A method parameter does not: in
+    // `name(bytes: T) {` the head is the same text as a call followed by a
+    // block, and a regex cannot tell the two apart. So a method that takes the
+    // name, below a binding of it to JSON in the same file, is flagged, and
+    // takes a `// drift-ok:` marker.
     re: new RegExp(
       [
-        String.raw`createHash\([^()]*\)\s*\.update\((?:\s*${ENCODED_JSON}|${JSON_ARGUMENT})`,
-        String.raw`\b(\w+)\s*\.update\((?:\s*${ENCODED_JSON}|${JSON_ARGUMENT})(?<=\b\1(?:\s*:\s*\w+)?\s*=\s*createHash\([^()]*\)${nearestBindingGap(1)})`,
-        String.raw`\bsubtle\s*\.digest\(\s*[^,()]*,\s*${ENCODED_JSON}`,
-        String.raw`\bsubtle\s*\.digest\(\s*[^,()]*,\s*(\w+)\s*\)(?<=\b(?:const|let|var)\s+\2(?:\s*:\s*\w+)?\s*=\s*${ENCODED_JSON}${nearestBindingGap(2)})`,
+        String.raw`createHash\([^()]*\)\s*\.update\((?:\s*${ENCODED_JSON}|${JSON_ARGUMENT}|\s*${boundJsonArgument(1)})`,
+        String.raw`\b(\w+)\s*\.update\((?:\s*${ENCODED_JSON}|${JSON_ARGUMENT}|\s*${boundJsonArgument(3)})(?<=\b\2(?:\s*:\s*\w+)?\s*=\s*createHash\([^()]*\)${nearestBindingGap(2)})`,
+        String.raw`\bsubtle\s*\.digest\(\s*[^,()]*,(?:\s*${ENCODED_JSON}|\s*${boundJsonArgument(4)})`,
       ].join("|"),
     ),
     scope: "chain",
