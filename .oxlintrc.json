@@ -60,11 +60,15 @@
     "anti-slop/no-runtime-typeof": ["error", { "allowInTypeGuards": true }],
     "anti-slop/no-unknown-returns": "error",
     "anti-slop/no-unsafe-dictionary-type": "error",
-    // Alfred's own rules (scripts/oxlint/alfred/, first-party, see its README).
-    // no-function-wrapper-shim was a regex gate in scripts/consolidation-rules.mjs.
-    // It keeps that gate's file scope by itself (it reads `isSkippedPath`), so it
-    // needs no "overrides" entry here.
+    // Alfred's own rules (scripts/oxlint/alfred/, first-party, see its README). Each one was
+    // a regex gate in scripts/consolidation-rules.mjs that needed scope analysis to stop
+    // missing cases and flagging look-alikes. Each keeps that gate's file scope by itself
+    // (`inGateScope` reads `isSkippedPath`), so neither needs an "overrides" entry here.
+    // no-function-wrapper-shim: an exported function that only returns a constant or an
+    // imported name. sha256-over-json-stringify: a hash digest over JSON.stringify output,
+    // whose pre-image depends on key order; use sha256Canonical.
     "alfred/no-function-wrapper-shim": "error",
+    "alfred/sha256-over-json-stringify": "error",
     // The tailwind rules sit at `error` by the same bar: zero violations on promotion, and
     // `pnpm lint` does not fail on `warn`, so a warn-level rule here enforced nothing.
     // `pnpm check:oxlint-plugin` drives only the anti-slop and alfred rules, not these.

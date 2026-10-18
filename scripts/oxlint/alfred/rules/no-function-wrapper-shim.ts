@@ -1,10 +1,8 @@
-import { relative, sep } from "node:path";
-
 import { defineRule } from "@oxlint/plugins";
 
 import type { ESTree, Scope, SourceCode, Variable } from "@oxlint/plugins";
 
-import { isSkippedPath } from "../../../consolidation-rules.mjs";
+import { inGateScope } from "../shared/scope.ts";
 
 /**
  * `no-function-wrapper-shim`: an exported function whose only job is to return
@@ -79,7 +77,7 @@ import { isSkippedPath } from "../../../consolidation-rules.mjs";
  * through the copy is not seen.
  *
  * File scope. The rule sees the files the consolidation gate gave it: tracked
- * `.ts`/`.tsx` source that {@link isSkippedPath} admits. Tests, evals, scripts
+ * `.ts`/`.tsx` source that `isSkippedPath` admits (see `inGateScope`). Tests, evals, scripts
  * and generated output are out of scope, as they were for the regex.
  */
 
@@ -114,13 +112,6 @@ interface Wrapper {
   report: ESTree.Node;
   returned: ESTree.Expression;
   typed: boolean;
-}
-
-/** True for a repo file the consolidation gate scanned. */
-function inScope(filename: string, cwd: string): boolean {
-  const file = relative(cwd, filename).split(sep).join("/");
-
-  return /\.tsx?$/.test(file) && !isSkippedPath(file);
 }
 
 function unwrap(node: ESTree.Expression): ESTree.Expression {
@@ -385,7 +376,7 @@ export const noFunctionWrapperShimRule = defineRule({
   createOnce(context) {
     return {
       before() {
-        return inScope(context.filename, context.cwd);
+        return inGateScope(context.filename, context.cwd);
       },
       Program(program) {
         const wrappers = collectWrappers(program);

@@ -20,6 +20,11 @@
 //
 // Escape hatch: append `// drift-ok: <reason>` to a line. An empty marker is
 // itself drift: exemptions must explain the lock/property that makes them safe.
+//
+// A gate that needs scope or AST structure (which binding a name resolves to)
+// is an oxlint rule in scripts/oxlint/alfred/ instead, enforced by `pnpm lint`.
+// `sha256-over-json-stringify` and `no-function-wrapper-shim` moved there. The
+// edit-time hook does not read those rules.
 
 /**
  * @typedef {object} ConsolidationRule
@@ -62,68 +67,6 @@ export const REGISTRY_UNION = String.raw`(?:(?:\w*Integration|LiveProvider|Plann
 
 /** The module path of a `constants` module, as it sits between the quotes. */
 const CONSTANTS_MODULE = String.raw`[^"']*\/constants`;
-
-/**
- * The rest of one call argument that holds a `JSON.stringify(…)`, alone or
- * joined with other text (`prefix + JSON.stringify(x)`, `` `v1:${JSON.stringify(x)}` ``),
- * up to its open paren. The text before it can hold a closed paren group
- * (`` `${a(b, c)}:${JSON.stringify(x)}` ``), a closed bracket group, and one
- * open bracket group that holds the JSON (`[a, JSON.stringify(x)].join(":")`).
- * Outside those groups it holds no paren, comma or `;`, so it cannot leave the
- * argument it starts in: `encode(rawText)` ends at its `)`, and a comma at the
- * top level of the call ends the argument.
- */
-const JSON_ARGUMENT = String.raw`(?:[^(),;\[]|\([^()]*\)|\[[^\[\]();]*\])*?(?:\[[^\[\]();]*?)?\bJSON\.stringify\(`;
-
-/**
- * The bytes of a `JSON.stringify(…)`, up to its open paren: through a new
- * `TextEncoder`, through an encoder bound to a name (`encoder.encode(…)`), or
- * through `Buffer.from(…)`. The JSON may be joined with other text (see
- * `JSON_ARGUMENT`).
- */
-const ENCODED_JSON = String.raw`(?:(?:new\s+TextEncoder\(\s*\)|\w+)\s*\.encode|\bBuffer\s*\.from)\(${JSON_ARGUMENT}`;
-
-/**
- * The text between a binding and a use of the name in group `group`, when no
- * other binding of that name sits between them. So a use relates to the
- * nearest binding above it, and a second function that binds the same name to
- * other bytes does not inherit the first binding. These count as another
- * binding:
- * - a `const`/`let`/`var` of the name;
- * - a plain assignment to the name (`bytes = other`, not `x.bytes = other`, not
- *   `bytes === other`), also a bare arrow parameter (`bytes =>`);
- * - the name in the parameter list of a `function` (the first paren group
- *   after the keyword, outside a nested paren group);
- * - the name in a paren group directly followed by `=>`, or by a return type
- *   and `=>` (an arrow parameter list).
- *
- * A method parameter does not count (see the rule comment).
- * @param {number} group The capture group that holds the name.
- */
-const nearestBindingGap = (group) => {
-  const name = `\\${group}`;
-
-  const rebinding = [
-    String.raw`\b(?:const|let|var)\s+${name}\b`,
-    String.raw`(?<!\.)\b${name}\s*=(?!=)`,
-    String.raw`\bfunction\b[^(]*\([^()]*\b${name}\b`,
-    String.raw`\([^()]*\b${name}\b[^()]*\)\s*(?::[^=;{}()]*)?=>`,
-  ].join("|");
-
-  return String.raw`(?:(?!${rebinding})[\s\S])*`;
-};
-
-/**
- * The whole call argument is a name (group `group`) whose nearest binding
- * above it (see `nearestBindingGap`) is JSON: a `JSON.stringify(…)`, alone or
- * joined (see `JSON_ARGUMENT`), or its bytes (see `ENCODED_JSON`). The binding
- * is a `const`/`let`/`var` or a plain assignment (`=`, not `==` or `=>`).
- * @param {number} group The capture group number this piece opens.
- */
-const boundJsonArgument = (group) =>
-  String.raw`(\w+)\s*(?=[,)])(?<=(?<!\.)\b` +
-  `\\${group}` +
-  String.raw`(?:\s*:\s*\w+)?\s*=(?![=>])\s*(?:${ENCODED_JSON}|${JSON_ARGUMENT})${nearestBindingGap(group)})`;
 
 /**
  * An import that binds the name in group 1 from a module whose path matches
@@ -926,59 +869,6 @@ export const RULES = [
     paths: /(^|\/)(?:packages|apps)\/[^/]+\/test\//,
     severity: "gate",
     fix: 'Use dbBackedSkip("database") from ./support/db-backed in this test tree — it skips on a laptop with no Postgres and THROWS when CI is set, so a job that reached no service cannot exit 0. Do not hand-roll a `{ skip }` on a service variable. If this line is not a skip guard, append `// drift-ok: <reason>`.',
-  },
-  {
-    id: "sha256-over-json-stringify",
-    // `createHash("sha256").update(JSON.stringify(v))` — a content hash whose
-    // pre-image depends on object key INSERTION order. Three copies fed the
-    // `observations` dedup index `(user_id, family_key, evidence_hash)` (#571):
-    // the same logical payload built along two code paths hashes differently,
-    // so dedup silently misses and an append-only log double-counts. Chain
-    // scope, because a formatter splits `.update(` onto its own line. Hashing
-    // raw bytes (`createHash("sha256").update(rawString)`) is a different
-    // operation and is left alone. The two-statement form
-    // (`const h = createHash("sha256"); h.update(JSON.stringify(v))`) relates
-    // the `.update(` receiver to a hasher bound earlier in the file. Any
-    // algorithm counts (`md5`, `sha1`, `sha512`, a variable): the bug is the
-    // key-order pre-image, not the digest, and `sha256Canonical` is the fix for
-    // each. `createHmac` is not read: a MAC is checked over the bytes that came
-    // with it, and `sha256Canonical` takes no key, so the fix text is wrong there.
-    //
-    // The Web Crypto form has the same pre-image:
-    // `crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(v)))`,
-    // or a bound encoder (`encoder.encode(…)`). The bytes may also be bound
-    // first (`const bytes = …encode(JSON.stringify(v)); subtle.digest(alg, bytes)`):
-    // the digest argument is related to a `const`/`let`/`var` of that name
-    // bound earlier in the file to encoded JSON. A digest over any other bytes
-    // (`encode(rawBody)`, `await file.arrayBuffer()`) is left alone.
-    //
-    // Both two-statement forms relate the use to the NEAREST binding of the
-    // name above it (see `nearestBindingGap`), so a second function that binds
-    // the same name to raw bytes is not flagged. `Buffer.from(JSON.stringify(v))`
-    // counts as encoded JSON, and the JSON may be joined with other text inside
-    // the one argument (`prefix + JSON.stringify(v)`, a template literal, after
-    // a call or inside an array literal), in `.update(` and in the encoder (see
-    // `JSON_ARGUMENT`).
-    //
-    // A hasher reads a bound name the same way a digest does: `.update(name)`
-    // on `createHash(…)` or on a bound hasher is flagged when the nearest
-    // binding of `name` is JSON, encoded or not (see `boundJsonArgument`).
-    // A plain assignment counts as a binding. A `function` or arrow parameter
-    // of the same name binds it again. A method parameter does not: in
-    // `name(bytes: T) {` the head is the same text as a call followed by a
-    // block, and a regex cannot tell the two apart. So a method that takes the
-    // name, below a binding of it to JSON in the same file, is flagged, and
-    // takes a `// drift-ok:` marker.
-    re: new RegExp(
-      [
-        String.raw`createHash\([^()]*\)\s*\.update\((?:\s*${ENCODED_JSON}|${JSON_ARGUMENT}|\s*${boundJsonArgument(1)})`,
-        String.raw`\b(\w+)\s*\.update\((?:\s*${ENCODED_JSON}|${JSON_ARGUMENT}|\s*${boundJsonArgument(3)})(?<=\b\2(?:\s*:\s*\w+)?\s*=\s*createHash\([^()]*\)${nearestBindingGap(2)})`,
-        String.raw`\bsubtle\s*\.digest\(\s*[^,()]*,(?:\s*${ENCODED_JSON}|\s*${boundJsonArgument(4)})`,
-      ].join("|"),
-    ),
-    scope: "chain",
-    severity: "gate",
-    fix: "Use sha256Canonical(value) from @alfred/db/hash — SHA-256 over canonicalJson (keys sorted, present-undefined skipped), prefixed `sha256:`. It is the one content hash for observations.evidence_hash and every other dedup / change-detection digest. In browser code, where @alfred/db is out of reach, encode canonicalJson(value) from @alfred/contracts for crypto.subtle.digest in place of JSON.stringify. If the digest is audit-only and never compared, append `// drift-ok: <why order-dependence is safe here>`.",
   },
   {
     id: "no-constants-re-export",

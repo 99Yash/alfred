@@ -34,6 +34,10 @@ but it gives no hint while an agent writes the file.
   `*.test.ts` on purpose (see the header of `scripts/check-oxlint-plugin.mjs`).
 - `shared/` holds AST helpers only when a second rule needs them. Do not import
   from `../anti-slop/`: it is vendored, so copy a small helper instead.
+- A rule that replaces a consolidation gate keeps that gate's file scope by
+  returning `inGateScope(context.filename, context.cwd)` from `before()`
+  (`shared/scope.ts`). It reads `isSkippedPath`, so the scope cannot drift from
+  the table, and the rule needs no `overrides` entry in `.oxlintrc.json`.
 
 ## How a rule is proven
 
@@ -62,6 +66,7 @@ fails the build.
 
 ## Rules
 
-| Rule                       | What it rejects                                                                                         |
-| -------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `no-function-wrapper-shim` | an exported function that only returns a constant or an imported name (a second door to the same value) |
+| Rule                         | What it rejects                                                                                                                                                    |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `no-function-wrapper-shim`   | an exported function that only returns a constant or an imported name (a second door to the same value)                                                            |
+| `sha256-over-json-stringify` | a hash digest (`createHash(…).update`, a bound hasher, `subtle.digest`) over `JSON.stringify` output, whose pre-image depends on key order. Use `sha256Canonical`. |

@@ -210,7 +210,7 @@ export function makeGmailWebhookRoutes(
       }
 
       // Audit only: key order changes the hash, so never use it for dedup.
-      // drift-ok: audit-only receipt digest, never compared against another hash; dedup is the (provider, provider_delivery_id) index
+      // oxlint-disable-next-line alfred/sha256-over-json-stringify -- audit-only receipt digest, never compared against another hash; dedup is the (provider, provider_delivery_id) index
       const payloadHash = createHash("sha256").update(JSON.stringify(body)).digest("hex");
       const historyId = String(notification.historyId);
 
