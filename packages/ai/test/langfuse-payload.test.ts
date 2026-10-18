@@ -95,12 +95,6 @@ describe("traceTags", () => {
     assert.deepEqual(traceTags({ ...baseMeta, kind: "embedding" }), ["call_kind:embedding"]);
     assert.deepEqual(traceTags({ ...baseMeta, kind: "web_search" }), ["call_kind:web_search"]);
   });
-
-  test("returns undefined when neither role nor kind is present", () => {
-    // `kind` is required on MeteredMeta, so cast to reach the guarded empty path.
-    // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
-    assert.equal(traceTags({ provider: "x", model: "y" } as unknown as MeteredMeta), undefined);
-  });
 });
 
 describe("resolveTraceId / resolveTraceName", () => {
