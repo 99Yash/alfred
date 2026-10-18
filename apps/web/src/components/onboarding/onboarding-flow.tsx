@@ -60,7 +60,7 @@ export function OnboardingFlow({
   })();
 
   return (
-    <div className="relative isolate min-h-[100dvh] overflow-x-hidden bg-[#0c0c0c]">
+    <div className="relative isolate min-h-dvh overflow-x-hidden bg-[#0c0c0c]">
       <GoogleConsentDialog
         open={consentOpen}
         onOpenChange={setConsentOpen}
@@ -70,8 +70,8 @@ export function OnboardingFlow({
         }}
       />
 
-      <HeroAtmosphere className="min-h-[100dvh]">
-        <div className="mx-auto flex min-h-[100dvh] w-full max-w-[100rem] flex-col lg:flex-row">
+      <HeroAtmosphere className="min-h-dvh">
+        <div className="mx-auto flex min-h-dvh w-full max-w-[100rem] flex-col lg:flex-row">
           {/* Left rail, sticky on desktop. */}
           <aside
             className={cn(
@@ -176,8 +176,8 @@ export function OnboardingFlow({
                             isActive
                               ? "bg-white text-[#0c0c0c] shadow-[0_1px_1px_rgba(0,0,0,0.08),0_0_0_1px_rgba(0,0,0,0.05)]"
                               : isDone
-                                ? "bg-white/[0.08] text-white/85 backdrop-blur"
-                                : "bg-white/[0.04] text-white/60",
+                                ? "bg-white/8 text-white/85 backdrop-blur"
+                                : "bg-white/4 text-white/60",
                           )}
                           aria-current={isActive ? "step" : undefined}
                         >
@@ -223,7 +223,7 @@ export function OnboardingFlow({
                 <p className="pl-5 text-[12.5px] font-bold tracking-[0.18em] text-white/55 uppercase mix-blend-plus-lighter">
                   Mumbai · {localTime} · {active.pagerLabel}
                 </p>
-                <div className="relative mt-4 h-px w-full bg-linear-to-r from-white/[0.05] to-white/50">
+                <div className="relative mt-4 h-px w-full bg-linear-to-r from-white/5 to-white/50">
                   <div className="absolute -top-[5px] -left-[4.5px] z-40 grid size-2.5 place-items-center rounded-full bg-white/10">
                     <div className="size-1 rounded-full bg-white" />
                   </div>
@@ -397,7 +397,7 @@ function UnlockShowcase() {
         {UNLOCK_FEATURES.map((f) => (
           <li
             key={f.key}
-            className="flex items-start gap-3 bg-white/[0.04] p-5 backdrop-blur-sm transition-colors hover:bg-white/[0.07]"
+            className="flex items-start gap-3 bg-white/4 p-5 backdrop-blur-sm transition-colors hover:bg-white/[0.07]"
           >
             <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-white/15 text-white ring-1 ring-white/20 backdrop-blur-sm ring-inset">
               <f.icon size={17} strokeWidth={2} />
@@ -485,7 +485,7 @@ function ConnectShowcase({
           return (
             <li
               key={p.slug}
-              className="flex items-center gap-3 bg-white/[0.04] px-5 py-4 backdrop-blur-sm transition-colors hover:bg-white/[0.07]"
+              className="flex items-center gap-3 bg-white/4 px-5 py-4 backdrop-blur-sm transition-colors hover:bg-white/[0.07]"
             >
               <IntegrationIcon brand={brand} size="md" title={name} variant="frost" />
               <div className="min-w-0 flex-1">
@@ -602,7 +602,7 @@ function FinishShowcase() {
         {INSTALL_TILES.map((tile) => (
           <li
             key={tile.key}
-            className="flex flex-col gap-3 bg-white/[0.04] p-5 backdrop-blur-sm transition-colors hover:bg-white/[0.07]"
+            className="flex flex-col gap-3 bg-white/4 p-5 backdrop-blur-sm transition-colors hover:bg-white/[0.07]"
           >
             <span className="grid size-10 place-items-center rounded-xl bg-white/15 text-white ring-1 ring-white/20 backdrop-blur-sm ring-inset">
               <tile.icon size={18} strokeWidth={2} />
@@ -628,7 +628,7 @@ function ShowcaseFrame({ children }: { children: ReactNode }) {
     <div
       className={cn(
         "onboarding-panel-in relative isolate overflow-hidden rounded-[24px]",
-        "bg-white/[0.04] backdrop-blur-xl",
+        "bg-white/4 backdrop-blur-xl",
         "ring-1 ring-white/12 ring-inset",
         "shadow-[0_30px_80px_-30px_rgba(15,30,55,0.55)]",
       )}
@@ -655,7 +655,7 @@ function Bullet({
       style={{ animationDelay: `${160 + index * 70}ms` }}
     >
       <span
-        className="mt-0.5 grid size-6 place-items-center rounded-full bg-white/[0.08] text-white ring-1 ring-white/10"
+        className="mt-0.5 grid size-6 place-items-center rounded-full bg-white/8 text-white ring-1 ring-white/10"
         aria-hidden
       >
         <span className="scale-[0.85]">{icon}</span>

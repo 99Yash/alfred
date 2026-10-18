@@ -134,7 +134,7 @@ export function MarkdownRenderer({
         // `anywhere` breaks a long token only when it cannot fit; `break-all` splits every token.
         "[&_:not(pre)>code]:rounded [&_:not(pre)>code]:px-1 [&_:not(pre)>code]:py-px",
         "[&_:not(pre)>code]:font-mono",
-        "[&_:not(pre)>code]:[overflow-wrap:anywhere]",
+        "[&_:not(pre)>code]:wrap-anywhere",
         // display:block makes a wide table scroll instead of losing its columns.
         "[&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto",
         "[&_table]:border-collapse",
@@ -147,7 +147,7 @@ export function MarkdownRenderer({
         "[&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden",
         "[&_.katex]:text-[1em]",
         // `min-w-0` lets the flex parent shrink us, so a long URL cannot force the card open.
-        "min-w-0 [overflow-wrap:anywhere] wrap-break-word",
+        "min-w-0 wrap-anywhere wrap-break-word",
         ...(tone === "media" ? MEDIA_TONE : SURFACE_TONE),
         className,
       )}

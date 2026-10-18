@@ -41,7 +41,7 @@ export function ArtifactCard({ artifact, index }: { artifact: SyncedArtifact; in
       )}
       style={{ animationDelay: `${index * 60 + 160}ms` }}
     >
-      <div className="aspect-[4/3] bg-app-bg-2/60 p-4 shadow-[inset_0_-1px_0_rgba(0,0,0,0.05)]">
+      <div className="aspect-4/3 bg-app-bg-2/60 p-4 shadow-[inset_0_-1px_0_rgba(0,0,0,0.05)]">
         {firstPage ? (
           <ArtifactPageFrame
             html={firstPage.html}

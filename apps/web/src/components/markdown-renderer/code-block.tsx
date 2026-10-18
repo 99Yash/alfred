@@ -33,7 +33,7 @@ export function CodeBlock({ language, code }: CodeBlockProps) {
         "shadow-[0_0_0_0.5px_rgba(0,0,0,0.4)]",
       )}
     >
-      <div className="flex items-center justify-between gap-4 border-b border-white/[0.06] px-2.5 py-1">
+      <div className="flex items-center justify-between gap-4 border-b border-white/6 px-2.5 py-1">
         <span className="font-mono text-[10.5px] tracking-wide text-white/45 lowercase">
           {language || "text"}
         </span>

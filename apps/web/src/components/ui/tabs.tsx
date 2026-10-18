@@ -84,7 +84,7 @@ function triggerClassName(variant: TabsVariant): string {
       "grid h-9 min-w-14 place-items-center gap-1.5 rounded-[14px] px-3 text-sm font-medium",
       "active:scale-[0.96]",
       "text-gray-800 hover:text-gray-900",
-      "data-[state=active]:bg-white/[0.12] data-[state=active]:text-gray-1000",
+      "data-[state=active]:bg-white/12 data-[state=active]:text-gray-1000",
       "data-[state=active]:shadow-[inset_0_0_0_0.5px_rgba(255,255,255,0.14)]",
     );
   }

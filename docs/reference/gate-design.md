@@ -93,7 +93,6 @@ Each row is a rule from [code-style.md](./code-style.md) tagged `review` or `par
 
 | Rule (code-style section) | Mechanism | Feasibility |
 | --- | --- | --- |
-| CSS-variable shorthands over arbitrary values (§4) | Lint: `tailwindcss/enforce-canonical`, already in the installed plugin, autofix | High |
 | No explicit `any` (§2) | Lint: `typescript/no-explicit-any`. About 12 sites, all a `ZodType` of `any` in `packages/assistant/src/tool-runtime/` | Medium |
 | Minimize `!` (§2) | Lint: `typescript/no-non-null-assertion`. A rough grep finds about 14 sites in `src` | Medium |
 | Check whether an assertion is needed (§2) | Type-aware: `typescript/no-unnecessary-type-assertion` | Medium |

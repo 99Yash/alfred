@@ -126,7 +126,7 @@ export function TabPill<T extends string>({
         "relative inline-flex items-center rounded-full p-1",
         variant === "glass" &&
           cn(
-            "border border-white/[0.12] bg-black/40 backdrop-blur-xl",
+            "border border-white/12 bg-black/40 backdrop-blur-xl",
             "shadow-[inset_0_1px_0_rgba(255,255,255,0.08),inset_0_-1px_0_rgba(0,0,0,0.4),0_12px_36px_-12px_rgba(99,102,241,0.45)]",
           ),
         className,
@@ -145,10 +145,10 @@ export function TabPill<T extends string>({
                   "shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_0_28px_-4px_rgba(139,92,246,0.7)]",
                 )
               : cn(
-                  "bg-white/[0.08] ring-1 ring-white/10 ring-inset",
+                  "bg-white/8 ring-1 ring-white/10 ring-inset",
                   "shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]",
                 ),
-            "transition-[transform,width] duration-[420ms] ease-[cubic-bezier(0.32,0.72,0,1)]",
+            "transition-[transform,width] duration-420 ease-[cubic-bezier(0.32,0.72,0,1)]",
             "motion-reduce:transition-none",
           )}
           style={{

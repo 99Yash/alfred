@@ -35,6 +35,7 @@ where to put a new invariant.
 | A suppression directive with no rule name, or no reason after ` -- ` | `gate: suppression-without-reason` | `scripts/consolidation-rules.mjs` |
 | A spread that only copies, such as `{ ...(x ? { k: x } : {}) }` alone in a literal | `unicorn/no-useless-spread` (`error`) | `.oxlintrc.json` |
 | A `console` call other than `error` / `warn` in the web app | `no-console` (`error`, `apps/web/src/**` override) | `.oxlintrc.json` |
+| A Tailwind arbitrary value or variable that has a canonical class with the same CSS | `tailwindcss/enforce-canonical` (`error`) | `.oxlintrc.json` |
 
 ### The two config-hygiene rules, and why they are separate from the `anti-slop` set
 

@@ -297,8 +297,8 @@ function SearchBar({ value, onChange }: { value: string; onChange: (v: string) =
       className={cn(
         "-mx-0.5 flex items-center gap-1.5 rounded-lg px-2 py-1.5",
         // White-alpha so the field shows on the rail's video; the purple ring is too dim there.
-        "bg-white/[0.06] ring-1 ring-white/15 ring-inset",
-        "focus-within:bg-white/[0.10] focus-within:ring-white/45",
+        "bg-white/6 ring-1 ring-white/15 ring-inset",
+        "focus-within:bg-white/10 focus-within:ring-white/45",
         "transition-[background-color,box-shadow]",
       )}
     >
@@ -457,10 +457,7 @@ function SenderAvatar({ item }: { item: RailInboxItem }) {
           alt=""
           loading="lazy"
           decoding="async"
-          className={cn(
-            "relative z-10 size-4 rounded-[3px]",
-            "bg-white/85 p-[1px] dark:bg-white/90",
-          )}
+          className={cn("relative z-10 size-4 rounded-[3px]", "bg-white/85 p-px dark:bg-white/90")}
           onError={(e) => {
             e.currentTarget.style.display = "none";
           }}
@@ -858,7 +855,7 @@ function ToggleButton({
       className={cn(
         "app-press rounded px-1.5 py-0.5 transition-colors",
         "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
-        active ? "bg-white/[0.16] text-white" : "text-white/60 hover:text-white/85",
+        active ? "bg-white/16 text-white" : "text-white/60 hover:text-white/85",
       )}
     >
       {children}
@@ -940,7 +937,7 @@ function EmailHtmlFrame({ html }: { html: string }) {
   return (
     <div>
       {canDisplayRemoteMedia && !showRemoteMedia ? (
-        <div className="flex items-center justify-between gap-2 border-b border-black/10 bg-black/[0.03] px-3 py-1.5">
+        <div className="flex items-center justify-between gap-2 border-b border-black/10 bg-black/3 px-3 py-1.5">
           <span className="text-[11px] text-black/55">Remote images are blocked.</span>
           <button
             type="button"

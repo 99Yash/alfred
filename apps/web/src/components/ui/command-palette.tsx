@@ -80,6 +80,7 @@ function Group({ heading, children }: GroupProps) {
       heading={heading}
       className={cn(
         "[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:pb-1.5",
+        // oxlint-disable-next-line tailwindcss/enforce-canonical -- the suggested `**:[[cmdk-group-heading]]:` form compiles to a different selector than the `[&_[cmdk-group-heading]]:` siblings; keep one spelling for the group.
         "[&_[cmdk-group-heading]]:text-[10.5px] [&_[cmdk-group-heading]]:font-semibold",
         "[&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:uppercase",
         "[&_[cmdk-group-heading]]:text-gray-700",

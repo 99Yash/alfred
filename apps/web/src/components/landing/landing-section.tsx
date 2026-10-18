@@ -37,7 +37,7 @@ export function LandingSection({
       className={cn(
         "relative w-full scroll-mt-24 py-16 sm:py-20",
         surface === "raised" &&
-          "border-y border-white/[0.05] bg-linear-to-b from-white/[0.022] to-transparent",
+          "border-y border-white/5 bg-linear-to-b from-white/[0.022] to-transparent",
         className,
       )}
     >

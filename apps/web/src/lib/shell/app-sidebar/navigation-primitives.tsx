@@ -108,7 +108,7 @@ export function RailTip({
           sideOffset={8}
           data-app-theme={resolved}
           className={cn(
-            "app z-[200] inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium",
+            "app z-200 inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium",
             "bg-app-fg-4 text-app-bg-1 shadow-[0_2px_8px_rgba(0,0,0,0.18)]",
             "select-none data-[state=delayed-open]:animate-[app-fade-in_120ms_ease-out]",
           )}

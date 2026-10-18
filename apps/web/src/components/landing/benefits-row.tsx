@@ -47,7 +47,7 @@ export function BenefitsRow({ className }: { className?: string }) {
                   idx === BENEFITS.length - 1 && "sm:pr-0",
                 )}
               >
-                <span className="mt-px grid size-8 shrink-0 place-items-center rounded-lg border border-indigo-400/20 bg-indigo-400/[0.06] text-indigo-300">
+                <span className="mt-px grid size-8 shrink-0 place-items-center rounded-lg border border-indigo-400/20 bg-indigo-400/6 text-indigo-300">
                   <b.icon className="size-[15px]" strokeWidth={2} aria-hidden />
                 </span>
                 <p className="text-[14px] leading-[1.5] tracking-[-0.012em]">

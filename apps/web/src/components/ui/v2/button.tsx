@@ -39,7 +39,7 @@ const VARIANT = {
   primary: cn(
     "text-[var(--app-accent-fg)]",
     /* Theme-aware: brand gradient in light, ink chip in dark. */
-    "bg-[image:var(--app-cta-bg)]",
+    "bg-(image:--app-cta-bg)",
     /* Theme-aware: accent bloom in light, inset bevel in dark. */
     "shadow-[var(--app-button-primary-shadow)]",
     "hover:brightness-[1.06]",

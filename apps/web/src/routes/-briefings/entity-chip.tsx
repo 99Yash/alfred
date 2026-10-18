@@ -25,18 +25,14 @@ const BASE =
 
 function ChipIcon({ kind }: { kind: BriefingReferenceKind }) {
   if (kind === "email")
-    return <IntegrationGlyph brand="gmail" size={12} className="translate-y-[1px] self-center" />;
+    return <IntegrationGlyph brand="gmail" size={12} className="translate-y-px self-center" />;
 
   if (kind === "meeting")
     return (
-      <IntegrationGlyph
-        brand="google_calendar"
-        size={12}
-        className="translate-y-[1px] self-center"
-      />
+      <IntegrationGlyph brand="google_calendar" size={12} className="translate-y-px self-center" />
     );
 
-  return <Activity size={12} aria-hidden className="shrink-0 translate-y-[1px] self-center" />;
+  return <Activity size={12} aria-hidden className="shrink-0 translate-y-px self-center" />;
 }
 
 export function EntityChip({ kind, label, href }: EntityChipProps) {

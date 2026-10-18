@@ -34,7 +34,7 @@ export function ShareDialog({ workflow, open, onClose }: ShareDialogProps) {
       open
       aria-modal="true"
       aria-label="Share workflow"
-      className="app-fade-in fixed inset-0 z-[60] m-0 flex max-h-none max-w-none items-start justify-center border-0 bg-transparent p-0 pt-[14vh]"
+      className="app-fade-in fixed inset-0 z-60 m-0 flex max-h-none max-w-none items-start justify-center border-0 bg-transparent p-0 pt-[14vh]"
     >
       <button
         type="button"

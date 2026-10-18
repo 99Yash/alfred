@@ -200,8 +200,8 @@ export function TiptapComposer({
           "wrap-break-word whitespace-pre-wrap outline-none",
           "max-h-64 min-h-[64px] overflow-y-auto px-3 pt-2 pb-1.5",
           // Fade content scrolled under the padding instead of a hard clip.
-          "[mask-image:linear-gradient(to_bottom,transparent,#000_10px,#000_calc(100%_-_8px),transparent)]",
-          "[-webkit-mask-image:linear-gradient(to_bottom,transparent,#000_10px,#000_calc(100%_-_8px),transparent)]",
+          "mask-[linear-gradient(to_bottom,transparent,#000_10px,#000_calc(100%-8px),transparent)]",
+          "[-webkit-mask-image:linear-gradient(to_bottom,transparent,#000_10px,#000_calc(100%-8px),transparent)]",
           "text-[15px] leading-7 font-medium tracking-tight text-app-fg-4",
           "caret-app-purple-3",
           className ?? "",

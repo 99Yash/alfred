@@ -55,14 +55,14 @@ const VARIANT = {
   ),
 
   ghost: cn(
-    "bg-white/[0.05] text-gray-800",
+    "bg-white/5 text-gray-800",
     "hover:bg-white/[0.08] hover:text-gray-900",
-    "active:bg-white/[0.03]",
+    "active:bg-white/3",
     "disabled:bg-gray-100 disabled:text-gray-700",
   ),
 
   send: cn(
-    "bg-linear-to-b from-[#a5a5a5] from-[46%] to-[#e3e3e3] to-[100%]",
+    "bg-linear-to-b from-[#a5a5a5] from-46% to-[#e3e3e3] to-100%",
     "text-black",
     "hover:brightness-[1.08] active:brightness-[1.04]",
     "disabled:opacity-50",

@@ -34,7 +34,7 @@ const NAV_CTA = (
 
 export function LandingPage() {
   return (
-    <LandingBackground className="min-h-[100dvh] w-full overflow-x-hidden">
+    <LandingBackground className="min-h-dvh w-full overflow-x-hidden">
       {/* The one primary landmark; nav and footer sit outside it. */}
       <main className="relative w-full">
         <Hero onGetStarted={goToLogin} />

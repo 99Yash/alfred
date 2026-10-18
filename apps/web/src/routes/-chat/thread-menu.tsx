@@ -21,7 +21,7 @@ import { Tip } from "./tip";
  */
 
 const menuSurfaceClass = cn(
-  "app z-[200] min-w-[232px] rounded-xl p-1",
+  "app z-200 min-w-[232px] rounded-xl p-1",
   "border border-app-bg-3/70 bg-app-bg-1",
   "shadow-[0_8px_28px_rgba(0,0,0,0.16),0_0_0_1px_rgba(0,0,0,0.04)]",
   "data-[state=open]:animate-[app-fade-in_120ms_ease-out]",

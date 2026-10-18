@@ -211,7 +211,7 @@ export function AppDateTimePicker({
                           className={cn(
                             "app-focus grid h-8 w-full place-items-center rounded-lg text-[13px] tabular-nums transition-colors",
                             isSelected
-                              ? "bg-[image:var(--app-cta-bg)] text-[var(--app-accent-fg)] shadow-[inset_0_1px_0_rgba(255,255,255,0.2)]"
+                              ? "bg-(image:--app-cta-bg) text-[var(--app-accent-fg)] shadow-[inset_0_1px_0_rgba(255,255,255,0.2)]"
                               : cn(
                                   inMonth ? "text-app-fg-4" : "text-app-fg-1",
                                   "hover:bg-app-bg-a1",

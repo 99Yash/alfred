@@ -167,7 +167,7 @@ export function QuickAccessRail() {
                     "grid h-9 w-14 place-items-center rounded-[14px]",
                     "transition-[background-color,color,transform] active:scale-[0.96]",
                     selected
-                      ? "bg-white/[0.12] text-white shadow-[inset_0_0_0_0.5px_rgba(255,255,255,0.14)]"
+                      ? "bg-white/12 text-white shadow-[inset_0_0_0_0.5px_rgba(255,255,255,0.14)]"
                       : "text-white/50 hover:text-white/90",
                   )}
                 >
@@ -199,8 +199,8 @@ export function QuickAccessRail() {
           aria-label="Open Morning Briefing"
           className={cn(
             "-mx-5 mt-auto flex h-[57px] items-center justify-between border-t border-white/5",
-            "bg-black/[0.1] px-5 text-left text-base font-medium text-white",
-            "transition-colors hover:bg-black/[0.15] focus-visible:ring-2 focus-visible:ring-white/[0.22] focus-visible:outline-none",
+            "bg-black/10 px-5 text-left text-base font-medium text-white",
+            "transition-colors hover:bg-black/[0.15] focus-visible:ring-2 focus-visible:ring-white/22 focus-visible:outline-none",
           )}
         >
           Morning Briefing
@@ -262,7 +262,7 @@ function TasksPanel({
                 className={cn(
                   "flex min-h-9 w-full items-start gap-2 rounded-md px-2 py-1.5 text-left",
                   "text-sm text-white/90 transition-colors outline-none",
-                  "hover:bg-white/[0.05] focus-visible:bg-white/[0.06]",
+                  "hover:bg-white/[0.05] focus-visible:bg-white/6",
                 )}
               >
                 <span
@@ -388,7 +388,7 @@ function EmailsPanel({ emails }: { emails: ReadonlyArray<EmailDraft> }) {
               className={cn(
                 "group flex w-full flex-col gap-1 rounded-xl p-2 text-left",
                 "transition-colors outline-none hover:bg-white/[0.06]",
-                "focus-visible:ring-2 focus-visible:ring-white/[0.22]",
+                "focus-visible:ring-2 focus-visible:ring-white/22",
               )}
             >
               <div className="flex items-center justify-between gap-2">
@@ -431,13 +431,13 @@ function MeetingsPanel({ meetings }: { meetings: ReadonlyArray<MeetingItem> }) {
               className={cn(
                 "group flex w-full items-start gap-3 rounded-xl p-2 text-left",
                 "transition-colors outline-none hover:bg-white/[0.06]",
-                "focus-visible:ring-2 focus-visible:ring-white/[0.22]",
+                "focus-visible:ring-2 focus-visible:ring-white/22",
               )}
             >
               <span
                 className={cn(
                   "mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg",
-                  "bg-white/[0.08] text-white/80 ring-1 ring-white/10 ring-inset",
+                  "bg-white/8 text-white/80 ring-1 ring-white/10 ring-inset",
                 )}
               >
                 {meeting.video ? <Video size={14} /> : <MapPin size={14} />}

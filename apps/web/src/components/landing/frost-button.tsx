@@ -40,15 +40,15 @@ export function FrostButton({
           "bg-white bg-linear-to-b from-[#eee] to-[#eee]",
           "text-[#0c0c0c]",
           "hover:to-[#eee]/70 active:to-[#eee]/90",
-          "after:bg-white/[0.05] hover:after:opacity-50",
+          "after:bg-white/5 hover:after:opacity-50",
         )
       : // Dark glass.
         cn(
-          "bg-linear-to-b from-white/[0.14] to-white/[0.06]",
+          "bg-linear-to-b from-white/[0.14] to-white/6",
           "text-white",
           "hover:from-white/[0.20] hover:to-white/[0.10]",
-          "active:from-white/[0.10] active:to-white/[0.04]",
-          "after:bg-white/[0.10] hover:after:opacity-100",
+          "active:from-white/10 active:to-white/4",
+          "after:bg-white/10 hover:after:opacity-100",
         );
 
   const mergedStyle: CSSProperties = {
@@ -95,7 +95,7 @@ export function FrostButton({
       />
       <span
         className={cn(
-          "relative z-[1] flex items-center gap-[inherit] transition-opacity duration-150",
+          "relative z-1 flex items-center gap-[inherit] transition-opacity duration-150",
           loading && "opacity-0",
         )}
       >
@@ -104,7 +104,7 @@ export function FrostButton({
       {loading ? (
         <span
           aria-hidden
-          className="pointer-events-none absolute inset-0 z-[2] grid place-items-center"
+          className="pointer-events-none absolute inset-0 z-2 grid place-items-center"
         >
           <Loader2 className="animate-spin" size={spinnerSize} strokeWidth={2.25} />
         </span>

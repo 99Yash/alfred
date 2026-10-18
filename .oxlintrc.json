@@ -86,9 +86,12 @@
     // The tailwind rules sit at `error` by the same bar: zero violations on promotion, and
     // `pnpm lint` does not fail on `warn`, so a warn-level rule here enforced nothing.
     // `pnpm check:oxlint-plugin` drives only the anti-slop and alfred rules, not these.
+    // enforce-canonical landed with the tree autofixed to zero; the built CSS kept every
+    // declaration block. One directive keeps a `[&_…]:` variant group in one spelling.
     "tailwindcss/enforce-sort-order": ["error", { "entryPoint": "apps/web/src/index.css" }],
     "tailwindcss/enforce-shorthand": "error",
     "tailwindcss/no-deprecated-classes": ["error", { "entryPoint": "apps/web/src/index.css" }],
+    "tailwindcss/enforce-canonical": "error",
     // Syntax rules from oxlint's built-in plugins, each adopted at zero by the same bar.
     // consistent-type-imports: an import used only as a type, including only inside `typeof`,
     // takes `type`. `verbatimModuleSyntax` already fails `tsc` on a type imported without it,

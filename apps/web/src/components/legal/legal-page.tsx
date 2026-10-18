@@ -14,7 +14,7 @@ export function LegalPage({
   children: ReactNode;
 }) {
   return (
-    <LandingBackground className="min-h-[100dvh] w-full overflow-x-hidden">
+    <LandingBackground className="min-h-dvh w-full overflow-x-hidden">
       {/* Chromeless routes must bring their own primary landmark. */}
       <main className="relative mx-auto w-full max-w-3xl px-5 pt-16 pb-24 sm:px-8 sm:pt-24">
         <a

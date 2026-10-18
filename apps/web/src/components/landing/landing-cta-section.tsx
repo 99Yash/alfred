@@ -12,7 +12,7 @@ export function LandingCtaSection({ onGetStarted }: { onGetStarted: () => void }
           <div
             className={cn(
               "relative isolate overflow-hidden rounded-[28px] px-6 py-16 text-center sm:px-10 sm:py-20",
-              "border border-white/[0.08] bg-white/[0.02]",
+              "border border-white/8 bg-white/2",
               "shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]",
             )}
           >

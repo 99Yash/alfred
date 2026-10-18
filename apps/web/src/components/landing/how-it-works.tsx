@@ -66,20 +66,20 @@ function StepCard({ step, index }: { step: Step; index: number }) {
     <article
       className={cn(
         "group relative flex h-full flex-col overflow-hidden rounded-[20px]",
-        "border border-white/[0.07] bg-white/[0.02]",
+        "border border-white/[0.07] bg-white/2",
         "shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]",
         "transition-[border-color,translate] duration-200",
         "hover:-translate-y-0.5 hover:border-white/[0.12] motion-reduce:hover:translate-y-0",
       )}
     >
       {/* Figure first: the reader sees the step before reading it. */}
-      <div className="relative grid h-[124px] place-items-center overflow-hidden border-b border-white/[0.05] bg-black/20 px-5">
+      <div className="relative grid h-[124px] place-items-center overflow-hidden border-b border-white/5 bg-black/20 px-5">
         <Figure />
       </div>
 
       <div className="flex flex-col gap-2 p-5 sm:p-6">
         <div className="flex items-center gap-2">
-          <span className="grid size-6 place-items-center rounded-full bg-white/[0.06] text-[11px] font-semibold text-neutral-300 ring-1 ring-white/10 ring-inset">
+          <span className="grid size-6 place-items-center rounded-full bg-white/6 text-[11px] font-semibold text-neutral-300 ring-1 ring-white/10 ring-inset">
             {index}
           </span>
           <Icon className="size-3.5 text-indigo-300" strokeWidth={2} aria-hidden />
@@ -104,7 +104,7 @@ function ConnectFigure() {
       {(["gmail", "google_calendar", "google_drive"] as const).map((brand) => (
         <span
           key={brand}
-          className="grid size-10 place-items-center rounded-xl border border-white/[0.08] bg-white/[0.04] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
+          className="grid size-10 place-items-center rounded-xl border border-white/8 bg-white/4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
         >
           <IntegrationGlyph brand={brand} size={18} />
         </span>
@@ -116,7 +116,7 @@ function ConnectFigure() {
 /** Step 2: the approval prompt the user sees. */
 function GuardrailFigure() {
   return (
-    <div className="w-full max-w-[220px] rounded-xl border border-white/[0.08] bg-neutral-950/80 p-3">
+    <div className="w-full max-w-[220px] rounded-xl border border-white/8 bg-neutral-950/80 p-3">
       <p className="text-[11px] leading-[1.4] text-neutral-300">Archive 34 newsletters in Gmail?</p>
       <div className="mt-2.5 flex items-center gap-1.5">
         <span className="rounded-full bg-white px-2.5 py-1 text-[10.5px] font-semibold text-[#0c0c0c]">
@@ -133,7 +133,7 @@ function GuardrailFigure() {
 /** Step 3: the briefing at its default hour. */
 function BriefedFigure() {
   return (
-    <div className="flex w-full max-w-[220px] items-center gap-3 rounded-xl border border-white/[0.08] bg-neutral-950/80 px-3 py-2.5">
+    <div className="flex w-full max-w-[220px] items-center gap-3 rounded-xl border border-white/8 bg-neutral-950/80 px-3 py-2.5">
       <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-orange-400/12 text-orange-300 ring-1 ring-orange-400/20 ring-inset">
         <Coffee className="size-3.5" strokeWidth={2} aria-hidden />
       </span>

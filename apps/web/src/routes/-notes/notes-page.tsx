@@ -126,7 +126,7 @@ export function NotesPage() {
                 aria-label="Save note"
                 className={cn(
                   "inline-flex size-8 items-center justify-center rounded-full",
-                  "bg-[image:var(--app-cta-bg)] text-[var(--app-accent-fg)]",
+                  "bg-(image:--app-cta-bg) text-[var(--app-accent-fg)]",
                   "shadow-[var(--app-button-primary-shadow)]",
                   "transition-[opacity,filter,transform] active:scale-[0.96]",
                   hasContent
