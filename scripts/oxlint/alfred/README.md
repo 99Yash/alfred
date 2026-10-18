@@ -43,7 +43,17 @@ trust project hooks before it runs them, and asks again when they change.
 - A rule that replaces a consolidation gate keeps that gate's file scope by
   returning `inGateScope(context.filename, context.cwd)` from `before()`
   (`shared/scope.ts`). It reads `isSkippedPath`, so the scope cannot drift from
-  the table, and the rule needs no `overrides` entry in `.oxlintrc.json`.
+  the table, and the rule needs no `overrides` entry in `.oxlintrc.json`. A
+  gate that also had per-rule `owners` keeps them as a closed `OWNERS` set in
+  the rule's own source, each with its reason, and returns
+  `inGateScopeExcept(context.filename, context.cwd, OWNERS)` instead. An owner
+  is skipped whole, as the gate skipped it.
+- `shared/module-bindings.ts` resolves a module-level name to the import or
+  module `const` that binds it, through the scope manager.
+  `no-constants-re-export` and `no-type-re-export-shim` read one list from it
+  (`constantsReExports`) and each reports its own kind, value or type, so a
+  re-export is reported once and the two rules cannot disagree on what a
+  `constants` module is. `no-type-alias-shim` reads its import resolution.
 - `shared/digest-flow.ts` is the value flow into a hash digest (sinks, reaching
   writes, parameters, same-file helpers), and `shared/hash-owners.ts` is the
   closed list of modules that may export a hasher. `sha256-over-json-stringify`
@@ -77,8 +87,11 @@ fails the build.
 
 ## Rules
 
-| Rule                         | What it rejects                                                                                                                                                                                                                      |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `no-exported-hasher`         | a function exported from a module that is not a hash owner (`shared/hash-owners.ts`), whose parameter flows into a digest, and a re-export of an owner hasher. Hash through `sha256Hex` or `sha256Canonical` from `@alfred/db/hash`. |
-| `no-function-wrapper-shim`   | an exported function that only returns a constant or an imported name (a second door to the same value)                                                                                                                              |
-| `sha256-over-json-stringify` | a hash digest (`createHash(…).update`, a bound hasher, `subtle.digest`, an imported owner hasher `sha256Hex`/`sha256Canonical`) over `JSON.stringify` output, whose pre-image depends on key order. Use `sha256Canonical`.           |
+| Rule                         | What it rejects                                                                                                                                                                                                                                   |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `no-constants-re-export`     | a logic file that hands out a value of a `constants` module again: `export { X } from`, `export * from`, or an export of a name that a constants import binds, also through a module `const` alias. Only the package barrels in its `OWNERS` may. |
+| `no-exported-hasher`         | a function exported from a module that is not a hash owner (`shared/hash-owners.ts`), whose parameter flows into a digest, and a re-export of an owner hasher. Hash through `sha256Hex` or `sha256Canonical` from `@alfred/db/hash`.              |
+| `no-function-wrapper-shim`   | an exported function that only returns a constant or an imported name (a second door to the same value)                                                                                                                                           |
+| `no-type-alias-shim`         | an exported type alias, or an empty interface, that is only a new name for an imported type. A sanctioned rename that documents its fact is in its `OWNERS`.                                                                                      |
+| `no-type-re-export-shim`     | `no-constants-re-export` for a type: `export type { … } from`, `export { type X } from`, `export type * from`, or an export of a name that a type-only constants import binds.                                                                    |
+| `sha256-over-json-stringify` | a hash digest (`createHash(…).update`, a bound hasher, `subtle.digest`, an imported owner hasher `sha256Hex`/`sha256Canonical`) over `JSON.stringify` output, whose pre-image depends on key order. Use `sha256Canonical`.                        |

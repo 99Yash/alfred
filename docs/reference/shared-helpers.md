@@ -15,8 +15,11 @@ you to remember:
    about to write. One table, two consumers, so a fact enforced by the build and
    a fact stated to an agent cannot disagree.
    A fact that only the syntax tree can state (scope, nesting, read versus
-   write) is an AST rule in `scripts/oxlint/alfred/` instead, which `pnpm lint`
-   enforces. `helper-hints.mjs` does not read it. `.claude/hooks/lint-on-edit.mjs`
+   write, which import binds a re-exported or aliased name) is an AST rule in
+   `scripts/oxlint/alfred/` instead, which `pnpm lint` enforces. The
+   second-door rules for constants and types (`no-constants-re-export`,
+   `no-type-re-export-shim`, `no-type-alias-shim`) live there.
+   `helper-hints.mjs` does not read it. `.claude/hooks/lint-on-edit.mjs`
    runs oxlint with the root config on each `.ts`/`.tsx` file an agent writes,
    so those rules also speak at edit time. Both hooks are registered in the
    tracked `.claude/settings.json`. Claude Code asks each user to trust project

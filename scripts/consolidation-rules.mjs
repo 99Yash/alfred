@@ -23,7 +23,9 @@
 //
 // A gate that needs scope or AST structure (which binding a name resolves to)
 // is an oxlint rule in scripts/oxlint/alfred/ instead, enforced by `pnpm lint`.
-// `sha256-over-json-stringify` and `no-function-wrapper-shim` moved there.
+// `sha256-over-json-stringify`, `no-function-wrapper-shim`,
+// `no-constants-re-export`, `no-type-re-export-shim` and `no-type-alias-shim`
+// moved there.
 // helper-hints.mjs does not read those rules; `.claude/hooks/lint-on-edit.mjs`
 // runs oxlint on each file an agent writes, so they speak at edit time too.
 // Both hooks are registered in `.claude/settings.json`.
@@ -66,54 +68,6 @@
  * proves every `export type …Slug` in `slugs.ts` matches it.
  */
 export const REGISTRY_UNION = String.raw`(?:(?:\w*Integration|LiveProvider|Planned|Catalog|Google|GithubApp|Bearer|TokenPaste|Supported\w*)Slug|(?:Bearer|Credential)Provider)`;
-
-/** The module path of a `constants` module, as it sits between the quotes. */
-const CONSTANTS_MODULE = String.raw`[^"']*\/constants`;
-
-/**
- * An import that binds the name in group 1 from a module whose path matches
- * `from`. Every binding form counts, because each one gives the file a local
- * name that a later `export { … }` or alias can hand out again:
- * - named: `{ X }`, `{ type X }`, `{ A as X }` (the local name, so `A as X`
- *   binds `X`), also after a default (`D, { X }`);
- * - default: `X`, `X, { … }`, `X, * as NS`;
- * - namespace: `* as X`, `D, * as X`.
- *
- * Use it through `importedInFile`, never on its own.
- * @param {string} from Regex source for the module path.
- */
-const importBinding = (from) =>
-  String.raw`\bimport\b\s*(?:type\b\s*)?(?:` +
-  String.raw`(?:\w+\s*,\s*)?\{[^}]*?\b\1(?=\s*[,}])[^}]*\}` +
-  String.raw`|\1\b(?:\s*,\s*(?:\{[^}]*\}|\*\s*as\s+\w+))?` +
-  String.raw`|(?:\w+\s*,\s*)?\*\s*as\s+\1\b` +
-  String.raw`)\s*from\s*["']${from}["']`;
-
-/**
- * True at a position when an import anywhere in the file binds group 1 (see
- * `importBinding`). A rule places it after it captures group 1 at the second
- * statement. That is how a shim rule relates the two statements without either
- * one sitting next to the other: an adjacency regex (`import …;[^;]*export …`)
- * let one statement between them hide the shim, which is how the
- * `extract-pdf.ts` shim that 8281ff65 removed got past the rule written for it.
- *
- * The import may come before (lookbehind) or after (lookahead) the second
- * statement. TypeScript hoists imports, so an import below its re-export is the
- * same shim. The match covers only the second statement, so a `// drift-ok:`
- * marker for another rule between the two statements does not exempt it.
- * @param {string} from Regex source for the module path.
- */
-const importedInFile = (from) =>
-  String.raw`(?:(?<=${importBinding(from)}[\s\S]*)|(?=[\s\S]*${importBinding(from)}))`;
-
-/**
- * An `export { … }` (or `export type { … }` when `typeOnly`) with no `from`,
- * whose specifier list holds the local name `\1` — captured here — and that
- * re-exports an import of that name from a `constants` module.
- * @param {boolean} typeOnly
- */
-const constantsReExport = (typeOnly) =>
-  String.raw`\bexport\s*${typeOnly ? String.raw`type\s*` : ""}\{[^}]*?\b(\w+)(?=\s*(?:as\s+\w+\s*)?[,}])(?![^}]*\}\s*from\b)${importedInFile(CONSTANTS_MODULE)}`;
 
 /** @type {ConsolidationRule[]} */
 export const RULES = [
@@ -872,89 +826,6 @@ export const RULES = [
     paths: /(^|\/)(?:packages|apps)\/[^/]+\/test\//,
     severity: "gate",
     fix: 'Use dbBackedSkip("database") from ./support/db-backed in this test tree — it skips on a laptop with no Postgres and THROWS when CI is set, so a job that reached no service cannot exit 0. Do not hand-roll a `{ skip }` on a service variable. If this line is not a skip guard, append `// drift-ok: <reason>`.',
-  },
-  {
-    id: "no-constants-re-export",
-    // The single-owner rule for module constants. `constants.ts` owns the fact,
-    // `index.ts` (the barrel) is the only sanctioned re-exporter. A logic file
-    // that does `import { X } from "./constants"; export { X }` creates a second
-    // door — two places answer the same fact and nothing makes them agree.
-    //
-    // Two shapes. The import-then-export shim relates the exported name to an
-    // import that binds that name anywhere in the file, above or below the
-    // export (see `importedInFile`), so any number of statements between the
-    // two cannot hide it. A default import (`import X from`) and a namespace
-    // import (`import * as C from`) of a constants module are the same second
-    // door as a named one when the file exports `X` or `C` again. The
-    // one-statement `export { X } from "./constants"` is the same second door
-    // without the local binding, and so is `export * from "./constants"` /
-    // `export * as C from "./constants"`, which re-exports every name at once.
-    // `scope: "chain"`, because the formatter splits a long specifier list
-    // across lines. The barrels are owners.
-    re: new RegExp(
-      `${constantsReExport(false)}|` +
-        String.raw`\bexport\s*(?:\{[^}]*\}|\*(?:\s*as\s+\w+)?)\s*from\s*["']${CONSTANTS_MODULE}["']`,
-    ),
-    scope: "chain",
-    severity: "gate",
-    owners: [
-      "packages/extraction/src/index.ts",
-      "packages/assistant/src/chat/compaction/index.ts",
-      "packages/assistant/src/chat/index.ts",
-      "packages/assistant/src/connections/mcp/index.ts",
-      "packages/ai/src/index.ts",
-    ],
-    fix: "Do not re-export a constant through a logic file. Import from ./constants where you use it, or export from the barrel (index.ts) if it is a public contract. A logic file that imports then exports the same name is a second door.",
-  },
-  {
-    id: "no-type-re-export-shim",
-    // `import type { Foo } from "./constants"; export type { Foo }` — same
-    // second-door problem for types. Also catches `export type { Foo } from "./constants"`
-    // outside the barrel. The inline modifier (`export { type Foo } from …`) is
-    // the same re-export. The two-statement form relates the name to its
-    // import anywhere in the file, as `no-constants-re-export` does.
-    // `export type * from "./constants"` and `export type * as C from
-    // "./constants"` re-export every type at once, so they are a wider second
-    // door than a specifier list. `no-constants-re-export` does not read them,
-    // because `type` sits between `export` and `*`.
-    // `scope: "chain"`, because the formatter splits a long specifier list
-    // across lines, and a line rule saw neither that nor the two-statement form.
-    re: new RegExp(
-      String.raw`\bexport\s+(?:(?:type\s*\{|\{(?=[^}]*\btype\s))[^}]*\}|type\s*\*(?:\s*as\s+\w+)?)\s*from\s*["']${CONSTANTS_MODULE}["']|` +
-        constantsReExport(true),
-    ),
-    scope: "chain",
-    severity: "gate",
-    owners: ["packages/extraction/src/index.ts", "packages/assistant/src/chat/compaction/index.ts"],
-    fix: "Do not re-export a type through a logic file. Import it from ./constants where you use it. Only the barrel (index.ts) may re-export a constants type.",
-  },
-  {
-    id: "no-type-alias-shim",
-    // `import type { Foo } from "./constants"; export type Bar = Foo` — a shim
-    // that adds a name without adding a fact. The right-hand side is a bare
-    // identifier or dotted path, so a real derivation (`Pick<>`, `z.infer`,
-    // `typeof x[number]`) is not matched: only a rename is. `owners` holds the
-    // sanctioned renames, each carrying a doc comment naming the fact it
-    // encodes; a new one joins `owners` with that reason, or states it inline.
-    // The alias's first segment must be bound by an import anywhere in the
-    // file, above or below the alias (see `importedInFile`), so statements
-    // between them do not hide it. A default import counts (`import Foo from`
-    // then `= Foo`), and so does a namespace import (`import * as M from` then
-    // `= M.Thing`): each is a bare new name for a type that the module owns.
-    re: new RegExp(
-      String.raw`\bexport\s+type\s+\w+\s*=\s*(\w+)(?=(?:\.\w+)*\s*;)${importedInFile(String.raw`[^"']+`)}`,
-    ),
-    scope: "chain",
-    severity: "gate",
-    owners: [
-      // Renames that carry a fact, each documented at the alias:
-      "packages/assistant/src/knowledge/reader.ts", // ActiveEntity* rows are pinned to the active run
-      "packages/assistant/src/execution/sub-agent-join.ts", // ParkWake is a signal wake plus a persisted deadline
-      "packages/ai/src/metering/metered.ts", // CallKind is api_call_log.kind, owned by @alfred/contracts
-      "packages/assistant/src/connections/mcp/built-ins.ts", // the catalog owns the provider key space
-      "apps/web/src/lib/shell/app-sidebar/types.ts", // the sidebar and header share one actions shape
-    ],
-    fix: "Do not alias an imported type with `export type X = Y` when Y is just another name for the same shape. Import Y directly, or define X in the module that owns it. An alias earns its place only when it states a fact — a deprecation, an invariant, an ownership boundary — in the doc comment above it; a bare rename is a second door.",
   },
   {
     id: "object-state-row-lock-mode",

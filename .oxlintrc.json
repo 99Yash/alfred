@@ -63,18 +63,25 @@
     "anti-slop/no-runtime-typeof": ["error", { "allowInTypeGuards": true }],
     "anti-slop/no-unknown-returns": "error",
     "anti-slop/no-unsafe-dictionary-type": "error",
-    // Alfred's own rules (scripts/oxlint/alfred/, first-party, see its README). The first two
+    // Alfred's own rules (scripts/oxlint/alfred/, first-party, see its README). All but one
     // were regex gates in scripts/consolidation-rules.mjs that needed scope analysis to stop
     // missing cases and flagging look-alikes; no-exported-hasher was born here. Each keeps the
-    // gate's file scope by itself (`inGateScope` reads `isSkippedPath`), so none needs an
+    // gate's file scope by itself (`inGateScope` reads `isSkippedPath`), and a rule that had
+    // per-rule `owners` keeps them as a closed list in its own source, so none needs an
     // "overrides" entry here.
     // no-function-wrapper-shim: an exported function that only returns a constant or an
     // imported name. sha256-over-json-stringify: a hash digest over JSON.stringify output,
     // whose pre-image depends on key order; use sha256Canonical. no-exported-hasher: a
     // function outside @alfred/db/hash that is exported and hashes its parameter, which
     // keeps the set of cross-file hashers closed for the sha256 rule.
+    // no-constants-re-export / no-type-re-export-shim: a logic file that hands out a value /
+    // a type of a `constants` module again; only the package barrel may. no-type-alias-shim:
+    // an exported type that is only a new name for an imported type.
+    "alfred/no-constants-re-export": "error",
     "alfred/no-exported-hasher": "error",
     "alfred/no-function-wrapper-shim": "error",
+    "alfred/no-type-alias-shim": "error",
+    "alfred/no-type-re-export-shim": "error",
     "alfred/sha256-over-json-stringify": "error",
     // The tailwind rules sit at `error` by the same bar: zero violations on promotion, and
     // `pnpm lint` does not fail on `warn`, so a warn-level rule here enforced nothing.
