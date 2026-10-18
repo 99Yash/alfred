@@ -29,7 +29,7 @@ const ALERT_REPEAT_MS = 7 * 24 * 60 * 60 * 1000;
  */
 const ALERT_LOOKBACK_LIMIT = 50;
 
-export interface DeliveryAlertSweepResult {
+interface DeliveryAlertSweepResult {
   userId: string;
   /** Sources that are broken and repairable right now. */
   alerts: number;
@@ -41,7 +41,7 @@ export interface DeliveryAlertSweepResult {
  * Email each broken, repairable source at most once per {@link ALERT_REPEAT_MS}. A failed send
  * throws so BullMQ retries; `send` is idempotent on its key.
  */
-export async function runDeliveryAlertSweep(
+async function runDeliveryAlertSweep(
   userId: string,
   now: Date = new Date(),
 ): Promise<DeliveryAlertSweepResult> {

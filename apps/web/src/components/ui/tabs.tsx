@@ -7,7 +7,7 @@ import * as TabsPrimitive from "@radix-ui/react-tabs";
 import type { ReactNode } from "react";
 import { cn } from "~/lib/utils";
 
-export type TabsVariant = "underline" | "segmented" | "pill";
+type TabsVariant = "underline" | "segmented" | "pill";
 
 interface TabItem<T extends string = string> {
   value: T;

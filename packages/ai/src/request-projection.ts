@@ -158,33 +158,4 @@ function projectAnthropicRequest(
   };
 }
 
-export function projectRequestForModel(
-  modelId: string,
-  params: LanguageModelV4CallOptions,
-  cacheTtl: CacheTtl | undefined,
-  isAnthropic: boolean,
-): LanguageModelV4CallOptions {
-  void modelId;
-
-  return isAnthropic
-    ? projectAnthropicRequest(params, cacheTtl)
-    : projectApplicationRequest(params);
-}
-
-export interface CleanAndProjectResult {
-  clean: LanguageModelV4CallOptions;
-  cacheTtl: CacheTtl | undefined;
-  projected: LanguageModelV4CallOptions;
-}
-
-export function cleanAndProjectRequest(
-  params: LanguageModelV4CallOptions,
-  isAnthropic: boolean,
-): CleanAndProjectResult {
-  const { clean, cacheTtl } = cleanProviderRequest(params);
-  const projected = projectRequestForModel("", clean, cacheTtl, isAnthropic);
-
-  return { clean, cacheTtl, projected };
-}
-
 export { cleanProviderRequest, projectAnthropicRequest, projectApplicationRequest };

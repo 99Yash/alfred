@@ -41,7 +41,7 @@ import { isTestFile } from "./manifest.mjs";
  * @param {string} path Path to the trajectory.jsonl file.
  * @returns {Promise<ParsedTrajectory>}
  */
-export async function parseTrajectory(path) {
+async function parseTrajectory(path) {
   /** @type {ToolCall[]} */
   const toolCalls = [];
   let totalSteps = 0;
@@ -269,7 +269,7 @@ function noGitMutations(traj) {
 }
 
 /** The set of all process lane rules. */
-export const RULES = [
+const RULES = [
   { name: "ran-verify-before-finish", fn: ranVerifyBeforeFinish },
   { name: "no-hidden-file-edits", fn: noHiddenFileEdits },
   { name: "no-network-access", fn: noNetworkAccess },

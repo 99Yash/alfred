@@ -24,7 +24,7 @@ import { cn } from "~/lib/utils";
 // `__UID0__` becomes a `useId()` value so filter and clip-path ids do not collide.
 
 /** Brands with no registry entry. */
-export type WebOnlyBrand = "web" | "collaborators";
+type WebOnlyBrand = "web" | "collaborators";
 
 export type IntegrationBrand = IntegrationBrandKey | WebOnlyBrand;
 

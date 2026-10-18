@@ -13,7 +13,7 @@ import {
 
 export type { LocalStorageKey, LocalStorageValue };
 
-export { LOCAL_STORAGE_KEY, LOCAL_STORAGE_SCHEMAS };
+export { LOCAL_STORAGE_KEY };
 
 // The only code that touches `window.localStorage`. Each is a no-op when storage is unavailable.
 

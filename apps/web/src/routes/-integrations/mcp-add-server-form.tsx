@@ -36,7 +36,7 @@ import { McpTile } from "./mcp-tile";
  */
 export type McpAddServerAuthMode = "oauth" | "api_key";
 
-export type McpApiKeyPlacementIn = "header" | "query";
+type McpApiKeyPlacementIn = "header" | "query";
 
 /** Form fields, not `McpAddServerBody`; {@link buildAddServerBody} converts them. */
 export interface AddServerFields {

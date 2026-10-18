@@ -42,7 +42,7 @@ export const MCP_CONNECTION_TOOLS_QUERY_KEY = [
 
 type McpConnectionRoute = ReturnType<typeof client.api.integrations.mcp.connections>;
 
-export type McpConnectionToolPage = EdenData<McpConnectionRoute["tools"]["get"]>;
+type McpConnectionToolPage = EdenData<McpConnectionRoute["tools"]["get"]>;
 
 export type McpConnectionTool = McpConnectionToolPage["tools"][number];
 
@@ -52,8 +52,6 @@ export type McpConnectionToolInspection = EdenData<McpConnectionRoute["tools"]["
 export const MCP_TOOL_POLICY_QUERY_KEY = [...MCP_CONNECTION_TOOLS_QUERY_KEY, "policy"] as const;
 
 export type McpToolPolicyState = EdenData<McpConnectionRoute["tools"]["policy"]["get"]>;
-
-export type McpToolPolicy = Extract<McpToolPolicyState, { status: "reviewed" }>["policy"];
 
 /** Shares the catalog review key family. */
 export const MCP_HEALTH_MAPPING_QUERY_KEY = [

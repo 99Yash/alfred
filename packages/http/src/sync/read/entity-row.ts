@@ -20,7 +20,7 @@ export type VersionInputFor<Slug extends IDBKeys> = Parameters<
 >[0] & { rowVersion: number };
 
 /** A changed row that fails to load or parse is in neither list, so the next pull retries it. */
-export type EntityReadResult<Slug extends IDBKeys> = {
+type EntityReadResult<Slug extends IDBKeys> = {
   unchanged: EntityVersion[];
   rows: EntityRow<Slug>[];
 };

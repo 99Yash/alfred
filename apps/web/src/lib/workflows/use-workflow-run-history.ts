@@ -9,7 +9,7 @@ const INITIAL_PAGE_PARAM: string | null = null;
 
 const PAGE_SIZE = 20;
 
-export const workflowRunHistoryKey = (workflowId: string) => ["workflow-runs", workflowId] as const;
+const workflowRunHistoryKey = (workflowId: string) => ["workflow-runs", workflowId] as const;
 
 /**
  * A workflow's runs, newest first. Not synced, so it refetches when the synced

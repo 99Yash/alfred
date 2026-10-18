@@ -30,7 +30,7 @@ import { workflowRecoveryNavigation } from "./recovery-navigation";
 
 const DEFAULT_PAGE_SIZE = 20;
 
-export const MAX_PAGE_SIZE = 50;
+const MAX_PAGE_SIZE = 50;
 
 export interface ListWorkflowRunHistoryArgs {
   userId: string;

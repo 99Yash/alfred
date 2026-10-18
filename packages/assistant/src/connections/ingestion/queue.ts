@@ -332,7 +332,7 @@ export async function enqueueInboundDelivery(receiptId: string): Promise<void> {
 const GMAIL_MEDIA_INGEST_DEDUP_TTL_MS = 60_000;
 
 /** Schedule attachment ingest for one message. The dedup TTL collapses concurrent schedules. */
-export async function enqueueGmailMediaIngest(args: {
+async function enqueueGmailMediaIngest(args: {
   credentialId: string;
   messageId: string;
   documentId: string;

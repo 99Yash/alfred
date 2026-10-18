@@ -11,7 +11,7 @@ interface AppFieldLabelProps extends LabelHTMLAttributes<HTMLLabelElement> {
   optional?: boolean | undefined;
 }
 
-export function AppFieldLabel({ className, optional, children, ...rest }: AppFieldLabelProps) {
+function AppFieldLabel({ className, optional, children, ...rest }: AppFieldLabelProps) {
   return (
     <label className={cn("px-1 text-sm font-medium text-app-fg-4", className)} {...rest}>
       {children}
@@ -23,7 +23,7 @@ export function AppFieldLabel({ className, optional, children, ...rest }: AppFie
 type AppFieldHelperTextProps = HTMLAttributes<HTMLParagraphElement>;
 
 /** Point `aria-describedby` at its `id`. */
-export function AppFieldHelperText({ className, ...rest }: AppFieldHelperTextProps) {
+function AppFieldHelperText({ className, ...rest }: AppFieldHelperTextProps) {
   return <p className={cn("px-1 text-xs text-app-fg-3", className)} {...rest} />;
 }
 

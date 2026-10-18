@@ -49,7 +49,7 @@ export interface ContactKindPreview {
   unclassifiable: readonly string[];
 }
 
-export const upsertEntityArgsSchema = entityInsertSchema
+const upsertEntityArgsSchema = entityInsertSchema
   .pick({ userId: true, kind: true, canonicalName: true, aliases: true, metadata: true })
   .extend({
     userId: z.string().min(1),

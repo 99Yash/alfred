@@ -6,7 +6,7 @@ import { z } from "zod";
 import { listEvidenceCodeSchema } from "./entity-kind-classifier";
 
 /** Correspondence per `person` entity, from the user's point of view. */
-export const correspondenceStatsSchema = z.object({
+const correspondenceStatsSchema = z.object({
   /** Mail from this contact. */
   inbound: z.number().int().nonnegative().default(0),
   /** Mail the user sent with this contact on `to`/`cc`. */
@@ -22,7 +22,7 @@ export const correspondenceStatsSchema = z.object({
 export type CorrespondenceStats = z.infer<typeof correspondenceStatsSchema>;
 
 /** ADR-0057 score components. Not the ADR-0067 `SignificanceComponents` in contracts. */
-export const significanceScoreComponentsSchema = z.object({
+const significanceScoreComponentsSchema = z.object({
   frequency: z.number(),
   recency: z.number(),
   reciprocity: z.number(),
@@ -32,7 +32,7 @@ export const significanceScoreComponentsSchema = z.object({
 export type SignificanceScoreComponents = z.infer<typeof significanceScoreComponentsSchema>;
 
 /** The ADR-0057 scalar in `[0,1]`, stored under `metadata.significance`. */
-export const significanceSchema = z.object({
+const significanceSchema = z.object({
   score: z.number().min(0).max(1),
   components: significanceScoreComponentsSchema,
   computedAt: z.string(),
@@ -41,7 +41,7 @@ export const significanceSchema = z.object({
 export type Significance = z.infer<typeof significanceSchema>;
 
 /** A `person` entity's metadata. Every field is optional. */
-export const personEntityMetadataSchema = z.object({
+const personEntityMetadataSchema = z.object({
   /** Lowercased primary address. */
   primaryAddress: z.string().optional(),
   domain: z.string().nullable().optional(),

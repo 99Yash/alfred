@@ -33,23 +33,17 @@ import { join, resolve } from "node:path";
  */
 
 /** Repo-relative roots. Each one exists on disk, so `check:script-paths` passes. */
-const BENCH = "scripts/bench";
 
 const TASKS = "scripts/bench/tasks"; // path-ok: local-only bench task directory, not tracked in git
 
 const RUNS = "references/bench";
 
 /** Every valid patch carries a `diff --git` line. */
-export const PATCH_HEADER = "diff --git ";
+const PATCH_HEADER = "diff --git ";
 
 const TIERS = new Set(["a", "c"]);
 
 const SOURCE_KINDS = new Set(["pr", "synthetic"]);
-
-/** @param {string} root @returns {string} */
-export function benchRoot(root) {
-  return join(root, BENCH);
-}
 
 /** @param {string} root @returns {string} */
 export function tasksRoot(root) {
@@ -57,7 +51,7 @@ export function tasksRoot(root) {
 }
 
 /** @param {string} root @param {string} id @returns {string} */
-export function taskDir(root, id) {
+function taskDir(root, id) {
   return join(root, TASKS, id);
 }
 

@@ -8,7 +8,7 @@ import {
 } from "@alfred/contracts";
 import { hostedEndpointErrorFrom } from "../hosted-endpoint";
 
-export const MCP_CLIENT_ERROR_CODES = [
+const MCP_CLIENT_ERROR_CODES = [
   "not_connected",
   "session_expired",
   "unsupported_protocol_version",

@@ -21,7 +21,7 @@ import { cardManifestViolation, type ContextSource, type ContextSourceExpander }
  */
 
 /** What one expanding source did across every handle routed to it. */
-export interface ExpanderOutcome {
+interface ExpanderOutcome {
   readonly sourceId: string;
   readonly refreshed: number;
   /** The first failure, sanitized. */

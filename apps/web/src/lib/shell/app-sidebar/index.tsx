@@ -14,7 +14,7 @@ import { RailContent } from "./rail-content";
 import { DeleteThreadDialog } from "~/lib/chat/delete-thread-dialog";
 import type { AppSidebarProps } from "./types";
 
-export type { AppSidebarProps, SidebarThreadActions } from "./types";
+export type { AppSidebarProps } from "./types";
 
 /** Visibility and the minimized rail are separate state: overlay slides, inline persists width. */
 export function AppSidebar({

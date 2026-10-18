@@ -1257,7 +1257,7 @@ function TopAnnouncementSection() {
     <Section
       id="app-top-announcement"
       title="TopAnnouncement"
-      recipe="Pinned at top of page in production (fixed positioning). Previewed inline here. Blurred glass pill with a status dot + arrow that translates on hover."
+      recipe="Blurred glass pill with a status dot + arrow that translates on hover. Pin it at the top of a page with fixed positioning; previewed inline here."
     >
       <AppCanvas>
         <div className="relative flex flex-col items-center gap-4">
@@ -1283,10 +1283,6 @@ function TopAnnouncementSection() {
               →
             </span>
           </button>
-          <p className="tabular text-[11px] text-gray-700">
-            See <code className="font-mono text-emerald-300">TopAnnouncement</code> in
-            components/landing/top-announcement.tsx (production renders fixed at top:5).
-          </p>
         </div>
       </AppCanvas>
     </Section>

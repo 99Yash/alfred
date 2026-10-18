@@ -36,12 +36,12 @@ function sharingError(
 
 const sharesResponseSchema = z.object({ shares: z.array(sharedThreadSummarySchema) });
 
-export const sharesKey = (threadId: string) => ["threads", threadId, "shares"] as const;
+const sharesKey = (threadId: string) => ["threads", threadId, "shares"] as const;
 
 const SHARES_STALE_MS = 30_000;
 
 /** Shared by the query and the prefetch, so both hit the same URL and parse. */
-export async function fetchThreadShares(threadId: string): Promise<SharedThreadSummary[]> {
+async function fetchThreadShares(threadId: string): Promise<SharedThreadSummary[]> {
   const res = await client.api.threads({ threadId }).shares.get();
 
   if (res.error) throw sharingError(res.error, "Loading your links");

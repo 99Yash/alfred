@@ -1,14 +1,13 @@
 import { t } from "elysia";
 import { z } from "zod";
 import {
-  HARD_MUTATION_LIMIT as SYNC_HARD_LIMIT,
+  HARD_MUTATION_LIMIT,
   MAX_MUTATIONS as SYNC_MAX_MUTATIONS,
   MAX_ACCEPTED_COOKIE_ORDER,
 } from "./constants";
 
 export namespace ReplicacheModel {
   export const MAX_MUTATIONS = SYNC_MAX_MUTATIONS;
-  export const HARD_MUTATION_LIMIT = SYNC_HARD_LIMIT;
 
   /** Points at the client's last CVR. A cookie from another client group means a cold sync. */
   export const pullCookieSchema = z.object({

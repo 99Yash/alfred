@@ -14,8 +14,6 @@ import "katex/dist/katex.min.css";
 // Shared fenced-code renderer, for surfaces with their own wrapper typography.
 export { MarkdownPre } from "./markdown-pre";
 
-export { CodeBlock } from "./code-block";
-
 // Own module: a component file that also exports a plain function loses Fast Refresh.
 export { altTextImageComponents } from "./alt-text-image";
 

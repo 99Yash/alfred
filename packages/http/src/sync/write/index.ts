@@ -54,7 +54,7 @@ import {
 import { triageTagOverride } from "./triage-tags";
 import { workflowUpdate } from "./workflows";
 
-export type { MutatorFollowUp, MutatorResult, RegisteredServerMutator } from "./mutator";
+export type { MutatorFollowUp, MutatorResult } from "./mutator";
 
 /**
  * The push registry. The mapped type makes a missing, extra or drifted mutator a

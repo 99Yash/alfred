@@ -73,7 +73,7 @@ type McpProtocolProfile = (typeof MCP_PROTOCOL_PROFILES)[ProtocolEra];
 
 export type McpProtocolEra = McpProtocolProfile["protocolEra"];
 
-export const MCP_SUPPORTED_PROTOCOL_VERSIONS: readonly McpProtocolProfile["protocolVersion"][] =
+const MCP_SUPPORTED_PROTOCOL_VERSIONS: readonly McpProtocolProfile["protocolVersion"][] =
   Object.freeze(Object.values(MCP_PROTOCOL_PROFILES).map((profile) => profile.protocolVersion));
 
 const MCP_SUPPORTED_PROTOCOL_VERSION_SET: ReadonlySet<string> = new Set(

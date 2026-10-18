@@ -45,7 +45,7 @@ import { gmailHighWatermarkCondition, payloadSignalsFromObservation } from "./gm
 import { liveObservationHeadJoin } from "./observations";
 
 /** The block's stated name and org domain. */
-export interface EmploymentSignature {
+interface EmploymentSignature {
   /** First content line of the block. */
   readonly personName: string;
   /** Stated in prose, normalized by `domainSchema`; never the header domain. */
@@ -115,7 +115,7 @@ const BARE_DOMAIN_RE =
  * corporate org domain. Two domains are ambiguous and mint nothing.
  * HTML mail arrives flattened with no `>` quotes, so the name match is the backstop there.
  */
-export function parseEmploymentSignature(body: string): EmploymentSignature | null {
+function parseEmploymentSignature(body: string): EmploymentSignature | null {
   const block = signatureBlock(body);
 
   if (!block) return null;
@@ -145,7 +145,7 @@ export function parseEmploymentSignature(body: string): EmploymentSignature | nu
  * User-scoped tiers would bring back domain-derived minting. `weak_mentions` never
  * promotes (ADR-0080 invariant 6). Other edge types have no grounding path yet.
  */
-export function canGroundEdgeType(tier: GroundingTier, edge: EntityEdgeType): boolean {
+function canGroundEdgeType(tier: GroundingTier, edge: EntityEdgeType): boolean {
   switch (edge) {
     case "works_at":
       return tier === "self_authored_profile_or_signature" || tier === "user_correction";

@@ -131,7 +131,7 @@ const DEMOTE_AFTER_ABSENT_READS = 3;
  * now `success`, or a row a deleted deployment marked failed (#1167). The
  * verdict is re-read from the row, so a stale read that lost never prints.
  */
-export async function pullVerifiedTargets<Target, Session, Names>(
+async function pullVerifiedTargets<Target, Session, Names>(
   source: VerifiedPullProvider<Target, Session, Names>,
   userId: string,
   targets: readonly Target[],
