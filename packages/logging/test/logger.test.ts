@@ -57,7 +57,7 @@ test("logger serializer allowlists database diagnostics and drops SQL and params
 
   const text = JSON.stringify(serialized);
   assert.equal(serialized.database?.code, "23503");
-  assert.equal(serialized.database?.constraint, "artifacts_message_id_chat_messages_id_fk");
+  assert.equal(serialized.database.constraint, "artifacts_message_id_chat_messages_id_fk");
   assert.ok(!text.includes("usr_private"));
   assert.ok(!text.includes("msg_private"));
   assert.ok(!text.includes("Failed query"));
@@ -162,6 +162,8 @@ test("pino redact config censors the shared SENSITIVE_LOG_PATHS set", async () =
     }),
   );
 
-  assert.ok(SENSITIVE_LOG_PATHS.length > 0);
+  // The tuple type decides the length; read it as a list to pin the runtime value.
+  const sensitivePaths: readonly string[] = SENSITIVE_LOG_PATHS;
+  assert.ok(sensitivePaths.length > 0);
   assert.doesNotMatch(viaWalker, /sk_live|session=abc|"tok"/);
 });

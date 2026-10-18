@@ -56,7 +56,7 @@ function corruptPart(envelope: string, index: number): string {
   const parts = envelope.split(".");
   const bytes = Buffer.from(parts[index] ?? "", "base64url");
   assert.ok(bytes.length > 0, "cannot corrupt an empty part");
-  bytes[0] = (bytes[0] ?? 0) ^ 0xff;
+  bytes[0] ^= 0xff;
 
   return replacePart(envelope, index, bytes.toString("base64url"));
 }

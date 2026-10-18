@@ -309,7 +309,7 @@ describe("canonicalizeFactKey (#330 — one fact-key ontology)", () => {
     for (const key of CANONICAL_FACT_KEYS) {
       const r = canonicalizeFactKey(key);
       assert.equal(r.ok, true);
-      assert.equal(r.ok && r.key, key);
+      assert.equal(r.key, key);
     }
   });
 
@@ -388,8 +388,13 @@ describe("canonicalizeFactKey (#330 — one fact-key ontology)", () => {
 
 describe("user-model observation contracts", () => {
   test("ranks user above alfred_chat above first-party integrations", () => {
-    assert.equal(OBSERVATION_SOURCE_RANK.user < OBSERVATION_SOURCE_RANK.alfred_chat, true);
-    assert.equal(OBSERVATION_SOURCE_RANK.alfred_chat < OBSERVATION_SOURCE_RANK.gmail, true);
+    // Read the ranks as plain numbers: the literal types decide the order at compile time, and this
+    // test pins the runtime values.
+    const rank: Readonly<Record<keyof typeof OBSERVATION_SOURCE_RANK, number>> =
+      OBSERVATION_SOURCE_RANK;
+
+    assert.equal(rank.user < rank.alfred_chat, true);
+    assert.equal(rank.alfred_chat < rank.gmail, true);
     assert.equal(OBSERVATION_SOURCE_RANK.gmail, OBSERVATION_SOURCE_RANK.google_account);
   });
 

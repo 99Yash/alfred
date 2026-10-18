@@ -170,14 +170,23 @@ class ChildEvents {
     return this.seen.get(needle) ?? 0;
   }
 
-  async wait(needle: string, count: number, timeoutMs: number, what: string): Promise<void> {
+  /** `what` may be a function so the message reads state at the timeout, not at the call. */
+  async wait(
+    needle: string,
+    count: number,
+    timeoutMs: number,
+    what: string | (() => string),
+  ): Promise<void> {
     if (this.count(needle) >= count) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     try {
       await new Promise<void>((resolve, reject) => {
         this.waiters.push({ needle, count, resolve });
-        timer = setTimeout(() => reject(new Error(what)), timeoutMs);
+        timer = setTimeout(
+          () => reject(new Error(typeof what === "function" ? what() : what)),
+          timeoutMs,
+        );
       });
     } finally {
       if (timer) clearTimeout(timer);
@@ -227,7 +236,7 @@ async function drive(
       "SUBSCRIBED",
       1,
       CHILD_DEADLINE_MS,
-      `child never subscribed${exitedEarly ? " (it exited first)" : ""}: ${stderr}`,
+      () => `child never subscribed${exitedEarly ? " (it exited first)" : ""}: ${stderr}`,
     );
     // Without a subscription before the outage, the reconnect has nothing to re-issue.
     const framesBefore = proxy.subscribeFrames;

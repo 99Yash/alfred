@@ -73,8 +73,8 @@ describe("applyArtifactFrame — artifact.delta", () => {
     );
     const stream = s.get("t1");
     assert.equal(stream?.text, "Hello world");
-    assert.equal(stream?.title, "Doc");
-    assert.equal(stream?.seq, 2);
+    assert.equal(stream.title, "Doc");
+    assert.equal(stream.seq, 2);
   });
 
   test("ignores a replayed/stale seq (no change, no double-append)", () => {
@@ -350,9 +350,9 @@ describe("selectByArtifactId — multi-section document", () => {
     // The regression: a first-match-wins lookup returns t1 (create, done,
     // replace). The fix prefers the active stream t2 so the live section fills.
     assert.equal(picked?.toolCallId, "t2");
-    assert.equal(picked?.mode, "append");
-    assert.equal(picked?.text, "Section 2");
-    assert.equal(picked?.done, false);
+    assert.equal(picked.mode, "append");
+    assert.equal(picked.text, "Section 2");
+    assert.equal(picked.done, false);
   });
 
   test("with no active stream, returns the latest (most recent section)", () => {
@@ -365,7 +365,7 @@ describe("selectByArtifactId — multi-section document", () => {
     );
     const picked = selectByArtifactId(s, "art_1");
     assert.equal(picked?.toolCallId, "t2");
-    assert.equal(picked?.done, true);
+    assert.equal(picked.done, true);
   });
 
   test("returns null when no stream carries the id", () => {

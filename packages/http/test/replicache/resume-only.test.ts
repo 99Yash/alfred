@@ -212,12 +212,9 @@ describe(
 
       assert.equal(changedOperations.length, 1);
       const [changedOperation] = changedOperations;
-      assert.equal(changedOperation?.op, "put");
-      assert.equal(changedOperation?.key, "workflow/retired-built-in");
-      assert.equal(
-        changedOperation?.op === "put" ? changedOperation.value.name : null,
-        "Changed built-in",
-      );
+      assert.equal(changedOperation.op, "put");
+      assert.equal(changedOperation.key, "workflow/retired-built-in");
+      assert.equal(changedOperation.value.name, "Changed built-in");
 
       const retired = await seedBuiltinWorkflowsForUser(userId);
       assert.equal(retired.retired, 1);

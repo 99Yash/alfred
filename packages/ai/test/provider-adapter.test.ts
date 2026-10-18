@@ -258,7 +258,7 @@ describe("provider turn protocol", () => {
     const last = call.prompt.at(-1);
     assert.ok(last);
     assert.equal(last.providerOptions?.anthropic?.custom, "keep");
-    assert.equal(last.providerOptions?.openai?.other, "keep");
+    assert.equal(last.providerOptions.openai?.other, "keep");
     assert.deepEqual(cacheControl(last), { type: "ephemeral", ttl: "1h" });
   });
 
@@ -379,7 +379,7 @@ describe("provider turn protocol", () => {
       call.tools?.find((definition) => definition.type === "function")?.name,
       "system__search_tools",
     );
-    const providerTool = call.tools?.find((definition) => definition.type === "provider");
+    const providerTool = call.tools.find((definition) => definition.type === "provider");
     assert.ok(providerTool);
     assert.match(providerTool.id, /google_search/);
   });

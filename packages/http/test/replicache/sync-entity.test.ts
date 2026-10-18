@@ -71,7 +71,7 @@ describe("syncEntity", () => {
     const preview = JSON.stringify(mapped).slice(0, 200);
     assert.equal(warnings[0], `[replicache] invalid note row at text; mapped value: ${preview}`);
     assert.equal(preview.length, 200);
-    assert.ok(!warnings[0]?.includes("excluded-after-boundary"));
+    assert.ok(!warnings[0].includes("excluded-after-boundary"));
   });
 
   test("an unserializable diagnostic preview cannot fail the pull", async (t) => {

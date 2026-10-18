@@ -109,8 +109,6 @@ test("a parse deadline kills the child after unrelated parent work completes", a
   const result = await extraction;
 
   assert.equal(result.kind, "limit_exceeded");
-
-  if (result.kind !== "limit_exceeded") return;
   assert.equal(result.limit, "parse_milliseconds");
   assert.equal(result.maximum, 500);
   assert.ok(result.actual >= 500);
@@ -141,8 +139,6 @@ test("the parse deadline includes synchronous process startup", async () => {
   const result = await extractPdf(new Uint8Array([1]));
 
   assert.equal(result.kind, "limit_exceeded");
-
-  if (result.kind !== "limit_exceeded") return;
   assert.equal(result.limit, "parse_milliseconds");
   assert.equal(result.maximum, maxParseMilliseconds);
   assert.ok(result.actual >= maxParseMilliseconds);
@@ -258,8 +254,6 @@ test("a deadline settles after a code-zero child leaves inherited pipes open", a
   const result = await extractPdf(new Uint8Array([1]));
 
   assert.equal(result.kind, "limit_exceeded");
-
-  if (result.kind !== "limit_exceeded") return;
   assert.equal(result.limit, "parse_milliseconds");
   assert.ok(performance.now() - startedAt < SETTLED_WITHOUT_THE_PIPE_HOLD_MILLISECONDS);
 });
@@ -304,8 +298,6 @@ test("a backward wall-clock adjustment does not extend the parse deadline", asyn
     const result = await extractPdf(new Uint8Array([1]));
 
     assert.equal(result.kind, "limit_exceeded");
-
-    if (result.kind !== "limit_exceeded") return;
     assert.equal(result.limit, "parse_milliseconds");
     assert.ok(performance.now() - startedAt < SETTLED_WITHOUT_THE_PIPE_HOLD_MILLISECONDS);
   } finally {

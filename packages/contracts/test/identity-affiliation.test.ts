@@ -327,7 +327,7 @@ describe("user_org_affiliation observation kind wiring", () => {
     });
 
     assert.ok(parsed.success, JSON.stringify(parsed.error?.issues));
-    assert.deepEqual(parsed.data?.subjectIdentity, { kind: "user" });
+    assert.deepEqual(parsed.data.subjectIdentity, { kind: "user" });
   });
 
   test("observationInsertSchema accepts a disconnection lifecycle observation", () => {

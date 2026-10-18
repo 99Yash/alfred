@@ -50,7 +50,7 @@ test("the shim widens nothing: non-datetime text is still rejected", () => {
 test("padding runs before the end-after-start refinement", () => {
   const result = parse("2026-08-29T15:00Z", "2026-08-29T14:00Z");
   assert.equal(result.success, false);
-  assert.ok(result.error?.issues.some((issue) => issue.path.join(".") === "end"));
+  assert.ok(result.error.issues.some((issue) => issue.path.join(".") === "end"));
 });
 
 test("the model-facing JSON schema still advertises the canonical surface", () => {

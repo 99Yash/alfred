@@ -72,7 +72,7 @@ async function readStoredTokens(
     .from(integrationCredentials)
     .where(eq(integrationCredentials.id, credentialId));
 
-  return { accessToken: row?.accessToken ?? null, refreshToken: row?.refreshToken ?? null };
+  return { accessToken: row.accessToken, refreshToken: row.refreshToken ?? null };
 }
 
 interface TokenRefreshStub {
@@ -193,8 +193,8 @@ describe("Google credential refresh (DB-backed)", { skip: SKIP }, () => {
 
       // The column must NOT equal the plaintext the callers received — that
       // inequality is the whole point of the vault — and must open back to it.
-      assert.notEqual(stored?.accessToken, "fresh-access-token");
-      assert.equal(credentialVault().open(stored?.accessToken), "fresh-access-token");
+      assert.notEqual(stored.accessToken, "fresh-access-token");
+      assert.equal(credentialVault().open(stored.accessToken), "fresh-access-token");
     } finally {
       globalThis.fetch = originalFetch;
       await db().delete(user).where(eq(user.id, userId));

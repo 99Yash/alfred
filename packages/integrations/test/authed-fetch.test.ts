@@ -42,8 +42,8 @@ describe("authedFetch", () => {
     const { input, init } = calls[0]!;
     assert.equal(input, "https://api.example.com/things");
     assert.equal(init?.method, "GET");
-    assert.deepEqual(init?.headers, { Authorization: "Bearer tok", Accept: "application/json" });
-    assert.equal(init?.body, undefined);
+    assert.deepEqual(init.headers, { Authorization: "Bearer tok", Accept: "application/json" });
+    assert.equal(init.body, undefined);
     assert.equal("Content-Type" in (init!.headers as Record<string, string>), false);
   });
 
@@ -56,8 +56,8 @@ describe("authedFetch", () => {
 
     const { init } = calls[0]!;
     assert.equal(init?.method, "POST");
-    assert.equal(init?.body, JSON.stringify({ title: "hi", n: 1 }));
-    assert.deepEqual(init?.headers, {
+    assert.equal(init.body, JSON.stringify({ title: "hi", n: 1 }));
+    assert.deepEqual(init.headers, {
       Authorization: "Bearer tok",
       "Notion-Version": "2022-06-28",
       "Content-Type": "application/json",
@@ -93,7 +93,9 @@ describe("authedFetch", () => {
     await authedFetch({ headers: {} }, { url: "https://api.example.com/a" });
     assert.ok(calls[0]!.init?.signal instanceof AbortSignal);
     assert.equal(typeof INTEGRATION_FETCH_TIMEOUT_MS, "number");
-    assert.ok(INTEGRATION_FETCH_TIMEOUT_MS > 0);
+    // The literal type decides the comparison; read it as a number to pin the runtime value.
+    const timeoutMs: number = INTEGRATION_FETCH_TIMEOUT_MS;
+    assert.ok(timeoutMs > 0);
   });
 
   test("a profile cannot shorten the shared timeout", async () => {

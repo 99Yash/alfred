@@ -95,8 +95,6 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
 
     assert.equal(created.ok, true);
 
-    if (!created.ok) return;
-
     const activated = await activateWorkflow({
       userId,
       workflowId: created.workflow.id,
@@ -104,8 +102,6 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
     });
 
     assert.equal(activated.ok, true);
-
-    if (!activated.ok) return;
 
     const revised = await reviseWorkflow({
       userId,
@@ -116,14 +112,10 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
 
     assert.equal(revised.ok, true);
 
-    if (!revised.ok) return;
-
     // An empty previous CVR marks every visible row changed, so all rows load.
     const { rows: synced } = await ENTITY_FETCHERS.workflow(db(), userId, {});
     const entity = synced.find((row) => row.id === slug)?.serialized;
     assert.ok(entity && "slug" in entity && entity.slug === slug);
-
-    if (!entity || !("slug" in entity) || entity.slug !== slug) return;
     assert.equal(entity.brief, "unpublished brief");
     assert.equal(entity.currentRevisionId, revised.revision.id);
     assert.equal(entity.publishedRevisionId, activated.revision.id);
@@ -168,9 +160,9 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
       .from(agentRuns)
       .where(eq(agentRuns.id, runId));
 
-    assert.equal(run?.workflowRevisionId, activated.revision.id);
-    assert.equal(run?.brief, "published brief");
-    assert.match(run?.occurrenceKey ?? "", /^occ_v1:manual:sha256:/);
+    assert.equal(run.workflowRevisionId, activated.revision.id);
+    assert.equal(run.brief, "published brief");
+    assert.match(run.occurrenceKey ?? "", /^occ_v1:manual:sha256:/);
 
     await db().update(agentRuns).set({ status: "completed" }).where(eq(agentRuns.id, runId));
 
@@ -264,8 +256,6 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
 
     assert.equal(created.ok, true);
 
-    if (!created.ok) return;
-
     const first = await reviseWorkflow({
       userId,
       workflowId: created.workflow.id,
@@ -302,7 +292,7 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
       .from(workflows)
       .where(eq(workflows.id, created.workflow.id));
 
-    assert.equal(workflow?.currentRevisionId, first.ok ? first.revision.id : null);
+    assert.equal(workflow.currentRevisionId, first.revision.id);
   });
 
   test("replay creates a linked occurrence with an explicit revision choice", async () => {
@@ -317,8 +307,6 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
 
     assert.equal(created.ok, true);
 
-    if (!created.ok) return;
-
     const activatedOriginal = await activateWorkflow({
       userId,
       workflowId: created.workflow.id,
@@ -326,8 +314,6 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
     });
 
     assert.equal(activatedOriginal.ok, true);
-
-    if (!activatedOriginal.ok) return;
 
     const source = await createRun({
       userId,
@@ -348,8 +334,6 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
 
     assert.equal(revised.ok, true);
 
-    if (!revised.ok) return;
-
     const activatedLatest = await activateWorkflow({
       userId,
       workflowId: created.workflow.id,
@@ -357,8 +341,6 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
     });
 
     assert.equal(activatedLatest.ok, true);
-
-    if (!activatedLatest.ok) return;
 
     const originalReplay = await replayRun({
       userId,
@@ -387,8 +369,8 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
     const latestRow = replayRows.find((row) => row.id === latestReplay.runId);
     assert.equal(originalRow?.workflowRevisionId, activatedOriginal.revision.id);
     assert.equal(latestRow?.workflowRevisionId, activatedLatest.revision.id);
-    assert.equal(originalRow?.replayOfRunId, source.runId);
-    assert.equal(latestRow?.replayOfRunId, source.runId);
+    assert.equal(originalRow.replayOfRunId, source.runId);
+    assert.equal(latestRow.replayOfRunId, source.runId);
 
     const duplicate = await replayRun({
       userId,
@@ -416,8 +398,6 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
 
     assert.equal(created.ok, true);
 
-    if (!created.ok) return;
-
     const activated = await activateWorkflow({
       userId,
       workflowId: created.workflow.id,
@@ -425,8 +405,6 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
     });
 
     assert.equal(activated.ok, true);
-
-    if (!activated.ok) return;
 
     const scheduledFor = new Date(Date.now() - 60_000);
     await db()
@@ -463,17 +441,17 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
       .where(and(eq(agentRuns.userId, userId), eq(agentRuns.workflowSlug, slug)))
       .limit(1);
 
-    assert.equal(run?.status, "pending");
-    assert.match(run?.occurrenceKey ?? "", /^occ_v1:cron:sha256:/);
-    assert.ok(run && (await findResumableRunIds({ limit: 1_000 })).includes(run.id));
+    assert.equal(run.status, "pending");
+    assert.match(run.occurrenceKey ?? "", /^occ_v1:cron:sha256:/);
+    assert.ok((await findResumableRunIds({ limit: 1_000 })).includes(run.id));
 
     const [workflow] = await db()
       .select({ nextRunAt: workflows.nextRunAt, lastScheduledAt: workflows.lastScheduledAt })
       .from(workflows)
       .where(eq(workflows.id, created.workflow.id));
 
-    assert.equal(workflow?.lastScheduledAt?.toISOString(), scheduledFor.toISOString());
-    assert.ok(workflow?.nextRunAt && workflow.nextRunAt > scheduledFor);
+    assert.equal(workflow.lastScheduledAt?.toISOString(), scheduledFor.toISOString());
+    assert.ok(workflow.nextRunAt && workflow.nextRunAt > scheduledFor);
   });
 
   test("credential loss blocks the occurrence before the first model turn", async () => {
@@ -513,8 +491,6 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
 
     assert.equal(created.ok, true);
 
-    if (!created.ok) return;
-
     const activated = await activateWorkflow({
       userId,
       workflowId: created.workflow.id,
@@ -522,8 +498,6 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
     });
 
     assert.equal(activated.ok, true);
-
-    if (!activated.ok) return;
 
     await db()
       .update(integrationCredentials)
@@ -548,15 +522,15 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
       .from(agentRuns)
       .where(eq(agentRuns.id, run.runId));
 
-    assert.equal(storedRun?.status, "blocked");
-    assert.equal(storedRun?.currentStep, "check-readiness");
+    assert.equal(storedRun.status, "blocked");
+    assert.equal(storedRun.currentStep, "check-readiness");
 
     const [storedWorkflow] = await db()
       .select({ blocked: workflows.blocked })
       .from(workflows)
       .where(eq(workflows.id, created.workflow.id));
 
-    assert.equal(storedWorkflow?.blocked?.code, "needs_reauth");
+    assert.equal(storedWorkflow.blocked?.code, "needs_reauth");
   });
 
   test("an old pinned run cannot block a newly published revision", async () => {
@@ -596,8 +570,6 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
 
     assert.equal(created.ok, true);
 
-    if (!created.ok) return;
-
     const activatedV1 = await activateWorkflow({
       userId,
       workflowId: created.workflow.id,
@@ -605,8 +577,6 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
     });
 
     assert.equal(activatedV1.ok, true);
-
-    if (!activatedV1.ok) return;
 
     const oldRun = await createRun({
       userId,
@@ -627,8 +597,6 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
 
     assert.equal(revised.ok, true);
 
-    if (!revised.ok) return;
-
     const activatedV2 = await activateWorkflow({
       userId,
       workflowId: created.workflow.id,
@@ -636,8 +604,6 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
     });
 
     assert.equal(activatedV2.ok, true);
-
-    if (!activatedV2.ok) return;
 
     await db()
       .update(integrationCredentials)
@@ -651,8 +617,8 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
       .from(workflows)
       .where(eq(workflows.id, created.workflow.id));
 
-    assert.equal(storedWorkflow?.blocked, null);
-    assert.equal(storedWorkflow?.publishedRevisionId, activatedV2.revision.id);
+    assert.equal(storedWorkflow.blocked, null);
+    assert.equal(storedWorkflow.publishedRevisionId, activatedV2.revision.id);
   });
 
   test("connection recovery revalidates the same immutable draft and presents activation", async () => {
@@ -672,8 +638,6 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
     });
 
     assert.equal(created.ok, true);
-
-    if (!created.ok) return;
 
     const blocked = await setWorkflowBlocked({
       userId,
@@ -695,14 +659,12 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
     });
 
     assert.equal(recovered.ok, true);
-
-    if (!recovered.ok) return;
     assert.deepEqual(recovered.readiness, []);
     assert.equal(recovered.workflow.blocked, null);
     assert.equal(recovered.revision.id, created.revision.id);
     assert.equal(recovered.activationProposal?.baseRevisionId, created.revision.id);
-    assert.equal(recovered.activationProposal?.baseContentHash, created.revision.contentHash);
-    assert.equal(recovered.activationProposal?.baseRowVersion, recovered.workflow.rowVersion);
+    assert.equal(recovered.activationProposal.baseContentHash, created.revision.contentHash);
+    assert.equal(recovered.activationProposal.baseRowVersion, recovered.workflow.rowVersion);
 
     const revisions = await db()
       .select({ id: workflowRevisions.id })
@@ -729,8 +691,6 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
 
     assert.equal(created.ok, true);
 
-    if (!created.ok) return;
-
     const revised = await reviseWorkflow({
       userId,
       workflowId: created.workflow.id,
@@ -740,8 +700,6 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
 
     assert.equal(revised.ok, true);
 
-    if (!revised.ok) return;
-
     const recovered = await recoverWorkflowDraft({
       userId,
       workflowId: created.workflow.id,
@@ -749,11 +707,7 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
     });
 
     assert.equal(recovered.ok, false);
-
-    if (recovered.ok) return;
     assert.equal(recovered.failure.kind, "stale_revision");
-
-    if (recovered.failure.kind !== "stale_revision") return;
     assert.equal(recovered.failure.expectedRevisionId, created.revision.id);
     assert.equal(recovered.failure.actualRevisionId, revised.revision.id);
   });
@@ -769,8 +723,6 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
 
     assert.equal(created.ok, true);
 
-    if (!created.ok) return;
-
     const activated = await activateWorkflow({
       userId,
       workflowId: created.workflow.id,
@@ -778,8 +730,6 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
     });
 
     assert.equal(activated.ok, true);
-
-    if (!activated.ok) return;
 
     const blocked = {
       code: "reauth_required",
@@ -803,8 +753,6 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
     });
 
     assert.equal(paused.ok, true);
-
-    if (!paused.ok) return;
     assert.deepEqual(paused.workflow.blocked, blocked, "pausing must preserve the blocker");
 
     const cleared = await clearWorkflowBlocked({
@@ -813,8 +761,6 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
     });
 
     assert.equal(cleared.ok, true);
-
-    if (!cleared.ok) return;
     assert.equal(cleared.workflow.blocked, null);
     assert.equal(cleared.workflow.status, "paused", "recovery must not resume user-paused work");
   });

@@ -14,7 +14,7 @@ describe("chunkText", () => {
     const chunks = chunkText(text);
     assert.equal(chunks.length, 1);
     assert.equal(chunks[0]?.content, text);
-    assert.equal(chunks[0]?.position, 0);
+    assert.equal(chunks[0].position, 0);
   });
 
   test("splits long content into multiple chunks with overlap", () => {
@@ -79,7 +79,7 @@ describe("chunkPages", () => {
     const chunks = chunkPages([{ page: 3, text }]);
     assert.equal(chunks.length, 1);
     assert.equal(chunks[0]?.page, 3);
-    assert.equal(chunks[0]?.position, 0);
+    assert.equal(chunks[0].position, 0);
   });
 
   test("never carries text across a page boundary", () => {
@@ -113,8 +113,8 @@ describe("chunkPages", () => {
     assert.equal(chunks.length, 2);
     assert.equal(chunks[0]?.page, 1);
     assert.equal(chunks[1]?.page, 3);
-    assert.equal(chunks[0]?.position, 0);
-    assert.equal(chunks[1]?.position, 1);
+    assert.equal(chunks[0].position, 0);
+    assert.equal(chunks[1].position, 1);
   });
 
   test("overlap is preserved within a page", () => {

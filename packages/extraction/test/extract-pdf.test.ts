@@ -121,8 +121,6 @@ test("a born-digital PDF reports one page per page, numbered from 1", async () =
   const result = await extractPdf(await fixture("born-digital-two-page.pdf"));
 
   assert.equal(result.kind, "extracted");
-
-  if (result.kind !== "extracted") return;
   assert.equal(result.pdfType, "text_based");
   assert.equal(result.pages.length, 2);
   assert.equal(result.pageCount, result.pages.length);
@@ -145,8 +143,6 @@ test("a scanned PDF with no text layer is `needs_ocr` and asserts no page at all
   const result = await extractPdf(await fixture("scanned-single-page.pdf"));
 
   assert.equal(result.kind, "needs_ocr");
-
-  if (result.kind !== "needs_ocr") return;
   assert.equal(result.pdfType, "scanned");
   assert.equal(result.pageCount, 1);
 
@@ -166,8 +162,6 @@ test("bytes that were never a PDF are `not_a_pdf`", async () => {
   const result = await extractPdf(await fixture("not-a-pdf.bin"));
 
   assert.equal(result.kind, "invalid");
-
-  if (result.kind !== "invalid") return;
   // Needs both: a sniffer rejection AND no `%PDF-`, `startxref` or `%%EOF`.
   assert.equal(result.cause, "not_a_pdf");
   // The vendor reason minus its `"<rust_fn>: "` prefix. Nothing branches on it.
@@ -182,8 +176,6 @@ test("a real PDF whose first byte the sniffer reads as JSON is `damaged`", async
   const result = await extractPdf(new Uint8Array(damaged));
 
   assert.equal(result.kind, "invalid");
-
-  if (result.kind !== "invalid") return;
   assert.equal(result.cause, "damaged");
   // Fails loudly if the vendor stops naming a text format here.
   assert.equal(result.reason, "Not a PDF: file appears to be JSON");
@@ -199,8 +191,6 @@ test("a real PDF behind an `<html>` prefix is `damaged`, not another format", as
   const result = await extractPdf(new Uint8Array(prefixed));
 
   assert.equal(result.kind, "invalid");
-
-  if (result.kind !== "invalid") return;
   assert.equal(result.cause, "damaged");
   assert.equal(result.reason, "Not a PDF: file appears to be HTML");
 });
@@ -213,8 +203,6 @@ test("a real PDF with one damaged header byte is `damaged` too", async () => {
   const result = await extractPdf(new Uint8Array(damaged));
 
   assert.equal(result.kind, "invalid");
-
-  if (result.kind !== "invalid") return;
   assert.equal(result.cause, "damaged");
   assert.equal(result.reason, "Not a PDF: file appears to be plain text");
 });
@@ -229,8 +217,6 @@ test("a PNG wearing a PDF's name is `not_a_pdf`", async () => {
   const result = await extractPdf(new Uint8Array(png));
 
   assert.equal(result.kind, "invalid");
-
-  if (result.kind !== "invalid") return;
   assert.equal(result.cause, "not_a_pdf");
   assert.equal(result.reason, "Not a PDF: file appears to be a PNG image");
 });
@@ -241,8 +227,6 @@ test("a JPEG wearing a PDF's name is `not_a_pdf`", async () => {
   const result = await extractPdf(new Uint8Array(jpeg));
 
   assert.equal(result.kind, "invalid");
-
-  if (result.kind !== "invalid") return;
   assert.equal(result.cause, "not_a_pdf");
   assert.equal(result.reason, "Not a PDF: file appears to be a JPEG image");
 });
@@ -254,8 +238,6 @@ test("an Office document wearing a PDF's name is `not_a_pdf`", async () => {
   const result = await extractPdf(new Uint8Array(zip));
 
   assert.equal(result.kind, "invalid");
-
-  if (result.kind !== "invalid") return;
   assert.equal(result.cause, "not_a_pdf");
   assert.equal(
     result.reason,
@@ -270,8 +252,6 @@ test("HTML wearing a PDF's name is `not_a_pdf` — no arm authorizes reading it"
   const result = await extractPdf(new Uint8Array(html));
 
   assert.equal(result.kind, "invalid");
-
-  if (result.kind !== "invalid") return;
   assert.equal(result.cause, "not_a_pdf");
   assert.equal(result.reason, "Not a PDF: file appears to be HTML");
 });
@@ -282,8 +262,6 @@ test("JSON wearing a PDF's name is `not_a_pdf`", async () => {
   const result = await extractPdf(new Uint8Array(json));
 
   assert.equal(result.kind, "invalid");
-
-  if (result.kind !== "invalid") return;
   assert.equal(result.cause, "not_a_pdf");
   assert.equal(result.reason, "Not a PDF: file appears to be JSON");
 });
@@ -292,8 +270,6 @@ test("a truncated PDF is `invalid` too — a second vendor message, one kind", a
   const result = await extractPdf(await fixture("truncated.pdf"));
 
   assert.equal(result.kind, "invalid");
-
-  if (result.kind !== "invalid") return;
   // `cause` tells "never a PDF" from "a PDF somebody broke".
   assert.equal(result.cause, "damaged");
   assert.equal(result.reason, "Invalid PDF structure");
@@ -309,8 +285,6 @@ test("bytes above the cap use the shared limit result", async () => {
   })(bytes);
 
   assert.equal(result.kind, "limit_exceeded");
-
-  if (result.kind !== "limit_exceeded") return;
   assert.equal(result.limit, "input_bytes");
   assert.equal(result.actual, bytes.byteLength);
   assert.equal(result.maximum, 10);
@@ -324,8 +298,6 @@ test("page markdown above the character cap returns no partial content", async (
   })(await fixture("born-digital-two-page.pdf"));
 
   assert.equal(result.kind, "limit_exceeded");
-
-  if (result.kind !== "limit_exceeded") return;
   assert.equal(result.limit, "output_characters");
   assert.ok(result.actual > 10);
   assert.equal(result.maximum, 10);
@@ -355,8 +327,6 @@ test("a page-only character breach skips the synchronous document read", async (
   );
 
   assert.equal(result.kind, "limit_exceeded");
-
-  if (result.kind !== "limit_exceeded") return;
   assert.equal(result.limit, "output_characters");
   assert.equal(result.actual, 12);
   assert.equal(documentReadCalled, false);
@@ -366,8 +336,6 @@ test("the character cap counts overlapping page and document readings", async ()
   const bytes = await fixture("born-digital-two-page.pdf");
   const unbounded = await extractPdf(bytes);
   assert.equal(unbounded.kind, "extracted");
-
-  if (unbounded.kind !== "extracted") return;
   const pageCharacters = unbounded.pages.reduce((total, page) => total + page.markdown.length, 0);
 
   const result = await createPdfExtractor({
@@ -377,8 +345,6 @@ test("the character cap counts overlapping page and document readings", async ()
   })(bytes);
 
   assert.equal(result.kind, "limit_exceeded");
-
-  if (result.kind !== "limit_exceeded") return;
   assert.equal(result.limit, "output_characters");
   assert.equal(result.actual, pageCharacters + unbounded.text.length);
   assert.equal(result.maximum, pageCharacters);
@@ -393,8 +359,6 @@ test("an `ImageBased` scan with a readable cover page is `extracted`, cover text
 
   // The vendor says image-based, but one page has text.
   assert.equal(result.kind, "extracted");
-
-  if (result.kind !== "extracted") return;
   assert.equal(result.pdfType, "image_based");
   assert.match(result.pages[0]?.markdown ?? "", /COVER PAGE MARKER delta/);
 
@@ -411,8 +375,6 @@ test("a cover page in front of a searchable scan keeps the scan's text", async (
   const result = await extractPdf(await fixture("mixed-searchable-scan.pdf"));
 
   assert.equal(result.kind, "extracted");
-
-  if (result.kind !== "extracted") return;
   assert.equal(result.pageCount, 3);
 
   assert.match(result.pages[0]?.markdown ?? "", /PAGE ONE MARKER alpha/);
@@ -431,8 +393,6 @@ test("a document whose every page reads still carries the document text", async 
   const result = await extractPdf(await fixture("born-digital-two-page.pdf"));
 
   assert.equal(result.kind, "extracted");
-
-  if (result.kind !== "extracted") return;
   assert.match(result.text, /PAGE ONE MARKER alpha/);
   assert.match(result.text, /PAGE TWO MARKER bravo/);
 });
@@ -444,8 +404,6 @@ test("a searchable scan whose pages carry a footer still delivers its whole text
   const result = await extractPdf(await fixture("stamped-searchable-scan.pdf"));
 
   assert.equal(result.kind, "extracted");
-
-  if (result.kind !== "extracted") return;
   assert.deepEqual(result.pagesNeedingOcr, []);
   assert.deepEqual(
     result.pages.map((page) => page.markdown.trim()),
@@ -462,8 +420,6 @@ test("a blank separator page does not cost a complete document its page numbers"
   const result = await extractPdf(await fixture("blank-separator-page.pdf"));
 
   assert.equal(result.kind, "extracted");
-
-  if (result.kind !== "extracted") return;
   assert.deepEqual(
     result.pages.map((page) => page.pageNumber),
     [1, 2, 3],
@@ -479,8 +435,6 @@ test("a PDF whose pages are all empty but whose text reads is `text_without_page
   const result = await extractPdf(await fixture("invisible-text-two-page.pdf"));
 
   assert.equal(result.kind, "text_without_pages");
-
-  if (result.kind !== "text_without_pages") return;
   assert.equal(result.pdfType, "text_based");
   assert.equal(result.pageCount, 2);
   assert.match(result.text, /Alfred reads a PDF deterministically/);
@@ -495,8 +449,6 @@ test("a scanned page with an invisible OCR layer keeps its text", async () => {
   const result = await extractPdf(await fixture("scanned-with-text-layer.pdf"));
 
   assert.equal(result.kind, "text_without_pages");
-
-  if (result.kind !== "text_without_pages") return;
   assert.equal(result.pageCount, 1);
   assert.match(result.text, /Alfred reads a PDF deterministically/);
 });
@@ -506,8 +458,6 @@ test("a failure of the third surface does not overturn a parse that succeeded", 
   const result = await extractPdf(await fixture("damaged-text-surface.pdf"));
 
   assert.equal(result.kind, "needs_ocr");
-
-  if (result.kind !== "needs_ocr") return;
   assert.equal(result.pageCount, 1);
 });
 
@@ -523,8 +473,6 @@ test("a PDF whose newlines were rewritten LF to CRLF is `invalid`, not a throw",
   const result = await extractPdf(new Uint8Array(damaged));
 
   assert.equal(result.kind, "invalid");
-
-  if (result.kind !== "invalid") return;
   // Unknown messages read as `damaged`, the safe side for real PDF bytes.
   assert.equal(result.cause, "damaged");
   assert.match(result.reason, /invalid file trailer/);

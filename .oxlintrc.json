@@ -633,23 +633,7 @@
       // one test surface and removes its globs here. Shrink this list; do not add non-test
       // paths to it. The paths are explicit, one per package, so a new test folder starts
       // with the rule on.
-      "files": [
-        "apps/server/evals/**",
-        "apps/web/test/**",
-        "packages/ai/test/**",
-        "packages/artifacts-design/test/**",
-        "packages/assistant/evals/**",
-        "packages/assistant/test/**",
-        "packages/auth/test/**",
-        "packages/contracts/test/**",
-        "packages/corpus/test/**",
-        "packages/db/test/**",
-        "packages/extraction/test/**",
-        "packages/http/test/**",
-        "packages/integrations/test/**",
-        "packages/logging/test/**",
-        "packages/sync/test/**"
-      ],
+      "files": ["packages/assistant/evals/**", "packages/assistant/test/**"],
       "rules": {
         "typescript/no-unnecessary-condition": "off"
       }

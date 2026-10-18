@@ -92,8 +92,8 @@ describe("github client auth", () => {
     assert.deepEqual(Object.keys(passthrough).sort(), ["execute", "slug"]);
     await passthrough.execute({ method: "GET", path: "/repos/o/r", query: {} });
     assert.equal(calls[0]?.headers.Authorization, "Bearer ghs_secret_token");
-    assert.equal(calls[0]?.headers["X-GitHub-Api-Version"], "2022-11-28");
-    assert.equal(calls[0]?.headers["User-Agent"], "alfred-app");
+    assert.equal(calls[0].headers["X-GitHub-Api-Version"], "2022-11-28");
+    assert.equal(calls[0].headers["User-Agent"], "alfred-app");
   });
 
   test("resolves per request — no client memoizes a credential", async () => {

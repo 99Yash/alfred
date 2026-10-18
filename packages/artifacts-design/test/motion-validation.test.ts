@@ -81,7 +81,7 @@ test("validatePdfArtifactHtml rejects authored motion alongside the doc contract
   const result = validatePdfArtifactHtml(html);
   assert.equal(result.ok, false);
 
-  if (!result.ok) assert.match(result.reason, /authored-keyframes/);
+  assert.match(result.reason, /authored-keyframes/);
 });
 
 test("a clean art-doc page passes the pdf contract", () => {
@@ -106,11 +106,9 @@ test("the motion rejection hint names exactly the shell motion classes (no phant
   const result = validateSlideArtifactHtml(`<div style="animation: x 1s">a</div>`);
   assert.equal(result.ok, false);
 
-  if (!result.ok) {
-    for (const name of MOTION_CLASS_NAMES) {
-      assert.ok(result.reason.includes(name), `hint should name ${name}`);
-    }
-
-    assert.ok(!result.reason.includes("art-draw"), "hint must not advertise the removed art-draw");
+  for (const name of MOTION_CLASS_NAMES) {
+    assert.ok(result.reason.includes(name), `hint should name ${name}`);
   }
+
+  assert.ok(!result.reason.includes("art-draw"), "hint must not advertise the removed art-draw");
 });

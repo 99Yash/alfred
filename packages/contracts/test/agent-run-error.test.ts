@@ -33,5 +33,5 @@ test("a boundAgentRunError result round-trips agentRunSchema without a safeParse
   const error = boundAgentRunError("y".repeat(AGENT_RUN_ERROR_MAX + 1000));
   const parsed = agentRunSchema.safeParse({ runId: "run-1", phase: "cancelled", error });
   assert.ok(parsed.success, "the bounded error passes the frame's max() bound");
-  assert.equal(parsed.data?.error, error);
+  assert.equal(parsed.data.error, error);
 });

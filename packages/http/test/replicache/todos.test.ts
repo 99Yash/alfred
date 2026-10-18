@@ -193,7 +193,7 @@ describe("server mutators", () => {
     await serverMutators.todoClear.run(tx, { id: "todo_1" }, "user_1");
     const { setValue, whereCalled } = calls();
     assert.equal(setValue?.status, "cleared");
-    assert.ok(setValue?.rowVersion);
+    assert.ok(setValue.rowVersion);
     assert.equal(whereCalled, true);
   });
 
@@ -202,8 +202,8 @@ describe("server mutators", () => {
     await serverMutators.todoCompleteSuggestion.run(tx, { id: "todo_1" }, "user_1");
     const { setValue, whereCalled } = calls();
     assert.equal(setValue?.status, "done");
-    assert.ok(setValue?.completedAt instanceof Date);
-    assert.ok(setValue?.rowVersion);
+    assert.ok(setValue.completedAt instanceof Date);
+    assert.ok(setValue.rowVersion);
     assert.equal(whereCalled, true);
   });
 
