@@ -155,7 +155,7 @@
     "typescript/no-unsafe-member-access": "error",
     "typescript/no-unsafe-assignment": "error",
     "typescript/await-thenable": "error",
-    "typescript/no-array-delete": "off",
+    "typescript/no-array-delete": "error",
     "typescript/no-base-to-string": "off",
     "typescript/no-duplicate-type-constituents": "off",
     "typescript/no-for-in-array": "off",
