@@ -124,7 +124,9 @@ const exposedModuleConst = String.raw`(?:export\s+const\s+\1\b|const\s+\1\s*(?::
  *   so an arrow return type can hold a `=>` without ending at it.
  */
 const wrapperGenerics = String.raw`(?:<[^(){};]*>)?`;
+
 const wrapperObjectType = String.raw`\{\s*(?:readonly\s+)?\w+\??\s*:[^{}()=]*\}`;
+
 const wrapperParenType = String.raw`\((?:[^()]|\([^()]*\))*\)`;
 
 /**
@@ -134,6 +136,7 @@ const wrapperParenType = String.raw`\((?:[^()]|\([^()]*\))*\)`;
  * mutable object, so a getter over one of its properties can be a live read.
  */
 const wrapperNamespace = String.raw`\bimport\b\s*(?:type\b\s*)?(?:\w+\s*,\s*)?\*\s*as\s+\1\b\s*from\s*["'][^"']+["']`;
+
 const wrapperNamespaceInFile = String.raw`(?:(?<=${wrapperNamespace}[\s\S]*)|(?=[\s\S]*${wrapperNamespace}))`;
 
 /**
