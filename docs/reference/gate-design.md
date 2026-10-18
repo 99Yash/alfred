@@ -93,7 +93,7 @@ Each row is a rule from [code-style.md](./code-style.md) tagged `review` or `par
 
 | Rule (code-style section) | Mechanism | Feasibility |
 | --- | --- | --- |
-| No explicit `any` (§2) | Lint: `typescript/no-explicit-any`. About 12 sites, all a `ZodType` of `any` in `packages/assistant/src/tool-runtime/` | Medium |
+| No explicit `any` (§2) | Lint: `typescript/no-explicit-any`. About 12 sites, all a `ZodType` of `any` in `packages/assistant/src/tool-runtime/`. Since #1391 the `no-unsafe-*` rules already fail an `any` that flows anywhere, so this row covers only the declaration | Medium |
 | Minimize `!` (§2) | Lint: `typescript/no-non-null-assertion`. A rough grep finds about 14 sites in `src` | Medium |
 | Check whether an assertion is needed (§2) | Type-aware: `typescript/no-unnecessary-type-assertion` | Medium |
 | Type guards over casts, for the single cast no row reads (§2) | Type-aware: `typescript/no-unsafe-type-assertion`. Expect a large first count | Low |
