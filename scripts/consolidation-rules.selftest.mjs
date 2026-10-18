@@ -1938,9 +1938,57 @@ const LINE_CASES = [
     code: "  const label = `${humanizeSlug(row.integrationSlug)} account`;",
   },
   {
+    // The credential-provider fallback label #1367 replaced (readiness.ts).
+    name: "humanize-integration-slug — a credential provider title-cased",
+    caught: true,
+    rule: "humanize-integration-slug",
+    code: "      accountLabel: row?.accountLabel ?? `${humanizeSlug(provider)} account`,",
+  },
+  {
+    // The event-source messages #1367 replaced (readiness.ts).
+    name: "humanize-integration-slug — an event-trigger source as a property",
+    caught: true,
+    rule: "humanize-integration-slug",
+    code: "      message: `Choose the connected account for the ${humanizeSlug(trigger.source)} trigger.`,",
+  },
+  {
+    name: "humanize-integration-slug — a bare event source",
+    caught: true,
+    rule: "humanize-integration-slug",
+    code: '    message: `${humanizeSlug(source)} event delivery is ${notReady ? "not ready" : "degraded"}.`,',
+  },
+  {
+    // The MCP identity-provider option label (mcp-health-mapping.tsx).
+    name: "humanize-integration-slug — a camel-suffixed provider",
+    caught: true,
+    rule: "humanize-integration-slug",
+    code: `  const label = humanizeSlug(row.identityProvider);`,
+  },
+  {
+    name: "humanize-integration-slug — a provider record's slug field",
+    caught: true,
+    rule: "humanize-integration-slug",
+    code: `  const name = humanizeSlug(provider.slug);`,
+  },
+  {
     name: "humanize-integration-slug — an action slug is what humanizeSlug is for",
     caught: false,
     code: `    title: overrides.title ?? humanizeSlug(input.action),`,
+  },
+  {
+    name: "humanize-integration-slug — an action read off an integration-shaped object",
+    caught: false,
+    code: `  const verb = humanizeSlug(integration.action);`,
+  },
+  {
+    name: "humanize-integration-slug — a source's kind is a kind slug",
+    caught: false,
+    code: `  const label = humanizeSlug(source.kind);`,
+  },
+  {
+    name: "humanize-integration-slug — state, key and resource are not integration names",
+    caught: false,
+    code: `  const parts = [humanizeSlug(state), humanizeSlug(key), humanizeSlug(resource)];`,
   },
   {
     name: "humanize-integration-slug — the display-name reader is the intended form",

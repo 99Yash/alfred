@@ -1,4 +1,4 @@
-import { humanizeSlug, type ToolRiskTier } from "@alfred/contracts";
+import { INTEGRATION_DISPLAY_NAMES, type ToolRiskTier } from "@alfred/contracts";
 import type { SyncedActionStaging } from "@alfred/sync";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { ClipboardCheck, Loader2, X } from "lucide-react";
@@ -71,7 +71,7 @@ export function ApprovalsPage() {
       buildFacets(
         rows,
         (r) => r.integration,
-        (v) => humanizeSlug(v),
+        (v) => INTEGRATION_DISPLAY_NAMES[v],
       ),
     [rows],
   );
