@@ -137,25 +137,79 @@ const exposedModuleConst = String.raw`(?:export\s+const\s+\1\b|const\s+\1\s*(?::
  * Bounded pieces of a `no-function-wrapper-shim` head. Each one stops inside
  * the wrapper it starts at, so a head cannot run on into the next function:
  * - `wrapperGenerics`: `<T>`, `<T extends A<B>>`, with no parens, braces or `;`.
- * - `wrapperObjectType`: an inline object type two levels deep
- *   (`{ a: T; b: { c?: U } }`). Its first member is `name:` or a method
+ * - `wrapperParens(depth)`: a balanced paren group `depth` levels deep. A JS
+ *   regex has no recursion, so each level is one more copy of the group. Each
+ *   copy starts at `(` and the text between copies holds no paren, so the
+ *   pieces cannot overlap and the match does not backtrack between them.
+ * - `wrapperObjectType`: an inline object type three levels deep
+ *   (`{ a: T; b: { c: { d?: U } } }`). Its first member is `name:` or a method
  *   (`name(…):`), so a function body (which does not start with a label) is
- *   not read as a type. It holds no `=` except in `=>`, and a paren group only
- *   before `=>` or `:` (a function-typed member or a method signature). So a
- *   statement such as `for (…) {` or `call();` is not read as a type.
- * - `wrapperParenType`: a parenthesized type two levels deep (`(() => void)`),
- *   so an arrow return type can hold a `=>` without ending at it. It is also
- *   the parameter list, so a parameter can hold a function type
- *   (`cb: () => void`). It closes at the matching paren, so it cannot leave
- *   the wrapper.
+ *   not read as a type. It holds no `=` except in `=>`, and a paren group (two
+ *   levels deep) only before `=>` or `:` (a function-typed member or a method
+ *   signature). So a statement such as `for (…) {` or `call();` is not read as
+ *   a type.
+ * - `wrapperParenType`: a parenthesized type three levels deep
+ *   (`((cb: (n: number) => void) => void)`), so an arrow return type can hold
+ *   a `=>` without ending at it. It is also the parameter list, so a parameter
+ *   can hold a function type (`cb: () => void`). It closes at the matching
+ *   paren, so it cannot leave the wrapper.
  */
 const wrapperGenerics = String.raw`(?:<[^(){};]*>)?`;
 
-const wrapperObjectMember = String.raw`(?:[^{}()=]|=>|\([^()]*\)(?=\s*(?:=>|:)))`;
+/**
+ * @param {number} depth
+ * @returns {string}
+ */
+const wrapperParens = (depth) =>
+  depth <= 1 ? String.raw`\([^()]*\)` : String.raw`\((?:[^()]|${wrapperParens(depth - 1)})*\)`;
 
-const wrapperObjectType = String.raw`\{\s*(?:readonly\s+)?\w+\??\s*(?:\([^()]*\)\s*)?:(?:${wrapperObjectMember}|\{${wrapperObjectMember}*\})*\}`;
+const wrapperObjectMember = String.raw`(?:[^{}()=]|=>|${wrapperParens(2)}(?=\s*(?:=>|:)))`;
 
-const wrapperParenType = String.raw`\((?:[^()]|\([^()]*\))*\)`;
+/**
+ * A brace group of object members `depth` levels deep (see `wrapperParens`).
+ * @param {number} depth
+ * @returns {string}
+ */
+const wrapperObjectBraces = (depth) =>
+  depth <= 1
+    ? String.raw`\{${wrapperObjectMember}*\}`
+    : String.raw`\{(?:${wrapperObjectMember}|${wrapperObjectBraces(depth - 1)})*\}`;
+
+const wrapperObjectType = String.raw`\{\s*(?:readonly\s+)?\w+\??\s*(?:${wrapperParens(2)}\s*)?:(?:${wrapperObjectMember}|${wrapperObjectBraces(2)})*\}`;
+
+const wrapperParenType = wrapperParens(3);
+
+/**
+ * The name in group 1 in a binding position of a parameter list: after the
+ * open paren, a `,`, a `{` or `[` (destructuring) or a `...` (rest), and before
+ * `?`, `:`, `=`, `,`, `)`, `}` or `]`. So a name in a type annotation
+ * (`x: typeof MAX`) or a default value (`x = MAX`) is not a parameter. A
+ * destructured key (`{ a: b }`) also counts as a binding. That error can only
+ * skip a wrapper.
+ */
+const wrapperParamBinding = String.raw`(?<=(?:[(,{[]|\.\.\.)\s*)\1(?=\s*[?:=,)}\]])`;
+
+/**
+ * A mention of the name in group 1 that is not a `const` declaration of it, not
+ * a `typeof` type query and not a property name (`x.NAME`). A comment or a
+ * string that holds the name also counts. That error can only skip a wrapper.
+ */
+const wrapperConstMention = String.raw`(?<![\w$.]|\bconst\s+|\btypeof\s+)\1(?![\w$])`;
+
+/**
+ * True when an unexported module-level (column 0) `const` binds the name in
+ * group 1, above or below the wrapper, and the file mentions the name nowhere
+ * else (see `wrapperConstMention`). The wrapper's own returned name is the one
+ * mention it permits. The initializer can be anything: a literal, `as const`
+ * or a call. The binding cannot change, so the getter always returns the same
+ * reference that an export of the `const` would give. A module that writes to
+ * the value (`_hooks.push(fn)`, `state.count += 1`) mentions it, so a getter
+ * whose return type narrows a container that the module fills stays a live
+ * read.
+ */
+const wrapperOnlyModuleConst =
+  String.raw`(?:(?<=(?:^|\n)const\s+\1\s*[:=][\s\S]*)|(?=[\s\S]*\nconst\s+\1\s*[:=]))` +
+  String.raw`(?<!${wrapperConstMention}[\s\S]*\1\s*;?\s*\}?)(?![\s\S]*${wrapperConstMention})`;
 
 /**
  * True when a namespace import anywhere in the file (above or below) binds the
@@ -1089,10 +1143,15 @@ export const RULES = [
     //     reads a property of the export `X`, which can be a mutable object,
     //     the same live read as `return X.y` over a named import; or
     //   - a module-level (column 0) `const` binds it, before or after the
-    //     function, and that `const` is exported or holds a primitive literal.
-    //     An unexported container (`const _hooks: Hook[] = []` behind
-    //     `getOnUserCreatedHooks(): readonly Hook[]`) is left alone: the return
-    //     type can narrow it, and nothing else exposes it; or
+    //     function, and that `const` is exported or holds a primitive literal;
+    //     or
+    //   - an unexported module-level `const` binds it, with any initializer
+    //     (`{ … }`, `[…] as const`, `createCache()`), and the file mentions
+    //     the name nowhere else except in `typeof` (see
+    //     `wrapperOnlyModuleConst`). A container that the module fills
+    //     (`_hooks.push(fn)` beside `getOnUserCreatedHooks(): readonly Hook[]`)
+    //     mentions it, so it is left alone: the return type narrows a value
+    //     that changes; or
     //   - the wrapper has no return type (on the function or on the variable)
     //     and a module-level `let`/`var` does not bind the name (see
     //     `wrapperModuleLet`). An unresolved name still matches in this untyped
@@ -1104,7 +1163,8 @@ export const RULES = [
       // may have a return type, also an inline object type (see
       // `wrapperObjectType`). An arrow may be generic, may have a type on the
       // variable (`f: () => T = () => X`) and may have a return type, also one
-      // with a parenthesized `=>` (`(): (() => void) => X`).
+      // with a parenthesized `=>` (`(): (() => void) => X`). Paren and brace
+      // groups are read three levels deep (see `wrapperParens`).
       String.raw`\bexport\s+(?:function\s+\w+\s*${wrapperGenerics}\s*${wrapperParenType}(?:\s*:(?:[^{};]|${wrapperObjectType})*)?\s*\{\s*return\s+` +
         String.raw`|const\s+\w+\s*(?::(?:[^=;]|=>)*?)?\s*=\s*${wrapperGenerics}\s*${wrapperParenType}(?:\s*:(?:[^=;(){]|${wrapperParenType}|${wrapperObjectType})*)?\s*=>\s*)(\w+)(?:\.\w+)?` +
         // The body ends at the name: `}` for a function, `;` for an arrow.
@@ -1119,14 +1179,18 @@ export const RULES = [
         // variable). The name must sit in it outside a nested paren group, so a
         // function-typed parameter (`cb: () => void`) still counts, and a name
         // in a return-type paren group (`ReturnType<(x: typeof MAX) => void>`)
-        // does not hide the wrapper.
-        String.raw`(?<!\bexport\s+(?:function\s+\w+\s*${wrapperGenerics}|const\s+\w+\s*(?::(?:[^=;]|=>)*?)?\s*=\s*${wrapperGenerics})\s*\((?:[^()]|\([^()]*\))*?\b\1\b(?:[^()]|\([^()]*\))*\)[^;]*?(?:\{\s*return\s+|=>\s*)\1\s*;?\s*\}?)` +
+        // does not hide the wrapper. The name must also sit in a binding
+        // position (see `wrapperParamBinding`), so a name in a parameter's type
+        // (`x: typeof MAX`) does not hide the wrapper.
+        String.raw`(?<!\bexport\s+(?:function\s+\w+\s*${wrapperGenerics}|const\s+\w+\s*(?::(?:[^=;]|=>)*?)?\s*=\s*${wrapperGenerics})\s*\((?:[^()]|${wrapperParens(2)})*?${wrapperParamBinding}(?:[^()]|${wrapperParens(2)})*\)[^;]*?(?:\{\s*return\s+|=>\s*)\1\s*;?\s*\}?)` +
         // Then one of: an import binds it, above or below the wrapper; an
-        // exposed module `const` binds it, before or after the wrapper; or
-        // the wrapper is untyped and no module `let`/`var` binds it.
+        // exposed module `const` binds it, before or after the wrapper; an
+        // unexported module `const` that the file mentions nowhere else binds
+        // it; or the wrapper is untyped and no module `let`/`var` binds it.
         String.raw`(?:${importedInFile(String.raw`[^"']+`)}` +
         String.raw`|(?<=(?:^|\n)${exposedModuleConst}[\s\S]*)` +
         String.raw`|(?=[\s\S]*\n${exposedModuleConst})` +
+        String.raw`|${wrapperOnlyModuleConst}` +
         String.raw`|(?<=\b(?:function\s+\w+\s*${wrapperGenerics}\s*${wrapperParenType}\s*\{\s*return\s+|const\s+\w+\s*=\s*${wrapperGenerics}\s*${wrapperParenType}\s*=>\s*)\1\s*;?\s*\}?)` +
         String.raw`(?<!${wrapperModuleLet}[\s\S]*)(?![\s\S]*${wrapperModuleLet})))`,
     ),
