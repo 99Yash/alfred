@@ -170,7 +170,7 @@ function ipv6ToBigInt(ip: string): bigint | null {
   const right = pieces.length === 2 && pieces[1] ? pieces[1].split(":") : [];
 
   if (left.length + right.length > 8) return null;
-  const fill = pieces.length === 2 ? Array(8 - left.length - right.length).fill("0") : [];
+  const fill = pieces.length === 2 ? Array<string>(8 - left.length - right.length).fill("0") : [];
   const hextets = [...left, ...fill, ...right];
 
   if (hextets.length !== 8) return null;

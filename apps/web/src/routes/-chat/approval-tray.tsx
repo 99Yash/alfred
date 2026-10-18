@@ -97,7 +97,7 @@ export function ChatApprovalTray({
 
   useEffect(() => {
     if (preview) return;
-    const chimes = (chimesRef.current ??= new Map());
+    const chimes = (chimesRef.current ??= new Map<string, string | number | null>());
     const fresh = approvals.filter((row) => !chimes.has(row.id));
     const live = new Set(approvals.map((row) => row.id));
 

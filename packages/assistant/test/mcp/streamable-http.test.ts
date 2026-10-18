@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { text } from "node:stream/consumers";
 import { after, before, test } from "node:test";
 import { toNodeHandler } from "@modelcontextprotocol/node";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
@@ -74,10 +75,7 @@ before(async () => {
     }
 
     if (req.url === "/legacy-mcp" && req.method === "POST") {
-      const chunks: Buffer[] = [];
-
-      for await (const chunk of req) chunks.push(Buffer.from(chunk));
-      const message = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      const message: unknown = JSON.parse(await text(req));
       assert.ok(isRecord(message));
       const id = message.id;
 

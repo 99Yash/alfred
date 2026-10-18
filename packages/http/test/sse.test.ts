@@ -7,13 +7,20 @@ import { sseResponse } from "../src/realtime/sse";
 
 // DB-free and env-free on purpose, like the two routes that use the primitive.
 
+/** A body chunk as text. undici types a reader's chunks as `any`; check they are bytes. */
+function decodeChunk(chunk: unknown, decoder = new TextDecoder()): string {
+  assert.ok(chunk === undefined || chunk instanceof Uint8Array, "a body chunk is bytes");
+
+  return decoder.decode(chunk);
+}
+
 async function readAvailable(res: Response): Promise<string> {
   const reader = res.body?.getReader();
   assert.ok(reader, "response has a body");
   const { value } = await reader.read();
   await reader.cancel();
 
-  return new TextDecoder().decode(value);
+  return decodeChunk(value);
 }
 
 /** One `enqueue` is one chunk, so each chunk is one frame and asserts can be byte-exact. */
@@ -27,7 +34,7 @@ async function readChunks(res: Response, count: number): Promise<string[]> {
     const { value, done } = await reader.read();
 
     if (done) break;
-    chunks.push(decoder.decode(value));
+    chunks.push(decodeChunk(value, decoder));
   }
 
   await reader.cancel();
@@ -163,7 +170,7 @@ describe("sseResponse", () => {
 
     const reader = res.body?.getReader();
     assert.ok(reader);
-    assert.equal(new TextDecoder().decode((await reader.read()).value), ": connected\n\n");
+    assert.equal(decodeChunk((await reader.read()).value), ": connected\n\n");
     assert.equal((await reader.read()).done, true);
     assert.equal(calls, 1);
   });

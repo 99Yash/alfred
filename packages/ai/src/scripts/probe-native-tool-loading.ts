@@ -39,6 +39,7 @@ import {
   streamText,
   tool,
   wrapLanguageModel,
+  type StopCondition,
   type ToolSet,
 } from "ai";
 import type { LanguageModel as LanguageModelV4 } from "ai-retry";
@@ -63,6 +64,9 @@ const CACHE_TTL = "5m" as const;
 const GENERATE_TIMEOUT_MS = 120_000;
 
 const MAX_STEPS = 6;
+
+/** `isStepCount` returns `StopCondition<any, any>`; typed here so `generateText` infers its context. */
+const STOP_WHEN: StopCondition<ToolSet> = isStepCount(MAX_STEPS);
 
 const MAX_OUTPUT_TOKENS = 512;
 
@@ -355,8 +359,13 @@ function stableId(raw: string, ids: Map<string, string>): string {
   return minted;
 }
 
+/** `Array.isArray` narrows the readonly array member of `JsonValue` to `any[]`; this keeps the element type. */
+function isJsonArray(value: JsonValue): value is readonly JsonValue[] {
+  return Array.isArray(value);
+}
+
 function sanitizeJson(value: JsonValue, ids: Map<string, string>): JsonValue {
-  if (Array.isArray(value)) return value.map((entry) => sanitizeJson(entry, ids));
+  if (isJsonArray(value)) return value.map((entry) => sanitizeJson(entry, ids));
 
   if (isRecord(value)) {
     const out: Record<string, JsonValue> = {};
@@ -500,7 +509,7 @@ function generateOptions(model: LanguageModelV4, tools: ToolSet) {
     providerOptions: attachProviderTurnPolicy(undefined, undefined),
     maxOutputTokens: MAX_OUTPUT_TOKENS,
     timeout: GENERATE_TIMEOUT_MS,
-    stopWhen: isStepCount(MAX_STEPS),
+    stopWhen: STOP_WHEN,
     maxRetries: MAX_RETRIES,
     include: { requestBody: true, responseBody: true },
   };
@@ -563,7 +572,7 @@ async function runNativeScenario(options: {
 // ── Evidence extraction ─────────────────────────────────────────────────────
 
 function collectByType(value: JsonValue, type: string, out: JsonValue[]): void {
-  if (Array.isArray(value)) {
+  if (isJsonArray(value)) {
     for (const entry of value) collectByType(entry, type, out);
 
     return;
@@ -577,7 +586,7 @@ function collectByType(value: JsonValue, type: string, out: JsonValue[]): void {
 }
 
 function collectToolReferences(value: JsonValue, out: Set<string>): void {
-  if (Array.isArray(value)) {
+  if (isJsonArray(value)) {
     for (const entry of value) collectToolReferences(entry, out);
 
     return;
@@ -801,7 +810,7 @@ async function runFallback(): Promise<ScenarioResult> {
 }
 
 function stripInternalEnvelope(value: JsonValue): JsonValue {
-  if (Array.isArray(value)) return value.map((entry) => stripInternalEnvelope(entry));
+  if (isJsonArray(value)) return value.map((entry) => stripInternalEnvelope(entry));
 
   if (isRecord(value)) {
     const out: Record<string, JsonValue> = {};
