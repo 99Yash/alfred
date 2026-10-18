@@ -64,10 +64,30 @@ export const REGISTRY_UNION = String.raw`(?:(?:\w*Integration|LiveProvider|Plann
 const CONSTANTS_MODULE = String.raw`[^"']*\/constants`;
 
 /**
- * The UTF-8 bytes of a `JSON.stringify(…)`, up to its open paren: through a new
- * `TextEncoder` or through an encoder bound to a name (`encoder.encode(…)`).
+ * The rest of one call argument that holds a `JSON.stringify(…)`, alone or
+ * joined with other text (`prefix + JSON.stringify(x)`, `` `v1:${JSON.stringify(x)}` ``),
+ * up to its open paren. The text before it holds no paren, comma or `;`, so it
+ * cannot leave the argument it starts in: `encode(rawText)` ends at its `)`.
  */
-const ENCODED_JSON = String.raw`(?:new\s+TextEncoder\(\s*\)|\w+)\s*\.encode\(\s*JSON\.stringify\(`;
+const JSON_ARGUMENT = String.raw`[^(),;]*?\bJSON\.stringify\(`;
+
+/**
+ * The bytes of a `JSON.stringify(…)`, up to its open paren: through a new
+ * `TextEncoder`, through an encoder bound to a name (`encoder.encode(…)`), or
+ * through `Buffer.from(…)`. The JSON may be joined with other text (see
+ * `JSON_ARGUMENT`).
+ */
+const ENCODED_JSON = String.raw`(?:(?:new\s+TextEncoder\(\s*\)|\w+)\s*\.encode|\bBuffer\s*\.from)\(${JSON_ARGUMENT}`;
+
+/**
+ * The text between a binding and a use of the name in group `group`, when no
+ * other `const`/`let`/`var` of that name sits between them. So a use relates to
+ * the nearest binding above it, and a second function that binds the same name
+ * to other bytes does not inherit the first binding.
+ * @param {number} group The capture group that holds the name.
+ */
+const nearestBindingGap = (group) =>
+  String.raw`(?:(?!\b(?:const|let|var)\s+` + `\\${group}` + String.raw`\b)[\s\S])*`;
 
 /**
  * An import that binds the name in group 1 from a module whose path matches
@@ -117,15 +137,23 @@ const exposedModuleConst = String.raw`(?:export\s+const\s+\1\b|const\s+\1\s*(?::
  * Bounded pieces of a `no-function-wrapper-shim` head. Each one stops inside
  * the wrapper it starts at, so a head cannot run on into the next function:
  * - `wrapperGenerics`: `<T>`, `<T extends A<B>>`, with no parens, braces or `;`.
- * - `wrapperObjectType`: an inline object type one level deep (`{ a: T; b?: U }`).
- *   Its first member is `name:` and it holds no parens, `=` or nested braces, so
- *   a function body (which does not start with a label) is not read as a type.
+ * - `wrapperObjectType`: an inline object type two levels deep
+ *   (`{ a: T; b: { c?: U } }`). Its first member is `name:` or a method
+ *   (`name(…):`), so a function body (which does not start with a label) is
+ *   not read as a type. It holds no `=` except in `=>`, and a paren group only
+ *   before `=>` or `:` (a function-typed member or a method signature). So a
+ *   statement such as `for (…) {` or `call();` is not read as a type.
  * - `wrapperParenType`: a parenthesized type two levels deep (`(() => void)`),
- *   so an arrow return type can hold a `=>` without ending at it.
+ *   so an arrow return type can hold a `=>` without ending at it. It is also
+ *   the parameter list, so a parameter can hold a function type
+ *   (`cb: () => void`). It closes at the matching paren, so it cannot leave
+ *   the wrapper.
  */
 const wrapperGenerics = String.raw`(?:<[^(){};]*>)?`;
 
-const wrapperObjectType = String.raw`\{\s*(?:readonly\s+)?\w+\??\s*:[^{}()=]*\}`;
+const wrapperObjectMember = String.raw`(?:[^{}()=]|=>|\([^()]*\)(?=\s*(?:=>|:)))`;
+
+const wrapperObjectType = String.raw`\{\s*(?:readonly\s+)?\w+\??\s*(?:\([^()]*\)\s*)?:(?:${wrapperObjectMember}|\{${wrapperObjectMember}*\})*\}`;
 
 const wrapperParenType = String.raw`\((?:[^()]|\([^()]*\))*\)`;
 
@@ -141,11 +169,14 @@ const wrapperNamespaceInFile = String.raw`(?:(?<=${wrapperNamespace}[\s\S]*)|(?=
 
 /**
  * A module-level `let`/`var` that binds the name in group 1, also as a later
- * declarator (`let a = 1, b = 2`). The regex does not parse declarators, so a
- * comma in an initializer also counts (`let a = f(x, b)` binds `b` here). That
- * error can only skip a getter. It cannot flag one.
+ * declarator (`let a = 1, b = 2`, `let a, b;`). A later name counts only in a
+ * declarator position: it is followed by `=`, `:`, `!`, `,`, `;`, `}`, `]` or
+ * the end of the line. So `let a = f(x, b)` does not bind `b`. The regex does
+ * not parse declarators, so a name after a comma in an initializer can still
+ * count (`let a = f(x, b, c)` binds `b`). That error can only skip a getter.
+ * It cannot flag one.
  */
-const wrapperModuleLet = String.raw`(?:^|\n)(?:export\s+)?(?:let|var)\s+(?:[^;]*?,\s*)?\1\b`;
+const wrapperModuleLet = String.raw`(?:^|\n)(?:export\s+)?(?:let|var)\s+(?:\1\b|[^;]*?,\s*\1(?=\s*[=:!,;}\]]|[ \t]*(?:\n|$)))`;
 
 /**
  * An `export { … }` (or `export type { … }` when `typeOnly`) with no `from`,
@@ -937,12 +968,19 @@ export const RULES = [
     // the digest argument is related to a `const`/`let`/`var` of that name
     // bound earlier in the file to encoded JSON. A digest over any other bytes
     // (`encode(rawBody)`, `await file.arrayBuffer()`) is left alone.
+    //
+    // Both two-statement forms relate the use to the NEAREST binding of the
+    // name above it (see `nearestBindingGap`), so a second function that binds
+    // the same name to raw bytes is not flagged. `Buffer.from(JSON.stringify(v))`
+    // counts as encoded JSON, and the JSON may be joined with other text inside
+    // the one argument (`prefix + JSON.stringify(v)`, a template literal), in
+    // `.update(` and in the encoder (see `JSON_ARGUMENT`).
     re: new RegExp(
       [
-        String.raw`createHash\([^()]*\)\s*\.update\(\s*JSON\.stringify\(`,
-        String.raw`\b(\w+)\s*\.update\(\s*JSON\.stringify\((?<=\b\1(?:\s*:\s*\w+)?\s*=\s*createHash\([^()]*\)[\s\S]*)`,
+        String.raw`createHash\([^()]*\)\s*\.update\((?:\s*${ENCODED_JSON}|${JSON_ARGUMENT})`,
+        String.raw`\b(\w+)\s*\.update\((?:\s*${ENCODED_JSON}|${JSON_ARGUMENT})(?<=\b\1(?:\s*:\s*\w+)?\s*=\s*createHash\([^()]*\)${nearestBindingGap(1)})`,
         String.raw`\bsubtle\s*\.digest\(\s*[^,()]*,\s*${ENCODED_JSON}`,
-        String.raw`\bsubtle\s*\.digest\(\s*[^,()]*,\s*(\w+)\s*\)(?<=\b(?:const|let|var)\s+\2(?:\s*:\s*\w+)?\s*=\s*${ENCODED_JSON}[\s\S]*)`,
+        String.raw`\bsubtle\s*\.digest\(\s*[^,()]*,\s*(\w+)\s*\)(?<=\b(?:const|let|var)\s+\2(?:\s*:\s*\w+)?\s*=\s*${ENCODED_JSON}${nearestBindingGap(2)})`,
       ].join("|"),
     ),
     scope: "chain",
@@ -1047,7 +1085,9 @@ export const RULES = [
     //   - an import anywhere in the file, above or below the wrapper, binds
     //     the name (see `importedInFile`), with or without a return type; or
     //   - the body is a namespace member (`return C.X`) and a namespace import
-    //     binds `C` (see `wrapperNamespaceInFile`); or
+    //     binds `C` (see `wrapperNamespaceInFile`). Only one level: `C.X.y`
+    //     reads a property of the export `X`, which can be a mutable object,
+    //     the same live read as `return X.y` over a named import; or
     //   - a module-level (column 0) `const` binds it, before or after the
     //     function, and that `const` is exported or holds a primitive literal.
     //     An unexported container (`const _hooks: Hook[] = []` behind
@@ -1059,13 +1099,14 @@ export const RULES = [
     //     form, which keeps every catch of the old regex except a live read.
     // It never flags a name that is a parameter of the wrapper.
     re: new RegExp(
-      // The wrapper, up to and including the returned name. A function may be
-      // generic and may have a return type, also an inline object type. An
-      // arrow may be generic, may have a type on the variable
-      // (`f: () => T = () => X`) and may have a return type, also one with a
-      // parenthesized `=>` (`(): (() => void) => X`).
-      String.raw`\bexport\s+(?:function\s+\w+\s*${wrapperGenerics}\s*\([^)]*\)(?:\s*:(?:[^{};]|${wrapperObjectType})*)?\s*\{\s*return\s+` +
-        String.raw`|const\s+\w+\s*(?::(?:[^=;]|=>)*?)?\s*=\s*${wrapperGenerics}\s*\([^)]*\)(?:\s*:(?:[^=;(){]|${wrapperParenType}|${wrapperObjectType})*)?\s*=>\s*)(\w+)(?:\.\w+)?` +
+      // The wrapper, up to and including the returned name. A parameter may
+      // hold a function type (`cb: () => void`). A function may be generic and
+      // may have a return type, also an inline object type (see
+      // `wrapperObjectType`). An arrow may be generic, may have a type on the
+      // variable (`f: () => T = () => X`) and may have a return type, also one
+      // with a parenthesized `=>` (`(): (() => void) => X`).
+      String.raw`\bexport\s+(?:function\s+\w+\s*${wrapperGenerics}\s*${wrapperParenType}(?:\s*:(?:[^{};]|${wrapperObjectType})*)?\s*\{\s*return\s+` +
+        String.raw`|const\s+\w+\s*(?::(?:[^=;]|=>)*?)?\s*=\s*${wrapperGenerics}\s*${wrapperParenType}(?:\s*:(?:[^=;(){]|${wrapperParenType}|${wrapperObjectType})*)?\s*=>\s*)(\w+)(?:\.\w+)?` +
         // The body ends at the name: `}` for a function, `;` for an arrow.
         String.raw`(?:(?<=return\s+[\w.]+)\s*;?\s*\}|(?<==>\s*[\w.]+)\s*;)` +
         // A namespace member (`return C.X`) flags when a namespace import of
@@ -1073,16 +1114,20 @@ export const RULES = [
         String.raw`(?:(?<=\b\1\.\w+\s*;?\s*\}?)${wrapperNamespaceInFile}` +
         String.raw`|(?<!\.\w+\s*;?\s*\}?)` +
         // Not a parameter of the wrapper (`identity(value) { return value; }`).
-        // The guard starts at the wrapper name and reads each paren group up to
-        // the body, so parens in the return type do not hide the parameters.
-        String.raw`(?<!\bexport\s+(?:function|const)\s+\w+[^;{}]*?\([^)]*\b\1\b[^)]*\)[^;]*?(?:\{\s*return\s+|=>\s*)\1\s*;?\s*\}?)` +
+        // The guard reads only the parameter list: the first paren group after
+        // the name (and the generics, and for an arrow the type on the
+        // variable). The name must sit in it outside a nested paren group, so a
+        // function-typed parameter (`cb: () => void`) still counts, and a name
+        // in a return-type paren group (`ReturnType<(x: typeof MAX) => void>`)
+        // does not hide the wrapper.
+        String.raw`(?<!\bexport\s+(?:function\s+\w+\s*${wrapperGenerics}|const\s+\w+\s*(?::(?:[^=;]|=>)*?)?\s*=\s*${wrapperGenerics})\s*\((?:[^()]|\([^()]*\))*?\b\1\b(?:[^()]|\([^()]*\))*\)[^;]*?(?:\{\s*return\s+|=>\s*)\1\s*;?\s*\}?)` +
         // Then one of: an import binds it, above or below the wrapper; an
         // exposed module `const` binds it, before or after the wrapper; or
         // the wrapper is untyped and no module `let`/`var` binds it.
         String.raw`(?:${importedInFile(String.raw`[^"']+`)}` +
         String.raw`|(?<=(?:^|\n)${exposedModuleConst}[\s\S]*)` +
         String.raw`|(?=[\s\S]*\n${exposedModuleConst})` +
-        String.raw`|(?<=\b(?:function\s+\w+\s*${wrapperGenerics}\s*\([^)]*\)\s*\{\s*return\s+|const\s+\w+\s*=\s*${wrapperGenerics}\s*\([^)]*\)\s*=>\s*)\1\s*;?\s*\}?)` +
+        String.raw`|(?<=\b(?:function\s+\w+\s*${wrapperGenerics}\s*${wrapperParenType}\s*\{\s*return\s+|const\s+\w+\s*=\s*${wrapperGenerics}\s*${wrapperParenType}\s*=>\s*)\1\s*;?\s*\}?)` +
         String.raw`(?<!${wrapperModuleLet}[\s\S]*)(?![\s\S]*${wrapperModuleLet})))`,
     ),
     scope: "chain",

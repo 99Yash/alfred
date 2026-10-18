@@ -1116,6 +1116,104 @@ switch (resultCategory) {
   const fileDigest = await crypto.subtle.digest("SHA-256", fileBytes);`,
   },
   {
+    // The bytes relate to the NEAREST binding of the name. The second function
+    // binds `bytes` again, to raw file bytes.
+    name: "sha256-over-json-stringify — a second function rebinds the encoded name to raw bytes",
+    caught: false,
+    code: `async function writeMeta(key: string, meta: Meta) {
+  const bytes = new TextEncoder().encode(JSON.stringify(meta));
+  await writeObject(key, bytes, "application/json");
+}
+
+async function fileDigest(file: File) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  return crypto.subtle.digest("SHA-256", bytes);
+}`,
+  },
+  {
+    name: "sha256-over-json-stringify — a second function rebinds the hasher name to another object",
+    caught: false,
+    code: `function rawHash(rawBody: string) {
+  const entry = createHash("sha256");
+  entry.update(rawBody);
+  return entry.digest("hex");
+}
+
+function touch(key: string, value: Doc) {
+  const entry = cache.get(key);
+  entry.update(JSON.stringify(value));
+}`,
+  },
+  {
+    name: "sha256-over-json-stringify — a Web Crypto digest over Buffer.from of JSON",
+    caught: true,
+    rule: "sha256-over-json-stringify",
+    code: `  const digest = await crypto.subtle.digest("SHA-256", Buffer.from(JSON.stringify(value)));`,
+  },
+  {
+    name: "sha256-over-json-stringify — Buffer.from of JSON bound first, then digested",
+    caught: true,
+    rule: "sha256-over-json-stringify",
+    code: `  const bytes = Buffer.from(JSON.stringify(payload), "utf8");
+  const digest = await crypto.subtle.digest("SHA-256", bytes);`,
+  },
+  {
+    name: "sha256-over-json-stringify — a hasher fed Buffer.from of JSON",
+    caught: true,
+    rule: "sha256-over-json-stringify",
+    code: `  return createHash("sha256").update(Buffer.from(JSON.stringify(value))).digest("hex");`,
+  },
+  {
+    name: "sha256-over-json-stringify — a digest over Buffer.from of raw text",
+    caught: false,
+    code: `  const bytes = Buffer.from(rawText);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  const inline = await crypto.subtle.digest("SHA-256", Buffer.from(rawText, "utf8"));
+  const hash = createHash("sha256").update(Buffer.from(rawText)).digest("hex");`,
+  },
+  {
+    // JSON joined with other text keeps the key-order pre-image.
+    name: "sha256-over-json-stringify — a prefix joined to JSON, then encoded and digested",
+    caught: true,
+    rule: "sha256-over-json-stringify",
+    code: `  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(prefix + JSON.stringify(value)),
+  );`,
+  },
+  {
+    name: "sha256-over-json-stringify — JSON in a template literal, bound first, then digested",
+    caught: true,
+    rule: "sha256-over-json-stringify",
+    code: `  const bytes = encoder.encode(\`v1:\${JSON.stringify(value)}\`);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);`,
+  },
+  {
+    name: "sha256-over-json-stringify — a hasher fed a prefix joined to JSON",
+    caught: true,
+    rule: "sha256-over-json-stringify",
+    code: `  return createHash("sha256")
+    .update(\`\${kind}:\${JSON.stringify(value)}\`)
+    .digest("hex");`,
+  },
+  {
+    name: "sha256-over-json-stringify — a bound hasher fed a prefix joined to JSON",
+    caught: true,
+    rule: "sha256-over-json-stringify",
+    code: `  const hash = createHash("sha256");
+  hash.update(kind + JSON.stringify(payload));
+  return hash.digest("hex");`,
+  },
+  {
+    // The JSON sits outside the argument that is encoded or hashed.
+    name: "sha256-over-json-stringify — JSON.stringify outside the hashed argument",
+    caught: false,
+    code: `  const digest = await crypto.subtle.digest("SHA-256", encoder.encode(rawText));
+  const hash = createHash("sha256").update(rawBody).digest("hex");
+  log(encoder.encode(rawText), JSON.stringify(meta));
+  const label = hash + JSON.stringify(meta);`,
+  },
+  {
     name: "sha256-over-json-stringify — hashing raw bytes is a different operation",
     caught: false,
     code: `  return createHash("sha256").update(rawBody).digest("hex");`,
@@ -1763,6 +1861,101 @@ export function apiUrl(): string {
     code: `let current: Mode = "idle";
 
 export const currentMode: () => Mode = () => current;`,
+  },
+  {
+    // The parameter list may hold parens (a function-typed parameter).
+    name: "no-function-wrapper-shim — a typed wrapper with a function-typed parameter",
+    caught: true,
+    rule: "no-function-wrapper-shim",
+    code: `import { MAX_MUTATIONS } from "./constants";
+
+export function maxMutations(onChange: () => void): number {
+  return MAX_MUTATIONS;
+}`,
+  },
+  {
+    name: "no-function-wrapper-shim — an untyped wrapper with a function-typed parameter",
+    caught: true,
+    rule: "no-function-wrapper-shim",
+    code: `export const maxMutations = (onChange: (next: number) => void) => MAX_MUTATIONS;`,
+  },
+  {
+    // The parameter guard still reads a parameter list that holds parens.
+    name: "no-function-wrapper-shim — a wrapper that returns its function-typed parameter",
+    caught: false,
+    code: `export function identity(cb: () => void) {
+  return cb;
+}
+
+export const passThrough = (cb: (x: number) => void): ((x: number) => void) => cb;`,
+  },
+  {
+    name: "no-function-wrapper-shim — a wrapper with a nested object return type",
+    caught: true,
+    rule: "no-function-wrapper-shim",
+    code: `import { SYNC_OPTIONS } from "./constants";
+
+export function syncOptions(): { batch: number; retry: { max: number; delayMs?: number } } {
+  return SYNC_OPTIONS;
+}`,
+  },
+  {
+    name: "no-function-wrapper-shim — a wrapper with function-typed and method members",
+    caught: true,
+    rule: "no-function-wrapper-shim",
+    code: `import { IDLE_HANDLERS } from "./idle";
+
+export function idleHandlers(): { get(): number; onIdle: (at: number) => void } {
+  return IDLE_HANDLERS;
+}`,
+  },
+  {
+    // `C.X.y` reads a property of the export `X`, which can be a mutable
+    // object: the same live read as `return X.y` over a named import.
+    name: "no-function-wrapper-shim — a typed getter over a property of a namespace member",
+    caught: false,
+    code: `import * as config from "./runtime-config";
+
+export function apiUrl(): string {
+  return config.runtimeConfig.apiUrl;
+}`,
+  },
+  {
+    // A name inside an initializer call is not a declarator of the `let`.
+    name: "no-function-wrapper-shim — an untyped wrapper over a name that a let initializer reads",
+    caught: true,
+    rule: "no-function-wrapper-shim",
+    code: `let cache = createCache(store, MAX_ENTRIES);
+
+export function maxEntries() {
+  return MAX_ENTRIES;
+}`,
+  },
+  {
+    name: "no-function-wrapper-shim — an untyped getter over a later declarator with an initializer",
+    caught: false,
+    code: `let retries = 0, lastError = null;
+let status = "idle",
+  pending;
+
+export function getLastError() {
+  return lastError;
+}
+
+export function getPending() {
+  return pending;
+}`,
+  },
+  {
+    // A name in a return-type paren group is not a parameter.
+    name: "no-function-wrapper-shim — a typed wrapper whose return type names it in a paren group",
+    caught: true,
+    rule: "no-function-wrapper-shim",
+    code: `import { MAX_MUTATIONS } from "./constants";
+
+export function maxMutations(): Parameters<(limit: typeof MAX_MUTATIONS) => void>[0] {
+  return MAX_MUTATIONS;
+}`,
   },
 ];
 
