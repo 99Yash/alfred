@@ -163,8 +163,26 @@ export function hashToolRequest(
   return `req:fnv1a64:${fnv1a64(`${toolName}${binding}:${canonicalJson(input)}`)}`;
 }
 
-/** `send_draft` to `Send Draft`. Not for integration slugs (`Github`): use {@link integrationDisplayName}. */
-export function humanizeSlug(value: string): string {
+/**
+ * The parameter type when an `IntegrationSlug` reaches {@link humanizeSlug}. No value has
+ * this type, so the call fails to compile. Read the name off the registry instead:
+ * `INTEGRATION_DISPLAY_NAMES[slug]`, or {@link integrationDisplayName} for an unchecked string.
+ */
+interface IntegrationSlugUseIntegrationDisplayName {
+  readonly "Use INTEGRATION_DISPLAY_NAMES[slug] or integrationDisplayName, not humanizeSlug": never;
+}
+
+/**
+ * `send_draft` to `Send Draft`. Not for integration slugs (`Github`): a value whose type
+ * is or includes an `IntegrationSlug` fails to compile. Use {@link integrationDisplayName}.
+ * A plain `string` compiles, so a slug typed `string` still gets through.
+ */
+export function humanizeSlug<S extends string>(
+  value: S &
+    ([Extract<S, IntegrationSlug>] extends [never]
+      ? unknown
+      : IntegrationSlugUseIntegrationDisplayName),
+): string {
   return value.replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase());
 }
 
