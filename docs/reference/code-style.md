@@ -4,6 +4,8 @@ Distilled from the [review prompt](https://gist.github.com/99Yash/0ab2043d8f6281
 
 This doc is the **surface sweep** — a bounded catalog of recurring review rules. For the open-ended directions the checklist cannot cover — looking up for a better structure and drilling down to prove an invariant end-to-end — see [structural-review.md](./structural-review.md).
 
+Each rule ends with the check that enforces it. _Gate_ names the check that fails `pnpm check`, `pnpm check-types` or CI. _Partly_ names the check for one slice, and review owns the rest. _Review_ means that no check enforces it. [gate-design.md](./gate-design.md) says which kind of check a new rule gets, and queues the review-only rules with the mechanism that would enforce each.
+
 ---
 
 ## 1. Never hand-roll a type that already exists
@@ -12,7 +14,7 @@ The single highest-frequency defect in this repo: a local shape that mirrors a s
 
 ### Drizzle rows → `$inferSelect` / `$inferInsert`
 
-A table is the source of truth for its row shape, including nullability. Don't restate it.
+A table is the source of truth for its row shape, including nullability. Don't restate it. _Review: the compiler checks a derived type once it is written, not that one was derived. This covers the bullets below except the last._
 
 ```ts
 // ✗ hand-rolled — drifts the moment a column's nullability changes
@@ -35,11 +37,11 @@ type DocArg = Pick<Document, "id" | "title" | "content" | "source" | "authoredAt
 - Everything-but-a-few → `Omit<Document, ...>`.
 - A row mapped to a wire/Replicache shape → keep `r: Document` (the named row type) as the **input** and let the output be its own declared type (this is the `rowToFact` / `rowToEntity` / `rowToBriefing` idiom — see `packages/assistant/src/knowledge/facts.ts`, `packages/assistant/src/knowledge/entity-graph.ts`, `packages/assistant/src/briefings/store.ts`).
 - Insert payloads → the table's `New*` export where one exists (`NewArtifact`, `NewBriefing`, `NewIntegrationObject`), else `typeof table.$inferInsert` — never a hand-written `{ ... }`. Add a `New<Table>` export when you first need one; don't hand-roll the insert shape.
-- A type-only use (only inside `typeof`) takes `import type` so nothing lands in the runtime bundle — required by `verbatimModuleSyntax` (see [typescript.md](./typescript.md)).
+- A type-only use (only inside `typeof`) takes `import type` so nothing lands in the runtime bundle — required by `verbatimModuleSyntax` (see [typescript.md](./typescript.md)). _Partly: `verbatimModuleSyntax` fails `tsc` on a type imported without `type`; a value imported only for `typeof` compiles, so that case is review._
 
 ### Zod schemas → `z.infer`
 
-If a value is validated by a zod schema, its type is `z.infer<typeof schema>`. Never write a parallel `interface`.
+If a value is validated by a zod schema, its type is `z.infer<typeof schema>`. Never write a parallel `interface`. _Review._
 
 ```ts
 export const setPreferenceArgsSchema = z.object({
@@ -53,7 +55,7 @@ export type SetPreferenceArgs = z.infer<typeof setPreferenceArgsSchema>; // ✓
 When a runtime boundary represents the same select/insert/update shape as a
 Drizzle table, derive its base validator from the table instead of restating
 the columns. This tree uses `drizzle-zod` with the currently pinned Drizzle
-version:
+version. _Review, for this subsection._
 
 ```ts
 export const preferenceInsertSchema = createInsertSchema(userPreferences, {
@@ -78,7 +80,7 @@ export const setPreferenceArgsSchema = preferenceInsertSchema
 
 ### Cross-package shapes → import the canonical one
 
-The same shape declared in `@alfred/contracts`, `@alfred/sync`, `@alfred/assistant`, and `apps/web` is four chances to disagree. Declare it **once** (contracts/sync are the usual home) and import it. Mind the boundary: `apps/web` cannot import `@alfred/db` (or any server package) — `pnpm check:web-boundaries` enforces this. If web needs a row shape, the canonical type belongs in `@alfred/contracts`, which both sides import.
+The same shape declared in `@alfred/contracts`, `@alfred/sync`, `@alfred/assistant`, and `apps/web` is four chances to disagree. Declare it **once** (contracts/sync are the usual home) and import it. Mind the boundary: `apps/web` cannot import `@alfred/db` (or any server package) — `pnpm check:web-boundaries` enforces this. If web needs a row shape, the canonical type belongs in `@alfred/contracts`, which both sides import. _Partly: `check:web-boundaries` (source) and `check:web-bundle-graph` (CI, the built bundle) fence web from server packages; declaring a shape once is review (`pnpm schemas:dupes` helps find copies)._
 
 ### Schemas that cross a seam: one owner, consumers derive
 
@@ -88,9 +90,9 @@ A shape two packages must agree on gets **one owning schema** (browser-safe → 
 - Producers pin themselves to the owner at compile time: return the owner's `z.infer` type from the function that builds the body (see `readIntegrationStatus` in `packages/assistant/src/connections/availability.ts`, whose return type is `IntegrationStatus` from `packages/contracts/src/integration-status.ts`), or annotate with `satisfies z.ZodType<...>`. A field renamed on the producing side then fails `tsc` instead of silently dropping from the client.
 - A narrower local projection is legitimate when it deliberately reshapes for UI — but it derives from the owner and says so in a comment.
 
-Enforcement is compile-time pins, not a lint script: a generic "did someone hand-copy this schema" checker cannot separate legitimate projections from drift. If a third unpinned copy of an owned shape appears, revisit.
+Enforcement is compile-time pins, not a lint script: a generic "did someone hand-copy this schema" checker cannot separate legitimate projections from drift. If a third unpinned copy of an owned shape appears, revisit. _Partly: the compiler holds a pin once it is written; that a producer has one is review._
 
-**Rejected:** per-package `schemas/` directories and per-module `types.ts` / `schemas.ts` grab-bags. Placement does not concentrate complexity — ownership-by-role does; moving files changes nothing a consumer can check (evidence and surveyed repos in [schema-and-const-homes](../research/schema-and-const-homes-2026-08-22.md)). Within a module, each shape lives with the file that mints or stores it — the verb owns its result, the registry owns its registered contract — never in a shared `types.ts` that groups by syntax instead of by owner (the `context-search` boundary keeps `ContextSearchResult` / reports in `search.ts` and `ContextSource` in `registry.ts`, with the shared `EvidenceCard` element in `@alfred/contracts`). See [schemas.md](./schemas.md#colocate-the-schema-with-its-type-caps-and-minting-logic).
+**Rejected:** per-package `schemas/` directories and per-module `types.ts` / `schemas.ts` grab-bags. Placement does not concentrate complexity — ownership-by-role does; moving files changes nothing a consumer can check (evidence and surveyed repos in [schema-and-const-homes](../research/schema-and-const-homes-2026-08-22.md)). Within a module, each shape lives with the file that mints or stores it — the verb owns its result, the registry owns its registered contract — never in a shared `types.ts` that groups by syntax instead of by owner (the `context-search` boundary keeps `ContextSearchResult` / reports in `search.ts` and `ContextSource` in `registry.ts`, with the shared `EvidenceCard` element in `@alfred/contracts`). See [schemas.md](./schemas.md#colocate-the-schema-with-its-type-caps-and-minting-logic). _Review._
 
 ### When a literal IS correct
 
@@ -99,7 +101,7 @@ Deriving is the default, not a law. A standalone `interface`/`type` is right whe
 - A wire/DTO reshape — the `Synced*` serializers intentionally pick, rename, and re-type columns for the client. That divergence is the point; don't collapse it back to `$inferSelect`.
 - A shape that merely happens to overlap a table today but models a different concept and should evolve independently.
 
-If you keep a literal, a one-line comment saying _why it isn't derived_ saves the next reviewer the investigation.
+If you keep a literal, a one-line comment saying _why it isn't derived_ saves the next reviewer the investigation. _Review._
 
 ### Before you derive: confirm the type is identical
 
@@ -114,7 +116,7 @@ A derive is only correct when the derived type _equals_ what you'd hand-write. T
 | `numeric()` (no `mode: "number"`) | `string` — **not** `number`    |
 | `timestamp()`                     | `Date \| null`                 |
 
-The five ways a "safe" derive silently changes the type (all real cases from the June audit):
+The five ways a "safe" derive silently changes the type (all real cases from the June audit). _Partly: `tsc` fails an assignment site that a narrowed type no longer fits; a silent widening compiles, so it is review._
 
 - **Untyped `jsonb` is `unknown`.** `documents.metadata` is `jsonb().notNull()` with no `.$type<>()` → `unknown`. So even on §1's poster-child table you can `Pick` `id/title/content/authoredAt` but **not** `metadata: Record<string, unknown>`. Any row whose `rowToX` mapper `.parse()`s a jsonb column (`rowToEntity`, `rowToProfile`, `rowToChunk`, `rowToPref`) has narrowed that field on purpose — the mapped output _is_ the contract; keep it literal.
 - **`numeric` is `string`.** `modelPrices`' money columns infer `string`; `fetchPrice` does `Number(...)`. A `number`-typed lookup is a transform, not a mirror.
@@ -122,7 +124,7 @@ The five ways a "safe" derive silently changes the type (all real cases from the
 - **Nullability narrowed behind a guard.** `selectDueRows` does `if (!row.nextRunAt) continue`, so `DueRow.nextRunAt` is `Date`, not the column's `Date | null`. Deriving re-adds `| null` and breaks the downstream non-null guarantee (same for `RecentRejection.decidedAt`).
 - **An interface-first schema is canonical — don't invert it.** When a schema is annotated against a hand-written interface — `z.object({ … }) satisfies z.ZodType<Foo>` or `const fooSchema: z.ZodType<Foo> = …` (the `briefing.ts` / `triage.ts` contribution types) — the `interface Foo` is the source and the annotation is its drift guard. `type Foo = z.infer<typeof fooSchema>` then makes `Foo` derive from a schema that references `Foo`: a circular reference (TS2456). Only `z.infer` from a _plain_ schema with no such back-reference.
 
-After a derive lands, drop now-orphaned imports — the literal often named a union (e.g. `ActionStagingStatus`) the derived form no longer references, and `noUnusedLocals` fails the build otherwise.
+After a derive lands, drop now-orphaned imports — the literal often named a union (e.g. `ActionStagingStatus`) the derived form no longer references, and `noUnusedLocals` fails the build otherwise. _Gate: `noUnusedLocals` (`pnpm check-types`); `check:knip` reports an export nothing imports._
 
 ### Suppressions
 
@@ -134,102 +136,103 @@ diagnostic to notice.
 - **Name the rule you are suppressing, in the spelling the config uses**
   (`eslint-disable-next-line` and `oxlint-disable-next-line` are both honoured). A bare
   `eslint-disable` over a block reads as "this region is unchecked" and is almost never
-  what was meant.
+  what was meant. _Review: a bare directive that suppresses something passes `pnpm lint`._
 - **Keep the reason on the directive**, after ` -- `. It is the only thing that tells the
   next reader whether the exemption is still true, and `--reason` is preserved verbatim
-  when a sibling rule name is removed from a multi-rule directive.
+  when a sibling rule name is removed from a multi-rule directive. _Review._
 - **Do not keep a suppression "in case the rule comes back."** That is how 53 accumulated
   on this tree, 40 of them naming a rule that is `"off"` for every test scope and so
   could not have suppressed anything. Deleting the directive is the fix.
 - `pnpm lint` runs `oxlint --report-unused-disable-directives-severity=error`, so a
   directive that suppresses nothing **fails the build**. If one appears, delete it rather
-  than re-narrowing the rule.
+  than re-narrowing the rule. _Gate: `--report-unused-disable-directives-severity=error` in
+  `pnpm lint`, for this bullet and the one above._
 - Three rules are `"off"` across test/eval/ops-scripts scopes on purpose
   (`no-unsafe-dictionary-type`, `no-unknown-returns`, `no-runtime-typeof`): a fixture
   that casts a hand-built row has no unseen invariant to narrate, so a `SAFETY:` comment
   there would only extract a repeated sentence. **A `SAFETY:` note is still worth
   writing in a test** — as an ordinary comment, not as a directive. That is the one
-  shape the unused-directive check cannot enforce, so it is review judgment.
+  shape the unused-directive check cannot enforce, so it is review judgment. _Review._
 
 ---
 
 ## 2. TypeScript discipline
 
-- **No `any`.** Reach for `unknown` + a narrowing guard. Use the shared guards in `@alfred/contracts` (`isRecord`, `getPath`, `toRecord`, `isNonEmptyString`) instead of `as Record<string, unknown>` casts.
-- **No `Record<string, any>`.** It defeats every `unknown` guard the contracts package exists to provide; oxlint's `typescript/no-restricted-types` bans it.
-- **Make loose records intentional.** `Record<string, unknown>` is correct for a real open dictionary, but it is not a substitute for a boundary parse or a known object shape. Use a parsed schema (`z.infer`) for untrusted structured data, a `Record` keyed by a literal-union type with `satisfies` for known keys, `Map<K, V>` for an in-memory dynamic dictionary, and the canonical `JsonValue`/`JsonObject` from `@alfred/contracts` for JSON protocol bags. See [narrow record types](../research/narrow-record-types-2026-08-09.md).
-- **Type guards over casts.** `as` asserts; it doesn't check. A guard that the compiler verifies beats a cast that lies.
-- **Check whether an assertion is needed before you add `SAFETY:`.** Remove the assertion and run `pnpm check-types`. Check the type from the guard, caller, schema, or library that owns the value. If that type already permits the operation and preserves the required inference, remove both the assertion and its comment. If a type was lost in the call chain, retain the owner's type at that point. Keep a safety comment only for an assertion that remains necessary, and identify the evidence that TypeScript cannot express. A comment does not validate external or persisted data.
-- **Name symbols for their domain role, not their structure (#1149).** `shape` describes that a value _has_ structure, never _which_ one — `credential.shape` wants a domain role, a payload's `shape` wants the payload's role. The one exception is a genuine domain concept: `DayShape` / `gatherDayShape` is the product's name for how a day looks (behind the `get_day_shape` tool), not vagueness, and stays. There is deliberately no lint rule for this; a substring ban cannot tell the two apart, so it is review judgment.
-- **Boundary guards stay at the boundary.** `isRecord`/`toRecord`/`getPath`/`getStringPath` are for `unknown` at a true parse boundary — webhook body, `JSON.parse` output, untyped `jsonb` with no `.$type<>()`, provider trace. Applying them to a value whose type a schema (`z.infer`), Drizzle row (`Document`), or SDK instance already established widens it back to `Record<string, unknown>` and re-opens what the parse proved. That widening is what `anti-slop/no-unsafe-dictionary-type`, `no-known-value-widening`, and `no-widen-then-assert` are ratcheted to prevent (see `scripts/oxlint/anti-slop/` and `code-asserts.md`). If the field is typed, index it directly; for class/SDK instances (`LanguageModel`, `DatabaseError`) use `isIndexable` + `Reflect.get`, not `isRecord`, per `packages/contracts/AGENTS.md` and `packages/ai/AGENTS.md`.
-- **Exhaustive switches** end with a `default` that assigns to `const _exhaustive: never = x` — adding a union member then fails the build instead of silently falling through.
-- **Minimize `!`.** A non-null assertion is a runtime promise the compiler can't keep. Narrow instead.
-- **`process.env` is banned** — go through `serverEnv()` from `@alfred/env/server`.
-- **`exactOptionalPropertyTypes` is ON (#552), so the declaration says whether a field tolerates `undefined`.** `k?: T` means _absent or a `T`_ — never present-and-undefined. `k?: T | undefined` means the field also accepts an explicit `undefined`. Pick deliberately when you declare an optional field:
+- **No `any`.** Reach for `unknown` + a narrowing guard. Use the shared guards in `@alfred/contracts` (`isRecord`, `getPath`, `toRecord`, `isNonEmptyString`) instead of `as Record<string, unknown>` casts. _Partly: `strict` fails an implicit `any`, `anti-slop/no-unsafe-dictionary-type` an `any`-valued dictionary, and the `as-loose-record` row the cast; an explicit `any` elsewhere is review._
+- **No `Record<string, any>`.** It defeats every `unknown` guard the contracts package exists to provide; oxlint's `typescript/no-restricted-types` bans it. _Gate: `typescript/no-restricted-types`._
+- **Make loose records intentional.** `Record<string, unknown>` is correct for a real open dictionary, but it is not a substitute for a boundary parse or a known object shape. Use a parsed schema (`z.infer`) for untrusted structured data, a `Record` keyed by a literal-union type with `satisfies` for known keys, `Map<K, V>` for an in-memory dynamic dictionary, and the canonical `JsonValue`/`JsonObject` from `@alfred/contracts` for JSON protocol bags. See [narrow record types](../research/narrow-record-types-2026-08-09.md). _Partly: `anti-slop/no-unsafe-dictionary-type` rejects a dictionary whose value type is `unknown`, `any`, `object` or `{}`; choosing between a schema, a keyed `Record` and a `Map` is review._
+- **Type guards over casts.** `as` asserts; it doesn't check. A guard that the compiler verifies beats a cast that lies. _Partly: `anti-slop/no-widen-then-assert`, `anti-slop/no-chained-type-assertions`, and the `as-string-array`, `as-loose-record` and `as-tool-name` rows; a single cast to any other type is review._
+- **Check whether an assertion is needed before you add `SAFETY:`.** Remove the assertion and run `pnpm check-types`. Check the type from the guard, caller, schema, or library that owns the value. If that type already permits the operation and preserves the required inference, remove both the assertion and its comment. If a type was lost in the call chain, retain the owner's type at that point. Keep a safety comment only for an assertion that remains necessary, and identify the evidence that TypeScript cannot express. A comment does not validate external or persisted data. _Review._
+- **Name symbols for their domain role, not their structure (#1149).** `shape` describes that a value _has_ structure, never _which_ one — `credential.shape` wants a domain role, a payload's `shape` wants the payload's role. The one exception is a genuine domain concept: `DayShape` / `gatherDayShape` is the product's name for how a day looks (behind the `get_day_shape` tool), not vagueness, and stays. There is deliberately no lint rule for this; a substring ban cannot tell the two apart, so it is review judgment. _Review._
+- **Boundary guards stay at the boundary.** `isRecord`/`toRecord`/`getPath`/`getStringPath` are for `unknown` at a true parse boundary — webhook body, `JSON.parse` output, untyped `jsonb` with no `.$type<>()`, provider trace. Applying them to a value whose type a schema (`z.infer`), Drizzle row (`Document`), or SDK instance already established widens it back to `Record<string, unknown>` and re-opens what the parse proved. That widening is what `anti-slop/no-unsafe-dictionary-type`, `no-known-value-widening`, and `no-widen-then-assert` are ratcheted to prevent (see `scripts/oxlint/anti-slop/` and `code-asserts.md`). If the field is typed, index it directly; for class/SDK instances (`LanguageModel`, `DatabaseError`) use `isIndexable` + `Reflect.get`, not `isRecord`, per `packages/contracts/AGENTS.md` and `packages/ai/AGENTS.md`. _Partly: the three `anti-slop` rules named here fire downstream of a misplaced guard; the guard call itself is review._
+- **Exhaustive switches** end with a `default` that assigns to `const _exhaustive: never = x` — adding a union member then fails the build instead of silently falling through. _Partly: `typescript/switch-exhaustiveness-check` fails a union switch with no `default` that misses a member; it accepts any `default`, so the `never` assignment is review._
+- **Minimize `!`.** A non-null assertion is a runtime promise the compiler can't keep. Narrow instead. _Review._
+- **`process.env` is banned** — go through `serverEnv()` from `@alfred/env/server`. _Gate: the `raw-process-env` row._
+- **`exactOptionalPropertyTypes` is ON (#552), so the declaration says whether a field tolerates `undefined`.** `k?: T` means _absent or a `T`_ — never present-and-undefined. `k?: T | undefined` means the field also accepts an explicit `undefined`. Pick deliberately when you declare an optional field. _Gate for the flag itself (`pnpm check-types`); the choice of declaration is review._
   - Write `k?: T | undefined` when absent and present-undefined mean the same thing to every consumer — a defaulted parameter (`args.method ?? "GET"`), a truthiness-guarded field (`if (args.decisionTrace)`), React props, a metric the provider may not report, or a shape derived from `z.optional()` (zod's `z.infer` always yields `| undefined`).
-  - Keep the narrow `k?: T` when _absence_ is load-bearing, and make the caller omit the key with a conditional spread — `{ ...(x ? { k: x } : {}) }`. The case the flag now catches: a Drizzle insert walks `Object.keys`, so a present `undefined` binds `NULL` where an absent key emits the column `DEFAULT` (`tool-runtime/mcp/broker.ts`, calling `insertInvocation`).
-  - **Never spread overrides over defaults** — `{ ...DEFAULT_POLICY, ...options.policy }` lets a present `undefined` overwrite a default with nothing. Use `withDefaults(defaults, overrides)` from `@alfred/contracts`, which skips override keys whose value is `undefined`. Declaration narrowness is not a defense here: the flag only catches this when the override type happens to be narrow, and most of them are not (they come from `z.infer`, or are declared `| undefined` for the reason above). `pnpm check` gates the pattern (`spread-over-defaults` in `scripts/consolidation-rules.mjs`).
-  - The flag checks test files too. Every package or app holding a `test/` directory runs a second `tsc -p tsconfig.test.json` pass inside `check-types` (see [TypeScript conventions](./typescript.md)), so a present-`undefined` bug in a fixture reddens `pnpm check-types`. The one gap is the shrinking `exclude` baseline in `packages/assistant`, `packages/db`, `packages/http` and `packages/integrations`.
-  - At a third-party boundary you cannot widen (the AI SDK's call options, Langfuse payloads, Radix/cmdk props, `RequestInit`, BullMQ `JobsOptions`), omit the key with the conditional spread rather than casting. Do not substitute `?? null` for a Langfuse upsert field: an absent key leaves the value alone, a `null` overwrites it.
-  - When the object literal contains _nothing but_ the conditional, drop the wrapper instead of spreading into an empty object — `f(x ? { k: x } : {})` — or oxlint's `no-useless-spread` will (correctly) object.
+  - Keep the narrow `k?: T` when _absence_ is load-bearing, and make the caller omit the key with a conditional spread — `{ ...(x ? { k: x } : {}) }`. The case the flag now catches: a Drizzle insert walks `Object.keys`, so a present `undefined` binds `NULL` where an absent key emits the column `DEFAULT` (`tool-runtime/mcp/broker.ts`, calling `insertInvocation`). _Gate: `exactOptionalPropertyTypes`, once the field is narrow._
+  - **Never spread overrides over defaults** — `{ ...DEFAULT_POLICY, ...options.policy }` lets a present `undefined` overwrite a default with nothing. Use `withDefaults(defaults, overrides)` from `@alfred/contracts`, which skips override keys whose value is `undefined`. Declaration narrowness is not a defense here: the flag only catches this when the override type happens to be narrow, and most of them are not (they come from `z.infer`, or are declared `| undefined` for the reason above). `pnpm check` gates the pattern (`spread-over-defaults` in `scripts/consolidation-rules.mjs`). _Gate: the `spread-over-defaults` row._
+  - The flag checks test files too. Every package or app holding a `test/` directory runs a second `tsc -p tsconfig.test.json` pass inside `check-types` (see [TypeScript conventions](./typescript.md)), so a present-`undefined` bug in a fixture reddens `pnpm check-types`. The one gap is the shrinking `exclude` baseline in `packages/assistant`, `packages/db`, `packages/http` and `packages/integrations`. _Gate: `pnpm check-types`; `check:test-typecheck-baseline` holds the baseline._
+  - At a third-party boundary you cannot widen (the AI SDK's call options, Langfuse payloads, Radix/cmdk props, `RequestInit`, BullMQ `JobsOptions`), omit the key with the conditional spread rather than casting. Do not substitute `?? null` for a Langfuse upsert field: an absent key leaves the value alone, a `null` overwrites it. _Gate: `exactOptionalPropertyTypes`._
+  - When the object literal contains _nothing but_ the conditional, drop the wrapper instead of spreading into an empty object — `f(x ? { k: x } : {})` — or oxlint's `no-useless-spread` will (correctly) object. _Review: `unicorn/no-useless-spread` is on at the default `warn`, which `pnpm lint` reports but does not fail on._
 
 ### Constants and configuration ownership
 
-Name non-obvious constants. Inline literals are fine for transparent arithmetic (`+ 1`, `* 1000`) and one-off formatting, but thresholds, caps, TTLs, retry counts, batch sizes, prompt budgets, and model/tool payload limits need a named constant with a short reason when the value is not self-evident.
+Name non-obvious constants. Inline literals are fine for transparent arithmetic (`+ 1`, `* 1000`) and one-off formatting, but thresholds, caps, TTLs, retry counts, batch sizes, prompt budgets, and model/tool payload limits need a named constant with a short reason when the value is not self-evident. _Review._
 
 Put the constant at the narrowest stable owner:
 
-- **`@alfred/contracts`** only for cross-boundary semantics: API/schema limits, synced/wire enums, client-visible tool caps, output truncation guarantees, and values that both server and web/model contracts must agree on. The cap lives in the same domain file as the schema that enforces it (`CONTEXT_SEARCH_MAX_LIMIT` next to `contextSearchRequestSchema`; `briefingHourSchema` next to its 0–23 constants) — never split across a `constants.ts` while the schema lives in `schemas.ts`.
-- **Owning package/module** for implementation mechanics: provider HTTP timeouts, Redis TTLs, queue batch sizes, retry windows, cache keys, local prompt budgets, and private heuristics. If several files in the same domain need it, create a small local `constants.ts` / `config.ts` in that package instead of exporting it from contracts. Within a module, prefer the file that enforces the value over even that local file: a limit only one verb reads lives next to that verb, and a status union only one function mints lives next to that function (the `context-search` boundary keeps its result/report types in `search.ts`, not `types.ts`).
-- **A dedicated constants file earns its place only when values couple** — several derived expressions depend on one knob, so the file encodes a relationship (the model is `packages/env/src/pool.ts`: `derivePoolMax()` from `AGENT_WORKER_CONCURRENCY_DEFAULT`). Proximity alone does not justify one; an uncoupled grab-bag file fails the deletion test — deleting it just moves the numbers.
-- **Environment** only for deploy-time operator knobs, secrets, endpoints, or values that should differ by environment. Do not use env vars just to avoid naming a constant.
+- **`@alfred/contracts`** only for cross-boundary semantics: API/schema limits, synced/wire enums, client-visible tool caps, output truncation guarantees, and values that both server and web/model contracts must agree on. The cap lives in the same domain file as the schema that enforces it (`CONTEXT_SEARCH_MAX_LIMIT` next to `contextSearchRequestSchema`; `briefingHourSchema` next to its 0–23 constants) — never split across a `constants.ts` while the schema lives in `schemas.ts`. _Review._
+- **Owning package/module** for implementation mechanics: provider HTTP timeouts, Redis TTLs, queue batch sizes, retry windows, cache keys, local prompt budgets, and private heuristics. If several files in the same domain need it, create a small local `constants.ts` / `config.ts` in that package instead of exporting it from contracts. Within a module, prefer the file that enforces the value over even that local file: a limit only one verb reads lives next to that verb, and a status union only one function mints lives next to that function (the `context-search` boundary keeps its result/report types in `search.ts`, not `types.ts`). _Partly: `no-constants-re-export` and `no-type-re-export-shim` reject a logic file that re-exports a constants module, a second door; where the value belongs is review._
+- **A dedicated constants file earns its place only when values couple** — several derived expressions depend on one knob, so the file encodes a relationship (the model is `packages/env/src/pool.ts`: `derivePoolMax()` from `AGENT_WORKER_CONCURRENCY_DEFAULT`). Proximity alone does not justify one; an uncoupled grab-bag file fails the deletion test — deleting it just moves the numbers. _Review._
+- **Environment** only for deploy-time operator knobs, secrets, endpoints, or values that should differ by environment. Do not use env vars just to avoid naming a constant. _Review._
 
-Before moving a value into `@alfred/contracts`, confirm the web bundle is allowed to import every dependency it pulls in. Contracts must stay runtime-light and server-agnostic.
+Before moving a value into `@alfred/contracts`, confirm the web bundle is allowed to import every dependency it pulls in. Contracts must stay runtime-light and server-agnostic. _Gate: `check:web-boundaries`, and `check:web-bundle-graph` in CI, which fails when a Node-only package reaches the web bundle._
 
 For the lint vs review split on these ownership rules, see `code-asserts.md` — which of the schema/constant/guard invariants are `anti-slop`/`oxlint` ratchets and which remain checklist-only.
 
 ## 3. Backend (api / db / integrations)
 
-- **No N+1.** Use Drizzle relational queries (`with:`) or a join; don't loop queries. Paginate every list endpoint.
-- **Transactions** wrap any multi-step write that must be atomic.
-- **Timeouts on every external/LLM call** — APIs ~30s, streaming ~60s. Pass `abortSignal`; cancel siblings on failure so a `Promise.all` loser doesn't keep burning a billable LLM call. (AI SDK specifics — option names, structured output — in [ai-sdk.md](./ai-sdk.md).)
-- **Idempotency** on anything retried by BullMQ or a webhook. Derive a stable key (the extraction sub-agent keys on `(runId, stepId, doc.id)`).
-- **Never log a full error object** — it can carry connection strings, tokens, PII. Log a message + safe fields. Mask PII.
-- **Webhook signatures** verified with a timing-safe compare, against the **raw** body (re-parsed JSON breaks HMAC).
-- **Migrations:** `db:generate` → `db:migrate`. Never `db:push` outside local exploration (see [database.md](./database.md)). New endpoints inherit auth + rate-limiting via `.guard()` / `.onError()` — don't leave a route uncovered (see [elysia.md](./elysia.md)).
+- **No N+1.** Use Drizzle relational queries (`with:`) or a join; don't loop queries. Paginate every list endpoint. _Review._
+- **Transactions** wrap any multi-step write that must be atomic. _Review._
+- **Timeouts on every external/LLM call** — APIs ~30s, streaming ~60s. Pass `abortSignal`; cancel siblings on failure so a `Promise.all` loser doesn't keep burning a billable LLM call. (AI SDK specifics — option names, structured output — in [ai-sdk.md](./ai-sdk.md).) _Review._
+- **Idempotency** on anything retried by BullMQ or a webhook. Derive a stable key (the extraction sub-agent keys on `(runId, stepId, doc.id)`). _Review._
+- **Never log a full error object** — it can carry connection strings, tokens, PII. Log a message + safe fields. Mask PII. _Review._
+- **Webhook signatures** verified with a timing-safe compare, against the **raw** body (re-parsed JSON breaks HMAC). _Review._
+- **Migrations:** `db:generate` → `db:migrate`. Never `db:push` outside local exploration (see [database.md](./database.md)). New endpoints inherit auth + rate-limiting via `.guard()` / `.onError()` — don't leave a route uncovered (see [elysia.md](./elysia.md)). _Partly: `check:constraint-snapshot` fails when a schema CHECK constraint differs from the newest migration snapshot; `db:push` and route coverage are review._
 
 ### Results, queue keys, and clocks
 
 Four rules from the 2026-10-17 verified-pull retro. Each defect compiled, passed review, and was found in production data.
 
 - **One return value means one state.** When a read can fault and can also find nothing, give the miss its own variant (`VerifiedPullRead`: a reading, `"absent"`, or `null` for a fault).
-  Why: a counter of misses that also counts faults demotes healthy rows during a provider outage. Taught by #1356.
+  Why: a counter of misses that also counts faults demotes healthy rows during a provider outage. Taught by #1356. _Review._
 - **Never use `updatedAt` or another `$onUpdate` column as a queue or scheduling key.** Put the queue position in its own column or table (`integration_object_pulls`).
-  Why: a pass that writes nothing never moves the key, so the same rows win every turn (#1351); a stamp on the row moves `updatedAt` and reorders every reader that sorts by it. Taught by #1355.
+  Why: a pass that writes nothing never moves the key, so the same rows win every turn (#1351); a stamp on the row moves `updatedAt` and reorders every reader that sorts by it. Taught by #1355. _Review._
 - **Name the clock of every timestamp, and compare only timestamps of one clock.** Creation, delivery (`deliveredAt`), provider event (`providerEventTime`), and fire time are different clocks.
-  Why: BullMQ `job.timestamp` is the creation time of a scheduler job, one interval before its fire time, so every briefing read the previous hour. Taught by #1358 (`scheduledFireTime`).
+  Why: BullMQ `job.timestamp` is the creation time of a scheduler job, one interval before its fire time, so every briefing read the previous hour. Taught by #1358 (`scheduledFireTime`). _Partly: the `bullmq-job-timestamp` row rejects `job.timestamp`; every other clock is review._
 - **A provider status map is exhaustive.** List the provider's statuses in a tuple, map them with `satisfies Record<Status, …>` or a `never`-guarded switch, and make a value outside the set an explicit fault, never a default such as `absent`.
-  Why: an unknown Vercel state was skipped like a missing deployment, so the target could read as `absent` and count toward demotion. Taught by #1364 (`VERDICT_BY_VERCEL_STATE`; the Sentry `NATIVE_STATE_BY_REST_STATUS` is the same shape).
+  Why: an unknown Vercel state was skipped like a missing deployment, so the target could read as `absent` and count toward demotion. Taught by #1364 (`VERDICT_BY_VERCEL_STATE`; the Sentry `NATIVE_STATE_BY_REST_STATUS` is the same shape). _Partly: once written, `satisfies` fails `tsc` on a missing status and `typescript/switch-exhaustiveness-check` on a switch with no `default`; the `partial-integration-slug-record` row rejects a `Partial` table keyed by an integration slug; that a map exists, and has no silent default, is review._
 
 ### One owner per state change
 
 Three rules from the 2026-10-16 facade round (#1338–#1348, #1361). The owner is a bound facade, `thing({ identity }).verb()`: `stagedAction`, `settings`, `gmailMailbox`, `scratchpad`, `toolRuntimeForRun`.
 
 - **Scripts, dry runs, and backfills call the live owner. They never copy its logic.** When the owner lacks a verb the caller needs, add the verb to the owner (`setIfUnset`, #1347). Do not import the primitive.
-  Why: three triage dry runs copied `gatherObservations` and skipped its gates (#1335), a backfill copied the todo decision (#1337, merged into one owner by #1338), and the refold copy of the projection writer stopped writing `works_at` edges (#1348).
+  Why: three triage dry runs copied `gatherObservations` and skipped its gates (#1335), a backfill copied the todo decision (#1337, merged into one owner by #1338), and the refold copy of the projection writer stopped writing `works_at` edges (#1348). _Partly: `no-restricted-imports` in `.oxlintrc.json` fences each `internal` door; a copy of the logic compiles, so it is review._
 - **Do not export a primitive from a package barrel only so a test can reach it.** The test imports it from `src/`; `check:architecture` scans only `src`.
-  Why: the projection-run primitives stayed public "because tests use them", and a public primitive is the door that the next copy uses. Taught by #1361.
+  Why: the projection-run primitives stayed public "because tests use them", and a public primitive is the door that the next copy uses. Taught by #1361. _Review: `check:knip` counts a test import as a use._
 - **Bind the credential, not the token.** A client takes a credential id and gets a fresh token for each call. A caller never holds a token across a batch or passes one down.
-  Why: Gmail callers held one token across batches of up to 500 messages, so a long batch could fail after the token expired. Taught by #1343 (`gmailMailbox({ credentialId })`; the `raw-gmail-token-call` gate covers Gmail only).
+  Why: Gmail callers held one token across batches of up to 500 messages, so a long batch could fail after the token expired. Taught by #1343 (`gmailMailbox({ credentialId })`; the `raw-gmail-token-call` gate covers Gmail only). _Partly: the `raw-gmail-token-call` row; every other provider is review._
 
 ## 4. Frontend (apps/web)
 
-- **Effects:** clean up subscriptions/timers; verify dependency arrays (missing dep = stale closure, extra dep = loop). Guard against state updates after unmount.
-- **Render every state** — loading, error, empty, populated. An async surface with no empty/error branch is unfinished.
-- **SSR-safe:** guard `window`/`document`/browser-only APIs. Sanitize any HTML you inject.
-- **No stray `console.log`**; surface errors to the user, don't swallow them.
-- **Keys** are stable IDs, never array index.
-- **Accessibility:** keyboard-reachable interactive elements, ARIA where needed, never color as the only signal. Prefer CSS-variable shorthands over arbitrary values.
+- **Effects:** clean up subscriptions/timers; verify dependency arrays (missing dep = stale closure, extra dep = loop). Guard against state updates after unmount. _Review._
+- **Render every state** — loading, error, empty, populated. An async surface with no empty/error branch is unfinished. _Review._
+- **SSR-safe:** guard `window`/`document`/browser-only APIs. Sanitize any HTML you inject. _Review._
+- **No stray `console.log`**; surface errors to the user, don't swallow them. _Review._
+- **Keys** are stable IDs, never array index. _Review._
+- **Accessibility:** keyboard-reachable interactive elements, ARIA where needed, never color as the only signal. Prefer CSS-variable shorthands over arbitrary values. _Review: the `tailwindcss/*` rules on are sort order, axis shorthands and deprecated classes, not this._
 
 ---
 
@@ -237,32 +240,32 @@ Three rules from the 2026-10-16 facade round (#1338–#1348, #1361). The owner i
 
 A test that mirrors the SUT or pins a literal with no policy cannot fail when the SUT is wrong — it fails only when you edit both files together. `pnpm check:test-tautology` gates the mechanically detectable shapes; the rest is review judgment.
 
-- **One side of `assert.equal/deepEqual` is a literal, an external artifact (fixture golden, `Caddyfile`, `Intl` snapshot), or a cross-source agreement** (tuple vs registry). `assert.equal(fn(x), fn(y))` where both sides call the same SUT is a self-mirroring oracle — pin one side to a literal. The one exception is a deliberate cross-check of two code paths (e.g. `stream(chunks)` vs `sanitizeVoice(full)`): keep it only with `// tautology-ok: cross-check + anchored at <file:line>` and one literal-anchored test for the shared oracle.
-- **Do not rebuild expected `0..N-1` from actual.length.** `assert.deepEqual(xs.map(c => c.position), xs.map((_, i) => i))` is tautological — it cannot fail when `position` is wrong. Use a literal `deepEqual(..., [0,1])` or a loop `assert.equal(c.position, i)`. Gated by `rebuilt-position-index`.
-- **A literal pin must carry `// why: #NNN` / `ADR-xxxx` or be deleted.** `assert.equal(EMBED_COST_CAP_USD, 0.5)` with no linked incident/policy is a change detector with no policy — it greens until you change the constant and the test in lockstep. If the literal must stay (policy gate), add `// tautology-ok: policy — <what breaks if it changes>` and prefer exercising the value through behaviour (`maxTokensForPrice`) as well.
-- **An existence-only assert needs a behaviour companion in the same `test` block.** `assert.ok(x)` / `length > 0` / `typeof == "function"` alone proves the import didn't throw, not product behaviour — pair it with a shape/status/header assertion.
-- **A mock/spy test must assert wire/state, not just `calls.length`.** `assert.equal(calls.length, N)` as the sole assertion tests the mock — add the header/status/body that makes the count load-bearing.
+- **One side of `assert.equal/deepEqual` is a literal, an external artifact (fixture golden, `Caddyfile`, `Intl` snapshot), or a cross-source agreement** (tuple vs registry). `assert.equal(fn(x), fn(y))` where both sides call the same SUT is a self-mirroring oracle — pin one side to a literal. The one exception is a deliberate cross-check of two code paths (e.g. `stream(chunks)` vs `sanitizeVoice(full)`): keep it only with `// tautology-ok: cross-check + anchored at <file:line>` and one literal-anchored test for the shared oracle. _Review: the `self-mirroring-oracle` row is a `hint`, and no consumer reads the tautology hints._
+- **Do not rebuild expected `0..N-1` from actual.length.** `assert.deepEqual(xs.map(c => c.position), xs.map((_, i) => i))` is tautological — it cannot fail when `position` is wrong. Use a literal `deepEqual(..., [0,1])` or a loop `assert.equal(c.position, i)`. Gated by `rebuilt-position-index`. _Gate: `check:test-tautology`._
+- **A literal pin must carry `// why: #NNN` / `ADR-xxxx` or be deleted.** `assert.equal(EMBED_COST_CAP_USD, 0.5)` with no linked incident/policy is a change detector with no policy — it greens until you change the constant and the test in lockstep. If the literal must stay (policy gate), add `// tautology-ok: policy — <what breaks if it changes>` and prefer exercising the value through behaviour (`maxTokensForPrice`) as well. _Review._
+- **An existence-only assert needs a behaviour companion in the same `test` block.** `assert.ok(x)` / `length > 0` / `typeof == "function"` alone proves the import didn't throw, not product behaviour — pair it with a shape/status/header assertion. _Review._
+- **A mock/spy test must assert wire/state, not just `calls.length`.** `assert.equal(calls.length, N)` as the sole assertion tests the mock — add the header/status/body that makes the count load-bearing. _Review._
 
-Escape hatch `// tautology-ok: <reason>` is chain-aware (like `// drift-ok:`) — it may live on any line the match touches or on the comment block directly above. An empty marker is itself a violation.
+Escape hatch `// tautology-ok: <reason>` is chain-aware (like `// drift-ok:`) — it may live on any line the match touches or on the comment block directly above. An empty marker is itself a violation. _Gate: `check:test-tautology` does not accept an empty marker on its gate row._
 
 ---
 
 ## Recurrent high-signal patterns (the review hit-list)
 
-1. A local shape duplicating a Drizzle table or zod schema → derive it (§1).
-2. Full error object logged → leaks secrets/PII.
-3. External/LLM call with no timeout or `abortSignal`.
-4. New endpoint missing rate-limit / auth coverage.
-5. Silent `catch` with no user feedback.
-5a. A lint suppression that suppresses nothing, or one kept "in case the rule returns" (§ Suppressions).
-6. Duplicated logic that represents one co-changing domain truth → centralize it; leave coincidental similarity separate.
-7. Non-exhaustive switch over a union → add the `never` check.
-8. `useEffect` updating state after unmount / wrong deps.
-9. Webhook HMAC verified against re-parsed (not raw) body.
-10. Unbilled `Promise.all` work that keeps running after a sibling fails.
-11. Tautological test — `assert.equal(fn(x), fn(x))`, rebuilt `0..N-1` oracle, literal pin with no `why`, `assert.ok(x)` alone, or `calls.length` alone (§5).
-12. One `null` for both a fault and a miss, an `updatedAt` queue key, a timestamp with no named clock, or a status map with a silent default (§3, Results, queue keys, and clocks).
-13. A PR built on an issue's factual premise that nobody checked against data ([structural-review.md](./structural-review.md#breadth-discovers-depth-proves), pass 1).
-14. A script or backfill that copies an owner's logic, a barrel export kept only for a test, or a caller that holds a provider token (§3, One owner per state change).
+1. A local shape duplicating a Drizzle table or zod schema → derive it (§1). _Review._
+2. Full error object logged → leaks secrets/PII. _Review._
+3. External/LLM call with no timeout or `abortSignal`. _Review._
+4. New endpoint missing rate-limit / auth coverage. _Review._
+5. Silent `catch` with no user feedback. _Review: no rule reports an empty `catch`._
+5a. A lint suppression that suppresses nothing, or one kept "in case the rule returns" (§ Suppressions). _Gate: `--report-unused-disable-directives-severity=error` in `pnpm lint`._
+6. Duplicated logic that represents one co-changing domain truth → centralize it; leave coincidental similarity separate. _Partly: `check:duplicates` finds copies in `pnpm check` (in CI it is a separate job that does not block a merge); whether they co-change is review._
+7. Non-exhaustive switch over a union → add the `never` check. _Partly: `typescript/switch-exhaustiveness-check` (§2)._
+8. `useEffect` updating state after unmount / wrong deps. _Review._
+9. Webhook HMAC verified against re-parsed (not raw) body. _Review._
+10. Unbilled `Promise.all` work that keeps running after a sibling fails. _Review._
+11. Tautological test — `assert.equal(fn(x), fn(x))`, rebuilt `0..N-1` oracle, literal pin with no `why`, `assert.ok(x)` alone, or `calls.length` alone (§5). _Partly: `check:test-tautology` gates the rebuilt oracle (§5)._
+12. One `null` for both a fault and a miss, an `updatedAt` queue key, a timestamp with no named clock, or a status map with a silent default (§3, Results, queue keys, and clocks). _Partly: the `bullmq-job-timestamp` row and the compiler, once a map is written (§3)._
+13. A PR built on an issue's factual premise that nobody checked against data ([structural-review.md](./structural-review.md#breadth-discovers-depth-proves), pass 1). _Review._
+14. A script or backfill that copies an owner's logic, a barrel export kept only for a test, or a caller that holds a provider token (§3, One owner per state change). _Partly: `no-restricted-imports` and the `raw-gmail-token-call` row (§3)._
 
 > Before claiming a library _can't_ do something, check its `.d.ts`, its repo, or the relevant reference doc here. Most "limitations" are a missing option name.
