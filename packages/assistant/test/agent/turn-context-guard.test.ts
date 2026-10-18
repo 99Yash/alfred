@@ -34,7 +34,7 @@ describe("guardTurnContext gate", () => {
     },
   ) as unknown as LanguageModel;
 
-  /* eslint-disable anti-slop/no-chained-type-assertions */
+  /* eslint-disable anti-slop/no-chained-type-assertions -- a throwing Proxy stands in for the tool set, which this path must never read */
   const explodingTools = new Proxy(
     {},
     {

@@ -39,8 +39,9 @@ if (selfTest.length > 0) {
 // `isScannedPath`, not `!isSkippedPath`: a rule that names its own `paths` reaches
 // files the global skip filter drops (a test tree, for `db-backed-skip-hand-rolled`).
 // Pre-filtering on the skip filter alone would hand such a rule zero files while its
-// self-test stayed green — a check disarmed before it ever ran.
-const files = listGitSourceFiles(["*.ts", "*.tsx"]).filter(isScannedPath);
+// self-test stayed green — a check disarmed before it ever ran. `*.mjs` reaches only
+// such a rule (`suppression-without-reason`): `isSkippedPath` drops it for the rest.
+const files = listGitSourceFiles(["*.ts", "*.tsx", "*.mjs"]).filter(isScannedPath);
 
 const violations = [];
 

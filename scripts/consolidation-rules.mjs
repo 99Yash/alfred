@@ -49,6 +49,10 @@
  *                                the file holds both sanctioned and new call
  *                                sites — a whole-file exemption blinds the rule
  *                                exactly where the next mistake will be made.
+ * @property {boolean}  [comments] True when the idiom IS a comment (a lint
+ *                                directive), so {@link matchLine} reads a
+ *                                whole-line comment for this rule instead of
+ *                                skipping it as a doc example. Line scope only.
  * @property {RegExp}   [paths]   The files this rule applies to, INSTEAD of the
  *                                global {@link isSkippedPath} filter. A rule
  *                                that names `paths` sees exactly the files that
@@ -906,16 +910,46 @@ export const RULES = [
     ],
     fix: 'Call collapseWhitespace(text) from @alfred/contracts — one fold for every display snippet, preview, title and summary. Keep a private fold, plus `// drift-ok: <what the value identifies>`, only when other code compares the value byte for byte: a key, a hash, a dedup token, a cache lookup, or a query a provider must receive unchanged. The row also fires on a fold that must NOT trim — `out += chunk.replace(/\\s+/g, " ")` builds one string from many pieces, and `collapseWhitespace` would eat the edge space that separates them — so mark that case the same way. Being stored is not that test and neither is being read by a classifier — prose a person or a model reads is a display fold either way.',
   },
+  {
+    id: "suppression-without-reason",
+    // An `eslint-disable` / `oxlint-disable` directive (block, `-line` or
+    // `-next-line`) that does not name its rules and then give a reason after
+    // ` -- `. A bare directive silences every rule on the line or block, and a
+    // directive with no reason cannot say whether its exemption is still true.
+    // `--report-unused-disable-directives-severity=error` in `pnpm lint` catches
+    // a directive that suppresses nothing, not one that suppresses too much.
+    // `eslint-enable` takes no reason and is not read.
+    //
+    // The directive is a whole comment on one line, so this is a single-token
+    // fact (docs/reference/gate-design.md): `comments: true` reads the comment
+    // lines every other row skips. `(?![\w-])` stops the bare `-disable` spelling
+    // from matching the front of `-disable-next-line`.
+    //
+    // `paths` reaches tests and scripts, because a directive there is as live as
+    // one in product source. A generated file (`routeTree.gen.ts` opens with a
+    // bare `/* eslint-disable */`) is not authored, and the vendored anti-slop
+    // plugin is outside the lint walk.
+    re: /\b(?:eslint|oxlint)-disable(?:-next-line|-line)?(?![\w-])(?!\s+[@\w/-]+(?:\s*,\s*[@\w/-]+)*\s+--\s+\S)/,
+    comments: true,
+    paths: /^(?!scripts\/oxlint\/anti-slop\/)(?:apps|packages|scripts)\/(?!.*\.gen\.ts$)/,
+    severity: "gate",
+    // This row's own definition and its fixtures spell the directive as data.
+    owners: ["scripts/consolidation-rules.mjs", "scripts/consolidation-rules.selftest.mjs"],
+    fix: "Name every rule the directive suppresses, in the spelling the config uses, then give the reason after ` -- `: `// oxlint-disable-next-line <plugin>/<rule> -- <why this line is the exception>`. See docs/reference/code-style.md § Suppressions.",
+  },
 ];
 
 /**
  * Path predicate → skip. Tests/evals/scripts/backfills legitimately use casts
  * and raw env reads for fixture ergonomics; generated + built output isn't
- * source. Shared so the gate and the edit-time hook agree on scope.
+ * source. Plain `.mjs` is tooling (repo scripts, Claude hooks), not product
+ * source; only a rule that names its own `paths` reads it. Shared so the gate
+ * and the edit-time hook agree on scope.
  * @param {string} file Repo-relative path.
  */
 export const isSkippedPath = (file) =>
   /(^|\/)(dist|build|coverage|node_modules)\//.test(file) ||
+  file.endsWith(".mjs") ||
   /\.(d|gen)\.ts$/.test(file) ||
   /\.test\.tsx?$/.test(file) ||
   /(^|\/)(test|__mocks__|evals)\//.test(file) ||
@@ -952,14 +986,15 @@ const coversFile = (rule, file) =>
  */
 export function matchLine(line, file, lanes) {
   if (line.includes("// drift-ok")) return [];
-  // Skip whole-line comments — doc examples of a banned idiom are not drift.
+  // Skip whole-line comments — doc examples of a banned idiom are not drift —
+  // except for a rule whose idiom is itself a comment.
   const trimmed = line.trim();
-
-  if (trimmed.startsWith("//") || trimmed.startsWith("*")) return [];
+  const commentOnly = trimmed.startsWith("//") || trimmed.startsWith("*");
 
   return RULES.filter(
     (rule) =>
       rule.scope !== "chain" &&
+      (!commentOnly || rule.comments === true) &&
       (lanes === "all" || rule.severity === "gate") &&
       coversFile(rule, file) &&
       rule.re.test(line),

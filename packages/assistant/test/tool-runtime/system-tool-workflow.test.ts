@@ -20,7 +20,7 @@ const authorArgs = {
 
 const recoverArgs = { userId: "user_1", workflowId: "wf_1", revisionId: "rev_1" };
 
-/* eslint-disable anti-slop/no-chained-type-assertions */
+/* eslint-disable anti-slop/no-chained-type-assertions -- a hand-built fixture stands in for the full parameter type */
 const activateArgs = {
   userId: "user_1",
   input: { workflowId: "wf_1" },

@@ -136,10 +136,12 @@ diagnostic to notice.
 - **Name the rule you are suppressing, in the spelling the config uses**
   (`eslint-disable-next-line` and `oxlint-disable-next-line` are both honoured). A bare
   `eslint-disable` over a block reads as "this region is unchecked" and is almost never
-  what was meant. _Review: a bare directive that suppresses something passes `pnpm lint`._
+  what was meant. _Gate: the `suppression-without-reason` row in `scripts/consolidation-rules.mjs`,
+  over product source, tests and scripts; a generated file is exempt._
 - **Keep the reason on the directive**, after ` -- `. It is the only thing that tells the
   next reader whether the exemption is still true, and `--reason` is preserved verbatim
-  when a sibling rule name is removed from a multi-rule directive. _Review._
+  when a sibling rule name is removed from a multi-rule directive. _Gate: the
+  `suppression-without-reason` row; that the reason is still true is review._
 - **Do not keep a suppression "in case the rule comes back."** That is how 53 accumulated
   on this tree, 40 of them naming a rule that is `"off"` for every test scope and so
   could not have suppressed anything. Deleting the directive is the fix.

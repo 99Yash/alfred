@@ -1739,6 +1739,67 @@ const LINE_CASES = [
     file: "packages/db/src/redis.ts",
     code: `  return new IORedis(url, {`,
   },
+  {
+    name: "suppression-without-reason — a bare next-line directive",
+    caught: true,
+    rule: "suppression-without-reason",
+    code: `  // oxlint-disable-next-line`,
+  },
+  {
+    name: "suppression-without-reason — a named rule with no reason",
+    caught: true,
+    rule: "suppression-without-reason",
+    code: `  // oxlint-disable-next-line anti-slop/no-runtime-typeof`,
+  },
+  {
+    name: "suppression-without-reason — a block directive with no reason, in a test tree",
+    caught: true,
+    rule: "suppression-without-reason",
+    file: TEST_TREE_FILE,
+    code: `  /* eslint-disable anti-slop/no-chained-type-assertions */`,
+  },
+  {
+    name: "suppression-without-reason — a bare file-level block directive in a script",
+    caught: true,
+    rule: "suppression-without-reason",
+    file: "scripts/check-oxlint-config.mjs",
+    code: `/* eslint-disable */`,
+  },
+  {
+    name: "suppression-without-reason — a reason with no rule name",
+    caught: true,
+    rule: "suppression-without-reason",
+    code: `  // eslint-disable-line -- the fixture needs it`,
+  },
+  {
+    name: "suppression-without-reason — an empty reason after the separator",
+    caught: true,
+    rule: "suppression-without-reason",
+    code: `  // oxlint-disable-next-line typescript/switch-exhaustiveness-check --`,
+  },
+  {
+    name: "suppression-without-reason — two rules and a reason is the intended form",
+    caught: false,
+    code: `  // oxlint-disable-next-line anti-slop/no-runtime-typeof, anti-slop/no-unknown-returns -- the parse IS the boundary`,
+  },
+  {
+    name: "suppression-without-reason — a block directive with a reason",
+    caught: false,
+    file: TEST_TREE_FILE,
+    code: `  /* eslint-disable anti-slop/no-chained-type-assertions -- a stub stands in for the client */`,
+  },
+  {
+    name: "suppression-without-reason — eslint-enable takes no reason",
+    caught: false,
+    file: TEST_TREE_FILE,
+    code: `  /* eslint-enable anti-slop/no-chained-type-assertions */`,
+  },
+  {
+    name: "suppression-without-reason — a generated file is not authored",
+    caught: false,
+    file: "apps/web/src/routeTree.gen.ts",
+    code: `/* eslint-disable */`,
+  },
 ];
 
 /** @returns {string[]} One message per failed fixture; empty when all pass. */

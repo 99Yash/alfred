@@ -1065,7 +1065,7 @@ describe("test reservation unique-violation classification", () => {
     return new Error("Failed query", { cause: Object.assign(new Error("duplicate key"), fields) });
   }
 
-  /* eslint-disable anti-slop/no-chained-type-assertions */
+  /* eslint-disable anti-slop/no-chained-type-assertions -- a hand-built fixture stands in for the full parameter type */
   const values = {
     userId: "u_fake",
     connectionId: "conn_fake",

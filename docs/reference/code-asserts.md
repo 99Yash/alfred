@@ -32,6 +32,7 @@ where to put a new invariant.
 | A switch over a union that misses a member, with or without a `default` | `typescript/switch-exhaustiveness-check` (`error`, type-aware) | `.oxlintrc.json` |
 | A template literal that interpolates an object, `unknown`, or `never` | `typescript/restrict-template-expressions` (`error`, type-aware) | `.oxlintrc.json` |
 | A value imported only for a type position, such as `typeof` | `typescript/consistent-type-imports` (`error`) | `.oxlintrc.json` |
+| A suppression directive with no rule name, or no reason after ` -- ` | `gate: suppression-without-reason` | `scripts/consolidation-rules.mjs` |
 
 ### The two config-hygiene rules, and why they are separate from the `anti-slop` set
 
