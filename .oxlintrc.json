@@ -159,7 +159,7 @@
     "typescript/no-base-to-string": "off",
     "typescript/no-duplicate-type-constituents": "off",
     "typescript/no-for-in-array": "error",
-    "typescript/no-implied-eval": "off",
+    "typescript/no-implied-eval": "error",
     "typescript/no-meaningless-void-operator": "off",
     "typescript/no-misused-spread": "off",
     "typescript/no-redundant-type-constituents": "off",
