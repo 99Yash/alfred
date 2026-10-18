@@ -15,7 +15,11 @@
   // both directions, including a marker that has gone stale or vacuous. Do not spell a marker in prose up
   // here: this header is the ROOT site's own region, and the root may not exempt itself from its own group.
   "plugins": null,
-  "jsPlugins": ["oxlint-tailwindcss", "./scripts/oxlint/anti-slop/index.ts"],
+  "jsPlugins": [
+    "oxlint-tailwindcss",
+    "./scripts/oxlint/anti-slop/index.ts",
+    "./scripts/oxlint/alfred/index.ts"
+  ],
   "categories": {},
   "rules": {
     // The vendored anti-slop rules (scripts/oxlint/anti-slop/, see its README for the
@@ -56,9 +60,14 @@
     "anti-slop/no-runtime-typeof": ["error", { "allowInTypeGuards": true }],
     "anti-slop/no-unknown-returns": "error",
     "anti-slop/no-unsafe-dictionary-type": "error",
+    // Alfred's own rules (scripts/oxlint/alfred/, first-party, see its README).
+    // no-function-wrapper-shim was a regex gate in scripts/consolidation-rules.mjs.
+    // It keeps that gate's file scope by itself (it reads `isSkippedPath`), so it
+    // needs no "overrides" entry here.
+    "alfred/no-function-wrapper-shim": "error",
     // The tailwind rules sit at `error` by the same bar: zero violations on promotion, and
     // `pnpm lint` does not fail on `warn`, so a warn-level rule here enforced nothing.
-    // `pnpm check:oxlint-plugin` drives only the vendored anti-slop rules, not these.
+    // `pnpm check:oxlint-plugin` drives only the anti-slop and alfred rules, not these.
     "tailwindcss/enforce-sort-order": ["error", { "entryPoint": "apps/web/src/index.css" }],
     "tailwindcss/enforce-shorthand": "error",
     "tailwindcss/no-deprecated-classes": ["error", { "entryPoint": "apps/web/src/index.css" }],

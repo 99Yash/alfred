@@ -20,6 +20,7 @@ where to put a new invariant.
 | `Record<string, any>` already covered | `typescript/no-restricted-types` |
 | `process.env.*` outside `serverEnv()` | `scripts/consolidation-rules.mjs` `gate: no-process-env` |
 | Spreading overrides over defaults | `gate: spread-over-defaults` (`withDefaults`) |
+| An exported function that only returns a constant or an imported name (a second door) | `alfred/no-function-wrapper-shim` (`error`), first-party, scope-aware | `scripts/oxlint/alfred/` |
 | Duplicate helper bodies | `pnpm dup` (jscpd) — cure, not prevention |
 | A suppression that suppresses nothing (`eslint-disable` / `oxlint-disable` naming a rule that did not fire) | `oxlint --report-unused-disable-directives-severity=error`, wired into the root `lint` script |
 | A rule turned `"off"` for authored source with no stated reason | `scripts/oxlint-config.mjs` `blanketDisarmFailures` (via `check:oxlint-config`) |
@@ -71,6 +72,11 @@ syntax shape**. The vendored `anti-slop` set is deliberately small; a new
 rule is added only after its violations are driven to zero at `warn` first
 (`README` in `scripts/oxlint/anti-slop/`). Prefer a `hint` → `gate` promotion
 over a permanently noisy `warn`.
+
+A first-party rule that needs the syntax tree or scope analysis (where a name
+is bound, whether a reference reads or writes) goes in `scripts/oxlint/alfred/`
+instead of a regex row in `scripts/consolidation-rules.mjs`. See the `README`
+there. `pnpm check:oxlint-plugin` drives the rules of both plugins.
 
 ## Review / compile-time pinned (no lint, but checkable)
 

@@ -1,9 +1,13 @@
-// Fails when a vendored anti-slop rule is untested, unregistered, or registered
-// but not actually enforced by the root config.
+// Fails when a rule in one of the repo's oxlint JS plugins is untested,
+// unregistered, or registered but not actually enforced by the root config.
 //
-// `scripts/oxlint/anti-slop/` is vendored third-party rule source (see its
-// README). Nothing else in this repo reaches it: no package's `check-types`
-// covers `scripts/`, `pnpm -r test` cannot see it because `scripts/` is not a
+// Two plugins live under `scripts/oxlint/`, and this gate discovers both from
+// the directory, so a new plugin or a new rule is covered without an edit here:
+// - `anti-slop/` is vendored third-party rule source (see its README);
+// - `alfred/` is first-party: rules that need the AST or scope analysis, which
+//   a regex in `scripts/consolidation-rules.mjs` cannot give (see its README).
+// Nothing else in this repo reaches them: no package's `check-types` covers
+// `scripts/`, `pnpm -r test` cannot see them because `scripts/` is not a
 // workspace, and a rule that is present but never registered lints nothing while
 // looking exactly like a rule that works. This gate closes all three gaps.
 //
@@ -12,14 +16,23 @@
 // `rules` object — measured, and true of `tailwindcss/*` here too — so a gate
 // built on `resolvedOxlintConfig` would parse a config in which these rules do
 // not appear and pass while reading nothing. Instead each rule is DRIVEN: the
-// gate writes a snippet that violates it to a temp directory, lints that
-// directory through `--config .oxlintrc.json`, and demands the rule report it at
-// `error`. That proves registration, enablement and severity end to end, and it
-// is the claim `pnpm lint` on a clean tree cannot make.
+// gate writes snippets that violate it to a temp directory, lints that
+// directory through `--config .oxlintrc.json`, and demands the rule report each
+// one at `error`. That proves registration, enablement and severity end to end,
+// and it is the claim `pnpm lint` on a clean tree cannot make.
 //
-// A clean tree is why the drive exists. All three rules had zero violations when
-// they were adopted, so `pnpm lint` is silent whether they work or are switched
-// off entirely.
+// A clean tree is why the drive exists. Every rule had zero violations when it
+// was adopted, so `pnpm lint` is silent whether it works or is switched off.
+//
+// Where a rule's snippets come from:
+// - An entry in PROBES below, when the rule has one. Each anti-slop rule does,
+//   because upstream fixtures carry traps for a root-config drive (see the `vi`
+//   note).
+// - Otherwise, the rule's own `invalid` fixture cases. The gate captures them
+//   at run time from `RuleTester#run` while it runs the fixtures, so it reads
+//   the values the fixture file built, not its text. Only a case that the root
+//   config can reproduce counts: one with no `filename`, `options`, `settings`,
+//   `languageOptions` or hooks. A rule needs at least one.
 //
 // The fixtures are `<rule>.rule-test.ts`, renamed from upstream's `<rule>.test.ts`.
 // In this repo `*.test.ts` is a name with enforcement attached: `isScanFile` in
@@ -33,21 +46,24 @@
 // Usage: node scripts/check-oxlint-plugin.mjs
 
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+import { RuleTester } from "oxlint/plugins-dev";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 
-const PLUGIN_DIR = join("scripts", "oxlint", "anti-slop");
+const PLUGINS_DIR = join("scripts", "oxlint");
 
 // Fail fast when the interpreter is older than package.json's `engines.node`.
 // The symptom otherwise is an oxlint plugin-load crash ("Unknown file extension
-// \".ts\"") that this gate reports as twelve "vendored and registered but NOT
-// enforced" failures — a misdiagnosis that points at .oxlintrc.json instead of
-// at the interpreter. oxlint loads the plugin through Node's native TS support,
-// so anything below the engines floor cannot drive a single rule.
+// \".ts\"") that this gate reports as "registered but NOT enforced" failures —
+// a misdiagnosis that points at .oxlintrc.json instead of at the interpreter.
+// oxlint loads each plugin through Node's native TS support, and this gate
+// imports the `.rule-test.ts` fixtures the same way, so anything below the
+// engines floor cannot drive a single rule.
 const ENGINES_NODE = JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8")).engines?.node;
 
 const ENGINES_FLOOR = /^>=(\d+)\./.exec(String(ENGINES_NODE ?? ""));
@@ -57,82 +73,43 @@ const nodeMajor = Number.parseInt(process.versions.node, 10);
 if (ENGINES_FLOOR !== null && nodeMajor < Number(ENGINES_FLOOR[1])) {
   console.error(
     `This gate is running on Node ${process.versions.node}, but package.json requires ` +
-      `${ENGINES_NODE}. oxlint cannot load the .ts plugin below that floor, so no rule can be ` +
+      `${ENGINES_NODE}. oxlint cannot load a .ts plugin below that floor, so no rule can be ` +
       `driven. Re-run on a qualifying Node (\`nvm use\` reads .nvmrc).`,
   );
   process.exit(1);
 }
 
-const RULES_DIR = join(PLUGIN_DIR, "rules");
-
-const INDEX_FILE = join(PLUGIN_DIR, "index.ts");
-
 const GATE_FILE = join("scripts", "check-oxlint-plugin.mjs");
 
 const OXLINT_BIN = resolve(ROOT, "node_modules", ".bin", "oxlint");
 
-// Explicit, not scraped out of the upstream `.test.ts` fixtures: the drive below
-// asserts a rule fires through the ROOT config, which is a different claim from
-// the one RuleTester makes, and a regex over a fixture array would turn a rule
-// whose invalid case is a template literal into a silent skip.
+// Explicit snippets, keyed `<plugin>/<rule>`. A rule with no entry here is
+// driven with its own fixture cases (see the header).
 //
 // Each snippet must violate exactly its own rule. Keep the shape notes — the
 // `vi` one is a trap that already produced a probe that passed for the wrong
 // reason.
-// Each entry maps to { snippet, severity }. The severity must match .oxlintrc.json:
-// "error" for every rule — the last paydown rule was promoted, so no "warn"
-// probe remains.
 const PROBES = {
   // `vi` is deliberately left UNDECLARED. no-module-mocking resolves the binding
   // and ignores a local one (upstream treats `function f(jest: {mock(): void})`
   // as valid), so a `declare const vi` probe passes without the rule doing
   // anything.
-  "no-module-mocking": { snippet: `vi.mock("./user-store");\n`, severity: "error" },
-  "no-reflect-apply": {
-    snippet: `export const value = Reflect.apply(operation, owner, args);\n`,
-    severity: "error",
-  },
-  "no-widen-then-assert": {
-    snippet:
-      `const source = { id: "second" };\n` +
-      `const widened: unknown = source;\n` +
-      `export const parsed = widened as { readonly id: string };\n`,
-    severity: "error",
-  },
-  "no-chained-type-assertions": {
-    snippet: `export const user = input as object as User;\n`,
-    severity: "error",
-  },
-  "no-known-value-widening": {
-    snippet:
-      `type Handler = () => void;\n` +
-      `const handlers: Record<string, Handler> = { start: startHandler };\n`,
-    severity: "error",
-  },
-  "no-object-parameters": {
-    snippet: `export function save(value: object) {}\n`,
-    severity: "error",
-  },
-  "no-runtime-typeof": {
-    snippet: `export const isString = typeof input === "string";\n`,
-    severity: "error",
-  },
-  "no-unknown-returns": {
-    snippet: `export function loadUser(): unknown { return input; }\n`,
-    severity: "error",
-  },
-  "no-unknown-type-aliases": {
-    snippet: `export type ExternalValue = unknown;\n`,
-    severity: "error",
-  },
-  "no-unsafe-dictionary-type": {
-    snippet: `export type Metadata = Record<string, unknown>;\n`,
-    severity: "error",
-  },
-  "require-readable-spacing": {
-    snippet: `export const first = 1;\nexport const second = 2;\n`,
-    severity: "error",
-  },
+  "anti-slop/no-module-mocking": `vi.mock("./user-store");\n`,
+  "anti-slop/no-reflect-apply": `export const value = Reflect.apply(operation, owner, args);\n`,
+  "anti-slop/no-widen-then-assert":
+    `const source = { id: "second" };\n` +
+    `const widened: unknown = source;\n` +
+    `export const parsed = widened as { readonly id: string };\n`,
+  "anti-slop/no-chained-type-assertions": `export const user = input as object as User;\n`,
+  "anti-slop/no-known-value-widening":
+    `type Handler = () => void;\n` +
+    `const handlers: Record<string, Handler> = { start: startHandler };\n`,
+  "anti-slop/no-object-parameters": `export function save(value: object) {}\n`,
+  "anti-slop/no-runtime-typeof": `export const isString = typeof input === "string";\n`,
+  "anti-slop/no-unknown-returns": `export function loadUser(): unknown { return input; }\n`,
+  "anti-slop/no-unknown-type-aliases": `export type ExternalValue = unknown;\n`,
+  "anti-slop/no-unsafe-dictionary-type": `export type Metadata = Record<string, unknown>;\n`,
+  "anti-slop/require-readable-spacing": `export const first = 1;\nexport const second = 2;\n`,
 };
 
 // The control. Linted alongside the probes so "every probe reported its rule"
@@ -141,13 +118,18 @@ const CONTROL = `export const ok = { id: "second" };\n`;
 
 const CONTROL_NAME = "control";
 
+// The fixture-case keys the root config can reproduce. A case that sets any
+// other key (`filename`, `options`, `settings`, `languageOptions`, a hook)
+// makes a claim the root config does not, so the drive skips it.
+const DRIVABLE_CASE_KEYS = new Set(["code", "name", "errors", "output"]);
+
 const failures = [];
 
 /**
- * The stdout a failed `execFileSync` captured before it threw. Both drives below
- * read output from a process they EXPECT to exit non-zero — the fixtures print
- * their assertion on failure, and oxlint exits 1 because the probes are supposed
- * to be rejected — so the throw is the normal path and its `stdout` is the result.
+ * The stdout a failed `execFileSync` captured before it threw. The drive below
+ * reads output from a process it EXPECTS to exit non-zero — oxlint exits 1
+ * because the probes are supposed to be rejected — so the throw is the normal
+ * path and its `stdout` is the result.
  *
  * @param {unknown} error
  * @returns {string}
@@ -159,137 +141,262 @@ function capturedStdout(error) {
   return typeof stdout === "string" ? stdout : "";
 }
 
+/**
+ * @param {unknown} error
+ * @returns {string}
+ */
+function errorText(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+
 // ---------------------------------------------------------------------------
-// Discovery: what is vendored, and is each piece tested?
+// Discovery: which plugins and rules exist, and is each rule tested?
 // ---------------------------------------------------------------------------
 
-let entries;
+/**
+ * @typedef {object} PluginRule
+ * @property {string} plugin  The plugin's `meta.name`, which is also its directory.
+ * @property {string} rule    The rule id inside the plugin.
+ * @property {string} rulesDir Repo-relative `rules/` directory.
+ */
+
+let pluginDirs;
 
 try {
-  entries = readdirSync(resolve(ROOT, RULES_DIR));
+  pluginDirs = readdirSync(resolve(ROOT, PLUGINS_DIR), { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .filter((name) => existsSync(resolve(ROOT, PLUGINS_DIR, name, "index.ts")))
+    .sort();
 } catch (error) {
   console.error(
-    `${RULES_DIR} could not be read (${error instanceof Error ? error.message : String(error)}). ` +
-      `Without it this gate would check nothing.`,
+    `${PLUGINS_DIR} could not be read (${errorText(error)}). Without it this gate would check nothing.`,
   );
   process.exit(1);
 }
 
-const ruleModules = entries.filter(
-  (name) => name.endsWith(".ts") && !name.endsWith(".rule-test.ts"),
-);
-
-const testModules = new Set(entries.filter((name) => name.endsWith(".rule-test.ts")));
-
-const vendored = ruleModules.map((name) => name.slice(0, -".ts".length)).sort();
-
-// A zero count is a failure, not a pass: it means the walk found no rule and the
-// gate compared nothing.
-if (vendored.length === 0) {
+// A zero count is a failure, not a pass: it means the walk found no plugin and
+// the gate compared nothing.
+if (pluginDirs.length === 0) {
   console.error(
-    `${RULES_DIR} holds no rule module. A zero here means the walk is broken, not that the plugin is clean.`,
+    `${PLUGINS_DIR} holds no plugin directory with an index.ts. A zero here means the walk is broken, ` +
+      `not that the plugins are clean.`,
   );
   process.exit(1);
 }
 
-for (const rule of vendored) {
-  if (!testModules.has(`${rule}.rule-test.ts`)) {
+/** @type {PluginRule[]} */
+const rules = [];
+
+for (const plugin of pluginDirs) {
+  const pluginDir = join(PLUGINS_DIR, plugin);
+  const rulesDir = join(pluginDir, "rules");
+  const indexFile = join(pluginDir, "index.ts");
+  const indexSource = readFileSync(resolve(ROOT, indexFile), "utf8");
+  const metaName = /meta:\s*\{\s*name:\s*"([a-z0-9-]+)"/.exec(indexSource)?.[1];
+
+  if (metaName !== plugin) {
     failures.push(
-      `${RULES_DIR}/${rule}.ts has no sibling ${rule}.rule-test.ts. Vendor the upstream fixtures with the rule; ` +
-        `an untested rule that stops matching fails open and the tree stays green.`,
+      `${indexFile} declares meta.name ${metaName === undefined ? "(none)" : `"${metaName}"`}, not "${plugin}". ` +
+        `oxlint reports and configures a rule as "<meta.name>/<rule>", so the directory and the name must agree.`,
     );
+    continue;
   }
-}
 
-// ---------------------------------------------------------------------------
-// Registration: is every vendored rule wired into the plugin, and vice versa?
-// ---------------------------------------------------------------------------
-
-const indexSource = readFileSync(resolve(ROOT, INDEX_FILE), "utf8");
-
-const registered = [...indexSource.matchAll(/^\s*"([a-z0-9-]+)":\s*[A-Za-z][A-Za-z0-9]*Rule,$/gm)]
-  .map((match) => match[1])
-  .sort();
-
-if (registered.length === 0) {
-  console.error(
-    `${INDEX_FILE} registers no rule, or its \`rules\` entries no longer match the shape this gate reads. ` +
-      `Either way the plugin enforces nothing.`,
-  );
-  process.exit(1);
-}
-
-for (const rule of vendored) {
-  if (!registered.includes(rule)) {
-    failures.push(
-      `${RULES_DIR}/${rule}.ts is vendored but not registered in ${INDEX_FILE}, so it lints nothing. ` +
-        `Register it, or delete the file — dead vendored source reads like a fence that is up.`,
-    );
-  }
-}
-
-for (const rule of registered) {
-  if (!vendored.includes(rule)) {
-    failures.push(`${INDEX_FILE} registers "${rule}", which has no module in ${RULES_DIR}.`);
-  }
-}
-
-for (const rule of registered) {
-  if (!Object.hasOwn(PROBES, rule)) {
-    failures.push(
-      `"${rule}" is registered but has no probe in ${GATE_FILE}, so nothing here proves the root config ` +
-        `enables it. Add a snippet that violates it to PROBES.`,
-    );
-  }
-}
-
-for (const rule of Object.keys(PROBES)) {
-  if (!registered.includes(rule)) {
-    failures.push(
-      `PROBES holds "${rule}", which ${INDEX_FILE} no longer registers. A probe for an absent rule reports ` +
-        `nothing and would read as a passing drive.`,
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// The upstream fixtures: does each rule still match what it claims to?
-// ---------------------------------------------------------------------------
-
-// `--experimental-strip-types` is passed explicitly rather than relying on bare
-// `node file.ts`: the flag is a no-op on a new enough Node, and the engines
-// guard above has already rejected one too old to load the plugin at all.
-let testsRun = 0;
-
-for (const rule of vendored) {
-  if (!testModules.has(`${rule}.rule-test.ts`)) continue;
-  const testFile = join(RULES_DIR, `${rule}.rule-test.ts`);
+  let entries;
 
   try {
-    execFileSync(process.execPath, ["--experimental-strip-types", testFile], {
-      cwd: ROOT,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    testsRun += 1;
+    entries = readdirSync(resolve(ROOT, rulesDir));
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    failures.push(`${testFile} failed:\n${`${message}\n${capturedStdout(error)}`.trim()}`);
+    failures.push(`${rulesDir} could not be read (${errorText(error)}).`);
+    continue;
+  }
+
+  const testModules = new Set(entries.filter((name) => name.endsWith(".rule-test.ts")));
+
+  const present = entries
+    .filter((name) => name.endsWith(".ts") && !name.endsWith(".rule-test.ts"))
+    .map((name) => name.slice(0, -".ts".length))
+    .sort();
+
+  if (present.length === 0) {
+    failures.push(
+      `${rulesDir} holds no rule module. A zero here means the walk is broken, not that the plugin is clean.`,
+    );
+    continue;
+  }
+
+  for (const rule of present) {
+    if (!testModules.has(`${rule}.rule-test.ts`)) {
+      failures.push(
+        `${rulesDir}/${rule}.ts has no sibling ${rule}.rule-test.ts. Ship the fixtures with the rule; ` +
+          `an untested rule that stops matching fails open and the tree stays green.`,
+      );
+    }
+  }
+
+  // Registration: is every rule wired into the plugin, and vice versa?
+  const registered = [...indexSource.matchAll(/^\s*"([a-z0-9-]+)":\s*[A-Za-z][A-Za-z0-9]*Rule,$/gm)]
+    .map((match) => match[1])
+    .sort();
+
+  if (registered.length === 0) {
+    failures.push(
+      `${indexFile} registers no rule, or its \`rules\` entries no longer match the shape this gate reads. ` +
+        `Either way the plugin enforces nothing.`,
+    );
+    continue;
+  }
+
+  for (const rule of present) {
+    if (!registered.includes(rule)) {
+      failures.push(
+        `${rulesDir}/${rule}.ts is present but not registered in ${indexFile}, so it lints nothing. ` +
+          `Register it, or delete the file — dead rule source reads like a fence that is up.`,
+      );
+    }
+  }
+
+  for (const rule of registered) {
+    if (!present.includes(rule)) {
+      failures.push(`${indexFile} registers "${rule}", which has no module in ${rulesDir}.`);
+      continue;
+    }
+
+    rules.push({ plugin, rule, rulesDir });
+  }
+}
+
+for (const id of Object.keys(PROBES)) {
+  if (!rules.some(({ plugin, rule }) => `${plugin}/${rule}` === id)) {
+    failures.push(
+      `PROBES holds "${id}", which no plugin registers. A probe for an absent rule reports nothing and ` +
+        `would read as a passing drive.`,
+    );
   }
 }
 
 // ---------------------------------------------------------------------------
-// The drive: does the ROOT config actually enforce each rule, at its expected
-// severity? Ratchet rules must report at "error"; paydown rules at "warn".
+// The fixtures: does each rule still match what it claims to? Run in this
+// process, so `RuleTester#run` can hand over the `invalid` cases it was given.
 // ---------------------------------------------------------------------------
 
-const probeDir = mkdtempSync(join(tmpdir(), "alfred-oxlint-anti-slop-"));
+/** @type {Map<string, Array<Record<string, unknown>>>} invalid cases, keyed `<plugin>/<rule>` */
+const capturedInvalid = new Map();
+
+/** @type {string | null} */
+let capturing = null;
+
+/** @type {string[]} */
+let caseFailures = [];
+
+let casesRun = 0;
+
+const runFixtures = RuleTester.prototype.run;
+
+RuleTester.prototype.run = function captureInvalidCases(ruleName, rule, tests) {
+  if (capturing !== null) {
+    const cases = capturedInvalid.get(capturing) ?? [];
+
+    for (const test of tests.invalid) cases.push({ ...test });
+    capturedInvalid.set(capturing, cases);
+  }
+
+  return runFixtures.call(this, ruleName, rule, tests);
+};
+
+// RuleTester's own `it` throws on the first failing case. This one runs every
+// case and keeps each failure, so one broken case does not hide the rest.
+RuleTester.it = (name, method) => {
+  casesRun += 1;
+
+  try {
+    method();
+  } catch (error) {
+    caseFailures.push(`${name}: ${errorText(error)}`);
+  }
+};
+
+let suitesRun = 0;
+
+for (const { plugin, rule, rulesDir } of rules) {
+  const testFile = join(rulesDir, `${rule}.rule-test.ts`);
+
+  if (!existsSync(resolve(ROOT, testFile))) continue;
+  capturing = `${plugin}/${rule}`;
+  caseFailures = [];
+
+  const casesBefore = casesRun;
+
+  try {
+    await import(pathToFileURL(resolve(ROOT, testFile)).href);
+  } catch (error) {
+    caseFailures.push(`the file did not load: ${errorText(error)}`);
+  }
+
+  capturing = null;
+
+  // A fixture file that runs no case passes vacuously, which is the silence
+  // this gate exists to refuse.
+  if (casesRun === casesBefore) caseFailures.push("it ran no RuleTester case");
+
+  if (caseFailures.length > 0) {
+    failures.push(`${testFile} failed:\n    ${caseFailures.join("\n    ")}`);
+  } else {
+    suitesRun += 1;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The drive: does the ROOT config actually enforce each rule at "error"?
+// ---------------------------------------------------------------------------
+
+/** @type {Map<string, string[]>} probe snippets, keyed `<plugin>/<rule>` */
+const probes = new Map();
+
+for (const { plugin, rule } of rules) {
+  const id = `${plugin}/${rule}`;
+
+  if (Object.hasOwn(PROBES, id)) {
+    probes.set(id, [PROBES[id]]);
+    continue;
+  }
+
+  const drivable = (capturedInvalid.get(id) ?? []).filter((test) =>
+    Object.keys(test).every((key) => DRIVABLE_CASE_KEYS.has(key)),
+  );
+
+  if (drivable.length === 0) {
+    failures.push(
+      `"${id}" has no probe: no PROBES entry in ${GATE_FILE}, and no invalid fixture case the root config ` +
+        `can reproduce (one with no filename, options, settings, languageOptions or hooks). Nothing proves ` +
+        `the root config enables it.`,
+    );
+    continue;
+  }
+
+  probes.set(
+    id,
+    drivable.map((test) => String(test.code)),
+  );
+}
+
+const pluginNames = new Set(pluginDirs);
+
+const probeDir = mkdtempSync(join(tmpdir(), "alfred-oxlint-plugins-"));
 
 const driven = [];
 
+let probeFiles = 0;
+
 try {
-  for (const [rule, { snippet }] of Object.entries(PROBES)) {
-    writeFileSync(join(probeDir, `${rule}.ts`), snippet);
+  for (const [id, snippets] of probes) {
+    snippets.forEach((snippet, index) => {
+      const stem = `${id.replace("/", "__")}__${index}`;
+
+      writeFileSync(join(probeDir, `${stem}.ts`), snippet);
+      probeFiles += 1;
+    });
   }
 
   writeFileSync(join(probeDir, `${CONTROL_NAME}.ts`), CONTROL);
@@ -320,62 +427,77 @@ try {
     report = { diagnostics: [] };
   }
 
-  const antiSlop = new Map();
+  /** @type {Map<string, { id: string, severity: string }[]>} probe file stem → plugin reports */
+  const reports = new Map();
 
   for (const diagnostic of report.diagnostics ?? []) {
-    const code = /^anti-slop\(([a-z0-9-]+)\)$/.exec(String(diagnostic.code ?? ""));
+    const code = /^([a-z0-9-]+)\(([a-z0-9-]+)\)$/.exec(String(diagnostic.code ?? ""));
 
-    if (code === null) continue;
+    if (code === null || !pluginNames.has(code[1])) continue;
 
-    const file =
+    const stem =
       String(diagnostic.filename ?? "")
         .split("/")
         .pop()
         ?.replace(/\.ts$/, "") ?? "";
 
-    const seen = antiSlop.get(file) ?? [];
-    seen.push({ rule: code[1], severity: String(diagnostic.severity ?? "") });
-    antiSlop.set(file, seen);
+    const seen = reports.get(stem) ?? [];
+    seen.push({ id: `${code[1]}/${code[2]}`, severity: String(diagnostic.severity ?? "") });
+    reports.set(stem, seen);
   }
 
-  for (const rule of Object.keys(PROBES)) {
-    const reported = antiSlop.get(rule) ?? [];
-    const own = reported.filter((entry) => entry.rule === rule);
+  for (const [id, snippets] of probes) {
+    const [plugin, rule] = id.split("/");
+    /** @type {number[]} */
+    const missed = [];
+    /** @type {string[]} */
+    const otherRules = [];
+    /** @type {string[]} */
+    const wrongSeverities = [];
 
-    if (own.length === 0) {
+    snippets.forEach((_snippet, index) => {
+      const reported = reports.get(`${id.replace("/", "__")}__${index}`) ?? [];
+      const own = reported.filter((entry) => entry.id === id);
+
+      if (own.length === 0) {
+        missed.push(index);
+        otherRules.push(...reported.map((entry) => entry.id));
+
+        return;
+      }
+
+      for (const entry of own) {
+        if (entry.severity !== "error") wrongSeverities.push(entry.severity);
+      }
+    });
+
+    if (missed.length > 0) {
       failures.push(
-        `The root config did not report anti-slop(${rule}) on a snippet that violates it. The rule is ` +
-          `vendored and registered but NOT enforced — check its "anti-slop/${rule}" entry in .oxlintrc.json ` +
-          `and the "./scripts/oxlint/anti-slop/index.ts" entry in "jsPlugins".` +
-          (reported.length > 0
-            ? ` (Other anti-slop rules did fire on it: ${reported.map((e) => e.rule).join(", ")}.)`
+        `The root config did not report ${plugin}(${rule}) on ${missed.length} of ${snippets.length} probe(s) ` +
+          `that violate it (probe ${missed.join(", ")}). The rule is present and registered but NOT enforced — ` +
+          `check its "${id}" entry in .oxlintrc.json and the "./${PLUGINS_DIR}/${plugin}/index.ts" entry in ` +
+          `"jsPlugins".` +
+          (otherRules.length > 0
+            ? ` (Other plugin rules did fire on them: ${[...new Set(otherRules)].join(", ")}.)`
             : ""),
       );
-      continue;
-    }
-
-    const expectedSeverity = PROBES[rule].severity;
-    const jsonSeverity = expectedSeverity === "error" ? "error" : "warning";
-    const wrongSeverity = own.filter((entry) => entry.severity !== jsonSeverity);
-
-    if (wrongSeverity.length > 0) {
+    } else if (wrongSeverities.length > 0) {
       failures.push(
-        `anti-slop(${rule}) reported at "${wrongSeverity[0].severity}", not "${jsonSeverity}". ` +
-          `Check its "anti-slop/${rule}" entry in .oxlintrc.json.`,
+        `${plugin}(${rule}) reported at "${wrongSeverities[0]}", not "error". Check its "${id}" entry in ` +
+          `.oxlintrc.json.`,
       );
-      continue;
+    } else {
+      driven.push(id);
     }
-
-    driven.push(rule);
   }
 
-  const controlHits = antiSlop.get(CONTROL_NAME) ?? [];
+  const controlHits = reports.get(CONTROL_NAME) ?? [];
 
   if (controlHits.length > 0) {
     failures.push(
       `The control snippet, which violates none of these rules, was reported by ` +
-        `${controlHits.map((entry) => `anti-slop(${entry.rule})`).join(", ")}. A rule that reports everything ` +
-        `would satisfy every probe above, so the drive proves nothing until this is clean.`,
+        `${controlHits.map((entry) => entry.id).join(", ")}. A rule that reports everything would satisfy ` +
+        `every probe above, so the drive proves nothing until this is clean.`,
     );
   }
 } finally {
@@ -383,18 +505,18 @@ try {
 }
 
 if (failures.length > 0) {
-  console.error("The vendored anti-slop plugin is not fully wired:\n");
+  console.error("The oxlint plugins are not fully wired:\n");
 
   for (const failure of failures) console.error(`  ${failure}\n`);
   process.exit(1);
 }
 
-const errorCount = driven.filter((r) => PROBES[r].severity === "error").length;
-
-const warnCount = driven.filter((r) => PROBES[r].severity === "warn").length;
+const perPlugin = pluginDirs
+  .map((plugin) => `${plugin}: ${rules.filter((entry) => entry.plugin === plugin).length}`)
+  .join(", ");
 
 console.log(
-  `check-oxlint-plugin: ${vendored.length} vendored rule(s) — ${testsRun} upstream fixture suite(s) pass, ` +
-    `all registered in ${INDEX_FILE}, ${errorCount} at "error" + ${warnCount} at "warn" through .oxlintrc.json ` +
-    `(control snippet clean).`,
+  `check-oxlint-plugin: ${rules.length} rule(s) in ${pluginDirs.length} plugin(s) (${perPlugin}) — ` +
+    `${suitesRun} fixture suite(s) pass (${casesRun} case(s)), all registered, ${driven.length} driven at ` +
+    `"error" through .oxlintrc.json over ${probeFiles} probe file(s) (control snippet clean).`,
 );
