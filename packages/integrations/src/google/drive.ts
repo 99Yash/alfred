@@ -156,7 +156,7 @@ async function getText(
   url: string,
   accessToken: string,
   retry: RetryPolicy | "none",
-  signal?: AbortSignal | undefined,
+  signal?: AbortSignal,
 ): Promise<{ text: string; truncated: boolean; mimeType?: string }> {
   const send = () =>
     fetch(url, {

@@ -35,6 +35,7 @@ where to put a new invariant.
 | An `await` of a non-thenable, `delete` on an array element, `for…in` over an array, a string passed as code to `setTimeout` / `new Function`, unary minus on a non-number, or a default value that can never apply | `typescript/await-thenable`, `no-array-delete`, `no-for-in-array`, `no-implied-eval`, `no-unsafe-unary-minus`, `no-useless-default-assignment` (`error`, type-aware) | `.oxlintrc.json` |
 | `void` on a call that already returns nothing | `typescript/no-meaningless-void-operator` (`error`, type-aware) | `.oxlintrc.json` |
 | A string spread into an array, or a promise, a function, a `Map`, or a class instance spread into an object | `typescript/no-misused-spread` (`error`, type-aware) | `.oxlintrc.json` |
+| A union or intersection that names one type twice, or `\| undefined` on an optional parameter | `typescript/no-duplicate-type-constituents` (`error`, type-aware) | `.oxlintrc.json` |
 | A value imported only for a type position, such as `typeof` | `typescript/consistent-type-imports` (`error`) | `.oxlintrc.json` |
 | A suppression directive with no rule name, or no reason after ` -- ` | `gate: suppression-without-reason` | `scripts/consolidation-rules.mjs` |
 | A spread that only copies, such as `{ ...(x ? { k: x } : {}) }` alone in a literal | `unicorn/no-useless-spread` (`error`) | `.oxlintrc.json` |
@@ -141,6 +142,12 @@ in this list is at `error` and was adopted at zero:
     object. Split a string into code points
     with `Array.from(text)`, not `[...text]`. Do not use `.split("")`, which
     splits UTF-16 units and so changes the result.
+  - `typescript/no-duplicate-type-constituents`: a union or intersection that
+    names the same type twice, such as `typeof Zap | typeof Brain` when both
+    are `LucideIcon`. It also reports `| undefined` on an optional parameter.
+    It does not report `| undefined` on an optional property: with
+    `exactOptionalPropertyTypes` on, `label?: string | undefined` is not
+    redundant, and the rule agrees.
 
 The rules read a test or eval file through its package's `tsconfig.test.json`
 or `tsconfig.eval.json`: the root `tsconfig.json` is a solution file that
@@ -155,8 +162,8 @@ Turning type-aware on also arms the type-aware rules in oxlint's default
 `correctness` set at `warn`. The config sets each of them explicitly, so the run
 reports only the rules it chose: the ones listed above at `error`, and the
 ones that still have hits on the tree `"off"` (`no-base-to-string`,
-`no-duplicate-type-constituents`, `no-redundant-type-constituents`,
-`require-array-sort-compare` and `unbound-method`). The queued follow-ups are those rules and
+`no-redundant-type-constituents`, `require-array-sort-compare` and
+`unbound-method`). The queued follow-ups are those rules and
 `no-unnecessary-condition`. Each lands alone in its own change:
 drive the tree to zero, then set the rule to `error`.
 

@@ -14,7 +14,7 @@ type SourceItem =
       tone?: AppTint | undefined;
     }
   | {
-      integration?: undefined | undefined;
+      integration?: undefined;
       icon: LucideIcon;
       tone: AppTint;
       label: string;
