@@ -51,13 +51,14 @@ function outcomeHeadline(
     case "no_change":
       return { title: "No changes", detail: outcome.summary, tone: "muted" };
     case "deferred": {
-      // A stored code is an open string. A reason this build does not know gets no label.
-      const reason = isRunDeferReason(outcome.code) ? humanizeSlug(outcome.code) : null;
-      const retry = outcome.retryAt ? `Retries ${formatTimestamp(outcome.retryAt)}.` : null;
+      // A stored code is an open string. A code this build does not know shows as stored.
+      const reason = isRunDeferReason(outcome.code) ? humanizeSlug(outcome.code) : outcome.code;
 
       return {
         title: "Deferred",
-        detail: reason && retry ? `${reason}. ${retry}` : (reason ?? retry),
+        detail: outcome.retryAt
+          ? `${reason}. Retries ${formatTimestamp(outcome.retryAt)}.`
+          : reason,
         tone: "amber",
       };
     }
@@ -65,7 +66,7 @@ function outcomeHeadline(
     case "blocked":
       return {
         title: "Blocked",
-        detail: isBlockedRunCode(outcome.code) ? humanizeSlug(outcome.code) : null,
+        detail: isBlockedRunCode(outcome.code) ? humanizeSlug(outcome.code) : outcome.code,
         tone: "amber",
       };
     case "failed":
