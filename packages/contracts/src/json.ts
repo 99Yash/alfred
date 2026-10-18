@@ -1,6 +1,8 @@
 /** JSON parsing that returns a `JsonValue` or a validated value. Never `JSON.parse(raw) as T`. */
 
 import type { z } from "zod";
+
+import { toMessage } from "./errors";
 import type { JsonValue } from "./user-model";
 
 /**
@@ -38,14 +40,17 @@ export function parseJsonWith<T>(
   return result.success ? result.data : fallback;
 }
 
-/** Make a value JSON-safe. `undefined` becomes `null`; cycles and BigInt become `{ unserializable }`. */
+/**
+ * Make a value JSON-safe. `undefined` becomes `null`. A value `JSON.stringify` refuses (a cycle,
+ * a BigInt) becomes `{ unserializable }` with the refusal's message.
+ */
 export function toJsonValue(value: unknown): JsonValue {
   if (value === undefined) return null;
 
   try {
     // SAFETY: text from `JSON.stringify` parses back to a plain JSON value.
     return JSON.parse(JSON.stringify(value)) as JsonValue;
-  } catch {
-    return { unserializable: String(value) };
+  } catch (error) {
+    return { unserializable: toMessage(error) };
   }
 }

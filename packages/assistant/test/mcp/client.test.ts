@@ -302,7 +302,10 @@ describe("McpRawClient catalog", () => {
     let refreshRequests = 0;
 
     const endpointAuthorizer = permissiveMcpEndpointAuthorizerForTests(async (input) => {
-      assert.equal(String(input), "https://auth.example.test/token");
+      assert.equal(
+        String(input instanceof Request ? input.url : input),
+        "https://auth.example.test/token",
+      );
       refreshRequests += 1;
 
       return new Response(

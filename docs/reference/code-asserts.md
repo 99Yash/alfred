@@ -33,6 +33,9 @@ where to put a new invariant.
 | A template literal that interpolates an object, `unknown`, or `never` | `typescript/restrict-template-expressions` (`error`, type-aware) | `.oxlintrc.json` |
 | An `any` that flows into a return, an argument, a call, a member read, or an assignment in TypeScript source | `typescript/no-unsafe-return`, `-argument`, `-call`, `-member-access`, `-assignment` (`error`, type-aware; off for `.mjs`/`.js`/`.cjs`) | `.oxlintrc.json` |
 | An `await` of a non-thenable, `delete` on an array element, `for…in` over an array, a string passed as code to `setTimeout` / `new Function`, unary minus on a non-number, or a default value that can never apply | `typescript/await-thenable`, `no-array-delete`, `no-for-in-array`, `no-implied-eval`, `no-unsafe-unary-minus`, `no-useless-default-assignment` (`error`, type-aware) | `.oxlintrc.json` |
+| A method read as a value (`const f = obj.method`, `.map(obj.method)`), which loses its `this` | `typescript/unbound-method` (`error`, type-aware) | `.oxlintrc.json` |
+| A union member that another member absorbs (`unknown \| X`, `"a" \| string`) | `typescript/no-redundant-type-constituents` (`error`, type-aware) | `.oxlintrc.json` |
+| `String(v)` or a template on a value that may be an object, which prints `[object Object]` | `typescript/no-base-to-string` (`error`, type-aware) | `.oxlintrc.json` |
 | A value imported only for a type position, such as `typeof` | `typescript/consistent-type-imports` (`error`) | `.oxlintrc.json` |
 | A suppression directive with no rule name, or no reason after ` -- ` | `gate: suppression-without-reason` | `scripts/consolidation-rules.mjs` |
 | A spread that only copies, such as `{ ...(x ? { k: x } : {}) }` alone in a literal | `unicorn/no-useless-spread` (`error`) | `.oxlintrc.json` |
@@ -86,7 +89,7 @@ a restated copy or a declared omission per group.
 `.oxlintrc.json` sets `options.typeAware`, so every oxlint run (`pnpm lint`,
 the edit-time hook, the `check:oxlint-config` probe) also runs the rules that
 need type information, through the `oxlint-tsgolint` root devDependency. A
-missing tsgolint binary fails the run instead of skipping the rules. Fifteen
+missing tsgolint binary fails the run instead of skipping the rules. Eighteen
 rules are at `error`, each adopted at zero:
 
 - `typescript/no-floating-promises`, with the `node:test` registrars
@@ -129,6 +132,30 @@ rules are at `error`, each adopted at zero:
   (unary minus on a value that is not a `number` or `bigint`) and
   `no-useless-default-assignment` (a default value for a binding whose type
   does not include `undefined`). They apply to `.mjs`, `.js` and `.cjs` too.
+- `typescript/unbound-method`, default options. A method
+  read as a value (`const f = obj.method`, `.map(obj.method)`, a destructured
+  method) loses its `this`. Bind it (`obj.method.bind(obj)`) or wrap it in an
+  arrow. Declare an interface member that no implementation reads `this` from
+  as a function-typed property (`readonly encode: (name: string) => string`),
+  not a method signature; the rule then has nothing to report. A prototype
+  patch that calls the saved original with `.call(this, …)` carries a
+  directive.
+- `typescript/no-redundant-type-constituents`, default options. A union member
+  that another member absorbs (`unknown | undefined`, `Promise<unknown> |
+  unknown`, `"active" | string`) says nothing to the compiler. Write the wide
+  type and put the intent in the doc comment, or derive the exact union from
+  its source (`Awaited<ReturnType<Job["getState"]>>`). To keep editor
+  completion for known literals in an open string, write
+  `"a" | "b" | (string & {})`; the rule accepts it.
+- `typescript/no-base-to-string`, default options. `String(v)`, `v.toString()`
+  or a template on a value whose type may be an object without its own
+  `toString` prints `[object Object]`. Narrow the value at its boundary when it
+  can only be a primitive at run time (a fetch `input` is
+  `input instanceof Request ? input.url : input`). Otherwise pick the text you
+  mean: `toDisplayText` for a reader, `toMessage` for a caught error,
+  `JSON.stringify` for a `JsonValue`. The one directive is the
+  `rejected_inferences` hash in `knowledge/signature.ts`, whose stored hashes
+  depend on the `String(value)` fallback.
 
 The rules read a test or eval file through its package's `tsconfig.test.json`
 or `tsconfig.eval.json`: the root `tsconfig.json` is a solution file that
@@ -141,12 +168,12 @@ directive check reports it if it outlives the errors.
 
 Turning type-aware on also arms the type-aware rules in oxlint's default
 `correctness` set at `warn`. The config sets each of them explicitly, so the run
-reports only the rules it chose: the six above at `error`, and the seven that
-still have hits on the tree `"off"` (`no-base-to-string`,
-`no-duplicate-type-constituents`, `no-meaningless-void-operator`,
-`no-misused-spread`, `no-redundant-type-constituents`,
-`require-array-sort-compare` and `unbound-method`). The queued follow-ups are
-those seven and `no-unnecessary-condition`. Each lands alone in its own change:
+reports only the rules it chose: the six above, `unbound-method`,
+`no-redundant-type-constituents` and `no-base-to-string` at `error`, and the
+ones that still have hits on the tree `"off"`
+(`no-duplicate-type-constituents`, `no-meaningless-void-operator`,
+`no-misused-spread` and `require-array-sort-compare`). The queued follow-ups
+are those and `no-unnecessary-condition`. Each lands alone in its own change:
 drive the tree to zero, then set the rule to `error`.
 
 These are the cheap place for a new invariant **if it can be phrased as a

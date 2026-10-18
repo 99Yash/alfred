@@ -5,8 +5,8 @@ type ToolNameEncoding = "double-underscore" | "identity";
 export interface ToolNameCodec {
   readonly encoding: ToolNameEncoding;
   readonly maxLen: number;
-  encode(name: string): string;
-  decode(name: string): string;
+  readonly encode: (name: string) => string;
+  readonly decode: (name: string) => string;
 }
 
 function encodeToolName(name: string, encoding: ToolNameEncoding): string {

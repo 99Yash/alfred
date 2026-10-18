@@ -34,10 +34,15 @@ const COMMIT = process.argv.includes("--commit");
 async function processUser(u: { userId: string; email: string }): Promise<void> {
   console.log(`\n=== ${u.email} (user=${u.userId}) ===`);
 
-  const result = await backfillTeamGraph(u.userId, u.email, gmailSenderAdapter.correspondents, {
-    commit: COMMIT,
-    maxDocs: Number.isFinite(MAX_DOCS) ? MAX_DOCS : 5000,
-  });
+  const result = await backfillTeamGraph(
+    u.userId,
+    u.email,
+    (metadata) => gmailSenderAdapter.correspondents(metadata),
+    {
+      commit: COMMIT,
+      maxDocs: Number.isFinite(MAX_DOCS) ? MAX_DOCS : 5000,
+    },
+  );
 
   // The blocked count is exact after a commit and an estimate (`~B`) on a dry run.
   const blockedLabel = result.persisted

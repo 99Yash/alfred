@@ -33,7 +33,7 @@ const jobDataSchema = z.object({
 
 type ConversationCompactionJobData = z.infer<typeof jobDataSchema>;
 
-type ExistingJobState = "active" | "waiting" | "delayed" | string;
+type ExistingJobState = Awaited<ReturnType<Job["getState"]>>;
 
 export interface ConversationCompactionQueueDependencies {
   enabled?: () => boolean;

@@ -307,13 +307,13 @@ function composeHealthAlertEmail(result: MetricResult): HealthAlertEmail {
   const subject = `[Alfred health] ${result.metric} drift`;
 
   const detailLines = Object.entries(result.detail)
-    .map(([k, v]) => `${k}: ${JSON.stringify(v) ?? String(v)}`)
+    .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
     .join("\n");
 
   const text = `${result.summary}\n\nthreshold: ${result.threshold}\nvalue: ${result.value}\n\n${detailLines}`;
 
   const htmlDetailLines = Object.entries(result.detail)
-    .map(([k, v]) => `${escapeHtml(k)}: ${escapeHtml(JSON.stringify(v) ?? String(v))}`)
+    .map(([k, v]) => `${escapeHtml(k)}: ${escapeHtml(JSON.stringify(v))}`)
     .join("\n");
 
   const html =

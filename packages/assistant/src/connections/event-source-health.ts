@@ -29,7 +29,7 @@ export type EventSourceHealth =
   | {
       grain: "account";
       accounts: EventDeliveryAccounts;
-      healthOf(row: ProviderAvailability): EventDeliveryHealth;
+      healthOf: (row: ProviderAvailability) => EventDeliveryHealth;
     };
 
 export type EventSourceHealthMap = Readonly<Record<EventSource, EventSourceHealth>>;

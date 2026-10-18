@@ -1556,8 +1556,10 @@ export function deadExemptionFailures(root) {
         stdio: ["ignore", "pipe", "pipe"],
       });
     } catch (error) {
-      const captured = /** @type {{ stdout?: unknown }} */ (error);
-      stdout = String(captured?.stdout ?? "");
+      const captured = /** @type {{ stdout?: unknown }} */ (error)?.stdout;
+
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- normalizes exec-error stdout; the shape read IS the boundary parse
+      stdout = typeof captured === "string" ? captured : "";
     }
 
     let report;

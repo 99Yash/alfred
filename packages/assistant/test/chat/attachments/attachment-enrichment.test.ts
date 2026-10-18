@@ -1,4 +1,3 @@
-/* oxlint-disable typescript/no-unsafe-member-access -- this file sits in the tsconfig.test.json typecheck baseline: `persist` is read off a possibly undefined dependency type, so the type-aware rules read compiler error types. Delete this line with the baseline entry. */
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
@@ -8,6 +7,7 @@ import {
   enrichClaimedChatAttachment,
   estimateAttachmentEnrichmentCostMicrousd,
   mediaModalityForMime,
+  type persistChatAttachmentRepresentation,
   selectAttachmentsWithinEnrichmentBudget,
   shouldStartMediaEnrichment,
 } from "@alfred/assistant/chat/attachments/attachment-enrichment";
@@ -71,9 +71,7 @@ describe("chat attachment enrichment", () => {
   });
 
   test("persists one generated representation with the successful route provenance", async () => {
-    let persisted:
-      | Parameters<NonNullable<Parameters<typeof enrichClaimedChatAttachment>[1]["persist"]>>[0]
-      | undefined;
+    let persisted: Parameters<typeof persistChatAttachmentRepresentation>[0] | undefined;
 
     const result = await enrichClaimedChatAttachment(
       { attachmentId: "att_1", estimatedCostMicrousd: 12_000, attribution: { runId: "run_1" } },

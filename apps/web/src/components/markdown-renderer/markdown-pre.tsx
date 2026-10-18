@@ -1,3 +1,4 @@
+import { isNonEmptyString } from "@alfred/contracts";
 import { Children, isValidElement, type ReactNode } from "react";
 import type { Components } from "react-markdown";
 import { CodeBlock } from "./code-block";
@@ -19,7 +20,9 @@ export const MarkdownPre: NonNullable<Components["pre"]> = ({ node: _node, child
     | undefined;
 
   if (child) {
-    const code = String(child.props.children ?? "").replace(/\n$/, "");
+    // react-markdown hands a fenced block's text to `<code>` as one string.
+    const source = child.props.children;
+    const code = (isNonEmptyString(source) ? source : "").replace(/\n$/, "");
 
     return <CodeBlock language={languageOf(child.props.className)} code={code} />;
   }

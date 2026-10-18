@@ -3,6 +3,7 @@ import { after, afterEach, before, describe, test } from "node:test";
 
 import {
   CONTEXT_SEARCH_DEFAULT_LIMIT,
+  getStringPath,
   isRecord,
   parseIanaTimezone,
   type EvidenceCard,
@@ -231,7 +232,7 @@ describe("system.search_context", () => {
       assert.ok(isRecord(part.output.value.result));
       assert.equal(part.output.value.result.ok, true);
       assert.match(
-        String(part.output.value.result.text ?? ""),
+        getStringPath(part.output.value.result, "text") ?? "",
         /The contract clause is section 12\./,
       );
     } finally {

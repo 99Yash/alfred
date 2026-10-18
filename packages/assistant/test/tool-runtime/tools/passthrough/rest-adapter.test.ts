@@ -25,7 +25,8 @@ async function withMockedFetch<T>(
   const capture: FetchCapture = { url: undefined, init: undefined };
   const original = globalThis.fetch;
   globalThis.fetch = (async (input, init) => {
-    capture.url = input instanceof URL ? input : new URL(String(input));
+    capture.url =
+      input instanceof URL ? input : new URL(input instanceof Request ? input.url : input);
     capture.init = init;
 
     return handler(capture);
