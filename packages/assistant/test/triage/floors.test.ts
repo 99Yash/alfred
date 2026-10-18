@@ -281,7 +281,7 @@ describe("applyFloors — demote, never bury", () => {
       assert.equal(out.category, "fyi");
       assert.equal(out.todoSuggestion, null);
       assert.equal(out.todoDecision?.outcome, "no_obligation");
-      assert.match(out.todoDecision?.note ?? "", /_floor: /);
+      assert.match(out.todoDecision.note ?? "", /_floor: /);
       assert.match(out.rationale, /— demoted \w+ → fyi \(demote, never bury\)\.$/);
     });
   }

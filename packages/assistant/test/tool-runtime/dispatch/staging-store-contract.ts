@@ -170,11 +170,11 @@ export function runStagingStoreContract(
       });
 
       assert.equal(promoted?.riskTier, "high");
-      assert.equal(promoted?.requiresApproval, true);
-      assert.deepEqual(promoted?.proposedInput, { slug: "calendar" });
-      assert.equal(promoted?.proposedInputHash, "hash_promoted");
-      assert.deepEqual(promoted?.notifyAfterAt, notifyAfterAt);
-      assert.deepEqual(promoted?.expiresAt, expiresAt);
+      assert.equal(promoted.requiresApproval, true);
+      assert.deepEqual(promoted.proposedInput, { slug: "calendar" });
+      assert.equal(promoted.proposedInputHash, "hash_promoted");
+      assert.deepEqual(promoted.notifyAfterAt, notifyAfterAt);
+      assert.deepEqual(promoted.expiresAt, expiresAt);
       // Promotion rewrites raw and display input together. `StagingRow` lacks them, so use
       // `readBack`.
       const promotedBack = await h.readBack(row.id);
@@ -324,13 +324,13 @@ export function runStagingStoreContract(
 
       const stored = await h.readBack(row.id);
       assert.equal(stored?.status, "failed");
-      assert.equal(stored?.outcome, "failed", "the failed arm records the failed outcome");
-      assert.deepEqual(stored?.executeError, error);
-      assert.equal(stored?.executedAt?.getTime(), executedAt.getTime());
-      assert.equal(stored?.executeResult, null, "the failed arm writes no result");
-      assert.equal(stored?.executeSanitized, false, "the failed arm writes no sanitize verdict");
+      assert.equal(stored.outcome, "failed", "the failed arm records the failed outcome");
+      assert.deepEqual(stored.executeError, error);
+      assert.equal(stored.executedAt?.getTime(), executedAt.getTime());
+      assert.equal(stored.executeResult, null, "the failed arm writes no result");
+      assert.equal(stored.executeSanitized, false, "the failed arm writes no sanitize verdict");
       assert.equal(
-        stored?.rowVersion,
+        stored.rowVersion,
         (seeded?.rowVersion ?? 0) + 1,
         "a commit bumps row_version exactly once",
       );
@@ -353,15 +353,15 @@ export function runStagingStoreContract(
 
       const stored = await h.readBack(row.id);
       assert.equal(stored?.status, "executed");
-      assert.equal(stored?.outcome, "succeeded", "an executed row declares its outcome");
-      assert.deepEqual(stored?.executeResult, { ok: true });
+      assert.equal(stored.outcome, "succeeded", "an executed row declares its outcome");
+      assert.deepEqual(stored.executeResult, { ok: true });
       assert.equal(
-        stored?.executeSanitized,
+        stored.executeSanitized,
         true,
         "the verdict must survive so the idempotent replay can re-emit the notice",
       );
-      assert.equal(stored?.executeError, null, "the executed arm writes no error");
-      assert.equal(stored?.rowVersion, (seeded?.rowVersion ?? 0) + 1);
+      assert.equal(stored.executeError, null, "the executed arm writes no error");
+      assert.equal(stored.rowVersion, (seeded?.rowVersion ?? 0) + 1);
     });
 
     test("commitStaging executed stores an undefined result as null, not as absent", async () => {
@@ -380,7 +380,7 @@ export function runStagingStoreContract(
 
       const stored = await h.readBack(row.id);
       assert.equal(stored?.status, "executed");
-      assert.equal(stored?.executeResult, null);
+      assert.equal(stored.executeResult, null);
     });
 
     test("commitStaging cannot overwrite a row advanced after it was observed", async () => {
@@ -412,8 +412,8 @@ export function runStagingStoreContract(
 
       const stored = await h.readBack(row.id);
       assert.equal(stored?.status, "executed");
-      assert.equal(stored?.outcome, "succeeded");
-      assert.deepEqual(stored?.executeResult, { ok: true });
+      assert.equal(stored.outcome, "succeeded");
+      assert.deepEqual(stored.executeResult, { ok: true });
     });
 
     test("upsertStaging honours a non-default status and requiresApproval on insert", async () => {

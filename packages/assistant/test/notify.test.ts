@@ -94,7 +94,7 @@ describe("delivery.send (DB-backed)", { skip: SKIP }, () => {
     assert.equal(result.status, "sent");
     assert.equal(calls.length, 1);
     assert.equal(calls[0]?.options?.idempotencyKey, idempotencyKey);
-    assert.equal(calls[0]?.payload.headers?.["X-Alfred-Idempotency-Key"], idempotencyKey);
+    assert.equal(calls[0].payload.headers?.["X-Alfred-Idempotency-Key"], idempotencyKey);
   });
 
   test("a second send with the same key is a duplicate — at most one email per key", async () => {
@@ -147,8 +147,6 @@ describe("delivery.send (DB-backed)", { skip: SKIP }, () => {
 
     assert.equal(result.status, "failed");
 
-    if (result.status === "failed") {
-      assert.match(result.error, /rate_limit_exceeded/);
-    }
+    assert.match(result.error, /rate_limit_exceeded/);
   });
 });

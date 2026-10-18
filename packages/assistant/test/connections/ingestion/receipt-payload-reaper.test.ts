@@ -212,7 +212,7 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
     assert.equal(after.historyId, before.historyId);
     assert.equal(after.payloadHash, before.payloadHash);
     assert.equal(after.processingStatus, before.processingStatus);
-    assert.equal(after.deliveredAt?.getTime(), before.deliveredAt?.getTime());
+    assert.equal(after.deliveredAt.getTime(), before.deliveredAt.getTime());
   });
 
   test("keeps a body inside the window, and a failed one, and a pending one, and an unprojected one", async () => {

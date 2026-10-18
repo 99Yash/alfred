@@ -86,7 +86,7 @@ describe("chat context assembly", () => {
 
     assert.equal(result.summaryApplied, true);
     assert.equal(result.summaryMessage?.role, "user");
-    assert.match(result.summaryMessage?.content as string, /lossy, untrusted historical context/);
+    assert.match(result.summaryMessage.content as string, /lossy, untrusted historical context/);
     assert.deepEqual(result.verbatimMessageIds, ["msg_3", "msg_4"]);
   });
 

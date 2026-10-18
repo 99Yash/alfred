@@ -300,15 +300,15 @@ describe("generic execution contract (DB/Redis-backed)", { skip: SKIP }, () => {
     assert.equal(first.kind, "deferred", "attempt 0 parks the run on a bounded retry");
     const parked = await getRun(runId, userId);
     assert.equal(parked?.status, "deferred");
-    assert.equal(parked?.attempt, 1, "the defer commit bumped the attempt");
+    assert.equal(parked.attempt, 1, "the defer commit bumped the attempt");
 
     const second = await runOnce(runId);
     assert.equal(second.kind, "completed", "the retry attempt runs the same step and completes");
 
     const done = await getRun(runId, userId);
     assert.equal(done?.status, "completed");
-    assert.equal(done?.attempt, 1);
-    assert.deepEqual(done?.output, { retriedAt: 1 }, "the terminal output is the retry's result");
+    assert.equal(done.attempt, 1);
+    assert.deepEqual(done.output, { retriedAt: 1 }, "the terminal output is the retry's result");
     assert.deepEqual(
       attemptsFor(runId),
       [0, 1],
@@ -325,7 +325,7 @@ describe("generic execution contract (DB/Redis-backed)", { skip: SKIP }, () => {
     const waiting = await getRun(runId, userId);
     assert.equal(waiting?.status, "waiting");
     assert.deepEqual(
-      waiting?.wakeCondition,
+      waiting.wakeCondition,
       { kind: "signal", name: SIGNAL_NAME },
       "the wake condition is persisted for the signal to match",
     );
@@ -338,7 +338,7 @@ describe("generic execution contract (DB/Redis-backed)", { skip: SKIP }, () => {
     assert.equal(woken, true, "the matching signal wakes the run");
     const runnable = await getRun(runId, userId);
     assert.equal(runnable?.status, "runnable");
-    assert.equal(runnable?.wakeCondition, null, "the wake condition is cleared on wake");
+    assert.equal(runnable.wakeCondition, null, "the wake condition is cleared on wake");
 
     const resumed = await runOnce(runId);
     assert.equal(resumed.kind, "completed", "the resumed attempt completes the run");
@@ -354,9 +354,9 @@ describe("generic execution contract (DB/Redis-backed)", { skip: SKIP }, () => {
 
     const run = await getRun(runId, userId);
     assert.equal(run?.status, "cancelled", "the run is terminal");
-    assert.equal(run?.wakeCondition, null, "the cancel nulls the wake condition");
+    assert.equal(run.wakeCondition, null, "the cancel nulls the wake condition");
     assert.equal(
-      run?.cancellationGeneration,
+      run.cancellationGeneration,
       1,
       "#559b: cancel advances the monotonic cancellation fence exactly once",
     );
@@ -394,7 +394,7 @@ describe("generic execution contract (DB/Redis-backed)", { skip: SKIP }, () => {
 
     const run = await getRun(runId, userId);
     assert.equal(run?.status, "completed");
-    assert.deepEqual(run?.output, { done: true }, "the terminal output is persisted");
+    assert.deepEqual(run.output, { done: true }, "the terminal output is persisted");
     assert.deepEqual(
       terminalCalls,
       [],
@@ -415,7 +415,7 @@ describe("generic execution contract (DB/Redis-backed)", { skip: SKIP }, () => {
     const run = await getRun(runId, userId);
     assert.equal(run?.status, "failed");
     assert.equal(
-      getStringPath(run?.error, "message"),
+      getStringPath(run.error, "message"),
       "exec-contract intentional failure",
       "the sanitized failure message is persisted",
     );
@@ -459,7 +459,7 @@ describe("generic execution contract (DB/Redis-backed)", { skip: SKIP }, () => {
     const leased = await leaseRun(runId);
     assert.equal(leased.kind, "leased", "the stale running row is reclaimed");
     assert.equal(
-      leased.kind === "leased" ? leased.attempt : undefined,
+      leased.attempt,
       4,
       "the reclaim bumps the attempt so the next step row cannot collide",
     );
@@ -471,7 +471,7 @@ describe("generic execution contract (DB/Redis-backed)", { skip: SKIP }, () => {
 
     assert.equal(orphan[0]?.status, "failed", "the orphan step row is marked failed for audit");
     assert.equal(
-      getStringPath(orphan[0]?.reason, "reason"),
+      getStringPath(orphan[0].reason, "reason"),
       "lease_reclaimed",
       "with the structured lease-reclaim marker",
     );

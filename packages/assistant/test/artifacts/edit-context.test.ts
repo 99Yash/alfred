@@ -218,8 +218,8 @@ test("chat's prod system prompt states no date — the runtime line is the singl
     formatRuntimeTimeGrounding("Asia/Calcutta", new Date("2026-07-14T02:50:11.451Z")),
   );
 
-  assert.equal(reference?.role, "assistant");
-  assert.match(String(reference?.content), /Current date and time: Tuesday, 14 July 2026/);
+  assert.equal(reference.role, "assistant");
+  assert.match(String(reference.content), /Current date and time: Tuesday, 14 July 2026/);
 });
 
 test("chat persists system stability across short-lived AlfredAgent instances", () => {

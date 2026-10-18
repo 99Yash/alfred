@@ -638,8 +638,6 @@
         "apps/web/test/**",
         "packages/ai/test/**",
         "packages/artifacts-design/test/**",
-        "packages/assistant/evals/**",
-        "packages/assistant/test/**",
         "packages/auth/test/**",
         "packages/contracts/test/**",
         "packages/corpus/test/**",

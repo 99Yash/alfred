@@ -55,7 +55,7 @@ describe("sub-agent chat origin", () => {
     // A cron brief spawns children with no thread. They run without a trail.
     const meta = readSubAgentMetadata({ subAgent: base });
     assert.equal(meta?.parentRunId, "run_parent");
-    assert.equal(meta?.chat, undefined);
+    assert.equal(meta.chat, undefined);
   });
 
   test("a partial chat origin is rejected rather than half-published", () => {

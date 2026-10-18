@@ -92,7 +92,7 @@ describe("conversation compaction queue", () => {
     assert.equal(result, "scheduled");
     assert.equal(removed, true);
     assert.equal(added?.jobId, "conversation-compact.thread.1");
-    assert.deepEqual(added?.data, {
+    assert.deepEqual(added.data, {
       kind: "conversation.compact",
       userId: "user_1",
       threadId: "thread:1",
@@ -125,6 +125,6 @@ describe("conversation compaction queue", () => {
       /redis unavailable/,
     );
     assert.equal(failure?.expectedGeneration, 7);
-    assert.equal(failure?.category, "enqueue_failed");
+    assert.equal(failure.category, "enqueue_failed");
   });
 });

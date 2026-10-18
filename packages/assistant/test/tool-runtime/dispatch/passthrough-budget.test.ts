@@ -165,7 +165,7 @@ describe("passthrough per-run ceiling (DB-backed)", { skip: SKIP }, () => {
     const result = await dispatchGithubRequest(userId, runId, PASSTHROUGH_PER_RUN_CEILING + 1);
 
     assert.equal(result.kind, "executed", "the guard commits a normal executed result");
-    const toolResult = result.kind === "executed" ? result.toolResult : undefined;
+    const toolResult = result.toolResult;
     assert.ok(isRecord(toolResult), "the executed result carries the envelope");
     assert.equal(toolResult.outcome, "budget_exhausted");
     assert.equal(toolResult.callsThisRun, PASSTHROUGH_PER_RUN_CEILING);
@@ -184,7 +184,7 @@ describe("passthrough per-run ceiling (DB-backed)", { skip: SKIP }, () => {
     const result = await dispatchGithubRequest(userId, runId, PASSTHROUGH_PER_RUN_CEILING);
 
     assert.equal(result.kind, "executed");
-    const toolResult = result.kind === "executed" ? result.toolResult : undefined;
+    const toolResult = result.toolResult;
     assert.ok(isRecord(toolResult));
     assert.notEqual(toolResult.outcome, "budget_exhausted", "one below the cap still runs");
     assert.equal(executeCount, 1, "the double actually executed");

@@ -93,7 +93,6 @@ describe("the declared tool contract is enforced at the dispatch floor", () => {
     assert.equal(result.kind, "not_allowed");
     assert.equal(executions, 0);
 
-    if (result.kind !== "not_allowed") return;
     assert.match(result.result.message, /boss caller/);
   });
 
@@ -128,7 +127,6 @@ describe("the declared tool contract is enforced at the dispatch floor", () => {
     assert.equal(result.kind, "not_allowed");
     assert.equal(executions, 0);
 
-    if (result.kind !== "not_allowed") return;
     assert.match(result.result.message, /live chat/);
   });
 
@@ -177,7 +175,6 @@ describe("the declared tool contract is enforced at the dispatch floor", () => {
 
     assert.equal(result.kind, "not_allowed");
 
-    if (result.kind !== "not_allowed") return;
     assert.match(result.result.message, /boss caller/);
   });
 
@@ -227,7 +224,7 @@ describe("the declared tool contract is enforced at the dispatch floor", () => {
     });
 
     assert.equal(result.kind, "executed");
-    assert.deepEqual(result.kind === "executed" ? result.toolResult : undefined, {
+    assert.deepEqual(result.toolResult, {
       at: "2026-08-10T00:00:00.000Z",
       items: [null, "kept"],
     });

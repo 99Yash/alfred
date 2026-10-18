@@ -219,7 +219,6 @@ describe("workflow readiness", () => {
 
     assert.equal(result.ok, false);
 
-    if (result.ok) return;
     assert.equal(
       result.problems.some((problem) => problem.code === "tool_without_capability"),
       true,
@@ -243,12 +242,10 @@ describe("workflow readiness", () => {
 
     assert.equal(validated.ok, false);
 
-    if (!validated.ok) {
-      assert.equal(
-        validated.problems.some((problem) => problem.code === "ambiguous_tool_capability"),
-        true,
-      );
-    }
+    assert.equal(
+      validated.problems.some((problem) => problem.code === "ambiguous_tool_capability"),
+      true,
+    );
 
     assert.equal(
       resolveWorkflowReadiness({ definition: candidate, availability: gmailAvailability }).some(

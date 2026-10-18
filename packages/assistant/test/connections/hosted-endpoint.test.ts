@@ -72,7 +72,7 @@ describe("hostedEndpointErrorFrom", () => {
     const hosted = hostedEndpointErrorFrom(wrapped);
 
     assert.equal(hosted?.code, "blocked_host");
-    assert.match(hosted?.message ?? "", /rebind\.example.*10\.0\.0\.5/);
+    assert.match(hosted.message, /rebind\.example.*10\.0\.0\.5/);
   });
 
   test("passes a URL-level refusal through and ignores unrelated errors", () => {
@@ -293,7 +293,7 @@ describe("guarded fetch", () => {
 
     const guarded = createGuardedFetch({
       requester: async (input, init) => {
-        seen.push({ url: String(input), headers: new Headers(init?.headers) });
+        seen.push({ url: String(input), headers: new Headers(init.headers) });
 
         return seen.length === 1
           ? new Response(null, {
@@ -328,7 +328,7 @@ describe("guarded fetch", () => {
       "tracestate",
       "x-api-key",
     ]) {
-      assert.equal(seen[1]?.headers.has(name), false, name);
+      assert.equal(seen[1].headers.has(name), false, name);
     }
   });
 
@@ -361,7 +361,7 @@ describe("guarded fetch", () => {
 
     // And that signal is wired to the caller's cancellation, not a fresh one.
     controller.abort();
-    assert.equal(seen[1]?.aborted, true);
+    assert.equal(seen[1].aborted, true);
   });
 
   test("carries an init signal and invents none when neither route supplies one", async () => {
@@ -407,7 +407,7 @@ describe("guarded fetch", () => {
     await guarded(request, { signal: initController.signal });
     assert.equal(seen[0], initController.signal, "a supplied init.signal replaces the Request's");
     requestController.abort();
-    assert.equal(seen[0]?.aborted, false, "the Request's signal is not the effective one");
+    assert.equal(seen[0].aborted, false, "the Request's signal is not the effective one");
 
     // An explicit `null` is supplied, so it must not fall back to the Request's signal.
     await guarded(request, { signal: null });
@@ -432,7 +432,7 @@ describe("guarded fetch", () => {
     );
 
     assert.equal(seen[0]?.get("x-init"), "init");
-    assert.equal(seen[0]?.has("x-request"), false);
+    assert.equal(seen[0].has("x-request"), false);
   });
 
   test("falls back to a Request's headers when init supplies none", async () => {

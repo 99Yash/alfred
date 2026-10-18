@@ -96,10 +96,10 @@ describe("synchronous conversation compaction", () => {
     ]);
 
     assert.equal(result.kind, "persisted");
-    assert.equal(result.kind === "persisted" ? result.estimatedReplayTokens : -1, expectedTokens);
+    assert.equal(result.estimatedReplayTokens, expectedTokens);
     assert.equal(persistedArgs?.estimatedReplayTokens, expectedTokens);
-    assert.equal(persistedArgs?.expectedGeneration, 0);
-    assert.equal(persistedArgs?.expectedWatermark, null);
+    assert.equal(persistedArgs.expectedGeneration, 0);
+    assert.equal(persistedArgs.expectedWatermark, null);
   });
 
   test("an invalid persisted summary rebuilds from raw history but CAS-checks its old state", async () => {
@@ -139,7 +139,7 @@ describe("synchronous conversation compaction", () => {
     );
     assert.equal(loadedAfter, null);
     assert.equal(persistedArgs?.expectedGeneration, 3);
-    assert.deepEqual(persistedArgs?.expectedWatermark, staleWatermark);
+    assert.deepEqual(persistedArgs.expectedWatermark, staleWatermark);
   });
 
   test("reports a losing compare-and-swap without claiming persistence", async () => {

@@ -24,8 +24,8 @@ test("every registered tool input schema has a top-level object type", () => {
     for (const t of listToolsForIntegration(slug)) {
       const json = asSchema(t.inputSchema as never).jsonSchema as { type?: unknown };
 
-      if (json?.type !== "object") {
-        offenders.push(`${t.name} (type=${JSON.stringify(json?.type)})`);
+      if (json.type !== "object") {
+        offenders.push(`${t.name} (type=${JSON.stringify(json.type)})`);
       }
     }
   }

@@ -194,10 +194,6 @@ function onlyObservation(observations: readonly ObservationInsertInput[]): Obser
 function emailSubjectValue(observation: ObservationInsert): string {
   assert.equal(observation.subjectIdentity.kind, "email");
 
-  if (observation.subjectIdentity.kind !== "email") {
-    throw new Error("expected email subject identity");
-  }
-
   return observation.subjectIdentity.value;
 }
 

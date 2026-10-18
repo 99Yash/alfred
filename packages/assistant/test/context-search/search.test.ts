@@ -31,7 +31,7 @@ describe("searchContext — card validation at the boundary", () => {
 
       assert.equal(result.evidence.length, 1);
       assert.equal(result.sources[0]?.status, "ok");
-      assert.equal(result.sources[0]?.evidenceCount, 1);
+      assert.equal(result.sources[0].evidenceCount, 1);
     } finally {
       dispose();
     }
@@ -58,7 +58,7 @@ describe("searchContext — card validation at the boundary", () => {
 
       assert.equal(result.evidence.length, 0);
       assert.equal(result.sources[0]?.status, "error");
-      assert.equal(result.sources[0]?.evidenceCount, 0);
+      assert.equal(result.sources[0].evidenceCount, 0);
     } finally {
       dispose();
     }

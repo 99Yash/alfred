@@ -178,7 +178,7 @@ describe("startRunInTx claims, persists, then enqueues (DB/Redis-backed)", { ski
     });
 
     assert.ok(result, "committed claim should resolve a run result");
-    assert.equal(result?.created, true);
+    assert.equal(result.created, true);
     assert.equal(enqueuedWhileClaimRan, false, "enqueue must not fire before commit");
 
     const rows = await db()

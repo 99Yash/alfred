@@ -128,8 +128,6 @@ describe("createArtifact message_id FK ordering", { skip: SKIP }, () => {
 
     assert.equal(result.ok, true);
 
-    if (!result.ok) return;
-
     await finalizeRunArtifacts(userId, runId, `missing-${randomUUID()}`, "complete");
 
     const [row] = await db()

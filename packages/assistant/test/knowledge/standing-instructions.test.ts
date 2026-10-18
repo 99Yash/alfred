@@ -61,11 +61,8 @@ describe("senderSuppressions match", () => {
     );
 
     assert.equal(outcome.kind, "suppressed");
-    assert.equal(outcome.kind === "suppressed" ? outcome.match.factId : null, "fact_1");
-    assert.equal(
-      outcome.kind === "suppressed" ? outcome.match.matchedEmail : null,
-      "ben@example.com",
-    );
+    assert.equal(outcome.match.factId, "fact_1");
+    assert.equal(outcome.match.matchedEmail, "ben@example.com");
   });
 
   test("honors account-specific suppressions when present", () => {

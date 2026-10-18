@@ -257,7 +257,6 @@ async function seedRecoverableWrite(protocol: FakeProtocol) {
 
   assert.equal(first.status, "ambiguous");
 
-  if (first.status !== "ambiguous") throw new Error("unreachable");
   await db()
     .update(actionStagings)
     .set({ status: "executed", outcome: "unknown" })
@@ -293,7 +292,7 @@ async function assertPriorRecoveryBarriersUnchanged(input: {
     .where(eq(mcpInvocation.successorOf, input.invocationId));
 
   assert.equal(prior?.resolvedAt, null);
-  assert.equal(prior?.effectOutcome, "unknown");
+  assert.equal(prior.effectOutcome, "unknown");
   assert.equal(staging?.outcome, "unknown");
   assert.equal(successors.length, 0);
 }
@@ -343,7 +342,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     const outcome = await broker.callTool({ userId, stagingId, ref, arguments: {} });
 
     assert.equal(outcome.status, "completed");
-    assert.ok(outcome.status === "completed" && outcome.invocationId);
+    assert.ok(outcome.invocationId);
     const [invocation] = await invocationsForStaging(stagingId);
 
     assert.ok(invocation);
@@ -429,9 +428,9 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     assert.equal(outcome.status, "completed");
     const [row] = await invocationsForStaging(stagingId);
     assert.equal(row?.effectClass, "unknown");
-    assert.equal(row?.attemptLifecycle, "response_received");
-    assert.equal(row?.effectOutcome, "succeeded");
-    assert.ok(row?.resolvedAt);
+    assert.equal(row.attemptLifecycle, "response_received");
+    assert.equal(row.effectOutcome, "succeeded");
+    assert.ok(row.resolvedAt);
   });
 
   test("a tool_error after application stays ambiguous and blocks an ordinary repeat", async () => {
@@ -465,8 +464,8 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     assert.equal(appliedEffects, 1, "the provider applied the effect before returning isError");
     const [row] = await invocationsForStaging(stagingId);
     assert.equal(row?.effectOutcome, "unknown");
-    assert.equal(row?.retryDisposition, "blocked");
-    assert.equal(row?.resolvedAt, null);
+    assert.equal(row.retryDisposition, "blocked");
+    assert.equal(row.resolvedAt, null);
 
     const repeated = await broker.callTool({
       userId,
@@ -511,7 +510,6 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
 
     assert.equal(first.status, "ambiguous");
 
-    if (first.status !== "ambiguous") throw new Error("unreachable");
     assert.ok(first.invocationId);
 
     // The row is unresolved: unknown outcome, blocked disposition, no resolvedAt.
@@ -521,8 +519,8 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       .where(eq(mcpInvocation.id, first.invocationId));
 
     assert.equal(row?.effectOutcome, "unknown");
-    assert.equal(row?.retryDisposition, "blocked");
-    assert.equal(row?.resolvedAt, null);
+    assert.equal(row.retryDisposition, "blocked");
+    assert.equal(row.resolvedAt, null);
 
     // An identical proposal (fresh staging row) is refused by the barrier and never reaches the transport.
     const callsBefore = protocol.calls;
@@ -536,7 +534,6 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
 
     assert.equal(second.status, "blocked");
 
-    if (second.status !== "blocked") throw new Error("unreachable");
     assert.equal(second.reason, "ambiguity_barrier");
     assert.equal(second.priorInvocationId, first.invocationId);
     assert.equal(protocol.calls, callsBefore, "the blocked repeat must not be dispatched");
@@ -569,8 +566,8 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     assert.equal(outcome.status, "ambiguous");
     const [row] = await invocationsForStaging(stagingId);
     assert.equal(row?.effectOutcome, "unknown");
-    assert.equal(row?.retryDisposition, "blocked");
-    assert.equal(row?.resolvedAt, null);
+    assert.equal(row.retryDisposition, "blocked");
+    assert.equal(row.resolvedAt, null);
     assert.equal(protocol.calls, 1);
   });
 
@@ -648,7 +645,6 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
 
     assert.equal(firstOutcome.status, "ambiguous");
 
-    if (firstOutcome.status !== "ambiguous") throw new Error("unreachable");
     assert.equal(protocol.calls, 1, "exactly one outbound tools/call");
 
     const [row] = await db()
@@ -658,9 +654,9 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
 
     // The lifecycle stops at the delivery boundary, and the row stays unresolved so the barrier holds.
     assert.equal(row?.attemptLifecycle, "delivery_possible");
-    assert.equal(row?.effectOutcome, "unknown");
-    assert.equal(row?.retryDisposition, "blocked");
-    assert.equal(row?.resolvedAt, null);
+    assert.equal(row.effectOutcome, "unknown");
+    assert.equal(row.retryDisposition, "blocked");
+    assert.equal(row.resolvedAt, null);
 
     // A fresh manager and broker truly reconnect. The fake would now succeed, so the block is the barrier.
     protocol.behavior = { kind: "ok" };
@@ -675,7 +671,6 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
 
     assert.equal(second.status, "blocked");
 
-    if (second.status !== "blocked") throw new Error("unreachable");
     assert.equal(second.reason, "ambiguity_barrier");
     assert.equal(second.priorInvocationId, firstOutcome.invocationId);
     assert.equal(protocol.calls, 1, "reconnect must not replay a possibly-delivered write");
@@ -720,7 +715,6 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     const first = await firstBroker.callTool({ userId, stagingId, ref, arguments: args });
     assert.equal(first.status, "ambiguous");
 
-    if (first.status !== "ambiguous") throw new Error("unreachable");
     await db()
       .update(actionStagings)
       .set({ status: "executed", outcome: "unknown" })
@@ -765,8 +759,8 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
         .where(eq(actionStagings.id, successor?.stagingId ?? "missing"));
 
       assert.equal(prior?.resolutionReason, "superseded_by_user_successor");
-      assert.equal(successor?.successorOf, prior?.id);
-      assert.equal(successor?.effectOutcome, "succeeded");
+      assert.equal(successor?.successorOf, prior.id);
+      assert.equal(successor.effectOutcome, "succeeded");
       assert.equal(successorStaging?.outcome, "succeeded");
     } finally {
       _setMcpExecutionBrokerForTests(undefined);
@@ -799,9 +793,9 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
         .where(eq(mcpInvocation.id, recovered.successorInvocationId!));
 
       assert.equal(successor?.attemptLifecycle, "response_received");
-      assert.equal(successor?.effectOutcome, "unknown");
-      assert.equal(successor?.retryDisposition, "blocked");
-      assert.equal(successor?.resolvedAt, null);
+      assert.equal(successor.effectOutcome, "unknown");
+      assert.equal(successor.retryDisposition, "blocked");
+      assert.equal(successor.resolvedAt, null);
 
       const repeated = await retryMcpRecoveryOperation({
         userId: seeded.userId,
@@ -1080,7 +1074,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       .where(eq(mcpInvocation.successorOf, seeded.invocationId));
 
     assert.equal(successor?.effectOutcome, "succeeded");
-    assert.equal(successor?.resolutionReason, "concurrent_settlement");
+    assert.equal(successor.resolutionReason, "concurrent_settlement");
     assert.equal(protocol.calls, 2, "the guarded failure cannot cause a second send");
   });
 
@@ -1119,9 +1113,9 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       assert.equal(operations.length, 1, "the unsettled response is visible before boot");
       const visible = operations[0];
       assert.equal(visible?.invocationId, result.successorInvocationId);
-      assert.equal(visible?.attemptLifecycle, "response_received");
-      assert.equal(visible?.effectOutcome, "unknown");
-      assert.equal(visible?.retryDisposition, "blocked");
+      assert.equal(visible.attemptLifecycle, "response_received");
+      assert.equal(visible.effectOutcome, "unknown");
+      assert.equal(visible.retryDisposition, "blocked");
 
       const repeated = await retryMcpRecoveryOperation({
         userId: seeded.userId,
@@ -1318,7 +1312,6 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
 
     assert.equal(first.status, "ambiguous");
 
-    if (first.status !== "ambiguous") throw new Error("unreachable");
     await db()
       .update(actionStagings)
       .set({ status: "executed", outcome: "unknown" })
@@ -1409,12 +1402,12 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     assert.equal(outcome.status, "ambiguous");
     const [row] = await invocationsForStaging(stagingId);
     assert.equal(row?.effectOutcome, "unknown");
-    assert.equal(row?.retryDisposition, "blocked");
-    assert.equal(row?.resolvedAt, null);
+    assert.equal(row.retryDisposition, "blocked");
+    assert.equal(row.resolvedAt, null);
     // A response arrived, so provenance is persisted even though the outcome is ambiguous.
     // `outputSchemaValidated: false` records why it failed.
-    assert.equal(row?.attemptLifecycle, "response_received");
-    assert.deepEqual(row?.resultProvenance, {
+    assert.equal(row.attemptLifecycle, "response_received");
+    assert.deepEqual(row.resultProvenance, {
       isError: false,
       hasStructuredContent: true,
       outputSchemaValidated: false,
@@ -1527,7 +1520,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     assert.equal(errOutcome.status, "ambiguous");
     const [errRow] = await invocationsForStaging(errStaging);
     assert.equal(errRow?.resultProvenance?.isError, true);
-    assert.deepEqual(errRow?.resultProvenance?.contentKinds, { text: 1 });
+    assert.deepEqual(errRow.resultProvenance.contentKinds, { text: 1 });
   });
 
   // No response means no provenance: the column stays NULL and no model projection is stored.
@@ -1555,8 +1548,8 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     assert.equal(outcome.status, "ambiguous");
     const [row] = await invocationsForStaging(stagingId);
     assert.equal(row?.effectOutcome, "unknown");
-    assert.equal(row?.attemptLifecycle, "delivery_possible");
-    assert.equal(row?.resultProvenance, null);
+    assert.equal(row.attemptLifecycle, "delivery_possible");
+    assert.equal(row.resultProvenance, null);
   });
 
   // Ownership, as in `listMcpToolsLocal`: a foreign `connectionId` reads as "not connected",
@@ -1627,11 +1620,11 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
 
     const [row] = await invocationsForStaging(stagingId);
     assert.equal(row?.traceId, staging.runId);
-    assert.equal(row?.stepId, staging.stepId);
-    assert.equal(row?.toolCallId, staging.toolCallId);
+    assert.equal(row.stepId, staging.stepId);
+    assert.equal(row.toolCallId, staging.toolCallId);
     // Both phases were reached on a clean success, in order.
-    assert.ok(row?.deliveryPossibleAt, "delivery boundary stamped");
-    assert.ok(row?.responseReceivedAt, "response arrival stamped");
+    assert.ok(row.deliveryPossibleAt, "delivery boundary stamped");
+    assert.ok(row.responseReceivedAt, "response arrival stamped");
     assert.ok(
       row.deliveryPossibleAt.getTime() <= row.responseReceivedAt.getTime(),
       "delivery precedes response",
@@ -1663,7 +1656,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     assert.equal(outcome.status, "ambiguous");
     const [row] = await invocationsForStaging(stagingId);
     assert.ok(row?.deliveryPossibleAt, "the delivery boundary was still crossed");
-    assert.equal(row?.responseReceivedAt, null, "no response boundary was crossed");
+    assert.equal(row.responseReceivedAt, null, "no response boundary was crossed");
   });
 
   // An ambiguous attempt must be reconstructable without a credential or a full payload.

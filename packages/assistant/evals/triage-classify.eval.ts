@@ -1102,8 +1102,6 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
       scorer: ({ output, expected }) => {
         if (output.skipped) return { score: 0, metadata: "skipped (provider overload)" };
 
-        if (!expected) return { score: 0, metadata: "no expectation" };
-
         const categoryOk = expected.category.includes(output.category);
 
         // Whole tags, not substrings: `"+2pass_failed".includes("+2pass")` is true.
@@ -1134,7 +1132,6 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
       scorer: ({ output, expected }) => {
         if (output.skipped) return { score: 0, metadata: "skipped (provider overload)" };
 
-        if (!expected) return { score: 0, metadata: "no expectation" };
         const want = expected.todo === "mint";
         const ok = output.wouldMintTodo === want;
 
@@ -1153,18 +1150,18 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
       scorer: ({ output, expected }) => {
         if (output.skipped) return { score: 0, metadata: "skipped (provider overload)" };
 
-        if (!("collabActivity" in (expected ?? {}))) {
+        if (!("collabActivity" in expected)) {
           return { score: 1, metadata: "not asserted" };
         }
 
         const gotPartition = collabActivityPartition(output.collabActivity);
-        const wantPartition = collabActivityPartition(expected?.collabActivity);
+        const wantPartition = collabActivityPartition(expected.collabActivity);
 
         return {
           score: gotPartition === wantPartition ? 1 : 0,
           metadata:
             `got ${output.collabActivity ?? "null"} (${gotPartition}), ` +
-            `want ${expected?.collabActivity ?? "null"} (${wantPartition})`,
+            `want ${expected.collabActivity ?? "null"} (${wantPartition})`,
         };
       },
     },

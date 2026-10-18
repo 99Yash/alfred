@@ -14,8 +14,6 @@ describe("enrichInvalidInputMessage", () => {
     const parsed = calendarListEventsInput.safeParse({ gibberish: "nonsense" });
     assert.equal(parsed.success, false);
 
-    if (parsed.success) return;
-
     const enriched = enrichInvalidInputMessage(
       parsed.error.message,
       calendarListEventsInput,
@@ -30,8 +28,6 @@ describe("enrichInvalidInputMessage", () => {
   test("leaves non-unrecognized-key errors untouched", () => {
     const parsed = calendarListEventsInput.safeParse({ timeMin: "not-a-datetime" });
     assert.equal(parsed.success, false);
-
-    if (parsed.success) return;
 
     const enriched = enrichInvalidInputMessage(
       parsed.error.message,

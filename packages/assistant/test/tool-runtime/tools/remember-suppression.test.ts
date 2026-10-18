@@ -116,11 +116,9 @@ describe("rememberSenderSuppression coordinator (DB-backed)", { skip: SKIP }, ()
     const result = await rememberSenderSuppressionAndDismissTodos(rememberRequest(userId));
     assert.equal(result.ok, true);
 
-    if (!result.ok) throw new Error("unreachable");
     assert.equal(result.status, "remembered");
     assert.equal(result.resolvedTodos.ok, true);
 
-    if (!result.resolvedTodos.ok) throw new Error("unreachable");
     assert.equal(result.resolvedTodos.status, "dismissed");
     assert.equal(result.resolvedTodos.dismissedCount, 1);
     assert.equal(await todoStatus(todoId), "dismissed");
@@ -133,7 +131,6 @@ describe("rememberSenderSuppression coordinator (DB-backed)", { skip: SKIP }, ()
     const remembered = await rememberSenderSuppressionAndDismissTodos(rememberRequest(userId));
     assert.equal(remembered.ok, true);
 
-    if (!remembered.ok) throw new Error("unreachable");
     assert.equal(remembered.status, "remembered");
     assert.equal(await todoStatus(first.todoId), "dismissed");
 
@@ -143,7 +140,6 @@ describe("rememberSenderSuppression coordinator (DB-backed)", { skip: SKIP }, ()
     const again = await rememberSenderSuppressionAndDismissTodos(rememberRequest(userId));
     assert.equal(again.ok, true);
 
-    if (!again.ok) throw new Error("unreachable");
     assert.equal(again.status, "already_exists");
     assert.equal(again.resolvedTodos.status, "dismissed");
     assert.equal(await todoStatus(second.todoId), "dismissed");

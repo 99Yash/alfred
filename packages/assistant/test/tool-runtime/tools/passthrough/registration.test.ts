@@ -28,9 +28,9 @@ describe("passthrough tool registration", () => {
         assert.equal(tools.length, 1, `${slug} must register exactly one passthrough tool`);
         const [tool] = tools;
         assert.equal(tool?.availability?.passthrough, true);
-        assert.equal(tool?.riskTier, "no_risk", `${slug} passthrough is a read (no_risk)`);
+        assert.equal(tool.riskTier, "no_risk", `${slug} passthrough is a read (no_risk)`);
         assert.equal(
-          tool?.action,
+          tool.action,
           PASSTHROUGH_TOOL_ACTION[INTEGRATIONS[slug].passthrough.transport],
           `${slug} passthrough action matches its transport`,
         );

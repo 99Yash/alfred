@@ -114,7 +114,7 @@ function gatheredDocIds(gather: Awaited<ReturnType<typeof gatherFor>>["gather"])
   const ids = new Set<string>();
 
   for (const items of Object.values(gather.email.categories)) {
-    for (const item of items ?? []) ids.add(item.documentId);
+    for (const item of items) ids.add(item.documentId);
   }
 
   return ids;
@@ -180,10 +180,10 @@ describe("briefing gather ↔ agent-read parity (DB-backed)", { skip: SKIP }, ()
     assert.equal(suppressedByInstruction.length, 1);
     const audit = suppressedByInstruction[0];
     assert.equal(audit?.documentId, suppressedDocId);
-    assert.equal(audit?.category, "action_needed");
-    assert.equal(audit?.sender, "Acme Coaching <no-reply@shapeshifter.so>");
-    assert.equal(audit?.effect, "exclude_briefing_priority");
-    assert.ok(audit?.factId, "the audit entry names the standing-instruction fact");
+    assert.equal(audit.category, "action_needed");
+    assert.equal(audit.sender, "Acme Coaching <no-reply@shapeshifter.so>");
+    assert.equal(audit.effect, "exclude_briefing_priority");
+    assert.ok(audit.factId, "the audit entry names the standing-instruction fact");
   });
 
   test("the two paths disagree by design on non-priority mail", async () => {

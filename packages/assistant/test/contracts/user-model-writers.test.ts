@@ -513,7 +513,7 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
 
     const [after] = await db().select().from(projectionRuns).where(eq(projectionRuns.id, run.id));
     assert.equal(after?.status, "completed");
-    assert.equal(after?.checksum, "checksum-original");
+    assert.equal(after.checksum, "checksum-original");
   });
 
   test("writeProjectionCursor writes while running and is rejected once completed", async () => {
@@ -617,7 +617,7 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
     const profiles = await reader.listProfiles();
     assert.equal(profiles.length, 1, "reader returns only the active version's rows");
     assert.equal(profiles[0]?.displayName, "v1");
-    assert.equal(profiles[0]?.projectionRunId, runV1);
+    assert.equal(profiles[0].projectionRunId, runV1);
 
     const byId = await reader.getProfile(entityId);
     assert.equal(byId?.displayName, "v1");

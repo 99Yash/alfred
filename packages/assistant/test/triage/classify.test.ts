@@ -2636,7 +2636,7 @@ describe("classifyCallOptions", () => {
     assert.equal(options.abortSignal, controller.signal, "the loser can only be cancelled by this");
 
     controller.abort();
-    assert.equal(options.abortSignal?.aborted, true);
+    assert.equal(options.abortSignal.aborted, true);
   });
 
   test("both draws are interchangeable — the property first-wins rests on", () => {

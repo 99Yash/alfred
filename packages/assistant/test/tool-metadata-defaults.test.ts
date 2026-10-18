@@ -32,7 +32,7 @@ describe("deriveToolDiscovery", () => {
     assert.ok(discovery.verbs?.includes("add"), "generic verb synonyms improve recall");
     assert.ok(discovery.entities?.includes("page"), "trailing action tokens are entities");
     assert.ok(
-      discovery.entities?.includes("title") && discovery.entities?.includes("content"),
+      discovery.entities?.includes("title") && discovery.entities.includes("content"),
       "meaningful schema field names become entities",
     );
     assert.ok(discovery.entities?.includes("parent"), "camelCase fields split into noun tokens");
@@ -42,7 +42,7 @@ describe("deriveToolDiscovery", () => {
     );
     assert.ok(
       discovery.aliases?.includes("create page") &&
-        discovery.aliases?.includes("notion create page"),
+        discovery.aliases.includes("notion create page"),
       "aliases map likely phrasings onto the capability",
     );
     assert.equal(discovery.relatedTools, undefined, "relatedTools is authored-only");
@@ -79,11 +79,11 @@ describe("deriveToolDiscovery", () => {
     assert.equal(discovery.title, "Search email", "authored title wins over the derived default");
     assert.equal(discovery.summary, "Find messages in the inbox.", "authored summary wins");
     assert.ok(
-      discovery.aliases?.includes("find email") && discovery.aliases?.includes("gmail search"),
+      discovery.aliases?.includes("find email") && discovery.aliases.includes("gmail search"),
       "authored and derived aliases are unioned",
     );
     assert.ok(
-      discovery.tags?.includes("communication") && discovery.tags?.includes("gmail"),
+      discovery.tags?.includes("communication") && discovery.tags.includes("gmail"),
       "authored tags augment the derived identity tag",
     );
     assert.ok(discovery.verbs?.includes("search"), "the derived verb survives when not overridden");

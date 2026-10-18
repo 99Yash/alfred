@@ -236,7 +236,7 @@ describe("chat-turn cancel closure (#530/#531 D2, DB-backed)", { skip: SKIP }, (
       "complete",
       "the sidebar leaves the placeholder state showing what was drafted, not an error",
     );
-    assert.equal(rows[0]?.messageId, messageId, "and the artifact is tied to the closed turn");
+    assert.equal(rows[0].messageId, messageId, "and the artifact is tied to the closed turn");
   });
 
   test("cancel repairs a concurrently failed row and artifact", async () => {
@@ -277,7 +277,7 @@ describe("chat-turn cancel closure (#530/#531 D2, DB-backed)", { skip: SKIP }, (
     const message = await readAssistantMessage(messageId);
     assert.equal(message?.status, "complete");
     assert.equal(
-      message?.errorKind,
+      message.errorKind,
       null,
       "failed → complete clears the stale retry classification",
     );

@@ -13,7 +13,6 @@ describe("passthroughHttpResult — succeeded semantics", () => {
     const r = passthroughHttpResult({ status: 200, body: { hello: "world" } });
     assert.equal(r.outcome, "http");
 
-    if (r.outcome !== "http") return;
     assert.equal(r.status, 200);
     assert.equal(r.succeeded, true);
     assert.deepEqual(r.body, { hello: "world" });
@@ -42,7 +41,7 @@ describe("passthroughHttpResult — succeeded semantics", () => {
 
     if (r.outcome !== "http") return assert.fail("expected http");
     assert.ok(r.truncation, "expected truncation on a clipped body");
-    assert.equal(r.truncation?.handleEligible, true);
+    assert.equal(r.truncation.handleEligible, true);
   });
 });
 
@@ -75,7 +74,6 @@ describe("passthroughRejection", () => {
 
     assert.equal(r.outcome, "rejected");
 
-    if (r.outcome !== "rejected") return;
     assert.equal(r.reason, "method_not_read");
     assert.equal(r.message, "Method 'DELETE' is not a read method.");
   });
@@ -94,7 +92,6 @@ describe("passthroughTransportError", () => {
       const r = passthroughTransportError(kind, "boom");
       assert.equal(r.outcome, "transport");
 
-      if (r.outcome !== "transport") return;
       assert.equal(r.kind, kind);
       assert.equal(r.retryable, retryable);
     });

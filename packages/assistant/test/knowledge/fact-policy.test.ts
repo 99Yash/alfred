@@ -190,6 +190,7 @@ describe("SINGLE_VALUED_KEYS", () => {
     assert.equal(isSingleValuedKey("phone_number"), false);
     // notable_relations and family_summary are open-ended paragraphs, so multi-valued.
     assert.equal(isSingleValuedKey("notable_relations"), false);
+    // oxlint-disable-next-line typescript/no-unnecessary-condition -- fixture precondition: the tuple length is a compile-time constant; the assert fails if the tuple is emptied.
     assert.ok(SINGLE_VALUED_KEYS.length > 0);
   });
 });
@@ -217,39 +218,39 @@ describe("authoredByUser (#330 — conservative, evidence-returning)", () => {
   test("gmail SENT label is authorship by the connected mailbox", () => {
     const r = authoredByUser(gmailDoc({ isSent: true }, "acc_work"), self);
     assert.equal(r.authoredByUser, true);
-    assert.equal(r.authoredByUser && r.proof.source, "gmail");
-    assert.equal(r.authoredByUser && r.proof.method, "sent_flag");
+    assert.equal(r.proof.source, "gmail");
+    assert.equal(r.proof.method, "sent_flag");
   });
 
   test("gmail raw SENT label is authorship for legacy rows without metadata.isSent", () => {
     const r = authoredByUser(gmailDoc({ labelIds: ["INBOX", "SENT"] }, "acc_work"), self);
     assert.equal(r.authoredByUser, true);
-    assert.equal(r.authoredByUser && r.proof.method, "sent_flag");
+    assert.equal(r.proof.method, "sent_flag");
   });
 
   test("gmail From == connected-account email is authorship", () => {
     const r = authoredByUser(gmailDoc({ from: "Yash <yash@gmail.com>" }, "acc_personal"), self);
     assert.equal(r.authoredByUser, true);
-    assert.equal(r.authoredByUser && r.proof.method, "from_connected_account");
+    assert.equal(r.proof.method, "from_connected_account");
   });
 
   test("gmail accountId bounds the acceptable self email", () => {
     const r = authoredByUser(gmailDoc({ from: "Yash <yash@gmail.com>" }, "acc_work"), self);
     assert.equal(r.authoredByUser, false);
-    assert.equal(!r.authoredByUser && r.reason, "identity_mismatch");
+    assert.equal(r.reason, "identity_mismatch");
   });
 
   test("gmail inbound From from a third party fails attribution (the bug)", () => {
     // A contact's signature-block email: the city-leak failure mode.
     const r = authoredByUser(gmailDoc({ from: "Sandro <sandro@maglione.dev>" }, "acc_work"), self);
     assert.equal(r.authoredByUser, false);
-    assert.equal(!r.authoredByUser && r.reason, "identity_mismatch");
+    assert.equal(r.reason, "identity_mismatch");
   });
 
   test("gmail with no From and no SENT flag is missing_author_identity", () => {
     const r = authoredByUser(gmailDoc({ snippet: "hi" }, "acc_work"), self);
     assert.equal(r.authoredByUser, false);
-    assert.equal(!r.authoredByUser && r.reason, "missing_author_identity");
+    assert.equal(r.reason, "missing_author_identity");
   });
 
   test("github author id/login matches self", () => {
@@ -259,7 +260,7 @@ describe("authoredByUser (#330 — conservative, evidence-returning)", () => {
     );
 
     assert.equal(byId.authoredByUser, true);
-    assert.equal(byId.authoredByUser && byId.proof.method, "author_id");
+    assert.equal(byId.proof.method, "author_id");
 
     const byLogin = authoredByUser(
       { source: "github", metadata: { authorLogin: "99yash" }, accountId: null, sender: null },
@@ -267,7 +268,7 @@ describe("authoredByUser (#330 — conservative, evidence-returning)", () => {
     );
 
     assert.equal(byLogin.authoredByUser, true);
-    assert.equal(byLogin.authoredByUser && byLogin.proof.method, "author_login");
+    assert.equal(byLogin.proof.method, "author_login");
 
     const other = authoredByUser(
       { source: "github", metadata: { authorLogin: "mattpocock" }, accountId: null, sender: null },
@@ -275,7 +276,7 @@ describe("authoredByUser (#330 — conservative, evidence-returning)", () => {
     );
 
     assert.equal(other.authoredByUser, false);
-    assert.equal(!other.authoredByUser && other.reason, "identity_mismatch");
+    assert.equal(other.reason, "identity_mismatch");
   });
 
   test("github with no self identity fails missing_self_identity (default deny)", () => {
@@ -285,7 +286,7 @@ describe("authoredByUser (#330 — conservative, evidence-returning)", () => {
     );
 
     assert.equal(r.authoredByUser, false);
-    assert.equal(!r.authoredByUser && r.reason, "missing_self_identity");
+    assert.equal(r.reason, "missing_self_identity");
   });
 
   test("a source with no author identity is unsupported_source", () => {
@@ -295,7 +296,7 @@ describe("authoredByUser (#330 — conservative, evidence-returning)", () => {
     for (const source of sources) {
       const r = authoredByUser({ source, metadata: {}, accountId: null, sender: null }, self);
       assert.equal(r.authoredByUser, false, `${source} should not be authored`);
-      assert.equal(!r.authoredByUser && r.reason, "unsupported_source");
+      assert.equal(r.reason, "unsupported_source");
     }
   });
 });
@@ -366,6 +367,6 @@ describe("gateDocumentFact", () => {
     });
 
     assert.equal(r.ok, true);
-    assert.equal(r.ok && r.key, "relationship:alice@oliv.ai");
+    assert.equal(r.key, "relationship:alice@oliv.ai");
   });
 });

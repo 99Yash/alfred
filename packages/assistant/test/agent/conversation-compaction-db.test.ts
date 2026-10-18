@@ -144,12 +144,12 @@ describe("conversation compaction database invariants", { skip: SKIP }, () => {
       .where(eq(chatThreadContext.threadId, threadId));
 
     assert.equal(context?.generation, 1);
-    assert.equal(context?.estimatedReplayTokens, 99);
+    assert.equal(context.estimatedReplayTokens, 99);
     assert.equal(
-      context?.replayEstimateWatermarkCreatedAt?.getTime(),
+      context.replayEstimateWatermarkCreatedAt?.getTime(),
       advancedReplayWatermark.createdAt.getTime(),
     );
-    assert.equal(context?.replayEstimateWatermarkMessageId, advancedReplayWatermark.messageId);
+    assert.equal(context.replayEstimateWatermarkMessageId, advancedReplayWatermark.messageId);
   });
 
   test("a successful enrichment retry replaces the prior failed state", async () => {

@@ -8,6 +8,7 @@ import {
 
 const encoder = new TextEncoder();
 
+// oxlint-disable-next-line typescript/no-unnecessary-condition -- JSON.stringify returns undefined for an undefined or function input; the lib type says string.
 const bytes = (v: unknown) => encoder.encode(JSON.stringify(v) ?? "").length;
 
 describe("boundPassthroughBody — clean path", () => {
@@ -24,10 +25,10 @@ describe("boundPassthroughBody — per-string cap", () => {
     const long = "x".repeat(9000);
     const r = boundPassthroughBody({ body: long });
     assert.ok(r.truncation, "expected a truncation signal");
-    assert.equal(r.truncation?.handleEligible, true);
-    const cause = r.truncation?.causes.find((c) => c.kind === "string_chars");
+    assert.equal(r.truncation.handleEligible, true);
+    const cause = r.truncation.causes.find((c) => c.kind === "string_chars");
     assert.ok(cause, "expected a string_chars cause");
-    assert.equal(cause?.droppedApprox, 1000);
+    assert.equal(cause.droppedApprox, 1000);
     const value = r.value as { body: string };
     assert.ok(value.body.length < 9000);
     assert.match(value.body, /truncated/);
@@ -85,7 +86,7 @@ describe("boundPassthroughBody — simultaneous causes", () => {
 
     const r = boundPassthroughBody({ rows });
     assert.ok(r.truncation);
-    const kinds = new Set(r.truncation?.causes.map((c) => c.kind));
+    const kinds = new Set(r.truncation.causes.map((c) => c.kind));
     assert.ok(kinds.has("string_chars"), "string cap should fire");
     assert.ok(kinds.has("array_items"), "array cap should fire");
     assert.ok(kinds.has("body_bytes"), "byte cap should fire");
