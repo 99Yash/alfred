@@ -25,7 +25,9 @@ import {
   restrictedGroupCopyFailures,
   restrictedImportSites,
   restrictedSpecifierFailures,
+  ROOT_TSCONFIG,
   rootConfigFailures,
+  rootTsconfigReferenceFailures,
   strayOxlintConfigs,
   unpinnedLintScripts,
   unwalkedSourceFailures,
@@ -1578,6 +1580,195 @@ function emptyDisarmSurfaceFailures() {
   });
 }
 
+/**
+ * Fixtures for the root tsconfig reference rule.
+ *
+ * The subject is a DECLARED list whose drift is silent in both directions: a test
+ * project left off it lints in an inferred project, and a stale entry reads as
+ * coverage. So each case drives one mutation and asserts the failure names the path
+ * and the exact edit, never only that the clean tree is quiet.
+ */
+
+const TS_REFERENCES_CLEAN = `{
+  // The solution file. A comment, so the reader is proved to take JSONC.
+  "files": [],
+  "references": [
+    { "path": "./packages/a/tsconfig.test.json" },
+    { "path": "packages/b/tsconfig.test.json" },
+    /* block comment */ { "path": "./packages/b/tsconfig.eval.json" }
+  ]
+}
+`;
+
+/**
+ * @param {string} fixture
+ * @param {{projects?: string[], rootTsconfig?: string|null, extra?: string[]}} shape
+ */
+function referenceRepo(fixture, { projects = [], rootTsconfig = null, extra = [] }) {
+  execFileSync("git", ["init", "--quiet"], { cwd: fixture });
+
+  for (const file of [...projects, ...extra]) write(fixture, file, "{}\n");
+
+  if (rootTsconfig !== null) write(fixture, ROOT_TSCONFIG, rootTsconfig);
+  track(fixture);
+}
+
+const REFERENCE_PROJECTS = [
+  "packages/a/tsconfig.test.json",
+  "packages/b/tsconfig.test.json",
+  "packages/b/tsconfig.eval.json",
+];
+
+/**
+ * One drive: exactly the failure count named, each failure containing its fragments.
+ *
+ * @param {string} label
+ * @param {{projects?: string[], rootTsconfig?: string|null, extra?: string[]}} shape
+ * @param {string[][]} expected one fragment list per expected failure, in order
+ */
+function referenceDrive(label, shape, expected) {
+  const result = withFixture((fixture) => {
+    referenceRepo(fixture, shape);
+
+    return rootTsconfigReferenceFailures(fixture);
+  });
+
+  if (result.failures.length !== expected.length) {
+    return [
+      `${label}: expected ${expected.length} failure(s), received ${JSON.stringify(result.failures)}`,
+    ];
+  }
+
+  return expected.flatMap((fragments, index) =>
+    fragments
+      .filter((fragment) => !result.failures[index].includes(fragment))
+      .map(
+        (fragment) =>
+          `${label}: failure ${index} must name ${JSON.stringify(fragment)}, received ${JSON.stringify(result.failures[index])}`,
+      ),
+  );
+}
+
+/** The false-positive control: every project referenced, under JSONC and both path spellings. */
+function referencedProjectsFailures() {
+  const result = withFixture((fixture) => {
+    referenceRepo(fixture, {
+      projects: REFERENCE_PROJECTS,
+      rootTsconfig: TS_REFERENCES_CLEAN,
+      extra: ["packages/a/tsconfig.json"],
+    });
+
+    return rootTsconfigReferenceFailures(fixture);
+  });
+
+  return [
+    ...equal(
+      result.failures,
+      [],
+      "a root tsconfig referencing every test/eval project reports nothing",
+    ),
+    ...equal([result.projects, result.references], [3, 3], "and it counts what it read"),
+  ];
+}
+
+/** A tracked test project left off the list: the drift this rule exists for. */
+function missingReferenceFailures() {
+  return referenceDrive(
+    "a test project missing from references is reported",
+    {
+      projects: [...REFERENCE_PROJECTS, "packages/c/tsconfig.test.json"],
+      rootTsconfig: TS_REFERENCES_CLEAN,
+    },
+    [["packages/c/tsconfig.test.json", 'Add { "path": "./packages/c/tsconfig.test.json" }']],
+  );
+}
+
+/** A reference whose target does not exist. */
+function staleReferenceFailures() {
+  return referenceDrive(
+    "a reference to a deleted project is reported",
+    {
+      projects: REFERENCE_PROJECTS,
+      rootTsconfig: TS_REFERENCES_CLEAN.replace(
+        '"references": [',
+        '"references": [\n    { "path": "./packages/gone/tsconfig.test.json" },',
+      ),
+    },
+    [
+      [
+        "packages/gone/tsconfig.test.json",
+        "does not exist",
+        'Remove { "path": "./packages/gone/tsconfig.test.json" }',
+      ],
+    ],
+  );
+}
+
+/** A reference to a real file that is not a test/eval project: present, still stale. */
+function nonTestReferenceFailures() {
+  return referenceDrive(
+    "a reference to a package tsconfig.json is reported",
+    {
+      projects: REFERENCE_PROJECTS,
+      extra: ["packages/a/tsconfig.json"],
+      rootTsconfig: TS_REFERENCES_CLEAN.replace(
+        '"references": [',
+        '"references": [\n    { "path": "./packages/a/tsconfig.json" },',
+      ),
+    },
+    [["packages/a/tsconfig.json", "is not a", 'Remove { "path": "./packages/a/tsconfig.json" }']],
+  );
+}
+
+/** The same project listed twice under two spellings: one entry is dead weight. */
+function duplicateReferenceFailures() {
+  return referenceDrive(
+    "a project referenced twice is reported",
+    {
+      projects: REFERENCE_PROJECTS,
+      rootTsconfig: TS_REFERENCES_CLEAN.replace(
+        '"references": [',
+        '"references": [\n    { "path": "packages/a/tsconfig.test.json" },',
+      ),
+    },
+    [["packages/a/tsconfig.test.json", "more than once"]],
+  );
+}
+
+/** The vacuity floor: no test project enumerated is a failure, not a clean pass. */
+function emptyProjectSurfaceFailures() {
+  return referenceDrive(
+    "an enumeration with no tsconfig.test.json is reported",
+    { projects: ["packages/b/tsconfig.eval.json"], rootTsconfig: TS_REFERENCES_CLEAN },
+    [["no tsconfig.test.json was enumerated", "examined nothing"]],
+  );
+}
+
+/** A root file that does not parse must not read as one with nothing to check. */
+function unparseableRootTsconfigFailures() {
+  return referenceDrive(
+    "an unparseable root tsconfig is reported",
+    { projects: REFERENCE_PROJECTS, rootTsconfig: '{ "files": [], ' },
+    [[`${ROOT_TSCONFIG} did not parse`]],
+  );
+}
+
+/** A root file without a references array covers no project at all. */
+function noReferencesArrayFailures() {
+  return referenceDrive(
+    "a root tsconfig with no references array is reported",
+    { projects: REFERENCE_PROJECTS, rootTsconfig: '{ "files": [] }\n' },
+    [['has no "references" array']],
+  );
+}
+
+/** No root file: every project lints in an inferred project. */
+function missingRootTsconfigFailures() {
+  return referenceDrive("a missing root tsconfig is reported", { projects: REFERENCE_PROJECTS }, [
+    [`${ROOT_TSCONFIG} is missing or gitignored`],
+  ]);
+}
+
 export function oxlintConfigSelfTestFailures() {
   return [
     ...cleanFixtureFailures(),
@@ -1639,5 +1830,14 @@ export function oxlintConfigSelfTestFailures() {
     ...verdictFailures(),
     ...malformedDisarmsFailures(),
     ...emptyDisarmSurfaceFailures(),
+    ...referencedProjectsFailures(),
+    ...missingReferenceFailures(),
+    ...staleReferenceFailures(),
+    ...nonTestReferenceFailures(),
+    ...duplicateReferenceFailures(),
+    ...emptyProjectSurfaceFailures(),
+    ...unparseableRootTsconfigFailures(),
+    ...noReferencesArrayFailures(),
+    ...missingRootTsconfigFailures(),
   ];
 }

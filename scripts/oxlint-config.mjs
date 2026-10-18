@@ -38,12 +38,18 @@
 // `pnpm check` and CI's `static` job all stayed green. The rules below make a
 // specifier that stops resolving fail by name.
 //
+// The type-aware half of the lint has one more declared input: the root
+// `tsconfig.json`, whose `references` are how tsgolint gives a `test/` or `evals/`
+// file its real program. A test project missing from that list lints in an inferred
+// project with no diagnostic, so `rootTsconfigReferenceFailures` holds the list to
+// set equality with the enumerated test and eval projects.
+//
 // Enforcing consumer: ../scripts/check-oxlint-config.mjs. Fixtures:
 // ./oxlint-config.selftest.mjs.
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { listGitSourceFiles } from "./git-source-files.mjs";
@@ -286,6 +292,148 @@ export function unwalkedSourceFailures(root) {
   }
 
   return { checked: files.length, hidden, failures };
+}
+
+/** The root solution file the type-aware lint reads test and eval programs through, repo-relative. */
+export const ROOT_TSCONFIG = "tsconfig.json";
+
+// The two project names whose files sit outside every package `tsconfig.json` (which
+// includes only `src`), so the root solution file is the only way the project service
+// reaches them. Module-private for the same reason as WALKED_SOURCE_PATTERNS.
+const LINTED_PROJECT_NAMES = ["tsconfig.test.json", "tsconfig.eval.json"];
+
+/**
+ * The drift between the root `tsconfig.json` `references` and the test and eval
+ * projects that exist, in both directions.
+ *
+ * The root file is a DECLARED list: tsgolint finds a `test/` or `evals/` file's program
+ * through the project service, which falls back to an ancestor config whose
+ * `references` contain the file. A package `tsconfig.test.json` left off the list
+ * therefore lints its tests in an inferred project (default `lib`, no `~/*` paths)
+ * while `pnpm lint` stays green, and a reference whose target moved or was never a
+ * test project reads as coverage that is not there. Neither direction is visible
+ * anywhere else: `check-types` never reads this file.
+ *
+ * Enumeration is `listGitSourceFiles` (tracked plus new-and-not-ignored), never a
+ * filesystem walk, so a project that exists only in a gitignored tree is out of
+ * scope and one that a branch adds is in scope before it is committed.
+ *
+ * The reader is `stripJsonComments` + `JSON.parse`, the same one the stripped probe
+ * build uses for `.oxlintrc.json`. `tsc --showConfig` is NOT a substitute, measured on
+ * typescript@7.0.2: a truncated `{ "files": [], ` exits 0 and prints
+ * `{"compilerOptions":{}}`, so a broken root file would read as an empty one. The cost
+ * of the strict reader is that a trailing comma tsc would accept is refused here,
+ * loudly, by name.
+ *
+ * Fails closed on every vacuous read: no test project enumerated, no root file, a root
+ * file that does not parse, and a root file with no `references` array are each a
+ * failure rather than a clean pass over nothing.
+ *
+ * @param {string} root
+ * @returns {{failures: string[], projects: number, references: number}}
+ */
+export function rootTsconfigReferenceFailures(root) {
+  const projects = listGitSourceFiles(
+    LINTED_PROJECT_NAMES.map((name) => `:(glob)**/${name}`),
+    root,
+  );
+
+  if (!projects.some((file) => basename(file) === LINTED_PROJECT_NAMES[0])) {
+    return {
+      projects: projects.length,
+      references: 0,
+      failures: [
+        `no ${LINTED_PROJECT_NAMES[0]} was enumerated by git, so the ${ROOT_TSCONFIG} reference check examined nothing. Every package that holds a test/ directory holds one, so an empty read means the enumeration broke, not that the list is complete.`,
+      ],
+    };
+  }
+
+  const empty = { projects: projects.length, references: 0 };
+
+  if (listGitSourceFiles([`:(glob)${ROOT_TSCONFIG}`], root).length === 0) {
+    return {
+      ...empty,
+      failures: [
+        `${ROOT_TSCONFIG} is missing or gitignored at the repo root. It is the solution file that gives test and eval files their real program in the type-aware lint; without it all ${projects.length} test/eval project(s) lint in an inferred project. Restore it with "files": [] and one "references" entry per project.`,
+      ],
+    };
+  }
+
+  /** @type {unknown} */
+  let parsed;
+
+  try {
+    parsed = JSON.parse(stripJsonComments(readFileSync(resolve(root, ROOT_TSCONFIG), "utf8")));
+  } catch (error) {
+    return {
+      ...empty,
+      failures: [
+        `${ROOT_TSCONFIG} did not parse as JSON with comments (${error instanceof Error ? error.message : String(error)}), so its "references" went unread. Fix the syntax; a trailing comma is also refused here.`,
+      ],
+    };
+  }
+
+  const references =
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- the root tsconfig parses to unknown; the object-shape read IS the boundary parse.
+    parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+      ? Reflect.get(parsed, "references")
+      : undefined;
+
+  if (!Array.isArray(references)) {
+    return {
+      ...empty,
+      failures: [
+        `${ROOT_TSCONFIG} has no "references" array, so none of the ${projects.length} test/eval project(s) is reachable through it. Add "references" with one { "path": "./<package>/tsconfig.test.json" } entry per project.`,
+      ],
+    };
+  }
+
+  const expected = new Set(projects);
+  const seen = new Set();
+  const failures = [];
+
+  for (const [index, entry] of references.entries()) {
+    const path =
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- a reference entry is unknown until checked; only a string path names a project.
+      entry !== null && typeof entry === "object" ? Reflect.get(entry, "path") : undefined;
+
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- see above.
+    if (typeof path !== "string") {
+      failures.push(
+        `${ROOT_TSCONFIG} references[${index}] (${JSON.stringify(entry)}) has no string "path". Remove it, or write it as { "path": "./<package>/tsconfig.test.json" }.`,
+      );
+      continue;
+    }
+
+    const target = relative(root, resolve(root, path)).split(sep).join("/");
+
+    if (seen.has(target)) {
+      failures.push(
+        `${ROOT_TSCONFIG} references ${target} more than once. Remove the duplicate { "path": "${path}" } entry.`,
+      );
+      continue;
+    }
+
+    seen.add(target);
+
+    if (expected.has(target)) continue;
+
+    failures.push(
+      LINTED_PROJECT_NAMES.includes(basename(target))
+        ? `${ROOT_TSCONFIG} references ${target}, which does not exist or is gitignored, so the entry covers nothing. Remove { "path": "${path}" } from "references" in ${ROOT_TSCONFIG}, or restore the project it names.`
+        : `${ROOT_TSCONFIG} references ${target}, which is not a ${LINTED_PROJECT_NAMES.join(" or ")}. The file lists only test and eval projects; a package's own tsconfig.json is found without it. Remove { "path": "${path}" } from "references" in ${ROOT_TSCONFIG}.`,
+    );
+  }
+
+  for (const project of projects) {
+    if (seen.has(project)) continue;
+
+    failures.push(
+      `${project} is not in the "references" of ${ROOT_TSCONFIG}, so the type-aware lint reads its files in an inferred project (default lib, no ~/* paths) and pnpm lint stays green. Add { "path": "./${project}" } to "references" in ${ROOT_TSCONFIG}.`,
+    );
+  }
+
+  return { projects: projects.length, references: references.length, failures };
 }
 
 /**
