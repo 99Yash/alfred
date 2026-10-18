@@ -743,7 +743,7 @@ function stringifyCanonical(value: unknown, seen: WeakSet<object>): string {
   }
 
   if (isIndexable(value)) {
-    const toJSON = Reflect.get(value, "toJSON");
+    const toJSON: unknown = Reflect.get(value, "toJSON");
 
     // oxlint-disable-next-line anti-slop/no-runtime-typeof -- `JSON.stringify` calls `toJSON` only when it is a function; the canonical form must match that check.
     if (typeof toJSON === "function") {
@@ -772,7 +772,7 @@ function stringifyCanonical(value: unknown, seen: WeakSet<object>): string {
     const entries = Object.keys(objectValue)
       .sort()
       .flatMap((key) => {
-        const item = Reflect.get(objectValue, key);
+        const item: unknown = Reflect.get(objectValue, key);
         // oxlint-disable-next-line anti-slop/no-runtime-typeof -- `JSON.stringify` drops undefined, function and symbol members; the canonical form must drop the same members.
         const itemType = typeof item;
 

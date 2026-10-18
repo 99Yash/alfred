@@ -152,6 +152,7 @@
     // in the last "overrides" entry; JSDoc-typed `.mjs` is `any` by construction.
     "typescript/no-unsafe-return": "error",
     "typescript/no-unsafe-argument": "error",
+    "typescript/no-unsafe-call": "error",
     "typescript/await-thenable": "off",
     "typescript/no-array-delete": "off",
     "typescript/no-base-to-string": "off",
@@ -599,10 +600,12 @@
       // keep the rules at `error`.
       // oxlint-disarm: typescript/no-unsafe-return — JSDoc-typed `.mjs` runs with noImplicitAny off, so `any` is the default type there, not an escaped boundary.
       // oxlint-disarm: typescript/no-unsafe-argument — JSDoc-typed `.mjs` runs with noImplicitAny off, so `any` is the default type there, not an escaped boundary.
+      // oxlint-disarm: typescript/no-unsafe-call — JSDoc-typed `.mjs` runs with noImplicitAny off, so `any` is the default type there, not an escaped boundary.
       "files": ["**/*.mjs", "**/*.js", "**/*.cjs"],
       "rules": {
         "typescript/no-unsafe-return": "off",
-        "typescript/no-unsafe-argument": "off"
+        "typescript/no-unsafe-argument": "off",
+        "typescript/no-unsafe-call": "off"
       }
     }
   ]
