@@ -129,10 +129,6 @@ overrides:
 importers:
 
   .:
-    dependencies:
-      ai:
-        specifier: 'catalog:'
-        version: 7.0.99(zod@4.6.5)
     devDependencies:
       '@oxlint/plugins':
         specifier: ^1.82.0
