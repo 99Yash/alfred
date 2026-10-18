@@ -33,6 +33,7 @@ where to put a new invariant.
 | A template literal that interpolates an object, `unknown`, or `never` | `typescript/restrict-template-expressions` (`error`, type-aware) | `.oxlintrc.json` |
 | An `any` that flows into a return, an argument, a call, a member read, or an assignment in TypeScript source | `typescript/no-unsafe-return`, `-argument`, `-call`, `-member-access`, `-assignment` (`error`, type-aware; off for `.mjs`/`.js`/`.cjs`) | `.oxlintrc.json` |
 | An `await` of a non-thenable, `delete` on an array element, `for…in` over an array, a string passed as code to `setTimeout` / `new Function`, unary minus on a non-number, or a default value that can never apply | `typescript/await-thenable`, `no-array-delete`, `no-for-in-array`, `no-implied-eval`, `no-unsafe-unary-minus`, `no-useless-default-assignment` (`error`, type-aware) | `.oxlintrc.json` |
+| A method read as a value (`const f = obj.method`, `.map(obj.method)`), which loses its `this` | `typescript/unbound-method` (`error`, type-aware) | `.oxlintrc.json` |
 | A value imported only for a type position, such as `typeof` | `typescript/consistent-type-imports` (`error`) | `.oxlintrc.json` |
 | A suppression directive with no rule name, or no reason after ` -- ` | `gate: suppression-without-reason` | `scripts/consolidation-rules.mjs` |
 | A spread that only copies, such as `{ ...(x ? { k: x } : {}) }` alone in a literal | `unicorn/no-useless-spread` (`error`) | `.oxlintrc.json` |
@@ -86,7 +87,7 @@ a restated copy or a declared omission per group.
 `.oxlintrc.json` sets `options.typeAware`, so every oxlint run (`pnpm lint`,
 the edit-time hook, the `check:oxlint-config` probe) also runs the rules that
 need type information, through the `oxlint-tsgolint` root devDependency. A
-missing tsgolint binary fails the run instead of skipping the rules. Fifteen
+missing tsgolint binary fails the run instead of skipping the rules. Sixteen
 rules are at `error`, each adopted at zero:
 
 - `typescript/no-floating-promises`, with the `node:test` registrars
@@ -129,6 +130,14 @@ rules are at `error`, each adopted at zero:
   (unary minus on a value that is not a `number` or `bigint`) and
   `no-useless-default-assignment` (a default value for a binding whose type
   does not include `undefined`). They apply to `.mjs`, `.js` and `.cjs` too.
+- `typescript/unbound-method`, default options. A method
+  read as a value (`const f = obj.method`, `.map(obj.method)`, a destructured
+  method) loses its `this`. Bind it (`obj.method.bind(obj)`) or wrap it in an
+  arrow. Declare an interface member that no implementation reads `this` from
+  as a function-typed property (`readonly encode: (name: string) => string`),
+  not a method signature; the rule then has nothing to report. A prototype
+  patch that calls the saved original with `.call(this, …)` carries a
+  directive.
 
 The rules read a test or eval file through its package's `tsconfig.test.json`
 or `tsconfig.eval.json`: the root `tsconfig.json` is a solution file that
@@ -141,12 +150,12 @@ directive check reports it if it outlives the errors.
 
 Turning type-aware on also arms the type-aware rules in oxlint's default
 `correctness` set at `warn`. The config sets each of them explicitly, so the run
-reports only the rules it chose: the six above at `error`, and the seven that
+reports only the rules it chose: the six above and `unbound-method` at `error`, and the ones that
 still have hits on the tree `"off"` (`no-base-to-string`,
 `no-duplicate-type-constituents`, `no-meaningless-void-operator`,
-`no-misused-spread`, `no-redundant-type-constituents`,
-`require-array-sort-compare` and `unbound-method`). The queued follow-ups are
-those seven and `no-unnecessary-condition`. Each lands alone in its own change:
+`no-misused-spread`, `no-redundant-type-constituents` and
+`require-array-sort-compare`). The queued follow-ups are
+those and `no-unnecessary-condition`. Each lands alone in its own change:
 drive the tree to zero, then set the rule to `error`.
 
 These are the cheap place for a new invariant **if it can be phrased as a
