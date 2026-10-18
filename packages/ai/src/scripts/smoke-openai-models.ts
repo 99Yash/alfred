@@ -90,7 +90,7 @@ async function smokeModel(modelId: (typeof MODEL_IDS)[number]): Promise<void> {
     attribution,
   );
 
-  if (objectResult.output.status !== "ok" || objectResult.output.model !== modelId) {
+  if (objectResult.output.model !== modelId) {
     throw new Error(`${modelId} structured output mismatch`);
   }
 

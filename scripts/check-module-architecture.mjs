@@ -284,7 +284,7 @@ function exportedRuntimeLifecycleSymbols(source) {
       while (cursor < tokens.length && tokens[cursor]?.value !== "}") {
         const local = tokens[cursor];
 
-        if (local?.kind !== "identifier" || local.value === "type") {
+        if (local.kind !== "identifier" || local.value === "type") {
           cursor += 1;
           continue;
         }
@@ -315,7 +315,7 @@ function namedImports(source) {
     while (cursor < tokens.length && tokens[cursor]?.value !== "}") {
       const token = tokens[cursor];
 
-      if (token?.kind === "identifier" && token.value !== "type" && token.value !== "as") {
+      if (token.kind === "identifier" && token.value !== "type" && token.value !== "as") {
         names.push(token.value);
       }
 
@@ -323,7 +323,7 @@ function namedImports(source) {
     }
 
     while (cursor < tokens.length && tokens[cursor]?.value !== "from") cursor += 1;
-    const specifier = tokens[cursor + 1];
+    const specifier = tokens.at(cursor + 1);
 
     if (specifier?.kind !== "string") continue;
 
@@ -678,7 +678,7 @@ function webFeatureForPath(path, routesRoot = WEB_ROUTES_ROOT) {
   if (!path.startsWith(`${routesRoot}${sep}`)) return null;
   const [first] = relative(routesRoot, path).split(sep);
 
-  return first?.startsWith("-") ? first.slice(1) : null;
+  return first.startsWith("-") ? first.slice(1) : null;
 }
 
 function edgeKey(from, to) {
@@ -2250,7 +2250,7 @@ const text = 'import "ignored-string"';
 
   if (
     acceptedEmission.ok &&
-    deltaRatchetKeys.some((key) => acceptedEmission.delta?.[key] === undefined)
+    deltaRatchetKeys.some((key) => !Object.hasOwn(acceptedEmission.delta, key))
   ) {
     failures.push(
       `baseline emission self-test mismatch: an accepted emission must carry a delta keyed by ${JSON.stringify(deltaRatchetKeys)}, received ${JSON.stringify(acceptedEmission.delta)}`,
@@ -2517,14 +2517,17 @@ const text = 'import "ignored-string"';
       );
     }
 
-    const channelDelta = baselineDelta(
-      baselineWithList(ratchet.path, [drive.removedMember]),
-      driveDocument,
-    )[ratchet.channel];
+    // A Map lookup keeps the `undefined` a mis-keyed channel yields; scripts/ runs without
+    // noUncheckedIndexedAccess, so a plain index would type the channel as always present.
+    const channelDelta = new Map(
+      Object.entries(
+        baselineDelta(baselineWithList(ratchet.path, [drive.removedMember]), driveDocument),
+      ),
+    ).get(ratchet.channel);
 
     if (
       !channelDelta?.added.includes(drive.member) ||
-      !channelDelta?.removed.includes(drive.removedMember)
+      !channelDelta.removed.includes(drive.removedMember)
     ) {
       failures.push(
         `ratchet drive mismatch: expected the ${ratchet.channel} delta channel to read ${ratchet.path} on both sides and report ${JSON.stringify(drive.member)} added and ${JSON.stringify(drive.removedMember)} removed, received ${JSON.stringify(channelDelta)}`,
@@ -2640,7 +2643,7 @@ const text = 'import "ignored-string"';
     );
     const wiringLoad = loadBaseline(wiringPath);
 
-    if (wiringLoad.ok || !wiringLoad.error?.includes("permits a cycle it does not declare")) {
+    if (wiringLoad.ok || !wiringLoad.error.includes("permits a cycle it does not declare")) {
       failures.push(
         `baseline load self-test mismatch: expected loadBaseline to refuse a baseline whose recorded edges form a component its declared cycles omit, received ${JSON.stringify(wiringLoad)}`,
       );
@@ -2666,7 +2669,7 @@ const text = 'import "ignored-string"';
     join(ROOT, "scripts/.baseline-that-does-not-exist.json"), // path-ok: the drive's subject is that this path is absent
   );
 
-  if (missingBaselineLoad.ok || !missingBaselineLoad.error?.startsWith("missing ")) {
+  if (missingBaselineLoad.ok || !missingBaselineLoad.error.startsWith("missing ")) {
     failures.push(
       `baseline load self-test mismatch: expected an absent baseline to report itself as missing, received ${JSON.stringify(missingBaselineLoad)}`,
     );
@@ -2674,7 +2677,7 @@ const text = 'import "ignored-string"';
 
   const unparsableBaselineLoad = loadBaseline(fileURLToPath(import.meta.url));
 
-  if (unparsableBaselineLoad.ok || !unparsableBaselineLoad.error?.includes("is not valid JSON")) {
+  if (unparsableBaselineLoad.ok || !unparsableBaselineLoad.error.includes("is not valid JSON")) {
     failures.push(
       `baseline load self-test mismatch: expected a non-JSON baseline to report itself as unparseable, received ${JSON.stringify(unparsableBaselineLoad)}`,
     );

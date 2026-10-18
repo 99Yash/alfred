@@ -211,7 +211,7 @@ function symbolsIn(markdown) {
   const scannable = withoutDesignRegions(withoutFencedBlocks(markdown));
 
   for (const match of scannable.matchAll(/`([^`\n]+)`/g)) {
-    const span = match[1] ?? "";
+    const span = match[1];
 
     for (const token of span.matchAll(/[A-Za-z_][A-Za-z0-9_]*/g)) {
       const name = token[0];

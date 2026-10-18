@@ -144,7 +144,7 @@ async function main() {
     console.log(`\nthread=${threadId}`);
     console.log(
       `  current tag: ${tr?.category ?? "(no triage row)"} ` +
-        `| classified_at=${tr?.classifiedAt?.toISOString() ?? "?"} ` +
+        `| classified_at=${tr?.classifiedAt.toISOString() ?? "?"} ` +
         `| points_at_doc=${tr?.documentId ?? "?"}`,
     );
     console.log(`  docs=${docs.length} sent=${sent.length} inbound=${docs.length - sent.length}`);

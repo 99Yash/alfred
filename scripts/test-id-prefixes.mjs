@@ -293,7 +293,7 @@ function staticString(expression, constants) {
   const text = expression.trim();
   const plain = /^(["'])((?:[^"'\\]|\\.)*)\1$/.exec(text);
 
-  if (plain) return plain[2] ?? "";
+  if (plain) return plain[2];
 
   if (IDENTIFIER.test(text)) {
     const value = constants.get(text);

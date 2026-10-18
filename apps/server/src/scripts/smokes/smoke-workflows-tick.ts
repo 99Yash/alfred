@@ -116,14 +116,14 @@ async function main() {
   assert(advanced.nextRunAt, "next_run_at became null after tick 1");
   assert(
     advanced.nextRunAt.getTime() > scheduledFor.getTime(),
-    `next_run_at=${advanced.nextRunAt?.toISOString()} did not advance past ${scheduledForIso}`,
+    `next_run_at=${advanced.nextRunAt.toISOString()} did not advance past ${scheduledForIso}`,
   );
   assert(
     advanced.lastScheduledAt?.toISOString() === scheduledForIso,
     `last_scheduled_at=${advanced.lastScheduledAt?.toISOString()} != ${scheduledForIso}`,
   );
   console.log(
-    `[smoke-workflows-tick] workflow advanced: next_run_at=${advanced.nextRunAt!.toISOString()} last_scheduled_at=${advanced.lastScheduledAt?.toISOString()}`,
+    `[smoke-workflows-tick] workflow advanced: next_run_at=${advanced.nextRunAt!.toISOString()} last_scheduled_at=${advanced.lastScheduledAt.toISOString()}`,
   );
 
   // Tick 2: next_run_at moved past now, so nothing is due.

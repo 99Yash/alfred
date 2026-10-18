@@ -246,7 +246,7 @@ export function readManifest(root, id) {
 
 /** The paths a patch touches, taken from its `diff --git a/…` lines. @param {string} patch @returns {string[]} */
 export function patchPaths(patch) {
-  return [...patch.matchAll(/^diff --git a\/(\S+)/gm)].map((match) => match[1] ?? "");
+  return [...patch.matchAll(/^diff --git a\/(\S+)/gm)].map((match) => match[1]);
 }
 
 /**

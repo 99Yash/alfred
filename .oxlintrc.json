@@ -628,20 +628,28 @@
       }
     },
     {
-      // no-unnecessary-condition is a staged rollout. Product source was cleared first; these
-      // surfaces still carry hits (2026-10-18: ~730 in tests, 17 in ops scripts, 12 in repo
-      // TypeScript scripts, 28 in JavaScript). Each later change clears one surface and removes
-      // its globs here. Shrink this list; do not add product paths to it. The test/eval half is
-      // its own entry because check:oxlint-config gives test scopes a separate disarm rule.
-      "files": ["**/test/**", "**/evals/**", "**/*.test.ts", "**/*.test.tsx"],
-      "rules": {
-        "typescript/no-unnecessary-condition": "off"
-      }
-    },
-    {
-      // The non-test half of the no-unnecessary-condition staged rollout (see the entry above).
-      // oxlint-disarm: typescript/no-unnecessary-condition — staged rollout: ops scripts, repo scripts, and JavaScript still carry hits; later lanes clear each surface and shrink this list.
-      "files": ["**/src/scripts/**", "scripts/**", "**/*.mjs", "**/*.js", "**/*.cjs"],
+      // no-unnecessary-condition is a staged rollout. Product source, ops scripts, repo scripts
+      // and JavaScript are cleared; tests and evals still carry hits. Each later change clears
+      // one test surface and removes its globs here. Shrink this list; do not add non-test
+      // paths to it. The paths are explicit, one per package, so a new test folder starts
+      // with the rule on.
+      "files": [
+        "apps/server/evals/**",
+        "apps/web/test/**",
+        "packages/ai/test/**",
+        "packages/artifacts-design/test/**",
+        "packages/assistant/evals/**",
+        "packages/assistant/test/**",
+        "packages/auth/test/**",
+        "packages/contracts/test/**",
+        "packages/corpus/test/**",
+        "packages/db/test/**",
+        "packages/extraction/test/**",
+        "packages/http/test/**",
+        "packages/integrations/test/**",
+        "packages/logging/test/**",
+        "packages/sync/test/**"
+      ],
       "rules": {
         "typescript/no-unnecessary-condition": "off"
       }

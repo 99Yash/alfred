@@ -926,7 +926,7 @@ function coversTestsOrEvals(files) {
  * passed in, so every case is drivable from literal fixtures with no oxlint run.
  *
  * @param {object} input
- * @param {Record<string, unknown>|undefined} input.rootRules
+ * @param {unknown} input.rootRules
  * @param {unknown} input.overrides
  * @param {string} input.source
  * @returns {DisarmReport}
@@ -1096,7 +1096,7 @@ function declaredDisarms(source) {
     const rest = line.slice(at + DISARM_MARKER.length).trim();
     const [rule, ...words] = rest.split(/\s+/u);
 
-    if (rule === undefined || !rule.includes("/")) continue;
+    if (!rule.includes("/")) continue;
 
     // An em dash or a hyphen may separate the rule from its reason; neither is part of
     // the reason. Everything after is prose, kept verbatim.
@@ -1153,7 +1153,7 @@ function declaredOmissions(source, siteCount) {
       const rest = line.slice(at + OMISSION_MARKER.length).trim();
       const [specifier, ...words] = rest.split(/\s+/u);
 
-      if (specifier === undefined || specifier.length === 0) continue;
+      if (specifier.length === 0) continue;
 
       // An em dash or a hyphen may separate the specifier from its reason, and neither
       // is the reason. Anything else after the specifier is prose.
@@ -1556,7 +1556,7 @@ export function deadExemptionFailures(root) {
         stdio: ["ignore", "pipe", "pipe"],
       });
     } catch (error) {
-      const captured = /** @type {{ stdout?: unknown }} */ (error)?.stdout;
+      const captured = error instanceof Error && "stdout" in error ? error.stdout : undefined;
 
       // oxlint-disable-next-line anti-slop/no-runtime-typeof -- normalizes exec-error stdout; the shape read IS the boundary parse
       stdout = typeof captured === "string" ? captured : "";
@@ -1642,13 +1642,13 @@ function stripJsonComments(source) {
 
   while (index < length) {
     const char = source[index];
-    const next = source[index + 1];
+    const next = source.charAt(index + 1);
 
     if (quote !== null) {
       out += char;
 
       if (char === "\\") {
-        out += next ?? "";
+        out += next;
         index += 2;
         continue;
       }

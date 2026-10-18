@@ -65,7 +65,7 @@ async function main() {
   );
 
   console.log(`fallback path    → text=${JSON.stringify(fb.text.trim())}`);
-  console.log(`fallback served  → response.modelId=${fb.response?.modelId}`);
+  console.log(`fallback served  → response.modelId=${fb.response.modelId}`);
 
   // Let the fire-and-forget log writes land.
   await new Promise((r) => setTimeout(r, 1_500));
@@ -79,7 +79,7 @@ async function main() {
     `log fallback     → provider=${fbRow?.provider} model=${fbRow?.model} cost=${fbRow?.costUsd} responseMeta=${JSON.stringify(fbRow?.responseMeta)}`,
   );
 
-  if (okRow?.provider !== "anthropic" || okRow?.model !== "claude-sonnet-4-6") {
+  if (okRow?.provider !== "anthropic" || okRow.model !== "claude-sonnet-4-6") {
     console.error("FAIL: normal-path attribution should be anthropic/claude-sonnet-4-6");
     failures++;
   }

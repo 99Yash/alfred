@@ -169,7 +169,9 @@ async function condition(
     `${label.padEnd(34)} ttft=${med((s) => s.ttftMs)
       .toFixed(0)
       .padStart(5)}ms  ` +
-      `first_tool=${(med((s) => s.firstToolMs) ?? 0).toFixed(0).padStart(5)}ms  ` +
+      `first_tool=${med((s) => s.firstToolMs)
+        .toFixed(0)
+        .padStart(5)}ms  ` +
       `total=${med((s) => s.totalMs)
         .toFixed(0)
         .padStart(6)}ms  ` +

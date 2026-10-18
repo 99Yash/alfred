@@ -615,7 +615,7 @@ function recorderDelegationFailures() {
 
   const [, warning, defaultHandler, body] = declaration;
 
-  if (!body?.includes(`${defaultHandler}(${warning})`)) {
+  if (!body.includes(`${defaultHandler}(${warning})`)) {
     failures.push(
       `recordBundleGraph's onwarn takes ${defaultHandler} and never calls ${defaultHandler}(${warning}), so vite's own handler never runs and an unresolved import stops failing the build.`,
     );

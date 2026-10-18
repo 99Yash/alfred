@@ -135,7 +135,7 @@ export function tscProjectsFor(script) {
       const token = tokens[index];
 
       if (token === "-p" || token === "--project") {
-        const value = tokens[index + 1];
+        const value = tokens.at(index + 1);
 
         if (value === undefined || value.startsWith("-")) {
           dangling = token;

@@ -99,7 +99,7 @@ function renamedReference(declaration: Declaration): ESTree.Node | null {
   if (declaration.body.body.length !== 0 || declaration.extends.length !== 1) return null;
   const [heritage] = declaration.extends;
 
-  if (heritage === undefined || heritage.typeArguments != null) return null;
+  if (heritage.typeArguments != null) return null;
   const expression = heritage.expression;
 
   return expression.type === "Identifier" || expression.type === "MemberExpression"
@@ -136,7 +136,7 @@ function renamesImport(
 function isExported(sourceCode: SourceCode, declaration: Declaration): boolean {
   const parent = declaration.parent;
 
-  if (parent?.type === "ExportNamedDeclaration" || parent?.type === "ExportDefaultDeclaration") {
+  if (parent.type === "ExportNamedDeclaration" || parent.type === "ExportDefaultDeclaration") {
     return true;
   }
 

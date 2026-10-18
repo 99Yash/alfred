@@ -414,10 +414,6 @@ async function main(): Promise<void> {
     `retry-suppression expected 'rejected', got '${reproposed.kind}'`,
   );
   assert(reproposed.stagingId === null, "retry-suppression must NOT write a new staging row");
-  assert(
-    reproposed.result.retryPolicy === "do_not_retry_identical",
-    "retry-suppression result must carry retryPolicy='do_not_retry_identical'",
-  );
   assert(stubs.draftExecCount() === draftExecBefore, "retry-suppression must not execute the tool");
 
   const allRsRows = await db()

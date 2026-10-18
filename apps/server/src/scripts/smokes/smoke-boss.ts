@@ -326,7 +326,7 @@ async function main(): Promise<void> {
     assert(search !== undefined, "expected a gmail.search staging");
     assert(
       search.status === "executed" && search.requiresApproval === false,
-      `expected gmail.search executed via autonomy, got status=${search?.status} requiresApproval=${search?.requiresApproval}`,
+      `expected gmail.search executed via autonomy, got status=${search.status} requiresApproval=${search.requiresApproval}`,
     );
 
     // 2. The boss spawned a sub-agent → a child run row exists.

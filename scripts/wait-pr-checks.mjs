@@ -107,7 +107,7 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
 
-    if (arg === "--repo" && argv[i + 1] !== undefined) {
+    if (arg === "--repo" && argv.at(i + 1) !== undefined) {
       options.repo = argv[i + 1];
       i += 1;
     } else if (arg === "--interval") {
