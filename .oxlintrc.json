@@ -166,13 +166,14 @@
     "typescript/no-unsafe-unary-minus": "error",
     "typescript/no-useless-default-assignment": "error",
     // Default `correctness` rules that had hits, each driven to zero before it landed, default
-    // options: `void` on an expression that is already `void`.
+    // options: `void` on an expression that is already `void`, and a spread of a string (split
+    // a string into code points with `Array.from`, which states the intent).
     "typescript/no-meaningless-void-operator": "error",
+    "typescript/no-misused-spread": "error",
     // The default rules below still have hits on the tree. Each is off until its own change
     // drives the tree to zero.
     "typescript/no-base-to-string": "off",
     "typescript/no-duplicate-type-constituents": "off",
-    "typescript/no-misused-spread": "off",
     "typescript/no-redundant-type-constituents": "off",
     "typescript/require-array-sort-compare": "off",
     "typescript/unbound-method": "off",

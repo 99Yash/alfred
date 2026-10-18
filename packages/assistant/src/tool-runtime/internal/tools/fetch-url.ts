@@ -233,7 +233,7 @@ function isHtmlType(mime: string): boolean {
 function sniffBinaryType(bytes: Buffer): string | null {
   if (bytes.length === 0) return null;
   const has = (...sig: number[]): boolean => sig.every((b, i) => bytes[i] === b);
-  const text = (s: string): boolean => has(...[...s].map((c) => c.charCodeAt(0)));
+  const text = (s: string): boolean => has(...Array.from(s, (c) => c.charCodeAt(0)));
 
   if (text("%PDF")) return "application/pdf";
 
