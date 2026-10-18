@@ -905,11 +905,13 @@ export const RULES = [
     // import (`import * as C from`) of a constants module are the same second
     // door as a named one when the file exports `X` or `C` again. The
     // one-statement `export { X } from "./constants"` is the same second door
-    // without the local binding. `scope: "chain"`, because the formatter
-    // splits a long specifier list across lines. The barrels are owners.
+    // without the local binding, and so is `export * from "./constants"` /
+    // `export * as C from "./constants"`, which re-exports every name at once.
+    // `scope: "chain"`, because the formatter splits a long specifier list
+    // across lines. The barrels are owners.
     re: new RegExp(
       `${constantsReExport(false)}|` +
-        String.raw`\bexport\s*\{[^}]*\}\s*from\s*["']${CONSTANTS_MODULE}["']`,
+        String.raw`\bexport\s*(?:\{[^}]*\}|\*(?:\s*as\s+\w+)?)\s*from\s*["']${CONSTANTS_MODULE}["']`,
     ),
     scope: "chain",
     severity: "gate",
@@ -918,6 +920,7 @@ export const RULES = [
       "packages/assistant/src/chat/compaction/index.ts",
       "packages/assistant/src/chat/index.ts",
       "packages/assistant/src/connections/mcp/index.ts",
+      "packages/ai/src/index.ts",
     ],
     fix: "Do not re-export a constant through a logic file. Import from ./constants where you use it, or export from the barrel (index.ts) if it is a public contract. A logic file that imports then exports the same name is a second door.",
   },
