@@ -1205,6 +1205,112 @@ function touch(key: string, value: Doc) {
   return hash.digest("hex");`,
   },
   {
+    // Bytes bound first reach a hasher the same way they reach a digest.
+    name: "sha256-over-json-stringify — Buffer.from of JSON bound first, then fed to a hasher",
+    caught: true,
+    rule: "sha256-over-json-stringify",
+    code: `  const buf = Buffer.from(JSON.stringify(payload));
+  return createHash("sha256").update(buf).digest("hex");`,
+  },
+  {
+    name: "sha256-over-json-stringify — encoded JSON bound first, then fed to a bound hasher",
+    caught: true,
+    rule: "sha256-over-json-stringify",
+    code: `  const bytes = new TextEncoder().encode(JSON.stringify(payload));
+  const hash = createHash("sha256");
+  hash.update(bytes);
+  return hash.digest("hex");`,
+  },
+  {
+    name: "sha256-over-json-stringify — JSON text bound first, then fed to a hasher",
+    caught: true,
+    rule: "sha256-over-json-stringify",
+    code: `  const preimage = \`\${kind}:\${JSON.stringify(payload)}\`;
+  return createHash("sha256").update(preimage, "utf8").digest("hex");`,
+  },
+  {
+    // A plain assignment is the nearest binding, the same as a declaration.
+    name: "sha256-over-json-stringify — encoded JSON assigned after the declaration, then digested",
+    caught: true,
+    rule: "sha256-over-json-stringify",
+    code: `  let bytes = encoder.encode(rawBody);
+  if (structured) bytes = encoder.encode(JSON.stringify(payload));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);`,
+  },
+  {
+    name: "sha256-over-json-stringify — JSON after a call inside the hashed argument",
+    caught: true,
+    rule: "sha256-over-json-stringify",
+    code: `  return createHash("sha256")
+    .update(\`\${scope(kind, id)}:\${JSON.stringify(value)}\`)
+    .digest("hex");`,
+  },
+  {
+    name: "sha256-over-json-stringify — JSON after a comma in an array literal inside the hashed argument",
+    caught: true,
+    rule: "sha256-over-json-stringify",
+    code: `  return createHash("sha256").update([kind, JSON.stringify(value)].join(":")).digest("hex");`,
+  },
+  {
+    // The bytes relate to the nearest binding. A parameter of the same name in
+    // a second function binds it again.
+    name: "sha256-over-json-stringify — a second function takes the encoded name as a parameter",
+    caught: false,
+    code: `async function writeMeta(key: string, meta: Meta) {
+  const bytes = new TextEncoder().encode(JSON.stringify(meta));
+  await writeObject(key, bytes, "application/json");
+}
+
+async function fileDigest(bytes: Uint8Array) {
+  return crypto.subtle.digest("SHA-256", bytes);
+}`,
+  },
+  {
+    name: "sha256-over-json-stringify — a second function takes the hasher name as a parameter",
+    caught: false,
+    code: `function rawHash(rawBody: string) {
+  const hash = createHash("sha256");
+  hash.update(rawBody);
+  return hash.digest("hex");
+}
+
+function touch(hash: CacheEntry, value: Doc) {
+  hash.update(JSON.stringify(value));
+}`,
+  },
+  {
+    name: "sha256-over-json-stringify — an arrow takes the JSON name as a parameter",
+    caught: false,
+    code: `  const body = JSON.stringify(payload);
+  await fetch(url, { method: "POST", body });
+  const hashBody = (body: string): string => createHash("sha256").update(body).digest("hex");`,
+  },
+  {
+    name: "sha256-over-json-stringify — the encoded name reassigned to raw bytes before the digest",
+    caught: false,
+    code: `  let bytes = encoder.encode(JSON.stringify(meta));
+  await writeObject(key, bytes, "application/json");
+  bytes = new Uint8Array(await file.arrayBuffer());
+  const digest = await crypto.subtle.digest("SHA-256", bytes);`,
+  },
+  {
+    // The name is bound to raw bytes. The JSON is bound to another name, or
+    // only compared.
+    name: "sha256-over-json-stringify — a bound name that is not JSON fed to a hasher",
+    caught: false,
+    code: `  const buf = Buffer.from(rawBody);
+  const summary = JSON.stringify(meta);
+  const hash = createHash("sha256");
+  hash.update(buf);
+  if (body === JSON.stringify(previous)) return;
+  const bodyHash = createHash("sha256").update(body).digest("hex");`,
+  },
+  {
+    name: "sha256-over-json-stringify — JSON after the hashed call returns",
+    caught: false,
+    code: `  const label = createHash("sha256").update(format(id, rawBody)).digest("hex") + JSON.stringify(meta);`,
+  },
+  {
     // The JSON sits outside the argument that is encoded or hashed.
     name: "sha256-over-json-stringify — JSON.stringify outside the hashed argument",
     caught: false,
