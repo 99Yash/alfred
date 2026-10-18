@@ -1,10 +1,10 @@
-import { eventTriggerPhrase, humanizeSlug } from "@alfred/contracts";
+import { eventTriggerPhrase, type AgentRunTrigger } from "@alfred/contracts";
 
 export type JsonParseResult = { ok: true; value: unknown } | { ok: false; message: string };
 
 /** Provenance line: `manual` → "Run now", a Gmail event → "Triggered by Gmail message". */
 export function triggerLabel(trigger: {
-  kind: string;
+  kind: AgentRunTrigger["kind"];
   source?: string | null | undefined;
   type?: string | null | undefined;
   rawKind?: string | null | undefined;
@@ -29,8 +29,11 @@ export function triggerLabel(trigger: {
       return `Triggered by ${phrase}`;
     }
 
-    default:
-      return humanizeSlug(trigger.kind);
+    default: {
+      const _exhaustive: never = trigger.kind;
+
+      return _exhaustive;
+    }
   }
 }
 

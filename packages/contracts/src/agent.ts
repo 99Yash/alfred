@@ -154,6 +154,11 @@ export const agentRunTriggerSchema = z.discriminatedUnion("kind", [
 
 export type AgentRunTrigger = z.infer<typeof agentRunTriggerSchema>;
 
+/** The discriminants of `agentRunTriggerSchema`, read off its variants so a new kind joins. */
+export const agentRunTriggerKindSchema = z.enum(
+  agentRunTriggerSchema.options.map((variant) => variant.shape.kind.value),
+);
+
 export const cronWorkflowTriggerSchema = z.object({
   kind: z.literal("cron"),
   schedule: z.string(),

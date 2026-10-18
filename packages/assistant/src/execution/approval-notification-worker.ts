@@ -1,12 +1,12 @@
 /** Approval notification worker (ADR-0034). Scheduling lives in `tool-runtime`. */
 
 import {
-  humanizeSlug,
   humanizeToolName,
   isQuestionApproval,
   isRecord,
   jsonValueSchema,
   toDisplayText,
+  toolInputFields,
   type JsonValue,
   type ToolName,
 } from "@alfred/contracts";
@@ -199,7 +199,7 @@ async function renderApprovalNotification(args: RenderApprovalNotificationArgs):
   const action = humanizeToolName(args.toolName);
   const heading = isQuestion ? "Alfred has a question for you" : `Alfred wants to ${action}`;
   const subject = isQuestion ? heading : `[${args.riskTier}] ${heading}`;
-  const inputFields = summarizeInput(args.displayInput);
+  const inputFields = summarizeInput(args.toolName, args.displayInput);
 
   const fields: ApprovalEmailField[] = [
     { label: "Workflow", value: args.workflowSlug },
@@ -235,7 +235,14 @@ function approvalDeepLink(stagingId: string): string {
   return `${webOrigin()}/approvals#approval-${encodeURIComponent(stagingId)}`;
 }
 
-function summarizeInput(input: JsonValue): Array<{ label: string; value: string }> {
+/**
+ * Each label comes from the tool's input schema (`toolInputFields`), the same label the web
+ * approval view shows. A key that the schema does not declare keeps its raw name.
+ */
+function summarizeInput(
+  toolName: ToolName,
+  input: JsonValue,
+): Array<{ label: string; value: string }> {
   if (!isRecord(input)) {
     return [{ label: "Input", value: truncate(formatValue(input), 500) }];
   }
@@ -243,9 +250,10 @@ function summarizeInput(input: JsonValue): Array<{ label: string; value: string 
   const entries = Object.entries(input).slice(0, 8);
 
   if (entries.length === 0) return [{ label: "Input", value: "{}" }];
+  const fields = toolInputFields(toolName) ?? [];
 
   return entries.map(([key, value]) => ({
-    label: humanizeSlug(key),
+    label: fields.find((field) => field.key === key)?.label ?? key,
     value: truncate(formatValue(value), 500),
   }));
 }

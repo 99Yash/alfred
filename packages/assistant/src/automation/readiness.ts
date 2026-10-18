@@ -19,22 +19,13 @@ import {
   type WorkflowRecoveryAction,
   type PersistedWorkflowReadinessProblem,
   type WorkflowRequestedCapability,
+  type WorkflowReadinessProblemCode,
   type WorkflowRequiredCapability,
   type WorkflowRevisionDefinition,
 } from "@alfred/contracts";
 import type { WorkflowToolCatalog, WorkflowToolFacts } from "@alfred/assistant/tool-runtime";
 import type { EventDeliveryHealth } from "@alfred/assistant/connections/ingress";
 import { eventDeliveryRows, type EventSourceHealthMap } from "@alfred/assistant/connections";
-
-type WorkflowReadinessProblemCode =
-  | ToolUnavailabilityCode
-  | "no_tool_surface"
-  | "choose_account"
-  | "resource_not_granted"
-  /** The user must act (`connect`); the workflow blocks (#976). */
-  | "trigger_not_ready"
-  /** Time or an operator fixes delivery (ADR-0097); the run defers. */
-  | "trigger_degraded";
 
 export interface WorkflowReadinessProblem extends PersistedWorkflowReadinessProblem {
   code: WorkflowReadinessProblemCode;

@@ -23,8 +23,10 @@
 //
 // A gate that needs scope or AST structure (which binding a name resolves to)
 // is an oxlint rule in scripts/oxlint/alfred/ instead, enforced by `pnpm lint`.
-// `sha256-over-json-stringify` and `no-function-wrapper-shim` moved there. The
-// edit-time hook does not read those rules.
+// `sha256-over-json-stringify` and `no-function-wrapper-shim` moved there.
+// helper-hints.mjs does not read those rules; `.claude/hooks/lint-on-edit.mjs`
+// runs oxlint on each file an agent writes, so they speak at edit time too.
+// Both hooks are registered in `.claude/settings.json`.
 
 /**
  * @typedef {object} ConsolidationRule
@@ -143,8 +145,9 @@ export const RULES = [
     // An optional-chain step (`row?.provider`, `source?.kind`) reads the same
     // as a `.` step on both sides of the name.
     // The compiler is the first guard: `humanizeSlug`'s parameter rejects a value whose
-    // type is or includes an `IntegrationSlug` literal, whatever its name (`v`, `slug`).
-    // This rule is the backstop for a slug typed plain `string`, which the compiler accepts.
+    // type is or includes an `IntegrationSlug` literal, whatever its name (`v`, `slug`), and
+    // any open string type. This rule is the backstop for a closed provider union that holds
+    // no registry slug (`clickup` is "ClickUp" through `loopEntityProviderName`).
     re: /\bhumanizeSlug\(\s*[\w.?]*?(?:\b(?:integration|provider|source)|(?<=[a-z\d])(?:Integration|Provider|Source))(?:Slug)?(?:\??\.slug)?(?![\w.]|\?\.)/,
     severity: "gate",
     fix: "Index INTEGRATION_DISPLAY_NAMES[slug] from @alfred/contracts with a typed IntegrationSlug, or call integrationDisplayName(value) for an unchecked string. A LoopEntityProvider (MCP identity provider) reads loopEntityProviderName(provider). humanizeSlug is for action and field slugs, not integration names.",

@@ -1,5 +1,7 @@
 import {
   humanizeSlug,
+  isBlockedRunCode,
+  isRunDeferReason,
   type EffectReceipt,
   type RunStatus,
   type WorkflowRunHistoryRow,
@@ -48,16 +50,25 @@ function outcomeHeadline(
       return { title: "Completed", detail: outcome.summary, tone: "green" };
     case "no_change":
       return { title: "No changes", detail: outcome.summary, tone: "muted" };
-    case "deferred":
+    case "deferred": {
+      // A stored code is an open string. A code this build does not know shows as stored.
+      const reason = isRunDeferReason(outcome.code) ? humanizeSlug(outcome.code) : outcome.code;
+
       return {
         title: "Deferred",
         detail: outcome.retryAt
-          ? `${humanizeSlug(outcome.code)}. Retries ${formatTimestamp(outcome.retryAt)}.`
-          : humanizeSlug(outcome.code),
+          ? `${reason}. Retries ${formatTimestamp(outcome.retryAt)}.`
+          : reason,
         tone: "amber",
       };
+    }
+
     case "blocked":
-      return { title: "Blocked", detail: humanizeSlug(outcome.code), tone: "amber" };
+      return {
+        title: "Blocked",
+        detail: isBlockedRunCode(outcome.code) ? humanizeSlug(outcome.code) : outcome.code,
+        tone: "amber",
+      };
     case "failed":
       return { title: "Failed", detail: outcome.safeMessage, tone: "red" };
     case "cancelled": {

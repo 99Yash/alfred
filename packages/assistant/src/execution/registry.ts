@@ -3,6 +3,7 @@ import type {
   AgentTranscriptMessage,
   CancellationFence,
   JsonObject,
+  RunDeferReason,
   WakeCondition,
   WorkflowTrigger,
 } from "@alfred/contracts";
@@ -22,8 +23,6 @@ export interface StagedAction {
    */
   idempotencyKey?: string;
 }
-
-export type RunDeferReason = "provider_unhealthy" | "retry_scheduled";
 
 /**
  * What a step returns. `blocked` ends the run on a readiness failure the user must fix;

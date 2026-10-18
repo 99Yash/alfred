@@ -18,8 +18,14 @@ fact that a regex over source text can state belongs in the table in
 edit-time hook `.claude/hooks/helper-hints.mjs` reads. A rule moves here when
 its regex holes are the kind a regex cannot close.
 
-The edit-time hook does not read this plugin. A rule here fails `pnpm lint`,
-but it gives no hint while an agent writes the file.
+`helper-hints.mjs` does not read this plugin. A second edit-time hook does:
+`.claude/hooks/lint-on-edit.mjs` runs after each `Edit`, `Write` or `MultiEdit`
+of a `.ts`/`.tsx` file, lints that one file with the root `.oxlintrc.json`, and
+gives the agent every diagnostic it finds. So a rule registered here speaks
+while an agent writes the file, with no table to update. The hook is advisory:
+it cannot block the write, and `pnpm lint` stays the gate. Both hooks are
+registered in the tracked `.claude/settings.json`. Claude Code asks each user to
+trust project hooks before it runs them, and asks again when they change.
 
 ## Layout
 
