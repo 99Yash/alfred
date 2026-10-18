@@ -1447,15 +1447,135 @@ export type TurnKickResponse = TurnStartResponse;`,
 }`,
   },
   {
-    // Residue, locked: a return-typed getter is left alone, because the three
-    // live ones (`getEventStreamStatus`, `stagingStore`, `getOnUserCreatedHooks`)
-    // read a module `let` binding that changes at run time. That is a live
-    // read, not a constant behind a second door, and no regex sees the
-    // binding's `const`/`let`.
-    name: "no-function-wrapper-shim — a typed getter over a live module binding",
+    // The return-type hole: the old regex required `)` directly before `{`.
+    // Statements between the import and the wrapper do not hide it.
+    name: "no-function-wrapper-shim — a typed wrapper over a named import",
+    caught: true,
+    rule: "no-function-wrapper-shim",
+    code: `import { MAX_MUTATIONS } from "./constants";
+import type { Mutation } from "./types";
+
+const log = createLogger("sync");
+
+export function maxMutations(): number {
+  return MAX_MUTATIONS;
+}`,
+  },
+  {
+    name: "no-function-wrapper-shim — a typed wrapper over an exported module const",
+    caught: true,
+    rule: "no-function-wrapper-shim",
+    code: `export const DEFAULT_SYNC_OPTIONS = { batch: 50 } as const;
+
+export function defaultSyncOptions(): typeof DEFAULT_SYNC_OPTIONS {
+  return DEFAULT_SYNC_OPTIONS;
+}`,
+  },
+  {
+    // The const can come after the wrapper: the wrapper reads it at call time.
+    name: "no-function-wrapper-shim — a typed wrapper over a literal const declared below it",
+    caught: true,
+    rule: "no-function-wrapper-shim",
+    code: `export function pageSize(): number {
+  return PAGE_SIZE;
+}
+
+const PAGE_SIZE = 50;`,
+  },
+  {
+    name: "no-function-wrapper-shim — a typed arrow wrapper over a named import",
+    caught: true,
+    rule: "no-function-wrapper-shim",
+    code: `import { MAX_MUTATIONS } from "./constants";
+
+export const maxMutations = (): number => MAX_MUTATIONS;`,
+  },
+  {
+    name: "no-function-wrapper-shim — an untyped arrow wrapper",
+    caught: true,
+    rule: "no-function-wrapper-shim",
+    code: `export const maxMutations = () => MAX_MUTATIONS;`,
+  },
+  {
+    // `apps/web/src/lib/events/event-stream-status.ts`: a getter over a module
+    // `let` that changes at run time is a live read, not a second door.
+    name: "no-function-wrapper-shim — a typed getter over a module let",
     caught: false,
-    code: `export function getEventStreamStatus(): EventStreamStatus {
+    code: `let eventStreamStatus: EventStreamStatus = "disconnected";
+
+export function setEventStreamStatus(next: EventStreamStatus) {
+  eventStreamStatus = next;
+}
+
+export function getEventStreamStatus(): EventStreamStatus {
   return eventStreamStatus;
+}`,
+  },
+  {
+    // The same live read with no return type. The old regex flagged this.
+    name: "no-function-wrapper-shim — an untyped getter over a module let",
+    caught: false,
+    code: `let eventStreamStatus = "disconnected";
+
+export function getEventStreamStatus() {
+  return eventStreamStatus;
+}`,
+  },
+  {
+    // `tool-runtime/internal/dispatch/staging-store.ts`: the `let` starts as
+    // an imported value and a test seam swaps it. The import of a different
+    // name does not make the getter a shim.
+    name: "no-function-wrapper-shim — a typed getter over a let seeded from an import",
+    caught: false,
+    code: `import { postgresStagingStore } from "./postgres-staging-store";
+
+let activeStagingStore: StagingStore = postgresStagingStore;
+
+export function stagingStore(): StagingStore {
+  return activeStagingStore;
+}`,
+  },
+  {
+    // `packages/auth/src/hooks.ts`: the const is an unexported mutable array,
+    // and the return type narrows it to a readonly view. Nothing else exposes it.
+    name: "no-function-wrapper-shim — a typed readonly view of an unexported container const",
+    caught: false,
+    code: `const _hooks: OnUserCreatedHook[] = [];
+
+export function registerOnUserCreated(fn: OnUserCreatedHook): void {
+  _hooks.push(fn);
+}
+
+export function getOnUserCreatedHooks(): readonly OnUserCreatedHook[] {
+  return _hooks;
+}`,
+  },
+  {
+    name: "no-function-wrapper-shim — an arrow getter over a module let",
+    caught: false,
+    code: `let current: Mode = "idle";
+
+export const currentMode = (): Mode => current;`,
+  },
+  {
+    // An identity function returns its parameter. The old regex flagged this.
+    name: "no-function-wrapper-shim — a wrapper that returns its parameter",
+    caught: false,
+    code: `export function identity(value) {
+  return value;
+}`,
+  },
+  {
+    // A `const` inside another function body is not a module binding.
+    name: "no-function-wrapper-shim — a typed getter whose name is only a nested const",
+    caught: false,
+    code: `export function load(): void {
+  const cache = 50;
+  use(cache);
+}
+
+export function cacheRef(): Cache {
+  return cache;
 }`,
   },
 ];
