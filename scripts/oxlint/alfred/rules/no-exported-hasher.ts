@@ -129,6 +129,7 @@ function exportedName(sourceCode: SourceCode, start: ESTree.Node): string | null
         ? node.id.name
         : null;
 
+    // oxlint-disable-next-line typescript/switch-exhaustiveness-check -- the ESTree node union; only the holders below can export a function, every other parent ends the walk.
     switch (holder.type) {
       case "ExportNamedDeclaration":
         return `${own ?? "default"}${path}`;

@@ -20,8 +20,23 @@ export function useEventBridge(): void {
           case "inbox.updated":
             void queryClient.invalidateQueries({ queryKey: ["me", "inbox"] });
             break;
-          default:
+          // Their stream hooks own these kinds; no React Query cache reads them.
+          case "agent.progress":
+          case "agent.run":
+          case "approval.requested":
+          case "artifact.delta":
+          case "chat.delta":
+          case "chat.message":
+          case "chat.reasoning":
+          case "chat.tool":
+          case "memory.fact_learned":
+          case "tool.call":
             break;
+          default: {
+            const _exhaustive: never = frame;
+
+            return _exhaustive;
+          }
         }
       },
     });

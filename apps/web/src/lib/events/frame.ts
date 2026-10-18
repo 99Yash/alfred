@@ -78,7 +78,17 @@ export function frameThreadId(frame: EventStreamFrame): string | null {
     case "chat.tool":
     case "artifact.delta":
       return frame.payload.threadId;
-    default:
+    case "agent.progress":
+    case "agent.run":
+    case "approval.requested":
+    case "inbox.updated":
+    case "memory.fact_learned":
+    case "tool.call":
       return noThreadNamed(frame.kind);
+    default: {
+      const _exhaustive: never = frame;
+
+      return _exhaustive;
+    }
   }
 }

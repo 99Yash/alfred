@@ -29,7 +29,7 @@ where to put a new invariant.
 | A rule turned `"off"` for authored source with no stated reason | `scripts/oxlint-config.mjs` `blanketDisarmFailures` (via `check:oxlint-config`) |
 | A promise nobody awaits, catches, or marks with `void` | `typescript/no-floating-promises` (`error`, type-aware) | `.oxlintrc.json` |
 | An async function where a void callback is expected (`onClick={async …}`, `.finally(async …)`), or a promise in a condition or spread | `typescript/no-misused-promises` (`error`, type-aware) | `.oxlintrc.json` |
-| A switch over a union with no `default` that misses a member | `typescript/switch-exhaustiveness-check` (`error`, type-aware) | `.oxlintrc.json` |
+| A switch over a union that misses a member, with or without a `default` | `typescript/switch-exhaustiveness-check` (`error`, type-aware) | `.oxlintrc.json` |
 | A template literal that interpolates an object, `unknown`, or `never` | `typescript/restrict-template-expressions` (`error`, type-aware) | `.oxlintrc.json` |
 
 ### The two config-hygiene rules, and why they are separate from the `anti-slop` set
@@ -89,9 +89,13 @@ are at `error`, each adopted at zero:
   fire-and-forget with `() => void run()`, the pattern the web app already
   uses. A script's cleanup goes in a top-level `try` / `finally`, not in
   `.finally(async …)`.
-- `typescript/switch-exhaustiveness-check`, with
-  `considerDefaultExhaustiveForUnions`: a deliberate catch-all `default` is
-  accepted, and a union switch without one must name every member.
+- `typescript/switch-exhaustiveness-check`, default options. A `default` does
+  not stand in for a missing member (`considerDefaultExhaustiveForUnions` is
+  off), so a union switch names every member and ends in the
+  `const _exhaustive: never` default. A `default` is still allowed after every
+  member, which that check needs. A switch over an open `string` needs no
+  `default`. A switch over the ESTree node union in `scripts/oxlint/` carries
+  its own directive with the reason.
 - `typescript/restrict-template-expressions`, default options. For a value
   the compiler types as `never` in an exhaustive `default`, print it with
   `String(value)`.

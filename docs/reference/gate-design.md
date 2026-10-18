@@ -103,7 +103,6 @@ Each row is a rule from [code-style.md](./code-style.md) tagged `review` or `par
 | Check whether an assertion is needed (§2) | Type-aware: `typescript/no-unnecessary-type-assertion` | Medium |
 | Type guards over casts, for the single cast no row reads (§2) | Type-aware: `typescript/no-unsafe-type-assertion`. Expect a large first count | Low |
 | Boundary guards stay at the boundary (§2) | Compiler: a closed-domain parameter on `isRecord` / `getPath` that rejects an argument whose type is not `unknown` | Medium |
-| Exhaustive switch ends in a `never` default (§2, hit-list 7) | Type-aware: `considerDefaultExhaustiveForUnions` off. It conflicts with the catch-all `default` that #1387 accepted, so decide that first | Low |
 | Keys are stable IDs (§4) | Lint: `react/no-array-index-key` (add `react` to `plugins`). Seven sites, some of them static skeletons | Medium |
 | Effect dependencies (§4) | Lint: `react/exhaustive-deps` | Medium |
 | Accessibility (§4) | Lint: the `jsx-a11y` plugin, one rule per change | Medium |

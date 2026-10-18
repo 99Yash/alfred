@@ -327,6 +327,7 @@ function shapeOf(sourceCode: SourceCode, expression: ESTree.Expression): Shape {
 
   while (value.type === "TSTypeAssertion") value = unwrap(value.expression);
 
+  // oxlint-disable-next-line typescript/switch-exhaustiveness-check -- the ESTree expression union; only the literal forms below have a known shape.
   switch (value.type) {
     case "Literal":
       return "regex" in value ? UNKNOWN : PRIMITIVE;
@@ -491,8 +492,15 @@ function ownValuesArePrimitive(sourceCode: SourceCode, shape: Shape): boolean {
           !property.method &&
           shapeOf(sourceCode, property.value).kind === "primitive",
       );
-    default:
+    // `referenceOnlyReads` returns before a spread of a primitive; an unknown value may run code.
+    case "primitive":
+    case "unknown":
       return false;
+    default: {
+      const _exhaustive: never = shape;
+
+      return _exhaustive;
+    }
   }
 }
 
@@ -526,6 +534,7 @@ function lift(node: ESTree.Node): ESTree.Node {
 function isWriteTarget(node: ESTree.Node): boolean {
   const parent = node.parent;
 
+  // oxlint-disable-next-line typescript/switch-exhaustiveness-check -- the ESTree node union; only the parents below can write their child.
   switch (parent?.type) {
     case "AssignmentExpression":
     case "AssignmentPattern":
@@ -578,6 +587,7 @@ function referenceOnlyReads(
 
     if (parent === null) return false;
 
+    // oxlint-disable-next-line typescript/switch-exhaustiveness-check -- the ESTree node union; every position the walk does not name counts as a change.
     switch (parent.type) {
       case "TSTypeQuery":
       case "TSQualifiedName":

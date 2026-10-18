@@ -232,8 +232,18 @@ function toHistoryOutcome(outcome: WorkflowRunOutcome): WorkflowRunHistoryOutcom
       return rest;
     }
 
-    default:
+    // No frozen receipt list on these.
+    case "blocked":
+    case "deferred":
+    case "failed":
+    case "no_change":
+    case "unknown_write_outcome":
       return outcome;
+    default: {
+      const _exhaustive: never = outcome;
+
+      return _exhaustive;
+    }
   }
 }
 
@@ -278,7 +288,17 @@ function recoveryFor(args: {
         : { kind: "inspect" };
     case "completed":
       return { kind: "inspect" };
-    default:
+    // A live run has no recovery step yet.
+    case "deferred":
+    case "pending":
+    case "runnable":
+    case "running":
+    case "waiting":
       return { kind: "none" };
+    default: {
+      const _exhaustive: never = args.status;
+
+      return _exhaustive;
+    }
   }
 }

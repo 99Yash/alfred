@@ -93,6 +93,7 @@ switch (behavior) {
       () => process.exit(0),
     );
     break;
+  case undefined:
   default:
     process.stderr.write(`unknown test behavior: ${behavior ?? "missing"}\n`, () =>
       process.exit(2),

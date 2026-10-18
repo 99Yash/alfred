@@ -80,6 +80,7 @@ function sourcePriority(source: unknown): number {
       return 3;
     case "document":
       return 4;
+    case undefined:
     default:
       return 5;
   }
