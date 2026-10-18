@@ -21,6 +21,9 @@ where to put a new invariant.
 | `process.env.*` outside `serverEnv()` | `scripts/consolidation-rules.mjs` `gate: no-process-env` |
 | Spreading overrides over defaults | `gate: spread-over-defaults` (`withDefaults`) |
 | An exported function that only returns a constant or an imported name (a second door) | `alfred/no-function-wrapper-shim` (`error`), first-party, scope-aware | `scripts/oxlint/alfred/` |
+| A logic file that hands out a value of a `constants` module again (`export { X }`, `export * from`, `export default X`, a `const` alias), when it is not the package barrel (a second door) | `alfred/no-constants-re-export` (`error`), first-party, scope-aware | `scripts/oxlint/alfred/` |
+| The same for a type of a `constants` module (`export type { … }`, `export { type X }`, `export type * from`) | `alfred/no-type-re-export-shim` (`error`), first-party, scope-aware | `scripts/oxlint/alfred/` |
+| An exported type that is only a new name for an imported type (`export type X = Y`, `export interface X extends Y {}`) | `alfred/no-type-alias-shim` (`error`), first-party, scope-aware | `scripts/oxlint/alfred/` |
 | Duplicate helper bodies | `pnpm dup` (jscpd) — cure, not prevention |
 | A suppression that suppresses nothing (`eslint-disable` / `oxlint-disable` naming a rule that did not fire) | `oxlint --report-unused-disable-directives-severity=error`, wired into the root `lint` script |
 | A rule turned `"off"` for authored source with no stated reason | `scripts/oxlint-config.mjs` `blanketDisarmFailures` (via `check:oxlint-config`) |
