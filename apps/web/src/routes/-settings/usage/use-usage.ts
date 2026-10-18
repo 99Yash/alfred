@@ -29,6 +29,7 @@ export function useUsageSummary(window: UsageWindow) {
         query: { start: window.start, end: window.end },
       });
 
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- Eden treaty `data` is the server's JSON typed by its route, not parsed here; an empty body or a skewed deploy can leave it null.
       if (res.error || !res.data) throw new Error("Failed to load usage summary");
 
       return res.data;
@@ -46,6 +47,7 @@ export function useUsageBreakdown(window: UsageWindow) {
         query: { start: window.start, end: window.end },
       });
 
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- Eden treaty `data` is the server's JSON typed by its route, not parsed here; an empty body or a skewed deploy can leave it null.
       if (res.error || !res.data) throw new Error("Failed to load usage breakdown");
 
       return res.data;
@@ -91,6 +93,7 @@ export function useUsageActivity(args: ActivityArgs) {
         },
       });
 
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- Eden treaty `data` is the server's JSON typed by its route, not parsed here; an empty body or a skewed deploy can leave it null.
       if (res.error || !res.data) throw new Error("Failed to load usage activity");
 
       return res.data;

@@ -93,12 +93,17 @@ export function QuestionAnswersCard({
 }
 
 function unansweredCopy(reason: AskUserUnansweredReason): string {
-  if (reason === "dismissed") return "You dismissed this question. Alfred continued without it.";
+  switch (reason) {
+    case "dismissed":
+      return "You dismissed this question. Alfred continued without it.";
+    case "expired":
+      return "The question expired before an answer arrived.";
+    case "no_answers":
+      return "You continued without answering.";
+    default: {
+      const _exhaustive: never = reason;
 
-  if (reason === "expired") return "The question expired before an answer arrived.";
-
-  if (reason === "no_answers") return "You continued without answering.";
-  const _exhaustive: never = reason;
-
-  return _exhaustive;
+      return _exhaustive;
+    }
+  }
 }

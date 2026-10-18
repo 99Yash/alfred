@@ -67,7 +67,7 @@ function preferredTemperatureUnit(): TemperatureUnit {
 
 /** `null` on any failure, which means "fall back to IP". Accepts a fix up to 10 minutes old. */
 function getBrowserCoords(): Promise<{ lat: number; lon: number } | null> {
-  if (typeof navigator === "undefined" || !navigator.geolocation) {
+  if (typeof navigator === "undefined" || !("geolocation" in navigator)) {
     return Promise.resolve(null);
   }
 

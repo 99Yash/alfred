@@ -23,7 +23,7 @@ export function useThreadUsageSummary(messages: readonly SyncedChatMessage[]) {
 
     for (const message of messages) {
       if (message.role === "user") user += 1;
-      else if (message.role === "assistant") assistant += 1;
+      else assistant += 1;
 
       const usage = message.usage;
 

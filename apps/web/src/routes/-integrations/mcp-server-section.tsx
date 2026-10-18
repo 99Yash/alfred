@@ -34,6 +34,7 @@ export function MCPServerSection() {
     queryFn: async () => {
       const response = await client.api.integrations.mcp.connections.get();
 
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- Eden treaty `data` is the server's JSON typed by its route, not parsed here; an empty body or a skewed deploy can leave it null.
       if (response.error || !response.data) {
         throw new Error("Could not load MCP connections");
       }
@@ -53,6 +54,7 @@ export function MCPServerSection() {
         query: pageParam ? { cursor: pageParam } : {},
       });
 
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- Eden treaty `data` is the server's JSON typed by its route, not parsed here; an empty body or a skewed deploy can leave it null.
       if (response.error || !response.data) {
         throw new Error("Could not load MCP recovery operations");
       }
@@ -76,6 +78,7 @@ export function MCPServerSection() {
           ? await route.successor.post()
           : await route.resolve.post({ decision: action.decision });
 
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- Eden treaty `data` is the server's JSON typed by its route, not parsed here; an empty body or a skewed deploy can leave it null.
       if (response.error || !response.data) {
         throw new Error("Could not update the MCP recovery operation");
       }

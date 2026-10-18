@@ -26,7 +26,7 @@ function toText(value: FactValue | undefined): string {
 export function useBioFact(): BioFactState {
   const { rep, loadError, retry } = useReplicacheStatus();
   const { data: session } = authClient.useSession();
-  const userId = session?.user?.id;
+  const userId = session?.user.id;
   const [rows, setRows] = useState<SyncedFact[] | null>(null);
 
   useEffect(() => {
@@ -70,7 +70,7 @@ export function useBioFact(): BioFactState {
         });
       }
     },
-    [rep, session?.user?.id, bio],
+    [rep, session?.user.id, bio],
   );
 
   return {

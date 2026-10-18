@@ -320,7 +320,7 @@ function QueueEditor({
     }
 
     // Touch: Enter adds a line, as in the composer. The Save button commits.
-    if (window.matchMedia?.("(pointer: coarse)").matches) return;
+    if (window.matchMedia("(pointer: coarse)").matches) return;
     e.preventDefault();
     onSave(value);
   };

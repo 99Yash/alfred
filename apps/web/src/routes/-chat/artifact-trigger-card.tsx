@@ -1,6 +1,12 @@
+import type { ExternalFileSource } from "@alfred/contracts";
 import type { SyncedArtifact } from "@alfred/sync";
 import { ArrowRight, FileText, Layers, Loader2 } from "lucide-react";
 import { cn } from "~/lib/utils";
+
+/** A new source fails to compile here until it has a label. */
+const EXTERNAL_FILE_SUBTITLE = {
+  drive: "Google Drive file",
+} satisfies Record<ExternalFileSource, string>;
 
 /** Card under the authoring message that opens the artifact in the sidebar (ADR-0075 Phase 3). */
 export function ArtifactTriggerCard({
@@ -19,9 +25,7 @@ export function ArtifactTriggerCard({
   const pageCount = artifact.content?.kind === "pages" ? artifact.content.pages.length : undefined;
 
   const subtitle = externalFile
-    ? externalFile.source === "drive"
-      ? "Google Drive file"
-      : "File"
+    ? EXTERNAL_FILE_SUBTITLE[externalFile.source]
     : generating
       ? pageCount !== undefined
         ? `Generating · ${pageCount} ${pageCount === 1 ? "page" : "pages"}`

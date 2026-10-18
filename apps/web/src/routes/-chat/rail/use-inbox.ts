@@ -33,6 +33,7 @@ export function useInbox() {
         },
       });
 
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- Eden treaty `data` is the server's JSON typed by its route, not parsed here; an empty body or a skewed deploy can leave it null.
       if (res.error || !res.data) {
         return { items: [], nextCursor: null, total: 0 };
       }
@@ -42,6 +43,7 @@ export function useInbox() {
       return {
         items,
         nextCursor: res.data.nextCursor ?? null,
+        // oxlint-disable-next-line typescript/no-unnecessary-condition -- Eden treaty `data` is the server's JSON typed by its route, not parsed here; an empty body or a skewed deploy can leave it null.
         total: res.data.total ?? items.length,
       };
     },
@@ -139,6 +141,7 @@ export function useInboxDetail(documentId: string | null) {
       if (!documentId) return null;
       const res = await client.api.me.inbox({ documentId }).get();
 
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- Eden treaty `data` is the server's JSON typed by its route, not parsed here; an empty body or a skewed deploy can leave it null.
       if (res.error || !res.data) return null;
       const data = res.data;
 
