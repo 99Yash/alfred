@@ -256,7 +256,7 @@ export async function ingestGmailMediaAttachments(
     messageId: args.message.id,
     attachmentId: att.attachmentId,
     accountId: args.accountId,
-    threadId: args.message.threadId ?? null,
+    threadId: args.message.threadId,
   });
 
   const tally: GmailMediaTally = { ...ZERO_MEDIA_TALLY };
@@ -265,7 +265,7 @@ export async function ingestGmailMediaAttachments(
   const referenceFor = (att: ExtractedAttachment): AttachmentContentReference => ({
     messageId: args.message.id,
     attachmentId: att.attachmentId,
-    threadId: args.message.threadId ?? null,
+    threadId: args.message.threadId,
     accountId: args.accountId,
     filename: att.filename,
     mimeType: att.mimeType,
@@ -399,7 +399,7 @@ export async function ingestGmailMediaAttachments(
       messageId: args.message.id,
       attachmentId: att.attachmentId,
       accountId: args.accountId,
-      threadId: args.message.threadId ?? null,
+      threadId: args.message.threadId,
       mimeType: att.mimeType,
       size: att.size,
       format: result.format,
@@ -417,7 +417,7 @@ export async function ingestGmailMediaAttachments(
           userId: args.userId,
           source: "gmail_attachment",
           sourceId,
-          sourceThreadId: args.message.threadId ?? null,
+          sourceThreadId: args.message.threadId,
           accountId: args.accountId,
           title: att.filename,
           content,

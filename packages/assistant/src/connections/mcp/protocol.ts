@@ -262,7 +262,7 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
       try {
         next = await this.#relistenTools();
       } catch (err) {
-        if (this.#closing) return;
+        if (this.#isClosing()) return;
         void this.#connectionUnhealthyHandler?.(
           new Error(`${closed} and could not reopen`, { cause: err }),
         );
@@ -270,7 +270,7 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
         return;
       }
 
-      if (this.#closing) {
+      if (this.#isClosing()) {
         await next.close().catch(() => undefined);
 
         return;
@@ -278,6 +278,14 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
 
       this.#watchToolsSubscription(next, Date.now());
     });
+  }
+
+  /**
+   * `close()` can set `#closing` while a reopen is awaited. A method call reads it fresh; an
+   * inline read after an earlier `#closing` check stays narrowed to `false`.
+   */
+  #isClosing(): boolean {
+    return this.#closing;
   }
 
   async #relistenTools(): Promise<McpSubscription> {

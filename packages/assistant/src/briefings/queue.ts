@@ -72,6 +72,7 @@ async function processBriefingJob(job: Job<BriefingJobData>) {
   const data = job.data;
 
   switch (data.kind) {
+    // oxlint-disable-next-line typescript/no-unnecessary-condition -- BullMQ job.data is JSON read back from Redis and typed only by the queue generic; a stale or foreign job can carry another kind.
     case "briefing.tick":
       return handleTick(scheduledFireTime(job));
     default:

@@ -91,10 +91,18 @@ export class PeriodicTask {
           // The next pass retries. Do not reject into the timer.
           console.warn(`[${this.#options.name}] pass failed:`, toMessage(err));
         }
-      } while (this.#pending && !this.#stopped);
+      } while (this.#rerunRequested());
     } finally {
       this.#inFlight = false;
     }
+  }
+
+  /**
+   * A tick or `stop()` that lands during the awaited pass changes these fields. A method call
+   * reads them fresh; an inline read after the loop body's `#pending = false` stays narrowed.
+   */
+  #rerunRequested(): boolean {
+    return this.#pending && !this.#stopped;
   }
 
   /** Abort the pass and wait, bounded. `false` means it was still running at the deadline. */

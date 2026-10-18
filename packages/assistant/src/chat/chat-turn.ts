@@ -573,6 +573,7 @@ const chatTurnStep: Step<ChatRunState> = {
       } catch (err) {
         // Stream timeout: retry from the unchanged pre-turn transcript, but only if
         // nothing visible streamed. A partial answer is kept, not overwritten.
+        // oxlint-disable-next-line typescript/no-unnecessary-condition -- `stop.stopped` can flip during the await above; flow analysis keeps the earlier narrowing.
         if (isStreamTimeoutAbort(err) && !stop.stopped && state.assistantText.trim().length === 0) {
           const retry = retries.afterStreamTimeout(state);
 

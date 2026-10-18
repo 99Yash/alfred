@@ -313,7 +313,7 @@ export async function getSenderSignificanceBatch(
 
   for (const row of rows) {
     const meta = parsePersonEntityMetadata(row.metadata);
-    const significance = meta?.significance;
+    const significance = meta.significance;
 
     if (!significance) continue;
 

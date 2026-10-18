@@ -105,7 +105,7 @@ export async function notify(args: NotifyArgs): Promise<NotifyResult> {
       throw new Error(`${result.error.name}: ${result.error.message}`);
     }
 
-    const providerMessageId = result.data?.id ?? null;
+    const providerMessageId = result.data.id;
     await db()
       .update(emailSends)
       .set({

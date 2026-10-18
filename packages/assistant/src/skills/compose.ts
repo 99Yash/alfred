@@ -116,7 +116,7 @@ export async function composeSkillDocumentation(args: ComposeArgs): Promise<Comp
 
   return {
     body: result.text.trim(),
-    inputTokens: result.usage?.inputTokens,
-    outputTokens: result.usage?.outputTokens,
+    inputTokens: result.usage.inputTokens,
+    outputTokens: result.usage.outputTokens,
   };
 }

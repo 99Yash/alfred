@@ -86,20 +86,20 @@ export async function suggestTodo(input: SuggestTodoInput): Promise<SuggestTodoR
         );
 
       // Live overlap first: an open item should take the new ref.
-      const overlapping = candidates.filter((c) => todoSourcesOverlap(c.sources ?? [], sources));
+      const overlapping = candidates.filter((c) => todoSourcesOverlap(c.sources, sources));
       const live = overlapping.filter((c) => c.status === "open" || c.status === "suggested");
 
       const resolved = overlapping.filter(
         (c): c is typeof c & { status: "done" | "dismissed" } =>
           (c.status === "done" || c.status === "dismissed") &&
           // Identity only: the same thread may carry a new ask the user has not seen.
-          todoSourcesShareIdentityOverlap(c.sources ?? [], sources),
+          todoSourcesShareIdentityOverlap(c.sources, sources),
       );
 
       const liveMatch = live[0];
 
       if (liveMatch) {
-        const existing = liveMatch.sources ?? [];
+        const existing = liveMatch.sources;
         const existingKeys = new Set(existing.map(todoSourceKey));
         // A recurring loop merges here and adds a `thread` ref each time; bound it (#355).
         const merged = boundTodoSources(mergeTodoSources(existing, sources));

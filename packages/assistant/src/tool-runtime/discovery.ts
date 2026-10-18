@@ -304,7 +304,7 @@ function rankToolCatalog(args: ToolSearchArgs): RankedCandidate[] {
     if (result && !result.available && result.code === "not_allowed") continue;
 
     const available = result?.available === true;
-    const unavailableReason = !available && result && !result.available ? result.reason : undefined;
+    const unavailableReason = !available && result ? result.reason : undefined;
 
     if (!available && (!args.includeUnavailable || !unavailableReason)) continue;
 
@@ -384,8 +384,9 @@ function scoreTool(
   let score = 0;
   let reason = "catalog text match";
   let matchedAlias = false;
-  let matchedEntity = false;
-  let matchedVerb = false;
+  // The scorePhrases callbacks set these. A plain `let` reads as `false` afterwards, because
+  // flow analysis does not see an assignment inside a callback.
+  const matched = { entity: false, verb: false };
 
   for (const alias of aliases) {
     if (containsPhrase(matchText, alias)) {
@@ -398,11 +399,11 @@ function scoreTool(
   score += scorePhrases(tool.discovery.tags, matchText, 35, "tag", (value) => (reason = value));
   score += scorePhrases(tool.discovery.entities, matchText, 35, "entity", (value) => {
     reason = value;
-    matchedEntity = true;
+    matched.entity = true;
   });
   score += scorePhrases(tool.discovery.verbs, matchText, 30, "verb", (value) => {
     reason = value;
-    matchedVerb = true;
+    matched.verb = true;
   });
 
   const nameTokens = meaningfulTokens(name);
@@ -423,8 +424,8 @@ function scoreTool(
 
   const preloadEligible =
     matchedAlias ||
-    (matchedEntity && matchedVerb) ||
-    (matchedEntity && readOnly && queryHasReadIntent);
+    (matched.entity && matched.verb) ||
+    (matched.entity && readOnly && queryHasReadIntent);
 
   return { score, reason, preloadEligible };
 }

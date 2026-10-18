@@ -484,10 +484,7 @@ interface GatheredCounts {
 
 function gatherCounts(gather: BriefingGather): GatheredCounts {
   return {
-    email: Object.values(gather.email.categories).reduce(
-      (sum, items) => sum + (items?.length ?? 0),
-      0,
-    ),
+    email: Object.values(gather.email.categories).reduce((sum, items) => sum + items.length, 0),
     activity: gather.integration_activity.items.length,
     meetings: gather.calendar?.events.length ?? 0,
   };

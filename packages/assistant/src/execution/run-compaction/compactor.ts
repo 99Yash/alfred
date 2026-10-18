@@ -78,8 +78,8 @@ export async function compactTranscript(
     summary,
     raw: {
       text,
-      inputTokens: result.usage?.inputTokens,
-      outputTokens: result.usage?.outputTokens,
+      inputTokens: result.usage.inputTokens,
+      outputTokens: result.usage.outputTokens,
     },
   };
 }

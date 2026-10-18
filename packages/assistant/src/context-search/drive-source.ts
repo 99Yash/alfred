@@ -262,6 +262,7 @@ async function readDrive(
     return { evidence };
   } catch (error) {
     // A deadline is not a skip. Rethrow so the caller reports the timeout.
+    // oxlint-disable-next-line typescript/no-unnecessary-condition -- `signal.aborted` can flip during the await above; flow analysis keeps the earlier narrowing.
     if (signal.aborted) throw error;
 
     const declined = readerDeclinedReason(error);
@@ -314,6 +315,7 @@ async function expandDriveFile(args: {
       signal: args.signal,
     });
 
+    // oxlint-disable-next-line typescript/no-unnecessary-condition -- `signal.aborted` can flip during the await above; flow analysis keeps the earlier narrowing.
     if (args.signal.aborted || textPath(file.mimeType) === "none") return undefined;
 
     const read = await readFileText(drive, credentialId, file, args.signal);

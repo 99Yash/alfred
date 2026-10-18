@@ -463,6 +463,7 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
       briefingDate,
       slot: ctx.state.slot,
       ...(ctx.state.timezone !== undefined ? { timezone: ctx.state.timezone } : {}),
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- DailyBriefingOperationState types persisted run state by hand, with no parse on resume; an older run can lack this field.
       ...(ctx.state.reason !== undefined ? { reason: ctx.state.reason } : {}),
     },
   });
@@ -524,10 +525,7 @@ interface GatheredCounts {
 
 function gatherCounts(gather: BriefingGather): GatheredCounts {
   return {
-    email: Object.values(gather.email.categories).reduce(
-      (sum, items) => sum + (items?.length ?? 0),
-      0,
-    ),
+    email: Object.values(gather.email.categories).reduce((sum, items) => sum + items.length, 0),
     activity: gather.integration_activity.items.length,
     meetings: gather.calendar?.events.length ?? 0,
   };

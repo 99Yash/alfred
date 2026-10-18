@@ -54,7 +54,7 @@ export async function dispatchDueCronWorkflows(
 
       if (result === "enqueued") enqueued++;
       else if (result === "raced") raced++;
-      else if (result === "invalid") invalid++;
+      else invalid++;
     } catch (err) {
       failed++;
       console.warn(`[workflows:tick] failed for workflow=${row.slug} (${row.id}):`, toMessage(err));
