@@ -34,8 +34,11 @@ const OXLINT = join(ROOT, "node_modules", ".bin", "oxlint");
 
 const CONFIG = join(ROOT, ".oxlintrc.json");
 
-// One file lints in about 0.25s with the JS plugins loaded. Past this, give up
-// silently rather than stall the session.
+// The root config sets `options.typeAware`, so this run includes the type-aware
+// rules (no-floating-promises, no-misused-promises, …) with no extra flag: tsgolint
+// builds the program for the one file's tsconfig. Measured at 0.4–0.85s per file
+// with the JS plugins loaded. Past this, give up silently rather than stall the
+// session.
 const TIMEOUT_MS = 5_000;
 
 function readStdin() {

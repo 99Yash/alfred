@@ -65,11 +65,11 @@ async function main() {
   throw new Error("timed out waiting for completion");
 }
 
-main()
-  .catch((err) => {
-    console.error("[resume] FAIL", err instanceof Error ? err.message : err);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await closeScriptResources(closeAgentQueue);
-  });
+try {
+  await main();
+} catch (err) {
+  console.error("[resume] FAIL", err instanceof Error ? err.message : err);
+  process.exitCode = 1;
+} finally {
+  await closeScriptResources(closeAgentQueue);
+}

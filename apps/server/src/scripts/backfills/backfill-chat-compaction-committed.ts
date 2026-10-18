@@ -137,11 +137,11 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-main()
-  .catch((error) => {
-    console.error(toMessage(error));
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await closeScriptResources();
-  });
+try {
+  await main();
+} catch (error) {
+  console.error(toMessage(error));
+  process.exitCode = 1;
+} finally {
+  await closeScriptResources();
+}

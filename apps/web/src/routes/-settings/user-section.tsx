@@ -102,7 +102,7 @@ export function UserSection() {
 
     unsavedBioRef.current = next;
 
-    const timer = setTimeout(async () => {
+    const save = async () => {
       setBioSaving(true);
 
       try {
@@ -114,7 +114,9 @@ export function UserSection() {
       } finally {
         setBioSaving(false);
       }
-    }, BIO_SAVE_DEBOUNCE_MS);
+    };
+
+    const timer = setTimeout(() => void save(), BIO_SAVE_DEBOUNCE_MS);
 
     return () => clearTimeout(timer);
   }, [bioDraft, bio]);
@@ -251,7 +253,7 @@ export function UserSection() {
           <AppButton
             variant="destructive"
             size="md"
-            onClick={onSignOut}
+            onClick={() => void onSignOut()}
             disabled={signingOut}
             loading={signingOut}
           >
@@ -270,7 +272,7 @@ export function UserSection() {
           <AppButton
             variant="destructive"
             size="md"
-            onClick={onRevokeOtherSessions}
+            onClick={() => void onRevokeOtherSessions()}
             disabled={revokingOthers}
             loading={revokingOthers}
           >

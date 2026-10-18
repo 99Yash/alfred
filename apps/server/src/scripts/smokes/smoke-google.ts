@@ -160,11 +160,11 @@ function printConnectInstructions() {
   console.log("  5. Re-run this smoke test to exercise ingestion.");
 }
 
-main()
-  .catch((err) => {
-    console.error("[smoke-google] FAIL", err instanceof Error ? err.message : err);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await closeConnections().catch(() => {});
-  });
+try {
+  await main();
+} catch (err) {
+  console.error("[smoke-google] FAIL", err instanceof Error ? err.message : err);
+  process.exitCode = 1;
+} finally {
+  await closeConnections().catch(() => {});
+}

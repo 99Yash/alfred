@@ -64,11 +64,11 @@ async function main() {
   console.log("\n[fail-smoke] PASS");
 }
 
-main()
-  .catch((err) => {
-    console.error("[fail-smoke] FAIL", err instanceof Error ? err.message : err);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await closeConnections().catch(() => {});
-  });
+try {
+  await main();
+} catch (err) {
+  console.error("[fail-smoke] FAIL", err instanceof Error ? err.message : err);
+  process.exitCode = 1;
+} finally {
+  await closeConnections().catch(() => {});
+}

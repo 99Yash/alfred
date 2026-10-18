@@ -70,12 +70,12 @@ async function main() {
   console.log("\n[smoke-metered] PASS");
 }
 
-main()
-  .catch((err) => {
-    console.error("[smoke-metered] FAIL", err instanceof Error ? err.message : err);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await flushLangfuse().catch(() => {});
-    await closeConnections().catch(() => {});
-  });
+try {
+  await main();
+} catch (err) {
+  console.error("[smoke-metered] FAIL", err instanceof Error ? err.message : err);
+  process.exitCode = 1;
+} finally {
+  await flushLangfuse().catch(() => {});
+  await closeConnections().catch(() => {});
+}

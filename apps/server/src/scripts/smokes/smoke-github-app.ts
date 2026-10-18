@@ -137,9 +137,11 @@ async function main() {
   }
 }
 
-main()
-  .catch((err) => {
-    console.error(`[smoke-github-app] error: ${toMessage(err)}`);
-    process.exitCode = 1;
-  })
-  .finally(() => closeConnections());
+try {
+  await main();
+} catch (err) {
+  console.error(`[smoke-github-app] error: ${toMessage(err)}`);
+  process.exitCode = 1;
+} finally {
+  await closeConnections();
+}

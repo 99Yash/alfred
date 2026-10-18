@@ -497,7 +497,7 @@ function InlineApprovalCard({
                           leading={ICON_BAN}
                           disabled={busy || reasonMissing}
                           onClick={() =>
-                            decide({
+                            void decide({
                               decision: "cancel_run",
                               expectedRowVersion: staging.rowVersion,
                               reason: reason.trim(),
@@ -513,7 +513,7 @@ function InlineApprovalCard({
                           loading={busy}
                           disabled={busy || reasonMissing}
                           onClick={() =>
-                            decide({
+                            void decide({
                               decision: "reject",
                               expectedRowVersion: staging.rowVersion,
                               reason: reason.trim(),
@@ -530,7 +530,7 @@ function InlineApprovalCard({
                         leading={edited ? ICON_PENCIL : ICON_CHECK}
                         loading={busy}
                         disabled={busy}
-                        onClick={() => decide(approveDecision())}
+                        onClick={() => void decide(approveDecision())}
                       >
                         {approveLabel}
                       </AppButton>

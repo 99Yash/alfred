@@ -130,11 +130,11 @@ function isTerminal(s: string): boolean {
   return s === "completed" || s === "failed" || s === "cancelled";
 }
 
-main()
-  .catch((err) => {
-    console.error("[smoke] FAIL", err instanceof Error ? err.message : err);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await closeScriptResources(closeAgentQueue);
-  });
+try {
+  await main();
+} catch (err) {
+  console.error("[smoke] FAIL", err instanceof Error ? err.message : err);
+  process.exitCode = 1;
+} finally {
+  await closeScriptResources(closeAgentQueue);
+}

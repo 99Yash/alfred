@@ -101,12 +101,12 @@ async function main() {
   for (const [state, count] of byState) console.log(`    ${state}: ${count}`);
 }
 
-main()
-  .catch((e) => {
-    // Message only: a serialized Error can leak DATABASE_URL.
-    console.error(toMessage(e));
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await closeScriptResources();
-  });
+try {
+  await main();
+} catch (e) {
+  // Message only: a serialized Error can leak DATABASE_URL.
+  console.error(toMessage(e));
+  process.exitCode = 1;
+} finally {
+  await closeScriptResources();
+}

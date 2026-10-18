@@ -264,14 +264,11 @@ async function main() {
   console.log("\n[smoke-skill-doc] PASS");
 }
 
-main()
-  .catch((err) => {
-    console.error(
-      "[smoke-skill-doc] FAIL",
-      err instanceof Error ? (err.stack ?? err.message) : err,
-    );
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await closeScriptResources(closeAgentQueue);
-  });
+try {
+  await main();
+} catch (err) {
+  console.error("[smoke-skill-doc] FAIL", err instanceof Error ? (err.stack ?? err.message) : err);
+  process.exitCode = 1;
+} finally {
+  await closeScriptResources(closeAgentQueue);
+}

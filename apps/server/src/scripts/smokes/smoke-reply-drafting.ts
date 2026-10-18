@@ -206,14 +206,14 @@ async function main() {
   console.log("\n[smoke-reply-drafting] PASS");
 }
 
-main()
-  .catch((err) => {
-    console.error(
-      "[smoke-reply-drafting] FAIL",
-      err instanceof Error ? (err.stack ?? err.message) : err,
-    );
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await closeScriptResources(closeAgentQueue);
-  });
+try {
+  await main();
+} catch (err) {
+  console.error(
+    "[smoke-reply-drafting] FAIL",
+    err instanceof Error ? (err.stack ?? err.message) : err,
+  );
+  process.exitCode = 1;
+} finally {
+  await closeScriptResources(closeAgentQueue);
+}

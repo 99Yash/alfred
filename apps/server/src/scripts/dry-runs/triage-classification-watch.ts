@@ -343,12 +343,12 @@ async function main() {
   console.log("\n# done (nothing written)");
 }
 
-main()
-  .catch((e) => {
-    // Message only: a serialized Error can leak DATABASE_URL.
-    console.error(toMessage(e));
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await closeScriptResources();
-  });
+try {
+  await main();
+} catch (e) {
+  // Message only: a serialized Error can leak DATABASE_URL.
+  console.error(toMessage(e));
+  process.exitCode = 1;
+} finally {
+  await closeScriptResources();
+}

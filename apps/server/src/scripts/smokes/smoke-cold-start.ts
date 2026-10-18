@@ -184,14 +184,11 @@ async function main() {
   console.log("\n[smoke-cold-start] PASS");
 }
 
-main()
-  .catch((err) => {
-    console.error(
-      "[smoke-cold-start] FAIL",
-      err instanceof Error ? (err.stack ?? err.message) : err,
-    );
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await closeScriptResources(closeAgentQueue);
-  });
+try {
+  await main();
+} catch (err) {
+  console.error("[smoke-cold-start] FAIL", err instanceof Error ? (err.stack ?? err.message) : err);
+  process.exitCode = 1;
+} finally {
+  await closeScriptResources(closeAgentQueue);
+}

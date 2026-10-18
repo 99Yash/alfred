@@ -204,14 +204,14 @@ async function main() {
   console.log("[smoke-daily-briefing] PASS");
 }
 
-main()
-  .catch((err) => {
-    console.error(
-      "[smoke-daily-briefing] FAIL",
-      err instanceof Error ? (err.stack ?? err.message) : err,
-    );
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await closeScriptResources(closeAgentQueue, closeBriefingQueue);
-  });
+try {
+  await main();
+} catch (err) {
+  console.error(
+    "[smoke-daily-briefing] FAIL",
+    err instanceof Error ? (err.stack ?? err.message) : err,
+  );
+  process.exitCode = 1;
+} finally {
+  await closeScriptResources(closeAgentQueue, closeBriefingQueue);
+}

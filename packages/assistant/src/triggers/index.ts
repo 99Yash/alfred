@@ -172,9 +172,11 @@ export const domainEventSchema = z
     if (tierIssue) {
       context.addIssue({ code: "custom", message: tierIssue.message, path: [tierIssue.path] });
     } else if (!isRawEventType(event.type) && !isEventTypeForSource(event.source, event.type)) {
+      // `isEventTypeForSource` over the whole source union admits every EventType, so its false
+      // branch types `event.type` as `never`; at runtime it is a type from another source.
       context.addIssue({
         code: "custom",
-        message: `Event type '${event.type}' is invalid for source '${event.source}'`,
+        message: `Event type '${String(event.type)}' is invalid for source '${event.source}'`,
         path: ["type"],
       });
     }

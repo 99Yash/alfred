@@ -219,11 +219,11 @@ async function main() {
   console.log("\n[smoke-extract] PASS");
 }
 
-main()
-  .catch((err) => {
-    console.error("[smoke-extract] FAIL", err instanceof Error ? (err.stack ?? err.message) : err);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await closeScriptResources(closeAgentQueue);
-  });
+try {
+  await main();
+} catch (err) {
+  console.error("[smoke-extract] FAIL", err instanceof Error ? (err.stack ?? err.message) : err);
+  process.exitCode = 1;
+} finally {
+  await closeScriptResources(closeAgentQueue);
+}

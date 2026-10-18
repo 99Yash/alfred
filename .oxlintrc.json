@@ -21,6 +21,9 @@
     "./scripts/oxlint/alfred/index.ts"
   ],
   "categories": {},
+  "options": {
+    "typeAware": true
+  },
   "rules": {
     // The vendored anti-slop rules (scripts/oxlint/anti-slop/, see its README for the
     // upstream commits and for the upstream rules this repo does not vendor).
@@ -79,6 +82,55 @@
     "tailwindcss/enforce-sort-order": ["error", { "entryPoint": "apps/web/src/index.css" }],
     "tailwindcss/enforce-shorthand": "error",
     "tailwindcss/no-deprecated-classes": ["error", { "entryPoint": "apps/web/src/index.css" }],
+    // Type-aware rules. `options.typeAware` above runs them through oxlint-tsgolint (the tsgo
+    // compiler, a root devDependency), so every oxlint invocation — `pnpm lint`, the edit-time
+    // hook, the check:oxlint-config probe — reads types with no CLI flag to keep in step. A
+    // missing tsgolint binary fails the run; it does not skip these rules.
+    //
+    // Four rules at `error`, each driven to zero before it landed here, by the same bar as the
+    // groups above. no-floating-promises names the node:test registrars as known-safe calls:
+    // `test(...)` and `describe(...)` return a promise the runner owns, and it is not awaited
+    // on purpose. switch-exhaustiveness-check accepts a `default` as the exhaustive case for a
+    // union, because a deliberate catch-all `default` is this repo's style; the rule then
+    // catches a union switch with no `default` that misses a member. no-misused-promises and
+    // restrict-template-expressions keep their defaults.
+    //
+    // Turning type-aware on also arms every type-aware rule in oxlint's default `correctness`
+    // set at `warn`, which `pnpm lint` does not fail on. Each one is turned off below so the
+    // run reports only the rules this file chose. The queued follow-ups (the no-unsafe-*
+    // family and no-unnecessary-condition) and these default rules each land alone: tree to
+    // zero first, then the rule at `error`.
+    "typescript/no-floating-promises": [
+      "error",
+      {
+        "allowForKnownSafeCalls": [
+          {
+            "from": "package",
+            "package": "node:test",
+            "name": ["describe", "it", "suite", "test"]
+          }
+        ]
+      }
+    ],
+    "typescript/no-misused-promises": "error",
+    "typescript/switch-exhaustiveness-check": [
+      "error",
+      { "considerDefaultExhaustiveForUnions": true }
+    ],
+    "typescript/restrict-template-expressions": "error",
+    "typescript/await-thenable": "off",
+    "typescript/no-array-delete": "off",
+    "typescript/no-base-to-string": "off",
+    "typescript/no-duplicate-type-constituents": "off",
+    "typescript/no-for-in-array": "off",
+    "typescript/no-implied-eval": "off",
+    "typescript/no-meaningless-void-operator": "off",
+    "typescript/no-misused-spread": "off",
+    "typescript/no-redundant-type-constituents": "off",
+    "typescript/no-unsafe-unary-minus": "off",
+    "typescript/no-useless-default-assignment": "off",
+    "typescript/require-array-sort-compare": "off",
+    "typescript/unbound-method": "off",
     "typescript/no-restricted-types": [
       "error",
       {

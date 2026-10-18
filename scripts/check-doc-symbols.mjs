@@ -61,6 +61,11 @@ const ALLOWED = new Map([
   ["JobsOptions", "BullMQ's exported type, referenced but not re-declared here"],
   ["webhook_secret", "field in GitHub's app-manifest conversion response"],
   ["in_progress", "example of a provider's own native state string"],
+  ["typeAware", "oxlint's own `options.typeAware` config key, set in .oxlintrc.json"],
+  [
+    "considerDefaultExhaustiveForUnions",
+    "option of oxlint's typescript/switch-exhaustiveness-check, set in .oxlintrc.json",
+  ],
   // Future symbols documented in CONTEXT.md before code lands — design, not stale.
   [
     "getRelevantInstructions",

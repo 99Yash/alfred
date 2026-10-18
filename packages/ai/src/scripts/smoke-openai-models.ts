@@ -156,9 +156,11 @@ async function main(): Promise<void> {
   console.log(`[smoke-openai] metering OK (${rows.length} priced rows)`);
 }
 
-main()
-  .catch((error) => {
-    console.error("[smoke-openai] FAIL", toMessage(error));
-    process.exitCode = 1;
-  })
-  .finally(() => closeConnections().catch(() => {}));
+try {
+  await main();
+} catch (error) {
+  console.error("[smoke-openai] FAIL", toMessage(error));
+  process.exitCode = 1;
+} finally {
+  await closeConnections().catch(() => {});
+}

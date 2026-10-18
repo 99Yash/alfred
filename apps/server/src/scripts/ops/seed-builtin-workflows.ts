@@ -25,11 +25,11 @@ async function main() {
   );
 }
 
-main()
-  .catch((err) => {
-    console.error("[seed-builtin-workflows] failed:", err);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await closeConnections();
-  });
+try {
+  await main();
+} catch (err) {
+  console.error("[seed-builtin-workflows] failed:", err);
+  process.exitCode = 1;
+} finally {
+  await closeConnections();
+}

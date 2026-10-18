@@ -132,11 +132,11 @@ Pub/Sub setup (manual, one-time):
 `);
 }
 
-main()
-  .catch((err) => {
-    console.error("[smoke-google-poll] FAIL", err instanceof Error ? err.message : err);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await closeConnections().catch(() => {});
-  });
+try {
+  await main();
+} catch (err) {
+  console.error("[smoke-google-poll] FAIL", err instanceof Error ? err.message : err);
+  process.exitCode = 1;
+} finally {
+  await closeConnections().catch(() => {});
+}
