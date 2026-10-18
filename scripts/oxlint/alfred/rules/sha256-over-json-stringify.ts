@@ -2,6 +2,8 @@ import { defineRule } from "@oxlint/plugins";
 
 import type { ESTree, Reference, Scope, SourceCode, Variable } from "@oxlint/plugins";
 
+import { inGateScope } from "../shared/scope.ts";
+
 // A content hash whose pre-image is `JSON.stringify` output depends on object key
 // INSERTION order. Three copies fed the `observations` dedup index
 // `(user_id, family_key, evidence_hash)` (#571): the same logical payload built along
@@ -411,6 +413,8 @@ export const sha256OverJsonStringifyRule = defineRule({
       before() {
         sinks = [];
         jsonCalls = [];
+
+        return inGateScope(context.filename, context.cwd);
       },
       CallExpression(node) {
         if (isJsonStringify(node)) {

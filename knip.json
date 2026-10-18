@@ -21,14 +21,16 @@
   ],
   "workspaces": {
     ".": {
-      // `scripts/oxlint/anti-slop/index.ts` is loaded by oxlint through the `jsPlugins`
-      // entry in `.oxlintrc.json`, which knip does not read. Its rules and their
-      // fixtures hang off it; `pnpm check:oxlint-plugin` is what actually holds each
-      // one to being registered and enforced.
+      // `scripts/oxlint/anti-slop/index.ts` and `scripts/oxlint/alfred/index.ts` are
+      // loaded by oxlint through the `jsPlugins` entries in `.oxlintrc.json`, which knip
+      // does not read. Their rules and fixtures hang off them; `pnpm check:oxlint-plugin`
+      // is what actually holds each one to being registered and enforced.
       "entry": [
         "scripts/*.mjs",
         "scripts/oxlint/anti-slop/index.ts",
         "scripts/oxlint/anti-slop/rules/*.rule-test.ts",
+        "scripts/oxlint/alfred/index.ts",
+        "scripts/oxlint/alfred/rules/*.rule-test.ts",
         ".claude/hooks/*.mjs",
         ".agents/hooks/*.mjs"
       ]

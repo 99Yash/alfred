@@ -60,16 +60,18 @@
     "anti-slop/no-runtime-typeof": ["error", { "allowInTypeGuards": true }],
     "anti-slop/no-unknown-returns": "error",
     "anti-slop/no-unsafe-dictionary-type": "error",
-    // The first-party alfred rules (scripts/oxlint/alfred/, see its README). Each one was a
-    // regex gate in scripts/consolidation-rules.mjs that needed scope analysis to stop
-    // missing cases and flagging look-alikes.
-    // sha256-over-json-stringify: a hash digest over JSON.stringify output, whose pre-image
-    // depends on key order. Use sha256Canonical. Its file scope is the old gate's scope: the
-    // two "overrides" entries at the bottom of this file turn it off where the gate skipped.
+    // Alfred's own rules (scripts/oxlint/alfred/, first-party, see its README). Each one was
+    // a regex gate in scripts/consolidation-rules.mjs that needed scope analysis to stop
+    // missing cases and flagging look-alikes. Each keeps that gate's file scope by itself
+    // (`inGateScope` reads `isSkippedPath`), so neither needs an "overrides" entry here.
+    // no-function-wrapper-shim: an exported function that only returns a constant or an
+    // imported name. sha256-over-json-stringify: a hash digest over JSON.stringify output,
+    // whose pre-image depends on key order; use sha256Canonical.
+    "alfred/no-function-wrapper-shim": "error",
     "alfred/sha256-over-json-stringify": "error",
     // The tailwind rules sit at `error` by the same bar: zero violations on promotion, and
     // `pnpm lint` does not fail on `warn`, so a warn-level rule here enforced nothing.
-    // `pnpm check:oxlint-plugin` drives only the vendored anti-slop rules, not these.
+    // `pnpm check:oxlint-plugin` drives only the anti-slop and alfred rules, not these.
     "tailwindcss/enforce-sort-order": ["error", { "entryPoint": "apps/web/src/index.css" }],
     "tailwindcss/enforce-shorthand": "error",
     "tailwindcss/no-deprecated-classes": ["error", { "entryPoint": "apps/web/src/index.css" }],
@@ -483,27 +485,6 @@
       ],
       "rules": {
         "anti-slop/no-unsafe-dictionary-type": "off"
-      }
-    },
-    {
-      // alfred/sha256-over-json-stringify keeps the file scope it had as a consolidation
-      // gate (`isSkippedPath` in scripts/consolidation-rules.mjs): test and eval files are
-      // out of scope. The non-test half of that scope is the NEXT entry, because a
-      // test/eval entry may not carry a non-test glob.
-      "files": ["**/test/**", "**/*.test.ts", "**/*.test.tsx", "**/evals/**", "**/*.eval.ts"],
-      "rules": {
-        "alfred/sha256-over-json-stringify": "off"
-      }
-    },
-    {
-      // alfred/sha256-over-json-stringify stays off in the rest of the old gate's skipped
-      // scope: every scripts/ tree (repo-level and ops), module mocks, and generated
-      // source. None of these computes a dedup or change-detection digest that product
-      // code compares.
-      // oxlint-disarm: alfred/sha256-over-json-stringify — scripts, mocks and generated files were outside the consolidation gate this rule replaces; none of them computes a digest that product code compares.
-      "files": ["**/scripts/**", "**/__mocks__/**", "**/*.gen.ts"],
-      "rules": {
-        "alfred/sha256-over-json-stringify": "off"
       }
     }
   ]

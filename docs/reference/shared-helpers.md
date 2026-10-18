@@ -14,6 +14,9 @@ you to remember:
    `.claude/hooks/helper-hints.mjs` runs the whole table against code an agent is
    about to write. One table, two consumers, so a fact enforced by the build and
    a fact stated to an agent cannot disagree.
+   A fact that only the syntax tree can state (scope, nesting, read versus
+   write) is an AST rule in `scripts/oxlint/alfred/` instead, which `pnpm lint`
+   enforces. The edit-time hook does not read it.
 2. **This doc** — the full catalog and the colocation rule for helpers whose
    absence no regex can spot.
 3. **`codebases guide alfred "<intent>"`** — semantic search over this repo's

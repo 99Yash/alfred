@@ -15,11 +15,11 @@
   //
   // The include covers `**/*.ts` as well, for one reason: `scripts/oxlint/anti-slop/`
   // (vendored) and `scripts/oxlint/alfred/` (first-party) are TypeScript rule source
-  // that `oxlint` loads directly. Nothing else would type-check them — neither is a
-  // workspace — so without this they would be the only TypeScript in the repo checked
-  // by nothing. `allowImportingTsExtensions`
-  // is what lets those files keep the explicit `./rules/foo.ts` specifiers Node's own
-  // type stripping requires; it needs `noEmit`, which is already set above.
+  // that `oxlint` loads directly. Nothing else would type-check them — they are not a
+  // workspace either — so without this they would be the only TypeScript in the repo
+  // checked by nothing. `allowImportingTsExtensions` is what lets those files keep the
+  // explicit `./rules/foo.ts` specifiers Node's own type stripping requires; it needs
+  // `noEmit`, which is already set above.
   "compilerOptions": {
     "target": "ESNext",
     "lib": ["ESNext"],
