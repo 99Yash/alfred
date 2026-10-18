@@ -13,8 +13,6 @@ import { fetchTodos } from "./todos";
 import { fetchTriageTags } from "./triage-tags";
 import { fetchWorkflows } from "./workflows";
 
-export type { EntityRow } from "./entity-row";
-
 export type EntityFetchers = {
   [Slug in IDBKeys]: EntityFetcher<Slug>;
 };

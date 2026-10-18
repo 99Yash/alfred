@@ -75,16 +75,10 @@ const LEAD = cn(
 );
 
 /** A flat uppercase label, not the hero's `EyebrowChip`, so the title leads. */
-export function SectionEyebrow({ children }: { children: ReactNode }) {
+function SectionEyebrow({ children }: { children: ReactNode }) {
   return (
     <p className="text-[12px] font-semibold tracking-[0.16em] text-neutral-500 uppercase">
       {children}
     </p>
   );
 }
-
-export const LANDING_CARD = cn(
-  "relative isolate overflow-hidden rounded-[20px]",
-  "border border-white/[0.07] bg-white/[0.02]",
-  "shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]",
-);

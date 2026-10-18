@@ -20,8 +20,6 @@ import { codecForProvider } from "./tool-name-codec";
 
 export { attachProviderTurnPolicy } from "./request-projection";
 
-export type { CacheTtl } from "./request-projection";
-
 /** Provider-neutral reasoning level. Each provider package maps it to its own options. */
 export type RouteReasoning = NonNullable<LanguageModelV4CallOptions["reasoning"]>;
 

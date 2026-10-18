@@ -43,7 +43,7 @@ import { observeDocumentAskCarrier } from "../document-asks";
  * Schedules one `gmail.media_ingest` job per message (ADR-0091 amendment). Poll paths never parse
  * attachments inline: that could hold the poll for minutes.
  */
-export type ScheduleGmailMediaIngest = (args: {
+type ScheduleGmailMediaIngest = (args: {
   credentialId: string;
   messageId: string;
   documentId: string;
@@ -930,7 +930,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
 // Realtime sync via users.messages.list (ADR-0037)
 // ---------------------------------------------------------------------------
 
-export interface PollRecentDeps {
+interface PollRecentDeps {
   mailbox?: Pick<GmailMailbox, "listMessages" | "getMessage"> | undefined;
   /** Deferred attachment ingest sink. Production wires `enqueueGmailMediaIngest`. */
   scheduleMediaIngest?: ScheduleGmailMediaIngest | undefined;

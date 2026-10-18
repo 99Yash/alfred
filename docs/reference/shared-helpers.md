@@ -33,6 +33,14 @@ you to remember:
 fact. When a helper here has exactly one owner, a re-implementation of it is a
 candidate `gate` rule — see [Closing the loop](#closing-the-loop).
 
+`pnpm check:knip` holds unused files, exports, types and dependencies at zero,
+in `pnpm check` and in CI. A dead export is where a second helper starts: it
+looks like an owner, so the next caller wraps it instead of finding the live
+one. Delete it, or drop `export` when only its own module reads it. An export
+that knip cannot see reaching (an Eden `typeof app` inference, for example) is
+intentional API: tag it `/** @public */` with the reason, and do not un-export
+it. Policy and every blind spot live in `knip.json`.
+
 ## Smell map — when you're about to…, reach for
 
 | You're about to write…                                                                        | Reach for                                                                                                                                                                                                                                                                                                          | From                          | Don't hand-roll                                                                                                                                                             |

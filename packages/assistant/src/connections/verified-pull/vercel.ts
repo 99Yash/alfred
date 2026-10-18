@@ -345,7 +345,7 @@ export async function discoverVercelTargets(
 }
 
 /** The only minter of the pull shape `reduceVercelEvent` folds. Takes a parsed reading, never text. */
-export function mintVercelPullReceipt(
+function mintVercelPullReceipt(
   target: VercelPullTarget,
   parsed: VerifiedPullReading,
 ): VerifiedPullReceipt {

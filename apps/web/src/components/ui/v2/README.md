@@ -21,18 +21,18 @@ Everything outside a `.app` ancestor is unaffected.
 
 ## Primitives
 
-| Primitive       | What it is                                                                                                                                |
-| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `AppButton`     | 32px-tall pill with the two-shadow elevation stack. Variants: white, primary, ghost, destructive.                                         |
-| `AppCard`       | White-surface panel. Shadow-as-border, no border property. Optional `interactive` + `padded` props.                                       |
-| `AppCardHeader` | Title-left, trailing-right row. Used as the first child of a `AppCard`.                                                                   |
-| `AppPill`       | Selector pill — "Today", "USD", "30 days". Optional leading icon + trailing chevron.                                                      |
-| `AppKpi`        | Label / value / delta stack. No card chrome.                                                                                              |
-| `AppDock`       | Floating bottom-center dark pill for secondary nav. Active item highlights violet.                                                        |
-| `AppHeader`     | Fixed top bar with masked-blur backdrop (no harsh edge against page content).                                                             |
-| `AppInput`      | Pill input. `readOnly` flips to the muted `bg-app-bg-2` token-display variant.                                                            |
-| `AppField`      | Field wrapper: label + control + helper/error, with `AppFieldLabel` / `AppFieldHelperText` / `AppFieldError` exported for custom layouts. |
-| `AppModal`      | Responsive overlay: a centered themed dialog at 640px and up, a drag-to-dismiss bottom sheet below.                                       |
+| Primitive       | What it is                                                                                          |
+| --------------- | --------------------------------------------------------------------------------------------------- |
+| `AppButton`     | 32px-tall pill with the two-shadow elevation stack. Variants: white, primary, ghost, destructive.   |
+| `AppCard`       | White-surface panel. Shadow-as-border, no border property. Optional `interactive` + `padded` props. |
+| `AppCardHeader` | Title-left, trailing-right row. Used as the first child of a `AppCard`.                             |
+| `AppPill`       | Selector pill — "Today", "USD", "30 days". Optional leading icon + trailing chevron.                |
+| `AppKpi`        | Label / value / delta stack. No card chrome.                                                        |
+| `AppDock`       | Floating bottom-center dark pill for secondary nav. Active item highlights violet.                  |
+| `AppHeader`     | Fixed top bar with masked-blur backdrop (no harsh edge against page content).                       |
+| `AppInput`      | Pill input. `readOnly` flips to the muted `bg-app-bg-2` token-display variant.                      |
+| `AppField`      | Field wrapper: label + control + helper/error, with `AppFieldError` exported for custom layouts.    |
+| `AppModal`      | Responsive overlay: a centered themed dialog at 640px and up, a drag-to-dismiss bottom sheet below. |
 
 ## Tokens
 

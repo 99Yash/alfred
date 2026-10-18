@@ -15,7 +15,7 @@ import { settings, type UserSettings } from "@alfred/assistant/settings";
 import { USER_FACING_MEMORY_CHUNK_KINDS } from "./chunks";
 
 /** Sections `include` can select. */
-export type UserContextSection =
+type UserContextSection =
   | "profile"
   | "integrations"
   | "facts"

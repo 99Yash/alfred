@@ -249,7 +249,7 @@ function parseProviderInstant(value: string | null): Date | null {
 }
 
 /** The only minter of the pull shape `reduceRailwayEvent` folds. Takes a parsed reading, never text. */
-export function mintRailwayPullReceipt(
+function mintRailwayPullReceipt(
   target: RailwayPullTarget,
   parsed: VerifiedPullReading,
 ): VerifiedPullReceipt {

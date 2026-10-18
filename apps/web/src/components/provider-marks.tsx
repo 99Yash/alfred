@@ -45,7 +45,7 @@ export interface ProviderMeta {
   Icon: SvgIcon;
 }
 
-export const PROVIDERS = {
+const PROVIDERS = {
   anthropic: { label: "Claude", tint: "#d97757", Icon: AnthropicMark },
   google: { label: "Gemini", tint: "#4285f4", Icon: GoogleMark },
   openai: { label: "GPT", tint: "#10a37f", Icon: OpenAiMark },

@@ -80,10 +80,16 @@ export interface ContextSource {
 }
 
 /** Why a card fails the join with its source's manifest. */
-export const CARD_MANIFEST_VIOLATIONS = ["source-id-mismatch", "undeclared-media-kind"] as const;
+const CARD_MANIFEST_VIOLATIONS = ["source-id-mismatch", "undeclared-media-kind"] as const;
 
 export type CardManifestViolation = (typeof CARD_MANIFEST_VIOLATIONS)[number];
 
+/**
+ * Why `card` breaks its source's manifest, or `undefined` when it obeys (#429): its
+ * `source.id` must match its source, and its `mediaKind` must be declared. Checked
+ * here, not in the card schema, because both compare the card to its source. A wrong
+ * `source.id` would borrow another source's authority.
+ */
 export function cardManifestViolation(
   card: EvidenceCard,
   source: ContextSource,
@@ -95,15 +101,6 @@ export function cardManifestViolation(
   }
 
   return undefined;
-}
-
-/**
- * The card's `source.id` matches its source, and its `mediaKind` is declared
- * (#429). Checked here, not in the card schema, because both compare the card
- * to its source. A wrong `source.id` would borrow another source's authority.
- */
-export function cardObeysManifest(card: EvidenceCard, source: ContextSource): boolean {
-  return cardManifestViolation(card, source) === undefined;
 }
 
 interface RegisteredSlot {

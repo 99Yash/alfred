@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 
-export const weatherConditionSchema = z.enum([
+const weatherConditionSchema = z.enum([
   "clear",
   "partly_cloudy",
   "cloudy",
@@ -67,7 +67,7 @@ const WMO_CODE_BANDS: ReadonlyArray<{ from: number; to: number; condition: Weath
   { from: 95, to: 99, condition: "storm" },
 ];
 
-export function wmoCodeToCondition(code: number | null | undefined): WeatherCondition {
+function wmoCodeToCondition(code: number | null | undefined): WeatherCondition {
   if (code === undefined || code === null) return "unknown";
 
   return (

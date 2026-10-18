@@ -41,7 +41,7 @@ export type InboundDeliveryOutcome =
   | { kind: "raw"; source: InboundEventSource; receiptId: string; rawKind: string };
 
 /** Unverified bodies are never stored, so this is the only value. */
-export const INBOUND_VERIFICATION_RESULT = "signature_valid";
+const INBOUND_VERIFICATION_RESULT = "signature_valid";
 
 export interface ReceiveInboundDeliveryArgs {
   /** The route's `:source` segment, unvalidated. */

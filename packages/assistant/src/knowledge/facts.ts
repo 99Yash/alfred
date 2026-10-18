@@ -77,7 +77,7 @@ export const proposeFactArgsSchema = userFactInsertSchema
 
 export type ProposeFactArgs = z.infer<typeof proposeFactArgsSchema>;
 
-export const editFactArgsSchema = z.object({
+const editFactArgsSchema = z.object({
   factId: z.string().min(1),
   userId: z.string().min(1),
   newValue: z.unknown(),
@@ -87,7 +87,7 @@ export const editFactArgsSchema = z.object({
 
 export type EditFactArgs = z.infer<typeof editFactArgsSchema>;
 
-export const supersedeFactArgsSchema = z.object({
+const supersedeFactArgsSchema = z.object({
   factId: z.string().min(1),
   userId: z.string().min(1),
   newValue: z.unknown(),
@@ -98,7 +98,7 @@ export const supersedeFactArgsSchema = z.object({
 
 export type SupersedeFactArgs = z.infer<typeof supersedeFactArgsSchema>;
 
-export const rejectFactArgsSchema = z.object({
+const rejectFactArgsSchema = z.object({
   factId: z.string().min(1),
   userId: z.string().min(1),
   reason: z.unknown().optional(),

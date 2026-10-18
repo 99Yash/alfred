@@ -22,7 +22,7 @@ export function getEventStreamStatus(): EventStreamStatus {
   return eventStreamStatus;
 }
 
-export function subscribeToEventStreamStatus(cb: () => void): () => void {
+function subscribeToEventStreamStatus(cb: () => void): () => void {
   statusListeners.add(cb);
 
   return () => statusListeners.delete(cb);

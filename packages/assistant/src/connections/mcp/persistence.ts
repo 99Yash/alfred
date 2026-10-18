@@ -692,7 +692,7 @@ export async function compareAndSetCatalogRevision(
 // Catalog revisions (immutable, append-only)
 // ===========================================================================
 
-export async function readRevisionById(
+async function readRevisionById(
   id: string,
   runner: DbRunner = db(),
 ): Promise<McpCatalogRevision | undefined> {

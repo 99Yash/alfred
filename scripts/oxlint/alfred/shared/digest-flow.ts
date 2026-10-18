@@ -32,7 +32,7 @@ type Write = {
   readonly statement: ESTree.Node | null;
 };
 
-export const within = (inner: Ranged, outer: Ranged): boolean =>
+const within = (inner: Ranged, outer: Ranged): boolean =>
   inner.start >= outer.start && inner.end <= outer.end;
 
 export function unwrap(expression: ESTree.Expression): ESTree.Expression {
@@ -111,7 +111,7 @@ export function digestSinkOf(call: ESTree.CallExpression): Sink | null {
   return null;
 }
 
-export function isFunctionNode(node: ESTree.Node): node is FunctionNode {
+function isFunctionNode(node: ESTree.Node): node is FunctionNode {
   return (
     node.type === "FunctionDeclaration" ||
     node.type === "FunctionExpression" ||
@@ -179,7 +179,7 @@ export function ownerImportsOf(
 }
 
 /** The owner hasher that `callee` names, as `{ export name, callee text }`, or null. */
-export function ownerHasherOf(
+function ownerHasherOf(
   imports: OwnerImports,
   callee: ESTree.Expression,
 ): Readonly<{ name: string; text: string }> | null {
