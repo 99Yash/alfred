@@ -223,13 +223,13 @@ export function detectAiTells(text: string, options: DetectOptions = {}): VoiceT
 
   for (const rule of RULES) {
     for (const m of cleaned.matchAll(rule.pattern)) {
-      push(rule.ruleId, rule.category, rule.severity, m[0], m.index ?? 0);
+      push(rule.ruleId, rule.category, rule.severity, m[0], m.index);
     }
   }
 
   if (!options.allowEmoji) {
     for (const m of cleaned.matchAll(EMOJI_PATTERN)) {
-      push("emoji", "Emoji", "low", m[0], m.index ?? 0);
+      push("emoji", "Emoji", "low", m[0], m.index);
     }
   }
 

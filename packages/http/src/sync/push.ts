@@ -33,7 +33,7 @@ type MutationOutcome = { applied: boolean; followUps: MutatorFollowUp[] };
 function didMutatorApply(result: MutatorResult | undefined): boolean {
   if (!result) return true;
 
-  return result.applied ?? true;
+  return result.applied;
 }
 
 /**

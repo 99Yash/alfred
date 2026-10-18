@@ -96,6 +96,7 @@ export function syncEntity<
                 try {
                   const serialized = JSON.stringify(mapped);
 
+                  // oxlint-disable-next-line typescript/no-unnecessary-condition -- lib.d.ts types JSON.stringify as string, but it returns undefined for undefined, a function, or a symbol.
                   if (serialized !== undefined) preview = serialized.slice(0, 200);
                 } catch {
                   // Keep the placeholder preview.
