@@ -82,6 +82,14 @@ const importBinding = (from) =>
   String.raw`\bimport\s*(?:type\s+)?\{[^}]*?\b\1(?=\s*[,}])[^}]*\}\s*from\s*["']${from}["']`;
 
 /**
+ * A module-level `const` that binds the name in group 1 and that a forwarder
+ * can only re-expose: it is exported, or it holds a primitive literal. The
+ * declaration starts a line (column 0), so a `const` inside a function body
+ * does not count. Without a leading `\n`, so the caller anchors it.
+ */
+const exposedModuleConst = String.raw`(?:export\s+const\s+\1\b|const\s+\1\s*(?::[^=;]*)?=\s*(?:["'\x60]|-?\d|true\b|false\b|null\b))`;
+
+/**
  * An `export { … }` (or `export type { … }` when `typeOnly`) with no `from`,
  * whose specifier list holds the local name `\1` — captured here — and that
  * re-exports an import of that name from a `constants` module.
@@ -929,10 +937,40 @@ export const RULES = [
     id: "no-function-wrapper-shim",
     // `export function foo(){ return bar }` where bar is an import — a
     // function that only forwards to a constant. Prefer the constant itself.
-    // This is intentionally narrow: single return, no args handling, no logic.
+    // This is intentionally narrow: a sync `export function` whose whole body
+    // is `return <name>`, or an `export const f = (…) => <name>;` arrow.
     // `scope: "chain"`: the formatter puts the body on its own line, so a line
     // rule saw only a hand-collapsed one-liner.
-    re: /export\s+function\s+\w+\s*\([^)]*\)\s*\{\s*return\s+\w+\s*;?\s*\}/,
+    //
+    // The rule relates the returned name (group 1) to how the file binds it,
+    // because a getter over a module `let` (`getEventStreamStatus`,
+    // `stagingStore`) is a live read, not a second door. It flags when:
+    //   - a named import anywhere earlier in the file binds the name (see
+    //     `importBinding`), with or without a return type; or
+    //   - a module-level (column 0) `const` binds it, before or after the
+    //     function, and that `const` is exported or holds a primitive literal.
+    //     An unexported container (`const _hooks: Hook[] = []` behind
+    //     `getOnUserCreatedHooks(): readonly Hook[]`) is left alone: the return
+    //     type can narrow it, and nothing else exposes it; or
+    //   - the wrapper has no return type and a module-level `let`/`var` does
+    //     not bind the name. An unresolved name still matches in this untyped
+    //     form, which keeps every catch of the old regex except a live read.
+    // It never flags a name that is a parameter of the wrapper.
+    re: new RegExp(
+      // The wrapper, up to and including the returned name.
+      String.raw`\bexport\s+(?:function\s+\w+\s*\([^)]*\)(?:\s*:[^{};]*)?\s*\{\s*return\s+|const\s+\w+\s*=\s*\([^)]*\)(?:\s*:[^=;]*)?\s*=>\s*)(\w+)` +
+        // The body ends at the name: `}` for a function, `;` for an arrow.
+        String.raw`(?:(?<=return\s+\1)\s*;?\s*\}|(?<==>\s*\1)\s*;)` +
+        // Not a parameter of the wrapper (`identity(value) { return value; }`).
+        String.raw`(?<!\([^)]*\b\1\b[^)]*\)[^()]*\1\s*;?\s*\}?)` +
+        // Then one of: a named import binds it; an exposed module `const`
+        // binds it, before or after the wrapper; or the wrapper is untyped
+        // and no module `let`/`var` binds it.
+        String.raw`(?:(?<=${importBinding(String.raw`[^"']+`)}[\s\S]*)` +
+        String.raw`|(?<=(?:^|\n)${exposedModuleConst}[\s\S]*)` +
+        String.raw`|(?=[\s\S]*\n${exposedModuleConst})` +
+        String.raw`|(?<=\)\s*(?:\{\s*return\s+|=>\s*)\1\s*;?\s*\}?)(?<!(?:^|\n)(?:export\s+)?(?:let|var)\s+\1\b[\s\S]*)(?![\s\S]*\n(?:export\s+)?(?:let|var)\s+\1\b))`,
+    ),
     scope: "chain",
     severity: "gate",
     fix: "Do not wrap a constant in a function that only returns it. Export the constant or import it directly. A forwarding function is a second door.",
