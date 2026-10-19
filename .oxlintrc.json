@@ -210,6 +210,9 @@
         }
       }
     ],
+    // preserve-caught-error: a `catch` that throws a new error must pass the caught one as
+    // `{ cause }`, so the stack and the original failure survive the rewrap. Default options.
+    "preserve-caught-error": "error",
     "no-restricted-imports": [
       "error",
       {
