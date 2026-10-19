@@ -44,6 +44,7 @@ export function parseImportProbeReport(raw: unknown): ImportProbeReport {
   } catch (error) {
     throw new Error(
       `import probe child wrote unparseable stdout (${toMessage(error)}): ${excerpt(raw)}`,
+      { cause: error },
     );
   }
 
