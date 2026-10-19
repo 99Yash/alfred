@@ -120,7 +120,9 @@ async function probeImport(file: string): Promise<ImportProbeReport> {
   } catch (error) {
     const reason = toMessage(error);
     const stderr = getStringPath(error, "stderr") ?? "";
-    throw new Error(`import probe child for ${file} did not complete (${reason})\n${stderr}`);
+    throw new Error(`import probe child for ${file} did not complete (${reason})\n${stderr}`, {
+      cause: error,
+    });
   }
 
   return parseImportProbeReport(stdout.trim().split("\n").at(-1));

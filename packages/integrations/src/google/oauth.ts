@@ -263,7 +263,9 @@ async function verifyIdToken(
 
     claims = idTokenClaimsSchema.parse(payload);
   } catch (err) {
-    throw new Error(`[google.oauth] id_token verification failed: ${toMessage(err)}`);
+    throw new Error(`[google.oauth] id_token verification failed: ${toMessage(err)}`, {
+      cause: err,
+    });
   }
 
   if (!claims.sub || !claims.email) {

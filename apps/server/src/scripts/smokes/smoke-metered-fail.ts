@@ -31,7 +31,7 @@ async function main() {
     threw = true;
 
     if (!(err instanceof Error) || err.message !== "synthetic failure for smoke test") {
-      throw new Error(`unexpected rethrow shape: ${String(err)}`);
+      throw new Error(`unexpected rethrow shape: ${String(err)}`, { cause: err });
     }
   }
 

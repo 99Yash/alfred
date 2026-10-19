@@ -49,6 +49,7 @@ function parseRouteSurfaceReport(raw: unknown): readonly string[] {
   } catch (error) {
     throw new Error(
       `route surface child wrote unparseable stdout (${toMessage(error)}): ${summarizeBody(raw, RAW_EXCERPT_LIMIT)}`,
+      { cause: error },
     );
   }
 
@@ -89,6 +90,7 @@ async function routeSurfaceUnder(testCase: RouteSurfaceCase): Promise<readonly s
   } catch (error) {
     throw new Error(
       `route surface child failed for NODE_ENV ${testCase.label}: ${toMessage(error)}`,
+      { cause: error },
     );
   }
 

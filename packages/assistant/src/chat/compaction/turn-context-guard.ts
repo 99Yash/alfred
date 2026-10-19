@@ -273,7 +273,9 @@ async function applyForegroundContextGuard({
       });
     } catch (error) {
       if (toMessage(error) === "compactor_input_too_large") {
-        throw new Error("prompt is too long: latest user message exceeds compactor input");
+        throw new Error("prompt is too long: latest user message exceeds compactor input", {
+          cause: error,
+        });
       }
 
       throw error;
