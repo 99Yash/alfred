@@ -18,9 +18,9 @@ export async function runTaskGroup<T>(
 
   if (firstRejected?.status === "rejected") throw firstRejected.reason;
 
+  // No task rejected (the throw above did not run), so this branch only narrows the type.
   return settled.map((result) => {
-    if (result.status !== "fulfilled")
-      throw firstRejected?.reason ?? new Error("task group rejected");
+    if (result.status !== "fulfilled") throw new Error("task group rejected");
 
     return result.value;
   });
