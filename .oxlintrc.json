@@ -119,6 +119,10 @@
     // that local, not the expression it came from (`session?.user.id`): the rule matches names.
     "react/rules-of-hooks": "error",
     "react/exhaustive-deps": "error",
+    // no-array-index-key: the `.map` index as a `key`. Key a row by a domain id, or by a value
+    // derived from its content (a token's offset in its text, a tick's angle). A list that has no
+    // id and never reorders (the ask_user questions) keeps the index with a per-site directive.
+    "react/no-array-index-key": "error",
     // Enabling the plugin also arms its default `correctness` rules at `warn`, which `pnpm lint`
     // does not fail on. Each one is set explicitly here. These had zero hits when the plugin
     // landed, so they go straight to `error`, default options:

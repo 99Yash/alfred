@@ -12,7 +12,9 @@ import { cn } from "~/lib/utils";
 const JSON_TOKEN =
   /("(?:\\.|[^"\\])*")(\s*:)?|\b(true|false|null)\b|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g;
 
+/** `start` is the token's offset in the source text: unique, and the token's key. */
 interface JsonToken {
+  start: number;
   text: string;
   className: string;
 }
@@ -24,28 +26,31 @@ function tokenizeJson(json: string): JsonToken[] {
   for (const match of json.matchAll(JSON_TOKEN)) {
     const start = match.index;
 
-    if (start > last) tokens.push({ text: json.slice(last, start), className: "text-app-fg-2" });
+    if (start > last)
+      tokens.push({ start: last, text: json.slice(last, start), className: "text-app-fg-2" });
     const [whole, string, colon, keyword, number] = match;
 
     if (string !== undefined) {
       // Keys get the strongest ink.
       tokens.push(
         colon
-          ? { text: string, className: "font-medium text-app-fg-4" }
-          : { text: string, className: "text-app-green-4" },
+          ? { start, text: string, className: "font-medium text-app-fg-4" }
+          : { start, text: string, className: "text-app-green-4" },
       );
 
-      if (colon) tokens.push({ text: colon, className: "text-app-fg-2" });
+      if (colon)
+        tokens.push({ start: start + string.length, text: colon, className: "text-app-fg-2" });
     } else if (keyword !== undefined) {
-      tokens.push({ text: keyword, className: "text-app-purple-4" });
+      tokens.push({ start, text: keyword, className: "text-app-purple-4" });
     } else if (number !== undefined) {
-      tokens.push({ text: number, className: "text-app-blue-4" });
+      tokens.push({ start, text: number, className: "text-app-blue-4" });
     }
 
     last = start + whole.length;
   }
 
-  if (last < json.length) tokens.push({ text: json.slice(last), className: "text-app-fg-2" });
+  if (last < json.length)
+    tokens.push({ start: last, text: json.slice(last), className: "text-app-fg-2" });
 
   return tokens;
 }
@@ -107,9 +112,8 @@ export function ToolResultJson({
         {plain ? (
           <span className="text-app-fg-3">{json}</span>
         ) : (
-          tokenizeJson(json).map((token, i) => (
-            // Tokens have no identity, and the list re-derives when the text changes.
-            <span key={i} className={token.className}>
+          tokenizeJson(json).map((token) => (
+            <span key={token.start} className={token.className}>
               {token.text}
             </span>
           ))
