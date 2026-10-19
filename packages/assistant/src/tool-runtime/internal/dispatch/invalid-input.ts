@@ -2,9 +2,9 @@ import { z } from "zod";
 import type { JsonObject } from "@alfred/contracts";
 
 // Runs on every dispatch, and `z.toJSONSchema` walks the whole schema, so memoize per schema.
-const acceptedParamCache = new WeakMap<z.ZodType<any>, readonly string[]>();
+const acceptedParamCache = new WeakMap<z.ZodType, readonly string[]>();
 
-export function acceptedParamNames(schema: z.ZodType<any>): readonly string[] {
+export function acceptedParamNames(schema: z.ZodType): readonly string[] {
   const cached = acceptedParamCache.get(schema);
 
   if (cached) return cached;
@@ -31,7 +31,7 @@ const EMPTY: readonly string[] = Object.freeze([]);
 /** A bare `Unrecognized key` says what is wrong, so add the accepted names. Never throws. */
 export function enrichInvalidInputMessage(
   baseMessage: string,
-  schema: z.ZodType<any>,
+  schema: z.ZodType,
   issues: readonly { code?: string }[],
 ): string {
   if (!issues.some((issue) => issue.code === "unrecognized_keys")) return baseMessage;
