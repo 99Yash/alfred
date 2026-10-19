@@ -1625,7 +1625,7 @@ function isGlobPath(path) {
 
 /**
  * The tracked config text with its `//` and `/* … *\/` comments removed, for
- * the stripped probe build. String-aware: a comment opener inside a string
+ * the stripped probe build and for scripts/enforced-rules-catalog.mjs. String-aware: a comment opener inside a string
  * literal (a fence `message` citing a URL) is text, not a comment. Template
  * substitutions are not descended into; a `/*` inside a regex literal reads as
  * an opener, the same measured residual the prose-locator comment reader
@@ -1634,7 +1634,7 @@ function isGlobPath(path) {
  * @param {string} source
  * @returns {string}
  */
-function stripJsonComments(source) {
+export function stripJsonComments(source) {
   let out = "";
   let index = 0;
   let quote = /** @type {string | null} */ (null);

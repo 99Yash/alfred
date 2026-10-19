@@ -8,7 +8,7 @@
  *
  * Scope is deliberately narrow to stay signal-dense:
  *   - Inline code spans only. Fenced blocks carry intentional counter-examples
- *     (code-style.md shows the hand-rolled shape it is arguing against).
+ *     (database.md shows the hand-rolled shape it is arguing against).
  *   - Code-shaped identifiers only — an internal capital or an underscore.
  *     Prose in backticks ("`overlapped`") is not a symbol claim.
  *   - Dotted names are skipped: tool names like `gmail.read_message` are
@@ -70,15 +70,22 @@ const ALLOWED = new Map([
     "ignoreStringArrays",
     "option of oxlint's typescript/require-array-sort-compare, left at its default",
   ],
+  // Rule option keys that docs/reference/enforced-rules.md prints from .oxlintrc.json.
+  ["allowConstantLoopConditions", "option of oxlint's typescript/no-unnecessary-condition"],
+  ["allowForKnownSafeCalls", "option of oxlint's typescript/no-floating-promises"],
+  ["disallowTypeAnnotations", "option of oxlint's typescript/consistent-type-imports"],
+  ["entryPoint", "option of the oxlint-tailwindcss rules"],
+  ["fixStyle", "option of oxlint's typescript/consistent-type-imports"],
+  ["LiteralKey", "metavariable in the typescript/no-restricted-types message"],
   // Future symbols documented in CONTEXT.md before code lands — design, not stale.
   [
     "getRelevantInstructions",
     "CONTEXT.md central store retriever — designed interface, implementation deferred",
   ],
   ["force_category", "CONTEXT.md standing-instruction effect — designed, handler deferred"],
-  // Metavariables and analogies in review/style examples.
-  ["DocArg", "illustrative shape in a code-style example"],
-  ["fooSchema", "metavariable in a code-style example"],
+  // Metavariables and analogies in review examples.
+  ["DocArg", "illustrative shape in the database.md derive example"],
+  ["fooSchema", "metavariable in the database.md derive example"],
   ["rowToX", "metavariable standing for rowToFact / rowToEntity / rowToBriefing"],
   ["usr_abc123", "placeholder id in a database-convention example"],
   ["uint64_t", "C type used in a review analogy"],
