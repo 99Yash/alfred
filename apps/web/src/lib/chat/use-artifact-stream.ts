@@ -29,6 +29,8 @@ export interface ArtifactStreamState {
   latestPendingForRun: (runId: string) => LiveArtifactStream | null;
 }
 
+const NO_STREAMS: ReadonlyMap<string, LiveArtifactStream> = new Map();
+
 /** Returns whether the map changed. */
 function applyArtifactDelta(
   streams: Map<string, LiveArtifactStream>,
@@ -107,7 +109,7 @@ export function applyArtifactFrame(
 }
 
 export function selectByToolCallId(
-  streams: Map<string, LiveArtifactStream>,
+  streams: ReadonlyMap<string, LiveArtifactStream>,
   toolCallId: string,
 ): LiveArtifactStream | null {
   return streams.get(toolCallId) ?? null;
@@ -118,7 +120,7 @@ export function selectByToolCallId(
  * Prefer the one still authoring, else the last one.
  */
 export function selectByArtifactId(
-  streams: Map<string, LiveArtifactStream>,
+  streams: ReadonlyMap<string, LiveArtifactStream>,
   artifactId: string,
 ): LiveArtifactStream | null {
   let active: LiveArtifactStream | null = null;
@@ -136,7 +138,7 @@ export function selectByArtifactId(
 
 /** Map insertion order is authoring order, so the last match is newest. */
 export function selectLatestPendingForRun(
-  streams: Map<string, LiveArtifactStream>,
+  streams: ReadonlyMap<string, LiveArtifactStream>,
   runId: string,
 ): LiveArtifactStream | null {
   let latest: LiveArtifactStream | null = null;
@@ -158,26 +160,31 @@ export function selectLatestPendingForRun(
  * The server sends about 5 deltas a second, so no easing; a version counter re-renders.
  */
 export function useArtifactStream(threadId: string | undefined): ArtifactStreamState {
-  const streamsRef = useRef<Map<string, LiveArtifactStream>>(new Map());
+  // Tagged with its thread, so a thread change reads no streams before the effect swaps the map.
+  const liveRef = useRef<{
+    threadId: string | undefined;
+    streams: Map<string, LiveArtifactStream>;
+  }>({ threadId, streams: new Map() });
+
   const [version, setVersion] = useState(0);
 
   useEffect(() => {
-    streamsRef.current = new Map();
-    setVersion((v) => v + 1);
+    const streams = new Map<string, LiveArtifactStream>();
+    liveRef.current = { threadId, streams };
 
     if (!threadId) return;
 
     const onFrame = (frame: EventStreamFrame) => {
-      if (applyArtifactFrame(streamsRef.current, frame, threadId)) setVersion((v) => v + 1);
+      if (applyArtifactFrame(streams, frame, threadId)) setVersion((v) => v + 1);
     };
 
     const onError = () => {
       // Freeze live streams so the sidebar does not spin forever. The synced row follows.
       let changed = false;
 
-      for (const [id, stream] of streamsRef.current) {
+      for (const [id, stream] of streams) {
         if (!stream.done) {
-          streamsRef.current.set(id, { ...stream, done: true });
+          streams.set(id, { ...stream, done: true });
           changed = true;
         }
       }
@@ -191,13 +198,16 @@ export function useArtifactStream(threadId: string | undefined): ArtifactStreamS
   }, [threadId]);
 
   return useMemo<ArtifactStreamState>(() => {
-    // New accessors per `version`, so consumers recompute when a delta lands.
+    // New accessors per `version` and thread, so consumers recompute when a delta lands.
     void version;
 
+    const current = (): ReadonlyMap<string, LiveArtifactStream> =>
+      liveRef.current.threadId === threadId ? liveRef.current.streams : NO_STREAMS;
+
     return {
-      byToolCallId: (toolCallId) => selectByToolCallId(streamsRef.current, toolCallId),
-      byArtifactId: (artifactId) => selectByArtifactId(streamsRef.current, artifactId),
-      latestPendingForRun: (runId) => selectLatestPendingForRun(streamsRef.current, runId),
+      byToolCallId: (toolCallId) => selectByToolCallId(current(), toolCallId),
+      byArtifactId: (artifactId) => selectByArtifactId(current(), artifactId),
+      latestPendingForRun: (runId) => selectLatestPendingForRun(current(), runId),
     };
-  }, [version]);
+  }, [version, threadId]);
 }

@@ -1,6 +1,6 @@
 import { INTEGRATION_DISPLAY_NAMES, type ToolRiskTier } from "@alfred/contracts";
 import type { SyncedActionStaging } from "@alfred/sync";
-import { useNavigate, useSearch } from "@tanstack/react-router";
+import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
 import { ClipboardCheck, Loader2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { AppButton, AppCard, AppPill } from "~/components/ui/v2";
@@ -64,7 +64,7 @@ export function ApprovalsPage() {
   });
 
   const navigate = useNavigate({ from: "/approvals" });
-  const [visible, setVisible] = useState(WINDOW);
+  const routeHash = useRouterState({ select: (state) => state.location.hash });
 
   const integrationFacets = useMemo(
     () =>
@@ -102,25 +102,18 @@ export function ApprovalsPage() {
   const filtering = selIntegration.length > 0 || selRisk.length > 0;
   const filterKey = `${selIntegration.join(",")}|${selRisk.join(",")}`;
 
-  useEffect(() => {
-    setVisible(WINDOW);
-  }, [filterKey]);
+  // A filter change resets the window to the first page. The window then grows to hold the linked
+  // approval, and stays that size after the approval leaves the list. Both updates happen in render.
+  const [shown, setShown] = useState({ filterKey, size: WINDOW });
+  const targetId = approvalIdFromHash(routeHash);
+  const targetIndex = loading || !targetId ? -1 : filtered.findIndex((row) => row.id === targetId);
+  const visible = Math.max(shown.filterKey === filterKey ? shown.size : WINDOW, targetIndex + 1);
+
+  if (shown.filterKey !== filterKey || shown.size !== visible)
+    setShown({ filterKey, size: visible });
 
   useEffect(() => {
-    if (loading) return;
-    const targetId = approvalIdFromHash();
-
-    if (!targetId) return;
-
-    const targetIndex = filtered.findIndex((row) => row.id === targetId);
-
-    if (targetIndex === -1) return;
-
-    if (targetIndex >= visible) {
-      setVisible(targetIndex + 1);
-
-      return;
-    }
+    if (!targetId || targetIndex === -1) return;
 
     const frame = window.requestAnimationFrame(() => {
       document.getElementById(approvalElementId(targetId))?.scrollIntoView({
@@ -130,7 +123,7 @@ export function ApprovalsPage() {
     });
 
     return () => window.cancelAnimationFrame(frame);
-  }, [filtered, loading, visible]);
+  }, [filtered, visible, targetId, targetIndex]);
 
   const toggle = (facet: "integration" | "risk", value: string) => {
     const current = facet === "integration" ? selIntegration : selRisk;
@@ -275,7 +268,11 @@ export function ApprovalsPage() {
             ))}
             {filtered.length > windowed.length ? (
               <div className="flex justify-center pt-1">
-                <AppButton variant="white" size="sm" onClick={() => setVisible((v) => v + WINDOW)}>
+                <AppButton
+                  variant="white"
+                  size="sm"
+                  onClick={() => setShown({ filterKey, size: visible + WINDOW })}
+                >
                   Show more ({filtered.length - windowed.length})
                 </AppButton>
               </div>
@@ -287,16 +284,11 @@ export function ApprovalsPage() {
   );
 }
 
-function approvalIdFromHash(): string | null {
-  const prefix = "#approval-";
+/** The router gives the hash decoded and without `#`. */
+function approvalIdFromHash(hash: string): string | null {
+  const prefix = "approval-";
 
-  if (typeof window === "undefined" || !window.location.hash.startsWith(prefix)) return null;
-
-  try {
-    return decodeURIComponent(window.location.hash.slice(prefix.length));
-  } catch {
-    return null;
-  }
+  return hash.startsWith(prefix) && hash.length > prefix.length ? hash.slice(prefix.length) : null;
 }
 
 function approvalElementId(stagingId: string): string {

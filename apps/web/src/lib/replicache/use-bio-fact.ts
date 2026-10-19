@@ -1,9 +1,10 @@
 import { isNonEmptyString } from "@alfred/contracts";
 import { type FactValue, SYNC_MODEL, type SyncedFact } from "@alfred/sync";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 import type { ReadTransaction } from "replicache";
 import { authClient } from "~/lib/auth/auth-client";
 import { useReplicacheStatus } from "./context";
+import { useReplicacheSubscription } from "./use-replicache-subscription";
 
 /** The fact key cold-start writes the bio under. */
 const BIO_KEY = "bio_summary";
@@ -18,6 +19,10 @@ export interface BioFactState {
   saveBio: (text: string) => Promise<void>;
 }
 
+function scanFacts(tx: ReadTransaction): Promise<SyncedFact[]> {
+  return SYNC_MODEL.fact.scan(tx);
+}
+
 function toText(value: FactValue | undefined): string {
   return isNonEmptyString(value) ? value : "";
 }
@@ -27,17 +32,7 @@ export function useBioFact(): BioFactState {
   const { rep, loadError, retry } = useReplicacheStatus();
   const { data: session } = authClient.useSession();
   const userId = session?.user.id;
-  const [rows, setRows] = useState<SyncedFact[] | null>(null);
-
-  useEffect(() => {
-    if (!rep) {
-      setRows(null);
-
-      return;
-    }
-
-    return rep.subscribe((tx: ReadTransaction) => SYNC_MODEL.fact.scan(tx), setRows);
-  }, [rep]);
+  const rows = useReplicacheSubscription(scanFacts);
 
   const bio = useMemo(() => {
     const active = (rows ?? []).filter((f) => f.key === BIO_KEY && f.validUntil === null);

@@ -85,7 +85,7 @@ export function useArtifactPanel(
     setSelection({ threadId, selectedId: null });
   }
 
-  const selectedId = selection.threadId === threadId ? selection.selectedId : null;
+  const storedSelectedId = selection.threadId === threadId ? selection.selectedId : null;
 
   // Open a create as soon as it streams, before its row exists. Once per tool call, so a close sticks.
   const pending = activeRunId ? artifactStream.latestPendingForRun(activeRunId) : null;
@@ -99,18 +99,19 @@ export function useArtifactPanel(
     setSelection({ threadId, selectedId: pendingKey });
   }, [pending, pendingKey, threadId, markAutoOpened]);
 
-  // Move a pending selection to its real id, so the panel follows the synced row.
-  const selectedPendingTcid = pendingToolCallId(selectedId);
+  // A pending selection reads as its real id once the stream binds one, so the panel follows the synced row.
+  const selectedPendingTcid = pendingToolCallId(storedSelectedId);
 
   const resolvedId = selectedPendingTcid
-    ? artifactStream.byToolCallId(selectedPendingTcid)?.artifactId
+    ? (artifactStream.byToolCallId(selectedPendingTcid)?.artifactId ?? null)
     : null;
 
+  const selectedId = resolvedId ?? storedSelectedId;
+
+  // The real id counts as auto-opened, so the synced-row auto-open below does not reopen it after a close.
   useEffect(() => {
-    if (!selectedPendingTcid || !resolvedId) return;
-    markAutoOpened(resolvedId);
-    setSelection({ threadId, selectedId: resolvedId });
-  }, [selectedPendingTcid, resolvedId, threadId, markAutoOpened]);
+    if (resolvedId) markAutoOpened(resolvedId);
+  }, [resolvedId, markAutoOpened]);
 
   // Auto-open the live run's newest artifact (ADR-0075 Phase 4), from the synced row, which has the id and `runId`.
   // Gated on `activeRunId`, so a reloaded finished thread stays closed. Once per id.

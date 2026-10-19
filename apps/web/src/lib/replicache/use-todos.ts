@@ -1,8 +1,9 @@
 import { SYNC_MODEL, type SyncedTodo } from "@alfred/sync";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 import type { ReadTransaction } from "replicache";
 import { authClient } from "~/lib/auth/auth-client";
 import { useReplicacheStatus } from "./context";
+import { useReplicacheSubscription } from "./use-replicache-subscription";
 
 export interface TodosState {
   /** `open`, then `done`. */
@@ -50,28 +51,20 @@ function sortTodos(a: SyncedTodo, b: SyncedTodo): number {
   return b.createdAt.localeCompare(a.createdAt);
 }
 
+function scanTodos(tx: ReadTransaction): Promise<SyncedTodo[]> {
+  return SYNC_MODEL.todo.scan(tx);
+}
+
+function sortedTodos(todos: SyncedTodo[]): SyncedTodo[] {
+  return todos.sort(sortTodos);
+}
+
 /** Todos and suggestions for the rail (ADR-0050). `done` rows sync for 2 days. */
 export function useTodos(): TodosState {
   const { rep, loadError, retry } = useReplicacheStatus();
   const { data: session } = authClient.useSession();
   const userId = session?.user.id;
-  const [rows, setRows] = useState<SyncedTodo[] | null>(null);
-
-  useEffect(() => {
-    if (!rep) {
-      setRows(null);
-
-      return;
-    }
-
-    return rep.subscribe(
-      (tx: ReadTransaction) => SYNC_MODEL.todo.scan(tx),
-      (todos) => {
-        todos.sort(sortTodos);
-        setRows(todos);
-      },
-    );
-  }, [rep]);
+  const rows = useReplicacheSubscription(scanTodos, sortedTodos);
 
   const createTodo = useCallback(
     async (name: string, description?: string): Promise<void> => {

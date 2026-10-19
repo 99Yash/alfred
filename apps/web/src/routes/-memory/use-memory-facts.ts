@@ -28,11 +28,8 @@ export function useMemoryFacts(): MemoryFactsState {
   } | null>(null);
 
   useEffect(() => {
-    if (!rep) {
-      setSnapshot(null);
-
-      return;
-    }
+    // The snapshot is tagged with its client, so a missing or new client reads no rows.
+    if (!rep) return;
 
     return rep.subscribe(
       (tx: ReadTransaction) => SYNC_MODEL.fact.scan(tx),

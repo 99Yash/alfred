@@ -1,9 +1,14 @@
 import type { IntegrationSlug, LoadableIntegrationSlug, PolicyMode } from "@alfred/contracts";
 import { resolveIntegrationMode } from "@alfred/contracts";
 import { SYNC_MODEL, type SyncedActionPolicy } from "@alfred/sync";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback } from "react";
 import type { ReadTransaction } from "replicache";
 import { useReplicacheStatus } from "./context";
+import { useReplicacheSubscription } from "./use-replicache-subscription";
+
+function scanActionPolicy(tx: ReadTransaction): Promise<SyncedActionPolicy[]> {
+  return SYNC_MODEL.actionpolicy.scan(tx);
+}
 
 export interface ActionPolicyState {
   /** Null before the first pull or when no row exists. */
@@ -23,25 +28,8 @@ export interface ActionPolicyState {
  */
 export function useActionPolicy(): ActionPolicyState {
   const { rep, loadError, retry } = useReplicacheStatus();
-  const [policy, setPolicy] = useState<SyncedActionPolicy | null>(null);
-  const [loaded, setLoaded] = useState(false);
-
-  useEffect(() => {
-    if (!rep) {
-      setPolicy(null);
-      setLoaded(false);
-
-      return;
-    }
-
-    return rep.subscribe(
-      (tx: ReadTransaction) => SYNC_MODEL.actionpolicy.scan(tx),
-      (values) => {
-        setPolicy(values[0] ?? null);
-        setLoaded(true);
-      },
-    );
-  }, [rep]);
+  const rows = useReplicacheSubscription(scanActionPolicy);
+  const policy = rows?.[0] ?? null;
 
   const modeFor = useCallback(
     (slug: IntegrationSlug): PolicyMode | null =>
@@ -70,7 +58,7 @@ export function useActionPolicy(): ActionPolicyState {
     modeFor,
     setIntegrationMode,
     setDefaultMode,
-    loading: !loaded && !loadError,
+    loading: rows === null && !loadError,
     error: loadError,
     retry,
   };

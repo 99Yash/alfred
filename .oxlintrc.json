@@ -164,10 +164,10 @@
     // purity: an impure call (`Date.now()`, `Math.random()`) during render, driven to zero before
     // it landed. Read a clock in a lazy `useState` initializer, an effect or an event handler.
     "react/purity": "error",
-    // One default `correctness` rule had hits, so it stays off until a change drives it to zero
-    // and sets it to `error`:
-    // - set-state-in-effect: a `setState` called synchronously in an effect body.
-    "react/set-state-in-effect": "off",
+    // set-state-in-effect: a `setState` called synchronously in an effect body, driven to zero
+    // before it landed. Derive the value in render, adjust state in render when an input changes,
+    // or tag a subscription snapshot with its inputs (`useReplicacheSubscription`).
+    "react/set-state-in-effect": "error",
     // Type-aware rules. `options.typeAware` above runs them through oxlint-tsgolint (the tsgo
     // compiler, a root devDependency), so every oxlint invocation — `pnpm lint`, the edit-time
     // hook, the check:oxlint-config probe — reads types with no CLI flag to keep in step. A

@@ -1,7 +1,15 @@
 import { SYNC_MODEL, type SyncedActionStaging } from "@alfred/sync";
-import { useEffect, useState } from "react";
 import type { ReadTransaction } from "replicache";
 import { useReplicacheStatus } from "./context";
+import { useReplicacheSubscription } from "./use-replicache-subscription";
+
+function scanActionStagings(tx: ReadTransaction): Promise<SyncedActionStaging[]> {
+  return SYNC_MODEL.actionstaging.scan(tx);
+}
+
+function newestFirst(values: SyncedActionStaging[]): SyncedActionStaging[] {
+  return values.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
 
 export interface ActionStagingsState {
   /** Pending approvals, newest first. */
@@ -13,24 +21,8 @@ export interface ActionStagingsState {
 
 /** Pending approvals. The server syncs only pending rows that need approval, so no filter here. */
 export function useActionStagings(): ActionStagingsState {
-  const { rep, loadError, retry } = useReplicacheStatus();
-  const [rows, setRows] = useState<SyncedActionStaging[] | null>(null);
-
-  useEffect(() => {
-    if (!rep) {
-      setRows(null);
-
-      return;
-    }
-
-    return rep.subscribe(
-      (tx: ReadTransaction) => SYNC_MODEL.actionstaging.scan(tx),
-      (values) => {
-        values.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-        setRows(values);
-      },
-    );
-  }, [rep]);
+  const { loadError, retry } = useReplicacheStatus();
+  const rows = useReplicacheSubscription(scanActionStagings, newestFirst);
 
   return { rows: rows ?? [], loading: rows === null && !loadError, error: loadError, retry };
 }
