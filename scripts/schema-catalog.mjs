@@ -278,7 +278,7 @@ function main() {
   const args = process.argv.slice(2);
 
   if (args.includes("--selftest")) {
-    const failures = schemaCatalogSelfTestFailures();
+    const failures = schemaCatalogSelfTestFailures({ scanFile, findDupes });
 
     if (failures.length > 0) {
       console.error("schema-catalog self-test failed:\n");

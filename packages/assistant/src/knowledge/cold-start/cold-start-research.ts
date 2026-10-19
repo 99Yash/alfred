@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { type Workflow } from "@alfred/assistant/execution";
-import { proposeFact, writeMemoryChunk } from "..";
+import { writeMemoryChunk } from "../chunks";
+import { proposeFact } from "../facts";
 import { researchAspects, type AspectFinding } from "./aspects";
 import { extractColdStartFacts, type ColdStartProposal } from "./extract";
 import { resolveIdentity, type IdentityAnchor } from "./seed";

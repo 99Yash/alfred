@@ -1,8 +1,8 @@
 import { closeAgentQueue } from "./queue";
 import { registerRecipe } from "./registry";
+import { getRun } from "./run-summary";
 import {
   cancelRun,
-  getRun,
   persistChatTurnRunInTx,
   redeliverRun,
   replayRun,
