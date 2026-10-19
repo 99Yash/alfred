@@ -61,7 +61,7 @@ import {
 } from "../sub-agent-metadata";
 import { isTerminalStatus } from "@alfred/contracts";
 import type { Step, StepContext, Workflow, WorkflowInput } from "../registry";
-import { getRun } from "../service";
+import { getRun } from "../run-summary";
 import { pendingToolCallSchema } from "./pending-tool-call";
 import { BRIEF_TURN_CAP_MAX, openBriefTurnRetries } from "./turn-budgets";
 import { checkWorkflowReadiness } from "./readiness-port";

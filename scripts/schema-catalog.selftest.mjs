@@ -2,8 +2,15 @@
 // list so check-schema-catalog can gate the detector the same way
 // consolidation-rules.selftest gates its matchers: a clean run over a broken
 // detector is indistinguishable from a clean run over a working one.
+//
+// The detector comes in as an argument, not as an import: ./schema-catalog.mjs
+// imports this file to run it, so an import back would close a module cycle.
 
-import { scanFile, findDupes } from "./schema-catalog.mjs";
+/**
+ * @typedef {object} SchemaCatalogDetector
+ * @property {typeof import("./schema-catalog.mjs").scanFile} scanFile
+ * @property {typeof import("./schema-catalog.mjs").findDupes} findDupes
+ */
 
 const FIXTURE_TWO_SCHEMAS = `
 export const widgetSchema = z.object({
@@ -51,7 +58,8 @@ export const differentSchema = z.object({
 });
 `;
 
-function collectFailures() {
+/** @param {SchemaCatalogDetector} detector */
+function collectFailures({ scanFile, findDupes }) {
   const failures = [];
 
   // Direct defs: exported vs local, both counted, names exact.
@@ -151,9 +159,10 @@ function collectFailures() {
   return failures;
 }
 
-export function schemaCatalogSelfTestFailures() {
+/** @param {SchemaCatalogDetector} detector */
+export function schemaCatalogSelfTestFailures(detector) {
   try {
-    return collectFailures();
+    return collectFailures(detector);
   } catch (error) {
     return [`self-test threw: ${error instanceof Error ? error.message : String(error)}`];
   }

@@ -15,7 +15,8 @@ import {
   getWorkflow,
   registerRecipe,
 } from "@alfred/assistant/execution/registry";
-import { cancelRun, getRun, signalRun, startRun } from "@alfred/assistant/execution/service";
+import { getRun } from "@alfred/assistant/execution/run-summary";
+import { cancelRun, signalRun, startRun } from "@alfred/assistant/execution/service";
 import type { StepContext, StepResult, Workflow } from "@alfred/assistant/execution";
 import type { TerminalOutcome } from "@alfred/assistant/execution/terminal-closure";
 import { dbBackedSkip } from "../support/db-backed";
