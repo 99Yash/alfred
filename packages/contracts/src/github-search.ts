@@ -84,8 +84,13 @@ export function parseSearchQualifiers(query: string): ParsedQualifier[] {
   const out: ParsedQualifier[] = [];
 
   for (const match of query.matchAll(QUALIFIER_SCAN_RE)) {
-    const raw = match[3]!;
-    const token = match[2]!;
+    const [, , token, raw] = match;
+
+    // Groups 2 and 3 are not optional, so a match always fills them.
+    if (token === undefined || raw === undefined) {
+      throw new Error("parseSearchQualifiers: QUALIFIER_SCAN_RE matched without its token groups");
+    }
+
     const negated = token.startsWith("-");
     const value = token.slice(token.indexOf(":") + 1);
     out.push({ raw, key: raw.toLowerCase(), value, negated });

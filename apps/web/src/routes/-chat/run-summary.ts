@@ -53,19 +53,20 @@ export function runSummary(tools: ToolCallView[]): string {
 
   const distinctSources = new Set(sources.map((t) => t.toolName));
 
-  const sourceClause =
-    sources.length === 0
-      ? null
-      : distinctSources.size === 1
-        ? presentTool(sources[0]!).done
-        : "Searched multiple sources";
+  const [firstSource] = sources;
+  const [firstAction] = actions;
 
-  const actionClause =
-    actions.length === 0
-      ? null
-      : actions.length === 1
-        ? presentTool(actions[0]!).done
-        : `Finished ${actions.length} actions`;
+  const sourceClause = !firstSource
+    ? null
+    : distinctSources.size === 1
+      ? presentTool(firstSource).done
+      : "Searched multiple sources";
+
+  const actionClause = !firstAction
+    ? null
+    : actions.length === 1
+      ? presentTool(firstAction).done
+      : `Finished ${actions.length} actions`;
 
   if (sourceClause && actionClause) {
     return `${sourceClause} and ${lowerFirst(actionClause)}`;

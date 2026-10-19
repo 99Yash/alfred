@@ -673,34 +673,39 @@ export function streamSnapshotsEqual(a: StreamingMessage | null, b: StreamingMes
     return false;
   }
 
-  for (let i = 0; i < a.connectNudges.length; i += 1) {
-    const left = a.connectNudges[i]!;
-    const right = b.connectNudges[i]!;
+  // The lengths match above, so `right` is present; a missing one still reads as unequal.
+  const nudgesEqual = a.connectNudges.every((left, i) => {
+    const right = b.connectNudges[i];
 
-    if (left.integration !== right.integration || left.action !== right.action) return false;
-  }
+    return (
+      right !== undefined && left.integration === right.integration && left.action === right.action
+    );
+  });
 
-  for (let i = 0; i < a.subAgents.length; i += 1) {
-    const left = a.subAgents[i]!;
-    const right = b.subAgents[i]!;
+  if (!nudgesEqual) return false;
 
-    if (
-      left.parentToolCallId !== right.parentToolCallId ||
-      left.outcome !== right.outcome ||
-      left.waiting !== right.waiting ||
-      left.endedTs !== right.endedTs ||
-      !toolListsEqual(left.tools, right.tools)
-    ) {
-      return false;
-    }
-  }
+  const subAgentsEqual = a.subAgents.every((left, i) => {
+    const right = b.subAgents[i];
 
-  for (let i = 0; i < a.narration.length; i += 1) {
-    const left = a.narration[i]!;
-    const right = b.narration[i]!;
+    return (
+      right !== undefined &&
+      left.parentToolCallId === right.parentToolCallId &&
+      left.outcome === right.outcome &&
+      left.waiting === right.waiting &&
+      left.endedTs === right.endedTs &&
+      toolListsEqual(left.tools, right.tools)
+    );
+  });
 
-    if (left.index !== right.index || left.text !== right.text) return false;
-  }
+  if (!subAgentsEqual) return false;
+
+  const narrationEqual = a.narration.every((left, i) => {
+    const right = b.narration[i];
+
+    return right !== undefined && left.index === right.index && left.text === right.text;
+  });
+
+  if (!narrationEqual) return false;
 
   return toolListsEqual(a.tools, b.tools);
 }
@@ -709,23 +714,19 @@ export function streamSnapshotsEqual(a: StreamingMessage | null, b: StreamingMes
 function toolListsEqual(a: StreamingToolCall[], b: StreamingToolCall[]): boolean {
   if (a.length !== b.length) return false;
 
-  for (let i = 0; i < a.length; i += 1) {
-    const left = a[i]!;
-    const right = b[i]!;
+  return a.every((left, i) => {
+    const right = b[i];
 
-    if (
-      left.toolCallId !== right.toolCallId ||
-      left.toolName !== right.toolName ||
-      left.status !== right.status ||
-      left.argsPreview !== right.argsPreview ||
-      left.resultPreview !== right.resultPreview ||
-      left.resultTruncated !== right.resultTruncated ||
-      left.sanitized !== right.sanitized ||
-      left.segmentIndex !== right.segmentIndex
-    ) {
-      return false;
-    }
-  }
-
-  return true;
+    return (
+      right !== undefined &&
+      left.toolCallId === right.toolCallId &&
+      left.toolName === right.toolName &&
+      left.status === right.status &&
+      left.argsPreview === right.argsPreview &&
+      left.resultPreview === right.resultPreview &&
+      left.resultTruncated === right.resultTruncated &&
+      left.sanitized === right.sanitized &&
+      left.segmentIndex === right.segmentIndex
+    );
+  });
 }

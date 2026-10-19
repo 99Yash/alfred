@@ -87,9 +87,15 @@ export async function runToolCallRound<Call extends ProposedToolCall>(
     const calls = [];
     let reissue = false;
 
-    for (let index = 0; index < input.calls.length; index += 1) {
-      const call = input.calls[index]!;
-      const result = results[index]!;
+    for (const [index, call] of input.calls.entries()) {
+      const result = results[index];
+
+      // Only a staged gated call stops dispatch early, and that case returned above.
+      if (result === undefined) {
+        throw new Error(
+          `[tool-call-round] call ${index} (${call.toolName}) has no dispatch result`,
+        );
+      }
 
       if (result.kind === "staged" || result.kind === "parked") continue;
       transcript = [...transcript, toolResultMessage(call, result)];
@@ -157,9 +163,7 @@ async function dispatchGatedConcurrent<Call extends ProposedToolCall>(
 
   const lanes = new Map<string, Promise<void>>();
 
-  for (let index = 0; index < calls.length; index += 1) {
-    const call = calls[index]!;
-
+  for (const [index, call] of calls.entries()) {
     if (gateFlags[index]) continue;
     const lane = adapter.executionLane(call.toolName);
 
@@ -175,9 +179,9 @@ async function dispatchGatedConcurrent<Call extends ProposedToolCall>(
 
   await Promise.all([...independent, ...lanes.values()]);
 
-  for (let index = 0; index < calls.length; index += 1) {
+  for (const [index, call] of calls.entries()) {
     if (!gateFlags[index]) continue;
-    const result = await dispatch(calls[index]!);
+    const result = await dispatch(call);
     results[index] = result;
 
     if (result.kind === "staged") break;

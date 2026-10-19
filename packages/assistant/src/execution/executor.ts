@@ -654,8 +654,6 @@ export async function commitStepSuccess(
       ? sanitizeToolResult(result.output ?? null).value
       : null;
 
-  const cleanWake = result.kind === "interrupt" ? sanitizeToolResult(result.wake).value : undefined;
-
   try {
     const outcome = await commitStepSuccessTx(
       run,
@@ -667,7 +665,6 @@ export async function commitStepSuccess(
       cleanState,
       cleanTranscript,
       cleanOutput,
-      cleanWake,
     );
 
     // The owner's synced workflow list is stale until poked (#561).
@@ -698,7 +695,6 @@ async function commitStepSuccessTx(
   cleanState: unknown,
   cleanTranscript: AgentTranscriptMessage[] | undefined,
   cleanOutput: unknown,
-  cleanWake: WakeCondition | undefined,
 ): Promise<RunOutcome> {
   return await db().transaction(async (tx) => {
     const now = new Date();
@@ -881,7 +877,8 @@ async function commitStepSuccessTx(
       return { kind: "deferred", runId: run.id, retryAt: result.retryAt };
     }
 
-    const wake = cleanWake!;
+    // Every other kind returned above, so `result` is the interrupt.
+    const wake = sanitizeToolResult(result.wake).value;
     await commitGuardedRunUpdate(tx, run, stepId, attempt, {
       // SAFETY: sanitize preserves the state's JSON shape for the jsonb column.
       state: cleanState as object,

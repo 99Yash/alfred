@@ -45,7 +45,7 @@ export function OnboardingFlow({
   finishing: boolean;
 }) {
   const localTime = useLocalTime();
-  const active = STEPS[step - 1] ?? STEPS[0]!;
+  const active = STEPS[step - 1] ?? STEPS[0];
 
   // Step 1 opens consent coaching first; its confirm runs `onConnect`.
   const [consentOpen, setConsentOpen] = useState(false);
@@ -277,7 +277,8 @@ interface StepDef {
   showcaseDescription: string;
 }
 
-const STEPS: ReadonlyArray<StepDef> = [
+/** Non-empty, so the first step is the fallback. */
+const STEPS: readonly [StepDef, ...StepDef[]] = [
   {
     id: "unlock",
     pagerLabel: "Unlock",

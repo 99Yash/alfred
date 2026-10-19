@@ -335,7 +335,9 @@ export const calendarTools: readonly RegisteredTool[] = [
     },
     inputSchema: restPassthroughInput,
     execute: async (input, ctx) => {
-      const credential = (await ctx.integrations.google.calendar.readCredentials())[0]!;
+      const [credential] = await ctx.integrations.google.calendar.readCredentials();
+
+      if (!credential) throw new AppError("connection_required", { integration: "calendar" });
 
       return runRestPassthrough(ctx.integrations.google.calendar.passthrough(credential.id), input);
     },

@@ -137,7 +137,9 @@ function resolveGoogleCredentialId(
     throw new Error(`no google credential for account=${accountId}`);
   }
 
-  if (creds.length === 1) return creds[0]!.id;
+  const [only] = creds;
+
+  if (creds.length === 1 && only) return only.id;
   throw new Error(
     `cannot choose a google credential for null accountId; user has ${creds.length} credentials`,
   );

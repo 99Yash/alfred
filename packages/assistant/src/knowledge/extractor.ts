@@ -64,9 +64,7 @@ export function buildThreadTranscript(
   let used = 0;
   let truncated = false;
 
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i]!;
-
+  for (const line of lines.toReversed()) {
     if (line.length > maxChars && kept.length === 0) {
       kept.push(line.slice(line.length - maxChars));
       truncated = true;

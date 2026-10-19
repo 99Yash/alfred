@@ -258,8 +258,18 @@ export function googleClientForUser(options: ProviderBindOptions) {
     return getFreshAccessToken(credentialId);
   }, options.retry);
 
-  const first = async (authority: GoogleAuthority) =>
-    (await credentialsForAuthority(options.userId, authority, options.accountRef))[0]!;
+  const first = async (authority: GoogleAuthority) => {
+    const [credential] = await credentialsForAuthority(
+      options.userId,
+      authority,
+      options.accountRef,
+    );
+
+    // credentialsForAuthority already throws this error for an empty list.
+    if (!credential) throw new GoogleCredentialSelectionError(authority, "scope_required");
+
+    return credential;
+  };
 
   return {
     ...client,

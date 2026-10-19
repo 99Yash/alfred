@@ -67,6 +67,15 @@ export function db() {
   return _db;
 }
 
+/** The pool `db()` creates. `db()` sets `_pool` and `_db` together, so the throw marks a broken init. */
+function initializedPool(): pg.Pool {
+  db();
+
+  if (!_pool) throw new Error("[db] db() returned without creating the pool");
+
+  return _pool;
+}
+
 export type DbRoot = ReturnType<typeof db>;
 
 /** Query runner shared by pool-backed and checked-out Drizzle clients. */
@@ -83,8 +92,7 @@ export type DbSession = {
 
 /** Run work on one connection. On a throw, discard the connection so its session state cannot leak. */
 export async function withDbSession<T>(body: (session: DbSession) => Promise<T>): Promise<T> {
-  db();
-  const client = await _pool!.connect();
+  const client = await initializedPool().connect();
 
   try {
     const result = await body({ db: drizzle(client), client });
@@ -120,20 +128,18 @@ export function rowsFromExecute<T>(result: unknown): T[] {
 
 /** Open `POOL_MIN` connections at startup so the first requests skip the handshake. Failures are not fatal. */
 export async function warmPool() {
-  db(); // creates the pool
+  const pool = initializedPool();
 
-  if (_pool) {
-    try {
-      const clients = await Promise.all(Array.from({ length: POOL_MIN }, () => _pool!.connect()));
+  try {
+    const clients = await Promise.all(Array.from({ length: POOL_MIN }, () => pool.connect()));
 
-      for (const c of clients) c.release();
-    } catch (err) {
-      // oxlint-disable-next-line no-console -- @alfred/logging imports @alfred/db, so the pool cannot import the logger.
-      console.warn(
-        "[db] Pool warm-up failed, connections will be established lazily:",
-        toMessage(err),
-      );
-    }
+    for (const c of clients) c.release();
+  } catch (err) {
+    // oxlint-disable-next-line no-console -- @alfred/logging imports @alfred/db, so the pool cannot import the logger.
+    console.warn(
+      "[db] Pool warm-up failed, connections will be established lazily:",
+      toMessage(err),
+    );
   }
 }
 

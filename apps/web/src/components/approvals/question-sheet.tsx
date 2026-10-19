@@ -41,7 +41,7 @@ export function QuestionSheet({
   const draftRaw = asRecord(draftInput);
   const draftInputParsed = draftRaw ? parseAskUserInput(draftRaw) : null;
   const input = draftInputParsed ?? question.input;
-  const raw = draftInputParsed ? draftRaw! : question.raw;
+  const raw = draftRaw && draftInputParsed ? draftRaw : question.raw;
   const blanks = unansweredCount(input);
   const locked = busy || decided;
 

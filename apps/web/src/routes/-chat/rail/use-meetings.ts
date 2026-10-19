@@ -83,13 +83,11 @@ function formatDuration(startIso: string | null, endIso: string | null): string 
 function formatWith(
   attendees: ReadonlyArray<{ email: string; displayName: string | null }>,
 ): string {
-  if (attendees.length === 0) return "Solo";
+  const [a] = attendees;
 
-  if (attendees.length === 1) {
-    const a = attendees[0]!;
+  if (!a) return "Solo";
 
-    return a.displayName ?? a.email.split("@")[0] ?? a.email;
-  }
+  if (attendees.length === 1) return a.displayName ?? a.email.split("@")[0] ?? a.email;
 
   return `${attendees.length} people`;
 }

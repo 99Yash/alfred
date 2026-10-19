@@ -62,7 +62,10 @@ function newestSnapshotChecks(): NewestSnapshot {
     JSON.parse(readFileSync(join(MIGRATIONS_META, "_journal.json"), "utf8")),
   );
 
-  const last = journal.entries[journal.entries.length - 1]!;
+  const last = journal.entries.at(-1);
+
+  if (!last) throw new Error(`${MIGRATIONS_META}/_journal.json has no entries`);
+
   const file = `${String(last.idx).padStart(4, "0")}_snapshot.json`;
 
   const snapshot = snapshotSchema.parse(

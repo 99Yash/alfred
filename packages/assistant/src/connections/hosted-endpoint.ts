@@ -154,10 +154,20 @@ function expandDottedV4Tail(host: string): string {
 
   if (!dotted?.[1] || !dotted[2]) return host;
   const parts = dotted[2].split(".").map(Number);
+  const [a, b, c, d] = parts;
 
-  if (parts.length !== 4 || parts.some((part) => part < 0 || part > 255)) return host;
-  const hi = ((parts[0]! << 8) | parts[1]!).toString(16);
-  const lo = ((parts[2]! << 8) | parts[3]!).toString(16);
+  if (
+    a === undefined ||
+    b === undefined ||
+    c === undefined ||
+    d === undefined ||
+    parts.some((part) => part < 0 || part > 255)
+  ) {
+    return host;
+  }
+
+  const hi = ((a << 8) | b).toString(16);
+  const lo = ((c << 8) | d).toString(16);
 
   return `${dotted[1]}${hi}:${lo}`;
 }

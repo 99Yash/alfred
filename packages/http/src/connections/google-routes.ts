@@ -287,7 +287,7 @@ export const googleIntegrationRoutes = new Elysia({
         accountId: tokens.accountId,
         accountEmail: tokens.accountEmail,
         accessToken: tokens.access_token,
-        refreshToken: tokens.refresh_token!,
+        refreshToken: tokens.refresh_token,
         expiresAt: tokens.expiresAt,
         scopes: tokens.scopes,
         tokenType: tokens.token_type,

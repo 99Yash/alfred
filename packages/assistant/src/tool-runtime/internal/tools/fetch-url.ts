@@ -551,13 +551,13 @@ export function decodeResponseBody(
 
   const decoders: Transform[] = [];
 
-  for (let i = encodings.length - 1; i >= 0; i--) {
-    const decoder = decoderForEncoding(encodings[i]!);
+  for (const encoding of encodings.toReversed()) {
+    const decoder = decoderForEncoding(encoding);
 
     if (!decoder) {
       throw new FetchError(
         "fetch_failed",
-        `The URL used an unsupported content encoding (${encodings[i]}).`,
+        `The URL used an unsupported content encoding (${encoding}).`,
         finalUrl,
       );
     }

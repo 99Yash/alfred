@@ -110,7 +110,9 @@ const tokenResponseSchema = z.object({
 
 type GoogleTokenResponse = z.infer<typeof tokenResponseSchema>;
 
-export interface ExchangeCodeResult extends GoogleTokenResponse {
+export interface ExchangeCodeResult extends Omit<GoogleTokenResponse, "refresh_token"> {
+  /** `exchangeCode` rejects a response without one. */
+  refresh_token: string;
   /** id_token `sub`: Google's stable user id. */
   accountId: string;
   accountEmail: string;
@@ -156,6 +158,7 @@ export async function exchangeCode(code: string): Promise<ExchangeCodeResult> {
 
   return {
     ...parsed,
+    refresh_token: parsed.refresh_token,
     accountId: claims.sub,
     accountEmail: claims.email,
     ...(claims.hostedDomain ? { hostedDomain: claims.hostedDomain } : {}),

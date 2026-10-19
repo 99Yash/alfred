@@ -28,6 +28,7 @@ import { closeAgentQueue } from "@alfred/assistant/execution";
 import { warmPool } from "@alfred/db";
 import { embed } from "@alfred/ai/embeddings";
 import { db } from "@alfred/db";
+import { requireRow } from "@alfred/db/helpers";
 import { user as userTable } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
 import { closeScriptResources } from "../script-runtime";
@@ -43,7 +44,7 @@ async function findOrCreateSmokeUser(): Promise<string> {
     .values({ name: "Smoke Memory", email, emailVerified: true })
     .returning({ id: userTable.id });
 
-  return inserted[0]!.id;
+  return requireRow(inserted[0], "ensureUser").id;
 }
 
 function assert(cond: unknown, msg: string): asserts cond {

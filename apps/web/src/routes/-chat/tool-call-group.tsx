@@ -26,7 +26,7 @@ const NO_SUB_AGENTS: readonly SubAgentTrail[] = [];
  * Null while parked (the approval tray owns that) or when the preview is unreadable.
  */
 function questionSummary(item: ToolCallView[]): AskUserSummary | null {
-  const only = item.length === 1 ? item[0]! : null;
+  const only = item.length === 1 ? item[0] : undefined;
 
   return only && isQuestionApproval(only.toolName) ? askUserSummary(only) : null;
 }
@@ -62,18 +62,27 @@ export function ToolCallGroup({
     setValue(active ? ITEM : "");
   }
 
-  const trailFor = (item: ToolCallView[]): SubAgentTrail | undefined =>
-    item.length === 1 && item[0]!.toolName === SPAWN_SUB_AGENT_TOOL
-      ? subAgents.find((s) => s.parentToolCallId === item[0]!.toolCallId)
-      : undefined;
+  /** A lone `spawn_sub_agent` call and the child trail it names. */
+  const subAgentFor = (
+    item: ToolCallView[],
+  ): { tool: ToolCallView; childTrail: SubAgentTrail } | undefined => {
+    const [tool] = item;
+
+    if (item.length !== 1 || tool?.toolName !== SPAWN_SUB_AGENT_TOOL) return undefined;
+    const childTrail = subAgents.find((s) => s.parentToolCallId === tool.toolCallId);
+
+    return childTrail ? { tool, childTrail } : undefined;
+  };
 
   /**
    * Hide an `await_sub_agent` card when that child's trail is already on screen.
    * It still counts in `tools` for the headline.
    */
   const isRedundantAwait = (item: ToolCallView[]): boolean => {
-    if (item.length !== 1 || item[0]!.toolName !== AWAIT_SUB_AGENT_TOOL) return false;
-    const childRunId = asString(parseJsonRecord(item[0]!.argsPreview)?.childRunId);
+    const [tool] = item;
+
+    if (item.length !== 1 || tool?.toolName !== AWAIT_SUB_AGENT_TOOL) return false;
+    const childRunId = asString(parseJsonRecord(tool.argsPreview)?.childRunId);
 
     return childRunId !== undefined && subAgents.some((s) => s.childRunId === childRunId);
   };
@@ -82,12 +91,15 @@ export function ToolCallGroup({
 
   if (trail.length === 0) return null;
 
-  const only = trail.length === 1 ? trail[0]! : undefined;
+  const only = trail.length === 1 ? trail[0] : undefined;
 
   if (only?.kind === "tool" && only.tools.length === 1) {
-    const loneTrail = trailFor(only.tools);
+    const loneSubAgent = subAgentFor(only.tools);
 
-    if (loneTrail) return <SubAgentCard tool={only.tools[0]!} trail={loneTrail} />;
+    if (loneSubAgent) {
+      return <SubAgentCard tool={loneSubAgent.tool} trail={loneSubAgent.childTrail} />;
+    }
+
     const loneQuestion = questionSummary(only.tools);
 
     return loneQuestion ? (
@@ -107,9 +119,12 @@ export function ToolCallGroup({
         if (item.kind !== "tool") return <NarrationRow key={item.key} text={item.text} />;
 
         if (isRedundantAwait(item.tools)) return null;
-        const subAgent = trailFor(item.tools);
+        const subAgent = subAgentFor(item.tools);
 
-        if (subAgent) return <SubAgentCard key={item.key} tool={item.tools[0]!} trail={subAgent} />;
+        if (subAgent) {
+          return <SubAgentCard key={item.key} tool={subAgent.tool} trail={subAgent.childTrail} />;
+        }
+
         const question = questionSummary(item.tools);
 
         return question ? (
@@ -121,12 +136,13 @@ export function ToolCallGroup({
     </div>
   );
 
-  // Prose with no cards: nothing to summarize. Must return before the `tools[…]!` reads below.
-  if (!trail.some((item) => item.kind === "tool")) {
+  // Prose with no cards: nothing to summarize. A tool item in the trail means `tools` is not empty.
+  const last = tools.at(-1);
+
+  if (!last || !trail.some((item) => item.kind === "tool")) {
     return <div className="animate-chat-in w-full">{rail}</div>;
   }
 
-  const last = tools[tools.length - 1]!;
   const runningLabel = last.status === "started" ? presentTool(last).running : "Working on it";
   const anyFailed = tools.some((t) => t.status === "failed");
   const glyphs = runGlyphs(tools);

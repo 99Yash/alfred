@@ -90,16 +90,14 @@ export function TodoFeed({
           </div>
         ) : null}
         <div ref={suggestionsListRef} className="space-y-1">
-          {suggestions.map((s) => (
+          {suggestions.map(({ id, label, detail }) => (
             <SuggestionRow
-              key={s.id ?? s.label}
-              label={s.label}
-              detail={s.detail}
-              onAccept={s.id && onPromoteSuggestion ? () => onPromoteSuggestion(s.id!) : undefined}
-              onComplete={
-                s.id && onCompleteSuggestion ? () => onCompleteSuggestion(s.id!) : undefined
-              }
-              onDismiss={s.id && onDismissSuggestion ? () => onDismissSuggestion(s.id!) : undefined}
+              key={id ?? label}
+              label={label}
+              detail={detail}
+              onAccept={id && onPromoteSuggestion ? () => onPromoteSuggestion(id) : undefined}
+              onComplete={id && onCompleteSuggestion ? () => onCompleteSuggestion(id) : undefined}
+              onDismiss={id && onDismissSuggestion ? () => onDismissSuggestion(id) : undefined}
             />
           ))}
         </div>

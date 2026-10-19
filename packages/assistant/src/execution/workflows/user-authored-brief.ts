@@ -429,8 +429,8 @@ const dispatchToolsStep: Step<BriefRunState> = {
     // Over the threshold, the boss compacts and a sub-agent fails back to its parent (ADR-0035).
     // Size the whole tail from `inFlightTailStart`, tool-call arguments included, not just the
     // results.
-    const isSubAgent = state.subAgent !== null;
-    const threshold = await resolvePressureThresholdTokens(isSubAgent);
+    const { subAgent } = state;
+    const threshold = await resolvePressureThresholdTokens(subAgent !== null);
 
     const estimated = estimateNextTurnInputTokens({
       priorInputTokens: state.lastInputTokens,
@@ -446,9 +446,8 @@ const dispatchToolsStep: Step<BriefRunState> = {
       };
     }
 
-    if (isSubAgent) {
+    if (subAgent !== null) {
       // Sub-agents do not compact; the error goes to scratch so the boss can split the work again.
-      const subAgent = state.subAgent!;
       await scratchpad({
         runId: subAgent.parentRunId,
         writer: { subId: subAgent.subId },

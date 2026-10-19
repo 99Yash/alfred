@@ -6,6 +6,7 @@
  */
 import { closeConnections, warmPool } from "@alfred/db";
 import { db } from "@alfred/db";
+import { requireRow } from "@alfred/db/helpers";
 import { apiCallLog, chunks, documents, user as userTable } from "@alfred/db/schemas";
 import { corpus, indexDocument } from "@alfred/corpus";
 import { and, desc, eq } from "drizzle-orm";
@@ -34,7 +35,7 @@ async function findOrCreateUser(): Promise<string> {
     .values({ name: "Embed Tester", email, emailVerified: true })
     .returning({ id: userTable.id });
 
-  return inserted[0]!.id;
+  return requireRow(inserted[0], "ensureUser").id;
 }
 
 async function upsertDoc(userId: string): Promise<string> {
@@ -68,7 +69,7 @@ async function upsertDoc(userId: string): Promise<string> {
       ),
     );
 
-  return existing[0]!.id;
+  return requireRow(existing[0], "upsertDoc: select after conflict").id;
 }
 
 async function main() {
@@ -129,8 +130,9 @@ async function main() {
     limit: 3,
   });
 
-  if (hits.length === 0) throw new Error("search returned 0 hits");
-  const top = hits[0]!;
+  const [top] = hits;
+
+  if (!top) throw new Error("search returned 0 hits");
   console.log(`[smoke-embed] top hit: "${top.title}" sim=${top.similarity.toFixed(3)}`);
 
   if (!top.title?.includes("Quarterly")) {

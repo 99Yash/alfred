@@ -69,6 +69,7 @@ When you add, remove or change a rule in `.oxlintrc.json`, a JS plugin, `scripts
 | [`typescript/no-meaningless-void-operator`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-meaningless-void-operator.html) | yes |  |  |
 | [`typescript/no-misused-promises`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-misused-promises.html) | yes |  |  |
 | [`typescript/no-misused-spread`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-misused-spread.html) | yes |  |  |
+| [`typescript/no-non-null-assertion`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-non-null-assertion.html) | no | Off in `**/test/**`, `**/*.test.ts`, `**/*.test.tsx`, `**/*.test.mts`, `**/*.test.cts`, `**/evals/**`, `**/*.eval.ts` |  |
 | [`typescript/no-redundant-type-constituents`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-redundant-type-constituents.html) | yes |  |  |
 | [`typescript/no-restricted-types`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-restricted-types.html) | no |  | `` {"types":{"Record<string, any>":{"message":"Record<string, any> defeats every `unknown` guard the contracts package exists to provide. Use a parsed schema, a Record<LiteralKey, T>, or a Map<K, V>."}}} `` |
 | [`typescript/no-unnecessary-condition`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-unnecessary-condition.html) | yes |  | `{"allowConstantLoopConditions":"only-allowed-literals"}` |

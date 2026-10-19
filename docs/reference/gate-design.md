@@ -121,7 +121,6 @@ Each row is a rule from [review-checklist.md](./review-checklist.md), with the r
 
 | Rule (checklist section) | Mechanism | Feasibility |
 | --- | --- | --- |
-| Narrow instead of `!` (Types) | Lint: `typescript/no-non-null-assertion`. About 14 sites in `src` | Medium |
 | Use a guard, not a single `as` (Types) | Type-aware: `typescript/no-unnecessary-type-assertion`, then `typescript/no-unsafe-type-assertion`. Expect a large first count for the second | Medium, then Low |
 | `isRecord` and `getPath` only on `unknown` (Types) | Compiler: a closed-domain parameter that rejects an argument whose type is not `unknown` | Medium |
 | Accessibility (Frontend) | Lint: the `jsx-a11y` plugin, one rule per change | Medium |

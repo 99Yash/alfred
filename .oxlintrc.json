@@ -277,6 +277,11 @@
       "error",
       { "allowConstantLoopConditions": "only-allowed-literals" }
     ],
+    // no-non-null-assertion: a postfix `!`, a runtime promise the compiler cannot keep. Use the
+    // value the check already produced (destructure, `.at(-1)`, iterate entries, a local that keeps
+    // the narrowing); when absence is impossible, throw an `Error` that names the invariant; when it
+    // is possible, handle it. Never trade `!` for `as T`. Tests and evals are staged in an override.
+    "typescript/no-non-null-assertion": "error",
     // Three more default rules that had hits, each driven to zero before it landed:
     // - unbound-method: a method read as a value loses `this`. Bind it or wrap it in an arrow;
     //   declare a member that never reads `this` as a function-typed property.
@@ -746,6 +751,23 @@
       ],
       "rules": {
         "anti-slop/no-unsafe-dictionary-type": "off"
+      }
+    },
+    {
+      // no-non-null-assertion is at `error` for product source, ops scripts included. Test and
+      // eval scopes are staged: a fixture indexes the array it just built, so a later lane clears
+      // them and then deletes this entry.
+      "files": [
+        "**/test/**",
+        "**/*.test.ts",
+        "**/*.test.tsx",
+        "**/*.test.mts",
+        "**/*.test.cts",
+        "**/evals/**",
+        "**/*.eval.ts"
+      ],
+      "rules": {
+        "typescript/no-non-null-assertion": "off"
       }
     },
     {

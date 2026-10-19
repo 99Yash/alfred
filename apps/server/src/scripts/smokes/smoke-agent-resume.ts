@@ -46,7 +46,9 @@ async function main() {
 
   while (Date.now() < deadline) {
     const after = await db().select().from(agentRuns).where(eq(agentRuns.id, runId));
-    const r = after[0]!;
+    const [r] = after;
+
+    if (!r) throw new Error(`run ${runId} disappeared while polling`);
 
     if (r.status === "completed") {
       console.log(`[resume] completed; output=${JSON.stringify(r.output)}`);

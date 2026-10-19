@@ -68,7 +68,9 @@ function isValidCronField(
       values.push(n);
     }
 
-    if (values.length === 2 && values[0]! > values[1]!) return false;
+    const [low, high] = values;
+
+    if (low !== undefined && high !== undefined && low > high) return false;
   }
 
   return true;

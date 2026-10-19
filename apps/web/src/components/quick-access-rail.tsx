@@ -22,11 +22,14 @@ import { cn } from "~/lib/utils";
 
 type RailMode = "tasks" | "emails" | "meetings";
 
-const RAIL_TABS: Array<{
+interface RailTab {
   mode: RailMode;
   label: string;
   icon: ComponentType<{ size?: number; className?: string }>;
-}> = [
+}
+
+/** Non-empty, so the first tab is the fallback. */
+const RAIL_TABS: readonly [RailTab, ...RailTab[]] = [
   { mode: "tasks", label: "To Do", icon: CheckSquare2 },
   { mode: "emails", label: "Emails", icon: Mail },
   { mode: "meetings", label: "Meetings", icon: Video },
@@ -102,7 +105,7 @@ export function QuickAccessRail() {
   const { data: weather, isLoading: weatherLoading, isError: weatherError } = useWeather();
   const { todos, suggestions, createTodo, completeTodo, reopenTodo, promoteTodo } = useTodos();
   const [draft, setDraft] = useState("");
-  const active = RAIL_TABS.find((tab) => tab.mode === mode) ?? RAIL_TABS[0]!;
+  const active = RAIL_TABS.find((tab) => tab.mode === mode) ?? RAIL_TABS[0];
 
   const onRailTabKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
@@ -110,7 +113,10 @@ export function QuickAccessRail() {
     const currentIndex = RAIL_TABS.findIndex((tab) => tab.mode === mode);
     const delta = event.key === "ArrowRight" ? 1 : -1;
     const nextIndex = (currentIndex + delta + RAIL_TABS.length) % RAIL_TABS.length;
-    setMode(RAIL_TABS[nextIndex]!.mode);
+    const next = RAIL_TABS[nextIndex];
+
+    // The modulo keeps `nextIndex` inside the list.
+    if (next) setMode(next.mode);
   };
 
   const toggleTodo = (todo: SyncedTodo) => {

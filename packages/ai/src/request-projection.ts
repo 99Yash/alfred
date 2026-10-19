@@ -90,14 +90,18 @@ function decorateAnthropicPrompt(
 
   if (transcriptStart === out.length) return out;
   const transcript = out.slice(transcriptStart);
+
+  // Both indexes come from `transcript` itself, so `message` is always present.
+  const markAt = (index: number) => {
+    const message = transcript[index];
+
+    if (message) transcript[index] = withAnthropicCacheControl(message, ttl);
+  };
+
   const boundary = previousToolBurstBoundaryIndex(transcript);
 
-  if (boundary !== null) {
-    transcript[boundary] = withAnthropicCacheControl(transcript[boundary]!, ttl);
-  }
-
-  const last = transcript.length - 1;
-  transcript[last] = withAnthropicCacheControl(transcript[last]!, ttl);
+  if (boundary !== null) markAt(boundary);
+  markAt(transcript.length - 1);
   out.splice(transcriptStart, transcript.length, ...transcript);
 
   return out;

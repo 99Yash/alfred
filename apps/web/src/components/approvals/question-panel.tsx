@@ -30,8 +30,11 @@ export function AskUserQuestionPanel({
   const [index, setIndex] = useState(0);
   // Clamp so a shorter list can never index past its end.
   const current = Math.min(index, questions.length - 1);
-  const question = questions[current]!;
-  const answer = answers[current]!;
+  const question = questions[current];
+  const answer = answers[current];
+
+  // The schema requires at least one question, and `answersOf` gives one answer per question.
+  if (!question || !answer) return null;
   const questionId = `${idPrefix}-question-${current}`;
   const blanks = answers.filter(isAnswerEmpty).length;
 

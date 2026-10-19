@@ -90,16 +90,20 @@ export async function checkWorkflowRunReadiness(args: {
     return { kind: "deferred", reason: problems.map((problem) => problem.message).join(" ") };
   }
 
+  // Locals keep the narrowing above; a callback does not keep a property narrowing.
+  const workflowId = row.workflow.id;
+  const revisionId = row.revision.id;
+
   const recorded = await db().transaction(async (tx) => {
     const [lockedWorkflow] = await tx
       .select()
       .from(workflows)
-      .where(and(eq(workflows.id, row.workflow!.id), eq(workflows.userId, args.userId)))
+      .where(and(eq(workflows.id, workflowId), eq(workflows.userId, args.userId)))
       .for("update");
 
     if (!lockedWorkflow) throw new Error(`[workflows:readiness] workflow disappeared`);
 
-    if (lockedWorkflow.publishedRevisionId !== row.revision!.id) {
+    if (lockedWorkflow.publishedRevisionId !== revisionId) {
       return { ownsWorkflow: false as const };
     }
 
@@ -108,7 +112,7 @@ export async function checkWorkflowRunReadiness(args: {
     const reconciled = await reconcileWorkflowReadiness({
       userId: args.userId,
       workflow: lockedWorkflow,
-      revisionId: row.revision!.id,
+      revisionId,
       readiness: problems,
       target: "activation",
       tx,

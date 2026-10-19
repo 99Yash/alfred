@@ -86,17 +86,14 @@ export function chunkText(text: string, opts: ChunkerOptions = {}): Chunk[] {
 
   if (buffer) merged.push(buffer);
 
-  // Overlap: prepend the previous chunk's tail.
-  const chunks: Chunk[] = [];
-
-  for (let i = 0; i < merged.length; i++) {
-    const prev = i > 0 ? merged[i - 1]! : "";
+  // Overlap: prepend the previous chunk's tail. The first chunk has no previous chunk.
+  return merged.map((current, i) => {
+    const prev = merged[i - 1] ?? "";
     const tail = prev.slice(Math.max(0, prev.length - overlap));
-    const piece = i > 0 && tail ? `${tail}\n\n${merged[i]!}` : merged[i]!;
-    chunks.push({ position: i, content: piece, tokenCount: estimateTokens(piece) });
-  }
+    const piece = tail ? `${tail}\n\n${current}` : current;
 
-  return chunks;
+    return { position: i, content: piece, tokenCount: estimateTokens(piece) };
+  });
 }
 
 function splitOversized(paragraph: string, max: number): string[] {

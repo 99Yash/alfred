@@ -27,8 +27,6 @@ Each rule has the rule, the reason, and an example.
   Why: `as` asserts and does not check, and a comment does not validate data. Example: `toStringArray` in `packages/contracts/src/guards.ts`.
 - **Use `isRecord` and `getPath` only on a value that is `unknown` at a true parse boundary.** Index a typed field directly. Use `isIndexable` and `Reflect.get` for an SDK instance.
   Why: the guard widens a parsed value again. Example: #1279.
-- **Narrow instead of a non-null `!`.**
-  Why: `!` is a runtime promise that the compiler cannot keep. Example: the `nextRunAt` guard in `selectDueRows`, `packages/assistant/src/automation/tick.ts`.
 - **Choose `k?: T` or `k?: T | undefined` for each optional field.** Keep `k?: T` when absence has a meaning, and omit the key with a conditional spread.
   Why: a present `undefined` binds `NULL` where an absent key takes the column `DEFAULT`. See [typescript.md](./typescript.md#exactoptionalpropertytypes).
 - **Name a symbol for its domain role, not its structure.** Do not use `shape` for a payload or a credential. `DayShape` is a real domain term and stays.

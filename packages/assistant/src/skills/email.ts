@@ -79,13 +79,15 @@ function buildProvenanceLine(ctx: SkillDocumentationContext): string {
 }
 
 function humanList(items: string[]): string {
-  if (items.length === 0) return "";
+  const last = items.at(-1);
 
-  if (items.length === 1) return items[0]!;
+  if (last === undefined) return "";
+  const rest = items.slice(0, -1);
 
-  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  if (rest.length === 0) return last;
 
-  return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
+  // Two items take no comma: "a and b". Three or more take the serial comma.
+  return `${rest.join(", ")}${rest.length === 1 ? "" : ","} and ${last}`;
 }
 
 function previewBody(body: string): string {
