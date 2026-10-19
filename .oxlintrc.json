@@ -202,6 +202,21 @@
     "typescript/no-misused-promises": "error",
     "typescript/switch-exhaustiveness-check": "error",
     "typescript/restrict-template-expressions": "error",
+    // only-throw-error: a `throw` of a value that is not an `Error`. A caught `unknown` may be
+    // rethrown as it is (the rule's defaults). TanStack Router's `throw redirect()` and
+    // `throw notFound()` are its control-flow API, so `allow` names those two return types.
+    "typescript/only-throw-error": [
+      "error",
+      {
+        "allow": [
+          {
+            "from": "package",
+            "package": "@tanstack/router-core",
+            "name": ["Redirect", "NotFoundError"]
+          }
+        ]
+      }
+    ],
     // The no-unsafe-* family, each driven to zero before it landed: an `any` may not flow
     // into a return, an argument, a call, a member read, or an assignment. Type external,
     // persisted, and protocol data as `unknown` and parse it at the owning boundary

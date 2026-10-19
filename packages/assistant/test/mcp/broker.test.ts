@@ -61,7 +61,7 @@ class FakeProtocol implements McpProtocolClient {
   tools: Tool[];
   behavior: CallBehavior = { kind: "ok" };
   calls = 0;
-  connectError: unknown;
+  connectError: Error | undefined;
   beforeReturn: (() => Promise<void>) | undefined;
   negotiated: McpNegotiatedServer = {
     protocolEra: "pre_2026_07_28",

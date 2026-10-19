@@ -357,7 +357,6 @@ async function generateAttachmentRepresentation(args: {
 }) {
   const models = getMediaEnrichmentModels(args.modality, args.bytes.byteLength);
   const abortSignal = AbortSignal.timeout(CHAT_MEDIA_ENRICHMENT_CASCADE_TIMEOUT_MS);
-  let lastError: unknown;
 
   for (const [index, model] of models.entries()) {
     try {
@@ -407,11 +406,12 @@ async function generateAttachmentRepresentation(args: {
         model: identifiers.modelId,
       };
     } catch (error) {
-      lastError = error;
+      // A failed route falls through to the next one. The last route's failure is rethrown as is.
+      if (index === models.length - 1) throw error;
     }
   }
 
-  throw lastError ?? new Error("media_enrichment_failed_without_attempt");
+  throw new Error("media_enrichment_failed_without_attempt");
 }
 
 async function loadEnrichmentAttachment(
