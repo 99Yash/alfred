@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
 
+import { getPath } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { user, userFacts } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
@@ -68,7 +69,7 @@ describe("proposeFact capture invariants (DB-backed, #330)", { skip: SKIP }, () 
 
     assert.ok(fact, "alias key should persist under the canonical key");
     assert.equal(fact.key, "employer");
-    assert.equal((fact.source.meta as { originalKey?: string }).originalKey, "current_company");
+    assert.equal(getPath(fact.source.meta, "originalKey"), "current_company");
     // Nothing stored under the alias spelling.
     assert.equal((await activeRows(userId, "current_company")).length, 0);
   });

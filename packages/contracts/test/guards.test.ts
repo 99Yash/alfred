@@ -14,8 +14,9 @@ import {
 test("isRecord accepts only plain object records", () => {
   assert.equal(isRecord({ a: 1 }), true);
 
-  const nullProto = Object.create(null) as Record<string, unknown>;
-  nullProto.a = 1;
+  // A `__proto__: null` key in a literal sets the prototype; it is not an own key.
+  const nullProto = { __proto__: null, a: 1 };
+  assert.equal(Object.getPrototypeOf(nullProto), null);
   assert.equal(isRecord(nullProto), true);
 
   class Box {

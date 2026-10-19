@@ -12,8 +12,11 @@ import {
   upsertGoogleCredentialConnection,
 } from "@alfred/assistant/connections";
 import { TriggerConsumerBootError } from "@alfred/assistant/triggers";
+import { asContractViolation } from "../support/contract-violation";
+import { asTestDouble } from "../support/test-double";
 
-const fakeTransaction = {} as DbTransaction;
+// The handler passes the transaction through to the injected stores, which ignore it.
+const fakeTransaction = asTestDouble<DbTransaction>({});
 
 const changedAt = new Date("2026-08-02T09:00:00.000Z");
 
@@ -68,15 +71,19 @@ describe("Google credential lifecycle composition seam", () => {
   });
 
   test("validates the registered handler result", async () => {
-    // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
-    const unregister = registerGoogleCredentialLifecycleHandler({
+    // The handler returns results outside the schema on purpose, to prove the runtime parse rejects them.
+    const invalidHandler = asContractViolation<
+      Parameters<typeof registerGoogleCredentialLifecycleHandler>[0]
+    >({
       async upsert() {
         return { credentialId: "credential-1", unexpected: true };
       },
       async disconnect() {
         return { status: "deleted" };
       },
-    } as unknown as Parameters<typeof registerGoogleCredentialLifecycleHandler>[0]);
+    });
+
+    const unregister = registerGoogleCredentialLifecycleHandler(invalidHandler);
 
     try {
       await assert.rejects(() => upsertGoogleCredentialConnection(upsertRequest));

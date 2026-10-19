@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { ensureAuthTestEnv } from "./support/env";
+import { asTestDouble } from "./support/test-double";
 
 /** Exact values, not "is a number": most restate a Better Auth default, and defaults can drift. */
 
@@ -24,14 +25,14 @@ function sessionUpdateHook() {
 }
 
 function updateContext(createdAt: Date) {
-  // SAFETY: the hook reads only `context.session.session.createdAt`, which this fixture supplies.
-  return {
+  // The hook reads only `context.session.session.createdAt`, which this fixture supplies.
+  return asTestDouble<Parameters<ReturnType<typeof sessionUpdateHook>>[1]>({
     context: {
       session: {
         session: { createdAt },
       },
     },
-  } as Parameters<ReturnType<typeof sessionUpdateHook>>[1];
+  });
 }
 
 describe("session lifetime (#454)", () => {

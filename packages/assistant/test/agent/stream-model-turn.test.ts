@@ -5,6 +5,8 @@ import type { publishEvent } from "@alfred/assistant/triggers";
 import { sanitizeVoice } from "@alfred/ai/voice";
 import { streamModelTurn, type StreamTurnState } from "@alfred/assistant/chat/stream-model-turn";
 import type { TurnStopController } from "@alfred/assistant/chat/turn-stop-controller";
+import type { TextStreamPart, ToolSet } from "ai";
+import { asTestDouble } from "../support/test-double";
 
 /** The live-stream drain against a fake stream and a capturing `publish` sink. */
 
@@ -30,13 +32,24 @@ function capture(): CapturedPublish {
 
 type StreamArg = Parameters<typeof streamModelTurn>[0]["stream"];
 
-function makeStream(parts: unknown[]): StreamArg {
-  // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
-  return {
-    stream: (async function* () {
-      for (const part of parts) yield part;
-    })(),
-  } as unknown as StreamArg;
+/** A stream result that carries only `stream`, the one member `streamModelTurn` reads. */
+function makeStream(parts: TextStreamPart<ToolSet>[]): StreamArg {
+  const stream = new ReadableStream<TextStreamPart<ToolSet>>({
+    start(controller) {
+      for (const part of parts) controller.enqueue(part);
+      controller.close();
+    },
+  });
+
+  return asTestDouble<StreamArg>({ stream });
+}
+
+/** The `text` of a captured delta. A delta without a string `text` fails the test. */
+function deltaText(event: CapturedEvent): string {
+  const text = event.payload["text"];
+  assert.ok(typeof text === "string", `${event.kind} payload has no string text`);
+
+  return text;
 }
 
 function makeState(over?: Partial<StreamTurnState>): StreamTurnState {
@@ -91,8 +104,8 @@ describe("streamModelTurn", () => {
     const state = makeState();
     await streamModelTurn({
       stream: makeStream([
-        { type: "text-delta", text: "Hello " },
-        { type: "text-delta", text: "world" },
+        { type: "text-delta", id: "text-1", text: "Hello " },
+        { type: "text-delta", id: "text-1", text: "world" },
       ]),
       state,
       ctx,
@@ -116,8 +129,8 @@ describe("streamModelTurn", () => {
     const state = makeState();
     await streamModelTurn({
       stream: makeStream([
-        { type: "reasoning-delta", text: "let me think" },
-        { type: "reasoning-end" },
+        { type: "reasoning-delta", id: "reasoning-1", text: "let me think" },
+        { type: "reasoning-end", id: "reasoning-1" },
       ]),
       state,
       ctx,
@@ -202,7 +215,7 @@ describe("streamModelTurn", () => {
 
     const artifactDeltas = events.filter((e) => e.kind === "artifact.delta");
     assert.ok(artifactDeltas.length >= 1);
-    const body = artifactDeltas.map((e) => e.payload.text as string).join("");
+    const body = artifactDeltas.map((e) => deltaText(e)).join("");
     assert.equal(body, "hello body");
     const [firstDelta] = artifactDeltas;
     assert.ok(firstDelta);
@@ -240,17 +253,17 @@ describe("streamModelTurn", () => {
     assert.ok(artifactDeltas.length >= 2, "an over-cap body must split into multiple deltas");
 
     for (const delta of artifactDeltas) {
-      assert.ok((delta.payload.text as string).length <= CHAT_DELTA_MAX);
+      assert.ok(deltaText(delta).length <= CHAT_DELTA_MAX);
     }
 
-    assert.equal(artifactDeltas.map((e) => e.payload.text as string).join(""), bigBody);
+    assert.equal(artifactDeltas.map((e) => deltaText(e)).join(""), bigBody);
   });
 
   test("strips em-dashes on the live stream to match the persisted bubble", async () => {
     const input = "Alfred — the assistant";
     const { events, publish } = capture();
     await streamModelTurn({
-      stream: makeStream([{ type: "text-delta", text: input }]),
+      stream: makeStream([{ type: "text-delta", id: "text-1", text: input }]),
       state: makeState(),
       ctx,
       stopController: stubStop(),
@@ -259,7 +272,7 @@ describe("streamModelTurn", () => {
 
     const streamed = events
       .filter((e) => e.kind === "chat.delta")
-      .map((e) => e.payload.text as string)
+      .map((e) => deltaText(e))
       .join("");
 
     assert.ok(!streamed.includes("—"), "no em-dash reaches the live stream");
@@ -271,7 +284,7 @@ describe("streamModelTurn", () => {
     const state = makeState({ reissuePending: true });
 
     const { releaseWithheldReply } = await streamModelTurn({
-      stream: makeStream([{ type: "text-delta", text: "reissue lead-in" }]),
+      stream: makeStream([{ type: "text-delta", id: "text-1", text: "reissue lead-in" }]),
       state,
       ctx,
       stopController: stubStop(),
@@ -294,8 +307,8 @@ describe("streamModelTurn", () => {
     const state = makeState();
     await streamModelTurn({
       stream: makeStream([
-        { type: "text-delta", text: "before" },
-        { type: "text-delta", text: "after" },
+        { type: "text-delta", id: "text-1", text: "before" },
+        { type: "text-delta", id: "text-1", text: "after" },
       ]),
       state,
       ctx,
@@ -307,7 +320,7 @@ describe("streamModelTurn", () => {
 
     const streamed = events
       .filter((e) => e.kind === "chat.delta")
-      .map((e) => e.payload.text as string)
+      .map((e) => deltaText(e))
       .join("");
 
     assert.ok(!streamed.includes("after"));

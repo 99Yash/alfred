@@ -4,11 +4,15 @@ import { Elysia } from "elysia";
 
 import { errorHandler } from "@alfred/http";
 import { assertGmailPushOidcConfigured } from "@alfred/integrations/google";
+import { getPath } from "@alfred/contracts";
 import {
   makeGmailWebhookRoutes,
   parseGmailPushEnvelope,
   verifyPubSubOidcForGmailWebhook,
+  type GmailWebhookReceiptPersister,
 } from "../../src/connections/gmail-webhook";
+
+type PersistedReceipt = Parameters<GmailWebhookReceiptPersister>[0];
 
 function gmailEnvelope(emailAddress: string) {
   return {
@@ -386,7 +390,7 @@ describe("/webhooks/gmail", () => {
 
   test("enqueues a poll job after OIDC verification and credential lookup pass", async () => {
     const enqueued: unknown[] = [];
-    const receipts: unknown[] = [];
+    const receipts: PersistedReceipt[] = [];
 
     const app = new Elysia({ normalize: "typebox" }).use(errorHandler).use(
       makeGmailWebhookRoutes({
@@ -434,7 +438,7 @@ describe("/webhooks/gmail", () => {
       ],
     ]);
     assert.equal(receipts.length, 1);
-    assert.equal((receipts[0] as { providerDeliveryId: string }).providerDeliveryId, "msg_123");
+    assert.equal(receipts[0]?.providerDeliveryId, "msg_123");
   });
 
   test("answers 200 bad-payload for an undecodable message and reaches neither side effect", async () => {
@@ -546,8 +550,7 @@ describe("/webhooks/gmail", () => {
     );
 
     assert.equal(res1.status, 200);
-    const json1 = (await res1.json()) as { receiptPersisted: boolean };
-    assert.equal(json1.receiptPersisted, true);
+    assert.equal(getPath(await res1.json(), "receiptPersisted"), true);
 
     // Pub/Sub redelivery.
     const res2 = await app.handle(
@@ -555,9 +558,8 @@ describe("/webhooks/gmail", () => {
     );
 
     assert.equal(res2.status, 200);
-    const json2 = (await res2.json()) as { receiptPersisted: boolean };
     assert.equal(
-      json2.receiptPersisted,
+      getPath(await res2.json(), "receiptPersisted"),
       false,
       "duplicate delivery must not create a second receipt",
     );
@@ -567,7 +569,7 @@ describe("/webhooks/gmail", () => {
   });
 
   test("#560a: receipt records verification result and payload hash", async () => {
-    const seenReceipts: unknown[] = [];
+    const seenReceipts: PersistedReceipt[] = [];
 
     const app = new Elysia({ normalize: "typebox" }).use(errorHandler).use(
       makeGmailWebhookRoutes({
@@ -596,14 +598,8 @@ describe("/webhooks/gmail", () => {
     assert.equal(res.status, 200);
     assert.equal(seenReceipts.length, 1);
 
-    const receipt = seenReceipts[0] as {
-      providerDeliveryId: string;
-      credentialId: string;
-      userId: string;
-      historyId: string;
-      verificationResult: string;
-      payloadHash: string;
-    };
+    const receipt = seenReceipts[0];
+    assert.ok(receipt);
 
     assert.equal(receipt.providerDeliveryId, "msg_123");
     assert.equal(receipt.credentialId, "cred_123");

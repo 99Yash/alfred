@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
 
-import { parseEmailAddress } from "@alfred/contracts";
+import { getPath, isRecord, parseEmailAddress } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { documents, driftMetrics, emailTriage, todos, user } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
@@ -112,7 +112,9 @@ describe("drift-audit metrics (DB-backed)", { skip: SKIP }, () => {
     assert.ok(result);
     assert.equal(result.value, 1);
     assert.equal(result.breached, true, "any self-doc breaches the >0 floor");
-    assert.equal((result.detail.sampleDocIds as string[]).length, 1);
+    const { sampleDocIds } = result.detail;
+    assert.ok(Array.isArray(sampleDocIds), "the detail lists sample document ids");
+    assert.equal(sampleDocIds.length, 1);
   });
 
   test("attentionShare7d is the demanding-lane fraction and respects the threshold", async () => {
@@ -174,8 +176,8 @@ describe("drift-audit metrics (DB-backed)", { skip: SKIP }, () => {
 
     // self_ingestion_count is present whenever Alfred has a parseable identity.
     for (const row of rows) {
-      assert.equal((row.detail as { breached: boolean }).breached, false);
-      assert.ok("threshold" in (row.detail as object));
+      assert.equal(getPath(row.detail, "breached"), false);
+      assert.ok(isRecord(row.detail) && "threshold" in row.detail);
     }
   });
 

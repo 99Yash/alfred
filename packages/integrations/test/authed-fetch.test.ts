@@ -84,7 +84,7 @@ describe("authedFetch", () => {
     );
     const { init } = callAt(calls, 0);
     assert.equal(init?.body, JSON.stringify(null));
-    assert.equal((init.headers as Record<string, string>)["Content-Type"], "application/json");
+    assert.equal(new Headers(init.headers).get("Content-Type"), "application/json");
   });
 
   test("redirect defaults to follow and is overridable to manual", async () => {

@@ -7,6 +7,7 @@ import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
 import { formatRuntimeTimeGrounding } from "@alfred/assistant/execution/grounding";
 import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
+import { toolCallArgs } from "./lib/grounding";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
 
 // ADR-0055: asked about "october 2026", chat once replied "which year?" because it had no "now".
@@ -123,8 +124,7 @@ evalite<string, TaskOutput, TargetWindow | null>("Agent date grounding", {
 
     return {
       toolName: call?.toolName ?? null,
-      // SAFETY: diagnostic view of the tool-call input; `??` covers absence.
-      args: (call?.input as Record<string, unknown> | undefined) ?? null,
+      args: toolCallArgs(call?.input),
       text: result.text,
       system,
     };

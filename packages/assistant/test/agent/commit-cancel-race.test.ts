@@ -726,7 +726,7 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
       (error: unknown) => {
         assert.ok(error instanceof Error, `spawn rejected with ${String(error)}`);
         assert.ok(error instanceof AppError, "the refusal is a typed app error, not a bare Error");
-        assert.equal((error as AppError).code, "run_cancelled");
+        assert.equal(error.code, "run_cancelled");
 
         return true;
       },

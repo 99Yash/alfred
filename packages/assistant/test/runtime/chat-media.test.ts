@@ -13,6 +13,7 @@ import {
 } from "../../src/connections/ingestion/chat-media";
 import { enqueueChatAttachmentEnrichmentWith } from "../../src/connections/ingestion/queue";
 import { TriggerConsumerBootError } from "@alfred/assistant/triggers";
+import { asContractViolation } from "../support/contract-violation";
 
 const enrichmentRequest = {
   userId: "user-1",
@@ -99,12 +100,14 @@ describe("chat media composition seam", () => {
   });
 
   test("rejects invalid operation requests and invalid adapter results", async () => {
-    // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
-    const invalidHandler = handlerFixture({
-      async enrich() {
-        return { removed: 1 };
-      },
-    } as unknown as Partial<ChatMediaHandler>);
+    // `enrich` returns a result outside the schema on purpose, to prove the runtime parse rejects it.
+    const invalidHandler = handlerFixture(
+      asContractViolation<Partial<ChatMediaHandler>>({
+        async enrich() {
+          return { removed: 1 };
+        },
+      }),
+    );
 
     const unregister = registerChatMediaHandler(invalidHandler);
 

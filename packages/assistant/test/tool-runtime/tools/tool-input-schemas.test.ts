@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { asSchema } from "ai";
-import { INTEGRATION_SLUGS } from "@alfred/contracts";
+import { getPath, INTEGRATION_SLUGS, toRecord } from "@alfred/contracts";
 import { acceptedParamNames } from "../../../src/tool-runtime/internal/dispatch/invalid-input";
 import { registerBuiltinTools } from "../../../src/tool-runtime/builtin-tools";
 import { listToolsForIntegration } from "../../../src/tool-runtime/internal/registry";
@@ -22,10 +22,10 @@ test("every registered tool input schema has a top-level object type", () => {
 
   for (const slug of INTEGRATION_SLUGS) {
     for (const t of listToolsForIntegration(slug)) {
-      const json = asSchema(t.inputSchema as never).jsonSchema as { type?: unknown };
+      const type = getPath(asSchema(t.inputSchema).jsonSchema, "type");
 
-      if (json.type !== "object") {
-        offenders.push(`${t.name} (type=${JSON.stringify(json.type)})`);
+      if (type !== "object") {
+        offenders.push(`${t.name} (type=${JSON.stringify(type)})`);
       }
     }
   }
@@ -49,11 +49,9 @@ test("acceptedParamNames survives every wrapper and matches the model-facing sur
     for (const t of listToolsForIntegration(slug)) {
       const accepted = [...acceptedParamNames(t.inputSchema)].sort();
 
-      const modelJson = asSchema(t.inputSchema as never).jsonSchema as {
-        properties?: Record<string, unknown>;
-      };
+      const modelJson = asSchema(t.inputSchema).jsonSchema;
 
-      const modelFacing = Object.keys(modelJson.properties ?? {}).sort();
+      const modelFacing = Object.keys(toRecord(getPath(modelJson, "properties"))).sort();
 
       if (PARAMLESS_TOOLS.has(t.name)) {
         if (accepted.length !== 0) {

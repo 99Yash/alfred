@@ -46,6 +46,7 @@ import {
   seedMcpInvocationForTests,
 } from "../../src/tool-runtime/mcp/test-support";
 import { dbBackedSkip } from "../support/db-backed";
+import { asTestDouble } from "../support/test-double";
 
 /**
  * DB-backed tests for MCP persistence: the catalog-revision publish, the ledger barrier
@@ -1050,13 +1051,13 @@ describe("test reservation unique-violation classification", () => {
   ): Parameters<typeof reserveMcpInvocationForTests>[1] {
     const correlation = [{ traceId: "run_fake", stepId: "step_fake", toolCallId: "tc_fake" }];
 
-    // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
-    return {
+    // The fixture insert reads only these two chains, and this fake implements both.
+    return asTestDouble<Parameters<typeof reserveMcpInvocationForTests>[1]>({
       select: () => ({
         from: () => ({ where: () => ({ limit: () => Promise.resolve(correlation) }) }),
       }),
       insert: () => ({ values: () => ({ returning: () => Promise.reject(err) }) }),
-    } as unknown as Parameters<typeof reserveMcpInvocationForTests>[1];
+    });
   }
 
   /** A wrapped driver error, the shape drizzle actually throws. */
@@ -1064,15 +1065,13 @@ describe("test reservation unique-violation classification", () => {
     return new Error("Failed query", { cause: Object.assign(new Error("duplicate key"), fields) });
   }
 
-  /* eslint-disable anti-slop/no-chained-type-assertions -- a hand-built fixture stands in for the full parameter type */
-  const values = {
+  const values: Parameters<typeof reserveMcpInvocationForTests>[0] = {
     userId: "u_fake",
     connectionId: "conn_fake",
     stagingId: "stg_fake",
     remoteName: "do_thing",
     argsHash: "sha256:fake",
-  } as unknown as Parameters<typeof reserveMcpInvocationForTests>[0];
-  /* eslint-enable anti-slop/no-chained-type-assertions */
+  };
 
   test("an unnamed unique violation still defaults to the barrier", async () => {
     const result = await reserveMcpInvocationForTests(

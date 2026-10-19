@@ -39,13 +39,14 @@ const arms: string[] = [];
 // Not `t.mock.method`: this is not a `node:test` file, so the swap restores by hand in `finally`.
 const real = { setInterval: globalThis.setInterval, setTimeout: globalThis.setTimeout };
 
-// Generic because `setInterval` and `setTimeout` differ in type (`setTimeout` has `__promisify__`).
-const counted = <F extends (...args: never[]) => unknown>(fn: F, kind: string): F =>
-  ((...args: Parameters<F>) => {
+// The wrapper has no `__promisify__`, so it is not a `typeof setTimeout`; `Reflect.set` installs it untyped.
+const counted =
+  (fn: (...args: never[]) => unknown, kind: string) =>
+  (...args: never[]): unknown => {
     arms.push(kind);
 
     return fn(...args);
-  }) as F;
+  };
 
 let names: string[] = [];
 
@@ -55,9 +56,9 @@ let before: Record<string, number> = {};
 
 let after: Record<string, number> = {};
 
-globalThis.setInterval = counted(real.setInterval, "setInterval");
+Reflect.set(globalThis, "setInterval", counted(real.setInterval, "setInterval"));
 
-globalThis.setTimeout = counted(real.setTimeout, "setTimeout");
+Reflect.set(globalThis, "setTimeout", counted(real.setTimeout, "setTimeout"));
 
 try {
   before = timerAndConnectionCounts();

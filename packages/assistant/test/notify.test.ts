@@ -5,10 +5,12 @@ import { after, before, describe, test } from "node:test";
 import { closeConnections, db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
 import { inArray, like } from "drizzle-orm";
+import type { Resend } from "resend";
 
 import { send } from "../src/delivery";
 import { _setResendClientForTests } from "../src/delivery/resend-client";
 import { dbBackedSkip } from "./support/db-backed";
+import { asTestDouble } from "./support/test-double";
 
 const SKIP = dbBackedSkip("database");
 
@@ -41,19 +43,16 @@ function fakeSentClient(): SentClientCalls {
     options?: { idempotencyKey?: string } | undefined;
   }> = [];
 
-  // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
-  const client = {
-    emails: {
-      send: async (
-        payload: { headers?: Record<string, string> },
-        options?: { idempotencyKey?: string },
-      ) => {
+  // The code under test calls only `emails.send`.
+  const client = asTestDouble<Resend>({
+    emails: asTestDouble<Resend["emails"]>({
+      send: async (...[payload, options]: Parameters<Resend["emails"]["send"]>) => {
         calls.push({ payload, options });
 
-        return { data: { id: "resend_test" }, error: null };
+        return { data: { id: "resend_test" }, error: null, headers: null };
       },
-    },
-  } as unknown as Parameters<typeof _setResendClientForTests>[0];
+    }),
+  });
 
   return { client, calls };
 }
@@ -123,17 +122,17 @@ describe("delivery.send (DB-backed)", { skip: SKIP }, () => {
   test("a Resend error surfaces as a failed result", async () => {
     const userId = await seedUser();
 
-    /* eslint-disable anti-slop/no-chained-type-assertions -- a stub client that implements only `emails.send` stands in for the Resend client */
-    const failingClient = {
-      emails: {
+    // A stub client that implements only `emails.send` stands in for the Resend client.
+    const failingClient = asTestDouble<Resend>({
+      emails: asTestDouble<Resend["emails"]>({
         send: async () => ({
           data: null,
-          error: { name: "rate_limit_exceeded", message: "slow down" },
+          error: { name: "rate_limit_exceeded", message: "slow down", statusCode: null },
+          headers: null,
         }),
-      },
-    } as unknown as Parameters<typeof _setResendClientForTests>[0];
+      }),
+    });
 
-    /* eslint-enable anti-slop/no-chained-type-assertions */
     _setResendClientForTests(failingClient);
 
     const result = await send({

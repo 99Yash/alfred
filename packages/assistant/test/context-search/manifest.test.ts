@@ -15,6 +15,7 @@ import {
   type ContextSource,
 } from "@alfred/assistant/context-search";
 import { defineContextSource } from "@alfred/assistant/context-search/test-support";
+import { asContractViolation } from "../support/contract-violation";
 
 /**
  * Selection policy for the source capability manifest (ADR-0101 sub-decisions 14-16).
@@ -159,8 +160,8 @@ describe("selectContextSources — who gets asked", () => {
   });
 
   test("a source that forgets its read declaration fails at registration, not at read time", () => {
-    // SAFETY: intentionally registers a catalog-loose manifest to prove the retrieval boundary rejects it at boot.
-    const manifest = UNDESCRIBED_MCP as RetrievalSourceManifest;
+    // Intentionally registers a catalog-loose manifest to prove the retrieval boundary rejects it at boot.
+    const manifest = asContractViolation<RetrievalSourceManifest>(UNDESCRIBED_MCP);
 
     assert.throws(() =>
       registerContextSource({
@@ -174,8 +175,8 @@ describe("selectContextSources — who gets asked", () => {
   test("a source that declares read semantics but no authority fails at registration", () => {
     // Registration rejects a half-described source, so a missing authority stops the boot.
     // `mediaKinds` is set so the missing authority is the only reason to throw.
-    // SAFETY: intentionally registers a catalog-loose manifest to prove the retrieval boundary rejects it at boot.
-    const manifest = NO_AUTHORITY as RetrievalSourceManifest;
+    // Intentionally registers a catalog-loose manifest to prove the retrieval boundary rejects it at boot.
+    const manifest = asContractViolation<RetrievalSourceManifest>(NO_AUTHORITY);
 
     assert.throws(
       () =>

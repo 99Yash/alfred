@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 
-import type { AgentRunTrigger } from "@alfred/contracts";
+import { getPath, type AgentRunTrigger } from "@alfred/contracts";
 import { closeConnections, db, rowsFromExecute } from "@alfred/db";
 import {
   EVENT_ACTIVE_RUN_INDEX,
@@ -237,11 +237,8 @@ async function countActiveEventRuns(
     .from(agentRuns)
     .where(and(eq(agentRuns.userId, userId), eq(agentRuns.workflowSlug, workflowSlug)));
 
-  return rows.filter((r) => {
-    const trigger = r.trigger as { eventId?: unknown } | null;
-
-    return trigger?.eventId === eventId && !TERMINAL.has(r.status);
-  }).length;
+  return rows.filter((r) => getPath(r.trigger, "eventId") === eventId && !TERMINAL.has(r.status))
+    .length;
 }
 
 async function countActiveRuns(userId: string, workflowSlug: string): Promise<number> {

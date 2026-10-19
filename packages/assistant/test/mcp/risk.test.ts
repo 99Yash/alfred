@@ -15,6 +15,7 @@ import { publishCatalogRevision } from "@alfred/assistant/connections/mcp/test-s
 import { MCP_CALL_RISK_FLOOR, resolveMcpCallRiskTier } from "@alfred/assistant/tool-runtime/mcp";
 import { upsertToolPolicy } from "@alfred/assistant/tool-runtime/mcp/test-support";
 import { dbBackedSkip } from "../support/db-backed";
+import { asContractViolation } from "../support/contract-violation";
 
 /**
  * DB-backed tests for the `mcp.call` effective-risk resolver. A reviewed downgrade applies only to the
@@ -227,8 +228,8 @@ describe("resolveMcpCallRiskTier (DB-backed)", { skip: SKIP }, () => {
       connectionId,
       remoteName: REMOTE,
       descriptorHash: DESC_HASH,
-      // Deliberately bypass the type to simulate a corrupt persisted row.
-      riskTier: "totally_bogus" as ToolRiskTier,
+      // Deliberately bypasses the type to simulate a corrupt persisted row.
+      riskTier: asContractViolation<ToolRiskTier>("totally_bogus"),
       effectClass: "read",
       retryContract: "safe",
     });

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import { getPath } from "@alfred/contracts";
 import { ProtocolError, SdkErrorCode, SdkHttpError, type Tool } from "@modelcontextprotocol/client";
 import {
   McpClientError,
@@ -108,6 +109,11 @@ const SEARCH_TOOL = tool("search", {
   required: ["query"],
   additionalProperties: false,
 });
+
+/** `schema` nested `depth` levels deep, each level a one-branch `allOf`. */
+function wrapInAllOf(schema: Record<string, unknown>, depth: number): Record<string, unknown> {
+  return depth === 0 ? schema : wrapInAllOf({ allOf: [schema] }, depth - 1);
+}
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -689,13 +695,10 @@ describe("McpRawClient catalog", () => {
 
     assert.equal(result.provenance.outputSchemaValidated, true);
 
-    let overDeep = JSON.parse('{ "$ref": "#/$defs/result" }') as Record<string, unknown>;
-
-    for (let depth = 0; depth < 40; depth += 1) {
-      overDeep = { allOf: [overDeep] };
-    }
-
-    overDeep.$defs = { result: { type: "string" } };
+    const overDeep = {
+      ...wrapInAllOf({ $ref: "#/$defs/result" }, 40),
+      $defs: { result: { type: "string" } },
+    };
 
     const overDeepProtocol = new FakeProtocol([
       {
@@ -1105,7 +1108,7 @@ describe("McpRawClient calls", () => {
       assert.equal(result.outcome, "completed", fixture.name);
       assert.equal(result.provenance.outputSchemaValidated, true, fixture.name);
       assert.deepEqual(
-        (result.result as { structuredContent: unknown }).structuredContent,
+        getPath(result.result, "structuredContent"),
         fixture.structuredContent,
         fixture.name,
       );

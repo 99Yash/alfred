@@ -50,11 +50,13 @@ async function seed(userId: string, now: Date): Promise<Seeded> {
     .returning({ id: eventsOutbox.id });
 
   assert.equal(rows.length, 3);
+  const [oldPublished, freshPublished, oldUnpublished] = rows;
+  assert.ok(oldPublished && freshPublished && oldUnpublished);
 
   return {
-    oldPublished: rows[0]?.id as number,
-    freshPublished: rows[1]?.id as number,
-    oldUnpublished: rows[2]?.id as number,
+    oldPublished: oldPublished.id,
+    freshPublished: freshPublished.id,
+    oldUnpublished: oldUnpublished.id,
   };
 }
 

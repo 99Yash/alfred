@@ -9,6 +9,7 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { describe, test } from "node:test";
 import { WebSocket } from "undici";
+import { z } from "zod";
 
 import { EMAIL_CSP_META, sanitizeEmailHtml } from "@alfred/assistant/triage/email-html";
 
@@ -29,13 +30,20 @@ interface Counts {
   background: number;
 }
 
-interface CdpMessage {
-  id?: number;
-  method?: string;
-  params?: unknown;
-  result?: unknown;
-  error?: unknown;
-}
+const cdpMessageSchema = z.object({
+  id: z.number().optional(),
+  method: z.string().optional(),
+  params: z.unknown().optional(),
+  result: z.unknown().optional(),
+  error: z.unknown().optional(),
+});
+
+type CdpMessage = z.infer<typeof cdpMessageSchema>;
+
+/** The `/json/list` fields this harness reads. */
+const cdpTargetsSchema = z.array(
+  z.object({ type: z.string(), webSocketDebuggerUrl: z.string().optional() }),
+);
 
 interface CdpClient {
   send: (method: string, params?: Record<string, unknown>) => Promise<CdpMessage>;
@@ -358,10 +366,9 @@ async function waitForExit(child: ChildProcess, timeoutMs: number): Promise<void
 }
 
 async function connectToFirstPage(debugPort: number): Promise<CdpClient> {
-  const targets = (await fetchJson(`http://127.0.0.1:${debugPort}/json/list`)) as Array<{
-    type: string;
-    webSocketDebuggerUrl?: string;
-  }>;
+  const targets = cdpTargetsSchema.parse(
+    await fetchJson(`http://127.0.0.1:${debugPort}/json/list`),
+  );
 
   const page = targets.find((target) => target.type === "page" && target.webSocketDebuggerUrl);
 
@@ -449,9 +456,18 @@ async function fetchJson(url: string): Promise<unknown> {
 }
 
 function parseCdpMessage(data: unknown): CdpMessage {
-  const text = typeof data === "string" ? data : Buffer.from(data as ArrayBuffer).toString("utf8");
+  return cdpMessageSchema.parse(JSON.parse(cdpFrameText(data)));
+}
 
-  return JSON.parse(text) as CdpMessage;
+/** CDP sends text frames. A binary frame is decoded as UTF-8. */
+function cdpFrameText(data: unknown): string {
+  if (typeof data === "string") return data;
+
+  if (data instanceof ArrayBuffer) return Buffer.from(data).toString("utf8");
+
+  if (data instanceof Uint8Array) return Buffer.from(data).toString("utf8");
+
+  throw new Error(`Unexpected CDP frame type: ${Object.prototype.toString.call(data)}`);
 }
 
 function formatChromeStderr(stderr: string): string {

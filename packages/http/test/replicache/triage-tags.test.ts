@@ -3,7 +3,9 @@ import { describe, test } from "node:test";
 
 import { SYNC_MODEL, triageTagOverrideClient, type SyncedTriageTag } from "@alfred/sync";
 
+import { getStringPath, isRecord } from "@alfred/contracts";
 import { serverMutators } from "../../src/sync/write";
+import { asTestDouble } from "../support/test-double";
 
 type ClientTriageTagTx = Parameters<typeof triageTagOverrideClient>[0];
 
@@ -15,8 +17,7 @@ interface MadeClientTx {
 function makeClientTx(initial: Record<string, unknown> = {}): MadeClientTx {
   const store = new Map<string, unknown>(Object.entries(initial));
 
-  // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
-  const tx = {
+  const tx = asTestDouble<ClientTriageTagTx>({
     async get(key: string): Promise<unknown> {
       return store.get(key);
     },
@@ -29,7 +30,7 @@ function makeClientTx(initial: Record<string, unknown> = {}): MadeClientTx {
     async del(key: string): Promise<void> {
       store.delete(key);
     },
-  } as unknown as ClientTriageTagTx;
+  });
 
   return { tx, store };
 }
@@ -102,7 +103,8 @@ describe("triageTagOverrideClient", () => {
 
     await triageTagOverrideClient(tx, { threadId: baseTag.threadId, category: "urgent" });
 
-    const value = store.get(key) as SyncedTriageTag;
+    const value = store.get(key);
+    assert.ok(isRecord(value));
     assert.equal(value.source, "user");
     assert.equal(value.category, "urgent");
     assert.equal(value.rowVersion, autoTag.rowVersion + 1);
@@ -113,7 +115,7 @@ describe("triageTagOverrideClient", () => {
     assert.equal("confidence" in value, false);
     assert.equal("rationale" in value, false);
     assert.equal("classifiedAt" in value, false);
-    assert.equal(Number.isNaN(Date.parse(value.overriddenAt)), false);
+    assert.equal(Number.isNaN(Date.parse(getStringPath(value, "overriddenAt") ?? "")), false);
     assert.equal(value.updatedAt, value.overriddenAt);
   });
 
@@ -138,14 +140,8 @@ describe("serverMutators.triageTagOverride", () => {
 
     const { setValue, whereCalled, returningCalled } = calls();
 
-    const set = setValue as {
-      category?: unknown;
-      source?: unknown;
-      overriddenAt?: unknown;
-      appliedLabelId?: unknown;
-      updatedAt?: unknown;
-      rowVersion?: unknown;
-    };
+    const set = setValue;
+    assert.ok(isRecord(set));
 
     assert.equal(set.category, "action_needed");
     assert.equal(set.source, "user");

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 
+import { getPath } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { agentDecisionTraces, agentRuns, documents, emailTriage, user } from "@alfred/db/schemas";
 import { and, eq, inArray, like } from "drizzle-orm";
@@ -245,10 +246,7 @@ describe("triage decision trace persistence (DB-backed)", { skip: SKIP }, () => 
     assert.equal(rows[0].stepId, "classify");
     assert.equal(rows[0].attempt, 0);
     assert.equal(rows[0].decisionKey, "default");
-    assert.equal(
-      (rows[0].trace as SenderExtractionEvent | undefined)?.senderRelationship,
-      "strong two-way",
-    );
+    assert.equal(getPath(rows[0].trace, "senderRelationship"), "strong two-way");
   });
 
   test("a step failure after upsert keeps the canonical row and its trace together", async () => {
@@ -280,10 +278,7 @@ describe("triage decision trace persistence (DB-backed)", { skip: SKIP }, () => 
 
     const rows = await traceRows(runId);
     assert.equal(rows.length, 1, "trace committed with the canonical row despite step failure");
-    assert.equal(
-      (rows[0]?.trace as SenderExtractionEvent | undefined)?.senderRelationship,
-      "weak one-way",
-    );
+    assert.equal(getPath(rows[0]?.trace, "senderRelationship"), "weak one-way");
   });
 
   test("a recency-loser upsert does not write a stale decision trace", async () => {

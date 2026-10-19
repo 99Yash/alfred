@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
+import { toRecord } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { documents, user } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
@@ -142,11 +143,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
     assert.equal(doc.title, "contract.pdf");
     assert.equal(doc.content, "page one text\n\npage two text");
 
-    // SAFETY: jsonb; narrows to the gmail_attachment shape written above.
-    const meta = doc.metadata as {
-      pages?: { page: number; start: number; end: number }[];
-      filename: string;
-    };
+    const meta = toRecord(doc.metadata);
 
     assert.ok(Array.isArray(meta.pages));
     assert.equal(meta.pages.length, 2);
@@ -438,8 +435,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
 
     const [row] = rows;
     assert.ok(row);
-    // SAFETY: jsonb; narrows to the reference shape ingest wrote.
-    const meta = row.metadata as { references?: unknown[] };
+    const meta = toRecord(row.metadata);
     assert.ok(Array.isArray(meta.references));
     assert.equal(meta.references.length, 1);
     assert.deepEqual(meta.references[0], {
@@ -474,8 +470,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
 
     const [rowAfter] = after;
     assert.ok(rowAfter);
-    // SAFETY: same jsonb narrowing as above.
-    const metaAfter = rowAfter.metadata as { references?: unknown[] };
+    const metaAfter = toRecord(rowAfter.metadata);
     assert.ok(Array.isArray(metaAfter.references));
     assert.equal(metaAfter.references.length, 1, "reference append must be idempotent");
   });
@@ -518,8 +513,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
     const rows = await db().select().from(documents).where(eq(documents.id, documentId));
     const [row] = rows;
     assert.ok(row);
-    // SAFETY: jsonb; reads the element order appendContentReference wrote.
-    const meta = row.metadata as { references?: unknown[] };
+    const meta = toRecord(row.metadata);
     assert.ok(Array.isArray(meta.references));
     assert.equal(meta.references.length, 3, "malformed entry kept, new entry appended once");
     assert.deepEqual(meta.references[0], { foo: "bar" }, "keyless element must survive");

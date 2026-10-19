@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, test } from "node:test";
 
 import { z } from "zod";
 import {
+  getStringPath,
   hashToolInput,
   hashToolRequest,
   isUnknownEffectEnvelope,
@@ -486,12 +487,13 @@ describe("dispatch staging machine (DB-free)", () => {
 
     const [row] = store.rows();
     // A gated call keeps `proposed_input` raw: it is the resume payload.
-    const proposed = row?.proposedInput as { url?: string } | undefined;
-    assert.match(proposed?.url ?? "", /code=topsecret42/, "resume needs the real credential");
+    const proposedUrl = getStringPath(row?.proposedInput, "url");
+    assert.match(proposedUrl ?? "", /code=topsecret42/, "resume needs the real credential");
     // The approval email reads `display_input`, so that one is scrubbed.
-    const display = row?.displayInput as { url?: string } | undefined;
-    assert.match(display?.url ?? "", /code=\[REDACTED\]/, "display projection is scrubbed");
-    assert.match(display?.url ?? "", /page=2/, "non-credential params survive redaction");
+    const display = row?.displayInput;
+    const displayUrl = getStringPath(display, "url");
+    assert.match(displayUrl ?? "", /code=\[REDACTED\]/, "display projection is scrubbed");
+    assert.match(displayUrl ?? "", /page=2/, "non-credential params survive redaction");
     assert.doesNotMatch(JSON.stringify(display), /topsecret42/, "no secret in display_input");
   });
 

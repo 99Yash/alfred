@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import type { DbRoot } from "@alfred/db";
 
 import { stopGmailWatchWithAccessToken, uninstallGmailWatch } from "../src/google/index";
 import { installGmailWatch } from "../src/google/internal";
+import { asTestDouble } from "./support/test-double";
 
 describe("Gmail watch mailbox-write gate (#278)", () => {
   test("install returns before token fetch, Gmail watch, or DB writes when disabled", async () => {
@@ -86,25 +88,27 @@ describe("Gmail watch mailbox-write gate (#278)", () => {
           throw new Error("stopWatch should not run");
         },
       }),
-      db: (() => ({
-        update: () => {
-          calls.dbUpdate++;
+      // The uninstall path reads only `update().set().where()`.
+      db: () =>
+        asTestDouble<DbRoot>({
+          update: () => {
+            calls.dbUpdate++;
 
-          return {
-            set: () => {
-              calls.dbSet++;
+            return {
+              set: () => {
+                calls.dbSet++;
 
-              return {
-                where: () => {
-                  calls.dbWhere++;
+                return {
+                  where: () => {
+                    calls.dbWhere++;
 
-                  return Promise.resolve();
-                },
-              };
-            },
-          };
-        },
-      })) as never,
+                    return Promise.resolve();
+                  },
+                };
+              },
+            };
+          },
+        }),
     });
 
     assert.deepEqual(calls, { token: 0, stopWatch: 0, dbUpdate: 1, dbSet: 1, dbWhere: 1 });

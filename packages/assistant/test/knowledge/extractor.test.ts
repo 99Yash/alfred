@@ -150,11 +150,12 @@ describe("extractPropositionsFromThread", () => {
   });
 
   test("re-validates the model output — a malformed proposition throws", async () => {
-    const generate: GenerateObject = async () =>
-      // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
-      ({
-        propositions: [{ ...dvdResult.propositions[0], verificationClass: "vibes" }],
-      }) as unknown as ChatMemoryExtractionResult;
+    const [valid] = dvdResult.propositions;
+    assert.ok(valid);
+    const malformed = { ...valid };
+    // A deliberately invalid model output: `vibes` is outside the enum, so the re-validation must throw.
+    Reflect.set(malformed, "verificationClass", "vibes");
+    const generate: GenerateObject = async () => ({ propositions: [malformed] });
 
     await assert.rejects(
       () =>

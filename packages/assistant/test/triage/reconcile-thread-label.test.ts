@@ -4,6 +4,7 @@ import { describe, test } from "node:test";
 import { HttpError } from "@alfred/contracts";
 import { reconcileThreadLabel, type ReconcileThreadLabelDeps } from "@alfred/assistant/triage/tags";
 import type { TriageRow, TriageDocumentContext } from "@alfred/assistant/triage/store";
+import { asTestDouble } from "../support/test-double";
 
 // ---------------------------------------------------------------------------
 // Fixtures. Regression: #277. Gmail can retire the stored message id when a sent copy
@@ -14,8 +15,29 @@ const USER = "user_1";
 
 const THREAD = "thread_1";
 
+/** A full row; `reconcileThreadLabel` reads only `documentId` and `category`. */
 function triageRow(overrides: Partial<TriageRow> = {}): TriageRow {
-  return { documentId: "doc_dead", category: "fyi", ...overrides } as TriageRow;
+  return {
+    userId: USER,
+    sourceThreadId: THREAD,
+    category: "fyi",
+    confidence: 0.9,
+    rationale: null,
+    documentAsk: null,
+    todoSuggestion: null,
+    todoDecision: null,
+    model: "test-model",
+    appliedLabelId: null,
+    documentId: "doc_dead",
+    senderSignificanceBand: null,
+    senderRelationshipIsCold: null,
+    classifiedAt: new Date("2026-07-01T00:00:00.000Z"),
+    runId: null,
+    source: "auto",
+    overriddenAt: null,
+    rowVersion: 0,
+    ...overrides,
+  };
 }
 
 function docContext(documentId: string, sourceId: string): TriageDocumentContext {
@@ -70,8 +92,8 @@ function makeDeps(opts: {
   const deps: Partial<ReconcileThreadLabelDeps> = {
     // Force the write gate on; under `NODE_ENV=test` it is off and every case ends `writes-disabled`.
     mailboxWritesEnabled: () => true,
-    // The reconcile callback ignores the tx arg, so a dummy satisfies the type.
-    withThreadLock: (_u, _t, fn) => fn(undefined as never),
+    // The reconcile callback ignores the tx arg, so an empty double stands in for it.
+    withThreadLock: (_u, _t, fn) => fn(asTestDouble<Parameters<typeof fn>[0]>({})),
     getTriage: async () => opts.row,
     loadTriageContext: async (documentId: string) => {
       const sourceId = opts.docs[documentId];

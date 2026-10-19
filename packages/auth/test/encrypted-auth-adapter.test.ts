@@ -4,6 +4,8 @@ import { beforeEach, describe, test } from "node:test";
 
 import { encryptedAuthAdapter, type AuthAdapter } from "../src/credential-adapter";
 import { createCredentialVault, CredentialVaultError } from "@alfred/db/credential-vault";
+import { isRecord } from "@alfred/contracts";
+import { asTestDouble } from "./support/test-double";
 
 /**
  * The inner adapter (Postgres) sees only envelopes; Better Auth sees only plaintext.
@@ -103,8 +105,7 @@ function recordingAdapter() {
       store.row = row;
     },
     getStored: () => store.row,
-    // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
-    adapter: fake as unknown as AuthAdapter,
+    adapter: asTestDouble<AuthAdapter>(fake),
   };
 }
 
@@ -123,9 +124,9 @@ function payloadOf(
 ): Record<string, unknown> {
   const call = inner.calls.find((c) => c.op === op);
   assert.ok(call, `expected the inner adapter to receive a ${op}`);
-  assert.ok(call.payload && typeof call.payload === "object");
+  assert.ok(isRecord(call.payload));
 
-  return call.payload as Record<string, unknown>;
+  return call.payload;
 }
 
 let harness: ReturnType<typeof build>;

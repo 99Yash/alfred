@@ -12,7 +12,9 @@ import {
   type SyncedTodo,
 } from "@alfred/sync";
 
+import { getPath, isRecord } from "@alfred/contracts";
 import { serverMutators } from "../../src/sync/write";
+import { asTestDouble } from "../support/test-double";
 
 // Todo lifecycle transitions (ADR-0050).
 
@@ -26,8 +28,7 @@ interface MadeClientTx {
 function makeClientTx(initial: Record<string, unknown> = {}): MadeClientTx {
   const store = new Map<string, unknown>(Object.entries(initial));
 
-  // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
-  const tx = {
+  const tx = asTestDouble<ClientTx>({
     async get(key: string): Promise<unknown> {
       return store.get(key);
     },
@@ -40,7 +41,7 @@ function makeClientTx(initial: Record<string, unknown> = {}): MadeClientTx {
     async del(key: string): Promise<void> {
       store.delete(key);
     },
-  } as unknown as ClientTx;
+  });
 
   return { tx, store };
 }
@@ -132,7 +133,8 @@ describe("todoCompleteSuggestionClient (#298: suggested → done)", () => {
 
     await todoCompleteSuggestionClient(tx, { id: "todo_1" });
 
-    const value = store.get(KEY) as SyncedTodo;
+    const value = store.get(KEY);
+    assert.ok(isRecord(value));
     assert.equal(value.status, "done");
     assert.equal(typeof value.completedAt, "string");
     assert.equal(value.rowVersion, suggested.rowVersion + 1);
@@ -145,7 +147,7 @@ describe("todoCompleteSuggestionClient (#298: suggested → done)", () => {
   test("no-ops on a todo that is not suggested", async () => {
     const { tx, store } = makeClientTx({ [KEY]: todo({ status: "open" }) });
     await todoCompleteSuggestionClient(tx, { id: "todo_1" });
-    assert.equal((store.get(KEY) as SyncedTodo).status, "open");
+    assert.equal(getPath(store.get(KEY), "status"), "open");
   });
 });
 
@@ -153,7 +155,8 @@ describe("existing todo transitions still behave (no regression)", () => {
   test("todoComplete: open → done", async () => {
     const { tx, store } = makeClientTx({ [KEY]: todo({ status: "open" }) });
     await todoCompleteClient(tx, { id: "todo_1" });
-    const value = store.get(KEY) as SyncedTodo;
+    const value = store.get(KEY);
+    assert.ok(isRecord(value));
     assert.equal(value.status, "done");
     assert.equal(typeof value.completedAt, "string");
   });
@@ -164,7 +167,8 @@ describe("existing todo transitions still behave (no regression)", () => {
     });
 
     await todoReopenClient(tx, { id: "todo_1" });
-    const value = store.get(KEY) as SyncedTodo;
+    const value = store.get(KEY);
+    assert.ok(isRecord(value));
     assert.equal(value.status, "open");
     assert.equal(value.completedAt, null);
   });
@@ -175,7 +179,8 @@ describe("existing todo transitions still behave (no regression)", () => {
     });
 
     await todoPromoteClient(tx, { id: "todo_1" });
-    const value = store.get(KEY) as SyncedTodo;
+    const value = store.get(KEY);
+    assert.ok(isRecord(value));
     assert.equal(value.status, "open");
     assert.equal(value.createdBy, "agent");
   });

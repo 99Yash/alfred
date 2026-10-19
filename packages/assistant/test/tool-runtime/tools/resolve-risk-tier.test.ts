@@ -6,6 +6,7 @@ import { parseIanaTimezone, type ToolRiskTier } from "@alfred/contracts";
 import { toolExecuteContext } from "@alfred/assistant/tool-runtime/context";
 import { liveTool } from "@alfred/assistant/tool-runtime";
 import { resolveEffectiveRiskTier } from "../../../src/tool-runtime/internal/dispatch";
+import { asContractViolation } from "../../support/contract-violation";
 
 /**
  * The registry half of `resolveRiskTier`. `test/mcp/risk.test.ts` covers the resolver.
@@ -110,7 +111,7 @@ describe("liveTool resolveRiskTier wiring", () => {
       description: "t",
       inputSchema: z.object({ n: z.number() }),
       // Model a resolver that failed to validate a persisted or protocol value.
-      resolveRiskTier: async () => "not_a_tier" as ToolRiskTier,
+      resolveRiskTier: async () => asContractViolation<ToolRiskTier>("not_a_tier"),
       riskTierDowngradeReason: "reviewed test policy",
       execute: async () => ({ ok: true }),
     });

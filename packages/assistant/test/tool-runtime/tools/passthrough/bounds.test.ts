@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+
+import { getPath, getStringPath } from "@alfred/contracts";
 import {
   PASSTHROUGH_MAX_ARRAY_ITEMS,
   PASSTHROUGH_MAX_BODY_BYTES,
@@ -29,9 +31,10 @@ describe("boundPassthroughBody — per-string cap", () => {
     const cause = r.truncation.causes.find((c) => c.kind === "string_chars");
     assert.ok(cause, "expected a string_chars cause");
     assert.equal(cause.droppedApprox, 1000);
-    const value = r.value as { body: string };
-    assert.ok(value.body.length < 9000);
-    assert.match(value.body, /truncated/);
+    const clipped = getStringPath(r.value, "body");
+    assert.ok(clipped !== undefined, "expected a string body");
+    assert.ok(clipped.length < 9000);
+    assert.match(clipped, /truncated/);
   });
 });
 
@@ -39,7 +42,8 @@ describe("boundPassthroughBody — array-item cap (any depth)", () => {
   test("a top-level array over 50 items is capped and flagged", () => {
     const items = Array.from({ length: 73 }, (_, i) => i);
     const r = boundPassthroughBody(items);
-    const value = r.value as number[];
+    const value = r.value;
+    assert.ok(Array.isArray(value));
     assert.equal(value.length, PASSTHROUGH_MAX_ARRAY_ITEMS);
     const cause = r.truncation?.causes.find((c) => c.kind === "array_items");
     assert.equal(cause?.droppedApprox, 73 - PASSTHROUGH_MAX_ARRAY_ITEMS);
@@ -48,8 +52,9 @@ describe("boundPassthroughBody — array-item cap (any depth)", () => {
   test("a NESTED array is capped — a top-level-only cap would miss it", () => {
     const body = { data: { messages: Array.from({ length: 200 }, (_, i) => ({ i })) } };
     const r = boundPassthroughBody(body);
-    const value = r.value as { data: { messages: unknown[] } };
-    assert.equal(value.data.messages.length, PASSTHROUGH_MAX_ARRAY_ITEMS);
+    const messages = getPath(r.value, "data", "messages");
+    assert.ok(Array.isArray(messages));
+    assert.equal(messages.length, PASSTHROUGH_MAX_ARRAY_ITEMS);
     const cause = r.truncation?.causes.find((c) => c.kind === "array_items");
     assert.equal(cause?.droppedApprox, 150);
   });
@@ -98,7 +103,6 @@ describe("boundPassthroughBody — simultaneous causes", () => {
 describe("boundPassthroughBody — poison composition", () => {
   test("NUL bytes are stripped as part of the same pass", () => {
     const r = boundPassthroughBody({ text: `ab${String.fromCodePoint(0)}cd` });
-    const value = r.value as { text: string };
-    assert.equal(value.text, "abcd");
+    assert.equal(getStringPath(r.value, "text"), "abcd");
   });
 });

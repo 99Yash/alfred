@@ -14,12 +14,12 @@ import { readVercelTeamId, vercelCredentialMetadata } from "../src/vercel/creden
 const realFetch = globalThis.fetch;
 
 function stubFetch(body: unknown, status = 200) {
-  const calls: { url: string; method: string; headers: Record<string, string> }[] = [];
+  const calls: { url: string; method: string; headers: Headers }[] = [];
   globalThis.fetch = (input: string | URL | Request, init?: RequestInit) => {
     calls.push({
       url: String(input instanceof Request ? input.url : input),
       method: String(init?.method ?? "GET"),
-      headers: (init?.headers ?? {}) as Record<string, string>,
+      headers: new Headers(init?.headers),
     });
 
     return Promise.resolve(
@@ -145,7 +145,7 @@ describe("vercel client auth", () => {
     await client("team_abc").projects();
     const call = calls[0];
     assert.ok(call);
-    assert.equal(call.headers.Authorization, "Bearer vercel_secret_token");
+    assert.equal(call.headers.get("Authorization"), "Bearer vercel_secret_token");
     // URLs reach logs and errors.
     assert.ok(!call.url.includes("vercel_secret_token"));
   });
@@ -167,7 +167,7 @@ describe("vercel client auth", () => {
     const passthrough = client("team_abc").passthrough;
     assert.deepEqual(Object.keys(passthrough).sort(), ["execute", "slug"]);
     await passthrough.execute({ method: "GET", path: "/v9/projects", query: {} });
-    assert.equal(calls[0]?.headers.Authorization, "Bearer vercel_secret_token");
+    assert.equal(calls[0]?.headers.get("Authorization"), "Bearer vercel_secret_token");
   });
 
   test("resolves per request — no client memoizes a credential", async () => {

@@ -15,6 +15,7 @@ import {
 } from "../../src/connections/ingestion/gmail-triage";
 import { pairReplyReevalTargets } from "../../src/runtime/adapters/gmail-ingested-consumers";
 import { createGmailTriageHandler } from "../../src/runtime/adapters/gmail-triage";
+import { asContractViolation } from "../support/contract-violation";
 
 const postInsertRequest = {
   credentialId: "credential-1",
@@ -159,15 +160,15 @@ describe("Gmail triage composition seam", () => {
   });
 
   test("rejects invalid adapter output at the interface", async () => {
-    // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
-    const invalidHandler = {
+    // The handler returns results outside the schema on purpose, to prove the runtime parse rejects them.
+    const invalidHandler = asContractViolation<GmailTriageHandler>({
       async postInsert() {
         return { replyReevalTargets: [{ threadId: "thread-2" }] };
       },
       async relabel() {
         return { applied: false, reason: "not-a-reason" };
       },
-    } as unknown as GmailTriageHandler;
+    });
 
     const unregister = registerGmailTriageHandler(invalidHandler);
 

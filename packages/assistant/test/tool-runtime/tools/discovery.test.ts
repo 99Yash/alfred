@@ -129,7 +129,7 @@ function access(
   available: readonly LoadableIntegrationSlug[],
   allowedIntegrations: readonly string[] = [],
 ): ToolCatalogAccess {
-  const availableSet = new Set(available);
+  const availableSet: ReadonlySet<string> = new Set(available);
   const allowed = new Set(allowedIntegrations);
   const availability = new Map<ToolName, ToolAvailabilityResult>();
 
@@ -143,7 +143,7 @@ function access(
             code: "not_allowed",
             reason: "Outside this workflow's integration allowlist.",
           }
-        : availableSet.has(tool.integration as LoadableIntegrationSlug)
+        : availableSet.has(tool.integration)
           ? { available: true }
           : {
               available: false,

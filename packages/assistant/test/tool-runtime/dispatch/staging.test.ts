@@ -7,7 +7,7 @@ import { closeConnections, db } from "@alfred/db";
 import { actionStagings, agentRuns, user } from "@alfred/db/schemas";
 import { and, eq, inArray, like, sql } from "drizzle-orm";
 import { z } from "zod";
-import { toJsonValue } from "@alfred/contracts";
+import { getStringPath, toJsonValue } from "@alfred/contracts";
 
 import { dispatchToolCall } from "../../../src/tool-runtime/dispatch";
 import { clearToolRegistryForTests, liveTool, registerTool } from "@alfred/assistant/tool-runtime";
@@ -343,11 +343,12 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       .from(actionStagings)
       .where(and(eq(actionStagings.runId, runId), eq(actionStagings.toolCallId, toolCallId)));
 
-    const persisted = rows[0]?.proposedInput as { url?: string } | undefined;
-    assert.ok(persisted?.url, "proposed_input has a url");
-    assert.match(persisted.url, /code=\[REDACTED\]/);
-    assert.match(persisted.url, /page=2/, "non-credential params survive redaction");
-    assert.doesNotMatch(persisted.url, /topsecret42/, "the secret never reaches the persisted row");
+    const persisted = rows[0]?.proposedInput;
+    const persistedUrl = getStringPath(persisted, "url");
+    assert.ok(persistedUrl, "proposed_input has a url");
+    assert.match(persistedUrl, /code=\[REDACTED\]/);
+    assert.match(persistedUrl, /page=2/, "non-credential params survive redaction");
+    assert.doesNotMatch(persistedUrl, /topsecret42/, "the secret never reaches the persisted row");
     assert.deepEqual(
       rows[0]?.displayInput,
       persisted,

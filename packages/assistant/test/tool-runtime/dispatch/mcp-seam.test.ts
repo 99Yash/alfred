@@ -51,6 +51,7 @@ import {
 import { closeRedis } from "@alfred/db/redis";
 import { dbBackedSkip } from "../../support/db-backed";
 import { awaitGate } from "../../support/gate-timeout";
+import { asTestDouble } from "../../support/test-double";
 
 /**
  * DB-backed tests for the dispatch-to-MCP seam. `mcp.call` is `high` tier, so it
@@ -147,9 +148,9 @@ class PausedFirstCallProtocol implements McpProtocolClient {
   onConnectionUnhealthy(): void {}
 }
 
+/** The seam calls only `callTool`, which the fake implements. */
 function asBroker(fake: CapturingBroker): McpExecutionBroker {
-  // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
-  return fake as unknown as McpExecutionBroker;
+  return asTestDouble<McpExecutionBroker>(fake);
 }
 
 async function seedUserAndRun(): Promise<{ userId: string; runId: string }> {
