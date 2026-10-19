@@ -304,7 +304,8 @@ async function readEntry<T>(runId: string, target: ScratchTarget): Promise<Scrat
       },
     });
 
-    // SAFETY: entries are written with this envelope, and a corrupt one is already null.
+    // SAFETY: the schema checks only the envelope, and `T` is the caller's claim about `value`.
+    // Production readers keep `T = unknown`; only the server smokes name a `T`.
     return entry === null ? null : (entry as ScratchEntry<T>);
   } catch (err) {
     span.end({ status: "error", level: "ERROR" });

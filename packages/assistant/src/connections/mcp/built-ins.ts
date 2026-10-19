@@ -5,7 +5,7 @@
  * so a rotated secret applies on the next token exchange.
  */
 
-import { integrationDisplayName, type BuiltInMCPProvider } from "@alfred/contracts";
+import { integrationDisplayName, typedEntries, type BuiltInMCPProvider } from "@alfred/contracts";
 import { envFieldValue, type ServerEnv } from "@alfred/env/server";
 
 import { hostedEndpointKey } from "../hosted-endpoint";
@@ -232,7 +232,7 @@ type ResolvedDefinition = BuiltInDefinition & {
 };
 
 const BY_ENDPOINT: ReadonlyMap<string, ResolvedDefinition> = new Map(
-  Object.entries(BUILT_IN_REGISTRY).map(([provider, entry]): [string, ResolvedDefinition] => {
+  typedEntries(BUILT_IN_REGISTRY).map(([provider, entry]): [string, ResolvedDefinition] => {
     // Widen so entries without `staticClient` still type the property.
     const definition: BuiltInDefinition = entry;
 
@@ -240,8 +240,7 @@ const BY_ENDPOINT: ReadonlyMap<string, ResolvedDefinition> = new Map(
       hostedEndpointKey(new URL(definition.endpointHref)),
       {
         ...definition,
-        // SAFETY: the registry satisfies `Record<BuiltInMCPProvider, …>`, so its keys are `BuiltInProvider`.
-        provider: provider as BuiltInProvider,
+        provider,
         ...(definition.staticClient
           ? { issuerOrigin: new URL(definition.staticClient.issuer).origin }
           : {}),

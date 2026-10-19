@@ -44,7 +44,12 @@ const RUN_STATUS_KIND = {
   blocked: "terminal",
 } as const satisfies Record<RunStatus, "live" | "terminal">;
 
-export function isTerminalStatus(s: RunStatus): boolean {
+/** The statuses `RUN_STATUS_KIND` marks `terminal`. */
+export type TerminalRunStatus = {
+  [S in RunStatus]: (typeof RUN_STATUS_KIND)[S] extends "terminal" ? S : never;
+}[RunStatus];
+
+export function isTerminalStatus(s: RunStatus): s is TerminalRunStatus {
   return RUN_STATUS_KIND[s] === "terminal";
 }
 

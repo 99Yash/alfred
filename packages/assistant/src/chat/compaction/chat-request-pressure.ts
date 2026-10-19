@@ -1,5 +1,7 @@
 import { asSchema, type ModelMessage, type ToolSet } from "ai";
 
+import { parseJsonText, type AgentTranscriptMessage, type JsonValue } from "@alfred/contracts";
+
 import { effectiveInputWindowTokens } from "@alfred/ai";
 
 import { estimateSerializedTokens } from "@alfred/assistant/execution";
@@ -14,6 +16,9 @@ export interface ChatRequestTokenEstimate {
   outputReserveTokens: number;
   totalRequestTokens: number;
 }
+
+/** The estimate reads only the JSON text, so the stored view and the SDK view both work. */
+type EstimatedTranscript = readonly (AgentTranscriptMessage | ModelMessage)[];
 
 export interface ChatRequestPressure extends ChatRequestTokenEstimate {
   effectiveInputWindowTokens: number;
@@ -30,7 +35,7 @@ export async function estimateChatRequestTokens({
 }: {
   systemPrompt: string;
   tools: ToolSet;
-  transcript: readonly ModelMessage[];
+  transcript: EstimatedTranscript;
   outputReserveTokens: number;
 }): Promise<ChatRequestTokenEstimate> {
   if (!Number.isInteger(outputReserveTokens) || outputReserveTokens < 0) {
@@ -78,7 +83,7 @@ export async function estimateChatRequestTokens({
 export async function assessChatRequestPressure(args: {
   systemPrompt: string;
   tools: ToolSet;
-  transcript: readonly ModelMessage[];
+  transcript: EstimatedTranscript;
   contextWindowTokens: number;
   outputReserveTokens: number;
 }): Promise<ChatRequestPressure> {
@@ -100,23 +105,21 @@ export async function assessChatRequestPressure(args: {
 }
 
 interface NormalizedTranscript {
-  messages: unknown[];
+  messages: JsonValue;
   hydratedImages: number;
 }
 
-function normalizeTranscript(messages: readonly ModelMessage[]): NormalizedTranscript {
+function normalizeTranscript(messages: EstimatedTranscript): NormalizedTranscript {
   let hydratedImages = 0;
 
-  // SAFETY: JSON.stringify emitted this text, so parsing it back yields plain
-  // JSON values; the input was the messages array, so the result is an array.
-  const normalized = JSON.parse(
+  const normalized = parseJsonText(
     JSON.stringify(messages, (_key, value: unknown) => {
       if (!isHydratedFilePart(value)) return value;
       hydratedImages += 1;
 
       return { type: "file", mediaType: value.mediaType, data: "[hydrated-image]" };
     }),
-  ) as unknown[];
+  );
 
   return { messages: normalized, hydratedImages };
 }

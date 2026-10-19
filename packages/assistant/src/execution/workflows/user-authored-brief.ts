@@ -1,9 +1,4 @@
-import {
-  route,
-  resolveEffectiveInputWindowTokens,
-  AlfredAgent,
-  type ModelMessage,
-} from "@alfred/ai";
+import { route, resolveEffectiveInputWindowTokens, AlfredAgent } from "@alfred/ai";
 import {
   compactionThresholdTokens,
   getStringPath,
@@ -32,6 +27,7 @@ import {
   estimateTranscriptTokens,
   shouldSkipCompaction,
 } from "../run-compaction/tokens";
+import { toModelMessages, toTranscriptMessages } from "../model-transcript";
 import { appendModelResponseMessages } from "../transcript-dedup";
 import { publishEvent } from "@alfred/assistant/triggers";
 import {
@@ -267,8 +263,7 @@ const bossTurnStep: Step<BriefRunState> = {
 
     const result = await agent.turn({
       ctx,
-      // SAFETY: AgentTranscriptMessage is the persisted view of ModelMessage.
-      transcript: transcript as ModelMessage[],
+      transcript: toModelMessages(transcript),
       attribution: {
         stepId: ctx.idempotencyKey,
         attempt: ctx.attempt,
@@ -284,8 +279,7 @@ const bossTurnStep: Step<BriefRunState> = {
 
     const nextTranscript = appendModelResponseMessages(
       transcript,
-      // SAFETY: AgentTranscriptMessage is the persisted view of the SDK messages.
-      result.raw.responseMessages as AgentTranscriptMessage[],
+      toTranscriptMessages(result.raw.responseMessages),
       stepCallIds,
     );
 

@@ -584,10 +584,10 @@ export async function leaseRun(runId: string): Promise<LeaseResult> {
       });
     }
 
-    // SAFETY: the branches above leave only pending, runnable, running, or deferred.
+    // The guards above narrow `status` to pending, runnable, running, or deferred.
     const queue: LeaseQueueInfo = {
       staleMs,
-      fromStatus: status as QueueLeaseFromStatus,
+      fromStatus: status,
       reclaimed: isStaleRunning,
     };
 

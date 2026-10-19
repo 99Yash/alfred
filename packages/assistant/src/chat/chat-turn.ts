@@ -5,7 +5,6 @@ import {
   isCapacityError,
   route,
   type ChatModelTier,
-  type ModelMessage,
 } from "@alfred/ai";
 import { composeAgentInstructions } from "@alfred/ai/voice";
 import { ARTIFACT_DESIGN_PROMPT } from "@alfred/artifacts-design";
@@ -28,6 +27,8 @@ import { readIntegrationAvailability } from "@alfred/assistant/connections";
 import { selfIdentityGrounding, settings } from "@alfred/assistant/settings";
 import {
   appendModelResponseMessages,
+  toModelMessages,
+  toTranscriptMessages,
   appendSystemNote,
   CAPACITY_RETRY_DELAYS_MS,
   CAPACITY_RETRY_JITTER_MS,
@@ -492,8 +493,7 @@ const chatTurnStep: Step<ChatRunState> = {
       const requestEstimate = await estimateChatRequestTokens({
         systemPrompt,
         tools: sdkTools,
-        // SAFETY: AgentTranscriptMessage is the persisted superset of ModelMessage.
-        transcript: modelTranscript as ModelMessage[],
+        transcript: modelTranscript,
         outputReserveTokens: CHAT_MAX_OUTPUT_TOKENS,
       });
 
@@ -518,8 +518,7 @@ const chatTurnStep: Step<ChatRunState> = {
 
       const stream = await agent.streamTurn({
         ctx,
-        // SAFETY: same persisted-superset view as the estimate above.
-        transcript: modelTranscript as ModelMessage[],
+        transcript: toModelMessages(modelTranscript),
         attribution: {
           stepId: ctx.idempotencyKey,
           attempt: ctx.attempt,
@@ -632,8 +631,7 @@ const chatTurnStep: Step<ChatRunState> = {
       // Append to the guarded transcript. The pre-guard one would bring back the compacted overflow.
       const nextTranscript = appendModelResponseMessages(
         continuationTranscript,
-        // SAFETY: AgentTranscriptMessage is the persisted view of the SDK's response messages.
-        response.messages as AgentTranscriptMessage[],
+        toTranscriptMessages(response.messages),
         stepCallIds,
       );
 

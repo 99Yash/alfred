@@ -7,6 +7,7 @@ import {
   credentialSatisfies,
   EVENT_SOURCES,
   eventDeliveryAccounts,
+  hasEveryKey,
   isInboundEventSource,
   type AccountGrainEventSource,
   type CredentialRowsByProvider,
@@ -46,6 +47,13 @@ type SourceDeliveryHealthReader = (
   now: Date,
 ) => Promise<EventDeliveryHealth>;
 
+/** The account arm of {@link InProcessHealthReader}. */
+interface AccountGrainHealthReader {
+  grain: "account";
+  accounts: EventDeliveryAccounts;
+  read: AccountDeliveryHealthReader;
+}
+
 /**
  * `healthy_by_construction`: this process publishes the events, so nothing can lapse.
  * Only allowed at source grain. Every in-process source must pick a shape.
@@ -54,20 +62,16 @@ type InProcessHealthReader<S extends InProcessEventSource> =
   // Distributive on purpose: a union of per-source shapes.
   S extends InProcessEventSource
     ? EventSourceEntryOf<S>["delivery"]["grain"] extends "account"
-      ? { grain: "account"; accounts: EventDeliveryAccounts; read: AccountDeliveryHealthReader }
+      ? AccountGrainHealthReader
       : { grain: "source"; read: SourceDeliveryHealthReader } | "healthy_by_construction"
     : never;
 
-function accountGrain<S extends AccountGrainEventSource & InProcessEventSource>(
-  source: S,
+/** `satisfies` on `IN_PROCESS_HEALTH` checks that each source it builds is account-grain. */
+function accountGrain(
+  source: AccountGrainEventSource & InProcessEventSource,
   read: AccountDeliveryHealthReader,
-): InProcessHealthReader<S> {
-  // SAFETY: `S` is account-grain, so this is the account arm; TS cannot reduce a generic conditional.
-  return {
-    grain: "account",
-    accounts: eventDeliveryAccounts(source),
-    read,
-  } as InProcessHealthReader<S>;
+): AccountGrainHealthReader {
+  return { grain: "account", accounts: eventDeliveryAccounts(source), read };
 }
 
 const IN_PROCESS_HEALTH = {
@@ -114,8 +118,15 @@ export async function readEventSourceHealth(
     }),
   );
 
-  // SAFETY: the keys come from EVENT_SOURCES.
-  return Object.fromEntries(entries) as Record<EventSource, EventSourceHealth>;
+  const health: Partial<Record<EventSource, EventSourceHealth>> = {};
+
+  for (const [source, entry] of entries) health[source] = entry;
+
+  if (!hasEveryKey(health, EVENT_SOURCES)) {
+    throw new Error("[event-source-health] an event source has no health entry");
+  }
+
+  return health;
 }
 
 /** Rows that pass the connected rule (ADR-0093). Readiness and alerts share it, so they count the same rows. */

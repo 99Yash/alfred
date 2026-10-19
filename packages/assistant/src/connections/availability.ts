@@ -9,6 +9,7 @@ import {
   LIVE_PROVIDER_SLUGS,
   LIVE_PROVIDERS,
   PASSTHROUGH_PREFERENCE_KEYS,
+  SUPPORTED_PASSTHROUGH_SLUGS,
   recordFromKeys,
   selectGithubAccountRow,
   toStringArray,
@@ -230,12 +231,11 @@ async function loadIntegrationAvailability(
   const prefByKey = new Map(prefRows.map((row) => [row.key, row.value]));
   const passthroughEnabled = new Map<SupportedPassthroughSlug, boolean>();
 
-  // SAFETY: PASSTHROUGH_PREFERENCE_KEYS is keyed by SupportedPassthroughSlug with string values.
-  for (const [slug, key] of Object.entries(PASSTHROUGH_PREFERENCE_KEYS) as [
-    SupportedPassthroughSlug,
-    string,
-  ][]) {
-    passthroughEnabled.set(slug, isPassthroughPreferenceOn(prefByKey.get(key)));
+  for (const slug of SUPPORTED_PASSTHROUGH_SLUGS) {
+    passthroughEnabled.set(
+      slug,
+      isPassthroughPreferenceOn(prefByKey.get(PASSTHROUGH_PREFERENCE_KEYS[slug])),
+    );
   }
 
   const availability = new Map<LoadableIntegrationSlug, IntegrationAvailability>();
