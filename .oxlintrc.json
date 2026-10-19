@@ -105,6 +105,10 @@
       "error",
       { "disallowTypeAnnotations": false, "fixStyle": "inline-type-imports" }
     ],
+    // no-empty: an empty block, an empty `catch {}` included (`allowEmptyCatch` stays false). A
+    // `catch` handles the failure, logs safe fields, or holds a comment that says why the failure
+    // is safe to drop. A comment inside the block counts as content, so the reason is the fix.
+    "no-empty": "error",
     // no-useless-spread: oxlint's default set has it at `warn`, which `pnpm lint` does not
     // fail on. Its common hit here is `{ ...(x ? { k: x } : {}) }` with nothing else in the
     // literal; pass the conditional itself (docs/reference/code-style.md §2).
