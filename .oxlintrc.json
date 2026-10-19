@@ -17,7 +17,7 @@
   // `plugins` REPLACES oxlint's default set, so it restates that set (eslint, typescript, unicorn,
   // oxc) and then adds the plugins this file opts in to. A plugin dropped from this list turns
   // every rule below that it owns into a silent no-op.
-  "plugins": ["eslint", "typescript", "unicorn", "oxc", "react"],
+  "plugins": ["eslint", "typescript", "unicorn", "oxc", "react", "import"],
   "jsPlugins": [
     "oxlint-tailwindcss",
     "./scripts/oxlint/anti-slop/index.ts",
@@ -248,6 +248,19 @@
     "typescript/no-base-to-string": "error",
     "typescript/no-redundant-type-constituents": "error",
     "typescript/unbound-method": "error",
+    // import/no-cycle: a module that reaches itself again through its imports. ESM loads a cycle
+    // without an error, but a binding read during module evaluation can be in its TDZ, and the
+    // order of `export` lines then decides whether the process boots. It resolves relative and
+    // `@alfred/*` specifiers alike. It skips type-only imports, the inline `{ type X }` form too,
+    // although that form keeps a runtime import under verbatimModuleSyntax. Break a cycle by
+    // moving the shared piece into a module that both sides import, or by importing a concrete
+    // sibling instead of a barrel. `scripts/check-module-architecture.mjs` fences cycles between
+    // assistant modules; this rule also sees the cycles inside one module and in `scripts/`.
+    "import/no-cycle": "error",
+    // The plugin's two default `correctness` rules had zero hits when it landed, so they are set
+    // to `error` here instead of the `warn` that the plugin arms them at.
+    "import/default": "error",
+    "import/namespace": "error",
     "typescript/no-restricted-types": [
       "error",
       {
