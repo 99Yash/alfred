@@ -262,20 +262,21 @@ function buildWavePath(levels: Float32Array): string {
     });
   }
 
-  if (points.length === 0) return "";
-  const first = points[0]!;
-  let d = `M ${first.x} ${first.y}`;
+  const [first] = points;
 
-  for (let i = 1; i < points.length; i++) {
-    const p = points[i]!;
-    const prev = points[i - 1]!;
+  if (!first) return "";
+  let d = `M ${first.x} ${first.y}`;
+  let prev = first;
+
+  for (const p of points.slice(1)) {
     const cx = (prev.x + p.x) / 2;
     const cy = (prev.y + p.y) / 2;
     d += ` Q ${prev.x} ${prev.y} ${cx} ${cy}`;
+    prev = p;
   }
 
-  const last = points[points.length - 1]!;
-  d += ` T ${last.x} ${last.y}`;
+  // `prev` is the last point now.
+  d += ` T ${prev.x} ${prev.y}`;
 
   return d;
 }

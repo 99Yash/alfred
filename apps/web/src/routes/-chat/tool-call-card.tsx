@@ -79,7 +79,10 @@ export function ToolCallCard({
 }) {
   const panelId = useId();
   // A folded run of identical calls (see buildTrail). Running if any call is out, failed if any failed.
-  const tool = tools[0]!;
+  const [tool] = tools;
+
+  // Every caller passes at least one call: a trail item or a sub-agent step.
+  if (!tool) return null;
   const count = tools.length;
   const running = tools.some((t) => t.status === "started");
   const failed = tools.some((t) => foldClass(t.status) === "failed");

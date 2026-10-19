@@ -234,16 +234,28 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
     await tx
       .insert(chunks)
       .values(
-        cappedChunks.map((chunk, i) => ({
-          documentId: doc.id,
-          userId: doc.userId,
-          position: chunk.position,
-          content: chunk.content,
-          embedding: vectors[i]!,
-          tokenCount: chunk.tokenCount,
-          contentHash: cappedHashes[i]!,
-          metadata: chunkMetadata(chunk.page ?? null),
-        })),
+        cappedChunks.map((chunk, i) => {
+          // `capChunksForBudget` slices chunks and hashes together, and the vector count is checked above.
+          const embedding = vectors[i];
+          const contentHash = cappedHashes[i];
+
+          if (embedding === undefined || contentHash === undefined) {
+            throw new Error(
+              `[embed-document] chunk ${i} has no parallel vector or hash for doc=${doc.id}`,
+            );
+          }
+
+          return {
+            documentId: doc.id,
+            userId: doc.userId,
+            position: chunk.position,
+            content: chunk.content,
+            embedding,
+            tokenCount: chunk.tokenCount,
+            contentHash,
+            metadata: chunkMetadata(chunk.page ?? null),
+          };
+        }),
       )
       .onConflictDoUpdate({
         target: [chunks.documentId, chunks.position],

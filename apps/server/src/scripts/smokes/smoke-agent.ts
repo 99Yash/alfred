@@ -9,6 +9,7 @@ import { getStringPath } from "@alfred/contracts";
 import { startRun, wakeRun, closeAgentQueue } from "@alfred/assistant/execution";
 import { warmPool } from "@alfred/db";
 import { db } from "@alfred/db";
+import { requireRow } from "@alfred/db/helpers";
 import { agentRuns, agentSteps, user as userTable } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "~/builtins";
@@ -29,7 +30,7 @@ async function findOrCreateSmokeUser(): Promise<string> {
     .values({ name: "Smoke Tester", email, emailVerified: true })
     .returning({ id: userTable.id });
 
-  return inserted[0]!.id;
+  return requireRow(inserted[0], "ensureUser").id;
 }
 
 async function pollUntil(

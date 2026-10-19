@@ -14,6 +14,7 @@ import { enqueueExtractionForUser } from "@alfred/assistant/knowledge/queue";
 import { memoryExtractionOutcomeSchema, recallActiveByKey } from "@alfred/assistant/knowledge";
 import { registerBuiltinWorkflows } from "~/builtins";
 import { db } from "@alfred/db";
+import { requireRow } from "@alfred/db/helpers";
 import {
   agentRuns,
   documents,
@@ -54,7 +55,7 @@ async function findOrCreateSmokeUser(): Promise<string> {
     .values({ name: "Smoke Extract", email, emailVerified: true })
     .returning({ id: userTable.id });
 
-  return inserted[0]!.id;
+  return requireRow(inserted[0], "ensureUser").id;
 }
 
 async function plantDocument(userId: string, runTag: string) {
@@ -164,8 +165,12 @@ async function main() {
     includeProposed: true,
   });
 
-  assert(managerFacts.length === 1, `expected 1 manager fact, got ${managerFacts.length}`);
-  assert(managerFacts[0]!.confidence > 0.9, "manager confidence should match proposal");
+  const [managerFact] = managerFacts;
+  assert(
+    managerFacts.length === 1 && managerFact,
+    `expected 1 manager fact, got ${managerFacts.length}`,
+  );
+  assert(managerFact.confidence > 0.9, "manager confidence should match proposal");
 
   const [statusRow] = await db()
     .select()

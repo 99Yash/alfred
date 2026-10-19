@@ -121,9 +121,8 @@ export function buildSharedThreadSlug(title: string, randomBytes: Uint8Array): s
 
   let suffix = "";
 
-  for (let i = 0; i < SHARED_THREAD_SLUG_SUFFIX_LENGTH; i++) {
-    // SAFETY: `i` is in range, and the modulo keeps the index inside `SLUG_ALPHABET`.
-    suffix += SLUG_ALPHABET[randomBytes[i]! % SLUG_ALPHABET.length];
+  for (const byte of randomBytes.subarray(0, SHARED_THREAD_SLUG_SUFFIX_LENGTH)) {
+    suffix += SLUG_ALPHABET.charAt(byte % SLUG_ALPHABET.length);
   }
 
   return `${slugBase(title, "thread").slice(0, 48).replace(/-+$/, "") || "thread"}-${suffix}`;

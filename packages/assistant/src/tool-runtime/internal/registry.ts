@@ -376,6 +376,7 @@ export function liveTool<
   S extends z.ZodType,
 >(args: LiveToolArgs<I, A, S>): RegisteredTool {
   const name = buildToolName(args.integration, args.action);
+  const { redactInput, resolveRiskTier, refuseInput } = args;
 
   return {
     name,
@@ -403,23 +404,23 @@ export function liveTool<
 
       return args.execute(parsed, ctx);
     },
-    ...(args.redactInput
+    ...(redactInput
       ? {
           // SAFETY: restores the erased generic S. Dispatch passes raw pre-parse
           // input and catches a throw, so the redactor reads fields defensively.
-          redactInput: (input: unknown) => args.redactInput!(input as z.infer<S>),
+          redactInput: (input: unknown) => redactInput(input as z.infer<S>),
         }
       : {}),
-    ...(args.resolveRiskTier
+    ...(resolveRiskTier
       ? {
           resolveRiskTier: (input: unknown, ctx: ToolExecuteContext) =>
-            args.resolveRiskTier!(args.inputSchema.parse(input), ctx),
+            resolveRiskTier(args.inputSchema.parse(input), ctx),
         }
       : {}),
-    ...(args.refuseInput
+    ...(refuseInput
       ? {
           refuseInput: (input: unknown, ctx: ToolExecuteContext) =>
-            args.refuseInput!(args.inputSchema.parse(input), ctx),
+            refuseInput(args.inputSchema.parse(input), ctx),
         }
       : {}),
   };

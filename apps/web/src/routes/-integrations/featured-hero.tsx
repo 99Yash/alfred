@@ -4,11 +4,13 @@ import { HeroTile } from "./hero-tile";
 
 export function FeaturedHero({ brands }: { brands: ReadonlyArray<IntegrationBrand> }) {
   // Three brands; pad with the first if fewer are connected.
-  const picks: [IntegrationBrand, IntegrationBrand, IntegrationBrand] = (() => {
-    if (brands.length === 0) return ["gmail", "google_calendar", "google_drive"];
-    const [a = brands[0]!, b = brands[0]!, c = brands[0]!] = brands;
+  const [left, center, right]: [IntegrationBrand, IntegrationBrand, IntegrationBrand] = (() => {
+    const [first] = brands;
 
-    return [a, b, c];
+    if (!first) return ["gmail", "google_calendar", "google_drive"];
+    const [, second = first, third = first] = brands;
+
+    return [first, second, third];
   })();
 
   return (
@@ -42,9 +44,9 @@ export function FeaturedHero({ brands }: { brands: ReadonlyArray<IntegrationBran
         }}
       />
       <div className="group relative flex h-full items-center justify-center gap-6">
-        <HeroTile brand={picks[0]!} variant="side" rotate={-4} />
-        <HeroTile brand={picks[1]!} variant="center" />
-        <HeroTile brand={picks[2]!} variant="side" rotate={4} />
+        <HeroTile brand={left} variant="side" rotate={-4} />
+        <HeroTile brand={center} variant="center" />
+        <HeroTile brand={right} variant="side" rotate={4} />
       </div>
     </div>
   );

@@ -155,7 +155,8 @@ const FACT_COLUMNS = {
   createdAt: userFacts.createdAt,
 } as const;
 
-const identityKeyRank = new Map<IdentityFactKey, number>(
+/** Keyed by plain `string`, so a non-identity key reads `undefined` and sorts last. */
+const identityKeyRank: ReadonlyMap<string, number> = new Map<IdentityFactKey, number>(
   IDENTITY_FACT_KEYS.map((key, index) => [key, index]),
 );
 
@@ -177,8 +178,7 @@ function queryTokens(query: string | undefined): string[] {
 }
 
 function isIdentityFactKey(key: string): key is IdentityFactKey {
-  // SAFETY: the cast only types `.has`'s argument; the map's keys are exactly the IdentityFactKey union.
-  return identityKeyRank.has(key as IdentityFactKey);
+  return identityKeyRank.has(key);
 }
 
 function stringIdentityValue(rows: FactContextRow[], key: IdentityFactKey): string | null {
@@ -224,8 +224,8 @@ function parseSource(row: Pick<FactContextRow, "id" | "source">): MemorySource {
 
 function sortIdentityFacts<T extends FactContextRow>(rows: T[]): T[] {
   return [...rows].sort((a, b) => {
-    const rankA = isIdentityFactKey(a.key) ? identityKeyRank.get(a.key)! : Number.MAX_SAFE_INTEGER;
-    const rankB = isIdentityFactKey(b.key) ? identityKeyRank.get(b.key)! : Number.MAX_SAFE_INTEGER;
+    const rankA = identityKeyRank.get(a.key) ?? Number.MAX_SAFE_INTEGER;
+    const rankB = identityKeyRank.get(b.key) ?? Number.MAX_SAFE_INTEGER;
 
     return rankA - rankB;
   });

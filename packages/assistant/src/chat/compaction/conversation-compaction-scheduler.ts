@@ -67,7 +67,9 @@ export async function scheduleConversationCompactionIfNeeded(args: {
     )
     .orderBy(asc(chatMessages.createdAt), asc(chatMessages.id));
 
-  if (rows.length === 0) return "no_boundary";
+  const estimateThrough = rows.at(-1);
+
+  if (!estimateThrough) return "no_boundary";
 
   const attachments = await db()
     .select({
@@ -92,8 +94,6 @@ export async function scheduleConversationCompactionIfNeeded(args: {
   const estimatedReplayTokens =
     (context?.estimatedReplayTokens ?? 0) +
     estimateSerializedTokens({ messages: rows, attachments });
-
-  const estimateThrough = rows[rows.length - 1]!;
 
   const advanced = await persistConversationReplayEstimate({
     userId: args.userId,
@@ -123,20 +123,15 @@ export async function scheduleConversationCompactionIfNeeded(args: {
     return "below_threshold";
   }
 
-  let latestUserIndex = -1;
+  const latestUserIndex = rows.findLastIndex(
+    (row) =>
+      row.role === "user" && (!args.latestUserMessageId || row.id === args.latestUserMessageId),
+  );
 
-  for (let index = rows.length - 1; index >= 0; index -= 1) {
-    const row = rows[index]!;
+  // No matching user turn, or it is the first row: nothing sits before it to compact.
+  const cutoff = latestUserIndex > 0 ? rows[latestUserIndex - 1] : undefined;
 
-    if (row.role !== "user") continue;
-
-    if (args.latestUserMessageId && row.id !== args.latestUserMessageId) continue;
-    latestUserIndex = index;
-    break;
-  }
-
-  if (latestUserIndex <= 0) return "no_boundary";
-  const cutoff = rows[latestUserIndex - 1]!;
+  if (!cutoff) return "no_boundary";
 
   const replayTail: AgentTranscriptMessage[] = rows.slice(latestUserIndex).map((row) => ({
     role: row.role,

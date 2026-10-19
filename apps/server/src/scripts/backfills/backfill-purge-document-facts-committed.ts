@@ -92,7 +92,7 @@ function ts(value: Date | null): number {
 
 /** The single-valued winner: source priority, then confidence, then recency. */
 function pickWinner(rows: ActiveFactRow[]): ActiveFactRow {
-  return [...rows].sort((a, b) => {
+  const [winner] = [...rows].sort((a, b) => {
     const p = sourcePriority(a.source) - sourcePriority(b.source);
 
     if (p !== 0) return p;
@@ -103,7 +103,11 @@ function pickWinner(rows: ActiveFactRow[]): ActiveFactRow {
     if (u !== 0) return u;
 
     return ts(b.createdAt) - ts(a.createdAt);
-  })[0]!;
+  });
+
+  if (!winner) throw new Error("pickWinner: called with an empty group");
+
+  return winner;
 }
 
 function preview(value: unknown): string {

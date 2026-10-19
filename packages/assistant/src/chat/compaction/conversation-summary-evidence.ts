@@ -85,8 +85,9 @@ export async function loadConversationSummaryEvidence({
     )
     .orderBy(asc(chatMessages.createdAt), asc(chatMessages.id));
 
-  if (messages.length === 0) throw new Error("conversation_summary_no_new_messages");
-  const lastMessage = messages[messages.length - 1]!;
+  const lastMessage = messages.at(-1);
+
+  if (!lastMessage) throw new Error("conversation_summary_no_new_messages");
 
   if (
     lastMessage.id !== throughWatermark.messageId ||

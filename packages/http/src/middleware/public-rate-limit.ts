@@ -51,10 +51,7 @@ function clientAddressFromForwardedFor(header: string | null | undefined): strin
     .map((hop) => hop.trim())
     .filter((hop) => hop.length > 0);
 
-  for (let i = hops.length - 1; i >= 0; i--) {
-    // SAFETY: `i` indexes inside the array it was measured from.
-    const hop = hops[i]!;
-
+  for (const hop of [...hops].reverse()) {
     if (!isInfrastructureHop(hop)) return hop;
   }
 

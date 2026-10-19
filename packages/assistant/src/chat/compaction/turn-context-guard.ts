@@ -97,21 +97,15 @@ async function loadForegroundCompactionBoundary(
     .where(and(eq(chatMessages.userId, userId), eq(chatMessages.threadId, threadId)))
     .orderBy(asc(chatMessages.createdAt), asc(chatMessages.id));
 
-  let latestUserIndex = -1;
+  const latestUserIndex = rows.findLastIndex(
+    (row) => row.role === "user" && (!latestUserMessageId || row.id === latestUserMessageId),
+  );
 
-  for (let index = rows.length - 1; index >= 0; index -= 1) {
-    const row = rows[index]!;
+  // No matching user turn, or it is the first row: nothing sits before it to compact.
+  const cutoff = latestUserIndex > 0 ? rows[latestUserIndex - 1] : undefined;
+  const replayTail = rows.at(-1);
 
-    if (row.role !== "user") continue;
-
-    if (latestUserMessageId && row.id !== latestUserMessageId) continue;
-    latestUserIndex = index;
-    break;
-  }
-
-  if (latestUserIndex <= 0) return null;
-  const cutoff = rows[latestUserIndex - 1]!;
-  const replayTail = rows[rows.length - 1]!;
+  if (!cutoff || !replayTail) return null;
 
   return {
     compaction: { createdAt: cutoff.createdAt, messageId: cutoff.id },

@@ -145,8 +145,10 @@ function newestIndexes(
 ): Set<number> {
   const indexes = new Set<number>();
 
-  for (let i = sources.length - 1; i >= 0 && indexes.size < count; i--) {
-    if (predicate(sources[i]!)) indexes.add(i);
+  for (const [i, source] of [...sources.entries()].reverse()) {
+    if (indexes.size >= count) break;
+
+    if (predicate(source)) indexes.add(i);
   }
 
   return indexes;

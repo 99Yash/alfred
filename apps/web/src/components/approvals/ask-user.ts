@@ -111,12 +111,14 @@ export function askUserSummary(tool: {
   }
 
   if (result.questions.length !== result.answers.length) return null;
+  const answered: AnsweredQuestion[] = [];
 
-  return {
-    status: "answered",
-    answered: result.questions.map((question, index) => ({
-      question,
-      answer: result.answers[index]!,
-    })),
-  };
+  for (const [index, question] of result.questions.entries()) {
+    const answer = result.answers[index];
+
+    if (answer === undefined) return null;
+    answered.push({ question, answer });
+  }
+
+  return { status: "answered", answered };
 }

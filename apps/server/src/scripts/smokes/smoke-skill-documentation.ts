@@ -180,7 +180,7 @@ async function main() {
     "expected learn-skill to enqueue a doc run",
   );
   const v1RevisionId = learnOut.revisionId;
-  const docRunId = learnOut.documentationRunId!;
+  const docRunId = learnOut.documentationRunId;
 
   const docRun = await pollRun(docRunId, "skill-documentation", DOC_TIMEOUT_MS);
   assert(

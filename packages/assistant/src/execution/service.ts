@@ -239,7 +239,13 @@ export async function createRun(
 
   const row = inserted[0];
 
-  if (!row && (occurrenceKey || manualRequestKey)) {
+  const dedupMatch = occurrenceKey
+    ? eq(agentRuns.occurrenceKey, occurrenceKey)
+    : manualRequestKey
+      ? eq(agentRuns.dedupKey, manualRequestKey)
+      : undefined;
+
+  if (!row && dedupMatch) {
     const [existing] = await ex
       .select({ id: agentRuns.id })
       .from(agentRuns)
@@ -247,9 +253,7 @@ export async function createRun(
         and(
           eq(agentRuns.userId, args.userId),
           eq(agentRuns.workflowSlug, workflowSlug),
-          occurrenceKey
-            ? eq(agentRuns.occurrenceKey, occurrenceKey)
-            : eq(agentRuns.dedupKey, manualRequestKey!),
+          dedupMatch,
         ),
       )
       .limit(1);

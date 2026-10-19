@@ -162,19 +162,22 @@ export const gmailTools: readonly RegisteredTool[] = [
     },
     inputSchema: gmailReadMessageInput,
     execute: async (input, ctx) => {
-      const where = input.documentId
-        ? and(
-            eq(documents.userId, ctx.userId),
-            eq(documents.source, "gmail"),
-            ctx.accountRef ? eq(documents.accountId, ctx.accountRef) : undefined,
-            eq(documents.id, input.documentId),
-          )
-        : and(
-            eq(documents.userId, ctx.userId),
-            eq(documents.source, "gmail"),
-            ctx.accountRef ? eq(documents.accountId, ctx.accountRef) : undefined,
-            eq(documents.sourceId, input.messageId!),
-          );
+      const lookup = input.documentId
+        ? eq(documents.id, input.documentId)
+        : input.messageId
+          ? eq(documents.sourceId, input.messageId)
+          : undefined;
+
+      // The schema's refine requires one of the two ids. Without one, the query would match any message.
+      if (!lookup)
+        throw new Error("gmail.read_message: input has neither documentId nor messageId");
+
+      const where = and(
+        eq(documents.userId, ctx.userId),
+        eq(documents.source, "gmail"),
+        ctx.accountRef ? eq(documents.accountId, ctx.accountRef) : undefined,
+        lookup,
+      );
 
       const rows = await db()
         .select({

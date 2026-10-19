@@ -61,21 +61,14 @@ export function selectVerbatimTail(
   budgetTokens: number,
 ): ChatContextMessage[] {
   if (messages.length === 0) return [];
-  let latestUserIndex = -1;
-
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    if (messages[index]!.role === "user") {
-      latestUserIndex = index;
-      break;
-    }
-  }
+  const latestUserIndex = messages.findLastIndex((message) => message.role === "user");
 
   // An assistant-only legacy suffix has no exchange boundary. Keep it intact.
   if (latestUserIndex < 0) return [...messages];
   let selectedStart = latestUserIndex;
 
-  for (let index = latestUserIndex - 1; index >= 0; index -= 1) {
-    if (messages[index]!.role !== "user") continue;
+  for (const [index, message] of [...messages.slice(0, latestUserIndex).entries()].reverse()) {
+    if (message.role !== "user") continue;
     const candidate = messages.slice(index);
 
     if (estimateMessageTokens(candidate) > budgetTokens) break;

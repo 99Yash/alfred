@@ -10,6 +10,7 @@ import { closeAgentQueue } from "@alfred/assistant/execution";
 import { closeConnections, warmPool } from "@alfred/db";
 import { closeRedis } from "@alfred/db/redis";
 import { db } from "@alfred/db";
+import { requireRow } from "@alfred/db/helpers";
 import { agentRuns, user as userTable, workflows } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "~/builtins";
@@ -37,7 +38,7 @@ async function findOrCreateSmokeUser(): Promise<string> {
     .values({ name: "WF Tick Smoke", email, emailVerified: true })
     .returning({ id: userTable.id });
 
-  return inserted[0]!.id;
+  return requireRow(inserted[0], "ensureUser").id;
 }
 
 async function cleanupPriorTest(userId: string): Promise<void> {
@@ -79,7 +80,7 @@ async function main() {
     })
     .returning({ id: workflows.id, nextRunAt: workflows.nextRunAt });
 
-  const wfRow = insertedWf[0]!;
+  const wfRow = requireRow(insertedWf[0], "insert workflow");
   const scheduledForIso = scheduledFor.toISOString();
   console.log(
     `[smoke-workflows-tick] inserted workflow id=${wfRow.id} next_run_at=${scheduledForIso}`,
@@ -96,8 +97,8 @@ async function main() {
     .from(agentRuns)
     .where(and(eq(agentRuns.userId, userId), eq(agentRuns.workflowSlug, TEST_SLUG)));
 
-  assert(runs.length === 1, `expected exactly 1 run row after tick 1; got ${runs.length}`);
-  const run = runs[0]!;
+  const [run] = runs;
+  assert(runs.length === 1 && run, `expected exactly 1 run row after tick 1; got ${runs.length}`);
   // SAFETY: the cron scheduler writes agent_runs.trigger with this shape.
   const trigger = run.trigger as { kind: string; scheduledFor: string } | null;
   assert(trigger?.kind === "cron", `expected trigger.kind='cron'; got ${JSON.stringify(trigger)}`);
@@ -112,7 +113,8 @@ async function main() {
     .from(workflows)
     .where(eq(workflows.id, wfRow.id));
 
-  const advanced = after1[0]!;
+  const [advanced] = after1;
+  assert(advanced, `workflow ${wfRow.id} disappeared after tick 1`);
   assert(advanced.nextRunAt, "next_run_at became null after tick 1");
   assert(
     advanced.nextRunAt.getTime() > scheduledFor.getTime(),
@@ -123,7 +125,7 @@ async function main() {
     `last_scheduled_at=${advanced.lastScheduledAt?.toISOString()} != ${scheduledForIso}`,
   );
   console.log(
-    `[smoke-workflows-tick] workflow advanced: next_run_at=${advanced.nextRunAt!.toISOString()} last_scheduled_at=${advanced.lastScheduledAt.toISOString()}`,
+    `[smoke-workflows-tick] workflow advanced: next_run_at=${advanced.nextRunAt.toISOString()} last_scheduled_at=${advanced.lastScheduledAt.toISOString()}`,
   );
 
   // Tick 2: next_run_at moved past now, so nothing is due.

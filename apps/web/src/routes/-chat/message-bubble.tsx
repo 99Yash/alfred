@@ -113,7 +113,7 @@ function hideIncompleteTableTail(text: string): string {
   // Skip the O(n) split per token unless the last non-blank line has a pipe.
   let last = text.length - 1;
 
-  while (last >= 0 && /\s/.test(text[last]!)) last--;
+  while (last >= 0 && /\s/.test(text.charAt(last))) last--;
 
   if (last < 0) return text; // all blank
   const lastLineStart = text.lastIndexOf("\n", last) + 1;

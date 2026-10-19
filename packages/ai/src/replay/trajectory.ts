@@ -195,13 +195,24 @@ function lcsKept(a: string[], b: string[]) {
   const n = a.length;
   const m = b.length;
 
-  const dp: number[][] = Array.from({ length: n + 1 }, () =>
-    Array.from({ length: m + 1 }, () => 0),
-  );
+  // Row-major (n + 1) x (m + 1) table. Row n and column m stay 0.
+  const width = m + 1;
+  const dp = Array.from({ length: (n + 1) * width }, () => 0);
+
+  const cell = (i: number, j: number): number => {
+    const value = dp[i * width + j];
+
+    if (value === undefined) {
+      throw new Error(`lcsKept: cell (${i}, ${j}) is outside the ${n + 1}x${width} table`);
+    }
+
+    return value;
+  };
 
   for (let i = n - 1; i >= 0; i--) {
     for (let j = m - 1; j >= 0; j--) {
-      dp[i]![j] = a[i] === b[j] ? dp[i + 1]![j + 1]! + 1 : Math.max(dp[i + 1]![j]!, dp[i]![j + 1]!);
+      dp[i * width + j] =
+        a[i] === b[j] ? cell(i + 1, j + 1) + 1 : Math.max(cell(i + 1, j), cell(i, j + 1));
     }
   }
 
@@ -216,7 +227,7 @@ function lcsKept(a: string[], b: string[]) {
       bKept.add(j);
       i++;
       j++;
-    } else if (dp[i + 1]![j]! >= dp[i]![j + 1]!) {
+    } else if (cell(i + 1, j) >= cell(i, j + 1)) {
       i++;
     } else {
       j++;
@@ -235,12 +246,7 @@ export function diffTrajectories(baseline: Trajectory, candidate: Trajectory): T
   const bKeys = candidate.steps.map(stepKey);
   const { aKept, bKept } = lcsKept(aKeys, bKeys);
 
-  const unchanged: TrajectoryStep[] = [];
-
-  for (let i = 0; i < baseline.steps.length; i++) {
-    if (aKept.has(i)) unchanged.push(baseline.steps[i]!);
-  }
-
+  const unchanged = baseline.steps.filter((_, i) => aKept.has(i));
   const removedLeft = baseline.steps.filter((_, i) => !aKept.has(i));
   const addedLeft = candidate.steps.filter((_, i) => !bKept.has(i));
 
@@ -250,11 +256,11 @@ export function diffTrajectories(baseline: Trajectory, candidate: Trajectory): T
   const addedRemaining = addedLeft.slice();
 
   for (const before of removedLeft) {
-    const idx = addedRemaining.findIndex((s) => s.toolName === before.toolName);
+    const after = addedRemaining.find((s) => s.toolName === before.toolName);
 
-    if (idx >= 0) {
-      changed.push({ toolName: before.toolName, before, after: addedRemaining[idx]! });
-      addedRemaining.splice(idx, 1);
+    if (after) {
+      changed.push({ toolName: before.toolName, before, after });
+      addedRemaining.splice(addedRemaining.indexOf(after), 1);
     } else {
       removed.push(before);
     }

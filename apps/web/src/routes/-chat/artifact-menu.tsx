@@ -44,10 +44,11 @@ export function ArtifactMenu({
   const dataTheme =
     themeCtx?.mode === "dark" || themeCtx?.mode === "light" ? themeCtx.mode : undefined;
 
-  if (artifacts.length === 0) return null;
+  const [only] = artifacts;
+
+  if (!only) return null;
 
   if (artifacts.length === 1) {
-    const only = artifacts[0]!;
     const active = selectedId === only.id;
 
     return (

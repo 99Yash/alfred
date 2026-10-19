@@ -89,11 +89,12 @@ async function main() {
 
   console.log(`[smoke-github-app] installations: ${installations.length}`);
 
-  if (installations.length === 0) {
+  const [first] = installations;
+
+  if (!first) {
     console.log("\n[smoke-github-app] No installation yet. Install the App:");
     console.log(`   ${buildInstallUrl("smoke-state")}\n`);
   } else {
-    const first = installations[0]!;
     console.log(`   → installation #${first.id} on @${first.account?.login ?? "?"}`);
     const { token, expiresAt } = await getInstallationToken(String(first.id));
     console.log(`   → minted installation token (expires ${expiresAt.toISOString()})`);

@@ -180,8 +180,10 @@ export async function guardSpawnedChildren(
     [...baseTranscript],
   );
 
-  if (parkWakes.length > 0) {
-    return interruptChatRun(state, nextTranscript, parkWakes[0]!);
+  const [firstParkWake] = parkWakes;
+
+  if (firstParkWake) {
+    return interruptChatRun(state, nextTranscript, firstParkWake);
   }
 
   return { kind: "next", state, transcript: nextTranscript, nextStep: "chat-turn" };

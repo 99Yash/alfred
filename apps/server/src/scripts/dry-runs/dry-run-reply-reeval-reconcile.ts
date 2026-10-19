@@ -74,18 +74,20 @@ async function main() {
     .from(integrationCredentials)
     .where(eq(integrationCredentials.provider, "google"));
 
-  if (creds.length === 0) {
+  const [firstCred] = creds;
+
+  if (!firstCred) {
     console.log("no google credentials in this DB — nothing to replay");
 
     return;
   }
 
-  const firstCred = creds[0]!;
   const userId = firstCred.userId;
+  const fallbackCredId = firstCred.id;
   const credByAccount = new Map(creds.map((c) => [c.accountId, c.id]));
 
   function mailboxForAccount(accountId: string | null): GmailMailbox {
-    const credId = (accountId && credByAccount.get(accountId)) ?? firstCred.id;
+    const credId = (accountId && credByAccount.get(accountId)) ?? fallbackCredId;
 
     return gmailMailbox({ credentialId: credId });
   }
@@ -200,8 +202,10 @@ async function main() {
   for (const threadId of candidates279) {
     const docs = await loadThreadDocs(userId, threadId);
 
-    if (docs.length <= 1) continue;
-    const mailbox = mailboxForAccount(docs[0]!.accountId);
+    const [firstDoc] = docs;
+
+    if (!firstDoc || docs.length <= 1) continue;
+    const mailbox = mailboxForAccount(firstDoc.accountId);
     let liveIds: Set<string>;
     const liveFetchedAt = new Date();
 
