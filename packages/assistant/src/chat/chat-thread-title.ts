@@ -1,9 +1,10 @@
 import { route, meteredGenerateText } from "@alfred/ai";
-import { collapseWhitespace, toMessage } from "@alfred/contracts";
+import { collapseWhitespace } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { chatAttachments, chatMessages, chatThreads } from "@alfred/db/schemas";
 import { and, asc, eq, ne, sql } from "drizzle-orm";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
+import { logger } from "@alfred/logging";
 
 const TITLE_TIMEOUT_MS = 15_000;
 
@@ -112,7 +113,7 @@ export async function maybeGenerateThreadTitle(args: {
       .where(and(eq(chatThreads.id, threadId), eq(chatThreads.userId, userId)));
     emitReplicachePokes([userId]);
   } catch (err) {
-    console.warn(`[chat-turn] thread title generation failed for ${threadId}:`, toMessage(err));
+    logger.warn({ err }, `[chat-turn] thread title generation failed for ${threadId}`);
   }
 }
 

@@ -2,7 +2,6 @@ import {
   isPassThrough,
   isRecord,
   MAX_MODEL_ATTACHMENT_BYTES_PER_TURN,
-  toMessage,
   type AgentTranscriptMessage,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -10,6 +9,7 @@ import { chatAttachments, chatMessages } from "@alfred/db/schemas";
 import { and, asc, eq, inArray, like, or, sql } from "drizzle-orm";
 import { readObject, sniffPassThroughImageMime } from "./attachments";
 import type { AgentDbExecutor } from "@alfred/assistant/execution";
+import { logger } from "@alfred/logging";
 
 /**
  * Chat transcript attachments (ADR-0065). The stored transcript holds object keys,
@@ -273,7 +273,7 @@ async function hydrateContentForModel(
     } catch (err) {
       if (err instanceof UnsupportedStoredImageError) {
         budget.invalidImages += 1;
-        console.warn("[chat] skipped invalid attachment image:", toMessage(err));
+        logger.warn({ err }, "[chat] skipped invalid attachment image");
         parts.push({
           type: "text",
           text: "[Image attachment omitted because it could not be processed.]",
@@ -282,7 +282,7 @@ async function hydrateContentForModel(
       }
 
       budget.unreadableImages += 1;
-      console.warn("[chat] skipped unreadable attachment image:", toMessage(err));
+      logger.warn({ err }, "[chat] skipped unreadable attachment image");
       parts.push({
         type: "text",
         text: "[Image attachment omitted because it could not be read.]",
@@ -343,27 +343,27 @@ export async function hydrateTranscriptForModel(
 /** Warn once per skip reason for whatever the budget dropped this turn. */
 function warnOnSkippedAttachments(budget: AttachmentHydrationBudget): void {
   if (budget.skippedImages > 0) {
-    console.warn(
-      "[chat] skipped attachment images over model budget:",
-      JSON.stringify({
+    logger.warn(
+      {
         skippedImages: budget.skippedImages,
         usedEncodedBytes: budget.usedEncodedBytes,
         maxBytes: MAX_MODEL_ATTACHMENT_BYTES_PER_TURN,
-      }),
+      },
+      "[chat] skipped attachment images over model budget",
     );
   }
 
   if (budget.invalidImages > 0) {
-    console.warn(
-      "[chat] skipped invalid attachment images:",
-      JSON.stringify({ invalidImages: budget.invalidImages }),
+    logger.warn(
+      { invalidImages: budget.invalidImages },
+      "[chat] skipped invalid attachment images",
     );
   }
 
   if (budget.unreadableImages > 0) {
-    console.warn(
-      "[chat] skipped unreadable attachment images:",
-      JSON.stringify({ unreadableImages: budget.unreadableImages }),
+    logger.warn(
+      { unreadableImages: budget.unreadableImages },
+      "[chat] skipped unreadable attachment images",
     );
   }
 }

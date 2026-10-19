@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import { logger } from "@alfred/logging";
+import { getPath } from "@alfred/contracts";
 import {
   captureGmailObservations,
   gmailKindRefoldResultSchema,
@@ -211,10 +213,10 @@ describe("Gmail user-model composition seam", () => {
   test("counts issues, append outcomes, and document errors and schedules one refold", async () => {
     const warnings: unknown[][] = [];
     const logs: unknown[][] = [];
-    const originalWarn = console.warn;
-    const originalLog = console.log;
-    console.warn = (...args: unknown[]) => warnings.push(args);
-    console.log = (...args: unknown[]) => logs.push(args);
+    const originalWarn = logger.warn;
+    const originalLog = logger.info;
+    logger.warn = (...args: unknown[]) => warnings.push(args);
+    logger.info = (...args: unknown[]) => logs.push(args);
     const enqueued: string[] = [];
 
     const unregister = registerGmailUserModelHandler(
@@ -277,19 +279,23 @@ describe("Gmail user-model composition seam", () => {
       assert.deepEqual(await captureGmailObservations(captureRequest), { status: "captured" });
       assert.deepEqual(enqueued, ["user-1"]);
       assert.match(String(warnings[0]?.[0]), /observation warn doc=inserted/);
-      assert.match(String(warnings[1]?.[0]), /observation failed doc=append-error/);
-      assert.equal(warnings[1]?.[1], "append unavailable");
+      assert.match(String(warnings[1]?.[1]), /observation failed doc=append-error/);
+      const appendErr = getPath(warnings[1]?.[0], "err");
+      assert.ok(appendErr instanceof Error);
+      assert.equal(appendErr.message, "append unavailable");
       assert.match(String(warnings[2]?.[0]), /observation skip doc=skipped/);
-      assert.match(String(warnings[3]?.[0]), /observation failed doc=reduce-error/);
-      assert.equal(warnings[3]?.[1], "reduce unavailable");
+      assert.match(String(warnings[3]?.[1]), /observation failed doc=reduce-error/);
+      const reduceErr = getPath(warnings[3]?.[0], "err");
+      assert.ok(reduceErr instanceof Error);
+      assert.equal(reduceErr.message, "reduce unavailable");
       assert.match(
         String(logs[0]?.[0]),
         /docs=5 inserted=1 deduped=1 skipped=1 warnings=1 errors=2/,
       );
     } finally {
       unregister();
-      console.warn = originalWarn;
-      console.log = originalLog;
+      logger.warn = originalWarn;
+      logger.info = originalLog;
     }
   });
 
@@ -323,8 +329,8 @@ describe("Gmail user-model composition seam", () => {
 
   test("keeps capture failures best-effort and refold failures retryable", async () => {
     const warnings: unknown[][] = [];
-    const originalWarn = console.warn;
-    console.warn = (...args: unknown[]) => warnings.push(args);
+    const originalWarn = logger.warn;
+    logger.warn = (...args: unknown[]) => warnings.push(args);
     const failure = new Error("user-model unavailable");
 
     const unregister = registerGmailUserModelHandler(
@@ -340,12 +346,12 @@ describe("Gmail user-model composition seam", () => {
 
     try {
       assert.deepEqual(await captureGmailObservations(captureRequest), { status: "failed" });
-      assert.match(String(warnings[0]?.[0]), /observation capture failed user=user-1/);
-      assert.equal(warnings[0]?.[1], "user-model unavailable");
+      assert.match(String(warnings[0]?.[1]), /observation capture failed user=user-1/);
+      assert.equal(getPath(warnings[0]?.[0], "err"), failure);
       await assert.rejects(() => refoldGmailKindProjection({ userId: "user-1" }), failure);
     } finally {
       unregister();
-      console.warn = originalWarn;
+      logger.warn = originalWarn;
     }
   });
 

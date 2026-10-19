@@ -7,6 +7,7 @@ import {
 } from "@alfred/integrations/sentry";
 import type { InboundProjection, InboundSourceDescriptor, InboundSyntheticKey } from "./descriptor";
 import { describeInboundJson } from "./description";
+import { logger } from "@alfred/logging";
 
 /**
  * Sentry internal-integration webhooks (ADR-0097, #563).
@@ -93,7 +94,7 @@ export const sentryInboundSource: InboundSourceDescriptor<"sentry"> = {
     const verdict = verifySentryWebhookSignature(raw, headers.get(SENTRY_HOOK_HEADERS.signature));
 
     if (verdict === "no_secret") {
-      console.error(
+      logger.error(
         "[ingress] sentry: SENTRY_WEBHOOK_CLIENT_SECRET is not set; delivery rejected unverified",
       );
     }

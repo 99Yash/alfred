@@ -11,6 +11,7 @@ import {
   withTriageThreadLock,
   type TriageDocumentContext,
 } from "./store";
+import { logger } from "@alfred/logging";
 
 /**
  * The Gmail side of triage tags (`docs/rfc-triage-tags.md`). The user override is
@@ -145,7 +146,7 @@ export async function reconcileThreadLabel(
 
       if (!liveTarget) {
         // Log loudly rather than leave the thread silently untagged (#277).
-        console.error(
+        logger.error(
           `[triage.relabel] thread=${args.sourceThreadId} target message ` +
             `${target.document.sourceId} is gone (Gmail 404) and no live inbound ` +
             `message to relabel — applied_label_id left unset`,

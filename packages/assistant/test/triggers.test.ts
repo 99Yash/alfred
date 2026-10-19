@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import { logger } from "@alfred/logging";
 import {
   domainEventSchema,
   NoTriggerConsumersRegisteredError,
@@ -105,8 +106,8 @@ describe("triggers", () => {
   test("swallows a best-effort consumer's non-boot failure and still resolves", async () => {
     let siblingRan = false;
     const warnings: unknown[][] = [];
-    const originalWarn = console.warn;
-    console.warn = (...args: unknown[]) => warnings.push(args);
+    const originalWarn = logger.warn;
+    logger.warn = (...args: unknown[]) => warnings.push(args);
 
     const unregisterFailure = registerTriggerConsumer({
       name: "triggers-test-best-effort-failure",
@@ -128,11 +129,11 @@ describe("triggers", () => {
       // A failing reaction counts as accepted, so the awaiting job is not rolled back.
       assert.deepEqual(await publishDomainEvent(event), { acceptedConsumers: 2 });
       assert.equal(siblingRan, true);
-      assert.match(String(warnings[0]?.[0]), /triggers-test-best-effort-failure/);
+      assert.match(String(warnings[0]?.[1]), /triggers-test-best-effort-failure/);
     } finally {
       unregisterFailure();
       unregisterSibling();
-      console.warn = originalWarn;
+      logger.warn = originalWarn;
     }
   });
 

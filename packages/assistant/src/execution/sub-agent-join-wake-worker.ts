@@ -18,8 +18,9 @@ import {
   subAgentJoinWakeJobDataSchema,
   type SubAgentJoinWakeJobData,
 } from "./sub-agent-join-wake-queue";
-import { toMessage, wakeConditionSchema } from "@alfred/contracts";
+import { wakeConditionSchema } from "@alfred/contracts";
 import { PeriodicTask } from "@alfred/assistant/realtime/periodic-task";
+import { logger } from "@alfred/logging";
 
 /** A lost timer wakes the parent at most this late. A join blocks a live chat turn. */
 const RECONCILE_INTERVAL_MS = 60_000;
@@ -46,7 +47,7 @@ export async function startSubAgentJoinWakeWorker(
     },
   );
   _worker.on("error", (err) => {
-    console.error("[sub-agent-join:wake-worker] error:", err.message);
+    logger.error({ err }, "[sub-agent-join:wake-worker] error");
   });
   reconciler.start();
 }
@@ -77,12 +78,7 @@ async function processSubAgentJoinWakeJob(
     return { status: woken ? "woken" : "noop", childRunId, parentRunId };
   } catch (err) {
     // Rethrow so BullMQ retries. This job is the fast path; the reconciler below is the backstop.
-    console.warn(
-      "[sub-agent-join:wake-worker] wake failed for",
-      childRunId,
-      toMessage(err),
-      "— will retry",
-    );
+    logger.warn({ err, childRunId }, "[sub-agent-join:wake-worker] wake failed; will retry");
     throw err;
   }
 }
@@ -137,7 +133,7 @@ async function wakeOverdueJoinsOnce(now: Date, signal: AbortSignal): Promise<num
 
       if (didWake) woken += 1;
     } catch (err) {
-      console.warn("[sub-agent-join:wake-reconciler] failed to wake", row.id, toMessage(err));
+      logger.warn({ err, childRunId: row.id }, "[sub-agent-join:wake-reconciler] failed to wake");
     }
   }
 
@@ -154,7 +150,7 @@ const reconciler = new PeriodicTask({
 
     // The delayed job and the deadline fire at the same instant, so a healthy park can count here.
     if (woken > 0) {
-      console.warn("[sub-agent-join:wake-reconciler] woke", woken, "by the backstop");
+      logger.warn(`[sub-agent-join:wake-reconciler] woke ${woken} by the backstop`);
     }
   },
 });

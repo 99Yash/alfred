@@ -4,7 +4,6 @@ import {
   getPath,
   isSentGmailMetadata,
   mapConcurrent,
-  toMessage,
 } from "@alfred/contracts";
 import { indexDocument } from "@alfred/corpus";
 import { db } from "@alfred/db";
@@ -33,6 +32,7 @@ import {
   type GmailMediaIngestResult,
 } from "./gmail-media";
 import { observeDocumentAskCarrier } from "../document-asks";
+import { logger } from "@alfred/logging";
 
 /**
  * Gmail ingestion: writes `documents` and `ingestion_state` and indexes the corpus. The provider
@@ -153,10 +153,7 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
           chunksWritten += embedResult.chunksWritten;
         } catch (err) {
           embedFailures++;
-          console.warn(
-            `[gmail.ingestor] embed failed for doc=${result.documentId}:`,
-            toMessage(err),
-          );
+          logger.warn({ err }, `[gmail.ingestor] embed failed for doc=${result.documentId}`);
         }
       } else if (result.outcome === "ignored") {
         ignored++;
@@ -179,7 +176,7 @@ export async function ingestRecentGmail(args: IngestRecentArgs): Promise<IngestR
       }
     } catch (err) {
       errors++;
-      console.warn(`[gmail.ingestor] failed message=${ref.id}:`, toMessage(err));
+      logger.warn({ err }, `[gmail.ingestor] failed message=${ref.id}`);
     }
   }
 
@@ -283,9 +280,9 @@ async function persistMessage(
           currentLabelIds: message.labelIds ?? undefined,
         });
       } catch (err) {
-        console.warn(
-          `[gmail.ingestor] failed to label self-authored message=${message.id}:`,
-          toMessage(err),
+        logger.warn(
+          { err },
+          `[gmail.ingestor] failed to label self-authored message=${message.id}`,
         );
       }
     }
@@ -397,7 +394,7 @@ async function scheduleGmailMediaIngestBestEffort(args: {
   logId: string;
 }): Promise<void> {
   if (!args.schedule) {
-    console.warn(
+    logger.warn(
       `[gmail.ingestor] no media scheduler wired; attachment ingest deferred for message=${args.logId}`,
     );
 
@@ -412,10 +409,7 @@ async function scheduleGmailMediaIngestBestEffort(args: {
       documentId: args.documentId,
     });
   } catch (err) {
-    console.warn(
-      `[gmail.ingestor] attachment schedule failed for message=${args.logId}:`,
-      toMessage(err),
-    );
+    logger.warn({ err }, `[gmail.ingestor] attachment schedule failed for message=${args.logId}`);
   }
 }
 
@@ -465,7 +459,7 @@ export async function runGmailMediaIngest(args: {
   }
 
   if (result.errors > 0 || result.embedFailures > 0) {
-    console.warn(
+    logger.warn(
       `[gmail.media] job mediaErrors=${result.errors} mediaEmbedFailures=${result.embedFailures} ` +
         `for message=${args.messageId}`,
     );
@@ -775,9 +769,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
     }
   } catch (err) {
     if (isHistoryGoneError(err)) {
-      console.warn(
-        `[gmail.ingestor] history cursor stale for ${args.credentialId}; full re-ingest`,
-      );
+      logger.warn(`[gmail.ingestor] history cursor stale for ${args.credentialId}; full re-ingest`);
 
       const recent = await ingestRecentGmail({
         credentialId: args.credentialId,
@@ -855,10 +847,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
           chunksWritten += embed.chunksWritten;
         } catch (err) {
           embedFailures++;
-          console.warn(
-            `[gmail.ingestor] poll embed failed for doc=${result.documentId}:`,
-            toMessage(err),
-          );
+          logger.warn({ err }, `[gmail.ingestor] poll embed failed for doc=${result.documentId}`);
         }
       } else if (result.outcome === "ignored") {
         ignored++;
@@ -881,7 +870,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
       });
     } catch (err) {
       errors++;
-      console.warn(`[gmail.ingestor] poll fetch failed for message=${id}:`, toMessage(err));
+      logger.warn({ err }, `[gmail.ingestor] poll fetch failed for message=${id}`);
     }
   }
 
@@ -1078,10 +1067,7 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
       }
     } catch (err) {
       errors++;
-      console.warn(
-        `[gmail.ingestor] poll-recent fetch failed for message=${ref.id}:`,
-        toMessage(err),
-      );
+      logger.warn({ err }, `[gmail.ingestor] poll-recent fetch failed for message=${ref.id}`);
     }
   });
 
@@ -1109,7 +1095,7 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
 
       if (jump > BigInt(COVERAGE_GAP_THRESHOLD)) {
         coverageGap = true;
-        console.warn(
+        logger.warn(
           `[gmail.ingestor] coverage gap detected for ${args.credentialId}: ` +
             `cursor=${cursorBefore} push=${latestReceiptHistoryId} jump=${jump}`,
         );

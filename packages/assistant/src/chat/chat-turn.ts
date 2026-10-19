@@ -579,7 +579,7 @@ const chatTurnStep: Step<ChatRunState> = {
 
           if (retry) {
             closeBrackets();
-            console.warn(
+            logger.warn(
               `[chat-turn] stream timeout abort; retry ` +
                 `${retry.attempt}/${retry.max} (run ${ctx.runId})`,
             );
@@ -618,9 +618,10 @@ const chatTurnStep: Step<ChatRunState> = {
 
       // Anthropic warns here when the 4-breakpoint cap silently drops a cache block (#223).
       if (warnings && warnings.length > 0) {
-        console.warn(
-          `[chat-turn] provider warnings (run ${ctx.runId}):`,
-          warnings.map((w) => ("message" in w && w.message ? w.message : w.type)).join("; "),
+        logger.warn(
+          `[chat-turn] provider warnings (run ${ctx.runId}): ${warnings
+            .map((w) => ("message" in w && w.message ? w.message : w.type))
+            .join("; ")}`,
         );
       }
 
@@ -648,7 +649,7 @@ const chatTurnStep: Step<ChatRunState> = {
 
         if (retry) {
           closeBrackets();
-          console.warn(
+          logger.warn(
             `[chat-turn] empty completion (finishReason:${finishReason}); retry ` +
               `${retry.attempt}/${retry.max} (run ${ctx.runId})`,
           );
@@ -721,7 +722,7 @@ const chatTurnStep: Step<ChatRunState> = {
 
           const delayMs = base + Math.floor(Math.random() * CAPACITY_RETRY_JITTER_MS);
           closeBrackets();
-          console.warn(
+          logger.warn(
             `[chat-turn] capacity error; retry ` +
               `${retry.attempt}/${retry.max} after ${delayMs}ms (run ${ctx.runId})`,
           );

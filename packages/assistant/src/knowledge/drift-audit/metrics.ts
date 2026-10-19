@@ -7,6 +7,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { send, type SendArgs, type SendResult } from "@alfred/assistant/delivery";
 import { settings } from "@alfred/assistant/settings";
 import { DEFAULT_USER_TIMEZONE, inZone } from "@alfred/assistant/time";
+import { logger } from "@alfred/logging";
 
 /**
  * Drift and invariant health metrics (#219). Each run writes a `drift_metrics`
@@ -207,7 +208,7 @@ export async function runDriftHealthCheck(
     } catch (err) {
       const failure = `${evaluate.name || "anonymous_metric"}: ${toMessage(err)}`;
       metricFailures.push(failure);
-      console.error(`[drift-audit] metric failed for user=${userId}: ${failure}`);
+      logger.error(`[drift-audit] metric failed for user=${userId}: ${failure}`);
     }
   }
 
@@ -230,7 +231,7 @@ export async function runDriftHealthCheck(
           target: [driftMetrics.userId, driftMetrics.metric, driftMetrics.captureKey],
         });
     } catch (err) {
-      console.error(`[drift-audit] snapshot insert failed for user=${userId}: ${toMessage(err)}`);
+      logger.error({ err }, `[drift-audit] snapshot insert failed for user=${userId}`);
     }
   }
 
@@ -267,13 +268,14 @@ export async function runDriftHealthCheck(
       }
     } catch (err) {
       alertFailures.push(`${result.metric}: ${toMessage(err)}`);
-      console.error(
-        `[drift-audit] health_alert push failed (${result.metric}) user=${userId}: ${toMessage(err)}`,
+      logger.error(
+        { err },
+        `[drift-audit] health_alert push failed (${result.metric}) user=${userId}`,
       );
     }
   }
 
-  console.log(
+  logger.info(
     `[drift-audit] user=${userId} metrics=${results.length} breached=${breached.length} alertsSent=${alertsSent}`,
   );
   const healthCheckFailures: string[] = [];

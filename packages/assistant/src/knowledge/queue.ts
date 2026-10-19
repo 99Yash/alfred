@@ -8,6 +8,7 @@ import { scheduledFireTime, startRun } from "@alfred/assistant/execution";
 import { runDriftHealthCheck } from "./drift-audit/index";
 import { embedMemoryChunk, findPendingEmbedChunks, recordMemoryEmbedFailure } from "./chunks";
 import { toMessage } from "@alfred/contracts";
+import { logger } from "@alfred/logging";
 
 /** Memory-cron queue: repeatable jobs that fan out into per-user runs. */
 const MEMORY_QUEUE_NAME = "memory-cron";
@@ -52,7 +53,7 @@ export async function startMemoryWorker(opts: StartMemoryWorkerOpts = {}): Promi
     concurrency: opts.concurrency ?? 1,
   });
   _worker.on("error", (err) => {
-    console.error("[memory:worker] error:", err.message);
+    logger.error({ err }, "[memory:worker] error");
   });
 }
 
@@ -86,7 +87,7 @@ async function processMemoryJob(job: Job<MemoryJobData>) {
         enqueued++;
       }
 
-      console.log(`[memory:worker] memory.extract.daily fan-out users=${enqueued}`);
+      logger.info(`[memory:worker] memory.extract.daily fan-out users=${enqueued}`);
 
       return { enqueued };
     }
@@ -96,7 +97,7 @@ async function processMemoryJob(job: Job<MemoryJobData>) {
         requestId: `memory-job:${job.id ?? job.timestamp}`,
       });
 
-      console.log(`[memory:worker] memory.extract.run user=${data.userId} runId=${result.runId}`);
+      logger.info(`[memory:worker] memory.extract.run user=${data.userId} runId=${result.runId}`);
 
       return result;
     }
@@ -120,15 +121,12 @@ async function processMemoryJob(job: Job<MemoryJobData>) {
           // Only the Voyage call counts toward the poison-pill guard. Log a failed
           // bookkeeping write loudly, or the backlog re-embeds forever.
           await recordMemoryEmbedFailure(c.id, c.userId, err).catch((bookkeepingErr) => {
-            console.error(
-              `[memory:worker] memory.embed_sweep FAILED to record embed failure for ${c.id}:`,
-              toMessage(bookkeepingErr),
+            logger.error(
+              { err: bookkeepingErr },
+              `[memory:worker] memory.embed_sweep FAILED to record embed failure for ${c.id}`,
             );
           });
-          console.warn(
-            `[memory:worker] memory.embed_sweep embed failed for ${c.id}:`,
-            toMessage(err),
-          );
+          logger.warn({ err }, `[memory:worker] memory.embed_sweep embed failed for ${c.id}`);
           continue;
         }
 
@@ -139,14 +137,11 @@ async function processMemoryJob(job: Job<MemoryJobData>) {
           failed++;
           // A DB write failure is not an embed failure: do not count it, or a good
           // chunk dead-letters. The next sweep retries.
-          console.warn(
-            `[memory:worker] memory.embed_sweep write failed for ${c.id}:`,
-            toMessage(err),
-          );
+          logger.warn({ err }, `[memory:worker] memory.embed_sweep write failed for ${c.id}`);
         }
       }
 
-      console.log(
+      logger.info(
         `[memory:worker] memory.embed_sweep candidates=${candidates.length} succeeded=${succeeded} failed=${failed}`,
       );
 
@@ -168,11 +163,11 @@ async function processMemoryJob(job: Job<MemoryJobData>) {
         } catch (err) {
           const message = toMessage(err);
           failures.push(`${u.id}: ${message}`);
-          console.error(`[memory:worker] drift_health_check failed user=${u.id}:`, message);
+          logger.error({ err }, `[memory:worker] drift_health_check failed user=${u.id}`);
         }
       }
 
-      console.log(
+      logger.info(
         `[memory:worker] memory.drift_health_check users=${checked} breached=${breached}`,
       );
 

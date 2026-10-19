@@ -22,8 +22,6 @@ import {
   isRecord,
   parseEventTypeName,
   parseGmailDocumentMetadata,
-  redactSecrets,
-  toMessage,
   toStringArray,
   weatherFallbackFor,
 } from "@alfred/contracts";
@@ -74,6 +72,7 @@ import {
 } from "./relevance";
 import { scorePriorityEmailDemand } from "./read";
 import { shortenFrom } from "./sender";
+import { logger } from "@alfred/logging";
 
 /**
  * Inbox briefing data (ADR-0025 #2). Only priority categories are listed;
@@ -427,8 +426,9 @@ async function dropClosedLoops(
     const confirmation = read(userId, state.externalId)
       .then((nativeState) => getObjectDef(state.provider).normalize(state.kind, nativeState))
       .catch((err: unknown) => {
-        console.warn(
-          `[briefing.gather] live closure confirmation failed object=${objectRef} :: ${redactSecrets(toMessage(err))}`,
+        logger.warn(
+          { err },
+          `[briefing.gather] live closure confirmation failed object=${objectRef}`,
         );
 
         return null;
@@ -757,7 +757,7 @@ export async function gatherCalendarContribution(
         events.push(calendarEventToContributionEvent(cred.id, event));
       }
     } catch (err) {
-      console.warn(`[briefing.gather] calendar unavailable credential=${cred.id}:`, toMessage(err));
+      logger.warn({ err }, `[briefing.gather] calendar unavailable credential=${cred.id}`);
     }
   }
 
@@ -846,10 +846,7 @@ async function gatherWeatherContribution(args: {
       },
     };
   } catch (err) {
-    console.warn(
-      `[briefing.gather] weather unavailable location=${location.label}:`,
-      toMessage(err),
-    );
+    logger.warn({ err }, `[briefing.gather] weather unavailable location=${location.label}`);
 
     return null;
   }

@@ -4,7 +4,7 @@ import { workflowTriggerSchema, type WorkflowTrigger } from "@alfred/contracts";
 import { and, eq, sql } from "drizzle-orm";
 import { startRunInTx } from "@alfred/assistant/execution";
 import { computeNextRunAt, resolveWorkflowTimezone } from "./scheduling";
-import { toMessage } from "@alfred/contracts";
+import { logger } from "@alfred/logging";
 
 /**
  * One tick of the workflow dispatcher (ADR-0027). For up to `BATCH` due rows:
@@ -57,12 +57,12 @@ export async function dispatchDueCronWorkflows(
       else invalid++;
     } catch (err) {
       failed++;
-      console.warn(`[workflows:tick] failed for workflow=${row.slug} (${row.id}):`, toMessage(err));
+      logger.warn({ err }, `[workflows:tick] failed for workflow=${row.slug} (${row.id})`);
     }
   }
 
   if (due.length > 0) {
-    console.log(
+    logger.info(
       `[workflows:tick] scanned=${due.length} enqueued=${enqueued} raced=${raced} invalid=${invalid} failed=${failed}`,
     );
   }
@@ -103,7 +103,7 @@ async function selectDueRows(now: Date): Promise<DueRow[]> {
     const trigger = workflowTriggerSchema.safeParse(row.trigger);
 
     if (!trigger.success) {
-      console.warn(
+      logger.warn(
         `[workflows:tick] invalid trigger for workflow=${row.slug} (${row.id}); pausing partial-index entry: ${trigger.error.message}`,
       );
       await db()
@@ -132,7 +132,7 @@ async function dispatchOne(
   const newNext = computeNextRunAt(row.trigger, { from: scheduledFor, timezone });
 
   if (!newNext) {
-    console.warn(
+    logger.warn(
       `[workflows:tick] cron-parser returned null for workflow=${row.slug} (${row.id}); pausing partial-index entry`,
     );
     // Null drops the row from the index until the user fixes the schedule.

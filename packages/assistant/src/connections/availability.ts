@@ -11,7 +11,6 @@ import {
   PASSTHROUGH_PREFERENCE_KEYS,
   projectSlugs,
   selectGithubAccountRow,
-  toMessage,
   toStringArray,
   type CredentialProvider,
   type CredentialRowsByProvider,
@@ -31,6 +30,7 @@ import { asc, eq } from "drizzle-orm";
 import { settings } from "@alfred/assistant/settings";
 import { gmailPushStaleStatus, readGmailDeliveryFacts } from "./ingestion/gmail-delivery-facts";
 import { readDeliveryAlerts, toDeliveryAlerts } from "./delivery-alerts";
+import { logger } from "@alfred/logging";
 
 /**
  * Short on purpose: the dispatch floor must see a revoked grant. Inside the window,
@@ -146,9 +146,7 @@ async function readWireDeliveryAlerts(
   try {
     return toDeliveryAlerts(await readDeliveryAlerts(userId, rows));
   } catch (err) {
-    console.error(
-      `[integrations] inbound delivery health read failed for user=${userId}: ${toMessage(err)}`,
-    );
+    logger.error({ err }, `[integrations] inbound delivery health read failed for user=${userId}`);
 
     return [];
   }

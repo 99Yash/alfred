@@ -8,7 +8,7 @@ import { serverEnv } from "@alfred/env/server";
 import { isKnownEventKind, type EventFrame } from "@alfred/contracts/events";
 import { PeriodicTask } from "./periodic-task";
 import { publishFrameToUser } from "./user-events-bus";
-import { toMessage } from "@alfred/contracts";
+import { logger } from "@alfred/logging";
 
 const NOTIFY_CHANNEL = "events_outbox_new";
 
@@ -61,7 +61,7 @@ async function drainOnce(): Promise<number> {
     for (const row of rows) {
       if (!isKnownEventKind(row.kind)) {
         // Mark it published so it does not loop forever.
-        console.warn("[outbox-relay] dropping unknown kind", row.kind, "id", row.id);
+        logger.warn(`[outbox-relay] dropping unknown kind ${row.kind} id ${row.id}`);
         published.push(row.id);
         continue;
       }
@@ -77,7 +77,7 @@ async function drainOnce(): Promise<number> {
         await publishFrameToUser(row.user_id, frame);
         published.push(row.id);
       } catch (err) {
-        console.warn("[outbox-relay] publish failed for id", row.id, toMessage(err));
+        logger.warn({ err, outboxId: row.id }, "[outbox-relay] publish failed");
         // Leave the row for the next pass.
       }
     }
@@ -108,7 +108,7 @@ async function drainPass(signal: AbortSignal): Promise<void> {
     if (signal.aborted) return;
 
     const drained = await drainOnce().catch((err) => {
-      console.warn("[outbox-relay] drainOnce failed:", toMessage(err));
+      logger.warn({ err }, "[outbox-relay] drainOnce failed");
 
       return 0;
     });
@@ -130,7 +130,7 @@ const relay = new PeriodicTask({
 async function startListener(): Promise<void> {
   listenClient = new pg.Client({ connectionString: serverEnv().DATABASE_URL });
   listenClient.on("error", (err) => {
-    console.warn("[outbox-relay] listen client error:", err.message);
+    logger.warn({ err }, "[outbox-relay] listen client error");
   });
   // `trigger()` is a no-op once stopped. The reconnect must check, so it builds no client after shutdown.
   listenClient.on("notification", () => {
@@ -138,12 +138,12 @@ async function startListener(): Promise<void> {
   });
   listenClient.on("end", () => {
     if (relay.stopped) return;
-    console.warn("[outbox-relay] listen client ended; reconnecting");
+    logger.warn("[outbox-relay] listen client ended; reconnecting");
     listenClient = undefined;
     setTimeout(() => {
       if (relay.stopped) return;
       void startListener().catch((err) => {
-        console.warn("[outbox-relay] reconnect failed:", toMessage(err));
+        logger.warn({ err }, "[outbox-relay] reconnect failed");
       });
     }, RECONNECT_DELAY_MS);
   });
@@ -162,14 +162,14 @@ export async function startOutboxRelay(): Promise<void> {
     idleTimeoutMillis: 60_000,
   });
   pool.on("error", (err) => {
-    console.warn("[outbox-relay] pool error:", err.message);
+    logger.warn({ err }, "[outbox-relay] pool error");
   });
 
   // Start before the listener, so its trigger is not a no-op.
   relay.start();
   await startListener();
 
-  console.info("[outbox-relay] started");
+  logger.info("[outbox-relay] started");
 }
 
 export async function stopOutboxRelay(): Promise<void> {
@@ -192,7 +192,7 @@ export async function stopOutboxRelay(): Promise<void> {
   }
 
   if (pool) {
-    if (!drained) console.warn("[outbox-relay] closing pool with a drain still in flight");
+    if (!drained) logger.warn("[outbox-relay] closing pool with a drain still in flight");
     await pool.end().catch(() => {});
     pool = undefined;
   }

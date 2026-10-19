@@ -13,6 +13,7 @@ import { isNonBlankString, memorySourceSchema, type MemorySource } from "@alfred
 import { and, asc, desc, eq, gt, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { settings, type UserSettings } from "@alfred/assistant/settings";
 import { USER_FACING_MEMORY_CHUNK_KINDS } from "./chunks";
+import { logger } from "@alfred/logging";
 
 /** Sections `include` can select. */
 type UserContextSection =
@@ -214,7 +215,7 @@ function parseSource(row: Pick<FactContextRow, "id" | "source">): MemorySource {
   const parsed = memorySourceSchema.safeParse(row.source);
 
   if (parsed.success) return parsed.data;
-  console.warn(
+  logger.warn(
     `[memory.user-context] ignoring invalid source for user_facts:${row.id}: ${parsed.error.issues.map((i) => i.message).join("; ")}`,
   );
 

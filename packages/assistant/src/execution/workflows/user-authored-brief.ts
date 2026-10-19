@@ -65,6 +65,7 @@ import { getRun } from "../run-summary";
 import { pendingToolCallSchema } from "./pending-tool-call";
 import { BRIEF_TURN_CAP_MAX, openBriefTurnRetries } from "./turn-budgets";
 import { checkWorkflowReadiness } from "./readiness-port";
+import { logger } from "@alfred/logging";
 
 // Sub-agents run on this workflow, so the slugs are one value.
 export const USER_AUTHORED_BRIEF_WORKFLOW_SLUG = SUB_AGENT_WORKFLOW_SLUG;
@@ -296,7 +297,7 @@ const bossTurnStep: Step<BriefRunState> = {
       const retry = retries.afterEmptyCompletion(state);
 
       if (retry) {
-        console.warn(
+        logger.warn(
           `[boss-turn] empty completion (finishReason:${result.finishReason}); retry ` +
             `${retry.attempt}/${retry.max} (run ${ctx.runId})`,
         );

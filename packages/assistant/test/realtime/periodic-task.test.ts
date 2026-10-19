@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import { logger } from "@alfred/logging";
 
 import { PeriodicTask } from "../../src/realtime/periodic-task";
 
@@ -146,9 +147,9 @@ describe("PeriodicTask", () => {
   test("a rejected pass is logged, not rethrown, and the loop survives it", async () => {
     let passes = 0;
     const warnings: unknown[] = [];
-    const realWarn = console.warn;
-    console.warn = (...args: unknown[]) => {
-      warnings.push(args[0]);
+    const realWarn = logger.warn;
+    logger.warn = (...args: unknown[]) => {
+      warnings.push(args[1]);
     };
 
     const task = new PeriodicTask({
@@ -166,12 +167,12 @@ describe("PeriodicTask", () => {
       task.trigger();
       await tick();
     } finally {
-      console.warn = realWarn;
+      logger.warn = realWarn;
     }
 
     assert.equal(passes, 2, "a failed pass must not stop later passes");
     assert.ok(
-      warnings.some((w) => typeof w === "string" && w.includes("[failing] pass failed:")),
+      warnings.some((w) => typeof w === "string" && w.includes("[failing] pass failed")),
       "the failure must be visible",
     );
 

@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import { logger } from "@alfred/logging";
+import { getPath } from "@alfred/contracts";
 import {
   gmailPostInsertTriageRequestSchema,
   gmailPostInsertTriageResultSchema,
@@ -204,8 +206,8 @@ describe("Gmail triage composition seam", () => {
 
   test("the adapter swallows repair lookup failures and returns an empty reply set", async () => {
     const warnings: unknown[][] = [];
-    const originalWarn = console.warn;
-    console.warn = (...args: unknown[]) => warnings.push(args);
+    const originalWarn = logger.warn;
+    logger.warn = (...args: unknown[]) => warnings.push(args);
 
     const unregister = registerGmailTriageHandler(
       createGmailTriageHandler({
@@ -222,21 +224,25 @@ describe("Gmail triage composition seam", () => {
       assert.deepEqual(await runGmailPostInsertTriage(postInsertRequest), {
         replyReevalTargets: [],
       });
-      assert.match(String(warnings[0]?.[0]), /reconcileThreads failed/);
-      assert.equal(warnings[0]?.[1], "reconcile unavailable");
-      assert.match(String(warnings[1]?.[0]), /live inbound resolve failed/);
-      assert.equal(warnings[1]?.[1], "lookup unavailable");
+      assert.match(String(warnings[0]?.[1]), /reconcileThreads failed/);
+      const reconcileErr = getPath(warnings[0]?.[0], "err");
+      assert.ok(reconcileErr instanceof Error);
+      assert.equal(reconcileErr.message, "reconcile unavailable");
+      assert.match(String(warnings[1]?.[1]), /live inbound resolve failed/);
+      const lookupErr = getPath(warnings[1]?.[0], "err");
+      assert.ok(lookupErr instanceof Error);
+      assert.equal(lookupErr.message, "lookup unavailable");
     } finally {
       unregister();
-      console.warn = originalWarn;
+      logger.warn = originalWarn;
     }
   });
 
   test("the adapter enqueues one relabel per repointed thread and projects reply targets", async () => {
     const enqueued: Array<{ userId: string; threadId: string }> = [];
     const logs: unknown[][] = [];
-    const originalLog = console.log;
-    console.log = (...args: unknown[]) => logs.push(args);
+    const originalLog = logger.info;
+    logger.info = (...args: unknown[]) => logs.push(args);
 
     const unregister = registerGmailTriageHandler(
       createGmailTriageHandler({
@@ -272,7 +278,7 @@ describe("Gmail triage composition seam", () => {
       assert.match(String(logs[0]?.[0]), /docsDeleted=1 triageRepointed=1/);
     } finally {
       unregister();
-      console.log = originalLog;
+      logger.info = originalLog;
     }
   });
 });

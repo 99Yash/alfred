@@ -1,6 +1,5 @@
 import {
   readGmailAttachmentFirstCarrier,
-  toMessage,
   type AttachmentContentReference,
 } from "@alfred/contracts";
 import { indexDocument, type IndexDocumentResult } from "@alfred/corpus";
@@ -20,6 +19,7 @@ import {
 } from "@alfred/integrations/google";
 import type { ExtractedAttachment } from "@alfred/integrations/google";
 import { and, eq, inArray, or, sql } from "drizzle-orm";
+import { logger } from "@alfred/logging";
 
 const GMAIL_MEDIA_DOOR: ExtractionDoor = "gmailAttachment";
 
@@ -286,10 +286,7 @@ export async function ingestGmailMediaAttachments(
       return true;
     } catch (err) {
       tally.errors++;
-      console.warn(
-        `[gmail.media] reference append failed for ${label} doc=${canonicalId}:`,
-        toMessage(err),
-      );
+      logger.warn({ err }, `[gmail.media] reference append failed for ${label} doc=${canonicalId}`);
 
       return false;
     }
@@ -310,10 +307,7 @@ export async function ingestGmailMediaAttachments(
         } catch (err) {
           // Counted, so the job keeps `mediaPending` and the next poll retries.
           tally.errors++;
-          console.warn(
-            `[gmail.media] first-carrier backfill failed for ${att.filename}:`,
-            toMessage(err),
-          );
+          logger.warn({ err }, `[gmail.media] first-carrier backfill failed for ${att.filename}`);
         }
       }
 
@@ -337,7 +331,7 @@ export async function ingestGmailMediaAttachments(
       bytes = fetched.bytes;
     } catch (err) {
       tally.errors++;
-      console.warn(`[gmail.media] fetch failed for ${att.filename}:`, toMessage(err));
+      logger.warn({ err }, `[gmail.media] fetch failed for ${att.filename}`);
       continue;
     }
 
@@ -352,7 +346,7 @@ export async function ingestGmailMediaAttachments(
       result = await media.extract({ mime: att.mimeType, bytes });
     } catch (err) {
       tally.errors++;
-      console.warn(`[gmail.media] extract failed for ${att.filename}:`, toMessage(err));
+      logger.warn({ err }, `[gmail.media] extract failed for ${att.filename}`);
       continue;
     }
 
@@ -432,7 +426,7 @@ export async function ingestGmailMediaAttachments(
       documentId = inserted[0]?.id ?? null;
     } catch (err) {
       tally.errors++;
-      console.warn(`[gmail.media] persist failed for ${att.filename}:`, toMessage(err));
+      logger.warn({ err }, `[gmail.media] persist failed for ${att.filename}`);
       continue;
     }
 
@@ -476,7 +470,7 @@ export async function ingestGmailMediaAttachments(
       await indexDocumentFn({ documentId });
     } catch (err) {
       tally.embedFailures++;
-      console.warn(`[gmail.media] embed failed for doc=${documentId}:`, toMessage(err));
+      logger.warn({ err }, `[gmail.media] embed failed for doc=${documentId}`);
       continue;
     }
 
@@ -504,9 +498,6 @@ export async function setMediaPending(documentId: string, pending: boolean): Pro
       })
       .where(eq(documents.id, documentId));
   } catch (err) {
-    console.warn(
-      `[gmail.media] mediaPending=${pending} write failed doc=${documentId}:`,
-      toMessage(err),
-    );
+    logger.warn({ err }, `[gmail.media] mediaPending=${pending} write failed doc=${documentId}`);
   }
 }

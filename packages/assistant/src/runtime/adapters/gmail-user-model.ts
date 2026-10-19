@@ -1,4 +1,4 @@
-import { toMessage, USER_MODEL_PROJECTION_NAME, withDefaults } from "@alfred/contracts";
+import { USER_MODEL_PROJECTION_NAME, withDefaults } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { activeProjectionVersions, documents } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
@@ -14,6 +14,7 @@ import {
   refoldActiveGmailKindProjection,
   type GmailDocumentForReduction,
 } from "@alfred/assistant/knowledge";
+import { logger } from "@alfred/logging";
 
 const OBSERVATION_QUERY_CHUNK_SIZE = 1000;
 
@@ -143,7 +144,7 @@ export function createGmailUserModelHandler(
             for (const issue of reduced.issues) {
               if (issue.severity === "skip") skipped++;
               else warnings++;
-              console.warn(
+              logger.warn(
                 `[ingestion:worker] user-model gmail observation ${issue.severity} ` +
                   `doc=${doc.id} ${issue.code}: ${issue.message}`,
               );
@@ -157,14 +158,14 @@ export function createGmailUserModelHandler(
             }
           } catch (err) {
             errors++;
-            console.warn(
-              `[ingestion:worker] user-model gmail observation failed doc=${doc.id}:`,
-              toMessage(err),
+            logger.warn(
+              { err },
+              `[ingestion:worker] user-model gmail observation failed doc=${doc.id}`,
             );
           }
         }
 
-        console.log(
+        logger.info(
           `[ingestion:worker] user-model gmail observations user=${request.userId} docs=${docs.length} ` +
             `inserted=${inserted} deduped=${deduped} skipped=${skipped} warnings=${warnings} errors=${errors}`,
         );
@@ -173,9 +174,9 @@ export function createGmailUserModelHandler(
 
         return { status: "captured" };
       } catch (err) {
-        console.warn(
-          `[ingestion:worker] user-model gmail observation capture failed user=${request.userId}:`,
-          toMessage(err),
+        logger.warn(
+          { err },
+          `[ingestion:worker] user-model gmail observation capture failed user=${request.userId}`,
         );
 
         return { status: "failed" };
@@ -188,7 +189,7 @@ export function createGmailUserModelHandler(
       const userIds = await deps.loadActiveProjectionUserIds();
 
       for (const userId of userIds) await deps.enqueueRefold(userId);
-      console.log(
+      logger.info(
         `[ingestion:worker] user_model.gmail_kind_refold_sweep enqueued=${userIds.length}`,
       );
 

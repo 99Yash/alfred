@@ -76,11 +76,11 @@ import {
   closeApprovalNotificationQueue,
 } from "@alfred/assistant/tool-runtime";
 import { reconcileInflightInvocations } from "@alfred/assistant/tool-runtime/mcp";
-import { toMessage } from "@alfred/contracts";
 import { closeConnections, warmPool } from "@alfred/db";
 import { closeRedis } from "@alfred/db/redis";
 import type { Queue } from "bullmq";
 import { registerRuntimeAdapters, unregisterRuntimeAdapters } from "./adapters/runtime-adapters";
+import { logger } from "@alfred/logging";
 
 /** Called once per newly created user, after the host installs the hook. */
 export type RuntimeUserCreatedHandler = (user: { id: string }) => Promise<void>;
@@ -111,7 +111,7 @@ export async function runShutdownStep(label: string, step: () => Promise<void>):
 
     return true;
   } catch (err) {
-    console.error(`Error during shutdown step ${label}:`, toMessage(err));
+    logger.error({ err }, `Error during shutdown step ${label}`);
 
     return false;
   }
@@ -289,7 +289,7 @@ async function clearPersistedJobSchedulers(queues: readonly Queue[]): Promise<nu
         removed += 1;
       }
     } catch (err) {
-      console.error(`[runtime] could not clear schedulers on ${queue.name}:`, toMessage(err));
+      logger.error({ err }, `[runtime] could not clear schedulers on ${queue.name}`);
     }
   }
 
@@ -354,7 +354,7 @@ export function createAssistantRuntime(config: RuntimeConfig): AssistantRuntime 
           ),
         );
 
-        console.log(
+        logger.info(
           `[runtime] scheduled jobs are OFF — workers still run, but no cron will fire${
             removed > 0 ? `; removed ${removed} scheduler(s) a previous run left in Redis` : ""
           }. Set ALFRED_RUN_SCHEDULED_JOBS=true to enable them.`,
@@ -383,18 +383,18 @@ export function createAssistantRuntime(config: RuntimeConfig): AssistantRuntime 
         }
       }
 
-      console.log("Worker shutdown attempted");
+      logger.info("Worker shutdown attempted");
 
       const agentWorkerStopped = stopped.has("agent");
       const ingestionWorkerStopped = stopped.has("ingestion");
 
       // A worker that failed to stop keeps its adapters, so a leased job still finds them.
       if (!agentWorkerStopped) {
-        console.warn("System-tool adapters retained because the agent worker did not stop");
+        logger.warn("System-tool adapters retained because the agent worker did not stop");
       }
 
       if (!ingestionWorkerStopped) {
-        console.warn("Ingestion adapters retained because the ingestion worker did not stop");
+        logger.warn("Ingestion adapters retained because the ingestion worker did not stop");
       }
 
       unregisterRuntimeAdapters({ agentWorkerStopped, ingestionWorkerStopped });
@@ -403,9 +403,9 @@ export function createAssistantRuntime(config: RuntimeConfig): AssistantRuntime 
         // Flush before the pool and Redis close: metering writes need the pool,
         // and Langfuse batches spans, so a redeploy would drop a short turn's trace.
         await config.flushObservability();
-        console.log("Observability flushed");
+        logger.info("Observability flushed");
       } catch (err) {
-        console.error("Error flushing observability:", toMessage(err));
+        logger.error({ err }, "Error flushing observability");
       }
 
       try {
@@ -413,16 +413,16 @@ export function createAssistantRuntime(config: RuntimeConfig): AssistantRuntime 
         await closeEventBridge();
         await closeReplicachePokeBridge();
         await closeRedis();
-        console.log("Redis closed");
+        logger.info("Redis closed");
       } catch (err) {
-        console.error("Error closing Redis:", toMessage(err));
+        logger.error({ err }, "Error closing Redis");
       }
 
       try {
         await closeConnections();
-        console.log("DB pool closed");
+        logger.info("DB pool closed");
       } catch (err) {
-        console.error("Error closing DB:", toMessage(err));
+        logger.error({ err }, "Error closing DB");
       }
     },
   };

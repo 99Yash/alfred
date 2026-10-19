@@ -1,6 +1,7 @@
 import { Queue, Worker, type Job } from "bullmq";
 import { createRedisConnection } from "@alfred/db/redis";
 import { dispatchDueCronWorkflows } from "./tick";
+import { logger } from "@alfred/logging";
 
 /**
  * Workflow dispatch queue (ADR-0027). It only drives the per-minute `workflows.tick`.
@@ -43,7 +44,7 @@ export async function startWorkflowsWorker(opts: StartWorkflowsWorkerOpts = {}):
     concurrency: opts.concurrency ?? 1,
   });
   _worker.on("error", (err) => {
-    console.error("[workflows:worker] error:", err.message);
+    logger.error({ err }, "[workflows:worker] error");
   });
 }
 
