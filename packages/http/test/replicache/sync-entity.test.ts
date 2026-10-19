@@ -1,3 +1,4 @@
+import { logger } from "@alfred/logging";
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
@@ -46,7 +47,7 @@ describe("syncEntity", () => {
 
   test("logs a bounded diagnostic and isolates a runtime-invalid projection", async (t) => {
     const warnings: string[] = [];
-    t.mock.method(console, "warn", (message: unknown) => {
+    t.mock.method(logger, "warn", (message: unknown) => {
       warnings.push(String(message));
     });
 
@@ -76,7 +77,7 @@ describe("syncEntity", () => {
 
   test("an unserializable diagnostic preview cannot fail the pull", async (t) => {
     const warnings: string[] = [];
-    t.mock.method(console, "warn", (message: unknown) => {
+    t.mock.method(logger, "warn", (message: unknown) => {
       warnings.push(String(message));
     });
 

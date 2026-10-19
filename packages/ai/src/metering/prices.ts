@@ -1,3 +1,4 @@
+import { logger } from "@alfred/logging";
 import { db } from "@alfred/db";
 import { modelPrices } from "@alfred/db/schemas";
 import { modelPricingMetadataSchema, type ModelPriceTier } from "@alfred/contracts/model-pricing";
@@ -169,7 +170,7 @@ export async function resolveContextWindowById(provider: string, modelId: string
       : undefined;
 
   if (fallback != null) {
-    console.warn(
+    logger.warn(
       `[metering] using fallback context_window=${fallback} for ${key} — run \`pnpm --filter @alfred/db db:sync-prices\` to refresh model_prices.`,
     );
 

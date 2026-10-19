@@ -1,3 +1,4 @@
+import { logger } from "@alfred/logging";
 import {
   GOOGLE_SCOPE,
   holdsAnyScope,
@@ -18,7 +19,6 @@ import {
   type UsageRunCategory,
   type UsageSortDir,
   type UsageSortField,
-  toMessage,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { briefings, documents, emailTriage, integrationCredentials } from "@alfred/db/schemas";
@@ -91,7 +91,7 @@ async function claimBriefingRunRetry(args: {
 
     return claimed === "OK";
   } catch (err) {
-    console.warn("[me:briefings] run throttle unavailable:", toMessage(err));
+    logger.warn({ err }, "[me:briefings] run throttle unavailable");
 
     return true;
   }

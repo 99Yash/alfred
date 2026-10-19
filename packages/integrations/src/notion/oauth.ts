@@ -1,3 +1,4 @@
+import { logger } from "@alfred/logging";
 import { serverEnv } from "@alfred/env/server";
 import { z } from "zod";
 
@@ -112,7 +113,7 @@ export async function exchangeNotionCode(code: string): Promise<NotionTokenResul
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     // Log the body, but keep it out of the thrown message.
-    console.error(`[notion.oauth] token exchange ${res.status} :: ${body.slice(0, 300)}`);
+    logger.error(`[notion.oauth] token exchange ${res.status} :: ${body.slice(0, 300)}`);
     throw new Error(`[notion.oauth] token exchange failed (${res.status})`);
   }
 

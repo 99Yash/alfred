@@ -1,3 +1,4 @@
+import { logger } from "@alfred/logging";
 import { HttpError } from "@alfred/contracts";
 import assert from "node:assert/strict";
 import { afterEach, describe, test } from "node:test";
@@ -102,8 +103,8 @@ describe("authedJson", () => {
   test('bodyPolicy "omit" keeps the status but strips the upstream body', async () => {
     stubFetch(new Response("secret page fragment", { status: 403 }));
     const logged: string[] = [];
-    const realError = console.error;
-    console.error = (...args: unknown[]) => void logged.push(args.map(String).join(" "));
+    const realError = logger.error;
+    logger.error = (...args: unknown[]) => void logged.push(args.map(String).join(" "));
 
     try {
       await assert.rejects(
@@ -125,7 +126,7 @@ describe("authedJson", () => {
         },
       );
     } finally {
-      console.error = realError;
+      logger.error = realError;
     }
 
     // The server-side log is the only place the body survives.
@@ -137,8 +138,8 @@ describe("authedJson", () => {
   test('a 2xx never logs or strips anything under bodyPolicy "omit"', async () => {
     stubFetch(new Response(JSON.stringify({ fine: true }), { status: 200 }));
     const logged: string[] = [];
-    const realError = console.error;
-    console.error = (...args: unknown[]) => void logged.push(args.map(String).join(" "));
+    const realError = logger.error;
+    logger.error = (...args: unknown[]) => void logged.push(args.map(String).join(" "));
 
     try {
       const body = await authedJson(
@@ -150,7 +151,7 @@ describe("authedJson", () => {
 
       assert.deepEqual(body, { fine: true });
     } finally {
-      console.error = realError;
+      logger.error = realError;
     }
 
     assert.deepEqual(logged, []);

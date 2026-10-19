@@ -1,5 +1,5 @@
+import { logger } from "@alfred/logging";
 import { APICallError } from "@ai-sdk/provider";
-import { toMessage } from "@alfred/contracts";
 import { createRedisConnection, isQueueEnabled, reserveRateSlot } from "@alfred/db/redis";
 import type { BoundedRedis } from "@alfred/db/redis";
 
@@ -220,7 +220,7 @@ function createSlotWaiter(
       } catch (err) {
         // ioredis throws synchronously on a bad url. A bad url stays bad, so latch for good.
         redisUnavailable = true;
-        console.warn("[ai-gateway] redis unavailable, pacing locally:", toMessage(err));
+        logger.warn({ err }, "[ai-gateway] redis unavailable, pacing locally");
 
         return null;
       }
@@ -255,7 +255,7 @@ function createSlotWaiter(
       }
     } catch (err) {
       redisSuspendedUntil = Date.now() + REDIS_SUSPEND_MS;
-      console.warn("[ai-gateway] slot reservation failed, pacing locally:", toMessage(err));
+      logger.warn({ err }, "[ai-gateway] slot reservation failed, pacing locally");
     }
 
     // Outside the `catch`: this is a verdict, not a Redis fault.

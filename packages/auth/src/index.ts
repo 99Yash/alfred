@@ -1,4 +1,4 @@
-import { toMessage } from "@alfred/contracts";
+import { logger } from "@alfred/logging";
 import { db } from "@alfred/db";
 import * as schema from "@alfred/db/schema/auth";
 import { serverEnv } from "@alfred/env/server";
@@ -44,10 +44,7 @@ export function auth() {
               try {
                 await hook({ id: user.id, email: user.email });
               } catch (err) {
-                console.error("[auth] onUserCreated hook failed", {
-                  userId: user.id,
-                  error: toMessage(err),
-                });
+                logger.error({ err, userId: user.id }, "[auth] onUserCreated hook failed");
               }
             }
           },

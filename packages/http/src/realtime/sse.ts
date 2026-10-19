@@ -3,7 +3,8 @@
  * Routes pass frame parts, never wire text or headers.
  */
 
-import { toMessage, unrefTimer } from "@alfred/contracts";
+import { logger } from "@alfred/logging";
+import { unrefTimer } from "@alfred/contracts";
 import type { EventKind } from "@alfred/contracts/events";
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
@@ -98,7 +99,7 @@ export function sseResponse(open: (conn: SseConnection) => void | Promise<void>)
           try {
             fn();
           } catch (err) {
-            console.warn("[sse] teardown handler threw", toMessage(err));
+            logger.warn({ err }, "[sse] teardown handler threw");
           }
         }
       };

@@ -1,3 +1,4 @@
+import { logger } from "@alfred/logging";
 import {
   Errors,
   integrationRoutePrefix,
@@ -46,8 +47,9 @@ export const sentryIntegrationRoutes = new Elysia({
             connection = await sentryValidateToken({ token, organization });
           } catch (err) {
             // Log the upstream reason; never send it to the client.
-            console.error(
-              `[sentry.connect] token validation failed :: ${redactSecrets(toMessage(err))}`,
+            logger.error(
+              { err, reason: redactSecrets(toMessage(err)) },
+              "[sentry.connect] token validation failed",
             );
 
             // Only an auth failure means a bad token. An outage must not say "regenerate".

@@ -1,4 +1,5 @@
-import { ApiError, apiErrorResponse, Errors, toMessage } from "@alfred/contracts";
+import { logger } from "@alfred/logging";
+import { ApiError, apiErrorResponse, Errors } from "@alfred/contracts";
 import { Elysia } from "elysia";
 
 export const errorHandler = new Elysia({ name: "error-handler", normalize: "typebox" }).onError(
@@ -23,7 +24,7 @@ export const errorHandler = new Elysia({ name: "error-handler", normalize: "type
 
     if (code === "PARSE") return respond(Errors.ParseError());
 
-    console.error("[api] Unhandled error:", toMessage(error));
+    logger.error({ err: error }, "[api] Unhandled error");
 
     return respond(Errors.InternalServerError());
   },

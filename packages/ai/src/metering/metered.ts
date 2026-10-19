@@ -1,3 +1,4 @@
+import { logger } from "@alfred/logging";
 import { db } from "@alfred/db";
 import { apiCallLog } from "@alfred/db/schemas";
 import { findApiCallError, isCallerAbort } from "../abort";
@@ -94,7 +95,7 @@ const pendingMeteringWrites = new Set<Promise<void>>();
 
 function enqueueMeteringWrite(write: Promise<void>): void {
   const tracked = write
-    .catch((err) => console.warn("[metered] background settlement failed:", toMessage(err)))
+    .catch((err) => logger.warn({ err }, "[metered] background settlement failed"))
     .finally(() => pendingMeteringWrites.delete(tracked));
 
   pendingMeteringWrites.add(tracked);
@@ -182,7 +183,7 @@ async function costForExtracted(
 
 /** A missing price logs cost 0. Warn, or a dropped price sync looks like free traffic. */
 function warnOnMissingPrice(provider: string, model: string): void {
-  console.warn(
+  logger.warn(
     `[metered] no model_prices row for ${provider}/${model} — logging cost 0; run \`pnpm --filter @alfred/db db:sync-prices\``,
   );
 }
@@ -403,6 +404,6 @@ async function writeLogRow(args: WriteArgs): Promise<void> {
         responseBody: transport?.responseBody ?? null,
       });
   } catch (err) {
-    console.warn("[metered] failed to write api_call_log row:", toMessage(err));
+    logger.warn({ err }, "[metered] failed to write api_call_log row");
   }
 }

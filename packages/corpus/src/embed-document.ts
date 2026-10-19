@@ -1,3 +1,4 @@
+import { logger } from "@alfred/logging";
 import { embedMany, voyageInputPricePerMtokUsd } from "@alfred/ai/embeddings";
 import { db } from "@alfred/db";
 import { sha256Hex } from "@alfred/db/hash";
@@ -176,7 +177,7 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
   const cappedHashes = capped.hashes;
 
   if (capped.truncated) {
-    console.warn(
+    logger.warn(
       `[embed-document] cost cap hit for doc=${doc.id}: ${capped.total} tokens exceed the ${maxTokens}-token budget (cap $${EMBED_COST_CAP_USD}/call), embedding first ${capped.kept}/${toEmbed.length} new chunks`,
     );
   }
