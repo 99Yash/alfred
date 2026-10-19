@@ -40,7 +40,7 @@ describe("moved product recipes keep their identity at their owning module seam"
     // `slug` is the persisted literal, not the recipe's constant, so a renamed constant goes red.
     {
       name: "dailyBriefingWorkflow",
-      recipe: dailyBriefingWorkflow as Workflow<unknown>,
+      recipe: dailyBriefingWorkflow,
       slug: "daily-briefing",
       initialStep: "gather",
       steps: ["gather", "compose", "send"],
@@ -49,7 +49,7 @@ describe("moved product recipes keep their identity at their owning module seam"
     },
     {
       name: "morningBriefingWorkflow (legacy, resume-only)",
-      recipe: morningBriefingWorkflow as Workflow<unknown>,
+      recipe: morningBriefingWorkflow,
       slug: "morning-briefing",
       initialStep: "gather",
       steps: ["gather", "compose", "send"],
@@ -59,7 +59,7 @@ describe("moved product recipes keep their identity at their owning module seam"
     },
     {
       name: "emailTriageWorkflow",
-      recipe: emailTriageWorkflow as Workflow<unknown>,
+      recipe: emailTriageWorkflow,
       slug: "email-triage",
       initialStep: "classify",
       steps: ["classify", "apply-label", "open-document-ask", "close-loop-todos"],
@@ -68,7 +68,7 @@ describe("moved product recipes keep their identity at their owning module seam"
     },
     {
       name: "memoryExtractionWorkflow",
-      recipe: memoryExtractionWorkflow as Workflow<unknown>,
+      recipe: memoryExtractionWorkflow,
       slug: "memory-extraction",
       initialStep: "pick-documents",
       steps: ["pick-documents", "process", "finalize"],
@@ -77,7 +77,7 @@ describe("moved product recipes keep their identity at their owning module seam"
     },
     {
       name: "chatMemoryCaptureWorkflow",
-      recipe: chatMemoryCaptureWorkflow as Workflow<unknown>,
+      recipe: chatMemoryCaptureWorkflow,
       slug: "__chat-memory-capture__",
       initialStep: "load-transcript",
       steps: ["load-transcript", "extract", "finalize"],
@@ -97,7 +97,7 @@ describe("moved product recipes keep their identity at their owning module seam"
     },
     {
       name: "skillDocumentationWorkflow",
-      recipe: skillDocumentationWorkflow as Workflow<unknown>,
+      recipe: skillDocumentationWorkflow,
       slug: "skill-documentation",
       initialStep: "gather-context",
       steps: ["gather-context", "compose", "persist-revision", "notify"],
@@ -112,7 +112,7 @@ describe("moved product recipes keep their identity at their owning module seam"
     },
     {
       name: "learnSkillWorkflow",
-      recipe: learnSkillWorkflow as Workflow<unknown>,
+      recipe: learnSkillWorkflow,
       slug: "learn-skill",
       initialStep: "gather",
       steps: ["gather", "distill", "persist"],
@@ -131,7 +131,7 @@ describe("moved product recipes keep their identity at their owning module seam"
     },
     {
       name: "coldStartResearchWorkflow",
-      recipe: coldStartResearchWorkflow as Workflow<unknown>,
+      recipe: coldStartResearchWorkflow,
       slug: "cold-start-research",
       initialStep: "gather-signals",
       steps: [

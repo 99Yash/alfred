@@ -13,7 +13,6 @@ import {
   type McpSubscription,
   type ProtocolEra,
   type Tool,
-  type Transport,
 } from "@modelcontextprotocol/client";
 import { z } from "zod";
 import type { McpAuthorizedProtocol } from "./endpoint-authorization";
@@ -189,9 +188,7 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
 
     try {
       await this.#client.connect(
-        // SAFETY: under `exactOptionalPropertyTypes` the SDK's transport class does
-        // not satisfy its own `Transport` interface (optional `| undefined` members).
-        this.#transport as Transport,
+        this.#transport,
         requestOptions(this.#requestTimeoutMs, undefined, trace),
       );
     } finally {

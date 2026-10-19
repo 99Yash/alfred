@@ -751,7 +751,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       const [successor] = await db()
         .select()
         .from(mcpInvocation)
-        .where(eq(mcpInvocation.id, recovered.successorInvocationId!));
+        .where(eq(mcpInvocation.id, recovered.successorInvocationId));
 
       const [successorStaging] = await db()
         .select()
@@ -1179,7 +1179,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
 
     const resolved = await resolveMcpRecoveryOperation({
       userId,
-      invocationId: outcome.invocationId!,
+      invocationId: outcome.invocationId,
       decision: "confirmed_not_applied",
     });
 

@@ -261,7 +261,7 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
 
     const firstManual = await createRun({
       userId,
-      workflowSlug: workflow!.slug,
+      workflowSlug: workflow.slug,
       brief: "Unapproved replacement brief.",
       trigger: { kind: "manual" },
       occurrence: {
@@ -272,7 +272,7 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
 
     const retriedManual = await createRun({
       userId,
-      workflowSlug: workflow!.slug,
+      workflowSlug: workflow.slug,
       brief: "Another unapproved replacement.",
       trigger: { kind: "manual" },
       occurrence: {
@@ -298,7 +298,7 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
 
     const terminalRetry = await createRun({
       userId,
-      workflowSlug: workflow!.slug,
+      workflowSlug: workflow.slug,
       trigger: { kind: "manual" },
       occurrence: {
         kind: "manual",

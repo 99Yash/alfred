@@ -206,7 +206,7 @@ describe("runtime.tool_load (single owner for every load path)", () => {
   test("a dispatcher inactive-bounce activation emits the same span through the shared owner (#414)", () => {
     // Same `runtime.tool_load` span as `system.load_tool`, so one count covers every activation.
     const { opened, ended } = capture(() =>
-      recordRoundToolActivation(bossRun, "calendar.list_events" as never, "inactive_bounce"),
+      recordRoundToolActivation(bossRun, "calendar.list_events", "inactive_bounce"),
     );
 
     assert.equal(opened[0]?.name, "runtime.tool_load");

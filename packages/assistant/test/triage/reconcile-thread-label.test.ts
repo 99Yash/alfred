@@ -71,8 +71,7 @@ function makeDeps(opts: {
     // Force the write gate on; under `NODE_ENV=test` it is off and every case ends `writes-disabled`.
     mailboxWritesEnabled: () => true,
     // The reconcile callback ignores the tx arg, so a dummy satisfies the type.
-    withThreadLock: ((_u, _t, fn) =>
-      fn(undefined as never)) as ReconcileThreadLabelDeps["withThreadLock"],
+    withThreadLock: (_u, _t, fn) => fn(undefined as never),
     getTriage: async () => opts.row,
     loadTriageContext: async (documentId: string) => {
       const sourceId = opts.docs[documentId];

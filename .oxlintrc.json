@@ -282,6 +282,13 @@
     // the narrowing); when absence is impossible, throw an `Error` that names the invariant; when it
     // is possible, handle it. Never trade `!` for `as T`. Tests and evals are staged in an override.
     "typescript/no-non-null-assertion": "error",
+    // no-unnecessary-type-assertion: an `as T` or `<T>` that does not change the type, an `as T`
+    // where the context already expects `T` and the value fits it, and a `!` on a value that is
+    // never null or undefined. Delete the assertion; when it was the only place a reader learned
+    // the type, annotate the binding or the return type instead. A `SAFETY:` comment that
+    // explained the deleted cast goes with it. It applies to every surface, tests, evals,
+    // scripts, and JavaScript included, with no override.
+    "typescript/no-unnecessary-type-assertion": "error",
     // Three more default rules that had hits, each driven to zero before it landed:
     // - unbound-method: a method read as a value loses `this`. Bind it or wrap it in an arrow;
     //   declare a member that never reads `this` as a function-typed property.

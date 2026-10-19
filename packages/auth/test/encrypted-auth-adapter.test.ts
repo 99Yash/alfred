@@ -112,7 +112,7 @@ function build() {
   const inner = recordingAdapter();
   const factory = encryptedAuthAdapter(() => inner.adapter, vault);
   // `betterAuth` passes its resolved options; the decorator does not read them.
-  const outer = factory({} as Parameters<typeof factory>[0]);
+  const outer = factory({});
 
   return { inner, outer };
 }

@@ -166,8 +166,7 @@ export function registerRecipe<S>(workflow: Workflow<S>): void {
     throw new Error(`[agent] workflow already registered: ${workflow.slug}`);
   }
 
-  // SAFETY: the registry stores every workflow type-erased to Workflow<unknown>.
-  registry.set(workflow.slug, workflow as Workflow<unknown>);
+  registry.set(workflow.slug, workflow);
 }
 
 export function getWorkflow(slug: string): Workflow<unknown> | undefined {

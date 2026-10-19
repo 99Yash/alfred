@@ -29,10 +29,10 @@ describe("Gmail watch mailbox-write gate (#278)", () => {
             throw new Error("stopWatch should not run");
           },
         }),
-        db: (() => {
+        db: () => {
           calls.db++;
           throw new Error("db should not run");
-        }) as never,
+        },
       },
     );
 

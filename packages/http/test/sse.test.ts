@@ -53,15 +53,17 @@ async function countingIntervals(fn: () => Promise<void> | void): Promise<{
   let cleared = 0;
 
   try {
-    globalThis.setInterval = ((...args: Parameters<typeof realSetInterval>) => {
+    globalThis.setInterval = (...args: Parameters<typeof realSetInterval>) => {
       armed += 1;
 
       return realSetInterval(...args);
-    }) as typeof globalThis.setInterval;
-    globalThis.clearInterval = ((handle?: Parameters<typeof realClearInterval>[0]) => {
+    };
+
+    globalThis.clearInterval = (handle?: Parameters<typeof realClearInterval>[0]) => {
       cleared += 1;
       realClearInterval(handle);
-    }) as typeof globalThis.clearInterval;
+    };
+
     await fn();
   } finally {
     globalThis.setInterval = realSetInterval;
@@ -348,7 +350,7 @@ describe("sseResponse", () => {
     const unreffed: boolean[] = [];
 
     try {
-      globalThis.setInterval = ((...args: Parameters<typeof realSetInterval>) => {
+      globalThis.setInterval = (...args: Parameters<typeof realSetInterval>) => {
         const handle = realSetInterval(...args);
         const realUnref = handle.unref.bind(handle);
         handle.unref = () => {
@@ -358,7 +360,7 @@ describe("sseResponse", () => {
         };
 
         return handle;
-      }) as typeof globalThis.setInterval;
+      };
 
       const res = sseResponse(() => {});
       await res.body?.cancel();

@@ -258,31 +258,30 @@ function run(args, options = {}) {
 
 {
   const { dir, statePath } = freshState(4);
+  /** @type {Promise<void>[]} */
   const adders = [];
   const adderCount = 8;
 
   for (let i = 0; i < adderCount; i += 1) {
     adders.push(
-      /** @type {Promise<void>} */ (
-        new Promise((resolveAdder) => {
-          const child = spawn(
-            process.execPath,
-            [
-              SCRIPT,
-              "add",
-              "--state",
-              statePath,
-              "--item-slug",
-              `follow-up-${i}`,
-              "--title",
-              `F${i}`,
-            ],
-            { env: { ...process.env, CAMPAIGN_STATE_SELFTEST_DELAY_MS: "80" }, stdio: "ignore" },
-          );
+      new Promise((resolveAdder) => {
+        const child = spawn(
+          process.execPath,
+          [
+            SCRIPT,
+            "add",
+            "--state",
+            statePath,
+            "--item-slug",
+            `follow-up-${i}`,
+            "--title",
+            `F${i}`,
+          ],
+          { env: { ...process.env, CAMPAIGN_STATE_SELFTEST_DELAY_MS: "80" }, stdio: "ignore" },
+        );
 
-          child.on("exit", () => resolveAdder());
-        })
-      ),
+        child.on("exit", () => resolveAdder());
+      }),
     );
   }
 
@@ -307,21 +306,20 @@ function run(args, options = {}) {
 {
   const { dir, statePath } = freshState(1);
   const lineCount = 8;
+  /** @type {Promise<void>[]} */
   const appends = [];
 
   for (let i = 0; i < lineCount; i += 1) {
     appends.push(
-      /** @type {Promise<void>} */ (
-        new Promise((resolveAppend) => {
-          const child = spawn(
-            process.execPath,
-            [SCRIPT, "note", "--state", statePath, `- [selftest] line ${i}`],
-            { env: { ...process.env, CAMPAIGN_STATE_SELFTEST_DELAY_MS: "60" }, stdio: "ignore" },
-          );
+      new Promise((resolveAppend) => {
+        const child = spawn(
+          process.execPath,
+          [SCRIPT, "note", "--state", statePath, `- [selftest] line ${i}`],
+          { env: { ...process.env, CAMPAIGN_STATE_SELFTEST_DELAY_MS: "60" }, stdio: "ignore" },
+        );
 
-          child.on("exit", () => resolveAppend());
-        })
-      ),
+        child.on("exit", () => resolveAppend());
+      }),
     );
   }
 

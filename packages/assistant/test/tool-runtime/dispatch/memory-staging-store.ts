@@ -9,7 +9,6 @@ import {
   type ActionStagingStatus,
   type CancellationFence,
   type RunStatus,
-  type ToolName,
 } from "@alfred/contracts";
 import type { ActionStaging } from "@alfred/db/schemas";
 
@@ -183,7 +182,7 @@ export function memoryStagingStore(): MemoryStagingStore {
         riskTier: values.riskTier,
         status: values.status ?? "pending",
         requiresApproval: values.requiresApproval,
-        toolName: values.toolName as ToolName,
+        toolName: values.toolName,
         proposedInput: values.proposedInput,
         displayInput: values.displayInput,
         proposedInputHash: values.proposedInputHash,

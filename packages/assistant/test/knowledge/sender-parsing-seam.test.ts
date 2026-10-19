@@ -31,7 +31,7 @@ function gmailDoc(
     metadata,
     accountId,
     sender: gmailSenderAdapter.authorship(metadata),
-  } as AuthorshipDocument;
+  };
 }
 
 describe("[campaign-04 seam] authoredByGmail — SENT-flag authorship via isSentGmailMetadata", () => {

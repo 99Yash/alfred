@@ -17,11 +17,11 @@ const realFetch = globalThis.fetch;
 
 function stubFetch(response: Response = new Response(null, { status: 200 })): RecordedFetchCalls {
   const calls: Array<{ input: string | URL | Request; init: RequestInit | undefined }> = [];
-  globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+  globalThis.fetch = (input: string | URL | Request, init?: RequestInit) => {
     calls.push({ input, init });
 
     return Promise.resolve(response);
-  }) as typeof fetch;
+  };
 
   return { calls };
 }
@@ -44,7 +44,7 @@ describe("authedFetch", () => {
     assert.equal(init?.method, "GET");
     assert.deepEqual(init.headers, { Authorization: "Bearer tok", Accept: "application/json" });
     assert.equal(init.body, undefined);
-    assert.equal("Content-Type" in (init!.headers as Record<string, string>), false);
+    assert.equal("Content-Type" in (init.headers as Record<string, string>), false);
   });
 
   test("a write: JSON-encodes the body and adds Content-Type without clobbering profile headers", async () => {
@@ -73,7 +73,7 @@ describe("authedFetch", () => {
     );
     const { init } = calls[0]!;
     assert.equal(init?.body, JSON.stringify(null));
-    assert.equal((init!.headers as Record<string, string>)["Content-Type"], "application/json");
+    assert.equal((init.headers as Record<string, string>)["Content-Type"], "application/json");
   });
 
   test("redirect defaults to follow and is overridable to manual", async () => {

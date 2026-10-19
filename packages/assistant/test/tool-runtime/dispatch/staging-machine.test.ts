@@ -542,7 +542,7 @@ describe("dispatch staging machine (DB-free)", () => {
       ...input,
     });
 
-    store.decide(row!.id, { status: "approved" });
+    store.decide(row.id, { status: "approved" });
     const resumed = await dispatchToolCall(args);
     assert.equal(resumed.kind, "executed");
     assert.equal(executeCount, 1);

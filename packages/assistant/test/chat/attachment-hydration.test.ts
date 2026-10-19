@@ -46,7 +46,7 @@ function storedImage(storageKey: string, byteSize?: number): StoredImageRecord {
 }
 
 function userMessage(content: unknown): AgentTranscriptMessage {
-  return { role: "user", content } as AgentTranscriptMessage;
+  return { role: "user", content };
 }
 
 function readerFor(objects: Record<string, Uint8Array>): StoredObjectReader {

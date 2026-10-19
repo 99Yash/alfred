@@ -68,7 +68,7 @@ describe("conversation summary generator", () => {
 
   test("rejects a fabricated source before the caller can persist it", async () => {
     const fabricated = validSummary();
-    fabricated.instructions[0]!.sources[0]!.id = "msg_invented";
+    fabricated.instructions[0].sources[0].id = "msg_invented";
     await assert.rejects(
       generateConversationSummary(
         { evidence, attribution: { userId: "user_1", runId: "run_1" } },
@@ -102,7 +102,7 @@ describe("conversation summary generator", () => {
         {
           evidence: {
             ...evidence,
-            messages: [...evidence.messages, evidence.messages[0]!],
+            messages: [...evidence.messages, evidence.messages[0]],
           },
           attribution: { userId: "user_1" },
         },
@@ -123,7 +123,7 @@ describe("conversation summary generator", () => {
   test("retries malformed primary output once, then falls back", async () => {
     const routes: string[] = [];
     const fabricated = validSummary();
-    fabricated.instructions[0]!.sources[0]!.id = "msg_invented";
+    fabricated.instructions[0].sources[0].id = "msg_invented";
 
     const summary = await generateConversationSummary(
       { evidence, attribution: { userId: "user_1" } },

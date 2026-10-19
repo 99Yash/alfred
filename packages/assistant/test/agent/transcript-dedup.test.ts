@@ -21,7 +21,7 @@ function toolMessage(...toolCallIds: string[]): AgentTranscriptMessage {
       toolName: "gmail.send_draft",
       output: { type: "json", value: { status: "invalid_input" } },
     })),
-  } as AgentTranscriptMessage;
+  };
 }
 
 describe("isSynthesizedToolDup", () => {
@@ -39,19 +39,10 @@ describe("isSynthesizedToolDup", () => {
 
   test("ignores non-tool messages and empty content", () => {
     assert.equal(
-      isSynthesizedToolDup(
-        { role: "assistant", content: "hi" } as AgentTranscriptMessage,
-        new Set(["tc_1"]),
-      ),
+      isSynthesizedToolDup({ role: "assistant", content: "hi" }, new Set(["tc_1"])),
       false,
     );
-    assert.equal(
-      isSynthesizedToolDup(
-        { role: "tool", content: [] } as AgentTranscriptMessage,
-        new Set(["tc_1"]),
-      ),
-      false,
-    );
+    assert.equal(isSynthesizedToolDup({ role: "tool", content: [] }, new Set(["tc_1"])), false);
   });
 });
 
@@ -62,7 +53,7 @@ describe("appendModelResponseMessages", () => {
     const assistant: AgentTranscriptMessage = {
       role: "assistant",
       content: [{ type: "tool-call", toolCallId: "tc_1", toolName: "gmail.send_draft", input: {} }],
-    } as AgentTranscriptMessage;
+    };
 
     const messages = [assistant, toolMessage("tc_1")];
 

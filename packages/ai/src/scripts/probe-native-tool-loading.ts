@@ -183,15 +183,14 @@ function buildFunctionTools(): ToolSet {
 
 function withNativeSearchTool(tools: ToolSet, provider: ProviderId): ToolSet {
   if (provider === "anthropic") {
-    // SAFETY: `ToolSet` widens a provider tool's input to `never`; this is one tool under its key.
     return {
       ...tools,
       [NATIVE_SEARCH_KEY]: anthropic.tools.toolSearchBm25_20251119(),
-    } as ToolSet;
+    };
   }
 
   if (provider === "openai") {
-    // SAFETY: same `never` input widening as above.
+    // SAFETY: `ToolSet` widens this provider tool's input to `never`; this is one tool under its key.
     return {
       ...tools,
       [NATIVE_SEARCH_KEY]: openai.tools.toolSearch({ execution: "server" }),

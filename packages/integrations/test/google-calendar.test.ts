@@ -13,14 +13,14 @@ const CREATE_ARGS = {
 async function capturedCreateEventUrl(attendees?: string[]): Promise<URL> {
   const realFetch = globalThis.fetch;
   let requestedUrl: URL | null = null;
-  globalThis.fetch = (async (input) => {
+  globalThis.fetch = async (input) => {
     requestedUrl = new URL(input instanceof Request ? input.url : input);
 
     return new Response(JSON.stringify({ id: "evt_test" }), {
       status: 200,
       headers: { "content-type": "application/json" },
     });
-  }) as typeof fetch;
+  };
 
   try {
     await createEvent({ ...CREATE_ARGS, attendees });

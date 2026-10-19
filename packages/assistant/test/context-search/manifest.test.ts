@@ -48,10 +48,7 @@ function recordingSource(manifest: RetrievalSourceManifest) {
   const source: ContextSource = defineContextSource({
     id,
     manifest: fragment,
-    // SAFETY: entries are built from manifest.read keys, so the record keys are capabilities by construction.
-    reads: Object.fromEntries(
-      manifest.read.map((capability) => [capability, handler] as const),
-    ) as ContextSource["reads"],
+    reads: Object.fromEntries(manifest.read.map((capability) => [capability, handler] as const)),
   });
 
   return { source, wasRead: () => read };

@@ -99,7 +99,7 @@ function recorder(args: {
       scheduleCalls.push(childRunId);
     },
     publish: async (event) => {
-      published.push({ kind: event.kind, payload: event.payload as Record<string, unknown> });
+      published.push({ kind: event.kind, payload: event.payload });
     },
   };
 

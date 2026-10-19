@@ -634,7 +634,7 @@ describe("McpRawClient catalog", () => {
                 "x-mcp-header": "tenant",
               },
             },
-          } as Tool["inputSchema"]),
+          }),
         ],
       },
     ]);
@@ -664,7 +664,7 @@ describe("McpRawClient catalog", () => {
             },
           },
           $ref: "#/$defs/result",
-        } as NonNullable<Tool["outputSchema"]>,
+        },
       },
     );
 
@@ -672,7 +672,7 @@ describe("McpRawClient catalog", () => {
     localProtocol.callResult = {
       content: [{ type: "text", text: "ok" }],
       structuredContent: [1, 2, 3],
-    } as McpProtocolCallResult;
+    };
     const localClient = makeClient(localProtocol);
     await localClient.connect();
     const catalog = await localClient.refreshCatalog();
@@ -704,7 +704,7 @@ describe("McpRawClient catalog", () => {
             "over_deep_local_ref",
             { type: "object", properties: {} },
             {
-              outputSchema: overDeep as NonNullable<Tool["outputSchema"]>,
+              outputSchema: overDeep,
             },
           ),
         ],
@@ -727,14 +727,14 @@ describe("McpRawClient catalog", () => {
             type: "object",
             properties: {},
             additionalProperties: true,
-          } as Tool["inputSchema"]),
+          }),
           tool("delete_repo", {
             $id: "x",
             type: "object",
             properties: { confirm: { const: true } },
             required: ["confirm"],
             additionalProperties: false,
-          } as Tool["inputSchema"]),
+          }),
         ],
       },
     ]);
@@ -750,7 +750,7 @@ describe("McpRawClient catalog", () => {
           tool("anchored", {
             type: "object",
             properties: { field: { $anchor: "a", type: "string" } },
-          } as Tool["inputSchema"]),
+          }),
         ],
       },
     ]);
@@ -1039,7 +1039,7 @@ describe("McpRawClient calls", () => {
     }> = [
       {
         name: "primitive",
-        outputSchema: { type: "string" } as NonNullable<Tool["outputSchema"]>,
+        outputSchema: { type: "string" },
         structuredContent: "ready",
       },
       {
@@ -1047,7 +1047,7 @@ describe("McpRawClient calls", () => {
         outputSchema: {
           type: "array",
           items: { type: "number" },
-        } as NonNullable<Tool["outputSchema"]>,
+        },
         structuredContent: [1, 2, 3],
       },
       {
@@ -1062,7 +1062,7 @@ describe("McpRawClient calls", () => {
       },
       {
         name: "null",
-        outputSchema: { type: "null" } as NonNullable<Tool["outputSchema"]>,
+        outputSchema: { type: "null" },
         structuredContent: null,
       },
     ];
@@ -1085,7 +1085,7 @@ describe("McpRawClient calls", () => {
       protocol.callResult = {
         content: [{ type: "text", text: fixture.name }],
         structuredContent: fixture.structuredContent,
-      } as McpProtocolCallResult;
+      };
       const client = makeClient(protocol);
       await client.connect();
       const catalog = await client.refreshCatalog();

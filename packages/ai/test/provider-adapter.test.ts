@@ -71,7 +71,7 @@ describe("provider turn protocol", () => {
     assert.deepEqual(call.providerOptions, { anthropic: { effort: "medium" } });
     assert.equal("alfredInternal" in (call.providerOptions ?? {}), false);
     assert.equal(call.tools?.[0]?.name, "system__search_tools");
-    assert.deepEqual(cacheControl(call.tools![0]!), { type: "ephemeral", ttl: "1h" });
+    assert.deepEqual(cacheControl(call.tools[0]), { type: "ephemeral", ttl: "1h" });
     assert.deepEqual(cacheControl(call.prompt[0]!), { type: "ephemeral", ttl: "1h" });
     assert.equal(cacheControl(call.prompt[1]!), undefined);
     assert.equal(cacheControl(call.prompt[2]!), undefined);
@@ -99,7 +99,7 @@ describe("provider turn protocol", () => {
       google: { thinkingConfig: { thinkingLevel: "medium" } },
     });
     assert.equal(call.tools?.[0]?.name, "system__search_tools");
-    assert.equal(cacheControl(call.tools![0]!), undefined);
+    assert.equal(cacheControl(call.tools[0]), undefined);
     assert.equal(cacheControl(call.prompt[0]!), undefined);
     assert.equal(cacheControl(call.prompt[1]!), undefined);
   });
@@ -120,7 +120,7 @@ describe("provider turn protocol", () => {
     assert.deepEqual(call.providerOptions, { openai: { reasoningEffort: "medium" } });
     assert.equal("alfredInternal" in (call.providerOptions ?? {}), false);
     assert.equal(call.tools?.[0]?.name, "system__search_tools");
-    assert.equal(cacheControl(call.tools![0]!), undefined);
+    assert.equal(cacheControl(call.tools[0]), undefined);
     assert.equal(cacheControl(call.prompt[0]!), undefined);
   });
 
@@ -131,11 +131,10 @@ describe("provider turn protocol", () => {
     await generateText({
       model,
       prompt: "hello",
-      // The SDK infers a provider tool's input as `never` inside `ToolSet`, so it needs this cast.
       tools: {
         ...tools,
         anthropic_tool_search: anthropic.tools.toolSearchBm25_20251119(),
-      } as ToolSet,
+      },
       providerOptions: attachProviderTurnPolicy(undefined, undefined),
     });
 
@@ -364,11 +363,10 @@ describe("provider turn protocol", () => {
     await generateText({
       model,
       prompt: "hello",
-      // SAFETY: the SDK infers a provider tool's input as `never` inside `ToolSet`.
       tools: {
         ...tools,
         google_search: google.tools.googleSearch({}),
-      } as ToolSet,
+      },
       providerOptions: attachProviderTurnPolicy(undefined, "1h"),
     });
 
