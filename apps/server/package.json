@@ -22,6 +22,7 @@
     "@alfred/extraction": "workspace:*",
     "@alfred/http": "workspace:*",
     "@alfred/integrations": "workspace:*",
+    "@alfred/logging": "workspace:*",
     "@alfred/mailer": "workspace:*",
     "@elysiajs/cors": "catalog:",
     "@elysiajs/node": "catalog:",

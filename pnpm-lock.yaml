@@ -193,6 +193,9 @@ importers:
       '@alfred/integrations':
         specifier: workspace:*
         version: link:../../packages/integrations
+      '@alfred/logging':
+        specifier: workspace:*
+        version: link:../../packages/logging
       '@alfred/mailer':
         specifier: workspace:*
         version: link:../../packages/mailer

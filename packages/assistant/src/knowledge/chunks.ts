@@ -9,14 +9,10 @@ import {
   type MemoryChunk,
   type NewMemoryChunk,
 } from "@alfred/db/schemas";
-import {
-  jsonObjectSchema,
-  memorySourceSchema,
-  parseMemorySourceOrDefault,
-  type MemorySource,
-} from "@alfred/contracts";
+import { jsonObjectSchema, memorySourceSchema, type MemorySource } from "@alfred/contracts";
 import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
+import { parseMemorySourceOrDefault } from "@alfred/assistant/settings";
 
 /** `memory_chunks.kind` values. The union derives from the tuple. */
 export const MEMORY_CHUNK_KINDS = [

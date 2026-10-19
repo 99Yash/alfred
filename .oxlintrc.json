@@ -712,6 +712,25 @@
       }
     },
     {
+      // no-console is at `error` for server and package source: a log line goes through the pino
+      // `logger` from `@alfred/logging`, whose `err` serializer drops free text and whose redact
+      // paths censor credentials. `console` bypasses both. `@alfred/db` sits below the logger
+      // (`@alfred/logging` imports it), so its four pool warnings keep `console` with a directive.
+      "files": ["apps/server/src/**", "packages/*/src/**"],
+      "rules": {
+        "no-console": "error"
+      }
+    },
+    {
+      // Scripts print to the operator's terminal on purpose: `console` is their user interface.
+      // The rule has no options, so `off` here exempts exactly this one concern.
+      // oxlint-disarm: no-console — ops scripts report to the terminal of the operator who runs them, not to the server log.
+      "files": ["apps/server/src/scripts/**", "packages/*/src/scripts/**"],
+      "rules": {
+        "no-console": "off"
+      }
+    },
+    {
       // no-unsafe-dictionary-type stays off ON PURPOSE in the honest-boundary
       // files below. Each carries dynamic dictionaries that are not debt per
       // the narrow-record-types decision table: the canonical guards and
