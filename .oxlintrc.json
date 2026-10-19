@@ -161,11 +161,12 @@
     // or write a ref in an effect or an event handler. A value that render reads belongs in state;
     // a mutable object that lives as long as the component is a lazy `useState(() => new Map())`.
     "react/refs": "error",
-    // Two default `correctness` rules had hits, so they stay off until a change drives each
-    // one to zero and sets it to `error`:
-    // - purity: an impure call (`Date.now()`, `Math.random()`) during render.
+    // purity: an impure call (`Date.now()`, `Math.random()`) during render, driven to zero before
+    // it landed. Read a clock in a lazy `useState` initializer, an effect or an event handler.
+    "react/purity": "error",
+    // One default `correctness` rule had hits, so it stays off until a change drives it to zero
+    // and sets it to `error`:
     // - set-state-in-effect: a `setState` called synchronously in an effect body.
-    "react/purity": "off",
     "react/set-state-in-effect": "off",
     // Type-aware rules. `options.typeAware` above runs them through oxlint-tsgolint (the tsgo
     // compiler, a root devDependency), so every oxlint invocation — `pnpm lint`, the edit-time
