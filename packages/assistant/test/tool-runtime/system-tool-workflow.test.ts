@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, test } from "node:test";
 
+import { parseIanaTimezone } from "@alfred/contracts";
 import {
   activateWorkflow,
   authorWorkflow,
@@ -9,24 +10,27 @@ import {
   type SystemToolWorkflowAdapter,
 } from "@alfred/assistant/tool-runtime";
 
-// The seam only forwards to the registered adapter, so placeholder inputs are enough.
-// eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
-const authorArgs = {
+import { asTestDouble } from "../support/test-double";
+
+type AuthorArgs = Parameters<typeof authorWorkflow>[0];
+
+type ActivateArgs = Parameters<typeof activateWorkflow>[0];
+
+// The seam only forwards to the registered adapter and reads no `input` field, so placeholder inputs are enough.
+const authorArgs: AuthorArgs = {
   userId: "user_1",
   runId: "run_1",
-  timezone: "America/New_York",
-  input: { name: "Inbox summary" },
-} as unknown as Parameters<typeof authorWorkflow>[0];
+  timezone: parseIanaTimezone("America/New_York"),
+  input: asTestDouble<AuthorArgs["input"]>({ name: "Inbox summary" }),
+};
 
 const recoverArgs = { userId: "user_1", workflowId: "wf_1", revisionId: "rev_1" };
 
-/* eslint-disable anti-slop/no-chained-type-assertions -- a hand-built fixture stands in for the full parameter type */
-const activateArgs = {
+const activateArgs: ActivateArgs = {
   userId: "user_1",
-  input: { workflowId: "wf_1" },
+  input: asTestDouble<ActivateArgs["input"]>({ workflowId: "wf_1" }),
   createdByRunId: "run_1",
-} as unknown as Parameters<typeof activateWorkflow>[0];
-/* eslint-enable anti-slop/no-chained-type-assertions */
+};
 
 let unregister: (() => void) | undefined;
 

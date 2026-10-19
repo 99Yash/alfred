@@ -13,7 +13,7 @@ import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
 import { formatDateGrounding } from "@alfred/assistant/execution/grounding";
 import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
-import type { GroundingTaskOutput } from "./lib/grounding";
+import { toolCallArgs, type GroundingTaskOutput } from "./lib/grounding";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
 
 // ADR-0071: the boss must use the structured GitHub fields, not free-typed search syntax.
@@ -109,8 +109,7 @@ evalite<string, GroundingTaskOutput, ExpectedGithubCall>("Agent GitHub grounding
 
     return {
       toolName: call?.toolName ?? null,
-      // SAFETY: diagnostic view of the tool-call input; `??` covers absence.
-      args: (call?.input as Record<string, unknown> | undefined) ?? null,
+      args: toolCallArgs(call?.input),
       text: result.text,
     };
   },
@@ -195,8 +194,7 @@ evalite<string, GroundingTaskOutput, null>("Agent GitHub LOC — no give-up", {
 
     return {
       toolName: call?.toolName ?? null,
-      // SAFETY: diagnostic view of the tool-call input; `??` covers absence.
-      args: (call?.input as Record<string, unknown> | undefined) ?? null,
+      args: toolCallArgs(call?.input),
       text: result.text,
     };
   },

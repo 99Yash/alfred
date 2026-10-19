@@ -5,6 +5,7 @@ import {
   calendarListEventsInput,
   gmailSearchInput,
   githubGetPullRequestInput,
+  isRecord,
 } from "@alfred/contracts";
 import { z } from "zod";
 import { normalizeToolInputKeys } from "../../../src/tool-runtime/internal/dispatch/normalize-keys";
@@ -56,8 +57,9 @@ describe("normalizeToolInputKeys", () => {
       gmailSearchInput,
     );
 
-    assert.equal((input as { maxResults?: number }).maxResults, 5);
-    assert.ok("max_results" in (input as object));
+    assert.ok(isRecord(input));
+    assert.equal(input.maxResults, 5);
+    assert.ok("max_results" in input);
     assert.deepEqual(renamed, []);
   });
 

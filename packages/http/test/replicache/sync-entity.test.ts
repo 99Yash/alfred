@@ -6,9 +6,10 @@ import type { DbTransaction } from "@alfred/db";
 import { SYNC_MODEL } from "@alfred/sync";
 
 import { syncEntity } from "../../src/sync/read/sync-entity";
+import { asTestDouble } from "../support/test-double";
 
-// SAFETY: the test queries ignore their transaction; this inert adapter reaches only the reader seam.
-const UNUSED_TX = {} as DbTransaction;
+// The test queries ignore their transaction; this inert adapter reaches only the reader seam.
+const UNUSED_TX = asTestDouble<DbTransaction>({});
 
 describe("syncEntity", () => {
   test("serializes Dates, strips server fields, and derives CVR fields", async () => {

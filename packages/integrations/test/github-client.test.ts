@@ -13,11 +13,11 @@ import { createGithubClient } from "../src/github/client";
 const realFetch = globalThis.fetch;
 
 function stubFetch(body: unknown, status = 200) {
-  const calls: { url: string; headers: Record<string, string> }[] = [];
+  const calls: { url: string; headers: Headers }[] = [];
   globalThis.fetch = (input: string | URL | Request, init?: RequestInit) => {
     calls.push({
       url: String(input instanceof Request ? input.url : input),
-      headers: (init?.headers ?? {}) as Record<string, string>,
+      headers: new Headers(init?.headers),
     });
 
     return Promise.resolve(
@@ -66,7 +66,7 @@ describe("github client auth", () => {
     await client().getIssue({ owner: "o", repo: "r", number: 7 });
     const call = calls[0];
     assert.ok(call);
-    assert.equal(call.headers.Authorization, "Bearer ghs_secret_token");
+    assert.equal(call.headers.get("Authorization"), "Bearer ghs_secret_token");
     // URLs reach logs and errors.
     assert.ok(!call.url.includes("ghs_secret_token"));
     assert.equal(call.url, "https://api.github.com/repos/o/r/issues/7");
@@ -91,9 +91,9 @@ describe("github client auth", () => {
     assert.equal(passthrough.slug, "github");
     assert.deepEqual(Object.keys(passthrough).sort(), ["execute", "slug"]);
     await passthrough.execute({ method: "GET", path: "/repos/o/r", query: {} });
-    assert.equal(calls[0]?.headers.Authorization, "Bearer ghs_secret_token");
-    assert.equal(calls[0].headers["X-GitHub-Api-Version"], "2022-11-28");
-    assert.equal(calls[0].headers["User-Agent"], "alfred-app");
+    assert.equal(calls[0]?.headers.get("Authorization"), "Bearer ghs_secret_token");
+    assert.equal(calls[0].headers.get("X-GitHub-Api-Version"), "2022-11-28");
+    assert.equal(calls[0].headers.get("User-Agent"), "alfred-app");
   });
 
   test("resolves per request — no client memoizes a credential", async () => {

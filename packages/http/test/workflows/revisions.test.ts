@@ -1,10 +1,9 @@
-/* oxlint-disable typescript/no-unsafe-assignment -- this file sits in the tsconfig.test.json typecheck baseline: `SealedCredentialSecret` is imported from a package that does not export it, so the type-aware rules read compiler error types. Delete this line with the baseline entry. */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 
-import type { SealedCredentialSecret, WorkflowRevisionDefinition } from "@alfred/contracts";
+import type { WorkflowRevisionDefinition } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import {
   agentRuns,
@@ -13,7 +12,7 @@ import {
   workflowRevisions,
   workflows,
 } from "@alfred/db/schemas";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import { runOnce } from "@alfred/assistant/execution/executor";
 import { createRun, findResumableRunIds, replayRun } from "@alfred/assistant/execution/service";
@@ -38,9 +37,11 @@ import { GOOGLE_SCOPE } from "@alfred/contracts";
 
 const SKIP = dbBackedSkip("database");
 
-/** The plaintext token the credential rows below are seeded with. It is not a sealed envelope. */
-// eslint-disable-next-line anti-slop/no-chained-type-assertions -- a plaintext test token stands in for a sealed envelope
-const UNSEALED_TEST_TOKEN = "test-token" as unknown as SealedCredentialSecret;
+/**
+ * The plaintext token the credential rows below are seeded with. It is not a sealed envelope.
+ * A bound SQL parameter writes the text as it is; the `SealedCredentialSecret` brand refuses a plain string.
+ */
+const UNSEALED_TEST_TOKEN = sql`${"test-token"}`;
 
 const createdUserIds: string[] = [];
 

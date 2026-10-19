@@ -54,7 +54,7 @@ describe("resolveCalendarListWindow", () => {
       maxResults: 10,
     });
 
-    assert.equal((parsed as { window?: string }).window, "today");
+    assert.equal(parsed.window, "today");
 
     const window = resolveCalendarListWindow(
       {
@@ -199,7 +199,7 @@ describe("calendarListEventsInput window-key synonyms", () => {
       const r = calendarListEventsInput.safeParse({ [key]: "tomorrow" });
       assert.equal(r.success, true);
 
-      assert.equal((r.data as { window?: string }).window, "tomorrow");
+      assert.equal(r.data.window, "tomorrow");
     });
   }
 
@@ -217,8 +217,8 @@ describe("calendarListEventsInput window-key synonyms", () => {
     const r = calendarListEventsInput.safeParse({ window: "tomorrow", partOfDay: "morning" });
     assert.equal(r.success, true);
 
-    assert.equal((r.data as { window?: string }).window, "tomorrow");
-    assert.equal((r.data as { partOfDay?: string }).partOfDay, "morning");
+    assert.equal(r.data.window, "tomorrow");
+    assert.equal(r.data.partOfDay, "morning");
   });
 
   test("still accepts the canonical window verbatim", () => {
@@ -228,16 +228,16 @@ describe("calendarListEventsInput window-key synonyms", () => {
 
   // Promotion is safe only while no other enum contains a window value like "today".
   test("no other declared field's enum overlaps the window value space", () => {
-    const json = z.toJSONSchema(calendarListEventsInput, { io: "input" }) as {
-      properties?: Record<string, { enum?: unknown[] }>;
-    };
+    const json = z.toJSONSchema(calendarListEventsInput, { io: "input" });
 
     const props = json.properties ?? {};
-    const windowValues = new Set(props.window?.enum ?? []);
+    const windowSchema = props.window;
+    const windowValues = new Set(typeof windowSchema === "object" ? (windowSchema.enum ?? []) : []);
     assert.ok(windowValues.size > 0, "window enum should be advertised");
 
+    // A boolean schema has no `enum`, so it cannot collide.
     for (const [key, schema] of Object.entries(props)) {
-      if (key === "window" || !Array.isArray(schema.enum)) continue;
+      if (key === "window" || typeof schema !== "object" || !Array.isArray(schema.enum)) continue;
 
       for (const value of schema.enum) {
         assert.ok(

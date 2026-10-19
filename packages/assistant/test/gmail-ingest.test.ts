@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
+import { getPath, getStringPath } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { unsealedTestSecret } from "./support/unsealed-secret";
 import { documents, ingestionState, integrationCredentials, user } from "@alfred/db/schemas";
@@ -89,9 +90,8 @@ async function loadCursor(credentialId: string): Promise<{
   const row = rows[0];
 
   if (!row) return null;
-  const state = row.state as { historyId?: string } | undefined;
 
-  return { historyId: state?.historyId, lastSyncAt: row.lastSyncAt };
+  return { historyId: getStringPath(row.state, "historyId"), lastSyncAt: row.lastSyncAt };
 }
 
 describe(
@@ -224,7 +224,7 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
     assert.ok(mailRow);
     assert.equal(job.documentId, mailRow.id);
     assert.equal(
-      (mailRow.metadata as Record<string, unknown>).mediaPending,
+      getPath(mailRow.metadata, "mediaPending"),
       true,
       "flag set at schedule time — a lost job is retried via the flagged-known pass",
     );
@@ -281,7 +281,7 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
     const clearedRow = await loadMailRow(userId, messageId);
     assert.ok(clearedRow);
     assert.equal(
-      (clearedRow.metadata as Record<string, unknown>).mediaPending,
+      getPath(clearedRow.metadata, "mediaPending"),
       undefined,
       "a clean job run clears the flag",
     );
@@ -416,7 +416,7 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
     const afterFail = await loadMailRow(userId, messageId);
     assert.ok(afterFail);
     assert.equal(
-      (afterFail.metadata as Record<string, unknown>).mediaPending,
+      getPath(afterFail.metadata, "mediaPending"),
       true,
       "failure keeps the flag so the next poll retries",
     );
@@ -519,7 +519,7 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
     // Embed failures are not flagged: `gmail.embed_sweep` recovers `gmail_attachment` rows.
     const mailRow = await loadMailRow(userId, messageId);
     assert.ok(mailRow);
-    assert.equal((mailRow.metadata as Record<string, unknown>).mediaPending, undefined);
+    assert.equal(getPath(mailRow.metadata, "mediaPending"), undefined);
 
     const sweepCandidates = await findUnembeddedDocumentIds({
       source: "gmail_attachment",

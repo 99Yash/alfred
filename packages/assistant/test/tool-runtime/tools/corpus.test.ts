@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { parseIanaTimezone } from "@alfred/contracts";
+import { getPath, parseIanaTimezone } from "@alfred/contracts";
 
 import { getTool } from "../../../src/tool-runtime/internal/registry";
 import { registerBuiltinTools } from "../../../src/tool-runtime/builtin-tools";
@@ -59,18 +59,13 @@ describe("system.corpus_search", () => {
       } satisfies Corpus,
     };
 
-    // SAFETY: this tool's execute builds `{ ok, query, hits }`.
-    const result = (await tool.execute({ query: "resume platform team" }, ctx)) as {
-      ok: boolean;
-      query: string;
-      hits: ModelFacingHit[];
-    };
+    const result = await tool.execute({ query: "resume platform team" }, ctx);
 
     // The tool passes no user: the bind in `toolExecuteContext` owns it.
     assert.deepEqual(seen, [{ query: "resume platform team" }]);
-    assert.equal(result.ok, true);
-    assert.equal(result.query, "resume platform team");
-    assert.deepEqual(result.hits, [hit]);
+    assert.equal(getPath(result, "ok"), true);
+    assert.equal(getPath(result, "query"), "resume platform team");
+    assert.deepEqual(getPath(result, "hits"), [hit]);
   });
 
   test("passes an empty result through as a valid answer", async () => {
@@ -90,13 +85,9 @@ describe("system.corpus_search", () => {
       } satisfies Corpus,
     };
 
-    // SAFETY: this tool's execute builds `{ ok, hits }`.
-    const result = (await tool.execute({ query: "nothing matches" }, ctx)) as {
-      ok: boolean;
-      hits: unknown[];
-    };
+    const result = await tool.execute({ query: "nothing matches" }, ctx);
 
-    assert.equal(result.ok, true);
-    assert.deepEqual(result.hits, []);
+    assert.equal(getPath(result, "ok"), true);
+    assert.deepEqual(getPath(result, "hits"), []);
   });
 });

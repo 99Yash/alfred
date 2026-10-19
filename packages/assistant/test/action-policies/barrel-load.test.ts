@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { mock } from "node:test";
 
 /**
  * Importing `@alfred/assistant/action-policies` reads no env, opens no Redis, and arms no timer.
@@ -36,28 +36,21 @@ function timerAndConnectionCounts(): Map<string, number> {
 
 /** Count timer arms, because `getActiveResourcesInfo()` does not report an unref'd timer. */
 async function withTimerArmsCounted(body: () => Promise<void>): Promise<string[]> {
-  const arms: string[] = [];
-  const real = { setInterval: globalThis.setInterval, setTimeout: globalThis.setTimeout };
-
-  // Generic, because `setTimeout` has a `__promisify__` member that `setInterval` lacks.
-  const counted = <F extends (...args: never[]) => unknown>(fn: F, kind: string): F =>
-    ((...args: Parameters<F>) => {
-      arms.push(kind);
-
-      return fn(...args);
-    }) as F;
-
-  globalThis.setInterval = counted(real.setInterval, "setInterval");
-  globalThis.setTimeout = counted(real.setTimeout, "setTimeout");
+  // Without an implementation, `mock.method` calls the real timer and records each call.
+  const intervals = mock.method(globalThis, "setInterval");
+  const timeouts = mock.method(globalThis, "setTimeout");
 
   try {
     await body();
   } finally {
-    globalThis.setInterval = real.setInterval;
-    globalThis.setTimeout = real.setTimeout;
+    intervals.mock.restore();
+    timeouts.mock.restore();
   }
 
-  return arms;
+  return [
+    ...intervals.mock.calls.map(() => "setInterval"),
+    ...timeouts.mock.calls.map(() => "setTimeout"),
+  ];
 }
 
 test("action-policies barrel loads with no database and no redis configured", async () => {

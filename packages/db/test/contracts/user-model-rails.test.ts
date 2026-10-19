@@ -18,7 +18,7 @@ import {
   projectionSyncState,
   user,
 } from "@alfred/db/schemas";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
@@ -461,7 +461,9 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
             fromEntityId: from,
             toEntityId: to,
             relationType: "reports_to",
-          } as never),
+            // The SQL `default` keyword, which Drizzle also writes for an omitted column.
+            validFrom: sql`default`,
+          }),
       { code: "23502", constraint: "valid_from" },
     );
 
@@ -680,7 +682,9 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
             id,
             userId,
             canonicalIdentity: { kind: "email", value: "no-first-seen@example.com" },
-          } as never),
+            // The SQL `default` keyword, which Drizzle also writes for an omitted column.
+            firstSeenAt: sql`default`,
+          }),
       // The 23502 message names the column.
       { code: "23502", constraint: "first_seen_at" },
     );
@@ -752,7 +756,9 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
             kind: "email",
             value: "no-valid-from@example.com",
             source: "gmail",
-          } as never),
+            // The SQL `default` keyword, which Drizzle also writes for an omitted column.
+            validFrom: sql`default`,
+          }),
       { code: "23502", constraint: "valid_from" },
     );
 
@@ -1022,7 +1028,8 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
             userId,
             projectionName: "user-model",
             projectionVersion: 1,
-            status: "bogus" as never,
+            // A value outside the status enum, as SQL text, so only the CHECK can reject it.
+            status: sql`'bogus'`,
           }),
       { code: "23514", constraint: "projection_runs_status_valid" },
     );

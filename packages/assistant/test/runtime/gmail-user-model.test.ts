@@ -17,6 +17,7 @@ import {
 import { createGmailUserModelHandler } from "../../src/runtime/adapters/gmail-user-model";
 import type { GmailDocumentForReduction } from "@alfred/assistant/knowledge";
 import { runGmailKindRefoldJob } from "../../src/connections/ingestion/queue";
+import { asContractViolation } from "../support/contract-violation";
 
 const captureRequest = {
   userId: "user-1",
@@ -126,8 +127,8 @@ describe("Gmail user-model composition seam", () => {
       NoGmailUserModelHandlerRegisteredError,
     );
 
-    // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
-    const invalidHandler = {
+    // The handler returns results outside the schema on purpose, to prove the runtime parse rejects them.
+    const invalidHandler = asContractViolation<GmailUserModelHandler>({
       async capture() {
         return { status: "unexpected" };
       },
@@ -137,7 +138,7 @@ describe("Gmail user-model composition seam", () => {
       async sweep() {
         return { enqueued: -1 };
       },
-    } as unknown as GmailUserModelHandler;
+    });
 
     const unregister = registerGmailUserModelHandler(invalidHandler);
 

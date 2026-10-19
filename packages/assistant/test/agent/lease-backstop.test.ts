@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 
+import { getPath } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { agentRuns, agentSteps, user } from "@alfred/db/schemas";
 import { and, eq, inArray, like } from "drizzle-orm";
@@ -103,7 +104,7 @@ describe("lease backstop (DB-backed)", { skip: SKIP }, () => {
       .where(and(eq(agentSteps.runId, runId), eq(agentSteps.attempt, 5)));
 
     assert.equal(orphan[0]?.status, "failed");
-    assert.equal((orphan[0].error as { reason?: string }).reason, "lease_reclaimed");
+    assert.equal(getPath(orphan[0].error, "reason"), "lease_reclaimed");
   });
 
   test("the 2nd reclaim still recovers (one prior reclaim, under the limit)", async () => {

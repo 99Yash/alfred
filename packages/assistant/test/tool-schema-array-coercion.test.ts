@@ -191,17 +191,20 @@ const FIXTURES = {
 
 /** Every array-typed top-level field, read from the model-facing JSON schema. */
 function discoverArrayFields(schema: z.ZodType): string[] {
-  const json = z.toJSONSchema(schema, { io: "input" }) as {
-    properties?: Record<string, { type?: unknown; anyOf?: { type?: unknown }[] }>;
-  };
+  const json = z.toJSONSchema(schema, { io: "input" });
 
   const props = json.properties ?? {};
 
+  // A boolean schema node has no `type` or `anyOf`, so it is never an array field.
   return Object.entries(props)
     .filter(([, v]) => {
       const isArray = (t: unknown) => t === "array" || (Array.isArray(t) && t.includes("array"));
 
-      return isArray(v.type) || (v.anyOf ?? []).some((b) => isArray(b.type));
+      if (typeof v !== "object") return false;
+
+      return (
+        isArray(v.type) || (v.anyOf ?? []).some((b) => typeof b === "object" && isArray(b.type))
+      );
     })
     .map(([k]) => k);
 }
@@ -262,16 +265,16 @@ describe("tool-schema array-field coercion (cross-integration)", () => {
       test(`${name}.${field}: model-facing schema still advertises an array`, () => {
         assert.ok(schema);
 
-        const json = z.toJSONSchema(schema, { io: "input" }) as {
-          properties?: Record<string, { type?: unknown; anyOf?: { type?: unknown }[] }>;
-        };
+        const json = z.toJSONSchema(schema, { io: "input" });
 
-        const prop = json.properties?.[field];
+        const node = json.properties?.[field];
+        // A boolean schema node advertises no type.
+        const prop = typeof node === "object" ? node : undefined;
 
         const advertisesArray =
           prop?.type === "array" ||
           (Array.isArray(prop?.type) && prop.type.includes("array")) ||
-          (prop?.anyOf ?? []).some((b) => b.type === "array");
+          (prop?.anyOf ?? []).some((b) => typeof b === "object" && b.type === "array");
 
         assert.ok(advertisesArray, `${field} must still be an array in the model-facing schema`);
       });

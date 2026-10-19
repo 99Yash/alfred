@@ -10,6 +10,7 @@ import {
   MUTED_BELOW,
   normalizeSubjectForRecurrence,
   scoreAttentionForItems,
+  typedKeys,
 } from "@alfred/contracts";
 
 /** Demanding-ness is a deterministic render property over the immutable category (ADR-0064). */
@@ -78,9 +79,7 @@ describe("attentionScore", () => {
   });
 
   test("score stays clamped to [0,1]", () => {
-    for (const category of Object.keys(
-      CATEGORY_BASE_DEMAND,
-    ) as (keyof typeof CATEGORY_BASE_DEMAND)[]) {
+    for (const category of typedKeys(CATEGORY_BASE_DEMAND)) {
       const r = attentionScore({
         category,
         significanceBand: "weak",

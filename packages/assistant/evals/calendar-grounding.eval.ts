@@ -8,7 +8,7 @@ import { evalite } from "evalite";
 import { z } from "zod";
 import { formatRuntimeTimeGrounding } from "@alfred/assistant/execution/grounding";
 import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
-import type { GroundingTaskOutput } from "./lib/grounding";
+import { toolCallArgs, type GroundingTaskOutput } from "./lib/grounding";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
 
 // The boss must answer "today" or "this week" with the `window` / `partOfDay` fields.
@@ -105,8 +105,7 @@ evalite<string, GroundingTaskOutput, ExpectedCalendarCall>("Agent calendar groun
 
     return {
       toolName: call?.toolName ?? null,
-      // SAFETY: diagnostic view of the tool-call input; `??` covers absence.
-      args: (call?.input as Record<string, unknown> | undefined) ?? null,
+      args: toolCallArgs(call?.input),
       text: result.text,
     };
   },

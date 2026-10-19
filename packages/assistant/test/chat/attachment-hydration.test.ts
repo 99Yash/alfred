@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
+  getPath,
+  getStringPath,
   MAX_MODEL_ATTACHMENT_BYTES_PER_TURN,
   type AgentTranscriptMessage,
 } from "@alfred/contracts";
@@ -62,22 +64,19 @@ function readerFor(objects: Record<string, Uint8Array>): StoredObjectReader {
 function textParts(content: unknown): string[] {
   assert.ok(Array.isArray(content), "hydrated content should stay a parts array");
 
-  return content
-    .filter((part): part is { type: "text"; text: string } => {
-      return (
-        typeof part === "object" && part !== null && (part as { type?: unknown }).type === "text"
-      );
-    })
-    .map((part) => part.text);
+  return content.flatMap((part: unknown) => {
+    if (getPath(part, "type") !== "text") return [];
+    const text = getStringPath(part, "text");
+    assert.ok(text !== undefined, "a text part should carry a string text");
+
+    return [text];
+  });
 }
 
 function filePartCount(content: unknown): number {
   assert.ok(Array.isArray(content));
 
-  return content.filter(
-    (part) =>
-      typeof part === "object" && part !== null && (part as { type?: unknown }).type === "file",
-  ).length;
+  return content.filter((part: unknown) => getPath(part, "type") === "file").length;
 }
 
 describe("chat attachment hydration — per-turn byte budget", () => {

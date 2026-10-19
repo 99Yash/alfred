@@ -6,6 +6,7 @@ import {
   parseIanaTimezone,
   rememberInput,
   resolveTodoInput,
+  toMessage,
   type GmailSearchResult,
 } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
@@ -14,7 +15,7 @@ import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
 import { formatDateGrounding } from "@alfred/assistant/execution/grounding";
 import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
-import type { GroundingTaskOutput } from "./lib/grounding";
+import { toolCallArgs, type GroundingTaskOutput } from "./lib/grounding";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
 
 // #312: when the user describes a sender ("the recruiter") and asks to mute it, the boss must
@@ -289,16 +290,14 @@ evalite<string, GroundingTaskOutput, null>(
 
         return {
           toolName: call?.toolName ?? null,
-          // SAFETY: diagnostic view of the tool-call input; `??` covers absence.
-          args: (call?.input as Record<string, unknown> | undefined) ?? null,
+          args: toolCallArgs(call?.input),
           text: result.text,
         };
       } catch (err) {
         return {
-          // SAFETY: caught values here are this eval's own thrown Errors.
           toolName: null,
           args: null,
-          text: `ERROR: ${(err as Error).message}`,
+          text: `ERROR: ${toMessage(err)}`,
         };
       }
     },

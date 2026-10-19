@@ -4,6 +4,7 @@ import { describe, test } from "node:test";
 import { EVENT_KINDS } from "@alfred/contracts/events";
 
 import { sseResponse } from "../src/realtime/sse";
+import { asTestDouble } from "./support/test-double";
 
 // DB-free and env-free on purpose, like the two routes that use the primitive.
 
@@ -279,13 +280,13 @@ describe("sseResponse", () => {
     // A prototype check would treat it as sync and miss the rejection.
     let calls = 0;
 
-    // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
-    const foreign = {
+    // A foreign thenable has `then` only; the code under test must not read another member.
+    const foreign = asTestDouble<Promise<void>>({
       // eslint-disable-next-line unicorn/no-thenable -- the test subject IS a thenable from outside this realm
       then(_onFulfilled: (value: void) => void, onRejected: (reason: unknown) => void) {
         onRejected(new Error("foreign rejected"));
       },
-    } as unknown as Promise<void>;
+    });
 
     let outcome = "not read";
 

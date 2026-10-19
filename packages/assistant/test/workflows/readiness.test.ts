@@ -4,7 +4,7 @@ import { before, describe, test } from "node:test";
 import {
   EVENT_SOURCES,
   eventDeliveryAccounts,
-  type EventSource,
+  recordFromKeys,
   type IntegrationAvailabilitySnapshot,
   type ToolName,
   type WorkflowRevisionDefinition,
@@ -34,10 +34,7 @@ const HEALTHY_SOURCE: EventSourceHealth = { grain: "source", health: { healthy: 
 
 /** Every source healthy, except the entries given. */
 function healthMap(overrides: Partial<EventSourceHealthMap> = {}): EventSourceHealthMap {
-  // SAFETY: the keys come from EVENT_SOURCES; `Object.fromEntries` widens them to `string`.
-  const healthy = Object.fromEntries(
-    EVENT_SOURCES.map((source) => [source, HEALTHY_SOURCE]),
-  ) as Record<EventSource, EventSourceHealth>;
+  const healthy = recordFromKeys(EVENT_SOURCES, () => HEALTHY_SOURCE);
 
   return { ...healthy, ...overrides };
 }

@@ -11,6 +11,7 @@ import {
   storedCompactionPrefix,
   withEphemeralReference,
 } from "@alfred/assistant/chat/compaction/turn-context-guard";
+import { asTestDouble } from "../support/test-double";
 
 /**
  * `guardTurnContext` compacts only on the first turn or inside a tool burst.
@@ -24,26 +25,25 @@ const assistantMsg = (content: string): AgentTranscriptMessage => ({ role: "assi
 
 describe("guardTurnContext gate", () => {
   // These throw if touched, so a wrong compaction branch fails fast instead of hanging.
-  // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: source type is structurally incompatible with target
-  const explodingModel = new Proxy(
-    {},
+  // The double has no members: the proxy throws on every read.
+  const explodingModel: LanguageModel = new Proxy(
+    asTestDouble<Exclude<LanguageModel, string>>({}),
     {
       get() {
         throw new Error("model must not be resolved on the passthrough path");
       },
     },
-  ) as unknown as LanguageModel;
+  );
 
-  /* eslint-disable anti-slop/no-chained-type-assertions -- a throwing Proxy stands in for the tool set, which this path must never read */
-  const explodingTools = new Proxy(
+  // A throwing Proxy stands in for the tool set, which this path must never read.
+  const explodingTools = new Proxy<ToolSet>(
     {},
     {
       get() {
         throw new Error("tools must not be read on the passthrough path");
       },
     },
-  ) as unknown as ToolSet;
-  /* eslint-enable anti-slop/no-chained-type-assertions */
+  );
 
   const baseArgs = (over: { turnCount: number; inFlightTailStart: number }) => ({
     ...over,
@@ -135,7 +135,8 @@ describe("oversizedUserMessageSummaryMessage", () => {
   test("wraps the summary in a tagged, JSON-escaped, untrusted-user envelope", () => {
     const message = oversizedUserMessageSummaryMessage('id"with"quotes', "the summary");
     assert.equal(message.role, "user");
-    const content = message.content as string;
+    const content = message.content;
+    assert.ok(typeof content === "string", "the summary message has text content");
     assert.match(
       content,
       /^<oversized_user_message_summary source_message_id="id\\"with\\"quotes">/,

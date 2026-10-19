@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
 
-import { eventTypeName, rawEventTypeName } from "@alfred/contracts";
+import { eventTypeName, getPath, rawEventTypeName } from "@alfred/contracts";
 import { closeConnections, db, withDbSession } from "@alfred/db";
 import { unsealedTestSecret } from "../../support/unsealed-secret";
 import type { EventReceipt } from "@alfred/db/schemas";
@@ -553,16 +553,16 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
  * Uses `pg_locks`: inside the holder's open transaction, `pg_stat_activity` does not show the waiter.
  */
 async function waitUntilBlockedOn(client: {
-  query: (sql: string) => Promise<unknown>;
+  query: (sql: string) => Promise<{ rows: unknown[] }>;
 }): Promise<void> {
   const deadline = Date.now() + 10_000;
 
   while (Date.now() < deadline) {
-    const result = (await client.query(
+    const result = await client.query(
       "select exists (select 1 from pg_locks l where not l.granted and pg_backend_pid() = any (pg_blocking_pids(l.pid))) as blocked",
-    )) as { rows: { blocked: boolean }[] };
+    );
 
-    if (result.rows[0]?.blocked) return;
+    if (getPath(result.rows[0], "blocked") === true) return;
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
 

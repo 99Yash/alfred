@@ -20,11 +20,16 @@ function parseVersion(raw: string): [number, number, number] {
   const parts = raw.split("-")[0]?.split(".") ?? [];
   const [major, minor, patch] = parts.map((p) => Number.parseInt(p, 10));
   assert.ok(
-    Number.isInteger(major) && Number.isInteger(minor) && Number.isInteger(patch),
+    major !== undefined &&
+      minor !== undefined &&
+      patch !== undefined &&
+      Number.isInteger(major) &&
+      Number.isInteger(minor) &&
+      Number.isInteger(patch),
     `unparseable better-auth version: ${raw}`,
   );
 
-  return [major as number, minor as number, patch as number];
+  return [major, minor, patch];
 }
 
 function isAtLeast(actual: readonly number[], floor: readonly number[]): boolean {
@@ -43,8 +48,8 @@ describe("account linking (CVE-2026-53516)", () => {
     // Check every resolution: an older copy through another dependency is the failure.
     const lock = readFileSync(join(REPO_ROOT, "pnpm-lock.yaml"), "utf8");
 
-    const found = [...lock.matchAll(/^ {2}better-auth@(\d+\.\d+\.\d+[^(:\s]*)/gm)].map(
-      (m) => m[1] as string,
+    const found = [...lock.matchAll(/^ {2}better-auth@(\d+\.\d+\.\d+[^(:\s]*)/gm)].flatMap((m) =>
+      m[1] === undefined ? [] : [m[1]],
     );
 
     assert.ok(found.length > 0, "no better-auth resolution found in pnpm-lock.yaml");

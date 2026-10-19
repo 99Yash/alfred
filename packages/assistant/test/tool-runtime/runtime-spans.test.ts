@@ -16,10 +16,11 @@ import {
   startToolLoadSpan,
   startToolSearchSpan,
 } from "../../src/tool-runtime/internal/runtime-spans";
+import { asTestDouble } from "../support/test-double";
 
 // The batch summary reads only `.kind`.
 const result = (kind: ToolCallDispatchResult["kind"]): ToolCallDispatchResult =>
-  ({ kind }) as ToolCallDispatchResult;
+  asTestDouble<ToolCallDispatchResult>({ kind });
 
 interface CapturedSpans {
   opened: RuntimeSpanInput[];

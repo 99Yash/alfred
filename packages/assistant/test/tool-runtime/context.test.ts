@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { parseIanaTimezone } from "@alfred/contracts";
+import { parseIanaTimezone, typedKeys } from "@alfred/contracts";
 
 import { toolExecuteContext } from "../../src/tool-runtime/context";
 import type { ToolExecuteContextFields } from "../../src/tool-runtime/internal/registry";
@@ -13,7 +13,7 @@ import type { ToolExecuteContextFields } from "../../src/tool-runtime/internal/r
  * Providers are lazy, so this is env-free.
  */
 describe("toolExecuteContext", () => {
-  const fields: ToolExecuteContextFields = {
+  const fields = {
     runId: "run_1",
     scratchpadRunId: "run_1",
     stepId: "step_1",
@@ -22,12 +22,12 @@ describe("toolExecuteContext", () => {
     timezone: parseIanaTimezone("America/New_York"),
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
-  };
+  } satisfies ToolExecuteContextFields;
 
   test("returns every supplied field unchanged", () => {
     const ctx = toolExecuteContext(fields);
 
-    for (const key of Object.keys(fields) as (keyof ToolExecuteContextFields)[]) {
+    for (const key of typedKeys(fields)) {
       assert.deepEqual(ctx[key], fields[key], `field ${key} was rewritten`);
     }
   });

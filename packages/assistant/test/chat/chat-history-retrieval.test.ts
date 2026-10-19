@@ -5,8 +5,19 @@ import {
   CHAT_HISTORY_EXCERPT_CHARS,
   readChatHistory,
 } from "@alfred/assistant/chat/chat-history-retrieval";
+import type { ChatHistoryToolResult } from "@alfred/assistant/tool-runtime";
 
 const at = new Date("2026-07-12T00:00:00.000Z");
+
+/** The evidence of a found fetch. Any other result fails the test. */
+function foundEvidence(result: ChatHistoryToolResult) {
+  assert.ok(
+    result.mode === "fetch" && result.ok && result.found,
+    `expected a found fetch, got ${JSON.stringify(result)}`,
+  );
+
+  return result.result;
+}
 
 describe("current-thread chat history retrieval", () => {
   test("passes authenticated ownership scope to search and bounds results", async () => {
@@ -37,7 +48,8 @@ describe("current-thread chat history retrieval", () => {
       query: "deployment",
       limit: 2,
     });
-    assert.equal((result as { results: unknown[] }).results.length, 2);
+    assert.ok(result.mode === "search" && result.ok, "the search succeeds");
+    assert.equal(result.results.length, 2);
   });
 
   test("returns explicit truncation metadata and strips NUL characters", async () => {
@@ -58,8 +70,9 @@ describe("current-thread chat history retrieval", () => {
       },
     );
 
-    const content = (result as { result: { content: { text: string; truncated: boolean } } }).result
-      .content;
+    const evidence = foundEvidence(result);
+    assert.ok(evidence.kind === "message", "the fetch returns message evidence");
+    const { content } = evidence;
 
     assert.equal(content.text.includes("\u0000"), false);
     assert.equal(content.text.length, CHAT_HISTORY_EXCERPT_CHARS);
@@ -93,8 +106,10 @@ describe("current-thread chat history retrieval", () => {
       },
     );
 
-    assert.equal((result as { result: { id: string; sanitized: boolean } }).result.id, "call_1");
-    assert.equal((result as { result: { sanitized: boolean } }).result.sanitized, true);
+    const evidence = foundEvidence(result);
+    assert.ok(evidence.kind === "tool_call", "the fetch returns tool-call evidence");
+    assert.equal(evidence.id, "call_1");
+    assert.equal(evidence.sanitized, true);
   });
 
   test("returns a bounded attachment representation without leaking its storage key", async () => {
@@ -129,13 +144,12 @@ describe("current-thread chat history retrieval", () => {
     );
 
     assert.equal(JSON.stringify(result).includes("storageKey"), false);
-    assert.equal((result as { result: { messageId: string } }).result.messageId, "m1");
+    const evidence = foundEvidence(result);
+    assert.ok(evidence.kind === "attachment", "the fetch returns attachment evidence");
+    assert.equal(evidence.messageId, "m1");
 
-    const representation = (
-      result as {
-        result: { representation: { text: string; truncated: boolean; originalChars: number } };
-      }
-    ).result.representation;
+    const { representation } = evidence;
+    assert.ok(representation, "the attachment carries a representation excerpt");
 
     assert.equal(representation.text.length, CHAT_HISTORY_EXCERPT_CHARS);
     assert.equal(representation.truncated, true);

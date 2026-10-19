@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
 
+import { getPath } from "@alfred/contracts";
 import { closeConnections, db, rowsFromExecute } from "@alfred/db";
 import { CHAT_THREAD_ACTIVE_RUN_INDEX, agentRuns, chatThreads, user } from "@alfred/db/schemas";
 import { and, eq, inArray, sql } from "drizzle-orm";
@@ -80,11 +81,8 @@ async function countActiveThreadRuns(userId: string, threadId: string): Promise<
     .from(agentRuns)
     .where(and(eq(agentRuns.userId, userId), eq(agentRuns.workflowSlug, CHAT_TURN_WORKFLOW_SLUG)));
 
-  return rows.filter((r) => {
-    const meta = r.metadata as { threadId?: unknown } | null;
-
-    return meta?.threadId === threadId && !TERMINAL.has(r.status);
-  }).length;
+  return rows.filter((r) => getPath(r.metadata, "threadId") === threadId && !TERMINAL.has(r.status))
+    .length;
 }
 
 describe("per-thread turn concurrency guard (#488)", { skip: SKIP }, () => {

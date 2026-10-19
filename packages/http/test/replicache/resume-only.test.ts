@@ -15,6 +15,7 @@ import { handlePull } from "../../src/sync/pull";
 import { seedBuiltinWorkflowsForUser } from "@alfred/assistant/automation/seeder";
 import { closeRedis } from "@alfred/db/redis";
 import { dbBackedSkip } from "../support/db-backed";
+import { asTestDouble } from "../support/test-double";
 
 const RESUME_ONLY_SLUG = "retired-built-in";
 
@@ -46,14 +47,17 @@ describe("resume-only workflow run behavior", () => {
   });
 
   test("an existing persisted run can still resolve its registered workflow", async () => {
-    const rejectDatabaseAccess = new Proxy(
-      {},
-      {
-        get() {
-          throw new Error("registered workflow resolution must not access the database");
+    // Every member read throws, so the double holds no members and the case proves none is read.
+    const rejectDatabaseAccess = asTestDouble<AgentDbExecutor>(
+      new Proxy(
+        {},
+        {
+          get() {
+            throw new Error("registered workflow resolution must not access the database");
+          },
         },
-      },
-    ) as AgentDbExecutor;
+      ),
+    );
 
     const resolved = await resolveWorkflowForRun({
       userId: "persisted-run-owner",
@@ -78,14 +82,17 @@ describe("resume-only workflow run behavior", () => {
     _resetRegistryForTests();
     registerRecipe(workflow);
 
-    const rejectDatabaseAccess = new Proxy(
-      {},
-      {
-        get() {
-          throw new Error("resume-only rejection must not access persistence");
+    // Every member read throws, so the double holds no members and the case proves none is read.
+    const rejectDatabaseAccess = asTestDouble<AgentDbExecutor>(
+      new Proxy(
+        {},
+        {
+          get() {
+            throw new Error("resume-only rejection must not access persistence");
+          },
         },
-      },
-    ) as AgentDbExecutor;
+      ),
+    );
 
     await assert.rejects(
       createRun(

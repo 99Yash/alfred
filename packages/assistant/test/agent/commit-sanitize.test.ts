@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 
-import type { AgentTranscriptMessage } from "@alfred/contracts";
+import { getPath, type AgentTranscriptMessage } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { agentDecisionTraces, agentRuns, pendingActions, user } from "@alfred/db/schemas";
 import { eq, inArray, like } from "drizzle-orm";
@@ -209,9 +209,17 @@ describe("commit sanitizes executor jsonb sinks (DB-backed)", { skip: SKIP }, ()
       .from(pendingActions)
       .where(eq(pendingActions.runId, runId));
 
-    const payload = staged[0]?.payload as { body: string; nested: { x: string } } | undefined;
-    assert.equal(payload?.body, "stagedpayload", "NUL stripped from staged payload string");
-    assert.equal(payload.nested.x, "s", "lone surrogate stripped from nested staged value");
+    const payload = staged[0]?.payload;
+    assert.equal(
+      getPath(payload, "body"),
+      "stagedpayload",
+      "NUL stripped from staged payload string",
+    );
+    assert.equal(
+      getPath(payload, "nested", "x"),
+      "s",
+      "lone surrogate stripped from nested staged value",
+    );
 
     const tr = await db()
       .select({
@@ -239,12 +247,12 @@ describe("commit sanitizes executor jsonb sinks (DB-backed)", { skip: SKIP }, ()
     assert.ok(defaultTrace, "default trace row exists");
     assert.ok(secondaryTrace, "secondary trace row exists");
     assert.equal(
-      (defaultTrace.trace as { senderRelationship: string }).senderRelationship,
+      getPath(defaultTrace.trace, "senderRelationship"),
       "relpoison",
       "NUL stripped from the trace jsonb",
     );
     assert.equal(
-      (secondaryTrace.trace as { senderRelationship: string }).senderRelationship,
+      getPath(secondaryTrace.trace, "senderRelationship"),
       "secondarypoison",
       "lone surrogate stripped from the keyed trace jsonb",
     );
@@ -265,12 +273,8 @@ describe("commit sanitizes executor jsonb sinks (DB-backed)", { skip: SKIP }, ()
     const row = rows[0];
     assert.ok(row, "the run row exists");
     assert.equal(row.status, "completed", "the run reaches terminal success, never stuck running");
-    assert.equal((row.state as TestState).marker, "donestate", "NUL stripped from committed state");
-    assert.equal(
-      (row.output as { messageId: string }).messageId,
-      "msgid",
-      "NUL stripped from committed output",
-    );
+    assert.equal(getPath(row.state, "marker"), "donestate", "NUL stripped from committed state");
+    assert.equal(getPath(row.output, "messageId"), "msgid", "NUL stripped from committed output");
     const transcript = row.transcript;
     assert.equal(
       transcript[0]?.content,

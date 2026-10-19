@@ -22,9 +22,11 @@ function fakeRedis() {
     evalCalls,
     conn: {
       eval: async (_script: string, _numkeys: number, ...args: (string | number)[]) => {
-        const key = args[0] as string;
-        const amount = args[1] as number;
-        const ttl = args[2] as number;
+        const [key, amount, ttl] = args;
+        assert.ok(
+          typeof key === "string" && typeof amount === "number" && typeof ttl === "number",
+          "incrementExpiringCounter passes key, amount, ttl",
+        );
         evalCalls.push({ key, args });
         const next = (values.get(key) ?? 0) + amount;
         values.set(key, next);

@@ -8,6 +8,7 @@ import {
   standingInstructionTargetKey,
   SUPPRESSION_EFFECTS,
   standingInstructionValueSchema,
+  getStringPath,
   type MemorySource,
 } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
@@ -251,7 +252,15 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
     assert.ok(rows.every((row) => row.kind === "user_standing_instruction"));
     assert.ok(rows.every((row) => row.source === "user"));
 
-    const operations = rows.map((row) => (row.payload as { operation: string }).operation).sort();
+    const operations = rows
+      .map((row) => {
+        const operation = getStringPath(row.payload, "operation");
+        assert.ok(operation !== undefined, "each observation payload names its operation");
+
+        return operation;
+      })
+      .sort();
+
     assert.deepEqual(operations, ["edit", "forget", "remember"]);
   });
 
