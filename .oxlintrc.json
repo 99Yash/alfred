@@ -149,14 +149,16 @@
     "react/use-memo": "error",
     "react/void-dom-elements-no-children": "error",
     "react/void-use-memo": "error",
-    // Three default `correctness` rules had hits, so they stay off until a change drives each
+    // refs: a `ref.current` read or write during render, driven to zero before it landed. Read
+    // or write a ref in an effect or an event handler. A value that render reads belongs in state;
+    // a mutable object that lives as long as the component is a lazy `useState(() => new Map())`.
+    "react/refs": "error",
+    // Two default `correctness` rules had hits, so they stay off until a change drives each
     // one to zero and sets it to `error`:
     // - purity: an impure call (`Date.now()`, `Math.random()`) during render.
     // - set-state-in-effect: a `setState` called synchronously in an effect body.
-    // - refs: a `ref.current` read or write during render.
     "react/purity": "off",
     "react/set-state-in-effect": "off",
-    "react/refs": "off",
     // Type-aware rules. `options.typeAware` above runs them through oxlint-tsgolint (the tsgo
     // compiler, a root devDependency), so every oxlint invocation — `pnpm lint`, the edit-time
     // hook, the check:oxlint-config probe — reads types with no CLI flag to keep in step. A

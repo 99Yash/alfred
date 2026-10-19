@@ -167,22 +167,27 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   // Set by a completion; cleared once the head starts or fails for good.
   const [flushArmed, setFlushArmed] = useState(false);
   const busyAttemptsRef = useRef(0);
-  const prevShowStreamRef = useRef(showStream);
+  const prevShowStreamRef = useRef(false);
   const lastErrorStreamIdRef = useRef<string | null>(null);
   // Reset during render so the old thread's `showStream` cannot flush the new thread's queue.
   const [prevThreadId, setPrevThreadId] = useState(threadId);
 
   if (prevThreadId !== threadId) {
     setPrevThreadId(threadId);
-    prevShowStreamRef.current = false;
-    lastErrorStreamIdRef.current = null;
-    busyAttemptsRef.current = 0;
     setQueueSending(false);
     setFlushArmed(false);
     setQuote(null);
     setEditingQueuedId(null);
     setSteeringId(null);
   }
+
+  // The refs reset in an effect, because render may not write a ref. React runs the effects of
+  // one commit in order, so this runs before the flush effects below see the new thread.
+  useEffect(() => {
+    prevShowStreamRef.current = false;
+    lastErrorStreamIdRef.current = null;
+    busyAttemptsRef.current = 0;
+  }, [threadId]);
 
   const onSend = useCallback(
     async (text: string, files?: File[], artifactTargetId?: string): Promise<boolean> => {

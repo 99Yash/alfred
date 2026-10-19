@@ -143,13 +143,13 @@ export function Conversation({
   // A new user message jumps to the live edge, even from far up.
   // `followOutput` only pins near the bottom, so the jump is explicit. Skip the mount run.
   // The jump-button reset happens during render; through the effect, a stale button shows for a frame.
+  // The first render stores `lastUserId` as `prevLastUserId`, so the reset never runs on mount.
   const firstUserTurn = useRef(true);
   const [prevLastUserId, setPrevLastUserId] = useState(lastUserId);
 
   if (lastUserId !== prevLastUserId) {
     setPrevLastUserId(lastUserId);
-
-    if (!firstUserTurn.current) setShowJump(false);
+    setShowJump(false);
   }
 
   useEffect(() => {
@@ -488,7 +488,12 @@ function FeedFooter() {
   const {
     showStream,
     stream,
-    streamTimingRefs,
+    streamTimingRefs: {
+      thinking: thinkingRef,
+      reasoning: reasoningRef,
+      text: textRef,
+      done: doneRef,
+    },
     streamBodyRef,
     followUps,
     onFollowUp,
@@ -510,7 +515,7 @@ function FeedFooter() {
       {showStream && stream ? (
         <div key={`${stream.messageId}:${stream.runId}`} className="flex flex-col gap-2">
           {stream.reasoning.length > 0 || stream.reasoningActive ? (
-            <div ref={stream.reasoning.length > 0 ? streamTimingRefs.reasoning : undefined}>
+            <div ref={stream.reasoning.length > 0 ? reasoningRef : undefined}>
               <ReasoningSection
                 reasoning={stream.reasoning}
                 active={stream.reasoningActive}
@@ -541,12 +546,12 @@ function FeedFooter() {
 
           {stream.text.length > 0 ? (
             <div ref={streamBodyRef}>
-              <div ref={streamTimingRefs.text}>
+              <div ref={textRef}>
                 <AssistantMarkdown text={stream.text} streaming={!stream.done} />
               </div>
             </div>
           ) : shouldShowThinkingIndicator(stream) ? (
-            <div ref={streamTimingRefs.thinking}>
+            <div ref={thinkingRef}>
               <ThinkingIndicator />
             </div>
           ) : null}
@@ -572,7 +577,7 @@ function FeedFooter() {
             <CopyMessageButton content={stream.text} htmlRef={streamBodyRef} />
           ) : null}
 
-          {stream.done ? <span ref={streamTimingRefs.done} hidden /> : null}
+          {stream.done ? <span ref={doneRef} hidden /> : null}
         </div>
       ) : null}
     </div>
