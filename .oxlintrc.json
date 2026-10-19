@@ -60,7 +60,7 @@
     // - no-reflect-get: conflicts with Reflect.get for class instances
     // no-shape-in-symbol-names was dropped in #1149: a substring ban cannot tell
     // the credential `shape` field from the DayShape domain, so it is documented
-    // in docs/reference/code-style.md instead of enforced.
+    // in docs/reference/review-checklist.md instead of enforced.
     // allowInTypeGuards: `typeof` inside a `value is T` predicate is the predicate's
     // correct implementation, not the ad-hoc narrowing this rule exists to reject.
     "anti-slop/no-runtime-typeof": ["error", { "allowInTypeGuards": true }],
@@ -114,7 +114,7 @@
     "no-empty": "error",
     // no-useless-spread: oxlint's default set has it at `warn`, which `pnpm lint` does not
     // fail on. Its common hit here is `{ ...(x ? { k: x } : {}) }` with nothing else in the
-    // literal; pass the conditional itself (docs/reference/code-style.md §2).
+    // literal; pass the conditional itself (docs/reference/typescript.md).
     "unicorn/no-useless-spread": "error",
     // React rules, from the `react` plugin in `plugins` above. rules-of-hooks: a hook called
     // conditionally, in a loop, or outside a component or hook. exhaustive-deps: a value that a

@@ -5,7 +5,9 @@ this context, then a verdict. The subagents do the reading; only their reports c
 back. That is what keeps round 3 as cheap as round 1.
 
 The governing document is [`docs/reference/structural-review.md`](../../../docs/reference/structural-review.md).
-It is not summarized here — each brief tells its agent to read it. What is here is
+It is not summarized here — each brief tells its agent which part to read. Its worked
+examples are in `docs/reference/structural-review-exemplars.md`; an agent reads them
+only when a rule is not clear enough to apply. What is here is
 the part that document leaves to the reviewer: how to run it _harshly_, and what
 counts as done.
 
@@ -30,9 +32,10 @@ and a reviewer who has to guess the claim will review the diff's shape instead.
 
 > You are reviewing PR #<n> in worktree <path>, diff `<base>...HEAD`.
 >
-> Read `docs/reference/structural-review.md` in full, then run **only the up-pass**:
-> passes 1, 2, and the up half of 5. Do not run the code-style sweep — another agent
-> owns it.
+> Read `docs/reference/structural-review.md`: the motions, the domain map, the six
+> axes, required knowledge, the admission gates, and the summary pass. Then run
+> **only the up-pass**: passes 1, 2, and the up half of 5. Do not run the checklist
+> sweep — another agent owns it.
 >
 > The change claims this invariant: `<invariant>`. Its stated vocabulary ledger is:
 > `<ledger>`.
@@ -65,7 +68,8 @@ and a reviewer who has to guess the claim will review the diff's shape instead.
 
 > You are reviewing PR #<n> in worktree <path>, diff `<base>...HEAD`.
 >
-> Read `docs/reference/structural-review.md` in full, then run **only the
+> Read `docs/reference/structural-review.md`: the motions, the drilling-down
+> section, and the down half of the admission gates. Then run **only the
 > down-pass**: passes 1, 4, and the drilling-down section.
 >
 > The change claims this invariant: `<invariant>`.
@@ -95,19 +99,20 @@ and a reviewer who has to guess the claim will review the diff's shape instead.
 
 > You are reviewing PR #<n> in worktree <path>, diff `<base>...HEAD`.
 >
-> Run the bounded surface sweep from `docs/reference/code-style.md` across the
+> Run the bounded surface sweep from `docs/reference/review-checklist.md` across the
 > **authored** changed files. Classify first: authored sources get the sweep;
 > generated artifacts (lockfiles, generated SQL, snapshots) get _reconciled_ against
 > their source and the intended delta — did generation emit only what was intended,
 > is the resolution expected, is any operation destructive or reordered — and are
 > never style-reviewed.
 >
-> Read `docs/reference/code-asserts.md` too. It maps every assert in
-> `code-style.md` to the tier that already enforces it — which rows are `pnpm check`
-> gates and which stay review judgment. You need it in both directions: do NOT report
-> a violation of an already-ratcheted rule as a finding, and when you add a rule to
-> `code-style.md`, add its row to `code-asserts.md` so the next reader knows whether
-> to write a check or to write a checklist item.
+> The checklist holds only the rules that no gate enforces. Every gate rule is in
+> `docs/reference/enforced-rules.md`, which a script generates. Do NOT report a
+> violation of a rule in that catalog as a finding: `pnpm check` already fails on
+> it. When a finding names a new review rule, propose a checklist line and a queue
+> row in `docs/reference/gate-design.md`. When the PR adds a gate rule, check that
+> it deleted the matching checklist line and queue row, and that it ran
+> `pnpm rules:catalog`.
 >
 > Also run `pnpm check && pnpm check-types` (the former does not typecheck) and
 > report anything they flag that the PR did not fix.

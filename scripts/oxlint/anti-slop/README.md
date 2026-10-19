@@ -58,7 +58,7 @@ and never had any).
 281 violations in the tree with all 281 under the test/eval exemption and 0 in
 product source: a rule enforced on zero files is worse than no rule, because it
 reads as a live invariant while protecting nothing. The `SAFETY:` convention it
-asked for lives on as review judgment (`docs/reference/code-style.md`), and the
+asked for lives on as review judgment (`docs/reference/review-checklist.md`), and the
 rule's history — the first promotion after a by-surface scoping, 12
 product-source sites driven to zero — stays recorded in
 `docs/research/anti-slop-paydown-2026-09-12.md`.
@@ -120,7 +120,7 @@ genuine target (the credential `shape` field in
 `day_shape` / `gatherDayShape`, the real product value behind the
 `get_day_shape` tool) or test-helper noise (`nestedShapeFailures`,
 `isCodeShaped`). The naming preference lives in
-`docs/reference/code-style.md` instead of in a rule.
+`docs/reference/review-checklist.md` instead of in a rule.
 
 Two newer upstream rules are simply not adopted yet, not rejected on conflict:
 `no-array-filter-map` and `no-reduce-accumulator-copy`. Both are performance rules

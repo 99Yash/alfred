@@ -14,7 +14,7 @@
 // The rules are intentionally narrow and greppable — they catch the
 // mechanically detectable shapes (T1 rebuilt oracle, T4 position==index).
 // The broader judgment (literal pin without `why`, existence-only, mock-count
-// without wire assert) stays in `docs/reference/code-style.md` §5 and review.
+// without wire assert) stays in `docs/reference/review-checklist.md` and review.
 
 /**
  * @typedef {object} TautologyRule

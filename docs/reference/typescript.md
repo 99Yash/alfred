@@ -2,7 +2,7 @@
 
 - TypeScript is pinned through the workspace catalog and every workspace declaration must use `"typescript": "catalog:"`. Keeping one compiler version avoids duplicate peer-instantiated library types.
 - All packages use `"moduleResolution": "bundler"` and `"verbatimModuleSyntax": true`. Use `import type` for type-only imports.
-- `exactOptionalPropertyTypes` is on for **every workspace** (#552): `k?: T` accepts _absent or `T`_, never a present `undefined`. See [code style](./code-style.md) for which spelling to declare and how to satisfy third-party types that cannot be widened.
+- `exactOptionalPropertyTypes` is on for **every workspace** (#552): `k?: T` accepts _absent or `T`_, never a present `undefined`. See [`exactOptionalPropertyTypes`](#exactoptionalpropertytypes) below for which spelling to declare and how to satisfy third-party types that cannot be widened.
 - The flag is set in `tsconfig.base.json`, so it applies to anything a `tsconfig` compiles — and that now includes test code. **Every package or app that holds a `test/` directory also holds a `tsconfig.test.json`**, and its `check-types` script runs that project as a second `tsc -p` pass after the composite `tsc -b`. The set is closed at **thirteen**: `ai`, `artifacts-design`, `assistant`, `auth`, `contracts`, `corpus`, `db`, `extraction`, `http`, `integrations`, `logging`, `sync`, and `apps/web`. Each such project sets `include: ["src", "test"]`, so a file added anywhere under `test/` joins the program with no edit. The second pass is a **separate project** rather than a widened `include` because each base `tsconfig.json` is `composite: true` with `rootDir: "src"`, so `test` cannot simply be appended. **Four** projects still carry debt: `packages/assistant/tsconfig.test.json`, `packages/db/tsconfig.test.json`, `packages/http/tsconfig.test.json` and `packages/integrations/tsconfig.test.json` each `exclude` a baseline of files that are not yet clean, and `pnpm check:test-typecheck-baseline` holds those lists to set equality so a baseline can only shrink. That script prints both counts on every run (`13 test projects, 37 baselined file(s): …`), so read its output rather than this sentence when they disagree.
 - The root `tsconfig.json` is a solution file (`"files": []`) whose `references` list every `tsconfig.test.json` and `tsconfig.eval.json`, so the type-aware lint reads test and eval files in their real program; `check-types` never reads it, and `pnpm check:oxlint-config` fails when the list and the git-listed projects differ in either direction.
 - `apps/web` uses `tsc --noEmit` for type-checking (not `tsc -b`) — it's a leaf node, not a composite project.
@@ -10,6 +10,36 @@
 - Workspace packages export TS source directly (`./src/index.ts`), so `pnpm check-types` works on a fresh tree without a prior build.
 - Private workspace packages build declarations directly with native `tsc -b --emitDeclarationOnly --force`; they do not bundle their source. `tsdown` is reserved for the production server, where it bundles workspace source and committed operational scripts into plain Node.js output.
 - When reading unfamiliar library APIs, inspect type definitions in `node_modules/.pnpm/*/node_modules/<pkg>/dist/*.d.ts` — do not guess from old docs or training data.
+
+## `exactOptionalPropertyTypes`
+
+The flag makes each declaration say whether a field accepts `undefined`. `k?: T` means absent or a `T`. `k?: T | undefined` also accepts an explicit `undefined`. Choose one when you declare an optional field.
+
+- Write `k?: T | undefined` when absent and present-`undefined` mean the same thing to every consumer. Examples: a defaulted parameter (`args.method ?? "GET"`), a field that a truthiness check guards, React props, a metric that the provider may not report, and a shape from `z.optional()` (`z.infer` always gives `| undefined`).
+- Keep `k?: T` when absence has a meaning. The caller then omits the key with a conditional spread: `{ ...(x ? { k: x } : {}) }`. Example: a Drizzle insert walks `Object.keys`, so a present `undefined` binds `NULL` where an absent key takes the column `DEFAULT`.
+- Do not spread overrides over defaults (`{ ...DEFAULT_POLICY, ...options.policy }`). A present `undefined` then replaces a default. Use `withDefaults(defaults, overrides)` from `@alfred/contracts`, which skips an override key whose value is `undefined`.
+- At a third-party boundary that you cannot widen (AI SDK call options, Langfuse payloads, Radix or cmdk props, `RequestInit`, BullMQ `JobsOptions`), omit the key with the conditional spread. Do not cast. Do not use `?? null` for a Langfuse upsert field: an absent key keeps the value, and `null` overwrites it.
+- When an object literal holds only the conditional, pass the conditional itself: `f(x ? { k: x } : {})`. `unicorn/no-useless-spread` rejects the wrapper.
+- After a derive replaces a literal type, delete the imports that the literal used. `noUnusedLocals` fails the build on them.
+
+## Type-aware lint
+
+`.oxlintrc.json` sets `options.typeAware`, so each oxlint run also runs the rules that need type information, through the `oxlint-tsgolint` root devDependency. A missing tsgolint binary fails the run. [enforced-rules.md](./enforced-rules.md) lists each rule, its options and its scope. The notes below tell how to satisfy the rules that need more than the rule name.
+
+- The rules read a test or eval file through the `tsconfig.test.json` or `tsconfig.eval.json` of its package (see the root `tsconfig.json` above). A file that a `tsconfig.test.json` excludes (the typecheck baseline) has compiler errors, and the rules report its error types as unsafe. Those files carry a directive that names the baseline. Delete the directive with the baseline entry.
+- `typescript/no-floating-promises`: the `node:test` registrars are known-safe calls, because the runner owns the promise.
+- `typescript/no-misused-promises`: mark a deliberate fire-and-forget with `() => void run()`. Put the cleanup of a script in a top-level `try` / `finally`, not in `.finally(async …)`.
+- `typescript/switch-exhaustiveness-check`: a `default` does not stand in for a missing member. A union switch names every member and ends in the `const _exhaustive: never` default (`considerDefaultExhaustiveForUnions` is off). A switch over an open `string` needs no `default`.
+- `typescript/restrict-template-expressions`: print a value that the compiler types as `never` in an exhaustive `default` with `String(value)`.
+- The `no-unsafe-*` rules: bind a value that a library types as `any` (`res.json()`, `JSON.parse`, `Reflect.get`, `signal.reason`, a computed `import()`) to `unknown`, then parse it at the boundary. Give a `.map` callback over SDK values a return type. `Array.isArray` on a `ReadonlyArray` or on `JsonValue` narrows each element to `any`: iterate the typed array, or use a guard that returns `readonly T[]`. JSON text becomes a `JsonValue` through `parseJsonText` or `safeJsonParse`. The rules are off for `.mjs`, `.js` and `.cjs`, where `noImplicitAny` is off.
+- `typescript/no-meaningless-void-operator`: keep `void` for a promise that you do not await. Delete it on a call that returns nothing.
+- `typescript/no-misused-spread`: split a string into code points with `Array.from(text)`. Do not use `.split("")`, which splits UTF-16 units.
+- `typescript/no-duplicate-type-constituents`: the rule also reports `| undefined` on an optional parameter. It does not report it on an optional property, where `exactOptionalPropertyTypes` makes it meaningful.
+- `typescript/require-array-sort-compare`: `ignoreStringArrays` stays on, so a `string[]` sorts by UTF-16 code unit. Pass `(a, b) => a - b` for numbers. For strings in code-unit order, pass `(a, b) => (a < b ? -1 : a > b ? 1 : 0)`. `localeCompare` changes the order and depends on the ICU data.
+- `typescript/unbound-method`: bind the method (`obj.method.bind(obj)`) or wrap it in an arrow. Declare an interface member that does not read `this` as a function-typed property (`readonly encode: (name: string) => string`).
+- `typescript/no-redundant-type-constituents`: write the wide type and put the intent in the doc comment, or derive the exact union. To keep editor completion in an open string, write `"a" | "b" | (string & {})`.
+- `typescript/no-base-to-string`: narrow the value at its boundary when it can only be a primitive. Otherwise choose the text: `toDisplayText` for a reader, `toMessage` for a caught error, `JSON.stringify` for a `JsonValue`.
+- `typescript/no-unnecessary-condition`: delete the guard when a real parse set the type (a zod schema, a Drizzle column, an SDK type, or a value built in the process). Keep the guard when the type is an assertion over data that nobody parsed (a `jsonb.$type<X>()` row older than `X`, an Eden treaty `data`, BullMQ `job.data`). Then fix the type, parse at the boundary, or add a directive that names the boundary. A field that a callback changes during an `await` stays narrowed: read it through a method call. `while (true)` stays legal.
 
 ## The `scripts/` program
 

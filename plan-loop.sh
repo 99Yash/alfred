@@ -119,7 +119,7 @@ keep building.
 2. Review the full diff of this loop's work: \`git diff $BASE_SHA...HEAD\` (and any
    uncommitted changes). Classify files as authored sources vs generated artifacts.
 3. Run the review as specified: orient, map the domain, look UP (structural
-   discovery via the six axes), sweep the surface (docs/reference/code-style.md),
+   discovery via the six axes), sweep the surface (docs/reference/review-checklist.md),
    and drill DOWN on the invariants that earn depth. Honor the forcing function:
    at least one up-observation, and a closed/broken/unproven conclusion for every
    claim that earned depth.
