@@ -86,7 +86,7 @@ export function useTodos(): TodosState {
         createdAt: new Date().toISOString(),
       });
     },
-    [rep, session?.user.id],
+    [rep, userId],
   );
 
   const completeTodo = useCallback(

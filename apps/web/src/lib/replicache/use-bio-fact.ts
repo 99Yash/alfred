@@ -70,7 +70,7 @@ export function useBioFact(): BioFactState {
         });
       }
     },
-    [rep, session?.user.id, bio],
+    [rep, userId, bio],
   );
 
   return {
