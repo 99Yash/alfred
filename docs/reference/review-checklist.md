@@ -21,8 +21,6 @@ Each rule has the rule, the reason, and an example.
   Why: a grab-bag file groups by syntax and hides the owner. See [schemas.md](./schemas.md#colocate-the-schema-with-its-type-caps-and-minting-logic).
 - **Keep a literal type only when it is a different concept, and say why in one comment.** A wire reshape is the usual case.
   Why: the next reviewer otherwise collapses it to the row type. Example: the `Synced*` read models in `packages/sync/src/schemas.ts`.
-- **Declare an explicit `any` only with a reason.** Use `unknown` and a guard from `@alfred/contracts`.
-  Why: `any` turns off every check downstream. Example: `isRecord` and `getPath` in `packages/contracts/src/guards.ts`.
 - **Choose the type of an open dictionary.** Use a parsed schema, a `Record` keyed by a literal union with `satisfies`, a `Map`, or `JsonValue`.
   Why: `Record<string, unknown>` is not a substitute for a parse. See [narrow-record-types](../research/narrow-record-types-2026-08-09.md).
 - **Use a guard, not a single `as`.** Remove the assertion and run `pnpm check-types` first. Keep a `SAFETY:` comment only for an assertion that stays necessary.
@@ -63,7 +61,7 @@ Each rule has the rule, the reason, and an example.
   Why: a retry must not repeat a side effect. Example: #576.
 - **Do not log a full error object. Log a message and safe fields, and mask PII.**
   Why: an error can carry a connection string or a token. Example: `toMessage` and `redactSecrets` in `packages/contracts/src/errors.ts`.
-- **Do not swallow a caught error.** Rethrow it, log it, or return a failure value.
+- **Do not swallow a caught error.** Rethrow it, log it, or return a failure value. `no-empty` fails only an empty `catch` body, so check a `catch` that has statements.
   Why: a silent `catch` hides the fault from the user and from the logs.
 - **Verify a webhook signature with a timing-safe compare on the raw body.**
   Why: a body parsed and serialized again breaks the HMAC. Example: `packages/integrations/src/shared/webhook.ts`.
@@ -86,16 +84,14 @@ Each rule has the rule, the reason, and an example.
 
 ## Frontend
 
-- **Clean up each subscription and timer in an effect. Check the dependency array. Do not set state after unmount.**
-  Why: a missing dependency gives a stale closure, and an extra one gives a loop. Example: `apps/web/src/routes/-chat/composer/use-composer-draft.ts`.
+- **Clean up each subscription and timer in an effect. Do not set state after unmount.**
+  Why: a subscription that stays open after unmount leaks, and its late callback writes stale state. Example: `apps/web/src/routes/-chat/composer/use-composer-draft.ts`.
 - **Render the loading, error, empty and populated states.**
   Why: an async surface without an empty or error branch is not finished. Example: `apps/web/src/routes/-approvals/approvals-page.tsx`.
 - **Guard browser-only APIs for SSR. Sanitize HTML before you inject it.**
   Why: a server render has no `window`. Example: `apps/web/src/lib/storage/storage.ts`.
 - **Show an error to the user.**
   Why: a failure that only reaches the console is a silent failure.
-- **Use a stable id as a React key, not an array index.**
-  Why: an index key attaches state to the wrong row after a reorder.
 - **Make each control keyboard-reachable. Add ARIA where it is necessary. Do not use color as the only signal.**
   Why: the surface must work without a mouse and without color.
 

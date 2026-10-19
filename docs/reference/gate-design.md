@@ -121,12 +121,9 @@ Each row is a rule from [review-checklist.md](./review-checklist.md), with the r
 
 | Rule (checklist section) | Mechanism | Feasibility |
 | --- | --- | --- |
-| Declare an explicit `any` only with a reason (Types) | Lint: `typescript/no-explicit-any`. About 12 sites, each a `ZodType` of `any` in `packages/assistant/src/tool-runtime/` | Medium |
 | Narrow instead of `!` (Types) | Lint: `typescript/no-non-null-assertion`. About 14 sites in `src` | Medium |
 | Use a guard, not a single `as` (Types) | Type-aware: `typescript/no-unnecessary-type-assertion`, then `typescript/no-unsafe-type-assertion`. Expect a large first count for the second | Medium, then Low |
 | `isRecord` and `getPath` only on `unknown` (Types) | Compiler: a closed-domain parameter that rejects an argument whose type is not `unknown` | Medium |
-| Stable React keys (Frontend) | Lint: `react/no-array-index-key`. Seven sites, some of them static skeletons | Medium |
-| Effect cleanup and dependencies (Frontend) | Lint: `react-hooks/exhaustive-deps` for the dependency array. Cleanup and unmount stay review | Medium |
 | Accessibility (Frontend) | Lint: the `jsx-a11y` plugin, one rule per change | Medium |
 | No query in a loop (Backend) | AST: a query on a `db()` or transaction handle awaited inside a loop body or an async `.map` | Medium |
 | Timeout and `abortSignal` (Backend) | AST: an AI SDK generate or stream call whose options have no `abortSignal` key | Medium |
@@ -137,7 +134,7 @@ Each row is a rule from [review-checklist.md](./review-checklist.md), with the r
 | Webhook signature on the raw body (Backend) | Compiler: the verifier takes a branded raw-body type that only the raw-body reader mints | Medium |
 | Pin one side of an equality assert (Tests) | AST: two calls of one callee inside one `assert.equal`. The regex row is a `hint` | Medium |
 | Existence-only assert; mock `calls.length` alone (Tests) | AST: a `test` block whose only assertions are of that kind | Medium |
-| Do not swallow a caught error (Backend) | AST: a `catch` that does not rethrow, log or return a failure value | Low |
+| Do not swallow a caught error (Backend) | AST: a `catch` with statements that does not rethrow, log or return a failure value. `no-empty` already fails an empty body | Low |
 | Name the clock of each timestamp (Backend) | Compiler: a brand for each clock. A wide migration for a rare bug | Low |
 | A literal pin needs a `why` (Tests) | An AST rule cannot tell a policy literal from a change detector | Low |
 | Derive row, schema and shared types (Types) | A correct derive depends on column traps and on intentional reshapes such as `Synced*`. A checker cannot separate a reshape from drift. `pnpm schemas:dupes` stays a discovery aid | Stays review |
@@ -151,6 +148,7 @@ Each row is a rule from [review-checklist.md](./review-checklist.md), with the r
 | One return value per state; a closed status map (Backend) | The compiler holds a map after someone writes it. To decide that one is necessary is design | Stays review |
 | Scripts call the live owner (Backend) | A copy compiles. `no-restricted-imports` already fences each `internal` door | Stays review |
 | Render every state; SSR guards; show an error to the user (Frontend) | Behavior, not shape | Stays review |
+| Effect cleanup and no state after unmount (Frontend) | `react/exhaustive-deps` checks the dependency array. Whether an effect owns a resource to release is behavior | Stays review |
 | Centralize logic only when copies change together (Constants) | `check:duplicates` finds copies. Whether they change together is judgment | Stays review |
 | Keep the reason of a suppression true (Process) | A check cannot read whether a reason is still true | Stays review |
 | Check the premise of an issue against data (Process) | Not a fact in the code | Stays review |

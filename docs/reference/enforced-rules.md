@@ -17,12 +17,50 @@ When you add, remove or change a rule in `.oxlintrc.json`, a JS plugin, `scripts
 
 | Rule | Type-aware | Scope | Options |
 | --- | --- | --- | --- |
+| [`import/default`](https://oxc.rs/docs/guide/usage/linter/rules/import/default.html) | no |  |  |
+| [`import/namespace`](https://oxc.rs/docs/guide/usage/linter/rules/import/namespace.html) | no |  |  |
+| [`import/no-cycle`](https://oxc.rs/docs/guide/usage/linter/rules/import/no-cycle.html) | no |  |  |
 | [`no-console`](https://oxc.rs/docs/guide/usage/linter/rules/eslint/no-console.html) | no | Only in `apps/web/src/**` | `{"allow":["error","warn"]}` |
+| [`no-empty`](https://oxc.rs/docs/guide/usage/linter/rules/eslint/no-empty.html) | no |  |  |
+| [`preserve-caught-error`](https://oxc.rs/docs/guide/usage/linter/rules/eslint/preserve-caught-error.html) | no |  |  |
+| [`react/error-boundaries`](https://oxc.rs/docs/guide/usage/linter/rules/react/error-boundaries.html) | no |  |  |
+| [`react/exhaustive-deps`](https://oxc.rs/docs/guide/usage/linter/rules/react/exhaustive-deps.html) | no |  |  |
+| [`react/forward-ref-uses-ref`](https://oxc.rs/docs/guide/usage/linter/rules/react/forward-ref-uses-ref.html) | no |  |  |
+| [`react/globals`](https://oxc.rs/docs/guide/usage/linter/rules/react/globals.html) | no |  |  |
+| [`react/immutability`](https://oxc.rs/docs/guide/usage/linter/rules/react/immutability.html) | no |  |  |
+| [`react/incompatible-library`](https://oxc.rs/docs/guide/usage/linter/rules/react/incompatible-library.html) | no |  |  |
+| [`react/jsx-key`](https://oxc.rs/docs/guide/usage/linter/rules/react/jsx-key.html) | no |  |  |
+| [`react/jsx-no-duplicate-props`](https://oxc.rs/docs/guide/usage/linter/rules/react/jsx-no-duplicate-props.html) | no |  |  |
+| [`react/jsx-no-undef`](https://oxc.rs/docs/guide/usage/linter/rules/react/jsx-no-undef.html) | no |  |  |
+| [`react/jsx-props-no-spread-multi`](https://oxc.rs/docs/guide/usage/linter/rules/react/jsx-props-no-spread-multi.html) | no |  |  |
+| [`react/no-array-index-key`](https://oxc.rs/docs/guide/usage/linter/rules/react/no-array-index-key.html) | no |  |  |
+| [`react/no-children-prop`](https://oxc.rs/docs/guide/usage/linter/rules/react/no-children-prop.html) | no |  |  |
+| [`react/no-danger-with-children`](https://oxc.rs/docs/guide/usage/linter/rules/react/no-danger-with-children.html) | no |  |  |
+| [`react/no-did-mount-set-state`](https://oxc.rs/docs/guide/usage/linter/rules/react/no-did-mount-set-state.html) | no |  |  |
+| [`react/no-did-update-set-state`](https://oxc.rs/docs/guide/usage/linter/rules/react/no-did-update-set-state.html) | no |  |  |
+| [`react/no-direct-mutation-state`](https://oxc.rs/docs/guide/usage/linter/rules/react/no-direct-mutation-state.html) | no |  |  |
+| [`react/no-find-dom-node`](https://oxc.rs/docs/guide/usage/linter/rules/react/no-find-dom-node.html) | no |  |  |
+| [`react/no-is-mounted`](https://oxc.rs/docs/guide/usage/linter/rules/react/no-is-mounted.html) | no |  |  |
+| [`react/no-render-return-value`](https://oxc.rs/docs/guide/usage/linter/rules/react/no-render-return-value.html) | no |  |  |
+| [`react/no-string-refs`](https://oxc.rs/docs/guide/usage/linter/rules/react/no-string-refs.html) | no |  |  |
+| [`react/no-this-in-sfc`](https://oxc.rs/docs/guide/usage/linter/rules/react/no-this-in-sfc.html) | no |  |  |
+| [`react/no-unsafe`](https://oxc.rs/docs/guide/usage/linter/rules/react/no-unsafe.html) | no |  |  |
+| [`react/no-will-update-set-state`](https://oxc.rs/docs/guide/usage/linter/rules/react/no-will-update-set-state.html) | no |  |  |
+| [`react/preserve-manual-memoization`](https://oxc.rs/docs/guide/usage/linter/rules/react/preserve-manual-memoization.html) | no |  |  |
+| [`react/refs`](https://oxc.rs/docs/guide/usage/linter/rules/react/refs.html) | no |  |  |
+| [`react/rules-of-hooks`](https://oxc.rs/docs/guide/usage/linter/rules/react/rules-of-hooks.html) | no |  |  |
+| [`react/set-state-in-render`](https://oxc.rs/docs/guide/usage/linter/rules/react/set-state-in-render.html) | no |  |  |
+| [`react/static-components`](https://oxc.rs/docs/guide/usage/linter/rules/react/static-components.html) | no |  |  |
+| [`react/use-memo`](https://oxc.rs/docs/guide/usage/linter/rules/react/use-memo.html) | no |  |  |
+| [`react/void-dom-elements-no-children`](https://oxc.rs/docs/guide/usage/linter/rules/react/void-dom-elements-no-children.html) | no |  |  |
+| [`react/void-use-memo`](https://oxc.rs/docs/guide/usage/linter/rules/react/void-use-memo.html) | no |  |  |
 | [`typescript/await-thenable`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/await-thenable.html) | yes |  |  |
 | [`typescript/consistent-type-imports`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/consistent-type-imports.html) | no |  | `{"disallowTypeAnnotations":false,"fixStyle":"inline-type-imports"}` |
 | [`typescript/no-array-delete`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-array-delete.html) | yes |  |  |
 | [`typescript/no-base-to-string`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-base-to-string.html) | yes |  |  |
+| [`typescript/no-deprecated`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-deprecated.html) | yes |  |  |
 | [`typescript/no-duplicate-type-constituents`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-duplicate-type-constituents.html) | yes |  |  |
+| [`typescript/no-explicit-any`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-explicit-any.html) | no |  |  |
 | [`typescript/no-floating-promises`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-floating-promises.html) | yes |  | `{"allowForKnownSafeCalls":[{"from":"package","package":"node:test","name":["describe","it","suite","test"]}]}` |
 | [`typescript/no-for-in-array`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-for-in-array.html) | yes |  |  |
 | [`typescript/no-implied-eval`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-implied-eval.html) | yes |  |  |
@@ -39,8 +77,10 @@ When you add, remove or change a rule in `.oxlintrc.json`, a JS plugin, `scripts
 | [`typescript/no-unsafe-return`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-unsafe-return.html) | yes | Off in `**/*.mjs`, `**/*.js`, `**/*.cjs` |  |
 | [`typescript/no-unsafe-unary-minus`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-unsafe-unary-minus.html) | yes |  |  |
 | [`typescript/no-useless-default-assignment`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-useless-default-assignment.html) | yes |  |  |
+| [`typescript/only-throw-error`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/only-throw-error.html) | yes |  | `{"allow":[{"from":"package","package":"@tanstack/router-core","name":["Redirect","NotFoundError"]}]}` |
 | [`typescript/require-array-sort-compare`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/require-array-sort-compare.html) | yes |  |  |
 | [`typescript/restrict-template-expressions`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/restrict-template-expressions.html) | yes |  |  |
+| [`typescript/return-await`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/return-await.html) | yes |  | `"error-handling-correctness-only"` |
 | [`typescript/switch-exhaustiveness-check`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/switch-exhaustiveness-check.html) | yes |  |  |
 | [`typescript/unbound-method`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/unbound-method.html) | yes |  |  |
 | [`unicorn/no-useless-spread`](https://oxc.rs/docs/guide/usage/linter/rules/unicorn/no-useless-spread.html) | no |  |  |
