@@ -214,6 +214,7 @@ function createSchemaValidator(): McpSchemaValidator {
       // SAFETY: the MCP SDK types a listed tool schema as an open object and the validator input as
       // `JsonSchemaType`; no guard can prove one from the other. Ajv compiles it, and a compile
       // error becomes `invalid_schema` at the caller.
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- an MCP SDK type gap; Ajv compiles the schema
       const schema = toolSchema as JsonSchemaType;
       const declaredSchema = "$schema" in schema ? schema.$schema : undefined;
 

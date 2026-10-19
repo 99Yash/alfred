@@ -38,6 +38,7 @@ export interface SanitizeResult<T = unknown> {
 export function sanitizeToolResult<T>(value: T): SanitizeResult<T> {
   // SAFETY: only string contents and keys change, so the shape holds. This needs
   // `isRecord` to reject Date, Map, and class instances so they pass through.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a generic walker that keeps the shape
   return sanitizeUnknown(value) as SanitizeResult<T>;
 }
 

@@ -44,5 +44,6 @@ function walk(value: unknown, path: readonly string[]): unknown {
 /** A copy of `value` with each matched path set to `[redacted]`. Never throws or mutates. */
 export function redactSensitiveLogPaths<T>(value: T): T {
   // SAFETY: `walk` keeps the shape; it only swaps matched values for a string.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a generic walker that keeps the shape
   return walk(value, []) as T;
 }

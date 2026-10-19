@@ -27,6 +27,7 @@ export const deliveryInstantSchema = z
   .regex(MICROSECOND_INSTANT, "expected a UTC instant of the form YYYY-MM-DDTHH:MM:SS.ffffffZ")
   .transform((value) => {
     // SAFETY: `value` matched MICROSECOND_INSTANT, the exact shape the brand names.
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the brand's mint, after the regex
     return value as DeliveryInstant;
   });
 

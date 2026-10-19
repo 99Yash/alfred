@@ -290,6 +290,15 @@
     // explained the deleted cast goes with it. It applies to every surface, tests, evals,
     // scripts, and JavaScript included, with no override.
     "typescript/no-unnecessary-type-assertion": "error",
+    // no-unsafe-type-assertion: an `as T` that narrows, so the compiler takes the claim on trust.
+    // Fix it in this order: delete the cast; parse the value at its owning boundary with the zod
+    // schema; narrow with a guard (`isRecord`, `getPath`, a `value is T` predicate); mint a brand
+    // in the one function that owns it. For object keys and entries use `typedKeys`,
+    // `typedEntries`, `recordFromKeys`, `pluckField`, and `hasEveryKey` from @alfred/contracts;
+    // for a test fake use the package's `asTestDouble`. A cast that stays (a brand mint, a generic
+    // walker, an SDK type gap) carries a per-site disable with its reason. It applies to every
+    // surface, tests, evals, scripts, and JavaScript included, with no override.
+    "typescript/no-unsafe-type-assertion": "error",
     // Three more default rules that had hits, each driven to zero before it landed:
     // - unbound-method: a method read as a value loses `this`. Bind it or wrap it in an arrow;
     //   declare a member that never reads `this` as a function-typed property.

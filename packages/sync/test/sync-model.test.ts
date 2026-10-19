@@ -18,6 +18,7 @@ function scanTransaction(
 ): Pick<ReadTransaction, "scan"> {
   return {
     // SAFETY: the model calls only the unindexed scan and values().toArray(), which this fake implements.
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a fake scan; the model calls only the unindexed overload
     scan: ((options?: { prefix?: string }) => {
       prefixes.push(options?.prefix ?? "");
 

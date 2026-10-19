@@ -52,6 +52,7 @@ export type AgentRunError = z.infer<typeof agentRunErrorSchema>;
 /** The only way to mint an {@link AgentRunError}: strip ADR-0070 poison and apply the cap. */
 export function boundAgentRunError(raw: string): AgentRunError {
   // SAFETY: sanitizeErrorMessage strips ADR-0070 poison and applies the cap, which is the brand.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the brand's only mint
   return sanitizeErrorMessage(raw, AGENT_RUN_ERROR_MAX) as AgentRunError;
 }
 

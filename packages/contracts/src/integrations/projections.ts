@@ -48,5 +48,6 @@ export const LIVE_PROVIDERS: readonly LiveProviderEntry[] = LIVE_PROVIDER_SLUGS.
   // SAFETY: each element is the member for its own slug. TypeScript cannot pair a spread of
   // `INTEGRATIONS[slug]` with the member for `slug`, even with a generic slug (a correlated union).
   (slug) =>
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a correlated union TypeScript cannot pair
     ({ slug, provider: credentialProviderOf(slug), ...INTEGRATIONS[slug] }) as LiveProviderEntry,
 );

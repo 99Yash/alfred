@@ -509,6 +509,7 @@ export function dispatcherRequester(dispatcher: Dispatcher): GuardedFetchRequest
     const withDispatcher: GuardedRequestInit & { dispatcher: unknown } = { ...init, dispatcher };
 
     // SAFETY: Node's fetch accepts undici's `dispatcher`; the DOM type only omits the key.
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the DOM RequestInit type omits undici's dispatcher
     return globalThis.fetch(input, withDispatcher as RequestInit);
   };
 }

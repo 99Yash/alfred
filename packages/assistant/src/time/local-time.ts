@@ -43,6 +43,7 @@ export function parseLocalDateKey(value: string): LocalDateKey {
   }
 
   // SAFETY: the regex and the round-trip above prove a real YYYY-MM-DD day.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the brand's mint, after the regex and the round-trip
   return value as LocalDateKey;
 }
 

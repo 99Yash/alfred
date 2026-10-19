@@ -121,7 +121,6 @@ Each row is a rule from [review-checklist.md](./review-checklist.md), with the r
 
 | Rule (checklist section) | Mechanism | Feasibility |
 | --- | --- | --- |
-| Use a guard, not a single `as` (Types) | Type-aware: `typescript/no-unsafe-type-assertion`. Expect a large first count | Low |
 | `isRecord` and `getPath` only on `unknown` (Types) | Compiler: a closed-domain parameter that rejects an argument whose type is not `unknown` | Medium |
 | Accessibility (Frontend) | Lint: the `jsx-a11y` plugin, one rule per change | Medium |
 | No query in a loop (Backend) | AST: a query on a `db()` or transaction handle awaited inside a loop body or an async `.map` | Medium |
@@ -139,7 +138,7 @@ Each row is a rule from [review-checklist.md](./review-checklist.md), with the r
 | Derive row, schema and shared types (Types) | A correct derive depends on column traps and on intentional reshapes such as `Synced*`. A checker cannot separate a reshape from drift. `pnpm schemas:dupes` stays a discovery aid | Stays review |
 | Shape in the file that mints it; constants at the narrowest owner (Types, Constants) | Placement follows ownership, not file type. A file-exists gate or a literal ban fires on correct code | Stays review |
 | Name a constant; a constants file only when values couple (Constants) | `42` and `EMPTY_COMPLETION_MAX_RETRIES = 42` depend on context. A literal ban fires on simple arithmetic | Stays review |
-| `SAFETY:` note in a test (Tests) | An ordinary comment, not a directive, so the unused-directive check has nothing to read | Stays review |
+| The reason of a `SAFETY:` note or a directive stays true (Tests) | The unused-directive check reads whether a directive suppresses a report, not its reason text | Stays review |
 | Name a symbol for its domain role (Types) | A substring ban cannot tell a credential `shape` field from `DayShape` (#1149) | Stays review |
 | Choose `k?: T` or `k?: T \| undefined` (Types) | The choice depends on what each consumer does with absence | Stays review |
 | Transactions, idempotency, pagination, route auth (Backend) | Each needs knowledge of intent that the code does not state | Stays review |

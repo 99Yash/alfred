@@ -73,7 +73,7 @@ function asUnbranded<Field extends string>(
 ): Partial<Record<Field, string>> {
   // SAFETY: the one private unwrap for Better Auth's `string` columns. Each value is a sealed
   // envelope, which is a string at runtime; only its type is a symbol.
-  // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: SealedCredentialSecret is a branded symbol at the type level but a plain string at runtime; the brand prevents implicit provider use
+  // oxlint-disable-next-line anti-slop/no-chained-type-assertions, typescript/no-unsafe-type-assertion -- the one unwrap of sealed envelopes, strings at runtime and symbols in the types
   return pending as unknown as Partial<Record<Field, string>>;
 }
 

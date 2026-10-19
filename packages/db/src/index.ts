@@ -123,6 +123,7 @@ export function rowsFromExecute<T>(result: unknown): T[] {
   const rawRows = hasRows(result) ? result.rows : result;
 
   // SAFETY: the driver returns untyped rows. The caller names the row type for its query.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the driver rows are untyped; the caller names the row type
   return Array.isArray(rawRows) ? (rawRows as T[]) : [];
 }
 
