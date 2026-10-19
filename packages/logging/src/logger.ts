@@ -7,6 +7,10 @@ import { pgErrorChain } from "@alfred/db/pg-errors";
 type SafeErrorLog = {
   type: string;
   stack?: string | undefined;
+  /** A closed catalog code, never free text. */
+  appErrorCode?: string | undefined;
+  /** A provider name and an HTTP status. The body and the URL can hold user data, so they stay out. */
+  http?: { provider?: string | undefined; status?: number | undefined };
   database?: {
     code?: string | undefined;
     constraint?: string | undefined;
@@ -42,6 +46,33 @@ function devErrorDiagnostics(err: unknown): Partial<SafeErrorLog> {
   if (responseBody) out.responseBody = responseBody.slice(0, RESPONSE_BODY_LOG_CAP);
 
   return out;
+}
+
+/**
+ * Codes only: an `AppError` code and an `HttpError` provider and status. No field here carries free text.
+ * Never throws: a getter that throws drops the codes, not the type and stack beside them.
+ */
+function safeErrorCodes(err: unknown): Pick<SafeErrorLog, "appErrorCode" | "http"> {
+  try {
+    if (err instanceof AppError) {
+      const appErrorCode = getStringField(err, "code");
+
+      return appErrorCode ? { appErrorCode } : {};
+    }
+
+    if (!isHttpError(err)) return {};
+    const status: unknown = Reflect.get(err, "status");
+
+    return {
+      http: {
+        provider: getStringField(err, "provider"),
+        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- `status` is read once off a thrown value; a non-number is dropped, not parsed.
+        ...(typeof status === "number" ? { status } : {}),
+      },
+    };
+  } catch {
+    return {};
+  }
 }
 
 function isPostgresDiagnostic(value: unknown): boolean {
@@ -85,6 +116,7 @@ export function serializeError(err: unknown, verbose = false): SafeErrorLog {
       // oxlint-disable-next-line anti-slop/no-runtime-typeof -- the runtime type name IS the logged value when a thrown value has no `name`.
       type: getStringField(error, "name") ?? typeof err,
       ...(stack ? { stack } : {}),
+      ...safeErrorCodes(err),
       ...(hasDatabaseField ? { database } : {}),
       ...(verbose ? devErrorDiagnostics(err) : {}),
     };
@@ -97,13 +129,14 @@ export function serializeError(err: unknown, verbose = false): SafeErrorLog {
 /** A bounded, allowlisted diagnostic suitable for traces and other text-only sinks. Never throws. */
 export function safeErrorDiagnostic(err: unknown): string {
   const serialized = serializeError(err);
-  const database = serialized.database;
+  const { database, http } = serialized;
 
   try {
     return [
-      err instanceof AppError ? err.code : serialized.type,
-      // Provider and status only. The body and URL can hold user data, so they stay out.
-      isHttpError(err) ? `provider=${err.provider} status=${err.status}` : undefined,
+      serialized.appErrorCode ?? serialized.type,
+      http
+        ? `provider=${http.provider ?? "unknown"} status=${http.status ?? "unknown"}`
+        : undefined,
       database?.code ? `sqlstate=${database.code}` : undefined,
       database?.constraint ? `constraint=${database.constraint}` : undefined,
     ]
