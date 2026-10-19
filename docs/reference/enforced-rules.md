@@ -73,6 +73,7 @@ When you add, remove or change a rule in `.oxlintrc.json`, a JS plugin, `scripts
 | [`typescript/no-redundant-type-constituents`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-redundant-type-constituents.html) | yes |  |  |
 | [`typescript/no-restricted-types`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-restricted-types.html) | no |  | `` {"types":{"Record<string, any>":{"message":"Record<string, any> defeats every `unknown` guard the contracts package exists to provide. Use a parsed schema, a Record<LiteralKey, T>, or a Map<K, V>."}}} `` |
 | [`typescript/no-unnecessary-condition`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-unnecessary-condition.html) | yes |  | `{"allowConstantLoopConditions":"only-allowed-literals"}` |
+| [`typescript/no-unnecessary-type-assertion`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-unnecessary-type-assertion.html) | yes |  |  |
 | [`typescript/no-unsafe-argument`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-unsafe-argument.html) | yes | Off in `**/*.mjs`, `**/*.js`, `**/*.cjs` |  |
 | [`typescript/no-unsafe-assignment`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-unsafe-assignment.html) | yes | Off in `**/*.mjs`, `**/*.js`, `**/*.cjs` |  |
 | [`typescript/no-unsafe-call`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-unsafe-call.html) | yes | Off in `**/*.mjs`, `**/*.js`, `**/*.cjs` |  |

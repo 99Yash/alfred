@@ -23,13 +23,13 @@ function stubFetch(respond: (n: number) => Response): RecordedStubFetch {
   const urls: string[] = [];
   const methods: string[] = [];
   let n = 0;
-  globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+  globalThis.fetch = (input: string | URL | Request, init?: RequestInit) => {
     urls.push(String(input instanceof Request ? input.url : input));
     methods.push(String(init?.method ?? "GET"));
     n += 1;
 
     return Promise.resolve(respond(n));
-  }) as typeof fetch;
+  };
 
   return { urls, methods };
 }

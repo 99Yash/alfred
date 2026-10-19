@@ -909,9 +909,7 @@ describe("observationInsertSchema (the HARD write-boundary parser)", () => {
   });
 
   test("rejects unknown keys (strict) so a typo'd field can't slip into the log", () => {
-    assert.throws(() =>
-      observationInsertSchema.parse({ ...minimal, occured_at: new Date() } as never),
-    );
+    assert.throws(() => observationInsertSchema.parse({ ...minimal, occured_at: new Date() }));
   });
 
   test("validates gmail email_message payloads by kind", () => {

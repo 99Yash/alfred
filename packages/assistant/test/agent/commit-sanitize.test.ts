@@ -271,7 +271,7 @@ describe("commit sanitizes executor jsonb sinks (DB-backed)", { skip: SKIP }, ()
       "msgid",
       "NUL stripped from committed output",
     );
-    const transcript = row.transcript as AgentTranscriptMessage[];
+    const transcript = row.transcript;
     assert.equal(
       transcript[0]?.content,
       "final  answer",

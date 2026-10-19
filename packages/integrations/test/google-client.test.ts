@@ -7,14 +7,14 @@ describe("Google configured client", () => {
   test("resolves the selected credential afresh for every request", async () => {
     const originalFetch = globalThis.fetch;
     const authorization: string[] = [];
-    globalThis.fetch = (async (_input, init) => {
+    globalThis.fetch = async (_input, init) => {
       authorization.push(new Headers(init?.headers).get("Authorization") ?? "");
 
       return new Response(JSON.stringify({ messages: [] }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
-    }) as typeof fetch;
+    };
 
     const resolvedCredentialIds: string[] = [];
 
@@ -37,11 +37,11 @@ describe("Google configured client", () => {
 
   test("binds each method to its service-specific credential authority", async () => {
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async () =>
+    globalThis.fetch = async () =>
       new Response(JSON.stringify({ messages: [], id: "sent", threadId: "thread" }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
-      })) as typeof fetch;
+      });
     const authorities: string[] = [];
 
     const client = createGoogleClient(async (_credentialId, authority) => {
@@ -68,14 +68,14 @@ describe("Google configured client", () => {
   test("honors the bind retry envelope for safe reads", async () => {
     const originalFetch = globalThis.fetch;
     let attempts = 0;
-    globalThis.fetch = (async () => {
+    globalThis.fetch = async () => {
       attempts += 1;
 
       return new Response(JSON.stringify({ messages: [] }), {
         status: attempts === 1 ? 503 : 200,
         headers: { "Content-Type": "application/json" },
       });
-    }) as typeof fetch;
+    };
 
     const client = createGoogleClient(async () => "token", {
       maxAttempts: 2,

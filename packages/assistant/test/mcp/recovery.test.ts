@@ -187,7 +187,7 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
 
     const second = await listMcpRecoveryOperations({
       userId: seeded.userId,
-      cursor: first.nextCursor!,
+      cursor: first.nextCursor,
     });
 
     assert.equal(second.operations.length, 1);
@@ -357,7 +357,7 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
 
     const second = await listMcpRecoveryOperations({
       userId: seeded.userId,
-      cursor: first.nextCursor!,
+      cursor: first.nextCursor,
     });
 
     assert.equal(second.operations.length, 1);

@@ -102,8 +102,7 @@ export async function resolveWorkflowForRun(args: {
   }
 
   return {
-    // SAFETY: workflows are stored type-erased to Workflow<unknown>.
-    workflow: userAuthoredBriefWorkflow as Workflow<unknown>,
+    workflow: userAuthoredBriefWorkflow,
     workflowSlug: args.workflowSlug,
     userAuthoredRow: {
       brief: row.brief,

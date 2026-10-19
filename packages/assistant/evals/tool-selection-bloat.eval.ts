@@ -43,8 +43,7 @@ function buildToolSet(slugs: IntegrationSlug[]): ToolSet {
     }
   }
 
-  // SAFETY: ToolSet is an index-signature record; this map satisfies it by construction.
-  return out as ToolSet;
+  return out;
 }
 
 function buildSummary(live: readonly LiveProviderSlug[]): string {

@@ -24,13 +24,13 @@ async function withMockedFetch<T>(
 ): Promise<T> {
   const capture: FetchCapture = { url: undefined, init: undefined };
   const original = globalThis.fetch;
-  globalThis.fetch = (async (input, init) => {
+  globalThis.fetch = async (input, init) => {
     capture.url =
       input instanceof URL ? input : new URL(input instanceof Request ? input.url : input);
     capture.init = init;
 
     return handler(capture);
-  }) as typeof fetch;
+  };
 
   try {
     return await run(capture);
@@ -62,8 +62,9 @@ const VERCEL_PROFILE: RestPassthroughProfile = {
   fixedQuery: { teamId: "team_pinned" },
 };
 
-const req = (r: Partial<RestPassthroughRequest> & { method: string; path: string }) =>
-  r as RestPassthroughRequest;
+const req = (
+  r: Partial<RestPassthroughRequest> & { method: string; path: string },
+): RestPassthroughRequest => r;
 
 const capability = (
   slug: SupportedRestSlug,

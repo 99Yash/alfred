@@ -221,11 +221,11 @@ describe("objectStateStore contract (DB-backed)", { skip: SKIP }, () => {
     assert.ok(ref, "head_sha should resolve to the PR");
     assert.equal(ref.externalId, "101");
 
-    const state = await objectStateStore.getState(userId, ref!);
+    const state = await objectStateStore.getState(userId, ref);
     assert.equal(state?.stateCategory, "resolved");
     assert.equal(state.nativeState, "merged");
     assert.equal(
-      closesOpenAsk("github", "pull_request", state!.stateCategory, "stored_projection"),
+      closesOpenAsk("github", "pull_request", state.stateCategory, "stored_projection"),
       "resolved",
     );
   });

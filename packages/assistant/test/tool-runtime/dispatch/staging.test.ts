@@ -450,7 +450,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
     await db()
       .update(actionStagings)
       .set({ status: "approved", decidedInput: { slug: "edited" }, rowVersion: 7 })
-      .where(eq(actionStagings.id, inserted[0]!.id));
+      .where(eq(actionStagings.id, inserted[0].id));
 
     // Resume re-sends `pending`. The conflict path must not overwrite the decision.
     const conflicted = await upsert("pending");

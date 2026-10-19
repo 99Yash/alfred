@@ -55,7 +55,6 @@ function makeMessage(args: {
   mimeType?: string;
   size?: number;
 }): GmailMessage {
-  // eslint-disable-next-line anti-slop/no-chained-type-assertions -- SAFETY: test factory builds a minimal GmailMessage shape; the gmail parser only reads id/threadId/labelIds/payload.
   return {
     id: args.id,
     threadId: args.threadId,
@@ -77,7 +76,7 @@ function makeMessage(args: {
       ],
     },
     sizeEstimate: 2048,
-  } as unknown as GmailMessage;
+  };
 }
 
 describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
@@ -149,9 +148,9 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
     };
 
     assert.ok(Array.isArray(meta.pages));
-    assert.equal(meta.pages!.length, 2);
-    assert.deepEqual(meta.pages![0], { page: 1, start: 0, end: 13 });
-    assert.deepEqual(meta.pages![1], { page: 2, start: 15, end: 28 });
+    assert.equal(meta.pages.length, 2);
+    assert.deepEqual(meta.pages[0], { page: 1, start: 0, end: 13 });
+    assert.deepEqual(meta.pages[1], { page: 2, start: 15, end: 28 });
     assert.equal(meta.filename, "contract.pdf");
 
     // A source=gmail query (the inbox reader) must not see the attachment row.
@@ -439,8 +438,8 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
     // SAFETY: jsonb; narrows to the reference shape ingest wrote.
     const meta = rows[0]!.metadata as { references?: unknown[] };
     assert.ok(Array.isArray(meta.references));
-    assert.equal(meta.references!.length, 1);
-    assert.deepEqual(meta.references![0], {
+    assert.equal(meta.references.length, 1);
+    assert.deepEqual(meta.references[0], {
       messageId: secondMessage.id,
       attachmentId: attachmentIdTwo,
       threadId: threadTwo,

@@ -15,7 +15,7 @@ const realFetch = globalThis.fetch;
 
 function stubFetch(body: unknown, status = 200) {
   const calls: { url: string; method: string; headers: Record<string, string> }[] = [];
-  globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+  globalThis.fetch = (input: string | URL | Request, init?: RequestInit) => {
     calls.push({
       url: String(input instanceof Request ? input.url : input),
       method: String(init?.method ?? "GET"),
@@ -28,7 +28,7 @@ function stubFetch(body: unknown, status = 200) {
         headers: { "content-type": "application/json" },
       }),
     );
-  }) as typeof fetch;
+  };
 
   return calls;
 }

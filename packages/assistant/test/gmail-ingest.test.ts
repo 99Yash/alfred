@@ -145,7 +145,6 @@ function makePollMessage(args: {
   filename: string;
   historyId: string;
 }): GmailMessage {
-  // eslint-disable-next-line anti-slop/no-chained-type-assertions -- SAFETY: test factory builds minimal GmailMessage; parser only reads id/threadId/labelIds/payload/historyId.
   return {
     id: args.id,
     threadId: args.threadId,
@@ -170,7 +169,7 @@ function makePollMessage(args: {
       ],
     },
     sizeEstimate: 2048,
-  } as unknown as GmailMessage;
+  };
 }
 
 describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip: SKIP }, () => {

@@ -71,7 +71,7 @@ function recorder(readOnly: string[] = []): Recorder {
   const deps: GuardUnreportedToolFailuresDeps = {
     isMutating: (name) => !readOnly.includes(name),
     publish: async (event) => {
-      published.push({ kind: event.kind, payload: event.payload as Record<string, unknown> });
+      published.push({ kind: event.kind, payload: event.payload });
     },
   };
 
@@ -281,7 +281,7 @@ describe("guardUnreportedToolFailures", () => {
 
     const result = await guardUnreportedToolFailures(baseCtx(state), state, [], {
       publish: async (event) => {
-        published.push({ kind: event.kind, payload: event.payload as Record<string, unknown> });
+        published.push({ kind: event.kind, payload: event.payload });
       },
     });
 

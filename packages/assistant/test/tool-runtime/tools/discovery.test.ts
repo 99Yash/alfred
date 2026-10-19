@@ -569,7 +569,7 @@ describe("derived-metadata discovery (#413)", () => {
     const get = found.find((c) => c.name === "notion.get_page");
     assert.equal(get?.availability, "available");
     assert.ok(
-      found.indexOf(get!) < found.indexOf(create!),
+      found.indexOf(get) < found.indexOf(create),
       "runnable tools rank ahead of unavailable ones",
     );
   });

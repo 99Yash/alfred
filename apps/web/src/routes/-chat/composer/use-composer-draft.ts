@@ -71,8 +71,7 @@ function readDraftJSON(draftKey: string): JSONContent | undefined {
   }
 
   if (isRecord(parsed) && "type" in parsed) {
-    // SAFETY: the guards proved an object with `type`, the shape JSONContent needs here.
-    return parsed as JSONContent;
+    return parsed;
   }
 
   return undefined;

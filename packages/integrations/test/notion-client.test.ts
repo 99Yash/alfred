@@ -6,7 +6,7 @@ import { createNotionClient } from "../src/notion/client";
 describe("Notion configured client", () => {
   test("keeps additive provider fields isolated and degrades malformed title fragments", async () => {
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async () =>
+    globalThis.fetch = async () =>
       new Response(
         JSON.stringify({
           results: [
@@ -34,7 +34,7 @@ describe("Notion configured client", () => {
           future_envelope_field: true,
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
-      )) as typeof fetch;
+      );
 
     try {
       const result = await createNotionClient(async () => "token").search({
@@ -57,14 +57,14 @@ describe("Notion configured client", () => {
   test("resolves a fresh token for every request and keeps it out of call sites", async () => {
     const originalFetch = globalThis.fetch;
     const authorization: string[] = [];
-    globalThis.fetch = (async (_input, init) => {
+    globalThis.fetch = async (_input, init) => {
       authorization.push(new Headers(init?.headers).get("Authorization") ?? "");
 
       return new Response(JSON.stringify({ results: [], has_more: false }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
-    }) as typeof fetch;
+    };
 
     let resolutions = 0;
     const client = createNotionClient(async () => `token-${++resolutions}`);
@@ -83,7 +83,7 @@ describe("Notion configured client", () => {
   test("pins one credential identity across every request in a public operation", async () => {
     const originalFetch = globalThis.fetch;
     const authorization: string[] = [];
-    globalThis.fetch = (async (input, init) => {
+    globalThis.fetch = async (input, init) => {
       const auth = new Headers(init?.headers).get("Authorization") ?? "";
       authorization.push(auth);
 
@@ -103,7 +103,7 @@ describe("Notion configured client", () => {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
-    }) as typeof fetch;
+    };
 
     let resolutions = 0;
     const client = createNotionClient(async () => `token-${++resolutions}`);
@@ -123,14 +123,14 @@ describe("Notion configured client", () => {
   test("honors the bind retry envelope for read-via-POST search", async () => {
     const originalFetch = globalThis.fetch;
     let attempts = 0;
-    globalThis.fetch = (async () => {
+    globalThis.fetch = async () => {
       attempts += 1;
 
       return new Response(JSON.stringify({ results: [], has_more: false }), {
         status: attempts === 1 ? 503 : 200,
         headers: { "Content-Type": "application/json" },
       });
-    }) as typeof fetch;
+    };
 
     const client = createNotionClient(async () => "token", {
       maxAttempts: 2,

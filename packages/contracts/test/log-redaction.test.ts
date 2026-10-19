@@ -41,7 +41,7 @@ test("non-plain values pass through untouched and the input is never mutated", (
   const input = { at, secret: { tag: "Redacted" }, nested: { accessToken: "tok" } };
   const out = redactSensitiveLogPaths(input);
   assert.equal(input.nested.accessToken, "tok");
-  assert.equal((out.at as Date).getTime(), 0);
+  assert.equal(out.at.getTime(), 0);
 });
 
 test("every declared path censors its own sample payload shape", () => {

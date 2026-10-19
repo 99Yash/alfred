@@ -638,7 +638,7 @@ export async function recordBundleGraph(root) {
     return { graph, seconds: 0, failures };
   }
 
-  const vite = await loadVite(root, /** @type {string} */ (apps[0]), failures);
+  const vite = await loadVite(root, apps[0], failures);
 
   if (vite === null) return { graph, seconds: 0, failures };
 
