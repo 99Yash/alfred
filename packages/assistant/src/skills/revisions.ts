@@ -61,6 +61,11 @@ export async function commitSkillRevision(args: CommitRevisionArgs): Promise<Com
       .returning({ id: skillRevisions.id });
 
     if (!revision) {
+      // Only a revision with a run id can conflict, so a manual one always returns a row.
+      if (createdByRunId === null) {
+        throw new Error("[skill-revisions] manual revision insert returned no row");
+      }
+
       // This run already committed on a prior attempt; do not touch the skill row again.
       const [existing] = await tx
         .select({ id: skillRevisions.id })
@@ -68,8 +73,7 @@ export async function commitSkillRevision(args: CommitRevisionArgs): Promise<Com
         .where(
           and(
             eq(skillRevisions.skillId, args.skillId),
-            // SAFETY: only a non-manual revision conflicts, and those carry a run id.
-            eq(skillRevisions.createdByRunId, createdByRunId as string),
+            eq(skillRevisions.createdByRunId, createdByRunId),
           ),
         )
         .limit(1);

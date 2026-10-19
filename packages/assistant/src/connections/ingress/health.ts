@@ -1,4 +1,5 @@
 import {
+  hasEveryKey,
   INBOUND_EVENT_SOURCES,
   type CredentialRowsByProvider,
   type InboundEventSource,
@@ -27,6 +28,13 @@ export async function readInboundTriggerHealth(
     }),
   );
 
-  // SAFETY: the keys come from INBOUND_EVENT_SOURCES.
-  return Object.fromEntries(entries) as Record<InboundEventSource, EventDeliveryHealth>;
+  const health: Partial<Record<InboundEventSource, EventDeliveryHealth>> = {};
+
+  for (const [slug, entry] of entries) health[slug] = entry;
+
+  if (!hasEveryKey(health, INBOUND_EVENT_SOURCES)) {
+    throw new Error("[ingress-health] an inbound source has no health entry");
+  }
+
+  return health;
 }

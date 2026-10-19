@@ -3,6 +3,7 @@ import {
   retrievalSourceManifestSchema,
   sourceManifestDeclaresMediaKind,
   sourceManifestExpansionKinds,
+  SOURCE_READ_CAPABILITIES,
   type ContextSearchRequest,
   type EvidenceCard,
   type EvidenceExpansionHandle,
@@ -120,8 +121,8 @@ export function defineContextSource(args: {
   readonly manifest: Omit<RetrievalSourceManifest, "id" | "read">;
   readonly reads: ContextSourceReads;
 }): ContextSource {
-  // SAFETY: keys of a Partial<Record<SourceReadCapability, …>> are capabilities by construction.
-  const read = Object.keys(args.reads) as SourceReadCapability[];
+  // The manifest schema checks each key against the capability enum.
+  const read = Object.keys(args.reads);
   const manifest = retrievalSourceManifestSchema.parse({ ...args.manifest, id: args.id, read });
 
   assertReadsMatchManifest(args.reads, manifest);
@@ -177,11 +178,8 @@ function assertReadsMatchManifest(
 ): void {
   const declared = new Set<string>(manifest.read);
 
-  // SAFETY: keys of a Partial<Record<SourceReadCapability, …>> are capabilities by construction.
   const implemented = new Set<string>(
-    (Object.keys(reads) as SourceReadCapability[]).filter(
-      (capability) => reads[capability] !== undefined,
-    ),
+    SOURCE_READ_CAPABILITIES.filter((capability) => reads[capability] !== undefined),
   );
 
   for (const capability of declared) {

@@ -65,19 +65,16 @@ type FloorTraceFields = UnionToIntersection<
   ReturnType<(typeof FLOOR_TRACE_PROJECTIONS)[ProjectedFloorName]>
 >;
 
+/** The return type is every projection's fields, so a floor left out here fails the build. */
 function floorTraceFields(floors: FloorAudits | null): FloorTraceFields {
-  const fields: JsonObject = {};
+  const project = FLOOR_TRACE_PROJECTIONS;
 
-  // SAFETY: FLOOR_TRACE_PROJECTIONS is keyed by ProjectedFloorName, so its
-  // keys enumerate exactly those names.
-  for (const name of Object.keys(FLOOR_TRACE_PROJECTIONS) as ProjectedFloorName[]) {
-    // SAFETY: name came from the table's own keys; `satisfies` checked each entry.
-    const project = FLOOR_TRACE_PROJECTIONS[name] as FloorTraceProjection<ProjectedFloorName>;
-    Object.assign(fields, project(floors?.[name] ?? null));
-  }
-
-  // SAFETY: the loop assigned one field-set per projected floor above.
-  return fields as FloorTraceFields;
+  return {
+    ...project.override(floors?.override ?? null),
+    ...project.senderKind(floors?.senderKind ?? null),
+    ...project.meeting(floors?.meeting ?? null),
+    ...project.spam(floors?.spam ?? null),
+  };
 }
 
 /**

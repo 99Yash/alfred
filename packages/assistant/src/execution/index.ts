@@ -35,6 +35,8 @@ export {
   uniqueToolNames,
   toolNamesFromState,
   appendModelResponseMessages,
+  toModelMessages,
+  toTranscriptMessages,
   appendSystemNote,
   aggregateRunUsage,
   shouldPublishToolStarted,

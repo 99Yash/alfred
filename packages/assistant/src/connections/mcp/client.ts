@@ -161,8 +161,11 @@ const MCP_SCHEMA_DRAFT_06_URIS = new Set([
   "http://json-schema.org/draft-06/schema",
 ]);
 
+/** A schema from an MCP tool listing: its `inputSchema`, or its `outputSchema` when present. */
+type McpToolSchema = Tool["inputSchema"] | NonNullable<Tool["outputSchema"]>;
+
 interface McpSchemaValidator {
-  getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T>;
+  getValidator<T>(toolSchema: McpToolSchema): JsonSchemaValidator<T>;
 }
 
 function createSchemaValidator(): McpSchemaValidator {
@@ -207,7 +210,11 @@ function createSchemaValidator(): McpSchemaValidator {
   };
 
   return {
-    getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T> {
+    getValidator<T>(toolSchema: McpToolSchema): JsonSchemaValidator<T> {
+      // SAFETY: the MCP SDK types a listed tool schema as an open object and the validator input as
+      // `JsonSchemaType`; no guard can prove one from the other. Ajv compiles it, and a compile
+      // error becomes `invalid_schema` at the caller.
+      const schema = toolSchema as JsonSchemaType;
       const declaredSchema = "$schema" in schema ? schema.$schema : undefined;
 
       if (declaredSchema === undefined) {
@@ -532,10 +539,7 @@ export class McpRawClient {
       let validator: JsonSchemaValidator<JsonObject>;
 
       try {
-        validator = this.#schemaValidator.getValidator<JsonObject>(
-          // SAFETY: `inputSchema` is the MCP JSON Schema envelope the validator expects.
-          tool.inputSchema as JsonSchemaType,
-        );
+        validator = this.#schemaValidator.getValidator<JsonObject>(tool.inputSchema);
       } catch (err) {
         throw new McpClientError(
           "invalid_schema",
@@ -549,8 +553,7 @@ export class McpRawClient {
         try {
           nextOutputValidators.set(
             tool.name,
-            // SAFETY: same MCP schema-envelope view as the input validator.
-            this.#schemaValidator.getValidator<JsonValue>(tool.outputSchema as JsonSchemaType),
+            this.#schemaValidator.getValidator<JsonValue>(tool.outputSchema),
           );
         } catch (err) {
           throw new McpClientError(

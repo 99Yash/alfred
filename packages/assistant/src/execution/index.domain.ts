@@ -88,6 +88,8 @@ export { toolNamesFromState } from "./tool-surface-usage";
 
 export { appendModelResponseMessages } from "./transcript-dedup";
 
+export { toModelMessages, toTranscriptMessages } from "./model-transcript";
+
 export { appendSystemNote } from "./transcript-notes";
 
 export { aggregateRunUsage } from "./usage-fold";

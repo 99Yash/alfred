@@ -311,30 +311,28 @@ function roundScore(value: number): number {
 function normalizeSemanticScores(
   cards: readonly EvidenceCard[],
 ): ReadonlyMap<EvidenceCard, number> {
-  const bySource = new Map<string, EvidenceCard[]>();
+  const bySource = new Map<string, { card: EvidenceCard; score: number }[]>();
 
   for (const card of cards) {
-    if (card.score === undefined || !Number.isFinite(card.score)) continue;
+    const { score } = card;
+
+    if (score === undefined || !Number.isFinite(score)) continue;
 
     const group = bySource.get(card.source.id);
 
-    if (group === undefined) bySource.set(card.source.id, [card]);
-    else group.push(card);
+    if (group === undefined) bySource.set(card.source.id, [{ card, score }]);
+    else group.push({ card, score });
   }
 
   const normalized = new Map<EvidenceCard, number>();
 
   for (const group of bySource.values()) {
-    // SAFETY: only cards with a defined `score` enter a group.
-    const scores = group.map((card) => card.score as number);
+    const scores = group.map(({ score }) => score);
     const min = Math.min(...scores);
     const max = Math.max(...scores);
     const alreadyNormalized = min >= 0 && max <= 1;
 
-    for (const card of group) {
-      // SAFETY: only cards with a defined `score` enter a group.
-      const score = card.score as number;
-
+    for (const { card, score } of group) {
       if (alreadyNormalized) normalized.set(card, score);
       else if (max === min) normalized.set(card, 0.5);
       else normalized.set(card, (score - min) / (max - min));

@@ -41,7 +41,11 @@ export interface CredentialForAffiliation {
 }
 
 export type BuildOrgAffiliationResult =
-  | { ok: true; input: ObservationInsertInput; domainClass: DomainClass }
+  | {
+      ok: true;
+      input: ObservationInsertInput & { payload: UserOrgAffiliationPayload };
+      domainClass: DomainClass;
+    }
   | { ok: false; reason: BuildOrgAffiliationSkipReason };
 
 export type BuildOrgAffiliationSkipReason =
@@ -315,10 +319,9 @@ export async function recordOrgAffiliationOnCredentialUpsert(
         currentBuiltAtChange.ok &&
         (!previousConnectBuilt.ok ||
           previousConnectBuilt.input.familyKey !== currentBuiltAtChange.input.familyKey ||
-          // SAFETY: both inputs came from buildOrgAffiliationObservationInput and `.ok` was checked for each.
           !payloadsMatchForCurrentAffiliation(
-            previousConnectBuilt.input.payload as UserOrgAffiliationPayload,
-            currentBuiltAtChange.input.payload as UserOrgAffiliationPayload,
+            previousConnectBuilt.input.payload,
+            currentBuiltAtChange.input.payload,
           ));
 
       if (familyChanged) {

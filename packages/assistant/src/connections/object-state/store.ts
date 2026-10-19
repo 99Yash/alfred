@@ -1,8 +1,11 @@
 import {
   type ClosureSource,
+  enumGuard,
   getObjectDef,
   getObjectKindDef,
   isAbsorbingState,
+  isObjectStateProvider,
+  OBJECT_STATE_CATEGORIES,
   type ObjectIdentity,
   type ObjectStateProvider,
   type StateCategory,
@@ -203,15 +206,24 @@ function clampListLimit(limit: number): number {
   return Math.min(Math.max(1, limit), MAX_OBJECT_LIST_LIMIT);
 }
 
+const isStateCategory = enumGuard(OBJECT_STATE_CATEGORIES);
+
+/** Only the typed fold writes these columns, so a value outside the registry is a corrupt row. */
 function rowToObjectState(row: IntegrationObject): ObjectState {
+  const { provider, stateCategory } = row;
+
+  if (!isObjectStateProvider(provider) || !isStateCategory(stateCategory)) {
+    throw new Error(
+      `[object-state] row ${row.id} has unknown provider "${provider}" or state category "${stateCategory}"`,
+    );
+  }
+
   return {
     objectId: row.id,
-    // SAFETY: the column is written only with registry-known provider ids.
-    provider: row.provider as ObjectStateProvider,
+    provider,
     kind: row.kind,
     externalId: row.externalId,
-    // SAFETY: the write path writes only registry-legal categories.
-    stateCategory: row.stateCategory as StateCategory,
+    stateCategory,
     nativeState: row.nativeState,
     title: row.title,
     url: row.url,

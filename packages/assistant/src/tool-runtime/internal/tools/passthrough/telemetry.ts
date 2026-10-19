@@ -7,6 +7,7 @@ import {
   enumGuard,
   integrationFromToolName,
   isRecord,
+  isToolName,
   type PassthroughTruncation,
 } from "@alfred/contracts";
 
@@ -91,10 +92,7 @@ export function passthroughTruncationTelemetry(
 
 /** Never throws: telemetry must not fail the call. */
 function integrationFromToolNameSafe(toolName: string): string {
-  try {
-    // SAFETY: integrationFromToolName throws on an unknown name; the catch handles it.
-    return integrationFromToolName(toolName as Parameters<typeof integrationFromToolName>[0]);
-  } catch {
-    return toolName.slice(0, toolName.indexOf(".")) || toolName;
-  }
+  if (isToolName(toolName)) return integrationFromToolName(toolName);
+
+  return toolName.slice(0, toolName.indexOf(".")) || toolName;
 }

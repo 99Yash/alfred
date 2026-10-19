@@ -17,10 +17,13 @@ import {
 import type { ToolName } from "@alfred/contracts";
 import { systemToolKernel } from "@alfred/assistant/execution/tool-surface";
 import { toolSchemaSize } from "@alfred/assistant/tool-runtime/schema-budget";
+import { z } from "zod";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const MODEL = "claude-opus-4-8";
+
+const countTokensResponseSchema = z.object({ input_tokens: z.number() });
 
 function loadApiKey(): string | undefined {
   if (process.env.ANTHROPIC_API_KEY) return process.env.ANTHROPIC_API_KEY;
@@ -79,8 +82,9 @@ async function realCount(
 
     if (!res.ok) return null;
 
-    // SAFETY: Anthropic puts the count in `input_tokens`; the caller handles absence with `?.`.
-    return ((await res.json()) as { input_tokens: number }).input_tokens;
+    const count = countTokensResponseSchema.safeParse(await res.json());
+
+    return count.success ? count.data.input_tokens : null;
   };
 
   const base = await call([]);

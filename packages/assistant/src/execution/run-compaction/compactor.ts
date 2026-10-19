@@ -60,8 +60,7 @@ export async function compactTranscript(
       ...(args.timeoutMs === undefined ? {} : { timeout: args.timeoutMs }),
       temperature: 0,
       instructions: COMPACTOR_SYSTEM_PROMPT,
-      // SAFETY: transcriptPayloadMessage builds one ModelMessage.
-      messages: [transcriptPayloadMessage(prior)] as ModelMessage[],
+      messages: [transcriptPayloadMessage(prior)],
     },
     {
       ...attribution,
@@ -84,9 +83,7 @@ export async function compactTranscript(
   };
 }
 
-function transcriptPayloadMessage(
-  prior: readonly AgentTranscriptMessage[],
-): AgentTranscriptMessage {
+function transcriptPayloadMessage(prior: readonly AgentTranscriptMessage[]): ModelMessage {
   return {
     role: "user",
     content: `Compact this Alfred transcript JSON. Preserve IDs and tool outcomes exactly where the system prompt requires them.\n\n${JSON.stringify(prior)}`,

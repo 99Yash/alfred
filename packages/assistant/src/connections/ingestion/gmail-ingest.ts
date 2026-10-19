@@ -2,6 +2,7 @@ import {
   buildGmailDocumentContent,
   gmailDocumentMetadataSchema,
   getPath,
+  getStringPath,
   isSentGmailMetadata,
   mapConcurrent,
 } from "@alfred/contracts";
@@ -1216,11 +1217,7 @@ async function loadHistoryCursor(credentialId: string): Promise<string | null> {
       and(eq(ingestionState.credentialId, credentialId), eq(ingestionState.stream, "messages")),
     );
 
-  // SAFETY: these cursors write this jsonb shape.
-  const state = rows[0]?.state as { historyId?: string | null } | undefined;
-  const id = state?.historyId;
-
-  return id ?? null;
+  return getStringPath(rows[0]?.state, "historyId") ?? null;
 }
 
 /** History cursor and coverage-gap flag for a credential. */
@@ -1234,12 +1231,11 @@ async function loadIngestionState(
       and(eq(ingestionState.credentialId, credentialId), eq(ingestionState.stream, "messages")),
     );
 
-  // SAFETY: same stored shape, plus the optional coverageGap flag.
-  const state = rows[0]?.state as { historyId?: string | null; coverageGap?: boolean } | undefined;
+  const state = rows[0]?.state;
 
   return {
-    historyId: state?.historyId ?? null,
-    coverageGap: state?.coverageGap === true,
+    historyId: getStringPath(state, "historyId") ?? null,
+    coverageGap: getPath(state, "coverageGap") === true,
   };
 }
 

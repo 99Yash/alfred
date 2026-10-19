@@ -1,10 +1,11 @@
-import { type SenderContext } from "@alfred/contracts";
+import { parseJsonWith, TRIAGE_CATEGORIES, type SenderContext } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { senderPriors } from "@alfred/db/schemas";
 import type { TriageCategory } from "@alfred/integrations/google";
 import { and, eq, sql } from "drizzle-orm";
 import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 import { createRedisConnection, type BoundedRedis } from "@alfred/db/redis";
+import { z } from "zod";
 
 /**
  * Per-sender category histogram (ADR-0051 #2), a hint to the classifier. Postgres
@@ -17,6 +18,12 @@ const CACHE_TTL_SECONDS = 60 * 60;
 
 /** The read shape only; the name collides with the full DB row on purpose. */
 export type SenderPrior = Pick<typeof senderPriors.$inferSelect, "categoryCounts" | "lastCategory">;
+
+/** The cached JSON of one {@link SenderPrior}. */
+const cachedSenderPriorSchema = z.object({
+  categoryCounts: z.record(z.string(), z.number()),
+  lastCategory: z.enum(TRIAGE_CATEGORIES).nullable(),
+}) satisfies z.ZodType<SenderPrior>;
 
 // ---------------------------------------------------------------------------
 // Pure helpers (no IO) — unit-tested directly
@@ -111,14 +118,15 @@ export async function getSenderPrior(
   try {
     const cached = await getRedis().get(key);
 
-    if (cached !== null) {
-      // "null" caches a known-absent sender.
-      // SAFETY: only this module writes the key, as a stringified SenderPrior or
-      // "null"; corrupt content throws into the miss path.
-      return cached === "null" ? null : (JSON.parse(cached) as SenderPrior);
-    }
+    // "null" caches a known-absent sender.
+    if (cached === "null") return null;
+
+    // Corrupt content falls through to the miss path.
+    const prior = cached === null ? null : parseJsonWith(cached, cachedSenderPriorSchema);
+
+    if (prior !== null) return prior;
   } catch {
-    // A Redis error or a corrupt entry is a cache miss. Postgres below is the truth.
+    // A Redis error is a cache miss. Postgres below is the truth.
   }
 
   const fromDb = await loadSenderPriorFromDb(userId, senderKey);

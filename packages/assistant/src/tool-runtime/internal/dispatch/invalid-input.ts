@@ -1,5 +1,4 @@
 import { z } from "zod";
-import type { JsonObject } from "@alfred/contracts";
 
 // Runs on every dispatch, and `z.toJSONSchema` walks the whole schema, so memoize per schema.
 const acceptedParamCache = new WeakMap<z.ZodType, readonly string[]>();
@@ -11,12 +10,9 @@ export function acceptedParamNames(schema: z.ZodType): readonly string[] {
   let names: readonly string[];
 
   try {
-    // SAFETY: reads only the top-level `properties` of a JSON Schema document.
-    const json = z.toJSONSchema(schema, { io: "input" }) as {
-      properties?: JsonObject;
-    };
+    const { properties } = z.toJSONSchema(schema, { io: "input" });
 
-    names = json.properties ? Object.freeze(Object.keys(json.properties)) : EMPTY;
+    names = properties ? Object.freeze(Object.keys(properties)) : EMPTY;
   } catch {
     names = EMPTY;
   }

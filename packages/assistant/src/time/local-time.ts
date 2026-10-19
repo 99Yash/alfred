@@ -168,17 +168,23 @@ export function addDays(key: LocalDateKey, days: number): LocalDateKey {
   const next = noonUtcOn(key);
   next.setUTCDate(next.getUTCDate() + days);
 
-  // SAFETY: the first ten chars of an ISO instant are YYYY-MM-DD.
-  return next.toISOString().slice(0, 10) as LocalDateKey;
+  return parseLocalDateKey(next.toISOString().slice(0, 10));
 }
+
+const WEEKDAY_INDEXES = [0, 1, 2, 3, 4, 5, 6] as const;
 
 /**
  * `0` = Sunday ... `6` = Saturday. Use this for weekday decisions, never a
  * formatted weekday name: a locale change would silently break the check.
  */
-export function weekdayIndex(key: LocalDateKey): 0 | 1 | 2 | 3 | 4 | 5 | 6 {
-  // SAFETY: getUTCDay returns 0-6 by spec.
-  return noonUtcOn(key).getUTCDay() as 0 | 1 | 2 | 3 | 4 | 5 | 6;
+export function weekdayIndex(key: LocalDateKey): (typeof WEEKDAY_INDEXES)[number] {
+  const day = noonUtcOn(key).getUTCDay();
+  const index = WEEKDAY_INDEXES[day];
+
+  // getUTCDay returns 0-6 by spec, so this is a broken-invariant guard.
+  if (index === undefined) throw new Error(`[timezone] getUTCDay returned ${day}`);
+
+  return index;
 }
 
 /**

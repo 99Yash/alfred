@@ -98,8 +98,8 @@ function labelOf(category: UsageRunCategory, workflowSlug: string | null, state:
 function categoryPredicate(category: UsageRunCategory): SQL {
   switch (category) {
     case "workflow":
-      // SAFETY: and() with two defined args always returns a SQL node.
-      return and(isNotNull(agentRuns.id), notInArray(agentRuns.workflowSlug, KNOWN_SLUGS)) as SQL;
+      // The same text `and()` renders. `and()` types its result `SQL | undefined`.
+      return sql`(${isNotNull(agentRuns.id)} and ${notInArray(agentRuns.workflowSlug, KNOWN_SLUGS)})`;
     case "uncategorized":
       return isNull(agentRuns.id);
     case "briefing":

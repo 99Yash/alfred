@@ -584,10 +584,10 @@ export async function leaseRun(runId: string): Promise<LeaseResult> {
       });
     }
 
-    // SAFETY: the branches above leave only pending, runnable, running, or deferred.
+    // The guards above narrow `status` to pending, runnable, running, or deferred.
     const queue: LeaseQueueInfo = {
       staleMs,
-      fromStatus: status as QueueLeaseFromStatus,
+      fromStatus: status,
       reclaimed: isStaleRunning,
     };
 
@@ -615,16 +615,13 @@ async function tryInsertStepRow(
   state: unknown,
 ): Promise<boolean> {
   try {
-    await db()
-      .insert(agentSteps)
-      .values({
-        runId,
-        stepId,
-        attempt,
-        status: "running",
-        // SAFETY: workflow state is a JSON tree for the jsonb column.
-        input: state as object,
-      });
+    await db().insert(agentSteps).values({
+      runId,
+      stepId,
+      attempt,
+      status: "running",
+      input: state,
+    });
 
     return true;
   } catch (err) {
@@ -759,8 +756,7 @@ async function commitStepSuccessTx(
 
     if (result.kind === "next") {
       await commitGuardedRunUpdate(tx, run, stepId, attempt, {
-        // SAFETY: sanitize preserves the state's JSON shape for the jsonb column.
-        state: cleanState as object,
+        state: cleanState,
         currentStep: result.nextStep,
         // Never reset: a loop back into an earlier step would collide with its old step row
         // and stall until the stale-lease sweep. `attempt` is not a retry cap.
@@ -788,8 +784,7 @@ async function commitStepSuccessTx(
       });
 
       await commitGuardedRunUpdate(tx, run, stepId, attempt, {
-        // SAFETY: sanitize preserves the state's JSON shape for the jsonb column.
-        state: cleanState as object,
+        state: cleanState,
         status: "completed",
         output: cleanOutput,
         outcome,
@@ -813,8 +808,7 @@ async function commitStepSuccessTx(
     if (result.kind === "blocked") {
       const outcome = await deriveRunOutcome(tx, run, { status: "blocked", output: cleanOutput });
       await commitGuardedRunUpdate(tx, run, stepId, attempt, {
-        // SAFETY: sanitize preserves the state's JSON shape for the jsonb column.
-        state: cleanState as object,
+        state: cleanState,
         status: "blocked",
         output: cleanOutput,
         outcome,
@@ -850,8 +844,7 @@ async function commitStepSuccessTx(
       });
 
       await commitGuardedRunUpdate(tx, run, stepId, attempt, {
-        // SAFETY: sanitize preserves the state's JSON shape for the jsonb column.
-        state: cleanState as object,
+        state: cleanState,
         status: "deferred",
         output: cleanOutput,
         outcome,
@@ -880,8 +873,7 @@ async function commitStepSuccessTx(
     // Every other kind returned above, so `result` is the interrupt.
     const wake = sanitizeToolResult(result.wake).value;
     await commitGuardedRunUpdate(tx, run, stepId, attempt, {
-      // SAFETY: sanitize preserves the state's JSON shape for the jsonb column.
-      state: cleanState as object,
+      state: cleanState,
       status: "waiting",
       wakeCondition: wake,
       attempt: attempt + 1, // next attempt of the same step on resume

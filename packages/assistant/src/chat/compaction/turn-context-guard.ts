@@ -1,9 +1,4 @@
-import {
-  resolveModelContextWindow,
-  type LanguageModel,
-  type ModelMessage,
-  type ToolSet,
-} from "@alfred/ai";
+import { resolveModelContextWindow, type LanguageModel, type ToolSet } from "@alfred/ai";
 import { toMessage, type AgentTranscriptMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { chatMessages } from "@alfred/db/schemas";
@@ -165,8 +160,7 @@ async function applyForegroundContextGuard({
     assessChatRequestPressure({
       systemPrompt,
       tools,
-      // SAFETY: AgentTranscriptMessage is the persisted superset of ModelMessage.
-      transcript: (pendingGuidance ? [...candidate, pendingGuidance] : candidate) as ModelMessage[],
+      transcript: pendingGuidance ? [...candidate, pendingGuidance] : candidate,
       contextWindowTokens,
       outputReserveTokens: CHAT_MAX_OUTPUT_TOKENS,
     });
@@ -346,11 +340,10 @@ async function applyWithinRunContextGuard({
     assessChatRequestPressure({
       systemPrompt,
       tools,
-      // SAFETY: withEphemeralReference keeps the AgentTranscriptMessage shape, a superset of ModelMessage.
       transcript: withEphemeralReference(
         pendingGuidance ? [...candidate, pendingGuidance] : candidate,
         artifactReference,
-      ) as ModelMessage[],
+      ),
       contextWindowTokens,
       outputReserveTokens: CHAT_MAX_OUTPUT_TOKENS,
     });

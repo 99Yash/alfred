@@ -17,6 +17,7 @@ import {
   hashToolInput,
   hashToolRequest,
   INTEGRATION_ACTIONS,
+  INTEGRATION_SLUGS,
   integrationFromToolName,
   inputMatchesWorkflowResourceScope,
   isIntegrationSlug,
@@ -1121,8 +1122,7 @@ function integrationActionSuggestion(
     };
   }
 
-  // SAFETY: INTEGRATION_ACTIONS is keyed by IntegrationSlug.
-  const matches = (Object.keys(INTEGRATION_ACTIONS) as IntegrationSlug[]).filter((integration) => {
+  const matches = INTEGRATION_SLUGS.filter((integration) => {
     if (integration === "system") return false;
 
     if (allowedIntegrations.length > 0 && !allowedIntegrations.includes(integration)) {
