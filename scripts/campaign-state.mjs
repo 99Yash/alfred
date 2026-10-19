@@ -61,6 +61,7 @@ const BOOLEAN_FIELDS = ["needsCoverage"];
  */
 const ARRAY_FIELDS = ["prereqs"];
 
+/** @returns {never} */
 function die(message) {
   process.stderr.write(`campaign-state: ${message}\n`);
   process.exit(1);

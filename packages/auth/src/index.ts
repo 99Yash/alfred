@@ -37,6 +37,9 @@ export function auth() {
 
               return { data: { ...user, name: titled } };
             }
+
+            // `undefined` tells Better Auth to create the user unchanged; only `false` aborts.
+            return undefined;
           },
           // A failed hook is logged, so it cannot fail the signup.
           after: async (user) => {
