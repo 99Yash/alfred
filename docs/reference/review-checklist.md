@@ -59,8 +59,8 @@ Each rule has the rule, the reason, and an example.
   Why: a loser keeps a billable call open. Example: #1086. See [ai-sdk.md](./ai-sdk.md).
 - **Make work that BullMQ or a webhook retries idempotent.** Derive a stable key.
   Why: a retry must not repeat a side effect. Example: #576.
-- **Do not log a full error object. Log a message and safe fields, and mask PII.**
-  Why: an error can carry a connection string or a token. Example: `toMessage` and `redactSecrets` in `packages/contracts/src/errors.ts`.
+- **Log a caught error only under the `err` key of a `logger` call. Put only safe fields beside it, and mask PII.** `no-console` stops a `console` call outside `apps/web` and scripts.
+  Why: only the `err` key goes through the serializer that drops free text. An error under another key, or its message in a field, can carry a connection string or a token. Example: `serializeError` in `packages/logging/src/logger.ts`.
 - **Do not swallow a caught error.** Rethrow it, log it, or return a failure value. `no-empty` fails only an empty `catch` body, so check a `catch` that has statements.
   Why: a silent `catch` hides the fault from the user and from the logs.
 - **Verify a webhook signature with a timing-safe compare on the raw body.**
