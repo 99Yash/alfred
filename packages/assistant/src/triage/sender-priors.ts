@@ -117,13 +117,17 @@ export async function getSenderPrior(
       // "null"; corrupt content throws into the miss path.
       return cached === "null" ? null : (JSON.parse(cached) as SenderPrior);
     }
-  } catch {}
+  } catch {
+    // A Redis error or a corrupt entry is a cache miss. Postgres below is the truth.
+  }
 
   const fromDb = await loadSenderPriorFromDb(userId, senderKey);
 
   try {
     await getRedis().set(key, fromDb ? JSON.stringify(fromDb) : "null", "EX", CACHE_TTL_SECONDS);
-  } catch {}
+  } catch {
+    // A failed fill only costs the next read another Postgres query.
+  }
 
   return fromDb;
 }

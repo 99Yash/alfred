@@ -150,7 +150,10 @@ if (mode === "prompt") {
 
   try {
     input = JSON.parse(readStdin() || "{}");
-  } catch {}
+  } catch {
+    // Advisory hook, as in the sibling hooks: unreadable stdin means no lessons, not a hook error.
+    process.exit(0);
+  }
 
   const prompt = (input.prompt || "").toLowerCase();
 
@@ -204,7 +207,10 @@ if (mode === "pre-edit") {
 
   try {
     input = JSON.parse(readStdin() || "{}");
-  } catch {}
+  } catch {
+    // Advisory hook, as in the sibling hooks: unreadable stdin means no lessons, not a hook error.
+    process.exit(0);
+  }
 
   const fp = (input.tool_input && input.tool_input.file_path) || "";
 

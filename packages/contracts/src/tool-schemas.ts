@@ -24,6 +24,7 @@ import {
 import { contextSearchRequestSchema } from "./context-search";
 import { githubSearchQueryIssues, sanitizeGithubSearchQuery } from "./github-search";
 import { enumGuard, isRecord } from "./guards";
+import { safeJsonParse } from "./json";
 import { mcpCallInput, mcpToolInspectInputSchema, mcpToolSearchInputSchema } from "./mcp";
 import { restPassthroughRequestSchema } from "./passthrough";
 import { todoSourceSchema } from "./todos";
@@ -151,14 +152,13 @@ export function coerceJsonArrayFields<S extends z.ZodType<any>>(
 
       if (!trimmed.startsWith("[")) continue;
 
-      try {
-        const parsed: unknown = JSON.parse(trimmed);
+      // Malformed JSON parses to `null`, so the raw string goes on to strict validation.
+      const parsed = safeJsonParse(trimmed);
 
-        if (Array.isArray(parsed)) {
-          if (next === value) next = { ...value };
-          next[field] = parsed;
-        }
-      } catch {}
+      if (Array.isArray(parsed)) {
+        if (next === value) next = { ...value };
+        next[field] = parsed;
+      }
     }
 
     return next;
