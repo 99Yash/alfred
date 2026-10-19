@@ -1486,7 +1486,7 @@ export class McpExecutionBroker {
         trace: resolved.trace,
       });
 
-      return this.#resolveResponse(invocation, envelope);
+      return await this.#resolveResponse(invocation, envelope);
     } catch (err) {
       if (isProvenNotDelivered(err)) {
         // Never delivered: resolve as not-delivered and rethrow.

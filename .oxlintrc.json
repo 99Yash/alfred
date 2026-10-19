@@ -178,6 +178,11 @@
     "typescript/no-misused-spread": "error",
     "typescript/no-duplicate-type-constituents": "error",
     "typescript/require-array-sort-compare": "error",
+    // return-await, correctness option only: a promise returned without `await` inside a `try`
+    // (or a `catch` that has a `finally`) settles after the block exits, so its `catch` never sees
+    // the rejection and its `finally` runs too early. The option reports only that case. The
+    // default option also asks for style edits outside a `try`, and those change no behavior.
+    "typescript/return-await": ["error", "error-handling-correctness-only"],
     // no-unnecessary-condition: a `?.`, `??`, truthiness check, or compare whose operand's type
     // already decides the result. Delete the guard only when a real parse established the type;
     // when the type is an assertion over unvalidated data (`jsonb.$type<X>()` rows that predate X,
