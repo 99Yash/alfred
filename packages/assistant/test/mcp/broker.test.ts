@@ -786,11 +786,12 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
 
       assert.equal(recovered.status, "ambiguous");
       assert.equal(appliedEffects, 1);
+      assert.ok(recovered.successorInvocationId);
 
       const [successor] = await db()
         .select()
         .from(mcpInvocation)
-        .where(eq(mcpInvocation.id, recovered.successorInvocationId!));
+        .where(eq(mcpInvocation.id, recovered.successorInvocationId));
 
       assert.equal(successor?.attemptLifecycle, "response_received");
       assert.equal(successor.effectOutcome, "unknown");

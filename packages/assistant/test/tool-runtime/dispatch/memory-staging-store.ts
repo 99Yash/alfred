@@ -136,9 +136,10 @@ export function memoryStagingStore(): MemoryStagingStore {
           query.statuses.some((status) => status === row.status),
       );
 
-      if (candidates.length === 0) return null;
       candidates.sort((a, b) => (b.decidedAt?.getTime() ?? 0) - (a.decidedAt?.getTime() ?? 0));
-      const hit = candidates[0]!;
+      const [hit] = candidates;
+
+      if (hit === undefined) return null;
 
       return { reason: hit.rejectReason, status: hit.status };
     },

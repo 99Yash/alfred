@@ -172,15 +172,14 @@ describe("moved product recipes keep their identity at their owning module seam"
           "recipe must declare no singleton dedup key",
         );
       } else {
-        assert.equal(
-          typeof c.recipe.dedupKey,
-          "function",
+        assert.ok(
+          typeof c.recipe.dedupKey === "function",
           "recipe must declare a singleton dedup key",
         );
 
         for (const s of c.dedup) {
           assert.equal(
-            c.recipe.dedupKey!(s.input),
+            c.recipe.dedupKey(s.input),
             s.expected,
             "dedup-key derivation must be unchanged",
           );

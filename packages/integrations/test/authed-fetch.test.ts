@@ -15,6 +15,17 @@ interface RecordedFetchCalls {
 
 const realFetch = globalThis.fetch;
 
+/** The fetch call at `index`; fails the test with a clear message when fewer calls were made. */
+function callAt(
+  calls: RecordedFetchCalls["calls"],
+  index: number,
+): RecordedFetchCalls["calls"][number] {
+  const call = calls[index];
+  assert.ok(call, `expected a fetch call at index ${index}`);
+
+  return call;
+}
+
 function stubFetch(response: Response = new Response(null, { status: 200 })): RecordedFetchCalls {
   const calls: Array<{ input: string | URL | Request; init: RequestInit | undefined }> = [];
   globalThis.fetch = (input: string | URL | Request, init?: RequestInit) => {
@@ -39,7 +50,7 @@ describe("authedFetch", () => {
     );
 
     assert.equal(calls.length, 1);
-    const { input, init } = calls[0]!;
+    const { input, init } = callAt(calls, 0);
     assert.equal(input, "https://api.example.com/things");
     assert.equal(init?.method, "GET");
     assert.deepEqual(init.headers, { Authorization: "Bearer tok", Accept: "application/json" });
@@ -54,7 +65,7 @@ describe("authedFetch", () => {
       { url: "https://api.example.com/pages", method: "POST", body: { title: "hi", n: 1 } },
     );
 
-    const { init } = calls[0]!;
+    const { init } = callAt(calls, 0);
     assert.equal(init?.method, "POST");
     assert.equal(init.body, JSON.stringify({ title: "hi", n: 1 }));
     assert.deepEqual(init.headers, {
@@ -71,7 +82,7 @@ describe("authedFetch", () => {
       { headers: {} },
       { url: "https://api.example.com/x", method: "POST", body: null },
     );
-    const { init } = calls[0]!;
+    const { init } = callAt(calls, 0);
     assert.equal(init?.body, JSON.stringify(null));
     assert.equal((init.headers as Record<string, string>)["Content-Type"], "application/json");
   });
@@ -79,19 +90,19 @@ describe("authedFetch", () => {
   test("redirect defaults to follow and is overridable to manual", async () => {
     const { calls } = stubFetch();
     await authedFetch({ headers: {} }, { url: "https://api.example.com/a" });
-    assert.equal(calls[0]!.init?.redirect, "follow");
+    assert.equal(callAt(calls, 0).init?.redirect, "follow");
 
     await authedFetch(
       { headers: {}, redirect: "manual" },
       { url: "https://api.example.com/b", method: "POST", body: {} },
     );
-    assert.equal(calls[1]!.init?.redirect, "manual");
+    assert.equal(callAt(calls, 1).init?.redirect, "manual");
   });
 
   test("always attaches an abort signal (the shared timeout)", async () => {
     const { calls } = stubFetch();
     await authedFetch({ headers: {} }, { url: "https://api.example.com/a" });
-    assert.ok(calls[0]!.init?.signal instanceof AbortSignal);
+    assert.ok(callAt(calls, 0).init?.signal instanceof AbortSignal);
     assert.equal(typeof INTEGRATION_FETCH_TIMEOUT_MS, "number");
     // The literal type decides the comparison; read it as a number to pin the runtime value.
     const timeoutMs: number = INTEGRATION_FETCH_TIMEOUT_MS;
@@ -106,7 +117,9 @@ describe("authedFetch", () => {
       url: "https://api.example.com/a",
     });
 
-    const { signal } = calls[0]!.init!;
+    const { init } = callAt(calls, 0);
+    assert.ok(init);
+    const { signal } = init;
     assert.ok(signal instanceof AbortSignal);
     await new Promise((resolve) => setTimeout(resolve, 40));
     assert.equal(signal.aborted, false, "profile timeoutMs must not shorten the shared timeout");
@@ -125,6 +138,6 @@ describe("authedFetch", () => {
     const { calls } = stubFetch();
     const url = new URL("https://api.example.com/things?limit=5");
     await authedFetch({ headers: {} }, { url });
-    assert.equal(calls[0]!.input, url);
+    assert.equal(callAt(calls, 0).input, url);
   });
 });

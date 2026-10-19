@@ -240,7 +240,8 @@ describe("objectStateStore contract (DB-backed)", { skip: SKIP }, () => {
     await apply("opened", prPayload(101, SHA_A), new Date("2026-06-04T00:00:00Z"));
 
     const ref = await objectStateStore.resolveByKey(userId, "github", "head_sha", SHA_A);
-    const state = await objectStateStore.getState(userId, ref!);
+    assert.ok(ref);
+    const state = await objectStateStore.getState(userId, ref);
     assert.equal(state?.stateCategory, "resolved", "out-of-order replay must not reopen");
 
     const objects = await objectStateStore.list(userId, "github", { kind: "pull_request" });

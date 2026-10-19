@@ -42,6 +42,14 @@ function cacheControl(value: unknown): unknown {
   return getPath(value, "providerOptions", "anthropic", "cacheControl");
 }
 
+/** The item at `index`; fails the test with a clear message when the call did not send it. */
+function itemAt<T>(items: readonly T[] | undefined, index: number): T {
+  const item = items?.[index];
+  assert.ok(item !== undefined, `expected an item at index ${index}`);
+
+  return item;
+}
+
 const tools: ToolSet = {
   "system.search_tools": tool({
     description: "Search the catalog",
@@ -72,10 +80,10 @@ describe("provider turn protocol", () => {
     assert.equal("alfredInternal" in (call.providerOptions ?? {}), false);
     assert.equal(call.tools?.[0]?.name, "system__search_tools");
     assert.deepEqual(cacheControl(call.tools[0]), { type: "ephemeral", ttl: "1h" });
-    assert.deepEqual(cacheControl(call.prompt[0]!), { type: "ephemeral", ttl: "1h" });
-    assert.equal(cacheControl(call.prompt[1]!), undefined);
-    assert.equal(cacheControl(call.prompt[2]!), undefined);
-    assert.deepEqual(cacheControl(call.prompt[3]!), { type: "ephemeral", ttl: "1h" });
+    assert.deepEqual(cacheControl(itemAt(call.prompt, 0)), { type: "ephemeral", ttl: "1h" });
+    assert.equal(cacheControl(itemAt(call.prompt, 1)), undefined);
+    assert.equal(cacheControl(itemAt(call.prompt, 2)), undefined);
+    assert.deepEqual(cacheControl(itemAt(call.prompt, 3)), { type: "ephemeral", ttl: "1h" });
   });
 
   test("Google consumes the same envelope without receiving Anthropic metadata", async () => {
@@ -100,8 +108,8 @@ describe("provider turn protocol", () => {
     });
     assert.equal(call.tools?.[0]?.name, "system__search_tools");
     assert.equal(cacheControl(call.tools[0]), undefined);
-    assert.equal(cacheControl(call.prompt[0]!), undefined);
-    assert.equal(cacheControl(call.prompt[1]!), undefined);
+    assert.equal(cacheControl(itemAt(call.prompt, 0)), undefined);
+    assert.equal(cacheControl(itemAt(call.prompt, 1)), undefined);
   });
 
   test("OpenAI consumes the envelope and uses the adapter-owned name policy", async () => {
@@ -121,7 +129,7 @@ describe("provider turn protocol", () => {
     assert.equal("alfredInternal" in (call.providerOptions ?? {}), false);
     assert.equal(call.tools?.[0]?.name, "system__search_tools");
     assert.equal(cacheControl(call.tools[0]), undefined);
-    assert.equal(cacheControl(call.prompt[0]!), undefined);
+    assert.equal(cacheControl(itemAt(call.prompt, 0)), undefined);
   });
 
   test("name encoding leaves provider-defined tools unchanged", async () => {
@@ -184,12 +192,12 @@ describe("provider turn protocol", () => {
     const fallbackCall = fallback.doGenerateCalls[0];
     assert.ok(primaryCall);
     assert.ok(fallbackCall);
-    assert.deepEqual(cacheControl(primaryCall.prompt[0]!), {
+    assert.deepEqual(cacheControl(itemAt(primaryCall.prompt, 0)), {
       type: "ephemeral",
       ttl: "1h",
     });
-    assert.equal(cacheControl(fallbackCall.prompt[0]!), undefined);
-    assert.equal(cacheControl(fallbackCall.tools![0]!), undefined);
+    assert.equal(cacheControl(itemAt(fallbackCall.prompt, 0)), undefined);
+    assert.equal(cacheControl(itemAt(fallbackCall.tools, 0)), undefined);
     assert.equal("alfredInternal" in (fallbackCall.providerOptions ?? {}), false);
   });
 
@@ -207,8 +215,8 @@ describe("provider turn protocol", () => {
     const call = inner.doGenerateCalls[0];
     assert.ok(call);
     assert.equal(call.providerOptions, undefined);
-    assert.equal(cacheControl(call.tools![0]!), undefined);
-    assert.equal(cacheControl(call.prompt[0]!), undefined);
+    assert.equal(cacheControl(itemAt(call.tools, 0)), undefined);
+    assert.equal(cacheControl(itemAt(call.prompt, 0)), undefined);
   });
 
   test("disabled caching strips the envelope without adding breakpoints", async () => {
@@ -226,9 +234,9 @@ describe("provider turn protocol", () => {
     const call = inner.doGenerateCalls[0];
     assert.ok(call);
     assert.equal(call.providerOptions, undefined);
-    assert.equal(cacheControl(call.tools![0]!), undefined);
-    assert.equal(cacheControl(call.prompt[0]!), undefined);
-    assert.equal(cacheControl(call.prompt[1]!), undefined);
+    assert.equal(cacheControl(itemAt(call.tools, 0)), undefined);
+    assert.equal(cacheControl(itemAt(call.prompt, 0)), undefined);
+    assert.equal(cacheControl(itemAt(call.prompt, 1)), undefined);
   });
 
   test("cache projection preserves existing provider options", async () => {

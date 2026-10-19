@@ -95,7 +95,8 @@ describe("guardUnreportedToolFailures", () => {
 
     const transcript = result.transcript;
     assert.ok(transcript, "guard should append a corrective note to the transcript");
-    const last = transcript.at(-1)!;
+    const last = transcript.at(-1);
+    assert.ok(last);
     assert.equal(last.role, "user");
     assert.match(String(last.content), /\[system\]/);
     assert.match(String(last.content), /sheets\.append_values/);
@@ -136,7 +137,9 @@ describe("guardUnreportedToolFailures", () => {
     assert.deepEqual(state.notedFailureToolCallIds, ["tc_1"]);
     const transcript = result.transcript;
     assert.ok(transcript);
-    const note = String(transcript.at(-1)!.content);
+    const last = transcript.at(-1);
+    assert.ok(last);
+    const note = String(last.content);
     assert.match(note, /sheets\.update_values/);
     assert.match(note, /completed the user's goal another way/);
   });
@@ -329,7 +332,9 @@ describe("guardUnreportedToolFailures", () => {
     assert.equal(result.kind, "next");
     const transcript = result.transcript;
     assert.ok(transcript);
-    const note = String(transcript.at(-1)!.content);
+    const last = transcript.at(-1);
+    assert.ok(last);
+    const note = String(last.content);
     assert.match(note, /sheets\.batch_update/);
     assert.ok(!note.includes("append_values"));
     assert.deepEqual(state.notedFailureToolCallIds, ["tc_2"]);

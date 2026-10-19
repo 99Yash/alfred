@@ -66,7 +66,9 @@ describe("extractTrajectory", () => {
         ["github.search", "error"],
       ],
     );
-    assert.match(tj.steps[2]!.error!, /422/);
+    const failed = tj.steps[2];
+    assert.ok(failed?.error !== undefined);
+    assert.match(failed.error, /422/);
   });
 
   test("flags a decided call that never executed (staged / gated / rejected)", () => {
@@ -165,7 +167,7 @@ describe("diffTrajectories", () => {
     const d = diffTrajectories(extractTrajectory(base()), extractTrajectory(cand));
     assert.equal(d.identical, false);
     assert.equal(d.changed.length, 1);
-    assert.equal(d.changed[0]!.toolName, "github.search");
+    assert.equal(d.changed[0]?.toolName, "github.search");
     assert.equal(d.added.length, 0);
     assert.equal(d.removed.length, 0);
     assert.equal(d.unchanged.length, 2);

@@ -259,6 +259,14 @@ describe("sanitizeGithubSearchQuery (ADR-0071 sanitize-and-merge)", () => {
   });
 });
 
+/** The first query issue; fails the test with a clear message when there is none. */
+function firstIssue(issues: readonly string[]): string {
+  const [issue] = issues;
+  assert.ok(issue !== undefined, "expected at least one query issue");
+
+  return issue;
+}
+
 describe("githubSearchQueryIssues (residue that has no safe auto-fix)", () => {
   test("clean query (extra-only qualifiers) produces no issues", () => {
     assert.deepEqual(githubSearchQueryIssues({ query: "repo:99Yash/alfred label:bug" }), []);
@@ -293,8 +301,8 @@ describe("githubSearchQueryIssues (residue that has no safe auto-fix)", () => {
     );
 
     assert.equal(issues.length, 1);
-    assert.match(issues[0]!, /Unrecognized GitHub state value/);
-    assert.match(issues[0]!, /state:done/);
+    assert.match(firstIssue(issues), /Unrecognized GitHub state value/);
+    assert.match(firstIssue(issues), /state:done/);
   });
 
   test("recognized state: values still fold cleanly (no false rejection)", () => {
@@ -309,15 +317,15 @@ describe("githubSearchQueryIssues (residue that has no safe auto-fix)", () => {
   test("rejects an invented qualifier (the merged-by: silent-zero bug)", () => {
     const issues = githubSearchQueryIssues({ query: "merged-by:@me" });
     assert.equal(issues.length, 1);
-    assert.match(issues[0]!, /Unknown GitHub search qualifier/);
-    assert.match(issues[0]!, /merged-by/);
+    assert.match(firstIssue(issues), /Unknown GitHub search qualifier/);
+    assert.match(firstIssue(issues), /merged-by/);
   });
 
   test("rejects invented qualifiers even inside boolean groups", () => {
     const issues = githubSearchQueryIssues({ query: "(repo:99Yash/alfred AND merged-by:@me)" });
     assert.equal(issues.length, 1);
-    assert.match(issues[0]!, /Unknown GitHub search qualifier/);
-    assert.match(issues[0]!, /merged-by/);
+    assert.match(firstIssue(issues), /Unknown GitHub search qualifier/);
+    assert.match(firstIssue(issues), /merged-by/);
   });
 
   test("rejects negated type qualifiers (-is:pr / -is:issue) that contradict the type field", () => {
@@ -327,16 +335,16 @@ describe("githubSearchQueryIssues (residue that has no safe auto-fix)", () => {
     );
 
     assert.equal(prIssues.length, 1);
-    assert.match(prIssues[0]!, /Negated type qualifier/);
-    assert.match(prIssues[0]!, /-is:pr/);
-    assert.match(prIssues[0]!, /type:'issue'/);
+    assert.match(firstIssue(prIssues), /Negated type qualifier/);
+    assert.match(firstIssue(prIssues), /-is:pr/);
+    assert.match(firstIssue(prIssues), /type:'issue'/);
 
     const issueIssues = githubSearchQueryIssues(
       sanitizeGithubSearchQuery({ query: "-is:issue repo:99Yash/alfred" }).sanitized,
     );
 
     assert.equal(issueIssues.length, 1);
-    assert.match(issueIssues[0]!, /Negated type qualifier/);
+    assert.match(firstIssue(issueIssues), /Negated type qualifier/);
 
     assert.deepEqual(githubSearchQueryIssues({ query: "-label:wontfix" }), []);
     assert.deepEqual(githubSearchQueryIssues({ query: "-is:draft" }), []);
@@ -351,33 +359,33 @@ describe("githubSearchQueryIssues (residue that has no safe auto-fix)", () => {
   test("rejects malformed free-form date qualifier values before GitHub 422s", () => {
     const bareOperatorIssues = githubSearchQueryIssues({ query: "closed:>" });
     assert.equal(bareOperatorIssues.length, 1);
-    assert.match(bareOperatorIssues[0]!, /Malformed GitHub date qualifier/);
-    assert.match(bareOperatorIssues[0]!, /closed:>/);
+    assert.match(firstIssue(bareOperatorIssues), /Malformed GitHub date qualifier/);
+    assert.match(firstIssue(bareOperatorIssues), /closed:>/);
 
     const bareInclusiveOperatorIssues = githubSearchQueryIssues({ query: "merged:>=" });
     assert.equal(bareInclusiveOperatorIssues.length, 1);
-    assert.match(bareInclusiveOperatorIssues[0]!, /Malformed GitHub date qualifier/);
-    assert.match(bareInclusiveOperatorIssues[0]!, /merged:>=/);
+    assert.match(firstIssue(bareInclusiveOperatorIssues), /Malformed GitHub date qualifier/);
+    assert.match(firstIssue(bareInclusiveOperatorIssues), /merged:>=/);
   });
 
   test("rejects contradictory structured state/window combinations", () => {
     assert.match(
-      githubSearchQueryIssues({ state: "open", closedWithinDays: 7 })[0]!,
+      firstIssue(githubSearchQueryIssues({ state: "open", closedWithinDays: 7 })),
       /closedWithinDays.*state:'open'/,
     );
     assert.match(
-      githubSearchQueryIssues({ state: "open", mergedWithinDays: 7 })[0]!,
+      firstIssue(githubSearchQueryIssues({ state: "open", mergedWithinDays: 7 })),
       /mergedWithinDays.*state:'open'/,
     );
   });
 
   test("rejects merged filters on type:'issue' (issues are never merged)", () => {
     assert.match(
-      githubSearchQueryIssues({ type: "issue", state: "merged" })[0]!,
+      firstIssue(githubSearchQueryIssues({ type: "issue", state: "merged" })),
       /conflict with `type:'issue'`/,
     );
     assert.match(
-      githubSearchQueryIssues({ type: "issue", mergedWithinDays: 7 })[0]!,
+      firstIssue(githubSearchQueryIssues({ type: "issue", mergedWithinDays: 7 })),
       /conflict with `type:'issue'`/,
     );
   });
@@ -392,11 +400,11 @@ describe("githubSearchQueryIssues (residue that has no safe auto-fix)", () => {
 
     const stateIssues = githubSearchQueryIssues({ state: "merged", query: "is:unmerged" });
     assert.equal(stateIssues.length, 1);
-    assert.match(stateIssues[0]!, /is:unmerged.*conflicts/);
+    assert.match(firstIssue(stateIssues), /is:unmerged.*conflicts/);
 
     const windowIssues = githubSearchQueryIssues({ query: "is:unmerged", mergedWithinDays: 7 });
     assert.equal(windowIssues.length, 1);
-    assert.match(windowIssues[0]!, /is:unmerged.*conflicts/);
+    assert.match(firstIssue(windowIssues), /is:unmerged.*conflicts/);
   });
 });
 

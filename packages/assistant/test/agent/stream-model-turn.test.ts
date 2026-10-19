@@ -102,9 +102,11 @@ describe("streamModelTurn", () => {
 
     const deltas = events.filter((e) => e.kind === "chat.delta");
     assert.equal(deltas.length, 1);
-    assert.equal(deltas[0]!.payload.text, "Hello world");
-    assert.equal(deltas[0]!.payload.seq, 1);
-    assert.equal(deltas[0]!.payload.segmentIndex, 0);
+    const [delta] = deltas;
+    assert.ok(delta);
+    assert.equal(delta.payload.text, "Hello world");
+    assert.equal(delta.payload.seq, 1);
+    assert.equal(delta.payload.segmentIndex, 0);
     assert.equal(state.assistantText, "Hello world");
     assert.equal(state.deltaSeq, 1);
   });
@@ -125,8 +127,10 @@ describe("streamModelTurn", () => {
 
     const reasoning = events.filter((e) => e.kind === "chat.reasoning");
     assert.equal(reasoning.length, 1);
-    assert.equal(reasoning[0]!.payload.text, "let me think");
-    assert.equal(reasoning[0]!.payload.seq, 1);
+    const [thought] = reasoning;
+    assert.ok(thought);
+    assert.equal(thought.payload.text, "let me think");
+    assert.equal(thought.payload.seq, 1);
     assert.equal(state.reasoningText, "let me think");
     assert.ok(state.reasoningMs >= 0);
   });
@@ -146,10 +150,12 @@ describe("streamModelTurn", () => {
 
     const tools = events.filter((e) => e.kind === "chat.tool");
     assert.equal(tools.length, 1);
-    assert.equal(tools[0]!.payload.toolCallId, "call-1");
-    assert.equal(tools[0]!.payload.toolName, toolName);
-    assert.equal(tools[0]!.payload.status, "started");
-    assert.equal(typeof tools[0]!.payload.argsPreview, "string");
+    const [card] = tools;
+    assert.ok(card);
+    assert.equal(card.payload.toolCallId, "call-1");
+    assert.equal(card.payload.toolName, toolName);
+    assert.equal(card.payload.status, "started");
+    assert.equal(typeof card.payload.argsPreview, "string");
   });
 
   test("does not surface a card for an inactive tool", async () => {
@@ -198,9 +204,11 @@ describe("streamModelTurn", () => {
     assert.ok(artifactDeltas.length >= 1);
     const body = artifactDeltas.map((e) => e.payload.text as string).join("");
     assert.equal(body, "hello body");
-    assert.equal(artifactDeltas[0]!.payload.mode, "replace");
-    assert.equal(artifactDeltas[0]!.payload.title, "Plan");
-    assert.equal(artifactDeltas[0]!.payload.toolCallId, "art-1");
+    const [firstDelta] = artifactDeltas;
+    assert.ok(firstDelta);
+    assert.equal(firstDelta.payload.mode, "replace");
+    assert.equal(firstDelta.payload.title, "Plan");
+    assert.equal(firstDelta.payload.toolCallId, "art-1");
   });
 
   test("chunks an oversized artifact body under the event cap", async () => {
@@ -278,7 +286,7 @@ describe("streamModelTurn", () => {
     await releaseWithheldReply();
     const deltas = events.filter((e) => e.kind === "chat.delta");
     assert.equal(deltas.length, 1);
-    assert.equal(deltas[0]!.payload.text, "reissue lead-in");
+    assert.equal(deltas[0]?.payload.text, "reissue lead-in");
   });
 
   test("breaks the drain when a stop is observed mid-stream", async () => {

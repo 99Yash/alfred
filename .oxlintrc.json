@@ -280,7 +280,8 @@
     // no-non-null-assertion: a postfix `!`, a runtime promise the compiler cannot keep. Use the
     // value the check already produced (destructure, `.at(-1)`, iterate entries, a local that keeps
     // the narrowing); when absence is impossible, throw an `Error` that names the invariant; when it
-    // is possible, handle it. Never trade `!` for `as T`. Tests and evals are staged in an override.
+    // is possible, handle it. Never trade `!` for `as T`. It applies to every surface, tests, evals,
+    // scripts, and JavaScript included, with no override.
     "typescript/no-non-null-assertion": "error",
     // no-unnecessary-type-assertion: an `as T` or `<T>` that does not change the type, an `as T`
     // where the context already expects `T` and the value fits it, and a `!` on a value that is
@@ -758,23 +759,6 @@
       ],
       "rules": {
         "anti-slop/no-unsafe-dictionary-type": "off"
-      }
-    },
-    {
-      // no-non-null-assertion is at `error` for product source, ops scripts included. Test and
-      // eval scopes are staged: a fixture indexes the array it just built, so a later lane clears
-      // them and then deletes this entry.
-      "files": [
-        "**/test/**",
-        "**/*.test.ts",
-        "**/*.test.tsx",
-        "**/*.test.mts",
-        "**/*.test.cts",
-        "**/evals/**",
-        "**/*.eval.ts"
-      ],
-      "rules": {
-        "typescript/no-non-null-assertion": "off"
       }
     },
     {

@@ -71,7 +71,8 @@ describe("boundPassthroughBody — total byte cap", () => {
 
     assert.doesNotThrow(() => JSON.parse(JSON.stringify(r.value)));
     // Small slack for sentinels.
-    assert.ok(r.truncation!.returnedBytes < r.truncation!.originalBytesApprox);
+    assert.ok(r.truncation);
+    assert.ok(r.truncation.returnedBytes < r.truncation.originalBytesApprox);
     assert.ok(bytes(r.value) <= PASSTHROUGH_MAX_BODY_BYTES + 1024);
   });
 });
