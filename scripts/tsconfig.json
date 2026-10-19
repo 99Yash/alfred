@@ -40,7 +40,8 @@
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "exactOptionalPropertyTypes": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitReturns": true
   },
   "include": ["**/*.mjs", "**/*.ts"],
   "exclude": ["spikes/**"]
