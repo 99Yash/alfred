@@ -25,6 +25,7 @@ function startPoolHeartbeat() {
     // A full pool queues instead of failing, which looks like a slow model.
     // `waitingCount` is the only sign.
     if (_pool.waitingCount > 0) {
+      // oxlint-disable-next-line no-console -- @alfred/logging imports @alfred/db, so the pool cannot import the logger.
       console.warn(
         `[db] Pool saturated: ${_pool.waitingCount} waiting, ` +
           `${_pool.totalCount}/${_pool.options.max} connections, ${_pool.idleCount} idle`,
@@ -32,6 +33,7 @@ function startPoolHeartbeat() {
     }
 
     void _pool.query("SELECT 1").catch((err) => {
+      // oxlint-disable-next-line no-console -- @alfred/logging imports @alfred/db, so the pool cannot import the logger.
       console.warn("[db] Pool heartbeat failed:", toMessage(err));
     });
   }, POOL_HEARTBEAT_INTERVAL_MS);
@@ -55,6 +57,7 @@ export function db() {
       keepAliveInitialDelayMillis: 10_000,
     });
     _pool.on("error", (err) => {
+      // oxlint-disable-next-line no-console -- @alfred/logging imports @alfred/db, so the pool cannot import the logger.
       console.warn("[db] Idle pool client error:", err.message);
     });
     startPoolHeartbeat();
@@ -125,6 +128,7 @@ export async function warmPool() {
 
       for (const c of clients) c.release();
     } catch (err) {
+      // oxlint-disable-next-line no-console -- @alfred/logging imports @alfred/db, so the pool cannot import the logger.
       console.warn(
         "[db] Pool warm-up failed, connections will be established lazily:",
         toMessage(err),

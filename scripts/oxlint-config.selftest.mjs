@@ -1269,6 +1269,17 @@ function vacuousDisarmMarkerFailures() {
   });
 }
 
+/** A core rule has no plugin prefix. Its marker must excuse it all the same. */
+function coreRuleDisarmMarkerFailures() {
+  return disarmDrive("a reason for a core rule excuses it", {
+    overrides: [{ files: ["packages/x/src/scripts/**"], rules: { "no-console": "off" } }],
+    source: `${disarm("no-console", "scripts print to the terminal")}\n      "x": 1`,
+    expected: [],
+    disarmed: 1,
+    declared: 1,
+  });
+}
+
 /** A marker with a rule name and NO prose is as vacuous as one with neither. */
 function reasonlessDisarmMarkerFailures() {
   return disarmDrive("a marker with no reason excuses nothing", {
@@ -1818,6 +1829,7 @@ export function oxlintConfigSelfTestFailures() {
     ...restrictedImportsNotReReportedFailures(),
     ...armedScopeFailures(),
     ...vacuousDisarmMarkerFailures(),
+    ...coreRuleDisarmMarkerFailures(),
     ...reasonlessDisarmMarkerFailures(),
     ...crossRuleDisarmMarkerFailures(),
     ...pureTestScopeFailures(),

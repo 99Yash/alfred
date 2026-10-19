@@ -2,10 +2,10 @@ import {
   canonicalizeFactKey,
   clamp01,
   memorySourceSchema,
-  parseMemorySourceOrDefault,
   toDisplayText,
   type MemorySource,
 } from "@alfred/contracts";
+import { parseMemorySourceOrDefault } from "@alfred/assistant/settings";
 import { db, rowsFromExecute } from "@alfred/db";
 import {
   rejectedInferences,

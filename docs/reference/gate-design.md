@@ -127,7 +127,7 @@ Each row is a rule from [review-checklist.md](./review-checklist.md), with the r
 | Accessibility (Frontend) | Lint: the `jsx-a11y` plugin, one rule per change | Medium |
 | No query in a loop (Backend) | AST: a query on a `db()` or transaction handle awaited inside a loop body or an async `.map` | Medium |
 | Timeout and `abortSignal` (Backend) | AST: an AI SDK generate or stream call whose options have no `abortSignal` key | Medium |
-| Do not log a full error object (Backend) | AST: a `catch` binding passed whole to a logger or `console` call | Medium |
+| Log a caught error only under `err` (Backend) | AST: a `catch` binding, or its `.message`, in a `logger` call under any key other than `err`. `no-console` already stops the `console` path | Medium |
 | Do not use `updatedAt` as a queue key (Backend) | AST: an `updatedAt` column inside an ordering or a comparison in a query chain | Medium |
 | No barrel export only for a test (Backend) | Knip in production mode, where test files are not entries | Medium |
 | Bind the credential, not the token, past Gmail (Backend) | Compiler: client factories that take a credential id and never a token, one provider at a time | Medium |

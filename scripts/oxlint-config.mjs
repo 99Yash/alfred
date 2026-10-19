@@ -869,6 +869,8 @@ export function restrictedGroupCopyFailures({ sites, source, scopes }) {
 // of the fact, in a file the person editing `.oxlintrc.json` is not looking at.
 const DISARM_MARKER = "oxlint-disarm:";
 
+const RULE_NAME = /^(?:@?[a-z0-9-]+\/)?[a-z0-9-]+$/u;
+
 /**
  * Does this override scope cover tests and evals, or authored source?
  *
@@ -1096,7 +1098,9 @@ function declaredDisarms(source) {
     const rest = line.slice(at + DISARM_MARKER.length).trim();
     const [rule, ...words] = rest.split(/\s+/u);
 
-    if (!rule.includes("/")) continue;
+    // A plugin rule (`anti-slop/no-runtime-typeof`) or a core rule (`no-console`). A token
+    // that is not a rule name, such as a dash, is prose with no rule, so it is dropped.
+    if (!RULE_NAME.test(rule)) continue;
 
     // An em dash or a hyphen may separate the rule from its reason; neither is part of
     // the reason. Everything after is prose, kept verbatim.

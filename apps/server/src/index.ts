@@ -2,9 +2,9 @@
 // The bundled prod build also preloads it with `node --import`, since bundles lose import order.
 import "./instrument";
 import { flushLangfuse } from "@alfred/ai";
-import { toMessage } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import { app, securityHeaders } from "@alfred/http";
+import { logger } from "@alfred/logging";
 import { cors } from "@elysiajs/cors";
 import { node } from "@elysiajs/node";
 import * as Sentry from "@sentry/node";
@@ -18,7 +18,8 @@ let crashing = false;
 async function handleFatal(kind: string, err: unknown): Promise<void> {
   if (crashing) return;
   crashing = true;
-  console.error(`Fatal ${kind}:`, err instanceof Error ? (err.stack ?? err.message) : String(err));
+  // Production logs drop the error message; Sentry below keeps the whole error.
+  logger.fatal({ err }, `Fatal ${kind}`);
 
   try {
     Sentry.captureException(err);
@@ -63,7 +64,7 @@ const server = new Elysia({ adapter: node(), normalize: "typebox" })
       hostname: serverEnv().NODE_ENV === "production" ? "0.0.0.0" : "::",
     },
     () => {
-      console.log(`Alfred server running on port ${serverEnv().PORT}`);
+      logger.info(`Alfred server running on port ${serverEnv().PORT}`);
     },
   );
 
@@ -73,13 +74,13 @@ async function shutdown(signal: string) {
   // A second signal would double-close the pools.
   if (shuttingDown) return;
   shuttingDown = true;
-  console.log(`\n${signal} received, shutting down...`);
+  logger.info(`${signal} received, shutting down...`);
 
   try {
     await server.stop();
   } catch (err) {
     // Throws "Elysia isn't running" if the signal beats listen(). Keep tearing down.
-    console.error("Error stopping server:", toMessage(err));
+    logger.error({ err }, "Error stopping server");
   }
 
   await stopRuntime();

@@ -20,7 +20,7 @@ When you add, remove or change a rule in `.oxlintrc.json`, a JS plugin, `scripts
 | [`import/default`](https://oxc.rs/docs/guide/usage/linter/rules/import/default.html) | no |  |  |
 | [`import/namespace`](https://oxc.rs/docs/guide/usage/linter/rules/import/namespace.html) | no |  |  |
 | [`import/no-cycle`](https://oxc.rs/docs/guide/usage/linter/rules/import/no-cycle.html) | no |  |  |
-| [`no-console`](https://oxc.rs/docs/guide/usage/linter/rules/eslint/no-console.html) | no | Only in `apps/web/src/**` | `{"allow":["error","warn"]}` |
+| [`no-console`](https://oxc.rs/docs/guide/usage/linter/rules/eslint/no-console.html) | no | Only in `apps/web/src/**`, `apps/server/src/**`, `packages/*/src/**`. Off in `apps/server/src/scripts/**`, `packages/*/src/scripts/**` | `{"allow":["error","warn"]}` |
 | [`no-empty`](https://oxc.rs/docs/guide/usage/linter/rules/eslint/no-empty.html) | no |  |  |
 | [`preserve-caught-error`](https://oxc.rs/docs/guide/usage/linter/rules/eslint/preserve-caught-error.html) | no |  |  |
 | [`react/error-boundaries`](https://oxc.rs/docs/guide/usage/linter/rules/react/error-boundaries.html) | no |  |  |

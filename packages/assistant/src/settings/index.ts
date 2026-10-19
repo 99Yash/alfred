@@ -8,6 +8,8 @@ export { settings, type UserSettings } from "./user-settings";
 
 export { setPreferenceArgsSchema, type PreferenceRow } from "./preferences";
 
+export { parseMemorySourceOrDefault } from "./memory-source";
+
 export { type FeatureFlags } from "./flags";
 
 export * from "./self-identity";

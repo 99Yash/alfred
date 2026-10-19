@@ -5,13 +5,10 @@ import {
   type NewUserPreference,
   type UserPreference,
 } from "@alfred/db/schemas";
-import {
-  type MemorySource,
-  memorySourceSchema,
-  parseMemorySourceOrDefault,
-} from "@alfred/contracts";
+import { type MemorySource, memorySourceSchema } from "@alfred/contracts";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
+import { parseMemorySourceOrDefault } from "./memory-source";
 
 export const setPreferenceArgsSchema = userPreferenceInsertSchema
   .pick({ userId: true, key: true, value: true, source: true })
