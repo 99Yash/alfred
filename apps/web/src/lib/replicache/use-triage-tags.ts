@@ -1,10 +1,25 @@
 import type { TriageCategory } from "@alfred/contracts";
 import { SYNC_MODEL, type SyncedTriageTag } from "@alfred/sync";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback } from "react";
 import type { ReadTransaction } from "replicache";
 import { useReplicacheStatus } from "./context";
+import { useReplicacheSubscription } from "./use-replicache-subscription";
 
 const EMPTY_TRIAGE_TAGS: ReadonlyMap<string, SyncedTriageTag> = new Map();
+
+function scanTriageTags(tx: ReadTransaction): Promise<SyncedTriageTag[]> {
+  return SYNC_MODEL.triagetag.scan(tx);
+}
+
+function byThreadId(tags: SyncedTriageTag[]): ReadonlyMap<string, SyncedTriageTag> {
+  const next = new Map<string, SyncedTriageTag>();
+
+  for (const tag of tags) {
+    next.set(tag.threadId, tag);
+  }
+
+  return next;
+}
 
 export interface TriageTagsState {
   tagsByThreadId: ReadonlyMap<string, SyncedTriageTag>;
@@ -19,30 +34,7 @@ export interface TriageTagsState {
 export function useTriageTags(): TriageTagsState {
   const { rep, loadError, retry } = useReplicacheStatus();
 
-  const [tagsByThreadId, setTagsByThreadId] = useState<ReadonlyMap<string, SyncedTriageTag> | null>(
-    null,
-  );
-
-  useEffect(() => {
-    if (!rep) {
-      setTagsByThreadId(null);
-
-      return;
-    }
-
-    return rep.subscribe(
-      (tx: ReadTransaction) => SYNC_MODEL.triagetag.scan(tx),
-      (tags) => {
-        const next = new Map<string, SyncedTriageTag>();
-
-        for (const tag of tags) {
-          next.set(tag.threadId, tag);
-        }
-
-        setTagsByThreadId(next);
-      },
-    );
-  }, [rep]);
+  const tagsByThreadId = useReplicacheSubscription(scanTriageTags, byThreadId);
 
   const overrideTag = useCallback(
     async (threadId: string, category: TriageCategory): Promise<void> => {

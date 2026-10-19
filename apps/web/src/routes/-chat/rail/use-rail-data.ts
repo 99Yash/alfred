@@ -28,27 +28,29 @@ export function useRailData(): RailData {
   const meetings = useMeetings();
   // On-demand briefing: `composing` shows "Composing…" and polls until the run lands or fails.
   const [composing, setComposing] = useState(false);
+  // Counts the runs that ended `failed`; each increment toasts once.
+  const [failedRuns, setFailedRuns] = useState(0);
   const briefing = useLatestBriefing({ poll: composing });
   const runBriefing = useRunBriefing();
   const briefingStatus = briefing.data?.status;
+
+  // A final status ends the run during render, so the poll stops with no extra render.
+  if (
+    composing &&
+    (briefingStatus === "sent" || briefingStatus === "suppressed" || briefingStatus === "failed")
+  ) {
+    setComposing(false);
+
+    if (briefingStatus === "failed") setFailedRuns((count) => count + 1);
+  }
+
   useEffect(() => {
-    if (!composing) return;
-
-    if (
-      briefingStatus === "sent" ||
-      briefingStatus === "suppressed" ||
-      briefingStatus === "failed"
-    ) {
-      setComposing(false);
-
-      if (briefingStatus === "failed") {
-        toast.error({
-          message: "Briefing failed",
-          description: "The run stopped before it could send. You can try again.",
-        });
-      }
-    }
-  }, [composing, briefingStatus]);
+    if (failedRuns === 0) return;
+    toast.error({
+      message: "Briefing failed",
+      description: "The run stopped before it could send. You can try again.",
+    });
+  }, [failedRuns]);
 
   const onGenerateBriefing = useCallback(() => {
     runBriefing.mutate(undefined, {

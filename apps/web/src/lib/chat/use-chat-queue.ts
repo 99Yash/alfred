@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   isEmptyChatTurnInput,
   MAX_ATTACHMENTS_PER_MESSAGE,
@@ -31,6 +31,33 @@ function safeRandomId(): string {
   return crypto.randomUUID();
 }
 
+/** Move `__new__` entries to `threadId`. Returns `prev` when there is nothing to move. */
+function adoptNewThreadQueue(prev: Queues, threadId: string): Queues {
+  const oldKey = "__new__";
+  const oldQueue = prev.get(oldKey);
+
+  if (!oldQueue || oldQueue.length === 0) return prev;
+  const newQueue = prev.get(threadId) ?? [];
+  // Merge, never drop: the new thread can already have entries after a fast double send.
+  const merged = [...newQueue, ...oldQueue];
+
+  if (merged.length === 0) return prev;
+  const next = new Map(prev);
+  next.set(threadId, merged);
+  next.set(oldKey, []);
+
+  // Bound memory, because entries hold `File` handles: drop empties, keep at most 20 threads.
+  if (next.get(oldKey)?.length === 0) next.delete(oldKey);
+
+  if (next.size > 20) {
+    const firstKey = next.keys().next().value;
+
+    if (firstKey && firstKey !== threadId && firstKey !== oldKey) next.delete(firstKey);
+  }
+
+  return next;
+}
+
 export interface ChatQueue {
   /** This thread's FIFO, shown as chips above the composer. */
   queue: QueuedMessage[];
@@ -59,34 +86,14 @@ export function useChatQueue(threadId: string | undefined): ChatQueue {
   const queue = useMemo(() => queues.get(key) ?? [], [queues, key]);
 
   // Move `__new__` entries to the real thread after the first send navigates there.
-  useEffect(() => {
-    if (!threadId) return;
-    setQueues((prev) => {
-      const oldKey = "__new__";
-      const oldQueue = prev.get(oldKey);
+  // During render, not in an effect, so the moved entries show in the first render of the thread.
+  const [adoptedFor, setAdoptedFor] = useState(threadId);
 
-      if (!oldQueue || oldQueue.length === 0) return prev;
-      const newQueue = prev.get(threadId) ?? [];
-      // Merge, never drop: the new thread can already have entries after a fast double send.
-      const merged = [...newQueue, ...oldQueue];
+  if (adoptedFor !== threadId) {
+    setAdoptedFor(threadId);
 
-      if (merged.length === 0) return prev;
-      const next = new Map(prev);
-      next.set(threadId, merged);
-      next.set(oldKey, []);
-
-      // Bound memory, because entries hold `File` handles: drop empties, keep at most 20 threads.
-      if (next.get(oldKey)?.length === 0) next.delete(oldKey);
-
-      if (next.size > 20) {
-        const firstKey = next.keys().next().value;
-
-        if (firstKey && firstKey !== threadId && firstKey !== oldKey) next.delete(firstKey);
-      }
-
-      return next;
-    });
-  }, [threadId]);
+    if (threadId) setQueues((prev) => adoptNewThreadQueue(prev, threadId));
+  }
 
   const enqueue = useCallback(
     (entry: Omit<QueuedMessage, "id">, position: "back" | "front" = "back"): string | null => {

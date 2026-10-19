@@ -5,7 +5,7 @@
 
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { CalendarDays, ChevronLeft, ChevronRight, X } from "lucide-react";
-import { use, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { use, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { cn } from "~/lib/utils";
 import { AppSegmented } from "./segmented";
 import { AppSelect, type AppSelectOption } from "./select";
@@ -68,9 +68,14 @@ export function AppDateTimePicker({
     ),
   );
 
-  useEffect(() => {
+  // Follow a new value to its month during render, not in an effect.
+  const [viewMonthFor, setViewMonthFor] = useState(value);
+
+  if (viewMonthFor !== value) {
+    setViewMonthFor(value);
+
     if (selected) setViewMonth(startOfMonth(selected));
-  }, [selected]);
+  }
 
   // A time edit with no date must not create "today 09:00".
   const commit = (mutate: (d: Date) => void) => {

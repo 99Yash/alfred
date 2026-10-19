@@ -49,6 +49,7 @@ When you add, remove or change a rule in `.oxlintrc.json`, a JS plugin, `scripts
 | [`react/preserve-manual-memoization`](https://oxc.rs/docs/guide/usage/linter/rules/react/preserve-manual-memoization.html) | no |  |  |
 | [`react/refs`](https://oxc.rs/docs/guide/usage/linter/rules/react/refs.html) | no |  |  |
 | [`react/rules-of-hooks`](https://oxc.rs/docs/guide/usage/linter/rules/react/rules-of-hooks.html) | no |  |  |
+| [`react/set-state-in-effect`](https://oxc.rs/docs/guide/usage/linter/rules/react/set-state-in-effect.html) | no |  |  |
 | [`react/set-state-in-render`](https://oxc.rs/docs/guide/usage/linter/rules/react/set-state-in-render.html) | no |  |  |
 | [`react/static-components`](https://oxc.rs/docs/guide/usage/linter/rules/react/static-components.html) | no |  |  |
 | [`react/use-memo`](https://oxc.rs/docs/guide/usage/linter/rules/react/use-memo.html) | no |  |  |

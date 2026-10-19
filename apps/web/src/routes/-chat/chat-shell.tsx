@@ -264,20 +264,20 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     if ((completed || isNewErrorCompletion) && queue.length > 0) setFlushArmed(true);
   }, [showStream, queue.length, isStreaming, streamDone, streamError, streamRunId]);
 
+  // An armed flush with nothing left to send disarms during render, so it cannot fire on a later enqueue.
+  if (flushArmed && !queueSending && !isStreaming && queue.length === 0) setFlushArmed(false);
+
   // Send the head while armed. `queueSending` stops a burst while the new stream mounts.
   useEffect(() => {
     if (!flushArmed || queueSending || isStreaming) return;
     const next = queue[0];
 
-    if (!next) {
-      setFlushArmed(false);
-
-      return;
-    }
+    if (!next) return;
 
     // Wait for the edit, so a half-edited message never sends. Saving or canceling re-runs this.
     if (next.id === editingQueuedId) return;
 
+    // oxlint-disable-next-line react/set-state-in-effect -- this effect starts the async send of the head when a stream completes, which no event handler sees. The in-flight flag must commit with the start, so a second run cannot send twice and the head chip shows its `sending` state.
     setQueueSending(true);
     void (async () => {
       const result = await send(

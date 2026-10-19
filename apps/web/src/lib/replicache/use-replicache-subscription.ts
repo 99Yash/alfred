@@ -5,8 +5,9 @@ import { useReplicacheStatus } from "./context";
 
 /**
  * Subscribe to a Replicache query, with an optional `select` mapper. `null` until the first result.
- * A new client or query clears the old value first, so stale data does not flash.
- * Wrap `query` and `select` in `useCallback`, or it resubscribes on every render.
+ * A new client, query or mapper reads `null` until its own first result, so stale data does not flash.
+ * Pass a module-level function or wrap `query` and `select` in `useCallback`. A new function on
+ * each render resubscribes on each render and never shows a value.
  */
 export function useReplicacheSubscription<T>(
   query: ((tx: ReadTransaction) => Promise<T>) | null,
@@ -21,31 +22,25 @@ export function useReplicacheSubscription<T, U>(
 ): (T | U) | null {
   const { rep } = useReplicacheStatus();
 
+  // Tagged with the client, query and mapper that produced it, so a new one reads `null` until
+  // its first result, with no reset in the effect.
   const [snapshot, setSnapshot] = useState<{
     rep: Replicache<ClientMutators>;
+    query: (tx: ReadTransaction) => Promise<T>;
+    select: ((data: T) => U) | undefined;
     value: T | U;
   } | null>(null);
 
   useEffect(() => {
-    if (!rep || !query) {
-      setSnapshot(null);
-
-      return;
-    }
-
-    setSnapshot(null);
+    if (!rep || !query) return;
 
     let cancelled = false;
 
     const unsubscribe = rep.subscribe(query, (data: T) => {
       if (cancelled) return;
 
-      if (select) {
-        setSnapshot({ rep, value: select(data) });
-      } else {
-        // With no `select`, the first overload makes U = T.
-        setSnapshot({ rep, value: data });
-      }
+      // With no `select`, the first overload makes U = T.
+      setSnapshot({ rep, query, select, value: select ? select(data) : data });
     });
 
     return () => {
@@ -54,5 +49,7 @@ export function useReplicacheSubscription<T, U>(
     };
   }, [rep, query, select]);
 
-  return snapshot?.rep === rep ? snapshot.value : null;
+  return snapshot?.rep === rep && snapshot.query === query && snapshot.select === select
+    ? snapshot.value
+    : null;
 }
