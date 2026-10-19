@@ -1,5 +1,5 @@
-import { toMessage } from "@alfred/contracts";
 import { publishDomainEvent } from "@alfred/assistant/triggers";
+import { logger } from "@alfred/logging";
 
 type DomainEventPublisher = typeof publishDomainEvent;
 
@@ -20,9 +20,6 @@ export async function publishGoogleCallbackCompleted(
       eventId: `google.callback:${credentialId}`,
     });
   } catch (err) {
-    console.warn(
-      `[google.callback] failed to publish completed event for ${userId}:`,
-      toMessage(err),
-    );
+    logger.warn({ err }, `[google.callback] failed to publish completed event for ${userId}`);
   }
 }

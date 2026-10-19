@@ -1,4 +1,3 @@
-import { toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { integrationCredentials } from "@alfred/db/schemas";
 import { gmailMailboxWritesEnabled } from "@alfred/env/server";
@@ -6,6 +5,7 @@ import { getFreshAccessToken, stopGmailWatchWithAccessToken } from "@alfred/inte
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { TriggerConsumerBootError } from "@alfred/assistant/triggers";
+import { logger } from "@alfred/logging";
 
 const identifierSchema = z.string().min(1).max(500);
 
@@ -162,7 +162,7 @@ const DEFAULT_DISCONNECT_DEPS: GoogleCredentialDisconnectDeps = {
   stopWatch: stopGmailWatchWithAccessToken,
   now: () => new Date(),
   warn(label, error) {
-    console.warn(`[google.disconnect] ${label}:`, toMessage(error));
+    logger.warn({ err: error }, `[google.disconnect] ${label}`);
   },
 };
 

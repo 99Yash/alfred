@@ -29,6 +29,7 @@ import {
   processWorkflowBlockedNotification,
   type WorkflowBlockedNotificationResult,
 } from "./workflow-blocked-notification";
+import { logger } from "@alfred/logging";
 
 let _worker: Worker<NotificationJobData> | undefined;
 
@@ -49,7 +50,7 @@ export async function startApprovalNotificationWorker(
     },
   );
   _worker.on("error", (err) => {
-    console.error("[approvals:worker] error:", err.message);
+    logger.error({ err }, "[approvals:worker] error");
   });
 }
 

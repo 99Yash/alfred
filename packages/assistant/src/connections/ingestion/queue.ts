@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Queue, Worker, type Job } from "bullmq";
-import { INBOUND_EVENT_SOURCES, toMessage } from "@alfred/contracts";
+import { INBOUND_EVENT_SOURCES } from "@alfred/contracts";
 import { findExpiringGmailWatches } from "@alfred/integrations/google";
 import {
   findCredentialsNeedingPoll,
@@ -29,6 +29,7 @@ import { assertGmailPushOidcConfigured } from "@alfred/integrations/google";
 import { deliverInboundReceipt } from "./inbound-deliver";
 import { runDeliveryAlertSweepForAllUsers } from "./delivery-alert-sweep";
 import { backfillReceiptDocuments } from "./receipt-corpus-backfill";
+import { logger } from "@alfred/logging";
 
 /**
  * Ingestion queue: Gmail sync, chat media, user-model refolds and inbound receipt delivery.
@@ -218,14 +219,15 @@ export async function startIngestionWorker(opts: StartIngestionWorkerOpts = {}):
     concurrency: opts.concurrency ?? 2,
   });
   _worker.on("error", (err) => {
-    console.error("[ingestion:worker] error:", err.message);
+    logger.error({ err }, "[ingestion:worker] error");
   });
   // BullMQ retries a failed job silently. Without this log, an `invalid_grant` once left Gmail
   // ingestion dark for 36h with no signal.
   _worker.on("failed", (job, err) => {
-    console.error(
+    logger.error(
+      { err },
       `[ingestion:worker] job failed kind=${job?.data.kind ?? "?"} id=${job?.id ?? "?"} ` +
-        `attempt=${job?.attemptsMade ?? "?"}: ${err.message}`,
+        `attempt=${job?.attemptsMade ?? "?"}`,
     );
   });
 }
@@ -364,7 +366,7 @@ async function processIngestionJobData(data: IngestionJobData) {
         scheduleMediaIngest: enqueueGmailMediaIngest,
       });
 
-      console.log(
+      logger.info(
         `[ingestion:worker] gmail.ingest_recent credential=${data.credentialId} ` +
           `fetched=${result.fetched} inserted=${result.inserted} skipped=${result.skipped} ignored=${result.ignored} errors=${result.errors}`,
       );
@@ -390,7 +392,7 @@ async function processIngestionJobData(data: IngestionJobData) {
         deps: { scheduleMediaIngest: enqueueGmailMediaIngest },
       });
 
-      console.log(
+      logger.info(
         `[ingestion:worker] gmail.poll_recent credential=${data.credentialId} ` +
           `listed=${result.listed} inserted=${result.inserted} skipped=${result.skipped} ` +
           `ignored=${result.ignored} errors=${result.errors} cursor=${result.cursorBefore ?? "?"}->${result.cursorAfter ?? "?"}`,
@@ -414,7 +416,7 @@ async function processIngestionJobData(data: IngestionJobData) {
         scheduleMediaIngest: enqueueGmailMediaIngest,
       });
 
-      console.log(
+      logger.info(
         `[ingestion:worker] gmail.poll_history credential=${data.credentialId} ` +
           `reason=${data.reason ?? "?"} pages=${result.pagesFetched} inserted=${result.inserted} ` +
           `skipped=${result.skipped} ignored=${result.ignored} errors=${result.errors} fullResync=${result.fullResync} ` +
@@ -437,7 +439,7 @@ async function processIngestionJobData(data: IngestionJobData) {
     case "gmail.watch_install": {
       // #278: non-prod must not register a watch on the shared real mailbox.
       if (!gmailMailboxWritesEnabled()) {
-        console.log(
+        logger.info(
           "[ingestion:worker] gmail.watch_install: skipped reason=writes-disabled (non-prod)",
         );
 
@@ -448,7 +450,7 @@ async function processIngestionJobData(data: IngestionJobData) {
       const topic = env.GOOGLE_PUBSUB_TOPIC;
 
       if (!topic) {
-        console.warn(
+        logger.warn(
           "[ingestion:worker] gmail.watch_install: GOOGLE_PUBSUB_TOPIC not set — skipping",
         );
 
@@ -463,7 +465,7 @@ async function processIngestionJobData(data: IngestionJobData) {
       });
 
       if (!state) return { installed: false, reason: "writes-disabled" };
-      console.log(
+      logger.info(
         `[ingestion:worker] gmail.watch_install credential=${data.credentialId} ` +
           `expiresAt=${state.expiresAt}`,
       );
@@ -475,7 +477,7 @@ async function processIngestionJobData(data: IngestionJobData) {
       // Gmail watches expire after about 7 days, so daily renewal of the next 24h is enough. #278:
       // non-prod must not touch the shared real mailbox's watch.
       if (!gmailMailboxWritesEnabled()) {
-        console.log(
+        logger.info(
           "[ingestion:worker] gmail.watch_renew: skipped reason=writes-disabled (non-prod)",
         );
 
@@ -486,9 +488,7 @@ async function processIngestionJobData(data: IngestionJobData) {
       const topic = env.GOOGLE_PUBSUB_TOPIC;
 
       if (!topic) {
-        console.warn(
-          "[ingestion:worker] gmail.watch_renew: GOOGLE_PUBSUB_TOPIC not set — skipping",
-        );
+        logger.warn("[ingestion:worker] gmail.watch_renew: GOOGLE_PUBSUB_TOPIC not set — skipping");
 
         return { renewed: 0, skipped: 0 };
       }
@@ -505,11 +505,11 @@ async function processIngestionJobData(data: IngestionJobData) {
           renewed++;
         } catch (err) {
           failed++;
-          console.warn(`[ingestion:worker] watch renew failed for ${c.id}:`, toMessage(err));
+          logger.warn({ err }, `[ingestion:worker] watch renew failed for ${c.id}`);
         }
       }
 
-      console.log(
+      logger.info(
         `[ingestion:worker] gmail.watch_renew checked=${candidates.length} renewed=${renewed} failed=${failed}`,
       );
 
@@ -535,7 +535,7 @@ async function processIngestionJobData(data: IngestionJobData) {
         );
       }
 
-      console.log(`[ingestion:worker] gmail.poll_sweep enqueued=${stale.length}`);
+      logger.info(`[ingestion:worker] gmail.poll_sweep enqueued=${stale.length}`);
 
       return { enqueued: stale.length };
     }
@@ -560,7 +560,7 @@ async function processIngestionJobData(data: IngestionJobData) {
         mail.succeeded + media.succeeded + inbound.reduce((sum, r) => sum + r.succeeded, 0);
 
       const failed = mail.failed + media.failed + inbound.reduce((sum, r) => sum + r.failed, 0);
-      console.log(
+      logger.info(
         `[ingestion:worker] gmail.embed_sweep candidates=${candidates} succeeded=${succeeded} failed=${failed} ` +
           `(mail ${mail.candidates}/${mail.succeeded}/${mail.failed}, attachment ${media.candidates}/${media.succeeded}/${media.failed})`,
       );
@@ -582,7 +582,7 @@ async function processIngestionJobData(data: IngestionJobData) {
         documentId: data.documentId,
       });
 
-      console.log(
+      logger.info(
         `[ingestion:worker] gmail.media_ingest message=${data.messageId} ${formatMediaTally(result)}`,
       );
 
@@ -605,17 +605,17 @@ async function processIngestionJobData(data: IngestionJobData) {
       });
 
       if (result.applied) {
-        console.log(
+        logger.info(
           `[ingestion:worker] triage.relabel thread=${data.sourceThreadId} applied=true label=${result.appliedLabelId}`,
         );
       } else if (result.reason === "writes-disabled") {
         // #278: expected in non-prod. The DB row is canonical.
-        console.log(
+        logger.info(
           `[ingestion:worker] triage.relabel thread=${data.sourceThreadId} skipped reason=writes-disabled`,
         );
       } else {
         // Never silent: the thread looks untagged in Gmail (#277).
-        console.error(
+        logger.error(
           `[ingestion:worker] triage.relabel thread=${data.sourceThreadId} NOT applied reason=${result.reason}`,
         );
       }

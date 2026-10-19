@@ -12,7 +12,7 @@ import {
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, type Document, type DocumentAskRow } from "@alfred/db/schemas";
-import { safeErrorDiagnostic } from "@alfred/logging";
+import { logger, safeErrorDiagnostic } from "@alfred/logging";
 import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -635,8 +635,9 @@ export async function reconcileDocumentAskThreadsOnce(
       else tally.resolved += resolution.resolutions.length;
     } catch (err) {
       tally.failed += 1;
-      console.warn(
-        `[document-ask-reconciler] thread=${thread.threadId} failed: ${safeErrorDiagnostic(err)}`,
+      logger.warn(
+        { err, diagnostic: safeErrorDiagnostic(err) },
+        `[document-ask-reconciler] thread=${thread.threadId} failed`,
       );
     }
   }

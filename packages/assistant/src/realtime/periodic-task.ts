@@ -3,7 +3,8 @@
  * `stop()` aborts the pass's signal, then waits. A pass that loops must check
  * `signal.aborted` between units, because the caller usually closes the pool next.
  */
-import { toMessage, unrefTimer } from "@alfred/contracts";
+import { unrefTimer } from "@alfred/contracts";
+import { logger } from "@alfred/logging";
 
 export interface PeriodicTaskOptions {
   name: string;
@@ -89,7 +90,7 @@ export class PeriodicTask {
           await this.#options.pass(this.#controller.signal);
         } catch (err) {
           // The next pass retries. Do not reject into the timer.
-          console.warn(`[${this.#options.name}] pass failed:`, toMessage(err));
+          logger.warn({ err }, `[${this.#options.name}] pass failed`);
         }
       } while (this.#rerunRequested());
     } finally {
@@ -125,7 +126,7 @@ export class PeriodicTask {
     }
 
     if (this.#inFlight) {
-      console.warn(`[${this.#options.name}] pass still running at shutdown deadline`);
+      logger.warn(`[${this.#options.name}] pass still running at shutdown deadline`);
 
       return false;
     }

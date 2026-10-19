@@ -9,6 +9,7 @@ import {
 } from "./chat-context-store";
 import type { ChatMessageWatermark } from "./chat-message-watermark";
 import { compactConversationSynchronously } from "./synchronous-conversation-compaction";
+import { logger } from "@alfred/logging";
 
 const CONVERSATION_COMPACTION_QUEUE_NAME = "conversation-compaction";
 
@@ -140,12 +141,13 @@ export async function startConversationCompactionWorker(): Promise<void> {
     concurrency: 1,
   });
   worker.on("error", (error) =>
-    console.error("[conversation-compaction] worker error:", error.message),
+    logger.error({ err: error }, "[conversation-compaction] worker error"),
   );
   worker.on("failed", (job, error) => {
-    console.error(
+    logger.error(
+      { err: error },
       `[conversation-compaction] job failed id=${job?.id ?? "?"} ` +
-        `attempt=${job?.attemptsMade ?? "?"}: ${error.message}`,
+        `attempt=${job?.attemptsMade ?? "?"}`,
     );
   });
 }

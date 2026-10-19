@@ -1,4 +1,4 @@
-import { toMessage, type InboundEventSource } from "@alfred/contracts";
+import { type InboundEventSource } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, eventReceipts, integrationCredentials } from "@alfred/db/schemas";
 import { and, asc, eq, notExists } from "drizzle-orm";
@@ -7,6 +7,7 @@ import {
   receiptDocumentJoin,
   writeReceiptDocument,
 } from "./receipt-document";
+import { logger } from "@alfred/logging";
 
 /**
  * Project receipts that have no corpus document, in a bounded batch. Catch per row: one bad row
@@ -44,10 +45,7 @@ export async function backfillReceiptDocuments(source: InboundEventSource): Prom
         }),
       );
     } catch (err) {
-      console.warn(
-        `[ingestion:backfill] ${source} receipt ${receipt.id} not projected:`,
-        toMessage(err),
-      );
+      logger.warn({ err }, `[ingestion:backfill] ${source} receipt ${receipt.id} not projected`);
     }
   }
 }

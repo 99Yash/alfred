@@ -10,7 +10,7 @@
 import { Queue } from "bullmq";
 import { z } from "zod";
 import { createRedisConnection, isQueueEnabled } from "@alfred/db/redis";
-import { toMessage } from "@alfred/contracts";
+import { logger } from "@alfred/logging";
 
 export const SUB_AGENT_JOIN_WAKE_QUEUE_NAME = "sub-agent-join-wake";
 
@@ -81,10 +81,9 @@ export async function scheduleSubAgentJoinWakeJob(args: {
       },
     );
   } catch (err) {
-    console.warn(
+    logger.warn(
+      { err, childRunId: args.childRunId },
       "[sub-agent-join] failed to schedule dead-man wake",
-      args.childRunId,
-      toMessage(err),
     );
   }
 }

@@ -1,4 +1,4 @@
-import { isInboundEventSource, toMessage } from "@alfred/contracts";
+import { isInboundEventSource } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { isDuplicateRunIndex, workflows } from "@alfred/db/schemas";
 import { and, eq, or, sql } from "drizzle-orm";
@@ -11,6 +11,7 @@ import {
   inboundDeliveryPayloadSchema,
   type DomainEvent,
 } from "@alfred/assistant/triggers";
+import { logger } from "@alfred/logging";
 
 export interface AcceptEventResult {
   matched: number;
@@ -88,7 +89,7 @@ export async function acceptEvent(input: DomainEvent): Promise<AcceptEventResult
       try {
         if (row.allowedIntegrations.length > 0 && !row.allowedIntegrations.includes(args.source)) {
           result.skippedNotAllowed++;
-          console.warn(
+          logger.warn(
             `[workflows:event] skipping workflow=${row.slug}: source=${args.source} outside allowed_integrations`,
           );
 
@@ -157,9 +158,9 @@ export async function acceptEvent(input: DomainEvent): Promise<AcceptEventResult
         else result.skippedDuplicate++;
       } catch (err) {
         result.failed++;
-        console.warn(
-          `[workflows:event] failed for workflow=${row.slug} event=${args.source}.${args.type}:${args.eventId}:`,
-          toMessage(err),
+        logger.warn(
+          { err },
+          `[workflows:event] failed for workflow=${row.slug} event=${args.source}.${args.type}:${args.eventId}`,
         );
       }
     }),

@@ -9,7 +9,8 @@ import {
   STALE_RUN_LEASE_MS,
   wakeParentOfSubAgent,
 } from "./service";
-import { toMessage, unrefTimer } from "@alfred/contracts";
+import { unrefTimer } from "@alfred/contracts";
+import { logger } from "@alfred/logging";
 
 /** Keep it well below `STALE_RUN_LEASE_MS`, so one missed beat does not cause a reclaim. */
 const HEARTBEAT_INTERVAL_MS = 10_000;
@@ -42,7 +43,7 @@ export async function startAgentWorker(opts: StartAgentWorkerOpts): Promise<void
   });
 
   _worker.on("error", (err) => {
-    console.error("[agent:worker] error:", err.message);
+    logger.error({ err }, "[agent:worker] error");
   });
 
   // Pick up runs a previous deploy left mid-flight.
@@ -68,7 +69,7 @@ async function processAgentJob(job: Job<AgentJobData>): Promise<void> {
           void heartbeatRun(runId, attempt)
             .then((refreshed) => {
               if (!refreshed) {
-                console.warn(
+                logger.warn(
                   `[agent:worker] heartbeat no-op for run ${runId} attempt ${attempt}; lease was superseded or run is no longer running`,
                 );
 
@@ -82,9 +83,9 @@ async function processAgentJob(job: Job<AgentJobData>): Promise<void> {
             })
             .catch((err) => {
               missedHeartbeats += 1;
-              console.warn(
-                `[agent:worker] heartbeat miss #${missedHeartbeats} for run ${runId} attempt ${attempt} (~${missedHeartbeats * (HEARTBEAT_INTERVAL_MS / 1000)}s without checkpoint; reclaim after the step's stale window, default ${STALE_RUN_LEASE_MS / 1000}s — longer for model-turn steps):`,
-                toMessage(err),
+              logger.warn(
+                { err },
+                `[agent:worker] heartbeat miss #${missedHeartbeats} for run ${runId} attempt ${attempt} (~${missedHeartbeats * (HEARTBEAT_INTERVAL_MS / 1000)}s without checkpoint; reclaim after the step's stale window, default ${STALE_RUN_LEASE_MS / 1000}s — longer for model-turn steps)`,
               );
             });
         }, HEARTBEAT_INTERVAL_MS);
@@ -102,7 +103,7 @@ async function processAgentJob(job: Job<AgentJobData>): Promise<void> {
     }
 
     if (outcome.kind === "skipped" && skipReasonIsLoud(outcome.reason)) {
-      console.warn(`[agent:worker] run ${runId} commit skipped: ${outcome.reason}`);
+      logger.warn(`[agent:worker] run ${runId} commit skipped: ${outcome.reason}`);
     }
 
     // Snapshot scratch so it outlives the Redis TTL (ADR-0036). Children write to the parent's
@@ -112,7 +113,7 @@ async function processAgentJob(job: Job<AgentJobData>): Promise<void> {
       try {
         await snapshotScratchToPostgres(runId);
       } catch (err) {
-        console.warn("[agent:worker] scratchpad snapshot failed for", runId, toMessage(err));
+        logger.warn({ err, runId }, "[agent:worker] scratchpad snapshot failed");
       }
     }
 
@@ -121,7 +122,7 @@ async function processAgentJob(job: Job<AgentJobData>): Promise<void> {
       try {
         await wakeParentOfSubAgent(runId);
       } catch (err) {
-        console.warn("[agent:worker] sub-agent parent signal failed for", runId, toMessage(err));
+        logger.warn({ err, runId }, "[agent:worker] sub-agent parent signal failed");
       }
     }
   } finally {
@@ -137,7 +138,7 @@ async function resumeSweep(): Promise<void> {
       await enqueueRun(id);
     }
   } catch (err) {
-    console.warn("[agent:worker] resume sweep failed:", toMessage(err));
+    logger.warn({ err }, "[agent:worker] resume sweep failed");
   }
 }
 

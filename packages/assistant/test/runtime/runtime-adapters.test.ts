@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import { logger } from "@alfred/logging";
 import {
   createRuntimeAdapterLifecycle,
   registerRuntimeAdapters,
@@ -181,8 +182,8 @@ describe("runtime adapter lifecycle", () => {
   test("retains every real system-tool port when agent worker stop rejects", async () => {
     registerRuntimeAdapters();
     const errors: unknown[][] = [];
-    const consoleError = console.error;
-    console.error = (...args: unknown[]) => errors.push(args);
+    const loggerError = logger.error;
+    logger.error = (...args: unknown[]) => errors.push(args);
 
     try {
       const agentWorkerStopped = await runShutdownStep("agent worker", () =>
@@ -323,7 +324,7 @@ describe("runtime adapter lifecycle", () => {
       assert.equal(agentWorkerStopped, false);
       assert.equal(errors.length, 1);
     } finally {
-      console.error = consoleError;
+      logger.error = loggerError;
       unregisterRuntimeAdapters({ agentWorkerStopped: true, ingestionWorkerStopped: true });
     }
   });

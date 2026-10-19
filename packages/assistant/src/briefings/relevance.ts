@@ -5,9 +5,7 @@ import {
   type INTEGRATION_OBJECT_DEFS,
   isBuiltInObjectStateProvider,
   parseGithubPullRequestUrl,
-  redactSecrets,
   sanitizeErrorMessage,
-  toMessage,
   type BriefingLoopRelevance,
   type LoopRelevanceSource,
   type LoopRelevanceVerdict,
@@ -21,6 +19,7 @@ import {
   type ObjectState,
   type ReconcileResult,
 } from "@alfred/assistant/connections";
+import { logger } from "@alfred/logging";
 
 /**
  * Check-before-remind relevance (#1194), between reconciliation and compose.
@@ -190,9 +189,7 @@ export async function assessLoopRelevance(args: {
   try {
     return await assessLoopRelevanceInner(args);
   } catch (err) {
-    console.warn(
-      `[briefing.relevance] pass failed, all loops unverified :: ${redactSecrets(toMessage(err))}`,
-    );
+    logger.warn({ err }, "[briefing.relevance] pass failed, all loops unverified");
 
     return args.loops.map((loop) =>
       toVerdict(loop.documentId, unverified(null, "Relevance pass faulted; loop unverified.")),
@@ -370,9 +367,7 @@ async function readSentryTargets(
           }),
         );
       } catch (err) {
-        console.warn(
-          `[briefing.relevance] sentry live read failed object=${ref} :: ${redactSecrets(toMessage(err))}`,
-        );
+        logger.warn({ err }, `[briefing.relevance] sentry live read failed object=${ref}`);
         verdictByObject.set(
           ref,
           unverified(state, "Sentry live read failed; loop stays live.", source),
@@ -415,9 +410,7 @@ async function readGithubTargets(
       ...coords.values(),
     ]);
   } catch (err) {
-    console.warn(
-      `[briefing.relevance] github live read failed :: ${redactSecrets(toMessage(err))}`,
-    );
+    logger.warn({ err }, "[briefing.relevance] github live read failed");
 
     for (const state of targets) {
       verdictByObject.set(
@@ -497,7 +490,7 @@ function toVerdict(documentId: string, verdict: ObjectVerdict): BriefingLoopRele
 
   if (parsed.success) return parsed.data;
 
-  console.warn("[briefing.relevance] contract rejected a verdict; loop stays unverified");
+  logger.warn("[briefing.relevance] contract rejected a verdict; loop stays unverified");
 
   return {
     documentId,

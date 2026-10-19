@@ -5,7 +5,6 @@ import {
   isNonEmptyString,
   MAX_ATTACHMENT_BYTES_PER_MESSAGE,
   MAX_ATTACHMENTS_PER_MESSAGE,
-  toMessage,
   type TurnStartResponse,
 } from "@alfred/contracts";
 import { db, type DbRoot, type DbTransaction } from "@alfred/db";
@@ -47,6 +46,7 @@ import {
   type RetryAttachmentSource,
 } from "./turn-attachment-reconciliation";
 import type { NewChatAttachment } from "@alfred/db/schemas";
+import { logger } from "@alfred/logging";
 
 /**
  * Turn admission (ADR-0089): every durable decision of a chat send is made here.
@@ -168,7 +168,7 @@ async function enqueueChatTurnRunBestEffort(runId: string | null | undefined): P
     await redeliverRun(runId);
   } catch (err) {
     // The run row is durable and the resume sweep re-enqueues it, so the send did not fail.
-    console.warn("[chat] run enqueue failed; resume sweep will recover:", toMessage(err));
+    logger.warn({ err }, "[chat] run enqueue failed; resume sweep will recover");
   }
 }
 
@@ -442,7 +442,7 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
         await copyObject(src.storageKey, destKey);
         await schedulePendingUploadCleanup(userId, destKey);
       } catch (err) {
-        console.warn("[chat] retry attachment copy failed:", toMessage(err));
+        logger.warn({ err }, "[chat] retry attachment copy failed");
         throw Errors.BadGatewayError("Couldn't copy the retry attachments. Try again.");
       }
 
@@ -634,7 +634,7 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
     try {
       emitReplicachePokes([userId]);
     } catch (err) {
-      console.warn("[chat] attachment poke failed:", toMessage(err));
+      logger.warn({ err }, "[chat] attachment poke failed");
     }
   }
 

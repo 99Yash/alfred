@@ -3,7 +3,6 @@ import {
   jsonObjectSchema,
   parseJsonWith,
   rawEventTypeName,
-  toMessage,
   type InboundEventSource,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -22,6 +21,7 @@ import {
 } from "../ingress";
 import { enqueueInboundDelivery } from "./queue";
 import { prepareReceiptProjection, writeReceiptDocument } from "./receipt-document";
+import { logger } from "@alfred/logging";
 
 /**
  * Result of one `POST /webhooks/inbound/:source` delivery. The route maps it to a status.
@@ -68,7 +68,7 @@ export async function receiveInboundDelivery(
   const source = descriptor.slug;
 
   if (!(await descriptor.verify(args.raw, args.headers))) {
-    console.warn(`[ingress] ${source}: signature verification failed`);
+    logger.warn(`[ingress] ${source}: signature verification failed`);
 
     return { kind: "rejected", source, reason: "invalid_signature" };
   }
@@ -124,7 +124,7 @@ export async function receiveInboundDelivery(
   });
 
   if (!deliveryKey) {
-    console.error(
+    logger.error(
       `[ingress] ${source}: ${projection.type} payload carries no identity to key on; dropped`,
     );
 
@@ -269,6 +269,6 @@ async function enqueueLogged(receiptId: string, source: InboundEventSource): Pro
     await enqueueInboundDelivery(receiptId);
   } catch (error) {
     // The receipt is durable and redelivery re-enqueues it. Failing would make the provider resend.
-    console.error(`[ingress] ${source}: enqueue failed for receipt ${receiptId}`, toMessage(error));
+    logger.error({ err: error }, `[ingress] ${source}: enqueue failed for receipt ${receiptId}`);
   }
 }

@@ -1,5 +1,5 @@
-import { toMessage } from "@alfred/contracts";
 import { pollChatStopFlag } from "./stop-signal";
+import { logger } from "@alfred/logging";
 
 /** Poll the user-stop flag at most this often (ms). */
 const STOP_CHECK_MS = 400;
@@ -56,7 +56,7 @@ export function createTurnStopController(
   const startPolling = (): (() => void) => {
     const handle = setInterval(() => {
       void checkStop().catch((error: unknown) => {
-        console.warn(`[chat-turn] stop polling failed (run ${runId}):`, toMessage(error));
+        logger.warn({ err: error }, `[chat-turn] stop polling failed (run ${runId})`);
       });
     }, STOP_CHECK_MS);
 

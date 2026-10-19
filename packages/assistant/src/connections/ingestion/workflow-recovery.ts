@@ -1,5 +1,6 @@
-import { getStringPath, toMessage } from "@alfred/contracts";
+import { getStringPath } from "@alfred/contracts";
 import { z } from "zod";
+import { logger } from "@alfred/logging";
 
 export const workflowRecoveryStateSchema = z
   .object({
@@ -68,9 +69,9 @@ export async function resolveWorkflowRecoveryTarget(request: unknown): Promise<s
 
     return `/workflows/${encodeURIComponent(recovered.workflowSlug)}?workflow_recovery=${recovered.status}&revision_id=${encodeURIComponent(recovered.revisionId)}`;
   } catch (err) {
-    console.warn(
-      `[google.callback] failed to recover workflow ${getStringPath(request, "workflowId") ?? "unknown"}:`,
-      toMessage(err),
+    logger.warn(
+      { err },
+      `[google.callback] failed to recover workflow ${getStringPath(request, "workflowId") ?? "unknown"}`,
     );
 
     return "/workflows?workflow_recovery=failed";

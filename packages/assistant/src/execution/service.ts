@@ -1,4 +1,4 @@
-import { toJsonValue, toMessage } from "@alfred/contracts";
+import { toJsonValue } from "@alfred/contracts";
 import { db, rowsFromExecute, type DbTransaction } from "@alfred/db";
 import { runAtomic } from "@alfred/db/helpers";
 import {
@@ -40,6 +40,7 @@ import {
   workflowOccurrenceKey,
   type WorkflowOccurrenceIdentity,
 } from "@alfred/db/workflow-occurrence";
+import { logger } from "@alfred/logging";
 
 /**
  * A `running` row silent this long has a dead worker and may be reclaimed. Keep it well above the
@@ -451,11 +452,7 @@ async function enqueueAfterWake(
 
     return true;
   } catch (err) {
-    console.warn(
-      "[agent] failed to enqueue woken run; resume sweep will retry",
-      runId,
-      toMessage(err),
-    );
+    logger.warn({ err, runId }, "[agent] failed to enqueue woken run; resume sweep will retry");
 
     return false;
   }
@@ -602,7 +599,7 @@ async function emitSubAgentWaitSpan(args: {
       parentStepId: park.stepId,
     }).end(args.outcome, new Date());
   } catch (err) {
-    console.warn("[agent] sub-agent wait span failed for", args.childRunId, toMessage(err));
+    logger.warn({ err, childRunId: args.childRunId }, "[agent] sub-agent wait span failed");
   }
 }
 
@@ -644,11 +641,7 @@ async function dischargeCancelObligations(args: {
   try {
     await snapshotScratchToPostgres(args.runId);
   } catch (err) {
-    console.warn(
-      "[agent] scratchpad snapshot failed for cancelled run",
-      args.runId,
-      toMessage(err),
-    );
+    logger.warn({ err, runId: args.runId }, "[agent] scratchpad snapshot failed for cancelled run");
   }
 
   // A parent waiting on this sub-agent would otherwise hang until its dead-man timer (ADR-0073).
@@ -656,10 +649,9 @@ async function dischargeCancelObligations(args: {
   try {
     await wakeParentOfSubAgent(args.runId);
   } catch (err) {
-    console.warn(
+    logger.warn(
+      { err, runId: args.runId },
       "[agent] sub-agent parent signal failed for cancelled run",
-      args.runId,
-      toMessage(err),
     );
   }
 }
@@ -683,7 +675,7 @@ async function dischargeStagingSweep(args: {
       try {
         await remove(stagingId);
       } catch (err) {
-        console.warn("[agent] staging job teardown failed for", stagingId, toMessage(err));
+        logger.warn({ err, stagingId }, "[agent] staging job teardown failed");
       }
     }
   }
@@ -737,14 +729,14 @@ export async function rejectLateCancelledRunStagings(
         try {
           await remove(stagingId);
         } catch (err) {
-          console.warn("[agent] late staging job teardown failed for", stagingId, toMessage(err));
+          logger.warn({ err, stagingId }, "[agent] late staging job teardown failed");
         }
       }
     }
 
     return ids;
   } catch (err) {
-    console.warn("[agent] late cancelled-run staging sweep failed", runId, toMessage(err));
+    logger.warn({ err, runId }, "[agent] late cancelled-run staging sweep failed");
 
     return [];
   }
@@ -872,7 +864,7 @@ export async function cancelRunInTx(
         try {
           await discharge();
         } catch (err) {
-          console.warn("[agent] cascaded child cancel obligations failed", toMessage(err));
+          logger.warn({ err }, "[agent] cascaded child cancel obligations failed");
         }
       }
     },

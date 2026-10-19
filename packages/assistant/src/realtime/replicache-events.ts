@@ -6,7 +6,8 @@
 import { EventEmitter } from "node:events";
 import type IORedis from "ioredis";
 import { createRedisConnection, isQueueEnabled, type BoundedRedis } from "@alfred/db/redis";
-import { isRecord, toMessage } from "@alfred/contracts";
+import { isRecord } from "@alfred/contracts";
+import { logger } from "@alfred/logging";
 
 interface ReplicachePoke {
   userId: string;
@@ -65,7 +66,7 @@ function ensureSubscribed(userId: string): void {
     },
     (err: unknown) => {
       subscribing.delete(userId);
-      console.warn("[replicache-events] subscribe failed for user", userId, toMessage(err));
+      logger.warn({ err, userId }, "[replicache-events] subscribe failed for user");
     },
   );
 }
@@ -112,9 +113,9 @@ export async function initReplicachePokeBridge(): Promise<void> {
       }
     });
 
-    console.info("[replicache-events] Redis pub/sub bridge initialized");
+    logger.info("[replicache-events] Redis pub/sub bridge initialized");
   } catch (err) {
-    console.warn("[replicache-events] Redis pub/sub bridge disabled:", toMessage(err));
+    logger.warn({ err }, "[replicache-events] Redis pub/sub bridge disabled");
     publisher = undefined;
     subscriber = undefined;
   }

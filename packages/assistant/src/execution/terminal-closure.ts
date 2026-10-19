@@ -1,8 +1,8 @@
-import { toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { agentRuns } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
 import { resolveWorkflowForRun } from "./resolve-workflow";
+import { logger } from "@alfred/logging";
 
 /** No `completed` case: a run completes inside a step body, which owns that closure. */
 interface TerminalRunFields<S> {
@@ -71,9 +71,9 @@ async function driveClosure(run: TerminalClosureRun, outcome: TerminalOutcome): 
     const state = workflow.stateSchema ? workflow.stateSchema.parse(run.state) : run.state;
     await workflow.closure.onTerminal({ runId: run.id, userId: run.userId, state, ...outcome });
   } catch (err) {
-    console.warn(
-      `[agent] terminal closure (${outcome.outcome}) for run ${run.id} (${run.workflowSlug}) failed:`,
-      toMessage(err),
+    logger.warn(
+      { err },
+      `[agent] terminal closure (${outcome.outcome}) for run ${run.id} (${run.workflowSlug}) failed`,
     );
   }
 }
@@ -109,6 +109,6 @@ export async function finalizeCancelledRun(runId: string, reason: string): Promi
     if (!run) return;
     await driveClosure(run, { outcome: "cancelled", reason });
   } catch (err) {
-    console.warn(`[agent] cancel closure lookup for run ${runId} failed:`, toMessage(err));
+    logger.warn({ err }, `[agent] cancel closure lookup for run ${runId} failed`);
   }
 }

@@ -15,6 +15,7 @@ import { emailLogoUrl, settings, webOrigin } from "@alfred/assistant/settings";
 import { inZone, type LocalDateKey } from "@alfred/assistant/time";
 import { readIntegrationAvailability } from "../availability";
 import { readDeliveryAlerts, type DeliveryAlertVerdict } from "../delivery-alerts";
+import { logger } from "@alfred/logging";
 
 /**
  * One emailed alert silences the next for the same source for a week. The banner shows the live
@@ -69,7 +70,7 @@ async function runDeliveryAlertSweep(
     }
   }
 
-  console.log(
+  logger.info(
     `[delivery-alert] user=${userId} broken=${alerts.length} due=${due.length} sent=${sent}`,
   );
 
@@ -181,7 +182,7 @@ export async function runDeliveryAlertSweepForAllUsers(): Promise<DeliveryAlertS
     } catch (err) {
       const message = toMessage(err);
       failures.push(`${row.id}: ${message}`);
-      console.error(`[delivery-alert] sweep failed user=${row.id}:`, message);
+      logger.error({ err }, `[delivery-alert] sweep failed user=${row.id}`);
     }
   }
 

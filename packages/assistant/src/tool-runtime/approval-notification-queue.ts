@@ -7,7 +7,7 @@ import { Queue } from "bullmq";
 import { z } from "zod";
 import { createRedisConnection, isQueueEnabled } from "@alfred/db/redis";
 import { sha256Canonical } from "@alfred/db/hash";
-import { toMessage } from "@alfred/contracts";
+import { logger } from "@alfred/logging";
 
 export const APPROVAL_NOTIFICATION_QUEUE_NAME = "staging-notify";
 
@@ -79,10 +79,9 @@ export async function scheduleApprovalNotificationJob(args: {
 
     return "scheduled";
   } catch (err) {
-    console.warn(
+    logger.warn(
+      { err, stagingId: args.stagingId },
       "[approvals] failed to schedule approval notification",
-      args.stagingId,
-      toMessage(err),
     );
 
     return "failed";
@@ -111,10 +110,9 @@ export async function scheduleWorkflowBlockedNotificationJob(
 
     return "scheduled";
   } catch (err) {
-    console.warn(
+    logger.warn(
+      { err, workflowId: args.workflowId },
       "[workflows] failed to schedule blocked notification",
-      args.workflowId,
-      toMessage(err),
     );
 
     return "failed";
@@ -128,11 +126,7 @@ export async function removeApprovalNotificationJob(stagingId: string): Promise<
     const job = await getApprovalNotificationQueue().getJob(approvalNotificationJobId(stagingId));
     await job?.remove();
   } catch (err) {
-    console.warn(
-      "[approvals] failed to remove queued approval notification",
-      stagingId,
-      toMessage(err),
-    );
+    logger.warn({ err, stagingId }, "[approvals] failed to remove queued approval notification");
   }
 }
 

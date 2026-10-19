@@ -1,5 +1,5 @@
-import { toMessage } from "@alfred/contracts";
 import type { DomainEvent, PublishedEvent, TriggerConsumer } from "..";
+import { logger } from "@alfred/logging";
 
 const consumers = new Map<string, TriggerConsumer>();
 
@@ -50,9 +50,9 @@ export async function publishToConsumers(event: DomainEvent): Promise<PublishedE
     // `best-effort` failures never fail the publish, except a boot error. `propagate` failures rethrow.
     if (consumer?.mode === "best-effort" && !(outcome.reason instanceof TriggerConsumerBootError)) {
       acceptedConsumers += 1;
-      console.warn(
-        `[triggers] best-effort consumer '${consumer.name}' failed:`,
-        toMessage(outcome.reason),
+      logger.warn(
+        { err: outcome.reason },
+        `[triggers] best-effort consumer '${consumer.name}' failed`,
       );
       continue;
     }

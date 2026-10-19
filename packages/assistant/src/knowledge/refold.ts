@@ -24,6 +24,7 @@ import { requireEntityIdNamespace } from "./namespace";
 import { liveObservationHeadJoin } from "./observations";
 import { activateProjectionVersion } from "./projection";
 import { userModelReader } from "./reader";
+import { logger } from "@alfred/logging";
 
 /**
  * Re-fold the active Gmail kind projection over new observations and, when safe,
@@ -57,7 +58,7 @@ export async function refoldActiveGmailKindProjection(
   const active = await userModelReader(userId).getActivePointer();
 
   if (!active) {
-    console.log(`[user-model.refold] skip user=${userId} reason=no-active-projection`);
+    logger.info(`[user-model.refold] skip user=${userId} reason=no-active-projection`);
 
     return { status: "skipped", reason: "no-active-projection" };
   }
@@ -69,7 +70,7 @@ export async function refoldActiveGmailKindProjection(
   const sourceHighWatermark = await gmailProjectionHighWatermark(userId);
 
   if (!sourceHighWatermark.gmail) {
-    console.log(`[user-model.refold] skip user=${userId} reason=no-gmail-observations`);
+    logger.info(`[user-model.refold] skip user=${userId} reason=no-gmail-observations`);
 
     return { status: "skipped", reason: "no-gmail-observations" };
   }
@@ -82,7 +83,7 @@ export async function refoldActiveGmailKindProjection(
   // Frozen-logic gate: the current code must reproduce the active checksum first.
   if (!activeChecksum || !activeGmailWatermark || !hasGmailAppendSnapshot(activeGmailWatermark)) {
     // A legacy or malformed active run cannot be verified. Fail closed.
-    console.warn(
+    logger.warn(
       `[user-model.refold] BLOCKED user=${userId} reason=unverifiable-active-run ` +
         `(active run ${active.activeRunId} missing checksum/watermark/append-snapshot) — ` +
         `re-activate via the script`,
@@ -100,7 +101,7 @@ export async function refoldActiveGmailKindProjection(
   });
 
   if (recomputedChecksum !== activeChecksum) {
-    console.warn(
+    logger.warn(
       `[user-model.refold] BLOCKED user=${userId} reason=logic-drift ` +
         `active=${activeChecksum} recomputed=${recomputedChecksum} — classifier output changed ` +
         `since activation; scheduled auto-activation is disabled until a manual re-validation ` +
@@ -115,7 +116,7 @@ export async function refoldActiveGmailKindProjection(
     !(await hasGmailObservationsAfterAppendSnapshot(userId, activeGmailWatermark))
   ) {
     // Frozen logic and no new observations.
-    console.log(`[user-model.refold] skip user=${userId} reason=up-to-date`);
+    logger.info(`[user-model.refold] skip user=${userId} reason=up-to-date`);
 
     return { status: "skipped", reason: "up-to-date" };
   }
@@ -136,7 +137,7 @@ export async function refoldActiveGmailKindProjection(
     projectionName: USER_MODEL_PROJECTION_NAME,
     runId: completed.runId,
   });
-  console.log(
+  logger.info(
     `[user-model.refold] ACTIVATED user=${userId} version=${projectionVersion} ` +
       `profiles=${completed.profileCount} edges=${completed.edgesWritten} ` +
       `checksum=${completed.checksum}`,

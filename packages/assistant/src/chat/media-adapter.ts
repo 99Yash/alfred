@@ -19,6 +19,7 @@ import {
   isStorageConfigured,
 } from "./attachments/storage";
 import { lockChatStorageKeys } from "./attachments/storage-coordination";
+import { logger } from "@alfred/logging";
 
 interface ChatMediaAdapterDeps {
   claimEnrichment(attachmentId: string): Promise<"claimed" | "existing">;
@@ -102,7 +103,7 @@ export function createChatMediaHandler(
       }
 
       const removed = await deps.deletePrefix(request.prefix);
-      console.log(
+      logger.info(
         `[ingestion:worker] media.cleanup prefix=${request.prefix} removed=${removed} user=${request.userId}`,
       );
 
@@ -115,7 +116,7 @@ export function createChatMediaHandler(
       }
 
       const removed = await deps.cleanupPendingUploads(request);
-      console.log(
+      logger.info(
         `[ingestion:worker] media.cleanup_pending_upload checked=${request.keys.length} removed=${removed} user=${request.userId}`,
       );
 

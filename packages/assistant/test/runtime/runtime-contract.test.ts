@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { describe, test } from "node:test";
-import { toMessage } from "@alfred/contracts";
+import { logger } from "@alfred/logging";
+import { getPath } from "@alfred/contracts";
 import { createAssistantRuntime, runShutdownStep } from "../../src/runtime/runtime";
 
 /**
@@ -52,10 +53,10 @@ describe("teardown step policy", () => {
   });
 
   test("swallows a rejecting step and reports it did not finish", async () => {
-    const errors: string[] = [];
-    const consoleError = console.error;
-    console.error = (...args: unknown[]) => {
-      errors.push(args.map((arg) => toMessage(arg)).join(" "));
+    const errors: unknown[][] = [];
+    const loggerError = logger.error;
+    logger.error = (...args: unknown[]) => {
+      errors.push(args);
     };
 
     try {
@@ -65,10 +66,12 @@ describe("teardown step policy", () => {
 
       assert.equal(finished, false);
       assert.equal(errors.length, 1);
-      assert.match(errors[0] ?? "", /ingestion worker/);
-      assert.match(errors[0] ?? "", /redis gone/);
+      assert.match(String(errors[0]?.[1]), /ingestion worker/);
+      const err = getPath(errors[0]?.[0], "err");
+      assert.ok(err instanceof Error);
+      assert.equal(err.message, "redis gone");
     } finally {
-      console.error = consoleError;
+      logger.error = loggerError;
     }
   });
 });

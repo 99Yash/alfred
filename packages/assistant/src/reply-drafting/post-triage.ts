@@ -1,4 +1,4 @@
-import { toMessage, type ReplyDraftProvenance } from "@alfred/contracts";
+import { type ReplyDraftProvenance } from "@alfred/contracts";
 import { isUniqueViolation } from "@alfred/db/pg-errors";
 import { startRun } from "@alfred/assistant/execution";
 import { senderSuppressions } from "@alfred/assistant/knowledge";
@@ -16,6 +16,7 @@ import {
   noDraftResult,
   type ReplyStandingInstructionState,
 } from "./worthiness";
+import { logger } from "@alfred/logging";
 
 /**
  * Post-triage consumer (ADR-0098) of `email-triage.classified`. Triage imports nothing from here.
@@ -68,9 +69,7 @@ async function readStandingInstruction(
     case "none":
       return "none";
     case "read_failed":
-      console.warn(
-        `[${CONSUMER_NAME}] standing instruction read failed: ${toMessage(outcome.error)}`,
-      );
+      logger.warn({ err: outcome.error }, `[${CONSUMER_NAME}] standing instruction read failed`);
 
       return "read_failed";
   }
@@ -138,7 +137,7 @@ export async function acceptEmailTriageClassified(event: DomainEvent): Promise<v
     });
   } catch (err) {
     if (isUniqueViolation(err)) {
-      console.warn(`[${CONSUMER_NAME}] reply-drafting run already exists for ${eventId}`);
+      logger.warn(`[${CONSUMER_NAME}] reply-drafting run already exists for ${eventId}`);
 
       return;
     }
