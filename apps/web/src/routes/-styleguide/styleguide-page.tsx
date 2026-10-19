@@ -22,7 +22,7 @@ import {
   Sparkles,
   Workflow,
 } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 import { Avatar } from "~/components/ui/avatar";
 import { CommandPalette } from "~/components/ui/command-palette";
 import { FrostPanel } from "~/components/ui/frost-panel";
@@ -802,12 +802,7 @@ function FrostBorderSection() {
       <Row label="strong">
         <div
           className="frost-border inline-flex h-10 items-center rounded-full bg-white px-4 text-black"
-          style={{
-            // SAFETY: CSS custom properties are valid style keys; CSSProperties omits them.
-            ["--frost-strength" as never]: "0.8",
-            // SAFETY: as above.
-            ["--frost-border-strength" as never]: "3",
-          }}
+          style={frostStyle("0.8", "3")}
         >
           strength 0.8 / 3
         </div>
@@ -815,12 +810,7 @@ function FrostBorderSection() {
       <Row label="subtle">
         <div
           className="frost-border inline-flex h-10 items-center rounded-full bg-[rgb(var(--gray-50))] px-4 text-gray-950"
-          style={{
-            // SAFETY: CSS custom properties are valid style keys; CSSProperties omits them.
-            ["--frost-strength" as never]: "1",
-            // SAFETY: as above.
-            ["--frost-border-strength" as never]: "0.3",
-          }}
+          style={frostStyle("1", "0.3")}
         >
           strength 1 / 0.3
         </div>
@@ -2162,4 +2152,12 @@ function V2QuestionAnswersSection() {
       />
     </Section>
   );
+}
+
+/** The `frost-border` custom properties. `CSSProperties` has no custom properties, so the type adds them. */
+function frostStyle(
+  strength: string,
+  borderStrength: string,
+): CSSProperties & { "--frost-strength": string; "--frost-border-strength": string } {
+  return { "--frost-strength": strength, "--frost-border-strength": borderStrength };
 }

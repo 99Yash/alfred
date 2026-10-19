@@ -26,9 +26,9 @@ export const PROVIDER_COLOR = new Map<IntegrationSlug, string>([["github", "#181
 export function formatEventRange(subtitle: string, timeZone: string): string {
   const parts = subtitle.split(" - ");
 
-  if (parts.length !== 2) return subtitle;
-  // SAFETY: the length check proves two parts.
-  const [start, end] = parts as [string, string];
+  const [start, end] = parts;
+
+  if (parts.length !== 2 || start === undefined || end === undefined) return subtitle;
   const startDate = new Date(start);
   const endDate = new Date(end);
 

@@ -19,7 +19,7 @@ interface MdNode {
   value?: string | undefined;
   children?: MdNode[] | undefined;
   /** Other plugins can set any `data` on an incoming node. This plugin only writes it. */
-  data?: object | undefined;
+  data?: object;
 }
 
 /**
@@ -31,8 +31,7 @@ interface MdNode {
 export function briefingRefsPlugin(gather: BriefingGather | null): RemarkPlugin {
   const plugin = () => (tree: MdNode) => {
     if (!gather) return;
-    // SAFETY: the briefing tree is structurally the mdast tree `visit` expects.
-    visit(tree as never, "text", (node: MdNode, index, parent: MdNode | undefined) => {
+    visit(tree, "text", (node: MdNode, index, parent: MdNode | undefined) => {
       if (!parent?.children || index === undefined || node.value === undefined) return;
       const { segments } = resolveBriefingReferences(node.value, gather);
 
@@ -65,9 +64,11 @@ export function briefingRefsPlugin(gather: BriefingGather | null): RemarkPlugin 
   return plugin as RemarkPlugin;
 }
 
-export const briefingMarkdownComponents: Components =
-  // SAFETY: `briefing-ref` is a custom element outside react-markdown's intrinsic tag typing.
-  {
-    "briefing-ref": BriefingRef,
-    a: BriefingLink,
-  } as Components;
+/**
+ * react-markdown finds a component by tag name at run time, but `Components` names only the
+ * intrinsic tags. A non-literal object carries the custom `briefing-ref` tag past the
+ * excess-property check, and `Components` still checks `a`.
+ */
+const CUSTOM_ELEMENTS = { "briefing-ref": BriefingRef };
+
+export const briefingMarkdownComponents: Components = { ...CUSTOM_ELEMENTS, a: BriefingLink };

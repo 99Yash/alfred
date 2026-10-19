@@ -28,7 +28,7 @@ import { join, resolve } from "node:path";
  * @property {string | null} goldPatch Repo-relative reference solution. Null for tier `c`.
  * @property {string[]} hiddenFiles Repo-relative paths the agent must not edit.
  * @property {string[]} verify Shell commands that prove the task complete, run in the worktree.
- * @property {string[]} targetFiles Repo-relative files the agent must modify. Tier c only.
+ * @property {string[]} [targetFiles] Repo-relative files the agent must modify. Tier c only.
  * @property {string} createdAt ISO timestamp of task creation.
  */
 
@@ -44,6 +44,35 @@ const PATCH_HEADER = "diff --git ";
 const TIERS = new Set(["a", "c"]);
 
 const SOURCE_KINDS = new Set(["pr", "synthetic"]);
+
+/**
+ * True for a JSON object: not `null` and not an array. The bench reads parsed JSON through it.
+ *
+ * @param {unknown} value
+ * @returns {value is Record<string, unknown>}
+ */
+export function isJsonObject(value) {
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- bench JSON parses to unknown; this guard IS the validator (zod unresolvable from scripts/).
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** @param {unknown} value @returns {value is string} */
+export function isJsonString(value) {
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- bench JSON parses to unknown; this guard IS the validator (zod unresolvable from scripts/).
+  return typeof value === "string";
+}
+
+/**
+ * True when `validateManifest` finds no failure. The validator checks every field of
+ * `TaskManifest`, so this is the one place that states the type.
+ *
+ * @param {unknown} value
+ * @param {string} root
+ * @returns {value is TaskManifest}
+ */
+function isTaskManifest(value, root) {
+  return validateManifest(value, root).length === 0;
+}
 
 /** @param {string} root @returns {string} */
 export function tasksRoot(root) {
@@ -81,12 +110,9 @@ export function repoRoot() {
 export function validateManifest(value, root) {
   const failures = [];
 
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- manifest.json parses to unknown; this object check IS the validator (zod unresolvable from scripts/).
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return ["manifest is not an object"];
-  }
+  if (!isJsonObject(value)) return ["manifest is not an object"];
 
-  const m = /** @type {Record<string, unknown>} */ (value);
+  const m = value;
 
   // oxlint-disable-next-line anti-slop/no-runtime-typeof -- manifest field check IS the validator (zod unresolvable from scripts/).
   if (typeof m.id !== "string" || !/^[a-z][a-z0-9-]*$/.test(m.id)) {
@@ -108,11 +134,10 @@ export function validateManifest(value, root) {
     failures.push(`base must be a full 40-hex commit sha, got ${JSON.stringify(m.base)}`);
   }
 
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- manifest field check IS the validator (zod unresolvable from scripts/).
-  if (typeof m.source !== "object" || m.source === null || Array.isArray(m.source)) {
+  if (!isJsonObject(m.source)) {
     failures.push("source must be an object");
   } else {
-    const source = /** @type {Record<string, unknown>} */ (m.source);
+    const source = m.source;
 
     // oxlint-disable-next-line anti-slop/no-runtime-typeof -- manifest field check IS the validator (zod unresolvable from scripts/).
     if (typeof source.kind !== "string" || !SOURCE_KINDS.has(source.kind)) {
@@ -234,14 +259,16 @@ export function readManifest(root, id) {
   const file = join(dir, "manifest.json");
 
   if (!existsSync(file)) throw new Error(`no manifest at ${file}`);
+  /** @type {unknown} */
   const value = JSON.parse(readFileSync(file, "utf8"));
-  const failures = validateManifest(value, root);
 
-  if (failures.length > 0) {
+  if (!isTaskManifest(value, root)) {
+    const failures = validateManifest(value, root);
+
     throw new Error(`task ${id} has an invalid manifest:\n- ${failures.join("\n- ")}`);
   }
 
-  return { manifest: /** @type {TaskManifest} */ (value), dir };
+  return { manifest: value, dir };
 }
 
 /** The paths a patch touches, taken from its `diff --git a/…` lines. @param {string} patch @returns {string[]} */

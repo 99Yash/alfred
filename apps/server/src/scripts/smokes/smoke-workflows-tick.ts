@@ -14,7 +14,7 @@ import { requireRow } from "@alfred/db/helpers";
 import { agentRuns, user as userTable, workflows } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "~/builtins";
-import { toMessage } from "@alfred/contracts";
+import { agentRunTriggerSchema, toMessage } from "@alfred/contracts";
 
 // A registered slug, so `requireWorkflow` resolves. No worker runs the run.
 const TEST_SLUG = "echo-with-approval";
@@ -99,8 +99,7 @@ async function main() {
 
   const [run] = runs;
   assert(runs.length === 1 && run, `expected exactly 1 run row after tick 1; got ${runs.length}`);
-  // SAFETY: the cron scheduler writes agent_runs.trigger with this shape.
-  const trigger = run.trigger as { kind: string; scheduledFor: string } | null;
+  const trigger = agentRunTriggerSchema.nullable().parse(run.trigger);
   assert(trigger?.kind === "cron", `expected trigger.kind='cron'; got ${JSON.stringify(trigger)}`);
   assert(
     trigger.scheduledFor === scheduledForIso,

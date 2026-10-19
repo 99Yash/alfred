@@ -3,27 +3,35 @@
  * `GET /api/public/traces/:id` returns 404, so read v2 observations by trace id.
  */
 import { safeJsonParse } from "@alfred/contracts";
+import { z } from "zod";
 
-export interface LangfuseObservation {
-  id: string;
-  traceId: string | null;
-  type: string;
-  name?: string | null;
-  startTime: string;
-  endTime?: string | null;
-  level?: string | null;
-  statusMessage?: string | null;
-  environment?: string | null;
-  userId?: string | null;
-  sessionId?: string | null;
-  tags?: string[] | null;
-  model?: string | null;
-  input?: unknown;
-  output?: unknown;
-  metadata?: unknown;
-  usageDetails?: Record<string, number>;
-  costDetails?: Record<string, number>;
-}
+const langfuseObservationSchema = z.object({
+  id: z.string(),
+  traceId: z.string().nullable(),
+  type: z.string(),
+  name: z.string().nullish(),
+  startTime: z.string(),
+  endTime: z.string().nullish(),
+  level: z.string().nullish(),
+  statusMessage: z.string().nullish(),
+  environment: z.string().nullish(),
+  userId: z.string().nullish(),
+  sessionId: z.string().nullish(),
+  tags: z.array(z.string()).nullish(),
+  model: z.string().nullish(),
+  input: z.unknown(),
+  output: z.unknown(),
+  metadata: z.unknown(),
+  usageDetails: z.record(z.string(), z.number()).optional(),
+  costDetails: z.record(z.string(), z.number()).optional(),
+});
+
+export type LangfuseObservation = z.infer<typeof langfuseObservationSchema>;
+
+/** A missing `data` means the trace is not ingested yet. */
+const observationsResponseSchema = z.object({
+  data: z.array(langfuseObservationSchema).optional(),
+});
 
 const OBSERVATION_FIELDS = "core,basic,time,io,metadata,model,usage,trace_context";
 
@@ -59,8 +67,8 @@ export async function fetchObservationsByTraceId(args: {
     throw new Error(`GET observations for ${args.traceId} → ${res.status} ${await res.text()}`);
   }
 
-  // SAFETY: every field read is optional, and a missing `data` means not ingested yet.
-  const body = (await res.json()) as { data?: LangfuseObservation[] };
+  const raw: unknown = await res.json();
+  const body = observationsResponseSchema.parse(raw);
 
   return body.data ?? [];
 }

@@ -1,5 +1,5 @@
 import { isNonEmptyString } from "@alfred/contracts";
-import { type FactValue, SYNC_MODEL, type SyncedFact } from "@alfred/sync";
+import { SYNC_MODEL, type SyncedFact } from "@alfred/sync";
 import { useCallback, useMemo } from "react";
 import type { ReadTransaction } from "replicache";
 import { authClient } from "~/lib/auth/auth-client";
@@ -23,7 +23,7 @@ function scanFacts(tx: ReadTransaction): Promise<SyncedFact[]> {
   return SYNC_MODEL.fact.scan(tx);
 }
 
-function toText(value: FactValue | undefined): string {
+function toText(value: unknown): string {
   return isNonEmptyString(value) ? value : "";
 }
 
@@ -69,8 +69,7 @@ export function useBioFact(): BioFactState {
   );
 
   return {
-    // SAFETY: the mutators wrote a `FactValue`; `toText` accepts anything.
-    value: toText(bio?.value as FactValue | undefined),
+    value: toText(bio?.value),
     loading: rows === null && !loadError,
     error: loadError,
     retry,

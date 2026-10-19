@@ -10,6 +10,7 @@ import {
   type LocalStorageKey,
   type LocalStorageValue,
 } from "~/lib/storage/storage-schemas";
+import type { z } from "zod";
 
 export type { LocalStorageKey, LocalStorageValue };
 
@@ -47,9 +48,19 @@ export function safeRemove(key: string): void {
   }
 }
 
+/**
+ * The schema of `key`, typed by its own value. A plain index on the registry widens to every
+ * key's schema; the mapped view keeps the key and its value together.
+ */
+function schemaFor<K extends LocalStorageKey>(key: K): z.ZodType<LocalStorageValue<K>> {
+  const schemas: { readonly [P in LocalStorageKey]: z.ZodType<LocalStorageValue<P>> } =
+    LOCAL_STORAGE_SCHEMAS;
+
+  return schemas[key];
+}
+
 function schemaDefault<K extends LocalStorageKey>(key: K): LocalStorageValue<K> {
-  // SAFETY: each key's registered schema outputs `LocalStorageValue<key>`.
-  return LOCAL_STORAGE_SCHEMAS[key].parse(undefined) as LocalStorageValue<K>;
+  return schemaFor(key).parse(undefined);
 }
 
 /** The stored value, else a valid `defaultValue`, else the schema default. Never throws. */
@@ -57,16 +68,13 @@ export function getLocalStorageItem<K extends LocalStorageKey>(
   key: K,
   defaultValue?: LocalStorageValue<K>,
 ): LocalStorageValue<K> {
-  const schema = LOCAL_STORAGE_SCHEMAS[key];
+  const schema = schemaFor(key);
 
   const resolveDefault = (): LocalStorageValue<K> => {
     if (defaultValue !== undefined) {
       const r = schema.safeParse(defaultValue);
 
-      if (r.success) {
-        // SAFETY: same per-key schema contract as schemaDefault above.
-        return r.data as LocalStorageValue<K>;
-      }
+      if (r.success) return r.data;
 
       console.error(
         `[storage] default value for "${key}" does not match its schema`,
@@ -92,10 +100,7 @@ export function getLocalStorageItem<K extends LocalStorageKey>(
 
   const result = schema.safeParse(candidate);
 
-  if (result.success) {
-    // SAFETY: same per-key schema contract as schemaDefault above.
-    return result.data as LocalStorageValue<K>;
-  }
+  if (result.success) return result.data;
 
   console.warn(
     `[storage] stored value for "${key}" is invalid — falling back to default`,

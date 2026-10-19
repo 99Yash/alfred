@@ -10,6 +10,7 @@
  *   - `GOOGLE_GENERATIVE_AI_API_KEY` for the seed, synthesis, and `web_search` loops.
  *   - A user row, ideally with a connected Google credential.
  */
+import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import { COLD_START_WORKFLOW_SLUG } from "@alfred/assistant/knowledge";
 import { startRun, closeAgentQueue } from "@alfred/assistant/execution";
@@ -92,6 +93,14 @@ async function fetchColdStartFacts(userId: string, runId: string) {
     .orderBy(desc(userFacts.confidence));
 }
 
+/** The fields of the cold-start workflow output that this smoke reads. */
+const coldStartOutputSchema = z.object({
+  factsProposed: z.number(),
+  factsSkipped: z.number(),
+  memoryChunkId: z.string(),
+  citationCount: z.number(),
+});
+
 async function main() {
   if (!serverEnv().GOOGLE_GENERATIVE_AI_API_KEY) {
     console.log(
@@ -146,13 +155,7 @@ async function main() {
   const run = await pollRun(runId, "cold-start run");
   assert(run.status === "completed", `run status=${run.status} error=${JSON.stringify(run.error)}`);
 
-  // SAFETY: the cold-start workflow's own output shape.
-  const out = run.output as {
-    factsProposed: number;
-    factsSkipped: number;
-    memoryChunkId: string;
-    citationCount: number;
-  };
+  const out = coldStartOutputSchema.parse(run.output);
 
   console.log(
     `[smoke-cold-start] output: factsProposed=${out.factsProposed} ` +

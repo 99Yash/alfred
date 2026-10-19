@@ -190,7 +190,7 @@ export interface Scratchpad {
   /** The refusal text for `operation`, or `null` when the zone rules admit it. No I/O. */
   refusal(operation: ScratchOperation): string | null;
   /** `null` when the key is absent or its entry is corrupt. Throws on a refused key. */
-  read<T = unknown>(key: string): Promise<ScratchEntry<T> | null>;
+  read(key: string): Promise<ScratchEntry<unknown> | null>;
   /** Returns the stored envelope. Throws on a refused key. */
   write<T>(key: string, value: T): Promise<ScratchEntry<T>>;
   /**
@@ -280,7 +280,10 @@ async function writeEntry<T>(args: {
   }
 }
 
-async function readEntry<T>(runId: string, target: ScratchTarget): Promise<ScratchEntry<T> | null> {
+async function readEntry(
+  runId: string,
+  target: ScratchTarget,
+): Promise<ScratchEntry<unknown> | null> {
   const fullKey = resolveKey(runId, target);
 
   const span = startScratchSpan(
@@ -304,9 +307,7 @@ async function readEntry<T>(runId: string, target: ScratchTarget): Promise<Scrat
       },
     });
 
-    // SAFETY: the schema checks only the envelope, and `T` is the caller's claim about `value`.
-    // Production readers keep `T = unknown`; only the server smokes name a `T`.
-    return entry === null ? null : (entry as ScratchEntry<T>);
+    return entry;
   } catch (err) {
     span.end({ status: "error", level: "ERROR" });
     throw err;

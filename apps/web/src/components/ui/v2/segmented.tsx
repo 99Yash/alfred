@@ -32,8 +32,13 @@ export function AppSegmented<T extends string = string>({
   variant = "default",
 }: AppSegmentedProps<T>) {
   const glass = variant === "glass";
-  // SAFETY: Radix emits the value of a rendered item, which is a T.
-  const emit = (next: string) => onValueChange(next as T);
+
+  // Radix emits the value of a rendered item, so the lookup always finds it.
+  const emit = (next: string) => {
+    const item = items.find((candidate) => candidate.value === next);
+
+    if (item) onValueChange(item.value);
+  };
 
   return (
     <TabsPrimitive.Root value={value} onValueChange={emit}>

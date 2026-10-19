@@ -372,7 +372,12 @@ export async function gradeTask(args) {
   // Tier c discriminator: the agent's patch must modify at least one target file.
   let targetFilesPass = true;
 
-  if (submission !== null && manifest.tier === "c" && manifest.targetFiles.length > 0) {
+  if (
+    submission !== null &&
+    manifest.tier === "c" &&
+    manifest.targetFiles !== undefined &&
+    manifest.targetFiles.length > 0
+  ) {
     const patchContent = readFileSync(submission, "utf8");
     const touched = patchPaths(patchContent);
     targetFilesPass = manifest.targetFiles.some((f) => touched.includes(f));

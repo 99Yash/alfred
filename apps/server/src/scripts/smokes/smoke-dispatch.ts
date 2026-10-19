@@ -471,8 +471,7 @@ async function main(): Promise<void> {
   assert(cancelledRow?.status === "cancelled", "run row should be 'cancelled'");
   assert(cancelledRow.endedAt != null, "cancelled row should carry ended_at");
   assert(
-    // SAFETY: the executor writes agent_runs.error with a reason on cancel.
-    (cancelledRow.error as { reason: string } | null)?.reason === "smoke",
+    getStringPath(cancelledRow.error, "reason") === "smoke",
     "cancelled row should record the reason",
   );
 

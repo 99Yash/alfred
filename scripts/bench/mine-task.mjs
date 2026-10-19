@@ -14,7 +14,15 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { isTestFile, patchPaths, repoRoot, tasksRoot, validateManifest } from "./manifest.mjs";
+import {
+  isJsonObject,
+  isJsonString,
+  isTestFile,
+  patchPaths,
+  repoRoot,
+  tasksRoot,
+  validateManifest,
+} from "./manifest.mjs";
 
 const USAGE = `node scripts/bench/mine-task.mjs --id <id> --pr <n> --verify "<cmd>"
   --id <id>         Task id, a-834-style.
@@ -140,6 +148,22 @@ export function buildPrompt(pr, args) {
 }
 
 /**
+ * One string field of the `gh pr view --json` output. Throws when it is missing or not a string.
+ *
+ * @param {unknown} meta
+ * @param {string} key
+ * @param {number} pr
+ * @returns {string}
+ */
+function prStringField(meta, key, pr) {
+  const value = isJsonObject(meta) ? meta[key] : undefined;
+
+  if (!isJsonString(value)) throw new Error(`gh pr view #${pr} returned no string ${key}`);
+
+  return value;
+}
+
+/**
  * Mine one PR into a task directory. Returns the written manifest.
  *
  * @param {MineArgs} args
@@ -154,11 +178,12 @@ export function mineTask(args) {
     { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] },
   );
 
+  /** @type {unknown} */
   const meta = JSON.parse(metaText);
-  const title = /** @type {string} */ (meta.title);
-  const body = /** @type {string} */ (meta.body);
-  const base = /** @type {string} */ (meta.baseRefOid);
-  const mergedAt = /** @type {string} */ (meta.mergedAt);
+  const title = prStringField(meta, "title", args.pr);
+  const body = prStringField(meta, "body", args.pr);
+  const base = prStringField(meta, "baseRefOid", args.pr);
+  const mergedAt = prStringField(meta, "mergedAt", args.pr);
 
   if (!/^[0-9a-f]{40}$/.test(base)) throw new Error(`PR #${args.pr} has no 40-hex baseRefOid`);
 
@@ -181,7 +206,8 @@ export function mineTask(args) {
   writeFileSync(join(dir, "test.patch"), test);
   writeFileSync(join(dir, "gold.patch"), gold);
 
-  const manifest = /** @type {import("./manifest.mjs").TaskManifest} */ ({
+  /** @type {import("./manifest.mjs").TaskManifest} */
+  const manifest = {
     id: args.id,
     tier: "a",
     title,
@@ -193,7 +219,7 @@ export function mineTask(args) {
     hiddenFiles: patchPaths(test),
     verify: args.verify,
     createdAt: new Date().toISOString(),
-  });
+  };
 
   const failures = validateManifest(manifest, root);
 

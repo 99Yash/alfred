@@ -163,8 +163,7 @@ export function OnboardingFlow({
                 <h2 className="mb-3 text-[17px] font-semibold text-white">Get set up</h2>
                 <ul className="flex flex-wrap gap-2">
                   {STEPS.map((s, idx) => {
-                    // SAFETY: STEPS has three entries and OnboardingStep is 1 | 2 | 3.
-                    const stepNumber = (idx + 1) as OnboardingStep;
+                    const stepNumber = idx + 1;
                     const isActive = stepNumber === step;
                     const isDone = stepNumber < step;
 

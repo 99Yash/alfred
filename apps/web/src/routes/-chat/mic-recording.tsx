@@ -15,8 +15,6 @@ export function useMicRecording() {
   const levelsRef = useRef<Float32Array | null>(null);
 
   if (levelsRef.current === null) levelsRef.current = new Float32Array(SAMPLE_COUNT);
-  // SAFETY: the branch above set current to a Float32Array.
-  const initializedLevelsRef = levelsRef as React.RefObject<Float32Array>;
 
   const streamRef = useRef<MediaStream | null>(null);
   const ctxRef = useRef<AudioContext | null>(null);
@@ -172,7 +170,7 @@ export function useMicRecording() {
     // Cleanup on unmount only; `cancel` reads refs.
   }, []);
 
-  return { recording, error, elapsed, start, cancel, finish, levelsRef: initializedLevelsRef };
+  return { recording, error, elapsed, start, cancel, finish, levelsRef };
 }
 
 const SAMPLE_COUNT = 56;

@@ -5,6 +5,7 @@
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/smokes/smoke-scratchpad.ts
  */
 
+import { getPath } from "@alfred/contracts";
 import {
   _setScratchRuntimeSpanStarterForTests,
   RUNTIME_SCRATCH_PROMOTE,
@@ -117,16 +118,20 @@ async function main(): Promise<void> {
   // 1. Round-trip on both zones.
   await subA.write("scratch.subA.findings", { topic: "inbox-debt", count: 42 });
 
-  const subRead = await subA.read<{ topic: string; count: number }>("scratch.subA.findings");
+  const subRead = await subA.read("scratch.subA.findings");
 
-  if (!subRead || subRead.value.topic !== "inbox-debt" || subRead.value.count !== 42) {
+  if (
+    !subRead ||
+    getPath(subRead.value, "topic") !== "inbox-debt" ||
+    getPath(subRead.value, "count") !== 42
+  ) {
     throw new Error("[smoke-scratchpad] sub-agent round-trip failed");
   }
 
   console.log("[smoke-scratchpad] round-trip ok (scratch.subA.findings)");
 
   await boss.write("shared.goal", "answer inbox by EOD");
-  const sharedRead = await boss.read<string>("shared.goal");
+  const sharedRead = await boss.read("shared.goal");
 
   if (sharedRead?.value !== "answer inbox by EOD") {
     throw new Error("[smoke-scratchpad] shared round-trip failed");
@@ -141,7 +146,7 @@ async function main(): Promise<void> {
     throw new Error("[smoke-scratchpad] promote failed");
   }
 
-  const promotedRead = await boss.read<{ topic: string; count: number }>("shared.findings");
+  const promotedRead = await boss.read("shared.findings");
 
   if (promotedRead?.writtenBy !== "boss") {
     throw new Error("[smoke-scratchpad] promoted entry lost writtenBy='boss'");
@@ -169,9 +174,13 @@ async function main(): Promise<void> {
     );
   }
 
-  const dispatchShared = await boss.read<{ ok: boolean }>("shared.dispatch");
+  const dispatchShared = await boss.read("shared.dispatch");
 
-  if (dispatchShared?.value.ok !== true || dispatchShared.writtenBy !== "boss") {
+  if (
+    !dispatchShared ||
+    getPath(dispatchShared.value, "ok") !== true ||
+    dispatchShared.writtenBy !== "boss"
+  ) {
     throw new Error("[smoke-scratchpad] boss shared write did not land");
   }
 
@@ -192,7 +201,7 @@ async function main(): Promise<void> {
     throw new Error(`[smoke-scratchpad] sub own write expected executed, got ${subWrite.kind}`);
   }
 
-  const dispatchSub = await subA.read<string>("scratch.subA.dispatch");
+  const dispatchSub = await subA.read("scratch.subA.dispatch");
 
   if (dispatchSub?.value !== "sub-owned" || dispatchSub.writtenBy !== "subA") {
     throw new Error("[smoke-scratchpad] sub-agent own scratch write did not land");
@@ -274,7 +283,7 @@ async function main(): Promise<void> {
     );
   }
 
-  const dispatchPromoted = await boss.read<string>("shared.dispatch_promoted");
+  const dispatchPromoted = await boss.read("shared.dispatch_promoted");
 
   if (dispatchPromoted?.value !== "sub-owned") {
     throw new Error("[smoke-scratchpad] dispatcher promote did not copy the sub-agent value");

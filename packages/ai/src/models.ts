@@ -1,5 +1,5 @@
 import { getStringField, isIndexable } from "@alfred/contracts";
-import type { LanguageModel } from "ai";
+import type { EmbeddingModel, LanguageModel } from "ai";
 import { z } from "zod";
 
 /** Closed set: a new provider needs a factory and `model_prices` rows. */
@@ -28,8 +28,14 @@ export function isModelObject(model: LanguageModel): model is ModelObject {
   return isIndexable(model);
 }
 
-/** Read `provider` and `modelId` off the model, with the provider normalized. */
-export function identifyLanguageModel(model: LanguageModel): ModelIdentifiers {
+/** A language model or an embedding model. `LanguageModel` already holds the string ids. */
+export type IdentifiableModel = LanguageModel | Exclude<EmbeddingModel, string>;
+
+/**
+ * Read `provider` and `modelId` off the model, with the provider normalized.
+ * An embedding model has the same two fields, so metering reads it here too.
+ */
+export function identifyLanguageModel(model: IdentifiableModel): ModelIdentifiers {
   const provider = getStringField(model, "provider");
   const modelId = getStringField(model, "modelId");
 

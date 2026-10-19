@@ -25,18 +25,18 @@ const GENERATE_TIMEOUT_MS = 60_000;
 
 const LANGFUSE_FETCH_TIMEOUT_MS = 10_000;
 
-const weather = tool({
-  description: "Get the current weather for a city.",
-  inputSchema: jsonSchema<{ city: string }>({
-    type: "object",
-    properties: { city: { type: "string" } },
-    required: ["city"],
-    additionalProperties: false,
+// Inline, so the `ToolSet` annotation types the tool. A separate const infers a context that does not fit.
+const tools: ToolSet = {
+  weather: tool({
+    description: "Get the current weather for a city.",
+    inputSchema: jsonSchema<{ city: string }>({
+      type: "object",
+      properties: { city: { type: "string" } },
+      required: ["city"],
+      additionalProperties: false,
+    }),
   }),
-});
-
-// eslint-disable-next-line anti-slop/no-chained-type-assertions -- tool() Tool<INPUT> no longer unifies with the SDK ToolSet under exactOptionalPropertyTypes (INPUT fixed to never)
-const tools = { weather } as unknown as ToolSet;
+};
 
 function toolCallCount(metadata: unknown): number {
   const decoded = decodeLangfuseIo(metadata);

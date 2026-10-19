@@ -18,6 +18,7 @@
  *   - `OPENAI_API_KEY` set.
  *   - User row with a deliverable email (only when sending).
  */
+import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import {
   DAILY_BRIEFING_WORKFLOW_SLUG,
@@ -114,6 +115,16 @@ async function fetchBriefing(id: string) {
   return rows[0] ?? null;
 }
 
+/** The fields of the briefing workflow output that this smoke reads. */
+const briefingRunOutputSchema = z
+  .object({
+    briefingId: z.string().optional(),
+    emailSendId: z.string().nullish(),
+    status: z.string().optional(),
+    slot: z.string(),
+  })
+  .nullable();
+
 async function main() {
   const cli = parseArgs();
   await warmPool();
@@ -164,13 +175,7 @@ async function main() {
     throw new Error(`run status=${run.status}`);
   }
 
-  // SAFETY: the briefing workflow's own output shape.
-  const output = run.output as {
-    briefingId?: string;
-    emailSendId?: string | null;
-    status?: string;
-    slot: string;
-  } | null;
+  const output = briefingRunOutputSchema.parse(run.output);
 
   assert(output?.briefingId, "run completed but output.briefingId is missing");
   console.log(

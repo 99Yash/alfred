@@ -5,6 +5,7 @@
  *
  *   $ pnpm tsx --env-file=.env src/scripts/smokes/smoke-github-app.ts
  */
+import { z } from "zod";
 import { closeConnections, warmPool } from "@alfred/db";
 import { db } from "@alfred/db";
 import { integrationCredentials } from "@alfred/db/schemas";
@@ -32,6 +33,17 @@ async function responseSnippet(res: Response): Promise<string> {
   return (await res.text().catch(() => "")).slice(0, 300);
 }
 
+const githubAppSchema = z.object({ id: z.number(), slug: z.string(), name: z.string() });
+
+const githubInstallationsSchema = z.array(
+  z.object({
+    id: z.number(),
+    account: z.object({ login: z.string().optional() }).nullish(),
+  }),
+);
+
+const githubRepositoriesSchema = z.object({ total_count: z.number().optional() });
+
 async function main() {
   await warmPool();
   const env = serverEnv();
@@ -55,8 +67,7 @@ async function main() {
     return;
   }
 
-  // SAFETY: `GET /app` returns these fields for a valid JWT; the smoke only logs them.
-  const app = (await appRes.json()) as { id: number; slug: string; name: string };
+  const app = githubAppSchema.parse(await appRes.json());
   console.log(
     `[smoke-github-app] App JWT accepted — app #${app.id} "${app.name}" (slug ${app.slug})`,
   );
@@ -81,11 +92,7 @@ async function main() {
     return;
   }
 
-  // SAFETY: GitHub's installations list shape; the smoke logs entries tolerantly.
-  const installations = (await instRes.json()) as Array<{
-    id: number;
-    account?: { login?: string };
-  }>;
+  const installations = githubInstallationsSchema.parse(await instRes.json());
 
   console.log(`[smoke-github-app] installations: ${installations.length}`);
 
@@ -112,8 +119,7 @@ async function main() {
       return;
     }
 
-    // SAFETY: total_count is optional here; the smoke prints "?" on absence.
-    const repos = (await repoRes.json()) as { total_count?: number };
+    const repos = githubRepositoriesSchema.parse(await repoRes.json());
     console.log(`   → installation can see ${repos.total_count ?? "?"} repositories`);
   }
 

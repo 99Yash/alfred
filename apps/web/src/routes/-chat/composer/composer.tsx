@@ -456,7 +456,7 @@ function RecordingPanel({
   elapsed,
   active,
 }: {
-  levelsRef: RefObject<Float32Array>;
+  levelsRef: RefObject<Float32Array | null>;
   elapsed: number;
   active: boolean;
 }) {

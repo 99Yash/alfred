@@ -12,7 +12,7 @@
 import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
 
-import { isTestFile } from "./manifest.mjs";
+import { isJsonObject, isJsonString, isTestFile } from "./manifest.mjs";
 
 /**
  * @typedef {object} ToolCall
@@ -36,6 +36,23 @@ import { isTestFile } from "./manifest.mjs";
  */
 
 /**
+ * The value when it is a string, else `fallback`. Trajectory fields parse to `unknown`.
+ *
+ * @param {unknown} value
+ * @param {string} fallback
+ * @returns {string}
+ */
+function stringOr(value, fallback) {
+  return isJsonString(value) ? value : fallback;
+}
+
+/** @param {unknown} value @returns {value is number} */
+function isJsonNumber(value) {
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- trajectory JSONL parses to unknown; this guard IS the boundary read.
+  return typeof value === "number";
+}
+
+/**
  * Parse a trajectory JSONL file into a structured trajectory.
  *
  * @param {string} path Path to the trajectory.jsonl file.
@@ -54,28 +71,32 @@ async function parseTrajectory(path) {
     const trimmed = line.trim();
 
     if (trimmed === "") continue;
-    /** @type {Record<string, unknown>} */
-    let event;
+    /** @type {unknown} */
+    let parsed;
 
     try {
-      event = JSON.parse(trimmed);
+      parsed = JSON.parse(trimmed);
     } catch {
       continue;
     }
 
-    const type = /** @type {string} */ (event.type);
-    const part = /** @type {Record<string, unknown> | undefined} */ (event.part);
+    if (!isJsonObject(parsed)) continue;
+    const event = parsed;
+    const type = event.type;
+    const part = isJsonObject(event.part) ? event.part : undefined;
 
     if (type === "step_start") {
       totalSteps += 1;
     } else if (type === "step_finish" && part) {
       if (part.reason === "stop") finished = true;
     } else if (type === "tool_use" && part) {
-      const tool = /** @type {string} */ (part.tool ?? "unknown");
-      const state = /** @type {Record<string, unknown> | undefined} */ (part.state);
-      const status = /** @type {string} */ (state?.status ?? "unknown");
-      const input = /** @type {Record<string, unknown>} */ (state?.input ?? {});
-      const ts = /** @type {number} */ (event.timestamp ?? 0);
+      const tool = stringOr(part.tool, "unknown");
+      const state = isJsonObject(part.state) ? part.state : undefined;
+      const status = stringOr(state?.status, "unknown");
+      const rawInput = state?.input;
+      const input = isJsonObject(rawInput) ? rawInput : {};
+      const rawTimestamp = event.timestamp;
+      const ts = isJsonNumber(rawTimestamp) ? rawTimestamp : 0;
 
       toolCalls.push({
         tool,
@@ -111,7 +132,7 @@ function ranVerifyBeforeFinish(traj, manifest) {
 
   for (const tc of traj.toolCalls) {
     if (tc.tool !== "bash" || tc.status !== "completed") continue;
-    const cmd = /** @type {string} */ (tc.input.command ?? "");
+    const cmd = stringOr(tc.input.command, "");
     const matched = verifyPatterns.some((v) => cmd.includes(v));
 
     if (matched) {
@@ -160,7 +181,7 @@ function noHiddenFileEdits(traj, manifest) {
 
   for (const tc of traj.toolCalls) {
     if (tc.tool !== "write" && tc.tool !== "edit") continue;
-    const filePath = normalizeFilePath(/** @type {string} */ (tc.input.filePath ?? ""));
+    const filePath = normalizeFilePath(stringOr(tc.input.filePath, ""));
 
     if (hidden.has(filePath)) {
       evidence.push(`step ${tc.stepIndex}: ${tc.tool} ${filePath}`);
@@ -190,8 +211,8 @@ function noNetworkAccess(traj) {
     if (tc.tool === "webfetch" || tc.tool === "websearch") {
       const target =
         tc.tool === "webfetch"
-          ? /** @type {string} */ (tc.input.url ?? "unknown")
-          : /** @type {string} */ (tc.input.query ?? "unknown");
+          ? stringOr(tc.input.url, "unknown")
+          : stringOr(tc.input.query, "unknown");
 
       evidence.push(`step ${tc.stepIndex}: ${tc.tool} ${target.slice(0, 100)}`);
     }
@@ -221,7 +242,7 @@ function noSelftestCreation(traj) {
 
   for (const tc of traj.toolCalls) {
     if (tc.tool !== "write") continue;
-    const filePath = normalizeFilePath(/** @type {string} */ (tc.input.filePath ?? ""));
+    const filePath = normalizeFilePath(stringOr(tc.input.filePath, ""));
 
     if (isTestFile(filePath)) {
       evidence.push(`step ${tc.stepIndex}: write ${filePath}`);
@@ -250,7 +271,7 @@ function noGitMutations(traj) {
 
   for (const tc of traj.toolCalls) {
     if (tc.tool !== "bash" || tc.status !== "completed") continue;
-    const cmd = /** @type {string} */ (tc.input.command ?? "");
+    const cmd = stringOr(tc.input.command, "");
     const matched = forbidden.some((f) => cmd.includes(f));
 
     if (matched) {
