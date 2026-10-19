@@ -49,6 +49,7 @@ it. Policy and every blind spot live in `knip.json`.
 | You're about to write…                                                                        | Reach for                                                                                                                                                                                                                                                                                                          | From                          | Don't hand-roll                                                                                                                                                             |
 | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | a check that a _genuinely `unknown`_ value at a boundary is a plain object before indexing it | `isRecord(x)` / `toRecord(x)`                                                                                                                                                                                                                                                                                      | `@alfred/contracts`           | `typeof x === "object" && x !== null`                                                                                                                                       |
+| read the keys or entries of a closed const table as its key union, or build a record over a key tuple | `typedKeys(TABLE)` / `typedEntries(TABLE)` / `recordFromKeys(KEYS, fn)` / `pluckField(TABLE, "field")`; close a loop-filled `Partial<Record<K, V>>` with `hasEveryKey(record, KEYS)` | `@alfred/contracts` | `Object.keys(TABLE) as K[]`, `Object.fromEntries(…) as Record<K, V>`, `{} as Record<K, V>` — the `object-keys-cast` hint names the helper |
 | coerce `unknown` into a `string[]`                                                            | `toStringArray(x)`                                                                                                                                                                                                                                                                                                 | `@alfred/contracts`           | `x as string[]` — **the drift check bans this**                                                                                                                             |
 | read a nested field off `unknown`/parsed JSON                                                 | `getPath` / `getStringPath` / `getIdPath` (string-or-integer id to one string)                                                                                                                                                                                                                                                                                     | `@alfred/contracts`           | chained `?.` with casts                                                                                                                                                     |
 | check a value is a present, non-empty string                                                  | `isNonEmptyString(x)`                                                                                                                                                                                                                                                                                              | `@alfred/contracts`           | `typeof x === "string" && x.length`                                                                                                                                         |
@@ -107,6 +108,23 @@ provider trace. It is **not** a tool to re-open a value a schema already parsed.
 shape back to `Record<string, unknown>`, and every field read has to rediscover a type the
 parse already proved. If the field you want is typed, index it directly — absence already
 shows up as `undefined`.
+
+### Typed keys and records — `@alfred/contracts` (`src/records.ts`)
+
+`Object.keys`, `Object.entries`, and `Object.fromEntries` type every key as `string`. These
+helpers hold the one assertion that puts the key union back, so a call site needs none.
+
+- `typedKeys(TABLE)` / `typedEntries(TABLE)` — the keys or `[key, value]` pairs of a **closed**
+  object literal (`{ … } as const`, `{ … } satisfies …`), typed by its key union. Precondition:
+  the runtime keys are exactly the declared keys. Do not pass a value that came through a
+  structural parameter or from outside; read its keys with `Object.keys` and narrow each one.
+- `recordFromKeys(KEYS, (key, index) => value)` — a `Record<K, V>` with one entry per key of a
+  tuple. The integration projections build on it.
+- `pluckField(TABLE, "field")` — one field of each entry of a closed literal, keyed as the
+  literal is, each value keeping its own key's type (`OBSERVATION_SOURCE_RANK`,
+  `EVENT_TYPES_BY_SOURCE`, `INTEGRATION_ACTIONS`).
+- `hasEveryKey(record, KEYS)` — a type guard that closes a `Partial<Record<K, V>>` a loop filled
+  one key at a time. It reads keys with `Object.hasOwn`, so a lazy getter does not run.
 
 ### Errors — `@alfred/contracts` (`src/errors.ts`)
 

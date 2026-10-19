@@ -26,8 +26,7 @@ const isSealedField = enumGuard(ACCOUNT_SECRET_FIELDS);
 /** Seal token fields on write. Better Auth only writes plaintext it got from us or a provider. */
 // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- Better Auth passes the adapter an untyped row payload; the bound keeps the caller's own row type.
 function sealWrite<T extends Record<string, unknown>>(payload: T, vault: CredentialVault): T {
-  // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- the sealed copy has the payload's keys, so no narrower key type exists.
-  let sealed: Record<string, unknown> | undefined;
+  let sealed = payload;
 
   for (const field of ACCOUNT_SECRET_FIELDS) {
     if (!(field in payload)) continue;
@@ -35,33 +34,28 @@ function sealWrite<T extends Record<string, unknown>>(payload: T, vault: Credent
 
     // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Better Auth types the adapter payload loosely; only a string token field is sealed.
     if (typeof value !== "string") continue;
-    sealed ??= { ...payload };
-    sealed[field] = vault.seal(value);
+    // A copy, so the caller's payload keeps its plaintext. Only the value under `field` changes.
+    sealed = { ...sealed, [field]: vault.seal(value) };
   }
 
-  // SAFETY: only field values change, not keys, so T's shape holds.
-  return (sealed ?? payload) as T;
+  return sealed;
 }
 
 /** Open token fields on read. Plaintext throws: it means a row was never sealed. */
 function openRow<T>(row: T, vault: CredentialVault): T {
   if (!isRecord(row)) return row;
-  // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- Better Auth returns an untyped row; the key-by-key read needs an indexable view of it.
-  const source: Record<string, unknown> = row;
-  // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- the opened copy has the row's keys, so no narrower key type exists.
-  let opened: Record<string, unknown> | undefined;
+  let opened = row;
 
   for (const field of ACCOUNT_SECRET_FIELDS) {
-    if (!(field in source)) continue;
-    const value = source[field];
+    if (!(field in row)) continue;
+    const value = row[field];
 
     if (value === null || value === undefined) continue;
-    opened ??= { ...source };
-    opened[field] = vault.open(value);
+    // A copy, so the driver's row keeps its envelope. Only the value under `field` changes.
+    opened = { ...opened, [field]: vault.open(value) };
   }
 
-  // SAFETY: only field values change, not keys, so T's shape holds.
-  return (opened ?? source) as T;
+  return opened;
 }
 
 /** Open joined account rows. Uses the declared join, so another model's `accessToken` is not touched. */
@@ -73,19 +67,17 @@ function openJoined<T>(
   if (join === undefined || !(ACCOUNT_MODEL in join)) return row;
 
   if (!isRecord(row)) return row;
-  // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- Better Auth returns an untyped row; the key-by-key read needs an indexable view of it.
-  const source: Record<string, unknown> = row;
 
-  if (!(ACCOUNT_MODEL in source)) return row;
-  const joined = source[ACCOUNT_MODEL];
+  if (!(ACCOUNT_MODEL in row)) return row;
+  const joined = row[ACCOUNT_MODEL];
 
   // `one-to-one` yields an object, the other relation types yield an array.
   const resolved = Array.isArray(joined)
     ? joined.map((entry: unknown) => openRow(entry, vault))
     : openRow(joined, vault);
 
-  // SAFETY: only the account join value changes, so T's shape holds.
-  return Object.assign({}, source, { [ACCOUNT_MODEL]: resolved }) as T;
+  // Only the account join value changes.
+  return { ...row, [ACCOUNT_MODEL]: resolved };
 }
 
 /** Reject a filter on a sealed column. Each envelope has a fresh nonce, so it would never match. */
@@ -126,56 +118,58 @@ type DecoratedMember = {
   [K in keyof typeof MEMBER_DUTIES]: (typeof MEMBER_DUTIES)[K] extends "inert" ? never : K;
 }[keyof typeof MEMBER_DUTIES];
 
+/** `create` arguments. Only `data` depends on the row type, so restate that one field. */
+type CreateArgs<T> = Omit<Parameters<AuthAdapter["create"]>[0], "data"> & { data: Omit<T, "id"> };
+
 /**
- * The generic members are cast back to their generic type. TypeScript cannot express
- * "same signature, transformed result" otherwise. `openRow` checks every value it opens.
+ * Each generic member restates its own type parameters and passes them to `base`, so the
+ * result keeps the caller's row type. `openRow` and `openJoined` return the type they get.
  */
 function decorateOperations(base: WithoutTransaction, vault: CredentialVault): WithoutTransaction {
-  // SAFETY: forwards to base.create; only seals on the way in and opens on the way out.
-  const create = (async (data: Parameters<AuthAdapter["create"]>[0]) => {
-    if (data.model !== ACCOUNT_MODEL) return base.create(data);
+  // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- Better Auth's own bound on the created row; the caller names the real row type.
+  const create = async <T extends Record<string, unknown>, R = T>(
+    data: CreateArgs<T>,
+  ): Promise<R> => {
+    if (data.model !== ACCOUNT_MODEL) return base.create<T, R>(data);
 
-    const result = await base.create({
+    const result = await base.create<T, R>({
       ...data,
       data: sealWrite(data.data, vault),
     });
 
     return openRow(result, vault);
-  }) as AuthAdapter["create"];
+  };
 
-  // SAFETY: same seal/open forwarding as create.
-  const findOne = (async (data: Parameters<AuthAdapter["findOne"]>[0]) => {
-    if (data.model !== ACCOUNT_MODEL && !data.join) return base.findOne(data);
+  const findOne = async <T>(data: Parameters<AuthAdapter["findOne"]>[0]): Promise<T | null> => {
+    if (data.model !== ACCOUNT_MODEL && !data.join) return base.findOne<T>(data);
 
     if (data.model === ACCOUNT_MODEL) rejectSealedWhere(data.where);
-    const result = await base.findOne(data);
+    const result = await base.findOne<T>(data);
     const withJoins = openJoined(result, data.join, vault);
 
     return data.model === ACCOUNT_MODEL ? openRow(withJoins, vault) : withJoins;
-  }) as AuthAdapter["findOne"];
+  };
 
-  // SAFETY: same seal/open forwarding as findOne, mapped over rows.
-  const findMany = (async (data: Parameters<AuthAdapter["findMany"]>[0]) => {
-    if (data.model !== ACCOUNT_MODEL && !data.join) return base.findMany(data);
+  const findMany = async <T>(data: Parameters<AuthAdapter["findMany"]>[0]): Promise<T[]> => {
+    if (data.model !== ACCOUNT_MODEL && !data.join) return base.findMany<T>(data);
 
     if (data.model === ACCOUNT_MODEL) rejectSealedWhere(data.where);
-    const rows = await base.findMany(data);
+    const rows = await base.findMany<T>(data);
 
     return rows.map((row) => {
       const withJoins = openJoined(row, data.join, vault);
 
       return data.model === ACCOUNT_MODEL ? openRow(withJoins, vault) : withJoins;
     });
-  }) as AuthAdapter["findMany"];
+  };
 
-  // SAFETY: same seal/open forwarding as create.
-  const update = (async (data: Parameters<AuthAdapter["update"]>[0]) => {
-    if (data.model !== ACCOUNT_MODEL) return base.update(data);
+  const update = async <T>(data: Parameters<AuthAdapter["update"]>[0]): Promise<T | null> => {
+    if (data.model !== ACCOUNT_MODEL) return base.update<T>(data);
     rejectSealedWhere(data.where);
-    const result = await base.update({ ...data, update: sealWrite(data.update, vault) });
+    const result = await base.update<T>({ ...data, update: sealWrite(data.update, vault) });
 
     return openRow(result, vault);
-  }) as AuthAdapter["update"];
+  };
 
   const updateMany: AuthAdapter["updateMany"] = async (data) => {
     if (data.model !== ACCOUNT_MODEL) return base.updateMany(data);
@@ -185,32 +179,34 @@ function decorateOperations(base: WithoutTransaction, vault: CredentialVault): W
     return base.updateMany({ ...data, update: sealWrite(data.update, vault) });
   };
 
-  // SAFETY: returns the deleted row, so it opens like a read.
-  const consumeOne = (async (data: Parameters<AuthAdapter["consumeOne"]>[0]) => {
-    if (data.model !== ACCOUNT_MODEL) return base.consumeOne(data);
+  const consumeOne = async <T>(
+    data: Parameters<AuthAdapter["consumeOne"]>[0],
+  ): Promise<T | null> => {
+    if (data.model !== ACCOUNT_MODEL) return base.consumeOne<T>(data);
     rejectSealedWhere(data.where);
-    const result = await base.consumeOne(data);
+    const result = await base.consumeOne<T>(data);
 
     return openRow(result, vault);
-  }) as AuthAdapter["consumeOne"];
+  };
 
   // `set` can write token fields, so seal it. Incrementing a sealed field makes no sense: refuse it.
-  // SAFETY: seals `set` on the way in, opens the row on the way out.
-  const incrementOne = (async (data: Parameters<AuthAdapter["incrementOne"]>[0]) => {
-    if (data.model !== ACCOUNT_MODEL) return base.incrementOne(data);
+  const incrementOne = async <T>(
+    data: Parameters<AuthAdapter["incrementOne"]>[0],
+  ): Promise<T | null> => {
+    if (data.model !== ACCOUNT_MODEL) return base.incrementOne<T>(data);
     rejectSealedWhere(data.where);
 
     for (const field of Object.keys(data.increment)) {
       if (isSealedField(field)) throw new CredentialVaultError("malformed_envelope");
     }
 
-    const result = await base.incrementOne({
+    const result = await base.incrementOne<T>({
       ...data,
       ...(data.set ? { set: sealWrite(data.set, vault) } : {}),
     });
 
     return openRow(result, vault);
-  }) as AuthAdapter["incrementOne"];
+  };
 
   // These take no token values, but a sealed `where` would silently answer 0 rows.
   const count: AuthAdapter["count"] = async (data) => {

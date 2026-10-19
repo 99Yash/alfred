@@ -59,6 +59,7 @@ export {
   extractMessageContent,
   extractMessageHtml,
   isHistoryGoneError,
+  parseStoredGmailMessage,
 } from "./gmail";
 
 export { gmailMailbox, type GmailMailbox } from "./mailbox";

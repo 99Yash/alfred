@@ -8,6 +8,7 @@ import { enumGuard } from "./guards";
 import type { CatalogSlug } from "./integrations";
 import { LOOP_ENTITY_PROVIDERS } from "./loop-key";
 import { OBJECT_STATE_CATEGORIES } from "./integration-objects";
+import { typedKeys } from "./records";
 import { TOOL_RISK_TIERS } from "./tools";
 import { jsonObjectSchema, jsonValueSchema } from "./user-model";
 
@@ -332,8 +333,7 @@ export type BuiltInMCPProvider = keyof typeof BUILT_IN_MCP_CATALOG;
 
 /** In catalog order, which is also the page order. */
 export const BUILT_IN_MCP_PROVIDERS: readonly BuiltInMCPProvider[] =
-  // SAFETY: the keys of this literal are exactly `BuiltInMCPProvider`.
-  Object.keys(BUILT_IN_MCP_CATALOG) as BuiltInMCPProvider[];
+  typedKeys(BUILT_IN_MCP_CATALOG);
 
 export const isBuiltInMCPProvider = enumGuard(BUILT_IN_MCP_PROVIDERS);
 

@@ -509,6 +509,28 @@ export const RULES = [
     fix: "Build the guard once with enumGuard(TUPLE) from @alfred/contracts — it narrows `unknown` to `typeof TUPLE[number]` with no cast and no SAFETY comment. The tuple stays the single source of truth; a per-site `(TUPLE as readonly string[]).includes(value)` is a fourth spelling of it.",
   },
   {
+    id: "object-keys-cast",
+    // `Object.keys(TABLE) as K[]`, `Object.entries(TABLE) as [K, V][]`, and
+    // `Object.fromEntries(keys.map(…)) as Record<K, V>`: each widens a key to
+    // `string` and then asserts it back, one SAFETY comment per site.
+    // `packages/contracts/src/records.ts` owns the one assertion of each kind.
+    //
+    // `hint`, not `gate`: the `typescript/no-unsafe-type-assertion` campaign
+    // still has these casts in packages it has not reached. Promote to `gate`
+    // when that rule is on, or delete the row then, since the lint rule
+    // reports the same casts with type information.
+    //
+    // `scope: "chain"`: a formatter splits a long `fromEntries(…)` from its
+    // `as` across lines. The argument admits balanced parentheses two levels
+    // deep and never a `;`, so the `as` must follow the call's own closing
+    // parenthesis and cannot come from a later statement.
+    re: /\bObject\.(?:keys|entries|fromEntries)\((?:[^;()]|\((?:[^;()]|\([^;()]*\))*\))*\)\s*as\s+(?!const\b)/,
+    scope: "chain",
+    severity: "hint",
+    owners: ["packages/contracts/src/records.ts"],
+    fix: 'Over a closed const table, use typedKeys(TABLE) / typedEntries(TABLE) from @alfred/contracts. To build a record over a key tuple, use recordFromKeys(KEYS, (key) => value); to project one field of each entry, use pluckField(TABLE, "field"). To close a record that a loop filled, declare it Partial<Record<K, V>> and check it with hasEveryKey(record, KEYS). For keys of a value that came from outside, narrow each key with a guard instead.',
+  },
+  {
     id: "raw-json-parse",
     re: /\bJSON\.parse\(/,
     severity: "hint",

@@ -1,5 +1,6 @@
 import {
   GOOGLE_FEATURE_SCOPES,
+  GOOGLE_FEATURES,
   isRecord,
   parseOAuthScopeList,
   toMessage,
@@ -25,16 +26,12 @@ const TOKEN_BASE = "https://oauth2.googleapis.com/token";
 /** Always requested: `sub` and `email` key the credential rows. */
 const IDENTITY_SCOPES = ["openid", "https://www.googleapis.com/auth/userinfo.email"] as const;
 
-const ALL_FEATURES =
-  // SAFETY: GoogleFeature is `keyof typeof GOOGLE_FEATURE_SCOPES`.
-  Object.keys(GOOGLE_FEATURE_SCOPES) as GoogleFeature[];
-
 /**
  * Identity scopes plus the scopes of each feature. `undefined` means every feature.
  * An empty array means identity only, so a malformed `?features=,` does not widen the grant.
  */
 export function scopesForFeatures(features?: readonly GoogleFeature[]): string[] {
-  const wanted = features ?? ALL_FEATURES;
+  const wanted = features ?? GOOGLE_FEATURES;
   const set = new Set<string>(IDENTITY_SCOPES);
 
   for (const f of wanted) {

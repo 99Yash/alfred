@@ -837,6 +837,36 @@ switch (resultCategory) {
     code: `  const windowValues = CALENDAR_WINDOW_VALUES as readonly string[];`,
   },
   {
+    // `object-keys-cast` points a key cast at the typed helpers in
+    // packages/contracts/src/records.ts. `lanes: "all"` because the row is a hint.
+    name: "object-keys-cast — Object.keys of a const table asserted to its key union",
+    rule: "object-keys-cast",
+    lanes: "all",
+    caught: true,
+    code: `  for (const key of Object.keys(providerRegistry) as (keyof ProviderRegistry)[]) {`,
+  },
+  {
+    name: "object-keys-cast — a formatter-split fromEntries keeps its cast in reach (why the rule is chain scope)",
+    rule: "object-keys-cast",
+    lanes: "all",
+    caught: true,
+    code: `  Object.fromEntries(
+    SUPPORTED_PASSTHROUGH_SLUGS.map((slug) => [slug, passthroughPreferenceKey(slug)]),
+  ) as Record<SupportedPassthroughSlug, string>;`,
+  },
+  {
+    name: "object-keys-cast — Object.keys with no cast reads string keys, which is honest",
+    lanes: "all",
+    caught: false,
+    code: `    for (const field of Object.keys(data.increment)) {`,
+  },
+  {
+    name: "object-keys-cast — the helper call is the intended form",
+    lanes: "all",
+    caught: false,
+    code: `export const INTEGRATION_SLUGS: readonly IntegrationSlug[] = typedKeys(INTEGRATIONS);`,
+  },
+  {
     // `raw-gmail-token-call` fences the token-taking Gmail calls inside the
     // integrations package. The namespace and dynamic spellings name no call,
     // so they reached every one of them before the specifier branch existed.

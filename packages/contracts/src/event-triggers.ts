@@ -7,6 +7,7 @@ import {
   type CredentialSpec,
   type LiveProviderSlug,
 } from "./integrations";
+import { pluckField, typedKeys } from "./records";
 import { humanizeSlug, integrationDisplayName } from "./tools";
 
 /**
@@ -120,9 +121,7 @@ export type EventSource = keyof typeof EVENT_SOURCE_ENTRIES;
 export type EventSourceEntryOf<S extends EventSource> = (typeof EVENT_SOURCE_ENTRIES)[S];
 
 /** In record order. */
-export const EVENT_SOURCES: readonly EventSource[] =
-  // SAFETY: the keys of a non-indexed literal are exactly `keyof typeof EVENT_SOURCE_ENTRIES`.
-  Object.keys(EVENT_SOURCE_ENTRIES) as EventSource[];
+export const EVENT_SOURCES: readonly EventSource[] = typedKeys(EVENT_SOURCE_ENTRIES);
 
 export const isEventSource = enumGuard(EVENT_SOURCES);
 
@@ -152,11 +151,7 @@ export type EventType = {
 
 export const EVENT_TYPES_BY_SOURCE: {
   readonly [S in EventSource]: EventSourceEntryOf<S>["eventTypes"];
-} =
-  // SAFETY: built from EVENT_SOURCES, so each key maps to its own `eventTypes` tuple.
-  Object.fromEntries(
-    EVENT_SOURCES.map((source) => [source, EVENT_SOURCE_ENTRIES[source].eventTypes]),
-  ) as { [S in EventSource]: EventSourceEntryOf<S>["eventTypes"] };
+} = pluckField(EVENT_SOURCE_ENTRIES, "eventTypes");
 
 export const EVENT_TYPES = Object.freeze([
   ...new Set(EVENT_SOURCES.flatMap((source) => EVENT_SOURCE_ENTRIES[source].eventTypes)),

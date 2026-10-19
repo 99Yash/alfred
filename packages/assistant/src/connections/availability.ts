@@ -9,7 +9,7 @@ import {
   LIVE_PROVIDER_SLUGS,
   LIVE_PROVIDERS,
   PASSTHROUGH_PREFERENCE_KEYS,
-  projectSlugs,
+  recordFromKeys,
   selectGithubAccountRow,
   toStringArray,
   type CredentialProvider,
@@ -97,7 +97,7 @@ export async function readIntegrationStatus(userId: string): Promise<Integration
   const rowsOf = (provider: CredentialProvider): readonly AvailabilityRow[] =>
     byProvider.get(provider) ?? [];
 
-  const integrations = projectSlugs(LIVE_PROVIDER_SLUGS, (slug): IntegrationConnection => {
+  const integrations = recordFromKeys(LIVE_PROVIDER_SLUGS, (slug): IntegrationConnection => {
     const spec = INTEGRATIONS[slug].credential;
     const rows = rowsOf(credentialProviderOf(slug));
 

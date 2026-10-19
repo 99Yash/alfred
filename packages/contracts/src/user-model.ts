@@ -8,6 +8,7 @@
 import { z } from "zod";
 import { HOSTNAME } from "./hostname";
 import { classifyConnectedAccount, domainClassSchema } from "./identity-affiliation";
+import { pluckField, typedKeys } from "./records";
 import { STANDING_INSTRUCTION_KEY } from "./standing-instructions";
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -53,28 +54,18 @@ export const OBSERVATION_REDUCERS = {
 
 export type ObservationSource = keyof typeof OBSERVATION_REDUCERS;
 
-export const OBSERVATION_SOURCES: readonly ObservationSource[] =
-  // SAFETY: a non-indexed literal's keys are exactly its `keyof`.
-  Object.keys(OBSERVATION_REDUCERS) as ObservationSource[];
+export const OBSERVATION_SOURCES: readonly ObservationSource[] = typedKeys(OBSERVATION_REDUCERS);
 
 export const observationSourceSchema = z.enum(OBSERVATION_SOURCES);
 
 export const OBSERVATION_SOURCE_RANK: {
   readonly [S in ObservationSource]: (typeof OBSERVATION_REDUCERS)[S]["rank"];
-} =
-  // SAFETY: the pairs come from `OBSERVATION_SOURCES`, each with its own reducer's rank.
-  Object.fromEntries(
-    OBSERVATION_SOURCES.map((source) => [source, OBSERVATION_REDUCERS[source].rank]),
-  ) as { readonly [S in ObservationSource]: (typeof OBSERVATION_REDUCERS)[S]["rank"] };
+} = pluckField(OBSERVATION_REDUCERS, "rank");
 
 /** A kind is legal only for the source whose reducer emits it (D1/D15). */
 export const OBSERVATION_KINDS_BY_SOURCE: {
   readonly [S in ObservationSource]: (typeof OBSERVATION_REDUCERS)[S]["kinds"];
-} =
-  // SAFETY: same shape argument as `OBSERVATION_SOURCE_RANK` above.
-  Object.fromEntries(
-    OBSERVATION_SOURCES.map((source) => [source, OBSERVATION_REDUCERS[source].kinds]),
-  ) as { readonly [S in ObservationSource]: (typeof OBSERVATION_REDUCERS)[S]["kinds"] };
+} = pluckField(OBSERVATION_REDUCERS, "kinds");
 
 export type ObservationKind = (typeof OBSERVATION_REDUCERS)[ObservationSource]["kinds"][number];
 
@@ -996,9 +987,7 @@ export function isFactKey(key: string): key is FactKey {
   return Object.prototype.hasOwnProperty.call(FACT_ONTOLOGY, key);
 }
 
-export const CANONICAL_FACT_KEYS =
-  // SAFETY: `Object.keys` of the registry is exactly `keyof typeof FACT_ONTOLOGY`.
-  Object.keys(FACT_ONTOLOGY) as readonly FactKey[];
+export const CANONICAL_FACT_KEYS: readonly FactKey[] = typedKeys(FACT_ONTOLOGY);
 
 /** `relationship:<email>` keys the user's relation to a person. */
 export const RELATIONSHIP_FACT_PREFIX = "relationship:";

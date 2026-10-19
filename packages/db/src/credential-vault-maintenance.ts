@@ -71,6 +71,8 @@ function sealPending<Field extends string>(
 function asUnbranded<Field extends string>(
   pending: Partial<Record<Field, SealedCredentialSecret>>,
 ): Partial<Record<Field, string>> {
+  // SAFETY: the one private unwrap for Better Auth's `string` columns. Each value is a sealed
+  // envelope, which is a string at runtime; only its type is a symbol.
   // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: SealedCredentialSecret is a branded symbol at the type level but a plain string at runtime; the brand prevents implicit provider use
   return pending as unknown as Partial<Record<Field, string>>;
 }

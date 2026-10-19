@@ -2,6 +2,7 @@ import type { AgentTranscriptMessage } from "@alfred/contracts";
 import {
   TERMINAL_RUN_STATUSES,
   agentRunTriggerSchema,
+  enumGuard,
   type AgentRunTrigger,
   type EventSource,
   type EventType,
@@ -58,6 +59,8 @@ export const AGENT_RUN_UNIQUE_INDEXES = [
 
 export type AgentRunUniqueIndex = (typeof AGENT_RUN_UNIQUE_INDEXES)[number];
 
+const isAgentRunUniqueIndex = enumGuard(AGENT_RUN_UNIQUE_INDEXES);
+
 /**
  * What a 23505 on each index means to the losing writer.
  * `duplicate`: the key names the request, so drop the loser silently.
@@ -75,10 +78,7 @@ const AGENT_RUN_UNIQUE_INDEX_MEANING = {
 /** True when this 23505 constraint means "a run already exists, drop the loser". */
 export function isDuplicateRunIndex(constraint: string | null): constraint is AgentRunUniqueIndex {
   return (
-    constraint !== null &&
-    constraint in AGENT_RUN_UNIQUE_INDEX_MEANING &&
-    // SAFETY: the `in` check above proves constraint is a key of the record.
-    AGENT_RUN_UNIQUE_INDEX_MEANING[constraint as AgentRunUniqueIndex] === "duplicate"
+    isAgentRunUniqueIndex(constraint) && AGENT_RUN_UNIQUE_INDEX_MEANING[constraint] === "duplicate"
   );
 }
 

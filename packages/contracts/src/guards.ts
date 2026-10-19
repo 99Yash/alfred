@@ -128,8 +128,9 @@ export function withDefaults<T extends object>(
 
   if (!overrides) return merged;
 
-  // SAFETY: the parameter type pins every present key to keyof T.
-  for (const key of Object.keys(overrides) as (keyof T)[]) {
+  for (const key in overrides) {
+    // `for…in` also walks inherited keys; `Object.keys` read own keys only.
+    if (!Object.hasOwn(overrides, key)) continue;
     const value = overrides[key];
 
     if (value !== undefined) merged[key] = value;

@@ -319,12 +319,22 @@ function gatewayTokenFromEnv(): string | undefined {
   return undefined;
 }
 
+// An alias, not `keyof ServerEnv` inline: the mapped type below must not copy the `?` of an
+// optional variable, or a read of its field would add `undefined`.
+type ServerEnvKey = keyof ServerEnv;
+
+/**
+ * Each field's schema, typed by the output it parses to. The annotation checks every field
+ * against `ServerEnv` once, so a generic `key` below reads `ServerEnv[K]` without an assertion.
+ */
+const SERVER_ENV_FIELDS: { readonly [K in ServerEnvKey]: z.ZodType<ServerEnv[K]> } =
+  serverEnvSchema.shape;
+
 export function envFieldValue<K extends keyof ServerEnv>(key: K): ServerEnv[K] | undefined {
-  const field = serverEnvSchema.shape[key];
+  const field: z.ZodType<ServerEnv[K]> = SERVER_ENV_FIELDS[key];
   const result = field.safeParse(process.env[key]);
 
-  // SAFETY: `field` is the schema for `key`, so its output is ServerEnv[K].
-  return result.success ? (result.data as ServerEnv[K]) : undefined;
+  return result.success ? result.data : undefined;
 }
 
 /**

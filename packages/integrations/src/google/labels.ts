@@ -2,9 +2,11 @@ import { logger } from "@alfred/logging";
 import {
   getPath,
   getStringPath,
+  hasEveryKey,
   isHttpError,
   toStringArray,
   TRIAGE_CATEGORIES,
+  typedEntries,
   type TriageCategory,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -36,10 +38,9 @@ export function labelNameFor(category: TriageCategory): string {
   return LABEL_NAMES[category];
 }
 
-const NAME_TO_CATEGORY = Object.entries(LABEL_NAMES).reduce<Record<string, TriageCategory>>(
+const NAME_TO_CATEGORY = typedEntries(LABEL_NAMES).reduce<Record<string, TriageCategory>>(
   (acc, [cat, name]) => {
-    // SAFETY: LABEL_NAMES is `satisfies Record<TriageCategory, string>`.
-    acc[name] = cat as TriageCategory;
+    acc[name] = cat;
 
     return acc;
   },
@@ -69,8 +70,7 @@ export async function ensureAlfredLabels(
   const existing = await mailbox.listLabels();
   const existingByName = new Map(existing.map((l) => [l.name, l.id] as const));
 
-  // SAFETY: the loop below fills every TRIAGE_CATEGORIES key before any read.
-  const byCategory = {} as Record<TriageCategory, string>;
+  const byCategory: Partial<Record<TriageCategory, string>> = {};
 
   for (const cat of TRIAGE_CATEGORIES) {
     const name = LABEL_NAMES[cat];
@@ -93,6 +93,11 @@ export async function ensureAlfredLabels(
     }
 
     byCategory[cat] = id;
+  }
+
+  // The loop above sets every category or throws, so this cannot fail.
+  if (!hasEveryKey(byCategory, TRIAGE_CATEGORIES)) {
+    throw new Error("ensureAlfredLabels: a triage category has no label id");
   }
 
   const map: AlfredLabelMap = {
@@ -122,15 +127,15 @@ async function loadCachedLabels(credentialId: string): Promise<AlfredLabelMap | 
 
   const meta: unknown = rows[0]?.metadata;
   // A missing category (added since the cache was written) forces a refresh.
-  // SAFETY: the loop below fills every TRIAGE_CATEGORIES key before any read.
-  const byCategory = {} as Record<TriageCategory, string>;
+  const byCategory: Partial<Record<TriageCategory, string>> = {};
 
   for (const cat of TRIAGE_CATEGORIES) {
     const id = getStringPath(meta, "alfredLabels", "byCategory", cat);
 
-    if (!id) return null;
-    byCategory[cat] = id;
+    if (id) byCategory[cat] = id;
   }
+
+  if (!hasEveryKey(byCategory, TRIAGE_CATEGORIES)) return null;
 
   const allIds = toStringArray(getPath(meta, "alfredLabels", "allIds"));
 
