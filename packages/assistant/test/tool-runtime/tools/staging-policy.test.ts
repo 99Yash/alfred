@@ -45,7 +45,7 @@ function notionTool(args: { staging?: "fast_path"; policyGateWaiver?: string }) 
 }
 
 function joinTool(args: {
-  inputSchema: z.ZodType<any>;
+  inputSchema: z.ZodType;
   action?: "await_sub_agent" | "spawn_sub_agent";
 }) {
   return liveTool({

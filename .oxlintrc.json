@@ -208,6 +208,11 @@
     "typescript/no-unsafe-call": "error",
     "typescript/no-unsafe-member-access": "error",
     "typescript/no-unsafe-assignment": "error",
+    // no-explicit-any closes the declaration half that the family above cannot see: an `any`
+    // that is written but not yet read. Write `unknown` and narrow it, or name the type. For
+    // "any zod schema" write `z.ZodType`, whose output defaults to `unknown`. It applies to
+    // every TypeScript surface, tests included, with no override.
+    "typescript/no-explicit-any": "error",
     // Six of the default `correctness` rules, adopted at zero (TypeScript and JavaScript
     // sources alike), default options: an `await` of a non-thenable, `delete` on an array
     // element, `for…in` over an array, a string passed to `setTimeout` / `new Function`,

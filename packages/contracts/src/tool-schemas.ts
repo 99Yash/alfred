@@ -56,7 +56,7 @@ function modelToolEmail() {
 export const canonicalParamKey = (key: string): string => key.toLowerCase().replace(/[_-]/g, "");
 
 /** Accept `query` for `q` and the reverse: models mix up the two across tools. */
-function withQueryAlias<S extends z.ZodType<any>>(canonical: "q" | "query", schema: S) {
+function withQueryAlias<S extends z.ZodType>(canonical: "q" | "query", schema: S) {
   const alias = canonical === "q" ? "query" : "q";
 
   return z.preprocess((value) => {
@@ -112,7 +112,7 @@ function withKeyAliases<S extends z.ZodObject>(
  * field. Wrapped at the object level, because a field-level preprocess would
  * mark the field required in the JSON schema. Do not use it on a required field.
  */
-function blankFieldToOmitted<S extends z.ZodType<any>>(fields: readonly string[], schema: S) {
+function blankFieldToOmitted<S extends z.ZodType>(fields: readonly string[], schema: S) {
   return z.preprocess((value) => {
     if (!isRecord(value)) return value;
     let next = value;
@@ -134,10 +134,7 @@ function blankFieldToOmitted<S extends z.ZodType<any>>(fields: readonly string[]
  * and a sheets call once failed four times, then claimed success. A string that
  * is not a JSON array is left for strict validation.
  */
-export function coerceJsonArrayFields<S extends z.ZodType<any>>(
-  fields: readonly string[],
-  schema: S,
-) {
+export function coerceJsonArrayFields<S extends z.ZodType>(fields: readonly string[], schema: S) {
   return z.preprocess((value) => {
     if (!isRecord(value)) return value;
     let next = value;
@@ -235,7 +232,7 @@ export const calendarListEventsInput = z.preprocess(promoteWindowSynonym, calend
  */
 const MINUTE_PRECISION_DATETIME_RE = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(Z|[+-]\d{2}:\d{2})$/;
 
-function padDatetimeSeconds<S extends z.ZodType<any>>(fields: readonly string[], schema: S) {
+function padDatetimeSeconds<S extends z.ZodType>(fields: readonly string[], schema: S) {
   return z.preprocess((value) => {
     if (!isRecord(value)) return value;
     let next = value;

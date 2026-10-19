@@ -13,10 +13,7 @@ export interface KeyNormalizationResult {
   renamed: { from: string; to: string }[];
 }
 
-export function normalizeToolInputKeys(
-  input: unknown,
-  schema: z.ZodType<any>,
-): KeyNormalizationResult {
+export function normalizeToolInputKeys(input: unknown, schema: z.ZodType): KeyNormalizationResult {
   if (!isRecord(input)) return { input, renamed: [] };
   const accepted = acceptedParamNames(schema);
 

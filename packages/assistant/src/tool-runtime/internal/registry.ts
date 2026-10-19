@@ -113,7 +113,7 @@ export type ToolExecuteContextFields = Omit<ToolExecuteContext, "integrations" |
 export interface LiveToolArgs<
   I extends IntegrationSlug,
   A extends ActionSlug<I> & string,
-  S extends z.ZodType<any>,
+  S extends z.ZodType,
 > {
   integration: I;
   action: A;
@@ -144,7 +144,7 @@ export interface LiveToolArgs<
    * The narrower schema the model sees, for a field only the runtime writes
    * (`answers` on `system.ask_user`, ADR-0099). Must be a subset of `inputSchema`.
    */
-  modelInputSchema?: z.ZodType<any>;
+  modelInputSchema?: z.ZodType;
   /**
    * A refusal that depends on who calls, which the schema cannot express. Dispatch runs it on
    * parsed input before any staging or execute, and returns a non-null text as `invalid_input`.
@@ -179,9 +179,9 @@ export interface RegisteredTool {
   description: string;
   discovery: ResolvedDiscovery;
   availability?: ToolAvailabilityMetadata | undefined;
-  inputSchema: z.ZodType<any>;
+  inputSchema: z.ZodType;
   /** Falls back to `inputSchema`, so it is always set. */
-  modelInputSchema: z.ZodType<any>;
+  modelInputSchema: z.ZodType;
   /** See {@link LiveToolArgs.refuseInput}. Erased to `unknown` at the registry boundary. */
   refuseInput?: (input: unknown, ctx: ToolExecuteContext) => string | null;
   // oxlint-disable-next-line anti-slop/no-unknown-returns -- the registry erases each tool's `execute` result; it is free-form JSON unless a TOOL_OUTPUT_SCHEMAS entry parses it.
@@ -373,7 +373,7 @@ export function evaluateToolCatalog(
 export function liveTool<
   I extends IntegrationSlug,
   A extends ActionSlug<I> & string,
-  S extends z.ZodType<any>,
+  S extends z.ZodType,
 >(args: LiveToolArgs<I, A, S>): RegisteredTool {
   const name = buildToolName(args.integration, args.action);
 
@@ -619,7 +619,7 @@ function assertModelSchemaIsSubset(tool: RegisteredTool): void {
 }
 
 /** Top-level input property names, or `null` when the schema cannot be read. */
-function topLevelPropertyNames(schema: z.ZodType<any>): string[] | null {
+function topLevelPropertyNames(schema: z.ZodType): string[] | null {
   let json: z.core.JSONSchema.BaseSchema;
 
   try {
