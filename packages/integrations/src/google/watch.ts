@@ -1,10 +1,11 @@
+import { logger } from "@alfred/logging";
 import { db } from "@alfred/db";
 import { integrationCredentials } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getFreshAccessToken } from "./credentials";
 import { gmailMailboxFor, type GmailMailbox } from "./mailbox";
-import { toMessage, withDefaults } from "@alfred/contracts";
+import { withDefaults } from "@alfred/contracts";
 import { gmailMailboxWritesEnabled } from "@alfred/env/server";
 
 /**
@@ -68,7 +69,7 @@ export async function installGmailWatch(
 
   // Non-prod shares the real mailbox; a watch here would fight prod (#278).
   if (!d.mailboxWritesEnabled()) {
-    console.warn(
+    logger.warn(
       `[gmail.watch] install skipped for ${args.credentialId}: mailbox writes disabled (non-prod)`,
     );
 
@@ -129,7 +130,7 @@ export async function uninstallGmailWatch(
       { mailboxWritesEnabled: d.mailboxWritesEnabled, mailbox: d.mailbox },
     );
   } else {
-    console.warn(
+    logger.warn(
       `[gmail.watch] remote uninstall skipped for ${credentialId}: mailbox writes disabled (non-prod)`,
     );
   }
@@ -159,7 +160,7 @@ export async function stopGmailWatchWithAccessToken(
 
   if (!d.mailboxWritesEnabled()) {
     const suffix = args.credentialId ? ` for ${args.credentialId}` : "";
-    console.warn(`[gmail.watch] stopWatch skipped${suffix}: mailbox writes disabled (non-prod)`);
+    logger.warn(`[gmail.watch] stopWatch skipped${suffix}: mailbox writes disabled (non-prod)`);
 
     return;
   }
@@ -169,7 +170,7 @@ export async function stopGmailWatchWithAccessToken(
   } catch (err) {
     // `users.stop` returns 204 even with no channel. Do not block cleanup.
     const suffix = args.credentialId ? ` for ${args.credentialId}` : "";
-    console.warn(`[gmail.watch] stopWatch failed${suffix}:`, toMessage(err));
+    logger.warn({ err }, `[gmail.watch] stopWatch failed${suffix}`);
   }
 }
 

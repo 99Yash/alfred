@@ -1,3 +1,4 @@
+import { logger } from "@alfred/logging";
 import { toMessage } from "@alfred/contracts";
 import { z } from "zod";
 import type { RetryPolicy } from "../shared/retry";
@@ -584,7 +585,7 @@ export async function getAttachment(
   const bytes = dataBase64Url ? Buffer.from(dataBase64Url, "base64") : Buffer.alloc(0);
 
   if (parsed.size !== undefined && parsed.size !== bytes.byteLength) {
-    console.warn(
+    logger.warn(
       `[gmail] attachment size mismatch for message=${args.messageId} ` +
         `attachment=${args.attachmentId}: reported=${parsed.size} decoded=${bytes.byteLength}`,
     );

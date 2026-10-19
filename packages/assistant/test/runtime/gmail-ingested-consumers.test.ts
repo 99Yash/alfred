@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import { logger } from "@alfred/logging";
 import { gmailIngestedTriggerConsumers } from "../../src/runtime/adapters/gmail-ingested-consumers";
 import {
   NoGmailTriageHandlerRegisteredError,
@@ -78,8 +79,8 @@ describe("gmail documents_ingested consumers", () => {
 
   test("a throwing reaction is swallowed by the seam, not the body", async () => {
     // A plain error from a best-effort consumer is swallowed by the seam.
-    const originalWarn = console.warn;
-    console.warn = () => {};
+    const originalWarn = logger.warn;
+    logger.warn = () => {};
 
     const unregisterHandler = registerGmailTriageHandler({
       async postInsert() {
@@ -97,7 +98,7 @@ describe("gmail documents_ingested consumers", () => {
     } finally {
       unregisterConsumers();
       unregisterHandler();
-      console.warn = originalWarn;
+      logger.warn = originalWarn;
     }
   });
 

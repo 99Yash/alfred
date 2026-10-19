@@ -4,7 +4,6 @@ import {
   parseEmailAddress,
   parseGmailDocumentMetadata,
   scoreAttentionForItems,
-  toMessage,
 } from "@alfred/contracts";
 import type {
   AttentionBand,
@@ -20,6 +19,7 @@ import { briefings, documents, emailTriage, type Briefing } from "@alfred/db/sch
 import { and, desc, eq, gt, inArray, isNotNull, sql } from "drizzle-orm";
 import { getSenderSignificanceBatch, senderSuppressions } from "../knowledge";
 import { inZone } from "@alfred/assistant/time";
+import { logger } from "@alfred/logging";
 
 /**
  * Read helpers for the daily briefing.
@@ -336,7 +336,7 @@ export async function scorePriorityEmailDemand(
     );
   } catch (err) {
     // Never fail the briefing over significance.
-    console.warn("[briefing.read] significance unavailable for suppression gate:", toMessage(err));
+    logger.warn({ err }, "[briefing.read] significance unavailable for suppression gate");
   }
 
   const bandFor = (from: string | null): SignificanceBand | null => {

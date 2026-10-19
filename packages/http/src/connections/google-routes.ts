@@ -1,3 +1,4 @@
+import { logger } from "@alfred/logging";
 import {
   ACCOUNT_PERSONAS,
   Errors,
@@ -46,7 +47,7 @@ async function bestEffort(label: string, fn: () => Promise<void>): Promise<void>
   try {
     await fn();
   } catch (err) {
-    console.warn(`[google.callback] ${label}:`, toMessage(err));
+    logger.warn({ err }, `[google.callback] ${label}`);
   }
 }
 

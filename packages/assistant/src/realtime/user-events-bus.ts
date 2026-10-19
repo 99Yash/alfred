@@ -7,7 +7,8 @@ import type IORedis from "ioredis";
 import type { BoundedRedis } from "@alfred/db/redis";
 import type { EventFrame } from "@alfred/contracts/events";
 import { isKnownEventKind } from "@alfred/contracts/events";
-import { isRecord, toMessage } from "@alfred/contracts";
+import { isRecord } from "@alfred/contracts";
+import { logger } from "@alfred/logging";
 
 type FrameListener = (frame: EventFrame) => void;
 
@@ -51,7 +52,7 @@ function ensureSubscribed(userId: string): void {
     },
     (err: unknown) => {
       subscribing.delete(userId);
-      console.warn("[user-events] subscribe failed for user", userId, toMessage(err));
+      logger.warn({ err, userId }, "[user-events] subscribe failed for user");
     },
   );
 }
@@ -108,9 +109,9 @@ export async function initUserEventsBus(): Promise<void> {
       }
     });
 
-    console.info("[user-events] Redis pub/sub bus initialized");
+    logger.info("[user-events] Redis pub/sub bus initialized");
   } catch (err) {
-    console.warn("[user-events] Redis pub/sub bus disabled:", toMessage(err));
+    logger.warn({ err }, "[user-events] Redis pub/sub bus disabled");
     publisher = undefined;
     subscriber = undefined;
   }

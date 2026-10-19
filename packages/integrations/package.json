@@ -21,6 +21,7 @@
     "@alfred/contracts": "workspace:*",
     "@alfred/db": "workspace:*",
     "@alfred/env": "workspace:*",
+    "@alfred/logging": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "jose": "^6.2.2",
     "zod": "catalog:"

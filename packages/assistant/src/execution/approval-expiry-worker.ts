@@ -17,8 +17,8 @@ import {
   approvalExpiryJobDataSchema,
   type ApprovalExpiryJobData,
 } from "@alfred/assistant/tool-runtime";
-import { toMessage } from "@alfred/contracts";
 import { PeriodicTask } from "@alfred/assistant/realtime/periodic-task";
+import { logger } from "@alfred/logging";
 
 /** A lost timer expires at most this late. */
 const RECONCILE_INTERVAL_MS = 5 * 60_000;
@@ -45,7 +45,7 @@ export async function startApprovalExpiryWorker(
     },
   );
   _worker.on("error", (err) => {
-    console.error("[approvals:expiry-worker] error:", err.message);
+    logger.error({ err }, "[approvals:expiry-worker] error");
   });
   reconciler.start();
 }
@@ -100,7 +100,7 @@ async function expireOverdueStagingsOnce(now: Date, signal: AbortSignal): Promis
 
       if (result.kind === "expired") expired += 1;
     } catch (err) {
-      console.warn("[approvals:expiry-reconciler] failed to expire", row.id, toMessage(err));
+      logger.warn({ err, stagingId: row.id }, "[approvals:expiry-reconciler] failed to expire");
     }
   }
 
@@ -116,6 +116,6 @@ const reconciler = new PeriodicTask({
     const expired = await expireOverdueStagingsOnce(new Date(), signal);
 
     // Each one means the delayed job was lost or never scheduled.
-    if (expired > 0) console.warn("[approvals:expiry-reconciler] expired", expired, "overdue");
+    if (expired > 0) logger.warn(`[approvals:expiry-reconciler] expired ${expired} overdue`);
   },
 });

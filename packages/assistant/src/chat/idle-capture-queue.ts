@@ -5,6 +5,7 @@ import { z } from "zod";
 import { createRedisConnection, isQueueEnabled } from "@alfred/db/redis";
 import { startRun } from "@alfred/assistant/execution";
 import { isUniqueViolation } from "@alfred/db/pg-errors";
+import { logger } from "@alfred/logging";
 
 /**
  * Per-thread idle debounce for chat memory capture (#398, D9). Each finished turn
@@ -133,7 +134,7 @@ export async function scheduleThreadIdleExtraction(args: {
 
     return "scheduled";
   } catch (err) {
-    console.warn("[chat-memory] failed to arm idle extraction", args.threadId, toMessage(err));
+    logger.warn({ err, threadId: args.threadId }, "[chat-memory] failed to arm idle extraction");
 
     return "failed";
   }
@@ -153,7 +154,7 @@ export async function startChatMemoryWorker(opts: StartChatMemoryWorkerOpts = {}
     concurrency: opts.concurrency ?? 1,
   });
   _worker.on("error", (err) => {
-    console.error("[chat-memory:worker] error:", err.message);
+    logger.error({ err }, "[chat-memory:worker] error");
   });
 }
 
@@ -195,7 +196,7 @@ async function processChatMemoryJob(job: Job<ChatMemoryJobData>) {
     runId = started.runId;
   } catch (err) {
     if (isUniqueViolation(err)) {
-      console.log(
+      logger.info(
         `[chat-memory:worker] deduplicated chat-memory.extract thread=${data.threadId} captureAfterMessageId=${data.captureAfterMessageId}`,
       );
 
@@ -205,7 +206,7 @@ async function processChatMemoryJob(job: Job<ChatMemoryJobData>) {
     throw err;
   }
 
-  console.log(`[chat-memory:worker] chat-memory.extract thread=${data.threadId} runId=${runId}`);
+  logger.info(`[chat-memory:worker] chat-memory.extract thread=${data.threadId} runId=${runId}`);
 
   return { runId };
 }

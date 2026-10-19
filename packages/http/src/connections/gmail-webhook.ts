@@ -1,5 +1,6 @@
+import { logger } from "@alfred/logging";
 import { createHash } from "node:crypto";
-import { Errors, eventTypeName, getStringPath, parseJsonWith, toMessage } from "@alfred/contracts";
+import { Errors, eventTypeName, getStringPath, parseJsonWith } from "@alfred/contracts";
 import {
   assertGmailPushOidcConfigured,
   findCredentialByEmail,
@@ -185,7 +186,7 @@ export function makeGmailWebhookRoutes(
         await verifyOidc(headers["authorization"] ?? null);
         verificationResult = "oidc_valid";
       } catch (err) {
-        console.warn("[gmail-webhook] OIDC verification failed:", toMessage(err));
+        logger.warn({ err }, "[gmail-webhook] OIDC verification failed");
         // Pub/Sub retries a 401, so a wrong audience retries forever.
         throw Errors.UnauthorizedError("Invalid OIDC token");
       }
@@ -193,7 +194,7 @@ export function makeGmailWebhookRoutes(
       const { messageId, notification } = parseGmailPushEnvelope(body);
 
       if (!notification) {
-        console.warn("[gmail-webhook] could not decode payload; messageId=", messageId);
+        logger.warn({ messageId }, "[gmail-webhook] could not decode payload");
 
         return { ok: true, ignored: "bad-payload" };
       }
@@ -202,7 +203,8 @@ export function makeGmailWebhookRoutes(
 
       if (!cred) {
         // Probably disconnected. A 200 stops the retries.
-        console.warn(
+        logger.warn(
+          { messageId },
           `[gmail-webhook] no credential for ${notification.emailAddress}; messageId=${messageId}`,
         );
 

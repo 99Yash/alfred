@@ -1,4 +1,4 @@
-import { toMessage } from "@alfred/contracts";
+import { logger } from "@alfred/logging";
 import type { DbTransaction } from "@alfred/db";
 import type { IDBKeys, SyncedValueFor, SyncModelFor } from "@alfred/sync";
 import { ZodError } from "zod";
@@ -44,7 +44,7 @@ export function toEntityRow<Slug extends IDBKeys>(args: {
     return [args.make()];
   } catch (err) {
     if (!isRecoverableSerializationError(err)) throw err;
-    console.warn(`[replicache] skipping invalid ${args.slug} row: ${toMessage(err)}`);
+    logger.warn({ err }, `[replicache] skipping invalid ${args.slug} row`);
 
     return [];
   }

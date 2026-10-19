@@ -37,6 +37,7 @@ import {
   validateFactValueForKey,
 } from "./fact-policy";
 import { valueSignature } from "./signature";
+import { logger } from "@alfred/logging";
 
 /** `user_facts.status` values (ADR-0019). The union derives from the tuple. */
 export const FACT_STATUSES = ["proposed", "confirmed", "rejected", "edited", "superseded"] as const;
@@ -155,7 +156,7 @@ export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null
   if (!canon.ok) {
     // Unknown key: reject from documents; keep from trusted sources with a drift trace.
     if (isDocument) return null;
-    console.warn(
+    logger.warn(
       `[memory.facts] fact_key_unknown_non_document: persisting unknown key as-is ` +
         `(source=${parsed.source.kind}, key=${JSON.stringify(parsed.key)})`,
     );

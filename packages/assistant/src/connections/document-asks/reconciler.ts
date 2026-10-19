@@ -5,6 +5,7 @@
  */
 import { PeriodicTask } from "@alfred/assistant/realtime/periodic-task";
 import { reconcileDocumentAskThreadsOnce } from "./reducer";
+import { logger } from "@alfred/logging";
 
 /**
  * A thread is re-run not later than one interval plus the duration of the current pass after its
@@ -21,7 +22,7 @@ const reconciler = new PeriodicTask({
     const tally = await reconcileDocumentAskThreadsOnce(new Date(), signal);
 
     if (tally.resolved > 0 || tally.failed > 0) {
-      console.info(
+      logger.info(
         `[document-ask-reconciler] threads=${tally.threads} resolved=${tally.resolved} ` +
           `deferred=${tally.deferred} failed=${tally.failed}`,
       );
@@ -32,7 +33,7 @@ const reconciler = new PeriodicTask({
 export function startDocumentAskReconciler(): void {
   if (!reconciler.stopped) return;
   reconciler.start();
-  console.info("[document-ask-reconciler] started");
+  logger.info("[document-ask-reconciler] started");
 }
 
 export async function stopDocumentAskReconciler(): Promise<void> {

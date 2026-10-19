@@ -7,7 +7,7 @@ import { settings } from "@alfred/assistant/settings";
 import { inZone } from "@alfred/assistant/time";
 import { resolveBriefingPreferences } from "./preferences";
 import { DAILY_BRIEFING_WORKFLOW_SLUG } from "./workflow-input";
-import { toMessage } from "@alfred/contracts";
+import { logger } from "@alfred/logging";
 
 /**
  * Briefing cron queue (ADR-0025 #2). It only triggers runs; the workflow runs on the agent queue.
@@ -50,7 +50,7 @@ export async function startBriefingWorker(opts: StartBriefingWorkerOpts = {}): P
     concurrency: opts.concurrency ?? 1,
   });
   _worker.on("error", (err) => {
-    console.error("[briefing:worker] error:", err.message);
+    logger.error({ err }, "[briefing:worker] error");
   });
 }
 
@@ -129,7 +129,7 @@ async function handleTick(now: Date = new Date()): Promise<TickResult> {
       skipped += slots.length - matchingSlots.length;
 
       if (matchingSlots.length > 1) {
-        console.warn(
+        logger.warn(
           `[briefing:worker] user=${u.id} local hour=${localHour} matches ${matchingSlots
             .map((s) => s.slot)
             .join("+")}; enqueuing ${matchingSlots.length} briefing slots`,
@@ -149,11 +149,11 @@ async function handleTick(now: Date = new Date()): Promise<TickResult> {
     } catch (err) {
       // One user's failure must not stop the tick.
       skipped++;
-      console.warn(`[briefing:worker] tick failed for user=${u.id}:`, toMessage(err));
+      logger.warn({ err }, `[briefing:worker] tick failed for user=${u.id}`);
     }
   }
 
-  console.log(
+  logger.info(
     `[briefing:worker] tick scanned=${users.length} enqueued=${enqueued} skipped=${skipped}`,
   );
 

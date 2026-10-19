@@ -1,8 +1,8 @@
+import { logger } from "@alfred/logging";
 import {
   getPath,
   getStringPath,
   isHttpError,
-  toMessage,
   toStringArray,
   TRIAGE_CATEGORIES,
   type TriageCategory,
@@ -245,10 +245,10 @@ export async function applyTriageLabel(
       strippedSiblings.push(sibling);
     } catch (err) {
       // A deleted sibling must not block the new message's label.
-      console.warn(
+      logger.warn(
+        { err },
         `[triage:applyTriageLabel] failed to strip sibling label ` +
-          `messageId=${sibling.messageId} labelId=${sibling.labelId}: ` +
-          toMessage(err),
+          `messageId=${sibling.messageId} labelId=${sibling.labelId}`,
       );
     }
   }

@@ -1,4 +1,4 @@
-import { Errors, isApiError, isPdfContentType, toMessage } from "@alfred/contracts";
+import { Errors, isApiError, isPdfContentType } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { chatAttachments } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
@@ -26,6 +26,7 @@ import {
   assertAttachmentUploadRateAllowed,
   releasePendingUploadBudget,
 } from "./attachment-upload-quota";
+import { logger } from "@alfred/logging";
 
 /** Chat upload ingest (ADR-0065): quota, duplicate check, decode, bucket write, and owner-scoped read. */
 
@@ -40,7 +41,7 @@ export async function extractChatPdfText(bytes: Uint8Array): Promise<string | nu
   try {
     result = await media.extract({ mime: "application/pdf", bytes });
   } catch (err) {
-    console.warn("[chat] PDF extraction failed:", toMessage(err));
+    logger.warn({ err }, "[chat] PDF extraction failed");
     throw Errors.BadGatewayError("Couldn't read the PDF. Try again.");
   }
 
@@ -90,7 +91,7 @@ async function readPdfDegradedArtifact(storageKey: string): Promise<PdfDegradedA
   try {
     value = JSON.parse(new TextDecoder().decode(bytes));
   } catch (err) {
-    console.warn("[chat] stored PDF artifact JSON is invalid:", toMessage(err));
+    logger.warn({ err }, "[chat] stored PDF artifact JSON is invalid");
 
     return null;
   }
@@ -98,7 +99,7 @@ async function readPdfDegradedArtifact(storageKey: string): Promise<PdfDegradedA
   const parsed = pdfDegradedArtifactSchema.safeParse(value);
 
   if (!parsed.success) {
-    console.warn("[chat] stored PDF artifact shape is invalid");
+    logger.warn("[chat] stored PDF artifact shape is invalid");
 
     return null;
   }
@@ -132,7 +133,7 @@ export async function resolveAttachmentDegradation(opts: {
     return { kind: "pdf", text: await ensurePdfDegradedArtifact(opts.storageKey) };
   } catch (err) {
     if (isApiError(err, "BAD_REQUEST")) throw err;
-    console.warn("[chat] PDF artifact read failed:", toMessage(err));
+    logger.warn({ err }, "[chat] PDF artifact read failed");
     throw Errors.BadGatewayError("Couldn't read the uploaded PDF. Try again.");
   }
 }
@@ -157,7 +158,7 @@ export async function schedulePendingUploadCleanup(
   try {
     await enqueuePendingUploadCleanup(userId, storageKey);
   } catch (err) {
-    console.warn("[chat] pending upload cleanup enqueue failed:", toMessage(err));
+    logger.warn({ err }, "[chat] pending upload cleanup enqueue failed");
   }
 }
 
@@ -255,7 +256,7 @@ export async function uploadChatAttachment(
 
     if (isApiError(err, "BAD_REQUEST", "CONFLICT", "TOO_MANY_REQUESTS", "SERVICE_UNAVAILABLE"))
       throw err;
-    console.error("[chat] proxied upload failed:", toMessage(err));
+    logger.error({ err }, "[chat] proxied upload failed");
     throw Errors.BadGatewayError("Couldn't store the upload. Try again.");
   }
 }

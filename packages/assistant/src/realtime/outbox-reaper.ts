@@ -8,6 +8,7 @@ import { db } from "@alfred/db";
 import { eventsOutbox } from "@alfred/db/schemas";
 import { and, isNotNull, lt, sql } from "drizzle-orm";
 import { PeriodicTask } from "./periodic-task";
+import { logger } from "@alfred/logging";
 
 /**
  * A chosen tradeoff, not a safe bound: the web replay cursor never expires
@@ -96,14 +97,14 @@ const reaper = new PeriodicTask({
   pass: async (signal) => {
     const deleted = await reapOutboxOnce(new Date(), { signal });
 
-    if (deleted > 0) console.info("[outbox-reaper] deleted", deleted, "expired rows");
+    if (deleted > 0) logger.info(`[outbox-reaper] deleted ${deleted} expired rows`);
   },
 });
 
 export function startOutboxReaper(): void {
   if (!reaper.stopped) return;
   reaper.start();
-  console.info("[outbox-reaper] started");
+  logger.info("[outbox-reaper] started");
 }
 
 export async function stopOutboxReaper(): Promise<void> {

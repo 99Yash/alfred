@@ -1,4 +1,5 @@
-import { Errors, isApiError, toMessage } from "@alfred/contracts";
+import { logger } from "@alfred/logging";
+import { Errors, isApiError } from "@alfred/contracts";
 import {
   createRedisConnection,
   incrementExpiringCounter,
@@ -85,7 +86,7 @@ export function publicRateLimit(bucket: string): Elysia {
       // Rethrow our own 429; only a Redis error fails open.
       if (isApiError(err, "TOO_MANY_REQUESTS")) throw err;
 
-      console.warn("[sharing] public rate limit unavailable:", toMessage(err));
+      logger.warn({ err }, "[sharing] public rate limit unavailable");
     }
   });
 }

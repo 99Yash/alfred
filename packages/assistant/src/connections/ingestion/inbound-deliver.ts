@@ -1,13 +1,9 @@
-import {
-  isInboundEventSource,
-  parseEventTypeName,
-  RAW_EVENT_TYPE,
-  toMessage,
-} from "@alfred/contracts";
+import { isInboundEventSource, parseEventTypeName, RAW_EVENT_TYPE } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { eventReceipts, integrationCredentials } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
 import { publishDomainEvent, type DomainEvent } from "@alfred/assistant/triggers";
+import { logger } from "@alfred/logging";
 
 /**
  * The `ingress.deliver` job (ADR-0097): publish one pending receipt as one domain event. The event
@@ -35,7 +31,7 @@ export async function deliverInboundReceipt(receiptId: string): Promise<void> {
     .limit(1);
 
   if (!row) {
-    console.warn(`[ingress] receipt ${receiptId} not found; skipping delivery`);
+    logger.warn(`[ingress] receipt ${receiptId} not found; skipping delivery`);
 
     return;
   }
@@ -68,7 +64,7 @@ export async function deliverInboundReceipt(receiptId: string): Promise<void> {
 
     if (!type) {
       await markProcessed(receiptId, "failed");
-      console.error(`[ingress] receipt ${receiptId} has unknown event type '${receipt.eventType}'`);
+      logger.error(`[ingress] receipt ${receiptId} has unknown event type '${receipt.eventType}'`);
 
       return;
     }
@@ -87,7 +83,7 @@ export async function deliverInboundReceipt(receiptId: string): Promise<void> {
     await publishDomainEvent(event);
   } catch (error) {
     await markProcessed(receiptId, "failed");
-    console.error(`[ingress] delivery of receipt ${receiptId} failed`, toMessage(error));
+    logger.error({ err: error }, `[ingress] delivery of receipt ${receiptId} failed`);
     throw error;
   }
 

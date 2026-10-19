@@ -13,12 +13,13 @@ import type {
   PolicyMode,
   ToolName,
 } from "@alfred/contracts";
-import { integrationFromToolName, toMessage } from "@alfred/contracts";
+import { integrationFromToolName } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { userActionPolicies } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
 import type IORedis from "ioredis";
 import { createRedisConnection, type BoundedRedis } from "@alfred/db/redis";
+import { logger } from "@alfred/logging";
 
 /** Wait before the fallback approval email. Here so `index.ts` can import it without a cycle. */
 export const DEFAULT_APPROVAL_NOTIFY_DELAY_MS = 5 * 60 * 1000;
@@ -158,10 +159,13 @@ export async function publishPolicyBust(userId: string): Promise<void> {
   try {
     await getPublisher().publish(bustChannel(userId), "1");
   } catch (err) {
-    console.error("[action-policies] publishPolicyBust failed", {
-      userId,
-      error: toMessage(err),
-    });
+    logger.error(
+      {
+        userId,
+        err,
+      },
+      "[action-policies] publishPolicyBust failed",
+    );
   }
 }
 
@@ -185,9 +189,12 @@ export async function startPolicyBustSubscriber(): Promise<void> {
     bustPolicyCache(userId);
   });
   conn.on("error", (err) => {
-    console.error("[action-policies] policy-bust subscriber error", {
-      error: toMessage(err),
-    });
+    logger.error(
+      {
+        err,
+      },
+      "[action-policies] policy-bust subscriber error",
+    );
   });
 
   try {
@@ -214,9 +221,12 @@ export async function startPolicyBustSubscriber(): Promise<void> {
   conn.on("ready", () => {
     if (!subscriberStarted) return;
     conn.psubscribe(POLICY_BUST_PATTERN).catch((err: unknown) => {
-      console.error("[action-policies] policy-bust re-subscribe after reconnect failed", {
-        error: toMessage(err),
-      });
+      logger.error(
+        {
+          err,
+        },
+        "[action-policies] policy-bust re-subscribe after reconnect failed",
+      );
     });
   });
 }

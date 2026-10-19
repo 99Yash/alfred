@@ -1,4 +1,4 @@
-import { mapConcurrent, toMessage, withDefaults } from "@alfred/contracts";
+import { mapConcurrent, withDefaults } from "@alfred/contracts";
 import {
   registerGmailTriageHandler,
   type GmailTriageHandler,
@@ -11,6 +11,7 @@ import {
   reconcileThreadLabel,
   type ReconcileResult,
 } from "@alfred/assistant/triage";
+import { logger } from "@alfred/logging";
 
 const RELABEL_ENQUEUE_CONCURRENCY = 10;
 
@@ -53,7 +54,7 @@ export function createGmailTriageHandler(
         });
 
         if (result.docsDeleted > 0 || result.triageRepointed > 0) {
-          console.log(
+          logger.info(
             `[ingestion:worker] gmail.reconcile credential=${request.credentialId} ` +
               `threadsChecked=${result.threadsChecked} reconciled=${result.threadsReconciled} ` +
               `docsDeleted=${result.docsDeleted} triageRepointed=${result.triageRepointed}`,
@@ -67,17 +68,17 @@ export function createGmailTriageHandler(
             try {
               await deps.enqueueRelabel(request.userId, threadId);
             } catch (err) {
-              console.warn(
-                `[ingestion:worker] reconcile relabel enqueue failed thread=${threadId}:`,
-                toMessage(err),
+              logger.warn(
+                { err },
+                `[ingestion:worker] reconcile relabel enqueue failed thread=${threadId}`,
               );
             }
           },
         );
       } catch (err) {
-        console.warn(
-          `[ingestion:worker] reconcileThreads failed credential=${request.credentialId}:`,
-          toMessage(err),
+        logger.warn(
+          { err },
+          `[ingestion:worker] reconcileThreads failed credential=${request.credentialId}`,
         );
       }
 
@@ -92,9 +93,9 @@ export function createGmailTriageHandler(
           })
         ).map(({ threadId, documentId }) => ({ threadId, documentId }));
       } catch (err) {
-        console.warn(
-          `[ingestion:worker] live inbound resolve failed credential=${request.credentialId}:`,
-          toMessage(err),
+        logger.warn(
+          { err },
+          `[ingestion:worker] live inbound resolve failed credential=${request.credentialId}`,
         );
       }
 

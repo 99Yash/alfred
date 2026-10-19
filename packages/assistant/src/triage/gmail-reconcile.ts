@@ -1,10 +1,11 @@
-import { mapConcurrent, toMessage } from "@alfred/contracts";
+import { mapConcurrent } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, emailTriage } from "@alfred/db/schemas";
 import { gmailMailbox } from "@alfred/integrations/google";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { gmailSentSql } from "./sent-mail";
 import { triageThreadLockKey } from "./store";
+import { logger } from "@alfred/logging";
 
 export interface ReconcileGmailThreadsArgs {
   credentialId: string;
@@ -243,7 +244,7 @@ export async function reconcileGmailThreads(
 
       threadsReconciled++;
     } catch (err) {
-      console.warn(`[gmail.reconcile] thread=${threadId} skipped:`, toMessage(err));
+      logger.warn({ err }, `[gmail.reconcile] thread=${threadId} skipped`);
     }
   });
 
@@ -302,7 +303,7 @@ export async function findNewestLiveInboundGmailDocuments(args: {
 
       if (documentId) targets.push({ threadId, documentId });
     } catch (err) {
-      console.warn(`[gmail.live-inbound] thread=${threadId} skipped:`, toMessage(err));
+      logger.warn({ err }, `[gmail.live-inbound] thread=${threadId} skipped`);
     }
   });
 

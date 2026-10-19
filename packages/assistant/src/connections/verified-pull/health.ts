@@ -17,8 +17,6 @@ import {
   MCP_HEALTH_MAPPING_OBJECT_URL_MAX,
   MCP_HEALTH_MAPPING_RESULT_ITEM_MAX,
   MCP_HEALTH_MAPPING_TOKEN_MAX,
-  redactSecrets,
-  toMessage,
   type LoopEntityProvider,
   type LoopEntityRef,
   type McpHealthMappingDefinition,
@@ -44,6 +42,7 @@ import {
 } from "@alfred/assistant/connections";
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { z } from "zod";
+import { logger } from "@alfred/logging";
 
 /** Subject and from are untrusted text. */
 export interface ApprovedMcpHealthLoop {
@@ -423,8 +422,9 @@ async function verifyLoop(args: {
       url: match.item.url,
     });
   } catch (error) {
-    console.warn(
-      `[mcp.health] object-state fold failed connection=${match.connectionId} :: ${redactSecrets(toMessage(error))}`,
+    logger.warn(
+      { err: error },
+      `[mcp.health] object-state fold failed connection=${match.connectionId}`,
     );
     state = null;
   }
@@ -467,7 +467,7 @@ export async function verifyApprovedMcpHealth(
   try {
     mappings = await listCurrentMappings(args.userId);
   } catch (error) {
-    console.warn(`[mcp.health] mapping read failed :: ${redactSecrets(toMessage(error))}`);
+    logger.warn({ err: error }, "[mcp.health] mapping read failed");
     mappings = [];
   }
 
@@ -476,8 +476,9 @@ export async function verifyApprovedMcpHealth(
       try {
         return await readMapping(args.userId, mapping, dependencies);
       } catch (error) {
-        console.warn(
-          `[mcp.health] mapped read failed connection=${mapping.connectionId} :: ${redactSecrets(toMessage(error))}`,
+        logger.warn(
+          { err: error },
+          `[mcp.health] mapped read failed connection=${mapping.connectionId}`,
         );
 
         return null;

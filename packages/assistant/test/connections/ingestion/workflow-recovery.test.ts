@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import { logger } from "@alfred/logging";
+import { getPath } from "@alfred/contracts";
 
 import {
   registerWorkflowRecoveryHandler,
@@ -109,8 +111,8 @@ describe("integration workflow recovery", () => {
 
   test("maps a thrown recovery failure to the generic failure redirect", async () => {
     const warnings: unknown[][] = [];
-    const originalWarn = console.warn;
-    console.warn = (...args: unknown[]) => {
+    const originalWarn = logger.warn;
+    logger.warn = (...args: unknown[]) => {
       warnings.push(args);
     };
 
@@ -123,11 +125,13 @@ describe("integration workflow recovery", () => {
         await resolveWorkflowRecoveryTarget(request),
         "/workflows?workflow_recovery=failed",
       );
-      assert.match(String(warnings[0]?.[0]), /failed to recover workflow workflow\/1/);
-      assert.equal(warnings[0]?.[1], "recovery unavailable");
+      assert.match(String(warnings[0]?.[1]), /failed to recover workflow workflow\/1/);
+      const err = getPath(warnings[0]?.[0], "err");
+      assert.ok(err instanceof Error);
+      assert.equal(err.message, "recovery unavailable");
     } finally {
       unregister();
-      console.warn = originalWarn;
+      logger.warn = originalWarn;
     }
   });
 });

@@ -13,6 +13,7 @@ import { documents, eventReceipts } from "@alfred/db/schemas";
 import { and, asc, eq, exists, isNotNull, lt, sql } from "drizzle-orm";
 import { PeriodicTask } from "@alfred/assistant/realtime/periodic-task";
 import { receiptDocumentJoin } from "./receipt-document";
+import { logger } from "@alfred/logging";
 
 /**
  * How long a receipt keeps its body. A chosen tradeoff: debug visibility and object-state rebuild
@@ -141,14 +142,14 @@ const reaper = new PeriodicTask({
   pass: async (signal) => {
     const released = await releaseExpiredReceiptPayloadsOnce(new Date(), { signal });
 
-    if (released > 0) console.info("[receipt-payload-reaper] released", released, "expired bodies");
+    if (released > 0) logger.info(`[receipt-payload-reaper] released ${released} expired bodies`);
   },
 });
 
 export function startReceiptPayloadReaper(): void {
   if (!reaper.stopped) return;
   reaper.start();
-  console.info("[receipt-payload-reaper] started");
+  logger.info("[receipt-payload-reaper] started");
 }
 
 export async function stopReceiptPayloadReaper(): Promise<void> {

@@ -1,4 +1,4 @@
-import { mapConcurrent, runTaskGroup, toMessage } from "@alfred/contracts";
+import { mapConcurrent, runTaskGroup } from "@alfred/contracts";
 import { indexDocument } from "@alfred/corpus";
 import { db } from "@alfred/db";
 import { documents, emailTriage } from "@alfred/db/schemas";
@@ -18,6 +18,7 @@ import {
   runGmailPostInsertTriage,
   type GmailPostInsertTriageResult,
 } from "@alfred/assistant/connections/ingestion";
+import { logger } from "@alfred/logging";
 
 /**
  * Consumers of the `gmail.documents_ingested` fact (ADR-0089). The producer
@@ -129,9 +130,9 @@ async function emitGmailMessageEvents(
   try {
     accountByDocumentId = await gmailAccountRefsForDocuments(userId, documentIds);
   } catch (err) {
-    console.warn(
-      `[ingestion:consumer] failed to resolve Gmail event accounts user=${userId}:`,
-      toMessage(err),
+    logger.warn(
+      { err },
+      `[ingestion:consumer] failed to resolve Gmail event accounts user=${userId}`,
     );
 
     return;
@@ -150,9 +151,9 @@ async function emitGmailMessageEvents(
       });
     } catch (err) {
       if (err instanceof TriggerConsumerBootError) throw err;
-      console.warn(
-        `[ingestion:consumer] failed to emit gmail.message_received for doc=${documentId}:`,
-        toMessage(err),
+      logger.warn(
+        { err },
+        `[ingestion:consumer] failed to emit gmail.message_received for doc=${documentId}`,
       );
     }
   });
@@ -187,7 +188,7 @@ async function runGmailRepairSideEffects(
   );
 
   if (plan.skippedReplyReevalSentDocs > 0) {
-    console.warn(
+    logger.warn(
       `[ingestion:consumer] reply re-eval skipped sentDocs=${plan.skippedReplyReevalSentDocs} ` +
         `credential=${credentialId}`,
     );
@@ -196,7 +197,7 @@ async function runGmailRepairSideEffects(
   const skippedReplyReevalThreads = allReplyReevalRequests.length - replyReevalRequests.length;
 
   if (skippedReplyReevalThreads > 0) {
-    console.warn(
+    logger.warn(
       `[ingestion:consumer] reply re-eval skipped threads=${skippedReplyReevalThreads} ` +
         `credential=${credentialId}`,
     );
@@ -289,10 +290,7 @@ async function resolveReplyReevalRequests(
           b.eventId.localeCompare(a.eventId),
       );
   } catch (err) {
-    console.warn(
-      `[ingestion:consumer] resolveReplyReevalRequests failed user=${userId}:`,
-      toMessage(err),
-    );
+    logger.warn({ err }, `[ingestion:consumer] resolveReplyReevalRequests failed user=${userId}`);
 
     return [];
   }
@@ -326,19 +324,13 @@ async function reEvaluateRepliedThreads(
           });
         } catch (err) {
           if (err instanceof TriggerConsumerBootError) throw err;
-          console.warn(
-            `[ingestion:consumer] reply re-eval failed thread=${threadId}:`,
-            toMessage(err),
-          );
+          logger.warn({ err }, `[ingestion:consumer] reply re-eval failed thread=${threadId}`);
         }
       },
     );
   } catch (err) {
     if (err instanceof TriggerConsumerBootError) throw err;
-    console.warn(
-      `[ingestion:consumer] reEvaluateRepliedThreads failed user=${userId}:`,
-      toMessage(err),
-    );
+    logger.warn({ err }, `[ingestion:consumer] reEvaluateRepliedThreads failed user=${userId}`);
   }
 }
 
@@ -403,10 +395,7 @@ async function embedDocuments(documentIds: readonly string[]): Promise<void> {
     try {
       await indexDocument({ documentId });
     } catch (err) {
-      console.warn(
-        `[ingestion:consumer] gmail embed failed for doc=${documentId}:`,
-        toMessage(err),
-      );
+      logger.warn({ err }, `[ingestion:consumer] gmail embed failed for doc=${documentId}`);
     }
   });
 }

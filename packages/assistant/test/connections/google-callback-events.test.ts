@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { logger } from "@alfred/logging";
+import { getPath } from "@alfred/contracts";
 
 import { publishGoogleCallbackCompleted } from "../../src/connections/google-callback-events";
 
@@ -24,8 +26,8 @@ test("publishes the completed Google callback through the domain event interface
 
 test("keeps event publication failures best-effort at the OAuth callback boundary", async () => {
   const warnings: unknown[][] = [];
-  const originalWarn = console.warn;
-  console.warn = (...args: unknown[]) => {
+  const originalWarn = logger.warn;
+  logger.warn = (...args: unknown[]) => {
     warnings.push(args);
   };
 
@@ -33,9 +35,11 @@ test("keeps event publication failures best-effort at the OAuth callback boundar
     await publishGoogleCallbackCompleted("user-1", "credential-1", async () => {
       throw new Error("triggers unavailable");
     });
-    assert.match(String(warnings[0]?.[0]), /failed to publish completed event for user-1/);
-    assert.equal(warnings[0]?.[1], "triggers unavailable");
+    assert.match(String(warnings[0]?.[1]), /failed to publish completed event for user-1/);
+    const err = getPath(warnings[0]?.[0], "err");
+    assert.ok(err instanceof Error);
+    assert.equal(err.message, "triggers unavailable");
   } finally {
-    console.warn = originalWarn;
+    logger.warn = originalWarn;
   }
 });

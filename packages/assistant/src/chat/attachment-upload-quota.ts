@@ -3,9 +3,9 @@ import {
   isApiError,
   MAX_ATTACHMENT_BYTES_PER_MESSAGE,
   MAX_ATTACHMENTS_PER_MESSAGE,
-  toMessage,
 } from "@alfred/contracts";
 import { createRedisConnection, type BoundedRedis } from "@alfred/db/redis";
+import { logger } from "@alfred/logging";
 
 /**
  * Upload quota counters, in Redis so they hold across API processes.
@@ -53,7 +53,7 @@ export async function releasePendingUploadBudget(userId: string, amount: number)
 
     if (value <= 0) await redis.del(key);
   } catch (err) {
-    console.warn("[chat] pending attachment quota release failed:", toMessage(err));
+    logger.warn({ err }, "[chat] pending attachment quota release failed");
   }
 }
 
@@ -73,7 +73,7 @@ export async function assertAttachmentUploadRateAllowed(userId: string): Promise
     }
   } catch (err) {
     if (isApiError(err, "TOO_MANY_REQUESTS")) throw err;
-    console.warn("[chat] attachment upload rate limit unavailable:", toMessage(err));
+    logger.warn({ err }, "[chat] attachment upload rate limit unavailable");
     throw Errors.ServiceUnavailableError("Attachment upload quota is unavailable. Try again.");
   }
 }
@@ -120,7 +120,7 @@ export async function assertAttachmentUploadBudgetAllowed(args: {
     }
   } catch (err) {
     if (isApiError(err, "BAD_REQUEST", "TOO_MANY_REQUESTS")) throw err;
-    console.warn("[chat] attachment upload quota unavailable:", toMessage(err));
+    logger.warn({ err }, "[chat] attachment upload quota unavailable");
     throw Errors.ServiceUnavailableError("Attachment upload quota is unavailable. Try again.");
   }
 }

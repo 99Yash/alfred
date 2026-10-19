@@ -9,7 +9,6 @@ import {
   clamp01,
   emailDomain,
   jsonObjectSchema,
-  toMessage,
   toStringArray,
   type JsonObject,
 } from "@alfred/contracts";
@@ -23,6 +22,7 @@ import {
   type SignificanceScoreComponents,
   parsePersonEntityMetadata,
 } from "./entity-metadata";
+import { logger } from "@alfred/logging";
 
 export interface SignificanceWeights {
   /** Frequency × recency, so a fresh cold blast does not score like a relationship. */
@@ -306,7 +306,7 @@ export async function getSenderSignificanceBatch(
         ),
       );
   } catch (err) {
-    console.warn(`[knowledge.significance] batch alias read failed: ${toMessage(err)}`);
+    logger.warn({ err }, "[knowledge.significance] batch alias read failed");
 
     return out;
   }

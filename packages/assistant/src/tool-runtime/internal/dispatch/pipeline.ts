@@ -29,7 +29,6 @@ import {
   sanitizeToolResult,
   summarizeBody,
   toJsonValue,
-  toMessage,
   cancellationEnvelopeSchema,
   unknownEffectEnvelopeSchema,
   type CancellationEnvelope,
@@ -164,7 +163,7 @@ function redactTraceInput(tool: RegisteredTool, input: unknown): unknown {
   try {
     return tool.redactInput(input);
   } catch (err) {
-    console.warn("[dispatch] tool input redaction failed:", toMessage(err));
+    logger.warn({ err }, "[dispatch] tool input redaction failed");
 
     return undefined;
   }
@@ -1445,7 +1444,7 @@ async function executeAndCommit(
   const didSanitize = sanitizedResult.removed > 0 || sanitizedResult.collisions > 0;
 
   if (didSanitize) {
-    console.warn(
+    logger.warn(
       `[dispatch] sanitized ${sanitizedResult.removed} poison code unit(s)` +
         `${sanitizedResult.collisions > 0 ? `, ${sanitizedResult.collisions} key collision(s)` : ""}` +
         ` from ${tool.name} result`,
@@ -1484,7 +1483,7 @@ async function executeFastPath(
     const didSanitize = sanitized.removed > 0 || sanitized.collisions > 0;
 
     if (didSanitize) {
-      console.warn(
+      logger.warn(
         `[dispatch] sanitized ${sanitized.removed} poison code unit(s)` +
           `${sanitized.collisions > 0 ? `, ${sanitized.collisions} key collision(s)` : ""}` +
           ` from ${tool.name} result`,

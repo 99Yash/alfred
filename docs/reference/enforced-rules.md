@@ -47,6 +47,7 @@ When you add, remove or change a rule in `.oxlintrc.json`, a JS plugin, `scripts
 | [`react/no-unsafe`](https://oxc.rs/docs/guide/usage/linter/rules/react/no-unsafe.html) | no |  |  |
 | [`react/no-will-update-set-state`](https://oxc.rs/docs/guide/usage/linter/rules/react/no-will-update-set-state.html) | no |  |  |
 | [`react/preserve-manual-memoization`](https://oxc.rs/docs/guide/usage/linter/rules/react/preserve-manual-memoization.html) | no |  |  |
+| [`react/purity`](https://oxc.rs/docs/guide/usage/linter/rules/react/purity.html) | no |  |  |
 | [`react/refs`](https://oxc.rs/docs/guide/usage/linter/rules/react/refs.html) | no |  |  |
 | [`react/rules-of-hooks`](https://oxc.rs/docs/guide/usage/linter/rules/react/rules-of-hooks.html) | no |  |  |
 | [`react/set-state-in-effect`](https://oxc.rs/docs/guide/usage/linter/rules/react/set-state-in-effect.html) | no |  |  |

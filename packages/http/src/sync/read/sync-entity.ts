@@ -1,4 +1,5 @@
-import { isRecord, toMessage } from "@alfred/contracts";
+import { logger } from "@alfred/logging";
+import { isRecord } from "@alfred/contracts";
 import type { DbTransaction } from "@alfred/db";
 import type { IDBKeys, SyncModelFor } from "@alfred/sync";
 import { ZodError, type z } from "zod";
@@ -102,7 +103,7 @@ export function syncEntity<
                   // Keep the placeholder preview.
                 }
 
-                console.warn(
+                logger.warn(
                   `[replicache] invalid ${model.slug} row at ${paths}; mapped value: ${preview}`,
                 );
               }
@@ -125,7 +126,7 @@ function toPullVersion<Model extends SyncEntityModelContract<IDBKeys>>(
     return model.parsePullVersion(projection);
   } catch (err) {
     if (!isRecoverableSerializationError(err)) throw err;
-    console.warn(`[replicache] skipping invalid ${model.slug} version row: ${toMessage(err)}`);
+    logger.warn({ err }, `[replicache] skipping invalid ${model.slug} version row`);
 
     return null;
   }

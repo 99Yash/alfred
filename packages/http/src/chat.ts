@@ -3,13 +3,9 @@
  * No DB, Redis, storage or `drizzle-orm` imports here;
  * `packages/http/test/chat-transport-only.test.ts` enforces it.
  */
+import { logger } from "@alfred/logging";
 import { MAX_TRANSCRIBE_AUDIO_BYTES, transcribeAudio, transcriptionConfigured } from "@alfred/ai";
-import {
-  Errors,
-  MAX_ATTACHMENT_BYTES,
-  MAX_ATTACHMENTS_PER_MESSAGE,
-  toMessage,
-} from "@alfred/contracts";
+import { Errors, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS_PER_MESSAGE } from "@alfred/contracts";
 import { Elysia, t } from "elysia";
 
 import {
@@ -50,7 +46,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
             return { text: text.trim() };
           } catch (err) {
             // Provider faults are routine, so return a retryable 502, not a 500.
-            console.warn("[chat] transcription failed:", toMessage(err));
+            logger.warn({ err }, "[chat] transcription failed");
             throw Errors.BadGatewayError("Transcription failed. Try again.");
           }
         },

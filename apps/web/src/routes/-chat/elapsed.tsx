@@ -25,13 +25,14 @@ export function Elapsed({
   const running = endedTs === null;
   const [now, setNow] = useState(() => Date.now());
 
-  // Re-read the time during render on resume; an effect paints one stale frame, a visible jump back.
-  const [prevRunning, setPrevRunning] = useState(running);
+  // On resume, `now` is the last tick before the stop and reads earlier than the frozen end.
+  // Raise it to that end during render so the count never jumps back; the next tick moves it on.
+  const [prevEndedTs, setPrevEndedTs] = useState(endedTs);
 
-  if (prevRunning !== running) {
-    setPrevRunning(running);
+  if (prevEndedTs !== endedTs) {
+    setPrevEndedTs(endedTs);
 
-    if (running) setNow(Date.now());
+    if (running && prevEndedTs !== null) setNow((n) => Math.max(n, prevEndedTs));
   }
 
   useEffect(() => {

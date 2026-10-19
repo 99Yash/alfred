@@ -13,6 +13,7 @@ import {
 import { gmailMailboxWritesEnabled } from "@alfred/env/server";
 import { eventDeliveryRows, readEventSourceHealth } from "./event-source-health";
 import type { EventDeliveryFailure } from "./ingress/descriptor";
+import { logger } from "@alfred/logging";
 
 /**
  * Which delivery failures to show a person (ADR-0100). The banner and the email both use this.
@@ -117,7 +118,7 @@ export function toDeliveryAlerts(alerts: readonly DeliveryAlertVerdict[]): Deliv
     });
 
     if (!parsed.success) {
-      console.error(
+      logger.error(
         `[integrations] delivery alert for source=${alert.source} does not fit the wire schema; dropped: ${parsed.error.message}`,
       );
       continue;

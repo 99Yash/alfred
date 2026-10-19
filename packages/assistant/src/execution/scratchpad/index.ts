@@ -27,6 +27,7 @@ import {
   buildScratchWriteSpanInput,
   startScratchSpan,
 } from "./health";
+import { logger } from "@alfred/logging";
 
 export {
   RUNTIME_SCRATCH_READ,
@@ -428,7 +429,7 @@ async function snapshotScratchToPostgresCore(
 
       if (entry === null) {
         corrupt += 1;
-        console.warn(`[scratchpad] skipping corrupt scratch key during snapshot: ${fullKey}`);
+        logger.warn(`[scratchpad] skipping corrupt scratch key during snapshot: ${fullKey}`);
         continue;
       }
 
