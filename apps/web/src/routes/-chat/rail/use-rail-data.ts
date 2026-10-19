@@ -5,7 +5,7 @@ import {
   type TriageCategory,
 } from "@alfred/contracts";
 import type { SyncedTodo, SyncedTriageTag } from "@alfred/sync";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useInbox, useMarkInboxRead, type InboxPage } from "./use-inbox";
 import { useLatestBriefing } from "~/hooks/use-latest-briefing";
 import { useMeetings } from "./use-meetings";
@@ -350,10 +350,9 @@ function useSuggestionDismissal(
     () => new Set(),
   );
 
-  const timers = useRef<Map<string, ReturnType<typeof setTimeout>> | null>(null);
-
-  if (timers.current === null) timers.current = new Map<string, ReturnType<typeof setTimeout>>();
-  const pendingTimers = timers.current;
+  // One mutable map for the life of the hook. The lazy state initializer builds it once; the
+  // setter is never called.
+  const [pendingTimers] = useState(() => new Map<string, ReturnType<typeof setTimeout>>());
 
   useEffect(() => {
     const pending = pendingTimers;
