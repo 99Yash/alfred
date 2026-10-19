@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import { firstValidTimezone, TIMEZONE_PREFERENCE_KEYS } from "../src/time/user-timezone";
-import { isValidTimezone } from "@alfred/assistant/time";
+import { isIanaTimezone } from "@alfred/contracts";
 
 describe("TIMEZONE_PREFERENCE_KEYS", () => {
   test("owns the ADR-0082 canonical-first key-set and order (canonical, then legacy)", () => {
@@ -25,22 +25,22 @@ describe("firstValidTimezone", () => {
   });
 });
 
-describe("isValidTimezone (via the timezone index)", () => {
+describe("isIanaTimezone", () => {
   test("accepts a real IANA zone", () => {
-    assert.equal(isValidTimezone("America/New_York"), true);
+    assert.equal(isIanaTimezone("America/New_York"), true);
   });
 
   test("accepts the UTC alias that supportedValuesOf alone omits", () => {
-    assert.equal(isValidTimezone("UTC"), true);
-    assert.equal(isValidTimezone("Etc/UTC"), true);
+    assert.equal(isIanaTimezone("UTC"), true);
+    assert.equal(isIanaTimezone("Etc/UTC"), true);
   });
 
   test("rejects a garbage string", () => {
-    assert.equal(isValidTimezone("Not/AZone"), false);
+    assert.equal(isIanaTimezone("Not/AZone"), false);
   });
 
   test("rejects a non-string", () => {
-    assert.equal(isValidTimezone(42), false);
-    assert.equal(isValidTimezone(null), false);
+    assert.equal(isIanaTimezone(42), false);
+    assert.equal(isIanaTimezone(null), false);
   });
 });

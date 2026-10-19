@@ -589,7 +589,7 @@ export const RULES = [
     id: "raw-provider-client",
     re: /new\s+Anthropic\(|createAnthropic\(|createGoogleGenerativeAI\(/,
     severity: "hint",
-    fix: "Use getChatModel / getCheapModel / getBossModel from @alfred/ai instead of constructing a provider client — they carry the retry wrapper, metering, and per-model capability map.",
+    fix: "Use route(name) from @alfred/ai instead of constructing a provider client — it carries the retry wrapper, metering, and per-model capability map.",
   },
   {
     id: "raw-email-normalize",

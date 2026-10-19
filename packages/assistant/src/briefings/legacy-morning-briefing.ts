@@ -1,6 +1,7 @@
 import {
   briefingGatherSchema,
   parseIanaTimezone,
+  resolveBriefingReferences,
   type BriefingGather,
   type IanaTimezone,
 } from "@alfred/contracts";
@@ -12,7 +13,7 @@ import { composeBriefing } from "./compose";
 import { gatherBriefingWithSuppressionAudit, type BriefingInstructionSuppression } from "./gather";
 import { settings } from "@alfred/assistant/settings";
 import { resolveBriefingPreferences } from "./preferences";
-import { renderBriefingEmailHtml, resolveBriefingReferences } from "./references";
+import { renderBriefingEmailHtml } from "./references";
 import {
   beginBriefing,
   markBriefingComposed,

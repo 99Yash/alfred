@@ -9,6 +9,8 @@ import {
   toMessage,
   type FullBriefing,
   type IanaTimezone,
+  listBriefingReferenceOptions,
+  referencesFromSections,
 } from "@alfred/contracts";
 import type { ComposedEmail } from "@alfred/assistant/delivery";
 
@@ -21,12 +23,7 @@ import {
   EMAIL_P_STYLE as P_STYLE,
   EMAIL_WRAPPER_STYLE as WRAPPER_STYLE,
 } from "./email-styles";
-import {
-  buildBriefingSourcePanels,
-  escapeHtml,
-  listBriefingReferenceOptions,
-  referencesFromSections,
-} from "./references";
+import { buildBriefingSourcePanels, escapeHtml } from "./references";
 import { shortenFrom } from "./sender";
 
 /**

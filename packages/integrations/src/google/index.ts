@@ -108,7 +108,6 @@ export {
   exchangeCode,
   getGoogleOAuthConfig,
   GoogleReauthRequiredError,
-  refreshAccessToken,
   scopesForFeatures,
 } from "./oauth";
 

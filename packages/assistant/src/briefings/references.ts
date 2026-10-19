@@ -11,15 +11,7 @@ import type { BriefingGather } from "@alfred/contracts";
 import { EMAIL_LINK_STYLE, EMAIL_P_STYLE, EMAIL_WRAPPER_STYLE } from "./email-styles";
 
 // The pure resolver lives in @alfred/contracts so the web can use it (ADR-0049).
-// Re-exported for old import paths. Source panels and email HTML stay here.
-export {
-  type BriefingReference,
-  type BriefingSegment,
-  listBriefingReferenceOptions,
-  referencesFromSections,
-  resolveBriefingReferences,
-  type ResolveBriefingReferencesResult,
-} from "@alfred/contracts";
+// Source panels and email HTML stay here.
 
 export interface RenderBriefingEmailArgs {
   segments: BriefingSegment[];

@@ -1,5 +1,6 @@
 import {
   eventTriggerPhrase,
+  isIanaTimezone,
   isRawEventType,
   parseIanaTimezone,
   toMessage,
@@ -7,7 +8,6 @@ import {
   type WorkflowTrigger,
 } from "@alfred/contracts";
 import { CronExpressionParser } from "cron-parser";
-import { isValidTimezone } from "@alfred/assistant/time";
 import { settings } from "@alfred/assistant/settings";
 
 /**
@@ -24,7 +24,7 @@ export function validateCronTrigger(
 ): { ok: true } | { ok: false; message: string } {
   if (trigger.kind !== "cron") return { ok: true };
 
-  if (trigger.timezone && !isValidTimezone(trigger.timezone)) {
+  if (trigger.timezone && !isIanaTimezone(trigger.timezone)) {
     return { ok: false, message: `invalid timezone '${trigger.timezone}'` };
   }
 
@@ -52,7 +52,7 @@ export async function resolveWorkflowTimezone(
   userId: string,
   trigger: WorkflowTrigger,
 ): Promise<IanaTimezone> {
-  if (trigger.kind === "cron" && trigger.timezone && isValidTimezone(trigger.timezone)) {
+  if (trigger.kind === "cron" && trigger.timezone && isIanaTimezone(trigger.timezone)) {
     return parseIanaTimezone(trigger.timezone);
   }
 

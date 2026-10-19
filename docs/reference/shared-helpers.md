@@ -360,8 +360,8 @@ deliberate wrapper patterns, or throwaway scripts.
 `packages/assistant/src/briefings/preferences.ts`). All three now route through
 the pre-existing, better `isIanaTimezone` in `@alfred/contracts` (memoized +
 alias-aware; a bare `Intl.DateTimeFormat` trial once broke briefings on `"UTC"`).
-`packages/assistant/src/time/user-timezone.ts` keeps `isValidTimezone` as a
-one-line alias of `isIanaTimezone` so its call sites read in domain terms. Guarded by a `check-consolidation-drift.mjs`
+The one-line `isValidTimezone` alias that `packages/assistant/src/time/user-timezone.ts`
+kept later went too: callers use `isIanaTimezone` directly. Guarded by a `check-consolidation-drift.mjs`
 rule that bans a hand-rolled `function isValidTimezone`.
 
 **Resolved:** the Google integration modules had per-file JSON wrappers that only added `.then((raw) => schema.parse(raw))` to `googleJson`. The
