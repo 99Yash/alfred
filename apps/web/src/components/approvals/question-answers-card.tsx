@@ -48,9 +48,9 @@ export function QuestionAnswersCard({
           <p className="mt-1.5 text-[12px] leading-5 text-app-fg-3">
             {unansweredCopy(summary.reason)}
           </p>
-          {/* Index is the key: questions are frozen and answers pair by index. */}
           <ul className="mt-2 flex flex-col gap-1">
             {summary.questions.map((question, index) => (
+              // oxlint-disable-next-line react/no-array-index-key -- ask_user questions have no id; the list is frozen and answers pair with it by position, so the position is the identity.
               <li key={index} className="text-[12px] leading-5 text-app-fg-3">
                 {question.question}
               </li>
@@ -64,6 +64,7 @@ export function QuestionAnswersCard({
             const empty = isAnswerEmpty(answer);
 
             return (
+              // oxlint-disable-next-line react/no-array-index-key -- ask_user questions have no id; the list is frozen and answers pair with it by position, so the position is the identity.
               <div key={index}>
                 <dt className="text-[12px] leading-5 text-app-fg-3">{question.question}</dt>
                 <dd className="mt-1 flex flex-wrap items-center gap-1.5">

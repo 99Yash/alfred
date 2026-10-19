@@ -1,5 +1,22 @@
 import { cn } from "~/lib/utils";
 
+/** 36 ticks, one every 10 degrees; every ninth one is a longer major tick. The angle is the key. */
+const DIAL_TICKS = Array.from({ length: 36 }, (_, i) => {
+  const angle = (i / 36) * Math.PI * 2;
+  const major = i % 9 === 0;
+  const inner = 30;
+  const outer = major ? 40 : 36;
+
+  return {
+    degrees: i * 10,
+    major,
+    x1: 48 + Math.cos(angle) * inner,
+    y1: 48 + Math.sin(angle) * inner,
+    x2: 48 + Math.cos(angle) * outer,
+    y2: 48 + Math.sin(angle) * outer,
+  };
+});
+
 export function TrustDial() {
   return (
     <svg
@@ -19,29 +36,19 @@ export function TrustDial() {
         </radialGradient>
       </defs>
       <circle cx="48" cy="48" r="46" fill="url(#vsTrustDialGlow)" />
-      {Array.from({ length: 36 }).map((_, i) => {
-        const angle = (i / 36) * Math.PI * 2;
-        const inner = 30;
-        const outer = i % 9 === 0 ? 40 : 36;
-        const x1 = 48 + Math.cos(angle) * inner;
-        const y1 = 48 + Math.sin(angle) * inner;
-        const x2 = 48 + Math.cos(angle) * outer;
-        const y2 = 48 + Math.sin(angle) * outer;
-
-        return (
-          <line
-            key={i}
-            x1={x1}
-            y1={y1}
-            x2={x2}
-            y2={y2}
-            stroke="currentColor"
-            strokeOpacity={i % 9 === 0 ? 0.55 : 0.35}
-            strokeWidth={i % 9 === 0 ? 1.5 : 0.8}
-            strokeLinecap="round"
-          />
-        );
-      })}
+      {DIAL_TICKS.map((tick) => (
+        <line
+          key={tick.degrees}
+          x1={tick.x1}
+          y1={tick.y1}
+          x2={tick.x2}
+          y2={tick.y2}
+          stroke="currentColor"
+          strokeOpacity={tick.major ? 0.55 : 0.35}
+          strokeWidth={tick.major ? 1.5 : 0.8}
+          strokeLinecap="round"
+        />
+      ))}
       <circle cx="48" cy="48" r="24" stroke="currentColor" strokeOpacity="0.18" strokeWidth="1" />
       <circle cx="48" cy="48" r="14" stroke="currentColor" strokeOpacity="0.24" strokeWidth="1" />
       <circle cx="48" cy="48" r="3" fill="currentColor" fillOpacity="0.7" />

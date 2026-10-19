@@ -144,6 +144,7 @@ function QuestionPager({
       <span className="flex items-center gap-1">
         {answers.map((answer, i) => (
           <PagerDot
+            // oxlint-disable-next-line react/no-array-index-key -- one dot for each ask_user question; the list is frozen and has no id, so the position is the identity.
             key={i}
             index={i}
             total={total}

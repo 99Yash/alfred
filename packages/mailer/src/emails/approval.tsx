@@ -63,8 +63,8 @@ export const ApprovalEmail = ({
         style={{ borderCollapse: "collapse", margin: "0 0 8px 0" }}
       >
         <tbody>
-          {fields.map((f, i) => (
-            <tr key={`${f.label}-${i}`}>
+          {fields.map((f) => (
+            <tr key={`${f.label}:${f.value}`}>
               <th
                 align="left"
                 style={{

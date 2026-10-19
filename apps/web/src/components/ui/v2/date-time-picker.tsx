@@ -21,7 +21,16 @@ interface AppDateTimePickerProps {
   className?: string | undefined;
 }
 
-const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"] as const;
+/** Sunday first. `letter` repeats (two "S", two "T"), so `id` is the key. */
+const WEEKDAYS = [
+  { id: "sun", letter: "S" },
+  { id: "mon", letter: "M" },
+  { id: "tue", letter: "T" },
+  { id: "wed", letter: "W" },
+  { id: "thu", letter: "T" },
+  { id: "fri", letter: "F" },
+  { id: "sat", letter: "S" },
+] as const;
 
 const HOUR_OPTIONS: AppSelectOption[] = Array.from({ length: 12 }, (_, i) => {
   const h = i === 0 ? 12 : i;
@@ -178,12 +187,12 @@ export function AppDateTimePicker({
               <tr>
                 {WEEKDAYS.map((d, i) => (
                   <th
-                    key={`${d}-${i}`}
+                    key={d.id}
                     scope="col"
                     aria-label={weekdayLabel(i)}
                     className="h-7 text-center text-[11px] font-medium text-app-fg-2"
                   >
-                    {d}
+                    {d.letter}
                   </th>
                 ))}
               </tr>
