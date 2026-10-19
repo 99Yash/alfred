@@ -28,8 +28,11 @@ describe("chunkText", () => {
 
     for (let i = 0; i < chunks.length; i++) assert.equal(chunks[i]?.position, i);
     // The second chunk starts with the tail of the first.
-    const first = chunks[0]!.content;
-    const second = chunks[1]!.content;
+    const [firstChunk, secondChunk] = chunks;
+    assert.ok(firstChunk);
+    assert.ok(secondChunk);
+    const first = firstChunk.content;
+    const second = secondChunk.content;
     const tail = first.slice(Math.max(0, first.length - 4));
     assert.ok(second.includes(tail.slice(0, Math.min(tail.length, 10))) || second.length > 0);
   });

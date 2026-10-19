@@ -216,11 +216,13 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
 
     assert.equal(result1.inserted, 1);
     assert.equal(scheduled.length, 1, "one media job scheduled for the fresh insert");
-    assert.equal(scheduled[0]!.credentialId, credentialId);
-    assert.equal(scheduled[0]!.messageId, messageId);
+    const [job] = scheduled;
+    assert.ok(job);
+    assert.equal(job.credentialId, credentialId);
+    assert.equal(job.messageId, messageId);
     const mailRow = await loadMailRow(userId, messageId);
     assert.ok(mailRow);
-    assert.equal(scheduled[0]!.documentId, mailRow.id);
+    assert.equal(job.documentId, mailRow.id);
     assert.equal(
       (mailRow.metadata as Record<string, unknown>).mediaPending,
       true,
@@ -231,7 +233,7 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
     const jobResult = await runGmailMediaIngest({
       credentialId,
       messageId,
-      documentId: scheduled[0]!.documentId,
+      documentId: job.documentId,
       deps: {
         mailbox: {
           getMessage: async () => message,
@@ -271,8 +273,10 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
       .where(and(eq(documents.userId, userId), eq(documents.source, "gmail_attachment")));
 
     assert.equal(afterRows.length, 1);
-    assert.equal(afterRows[0]!.sourceId, `${messageId}:${attachmentId}`);
-    assert.equal(afterRows[0]!.content, "pdf text from job");
+    const [attachmentRow] = afterRows;
+    assert.ok(attachmentRow);
+    assert.equal(attachmentRow.sourceId, `${messageId}:${attachmentId}`);
+    assert.equal(attachmentRow.content, "pdf text from job");
 
     const clearedRow = await loadMailRow(userId, messageId);
     assert.ok(clearedRow);
@@ -383,13 +387,15 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
 
     assert.equal(result1.skipped, 1);
     assert.equal(scheduled.length, 1, "flagged known message is re-scheduled");
+    const [job] = scheduled;
+    assert.ok(job);
     assert.equal(getMessageCalls, 0, "the retry schedules without re-fetching the message");
 
     // The job runs but the attachment fetch fails transiently.
     const jobResult = await runGmailMediaIngest({
       credentialId,
       messageId,
-      documentId: scheduled[0]!.documentId,
+      documentId: job.documentId,
       deps: {
         mailbox: {
           getMessage: async () => message,
@@ -467,11 +473,13 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
       },
     });
     assert.equal(scheduled.length, 1);
+    const [job] = scheduled;
+    assert.ok(job);
 
     const jobResult = await runGmailMediaIngest({
       credentialId,
       messageId,
-      documentId: scheduled[0]!.documentId,
+      documentId: job.documentId,
       deps: {
         mailbox: {
           getMessage: async () => message,
@@ -504,7 +512,9 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
       .where(and(eq(documents.userId, userId), eq(documents.source, "gmail_attachment")));
 
     assert.equal(attRows.length, 1);
-    assert.equal(attRows[0]!.sourceId, `${messageId}:${attachmentId}`);
+    const [attRow] = attRows;
+    assert.ok(attRow);
+    assert.equal(attRow.sourceId, `${messageId}:${attachmentId}`);
 
     // Embed failures are not flagged: `gmail.embed_sweep` recovers `gmail_attachment` rows.
     const mailRow = await loadMailRow(userId, messageId);
@@ -517,7 +527,7 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
     });
 
     assert.ok(
-      sweepCandidates.includes(attRows[0]!.id),
+      sweepCandidates.includes(attRow.id),
       "embed_sweep candidate query must cover gmail_attachment rows",
     );
   });

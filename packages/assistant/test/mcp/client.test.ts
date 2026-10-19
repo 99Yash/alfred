@@ -915,6 +915,8 @@ describe("McpRawClient calls", () => {
     const client = makeClient(protocol);
     await client.connect();
     await client.refreshCatalog();
+    const { catalog } = client;
+    assert.ok(catalog);
 
     await assertMcpError(
       client.callTool(
@@ -934,7 +936,7 @@ describe("McpRawClient calls", () => {
           kind: "mcp",
           connectionId: "conn_other",
           remoteName: "search",
-          catalogRevision: client.catalog!.revision,
+          catalogRevision: catalog.revision,
         },
         { query: "hello" },
       ),

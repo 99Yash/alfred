@@ -316,11 +316,13 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
     };
 
     const { connectionId, revisionHash, descriptorHashes } = await seedOwnedCatalog(userId, [tool]);
+    const descriptorHash = descriptorHashes[tool.name];
+    assert.ok(descriptorHash);
     await upsertToolPolicy({
       userId,
       connectionId,
       remoteName: tool.name,
-      descriptorHash: descriptorHashes[tool.name]!,
+      descriptorHash,
       riskTier: "low",
       effectClass: "read",
       retryContract: "never",
@@ -551,10 +553,12 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
     assert.equal(boot.alignedStagingBarriers, 0, "the dispatcher already aligned staging");
     const visible = await listMcpRecoveryOperations({ userId });
     assert.equal(visible.operations.length, 1);
+    const [operation] = visible.operations;
+    assert.ok(operation);
 
     const successor = await retryMcpRecoveryOperation({
       userId,
-      invocationId: visible.operations[0]!.invocationId,
+      invocationId: operation.invocationId,
     });
 
     assert.equal(successor.status, "completed");

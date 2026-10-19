@@ -136,7 +136,8 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       .where(and(eq(documents.userId, userId), eq(documents.source, "gmail_attachment")));
 
     assert.equal(rows.length, 1);
-    const doc = rows[0]!;
+    const [doc] = rows;
+    assert.ok(doc);
     assert.equal(doc.sourceId, `${messageId}:${attachmentId}`);
     assert.equal(doc.title, "contract.pdf");
     assert.equal(doc.content, "page one text\n\npage two text");
@@ -264,7 +265,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       .where(and(eq(documents.userId, userId), eq(documents.source, "gmail_attachment")));
 
     assert.equal(rows.length, 1, "no duplicate row");
-    assert.equal(rows[0]!.content, "version one", "original content preserved");
+    assert.equal(rows[0]?.content, "version one", "original content preserved");
   });
 
   test("re-ingest unchanged is idempotent on document row", async () => {
@@ -317,12 +318,12 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
     assert.equal(r1.ingested, 1);
     assert.equal(indexCalls, 1);
 
-    const doc1 = (
-      await db()
-        .select()
-        .from(documents)
-        .where(and(eq(documents.userId, userId), eq(documents.source, "gmail_attachment")))
-    )[0]!;
+    const [doc1] = await db()
+      .select()
+      .from(documents)
+      .where(and(eq(documents.userId, userId), eq(documents.source, "gmail_attachment")));
+
+    assert.ok(doc1);
 
     const r2 = await ingestGmailMediaAttachments({
       userId,
@@ -337,12 +338,12 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
     assert.equal(r2.deduped, 1);
     assert.equal(indexCalls, 1, "embed must not run again for an existing attachment");
 
-    const doc2 = (
-      await db()
-        .select()
-        .from(documents)
-        .where(and(eq(documents.userId, userId), eq(documents.source, "gmail_attachment")))
-    )[0]!;
+    const [doc2] = await db()
+      .select()
+      .from(documents)
+      .where(and(eq(documents.userId, userId), eq(documents.source, "gmail_attachment")));
+
+    assert.ok(doc2);
 
     assert.equal(doc1.id, doc2.id);
     assert.equal(doc1.contentHash, doc2.contentHash);
@@ -435,8 +436,10 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
 
     assert.equal(rows.length, 1, "one canonical row per distinct content");
 
+    const [row] = rows;
+    assert.ok(row);
     // SAFETY: jsonb; narrows to the reference shape ingest wrote.
-    const meta = rows[0]!.metadata as { references?: unknown[] };
+    const meta = row.metadata as { references?: unknown[] };
     assert.ok(Array.isArray(meta.references));
     assert.equal(meta.references.length, 1);
     assert.deepEqual(meta.references[0], {
@@ -451,7 +454,7 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
     });
 
     // The canonical row keeps the first thread.
-    assert.notEqual(rows[0]!.sourceThreadId, threadTwo);
+    assert.notEqual(row.sourceThreadId, threadTwo);
 
     const again = await ingestGmailMediaAttachments({
       userId,
@@ -469,9 +472,12 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
       .from(documents)
       .where(and(eq(documents.userId, userId), eq(documents.source, "gmail_attachment")));
 
+    const [rowAfter] = after;
+    assert.ok(rowAfter);
     // SAFETY: same jsonb narrowing as above.
-    const metaAfter = after[0]!.metadata as { references?: unknown[] };
-    assert.equal(metaAfter.references!.length, 1, "reference append must be idempotent");
+    const metaAfter = rowAfter.metadata as { references?: unknown[] };
+    assert.ok(Array.isArray(metaAfter.references));
+    assert.equal(metaAfter.references.length, 1, "reference append must be idempotent");
   });
 
   test("reference append keeps entries that lack dedup keys", async () => {
@@ -510,17 +516,20 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
     await appendContentReference(documentId, ref);
 
     const rows = await db().select().from(documents).where(eq(documents.id, documentId));
+    const [row] = rows;
+    assert.ok(row);
     // SAFETY: jsonb; reads the element order appendContentReference wrote.
-    const meta = rows[0]!.metadata as { references?: unknown[] };
-    assert.equal(meta.references!.length, 3, "malformed entry kept, new entry appended once");
-    assert.deepEqual(meta.references![0], { foo: "bar" }, "keyless element must survive");
-    assert.deepEqual(meta.references![1], {
+    const meta = row.metadata as { references?: unknown[] };
+    assert.ok(Array.isArray(meta.references));
+    assert.equal(meta.references.length, 3, "malformed entry kept, new entry appended once");
+    assert.deepEqual(meta.references[0], { foo: "bar" }, "keyless element must survive");
+    assert.deepEqual(meta.references[1], {
       messageId: "m1",
       attachmentId: "a1",
       filename: "a.pdf",
       size: 1,
     });
-    assert.deepEqual(meta.references![2], ref, "second identical append must be a no-op");
+    assert.deepEqual(meta.references[2], ref, "second identical append must be a no-op");
   });
 
   test("scanned PDF (needs_ocr) is skipped, not ingested", async () => {

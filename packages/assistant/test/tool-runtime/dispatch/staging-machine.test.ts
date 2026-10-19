@@ -80,6 +80,14 @@ const calendarCredentialRequirement = (() => {
   return requirement;
 })();
 
+/** The id of the first staged row; fails the test with a clear message when nothing was staged. */
+function firstRowId(): string {
+  const [row] = store.rows();
+  assert.ok(row, "expected a staged row");
+
+  return row.id;
+}
+
 function baseArgs(overrides: Record<string, unknown> = {}) {
   return {
     runId: RUN_ID,
@@ -341,7 +349,7 @@ describe("dispatch staging machine (DB-free)", () => {
 
   test("retry suppression synthesizes the prior rejection and writes NO new row", async () => {
     await dispatchToolCall(baseArgs({ toolCallId: "tc_first" }));
-    store.decide(store.rows()[0]!.id, { status: "rejected", rejectReason: "not this one" });
+    store.decide(firstRowId(), { status: "rejected", rejectReason: "not this one" });
 
     const rowsBefore = store.rows().length;
     // A new tool call id with the same input hashes the same.
@@ -361,7 +369,7 @@ describe("dispatch staging machine (DB-free)", () => {
 
   test("retry suppression does not fire for different input", async () => {
     await dispatchToolCall(baseArgs({ toolCallId: "tc_a" }));
-    store.decide(store.rows()[0]!.id, { status: "rejected", rejectReason: "no" });
+    store.decide(firstRowId(), { status: "rejected", rejectReason: "no" });
 
     const result = await dispatchToolCall(
       baseArgs({ toolCallId: "tc_b", input: { slug: "calendar" } }),
@@ -659,7 +667,8 @@ describe("dispatch staging machine (DB-free)", () => {
     const args = baseArgs({ toolCallId: "tc_resume" });
     await dispatchToolCall({ ...args, input: { slug: "github" } });
     const [row] = store.rows();
-    store.decide(row!.id, { status: "approved" });
+    assert.ok(row);
+    store.decide(row.id, { status: "approved" });
 
     // A mutated payload must not slip past the gate through resume.
     const result = await dispatchToolCall({ ...args, input: { slug: "smuggled" } });
@@ -671,7 +680,7 @@ describe("dispatch staging machine (DB-free)", () => {
   test("resume with a user-edited input runs the edit and flags editedByUser", async () => {
     const args = baseArgs({ toolCallId: "tc_edited" });
     await dispatchToolCall(args);
-    store.decide(store.rows()[0]!.id, { status: "approved", decidedInput: { slug: "edited" } });
+    store.decide(firstRowId(), { status: "approved", decidedInput: { slug: "edited" } });
 
     const result = await dispatchToolCall(args);
 
@@ -684,7 +693,7 @@ describe("dispatch staging machine (DB-free)", () => {
     const args = baseArgs({ toolCallId: "tc_bad_edit" });
     await dispatchToolCall(args);
     const before = executeCount;
-    store.decide(store.rows()[0]!.id, {
+    store.decide(firstRowId(), {
       status: "approved",
       decidedInput: { slug: 42, secret: "edited-private-value" },
     });
@@ -693,11 +702,11 @@ describe("dispatch staging machine (DB-free)", () => {
 
     assert.deepEqual(result, {
       kind: "failed",
-      stagingId: store.rows()[0]!.id,
+      stagingId: firstRowId(),
       error: publicAppError("tool_input_invalid"),
     });
     assert.equal(executeCount, before, "an invalid edit must never reach the tool");
-    const stored = store.readBack(store.rows()[0]!.id);
+    const stored = store.readBack(firstRowId());
     assert.equal(stored?.status, "failed");
     assert.doesNotMatch(
       JSON.stringify(stored.executeError),
@@ -711,7 +720,7 @@ describe("dispatch staging machine (DB-free)", () => {
     // (non-null stagingId).
     const args = baseArgs({ toolCallId: "tc_rejected_row" });
     await dispatchToolCall(args);
-    const rowId = store.rows()[0]!.id;
+    const rowId = firstRowId();
     store.decide(rowId, { status: "rejected", rejectReason: "user said no" });
 
     const result = await dispatchToolCall({ ...args, input: { slug: "different" } });
@@ -725,7 +734,7 @@ describe("dispatch staging machine (DB-free)", () => {
   test("an expired row reports auto-expired", async () => {
     const args = baseArgs({ toolCallId: "tc_expired" });
     await dispatchToolCall(args);
-    store.decide(store.rows()[0]!.id, { status: "expired" });
+    store.decide(firstRowId(), { status: "expired" });
 
     const result = await dispatchToolCall(args);
 

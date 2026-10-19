@@ -269,7 +269,12 @@ describe("executeToolCallRound", () => {
 
     await withAdapters(
       {
-        dispatch: (args) => Promise.resolve(results.get(args.toolCallId)!),
+        dispatch: (args) => {
+          const result = results.get(args.toolCallId);
+          assert.ok(result, `no scripted result for ${args.toolCallId}`);
+
+          return Promise.resolve(result);
+        },
         wouldWaitForApproval: () => Promise.resolve(false),
         executionLane: () => null,
       },

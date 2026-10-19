@@ -218,7 +218,13 @@ describe("applyArtifactFrame — differential against main's routing", () => {
   const STATUSES = ["started", "succeeded", "failed"] as const;
 
   function randomFrame(rng: () => number): EventStreamFrame {
-    const pick = <T>(xs: readonly T[]): T => xs[Math.floor(rng() * xs.length)]!;
+    const pick = <T>(xs: readonly T[]): T => {
+      const picked = xs[Math.floor(rng() * xs.length)];
+      assert.ok(picked !== undefined, "pick() needs a non-empty list");
+
+      return picked;
+    };
+
     const kind = pick(KINDS);
     const threadId = pick(THREADS);
     const toolCallId = pick(CALLS);

@@ -41,8 +41,11 @@ describe("batchForVoyage", () => {
     const texts = Array.from({ length: VOYAGE_MAX_BATCH_INPUTS + 1 }, (_, i) => `t${i}`);
     const batches = batchForVoyage(texts);
     assert.equal(batches.length, 2);
-    assert.equal(batches[0]!.length, VOYAGE_MAX_BATCH_INPUTS);
-    assert.equal(batches[1]!.length, 1);
+    const [first, second] = batches;
+    assert.ok(first);
+    assert.ok(second);
+    assert.equal(first.length, VOYAGE_MAX_BATCH_INPUTS);
+    assert.equal(second.length, 1);
   });
 
   test("a single oversized text gets its own batch untouched", () => {

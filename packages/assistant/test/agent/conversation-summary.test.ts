@@ -50,7 +50,11 @@ describe("conversation summary contract", () => {
 
   test("rejects invented source ids", () => {
     const summary = conversationSummarySchema.parse(validSummary());
-    summary.facts[0]!.sources[0]!.id = "msg_invented";
+    const [fact] = summary.facts;
+    assert.ok(fact);
+    const [source] = fact.sources;
+    assert.ok(source);
+    source.id = "msg_invented";
     assert.throws(
       () => validateConversationSummary(summary, eligible),
       /invalid_provenance: message:msg_invented/,
