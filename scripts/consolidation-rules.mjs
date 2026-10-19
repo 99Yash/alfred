@@ -207,8 +207,8 @@ export const RULES = [
     //      `function` lookbehind exempts the declaration itself; a caller who
     //      genuinely means "terminal for the object" writes a
     //      `// drift-ok:` marker.
-    //   6. `switch (category) { case "resolved": }`, which code-style.md §2
-    //      actively prefers for a closed union. This one is why the rule is
+    //   6. `switch (category) { case "resolved": }`, which the exhaustive-switch
+    //      rule actively prefers for a closed union. This one is why the rule is
     //      `scope: "chain"`: the header and the case land on separate lines,
     //      which a per-line regex cannot see.
     //
@@ -935,7 +935,7 @@ export const RULES = [
     severity: "gate",
     // This row's own definition and its fixtures spell the directive as data.
     owners: ["scripts/consolidation-rules.mjs", "scripts/consolidation-rules.selftest.mjs"],
-    fix: "Name every rule the directive suppresses, in the spelling the config uses, then give the reason after ` -- `: `// oxlint-disable-next-line <plugin>/<rule> -- <why this line is the exception>`. See docs/reference/code-style.md § Suppressions.",
+    fix: "Name every rule the directive suppresses, in the spelling the config uses, then give the reason after ` -- `: `// oxlint-disable-next-line <plugin>/<rule> -- <why this line is the exception>`. See docs/reference/gate-design.md § Suppressions and disarms.",
   },
 ];
 

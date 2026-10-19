@@ -69,6 +69,39 @@ Deletion test: deleting the owner file must delete the shape. If the shape
 survives in `types.ts` / `schemas.ts` / `constants.ts` after its logic is
 gone, it was in the wrong file.
 
+## One owner, consumers derive
+
+A shape that two packages must agree on has one owning schema. A browser-safe shape lives in `@alfred/contracts`.
+
+- A variant comes from `.pick()`, `.omit()` or `.extend()` on the owner. Do not restate a `z.object`.
+- A producer pins itself to the owner at compile time. Return the `z.infer` type of the owner from the function that builds the body, or annotate with `satisfies z.ZodType<...>`. `readIntegrationStatus` in `packages/assistant/src/connections/availability.ts` returns `IntegrationStatus` from `packages/contracts/src/integration-status.ts`. A field renamed by the producer then fails `tsc`.
+- A narrower local projection that reshapes for the UI is correct. It derives from the owner and says so in a comment.
+- A literal type is correct when it is deliberately not the source shape. The `Synced*` read models pick, rename and re-type columns for the client. Keep that divergence, and say in one comment why the type is not derived.
+
+Compile-time pins carry this rule, not a lint script. A generic copy checker cannot separate a correct projection from drift.
+
+## Derive a runtime schema from a table
+
+When a runtime boundary validates the same select, insert or update shape as a Drizzle table, derive the base validator from the table with `drizzle-zod`.
+
+```ts
+// packages/db/src/schema/memory.ts
+export const userPreferenceInsertSchema = createInsertSchema(userPreferences, {
+  source: memorySourceSchema.optional(),
+});
+
+// packages/assistant/src/settings/preferences.ts
+export const setPreferenceArgsSchema = userPreferenceInsertSchema
+  .pick({ userId: true, key: true, value: true, source: true })
+  .extend({ key: z.string().min(1).max(200) });
+```
+
+- Drizzle owns the column presence, the nullability and the database defaults.
+- Refine scalar business rules at the boundary (`min`, `max`, formats).
+- Override a `jsonb` field with its contract-owned zod schema. `.$type<T>()` informs TypeScript but does not validate at runtime.
+- Do not generate a wire DTO or a Replicache model from a table because the fields overlap. Those schemas reshape, redact, rename or serialize rows on purpose, and they stay contracts with explicit mappers.
+- A generated select schema describes a complete row. For a partial query projection, derive a matching `.pick(...)` or validate the owning DTO.
+
 ## Finding schemas
 
 [`pnpm schemas`](../../scripts/schema-catalog.mjs) prints every schema binding

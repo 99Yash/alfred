@@ -30,6 +30,49 @@ Drizzle config reads `DATABASE_URL` from `apps/server/.env`.
 
 Every enum CHECK renders through `inList` in `packages/db/src/helpers.ts`, which SORTS its values. The rendered SQL depends on the set of accepted values, not on the order the constant declares them, so reordering a source constant is not a schema change. Migration 0125 normalized the nine constraints that were still in declaration order; it changed no accepted value.
 
+## Derive row types from the table
+
+A table is the source of its row shape, nullability included. Do not restate it.
+
+```ts
+// ✗ hand-rolled — drifts when a column changes nullability
+interface DocArg {
+  id: string;
+  title: string | null;
+  authoredAt: Date | null;
+}
+
+// ✓ derived — title and authoredAt stay nullable because the columns are
+import type { Document } from "@alfred/db/schemas";
+type DocArg = Pick<Document, "id" | "title" | "authoredAt">;
+```
+
+- Use the named row type that the schema exports (`Document`, `Entity`, `UserFact`). It is the same type as `typeof documents.$inferSelect`, and it stays a pure `import type`. Use `typeof table.$inferSelect` only when no named export exists.
+- Use `Pick<Document, ...>` for a subset and `Omit<Document, ...>` for all columns except a few.
+- A mapper from a row to a wire shape takes the named row type as input and declares its own output type. `rowToFact` in `packages/assistant/src/knowledge/facts.ts` and `rowToBriefing` in `packages/assistant/src/briefings/store.ts` are the model.
+- An insert payload uses the `New*` export of the table (`NewArtifact`, `NewBriefing`, `NewIntegrationObject`), else `typeof table.$inferInsert`. Add a `New<Table>` export when you first need one.
+
+### Confirm that the derived type is identical
+
+A column often infers to a type that you do not expect. Only `.notNull()` controls the nullability of a select. `.default()` and `.defaultNow()` do not.
+
+| Column | `$inferSelect` gives |
+| --- | --- |
+| `text().notNull()` | `string` |
+| `text()` | `string \| null` |
+| `text().$type<Foo>().notNull()` | `Foo` (narrower than `string`) |
+| `jsonb()` with no `.$type<>()` | `unknown`, not your shape |
+| `numeric()` with no `mode: "number"` | `string`, not `number` |
+| `timestamp()` | `Date \| null` |
+
+Five ways a derive changes a type with no error:
+
+- **Untyped `jsonb` is `unknown`.** `documents.metadata` has no `.$type<>()`, so you cannot `Pick` it as `Record<string, unknown>`. A mapper that `.parse()`s a jsonb column narrows that field on purpose. Its output is the contract, so keep it literal.
+- **`numeric` is `string`.** The money columns of `modelPrices` infer `string`, and `fetchPrice` in `packages/ai/src/metering/prices.ts` converts them. A lookup typed `number` is a transform, not a mirror.
+- **`.$type<Brand>()` is narrower than the literal.** A hand-written `toolName: string` is wider than `.$type<ToolName>()`. A derive narrows it, so confirm that each assignment site still fits.
+- **A guard narrowed the nullability.** `selectDueRows` in `packages/assistant/src/automation/tick.ts` skips a row with no `nextRunAt`, so `DueRow.nextRunAt` is `Date`. A derive adds `| null` again and breaks the guarantee downstream.
+- **An interface-first schema is the source.** When a schema is annotated against a hand-written interface (`z.object({ … }) satisfies z.ZodType<Foo>`), the interface is the source and the annotation is its drift guard. `type Foo = z.infer<typeof fooSchema>` then makes a circular reference (TS2456). Use `z.infer` only on a plain schema.
+
 ## Append-only history and attribution (ADR-0107, #1177)
 
 Two tables carry trigger enforcement in migration 0134, because the app runs

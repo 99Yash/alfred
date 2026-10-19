@@ -30,7 +30,8 @@ Alfred is a personal assistant.
 
 ## References
 
-- [Code style and review checklist](./docs/reference/code-style.md) and [structural review](./docs/reference/structural-review.md)
+- [Review checklist](./docs/reference/review-checklist.md) — only the rules that no gate enforces — and [structural review](./docs/reference/structural-review.md)
+- [Enforced rules](./docs/reference/enforced-rules.md) — generated catalog of every gate rule; run `pnpm rules:catalog` after you change a rule
 - [Gate design](./docs/reference/gate-design.md) — which kind of check a new rule gets (types, then type-aware lint, then an AST rule, then regex), and the review-only queue
 - [Shared helpers — reach for these before writing new ones](./docs/reference/shared-helpers.md)
 - [Schema placement and catalog](./docs/reference/schemas.md) (tables live in `packages/db/src/schema/`)
