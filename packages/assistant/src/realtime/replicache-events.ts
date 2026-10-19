@@ -106,7 +106,10 @@ export async function initReplicachePokeBridge(): Promise<void> {
 
         if (parsed.userId !== userId) return;
         emitter.emit(eventFor(userId), parsed);
-      } catch {}
+      } catch {
+        // Drop the message: its payload is not JSON, or a local listener threw. This handler runs
+        // inside ioredis's socket read, so a throw must not escape it and stall the bus for all users.
+      }
     });
 
     console.info("[replicache-events] Redis pub/sub bridge initialized");

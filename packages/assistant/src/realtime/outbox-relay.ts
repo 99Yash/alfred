@@ -179,7 +179,9 @@ export async function stopOutboxRelay(): Promise<void> {
   if (listenClient) {
     try {
       await listenClient.query(`UNLISTEN ${NOTIFY_CHANNEL}`);
-    } catch {}
+    } catch {
+      // Shutdown goes on: the connection may already be dead, and `end()` below closes it.
+    }
   }
 
   const drained = await relay.stop();
