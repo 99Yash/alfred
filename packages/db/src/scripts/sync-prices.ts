@@ -27,7 +27,7 @@ const modelsDevReasoningOptionSchema = z
     min: z.number().optional(),
     max: z.number().optional(),
   })
-  .passthrough();
+  .loose();
 
 const modelsDevCostTierSchema = z
   .object({
@@ -35,9 +35,9 @@ const modelsDevCostTierSchema = z
     output: z.number().nonnegative(),
     cache_read: z.number().nonnegative().optional(),
     cache_write: z.number().nonnegative().optional(),
-    tier: z.object({ type: z.literal("context"), size: z.number().int().positive() }).passthrough(),
+    tier: z.object({ type: z.literal("context"), size: z.number().int().positive() }).loose(),
   })
-  .passthrough();
+  .loose();
 
 const modelsDevModelSchema = z
   .object({
@@ -50,7 +50,7 @@ const modelsDevModelSchema = z
         cache_write: z.number().nonnegative().optional(),
         tiers: z.array(modelsDevCostTierSchema).optional(),
       })
-      .passthrough()
+      .loose()
       .optional(),
     limit: z
       .object({
@@ -58,22 +58,22 @@ const modelsDevModelSchema = z
         context: z.number().int().nonnegative().optional(),
         output: z.number().int().nonnegative().optional(),
       })
-      .passthrough()
+      .loose()
       .optional(),
     modalities: z
       .object({ input: z.array(z.string()).optional(), output: z.array(z.string()).optional() })
-      .passthrough()
+      .loose()
       .optional(),
     reasoning: z.boolean().optional(),
     reasoning_options: z.array(modelsDevReasoningOptionSchema).optional(),
     temperature: z.boolean().optional(),
     tool_call: z.boolean().optional(),
   })
-  .passthrough();
+  .loose();
 
 const modelsDevCatalogSchema = z.record(
   z.string(),
-  z.object({ models: z.record(z.string(), modelsDevModelSchema).optional() }).passthrough(),
+  z.object({ models: z.record(z.string(), modelsDevModelSchema).optional() }).loose(),
 );
 
 type ModelsDevCatalog = z.infer<typeof modelsDevCatalogSchema>;

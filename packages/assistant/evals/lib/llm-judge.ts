@@ -1,5 +1,5 @@
 import { route } from "@alfred/ai";
-import { generateObject, type LanguageModel } from "ai";
+import { generateText, Output, type LanguageModel } from "ai";
 import { createScorer } from "evalite";
 import { z } from "zod";
 
@@ -55,9 +55,9 @@ export function llmJudgeScorer<TInput, TOutput, TExpected>(
       if (skipReason) return { score: 0, metadata: skipReason };
 
       try {
-        const result = await generateObject({
+        const result = await generateText({
           model: opts.model ?? route("cheap").model(),
-          schema: judgeOutputSchema,
+          output: Output.object({ schema: judgeOutputSchema }),
           instructions: `${JUDGE_PREAMBLE}\n\nRubric:\n${opts.rubric}`,
           prompt: opts.prompt({ input, output, expected }),
           temperature: 0,
@@ -65,8 +65,8 @@ export function llmJudgeScorer<TInput, TOutput, TExpected>(
         });
 
         return {
-          score: GRADE_TO_SCORE[result.object.grade],
-          metadata: `${result.object.grade} — ${result.object.feedback}`,
+          score: GRADE_TO_SCORE[result.output.grade],
+          metadata: `${result.output.grade} — ${result.output.feedback}`,
         };
       } catch (error) {
         // Never throw: an evalite-beta reporter bug hangs the run on a scorer error.

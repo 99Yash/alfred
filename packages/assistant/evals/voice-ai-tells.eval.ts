@@ -95,7 +95,7 @@ evalite<Case, TaskOutput>("Chat voice — direct, human, and useful", {
   task: async (input): Promise<TaskOutput> => {
     const result = await generateText({
       model: route("standard").model(),
-      system: SYSTEM,
+      instructions: SYSTEM,
       prompt: input.prompt,
       temperature: 0.3,
       maxOutputTokens: 300,

@@ -162,7 +162,7 @@ const liveModel = route("cheap").model();
 const runLivePass: RunPass = async ({ system, prompt }) => {
   const result = await generateText({
     model: liveModel,
-    system,
+    instructions: system,
     prompt,
     output: Output.object({ schema: triageClassificationSchema }),
     temperature: 0,

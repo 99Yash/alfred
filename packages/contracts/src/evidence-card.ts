@@ -254,7 +254,7 @@ export const evidenceCardSchema = z
     mediaKind: evidenceMediaKindSchema,
     snippet: z.string().min(1).max(EVIDENCE_SNIPPET_MAX_CHARS).optional(),
     /** Source-native relevance, higher is better. Compare only within one source. Never shown to the model. */
-    score: z.number().finite().optional(),
+    score: z.number().optional(),
     note: z.string().min(1).max(EVIDENCE_NOTE_MAX_CHARS).optional(),
     object: evidenceObjectRefSchema.optional(),
     entities: z.array(evidenceEntityRefSchema).max(50).optional(),

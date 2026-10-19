@@ -52,7 +52,7 @@ interface TiptapComposerProps {
   /** Suggestion lifecycle. The parent renders the palette. */
   onSuggestionChange: (state: SuggestionRenderState | null) => void;
   /** Key handler while a suggestion is active. Return `true` to consume the key. */
-  suggestionKeyDownRef: React.MutableRefObject<((event: KeyboardEvent) => boolean) | null>;
+  suggestionKeyDownRef: React.RefObject<((event: KeyboardEvent) => boolean) | null>;
   /** Dimmed suggested prompt in the empty editor. Tab accepts; Escape dismisses. */
   ghostText?: string | undefined;
   onGhostAccept?: (() => void) | undefined;

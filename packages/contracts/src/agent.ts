@@ -487,7 +487,7 @@ export const workflowSchedulePreviewSchema = z
   .object({
     summary: z.string().min(1).max(200),
     timezone: z.string().refine(isIanaTimezone, "Expected an IANA timezone identifier"),
-    previewedAt: z.string().datetime(),
+    previewedAt: z.iso.datetime(),
     nextRunAt: z.string().optional(),
   })
   .strict();

@@ -271,8 +271,8 @@ export const calendarCreateEventInput = padDatetimeSeconds(
         summary: z.string().min(1).max(500),
         description: z.string().max(10_000).optional(),
         location: z.string().max(1_000).optional(),
-        start: z.string().datetime({ offset: true }),
-        end: z.string().datetime({ offset: true }),
+        start: z.iso.datetime({ offset: true }),
+        end: z.iso.datetime({ offset: true }),
         timeZone: z
           .string()
           .min(1)
@@ -572,7 +572,7 @@ export const githubSearchInput = withKeyAliases(
     const { sanitized } = sanitizeGithubSearchQuery(value);
 
     for (const message of githubSearchQueryIssues(sanitized)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message, path: ["query"] });
+      ctx.addIssue({ code: "custom", message, path: ["query"] });
     }
   });
 
@@ -1405,7 +1405,8 @@ export const fetchUrlInput = z
       .min(1)
       .max(2_048)
       // Shape only. The scheme and host safety checks run in the server handler (ADR-0071).
-      .url()
+      // `.check(z.url())` is the check that the deprecated `.url()` added, after `.trim()`.
+      .check(z.url())
       .refine((u) => /^https?:\/\//i.test(u), {
         message: "url must be an http(s) URL.",
       })

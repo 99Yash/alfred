@@ -65,7 +65,7 @@ async function main() {
   );
 
   console.log(`fallback path    → text=${JSON.stringify(fb.text.trim())}`);
-  console.log(`fallback served  → response.modelId=${fb.response.modelId}`);
+  console.log(`fallback served  → finalStep.response.modelId=${fb.finalStep.response.modelId}`);
 
   // Let the fire-and-forget log writes land.
   await new Promise((r) => setTimeout(r, 1_500));

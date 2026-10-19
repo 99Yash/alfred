@@ -83,7 +83,7 @@ const serverEnvSchema = z
           .map((e) => e.trim().toLowerCase())
           .filter(Boolean),
       )
-      .pipe(z.array(z.string().email()).min(1)),
+      .pipe(z.array(z.email()).min(1)),
     // Not `.email()`: the form `Alfred <noreply@example.com>` is valid.
     RESEND_API_KEY: z.string().min(1),
     RESEND_FROM_EMAIL: z.string().min(1),

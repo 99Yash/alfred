@@ -18,7 +18,7 @@ import {
   isIntegrationSlug,
   isRecord,
   isToolName,
-  jsonRecordSchema,
+  jsonObjectSchema,
   jsonValueSchema,
   memorySourceSchema,
   significanceBandSchema,
@@ -46,7 +46,7 @@ import {
 import { z } from "zod";
 
 // Do not re-export `isoDateTimeStringSchema`; import it from `@alfred/contracts`.
-export { jsonRecordSchema, memorySourceSchema, type MemorySource };
+export { memorySourceSchema, type MemorySource };
 
 /**
  * A stored fact value. Do not narrow it: stored values already use the full shape.
@@ -57,7 +57,7 @@ export const factValueSchema = z.union([
   z.number(),
   z.boolean(),
   z.array(jsonValueSchema),
-  jsonRecordSchema,
+  jsonObjectSchema,
 ]);
 
 export type FactValue = z.infer<typeof factValueSchema>;
@@ -126,7 +126,7 @@ export const syncedSkillRevisionSchema = z.object({
   userId: z.string(),
   kind: z.string(),
   body: z.string(),
-  metadata: jsonRecordSchema,
+  metadata: jsonObjectSchema,
   createdByRunId: z.string().nullable(),
   rowVersion: z.number(),
   createdAt: isoDateTimeStringSchema,

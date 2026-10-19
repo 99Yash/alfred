@@ -10,7 +10,7 @@ import {
   type NewMemoryChunk,
 } from "@alfred/db/schemas";
 import {
-  jsonRecordSchema,
+  jsonObjectSchema,
   memorySourceSchema,
   parseMemorySourceOrDefault,
   type MemorySource,
@@ -45,7 +45,7 @@ export const writeMemoryChunkArgsSchema = memoryChunkInsertSchema
     kind: memoryChunkKindSchema,
     content: z.string().min(1).max(50_000),
     source: memorySourceSchema,
-    metadata: jsonRecordSchema.optional(),
+    metadata: jsonObjectSchema.optional(),
   }) satisfies z.ZodType<
   Pick<NewMemoryChunk, "userId" | "kind" | "content" | "source" | "metadata">
 >;
@@ -59,7 +59,7 @@ export type MemoryChunkRow = Omit<
 > & {
   kind: MemoryChunkKind;
   source: MemorySource;
-  metadata: z.infer<typeof jsonRecordSchema>;
+  metadata: z.infer<typeof jsonObjectSchema>;
   hasEmbedding: boolean;
 };
 
@@ -70,7 +70,7 @@ function rowToChunk(r: MemoryChunk): MemoryChunkRow {
     ...rest,
     kind: memoryChunkKindSchema.parse(kind),
     source: parseMemorySourceOrDefault(source, { kind: "agent" }, `memory_chunks:${r.id}`),
-    metadata: jsonRecordSchema.parse(metadata),
+    metadata: jsonObjectSchema.parse(metadata),
     hasEmbedding: embedding != null,
   };
 }

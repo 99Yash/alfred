@@ -228,15 +228,6 @@ function normalizeVerifiedHostedDomain(value: string | null | undefined): string
   return isValidDomain(normalized) ? normalized : null;
 }
 
-/** Each member forbids the other's keys, so a mixed `{ email, domain }` does not compile. */
-type DeprecatedClassifyInput =
-  | (ConnectedAccountInput & { readonly domain?: never })
-  | (BareDomainInput & { readonly email?: never; readonly verifiedHostedDomain?: never });
-
-function isBareDomainInput(input: DeprecatedClassifyInput): input is BareDomainInput {
-  return "domain" in input;
-}
-
 /**
  * Classify a connected account (ADR-0080 §4b). A role local part wins first:
  * `noreply@acme.com` is not employment at Acme.
@@ -277,16 +268,6 @@ export function classifyBareDomain(input: BareDomainInput): DomainClass | null {
   if (isAmbiguousDomain(domain)) return "ambiguous_domain";
 
   return "corporate_domain";
-}
-
-/**
- * @deprecated Use {@link classifyConnectedAccount} or {@link classifyBareDomain}.
- * `user-model.ts` still calls it.
- */
-export function classifyEmailDomain(input: DeprecatedClassifyInput): DomainClass | null {
-  if (isBareDomainInput(input)) return classifyBareDomain(input);
-
-  return classifyConnectedAccount(input);
 }
 
 /** True if a domain, or the domain of an address, is a free mail provider. */

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { getIntegrationPage } from "~/lib/integrations/integrations";
 import type { MentionConnectionLookup } from "../mention-connection";
@@ -17,7 +17,7 @@ interface MentionController {
   /** Dismiss and start the connect flow. Shared by the button and Enter. */
   connectFromPrompt: () => void;
   backFromConnect: () => void;
-  suggestionKeyDownRef: MutableRefObject<((event: KeyboardEvent) => boolean) | null>;
+  suggestionKeyDownRef: RefObject<((event: KeyboardEvent) => boolean) | null>;
 }
 
 export function useMentionController(connections: MentionConnectionLookup): MentionController {

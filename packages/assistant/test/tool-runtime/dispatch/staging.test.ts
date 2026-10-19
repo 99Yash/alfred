@@ -120,7 +120,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
         action: "spawn_sub_agent",
         riskTier: "no_risk",
         description: "test double — should never execute in these tests",
-        inputSchema: z.object({}).passthrough(),
+        inputSchema: z.object({}).loose(),
         execute: async () => {
           throw new Error("spawn_sub_agent double should not have executed");
         },

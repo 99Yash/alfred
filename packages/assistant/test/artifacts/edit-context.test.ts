@@ -31,7 +31,7 @@ const artifactReferenceSchema = z
     baseContentHash: z.string().optional(),
     content: z.unknown(),
   })
-  .passthrough();
+  .loose();
 
 function parseArtifactReference(message: string): z.infer<typeof artifactReferenceSchema> {
   return artifactReferenceSchema.parse(JSON.parse(message.split("\n").at(-1) ?? ""));
