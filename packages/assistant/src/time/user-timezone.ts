@@ -27,6 +27,3 @@ export function firstValidTimezone(values: readonly unknown[]): IanaTimezone {
 
   return DEFAULT_USER_TIMEZONE;
 }
-
-/** Domain name for {@link isIanaTimezone}, which also accepts `"UTC"` and `"Etc/UTC"`. */
-export const isValidTimezone = isIanaTimezone;

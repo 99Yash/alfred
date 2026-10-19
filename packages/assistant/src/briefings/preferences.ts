@@ -1,4 +1,4 @@
-import { type IanaTimezone } from "@alfred/contracts";
+import { isIanaTimezone, type IanaTimezone } from "@alfred/contracts";
 import {
   briefingHourSchema,
   DEFAULT_BRIEFING_DELIVERY_HOUR,
@@ -6,11 +6,7 @@ import {
   DEFAULT_BRIEFING_TIMEZONE,
 } from "@alfred/contracts/briefing-constants";
 import type { UserSettings } from "@alfred/assistant/settings";
-import {
-  firstValidTimezone,
-  isValidTimezone,
-  TIMEZONE_PREFERENCE_KEYS,
-} from "@alfred/assistant/time";
+import { firstValidTimezone, TIMEZONE_PREFERENCE_KEYS } from "@alfred/assistant/time";
 
 /**
  * Briefing hours and zone live in `user_preferences`. Zone order comes from
@@ -62,7 +58,7 @@ export function resolveBriefingPreferenceValues(
   const eveningHour = parseDeliveryHour(values.eveningHour) ?? DEFAULT_BRIEFING_EVENING_HOUR;
 
   const hasUserOverride =
-    values.timezoneValues.some((value) => isValidTimezone(value)) ||
+    values.timezoneValues.some((value) => isIanaTimezone(value)) ||
     parseDeliveryHour(values.deliveryHour) !== null ||
     parseDeliveryHour(values.eveningHour) !== null;
 

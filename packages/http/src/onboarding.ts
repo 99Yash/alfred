@@ -1,11 +1,10 @@
-import { Errors } from "@alfred/contracts";
+import { Errors, isIanaTimezone } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
 import { eq, sql } from "drizzle-orm";
 import { Elysia, t } from "elysia";
 import { authMacro } from "./middleware/auth";
 import { settings } from "@alfred/assistant/settings";
-import { isValidTimezone } from "@alfred/assistant/time";
 
 /** Onboarding state. `routeToOnboarding` comes from `user.onboarded_at`; the client gates on it. */
 export const onboardingRoutes = new Elysia({ prefix: "/api/me/onboarding", normalize: "typebox" })
@@ -45,7 +44,7 @@ export const onboardingRoutes = new Elysia({ prefix: "/api/me/onboarding", norma
             // Take the browser zone so dates do not default to UTC. Never overwrite a chosen zone.
             const tz = body?.timezone;
 
-            if (tz && isValidTimezone(tz)) {
+            if (tz && isIanaTimezone(tz)) {
               await settings({ userId: u.id, exec: tx }).setIfUnset("timezone", tz);
             }
 

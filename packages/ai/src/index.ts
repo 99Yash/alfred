@@ -2,13 +2,8 @@ export * from "./provider";
 
 export * from "./models";
 
-export {
-  anthropicLeg,
-  googleLeg,
-  openAiLeg,
-  type RouteLeg,
-  type RouteReasoning,
-} from "./provider-adapter";
+// `googleLeg` stays public: an `apps/server` eval probes one Gemini model through it.
+export { googleLeg, type RouteLeg, type RouteReasoning } from "./provider-adapter";
 
 // Named, not `export *`: the transports and the audio sniff are internal.
 export { transcribeAudio, transcriptionConfigured } from "./gateway";

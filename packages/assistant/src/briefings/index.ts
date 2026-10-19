@@ -36,14 +36,9 @@ export type { ComposedBriefing, ComposeBriefingArgs, ComposeInboxBriefingArgs } 
 
 export {
   buildBriefingSourcePanels,
-  referencesFromSections,
   renderBriefingEmailHtml,
-  resolveBriefingReferences,
-  type BriefingReference,
-  type BriefingSegment,
   type RenderBriefingEmailArgs,
   type RenderedBriefingEmail,
-  type ResolveBriefingReferencesResult,
 } from "./references";
 
 export {
