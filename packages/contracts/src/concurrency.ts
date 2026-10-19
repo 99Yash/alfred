@@ -68,16 +68,16 @@ export async function mapConcurrent<T>(
   if (items.length === 0) return;
 
   const workerCount = Math.min(Math.max(1, concurrency), items.length);
-  let index = 0;
+  // One iterator for every worker, so each item goes to exactly one worker.
+  const pending = items.values();
   await runTaskGroup(
     Array.from({ length: workerCount }, () => async (scope) => {
       while (true) {
         throwIfAborted(scope.signal);
-        const current = index++;
+        const next = pending.next();
 
-        if (current >= items.length) return;
-        // SAFETY: `current < items.length` is checked above.
-        await fn(items[current] as T, scope);
+        if (next.done) return;
+        await fn(next.value, scope);
       }
     }),
     opts,

@@ -32,8 +32,8 @@ export function causeChain(err: unknown, maxDepth: number = MAX_CAUSE_CHAIN_DEPT
 // oxlint-disable-next-line anti-slop/no-unknown-returns -- `Error.cause` is `unknown` by the ES spec; the chain walker reads it as received.
 function causeOf(err: Error): unknown {
   if (err.cause !== undefined) return err.cause;
-  // SAFETY: the MCP SDK sets `data` on `SdkError`. This only checks presence.
-  const data: unknown = (err as { readonly data?: unknown }).data;
+  // The MCP SDK sets `data` on `SdkError`.
+  const data = "data" in err ? err.data : undefined;
 
   if (!isIndexable(data)) return undefined;
 

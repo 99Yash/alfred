@@ -28,8 +28,8 @@ import {
   getFreshAccessToken,
   gmailMailbox,
   listEvents,
+  parseStoredGmailMessage,
   type ExtractedAttachment,
-  type GmailMessage,
 } from "@alfred/integrations/google";
 import {
   and,
@@ -467,8 +467,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
           const messages: MeInboxMessage[] = threadRows.map((row) => {
             const meta = parseGmailDocumentMetadata(row.metadata);
             const labelIds = meta.labelIds ?? [];
-            // SAFETY: ingest schema-validated `raw` as a GmailMessage.
-            const raw = (row.raw ?? null) as GmailMessage | null;
+            const raw = parseStoredGmailMessage(row.raw);
             const attachments: ExtractedAttachment[] = raw ? extractAttachments(raw) : [];
             const rawHtml = raw ? extractMessageHtml(raw) : null;
 

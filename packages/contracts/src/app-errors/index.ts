@@ -7,6 +7,7 @@
 import { z } from "zod";
 import { isHttpError } from "../errors";
 import { enumGuard, isRecord } from "../guards";
+import { typedKeys } from "../records";
 import {
   INTEGRATION_DISPLAY_NAMES,
   INTEGRATION_SLUGS,
@@ -35,9 +36,7 @@ const FIX_KIND_SET = {
   none: true,
 } satisfies Record<Fix["kind"], true>;
 
-export const FIX_KINDS: readonly Fix["kind"][] =
-  // SAFETY: `Object.keys` of the exhaustive record enumerates exactly `Fix["kind"]`.
-  Object.keys(FIX_KIND_SET) as Fix["kind"][];
+export const FIX_KINDS: readonly Fix["kind"][] = typedKeys(FIX_KIND_SET);
 
 export const isFixKind = enumGuard(FIX_KINDS);
 
@@ -222,9 +221,7 @@ export type PublicAppError = {
 
 export const FALLBACK_APP_ERROR_CODE = "tool_execution_failed" satisfies StaticAppErrorCode;
 
-export const APP_ERROR_CODES: readonly AppErrorCode[] =
-  // SAFETY: `Object.keys` of the catalog literal enumerates exactly `AppErrorCode`.
-  Object.keys(APP_ERROR_REGISTRY) as AppErrorCode[];
+export const APP_ERROR_CODES: readonly AppErrorCode[] = typedKeys(APP_ERROR_REGISTRY);
 
 export const isAppErrorCode = enumGuard(APP_ERROR_CODES);
 

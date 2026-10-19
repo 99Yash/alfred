@@ -4,6 +4,7 @@ import {
   identityRefSchema,
   identityValueMatchesKind,
   isHttpError,
+  parseJsonText,
   redactSecrets,
   STABLE_ENTITY_ID_VERSION,
   toMessage,
@@ -200,8 +201,18 @@ export const vectorColumn = (name: string, dimensions: number) =>
       return formatVectorFloat32(value);
     },
     fromDriver(value: string): number[] {
-      // SAFETY: toDriver wrote this `[a,b,c]` literal, so it parses back to numbers.
-      return JSON.parse(value) as number[];
+      // pgvector prints the same `[a,b,c]` literal that toDriver writes.
+      const parsed = parseJsonText(value);
+
+      const values = Array.isArray(parsed)
+        ? parsed.filter((item): item is number => typeof item === "number")
+        : [];
+
+      if (!Array.isArray(parsed) || values.length !== parsed.length) {
+        throw new Error(`vectorColumn(${name}): the driver value is not a vector literal`);
+      }
+
+      return values;
     },
   })(name);
 

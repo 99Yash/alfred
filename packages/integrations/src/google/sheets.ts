@@ -12,8 +12,10 @@ const API_BASE = "https://sheets.googleapis.com/v4/spreadsheets";
 /** RAW stores verbatim; USER_ENTERED parses formulas and dates as if typed. */
 export type ValueInputOption = "RAW" | "USER_ENTERED";
 
+const cellValueSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
+
 /** `null` is a blank cell. */
-export type CellValue = string | number | boolean | null;
+export type CellValue = z.infer<typeof cellValueSchema>;
 
 const createSpreadsheetResponseSchema = z.object({
   spreadsheetId: z.string(),
@@ -24,7 +26,7 @@ const createSpreadsheetResponseSchema = z.object({
 const valueRangeSchema = z.object({
   range: z.string().optional(),
   majorDimension: z.string().optional(),
-  values: z.array(z.array(z.unknown())).optional(),
+  values: z.array(z.array(cellValueSchema)).optional(),
 });
 
 const updateValuesResponseSchema = z.object({
@@ -101,8 +103,7 @@ export async function getValues(
 
   return {
     range: parsed.range,
-    // SAFETY: valueRangeSchema validated unknown[][]; Sheets renders cells as CellValue.
-    values: (parsed.values ?? []) as CellValue[][],
+    values: parsed.values ?? [],
   };
 }
 

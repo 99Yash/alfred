@@ -6,6 +6,7 @@
 import { z } from "zod";
 import { isValidDomain, normalizeDomain, splitEmail } from "./domain";
 import { enumGuard } from "./guards";
+import { recordFromKeys } from "./records";
 import { type FactKey } from "./user-model";
 
 // Domain classifier (ADR-0080 §4b)
@@ -301,9 +302,10 @@ export const groundingTierSchema = z.enum(GROUNDING_TIERS);
 export type GroundingTier = (typeof GROUNDING_TIERS)[number];
 
 /** Lower is stronger. */
-export const GROUNDING_TIER_RANK: Readonly<Record<GroundingTier, number>> =
-  // SAFETY: mapping the closed tuple gives one entry per tier; fromEntries erases the key type.
-  Object.fromEntries(GROUNDING_TIERS.map((tier, i) => [tier, i])) as Record<GroundingTier, number>;
+export const GROUNDING_TIER_RANK: Readonly<Record<GroundingTier, number>> = recordFromKeys(
+  GROUNDING_TIERS,
+  (_tier, index) => index,
+);
 
 export function groundingTierRank(tier: GroundingTier): number {
   return GROUNDING_TIER_RANK[tier];

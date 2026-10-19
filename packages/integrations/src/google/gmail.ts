@@ -65,6 +65,13 @@ const messageSchema = z.object({
 
 export type GmailMessage = z.infer<typeof messageSchema>;
 
+/** A persisted `documents.raw` read back as a Gmail message, or `null` when it is not one. */
+export function parseStoredGmailMessage(raw: unknown): GmailMessage | null {
+  const parsed = messageSchema.safeParse(raw);
+
+  return parsed.success ? parsed.data : null;
+}
+
 export interface ListMessagesArgs {
   accessToken: string;
   /** Gmail search query (`newer_than:30d`, `in:inbox`, etc.). */

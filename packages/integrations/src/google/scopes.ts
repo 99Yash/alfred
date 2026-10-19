@@ -1,4 +1,9 @@
-import { GOOGLE_FEATURE_SCOPES, toStringArray, type GoogleFeature } from "@alfred/contracts";
+import {
+  GOOGLE_FEATURE_SCOPES,
+  GOOGLE_FEATURES,
+  toStringArray,
+  type GoogleFeature,
+} from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { integrationCredentials } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
@@ -65,8 +70,5 @@ export async function requireScopes(
 export function featuresFromGrantedScopes(grantedScopes: readonly string[]): GoogleFeature[] {
   const granted = new Set(grantedScopes);
 
-  // SAFETY: GoogleFeature is `keyof typeof GOOGLE_FEATURE_SCOPES`.
-  return (Object.keys(GOOGLE_FEATURE_SCOPES) as GoogleFeature[]).filter((f) =>
-    GOOGLE_FEATURE_SCOPES[f].every((s) => granted.has(s)),
-  );
+  return GOOGLE_FEATURES.filter((f) => GOOGLE_FEATURE_SCOPES[f].every((s) => granted.has(s)));
 }

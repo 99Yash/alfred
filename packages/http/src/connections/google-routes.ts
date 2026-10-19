@@ -2,8 +2,8 @@ import { logger } from "@alfred/logging";
 import {
   ACCOUNT_PERSONAS,
   Errors,
-  GOOGLE_FEATURE_SCOPES,
   integrationRoutePrefix,
+  isGoogleFeature,
   toMessage,
   type CredentialProvider,
   type GoogleFeature,
@@ -85,12 +85,11 @@ export const googleIntegrationRoutes = new Elysia({
             .map((s) => s.trim())
             .filter(Boolean);
 
-          const known = parsed.filter((f): f is GoogleFeature => f in GOOGLE_FEATURE_SCOPES);
+          const known = parsed.filter(isGoogleFeature);
 
           if (known.length !== parsed.length) {
             throw Errors.BadRequestError(
-              // SAFETY: the cast only types the `.includes` argument; `f` prints unchanged.
-              `Unknown feature(s): ${parsed.filter((f) => !known.includes(f as GoogleFeature)).join(", ")}`,
+              `Unknown feature(s): ${parsed.filter((f) => !isGoogleFeature(f)).join(", ")}`,
             );
           }
 

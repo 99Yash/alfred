@@ -6,6 +6,7 @@
 
 import { enumGuard } from "../guards";
 import { GOOGLE_SCOPE, type GoogleFeature, type GoogleScope } from "../google-scopes";
+import { typedKeys } from "../records";
 
 // Hand-written on purpose: each `kind` arm's field set is the contract.
 
@@ -289,9 +290,7 @@ export const INTEGRATIONS = {
 export type IntegrationSlug = keyof typeof INTEGRATIONS;
 
 /** In record order. */
-export const INTEGRATION_SLUGS: readonly IntegrationSlug[] =
-  // SAFETY: the keys of a non-indexed literal are exactly `keyof typeof INTEGRATIONS`.
-  Object.keys(INTEGRATIONS) as IntegrationSlug[];
+export const INTEGRATION_SLUGS: readonly IntegrationSlug[] = typedKeys(INTEGRATIONS);
 
 export const isIntegrationSlug = enumGuard(INTEGRATION_SLUGS);
 

@@ -48,8 +48,7 @@ export function toJsonValue(value: unknown): JsonValue {
   if (value === undefined) return null;
 
   try {
-    // SAFETY: text from `JSON.stringify` parses back to a plain JSON value.
-    return JSON.parse(JSON.stringify(value)) as JsonValue;
+    return parseJsonText(JSON.stringify(value));
   } catch (error) {
     return { unserializable: toMessage(error) };
   }

@@ -1,4 +1,4 @@
-import { getPath } from "@alfred/contracts";
+import { getPath, parseJsonText, recordFromKeys, typedKeys } from "@alfred/contracts";
 import type { ReadonlyJSONValue, ReadTransaction, WriteTransaction } from "replicache";
 import { z } from "zod";
 import {
@@ -104,10 +104,13 @@ function model<
 ): SyncEntityModel<Prefix, TSchema, TKeys> {
   const { key } = identity;
 
-  const identityOf = (value: z.output<TSchema>): SyncIdentity<TSchema, TKeys> => {
-    // SAFETY: TKeys holds only string-valued keys of TSchema's output.
-    return value as z.output<TSchema> & SyncIdentity<TSchema, TKeys>;
-  };
+  // Built from field shapes, not from `schema`, so union schemas work too.
+  const identityValueSchema = z.string();
+  const rowVersionSchema = z.number();
+
+  // TKeys names only string-valued fields, so each read parses as a string.
+  const identityOf = (value: z.output<TSchema>): SyncIdentity<TSchema, TKeys> =>
+    recordFromKeys(key, (name) => identityValueSchema.parse(getPath(value, name)));
 
   const prefix: `${Prefix}/` = `${prefixRaw}/`;
 
@@ -130,10 +133,6 @@ function model<
 
     return parsed;
   };
-
-  // Built from field shapes, not from `schema`, so union schemas work too.
-  const identityValueSchema = z.string();
-  const rowVersionSchema = z.number();
 
   const parsePullVersion = (input: unknown) => {
     return {
@@ -226,12 +225,9 @@ export type SyncedEntity = {
   [Slug in IDBKeys]: SyncedValueFor<Slug>;
 }[IDBKeys];
 
-export const IDB_KEY_NAMES =
-  /* SAFETY: Object.keys preserves every literal object key and adds no keys. */
-  Object.keys(SYNC_MODEL) as IDBKeys[];
+export const IDB_KEY_NAMES: readonly IDBKeys[] = typedKeys(SYNC_MODEL);
 
 /** JSON round-trip a server value into a plain `ReadonlyJSONValue`. */
 function normalizeToReadonlyJSON<T>(value: T): ReadonlyJSONValue {
-  // SAFETY: a JSON round-trip yields a JSON tree, which is ReadonlyJSONValue.
-  return JSON.parse(JSON.stringify(value)) as ReadonlyJSONValue;
+  return parseJsonText(JSON.stringify(value));
 }

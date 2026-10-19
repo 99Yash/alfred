@@ -8,6 +8,9 @@
  * allows permanent delete.
  */
 
+import { enumGuard } from "./guards";
+import { typedKeys } from "./records";
+
 /** Every scope URL, by product then grant. Product keys are not integration slugs. */
 export const GOOGLE_SCOPE = {
   gmail: {
@@ -46,3 +49,8 @@ export const GOOGLE_FEATURE_SCOPES = {
 } as const satisfies Record<string, readonly GoogleScope[]>;
 
 export type GoogleFeature = keyof typeof GOOGLE_FEATURE_SCOPES;
+
+/** In record order. */
+export const GOOGLE_FEATURES: readonly GoogleFeature[] = typedKeys(GOOGLE_FEATURE_SCOPES);
+
+export const isGoogleFeature = enumGuard(GOOGLE_FEATURES);

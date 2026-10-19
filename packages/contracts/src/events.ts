@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { approvalKindSchema } from "./agent";
 import { chatConnectNudgeSchema } from "./chat";
+import { typedKeys } from "./records";
 import { sanitizeErrorMessage } from "./sanitize";
 
 export const CHAT_DELTA_MAX = 16_000;
@@ -240,9 +241,7 @@ export type EventKind = keyof typeof eventPayloadSchemas;
 
 export type EventPayload<K extends EventKind> = z.infer<(typeof eventPayloadSchemas)[K]>;
 
-export const EVENT_KINDS =
-  // SAFETY: EventKind is `keyof typeof eventPayloadSchemas`, so these keys are exactly EventKind.
-  Object.freeze(Object.keys(eventPayloadSchemas) as EventKind[]);
+export const EVENT_KINDS: readonly EventKind[] = Object.freeze(typedKeys(eventPayloadSchemas));
 
 export const eventFrameSchema = z.object({
   id: z.number().int().positive(),

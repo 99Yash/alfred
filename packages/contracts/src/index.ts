@@ -2,6 +2,8 @@ export * from "./bound";
 
 export * from "./guards";
 
+export * from "./records";
+
 export * from "./json";
 
 export * from "./flatten-json";

@@ -4,7 +4,7 @@ import { notionClientForUser } from "./notion/client";
 import { sentryClientForUser } from "./sentry/client";
 import { vercelClientForUser } from "./vercel/client";
 
-import type { CredentialProvider } from "@alfred/contracts";
+import { hasEveryKey, typedKeys, type CredentialProvider } from "@alfred/contracts";
 import { once, type ProviderBindOptions, type ProviderFactory } from "./shared/provider";
 
 /**
@@ -36,14 +36,16 @@ export type Integrations = {
 
 /** Cheap: no client is built and no credential read until a method runs. */
 export function integrations(options: ProviderBindOptions): Integrations {
-  // SAFETY: the loop below adds exactly one getter per registry key.
-  const bound = {} as { [K in keyof ProviderRegistry]: ReturnType<ProviderRegistry[K]> };
+  const bound: Partial<Integrations> = {};
+  const providers = typedKeys(providerRegistry);
 
-  // SAFETY: the registry's keys are exactly keyof ProviderRegistry.
-  for (const key of Object.keys(providerRegistry) as (keyof ProviderRegistry)[]) {
+  for (const key of providers) {
     const build = once(() => providerRegistry[key](options));
     Object.defineProperty(bound, key, { enumerable: true, get: build });
   }
+
+  // The loop above defines every provider, so this cannot fail. It reads no getter.
+  if (!hasEveryKey(bound, providers)) throw new Error("integrations: a provider has no getter");
 
   return bound;
 }

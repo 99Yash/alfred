@@ -4,7 +4,8 @@
  */
 
 import { z } from "zod";
-import { toStringArray } from "./guards";
+import { isRecord, toStringArray } from "./guards";
+import { toJsonValue } from "./json";
 import { TOOL_INPUT_SCHEMAS } from "./tool-schemas";
 import type { ToolName } from "./tools";
 import type { JsonObject, JsonValue } from "./user-model";
@@ -222,8 +223,7 @@ function fieldFromProperty(key: string, prop: JsonObject, required: boolean): Fi
   }
 
   if (type === "array") {
-    // SAFETY: JSON Schema `items` is a schema object.
-    const items = (prop.items as JsonObject | undefined) ?? {};
+    const items = isRecord(prop.items) ? prop.items : {};
     const itemType = primaryType(items);
 
     if (itemType === "string") {
@@ -253,34 +253,35 @@ function deref(schema: JsonObject, root: JsonObject): JsonObject {
 
   if (!ref) return schema;
   const name = ref.replace(/^#\/(\$defs|definitions)\//, "");
-  // SAFETY: `$defs` / `definitions` map names to schema nodes.
-  const defs = (root.$defs ?? root.definitions) as Record<string, JsonObject> | undefined;
+  const defs = root.$defs ?? root.definitions;
+  const def = isRecord(defs) ? defs[name] : undefined;
 
-  return defs?.[name] ?? schema;
+  return isRecord(def) ? def : schema;
 }
 
 function deriveFields(schema: z.ZodType): FieldSpec[] | null {
-  let json: JsonObject;
+  let json: JsonValue;
 
   try {
     // `io: "input"` makes defaulted fields optional. `unrepresentable: "any"` stops
     // `.refine()` from throwing; the server still enforces it.
-    // SAFETY: z.toJSONSchema emits a JSON Schema object.
-    json = z.toJSONSchema(schema, {
-      io: "input",
-      reused: "inline",
-      unrepresentable: "any",
-    }) as JsonObject;
+    json = toJsonValue(
+      z.toJSONSchema(schema, {
+        io: "input",
+        reused: "inline",
+        unrepresentable: "any",
+      }),
+    );
   } catch {
     return null;
   }
 
+  if (!isRecord(json)) return null;
   const root = json;
   const resolved = deref(json, root);
-  // SAFETY: JSON Schema `properties` maps names to schema nodes.
-  const properties = resolved.properties as Record<string, JsonObject> | undefined;
+  const properties = resolved.properties;
 
-  if (!properties) return null;
+  if (!isRecord(properties)) return null;
 
   const required = new Set(
     Array.isArray(resolved.required)
@@ -288,8 +289,9 @@ function deriveFields(schema: z.ZodType): FieldSpec[] | null {
       : [],
   );
 
+  // A boolean schema (`true`) has no keywords, so it reads as an empty one.
   return Object.entries(properties).map(([key, prop]) =>
-    fieldFromProperty(key, deref(prop, root), required.has(key)),
+    fieldFromProperty(key, deref(isRecord(prop) ? prop : {}, root), required.has(key)),
   );
 }
 

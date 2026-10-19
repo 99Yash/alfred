@@ -11,6 +11,7 @@ import {
   type PassthroughTransportKind,
   type SupportedPassthroughSlug,
 } from "./integrations";
+import { recordFromKeys } from "./records";
 import { isToolName, type ToolName } from "./tools";
 
 /** Tool action per transport: `<slug>.request` or `<slug>.graphql`. */
@@ -42,11 +43,10 @@ export function passthroughPreferenceKey(slug: SupportedPassthroughSlug): string
   return `${PASSTHROUGH_PREFERENCE_PREFIX}${slug}`;
 }
 
-export const PASSTHROUGH_PREFERENCE_KEYS: Record<SupportedPassthroughSlug, string> =
-  // SAFETY: the keys are exactly SUPPORTED_PASSTHROUGH_SLUGS; `fromEntries` erases that.
-  Object.fromEntries(
-    SUPPORTED_PASSTHROUGH_SLUGS.map((slug) => [slug, passthroughPreferenceKey(slug)]),
-  ) as Record<SupportedPassthroughSlug, string>;
+export const PASSTHROUGH_PREFERENCE_KEYS: Record<SupportedPassthroughSlug, string> = recordFromKeys(
+  SUPPORTED_PASSTHROUGH_SLUGS,
+  passthroughPreferenceKey,
+);
 
 /** Only an explicit `true`, `"true"`, or `1` turns the tier on. */
 export function isPassthroughPreferenceOn(value: unknown): boolean {

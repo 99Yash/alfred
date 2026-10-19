@@ -3,6 +3,7 @@
  * every slug at once. Otherwise read the field off `INTEGRATIONS[slug]`.
  */
 
+import { pluckField, recordFromKeys } from "../records";
 import {
   INTEGRATION_SLUGS,
   INTEGRATIONS,
@@ -17,28 +18,15 @@ import {
   type LiveProviderSlug,
 } from "./slugs";
 
-/** Build a record over a slug list. */
-export function projectSlugs<K extends string, T>(
-  slugs: readonly K[],
-  project: (slug: K) => T,
-): Readonly<Record<K, T>> {
-  // SAFETY: the keys are exactly `slugs`; Object.fromEntries erases that.
-  return Object.fromEntries(slugs.map((slug) => [slug, project(slug)])) as Record<K, T>;
-}
-
 /** Literal action tuples by slug. `ActionSlug` and `ToolName` derive from this. */
 export type IntegrationActions = {
   readonly [K in IntegrationSlug]: IntegrationEntryOf<K>["actions"];
 };
 
-export const INTEGRATION_ACTIONS: IntegrationActions =
-  // SAFETY: the value under K is `INTEGRATIONS[K].actions` by construction.
-  Object.fromEntries(
-    INTEGRATION_SLUGS.map((slug) => [slug, INTEGRATIONS[slug].actions]),
-  ) as IntegrationActions;
+export const INTEGRATION_ACTIONS: IntegrationActions = pluckField(INTEGRATIONS, "actions");
 
 /** For an unchecked string, call `integrationDisplayName` from `../tools`. */
-export const INTEGRATION_DISPLAY_NAMES: Readonly<Record<IntegrationSlug, string>> = projectSlugs(
+export const INTEGRATION_DISPLAY_NAMES: Readonly<Record<IntegrationSlug, string>> = recordFromKeys(
   INTEGRATION_SLUGS,
   (slug) => INTEGRATIONS[slug].displayName,
 );
@@ -57,7 +45,8 @@ export type LiveProviderEntry = {
 
 /** Live providers in registry order. */
 export const LIVE_PROVIDERS: readonly LiveProviderEntry[] = LIVE_PROVIDER_SLUGS.map(
-  // SAFETY: each element is the member for its own slug. `map` cannot express that pairing.
+  // SAFETY: each element is the member for its own slug. TypeScript cannot pair a spread of
+  // `INTEGRATIONS[slug]` with the member for `slug`, even with a generic slug (a correlated union).
   (slug) =>
     ({ slug, provider: credentialProviderOf(slug), ...INTEGRATIONS[slug] }) as LiveProviderEntry,
 );
