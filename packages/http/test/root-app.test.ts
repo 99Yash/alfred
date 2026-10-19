@@ -1,3 +1,4 @@
+import { logger } from "@alfred/logging";
 import assert from "node:assert/strict";
 import { after, describe, test } from "node:test";
 import { auth } from "@alfred/auth";
@@ -125,7 +126,7 @@ describe("@alfred/http root app", () => {
     handler.mock.mockImplementation(async () => {
       throw new Error("auth handler unavailable");
     });
-    const logError = t.mock.method(console, "error", () => {});
+    const logError = t.mock.method(logger, "error", () => {});
     const authFailure = await app.handle(new Request("http://localhost/api/auth/failure"));
     assert.equal(authFailure.status, 500);
     assert.deepEqual(await authFailure.json(), {

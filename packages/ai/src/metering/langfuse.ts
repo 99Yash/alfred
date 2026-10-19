@@ -1,3 +1,4 @@
+import { logger } from "@alfred/logging";
 import { sha256Hex } from "@alfred/db/hash";
 import { serverEnv } from "@alfred/env/server";
 import { randomUUID } from "node:crypto";
@@ -18,7 +19,6 @@ import {
   APPROVAL_EXPIRY_MS,
   sanitizeErrorMessage,
   summarizeBody,
-  toMessage,
   toStringArray,
 } from "@alfred/contracts";
 import type { JsonObject } from "@alfred/contracts";
@@ -68,7 +68,7 @@ function getRuntime(): LangfuseRuntime | null {
 
     return _runtime;
   } catch (err) {
-    console.warn("[langfuse] init failed:", toMessage(err));
+    logger.warn({ err }, "[langfuse] init failed");
     _runtime = "noop";
 
     return null;
@@ -245,7 +245,7 @@ export function startLangfuseSpan(input: LangfuseSpanInput): LangfuseSpanCloser 
       ),
     );
   } catch (err) {
-    console.warn("[langfuse] span start failed:", toMessage(err));
+    logger.warn({ err }, "[langfuse] span start failed");
   }
 
   // Ad-hoc calls have no run and no later spans, so they take no entry.
@@ -275,7 +275,7 @@ export function startLangfuseSpan(input: LangfuseSpanInput): LangfuseSpanCloser 
         });
         generation?.end();
       } catch (err) {
-        console.warn("[langfuse] span end failed:", toMessage(err));
+        logger.warn({ err }, "[langfuse] span end failed");
       }
     },
     error(message) {
@@ -283,7 +283,7 @@ export function startLangfuseSpan(input: LangfuseSpanInput): LangfuseSpanCloser 
         generation?.update({ level: "ERROR", statusMessage: message });
         generation?.end();
       } catch (err) {
-        console.warn("[langfuse] span error end failed:", toMessage(err));
+        logger.warn({ err }, "[langfuse] span error end failed");
       }
     },
   };
@@ -351,7 +351,7 @@ export function startToolSpan(args: ToolSpanInput): ToolSpanCloser {
       ),
     );
   } catch (err) {
-    console.warn("[langfuse] tool span start failed:", toMessage(err));
+    logger.warn({ err }, "[langfuse] tool span start failed");
   }
 
   return {
@@ -364,7 +364,7 @@ export function startToolSpan(args: ToolSpanInput): ToolSpanCloser {
         });
         span?.end();
       } catch (err) {
-        console.warn("[langfuse] tool span end failed:", toMessage(err));
+        logger.warn({ err }, "[langfuse] tool span end failed");
       }
     },
     error(message) {
@@ -376,7 +376,7 @@ export function startToolSpan(args: ToolSpanInput): ToolSpanCloser {
         });
         span?.end();
       } catch (err) {
-        console.warn("[langfuse] tool span error end failed:", toMessage(err));
+        logger.warn({ err }, "[langfuse] tool span error end failed");
       }
     },
   };
@@ -489,7 +489,7 @@ export function recordDispatchRejection(args: DispatchRejectionInput): void {
     span.update({ level: payload.end.level, statusMessage: payload.end.statusMessage });
     span.end();
   } catch (err) {
-    console.warn("[langfuse] dispatch rejection span failed:", toMessage(err));
+    logger.warn({ err }, "[langfuse] dispatch rejection span failed");
   }
 }
 
@@ -581,7 +581,7 @@ export function startRuntimeSpan(input: RuntimeSpanInput): RuntimeSpanCloser {
       ),
     );
   } catch (err) {
-    console.warn("[langfuse] runtime span start failed:", toMessage(err));
+    logger.warn({ err }, "[langfuse] runtime span start failed");
   }
 
   return {
@@ -596,7 +596,7 @@ export function startRuntimeSpan(input: RuntimeSpanInput): RuntimeSpanCloser {
         });
         span?.end();
       } catch (err) {
-        console.warn("[langfuse] runtime span end failed:", toMessage(err));
+        logger.warn({ err }, "[langfuse] runtime span end failed");
       }
     },
   };
@@ -611,7 +611,7 @@ export async function flushLangfuse(): Promise<void> {
   try {
     await runtime.provider.forceFlush();
   } catch (err) {
-    console.warn("[langfuse] flush failed:", toMessage(err));
+    logger.warn({ err }, "[langfuse] flush failed");
   }
 }
 

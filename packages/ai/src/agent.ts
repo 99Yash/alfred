@@ -1,3 +1,4 @@
+import { logger } from "@alfred/logging";
 import {
   isStepCount,
   type CallWarning,
@@ -184,7 +185,7 @@ export class AlfredAgent<CTX = unknown> {
       `Pin the system to stable user/tool-surface context only; never include run state, timestamps, or ids.`;
 
     if (this.s.strictSystem === false) {
-      console.warn(msg);
+      logger.warn(msg);
       this.pinnedSystem = system;
 
       return;

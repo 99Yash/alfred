@@ -1,3 +1,4 @@
+import { logger } from "@alfred/logging";
 import { db } from "@alfred/db";
 import { runAtomic } from "@alfred/db/helpers";
 import { replicacheClient, replicacheClientGroup } from "@alfred/db/schemas";
@@ -9,7 +10,6 @@ import {
   enqueueChatStorageCleanup,
   enqueueTriageRelabel,
 } from "@alfred/assistant/connections/ingestion";
-import { toMessage } from "@alfred/contracts";
 import { MutatorForbiddenError } from "./authz";
 import type { ReplicacheModel } from "./model";
 import { serverMutators, type MutatorFollowUp, type MutatorResult } from "./write";
@@ -56,7 +56,7 @@ async function applyMutation<K extends MutatorName>(
   const parsed = entry.args.safeParse(rawArgs);
 
   if (!parsed.success) {
-    console.warn("[replicache:push] invalid args for", mutatorName, parsed.error.issues);
+    logger.warn({ mutatorName, issues: parsed.error.issues }, "[replicache:push] invalid args for");
 
     return outcome;
   }
@@ -71,9 +71,9 @@ async function applyMutation<K extends MutatorName>(
     });
   } catch (err) {
     if (err instanceof MutatorForbiddenError) {
-      console.warn("[replicache:push] ACL rejected", mutatorName, err.message);
+      logger.warn({ mutatorName, reason: err.message }, "[replicache:push] ACL rejected");
     } else {
-      console.error("[replicache:push] mutator crashed", mutatorName, toMessage(err));
+      logger.error({ err, mutatorName }, "[replicache:push] mutator crashed");
     }
 
     return outcome;
@@ -164,10 +164,9 @@ export async function handlePush(
     for (const mutation of mutations) {
       if (!isKnownMutator(mutation.name)) {
         await advanceLMID(tx, clientGroupID, mutation.clientID, mutation.id);
-        console.warn(
-          "[replicache:push] unknown mutator",
-          mutation.name,
-          "— LMID advanced to drop it",
+        logger.warn(
+          { mutatorName: mutation.name },
+          "[replicache:push] unknown mutator — LMID advanced to drop it",
         );
         continue;
       }
@@ -200,7 +199,7 @@ export async function handlePush(
     try {
       emitReplicachePokes([userId]);
     } catch (err) {
-      console.warn("[replicache:push] poke failed:", toMessage(err));
+      logger.warn({ err }, "[replicache:push] poke failed");
     }
   }
 
@@ -228,7 +227,7 @@ export async function handlePush(
     try {
       await enqueueTriageRelabel(userId, f.sourceThreadId);
     } catch (err) {
-      console.warn("[replicache:push] triage relabel enqueue failed:", toMessage(err));
+      logger.warn({ err }, "[replicache:push] triage relabel enqueue failed");
     }
   }
 
@@ -242,7 +241,7 @@ export async function handlePush(
     try {
       await enqueueChatStorageCleanup(userId, `chat/${userId}/${f.threadId}/`);
     } catch (err) {
-      console.warn("[replicache:push] chat storage cleanup enqueue failed:", toMessage(err));
+      logger.warn({ err }, "[replicache:push] chat storage cleanup enqueue failed");
     }
   }
 

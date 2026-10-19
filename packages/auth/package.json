@@ -14,6 +14,7 @@
     "@alfred/contracts": "workspace:*",
     "@alfred/db": "workspace:*",
     "@alfred/env": "workspace:*",
+    "@alfred/logging": "workspace:*",
     "better-auth": "catalog:",
     "drizzle-orm": "^0.45.2"
   },

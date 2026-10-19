@@ -1,3 +1,4 @@
+import { logger } from "@alfred/logging";
 import { HttpError } from "@alfred/contracts";
 import assert from "node:assert/strict";
 import { afterEach, describe, test } from "node:test";
@@ -108,8 +109,8 @@ describe("defineProviderClient", () => {
 
   test('bodyPolicy "omit" strips the upstream body from the thrown error', async () => {
     stubFetch(() => new Response("page fragment that must not travel", { status: 400 }));
-    const realError = console.error;
-    console.error = () => {};
+    const realError = logger.error;
+    logger.error = () => {};
 
     try {
       await assert.rejects(
@@ -124,7 +125,7 @@ describe("defineProviderClient", () => {
         },
       );
     } finally {
-      console.error = realError;
+      logger.error = realError;
     }
   });
 

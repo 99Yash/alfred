@@ -1,3 +1,4 @@
+import { logger } from "@alfred/logging";
 import { Elysia, t } from "elysia";
 import { nodeEnv } from "@alfred/env/server";
 import { authMacro } from "../middleware/auth";
@@ -9,7 +10,6 @@ import {
   subscribeUserEvents,
 } from "@alfred/assistant/realtime";
 import type { EventFrame } from "@alfred/contracts/events";
-import { toMessage } from "@alfred/contracts";
 
 /**
  * SSE stream of user events. Replays from `Last-Event-ID` or `?since=`.
@@ -74,7 +74,7 @@ export const events = new Elysia({ prefix: "/api/events", normalize: "typebox" }
                 }
               }
             } catch (err) {
-              console.warn("[events:sse] replay failed for user", userId, toMessage(err));
+              logger.warn({ err, userId }, "[events:sse] replay failed for user");
             }
           }
 

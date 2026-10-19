@@ -1,3 +1,4 @@
+import { logger } from "@alfred/logging";
 import assert from "node:assert/strict";
 import { isIP } from "node:net";
 import { describe, test } from "node:test";
@@ -40,16 +41,16 @@ function fakeRedis() {
 
 /** Silences the outage warning during a deliberate failure. */
 async function withoutWarnings<T>(run: () => Promise<T>): Promise<{ result: T; warnings: number }> {
-  const original = console.warn;
+  const original = logger.warn;
   let warnings = 0;
-  console.warn = () => {
+  logger.warn = () => {
     warnings += 1;
   };
 
   try {
     return { result: await run(), warnings };
   } finally {
-    console.warn = original;
+    logger.warn = original;
   }
 }
 

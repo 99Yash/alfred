@@ -1,4 +1,4 @@
-import { toMessage } from "@alfred/contracts";
+import { logger } from "@alfred/logging";
 import { createRedisConnection, incrementExpiringCounter, type EvalRedis } from "@alfred/db/redis";
 import type { ServerEnv } from "@alfred/env/server";
 import type { BetterAuthOptions } from "better-auth";
@@ -89,7 +89,7 @@ export function createAuthRateLimitStorage(
   fallback = sharedFallback,
 ): RateLimitStorage {
   function degrade(err: unknown): void {
-    console.warn("[auth] rate limit store unavailable, counting in memory:", toMessage(err));
+    logger.warn({ err }, "[auth] rate limit store unavailable, counting in memory");
   }
 
   return {

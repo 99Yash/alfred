@@ -14,6 +14,7 @@
     "@alfred/ai": "workspace:*",
     "@alfred/contracts": "workspace:*",
     "@alfred/db": "workspace:*",
+    "@alfred/logging": "workspace:*",
     "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {

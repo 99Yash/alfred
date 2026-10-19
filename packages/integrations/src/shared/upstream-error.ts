@@ -1,3 +1,4 @@
+import { logger } from "@alfred/logging";
 import { httpErrorFromResponse, summarizeBody, type ErrorBodyPolicy } from "@alfred/contracts";
 
 /**
@@ -17,7 +18,7 @@ export async function throwUpstreamError(args: {
   // The last place that still has the body. Reading it spends the stream.
   if (bodyPolicy === "omit") {
     const raw = await res.text().catch(() => "");
-    console.error(`[${provider}] ${res.status} ${method ?? "GET"} ${url} :: ${summarizeBody(raw)}`);
+    logger.error(`[${provider}] ${res.status} ${method ?? "GET"} ${url} :: ${summarizeBody(raw)}`);
   }
 
   // Safe: `"omit"` discards the body anyway.
