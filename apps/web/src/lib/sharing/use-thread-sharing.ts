@@ -3,7 +3,13 @@ import {
   sharedThreadSummarySchema,
   type SharedThreadSummary,
 } from "@alfred/contracts";
-import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import {
+  noop,
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query";
 import { z } from "zod";
 import { responseErrorMessage } from "~/lib/api-error";
 import { client, parseEdenBody } from "~/lib/eden";
@@ -66,11 +72,14 @@ export function useThreadShares(threadId: string | undefined, enabled: boolean) 
 /** Prefetch on hover or focus, so the first open does not pop the list in mid-animation. */
 export function prefetchThreadShares(queryClient: QueryClient, threadId: string | undefined): void {
   if (!threadId) return;
-  void queryClient.prefetchQuery({
-    queryKey: sharesKey(threadId),
-    queryFn: () => fetchThreadShares(threadId),
-    staleTime: SHARES_STALE_MS,
-  });
+  void queryClient
+    .query({
+      queryKey: sharesKey(threadId),
+      queryFn: () => fetchThreadShares(threadId),
+      staleTime: SHARES_STALE_MS,
+    })
+    // A prefetch is a hint: the dialog's own query reports a failure.
+    .catch(noop);
 }
 
 /** The server can return an existing share for the same page. The dialog treats both the same. */

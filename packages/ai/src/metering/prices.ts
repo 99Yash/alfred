@@ -41,7 +41,7 @@ export interface PriceLookup {
 function parsePricingMetadata(metadata: unknown) {
   const parsed = z
     .object({ pricing: modelPricingMetadataSchema.optional() })
-    .passthrough()
+    .loose()
     .safeParse(metadata);
 
   return parsed.success

@@ -7,8 +7,6 @@ import { cn } from "~/lib/utils";
 /** Only the icon disc carries color; `error` adds a red hairline ring. */
 export type ToastVariant = "default" | "success" | "info" | "warning" | "error";
 
-type LegacyVariant = ToastVariant | "danger";
-
 export type ToastPosition = "top-center" | "top-right" | "bottom-right" | "bottom-center";
 
 interface CallToastOptions {
@@ -16,8 +14,6 @@ interface CallToastOptions {
   description?: ReactNode | undefined;
   /** Sets the default icon and tint. */
   variant?: ToastVariant | undefined;
-  /** @deprecated use `variant`. `"danger"` maps to `"error"`. */
-  type?: LegacyVariant | undefined;
   /** Auto-dismiss in ms. */
   duration?: number | undefined;
   /** `null` hides the icon. */
@@ -61,14 +57,6 @@ const VARIANTS = {
   },
 } satisfies Record<ToastVariant, VariantSpec>;
 
-function normalizeVariant(variant?: ToastVariant, legacy?: LegacyVariant): ToastVariant {
-  if (variant) return variant;
-
-  if (legacy === "danger") return "error";
-
-  return legacy ?? "default";
-}
-
 /**
  * Sonner renders outside the themed subtree, so set the theme as `<AppThemed>` does,
  * or a dark shell gets a white card. `undefined` means system.
@@ -84,13 +72,12 @@ export function callToast({
   message,
   description,
   variant,
-  type,
   duration = 5000,
   icon,
   position = "top-right",
   action,
 }: CallToastOptions): string | number {
-  const intent = normalizeVariant(variant, type);
+  const intent = variant ?? "default";
   const spec = VARIANTS[intent];
   // `null` suppresses; `undefined` falls back to the variant default.
   const leadingIcon = icon === undefined ? spec.icon : icon;
@@ -163,7 +150,7 @@ export function callToast({
   );
 }
 
-type Shorthand = string | (Omit<CallToastOptions, "variant" | "type"> & { message: ReactNode });
+type Shorthand = string | (Omit<CallToastOptions, "variant"> & { message: ReactNode });
 
 function shorthand(variant: ToastVariant, defaultPosition: ToastPosition) {
   return (input: Shorthand): string | number => {

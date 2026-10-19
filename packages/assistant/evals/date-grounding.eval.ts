@@ -103,7 +103,7 @@ evalite<string, TaskOutput, TargetWindow | null>("Agent date grounding", {
 
     const result = await generateText({
       model: route("standard").model(),
-      system,
+      instructions: system,
       messages: [
         { role: "assistant", content: formatRuntimeTimeGrounding(TIMEZONE, NOW) },
         { role: "user", content: input },

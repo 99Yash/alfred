@@ -8,7 +8,7 @@ import {
   bucketSignificance,
   clamp01,
   emailDomain,
-  jsonRecordSchema,
+  jsonObjectSchema,
   toMessage,
   toStringArray,
   type JsonObject,
@@ -182,7 +182,7 @@ export async function runSignificancePass(
     if (commit) {
       pendingWrites.push({
         id: row.id,
-        metadata: { ...jsonRecordSchema.parse(row.metadata), significance },
+        metadata: { ...jsonObjectSchema.parse(row.metadata), significance },
       });
     }
   }

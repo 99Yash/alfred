@@ -57,7 +57,7 @@ const deepenOutputSchema = z.object({
   confidence: confidenceSchema,
   rationale: z.string().min(1).max(MAX_RATIONALE_LEN),
   severityFlag: z.enum(["severe", "normal", "low"]),
-  dossierRequest: z.object({ personEmail: z.string().email() }).optional(),
+  dossierRequest: z.object({ personEmail: z.email() }).optional(),
 });
 
 type DeepenOutput = z.infer<typeof deepenOutputSchema>;

@@ -73,6 +73,7 @@ describe("account linking (CVE-2026-53516)", () => {
     const { auth } = await import("../src/index");
     // `false` restores the bug even on a patched release.
     const linking = auth().options.account?.accountLinking;
+    // oxlint-disable-next-line typescript/no-deprecated -- the guard reads the deprecated option to prove nobody sets it to `false`; better-auth makes the check unconditional when it removes the option.
     assert.notEqual(linking?.requireLocalEmailVerified, false);
   });
 });

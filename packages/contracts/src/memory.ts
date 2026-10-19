@@ -1,13 +1,10 @@
 import { z } from "zod";
 import { jsonObjectSchema } from "./user-model";
 
-/** @deprecated Use `jsonObjectSchema`. */
-export const jsonRecordSchema = jsonObjectSchema;
-
 export const memorySourceSchema = z.object({
   kind: z.enum(["document", "chunk", "tool_call", "cold_start", "user", "agent"]),
   id: z.string().optional(),
-  meta: jsonRecordSchema.optional(),
+  meta: jsonObjectSchema.optional(),
 });
 
 export type MemorySource = z.infer<typeof memorySourceSchema>;

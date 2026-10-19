@@ -400,7 +400,7 @@ export function pinningLookup(
 ): void {
   resolve(
     hostname,
-    { all: true, family: options.family ?? 0, hints: options.hints, verbatim: true },
+    { all: true, family: options.family ?? 0, hints: options.hints, order: "verbatim" },
     (error, addresses) => {
       if (error) {
         callback(error);

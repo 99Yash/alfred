@@ -7,7 +7,7 @@
 
 import { z } from "zod";
 import { HOSTNAME } from "./hostname";
-import { classifyEmailDomain, domainClassSchema } from "./identity-affiliation";
+import { classifyConnectedAccount, domainClassSchema } from "./identity-affiliation";
 import { STANDING_INSTRUCTION_KEY } from "./standing-instructions";
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -537,7 +537,7 @@ export const observationInsertSchema = z
       });
     }
 
-    const expectedDomainClass = classifyEmailDomain({
+    const expectedDomainClass = classifyConnectedAccount({
       email: parsed.data.accountEmail,
       verifiedHostedDomain: parsed.data.verifiedHostedDomain,
     });

@@ -53,7 +53,7 @@ export type { McpRecoveryOperationsPageInput } from "@alfred/contracts";
 // so truncate both sides to milliseconds or the boundary row repeats or drops.
 
 export const mcpRecoveryOrderKeySchema = z
-  .object({ timestamp: z.string().datetime(), invocationId: z.string() })
+  .object({ timestamp: z.iso.datetime(), invocationId: z.string() })
   .strict();
 
 export type McpRecoveryOrderKey = z.infer<typeof mcpRecoveryOrderKeySchema>;

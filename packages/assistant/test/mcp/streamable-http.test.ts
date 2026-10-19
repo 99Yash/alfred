@@ -38,8 +38,8 @@ before(async () => {
       "echo",
       {
         description: "Echo one string through a real Streamable HTTP tools/call.",
-        inputSchema: { value: z.string() },
-        outputSchema: { echoed: z.string() },
+        inputSchema: z.object({ value: z.string() }),
+        outputSchema: z.object({ echoed: z.string() }),
         annotations: { readOnlyHint: true },
       },
       async ({ value }) => {

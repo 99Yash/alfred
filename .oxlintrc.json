@@ -164,6 +164,11 @@
     "typescript/no-implied-eval": "error",
     "typescript/no-unsafe-unary-minus": "error",
     "typescript/no-useless-default-assignment": "error",
+    // no-deprecated: a use of a symbol whose declaration carries `@deprecated`, from a
+    // dependency (zod 4, the AI SDK, React types, TanStack, Sentry) or from this repo. Migrate
+    // to the replacement the tag names; delete a repo-owned deprecated export once its last
+    // caller moves. A site that must read the old symbol carries a directive with the reason.
+    "typescript/no-deprecated": "error",
     // Default `correctness` rules that had hits, each driven to zero before it landed, default
     // options: `void` on an expression that is already `void`, a spread of a string (split a
     // string into code points with `Array.from`, which states the intent), a union or

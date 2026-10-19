@@ -65,13 +65,13 @@ const classifierModuleSchema = z
   .object({
     classifyEmail: z.function({ input: [z.unknown()], output: z.unknown() }),
   })
-  .passthrough();
+  .loose();
 
 const classifierOutputSchema = z
   .object({
     classification: triageClassificationSchema,
   })
-  .passthrough();
+  .loose();
 
 type ReplaySnapshot = z.infer<typeof replaySnapshotSchema>;
 

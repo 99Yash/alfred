@@ -109,7 +109,7 @@ export const authorableWorkflowTriggerSchema = z
 
     if (!isLikelyValidWorkflowCron(trigger.schedule)) {
       ctx.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         message: "Use a valid 5-field cron expression",
         path: ["schedule"],
       });
@@ -117,7 +117,7 @@ export const authorableWorkflowTriggerSchema = z
 
     if (trigger.timezone && !isIanaTimezone(trigger.timezone)) {
       ctx.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         message: `'${trigger.timezone}' is not a valid IANA timezone`,
         path: ["timezone"],
       });

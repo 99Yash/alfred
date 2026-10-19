@@ -86,7 +86,7 @@ export async function runBriefingAgent(
   const result = await meteredGenerateText(
     {
       model,
-      system,
+      instructions: system,
       messages: seed,
       tools: bag.tools,
       // If `dump_briefing` is not reached in this budget, fail rather than burn tokens.

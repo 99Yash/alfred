@@ -233,7 +233,7 @@ async function runBriefingScenario(input: ScenarioRun): Promise<ComposeOutput> {
   try {
     await generateText({
       model: modelForLane(modelLane),
-      system,
+      instructions: system,
       messages: [
         {
           role: "user",

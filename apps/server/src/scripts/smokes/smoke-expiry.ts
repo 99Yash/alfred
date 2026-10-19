@@ -156,7 +156,7 @@ async function backdateExpiry(stagingId: string): Promise<void> {
 
 const sendDraftInput = z
   .object({
-    to: z.array(z.string().email()).min(1).max(25),
+    to: z.array(z.email()).min(1).max(25),
     subject: z.string().min(1).max(1000),
     bodyText: z.string().min(1).max(50_000),
   })

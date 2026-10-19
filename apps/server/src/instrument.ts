@@ -14,7 +14,9 @@ if (SENTRY_DSN && (NODE_ENV === "production" || SENTRY_ENABLE_DEV)) {
     ...(SENTRY_RELEASE ? { release: SENTRY_RELEASE } : {}),
     // Tracing costs money. 0 drops the latency view only, not error capture (ADR-0023).
     tracesSampleRate: SENTRY_TRACES_SAMPLE_RATE ?? (NODE_ENV === "production" ? 0 : 1),
-    sendDefaultPii: false,
+    // No `dataCollection` on purpose. Unset, SDK 10 keeps its non-PII defaults: no user
+    // fields, no HTTP bodies, PII headers filtered. A set `dataCollection` starts from the
+    // collect-all defaults instead.
     // Same SENSITIVE_LOG_PATHS table as Pino's `redact` (ADR-0038).
     beforeSend(event) {
       return redactSensitiveLogPaths(event);

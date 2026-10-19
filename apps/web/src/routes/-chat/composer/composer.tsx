@@ -5,7 +5,7 @@ import {
   useState,
   type ClipboardEvent,
   type DragEvent,
-  type FormEvent,
+  type SubmitEvent,
   type RefObject,
 } from "react";
 import type { JSONContent } from "@tiptap/react";
@@ -223,7 +223,7 @@ export function Composer({
   const handleSteer = useCallback(() => submit("steer"), [submit]);
   const steerArmed = useSteerModifier(formRef, Boolean(onSteer));
 
-  const onFormSubmit = (e: FormEvent<HTMLFormElement>) => {
+  const onFormSubmit = (e: SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
     handleSubmit();
   };

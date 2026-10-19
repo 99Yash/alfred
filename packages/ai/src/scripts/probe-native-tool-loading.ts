@@ -523,11 +523,11 @@ async function captureStream(
   const stream = streamText(generateOptions(model, tools));
   const parts: JsonValue[] = [];
 
-  for await (const part of stream.fullStream) {
+  for await (const part of stream.stream) {
     parts.push(sanitizeJson(toJsonValue(part), ids));
   }
 
-  const response = await stream.response;
+  const { response } = await stream.finalStep;
   const responseMessages = await stream.responseMessages;
 
   return {

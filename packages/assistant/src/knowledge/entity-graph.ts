@@ -3,7 +3,7 @@ import { entities, entityInsertSchema, type Entity, type NewEntity } from "@alfr
 import {
   canonicalizeIdentityValue,
   isNonEmptyString,
-  jsonRecordSchema,
+  jsonObjectSchema,
   parseEmailAddress,
   type JsonObject,
 } from "@alfred/contracts";
@@ -56,7 +56,7 @@ const upsertEntityArgsSchema = entityInsertSchema
     kind: entityKindSchema,
     canonicalName: z.string().min(1).max(500),
     aliases: z.array(z.string()).optional(),
-    metadata: jsonRecordSchema.optional(),
+    metadata: jsonObjectSchema.optional(),
   }) satisfies z.ZodType<
   Pick<NewEntity, "userId" | "kind" | "canonicalName" | "aliases" | "metadata">
 >;
@@ -70,7 +70,7 @@ export type EntityRow = Omit<
 > & {
   kind: EntityKind;
   aliases: string[];
-  metadata: z.infer<typeof jsonRecordSchema>;
+  metadata: z.infer<typeof jsonObjectSchema>;
 };
 
 function rowToEntity(r: Entity): EntityRow {
@@ -80,7 +80,7 @@ function rowToEntity(r: Entity): EntityRow {
     kind: entityKindSchema.parse(r.kind),
     canonicalName: r.canonicalName,
     aliases: aliasesSchema.parse(r.aliases),
-    metadata: jsonRecordSchema.parse(r.metadata),
+    metadata: jsonObjectSchema.parse(r.metadata),
     rowVersion: r.rowVersion,
   };
 }
@@ -130,7 +130,7 @@ export async function upsertEntity(args: UpsertEntityArgs, tx?: DbTransaction): 
       new Set([...aliasesSchema.parse(existing.aliases), ...aliases]),
     );
 
-    const mergedMetadata = { ...jsonRecordSchema.parse(existing.metadata), ...metadata };
+    const mergedMetadata = { ...jsonObjectSchema.parse(existing.metadata), ...metadata };
 
     const [row] = await ex
       .update(entities)
@@ -220,7 +220,7 @@ export async function upsertContactByAlias(
       .limit(1);
 
     const metadata = mergeContactMetadata(
-      existing ? jsonRecordSchema.parse(existing.metadata) : {},
+      existing ? jsonObjectSchema.parse(existing.metadata) : {},
       args.buildMetadata,
     );
 
@@ -395,7 +395,7 @@ export async function previewContactKinds(
 
   for (const row of rows) {
     const kind = contactKindSchema.parse(row.kind);
-    const metadata = jsonRecordSchema.parse(row.metadata);
+    const metadata = jsonObjectSchema.parse(row.metadata);
 
     for (const alias of aliasesSchema.parse(row.aliases)) {
       const normalized = canonicalizeIdentityValue("email", alias);
