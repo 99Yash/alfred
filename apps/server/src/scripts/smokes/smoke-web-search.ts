@@ -5,6 +5,7 @@
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/smokes/smoke-web-search.ts
  */
 
+import { z } from "zod";
 import { DEFAULT_USER_TIMEZONE } from "@alfred/assistant/time";
 import { toolExecuteContext } from "@alfred/assistant/tool-runtime/context";
 import { registerBuiltinTools } from "@alfred/assistant/tool-runtime/builtin-tools";
@@ -12,6 +13,13 @@ import {
   registerSystemToolProductAdapters,
   unregisterSystemToolProductAdapters,
 } from "@alfred/assistant/runtime/test-support";
+
+/** The fields of the `system.web_search` result that this smoke reads. */
+const webSearchResultSchema = z.object({
+  ok: z.boolean(),
+  answer: z.string(),
+  citations: z.array(z.object({ url: z.string(), title: z.string().optional() })),
+});
 
 async function main(): Promise<void> {
   const registry = registerBuiltinTools();
@@ -22,8 +30,7 @@ async function main(): Promise<void> {
   if (!tool) throw new Error("system.web_search did not register");
   console.log(`✓ registered: ${tool.name} (riskTier=${tool.riskTier})`);
 
-  // SAFETY: web_search's own tool-result envelope; the smoke only logs it.
-  const result = (await tool.execute(
+  const output = await tool.execute(
     { query: "What are Cloudflare Durable Object facets?" },
     toolExecuteContext({
       runId: "smoke-run",
@@ -35,14 +42,16 @@ async function main(): Promise<void> {
       runContext: { caller: "boss", interaction: "background" },
       timezone: DEFAULT_USER_TIMEZONE,
     }),
-  )) as { ok: boolean; answer: string; citations: string[] };
+  );
+
+  const result = webSearchResultSchema.parse(output);
 
   console.log(`✓ ok=${result.ok}`);
   console.log(`✓ answer (${result.answer.length} chars):\n`);
   console.log(result.answer.slice(0, 1200));
   console.log(`\n✓ ${result.citations.length} citations:`);
 
-  for (const c of result.citations.slice(0, 8)) console.log(`  - ${c}`);
+  for (const c of result.citations.slice(0, 8)) console.log(`  - ${c.title ?? c.url}`);
   unregisterSystemToolProductAdapters();
 
   if (!result.ok || result.answer.length === 0) {

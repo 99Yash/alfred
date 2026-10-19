@@ -135,7 +135,7 @@ const failures = [];
  * @returns {string}
  */
 function capturedStdout(error) {
-  const stdout = /** @type {{ stdout?: unknown }} */ (error).stdout;
+  const stdout = error instanceof Error ? Reflect.get(error, "stdout") : undefined;
 
   // oxlint-disable-next-line anti-slop/no-runtime-typeof -- normalizes exec-error stdout; the shape read IS the boundary parse
   return typeof stdout === "string" ? stdout : "";

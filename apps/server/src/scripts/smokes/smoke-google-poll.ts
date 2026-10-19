@@ -6,6 +6,7 @@
  *
  *   $ pnpm tsx --env-file=.env src/scripts/smokes/smoke-google-poll.ts
  */
+import { getStringPath } from "@alfred/contracts";
 import { closeConnections, warmPool } from "@alfred/db";
 import { db } from "@alfred/db";
 import { ingestionState, integrationCredentials } from "@alfred/db/schemas";
@@ -92,10 +93,7 @@ async function loadCursor(credentialId: string): Promise<string | null> {
       and(eq(ingestionState.credentialId, credentialId), eq(ingestionState.stream, "messages")),
     );
 
-  // SAFETY: the Gmail cursor writes ingestion_state.state with a historyId.
-  const state = rows[0]?.state as { historyId?: string | null } | undefined;
-
-  return state?.historyId ?? null;
+  return getStringPath(rows[0]?.state, "historyId") ?? null;
 }
 
 function compareHistoryIds(a: string, b: string): number {

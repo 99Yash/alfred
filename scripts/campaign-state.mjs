@@ -115,10 +115,8 @@ function withLock(statePath, body) {
       mkdirSync(lockDir);
       break;
     } catch (error) {
-      // `mkdirSync` throws only a Node `ErrnoException`, so this reads the same
-      // property the untyped version read, on the same value, and rethrows the same
-      // one. The cast states that warrant; it does not create a new branch.
-      if (/** @type {NodeJS.ErrnoException} */ (error).code !== "EEXIST") throw error;
+      // `mkdirSync` throws a Node `ErrnoException`; anything but EEXIST is rethrown as it was.
+      if (!(error instanceof Error) || Reflect.get(error, "code") !== "EEXIST") throw error;
       let age = 0;
 
       try {

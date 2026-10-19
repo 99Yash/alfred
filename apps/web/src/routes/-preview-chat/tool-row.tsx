@@ -65,7 +65,9 @@ export function ToolRow(props: ToolRowProps) {
   );
 }
 
-export function SearchRow(props: Omit<ToolRowProps, "done">) {
-  // SAFETY: SearchRow supplies `done`; the Omit type carries every other member.
-  return <ToolRow {...(props as ToolRowProps)} done />;
+/** `Omit` on each member, so the integration-or-icon union survives. */
+type WithoutDone<Props> = Props extends unknown ? Omit<Props, "done"> : never;
+
+export function SearchRow(props: WithoutDone<ToolRowProps>) {
+  return <ToolRow {...props} done />;
 }

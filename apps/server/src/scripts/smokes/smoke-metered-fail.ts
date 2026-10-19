@@ -4,6 +4,7 @@
  *
  *   $ pnpm tsx --env-file=.env src/scripts/smokes/smoke-metered-fail.ts
  */
+import { getStringPath } from "@alfred/contracts";
 import { metered } from "@alfred/ai";
 import { closeConnections, warmPool } from "@alfred/db";
 import { db } from "@alfred/db";
@@ -54,10 +55,8 @@ async function main() {
 
   if (Number(row.costUsd) !== 0)
     throw new Error(`expected cost_usd=0 on failure, got ${row.costUsd}`);
-  // SAFETY: metered() writes api_call_log.error with a message on failure.
-  const err = row.error as { message?: string } | null;
 
-  if (err?.message !== "synthetic failure for smoke test") {
+  if (getStringPath(row.error, "message") !== "synthetic failure for smoke test") {
     throw new Error(`error column not populated correctly: ${JSON.stringify(row.error)}`);
   }
 

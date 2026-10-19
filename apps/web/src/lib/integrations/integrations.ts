@@ -4,6 +4,7 @@ import {
   INTEGRATIONS,
   integrationRoutePrefix,
   isCatalogSlug,
+  recordFromKeys,
   type CatalogSlug,
   type IntegrationSlug,
   type LiveProviderSlug,
@@ -315,7 +316,11 @@ function buildPage(slug: CatalogSlug): IntegrationPage {
 }
 
 /** Every catalog page, in registry order. */
-export const INTEGRATION_PAGES: ReadonlyArray<IntegrationPage> = CATALOG_SLUGS.map(buildPage);
+const INTEGRATION_PAGE_BY_SLUG = recordFromKeys(CATALOG_SLUGS, buildPage);
+
+export const INTEGRATION_PAGES: ReadonlyArray<IntegrationPage> = CATALOG_SLUGS.map(
+  (slug) => INTEGRATION_PAGE_BY_SLUG[slug],
+);
 
 export const CATEGORY_ORDER: ReadonlyArray<IntegrationCategory> = [
   "Connected",
@@ -326,8 +331,7 @@ export const CATEGORY_ORDER: ReadonlyArray<IntegrationCategory> = [
 ];
 
 export function integrationPage(slug: CatalogSlug): IntegrationPage {
-  // SAFETY: `INTEGRATION_PAGES` maps every catalog slug, so the page exists.
-  return INTEGRATION_PAGES.find((page) => page.slug === slug) as IntegrationPage;
+  return INTEGRATION_PAGE_BY_SLUG[slug];
 }
 
 /** The page for an unchecked string, or `undefined`. */

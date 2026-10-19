@@ -5,7 +5,7 @@
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/smokes/smoke-agent.ts
  */
 import { randomUUID } from "node:crypto";
-import { getStringPath } from "@alfred/contracts";
+import { getStringPath, wakeConditionSchema } from "@alfred/contracts";
 import { startRun, wakeRun, closeAgentQueue } from "@alfred/assistant/execution";
 import { warmPool } from "@alfred/db";
 import { db } from "@alfred/db";
@@ -83,8 +83,7 @@ async function main() {
     throw new Error(`expected waiting, got ${parked.status}`);
   }
 
-  // SAFETY: the park path writes agent_runs.wakeCondition with this shape.
-  const wake = parked.wakeCondition as { kind: string; approvalId: string };
+  const wake = wakeConditionSchema.parse(parked.wakeCondition);
   console.log(`[smoke] interrupted; wake=${JSON.stringify(wake)}`);
 
   if (wake.kind !== "hil") throw new Error(`unexpected wake kind ${wake.kind}`);

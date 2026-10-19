@@ -10,7 +10,12 @@ import {
   type StreamTextResult,
   type ToolSet,
 } from "ai";
-import { identifyLanguageModel, isModelObject, normalizeProvider } from "../models";
+import {
+  identifyLanguageModel,
+  isModelObject,
+  normalizeProvider,
+  type IdentifiableModel,
+} from "../models";
 import { providerForServedModel } from "../provider-adapter";
 import type { JsonObject } from "@alfred/contracts";
 import {
@@ -29,7 +34,7 @@ interface ModelIdentifiers {
   model: string;
 }
 
-function modelIdsFor(model: LanguageModel): ModelIdentifiers {
+function modelIdsFor(model: IdentifiableModel): ModelIdentifiers {
   const { provider, modelId } = identifyLanguageModel(model);
 
   return { provider, model: modelId };
@@ -222,16 +227,51 @@ export function usageFromSdk(usage: LanguageModelUsage | undefined, cacheWriteTt
   };
 }
 
-export type GenerateTextArgs = Parameters<typeof generateText>[0];
+/**
+ * `generateText` arguments with no runtime context and no structured output. Each call names
+ * the same generics, so the call and its result keep one instantiation.
+ */
+export type GenerateTextArgs = Parameters<typeof generateText<ToolSet, never, never>>[0];
 
 type EmbedArgs = Parameters<typeof embed>[0];
 
 type ObjectSchema<O> = Parameters<typeof Output.object<O>>[0]["schema"];
 
-export interface MeteredGenerateObjectArgs<O> extends Omit<GenerateTextArgs, "output"> {
+/**
+ * `Omit` applied to each member of a union. A plain `Omit` merges the SDK's
+ * `prompt`-or-`messages` union into one object, and the result no longer fits `generateText`.
+ */
+type OmitEach<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+
+// The start callbacks name the output type, and {@link GenerateTextArgs} types them for no output.
+type ObjectRequestArgs = OmitEach<
+  GenerateTextArgs,
+  "output" | "onStart" | "experimental_onStart" | "onStepStart" | "experimental_onStepStart"
+>;
+
+interface ObjectOutputOptions<O> {
   schema: ObjectSchema<O>;
   schemaName?: string;
   schemaDescription?: string;
+}
+
+export type MeteredGenerateObjectArgs<O> = ObjectRequestArgs & ObjectOutputOptions<O>;
+
+/**
+ * The request part of {@link MeteredGenerateObjectArgs}. A rest pattern on the generic type
+ * gives a plain `Omit`, so this non-generic function does the split.
+ */
+function objectRequestArgs(
+  args: ObjectRequestArgs & ObjectOutputOptions<unknown>,
+): ObjectRequestArgs {
+  const {
+    schema: _schema,
+    schemaName: _schemaName,
+    schemaDescription: _description,
+    ...rest
+  } = args;
+
+  return rest;
 }
 
 export interface AttributedCall extends CallAttribution {
@@ -260,15 +300,11 @@ export async function meteredGenerateText(
 
   const callArgs = withDefaultTimeout(args);
 
-  // eslint-disable-next-line anti-slop/no-chained-type-assertions -- SDK Output interface not nameable (namespace alias only); pin public return to <ToolSet, never> for callers without structured output
-  return metered(meta, () => generateText(callArgs), ((
-    result: GenerateTextResult<ToolSet, never, never>,
-  ) =>
-    extractTextUsage(
-      result,
-      attribution.cacheWriteTtl,
-      args.model,
-    )) as never) as unknown as Promise<GenerateTextResult<ToolSet, never, never>>;
+  return metered(
+    meta,
+    () => generateText<ToolSet, never, never>(callArgs),
+    (result) => extractTextUsage(result, attribution.cacheWriteTtl, args.model),
+  );
 }
 
 /** Structured output through `generateText` + `Output.object`. */
@@ -276,7 +312,8 @@ export async function meteredGenerateObject<O>(
   args: MeteredGenerateObjectArgs<O>,
   attribution: AttributedCall = {},
 ): Promise<GenerateTextResult<ToolSet, never, ReturnType<typeof Output.object<O>>>> {
-  const { schema, schemaName, schemaDescription, ...rest } = args;
+  const { schema, schemaName, schemaDescription } = args;
+  const rest = objectRequestArgs(args);
   const ids = resolveIds(rest.model, attribution);
 
   const meta: MeteredMeta = {
@@ -286,10 +323,9 @@ export async function meteredGenerateObject<O>(
     input: captureInput(rest),
   };
 
-  type Result = GenerateTextResult<ToolSet, never, ReturnType<typeof Output.object<O>>>;
+  type ObjectOutput = ReturnType<typeof Output.object<O>>;
 
-  // eslint-disable-next-line anti-slop/no-chained-type-assertions -- discriminated Prompt union widens across Omit/spread; original args already satisfied the union
-  const callArgs = {
+  const callArgs: Parameters<typeof generateText<ToolSet, never, ObjectOutput>>[0] = {
     ...rest,
     timeout: rest.timeout ?? DEFAULT_LLM_TIMEOUT_MS,
     output: Output.object({
@@ -297,20 +333,17 @@ export async function meteredGenerateObject<O>(
       ...(schemaName !== undefined ? { name: schemaName } : {}),
       ...(schemaDescription !== undefined ? { description: schemaDescription } : {}),
     }),
-  } as unknown as Parameters<typeof generateText>[0];
+  };
 
-  // eslint-disable-next-line anti-slop/no-chained-type-assertions -- SDK Output interface not nameable (namespace alias only); pin public return to the structured-output Result
-  return (await metered(meta, () => generateText(callArgs), ((
-    result: GenerateTextResult<ToolSet, never, never>,
-  ) =>
-    extractTextUsage(
-      result,
-      attribution.cacheWriteTtl,
-      rest.model,
-    )) as never)) as unknown as Result;
+  return metered(
+    meta,
+    () => generateText<ToolSet, never, ObjectOutput>(callArgs),
+    (result) => extractTextUsage(result, attribution.cacheWriteTtl, rest.model),
+  );
 }
 
-export type StreamTextArgs = Parameters<typeof streamText>[0];
+/** `streamText` arguments with the generics of {@link GenerateTextArgs}. */
+export type StreamTextArgs = Parameters<typeof streamText<ToolSet, never, never>>[0];
 
 type StreamTextEndEvent = Parameters<NonNullable<StreamTextArgs["onEnd"]>>[0];
 
@@ -337,9 +370,8 @@ export function meteredStreamText(
   const callerOnAbort = args.onAbort;
   const timeout = args.timeout ?? DEFAULT_STREAM_TIMEOUT;
 
-  // SAFETY: meteredStream's signature erases streamText's generics; this restores them.
   return meteredStream(meta, ({ finish, fail, abort }) =>
-    streamText({
+    streamText<ToolSet, never, never>({
       ...args,
       timeout,
       onEnd: (event: StreamTextEndEvent) => {
@@ -380,7 +412,7 @@ export function meteredStreamText(
         callerOnAbort?.(event);
       },
     }),
-  ) as StreamTextResult<ToolSet, never, never>;
+  );
 }
 
 /** Sum the usage of the steps that finished before an abort. */
@@ -458,11 +490,10 @@ function withDefaultTimeout(args: GenerateTextArgs): GenerateTextArgs {
   return { ...args, timeout: DEFAULT_LLM_TIMEOUT_MS };
 }
 
-function resolveIds(model: unknown, attribution: AttributedCall): ModelIdentifiers {
+function resolveIds(model: IdentifiableModel, attribution: AttributedCall): ModelIdentifiers {
   if (attribution.provider && attribution.model) {
     return { provider: attribution.provider, model: attribution.model };
   }
 
-  // SAFETY: callers pass the model of the request being metered; `unknown` only hides the SDK import.
-  return modelIdsFor(model as LanguageModel);
+  return modelIdsFor(model);
 }

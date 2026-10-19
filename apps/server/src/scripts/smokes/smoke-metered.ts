@@ -4,6 +4,7 @@
  *
  *   $ pnpm tsx --env-file=.env src/scripts/smokes/smoke-metered.ts
  */
+import { getStringPath } from "@alfred/contracts";
 import { flushLangfuse, route, meteredGenerateText } from "@alfred/ai";
 import { closeConnections, warmPool } from "@alfred/db";
 import { db } from "@alfred/db";
@@ -60,11 +61,10 @@ async function main() {
     );
   }
 
-  // SAFETY: the metering layer writes requestMeta with the idempotency key.
-  const meta = row.requestMeta as { idempotencyKey?: string } | null;
+  const storedKey = getStringPath(row.requestMeta, "idempotencyKey");
 
-  if (meta?.idempotencyKey !== idempotencyKey) {
-    throw new Error(`idempotency key not persisted: got ${meta?.idempotencyKey}`);
+  if (storedKey !== idempotencyKey) {
+    throw new Error(`idempotency key not persisted: got ${storedKey}`);
   }
 
   console.log("\n[smoke-metered] PASS");

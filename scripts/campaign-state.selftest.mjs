@@ -39,6 +39,26 @@ function freshState(itemCount) {
   return { dir, statePath };
 }
 
+/**
+ * One stream that a failed `execFileSync` captured, or `""` when it carries none.
+ *
+ * @param {unknown} error
+ * @param {"stdout" | "stderr"} name
+ * @returns {string}
+ */
+function capturedStream(error, name) {
+  if (!(error instanceof Error) || !(name in error)) return "";
+  const stream = Reflect.get(error, name);
+
+  return isString(stream) ? stream : "";
+}
+
+/** @param {unknown} value @returns {value is string} */
+function isString(value) {
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- an exec error carries its streams untyped; this guard IS the boundary read.
+  return typeof value === "string";
+}
+
 function run(args, options = {}) {
   try {
     return {
@@ -46,11 +66,12 @@ function run(args, options = {}) {
       stdout: execFileSync(process.execPath, [SCRIPT, ...args], { encoding: "utf8", ...options }),
     };
   } catch (error) {
-    // `execFileSync` throws an Error carrying the child's captured streams. The
-    // assertion names the two fields this reads; the `??` still handles their absence.
-    const failed = /** @type {{stdout?: string, stderr?: string}} */ (error);
-
-    return { ok: false, stdout: failed.stdout ?? "", stderr: failed.stderr ?? "" };
+    // `execFileSync` throws an Error carrying the child's captured streams.
+    return {
+      ok: false,
+      stdout: capturedStream(error, "stdout"),
+      stderr: capturedStream(error, "stderr"),
+    };
   }
 }
 

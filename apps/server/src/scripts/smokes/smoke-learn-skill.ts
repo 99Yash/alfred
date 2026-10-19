@@ -9,6 +9,7 @@
  *   - At least one user row (sign in once first).
  *   - A key for the cheap-tier model.
  */
+import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import { LEARN_SKILL_WORKFLOW_SLUG } from "@alfred/assistant/skills";
 import { startRun, closeAgentQueue } from "@alfred/assistant/execution";
@@ -71,6 +72,16 @@ async function pollRun(runId: string, label: string) {
 
   throw new Error(`timed out waiting for ${label} on run ${runId}`);
 }
+
+/** The fields of the learn-skill workflow output that this smoke reads. */
+const learnSkillOutputSchema = z.object({
+  skillId: z.string(),
+  revisionId: z.string(),
+  skillStatus: z.string(),
+  factsProposed: z.number(),
+  factsSkipped: z.number(),
+  mentionCount: z.number(),
+});
 
 async function main() {
   await warmPool();
@@ -158,15 +169,7 @@ async function main() {
   const run = await pollRun(runId, "learn-skill run");
   assert(run.status === "completed", `run status=${run.status} error=${JSON.stringify(run.error)}`);
 
-  // SAFETY: the learn-skill workflow's own output shape.
-  const out = run.output as {
-    skillId: string;
-    revisionId: string;
-    skillStatus: string;
-    factsProposed: number;
-    factsSkipped: number;
-    mentionCount: number;
-  };
+  const out = learnSkillOutputSchema.parse(run.output);
 
   console.log(
     `[smoke-learn-skill] output: revisionId=${out.revisionId} status=${out.skillStatus} ` +

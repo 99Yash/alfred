@@ -1,4 +1,4 @@
-import type { IntegrationBrandKey } from "@alfred/contracts";
+import { typedEntries, type IntegrationBrandKey } from "@alfred/contracts";
 import { Check, Globe2, Users, type LucideIcon } from "lucide-react";
 import { useId } from "react";
 import {
@@ -141,11 +141,12 @@ const BRAND_ACCENT = {
   polylane: "#a8e840",
 } satisfies Partial<Record<IntegrationBrand, string>>;
 
+const BRAND_ACCENT_BY_BRAND: ReadonlyMap<IntegrationBrand, string> = new Map(
+  typedEntries(BRAND_ACCENT),
+);
+
 export function brandAccent(brand: IntegrationBrand): string | undefined {
-  return Object.hasOwn(BRAND_ACCENT, brand)
-    ? // SAFETY: `hasOwn` proved `brand` is one of the literal's own keys.
-      BRAND_ACCENT[brand as keyof typeof BRAND_ACCENT]
-    : undefined;
+  return BRAND_ACCENT_BY_BRAND.get(brand);
 }
 
 const TILE_SIZE_CLASS = {

@@ -112,15 +112,15 @@ export async function getPrice(provider: string, model: string): Promise<PriceLo
 }
 
 /** Used only when the DB row has no window, so a fresh checkout boots before the first price sync. */
-const FALLBACK_CONTEXT_WINDOWS = {
-  "anthropic/claude-sonnet-4-6": 1_000_000,
-  "anthropic/claude-opus-4-8": 1_000_000,
-  "google/gemini-2.5-flash": 1_048_576,
-  "google/gemini-2.5-flash-lite": 1_048_576,
-  "google/gemini-3.5-flash": 1_048_576,
-  "google/gemini-3.8-flash": 1_048_576,
-  "openai/gpt-6-luna": 1_050_000,
-} as const satisfies Readonly<Record<string, number>>;
+const FALLBACK_CONTEXT_WINDOWS: ReadonlyMap<string, number> = new Map([
+  ["anthropic/claude-sonnet-4-6", 1_000_000],
+  ["anthropic/claude-opus-4-8", 1_000_000],
+  ["google/gemini-2.5-flash", 1_048_576],
+  ["google/gemini-2.5-flash-lite", 1_048_576],
+  ["google/gemini-3.5-flash", 1_048_576],
+  ["google/gemini-3.8-flash", 1_048_576],
+  ["openai/gpt-6-luna", 1_050_000],
+]);
 
 /**
  * The model's context window. Throws for an unknown model: compaction needs it (ADR-0035),
@@ -163,11 +163,7 @@ export async function resolveContextWindowById(provider: string, modelId: string
   if (price?.contextWindow != null) return price.contextWindow;
   const key = `${provider}/${modelId}`;
 
-  // SAFETY: the `in` guard proves the key is in the table.
-  const fallback =
-    key in FALLBACK_CONTEXT_WINDOWS
-      ? FALLBACK_CONTEXT_WINDOWS[key as keyof typeof FALLBACK_CONTEXT_WINDOWS]
-      : undefined;
+  const fallback = FALLBACK_CONTEXT_WINDOWS.get(key);
 
   if (fallback != null) {
     logger.warn(

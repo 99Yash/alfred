@@ -1,4 +1,4 @@
-import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, type CSSProperties, type ReactNode } from "react";
 import { cn } from "~/lib/utils";
 
 export function FadeInOnScroll({
@@ -13,6 +13,11 @@ export function FadeInOnScroll({
   as?: "div" | "section" | "header" | "li" | undefined;
 }) {
   const ref = useRef<HTMLElement | null>(null);
+
+  // A callback ref fits the ref slot of every tag in `as`; an object ref fits only one tag.
+  const setRef = useCallback((node: HTMLElement | null) => {
+    ref.current = node;
+  }, []);
 
   useEffect(() => {
     const el = ref.current;
@@ -36,9 +41,8 @@ export function FadeInOnScroll({
 
   const style: CSSProperties = delay > 0 ? { transitionDelay: `${delay}ms` } : {};
 
-  // SAFETY: the polymorphic tag's ref slot accepts this callback ref; it is typed `never` to admit any tag.
   return (
-    <As ref={ref as never} className={cn("reveal-on-scroll", className)} style={style}>
+    <As ref={setRef} className={cn("reveal-on-scroll", className)} style={style}>
       {children}
     </As>
   );

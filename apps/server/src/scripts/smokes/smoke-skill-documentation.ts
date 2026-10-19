@@ -10,6 +10,7 @@
  *   - A key for the boss-tier model. A run costs tens of cents.
  *   - RESEND_API_KEY and RESEND_FROM_EMAIL. The smoke really sends; use a sandbox address.
  */
+import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import {
   LEARN_SKILL_WORKFLOW_SLUG,
@@ -80,6 +81,23 @@ async function pollRun(runId: string, label: string, timeoutMs: number) {
 
   throw new Error(`timed out waiting for ${label} on run ${runId}`);
 }
+
+/** The fields of the learn-skill workflow output that this smoke reads. */
+const learnOutputSchema = z.object({
+  revisionId: z.string(),
+  documentationRunId: z.string().nullable(),
+  documentationEnqueueStatus: z.enum(["enqueued", "deduplicated", "failed"]),
+});
+
+/** The fields of the skill-documentation workflow output that this smoke reads. */
+const documentationOutputSchema = z.object({
+  skillId: z.string(),
+  revisionId: z.string(),
+  emailStatus: z.enum(["sent", "duplicate", "failed"]),
+  emailSendId: z.string(),
+  documentHitCount: z.number(),
+  memoryHitCount: z.number(),
+});
 
 async function main() {
   await warmPool();
@@ -164,12 +182,7 @@ async function main() {
     `learn status=${learnRun.status} error=${JSON.stringify(learnRun.error)}`,
   );
 
-  // SAFETY: this smoke's own workflow output envelope.
-  const learnOut = learnRun.output as {
-    revisionId: string;
-    documentationRunId: string | null;
-    documentationEnqueueStatus: "enqueued" | "deduplicated" | "failed";
-  };
+  const learnOut = learnOutputSchema.parse(learnRun.output);
 
   console.log(
     `[smoke-skill-doc] learn output: v1Rev=${learnOut.revisionId} ` +
@@ -188,15 +201,7 @@ async function main() {
     `doc status=${docRun.status} error=${JSON.stringify(docRun.error)}`,
   );
 
-  // SAFETY: this smoke's own workflow output envelope.
-  const docOut = docRun.output as {
-    skillId: string;
-    revisionId: string;
-    emailStatus: "sent" | "duplicate" | "failed";
-    emailSendId: string;
-    documentHitCount: number;
-    memoryHitCount: number;
-  };
+  const docOut = documentationOutputSchema.parse(docRun.output);
 
   console.log(
     `[smoke-skill-doc] doc output: v2Rev=${docOut.revisionId} ` +

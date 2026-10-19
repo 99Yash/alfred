@@ -1,4 +1,4 @@
-import { INTEGRATION_ACTIONS, type IntegrationSlug } from "@alfred/contracts";
+import { INTEGRATION_ACTIONS, typedKeys } from "@alfred/contracts";
 
 type ToolNameEncoding = "double-underscore" | "identity";
 
@@ -35,13 +35,11 @@ export function codecForProvider(provider: keyof typeof CODEC_BY_PROVIDER): Tool
 }
 
 function assertToolNameRegistry(): void {
-  // SAFETY: the keys are exactly the const record's own keys.
-  for (const provider of Object.keys(CODEC_BY_PROVIDER) as (keyof typeof CODEC_BY_PROVIDER)[]) {
+  for (const provider of typedKeys(CODEC_BY_PROVIDER)) {
     const spec = CODEC_BY_PROVIDER[provider];
     const codec = codecForProvider(provider);
 
-    // SAFETY: INTEGRATION_ACTIONS is keyed by exactly IntegrationSlug.
-    for (const integration of Object.keys(INTEGRATION_ACTIONS) as IntegrationSlug[]) {
+    for (const integration of typedKeys(INTEGRATION_ACTIONS)) {
       const actions = INTEGRATION_ACTIONS[integration];
 
       for (const action of actions) {

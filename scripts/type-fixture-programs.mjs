@@ -257,7 +257,7 @@ export function programFiles(root, projectPath, { tsc = defaultTscPath(root), ca
     } catch (error) {
       // tsc reports a malformed project on stdout and exits non-zero; keep
       // whatever it listed so a partial answer is still a named failure.
-      const partial = /** @type {{stdout?: unknown}} */ (error).stdout;
+      const partial = error instanceof Error ? Reflect.get(error, "stdout") : undefined;
       // oxlint-disable-next-line anti-slop/no-runtime-typeof -- normalizes child-process stdout / checks a script name
       stdout = typeof partial === "string" ? partial : "";
     }

@@ -4,6 +4,7 @@
  *
  *   $ pnpm tsx --env-file=.env src/scripts/smokes/smoke-agent-resume.ts <runId>
  */
+import { wakeConditionSchema } from "@alfred/contracts";
 import { wakeRun, closeAgentQueue } from "@alfred/assistant/execution";
 import { warmPool } from "@alfred/db";
 import { db } from "@alfred/db";
@@ -29,8 +30,7 @@ async function main() {
     throw new Error(`expected waiting, got ${row.status}`);
   }
 
-  // SAFETY: the park path writes agent_runs.wakeCondition with this shape.
-  const wake = row.wakeCondition as { kind: string; approvalId: string } | null;
+  const wake = wakeConditionSchema.nullable().parse(row.wakeCondition);
 
   if (!wake || wake.kind !== "hil") throw new Error("expected HIL wake");
 

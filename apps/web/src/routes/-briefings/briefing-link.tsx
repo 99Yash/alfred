@@ -47,7 +47,7 @@ function linkBrand(href: string): IntegrationBrand | null {
  * A briefing link styled like `EntityChip`: brand glyph, neutral ink, quiet underline.
  * `!text-app-fg-4` beats the renderer's `[&_a]` color.
  */
-export const BriefingLink: Components["a"] = ({
+export const BriefingLink: NonNullable<Components["a"]> = ({
   node: _node,
   href,
   title,

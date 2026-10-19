@@ -145,14 +145,16 @@ export function resolvedExclude(tscBinary, root, projectPath) {
   if (raw === undefined) return { exclude: [], problem: null };
 
   // oxlint-disable-next-line anti-slop/no-runtime-typeof -- guards child-process stdout / parsed baseline JSON
-  if (!Array.isArray(raw) || raw.some((entry) => typeof entry !== "string")) {
+  const exclude = Array.isArray(raw) ? raw.filter((entry) => typeof entry === "string") : [];
+
+  if (!Array.isArray(raw) || exclude.length !== raw.length) {
     return {
       exclude: [],
       problem: `${projectPath} has an \`exclude\` that is not a list of paths`,
     };
   }
 
-  return { exclude: /** @type {string[]} */ (raw), problem: null };
+  return { exclude, problem: null };
 }
 
 /**
@@ -273,7 +275,7 @@ function runTsc(tscBinary, root, args) {
       stdio: ["ignore", "pipe", "pipe"],
     });
   } catch (error) {
-    const partial = /** @type {{stdout?: unknown}} */ (error).stdout;
+    const partial = error instanceof Error ? Reflect.get(error, "stdout") : undefined;
 
     // oxlint-disable-next-line anti-slop/no-runtime-typeof -- guards child-process stdout / parsed baseline JSON
     return typeof partial === "string" ? partial : "";

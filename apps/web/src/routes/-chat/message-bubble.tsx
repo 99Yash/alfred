@@ -44,6 +44,14 @@ const MARKDOWN_CLASSES = cn(
 const REMARK_PLUGINS = [remarkGfm, remarkBreaks];
 
 /**
+ * Reply code stays 13px; the shared CodeBlock defaults to 11.5px. `CSSProperties` has no
+ * custom properties, so the type adds this one.
+ */
+const REPLY_CODE_FONT_STYLE: React.CSSProperties & { "--md-code-fs": string } = {
+  "--md-code-fs": "13px",
+};
+
+/**
  * Failed-turn copy by {@link ChatErrorKind}. The server sends a tag, never raw provider errors.
  * `retry: "none"` hides Retry when retrying cannot help.
  */
@@ -167,9 +175,7 @@ export function AssistantMarkdown({ text, streaming }: { text: string; streaming
 
   return (
     <div
-      // Reply code stays 13px; the shared CodeBlock defaults to 11.5px.
-      // SAFETY: CSSProperties has no type for custom properties.
-      style={{ "--md-code-fs": "13px" } as React.CSSProperties}
+      style={REPLY_CODE_FONT_STYLE}
       className={cn("text-sm leading-relaxed tracking-tight text-app-fg-4", MARKDOWN_CLASSES)}
     >
       <ReactMarkdown

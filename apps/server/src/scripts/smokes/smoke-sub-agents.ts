@@ -17,7 +17,7 @@ import { registerAgentSystemToolAdapter } from "@alfred/assistant/execution/syst
 import { registerBuiltinTools } from "@alfred/assistant/tool-runtime/builtin-tools";
 import { registerChatSystemToolAdapter } from "@alfred/assistant/chat";
 import { registerReplicachePokeAdapter } from "@alfred/assistant/realtime";
-import { isRecord } from "@alfred/contracts";
+import { getPath, isRecord } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import {
   actionStagings,
@@ -272,11 +272,15 @@ async function main(): Promise<void> {
     );
   }
 
-  const parentScratch = await scratchpad({ runId: parent.runId, writer: "boss" }).read<{
-    threads: number;
-  }>("scratch.subA.findings");
+  const parentScratch = await scratchpad({ runId: parent.runId, writer: "boss" }).read(
+    "scratch.subA.findings",
+  );
 
-  if (parentScratch?.value.threads !== 3 || parentScratch.writtenBy !== "subA") {
+  if (
+    !parentScratch ||
+    getPath(parentScratch.value, "threads") !== 3 ||
+    parentScratch.writtenBy !== "subA"
+  ) {
     throw new Error("[smoke-sub-agents] child scratch write did not land on parent run");
   }
 

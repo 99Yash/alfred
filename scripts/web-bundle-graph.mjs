@@ -335,7 +335,7 @@ function insideRoot(root, path) {
  *    (`…/node_modules/.pnpm/react@19/node_modules/react/index.js`), so the first
  *    segment names the store layout rather than the package.
  *
- * @returns {{ kind: "virtual" | "builtin-stub" | "npm" | "workspace" | "foreign", package: string | null, file: string | null }}
+ * @returns {{ kind: "virtual" | "builtin-stub" | "foreign", package: null, file: null } | { kind: "npm", package: string, file: null } | { kind: "workspace", package: null, file: string }}
  */
 export function classifyModuleId(root, id) {
   if (id.includes(NUL)) return { kind: "virtual", package: null, file: null };
@@ -482,7 +482,6 @@ export function bundleViolations(graph, { forbidden, surface }) {
     if (info.kind === "npm") {
       const pkg = info.package;
 
-      if (pkg === null) continue;
       const reason = forbidden.get(pkg);
 
       if (reason === undefined) continue;
@@ -508,7 +507,7 @@ export function bundleViolations(graph, { forbidden, surface }) {
 
     if (info.kind === "workspace") {
       workspaceModules += 1;
-      const file = /** @type {string} */ (info.file);
+      const file = info.file;
 
       if (file.endsWith(`/${ANCHOR_MODULE}`)) anchors += 1;
 
@@ -582,7 +581,7 @@ export function graphWorkspaceFiles(graph) {
   for (const id of graph.importers.keys()) {
     const info = classifyModuleId(graph.root, id);
 
-    if (info.kind !== "workspace" || info.file === null) continue;
+    if (info.kind !== "workspace") continue;
 
     if (!SOURCE_FILE.test(info.file)) continue;
     files.add(info.file);

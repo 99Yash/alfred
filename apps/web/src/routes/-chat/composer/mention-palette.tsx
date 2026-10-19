@@ -37,8 +37,7 @@ export function MentionPalette({
       const root = rootRef.current;
 
       if (!root) return;
-      // SAFETY: every pointerdown target here is a Node.
-      const target = e.target as Node | null;
+      const target = e.target instanceof Node ? e.target : null;
 
       // The composer form is the trigger surface; clicks there keep the palette open.
       if (target && (root.contains(target) || root.closest("form")?.contains(target))) {

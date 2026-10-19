@@ -92,12 +92,15 @@ const DOC_REGION_KINDS = [
   { name: "browser-safe-packages", predicate: "disjoint" },
 ];
 
-const DOC_REGION_MARKERS = new Map(
-  DOC_REGION_KINDS.map((kind) => [
-    kind.name,
-    { start: `<!-- ${kind.name}:start -->`, end: `<!-- ${kind.name}:end -->` },
-  ]),
-);
+/**
+ * The marker pair that fences a region of `kind` in a doc.
+ *
+ * @param {{ name: string }} kind
+ * @returns {{ start: string, end: string }}
+ */
+function docRegionMarkers(kind) {
+  return { start: `<!-- ${kind.name}:start -->`, end: `<!-- ${kind.name}:end -->` };
+}
 
 /** A backticked `@alfred/*` token on its own. A longer code span is not one. */
 const DOC_PACKAGE_TOKEN = /`(@alfred\/[a-z0-9-]+)`/g;
@@ -371,14 +374,7 @@ function packageTokens(line) {
  * — an inline pair leaves a bullet half inside and half outside.
  */
 function locateRegion(site, kind, lines, failures) {
-  // `Map.get` is typed as partial, but this one is not: `DOC_REGION_MARKERS` is built
-  // from `DOC_REGION_KINDS` and every call site passes a `kind` drawn from that same
-  // list, so the miss is unreachable by construction. The assertion records that
-  // warrant. A runtime guard here would be a branch no input can reach and no drive
-  // can cover — which is a worse thing to add to a checker than a stated assumption.
-  const { start: startMarker, end: endMarker } = /** @type {{start: string, end: string}} */ (
-    DOC_REGION_MARKERS.get(kind.name)
-  );
+  const { start: startMarker, end: endMarker } = docRegionMarkers(kind);
 
   const source = lines.join("\n");
 

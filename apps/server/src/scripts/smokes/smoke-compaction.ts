@@ -9,28 +9,46 @@ import {
   compactTranscript,
   assertHandoffSections,
   extractHandoffSection,
-  type HandoffSection,
+  HANDOFF_SECTIONS,
 } from "@alfred/assistant/execution/run-compaction/index";
 import { closeConnections, warmPool } from "@alfred/db";
 import { verifyMeteringModels } from "@alfred/assistant/execution";
 import { flushLangfuse } from "@alfred/ai";
-import type { AgentTranscriptMessage } from "@alfred/contracts";
+import { jsonObjectSchema, parseJsonText } from "@alfred/contracts";
 import { readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { toMessage } from "@alfred/contracts";
+import { z } from "zod";
 
-interface Fixture {
-  name: string;
-  description: string;
-  prior: AgentTranscriptMessage[];
-  inFlightTail: AgentTranscriptMessage[];
-  assertions: FixtureAssertion[];
-}
+const transcriptMessageSchema = z.object({
+  role: z.enum(["system", "user", "assistant", "tool"]),
+  content: z.unknown(),
+  providerOptions: jsonObjectSchema.optional(),
+});
 
-type FixtureAssertion =
-  | { section: HandoffSection; contains: string; absent?: never }
-  | { section: HandoffSection; contains?: never; absent: string };
+/** One check on a section: it must contain one string, or it must not contain one. */
+const fixtureAssertionSchema = z
+  .object({
+    section: z.enum(HANDOFF_SECTIONS),
+    contains: z.string().optional(),
+    absent: z.string().optional(),
+  })
+  .refine((assertion) => (assertion.contains === undefined) !== (assertion.absent === undefined), {
+    message: "an assertion sets exactly one of contains and absent",
+  });
+
+const fixtureSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+  prior: z.array(transcriptMessageSchema),
+  inFlightTail: z.array(transcriptMessageSchema),
+  assertions: z.array(fixtureAssertionSchema),
+});
+
+type Fixture = z.infer<typeof fixtureSchema>;
+
+type FixtureAssertion = z.infer<typeof fixtureAssertionSchema>;
 
 const FIXTURES_DIR = fileURLToPath(
   new URL(
@@ -48,8 +66,7 @@ async function loadFixtures(): Promise<Fixture[]> {
 
   for (const f of files) {
     const raw = await readFile(resolve(FIXTURES_DIR, f), "utf8");
-    // SAFETY: committed fixtures written to the Fixture shape.
-    out.push(JSON.parse(raw) as Fixture);
+    out.push(fixtureSchema.parse(parseJsonText(raw)));
   }
 
   return out;
