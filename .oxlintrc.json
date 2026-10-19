@@ -14,7 +14,10 @@
   // of the omitted group and then a reason, and the two below are the pattern. `check:oxlint-config` asserts
   // both directions, including a marker that has gone stale or vacuous. Do not spell a marker in prose up
   // here: this header is the ROOT site's own region, and the root may not exempt itself from its own group.
-  "plugins": null,
+  // `plugins` REPLACES oxlint's default set, so it restates that set (eslint, typescript, unicorn,
+  // oxc) and then adds the plugins this file opts in to. A plugin dropped from this list turns
+  // every rule below that it owns into a silent no-op.
+  "plugins": ["eslint", "typescript", "unicorn", "oxc", "react"],
   "jsPlugins": [
     "oxlint-tailwindcss",
     "./scripts/oxlint/anti-slop/index.ts",
@@ -109,6 +112,51 @@
     // fail on. Its common hit here is `{ ...(x ? { k: x } : {}) }` with nothing else in the
     // literal; pass the conditional itself (docs/reference/code-style.md §2).
     "unicorn/no-useless-spread": "error",
+    // React rules, from the `react` plugin in `plugins` above. rules-of-hooks: a hook called
+    // conditionally, in a loop, or outside a component or hook. exhaustive-deps: a value that a
+    // `useEffect` / `useCallback` / `useMemo` callback reads but its dependency array leaves out,
+    // or a dependency the callback never reads. When the callback reads a local (`userId`), list
+    // that local, not the expression it came from (`session?.user.id`): the rule matches names.
+    "react/rules-of-hooks": "error",
+    "react/exhaustive-deps": "error",
+    // Enabling the plugin also arms its default `correctness` rules at `warn`, which `pnpm lint`
+    // does not fail on. Each one is set explicitly here. These had zero hits when the plugin
+    // landed, so they go straight to `error`, default options:
+    "react/error-boundaries": "error",
+    "react/forward-ref-uses-ref": "error",
+    "react/globals": "error",
+    "react/immutability": "error",
+    "react/incompatible-library": "error",
+    "react/jsx-key": "error",
+    "react/jsx-no-duplicate-props": "error",
+    "react/jsx-no-undef": "error",
+    "react/jsx-props-no-spread-multi": "error",
+    "react/no-children-prop": "error",
+    "react/no-danger-with-children": "error",
+    "react/no-did-mount-set-state": "error",
+    "react/no-did-update-set-state": "error",
+    "react/no-direct-mutation-state": "error",
+    "react/no-find-dom-node": "error",
+    "react/no-is-mounted": "error",
+    "react/no-render-return-value": "error",
+    "react/no-string-refs": "error",
+    "react/no-this-in-sfc": "error",
+    "react/no-unsafe": "error",
+    "react/no-will-update-set-state": "error",
+    "react/preserve-manual-memoization": "error",
+    "react/set-state-in-render": "error",
+    "react/static-components": "error",
+    "react/use-memo": "error",
+    "react/void-dom-elements-no-children": "error",
+    "react/void-use-memo": "error",
+    // Three default `correctness` rules had hits, so they stay off until a change drives each
+    // one to zero and sets it to `error`:
+    // - purity: an impure call (`Date.now()`, `Math.random()`) during render.
+    // - set-state-in-effect: a `setState` called synchronously in an effect body.
+    // - refs: a `ref.current` read or write during render.
+    "react/purity": "off",
+    "react/set-state-in-effect": "off",
+    "react/refs": "off",
     // Type-aware rules. `options.typeAware` above runs them through oxlint-tsgolint (the tsgo
     // compiler, a root devDependency), so every oxlint invocation — `pnpm lint`, the edit-time
     // hook, the check:oxlint-config probe — reads types with no CLI flag to keep in step. A

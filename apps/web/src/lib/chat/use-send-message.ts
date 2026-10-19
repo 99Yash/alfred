@@ -257,6 +257,6 @@ export function useSendMessage(): SendMessage {
 
       return { ok: true, runId: null, assistantMessageId: userMessageId } satisfies SendResult;
     },
-    [rep, session?.user.id, navigate],
+    [rep, userId, navigate],
   );
 }
