@@ -16,6 +16,7 @@ export {
 
 export {
   discoverRailwayTargets,
+  railwayTargetFromId,
   readRailwayDeploymentStatus,
   readRailwayMcpReadiness,
   type RailwayPullTarget,

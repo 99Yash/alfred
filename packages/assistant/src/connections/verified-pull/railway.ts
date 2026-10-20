@@ -1,10 +1,4 @@
-import {
-  canonicalizeRailwayTargetId,
-  emailDomain,
-  getPath,
-  isDomainOrSubdomain,
-  parseEmailAddress,
-} from "@alfred/contracts";
+import { canonicalizeRailwayTargetId, getPath } from "@alfred/contracts";
 import {
   builtInProviderForEndpoint,
   getMcpConnectionManager,
@@ -12,6 +6,7 @@ import {
   RAILWAY_MCP_STORED_ISSUER,
   type McpPreparedToolCall,
 } from "../mcp";
+import { isRailwaySender } from "../object-state/railway-mail";
 import { RAILWAY_PULL_EVENT_TYPE } from "../object-state/railway-reducer";
 import { z } from "zod";
 import {
@@ -126,19 +121,17 @@ export async function readRailwayDeploymentStatus(
   }
 }
 
+/** Reverses `canonicalizeRailwayTargetId`. Segments cannot hold `/`, so a three-part split is exact. */
+export function railwayTargetFromId(targetId: string): RailwayPullTarget | null {
+  const [projectId, serviceId, environmentId, extra] = targetId.split("/");
+
+  return projectId && serviceId && environmentId && extra === undefined
+    ? { projectId, serviceId, environmentId }
+    : null;
+}
+
 /** Never 1: then the server's order alone would pick the verdict. */
 const RAILWAY_DEPLOYMENT_READ_LIMIT = 10;
-
-/** Failure mails come from `notify.railway.app`, so a subdomain also counts. */
-const RAILWAY_SENDER_DOMAINS: readonly string[] = ["railway.app", "railway.com"];
-
-function isRailwaySender(from: string | null | undefined): boolean {
-  const domain = emailDomain(parseEmailAddress(from));
-
-  return (
-    domain !== null && RAILWAY_SENDER_DOMAINS.some((base) => isDomainOrSubdomain(domain, base))
-  );
-}
 
 /**
  * `absent` when the list was read and held no deployment of the target. A list of deployments with
@@ -410,12 +403,7 @@ export const railwayVerifiedPullProvider: VerifiedPullProvider<
     });
   },
 
-  /** Segments cannot hold `/`, so a three-part split is exact. */
-  targetFromRow(row) {
-    const [projectId, serviceId, environmentId] = row.externalId.split("/");
-
-    return projectId && serviceId && environmentId ? { projectId, serviceId, environmentId } : null;
-  },
+  targetFromRow: (row) => railwayTargetFromId(row.externalId),
 
   canonicalTargetId: canonicalizeRailwayTargetId,
   discoverTargets: discoverRailwayTargets,

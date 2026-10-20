@@ -32,6 +32,8 @@ export type ClosureSource = (typeof OBJECT_STATE_CLOSURE_SOURCES)[number];
  * - `stored_projection`: the stored row is enough.
  * - `live_confirmation`: the row only nominates. The store orders by observation time,
  *   so a late resolve after an unresolve would falsely read `resolved` (`sentry.issue`).
+ *   A pull-only row can also be older than the failure an email reports
+ *   (`railway.deployment_target`).
  * A sync reader with no IO can only pass `stored_projection`.
  */
 export const CLOSURE_PROOFS = ["stored_projection", "live_confirmation"] as const;
@@ -372,12 +374,12 @@ export const INTEGRATION_OBJECT_DEFS = {
         closesAskFrom: "stored_projection",
         absorbing: [],
       },
-      // Empty `closesAskOn`: no text adapter proposes Railway keys yet, so a closure
-      // here is unreachable. Restore `["resolved"]` with that grammar (ADR-0062 amendment).
+      // The build-failure mail names this target (ADR-0062 amendment 2026-10-20).
       deployment_target: {
-        closesAskOn: [],
-        // The row is the latest authenticated read.
-        closesAskFrom: "stored_projection",
+        closesAskOn: ["resolved"],
+        // Only a pull writes this row, so a stored `success` can be older than the
+        // failure the mail reports. A live read must confirm the recovery.
+        closesAskFrom: "live_confirmation",
         absorbing: [],
       },
     },
