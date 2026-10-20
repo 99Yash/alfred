@@ -78,6 +78,22 @@ the App does not hold, so no `check_suite` deliveries arrive (#1167 notes the
 empty lane). `meta` and `installation_target` are deliberately unsubscribed;
 ownerless GitHub deliveries drop silently since #1209.
 
+Production holds no `ci_attempt` or `ci_target` row (measured 2026-10-20), so a
+`[owner/repo] Run failed: <workflow> - <branch> (<sha>)` mail cannot close
+when a later run on the branch passes. A `PR run failed` mail closes through
+its pull request instead. To fill the CI lane, the owner must do these steps.
+They are not done yet.
+
+1. Open the App settings, Permissions & events.
+2. Under Repository permissions, set Checks to Read-only.
+3. Under Subscribe to events, select Check suite.
+4. Save. Do not change a callback URL, and keep "Redirect on update" on.
+5. Approve the new permission on the installation (Settings, Applications,
+   the `alfred-99yash` installation, Review request).
+6. After the next workflow run, confirm a `github.check_suite` row in
+   `event_receipts` and a `ci_target` row in `integration_objects`.
+7. Add `check_suite` to the subscribed list above.
+
 An event that needs a permission the App does not hold is not offered on the
 page. Adding a permission asks the installation to approve it again.
 
