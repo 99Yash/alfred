@@ -18,6 +18,7 @@ import { getFreshAccessToken, listCredentials, upsertCredential } from "../src/g
 import { getActiveBearerCredential, upsertBearerCredential } from "../src/shared/index";
 import { eq, inArray, sql } from "drizzle-orm";
 import { dbBackedSkip } from "./support/db-backed";
+import { z } from "zod";
 
 /**
  * After each write, the column holds an envelope and the public read returns the original token.
@@ -111,8 +112,9 @@ describe("credential persistence is sealed at rest (DB-backed)", { skip: SKIP },
     assert.ok(databaseUrl, "DATABASE_URL must be set for the DB-backed suite");
     const configured = new URL(databaseUrl).pathname.replace(/^\//, "");
 
-    const rows = rowsFromExecute<{ current_database: string }>(
+    const rows = rowsFromExecute(
       await db().execute(sql`select current_database()`),
+      z.object({ current_database: z.string() }),
     );
 
     assert.equal(rows[0]?.current_database, configured);

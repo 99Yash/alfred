@@ -9,6 +9,7 @@ import { eq, inArray, sql } from "drizzle-orm";
 import { closeRedis } from "@alfred/db/redis";
 import { createArtifact, finalizeRunArtifacts } from "@alfred/assistant/artifacts/write";
 import { dbBackedSkip } from "../support/db-backed";
+import { z } from "zod";
 
 /**
  * `create_artifact` runs mid-turn, before the assistant message row exists.
@@ -64,8 +65,8 @@ describe("createArtifact message_id FK ordering", { skip: SKIP }, () => {
         and c.conname = 'artifacts_message_id_chat_messages_id_fk'
     `);
 
-    const [row] = rowsFromExecute<{ count: number | string }>(result);
-    assert.equal(Number(row?.count), 1);
+    const [row] = rowsFromExecute(result, z.object({ count: z.number() }));
+    assert.equal(row?.count, 1);
   });
 
   test("creates before the message exists, then associates it at turn finalization", async () => {

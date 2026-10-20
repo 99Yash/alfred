@@ -10,7 +10,7 @@ import {
   type RunStatus,
   type WakeCondition,
 } from "@alfred/contracts";
-import { db, rowsFromExecute, type DbTransaction } from "@alfred/db";
+import { createExecuteRowSchema, db, rowsFromExecute, type DbTransaction } from "@alfred/db";
 import { logger } from "@alfred/logging";
 import {
   agentDecisionTraces,
@@ -21,6 +21,7 @@ import {
 } from "@alfred/db/schemas";
 import { runStatusSchema } from "@alfred/contracts";
 import { and, eq, sql } from "drizzle-orm";
+import { z } from "zod";
 import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 import { publishEvent } from "@alfred/assistant/triggers";
 import { normalizeDecisionTraceKey, type DecisionTraceBase } from "./decision-traces";
@@ -400,6 +401,26 @@ export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise
   return await commitStepSuccess(run, stepId, attempt, result, staged, traces);
 }
 
+/** The `leaseRun` row. `deferred_until` arrives as text and parses to `Date`; `staleMs` is `numeric` text. */
+const leaseRowSchema = createExecuteRowSchema(agentRuns)
+  .pick({
+    id: true,
+    userId: true,
+    workflowSlug: true,
+    status: true,
+    state: true,
+    transcript: true,
+    currentStep: true,
+    attempt: true,
+    cancellationGeneration: true,
+    metadata: true,
+    deferredUntil: true,
+  })
+  .extend({ staleMs: z.coerce.number().nullable() });
+
+/** `count(*)::int` arrives as a number. */
+const reclaimCountRowSchema = z.object({ reclaims: z.number() });
+
 /** Exported for tests only; `runOnce` is the production caller. */
 export async function leaseRun(runId: string): Promise<LeaseResult> {
   return await db().transaction(async (tx) => {
@@ -414,7 +435,7 @@ export async function leaseRun(runId: string): Promise<LeaseResult> {
       FOR UPDATE SKIP LOCKED
     `);
 
-    const row = rowsFromExecute<RunRow & { staleMs: number | string | null }>(result)[0];
+    const [row] = rowsFromExecute(result, leaseRowSchema);
 
     if (!row) return { kind: "none" };
 
@@ -430,7 +451,7 @@ export async function leaseRun(runId: string): Promise<LeaseResult> {
 
     // A `running` row with a stale heartbeat has a dead worker: reclaim it and bump
     // `attempt` so the new step row does not collide with the orphan.
-    const staleMs = row.staleMs == null ? null : Number(row.staleMs);
+    const { staleMs } = row;
 
     let isStaleRunning = false;
 
@@ -470,7 +491,7 @@ export async function leaseRun(runId: string): Promise<LeaseResult> {
           )
       `);
 
-      const priorReclaims = rowsFromExecute<{ reclaims: number }>(countResult)[0]?.reclaims ?? 0;
+      const priorReclaims = rowsFromExecute(countResult, reclaimCountRowSchema)[0]?.reclaims ?? 0;
 
       if (priorReclaims + 1 >= BACKSTOP_RECLAIM_LIMIT) {
         const now = new Date();

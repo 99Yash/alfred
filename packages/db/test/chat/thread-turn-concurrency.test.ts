@@ -10,6 +10,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { closeRedis } from "@alfred/db/redis";
 import { uniqueViolationConstraint } from "@alfred/db/pg-errors";
 import { dbBackedSkip } from "../support/db-backed";
+import { z } from "zod";
 
 /**
  * At most one non-terminal `__chat-turn__` run per (user, thread), via
@@ -103,8 +104,8 @@ describe("per-thread turn concurrency guard (#488)", { skip: SKIP }, () => {
         and indexname = ${CHAT_THREAD_ACTIVE_RUN_INDEX}
     `);
 
-    const [row] = rowsFromExecute<{ count: number | string }>(result);
-    assert.equal(Number(row?.count), 1);
+    const [row] = rowsFromExecute(result, z.object({ count: z.number() }));
+    assert.equal(row?.count, 1);
   });
 
   test("a second overlapping start on one thread is rejected → exactly one run", async () => {

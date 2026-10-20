@@ -17,6 +17,7 @@ import {
   type ProjectionRun,
 } from "@alfred/db/schemas";
 import { and, desc, eq, gt, lte, sql } from "drizzle-orm";
+import { z } from "zod";
 import { type DbTransaction } from "@alfred/db";
 import { projectGmailKindProfiles } from "./gmail-kind-fold";
 import { foldGmailProjectionRun } from "./gmail-projection-run";
@@ -236,16 +237,16 @@ async function gmailProjectionHighWatermark(
   });
 }
 
+/** `now()` arrives as timestamp text. */
+const dbNowRowSchema = z.object({ capturedAt: z.coerce.date() });
+
 async function dbNow(tx: DbTransaction): Promise<Date> {
   const result = await tx.execute(sql`select now() as "capturedAt"`);
-  const rawCapturedAt = rowsFromExecute<{ capturedAt: Date | string }>(result)[0]?.capturedAt;
-  const capturedAt = rawCapturedAt instanceof Date ? rawCapturedAt : new Date(rawCapturedAt ?? "");
+  const [row] = rowsFromExecute(result, dbNowRowSchema);
 
-  if (Number.isNaN(capturedAt.getTime())) {
-    throw new Error("[user-model.refold] failed to capture DB timestamp");
-  }
+  if (!row) throw new Error("[user-model.refold] failed to capture DB timestamp");
 
-  return capturedAt;
+  return row.capturedAt;
 }
 
 async function gmailProjectionExcludedEmails(userId: string): Promise<string[]> {

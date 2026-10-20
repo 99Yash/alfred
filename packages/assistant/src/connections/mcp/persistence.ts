@@ -20,6 +20,7 @@ import {
 } from "@alfred/db/schemas";
 import type { Tool } from "@modelcontextprotocol/client";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, or, sql, type SQL } from "drizzle-orm";
+import { z } from "zod";
 import { MCP_DISCOVERY_SCAN_BUDGET } from "./discovery-policy";
 import { compareMcpToolNames, projectCatalogRevision } from "./hash";
 
@@ -486,7 +487,20 @@ export async function readOwnedCurrentCatalogDescriptor(
   return row ? { ...row, descriptor: row.descriptor ?? null } : undefined;
 }
 
-type RawOwnedCurrentCatalogSliceRow = OwnedCurrentCatalogRow & { summaries: unknown };
+/**
+ * One `listOwnedCurrentCatalogSlices` row. `descriptorCount` is `integer`, so a number;
+ * `toCatalogSliceRow` checks `summaries`; `ordinal` only orders the page and is dropped.
+ */
+const catalogSliceRowSchema = z.object({
+  namespace: z.string(),
+  connectionId: z.string(),
+  instanceKey: z.string(),
+  label: z.string(),
+  revisionId: z.string(),
+  revisionHash: z.string(),
+  descriptorCount: z.number(),
+  summaries: z.unknown(),
+}) satisfies z.ZodType<OwnedCurrentCatalogRow & { summaries: unknown }>;
 
 /**
  * One page of owned current catalogs in `(server_id, instance_key)` order, in one query.
@@ -572,12 +586,10 @@ export async function listOwnedCurrentCatalogSlices(
      order by "ordinal"
   `);
 
-  const fetched = rowsFromExecute<RawOwnedCurrentCatalogSliceRow & { ordinal: unknown }>(result);
+  const fetched = rowsFromExecute(result, catalogSliceRowSchema);
 
   return {
-    rows: fetched
-      .slice(0, catalogLimit)
-      .map(({ ordinal: _ordinal, ...row }) => toCatalogSliceRow(row, 0)),
+    rows: fetched.slice(0, catalogLimit).map((row) => toCatalogSliceRow(row, 0)),
     hasMore: fetched.length > catalogLimit,
   };
 }

@@ -1,7 +1,9 @@
 import { databaseEnv } from "@alfred/env/database";
 import { POOL_MIN } from "@alfred/env/pool";
 import { drizzle } from "drizzle-orm/node-postgres";
+import { createSchemaFactory } from "drizzle-zod";
 import pg from "pg";
+import { z } from "zod";
 import { toMessage, unrefTimer } from "@alfred/contracts";
 
 const POOL_IDLE_TIMEOUT_MS = 5 * 60_000;
@@ -119,13 +121,41 @@ function hasRows(result: unknown): result is { rows: unknown[] } {
   );
 }
 
-export function rowsFromExecute<T>(result: unknown): T[] {
+/**
+ * Parse every row of a raw `execute(sql…)` result with `schema`. Throws on the first row that
+ * fails, so a drifted query never reaches its caller as a lie.
+ *
+ * Raw rows skip Drizzle's column mappers: timestamps arrive as text, `bigint`/`numeric` and
+ * `count(*)` as text, `integer`/`real` as numbers, and `jsonb` as parsed JSON. Cast in SQL
+ * (`count(*)::int`) or coerce in the schema. For whole-table rows, use `createExecuteRowSchema`.
+ */
+export function rowsFromExecute<S extends z.ZodType>(result: unknown, schema: S): z.output<S>[] {
   const rawRows = hasRows(result) ? result.rows : result;
 
-  // SAFETY: the driver returns untyped rows. The caller names the row type for its query.
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the driver rows are untyped; the caller names the row type
-  return Array.isArray(rawRows) ? (rawRows as T[]) : [];
+  if (!Array.isArray(rawRows)) {
+    throw new Error("[db] rowsFromExecute: the execute result has no rows array");
+  }
+
+  return rawRows.map((row: unknown, index) => {
+    const parsed = schema.safeParse(row);
+
+    if (!parsed.success) {
+      throw new Error(
+        `[db] rowsFromExecute: row ${index} does not match its schema\n${z.prettifyError(parsed.error)}`,
+      );
+    }
+
+    return parsed.data;
+  });
 }
+
+/**
+ * `createSelectSchema` for rows read through raw `execute(sql…)`. It coerces timestamp text to
+ * `Date`, as Drizzle's own mapper does on a typed select. Alias each column to its JS key in SQL.
+ */
+export const { createSelectSchema: createExecuteRowSchema } = createSchemaFactory({
+  coerce: { date: true },
+});
 
 /** Open `POOL_MIN` connections at startup so the first requests skip the handshake. Failures are not fatal. */
 export async function warmPool() {

@@ -36,6 +36,7 @@ import {
   user as userTable,
 } from "@alfred/db/schemas";
 import { and, asc, desc, eq, inArray, lte, sql } from "drizzle-orm";
+import { z } from "zod";
 
 const COMMIT = process.argv.includes("--commit");
 
@@ -156,19 +157,17 @@ async function resolveTargets(emails: readonly string[]): Promise<TargetUser[]> 
   }));
 }
 
+/** `now()` arrives as timestamp text. */
+const capturedAtRowSchema = z.object({ capturedAt: z.coerce.date() });
+
 async function gmailHighWatermark(userId: string): Promise<ProjectionSourceHighWatermark> {
   return db().transaction(async (tx) => {
     const capturedAtResult = await tx.execute(sql`select now() as "capturedAt"`);
 
-    const rawCapturedAt = rowsFromExecute<{ capturedAt: Date | string }>(capturedAtResult)[0]
-      ?.capturedAt;
+    const [capturedAtRow] = rowsFromExecute(capturedAtResult, capturedAtRowSchema);
 
-    const capturedAt =
-      rawCapturedAt instanceof Date ? rawCapturedAt : new Date(rawCapturedAt ?? "");
-
-    if (Number.isNaN(capturedAt.getTime())) {
-      throw new Error("failed to capture DB timestamp for Gmail watermark");
-    }
+    if (!capturedAtRow) throw new Error("failed to capture DB timestamp for Gmail watermark");
+    const { capturedAt } = capturedAtRow;
 
     const baseWhere = and(
       eq(observations.userId, userId),
