@@ -8,6 +8,7 @@ import type {
   IanaTimezone,
   IntegrationActivityItem,
   LoopClosingStateCategory,
+  ObjectStateProvider,
   StateCategory,
   WeatherContribution,
   WeatherFallbackLocation,
@@ -19,7 +20,9 @@ import {
   getStringPath,
   holdsAnyScope,
   INTEGRATIONS,
+  isNotificationSender,
   isRecord,
+  OBJECT_STATE_PROVIDERS,
   parseEventTypeName,
   parseGmailDocumentMetadata,
   toStringArray,
@@ -357,6 +360,9 @@ export async function gatherBriefingDigest(
   // Drop items whose work object is closed (ADR-0062). Unknown state stays live.
   // Relevance then runs on the survivors, before the per-bucket cap (#1194).
   const reconciliation = await dropClosedLoops(args.userId, buckets, reconciliationCandidates);
+
+  logSoftEdgeLoops(buckets, reconciliation.reconciled);
+
   const approvedStates = new Map<string, ApprovedLoopState>();
   const unverifiedDetails = new Map<string, string>();
 
@@ -398,6 +404,42 @@ export async function gatherBriefingDigest(
     totalPriority,
     totalSuppressed,
   };
+}
+
+/**
+ * Count the live loops that only a soft edge links to a provider: the sender is a provider's
+ * notification sender, and no key or labeled identity resolved (ADR-0109). A loop with only a
+ * `nomination` counts. The runtime closure verifier is deferred until one of these loops names an
+ * object that a read can close, so this log line is its trigger. It logs a gather with no such loop too, so the series shows the pass ran.
+ */
+function logSoftEdgeLoops(
+  buckets: Record<PriorityCategory, BriefingItem[]>,
+  reconciled: ReconcileResult<"about">,
+): void {
+  const byProvider: Partial<Record<ObjectStateProvider, number>> = {};
+  const documentIds: string[] = [];
+
+  for (const item of PRIORITY_CATEGORIES.flatMap((category) => buckets[category])) {
+    // A nomination is a soft edge, so only another match counts as a hard edge.
+    const linked = reconciled.get(item.documentId) ?? [];
+
+    if (linked.some((object) => object.key.match !== "nomination")) continue;
+
+    const providers = OBJECT_STATE_PROVIDERS.filter((provider) =>
+      isNotificationSender(provider, item.from),
+    );
+
+    if (providers.length === 0) continue;
+
+    documentIds.push(item.documentId);
+
+    for (const provider of providers) byProvider[provider] = (byProvider[provider] ?? 0) + 1;
+  }
+
+  logger.info(
+    { softEdgeLoops: documentIds.length, byProvider, documentIds },
+    "[briefing.gather] soft-edge loops with no hard edge",
+  );
 }
 
 /**
