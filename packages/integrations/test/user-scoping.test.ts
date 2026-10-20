@@ -18,6 +18,7 @@ import {
 } from "../src/shared/index";
 import { eq, sql } from "drizzle-orm";
 import { dbBackedSkip } from "./support/db-backed";
+import { z } from "zod";
 import { GOOGLE_SCOPE } from "@alfred/contracts";
 
 const SKIP = dbBackedSkip("database");
@@ -76,8 +77,9 @@ describe("credential reads are scoped to the bound user (DB-backed)", { skip: SK
     assert.ok(databaseUrl, "DATABASE_URL must be set for the DB-backed suite");
     const configured = new URL(databaseUrl).pathname.replace(/^\//, "");
 
-    const rows = rowsFromExecute<{ current_database: string }>(
+    const rows = rowsFromExecute(
       await db().execute(sql`select current_database()`),
+      z.object({ current_database: z.string() }),
     );
 
     assert.equal(rows[0]?.current_database, configured);

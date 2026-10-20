@@ -24,6 +24,7 @@ import { warmPool } from "@alfred/db";
 import { db, rowsFromExecute } from "@alfred/db";
 import { documents, todos, user as userTable } from "@alfred/db/schemas";
 import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { z } from "zod";
 import { registerBuiltinWorkflows } from "~/builtins";
 import { toMessage } from "@alfred/contracts";
 import { closeScriptResources } from "../script-runtime";
@@ -45,6 +46,9 @@ interface TargetUser {
   email: string;
 }
 
+/** The newest gmail document of one thread. `source_thread_id` is non-null under the `IN` filter. */
+const threadDocRowSchema = z.object({ id: z.string(), threadId: z.string() });
+
 /** Newest gmail document id for each target thread, plus the recency-ordered thread list. */
 async function buildThreadIndex(
   userId: string,
@@ -53,8 +57,6 @@ async function buildThreadIndex(
   newestDocByThread: Map<string, string>;
   recentThreads: string[];
 }> {
-  type ThreadDocRow = { id: string; threadId: string };
-
   const newestDocByThread = new Map<string, string>();
 
   const recentDocs = await db()
@@ -94,7 +96,7 @@ async function buildThreadIndex(
       sql`, `,
     );
 
-    const todoDocs = rowsFromExecute<ThreadDocRow>(
+    const todoDocs = rowsFromExecute(
       await db().execute(sql`
         WITH ranked_gmail_docs AS (
           SELECT
@@ -113,6 +115,7 @@ async function buildThreadIndex(
         FROM ranked_gmail_docs
         WHERE rn = 1
       `),
+      threadDocRowSchema,
     );
 
     for (const d of todoDocs) newestDocByThread.set(d.threadId, d.id);

@@ -5,6 +5,7 @@ import { closeConnections, db, rowsFromExecute } from "@alfred/db";
 import { runAtomic, type DbRunner } from "@alfred/db/helpers";
 import { pgErrorChain } from "@alfred/db/pg-errors";
 import { sql } from "drizzle-orm";
+import { z } from "zod";
 
 import { dbBackedSkip } from "./support/db-backed";
 
@@ -32,10 +33,13 @@ class RollbackSentinel extends Error {
   }
 }
 
+/** `count(*)::int` arrives as a number. */
+const probeCountRowSchema = z.object({ n: z.number() });
+
 /** The current transaction id. Same value inside one transaction; a bigint, so a string. */
 async function currentTxid(runner: DbRunner): Promise<string> {
   const result = await runner.execute(sql`select txid_current()::text as txid`);
-  const [row] = rowsFromExecute<{ txid: string }>(result);
+  const [row] = rowsFromExecute(result, z.object({ txid: z.string() }));
   assert.ok(row, "txid_current() returned no row");
 
   return row.txid;
@@ -88,7 +92,7 @@ describe("runAtomic nesting semantics", { skip: SKIP }, () => {
         // Savepoint: `0`. Reuse: a non-zero count, or `25P02` after a SQL error.
         try {
           const result = await outer.execute(sql`select count(*)::int as n from run_atomic_probe`);
-          const [row] = rowsFromExecute<{ n: number }>(result);
+          const [row] = rowsFromExecute(result, probeCountRowSchema);
           seen.rowsAfterFailure = row?.n ?? -1;
         } catch (err) {
           seen.rowsAfterFailure = sqlState(err) ?? `non-sqlstate: ${String(err)}`;
@@ -149,7 +153,7 @@ describe("runAtomic nesting semantics", { skip: SKIP }, () => {
 
         try {
           const result = await outer.execute(sql`select count(*)::int as n from run_atomic_probe`);
-          const [row] = rowsFromExecute<{ n: number }>(result);
+          const [row] = rowsFromExecute(result, probeCountRowSchema);
           seen.rowsAfterFailure = row?.n ?? -1;
         } catch (err) {
           seen.rowsAfterFailure = sqlState(err) ?? `non-sqlstate: ${String(err)}`;
@@ -242,7 +246,7 @@ describe("runAtomic nesting semantics", { skip: SKIP }, () => {
 
         try {
           const result = await outer.execute(sql`select count(*)::int as n from run_atomic_probe`);
-          const [row] = rowsFromExecute<{ n: number }>(result);
+          const [row] = rowsFromExecute(result, probeCountRowSchema);
           seen.rowsAfterFailure = row?.n ?? -1;
         } catch (err) {
           seen.rowsAfterFailure = sqlState(err) ?? `non-sqlstate: ${String(err)}`;
@@ -321,7 +325,7 @@ describe("runAtomic nesting semantics", { skip: SKIP }, () => {
         try {
           await outer.execute(sql`insert into run_atomic_probe (id) values (2)`);
           const result = await outer.execute(sql`select count(*)::int as n from run_atomic_probe`);
-          const [row] = rowsFromExecute<{ n: number }>(result);
+          const [row] = rowsFromExecute(result, probeCountRowSchema);
           seen.rowsAfterSecond = row?.n ?? -1;
         } catch (err) {
           seen.rowsAfterSecond = sqlState(err) ?? `non-sqlstate: ${String(err)}`;

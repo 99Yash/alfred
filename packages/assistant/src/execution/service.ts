@@ -18,6 +18,7 @@ import {
   type ApprovalKind,
 } from "@alfred/contracts";
 import { and, desc, eq, sql } from "drizzle-orm";
+import { z } from "zod";
 import { emitReplicachePokes, publishEvent } from "@alfred/assistant/triggers";
 import {
   removeApprovalExpiryJob,
@@ -932,13 +933,16 @@ export async function findResumableRunIds(opts: { limit?: number }): Promise<str
   return collectResumableRunIds(opts.limit ?? 100, readResumeSweepPage);
 }
 
-export type ResumeSweepCandidate = {
-  readonly id: string;
-  readonly workflowSlug: string;
-  readonly currentStep: string;
-  readonly status: string;
-  readonly staleMs: number | string | null;
-};
+/** `staleMs` is `numeric` text from `EXTRACT`; null when the run never checkpointed. */
+const resumeSweepCandidateSchema = z.object({
+  id: z.string(),
+  workflowSlug: z.string(),
+  currentStep: z.string(),
+  status: z.string(),
+  staleMs: z.coerce.number().nullable(),
+});
+
+export type ResumeSweepCandidate = Readonly<z.output<typeof resumeSweepCandidateSchema>>;
 
 async function readResumeSweepPage(page: {
   limit: number;
@@ -959,7 +963,7 @@ async function readResumeSweepPage(page: {
     OFFSET ${page.offset}
   `);
 
-  return rowsFromExecute<ResumeSweepCandidate>(result);
+  return rowsFromExecute(result, resumeSweepCandidateSchema);
 }
 
 /**
@@ -988,9 +992,10 @@ export async function collectResumableRunIds(
         continue;
       }
 
-      const staleMs = row.staleMs == null ? null : Number(row.staleMs);
-
-      if (staleMs == null || staleMs >= resolveStaleAfterMs(row.workflowSlug, row.currentStep)) {
+      if (
+        row.staleMs == null ||
+        row.staleMs >= resolveStaleAfterMs(row.workflowSlug, row.currentStep)
+      ) {
         resumable.push(row.id);
 
         if (resumable.length >= limit) break;

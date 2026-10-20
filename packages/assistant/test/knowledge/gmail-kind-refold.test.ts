@@ -5,6 +5,7 @@ import { closeConnections, db, rowsFromExecute } from "@alfred/db";
 import { observations, projectionRuns, user } from "@alfred/db/schemas";
 import { gmailEmailMessagePayloadSchema, USER_MODEL_PROJECTION_NAME } from "@alfred/contracts";
 import { and, desc, eq, inArray, lte, sql } from "drizzle-orm";
+import { z } from "zod";
 import {
   appendObservationFamilyMember,
   refoldActiveGmailKindProjection,
@@ -245,19 +246,17 @@ async function initialActivate(
   return { runId: run.id, checksum: projected.checksum };
 }
 
+/** `now()` arrives as timestamp text. */
+const capturedAtRowSchema = z.object({ capturedAt: z.coerce.date() });
+
 async function currentGmailWatermark(userId: string) {
   return db().transaction(async (tx) => {
     const capturedAtResult = await tx.execute(sql`select now() as "capturedAt"`);
 
-    const rawCapturedAt = rowsFromExecute<{ capturedAt: Date | string }>(capturedAtResult)[0]
-      ?.capturedAt;
+    const [capturedAtRow] = rowsFromExecute(capturedAtResult, capturedAtRowSchema);
 
-    const capturedAt =
-      rawCapturedAt instanceof Date ? rawCapturedAt : new Date(rawCapturedAt ?? "");
-
-    if (Number.isNaN(capturedAt.getTime())) {
-      throw new Error("failed to capture DB timestamp for Gmail watermark");
-    }
+    if (!capturedAtRow) throw new Error("failed to capture DB timestamp for Gmail watermark");
+    const { capturedAt } = capturedAtRow;
 
     const baseWhere = and(
       eq(observations.userId, userId),

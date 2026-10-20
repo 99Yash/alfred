@@ -12,7 +12,7 @@
 
 - Keep browser-visible status/kind literals and other cross-boundary semantics in `@alfred/contracts`; the web app cannot import database schemas.
 - Use `.$type<T>()` for `jsonb` only when the database layer can truthfully guarantee that shape. Otherwise retain `unknown` and validate at the owning mapper boundary.
-- Treat the result of raw `db().execute(...)` calls as `unknown`; read typed rows with `rowsFromExecute` and a named row type instead of casting the driver result.
+- Treat the result of raw `db().execute(...)` calls as `unknown`; read rows with `rowsFromExecute(result, schema)` and a zod schema next to the query, never a cast. Raw rows skip Drizzle's column mappers, so timestamps and `numeric`/`bigint` values arrive as text. Use `createExecuteRowSchema(table)` for whole-table rows.
 
 ## Redis Connections
 

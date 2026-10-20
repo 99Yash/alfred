@@ -252,6 +252,17 @@ function safeCauseMessage(err: unknown): string | undefined {
   return typeof cause === "string" ? cause : undefined;
 }
 
+/** `numeric` columns arrive as text; `integer` as a number. */
+const latestPriceRowSchema = z.object({
+  input_per_mtok: z.string(),
+  output_per_mtok: z.string(),
+  cached_input_per_mtok: z.string().nullable(),
+  cache_write_input_per_mtok: z.string().nullable(),
+  per_call_usd: z.string().nullable(),
+  context_window: z.number().nullable(),
+  metadata: z.unknown(),
+});
+
 async function upsertIfChanged(row: PriceRow): Promise<"inserted" | "unchanged"> {
   const existing = await db().execute(sql`
     SELECT input_per_mtok, output_per_mtok, cached_input_per_mtok, cache_write_input_per_mtok, per_call_usd, context_window, metadata
@@ -261,15 +272,7 @@ async function upsertIfChanged(row: PriceRow): Promise<"inserted" | "unchanged">
     LIMIT 1
   `);
 
-  const latest = rowsFromExecute<{
-    input_per_mtok: string;
-    output_per_mtok: string;
-    cached_input_per_mtok: string | null;
-    cache_write_input_per_mtok: string | null;
-    per_call_usd: string | null;
-    context_window: number | null;
-    metadata: unknown;
-  }>(existing)[0];
+  const [latest] = rowsFromExecute(existing, latestPriceRowSchema);
 
   if (latest) {
     const same =

@@ -6,7 +6,7 @@ import {
   type MemorySource,
 } from "@alfred/contracts";
 import { parseMemorySourceOrDefault } from "@alfred/assistant/settings";
-import { db, rowsFromExecute } from "@alfred/db";
+import { createExecuteRowSchema, db, rowsFromExecute } from "@alfred/db";
 import {
   rejectedInferences,
   userFactInsertSchema,
@@ -627,9 +627,12 @@ export async function listFactsByStatus(
 /** Stops a corrupt or cyclic `supersedes_id` chain from running away. */
 const MAX_SUPERSESSION_DEPTH = 256;
 
+/** A `user_facts` row from the chain query. Its timestamps arrive as text and parse to `Date`. */
+const supersessionChainRowSchema = createExecuteRowSchema(userFacts);
+
 /**
  * The supersession chain, tip first, in one `WITH RECURSIVE` query scoped to
- * `userId`. Columns come from table metadata, so rows feed `rowToFact` unchanged.
+ * `userId`. Columns come from table metadata, so the parsed rows feed `rowToFact`.
  */
 export async function getSupersessionChain(userId: string, factId: string): Promise<FactRow[]> {
   const columns = getTableColumns(userFacts);
@@ -653,5 +656,5 @@ export async function getSupersessionChain(userId: string, factId: string): Prom
     select * from chain order by depth
   `);
 
-  return rowsFromExecute<UserFact>(result).map(rowToFact);
+  return rowsFromExecute(result, supersessionChainRowSchema).map(rowToFact);
 }

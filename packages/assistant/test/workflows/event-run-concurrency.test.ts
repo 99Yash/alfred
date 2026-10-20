@@ -32,6 +32,7 @@ import { COLD_START_WORKFLOW_SLUG } from "@alfred/assistant/knowledge/cold-start
 import { uniqueViolationConstraint } from "@alfred/db/pg-errors";
 import { closeRedis } from "@alfred/db/redis";
 import { dbBackedSkip } from "../support/db-backed";
+import { z } from "zod";
 
 /**
  * Two concurrent dispatches of one event must create one run (#531).
@@ -281,8 +282,8 @@ describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
         and indexname = ${EVENT_ACTIVE_RUN_INDEX}
     `);
 
-    const [row] = rowsFromExecute<{ count: number | string }>(result);
-    assert.equal(Number(row?.count), 1);
+    const [row] = rowsFromExecute(result, z.object({ count: z.number() }));
+    assert.equal(row?.count, 1);
   });
 
   test("a second run for the same in-flight event is rejected → exactly one run", async () => {
