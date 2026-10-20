@@ -5,5 +5,6 @@
  */
 export function asContractViolation<T>(value: unknown): T {
   // SAFETY: the precondition above: the value is wrong on purpose, and the code under test must reject it.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a wrong value on purpose
   return value as T;
 }

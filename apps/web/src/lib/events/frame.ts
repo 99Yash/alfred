@@ -41,6 +41,7 @@ export function parseEventFrame<K extends EventKind>(
   // `satisfies EventFrame` catches a missing required envelope field; a bare `as` would not.
   // SAFETY: `eventPayloadSchemas[kind]` parsed the payload, but TypeScript widens a generic
   // indexed access to every kind's payload. Do not re-derive `kind` between the two.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a generic indexed access widens the parsed payload
   return {
     id: id.data,
     kind,

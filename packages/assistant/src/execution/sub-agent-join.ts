@@ -29,6 +29,7 @@ export type ParkWake = SafeToParkWake;
 
 function mintParkWake(childRunId: string, deadlineAt: string): ParkWake {
   // SAFETY: the only mint; every park it builds carries a deadline.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the brand's only mint
   return {
     kind: "signal",
     name: subAgentDoneSignalName(childRunId),

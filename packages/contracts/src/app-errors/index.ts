@@ -232,6 +232,7 @@ function isParamEntry(entry: CatalogEntry): entry is ParamEntry {
 /** Call only from `renderEntry`, which reads the string from the catalog. */
 function brand(message: string): PublicAppErrorMessage {
   // SAFETY: the only caller passes catalog text.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the brand's only mint, over catalog text
   return message as PublicAppErrorMessage;
 }
 

@@ -408,6 +408,7 @@ export function liveTool<
       ? {
           // SAFETY: restores the erased generic S. Dispatch passes raw pre-parse
           // input and catches a throw, so the redactor reads fields defensively.
+          // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- restores the erased generic S
           redactInput: (input: unknown) => redactInput(input as z.infer<S>),
         }
       : {}),

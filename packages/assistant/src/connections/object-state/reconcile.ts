@@ -241,6 +241,7 @@ function closesAskAsFor<Reading extends KeyProposalReading>(
 
   // SAFETY: `readingClosesAsk` was true, so `Reading` is a `ClosureReading`. TS cannot narrow a
   // deferred generic.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- TypeScript cannot narrow a deferred generic
   return closes as ReconciledObject<Reading>["closesAskAs"];
 }
 

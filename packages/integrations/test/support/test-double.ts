@@ -8,5 +8,6 @@
  */
 export function asTestDouble<T>(partial: { readonly [K in keyof T]?: unknown }): T {
   // SAFETY: the precondition above: the code under test reads only the members in `partial`.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a test double; the code under test reads only these members
   return partial as T;
 }

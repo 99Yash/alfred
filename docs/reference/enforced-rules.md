@@ -79,6 +79,7 @@ When you add, remove or change a rule in `.oxlintrc.json`, a JS plugin, `scripts
 | [`typescript/no-unsafe-call`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-unsafe-call.html) | yes | Off in `**/*.mjs`, `**/*.js`, `**/*.cjs` |  |
 | [`typescript/no-unsafe-member-access`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-unsafe-member-access.html) | yes | Off in `**/*.mjs`, `**/*.js`, `**/*.cjs` |  |
 | [`typescript/no-unsafe-return`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-unsafe-return.html) | yes | Off in `**/*.mjs`, `**/*.js`, `**/*.cjs` |  |
+| [`typescript/no-unsafe-type-assertion`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-unsafe-type-assertion.html) | yes |  |  |
 | [`typescript/no-unsafe-unary-minus`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-unsafe-unary-minus.html) | yes |  |  |
 | [`typescript/no-useless-default-assignment`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-useless-default-assignment.html) | yes |  |  |
 | [`typescript/only-throw-error`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/only-throw-error.html) | yes |  | `{"allow":[{"from":"package","package":"@tanstack/router-core","name":["Redirect","NotFoundError"]}]}` |

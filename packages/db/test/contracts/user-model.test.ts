@@ -148,6 +148,7 @@ describe("makeEntityNodeInsert", () => {
           secret,
           "usr_test",
           // SAFETY: a deliberately ill-typed identity, as an `any` payload carries; the case proves the runtime parse rejects it.
+          // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- an ill-typed payload on purpose
           { kind: "not_a_kind", value: "x" } as never,
           firstSeenAt,
         ),

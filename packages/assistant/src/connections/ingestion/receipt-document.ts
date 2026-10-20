@@ -92,6 +92,7 @@ export async function prepareReceiptProjection(
   const timezone = await settings({ userId: facts.userId }).timezone();
 
   // SAFETY: the brand's only mint.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the brand's only mint
   return {
     provider: facts.provider,
     userId: facts.userId,

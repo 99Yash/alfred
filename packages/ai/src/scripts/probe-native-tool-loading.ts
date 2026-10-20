@@ -191,6 +191,7 @@ function withNativeSearchTool(tools: ToolSet, provider: ProviderId): ToolSet {
 
   if (provider === "openai") {
     // SAFETY: `ToolSet` widens this provider tool's input to `never`; this is one tool under its key.
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- ToolSet widens this provider tool's input to never
     return {
       ...tools,
       [NATIVE_SEARCH_KEY]: openai.tools.toolSearch({ execution: "server" }),

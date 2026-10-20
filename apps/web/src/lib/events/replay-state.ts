@@ -175,6 +175,7 @@ type RunScopedFrame = Extract<
 /** The only `BarrierRunId` mint. Takes the whole frame so kind and run id cannot mismatch. */
 function toBarrierRunId(frame: RunScopedFrame): BarrierRunId {
   // SAFETY: the payload was schema-parsed with `runId`; the brand wraps that string.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the brand's only mint, over a parsed runId
   return frame.payload.runId as BarrierRunId;
 }
 

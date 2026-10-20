@@ -15,6 +15,7 @@
 export function typedKeys<T extends object>(record: T): Extract<keyof T, string>[] {
   // SAFETY: the precondition says `record` is a closed literal, so `Object.keys` returns exactly
   // its string keys. This is the one place that states it.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a generic walker over a closed literal
   return Object.keys(record) as Extract<keyof T, string>[];
 }
 
@@ -35,6 +36,7 @@ export function recordFromKeys<K extends string, V>(
 ): Record<K, V> {
   // SAFETY: the entries come from `keys` one to one, so the record has exactly the keys `K`.
   // `Object.fromEntries` types its keys as `string`, which erases that.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Object.fromEntries erases the key type K
   return Object.fromEntries(keys.map((key, index) => [key, project(key, index)])) as Record<K, V>;
 }
 
@@ -49,6 +51,7 @@ export function pluckField<T extends object, F extends keyof T[keyof T]>(
 ): { readonly [K in Extract<keyof T, string>]: T[K][F & keyof T[K]] } {
   // SAFETY: the value under each key K is `record[K][field]`, so it is `T[K][F]`. `recordFromKeys`
   // types every value as the union over all keys; a per-key mapped type cannot be built otherwise.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a per-key mapped type that recordFromKeys cannot build
   return recordFromKeys(typedKeys(record), (key) => record[key][field]) as {
     readonly [K in Extract<keyof T, string>]: T[K][F & keyof T[K]];
   };

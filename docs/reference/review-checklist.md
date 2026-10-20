@@ -23,8 +23,6 @@ Each rule has the rule, the reason, and an example.
   Why: the next reviewer otherwise collapses it to the row type. Example: the `Synced*` read models in `packages/sync/src/schemas.ts`.
 - **Choose the type of an open dictionary.** Use a parsed schema, a `Record` keyed by a literal union with `satisfies`, a `Map`, or `JsonValue`.
   Why: `Record<string, unknown>` is not a substitute for a parse. See [narrow-record-types](../research/narrow-record-types-2026-08-09.md).
-- **Use a guard, not a single `as`.** Remove the assertion and run `pnpm check-types` first. Keep a `SAFETY:` comment only for an assertion that stays necessary.
-  Why: `as` asserts and does not check, and a comment does not validate data. Example: `toStringArray` in `packages/contracts/src/guards.ts`.
 - **Use `isRecord` and `getPath` only on a value that is `unknown` at a true parse boundary.** Index a typed field directly. Use `isIndexable` and `Reflect.get` for an SDK instance.
   Why: the guard widens a parsed value again. Example: #1279.
 - **Choose `k?: T` or `k?: T | undefined` for each optional field.** Keep `k?: T` when absence has a meaning, and omit the key with a conditional spread.
@@ -103,8 +101,8 @@ Each rule has the rule, the reason, and an example.
   Why: `assert.ok(x)` proves only that the import did not throw.
 - **Assert the wire or the state in a mock test, not only `calls.length`.**
   Why: a call count alone tests the mock.
-- **Write a `SAFETY:` note in a test as an ordinary comment, not as a directive.**
-  Why: the unused-directive check cannot read it, so the reason must stay true by review.
+- **Keep the reason of a `SAFETY:` note or a disable directive true.**
+  Why: the unused-directive check proves only that a directive still suppresses a report. It cannot read the reason or a plain comment.
 
 ## Process
 

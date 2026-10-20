@@ -64,7 +64,7 @@ function encode(bytes: Uint8Array): string {
 function toSealedEnvelope(joined: string): SealedCredentialSecret {
   // SAFETY: the one mint of the opaque type. `SealedCredentialSecret` is a string at runtime and a
   // symbol in the type system on purpose, so no single-step assertion or guard can reach it.
-  // eslint-disable-next-line anti-slop/no-chained-type-assertions -- boundary cast: envelope is a string at runtime but branded as symbol to prevent implicit provider use
+  // oxlint-disable-next-line anti-slop/no-chained-type-assertions, typescript/no-unsafe-type-assertion -- the one mint of the sealed envelope, a string at runtime and a symbol in the types
   return joined as unknown as SealedCredentialSecret;
 }
 
