@@ -18,6 +18,16 @@
 //     on two polls in a row while the PR is open. A job with `needs:`
 //     (assistant-unit-tests needs its shards) is registered only after its needs
 //     finish, so one all-final poll can come before that job exists.
+//   - For a PR into `main`, green also needs the `ci` workflow (ci.yml) itself:
+//     a `ci` run for the PR head SHA must exist and be `completed`, and at least
+//     one check must come from the `ci` workflow. React Doctor registers first,
+//     so without this rule a list with only `react-doctor` in it read as "all 1
+//     passed". The run is read from the Actions API, so the script does not
+//     hard-code the job count. ci.yml has no path filter, so it always runs. A
+//     `ci` run that ends red with no red check (for example `startup_failure`)
+//     is a failure.
+//   - The PR head SHA is read again on each poll. When it changes (a new push or
+//     a force-push), the wait starts over for the new SHA.
 //
 // Exit codes: 0 every check passed or skipped; 1 a check failed or was cancelled;
 // 2 the answer is unknown (bad usage, no such PR, gh kept failing, the wait timed
@@ -51,7 +61,16 @@ const GH_CALL_TIMEOUT_MS = 60_000;
 
 const CHECK_FIELDS = "name,bucket,state,link,workflow";
 
-const PR_FIELDS = "number,state,baseRefName,headRefName";
+const PR_FIELDS = "number,state,baseRefName,headRefName,headRefOid";
+
+/** The workflow file whose run must finish before a PR into main is green. */
+const CI_WORKFLOW_PATH = ".github/workflows/ci.yml";
+
+/** The `workflow` field that `gh pr checks` gives to the jobs of ci.yml. */
+const CI_WORKFLOW_NAME = "ci";
+
+/** Workflow run conclusions that are not a failure. */
+const GREEN_RUN_CONCLUSIONS = new Set(["success", "skipped", "neutral"]);
 
 /** `gh pr checks --json` buckets. Only `pending` is not final. */
 const FINAL_BUCKETS = new Set(["pass", "skipping", "fail", "cancel"]);
@@ -146,11 +165,14 @@ function log(line) {
 
 /**
  * Runs `gh` with an argument array. Any outcome but exit 0 (or 8) is `ok: false`.
+ * `gh api` takes no `--repo` flag; its path names the repository.
  * @param {string[]} args
  * @returns {{ ok: true; value: unknown } | { ok: false; stderr: string; reason: string }}
  */
 function gh(args) {
-  const run = spawnSync("gh", [...args, "--repo", options.repo], {
+  const repoArgs = args[0] === "api" ? [] : ["--repo", options.repo];
+
+  const run = spawnSync("gh", [...args, ...repoArgs], {
     encoding: "utf8",
     timeout: GH_CALL_TIMEOUT_MS,
   });
@@ -163,7 +185,11 @@ function gh(args) {
   if (run.status !== 0 && run.status !== 8) {
     const reason = stderr.split("\n")[0] || `exit ${run.status ?? run.signal}`;
 
-    return { ok: false, stderr, reason: `gh exited ${run.status ?? run.signal}: ${reason}` };
+    return {
+      ok: false,
+      stderr,
+      reason: `gh exited ${run.status ?? run.signal}: ${reason}`,
+    };
   }
 
   try {
@@ -171,7 +197,11 @@ function gh(args) {
   } catch (error) {
     const detail = (error instanceof Error ? error.message : String(error)).replace(/\s+/g, " ");
 
-    return { ok: false, stderr, reason: `gh printed output that is not JSON (${detail})` };
+    return {
+      ok: false,
+      stderr,
+      reason: `gh printed output that is not JSON (${detail})`,
+    };
   }
 }
 
@@ -204,11 +234,69 @@ function readPr() {
 
   const base = isRecord(pr) ? stringField(pr, "baseRefName") : null;
 
-  if (state === null || base === null) {
-    return { ok: false, reason: `gh pr view printed ${JSON.stringify(pr)}, not a pull request` };
+  const sha = isRecord(pr) ? stringField(pr, "headRefOid") : null;
+
+  if (state === null || base === null || sha === null) {
+    return {
+      ok: false,
+      reason: `gh pr view printed ${JSON.stringify(pr)}, not a pull request`,
+    };
   }
 
-  return { ok: true, value: { state, base } };
+  return { ok: true, value: { state, base, sha } };
+}
+
+/**
+ * Reads the newest `ci` workflow run for a head SHA. `value: null` means no run
+ * is registered yet.
+ * @param {string} sha
+ */
+function readCiRun(sha) {
+  const read = gh([
+    "api",
+    `repos/${options.repo}/actions/runs?head_sha=${sha}&event=pull_request&per_page=100`,
+  ]);
+
+  if (!read.ok) return read;
+
+  const runs = isRecord(read.value) ? read.value.workflow_runs : null;
+
+  if (!Array.isArray(runs)) {
+    return {
+      ok: false,
+      reason: "gh api actions/runs printed no workflow_runs list",
+    };
+  }
+
+  /** @type {{ id: number; status: string; conclusion: string; url: string } | null} */
+  let newest = null;
+
+  for (const run of runs) {
+    if (!isRecord(run) || stringField(run, "path") !== CI_WORKFLOW_PATH) continue;
+
+    const status = stringField(run, "status");
+
+    const { id } = run;
+
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- walks gh api output; an unknown shape fails closed
+    if (status === null || typeof id !== "number") {
+      return {
+        ok: false,
+        reason: `gh api printed a ci run without id/status: ${JSON.stringify(run)}`,
+      };
+    }
+
+    if (newest === null || id > newest.id) {
+      newest = {
+        id,
+        status,
+        conclusion: stringField(run, "conclusion") ?? "",
+        url: stringField(run, "html_url") ?? "",
+      };
+    }
+  }
+
+  return { ok: true, value: newest };
 }
 
 function readChecks() {
@@ -217,7 +305,10 @@ function readChecks() {
   if (!read.ok) return NO_CHECKS_MESSAGE.test(read.stderr) ? { ok: true, value: [] } : read;
 
   if (!Array.isArray(read.value)) {
-    return { ok: false, reason: `gh pr checks printed ${JSON.stringify(read.value)}, not a list` };
+    return {
+      ok: false,
+      reason: `gh pr checks printed ${JSON.stringify(read.value)}, not a list`,
+    };
   }
 
   const checks = [];
@@ -310,7 +401,7 @@ function failRed(red) {
   stop(EXIT_RED);
 }
 
-const pr = await untilRead(readPr);
+let pr = await untilRead(readPr);
 
 const stackedNote =
   pr.base === "main"
@@ -326,7 +417,19 @@ let emptyReported = false;
 
 let allFinalBefore = -1;
 
+let headSha = pr.sha;
+
 for (;;) {
+  pr = await untilRead(readPr);
+
+  if (pr.sha !== headSha) {
+    log(`head moved ${headSha.slice(0, 7)} -> ${pr.sha.slice(0, 7)}; waiting on the new commit`);
+    headSha = pr.sha;
+    emptySince = null;
+    emptyReported = false;
+    allFinalBefore = -1;
+  }
+
   const checks = await untilRead(readChecks);
 
   if (checks.length === 0) {
@@ -362,7 +465,38 @@ for (;;) {
 
   if (options.failFast && red.length > 0) failRed(red);
 
-  const allFinal = checks.every((check) => FINAL_BUCKETS.has(check.bucket));
+  const checksFinal = checks.every((check) => FINAL_BUCKETS.has(check.bucket));
+
+  // ci.yml runs only for pull requests into main (see stackedNote).
+  const ciRun = stackedNote === null ? await untilRead(() => readCiRun(headSha)) : null;
+
+  const ciWait =
+    stackedNote !== null
+      ? null
+      : ciRun === null
+        ? "no ci workflow run for the head commit yet"
+        : ciRun.status !== "completed"
+          ? `ci workflow run is ${ciRun.status}`
+          : checks.some((check) => check.workflow === CI_WORKFLOW_NAME)
+            ? null
+            : "ci workflow run is completed but none of its jobs is listed yet";
+
+  if (
+    ciRun !== null &&
+    ciRun.status === "completed" &&
+    !GREEN_RUN_CONCLUSIONS.has(ciRun.conclusion) &&
+    red.length === 0 &&
+    checksFinal
+  ) {
+    stop(
+      EXIT_RED,
+      `\nwait-pr-checks: the ci workflow run ended ${ciRun.conclusion || "with no conclusion"} on PR #${options.pr}, with no failed job listed.\n  ${ciRun.url}`,
+    );
+  }
+
+  if (ciWait !== null && checksFinal) log(`every listed check is final; still waiting: ${ciWait}`);
+
+  const allFinal = checksFinal && ciWait === null;
 
   // A merged or closed PR registers no new jobs, so one all-final poll settles it.
   const settled = allFinal && (pr.state !== "OPEN" || allFinalBefore === checks.length);
