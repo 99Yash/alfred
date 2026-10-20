@@ -61,11 +61,15 @@ function encode(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString("base64url");
 }
 
-function toSealedEnvelope(joined: string): SealedCredentialSecret {
-  // SAFETY: the one mint of the opaque type. `SealedCredentialSecret` is a string at runtime and a
-  // symbol in the type system on purpose, so no single-step assertion or guard can reach it.
-  // oxlint-disable-next-line anti-slop/no-chained-type-assertions, typescript/no-unsafe-type-assertion -- the one mint of the sealed envelope, a string at runtime and a symbol in the types
-  return joined as unknown as SealedCredentialSecret;
+/**
+ * The one mint of the opaque type. The envelope-family guard is the only claim that a string
+ * is a `SealedCredentialSecret`, so the mint goes through it too. The parameter is `unknown`
+ * because a guard cannot narrow a declared `string` to a symbol type.
+ */
+function toSealedEnvelope(joined: unknown): SealedCredentialSecret {
+  if (!belongsToEnvelopeFamily(joined)) throw new CredentialVaultError("malformed_envelope");
+
+  return joined;
 }
 
 /** Decode strictly because Node's base64url decoder ignores invalid bytes. */
@@ -88,7 +92,10 @@ function additionalData(kid: string, role: "dek" | "payload"): Buffer {
   return Buffer.from([FORMAT.prefix, FORMAT.algorithm, kid, role].join(FORMAT.separator), "utf8");
 }
 
-/** Matches any `acv<N>.` version, so a damaged or future envelope is never sealed again as plaintext. */
+/**
+ * Matches any `acv<N>.` version, so a damaged or future envelope is never sealed again as plaintext.
+ * This predicate is where a runtime string becomes the symbol-typed brand.
+ */
 function belongsToEnvelopeFamily(persisted: unknown): persisted is SealedCredentialSecret {
   return typeof persisted === "string" && ENVELOPE_FAMILY_PATTERN.test(persisted);
 }

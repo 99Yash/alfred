@@ -67,16 +67,6 @@ function sealPending<Field extends string>(
   }, {});
 }
 
-/** Better Auth's `account` type wants `string`. Keep this private so `open` stays the only public unwrap. */
-function asUnbranded<Field extends string>(
-  pending: Partial<Record<Field, SealedCredentialSecret>>,
-): Partial<Record<Field, string>> {
-  // SAFETY: the one private unwrap for Better Auth's `string` columns. Each value is a sealed
-  // envelope, which is a string at runtime; only its type is a symbol.
-  // oxlint-disable-next-line anti-slop/no-chained-type-assertions, typescript/no-unsafe-type-assertion -- the one unwrap of sealed envelopes, strings at runtime and symbols in the types
-  return pending as unknown as Partial<Record<Field, string>>;
-}
-
 function countUnsealed<Field extends string>(
   row: Readonly<Record<Field, PersistedToken>>,
   fields: readonly Field[],
@@ -120,7 +110,7 @@ export async function encryptPersistedOAuthCredentials(options?: {
         const pending = sealPending(row, ACCOUNT_SECRET_FIELDS, vault);
 
         if (Object.keys(pending).length === 0) continue;
-        await tx.update(account).set(asUnbranded(pending)).where(eq(account.id, row.id));
+        await tx.update(account).set(pending).where(eq(account.id, row.id));
         accountsUpdated += 1;
       }
 

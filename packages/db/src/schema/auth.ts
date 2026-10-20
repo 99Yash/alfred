@@ -1,4 +1,5 @@
 import { boolean, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import type { SealedCredentialSecret } from "../credential-vault";
 import { createId, lifecycle_dates } from "../helpers";
 
 export const user = pgTable("user", {
@@ -30,6 +31,8 @@ export const session = pgTable("session", {
 /**
  * Better Auth's account table. The token columns hold sealed envelopes.
  * `encryptedAuthAdapter` in `@alfred/auth` seals on write and opens on read.
+ * Better Auth does not read these Drizzle types, so the {@link SealedCredentialSecret}
+ * brand only governs Alfred's own Drizzle reads and writes, as on `integration_credentials`.
  */
 export const account = pgTable("account", {
   id: text("id")
@@ -40,9 +43,9 @@ export const account = pgTable("account", {
   userId: text("user_id")
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
-  accessToken: text("access_token"),
-  refreshToken: text("refresh_token"),
-  idToken: text("id_token"),
+  accessToken: text("access_token").$type<SealedCredentialSecret>(),
+  refreshToken: text("refresh_token").$type<SealedCredentialSecret>(),
+  idToken: text("id_token").$type<SealedCredentialSecret>(),
   accessTokenExpiresAt: timestamp("access_token_expires_at", { withTimezone: true }),
   refreshTokenExpiresAt: timestamp("refresh_token_expires_at", { withTimezone: true }),
   scope: text("scope"),

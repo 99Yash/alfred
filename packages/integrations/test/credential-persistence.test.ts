@@ -277,9 +277,10 @@ describe("credential backfill (DB-backed)", { skip: SKIP }, () => {
         accountId: randomUUID(),
         providerId: "google",
         userId,
-        accessToken: "plain-account-access",
-        refreshToken: "plain-account-refresh",
-        idToken: "plain-account-id",
+        // Raw SQL parameters, as for `integration_credentials` below: the brand refuses plaintext.
+        accessToken: sql`${"plain-account-access"}`,
+        refreshToken: sql`${"plain-account-refresh"}`,
+        idToken: sql`${"plain-account-id"}`,
       })
       .returning({ id: account.id });
 
