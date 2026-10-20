@@ -36,11 +36,20 @@ const MIN_ABBREVIATED_SHA_LENGTH = INTEGRATION_OBJECT_DEFS.github.prefixableKeys
 
 /**
  * The short sha at the end of an Actions failure subject, e.g. `Run failed: ... (efd2e98)`. Only a
- * trailing parenthesized run counts: `Invoice (1234567) paid` is a build number. It must mix digits
- * and a-f letters: `defaced` is a word, `20260915` a date.
+ * trailing parenthesized run counts: `Invoice (1234567) paid` is a build number. Outside an Actions
+ * failure subject it must mix digits and a-f letters: `defaced` is a word, `20260915` a date.
  */
 const SUBJECT_ABBREVIATED_SHA_RE = new RegExp(
   String.raw`\(([0-9a-f]{${MIN_ABBREVIATED_SHA_LENGTH},40})\)\s*$`,
+  "i",
+);
+
+/**
+ * `[owner/repo] Run failed: ...` or `[owner/repo] PR run failed: ...`, anchored on the trailing
+ * short sha. The run title between them is free text: a `(#123)` there is not the mail's referent.
+ */
+const ACTIONS_RUN_FAILURE_SUBJECT_RE = new RegExp(
+  String.raw`^\[[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\][^\n]*\bRun failed:[^\n]*\([0-9a-f]{${MIN_ABBREVIATED_SHA_LENGTH},40}\)\s*$`,
   "i",
 );
 
@@ -76,7 +85,9 @@ function extractGithubKeys(input: SubjectText): ExtractedKey[] {
     keys.push(candidate);
   };
 
-  const subjectRef = deriveLoopEntityRef(input.subject);
+  const runFailure = ACTIONS_RUN_FAILURE_SUBJECT_RE.test(input.subject);
+  // In an Actions failure subject, a `(#123)` is part of the PR title, not the mail's referent.
+  const subjectRef = runFailure ? null : deriveLoopEntityRef(input.subject);
 
   if (subjectRef?.provider === "github") {
     if (subjectRef.kind !== "pull_request") return [];
@@ -120,7 +131,7 @@ function extractGithubKeys(input: SubjectText): ExtractedKey[] {
   }
 
   // Two short shas in the subject is ambiguous.
-  const abbreviated = collectSubjectAbbreviatedShas(input.subject);
+  const abbreviated = collectSubjectAbbreviatedShas(input.subject, runFailure);
   const onlyAbbreviated = abbreviated.length === 1 ? abbreviated[0] : undefined;
 
   if (onlyAbbreviated) addKey("head_sha", onlyAbbreviated, "prefix");
@@ -128,14 +139,17 @@ function extractGithubKeys(input: SubjectText): ExtractedKey[] {
   return keys;
 }
 
-/** The subject's trailing short sha, if any. */
-function collectSubjectAbbreviatedShas(subject: string): string[] {
+/**
+ * The subject's trailing short sha, if any. An Actions failure subject always ends in a sha, so
+ * there an all-digit one (`6832791`) counts too.
+ */
+function collectSubjectAbbreviatedShas(subject: string, runFailure: boolean): string[] {
   const sha = SUBJECT_ABBREVIATED_SHA_RE.exec(subject)?.[1]?.toLowerCase();
 
   if (!sha) return [];
   // Words and dates use one character class; a real abbreviation mixes both.
 
-  if (!/[0-9]/.test(sha) || !/[a-f]/.test(sha)) return [];
+  if (!runFailure && (!/[0-9]/.test(sha) || !/[a-f]/.test(sha))) return [];
 
   return [sha];
 }
