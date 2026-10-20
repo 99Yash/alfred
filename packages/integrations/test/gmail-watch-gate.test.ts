@@ -102,7 +102,7 @@ describe("Gmail watch mailbox-write gate (#278)", () => {
                   where: () => {
                     calls.dbWhere++;
 
-                    return Promise.resolve();
+                    return Promise.resolve({ rowCount: 1 });
                   },
                 };
               },

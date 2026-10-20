@@ -91,11 +91,11 @@ function recordingAdapter() {
 
       return store.row;
     },
-    transaction: async <R>(callback: (trx: unknown) => Promise<R>) => {
+    transaction: async <R>(callback: (trx: AuthAdapter) => Promise<R>): Promise<R> => {
       calls.push({ op: "transaction", model: "-", payload: null });
 
       // A separate undecorated handle, as drizzle gives. Catches a decorator that does not recurse.
-      return callback(fake);
+      return callback(asTestDouble<AuthAdapter>(fake));
     },
   };
 

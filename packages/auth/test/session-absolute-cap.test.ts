@@ -56,8 +56,8 @@ function sessionStore(
       join,
     }: {
       model: string;
-      where?: Array<{ field: string; value: unknown }>;
-      join?: Row;
+      where?: Array<{ field: string; value: unknown }> | undefined;
+      join?: Row | undefined;
     }) => {
       const row = table(model).find((candidate) => matches(candidate, where));
 
@@ -86,7 +86,7 @@ function sessionStore(
     }: {
       model: string;
       update: Row;
-      where?: Array<{ field: string; value: unknown }>;
+      where?: Array<{ field: string; value: unknown }> | undefined;
     }) => {
       const row = table(model).find((candidate) => matches(candidate, where));
 
@@ -102,7 +102,7 @@ function sessionStore(
     }: {
       model: string;
       update: Row;
-      where?: Array<{ field: string; value: unknown }>;
+      where?: Array<{ field: string; value: unknown }> | undefined;
     }) => {
       const found = table(model).filter((candidate) => matches(candidate, where));
 
@@ -122,7 +122,7 @@ function sessionStore(
       where,
     }: {
       model: string;
-      where?: Array<{ field: string; value: unknown }>;
+      where?: Array<{ field: string; value: unknown }> | undefined;
     }) => {
       const kept = table(model).filter((candidate) => !matches(candidate, where));
       const deleted = table(model).length - kept.length;
@@ -135,14 +135,14 @@ function sessionStore(
       where,
     }: {
       model: string;
-      where?: Array<{ field: string; value: unknown }>;
+      where?: Array<{ field: string; value: unknown }> | undefined;
     }) => table(model).filter((candidate) => matches(candidate, where)).length,
     consumeOne: async ({
       model,
       where,
     }: {
       model: string;
-      where?: Array<{ field: string; value: unknown }>;
+      where?: Array<{ field: string; value: unknown }> | undefined;
     }) => {
       const index = table(model).findIndex((candidate) => matches(candidate, where));
 
@@ -157,9 +157,9 @@ function sessionStore(
       set,
     }: {
       model: string;
-      where?: Array<{ field: string; value: unknown }>;
+      where?: Array<{ field: string; value: unknown }> | undefined;
       increment: Record<string, number>;
-      set?: Row;
+      set?: Row | undefined;
     }) => {
       const row = table(model).find((candidate) => matches(candidate, where));
 
@@ -173,7 +173,7 @@ function sessionStore(
 
       return row;
     },
-    transaction: async <R>(callback: (trx: AuthAdapter) => Promise<R>) =>
+    transaction: async <R>(callback: (trx: AuthAdapter) => Promise<R>): Promise<R> =>
       // The callback sees the same focused adapter that the factory exposes.
       callback(asTestDouble<AuthAdapter>(adapter)),
   };
