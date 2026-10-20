@@ -8,18 +8,20 @@ import {
   candidateIdentity,
   type CandidateKey,
   type ClosureReading,
-  type IdentityProbe,
   type KeyProposal,
   type KeyProposalReading,
   type ObjectKeyMatch,
-  type ObjectLinkMatch,
   type ObjectStateAdapter,
   readingClosesAsk,
   type ReconcileSubject,
-  type ResolvedKey,
 } from "./adapter";
 import { githubObjectStateAdapter } from "./github-adapter";
-import { proposeIdentityProbe, resolveIdentityProbes } from "./identity-containment";
+import {
+  type ContainedObject,
+  type IdentityProbe,
+  proposeIdentityProbe,
+  resolveIdentityProbes,
+} from "./identity-containment";
 import { mcpObjectStateAdapter } from "./mcp-adapter";
 import { railwayObjectStateAdapter } from "./railway-adapter";
 import { vercelObjectStateAdapter } from "./vercel-adapter";
@@ -38,6 +40,25 @@ import {
  * that resolves to nothing, to several objects, or to a non-closing state changes nothing. Absence
  * never closes (ADR-0048-D).
  */
+
+/**
+ * How a resolved object was named. `identity`: one provider link held the object's whole labeled
+ * identity (ADR-0109 rule 2), a hard edge. `nomination`: one link held its values with no labels,
+ * a soft edge that never closes an ask. Only this module mints either, so no adapter can propose
+ * one.
+ */
+type ObjectLinkMatch = ObjectKeyMatch | "identity" | "nomination";
+
+/**
+ * The key that proved a resolved object. For an `identity` or `nomination` match, `keyKind` is the
+ * object kind and `keyValue` its external id.
+ */
+interface ResolvedKey<Reading extends KeyProposalReading> extends Omit<
+  CandidateKey<Reading>,
+  "match"
+> {
+  match: ObjectLinkMatch;
+}
 
 /** One resolved object and what its state does to an ask. */
 export interface ReconciledObject<Reading extends KeyProposalReading> {
@@ -65,7 +86,7 @@ export interface ReconcileCandidates<Reading extends KeyProposalReading> {
   /** The caller's own id for the subject; the result is keyed back on it. */
   id: string;
   keys: readonly CandidateKey<Reading>[];
-  /** Strong tokens for identity containment (ADR-0109). `null`: the subject names nothing that way. */
+  /** Provider links for identity containment (ADR-0109). `null`: the subject names nothing that way. */
   probe: IdentityProbe<Reading> | null;
 }
 
@@ -196,7 +217,7 @@ export async function reconcileEvidence<Reading extends KeyProposalReading>(args
 
   const statesByObjectId = await store.getStates(args.userId, [
     ...refByKey.values(),
-    ...[...containedBySubject.values()].flat(),
+    ...[...containedBySubject.values()].flat().map((contained) => contained.ref),
   ]);
 
   for (const [identity, ref] of refByKey) {
@@ -205,12 +226,13 @@ export async function reconcileEvidence<Reading extends KeyProposalReading>(args
     if (state) stateByKey.set(identity, state);
   }
 
-  // A contained identity proves the object as an exact key does (ADR-0109 rule 2).
-  const containedStates = (subject: ReconcileCandidates<Reading>): ObjectState[] =>
-    (containedBySubject.get(subject.id) ?? []).flatMap((ref) => {
-      const state = statesByObjectId.get(ref.objectId);
+  const containedStates = (
+    subject: ReconcileCandidates<Reading>,
+  ): (ContainedObject & { state: ObjectState })[] =>
+    (containedBySubject.get(subject.id) ?? []).flatMap((contained) => {
+      const state = statesByObjectId.get(contained.ref.objectId);
 
-      return state ? [state] : [];
+      return state ? [{ ...contained, state }] : [];
     });
 
   const resolvePrefixKey = async (key: CandidateKey<Reading>): Promise<void> => {
@@ -227,7 +249,8 @@ export async function reconcileEvidence<Reading extends KeyProposalReading>(args
 
   const subjectHasExactState = (subject: ReconcileCandidates<Reading>): boolean =>
     subject.keys.some((key) => key.match === "exact" && stateByKey.has(candidateIdentity(key))) ||
-    containedStates(subject).length > 0;
+    // A proving link names the object as an exact key does (ADR-0109 rule 2). A nomination does not.
+    containedStates(subject).some((contained) => contained.proves);
 
   const wantedPrefixes = new Map<string, CandidateKey<Reading>>();
 
@@ -263,13 +286,13 @@ export async function reconcileEvidence<Reading extends KeyProposalReading>(args
     }
 
     if (subject.probe) {
-      for (const state of containedStates(subject)) {
+      for (const { proves, state } of containedStates(subject)) {
         linked.push({
           key: {
             provider: state.provider,
             keyKind: state.kind,
             keyValue: state.externalId,
-            match: "identity",
+            match: proves ? "identity" : "nomination",
             reading: subject.probe.reading,
           },
           state,
@@ -277,7 +300,7 @@ export async function reconcileEvidence<Reading extends KeyProposalReading>(args
       }
     }
 
-    // Exact, then identity, then prefix; stable within a rank.
+    // Exact, then identity, then prefix, then nomination; stable within a rank.
     const resolved: ReconciledObject<Reading>[] = linked
       .sort((a, b) => MATCH_RANK[a.key.match] - MATCH_RANK[b.key.match])
       .map(({ key, state }) => ({ key, state, closesAskAs: closesAskAsFor(key, state) }));
@@ -299,6 +322,9 @@ function closesAskAsFor<Reading extends KeyProposalReading>(
 ): ReconciledObject<Reading>["closesAskAs"] {
   // Same map `ClosureReading` derives from, so type and runtime agree.
   if (!readingClosesAsk(key.reading)) return null;
+
+  // A soft edge only nominates (ADR-0109 rule 1).
+  if (key.match === "nomination") return null;
 
   const closes =
     closureCandidate(state.provider, state.kind, state.stateCategory)?.closesAskAs ?? null;
@@ -357,5 +383,10 @@ const KEY_RESOLVERS = {
   ) => Promise<Awaited<ReturnType<ObjectStateStore["resolveByKey"]>>>
 >;
 
-/** Exact outranks identity, and identity outranks a prefix guess. */
-const MATCH_RANK = { exact: 0, identity: 1, prefix: 2 } satisfies Record<ObjectLinkMatch, number>;
+/** Exact outranks identity, identity outranks a prefix guess, and a nomination ranks last. */
+const MATCH_RANK = {
+  exact: 0,
+  identity: 1,
+  prefix: 2,
+  nomination: 3,
+} satisfies Record<ObjectLinkMatch, number>;

@@ -145,7 +145,7 @@ export interface ObjectStateStore {
   /**
    * Rows of one kind whose `attributes[attribute]` is one of `values`, with their attributes, for
    * identity containment (ADR-0109). The caller checks the whole tuple and the uniqueness. Empty
-   * input skips the database.
+   * input skips the database. An abort stops before the next chunk.
    */
   listByIdentityValue(
     userId: string,
@@ -153,6 +153,7 @@ export interface ObjectStateStore {
     kind: string,
     attribute: string,
     values: readonly string[],
+    abortSignal?: AbortSignal,
   ): Promise<IdentityCandidateRow[]>;
   /** Current state. `at` is reserved; rows mutate in place, so this is always the live state. */
   getState(userId: string, ref: ObjectStateRef, at?: Date): Promise<ObjectState | null>;
@@ -205,7 +206,7 @@ interface IdentityCandidateRow {
   attributes: unknown;
 }
 
-/** Postgres caps one statement at 65535 parameters. A text can hold many strong tokens. */
+/** Postgres caps one statement at 65535 parameters. A text can hold many provider links. */
 const IDENTITY_VALUE_CHUNK = 1000;
 
 type ReduceFn = (eventType: string, action: string | null, payload: unknown) => ObjectStateDelta[];
@@ -549,10 +550,11 @@ export const objectStateStore: ObjectStateStore = {
     return byKeyValue;
   },
 
-  async listByIdentityValue(userId, provider, kind, attribute, values) {
+  async listByIdentityValue(userId, provider, kind, attribute, values, abortSignal) {
     const rows: IdentityCandidateRow[] = [];
 
     for (let start = 0; start < values.length; start += IDENTITY_VALUE_CHUNK) {
+      abortSignal?.throwIfAborted();
       const chunk = values.slice(start, start + IDENTITY_VALUE_CHUNK);
 
       const found = await db()

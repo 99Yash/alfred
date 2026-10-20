@@ -104,11 +104,23 @@ When 3 `verified_inference` closes share one shape, the verifier drafts a templa
 
 ## Slice 1 as built
 
-- The registry field is `ObjectKindDef.identity`. It is `{ uniqueKey }` or `{ tuple }` with 2 or more attributes, so the type rejects one attribute that is not a key. Each attribute can declare a `droppedPrefix`.
-- The sender gate is data: `IntegrationObjectDef.notificationSenderDomains`, read by `isNotificationSender`. The object-state registry holds it, not the ADR-0093 integration entry, because Railway is a `planned` entry there.
-- `proposeReconcileCandidates` returns the adapter keys and an identity probe. The probe holds only the strong tokens of the text, so the text still stays out of the resolve. `reconcileEvidence` resolves the probe with one query for each declared kind. A contained object has the match `identity`, which ranks after `exact` and before `prefix`.
-- `railway-mail.ts` and `sentry-issue-url.ts` are deleted. The Railway adapter proposes nothing. The Sentry adapter proposes only `short_id`.
-- The production replay on 2026-10-20, through the real `reconcileEvidence` under `about`: each of the 9 Railway build-failure mails linked to exactly one `deployment_target`, and each of the 3 Vercel failure mails linked to exactly one `deployment_attempt`. One Railway "Image Auto Upgraded" mail also linked to one target. The deleted grammar linked that mail too. No Sentry issue alert was in the corpus.
+- The registry field is `ObjectKindDef.identity`. It is `{ uniqueKey }` or `{ tuple }` with 2 or more attributes, so the type rejects one attribute that is not a key. Each attribute can declare a `droppedPrefix` and a `linkLabel`.
+- The provider domains are data: `IntegrationObjectDef.domains`. `isNotificationSender` reads them for the sender gate, and `collectProviderLinks` reads them for link hosts. The object-state registry holds them, not the ADR-0093 integration entry, because Railway is a `planned` entry there.
+- `proposeReconcileCandidates` returns the adapter keys and an identity probe. `reconcileEvidence` resolves the probe with one query for each declared kind. The query stops before the next chunk when the caller aborts.
+- `railway-mail.ts` and `sentry-issue-url.ts` are deleted. The Railway adapter proposes nothing. The Sentry adapter proposes only `short_id`. The Sentry reducer stores a permalink only when `linkNamesObject` finds the issue id after `/issues/`.
+
+### Correction to rule 2 (review of PR #1434)
+
+The first build put all tokens of a mail in one set. That set lost which value came from which link. A mail with two Railway links (P, S1, E1) and (P, S2, E2) then matched a stored target (P, S1, E2) that neither link names. A bare number in prose ("Billing reference: 20261020") matched a stored Sentry `issue_id`. ADR-0103 keeps an ask when evidence has several plausible primary objects, and a live read cannot repair a wrong link. Rule 2 now reads:
+
+- **One link is one reference.** Only a link on a provider domain counts. Values from two links never combine into one tuple. Text outside a link names nothing.
+- **A label gives the kind context.** `linkLabel` is the path segment or query parameter before the value: Railway `project`, `service`, `environmentId`; Sentry `issues`. A link proves an object (a hard edge, match `identity`) only when each value sits after its label.
+- **Ambiguity comes from the text, before the database.** Under `about`, a mail whose links name two different labeled tuples, or a link with two values for one label, links nothing. The database cannot see an object that it does not store, so it cannot decide this.
+- **No label, no proof.** A kind with an unlabeled value (Vercel `deployment_attempt`: `vercel.com/<team>/<project>/<id>`) links by containment in one link, but the link only nominates (a soft edge, match `nomination`, `closesAskAs: null`). A Vercel attempt never closes a loop anyway.
+
+### Production replay, 2026-10-20
+
+Through the real `reconcileEvidence` under `about`, after the correction: each of the 9 Railway build-failure mails linked to exactly one `deployment_target` as `identity`. One Railway "Image Auto Upgraded" mail also linked to one target. The deleted grammar linked that mail too. Each of the 3 Vercel failure mails linked to exactly one `deployment_attempt` as `nomination`. No Sentry issue alert was in the corpus.
 
 ## Verification
 

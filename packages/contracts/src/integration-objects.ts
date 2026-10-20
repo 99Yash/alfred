@@ -4,7 +4,7 @@
  * definition per provider, which Postgres cannot check.
  */
 
-import { emailDomain, isDomainOrSubdomain } from "./domain";
+import { emailDomain, isDomainOrSubdomain, normalizeDomain } from "./domain";
 import { enumGuard, getStringPath, parseEmailAddress } from "./guards";
 import { canonicalizeIdentityValue } from "./user-model";
 
@@ -67,11 +67,19 @@ export interface IdentityAttribute {
   readonly attribute: string;
   /** A prefix the provider removes in its links (Vercel `dpl_`). The bare value then also counts. */
   readonly droppedPrefix?: string;
+  /**
+   * The path segment or query parameter that precedes the value in a provider link: `service` in
+   * `/service/<id>`, `environmentId` in `?environmentId=<id>`. It tells which kind the value names.
+   * Absent: the value may sit anywhere in the link, so the link only nominates the object.
+   */
+  readonly linkLabel?: string;
 }
 
 /**
  * The identity a kind declares (ADR-0109 rule 2). Two or more strong values, or one value the
  * provider guarantees unique. The type, not a runtime check, rejects one value that is not a key.
+ * All values must occur in one provider link. A link proves the object only when each value has a
+ * `linkLabel` (see {@link identityProvesLink}).
  */
 export type ObjectIdentityDecl =
   | { readonly uniqueKey: IdentityAttribute }
@@ -81,9 +89,22 @@ export function identityAttributes(decl: ObjectIdentityDecl): readonly IdentityA
   return "uniqueKey" in decl ? [decl.uniqueKey] : decl.tuple;
 }
 
+/**
+ * True when a link that holds this identity proves the object, so the link may close an ask. Each
+ * value needs a `linkLabel`. Without one, a link with two objects of the kind cannot tell which
+ * value belongs to which, and a bare number can be a billing reference.
+ */
+export function identityProvesLink(decl: ObjectIdentityDecl): boolean {
+  return identityAttributes(decl).every((attribute) => attribute.linkLabel !== undefined);
+}
+
 export interface IntegrationObjectDef {
-  /** Domains whose mail may be `about` an object of this provider. A subdomain also counts. */
-  readonly notificationSenderDomains: readonly string[];
+  /**
+   * Domains that send this provider's notification mail and serve its links. A mail from one may
+   * be `about` an object of the provider, and only a link on one can name an identity. A subdomain
+   * also counts.
+   */
+  readonly domains: readonly string[];
   readonly kinds: Readonly<Record<string, ObjectKindDef>>;
   /** Minimum prefix length per key kind that allows abbreviated lookup (a 7-hex sha). Absent means exact only. */
   readonly prefixableKeys: Readonly<Record<string, number>>;
@@ -313,7 +334,7 @@ export type SentryIssueNativeState = (typeof SENTRY_ISSUE_NATIVE_STATES)[number]
 export const INTEGRATION_OBJECT_DEFS = {
   github: {
     // GitHub mail joins through threading headers and PR URLs, not a sender gate.
-    notificationSenderDomains: [],
+    domains: [],
     kinds: {
       // Merged absorbs: it can never reopen. Closed-unmerged does not, so a real reopen lands.
       pull_request: {
@@ -368,7 +389,7 @@ export const INTEGRATION_OBJECT_DEFS = {
     },
   },
   sentry: {
-    notificationSenderDomains: ["sentry.io"],
+    domains: ["sentry.io"],
     kinds: {
       // Every Sentry transition can reverse, so nothing absorbs. Sentry sends no
       // transition version, so only a live read may close (see `ClosureProof`).
@@ -377,8 +398,8 @@ export const INTEGRATION_OBJECT_DEFS = {
         closesAskOn: ["resolved"],
         closesAskFrom: "live_confirmation",
         absorbing: [],
-        // The numeric id is in every issue link.
-        identity: { uniqueKey: { attribute: "issue_id" } },
+        // Every issue link holds `/issues/<issue_id>/`.
+        identity: { uniqueKey: { attribute: "issue_id", linkLabel: "issues" } },
       },
     },
     prefixableKeys: {},
@@ -396,8 +417,8 @@ export const INTEGRATION_OBJECT_DEFS = {
     },
   },
   railway: {
-    // Failure mails come from `notify.railway.app`.
-    notificationSenderDomains: ["railway.app", "railway.com"],
+    // Failure mails come from `notify.railway.app` and link to `railway.com`.
+    domains: ["railway.app", "railway.com"],
     kinds: {
       // Like `ci_attempt`: an attempt never closes an ask.
       deployment_attempt: {
@@ -412,12 +433,13 @@ export const INTEGRATION_OBJECT_DEFS = {
         // failure the mail reports. A live read must confirm the recovery.
         closesAskFrom: "live_confirmation",
         absorbing: [],
-        // One project has many services in one environment, so only all three are unique.
+        // One project has many services in one environment, so only all three are unique. The
+        // build-log link is `/project/<p>/service/<s>?id=<d>&environmentId=<e>`.
         identity: {
           tuple: [
-            { attribute: "project_id" },
-            { attribute: "service_id" },
-            { attribute: "environment_id" },
+            { attribute: "project_id", linkLabel: "project" },
+            { attribute: "service_id", linkLabel: "service" },
+            { attribute: "environment_id", linkLabel: "environmentId" },
           ],
         },
       },
@@ -445,14 +467,15 @@ export const INTEGRATION_OBJECT_DEFS = {
    * only the transport. The payload is Vercel's state. Kind names reuse Railway's.
    */
   vercel: {
-    notificationSenderDomains: ["vercel.com"],
+    domains: ["vercel.com"],
     kinds: {
       // The fallback when a dispatch has no branch or environment. Never closes an ask.
       deployment_attempt: {
         closesAskOn: [],
         closesAskFrom: "stored_projection",
         absorbing: [],
-        // The failure mail links `vercel.com/<team>/<project>/<id>` with the `dpl_` removed.
+        // The failure mail links `vercel.com/<team>/<project>/<id>` with the `dpl_` removed. No
+        // segment labels the id, so the link only nominates. An attempt never closes anyway.
         identity: { uniqueKey: { attribute: "deployment_id", droppedPrefix: "dpl_" } },
       },
       // Empty `closesAskOn`: the failure mail names an attempt, and an attempt never
@@ -489,7 +512,7 @@ export const INTEGRATION_OBJECT_DEFS = {
    */
   mcp: {
     // MCP identities come only from an owner-approved live read, never from mail.
-    notificationSenderDomains: [],
+    domains: [],
     kinds: {
       connection_health: {
         closesAskOn: LOOP_CLOSING_STATE_CATEGORIES,
@@ -617,29 +640,16 @@ const GITHUB_PULL_REQUEST_MENTION_RE =
 
 const GITHUB_PULL_REQUEST_SHORTHAND_RE = /\b([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)#(\d+)\b/g;
 
+/** ADR-0109 rule 2: a strong identity value has at least this many characters. */
+const STRONG_IDENTITY_MIN_LENGTH = 8;
+
 /**
- * ADR-0109 rule 2. Strong: 8 characters or more, with at least one digit. A UUID, a numeric id and
- * a hex sha are strong; `main` and `production` are weak. A weak value links nothing.
+ * ADR-0109 rule 2. Strong: {@link STRONG_IDENTITY_MIN_LENGTH} characters or more, with at least
+ * one digit. A UUID, a numeric id and a hex sha are strong; `main` and `production` are weak. A
+ * weak value links nothing from mail.
  */
 export function isStrongIdentityValue(value: string): boolean {
-  return value.length >= 8 && /\d/.test(value);
-}
-
-/** Opaque ids hold `-` and `_`, so those join a token. Every other character splits one. */
-const IDENTITY_TOKEN_RE = /[A-Za-z0-9_-]+/g;
-
-/**
- * The strong tokens of a text, in first-seen order. Only id-like tokens survive, so a caller can
- * keep these and drop the prose before a resolve.
- */
-export function collectIdentityTokens(text: string): string[] {
-  const tokens = new Set<string>();
-
-  for (const [token] of text.matchAll(IDENTITY_TOKEN_RE)) {
-    if (isStrongIdentityValue(token)) tokens.add(token);
-  }
-
-  return [...tokens];
+  return value.length >= STRONG_IDENTITY_MIN_LENGTH && /\d/.test(value);
 }
 
 /**
@@ -661,22 +671,9 @@ export function identityValueForms(
   return isStrongIdentityValue(value) ? [value] : null;
 }
 
-/**
- * True when each declared identity value of a stored row occurs in `tokens` (ADR-0109 rule 2).
- * `attributes` is the row's jsonb. A missing, non-string, or weak value fails the whole tuple.
- * Uniqueness across rows is the caller's check.
- */
-export function identityContained(
-  decl: ObjectIdentityDecl,
-  attributes: unknown,
-  tokens: ReadonlySet<string>,
-): boolean {
-  return identityAttributes(decl).every((attribute) => {
-    const value = getStringPath(attributes, attribute.attribute);
-    const forms = value === undefined ? null : identityValueForms(attribute, value);
-
-    return forms !== null && forms.some((form) => tokens.has(form));
-  });
+/** True when `domain` is one of the provider's {@link IntegrationObjectDef.domains}. */
+function isProviderDomain(provider: ObjectStateProvider, domain: string): boolean {
+  return getObjectDef(provider).domains.some((base) => isDomainOrSubdomain(domain, base));
 }
 
 /** True when a mail from `from` may be `about` an object of this provider. */
@@ -686,10 +683,108 @@ export function isNotificationSender(
 ): boolean {
   const domain = emailDomain(parseEmailAddress(from));
 
-  return (
-    domain !== null &&
-    getObjectDef(provider).notificationSenderDomains.some((base) =>
-      isDomainOrSubdomain(domain, base),
-    )
-  );
+  return domain !== null && isProviderDomain(provider, domain);
+}
+
+/**
+ * One value of a provider link and the segment or query parameter before it. `label` is `null`
+ * for the first path segment.
+ */
+export interface ProviderLinkValue {
+  readonly label: string | null;
+  readonly value: string;
+}
+
+/** One link in a text on a provider domain, reduced to its id-like values (ADR-0109 rule 2). */
+export interface ProviderLink {
+  readonly provider: ObjectStateProvider;
+  readonly values: readonly ProviderLinkValue[];
+}
+
+/** A link up to white space, a quote, or a bracket. Trailing sentence punctuation is cut after. */
+const LINK_RE = /\bhttps?:\/\/[^\s"'<>()[\]]+/gi;
+
+const TRAILING_PUNCTUATION_RE = /[.,;:!?]+$/;
+
+/** Opaque ids hold `-` and `_`. A segment with any other character is not an id. */
+const ID_LIKE_RE = /^[A-Za-z0-9_-]+$/;
+
+/**
+ * Reads one link. `null` when it does not parse or no provider owns its host. Each path segment is
+ * labeled by the segment before it, and each query value by its parameter name.
+ */
+function parseProviderLink(raw: string): ProviderLink | null {
+  let url: URL;
+
+  try {
+    // An HTML body writes `&` as `&amp;`.
+    url = new URL(raw.replace(TRAILING_PUNCTUATION_RE, "").replaceAll("&amp;", "&"));
+  } catch {
+    return null;
+  }
+
+  const host = normalizeDomain(url.hostname);
+  const provider = OBJECT_STATE_PROVIDERS.find((candidate) => isProviderDomain(candidate, host));
+
+  if (!provider) return null;
+
+  const values: ProviderLinkValue[] = [];
+  const segments = url.pathname.split("/").filter((segment) => segment.length > 0);
+
+  segments.forEach((value, index) => {
+    if (ID_LIKE_RE.test(value)) values.push({ label: segments[index - 1] ?? null, value });
+  });
+
+  for (const [label, value] of url.searchParams) {
+    if (ID_LIKE_RE.test(value)) values.push({ label, value });
+  }
+
+  return { provider, values };
+}
+
+/**
+ * The provider links in a text, in order (ADR-0109 rule 2). Each link stays one reference, so a
+ * caller can tell which values belong together. A link on no provider domain is dropped.
+ */
+export function collectProviderLinks(text: string): ProviderLink[] {
+  const links: ProviderLink[] = [];
+
+  for (const [raw] of text.matchAll(LINK_RE)) {
+    const link = parseProviderLink(raw);
+
+    if (link) links.push(link);
+  }
+
+  return links;
+}
+
+/**
+ * True when `url` is a link of the provider that names this object of `kind`: each declared value
+ * sits after its `linkLabel`. For a stored link, such as a webhook permalink. It has no strength
+ * floor, because the provider wrote both the link and the values. `false` for a kind that cannot
+ * prove a link.
+ */
+export function linkNamesObject(
+  provider: ObjectStateProvider,
+  kind: string,
+  url: string,
+  attributes: Readonly<Record<string, string>>,
+): boolean {
+  const decl = getObjectDef(provider).kinds[kind]?.identity;
+  const link = parseProviderLink(url);
+
+  if (!decl || !identityProvesLink(decl) || link?.provider !== provider) return false;
+
+  return identityAttributes(decl).every((attribute) => {
+    const expected = attributes[attribute.attribute];
+
+    return link.values.some(
+      ({ label, value }) =>
+        label === attribute.linkLabel &&
+        expected !== undefined &&
+        (value === expected ||
+          (attribute.droppedPrefix !== undefined &&
+            `${attribute.droppedPrefix}${value}` === expected)),
+    );
+  });
 }
