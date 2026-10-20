@@ -1,6 +1,6 @@
 # ADR-0109 — A soft edge closes a loop only through a verified read: the model picks reads and cites them, and code checks identity, time, and state
 
-**Status.** Proposed, 2026-10-20. Slice 1 (rule 2, identity containment) is built. Slices 2 to 4 are not built. This ADR amends ADR-0062 (propose/dispose and the #1196 MCP health amendment) and ADR-0092 D5 (the fallback floor of each vendor). It keeps ADR-0048-D and ADR-0103.
+**Status.** Proposed, 2026-10-20. Slice 1 (rule 2, identity containment) is built. Slices 2 to 4 are deferred: a production measurement found no loop that they can close (see "Slice 2 measured and deferred"). A log line counts the loops that they would read. This ADR amends ADR-0062 (propose/dispose and the #1196 MCP health amendment) and ADR-0092 D5 (the fallback floor of each vendor). It keeps ADR-0048-D and ADR-0103.
 
 ## Context
 
@@ -98,8 +98,8 @@ When 3 `verified_inference` closes share one shape, the verifier drafts a templa
 ## Implementation order
 
 1. Add `identityAttributes` and the declared prefix to the registry, and the containment join for Railway `deployment_target`, Vercel `deployment_attempt`, and Sentry `issue`. Delete `railway-mail.ts` and `sentry-issue-url.ts` when the join replaces them.
-2. Add the verifier with built-in readers and the store only. Add `verified_inference` and the briefing receipt line.
-3. Add owner approval of MCP tools for verifier reads, and the fallback list of positive states.
+2. Add the verifier with built-in readers and the store only. Add `verified_inference` and the briefing receipt line. Deferred until the soft-edge log line shows a loop that a read can close.
+3. Add owner approval of MCP tools for verifier reads, and the fallback list of positive states. Deferred with slice 2.
 4. Add drafts of templates (rule 4).
 
 ## Slice 1 as built
@@ -121,6 +121,17 @@ The first build put all tokens of a mail in one set. That set lost which value c
 ### Production replay, 2026-10-20
 
 Through the real `reconcileEvidence` under `about`, after the correction: each of the 9 Railway build-failure mails linked to exactly one `deployment_target` as `identity`. One Railway "Image Auto Upgraded" mail also linked to one target. The deleted grammar linked that mail too. Each of the 3 Vercel failure mails linked to exactly one `deployment_attempt` as `nomination`. No Sentry issue alert was in the corpus.
+
+## Slice 2 measured and deferred
+
+On 2026-10-20 a read-only replay read all triaged production mail since 2026-09-01 through the slice 1 code. 35 priority loops had a soft edge (the sender is a notification sender of a provider) and no hard edge:
+
+- 23 are notices with no object state: app permission requests, Dependabot summaries, security advisories, one bot comment, the Vercel "domains need configuration" mail, Railway usage alerts, and one Railway newsletter. No read can close them.
+- 12 are GitHub Actions failure mails. Production holds no `check_suite` receipt and no `ci_attempt` or `ci_target` row, because the GitHub App does not have the Checks permission. GitHub CI has no live reader. This gap is a hard-edge gap, and its fix is deterministic.
+
+The cause is structural, not only a quiet period. Each built-in provider already has a deterministic path for each object that a built-in reader can confirm. Railway has the verified pull and identity containment. A Sentry or Vercel reader cannot find an object that the store does not hold. Production has 4 MCP connections (GitHub, Railway, Sentry, Polylane), and none has an approved tool policy or health mapping. Polylane sent no priority mail. Thus slices 2 and 3 have no loop to close, and the paired replay of 2026-10-18 and 2026-10-19 cannot show a difference.
+
+Rule 3 stays the decision. The build waits for evidence. Each briefing gather logs `[briefing.gather] soft-edge loops with no hard edge` with the count, the count for each provider, and the document ids. Build the verifier when this line names a loop whose object a read can close. The registry now declares `github.com` as the GitHub notification sender. GitHub declares no identity, so this changes only the count.
 
 ## Verification
 

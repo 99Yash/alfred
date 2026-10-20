@@ -333,8 +333,8 @@ export type SentryIssueNativeState = (typeof SENTRY_ISSUE_NATIVE_STATES)[number]
  */
 export const INTEGRATION_OBJECT_DEFS = {
   github: {
-    // GitHub mail joins through threading headers and PR URLs, not a sender gate.
-    domains: [],
+    // GitHub declares no identity, so this gates only the soft-edge count (ADR-0109).
+    domains: ["github.com"],
     kinds: {
       // Merged absorbs: it can never reopen. Closed-unmerged does not, so a real reopen lands.
       pull_request: {
