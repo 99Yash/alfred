@@ -5,7 +5,7 @@ import {
   type BriefingClosedLoop,
   type LoopClosingStateCategory,
 } from "@alfred/contracts";
-import { proposeObjectKeys, reconcileEvidence } from "@alfred/assistant/connections";
+import { proposeReconcileCandidates, reconcileEvidence } from "@alfred/assistant/connections";
 
 /**
  * Pre-send open-ask guard (#1082). A composer once asked the user to review a PR
@@ -90,10 +90,12 @@ export async function auditComposedBriefing(args: {
   // `mentions` proposes every named object. `reconcileEvidence` (#1088) keeps "closed"
   // the same as in gather.
   const subject = { id: GUARD_SUBJECT_ID, text: { subject: "", content: text } };
+  const proposed = proposeReconcileCandidates(subject, { reading: "mentions" });
 
   const reconciled = await reconcileEvidence({
     userId: args.userId,
-    subjects: [{ id: GUARD_SUBJECT_ID, keys: proposeObjectKeys(subject, { reading: "mentions" }) }],
+    // No probe: the map below is keyed by PR URL, so it would drop an identity link.
+    subjects: proposed ? [{ ...proposed, probe: null }] : [],
   });
 
   for (const object of reconciled.get(GUARD_SUBJECT_ID) ?? []) {

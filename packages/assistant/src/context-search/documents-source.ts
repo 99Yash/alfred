@@ -15,7 +15,7 @@ import {
   type SourceManifest,
 } from "@alfred/contracts";
 import {
-  proposeObjectKeys,
+  proposeReconcileCandidates,
   reconcileEvidence,
   type ReconcileCandidates,
 } from "@alfred/assistant/connections";
@@ -109,9 +109,9 @@ async function namedObjectByCardId(
     for (const hit of hits) {
       const id = documentCardId(hit);
       const subject = { id, text: { subject: hit.title ?? "", content: hit.preview } };
-      const keys = proposeObjectKeys(subject, { reading: "annotates" });
+      const candidates = proposeReconcileCandidates(subject, { reading: "annotates" });
 
-      if (keys.length > 0) subjects.push({ id, keys });
+      if (candidates) subjects.push(candidates);
     }
 
     if (subjects.length === 0) return found;

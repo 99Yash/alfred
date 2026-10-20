@@ -57,7 +57,7 @@ export {
   MCP_APPROVED_HEALTH_KIND,
   objectStateFoldConsumers,
   objectStateStore,
-  proposeObjectKeys,
+  proposeReconcileCandidates,
   reconcileEvidence,
   selectPrimaryReconciledObject,
   receiptDeliveryInstant,

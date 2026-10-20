@@ -1,6 +1,6 @@
 # ADR-0109 — A soft edge closes a loop only through a verified read: the model picks reads and cites them, and code checks identity, time, and state
 
-**Status.** Proposed, 2026-10-20. Nothing is built. This ADR amends ADR-0062 (propose/dispose and the #1196 MCP health amendment) and ADR-0092 D5 (the fallback floor of each vendor). It keeps ADR-0048-D and ADR-0103.
+**Status.** Proposed, 2026-10-20. Slice 1 (rule 2, identity containment) is built. Slices 2 to 4 are not built. This ADR amends ADR-0062 (propose/dispose and the #1196 MCP health amendment) and ADR-0092 D5 (the fallback floor of each vendor). It keeps ADR-0048-D and ADR-0103.
 
 ## Context
 
@@ -101,6 +101,14 @@ When 3 `verified_inference` closes share one shape, the verifier drafts a templa
 2. Add the verifier with built-in readers and the store only. Add `verified_inference` and the briefing receipt line.
 3. Add owner approval of MCP tools for verifier reads, and the fallback list of positive states.
 4. Add drafts of templates (rule 4).
+
+## Slice 1 as built
+
+- The registry field is `ObjectKindDef.identity`. It is `{ uniqueKey }` or `{ tuple }` with 2 or more attributes, so the type rejects one attribute that is not a key. Each attribute can declare a `droppedPrefix`.
+- The sender gate is data: `IntegrationObjectDef.notificationSenderDomains`, read by `isNotificationSender`. The object-state registry holds it, not the ADR-0093 integration entry, because Railway is a `planned` entry there.
+- `proposeReconcileCandidates` returns the adapter keys and an identity probe. The probe holds only the strong tokens of the text, so the text still stays out of the resolve. `reconcileEvidence` resolves the probe with one query for each declared kind. A contained object has the match `identity`, which ranks after `exact` and before `prefix`.
+- `railway-mail.ts` and `sentry-issue-url.ts` are deleted. The Railway adapter proposes nothing. The Sentry adapter proposes only `short_id`.
+- The production replay on 2026-10-20, through the real `reconcileEvidence` under `about`: each of the 9 Railway build-failure mails linked to exactly one `deployment_target`, and each of the 3 Vercel failure mails linked to exactly one `deployment_attempt`. One Railway "Image Auto Upgraded" mail also linked to one target. The deleted grammar linked that mail too. No Sentry issue alert was in the corpus.
 
 ## Verification
 

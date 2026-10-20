@@ -11,7 +11,7 @@ export { type CandidateKey, type ClosureReading } from "./adapter";
 
 export {
   firstClosingObject,
-  proposeObjectKeys,
+  proposeReconcileCandidates,
   reconcileEvidence,
   selectPrimaryReconciledObject,
   type ReconcileCandidates,

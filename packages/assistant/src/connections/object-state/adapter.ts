@@ -8,6 +8,12 @@ import type { ObjectStateProvider } from "@alfred/contracts";
 /** `prefix` is for an abbreviated sha, which an exact lookup on the 40-hex key cannot find. */
 export type ObjectKeyMatch = "exact" | "prefix";
 
+/**
+ * How a resolved object was named. `identity`: one row's whole declared identity occurred in the
+ * text (ADR-0109 rule 2). Only `reconcile.ts` mints it, so no adapter can propose one.
+ */
+export type ObjectLinkMatch = ObjectKeyMatch | "identity";
+
 export interface ExtractedKey {
   keyKind: string;
   keyValue: string;
@@ -26,6 +32,28 @@ export interface CandidateKey<Reading extends KeyProposalReading> extends Omit<
   "provider"
 > {
   provider: ObjectStateProvider;
+  readonly reading: Reading;
+}
+
+/**
+ * The key that proved a resolved object. For an `identity` match, `keyKind` is the object kind and
+ * `keyValue` its external id.
+ */
+export interface ResolvedKey<Reading extends KeyProposalReading> extends Omit<
+  CandidateKey<Reading>,
+  "match"
+> {
+  match: ObjectLinkMatch;
+}
+
+/**
+ * The strong tokens of one subject, for identity containment (ADR-0109 rule 2). Not a key: it
+ * names an object only when one row's whole declared identity is among the tokens.
+ */
+export interface IdentityProbe<Reading extends KeyProposalReading> {
+  /** Providers the text may name. Under `about`, only those whose sender gate passed. */
+  readonly providers: readonly ObjectStateProvider[];
+  readonly tokens: readonly string[];
   readonly reading: Reading;
 }
 

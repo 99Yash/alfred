@@ -4,7 +4,8 @@
  * definition per provider, which Postgres cannot check.
  */
 
-import { enumGuard, getStringPath } from "./guards";
+import { emailDomain, isDomainOrSubdomain } from "./domain";
+import { enumGuard, getStringPath, parseEmailAddress } from "./guards";
 import { canonicalizeIdentityValue } from "./user-model";
 
 export const OBJECT_STATE_CATEGORIES = ["active", "resolved", "failed", "abandoned"] as const;
@@ -57,9 +58,32 @@ export interface ObjectKindDef {
   readonly closesAskOn: readonly LoopClosingStateCategory[];
   readonly closesAskFrom: ClosureProof;
   readonly absorbing: readonly StateCategory[];
+  /** Links evidence to a row of this kind with no grammar (ADR-0109 rule 2). Absent: it cannot. */
+  readonly identity?: ObjectIdentityDecl;
+}
+
+/** One attribute of `integration_objects.attributes` that names the object. */
+export interface IdentityAttribute {
+  readonly attribute: string;
+  /** A prefix the provider removes in its links (Vercel `dpl_`). The bare value then also counts. */
+  readonly droppedPrefix?: string;
+}
+
+/**
+ * The identity a kind declares (ADR-0109 rule 2). Two or more strong values, or one value the
+ * provider guarantees unique. The type, not a runtime check, rejects one value that is not a key.
+ */
+export type ObjectIdentityDecl =
+  | { readonly uniqueKey: IdentityAttribute }
+  | { readonly tuple: readonly [IdentityAttribute, IdentityAttribute, ...IdentityAttribute[]] };
+
+export function identityAttributes(decl: ObjectIdentityDecl): readonly IdentityAttribute[] {
+  return "uniqueKey" in decl ? [decl.uniqueKey] : decl.tuple;
 }
 
 export interface IntegrationObjectDef {
+  /** Domains whose mail may be `about` an object of this provider. A subdomain also counts. */
+  readonly notificationSenderDomains: readonly string[];
   readonly kinds: Readonly<Record<string, ObjectKindDef>>;
   /** Minimum prefix length per key kind that allows abbreviated lookup (a 7-hex sha). Absent means exact only. */
   readonly prefixableKeys: Readonly<Record<string, number>>;
@@ -288,6 +312,8 @@ export type SentryIssueNativeState = (typeof SENTRY_ISSUE_NATIVE_STATES)[number]
  */
 export const INTEGRATION_OBJECT_DEFS = {
   github: {
+    // GitHub mail joins through threading headers and PR URLs, not a sender gate.
+    notificationSenderDomains: [],
     kinds: {
       // Merged absorbs: it can never reopen. Closed-unmerged does not, so a real reopen lands.
       pull_request: {
@@ -342,6 +368,7 @@ export const INTEGRATION_OBJECT_DEFS = {
     },
   },
   sentry: {
+    notificationSenderDomains: ["sentry.io"],
     kinds: {
       // Every Sentry transition can reverse, so nothing absorbs. Sentry sends no
       // transition version, so only a live read may close (see `ClosureProof`).
@@ -350,6 +377,8 @@ export const INTEGRATION_OBJECT_DEFS = {
         closesAskOn: ["resolved"],
         closesAskFrom: "live_confirmation",
         absorbing: [],
+        // The numeric id is in every issue link.
+        identity: { uniqueKey: { attribute: "issue_id" } },
       },
     },
     prefixableKeys: {},
@@ -367,6 +396,8 @@ export const INTEGRATION_OBJECT_DEFS = {
     },
   },
   railway: {
+    // Failure mails come from `notify.railway.app`.
+    notificationSenderDomains: ["railway.app", "railway.com"],
     kinds: {
       // Like `ci_attempt`: an attempt never closes an ask.
       deployment_attempt: {
@@ -381,6 +412,14 @@ export const INTEGRATION_OBJECT_DEFS = {
         // failure the mail reports. A live read must confirm the recovery.
         closesAskFrom: "live_confirmation",
         absorbing: [],
+        // One project has many services in one environment, so only all three are unique.
+        identity: {
+          tuple: [
+            { attribute: "project_id" },
+            { attribute: "service_id" },
+            { attribute: "environment_id" },
+          ],
+        },
       },
     },
     prefixableKeys: {},
@@ -406,15 +445,19 @@ export const INTEGRATION_OBJECT_DEFS = {
    * only the transport. The payload is Vercel's state. Kind names reuse Railway's.
    */
   vercel: {
+    notificationSenderDomains: ["vercel.com"],
     kinds: {
       // The fallback when a dispatch has no branch or environment. Never closes an ask.
       deployment_attempt: {
         closesAskOn: [],
         closesAskFrom: "stored_projection",
         absorbing: [],
+        // The failure mail links `vercel.com/<team>/<project>/<id>` with the `dpl_` removed.
+        identity: { uniqueKey: { attribute: "deployment_id", droppedPrefix: "dpl_" } },
       },
-      // Empty `closesAskOn`, as for Railway: no text grammar proposes keys from Vercel
-      // failure mail yet (#1357). Restore `["resolved"]` with one.
+      // Empty `closesAskOn`: the failure mail names an attempt, and an attempt never
+      // closes. Its tuple (repo, branch, environment) is weak, so it cannot link by
+      // containment (ADR-0109). Restore `["resolved"]` when evidence can name it (#1357).
       deployment_target: {
         closesAskOn: [],
         // The dispatch carries Vercel's own state, so nothing reorders into a false close.
@@ -445,6 +488,8 @@ export const INTEGRATION_OBJECT_DEFS = {
    * a `mcp_health_mapping` row, not code. The mapping emits canonical tokens.
    */
   mcp: {
+    // MCP identities come only from an owner-approved live read, never from mail.
+    notificationSenderDomains: [],
     kinds: {
       connection_health: {
         closesAskOn: LOOP_CLOSING_STATE_CATEGORIES,
@@ -571,3 +616,80 @@ const GITHUB_PULL_REQUEST_MENTION_RE =
   /\bhttps?:\/\/github\.com\/([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)\/pull\/(\d+)\b/gi;
 
 const GITHUB_PULL_REQUEST_SHORTHAND_RE = /\b([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)#(\d+)\b/g;
+
+/**
+ * ADR-0109 rule 2. Strong: 8 characters or more, with at least one digit. A UUID, a numeric id and
+ * a hex sha are strong; `main` and `production` are weak. A weak value links nothing.
+ */
+export function isStrongIdentityValue(value: string): boolean {
+  return value.length >= 8 && /\d/.test(value);
+}
+
+/** Opaque ids hold `-` and `_`, so those join a token. Every other character splits one. */
+const IDENTITY_TOKEN_RE = /[A-Za-z0-9_-]+/g;
+
+/**
+ * The strong tokens of a text, in first-seen order. Only id-like tokens survive, so a caller can
+ * keep these and drop the prose before a resolve.
+ */
+export function collectIdentityTokens(text: string): string[] {
+  const tokens = new Set<string>();
+
+  for (const [token] of text.matchAll(IDENTITY_TOKEN_RE)) {
+    if (isStrongIdentityValue(token)) tokens.add(token);
+  }
+
+  return [...tokens];
+}
+
+/**
+ * The text forms of one stored identity value: the value, and the value without a declared dropped
+ * prefix. `null` if a form is weak, because a weak value must link nothing.
+ */
+export function identityValueForms(
+  attribute: IdentityAttribute,
+  value: string,
+): readonly string[] | null {
+  const prefix = attribute.droppedPrefix;
+
+  if (prefix && value.startsWith(prefix)) {
+    const bare = value.slice(prefix.length);
+
+    return isStrongIdentityValue(bare) ? [value, bare] : null;
+  }
+
+  return isStrongIdentityValue(value) ? [value] : null;
+}
+
+/**
+ * True when each declared identity value of a stored row occurs in `tokens` (ADR-0109 rule 2).
+ * `attributes` is the row's jsonb. A missing, non-string, or weak value fails the whole tuple.
+ * Uniqueness across rows is the caller's check.
+ */
+export function identityContained(
+  decl: ObjectIdentityDecl,
+  attributes: unknown,
+  tokens: ReadonlySet<string>,
+): boolean {
+  return identityAttributes(decl).every((attribute) => {
+    const value = getStringPath(attributes, attribute.attribute);
+    const forms = value === undefined ? null : identityValueForms(attribute, value);
+
+    return forms !== null && forms.some((form) => tokens.has(form));
+  });
+}
+
+/** True when a mail from `from` may be `about` an object of this provider. */
+export function isNotificationSender(
+  provider: ObjectStateProvider,
+  from: string | null | undefined,
+): boolean {
+  const domain = emailDomain(parseEmailAddress(from));
+
+  return (
+    domain !== null &&
+    getObjectDef(provider).notificationSenderDomains.some((base) =>
+      isDomainOrSubdomain(domain, base),
+    )
+  );
+}

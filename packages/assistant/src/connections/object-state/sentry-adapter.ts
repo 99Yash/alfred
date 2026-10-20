@@ -1,40 +1,13 @@
-import { parseEmailAddress } from "@alfred/contracts";
-import { collectSentryIssueIds } from "./sentry-issue-url";
-import type {
-  ExtractedKey,
-  KeyProposal,
-  ObjectStateAdapter,
-  ReconcileSubject,
-  SubjectText,
-} from "./adapter";
+import type { ExtractedKey, KeyProposal, ObjectStateAdapter, ReconcileSubject } from "./adapter";
 
 /**
  * Sentry object-state adapter (ADR-0062, ADR-0103, #1090). Key proposal only. Sentry closes from
- * `live_confirmation`, so only a consumer with a live issue read may close. Proposes `issue_id`
- * from issue URLs, and upper-cased `short_id` from prose under `mentions` and `annotates`. The
- * short-id pattern also matches `ADR-0062` or `UTF-8`, which resolve to nothing. Never under
- * `about`, which drops briefing items.
+ * `live_confirmation`, so only a consumer with a live issue read may close. The issue link names
+ * an issue through identity containment (ADR-0109): the registry declares `issue_id` as its unique
+ * key. This adapter proposes only the upper-cased `short_id` from prose under `mentions` and
+ * `annotates`. The short-id pattern also matches `ADR-0062` or `UTF-8`, which resolve to nothing.
+ * Never under `about`, which drops briefing items.
  */
-
-/** Sentry notification sender, by domain. */
-function isSentrySenderDomain(from: string | null | undefined): boolean {
-  const address = parseEmailAddress(from);
-
-  if (!address) return false;
-  const domain = address.split("@")[1];
-
-  if (domain === undefined) return false;
-
-  return domain === "sentry.io" || domain.endsWith(".sentry.io");
-}
-
-function wholeText(text: SubjectText): string {
-  return `${text.subject}\n${text.content}`;
-}
-
-function issueIdKeys(ids: readonly string[]): ExtractedKey[] {
-  return ids.map((id) => ({ keyKind: "issue_id", keyValue: id, match: "exact" }));
-}
 
 /**
  * Short ids in the text, deduped and upper-cased to match the reducer's stored key. No length
@@ -64,23 +37,12 @@ function shortIdKeys(shortIds: readonly string[]): ExtractedKey[] {
   return shortIds.map((shortId) => ({ keyKind: "short_id", keyValue: shortId, match: "exact" }));
 }
 
-/**
- * - `about`: needs the `sentry.io` sender gate, and only an exactly-one issue id, because the
- *   briefing drops an item on it.
- * - `mentions` and `annotates`: every issue URL and short id. No provenance needed.
- */
+/** `mentions` and `annotates`: every short id. `about`: nothing. */
 export const sentryObjectStateAdapter: ObjectStateAdapter = {
   provider: "sentry",
   proposeKeys(subject: ReconcileSubject, proposal: KeyProposal): ExtractedKey[] {
-    const text = wholeText(subject.text);
-    const ids = collectSentryIssueIds(text);
+    if (proposal.reading === "about") return [];
 
-    if (proposal.reading !== "about") {
-      return [...issueIdKeys(ids), ...shortIdKeys(collectSentryShortIds(text))];
-    }
-
-    if (!isSentrySenderDomain(proposal.sender)) return [];
-
-    return ids.length === 1 ? issueIdKeys(ids) : [];
+    return shortIdKeys(collectSentryShortIds(`${subject.text.subject}\n${subject.text.content}`));
   },
 };

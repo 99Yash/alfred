@@ -44,7 +44,7 @@ import { z } from "zod";
 import {
   firstClosingObject,
   objectStateStore,
-  proposeObjectKeys,
+  proposeReconcileCandidates,
   reconcileEvidence,
   type ObjectState,
   type ReconcileCandidates,
@@ -299,12 +299,12 @@ export async function gatherBriefingDigest(
     });
 
     // Propose keys here, while the body is in hand, so content never reaches the resolve phase.
-    const keys = proposeObjectKeys(
+    const candidates = proposeReconcileCandidates(
       { id: r.documentId, text: { subject: r.title ?? "", content: r.content } },
       { reading: "about", sender: from },
     );
 
-    if (keys.length > 0) keyCandidates.push({ id: r.documentId, keys });
+    if (candidates) keyCandidates.push(candidates);
   }
 
   // Verified pull (#1094, #1192): a triaged deploy failure triggers a live status read. It runs
@@ -339,20 +339,20 @@ export async function gatherBriefingDigest(
     },
   );
 
-  const candidatesByLoop = new Map(
-    keyCandidates.map((candidate) => [candidate.id, [...candidate.keys]]),
-  );
+  const candidatesByLoop = new Map(keyCandidates.map((candidate) => [candidate.id, candidate]));
 
   for (const result of approvedHealth) {
     if (!result.candidate) continue;
+    const proposed = candidatesByLoop.get(result.documentId);
 
-    candidatesByLoop.set(result.documentId, [
-      ...(candidatesByLoop.get(result.documentId) ?? []),
-      result.candidate,
-    ]);
+    candidatesByLoop.set(result.documentId, {
+      id: result.documentId,
+      keys: [...(proposed?.keys ?? []), result.candidate],
+      probe: proposed?.probe ?? null,
+    });
   }
 
-  const reconciliationCandidates = [...candidatesByLoop].map(([id, keys]) => ({ id, keys }));
+  const reconciliationCandidates = [...candidatesByLoop.values()];
 
   // Drop items whose work object is closed (ADR-0062). Unknown state stays live.
   // Relevance then runs on the survivors, before the per-bucket cap (#1194).

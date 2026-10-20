@@ -1,4 +1,4 @@
-import { canonicalizeRailwayTargetId, getPath } from "@alfred/contracts";
+import { canonicalizeRailwayTargetId, getPath, isNotificationSender } from "@alfred/contracts";
 import {
   builtInProviderForEndpoint,
   getMcpConnectionManager,
@@ -6,7 +6,6 @@ import {
   RAILWAY_MCP_STORED_ISSUER,
   type McpPreparedToolCall,
 } from "../mcp";
-import { isRailwaySender } from "../object-state/railway-mail";
 import { RAILWAY_PULL_EVENT_TYPE } from "../object-state/railway-reducer";
 import { z } from "zod";
 import {
@@ -395,7 +394,7 @@ export const railwayVerifiedPullProvider: VerifiedPullProvider<
   /** A Railway sender plus a failure word. Only triggers a read. */
   digestSignalsFailure(items) {
     return items.some((item) => {
-      if (!isRailwaySender(item.from)) return false;
+      if (!isNotificationSender("railway", item.from)) return false;
 
       return /fail|error|crash|timed out|unable to deploy/i.test(
         `${item.subject ?? ""} ${item.snippet ?? ""}`,
