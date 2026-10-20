@@ -45,6 +45,25 @@ node apps/server/dist/scripts/backfills/backfill-gmail-observations-committed.js
 node apps/server/dist/scripts/backfills/backfill-gmail-observations-committed.js --emails=user@example.com --commit
 ```
 
+## Prod scripts and the Railway bill
+
+Railway bills the server container's memory minute-by-minute. It does not bill builds, and it
+does not bill your machine. A heavy prod script run through `railway ssh` executes inside the
+server container, so its whole burst is billed memory on top of the always-on floor (the Oct
+2026 $5 warning traced to these weekend bursts plus the baseline).
+
+DB-only scripts need no Redis and no queue, which are the only things that must live in the
+private network. Run those from your machine instead:
+
+```bash
+railway ssh --service server -- node dist/scripts/...        # avoid: billed container burst
+export DATABASE_URL="$(railway variable list --service Postgres --json | jq -r '.DATABASE_PUBLIC_URL')"
+node apps/server/dist/scripts/backfills/backfill-gmail-observations-committed.js --commit  # not billed
+```
+
+Reach for `railway ssh` only when the job must touch prod Redis or enqueue through BullMQ, and
+keep such runs short.
+
 ## Rules
 
 - Read script header first; most scripts document exact env and risk.
