@@ -4,7 +4,7 @@ import { describe, test } from "node:test";
 import { EVENT_KINDS } from "@alfred/contracts/events";
 
 import { sseResponse } from "../src/realtime/sse";
-import { asTestDouble } from "./support/test-double";
+import { asUncheckedTestDouble } from "./support/test-double";
 
 // DB-free and env-free on purpose, like the two routes that use the primitive.
 
@@ -281,7 +281,8 @@ describe("sseResponse", () => {
     let calls = 0;
 
     // A foreign thenable has `then` only; the code under test must not read another member.
-    const foreign = asTestDouble<Promise<void>>({
+    // Unchecked: the subject is a thenable that is not a `Promise`, so it cannot have `then`'s real type.
+    const foreign = asUncheckedTestDouble<Promise<void>>({
       // eslint-disable-next-line unicorn/no-thenable -- the test subject IS a thenable from outside this realm
       then(_onFulfilled: (value: void) => void, onRejected: (reason: unknown) => void) {
         onRejected(new Error("foreign rejected"));

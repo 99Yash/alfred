@@ -5,7 +5,7 @@ import { SYNC_MODEL, triageTagOverrideClient, type SyncedTriageTag } from "@alfr
 
 import { getStringPath, isRecord } from "@alfred/contracts";
 import { serverMutators } from "../../src/sync/write";
-import { asTestDouble } from "../support/test-double";
+import { asUncheckedTestDouble } from "../support/test-double";
 
 type ClientTriageTagTx = Parameters<typeof triageTagOverrideClient>[0];
 
@@ -17,7 +17,8 @@ interface MadeClientTx {
 function makeClientTx(initial: Record<string, unknown> = {}): MadeClientTx {
   const store = new Map<string, unknown>(Object.entries(initial));
 
-  const tx = asTestDouble<ClientTriageTagTx>({
+  // Unchecked: the store holds plain values, which cannot satisfy Replicache's generic `get`.
+  const tx = asUncheckedTestDouble<ClientTriageTagTx>({
     async get(key: string): Promise<unknown> {
       return store.get(key);
     },
