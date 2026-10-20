@@ -19,6 +19,10 @@ import {
   type ObjectState,
   type ReconcileResult,
 } from "@alfred/assistant/connections";
+import {
+  railwayTargetFromId,
+  readRailwayDeploymentStatus,
+} from "@alfred/assistant/connections/verified-pull";
 import { logger } from "@alfred/logging";
 
 /**
@@ -96,7 +100,19 @@ const LIVE_STATE_READERS = {
   },
   railway: {
     deployment_attempt: null,
-    deployment_target: null,
+    deployment_target: {
+      source: "live_railway_read",
+      accepts: (state) => railwayTargetFromId(state.externalId) !== null,
+      readTargets: readRailwayTargets,
+      readNativeState: async (userId, targetId) => {
+        const target = railwayTargetFromId(targetId);
+        const reading = target ? await readRailwayDeploymentStatus(userId, target) : null;
+
+        if (!reading) throw new Error(`Railway live read proved nothing target=${targetId}`);
+
+        return reading.status;
+      },
+    },
   },
   vercel: {
     deployment_attempt: null,
@@ -373,6 +389,42 @@ async function readSentryTargets(
           unverified(state, "Sentry live read failed; loop stays live.", source),
         );
       }
+    }),
+  );
+}
+
+async function readRailwayTargets(
+  userId: string,
+  targets: readonly ObjectState[],
+  verdictByObject: Map<string, ObjectVerdict>,
+  source: Exclude<LoopRelevanceSource, "none">,
+): Promise<void> {
+  await Promise.all(
+    targets.map(async (state) => {
+      const ref = objectRef(state);
+      const target = railwayTargetFromId(state.externalId);
+      // Never throws: a fault, a missing connection or an unknown status is `null`.
+      const reading = target ? await readRailwayDeploymentStatus(userId, target) : null;
+
+      if (!reading) {
+        logger.warn(`[briefing.relevance] railway live read proved nothing object=${ref}`);
+        verdictByObject.set(
+          ref,
+          unverified(state, "Railway live read proved nothing; loop stays live.", source),
+        );
+
+        return;
+      }
+
+      verdictByObject.set(
+        ref,
+        verdictFromNativeState({
+          state,
+          nativeState: reading.status,
+          detail: `Railway live read reports the latest deployment of ${state.title ?? state.externalId} as ${reading.status}.`,
+          source,
+        }),
+      );
     }),
   );
 }

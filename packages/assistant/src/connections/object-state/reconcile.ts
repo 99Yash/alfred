@@ -67,9 +67,8 @@ export interface ReconcileCandidates<Reading extends KeyProposalReading> {
 const OBJECT_STATE_ADAPTERS = {
   github: githubObjectStateAdapter,
   sentry: sentryObjectStateAdapter,
-  // Proposes no keys from text yet; the row keeps the table complete.
   railway: railwayObjectStateAdapter,
-  // Same: no Vercel notification in the corpus to ground a grammar on (#1167).
+  // Proposes no keys from text yet: no Vercel notification in the corpus to ground a grammar on (#1167).
   vercel: vercelObjectStateAdapter,
   // MCP identities come only from an owner-approved live read, never from free text.
   mcp: mcpObjectStateAdapter,

@@ -53,6 +53,7 @@ import {
 import {
   gatherVerifiedPulls,
   verifyApprovedMcpHealth,
+  type VerifiedPullTriggerItem,
 } from "@alfred/assistant/connections/verified-pull";
 import { type UserSettings } from "@alfred/assistant/settings";
 import { getMcpExecutionBroker } from "@alfred/assistant/tool-runtime/mcp";
@@ -122,10 +123,10 @@ export interface BriefingDigest {
   buckets: Record<PriorityCategory, BriefingItem[]>;
   suppressedCounts: Record<SuppressedCategory, number>;
   /**
-   * Trigger fields for every triaged row, including `fyi`. Verified-pull triggers read this,
-   * not `buckets`, so a failure notice triaged as `fyi` still triggers a live read.
+   * Verified-pull verdict lines (#1094, #1192). The pull runs before reconciliation, so a
+   * failure mail reconciles against the target's state as of this gather.
    */
-  triggerItems: { subject: string | null; from: string | null; snippet: string | null }[];
+  verifiedPull: IntegrationActivityItem[];
   /** Priority items dropped because a standing instruction matched the sender. */
   suppressedByInstruction: BriefingInstructionSuppression[];
   /** Items whose work object reached a terminal state (ADR-0062). Feeds the evening recap. */
@@ -245,7 +246,8 @@ export async function gatherBriefingDigest(
 
   const suppressedByInstruction: BriefingInstructionSuppression[] = [];
   // Every triaged row, so a Railway failure triaged as `fyi` still reaches verified pull.
-  const triggerItems: BriefingDigest["triggerItems"] = [];
+  // Every triaged row, including `fyi`, so a failure notice triaged as `fyi` still triggers a live read.
+  const triggerItems: VerifiedPullTriggerItem[] = [];
   // Buckets stay uncapped until reconciliation, so closed loops do not take visible slots.
   const keyCandidates: ReconcileCandidates<"about">[] = [];
 
@@ -304,6 +306,14 @@ export async function gatherBriefingDigest(
 
     if (keys.length > 0) keyCandidates.push({ id: r.documentId, keys });
   }
+
+  // Verified pull (#1094, #1192): a triaged deploy failure triggers a live status read. It runs
+  // before reconciliation, so the stored target state is current when a failure mail reconciles.
+  // Its verdicts go into activity, not into the email buckets. Never throws.
+  const verifiedPull = await gatherVerifiedPulls({
+    userId: args.userId,
+    digestItems: triggerItems,
+  });
 
   // Approved MCP health reads run before reconciliation. They add candidates; they never close.
   const priorityLoops = PRIORITY_CATEGORIES.flatMap((category) => buckets[category]);
@@ -381,7 +391,7 @@ export async function gatherBriefingDigest(
     windowEnd,
     buckets,
     suppressedCounts,
-    triggerItems,
+    verifiedPull,
     suppressedByInstruction,
     closedLoops: reconciliation.closedLoops,
     loopRelevance,
@@ -393,8 +403,8 @@ export async function gatherBriefingDigest(
 /**
  * Drop priority items whose work object is closed, and return them for the evening recap.
  * Unresolved, ambiguous, or non-closing keys keep the loop live.
- * A kind with `closesAskFrom: "live_confirmation"` (a Sentry issue, ADR-0103) needs a live
- * read first. A missing reader or a failed read keeps the ask.
+ * A kind with `closesAskFrom: "live_confirmation"` (a Sentry issue or a Railway target,
+ * ADR-0103) needs a live read first. A missing reader or a failed read keeps the ask.
  */
 async function dropClosedLoops(
   userId: string,
@@ -538,12 +548,7 @@ export async function gatherBriefingWithSuppressionAudit(
     }));
   }
 
-  // Verified pull (#1094, #1192): a triaged deploy failure triggers a live status read.
-  // Verdicts go into activity, not into the email buckets.
-  const verifiedPull = await gatherVerifiedPulls({
-    userId: args.userId,
-    digestItems: digest.triggerItems,
-  });
+  const { verifiedPull } = digest;
 
   // Runs after the verified pull, so a day whose only activity is a Railway failure is not quiet.
   const dayShape = await gatherDayShape({
