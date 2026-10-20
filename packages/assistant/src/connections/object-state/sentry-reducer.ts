@@ -3,9 +3,9 @@ import {
   getIdPath,
   getStringPath,
   isEventTypeForSource,
+  linkNamesObject,
   type SentryIssueNativeState,
 } from "@alfred/contracts";
-import { collectSentryIssueIds } from "./sentry-issue-url";
 import type { ObjectStateDelta } from "./store";
 
 /**
@@ -46,8 +46,12 @@ export function reduceSentryEvent(
       nativeState,
       closureSource: "verified_push",
       title: getStringPath(payload, "data", "issue", "title"),
-      // Only a permalink that names this issue. Else `url` stays null; identity rides on the id.
-      url: permalink && collectSentryIssueIds(permalink).includes(issueId) ? permalink : undefined,
+      // Only a `sentry.io` permalink whose `/issues/<id>` is this issue. Else `url` stays null;
+      // identity rides on the id.
+      url:
+        permalink && linkNamesObject("sentry", "issue", permalink, { issue_id: issueId })
+          ? permalink
+          : undefined,
       // A Sentry project is not a repository, so `repo` stays absent.
       attributes: {
         issue_id: issueId,

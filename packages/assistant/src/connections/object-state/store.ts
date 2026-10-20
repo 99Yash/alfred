@@ -142,6 +142,19 @@ export interface ObjectStateStore {
     keyKind: string,
     keyPrefix: string,
   ): Promise<ObjectStateRef | null>;
+  /**
+   * Rows of one kind whose `attributes[attribute]` is one of `values`, with their attributes, for
+   * identity containment (ADR-0109). The caller checks the whole tuple and the uniqueness. Empty
+   * input skips the database. An abort stops before the next chunk.
+   */
+  listByIdentityValue(
+    userId: string,
+    provider: ObjectStateProvider,
+    kind: string,
+    attribute: string,
+    values: readonly string[],
+    abortSignal?: AbortSignal,
+  ): Promise<IdentityCandidateRow[]>;
   /** Current state. `at` is reserved; rows mutate in place, so this is always the live state. */
   getState(userId: string, ref: ObjectStateRef, at?: Date): Promise<ObjectState | null>;
   /** Batched `getState`, keyed by object id. Empty input skips the database. */
@@ -186,6 +199,15 @@ export interface ObjectStateStore {
     read: "absent" | "proved",
   ): Promise<void>;
 }
+
+/** `attributes` is the raw jsonb column, so it stays `unknown` until a guard reads it. */
+interface IdentityCandidateRow {
+  ref: ObjectStateRef;
+  attributes: unknown;
+}
+
+/** Postgres caps one statement at 65535 parameters. A text can hold many provider links. */
+const IDENTITY_VALUE_CHUNK = 1000;
 
 type ReduceFn = (eventType: string, action: string | null, payload: unknown) => ObjectStateDelta[];
 
@@ -526,6 +548,40 @@ export const objectStateStore: ObjectStateStore = {
     }
 
     return byKeyValue;
+  },
+
+  async listByIdentityValue(userId, provider, kind, attribute, values, abortSignal) {
+    const rows: IdentityCandidateRow[] = [];
+
+    for (let start = 0; start < values.length; start += IDENTITY_VALUE_CHUNK) {
+      abortSignal?.throwIfAborted();
+      const chunk = values.slice(start, start + IDENTITY_VALUE_CHUNK);
+
+      const found = await db()
+        .select({
+          objectId: integrationObjects.id,
+          externalId: integrationObjects.externalId,
+          attributes: integrationObjects.attributes,
+        })
+        .from(integrationObjects)
+        .where(
+          and(
+            eq(integrationObjects.userId, userId),
+            eq(integrationObjects.provider, provider),
+            eq(integrationObjects.kind, kind),
+            inArray(sql<string>`${integrationObjects.attributes} ->> ${attribute}`, chunk),
+          ),
+        );
+
+      for (const row of found) {
+        rows.push({
+          ref: { objectId: row.objectId, provider, kind, externalId: row.externalId },
+          attributes: row.attributes,
+        });
+      }
+    }
+
+    return rows;
   },
 
   async resolveByKeyPrefix(userId, provider, keyKind, keyPrefix) {

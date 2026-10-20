@@ -1,30 +1,14 @@
-import { collectRailwayTargetIds, isRailwaySender } from "./railway-mail";
 import type { ExtractedKey, KeyProposal, ObjectStateAdapter, ReconcileSubject } from "./adapter";
 
 /**
- * Railway object-state adapter (ADR-0062, #1094). Key proposal only. Proposes the
- * `deployment_target` id from a Railway service URL, as the build-failure mail links it. The
- * target closes from `live_confirmation`, so only a consumer with a live Railway read may close.
- */
-
-function targetKeys(ids: readonly string[]): ExtractedKey[] {
-  return ids.map((id) => ({ keyKind: "deployment_target", keyValue: id, match: "exact" }));
-}
-
-/**
- * - `about`: needs the Railway sender gate, and only an exactly-one target, because the briefing
- *   drops an item on it.
- * - `mentions` and `annotates`: every target URL. No provenance needed.
+ * Railway adapter (ADR-0062, #1094). Proposes nothing from text. The build-failure mail names a
+ * `deployment_target` through identity containment (ADR-0109): its link holds the project,
+ * service, and environment ids that the registry declares. Exists to keep `OBJECT_STATE_ADAPTERS`
+ * complete.
  */
 export const railwayObjectStateAdapter: ObjectStateAdapter = {
   provider: "railway",
-  proposeKeys(subject: ReconcileSubject, proposal: KeyProposal): ExtractedKey[] {
-    const ids = collectRailwayTargetIds(`${subject.text.subject}\n${subject.text.content}`);
-
-    if (proposal.reading !== "about") return targetKeys(ids);
-
-    if (!isRailwaySender(proposal.sender)) return [];
-
-    return ids.length === 1 ? targetKeys(ids) : [];
+  proposeKeys(_subject: ReconcileSubject, _proposal: KeyProposal): ExtractedKey[] {
+    return [];
   },
 };

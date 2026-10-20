@@ -16,6 +16,12 @@ import {
   type ReconcileSubject,
 } from "./adapter";
 import { githubObjectStateAdapter } from "./github-adapter";
+import {
+  type ContainedObject,
+  type IdentityProbe,
+  proposeIdentityProbe,
+  resolveIdentityProbes,
+} from "./identity-containment";
 import { mcpObjectStateAdapter } from "./mcp-adapter";
 import { railwayObjectStateAdapter } from "./railway-adapter";
 import { vercelObjectStateAdapter } from "./vercel-adapter";
@@ -35,10 +41,29 @@ import {
  * never closes (ADR-0048-D).
  */
 
+/**
+ * How a resolved object was named. `identity`: one provider link held the object's whole labeled
+ * identity (ADR-0109 rule 2), a hard edge. `nomination`: one link held its values with no labels,
+ * a soft edge that never closes an ask. Only this module mints either, so no adapter can propose
+ * one.
+ */
+type ObjectLinkMatch = ObjectKeyMatch | "identity" | "nomination";
+
+/**
+ * The key that proved a resolved object. For an `identity` or `nomination` match, `keyKind` is the
+ * object kind and `keyValue` its external id.
+ */
+interface ResolvedKey<Reading extends KeyProposalReading> extends Omit<
+  CandidateKey<Reading>,
+  "match"
+> {
+  match: ObjectLinkMatch;
+}
+
 /** One resolved object and what its state does to an ask. */
 export interface ReconciledObject<Reading extends KeyProposalReading> {
-  /** The candidate key that proved this object. */
-  key: CandidateKey<Reading>;
+  /** The candidate key, or the identity containment, that proved this object. */
+  key: ResolvedKey<Reading>;
   /** Reducer-owned state. The only assertion in this result. */
   state: ObjectState;
   /**
@@ -61,6 +86,8 @@ export interface ReconcileCandidates<Reading extends KeyProposalReading> {
   /** The caller's own id for the subject; the result is keyed back on it. */
   id: string;
   keys: readonly CandidateKey<Reading>[];
+  /** Provider links for identity containment (ADR-0109). `null`: the subject names nothing that way. */
+  probe: IdentityProbe<Reading> | null;
 }
 
 /** `satisfies` makes a registry provider without an adapter a compile error. */
@@ -75,10 +102,24 @@ const OBJECT_STATE_ADAPTERS = {
 } satisfies Record<ObjectStateProvider, ObjectStateAdapter>;
 
 /**
- * Every key the adapters propose for one subject, tagged with provider and reading. Pure and sync,
- * so a caller can keep only the keys and drop the text before the resolve.
+ * Everything one subject proposes: the adapters' keys and the identity probe. Pure and sync, so a
+ * caller can keep the candidates and drop the text before the resolve. `null` when it proposes
+ * nothing.
  */
-export function proposeObjectKeys<Reading extends KeyProposalReading>(
+export function proposeReconcileCandidates<Reading extends KeyProposalReading>(
+  subject: ReconcileSubject,
+  proposal: Extract<KeyProposal, { reading: Reading }>,
+): ReconcileCandidates<Reading> | null {
+  const keys = proposeObjectKeys(subject, proposal);
+  const probe = proposeIdentityProbe(subject, proposal);
+
+  if (keys.length === 0 && probe === null) return null;
+
+  return { id: subject.id, keys, probe };
+}
+
+/** Every key the adapters propose for one subject, tagged with provider and reading. */
+function proposeObjectKeys<Reading extends KeyProposalReading>(
   subject: ReconcileSubject,
   proposal: Extract<KeyProposal, { reading: Reading }>,
 ): CandidateKey<Reading>[] {
@@ -107,7 +148,10 @@ export async function reconcileEvidence<Reading extends KeyProposalReading>(args
   abortSignal?: AbortSignal;
 }): Promise<ReconcileResult<Reading>> {
   const store = objectStateStore;
-  const subjects = args.subjects.filter((subject) => subject.keys.length > 0);
+
+  const subjects = args.subjects.filter(
+    (subject) => subject.keys.length > 0 || subject.probe !== null,
+  );
 
   if (subjects.length === 0) return new Map();
 
@@ -156,14 +200,40 @@ export async function reconcileEvidence<Reading extends KeyProposalReading>(args
     }
   }
 
+  const probes = new Map<string, IdentityProbe<Reading>>();
+
+  for (const subject of subjects) {
+    if (subject.probe) probes.set(subject.id, subject.probe);
+  }
+
+  const containedBySubject = await resolveIdentityProbes({
+    store,
+    userId: args.userId,
+    probes,
+    abortSignal: args.abortSignal,
+  });
+
   args.abortSignal?.throwIfAborted();
-  const statesByObjectId = await store.getStates(args.userId, [...refByKey.values()]);
+
+  const statesByObjectId = await store.getStates(args.userId, [
+    ...refByKey.values(),
+    ...[...containedBySubject.values()].flat().map((contained) => contained.ref),
+  ]);
 
   for (const [identity, ref] of refByKey) {
     const state = statesByObjectId.get(ref.objectId);
 
     if (state) stateByKey.set(identity, state);
   }
+
+  const containedStates = (
+    subject: ReconcileCandidates<Reading>,
+  ): (ContainedObject & { state: ObjectState })[] =>
+    (containedBySubject.get(subject.id) ?? []).flatMap((contained) => {
+      const state = statesByObjectId.get(contained.ref.objectId);
+
+      return state ? [{ ...contained, state }] : [];
+    });
 
   const resolvePrefixKey = async (key: CandidateKey<Reading>): Promise<void> => {
     const ref = await KEY_RESOLVERS[key.match](store, args.userId, key);
@@ -178,7 +248,9 @@ export async function reconcileEvidence<Reading extends KeyProposalReading>(args
   };
 
   const subjectHasExactState = (subject: ReconcileCandidates<Reading>): boolean =>
-    subject.keys.some((key) => key.match === "exact" && stateByKey.has(candidateIdentity(key)));
+    subject.keys.some((key) => key.match === "exact" && stateByKey.has(candidateIdentity(key))) ||
+    // A proving link names the object as an exact key does (ADR-0109 rule 2). A nomination does not.
+    containedStates(subject).some((contained) => contained.proves);
 
   const wantedPrefixes = new Map<string, CandidateKey<Reading>>();
 
@@ -196,26 +268,42 @@ export async function reconcileEvidence<Reading extends KeyProposalReading>(args
   const result = new Map<string, readonly ReconciledObject<Reading>[]>();
 
   for (const subject of subjects) {
-    const resolved: ReconciledObject<Reading>[] = [];
+    const linked: { key: ResolvedKey<Reading>; state: ObjectState }[] = [];
     const seenKeys = new Set<string>();
     // An exact match here ignores prefix guesses, even ones another subject resolved.
     const hasExactState = subjectHasExactState(subject);
 
-    // Exact before prefix; stable within a rank. Dedupe by key, not object: a repo rename gives one
-    // object two URL keys, and the open-ask guard maps back by key (#1082).
-    for (const key of [...subject.keys].sort((a, b) => MATCH_RANK[a.match] - MATCH_RANK[b.match])) {
+    // Dedupe by key, not object: a repo rename gives one object two URL keys, and the open-ask
+    // guard maps back by key (#1082).
+    for (const key of subject.keys) {
       if (key.match === "prefix" && hasExactState) continue;
       const identity = candidateIdentity(key);
       const state = stateByKey.get(identity);
 
       if (!state || seenKeys.has(identity)) continue;
       seenKeys.add(identity);
-      resolved.push({
-        key,
-        state,
-        closesAskAs: closesAskAsFor(key, state),
-      });
+      linked.push({ key, state });
     }
+
+    if (subject.probe) {
+      for (const { proves, state } of containedStates(subject)) {
+        linked.push({
+          key: {
+            provider: state.provider,
+            keyKind: state.kind,
+            keyValue: state.externalId,
+            match: proves ? "identity" : "nomination",
+            reading: subject.probe.reading,
+          },
+          state,
+        });
+      }
+    }
+
+    // Exact, then identity, then prefix, then nomination; stable within a rank.
+    const resolved: ReconciledObject<Reading>[] = linked
+      .sort((a, b) => MATCH_RANK[a.key.match] - MATCH_RANK[b.key.match])
+      .map(({ key, state }) => ({ key, state, closesAskAs: closesAskAsFor(key, state) }));
 
     if (resolved.length > 0) result.set(subject.id, resolved);
   }
@@ -229,11 +317,14 @@ export async function reconcileEvidence<Reading extends KeyProposalReading>(args
  * `closesOpenAsk`: this seam only nominates (ADR-0103).
  */
 function closesAskAsFor<Reading extends KeyProposalReading>(
-  key: CandidateKey<Reading>,
+  key: ResolvedKey<Reading>,
   state: ObjectState,
 ): ReconciledObject<Reading>["closesAskAs"] {
   // Same map `ClosureReading` derives from, so type and runtime agree.
   if (!readingClosesAsk(key.reading)) return null;
+
+  // A soft edge only nominates (ADR-0109 rule 1).
+  if (key.match === "nomination") return null;
 
   const closes =
     closureCandidate(state.provider, state.kind, state.stateCategory)?.closesAskAs ?? null;
@@ -292,5 +383,10 @@ const KEY_RESOLVERS = {
   ) => Promise<Awaited<ReturnType<ObjectStateStore["resolveByKey"]>>>
 >;
 
-/** Exact outranks prefix. */
-const MATCH_RANK = { exact: 0, prefix: 1 } satisfies Record<ObjectKeyMatch, number>;
+/** Exact outranks identity, identity outranks a prefix guess, and a nomination ranks last. */
+const MATCH_RANK = {
+  exact: 0,
+  identity: 1,
+  prefix: 2,
+  nomination: 3,
+} satisfies Record<ObjectLinkMatch, number>;
