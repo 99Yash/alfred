@@ -8,8 +8,9 @@ import { z } from "zod";
 /**
  * Pool minimum, and the connections {@link import("@alfred/db").warmPool} opens at boot.
  * A max below it would make `warmPool` hang, so it is also the schema minimum.
+ * Two: one per expected live turn, since the deployment serves at most a couple of users.
  */
-export const POOL_MIN = 4;
+export const POOL_MIN = 2;
 
 /** One step's read can overlap its own background metering write. */
 const CONNECTIONS_PER_STEP = 2;
