@@ -205,6 +205,10 @@ function gh(args) {
   }
 }
 
+/**
+ * @param {unknown} value
+ * @returns {value is Record<string, unknown>}
+ */
 function isRecord(value) {
   // oxlint-disable-next-line anti-slop/no-runtime-typeof -- walks gh --json output; an unknown shape fails closed
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -259,7 +263,9 @@ function readCiRun(sha) {
 
   if (!read.ok) return read;
 
-  const runs = isRecord(read.value) ? read.value.workflow_runs : null;
+  const body = read.value;
+
+  const runs = isRecord(body) ? body.workflow_runs : null;
 
   if (!Array.isArray(runs)) {
     return {
