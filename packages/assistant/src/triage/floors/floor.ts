@@ -2,7 +2,7 @@ import type { TriageClassification } from "../classify";
 import { truncateRationale } from "../rationale";
 
 /** Persisted as the `todoDecision.note` prefix that audits group on, so keep the set closed. */
-type FloorDemotionKey = "sender_kind_floor" | "meeting_floor" | "spam_floor";
+type FloorDemotionKey = "sender_kind_floor" | "meeting_floor" | "spam_floor" | "standing_floor";
 
 /**
  * A floor returns a verdict, not a classification, so it cannot get the rules wrong.

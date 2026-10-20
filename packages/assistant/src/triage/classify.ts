@@ -298,7 +298,7 @@ function renderThreadObservation(obs: Observations): string[] {
 
 /** Rendered beside a matched instruction, never in SYSTEM_PROMPT (see `renderObservations`). */
 const STANDING_INSTRUCTION_HANDLING_RULE =
-  "How to weigh that line, for THIS SENDER ONLY: treat it as a prior over this sender's prior, the Gmail signals, and urgency cues in the body, because each of those is Alfred's inference and this line is the user's own words. It is still a prior, not a command: prefer 'fyi' for this sender's routine notices even when they carry urgency cues, while still allowing a demand lane for a genuinely urgent item judged from the body. Apply none of this to any other sender.";
+  "How to weigh that line, for THIS SENDER ONLY: treat it as a prior over this sender's prior, the Gmail signals, and urgency cues in the body, because each of those is Alfred's inference and this line is the user's own words. Alfred enforces it deterministically: for THIS SENDER, an `urgent` or `action_needed` answer is demoted to `fyi` unless an exposed-secret signal fired, so prefer `fyi` for this sender's routine notices even when they carry urgency cues — do not spend the demand lane on this sender. Apply none of this to any other sender.";
 
 /**
  * Prompt budget for the cold-start prior, in characters. Capped here at the
@@ -941,6 +941,7 @@ export async function classifyEmail(
     accountEmail: args.identity?.email ?? null,
     contentFlags: args.observations.content,
     isSpam: args.observations.gmail.spam,
+    standingInstruction: args.observations.standingInstruction,
   });
 
   const classification = floors.classification;
