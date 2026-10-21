@@ -6,6 +6,8 @@
 
 **Extends ADR-0067** (a new observation kind, a new node kind, hard-key identity bridges for non-person nodes, and the first node that carries more than one identity). **Amends ADR-0066** (the `monitoring_alarm` floor reads the projected referent instead of its own sender regex). **Partially un-defers ADR-0060 / ADR-0067 P4** (one subject binding: standing instruction → entity node). **Reaffirms ADR-0058** with a recomputed cost table. Resolves the recurrence half of #353. #355 is already closed — PR #916 shipped the interim content/shape key on 2026-08-28 — so the durable form is tracked as #917. Motivated by the structural review of PR #916.
 
+**Amended 2026-10-21 (proposed, not built).** A thing that a provider tracks with state is its `integration_objects` row, not a `referent` node. A referent node is only for a thing that no connected provider tracks. Meeting-notes action items leave this ADR: they are work items, and a separate ADR decides them. See [Amendment 2026-10-21](#amendment-2026-10-21-proposed-one-owner-for-each-thing-meeting-notes-leave-this-adr) below D9.
+
 ---
 
 ## Why this is its own ADR
@@ -80,6 +82,48 @@ The store is built. The graph model is built. Only the extraction of non-person 
 **This slice must say which existing recurrence mechanism it replaces.** The briefing pipeline already carries a *second*, unrelated recurrence vocabulary: `attention.ts:297` groups on `<sender address>` plus `normalizeSubjectForRecurrence(subject)` (`attention.ts:175-190`), gated on `isBulkSender`, and drives demand decay for both the briefing and the inbox rail. That is a third subject normalizer, independent of `deriveLoopKey` and unaware of it. Node significance is meant to subsume it. Until a slice states that explicitly and re-points `scorePriorityEmailDemand`, this ADR **adds** a fourth vocabulary rather than removing one, and the vocabulary ledger in D5 does not end negative.
 
 **D9 — A standing instruction binds to an entity node, and the producer reads the binding.** ADR-0060 defines standing instructions captured from chat as `user_standing_instruction` observations; ADR-0067 deferred binding them to a subject (P4). This ADR un-defers exactly one binding: instruction → `entity_nodes` row, stored as an `entity_edges` row of a new relation `instructs`. The subject may be a `referent` ("stop suggesting todos for the Baserow alarm"), a `group`/`service` ("never mint todos from SNS"), or a `person`. Chat capture resolves the subject through the same D4 ladder a notification uses, and records a **proposal** when the band is ambiguous; the user confirms in the ADR-0056 changelog. `todoSuppressionReason`, the sender-kind floors, and briefing read `instructs` edges on the node and on its sender before minting. The reverse read is the chat answer to "what happened with Baserow this week": the node's observations in time order. Nothing here needs a graph engine; it is one relation on an existing edge table and one lookup by node id. **But the edge table is a projection, not a record.** `entity_edges` is versioned and run-scoped, with a four-column foreign key into `projection_runs` (`packages/db/src/schema/user-model.ts:676-685`), and it is rebuilt on every replay. It also has **no production writer at all** today — `instructs` would be the first. So the binding cannot live in the edge alone: a user-confirmed instruction must not be re-decided by a resolver on the next replay. The resolved node id is therefore recorded **in the `user_standing_instruction` observation payload** at capture time, and the `instructs` edge is the replayable projection of that fact. Replay then reproduces the same edge without re-running the D4 ladder. A new writer must also supply `validFrom`, which is `NOT NULL` with no default. The rest of P4 (facts with arbitrary subjects, fact-to-fact supersession across subjects) stays deferred.
+
+## Amendment 2026-10-21 (proposed): one owner for each thing; meeting notes leave this ADR
+
+**Status.** Proposed. Nothing in this section is built. It replaces an earlier draft of the same day, which made `about` a list of items with an owner for each item. The owner rejected that draft: one meeting-notes mail must not start tracking for every person that it names. Plain definitions of the words in this section are in [the context-graph glossary](../theory/context-graph.md).
+
+**Build status (verified 2026-10-21).**
+
+- The S1 identity module exists: `referentKeyForEmail` (`packages/assistant/src/knowledge/referent-identity.ts:96`). Only its test and the re-export at `knowledge/index.ts:36-38` call it. No fold mints a `referent` node in production.
+- `integration_object_keys` already maps a key from any source (a `head_sha`, a PR URL from mail) to one `integration_objects` row (`packages/db/src/schema/integration-objects.ts:64-92`). This ADR did not mention that table.
+- `integration_object_relations` is the only table that links a work object to a thing. Its `entity_id` references the old `entities` table, not `entity_nodes` (`integration-objects.ts:97-128`). No code writes it.
+
+### A1 — A thing with provider state is an integration object, not a referent node (amends D3 and D5)
+
+- **The provider row is the thing.** A hard key from a mail can resolve through `integration_object_keys` to an `integration_objects` row. Then that row is the thing. The fold mints no `referent` node for it, and consumers read the object id. D3's convergence of GitHub mail, Linear mail, and a webhook onto one record happens in `integration_object_keys`, which already exists.
+- **A referent node is only for a thing that no connected provider tracks.** Examples: an SNS alarm whose mail has no ARN, a newsletter issue, or a hard key whose provider is not connected or has no row yet. D3's fallback identity and its hard-key identities still apply to these nodes.
+- **A later provider row takes over.** An `integration_objects` row can appear later for a hard key that a referent node holds. Then the fold links the node to the row. The row owns the state. The node keeps the mail history.
+- **D5 consumers.** `gmailTodoSources` carries the `integration_objects` id when a row exists. Otherwise it carries the `referent` node id. Otherwise it falls back to `deriveLoopEntityRef`, as D5 says.
+
+### A1a — The link stores the stable node id, with no foreign key
+
+Decided by the owner on 2026-10-21, because it is the simpler form for daily use. The link from an `integration_objects` row to a node stores the node's `ent_*` id. A node id is permanent: `computeStableEntityId` makes it from the user and one identity (`packages/db/src/helpers.ts:95`), so a replay gives the same id. The column has no foreign key, because `entity_nodes` is a projection that replay rebuilds. `integration_object_relations.entity_id` changes to this form. Today it references `entities`, and no code writes it, so the migration moves no data. A reader that finds no live node for the id treats the link as absent.
+
+### A2 — The old `entities` table gets no new reader or writer here
+
+This ADR adds no read or write of `entities`. The link in A1 must point at `entity_nodes`. The removal of `entities` itself is a separate change, because `knowledge/user-context.ts` still reads it.
+
+### A3 — Meeting-notes action items are work items, not referents
+
+ADR-0092 keeps one `about` for each message, as D1 says. The action items of a meeting-notes mail are work items for people. They are not things that a notification is about. A separate ADR decides them. The owner decided these rules on 2026-10-21, and that ADR must keep them:
+
+- Alfred tracks the user's own items.
+- Alfred tracks a colleague's items only when a standing instruction asks for it.
+- A model with context decides which items are the user's. The context is the user's identity, open todos, GitHub and Linear activity, standing instructions, and the organization layer (who is on which team, and their roles).
+- Code checks that each adopted item quotes a line of the mail.
+- Other people's items can appear in a briefing as team context. Alfred does not track them.
+- The notes mail must reach that model in every triage category. Today the `fyi` and "unsubscribe" rules hide it ([product-direction §10](../theory/product-direction.md)).
+- The source is the summary mail of any notetaker, for example the workplace's own notetaker, Granola, Otter, or Gemini notes. Alfred recognizes such a mail by what it is: a summary of a meeting with action items. It uses no list of notetaker senders and no code for each notetaker.
+- Alfred sends no meeting bot of its own. A bot gives a full transcript, but the notes mail already gives the items, the owners, and what the meeting was about.
+
+### Open in this amendment
+
+- **A hard key with no connected provider.** It may need no node at all, if the todo source can carry the key until a provider row exists. Decide this in S2.
 
 ## Why not adopt Graphiti/Zep now that models are cheap
 

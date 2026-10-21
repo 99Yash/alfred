@@ -6,7 +6,7 @@ The single glossary of the load-bearing terms. Refine in place when usage drifts
 
 A term that describes something **not yet built** must say so. Design recorded as fact is the failure mode this file is most prone to.
 
-Cross-references: [`decisions.md`](./decisions.md) (snapshot table + ADR index; the ADRs live one per file in [`docs/decisions/`](./docs/decisions/)), [`CLAUDE.md`](./CLAUDE.md) (operational guide).
+Cross-references: [`decisions.md`](./decisions.md) (snapshot table + ADR index; the ADRs live one per file in [`docs/decisions/`](./docs/decisions/)), [`CLAUDE.md`](./CLAUDE.md) (operational guide), [`docs/theory/context-graph.md`](./docs/theory/context-graph.md) (the context graph in plain words: things, links, work items, the organization layer, and which table owns which thing).
 
 ---
 
