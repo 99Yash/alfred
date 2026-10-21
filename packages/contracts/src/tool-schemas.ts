@@ -16,10 +16,12 @@ import {
   workflowRequiredCapabilitySchema,
 } from "./agent";
 import {
+  ARTIFACT_EDITS_MAX,
   ARTIFACT_SECTION_MAX_CHARS,
   artifactFormatSchema,
   artifactKindSchema,
   artifactPageSchema,
+  artifactTextEditSchema,
 } from "./artifacts";
 import { contextSearchRequestSchema } from "./context-search";
 import { githubSearchQueryIssues, sanitizeGithubSearchQuery } from "./github-search";
@@ -1556,7 +1558,7 @@ export const appendArtifactSectionInput = z
   .strict();
 
 export const updateArtifactInput = coerceJsonArrayFields(
-  ["pages"],
+  ["pages", "edits"],
   // A blank `markdown` beside `pages` means none.
   blankFieldToOmitted(
     ["title", "markdown"],
@@ -1576,21 +1578,38 @@ export const updateArtifactInput = coerceJsonArrayFields(
           .describe(
             "Full replacement page list for a `pages` artifact. Send every page you want kept — this replaces the whole set. To merely add a page, prefer append_artifact_page.",
           ),
+        edits: z
+          .array(artifactTextEditSchema)
+          .min(1)
+          .max(ARTIFACT_EDITS_MAX)
+          .optional()
+          .describe(
+            "Targeted exact-match edits, applied in order and saved together as one version. Each oldString must be raw text (not its JSON-escaped form) that occurs exactly once in the current body as it stands after the edits before it; for a deck, across all page HTML. Include enough surrounding text to make it unique. Needs no baseContentHash.",
+          ),
         baseContentHash: z
           .string()
           .regex(/^[a-f0-9]{64}$/)
           .optional()
           .describe(
-            "Required for cross-turn markdown/pages replacement. Copy it exactly from a complete artifact reference. Omit for rename-only edits or content created earlier in this same run.",
+            "Required for cross-turn markdown/pages replacement. Copy it exactly from a complete artifact reference. Omit for rename-only edits, `edits`, or content created earlier in this same run.",
           ),
       })
       .strict()
-      .refine((v) => v.title !== undefined || v.markdown !== undefined || v.pages !== undefined, {
-        message: "provide at least one of title, markdown, or pages",
-      })
-      .refine((v) => !(v.markdown !== undefined && v.pages !== undefined), {
-        message: "markdown and pages are mutually exclusive (a document has one, a deck the other)",
-      }),
+      .refine(
+        (v) =>
+          v.title !== undefined ||
+          v.markdown !== undefined ||
+          v.pages !== undefined ||
+          v.edits !== undefined,
+        { message: "provide at least one of title, markdown, pages, or edits" },
+      )
+      .refine(
+        (v) => [v.markdown, v.pages, v.edits].filter((field) => field !== undefined).length <= 1,
+        {
+          message:
+            "markdown, pages, and edits are mutually exclusive (send targeted edits, or one full replacement)",
+        },
+      ),
   ),
 );
 

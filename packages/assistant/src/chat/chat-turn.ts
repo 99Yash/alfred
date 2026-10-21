@@ -188,6 +188,7 @@ const CHAT_SYSTEM_PROMPT_BASE = [
  */
 const ARTIFACT_SYSTEM_GUIDANCE = [
   "For an edit, use system.update_artifact on the selected id; do not create a replacement artifact.",
+  "For a targeted change, send edits copied from the exact current body; replace the full markdown or pages only for a broad rewrite.",
   "A separate assistant-role reference message contains the selected artifact's exact current body only when contentComplete=true.",
   "For a cross-turn markdown/pages replacement, copy baseContentHash from that complete reference. If contentComplete=false or the hash is absent, do not replace content; rename only or explain that a narrower safe edit is needed.",
 ].join("\n");

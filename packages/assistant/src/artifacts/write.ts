@@ -4,6 +4,7 @@ import {
   type ArtifactFormat,
   type ArtifactKind,
   type ArtifactPage,
+  type ArtifactTextEdit,
 } from "@alfred/contracts";
 import {
   validatePdfArtifactHtml,
@@ -16,6 +17,7 @@ import { and, eq, exists, inArray, sql } from "drizzle-orm";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { AppError } from "@alfred/contracts/app-errors";
 import { artifactReplacementMatchesBase } from "./content-hash";
+import { applyArtifactEdits } from "./edits";
 
 /**
  * Write path for agent-authored artifacts (ADR-0075). The artifact tools call this;
@@ -61,7 +63,13 @@ export type UpdateArtifactResult =
   | { ok: true; artifactId: string; title: string; kind: ArtifactKind }
   | {
       ok: false;
-      status: "not_found" | "wrong_kind" | "stale_content" | "invalid_content";
+      status:
+        | "not_found"
+        | "wrong_kind"
+        | "stale_content"
+        | "invalid_content"
+        | "edit_mismatch"
+        | "content_limit";
       reason: string;
     };
 
@@ -292,9 +300,14 @@ export async function appendArtifactSection(
   return { ok: true, artifactId: input.artifactId, contentChars: result.contentChars };
 }
 
+function wrongKindReason(want: "document" | "pages"): string {
+  return `that content only applies to a '${want}' artifact`;
+}
+
 /**
- * Rename an artifact, or replace its whole content. Content type must match the kind.
- * Partial edits are not supported.
+ * Rename an artifact, apply exact-match `edits`, or replace its whole content.
+ * Content type must match the kind. Only a full replacement needs `baseContentHash`
+ * across turns: an edit proves what it saw by matching the locked current body.
  */
 export async function updateArtifact(
   ctx: ArtifactWriteContext,
@@ -303,6 +316,7 @@ export async function updateArtifact(
     title?: string | undefined;
     markdown?: string | undefined;
     pages?: ArtifactPage[] | undefined;
+    edits?: readonly ArtifactTextEdit[] | undefined;
     baseContentHash?: string | undefined;
   },
 ): Promise<UpdateArtifactResult> {
@@ -328,11 +342,11 @@ export async function updateArtifact(
     if (!row) return { status: "not_found" as const };
 
     if (input.markdown !== undefined && row.kind !== "document") {
-      return { status: "wrong_kind" as const, want: "document" };
+      return { status: "wrong_kind" as const, reason: wrongKindReason("document") };
     }
 
     if (input.pages !== undefined && row.kind !== "pages") {
-      return { status: "wrong_kind" as const, want: "pages" };
+      return { status: "wrong_kind" as const, reason: wrongKindReason("pages") };
     }
 
     if (input.pages !== undefined) {
@@ -343,6 +357,17 @@ export async function updateArtifact(
           return { status: "invalid_content" as const, reason: validation.reason };
         }
       }
+    }
+
+    const edited =
+      input.edits === undefined ? undefined : applyArtifactEdits(row.content, input.edits);
+
+    if (edited && !edited.ok) return { status: "edit_rejected" as const, rejection: edited };
+
+    for (const page of edited?.changedPages ?? []) {
+      const validation = validatePageForFormat(row.format, page.html);
+
+      if (!validation.ok) return { status: "invalid_content" as const, reason: validation.reason };
     }
 
     const replacesContent = input.markdown !== undefined || input.pages !== undefined;
@@ -372,6 +397,7 @@ export async function updateArtifact(
       ...(input.pages !== undefined
         ? { content: { kind: "pages" as const, pages: input.pages } }
         : {}),
+      ...(edited ? { content: edited.content } : {}),
     };
 
     await tx
@@ -392,14 +418,6 @@ export async function updateArtifact(
     return { ok: false, status: "not_found", reason: "no artifact with that id for this user" };
   }
 
-  if (result.status === "wrong_kind") {
-    return {
-      ok: false,
-      status: "wrong_kind",
-      reason: `that content only applies to a '${result.want}' artifact`,
-    };
-  }
-
   if (result.status === "stale_content") {
     return {
       ok: false,
@@ -409,8 +427,12 @@ export async function updateArtifact(
     };
   }
 
-  if (result.status === "invalid_content") {
-    return { ok: false, status: "invalid_content", reason: result.reason };
+  if (result.status === "wrong_kind" || result.status === "invalid_content") {
+    return { ok: false, status: result.status, reason: result.reason };
+  }
+
+  if (result.status === "edit_rejected") {
+    return { ok: false, status: result.rejection.status, reason: result.rejection.reason };
   }
 
   emitReplicachePokes([ctx.userId]);

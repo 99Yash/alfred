@@ -49,6 +49,22 @@ export const artifactPageSchema = z.object({
 
 export type ArtifactPage = z.infer<typeof artifactPageSchema>;
 
+/** Limit on the edits in one `update_artifact` call. They save together as one version. */
+export const ARTIFACT_EDITS_MAX = 20;
+
+/**
+ * One exact-match text edit. `oldString` must occur exactly once in the body as it
+ * stands after the edits before it, so text the model did not see cannot change.
+ */
+export const artifactTextEditSchema = z
+  .object({
+    oldString: z.string().min(1).max(DOCUMENT_MARKDOWN_MAX),
+    newString: z.string().max(DOCUMENT_MARKDOWN_MAX),
+  })
+  .strict();
+
+export type ArtifactTextEdit = z.infer<typeof artifactTextEditSchema>;
+
 /** Providers whose files the agent can surface inline when it can't read them. */
 export const externalFileSourceValues = ["drive"] as const;
 
