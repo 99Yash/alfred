@@ -11,18 +11,33 @@
 
 ## D1 — The memory is structured, with an open vocabulary
 
-The memory is entities, edges, and **claims** in Postgres tables (ADR-0058). It is not a prose document. The default `ENTITY_NODE_KINDS` and `ENTITY_EDGE_TYPES` stay. A free label is the wildcard for all other values. Only the values that code decides on get a type. The two lists are closed `z.enum` values today (`contracts/src/user-model.ts:674`, `:816`). Their DB columns are plain `text` with no CHECK, so to open them is a contract change and not a large migration.
+The memory is entities, edges, and **claims** in Postgres tables (ADR-0058). A claim can also point to an `integration_objects` row (D2a). The memory is not a prose document. The default `ENTITY_NODE_KINDS` and `ENTITY_EDGE_TYPES` stay. A free label is the wildcard for all other values. Only the values that code decides on get a type. The two lists are closed `z.enum` values today (`contracts/src/user-model.ts:674`, `:816`). Their DB columns are plain `text` with no CHECK, so to open them is a contract change and not a large migration.
 
 The briefing is the prose surface. It reads the structured memory and writes prose from it. The memory itself has no prose layer.
 
 ## D2 — A claim is a projection over the observation log
 
-A **claim** is one statement about a workspace: an open label, the statement, its subject and object entities, citations, a status, a valid time, and a confidence. Claims are a deterministic projection over the ADR-0067 `observations` log. This is the same pattern as ADR-0080. All writers append observations. Only the projection writes claim rows. A replay rebuilds the table.
+A **claim** is one statement about a workspace: an open label, the statement, its subject, an optional object (the two ends are in D2a), citations, a status, a valid time, and a confidence. Claims are a deterministic projection over the ADR-0067 `observations` log. This is the same pattern as ADR-0080. All writers append observations. Only the projection writes claim rows. A replay rebuilds the table.
 
 - **Confidence is a projection output.** The projection calculates it from the grounding tier (the ADR-0080 ranking), the number of independent sources that agree, and the age of the newest evidence. The model never reports its own confidence, because self-reported model confidence is not calibrated.
 - **A user correction cannot be reverted.** A correction or a rejection is a `source=user` observation with rank 0. The projection gives it precedence by construction. No later inference changes it.
-- **A claim never restates provider state.** If an integration object owns a fact (ADR-0062, ADR-0092 amendment A1), for example a Linear issue status, the claim points to the object and the reader does a live read. The claim does not copy the value.
+- **A claim never restates provider state.** If an integration object owns a fact (ADR-0062, ADR-0092 amendment A1), for example a Linear issue status, the claim points to the object and the reader does a live read. The claim does not copy the value. D2a gives the form of that pointer.
 - **The first slice activates the projection runner.** v1 is committed. The `--activate` step has not run in prod.
+
+## D2a — A claim end names a node or an integration object
+
+A claim has two ends: the subject and the optional object. ADR-0092 A1 gives each thing one record. A person, an org, a team, a repository, or a referent is an `entity_nodes` row. A PR, an issue, a deploy, or a ticket is an `integration_objects` row. So a claim end has two forms:
+
+| Form     | What the end stores                  | How a reader finds the thing                                                                  |
+| -------- | ------------------------------------ | --------------------------------------------------------------------------------------------- |
+| `node`   | the stable `ent_*` id                | the `entity_nodes` row with that id                                                           |
+| `object` | `provider`, `kind`, and `externalId` | the `integration_objects` row for the user and the three values (`integration_objects_identity_idx`) |
+
+- **No foreign key.** Both forms are values. This is the ADR-0092 A1a form. The claims table is a projection, and a replay must not fail because a row is missing.
+- **The object form stores the tuple, not the row id.** `computeStableEntityId` makes a node id from the user and one identity (`packages/db/src/helpers.ts:95`), so a node id is stable. An `integration_objects` id comes from `createId("iobj")` (`packages/db/src/schema/integration-objects.ts:24`), so it is random. It names one row, not the thing. The tuple is the identity of the thing.
+- **The writer picks the form.** The sweep (D4), the curiosity step (D5), and a user correction write the form into the observation. When an `integration_objects` row exists for the thing, they write `object`. If not, they write `node`. The projection copies the form and does not look it up, so a replay gives the same rows.
+- **A later provider row does not move a claim.** A claim can name a referent node, and later an `integration_objects` row can appear for the same hard key. ADR-0092 A1 then links the node to the row, and the reader follows that link for its live read. The claim keeps its `node` end.
+- **A missing end hides the claim.** If a reader finds no live node or row for an end, it does not show the claim. This is the ADR-0092 A1a rule for a link.
 
 ## D3 — A workspace is one connected email account
 
@@ -84,16 +99,17 @@ The **curiosity step** is an agent that researches a claim. It runs only when a 
 ## Slices
 
 1. Activate the ADR-0067 projection runner (#218).
-2. Add the claims projection with confidence, and the workspace map.
+2. Add the claims projection with confidence, the two claim end forms (D2a), and the workspace map.
 3. Add the reconciliation sweep, the shared cost cap, and the backfill.
 4. Add the curiosity step and the on-demand system tool.
-5. Add the readers: briefing, the chat read tool, and the triage hint.
+5. Add the readers: briefing, the chat read tool, and the triage hint. The briefing reader needs ADR-0092 A1, A1a, and S2 first. A briefing item must carry the key of its thing before the reader can load the claims for it.
 6. Add the action proposals, the `/memory` claims section, and the disconnect dialog.
 
 ## Alternatives
 
 - **(a) A prose memory document for each workspace.** Rejected. A document cannot carry confidence, citations, or a status for each statement, and a correction cannot be sticky. The briefing is the prose surface.
 - **(b) Claims as direct-write rows with a status column (the `proposeFact` pattern).** Rejected. It adds a second source of truth next to the observation log. ADR-0080 rejected the same split for identity facts.
+- **(b2) A claim end is always an entity node.** Rejected. ADR-0092 A1 says a thing with provider state is its `integration_objects` row, and no referent node is made for it. A claim about a PR would then have no subject, or it would need a second record for the PR (D2a).
 - **(c) Closed claim kinds.** Rejected. A closed list limits what Alfred can learn. Defaults plus a wildcard label keep the vocabulary open.
 - **(d) The account persona as the workspace.** Rejected. `work | personal` cannot tell two employers apart.
 - **(e) A model call for each event.** Rejected for cost (D4).
