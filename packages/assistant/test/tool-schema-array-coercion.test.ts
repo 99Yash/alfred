@@ -24,6 +24,9 @@ interface ArrayCoercionFixture {
   arrayFields: readonly string[];
 }
 
+/** A tool whose array fields are mutually exclusive needs one fixture per exclusive field. */
+type ToolArrayCoercionFixtures = ArrayCoercionFixture | readonly ArrayCoercionFixture[];
+
 const FIXTURES = {
   "calendar.create_event": {
     base: {
@@ -162,13 +165,22 @@ const FIXTURES = {
     },
     arrayFields: ["sources"],
   },
-  "system.update_artifact": {
-    base: {
-      artifactId: "aid",
-      pages: [{ title: "Page 1", html: "<p>x</p>" }],
+  "system.update_artifact": [
+    {
+      base: {
+        artifactId: "aid",
+        pages: [{ title: "Page 1", html: "<p>x</p>" }],
+      },
+      arrayFields: ["pages"],
     },
-    arrayFields: ["pages"],
-  },
+    {
+      base: {
+        artifactId: "aid",
+        edits: [{ oldString: "Draft", newString: "Final" }],
+      },
+      arrayFields: ["edits"],
+    },
+  ],
   "system.ask_user": {
     base: {
       context: "Need a choice to proceed.",
@@ -187,7 +199,17 @@ const FIXTURES = {
     },
     arrayFields: ["questions", "answers"],
   },
-} satisfies Record<string, ArrayCoercionFixture>;
+} satisfies Record<string, ToolArrayCoercionFixtures>;
+
+function fixturesFor(name: string): readonly ArrayCoercionFixture[] {
+  const entry: ToolArrayCoercionFixtures | undefined = Object.entries(FIXTURES).find(
+    ([k]) => k === name,
+  )?.[1];
+
+  if (entry === undefined) return [];
+
+  return "base" in entry ? [entry] : entry;
+}
 
 /** Every array-typed top-level field, read from the model-facing JSON schema. */
 function discoverArrayFields(schema: z.ZodType): string[] {
@@ -216,9 +238,7 @@ describe("tool-schema array-field coercion (cross-integration)", () => {
 
     for (const [name, schema] of Object.entries(MODEL_FACING_TOOL_INPUT_SCHEMAS)) {
       for (const field of discoverArrayFields(schema as z.ZodType)) {
-        const fixture = Object.entries(FIXTURES).find(([k]) => k === name)?.[1];
-
-        if (!fixture?.arrayFields.includes(field)) {
+        if (!fixturesFor(name).some((fixture) => fixture.arrayFields.includes(field))) {
           uncovered.push(`${name}.${field}`);
         }
       }
@@ -231,22 +251,31 @@ describe("tool-schema array-field coercion (cross-integration)", () => {
     );
   });
 
-  for (const [name, fixture] of Object.entries(FIXTURES)) {
-    const { base, arrayFields } = fixture as ArrayCoercionFixture;
+  for (const name of Object.keys(FIXTURES)) {
+    const fixtures = fixturesFor(name);
     const schema = Object.entries(MODEL_FACING_TOOL_INPUT_SCHEMAS).find(([n]) => n === name)?.[1];
 
-    test(`${name}: base fixture parses and lists the right array fields`, () => {
+    test(`${name}: base fixtures parse and list the right array fields`, () => {
       assert.ok(schema, `${name} is missing from TOOL_INPUT_SCHEMAS`);
-      const parsed = schema.safeParse(base);
-      assert.ok(
-        parsed.success,
-        `base fixture should parse: ${JSON.stringify(parsed.error?.issues)}`,
-      );
-      // The fixture's array fields must match the schema's exactly.
-      assert.deepEqual([...arrayFields].sort(), discoverArrayFields(schema).sort());
+
+      for (const { base } of fixtures) {
+        const parsed = schema.safeParse(base);
+        assert.ok(
+          parsed.success,
+          `base fixture should parse: ${JSON.stringify(parsed.error?.issues)}`,
+        );
+      }
+
+      // The fixtures' array fields, together, must match the schema's exactly.
+      const arrayFields = fixtures.flatMap((fixture) => fixture.arrayFields);
+      assert.deepEqual(arrayFields.sort(), discoverArrayFields(schema).sort());
     });
 
-    for (const field of arrayFields) {
+    const cases = fixtures.flatMap(({ base, arrayFields }) =>
+      arrayFields.map((field) => ({ base, field })),
+    );
+
+    for (const { base, field } of cases) {
       test(`${name}.${field}: JSON-stringified array coerces back to an array`, () => {
         assert.ok(schema);
         const stringified = { ...base, [field]: JSON.stringify(base[field]) };
