@@ -64,6 +64,7 @@ export {
   mcpOAuthClientConfiguration,
   mcpOAuthProviderForConnection,
   McpOAuthAuthorizationRequiredError,
+  needsMcpReauthorization,
   type McpBoundOAuthSession,
   type McpOAuthProviderForConnectionInput,
   type McpOAuthSessionFactory,

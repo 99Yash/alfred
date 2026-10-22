@@ -1,7 +1,6 @@
 import {
   isToolName,
   isWriteRiskTier,
-  singularizePhrase,
   MCP_LIST_TOOLS_MAX_LIMIT,
   type IntegrationAvailabilitySnapshot,
   type ToolName,
@@ -13,6 +12,7 @@ import {
   type McpToolDiscoveryHit,
 } from "@alfred/contracts";
 import { readIntegrationAvailability } from "@alfred/assistant/connections";
+import { singularizePhrase } from "@alfred/assistant/search-words";
 import {
   catalogWords,
   connectionNameWords,

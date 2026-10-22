@@ -44,6 +44,7 @@ import {
   type BuiltInClientResolution,
 } from "./built-ins";
 import type { McpAuthorizedOAuth, McpAuthorizedOAuthServer } from "./endpoint-authorization";
+import { isMcpAuthorizationChallenge, McpClientError } from "./errors";
 
 const oauthMetadataSchema = z.looseObject({
   issuer: z.url(),
@@ -468,6 +469,16 @@ export class McpOAuthAuthorizationRequiredError extends Error {
     this.name = "McpOAuthAuthorizationRequiredError";
     this.authorizationUrl = new URL(authorizationUrl.href);
   }
+}
+
+/** A consent or authorization failure needs user action, not an automatic retry. */
+export function needsMcpReauthorization(error: unknown): boolean {
+  return (
+    error instanceof McpOAuthAuthorizationRequiredError ||
+    isMcpAuthorizationChallenge(error) ||
+    (error instanceof McpClientError &&
+      (error.code === "insufficient_scope" || error.code === "authorization_required"))
+  );
 }
 
 export interface McpOAuthProviderOptions {

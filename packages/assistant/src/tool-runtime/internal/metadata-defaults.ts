@@ -3,12 +3,8 @@
  * tool is findable by capability without hand-written copy (#413).
  */
 
-import {
-  humanizeSlug,
-  singularizeWord,
-  type ActionSlug,
-  type IntegrationSlug,
-} from "@alfred/contracts";
+import { humanizeSlug, type ActionSlug, type IntegrationSlug } from "@alfred/contracts";
+import { singularizeWord } from "@alfred/assistant/search-words";
 import { z } from "zod";
 import type { ToolDiscoveryMetadata } from "./registry";
 

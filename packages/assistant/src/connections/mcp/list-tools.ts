@@ -24,7 +24,7 @@ import {
 } from "@alfred/contracts";
 import { sha256Canonical } from "@alfred/db/hash";
 import { z } from "zod";
-import { catalogWords, connectionNameWords } from "./catalog-query";
+import { catalogWords } from "./catalog-query";
 import { MCP_DISCOVERY_SCAN_BUDGET } from "./discovery-policy";
 import {
   listOwnedCurrentCatalogSlices,
@@ -179,7 +179,8 @@ function matches(
 
   if (fields.some((value) => value?.toLowerCase().includes(query))) return true;
 
-  const labelWords = connectionNameWords(row.label);
+  // Strip the full label here; only ranking excludes generic words such as "MCP".
+  const labelWords = catalogWords(row.label);
   const wanted = [...queryWords].filter((word) => !labelWords.has(word));
 
   if (wanted.length === 0) return false;

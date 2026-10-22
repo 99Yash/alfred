@@ -13,9 +13,7 @@ import {
 import { AppError } from "@alfred/contracts/app-errors";
 import {
   inspectMcpToolLocal,
-  isMcpAuthorizationChallenge,
-  McpClientError,
-  McpOAuthAuthorizationRequiredError,
+  needsMcpReauthorization,
   searchMcpToolsLocal,
   type ExternalToolRef,
   type McpCallEnvelope,
@@ -64,15 +62,6 @@ function brokerResult(outcome: McpBrokerOutcome): McpBrokerToolResult {
         message: outcome.message,
       });
   }
-}
-
-/** Only a new consent fixes these, so a retry repeats the same failure. */
-function needsMcpReauthorization(error: unknown): boolean {
-  return (
-    error instanceof McpOAuthAuthorizationRequiredError ||
-    isMcpAuthorizationChallenge(error) ||
-    (error instanceof McpClientError && error.code === "insufficient_scope")
-  );
 }
 
 function withTruncation<T extends object>(result: T, envelope: McpCallEnvelope): T {
@@ -132,7 +121,7 @@ export const mcpTools: readonly RegisteredTool[] = [
           // The broker copies correlation ids from the staging row, so they cannot drift.
         });
       } catch (error) {
-        // The manager already marked the row `auth_required`; without this the model reads "retry".
+        // Only errors that escape the broker reach here; ambiguous outcomes keep their barrier.
         if (needsMcpReauthorization(error)) {
           throw new AppError("mcp_reauth_required", { cause: error });
         }

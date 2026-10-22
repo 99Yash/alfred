@@ -1,4 +1,4 @@
-/** Word folds for lexical search. Match keys only, never display text. */
+/** Word folds for assistant tool search. Match keys only, never display text. */
 
 /** A naive English singular, so a query matches either number ("issues" and "issue"). */
 export function singularizeWord(word: string): string {

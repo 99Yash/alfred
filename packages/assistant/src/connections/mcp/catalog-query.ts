@@ -1,6 +1,6 @@
 /** The word rules that `mcp.list_tools` and `system.search_tools` share for MCP catalogs. */
 
-import { singularizeWord } from "@alfred/contracts";
+import { singularizeWord } from "@alfred/assistant/search-words";
 
 const STOP_WORDS = new Set(["a", "an", "and", "for", "in", "my", "of", "on", "the", "to", "with"]);
 

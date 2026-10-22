@@ -24,6 +24,7 @@ const MCP_CLIENT_ERROR_CODES = [
   "invalid_arguments",
   "invalid_output",
   "insufficient_scope",
+  "authorization_required",
   "admission_full",
 ] as const;
 
