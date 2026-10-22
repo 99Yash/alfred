@@ -149,10 +149,13 @@ function overCapRefusal(waitMs: number, maxWaitMs: number, url: string): APICall
  */
 const waiters = new Map<string, SlotWaiter>();
 
-/** Make every request wait for a slot. Pass the provider's own fetch wrapper as `inner`. */
+/**
+ * Make every request wait for a slot. `inner` is required: the gateway's pooled fetch, or a
+ * provider wrapper on top of it. A bare `fetch` would drop the gateway's keep-alive pool.
+ */
 export function throttledGatewayFetch(
   config: GatewayThrottleConfig,
-  inner: typeof globalThis.fetch = fetch,
+  inner: typeof globalThis.fetch,
 ): typeof globalThis.fetch {
   const waitForSlot = sharedWaiter(config);
 

@@ -4,6 +4,7 @@ import { createOpenAI, openai } from "@ai-sdk/openai";
 import { parseJsonWith } from "@alfred/contracts";
 import { cloudflareGatewayConfig, serverEnv } from "@alfred/env/server";
 import type { APICallError } from "ai";
+import { Agent } from "undici";
 import { z } from "zod";
 
 import { throttledGatewayFetch } from "./gateway-throttle";
@@ -15,7 +16,8 @@ import {
 
 /**
  * The one place that picks host, credential, and model name for every model call:
- * "direct" (SDK defaults) or "cloudflare" (Unified Billing). Built from config, no module state.
+ * "direct" (SDK defaults) or "cloudflare" (Unified Billing). Built from config; the only
+ * module state is the connection pool below.
  * Audio uses Cloudflare's `/ai/run` instead; see `transcription.ts`.
  */
 export type GatewayConfig = NonNullable<ReturnType<typeof cloudflareGatewayConfig>>;
@@ -45,6 +47,30 @@ function gatewayHeaders(token: string) {
 }
 
 /**
+ * Cloudflare sends no `Keep-Alive: timeout=` hint, so global `fetch` falls back to undici's
+ * 4 s default and drops the socket between most turns. A new TLS connection to the gateway
+ * costs about 140 ms more than a reused one. Keep idle sockets for 4 minutes instead.
+ * Measured on 2026-10-22: Cloudflare kept a socket idle for 300 s and closed one idle for 400 s.
+ * Close first, well under that, so a POST never lands on a socket the edge has just closed.
+ * One pool per process, because `activeGateway()` builds a new `Gateway` for every call.
+ */
+const GATEWAY_KEEP_ALIVE_MS = 240_000;
+
+const gatewayDispatcher = new Agent({ keepAliveTimeout: GATEWAY_KEEP_ALIVE_MS });
+
+/** Global `fetch` on the gateway's pool. */
+const pooledFetch: typeof globalThis.fetch = (input, init) => {
+  const withDispatcher: Omit<RequestInit, "dispatcher"> & { dispatcher: unknown } = {
+    ...init,
+    dispatcher: gatewayDispatcher,
+  };
+
+  // SAFETY: Node's fetch accepts undici's `dispatcher`; only its `undici-types` copy differs.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- @types/node types `dispatcher` from undici-types, which the undici Agent does not satisfy
+  return fetch(input, withDispatcher as RequestInit);
+};
+
+/**
  * Strip the SDK's dummy `Authorization` header. If it reaches Cloudflare, it is forwarded
  * to OpenAI as is, and OpenAI rejects it. Only OpenAI uses that header for auth.
  */
@@ -55,7 +81,7 @@ function openaiGatewayFetch(token: string): typeof globalThis.fetch {
 
     for (const [name, value] of Object.entries(gatewayHeaders(token))) headers.set(name, value);
 
-    return fetch(input, { ...init, headers });
+    return pooledFetch(input, { ...init, headers });
   };
 }
 
@@ -93,7 +119,8 @@ function createGateway(config: GatewayConfig | undefined): Gateway {
     ...(burst === undefined ? {} : { burst }),
   };
 
-  const paced = (inner?: typeof globalThis.fetch) => throttledGatewayFetch(throttleConfig, inner);
+  const paced = (inner: typeof globalThis.fetch = pooledFetch) =>
+    throttledGatewayFetch(throttleConfig, inner);
 
   const cfAnthropic = createAnthropic({
     apiKey: config.token,
