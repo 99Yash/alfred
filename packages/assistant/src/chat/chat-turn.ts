@@ -354,7 +354,7 @@ const chatTurnStep: Step<ChatRunState> = {
       const availability = await readIntegrationAvailability(ctx.userId);
 
       const tools = toolRuntimeForRun(chatToolRunIdentity(ctx, state), availability);
-      state.connectedSummary ??= tools.connectedSummary();
+      state.connectedSummary ??= await tools.connectedSummary();
 
       if (state.selfIdentity === undefined) {
         // An older checkpoint already pinned a prompt without this block; adding it fails the hash.

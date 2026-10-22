@@ -15,6 +15,7 @@ import {
   unrefTimer,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
+import { publicAppError } from "@alfred/contracts/app-errors";
 import { requireRow, runAtomic } from "@alfred/db/helpers";
 import { isUniqueViolation, uniqueViolationConstraint } from "@alfred/db/pg-errors";
 import {
@@ -33,6 +34,7 @@ import {
   descriptorHash,
   isPreDeliveryErrorCode,
   McpClientError,
+  needsMcpReauthorization,
   startMcpTraceSpan,
   type ExternalToolRef,
   type McpCallEnvelope,
@@ -69,6 +71,13 @@ const AMBIGUOUS_MESSAGE =
 
 const MCP_TOOL_ERROR_MESSAGE =
   "The remote MCP tool reported an error after delivery, but its effect may still have been applied.";
+
+/** Authorization and effect certainty are independent: reconnecting never clears the barrier. */
+function ambiguousFailureMessage(error: unknown): string {
+  return needsMcpReauthorization(error)
+    ? `${AMBIGUOUS_MESSAGE} ${publicAppError("mcp_reauth_required").message}`
+    : AMBIGUOUS_MESSAGE;
+}
 
 export interface McpBrokerCallInput {
   userId: string;
@@ -1263,6 +1272,8 @@ export class McpExecutionBroker {
     try {
       envelope = await prepared.call(ref, claimed.call.arguments, { trace: trace.context });
     } catch (err) {
+      const message = ambiguousFailureMessage(err);
+
       if (isProvenNotDelivered(err)) {
         try {
           await settleReservedMcpSuccessor({
@@ -1280,7 +1291,7 @@ export class McpExecutionBroker {
           return {
             status: "ambiguous",
             invocationId: claimed.invocation.id,
-            message: AMBIGUOUS_MESSAGE,
+            message,
           };
         }
 
@@ -1313,7 +1324,7 @@ export class McpExecutionBroker {
       return {
         status: "ambiguous",
         invocationId: claimed.invocation.id,
-        message: AMBIGUOUS_MESSAGE,
+        message,
       };
     }
 
@@ -1488,6 +1499,8 @@ export class McpExecutionBroker {
 
       return await this.#resolveResponse(invocation, envelope);
     } catch (err) {
+      const message = ambiguousFailureMessage(err);
+
       if (isProvenNotDelivered(err)) {
         // Never delivered: resolve as not-delivered and rethrow.
         try {
@@ -1503,7 +1516,7 @@ export class McpExecutionBroker {
             invocationId: invocation.id,
           });
 
-          return { status: "ambiguous", invocationId: invocation.id, message: AMBIGUOUS_MESSAGE };
+          return { status: "ambiguous", invocationId: invocation.id, message };
         }
 
         throw err;
@@ -1533,7 +1546,7 @@ export class McpExecutionBroker {
         });
       }
 
-      return { status: "ambiguous", invocationId: invocation.id, message: AMBIGUOUS_MESSAGE };
+      return { status: "ambiguous", invocationId: invocation.id, message };
     }
   }
 

@@ -12,7 +12,12 @@ import {
   type McpToolDiscoveryHit,
 } from "@alfred/contracts";
 import { readIntegrationAvailability } from "@alfred/assistant/connections";
-import { searchMcpToolsLocal } from "@alfred/assistant/connections/mcp";
+import { singularizePhrase } from "@alfred/assistant/search-words";
+import {
+  catalogWords,
+  connectionNameWords,
+  searchMcpToolsLocal,
+} from "@alfred/assistant/connections/mcp";
 import { resolveMcpCallRiskTier } from "@alfred/assistant/tool-runtime/mcp";
 import { z } from "zod";
 import {
@@ -22,7 +27,6 @@ import {
   listRegisteredTools,
   type RegisteredTool,
 } from "./internal/registry";
-import { singularizePhrase } from "./internal/metadata-defaults";
 
 interface ToolCandidateBase {
   name: ToolName;
@@ -100,6 +104,7 @@ export async function searchAvailableTools(args: {
   const remote: RankedCandidate[] = [];
 
   if (mcpAvailable) {
+    const queryWords = catalogWords(args.query);
     // A full query rarely occurs verbatim in a descriptor, so scan pages and rank by token.
     let cursor: string | null = null;
 
@@ -113,7 +118,7 @@ export async function searchAvailableTools(args: {
       });
 
       for (const hit of page.tools) {
-        const score = scoreMcpHit(hit, args.query);
+        const score = scoreMcpHit(hit, queryWords);
 
         if (score <= 0) continue;
 
@@ -162,26 +167,25 @@ export async function searchAvailableTools(args: {
   );
 }
 
-function scoreMcpHit(hit: McpToolDiscoveryHit, query: string): number {
-  const tokens = meaningfulTokens(normalize(query));
+/** Above one name-word hit (55), so naming the connection ranks its tools over another server's. */
+const MCP_CONNECTION_NAME_BONUS = 60;
 
-  const name = meaningfulTokens(
-    normalize(hit.ref.remoteName.replaceAll("-", " ").replaceAll("_", " ")),
-  );
-
-  const title = meaningfulTokens(normalize(hit.title ?? ""));
-  const description = meaningfulTokens(normalize(hit.description ?? ""));
+function scoreMcpHit(hit: McpToolDiscoveryHit, queryWords: ReadonlySet<string>): number {
+  const name = catalogWords(hit.ref.remoteName);
+  const title = catalogWords(hit.title ?? "");
+  const description = catalogWords(hit.description ?? "");
   let score = 0;
 
-  for (const token of tokens) {
-    if (name.has(token)) score += 55;
-    else if (title.has(token)) score += 30;
-    else if (description.has(token)) score += 4;
+  for (const word of queryWords) {
+    if (name.has(word)) score += 55;
+    else if (title.has(word)) score += 30;
+    else if (description.has(word)) score += 4;
   }
 
-  if (tokens.has(normalize(hit.namespace)) || tokens.has(normalize(hit.connection.label))) {
-    score += 10;
-  }
+  // The namespace is an opaque id, so only the label can name the connection.
+  const labelWords = connectionNameWords(hit.connection.label);
+
+  if ([...queryWords].some((word) => labelWords.has(word))) score += MCP_CONNECTION_NAME_BONUS;
 
   return score;
 }
@@ -299,6 +303,9 @@ function rankToolCatalog(args: ToolSearchArgs): RankedCandidate[] {
 
   for (const tool of args.tools ?? listRegisteredTools()) {
     const result = args.access.availability.get(tool.name);
+
+    // A kernel tool is always on the surface, so a hit for it only crowds out a real one.
+    if (tool.availability?.surface === "kernel") continue;
 
     // The workflow allowlist is a hard scope, not a fixable gap: never surface these.
     if (result && !result.available && result.code === "not_allowed") continue;

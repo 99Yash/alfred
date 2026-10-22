@@ -161,6 +161,12 @@ export const APP_ERROR_REGISTRY = defineFailureCatalog({
     why: "A cancellation fence advanced between dispatch and execution.",
     fix: { kind: "none" },
   },
+  mcp_reauth_required: {
+    message:
+      "This MCP server needs to be reconnected. Tell the user to reconnect it in Settings; the same call fails until then.",
+    why: "The MCP server asked for a new OAuth consent: no refresh token, a revoked grant, or a missing scope.",
+    fix: { kind: "reconnect", integration: "mcp" },
+  },
   mcp_effect_not_applied: {
     message: "You confirmed that this MCP operation did not apply. It was not repeated.",
     why: "The user resolved an unresolved MCP invocation as not applied; the effect is closed.",

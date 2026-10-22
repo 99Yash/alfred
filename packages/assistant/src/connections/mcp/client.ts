@@ -28,7 +28,7 @@ import { Ajv } from "ajv";
 import addFormats from "ajv-formats";
 import { Ajv2019 } from "ajv/dist/2019.js";
 import { Ajv2020 } from "ajv/dist/2020.js";
-import { McpClientError } from "./errors";
+import { isMcpAuthorizationChallenge, McpClientError } from "./errors";
 import type {
   McpApiKeyCredentialReader,
   McpAuthorizedEndpoint,
@@ -247,6 +247,7 @@ interface McpClientGeneration {
   readonly oauth: McpBoundOAuthSession | null;
   negotiated: McpNegotiatedServer | null;
   unhealthy: Error | null;
+  authorizationBlocked: McpClientError | null;
   closeFlight: Promise<void> | null;
 }
 
@@ -268,7 +269,6 @@ export class McpRawClient {
   #toolsByName = new Map<string, Tool>();
   #inputValidators = new Map<string, JsonSchemaValidator<JsonObject>>();
   #outputValidators = new Map<string, JsonSchemaValidator<JsonValue>>();
-  #authorizationBlocked: McpClientError | null = null;
   #lifecycleTail: Promise<void> = Promise.resolve();
   #cleanupTail: Promise<void> = Promise.resolve();
 
@@ -376,6 +376,7 @@ export class McpRawClient {
       oauth,
       negotiated: null,
       unhealthy: null,
+      authorizationBlocked: null,
       closeFlight: null,
     };
 
@@ -603,6 +604,9 @@ export class McpRawClient {
   ): Promise<McpPreparedToolCall> {
     const generation = this.#requireGeneration();
 
+    // A new consent opens a fresh client. Do not republish this blocked client as ready.
+    if (generation.authorizationBlocked) throw generation.authorizationBlocked;
+
     if (generation.oauth) {
       try {
         await generation.oauth.refreshIfNeeded();
@@ -638,7 +642,7 @@ export class McpRawClient {
     const generation = this.#requireGeneration();
     const protocol = generation.protocol;
 
-    if (this.#authorizationBlocked) throw this.#authorizationBlocked;
+    if (generation.authorizationBlocked) throw generation.authorizationBlocked;
 
     if (catalogGeneration !== this.#catalogGeneration || this.#catalog !== catalog) {
       throw new McpClientError(
@@ -772,11 +776,22 @@ export class McpRawClient {
           ? ` Additional permissions required: ${requiredScopes.join(", ")}.`
           : "";
 
-      this.#authorizationBlocked = new McpClientError(
+      generation.authorizationBlocked = new McpClientError(
         "insufficient_scope",
         `The MCP connection needs renewed consent.${detail}`,
       );
-      throw this.#authorizationBlocked;
+      throw generation.authorizationBlocked;
+    }
+
+    if (isMcpAuthorizationChallenge(err)) {
+      // Keep this code out of the pre-delivery set: the broker still owns effect ambiguity.
+      generation.authorizationBlocked = new McpClientError(
+        "authorization_required",
+        "Reconnect this MCP server to continue.",
+        { cause: err },
+      );
+      await this.#options.onAuthorizationRequired?.();
+      throw generation.authorizationBlocked;
     }
 
     if (isMcpDescriptorMismatchError(err)) {

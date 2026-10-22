@@ -2,6 +2,7 @@
   "name": "@alfred/assistant",
   "type": "module",
   "exports": {
+    "./search-words": "./src/search-words.ts",
     "./time": "./src/time/index.ts",
     "./delivery": "./src/delivery/index.ts",
     "./triggers": "./src/triggers/index.ts",

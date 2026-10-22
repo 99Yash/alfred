@@ -24,6 +24,7 @@ import {
 } from "@alfred/contracts";
 import { sha256Canonical } from "@alfred/db/hash";
 import { z } from "zod";
+import { catalogWords } from "./catalog-query";
 import { MCP_DISCOVERY_SCAN_BUDGET } from "./discovery-policy";
 import {
   listOwnedCurrentCatalogSlices,
@@ -159,13 +160,34 @@ function connection(row: OwnedCurrentCatalogRow): McpDiscoveryConnection {
   return { id: row.connectionId, instanceKey: row.instanceKey, label: row.label };
 }
 
-/** Match tool fields only. A label match would return every tool on that connection. */
-function matches(summary: Summary, query: string): boolean {
+/**
+ * Match tool fields only. The whole query can occur as one substring, or each query word can
+ * start a word of the tool's name, title, or description ("deploy" finds `list-deployments`).
+ * A word that names the connection is skipped, so "railway variables" finds `list-variables`.
+ * A query of label words only matches nothing: it would return every tool on the connection,
+ * and `namespace` or `connectionId` is the door that scopes a search to one connection.
+ */
+function matches(
+  summary: Summary,
+  row: OwnedCurrentCatalogRow,
+  query: string,
+  queryWords: ReadonlySet<string>,
+): boolean {
   if (!query) return true;
 
-  return [summary.remoteName, summary.title, summary.description].some((value) =>
-    value?.toLowerCase().includes(query),
-  );
+  const fields = [summary.remoteName, summary.title, summary.description];
+
+  if (fields.some((value) => value?.toLowerCase().includes(query))) return true;
+
+  // Strip the full label here; only ranking excludes generic words such as "MCP".
+  const labelWords = catalogWords(row.label);
+  const wanted = [...queryWords].filter((word) => !labelWords.has(word));
+
+  if (wanted.length === 0) return false;
+
+  const toolWords = [...catalogWords(fields.filter((value) => value !== undefined).join(" "))];
+
+  return wanted.every((word) => toolWords.some((toolWord) => toolWord.startsWith(word)));
 }
 
 function hit(
@@ -272,6 +294,7 @@ export async function searchMcpToolsLocal(
     cursor,
   });
 
+  const queryWords = catalogWords(normalized.query);
   const tools: McpToolDiscoveryHit[] = [];
   let scanned = 0;
   let lastRow: OwnedCurrentCatalogRow | undefined;
@@ -298,7 +321,7 @@ export async function searchMcpToolsLocal(
       lastOffset = descriptorOffset + 1;
       const summary = toSummary(catalog[localIndex]);
 
-      if (summary && matches(summary, normalized.query)) {
+      if (summary && matches(summary, row, normalized.query, queryWords)) {
         tools.push(hit(row, summary, normalized.detail));
       }
 
