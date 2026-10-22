@@ -23,98 +23,110 @@ export interface ComposerAttachments {
   files: () => File[];
 }
 
+// The one place this hook allocates an object URL. The caller owns it from here on.
+function stage(file: File): PendingAttachment {
+  return { key: crypto.randomUUID(), file, previewUrl: URL.createObjectURL(file) };
+}
+
 /**
  * Composer attachment staging (ADR-0065). Bytes upload at send (`useSendMessage`).
- * Object URLs are revoked on removal, clear, and unmount.
+ * `itemsRef` is the inventory and `items` is its render copy. Object URLs are revoked on
+ * removal, clear, replace, and unmount.
  */
 export function useComposerAttachments(): ComposerAttachments {
   const [items, setItems] = useState<PendingAttachment[]>([]);
-  // Synced in an effect: a render-phase ref write can leak from a discarded render.
-  const itemsRef = useRef(items);
-  useEffect(() => {
-    itemsRef.current = items;
-  }, [items]);
+  // Event-time reads see every earlier change, committed or not. Only `commit` writes it.
+  const itemsRef = useRef<PendingAttachment[]>([]);
 
-  // Enforce the caps before upload too (the server also does).
-  // Revoke and toast here, not in the `setItems` updater: StrictMode can run updaters twice.
-  const addFiles = useCallback((files: FileList | File[]) => {
-    const candidates: PendingAttachment[] = [];
+  // Pass the computed list, never an updater: an updater lets `items` drift from the ref.
+  const commit = useCallback((next: PendingAttachment[]) => {
+    itemsRef.current = next;
+    setItems(next);
+  }, []);
 
-    for (const file of Array.from(files)) {
-      const err = validateFile(file);
+  // Enforce the caps before upload too (the server also does). Check them before any
+  // object URL exists. Allocate, revoke, and toast here, not in a `setItems` updater:
+  // StrictMode can run updaters twice.
+  const addFiles = useCallback(
+    (files: FileList | File[]) => {
+      const valid: File[] = [];
 
-      if (err) {
-        toast.error(err);
-        continue;
+      for (const file of Array.from(files)) {
+        const err = validateFile(file);
+
+        if (err) {
+          toast.error(err);
+          continue;
+        }
+
+        valid.push(file);
       }
 
-      candidates.push({ key: crypto.randomUUID(), file, previewUrl: URL.createObjectURL(file) });
-    }
+      if (valid.length === 0) return;
+      const current = itemsRef.current;
+      const room = MAX_ATTACHMENTS_PER_MESSAGE - current.length;
 
-    if (candidates.length === 0) return;
-    const current = itemsRef.current;
-    const room = MAX_ATTACHMENTS_PER_MESSAGE - current.length;
+      if (room <= 0) {
+        toast.error(`You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files.`);
 
-    if (room <= 0) {
-      for (const a of candidates) URL.revokeObjectURL(a.previewUrl);
-      toast.error(`You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files.`);
+        return;
+      }
 
-      return;
-    }
+      const accepted = valid.slice(0, room);
 
-    const accepted = candidates.slice(0, room);
+      if (accepted.length < valid.length) {
+        toast.error(`You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files.`);
+      }
 
-    if (accepted.length < candidates.length) {
-      for (const a of candidates.slice(room)) URL.revokeObjectURL(a.previewUrl);
-      toast.error(`You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files.`);
-    }
+      const acceptedBytes = accepted.reduce((sum, file) => sum + file.size, 0);
+      const totalBytes = current.reduce((sum, item) => sum + item.file.size, 0) + acceptedBytes;
 
-    const acceptedBytes = accepted.reduce((sum, item) => sum + item.file.size, 0);
-    const totalBytes = current.reduce((sum, item) => sum + item.file.size, 0) + acceptedBytes;
+      if (totalBytes > MAX_ATTACHMENT_BYTES_PER_MESSAGE) {
+        const mb = Math.round(MAX_ATTACHMENT_BYTES_PER_MESSAGE / (1024 * 1024));
+        toast.error(`Attachments can be up to ${mb} MB combined.`);
 
-    if (totalBytes > MAX_ATTACHMENT_BYTES_PER_MESSAGE) {
-      for (const a of accepted) URL.revokeObjectURL(a.previewUrl);
-      const mb = Math.round(MAX_ATTACHMENT_BYTES_PER_MESSAGE / (1024 * 1024));
-      toast.error(`Attachments can be up to ${mb} MB combined.`);
+        return;
+      }
 
-      return;
-    }
+      commit([...current, ...accepted.map(stage)]);
+    },
+    [commit],
+  );
 
-    setItems((prev) => [...prev, ...accepted]);
-  }, []);
+  const remove = useCallback(
+    (key: string) => {
+      const current = itemsRef.current;
+      const target = current.find((a) => a.key === key);
 
-  const remove = useCallback((key: string) => {
-    const target = itemsRef.current.find((a) => a.key === key);
-
-    if (target) URL.revokeObjectURL(target.previewUrl);
-    setItems((prev) => prev.filter((a) => a.key !== key));
-  }, []);
+      if (!target) return;
+      URL.revokeObjectURL(target.previewUrl);
+      commit(current.filter((a) => a.key !== key));
+    },
+    [commit],
+  );
 
   const clear = useCallback(() => {
     for (const a of itemsRef.current) URL.revokeObjectURL(a.previewUrl);
-    setItems([]);
-  }, []);
+    commit([]);
+  }, [commit]);
 
   // No validation: the files passed it when they were first staged.
-  const replace = useCallback((next: File[]) => {
-    const prev = itemsRef.current;
+  const replace = useCallback(
+    (next: File[]) => {
+      const prev = itemsRef.current;
 
-    for (const a of prev) URL.revokeObjectURL(a.previewUrl);
+      for (const a of prev) URL.revokeObjectURL(a.previewUrl);
 
-    const staged = next.map((file) => ({
-      key: crypto.randomUUID(),
-      file,
-      previewUrl: URL.createObjectURL(file),
-    }));
+      commit(next.map(stage));
 
-    itemsRef.current = staged;
-    setItems(staged);
-
-    return prev.map((a) => a.file);
-  }, []);
+      return prev.map((a) => a.file);
+    },
+    [commit],
+  );
 
   const files = useCallback(() => itemsRef.current.map((a) => a.file), []);
 
+  // Revokes URLs from a change whose render never committed, too.
   useEffect(
     () => () => {
       for (const a of itemsRef.current) URL.revokeObjectURL(a.previewUrl);
