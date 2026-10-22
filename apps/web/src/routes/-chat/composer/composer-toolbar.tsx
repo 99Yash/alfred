@@ -155,7 +155,7 @@ export function ComposerToolbar({
                   keys="↵"
                   className={cn("transition-opacity duration-150", steerArmed && "opacity-40")}
                 >
-                  Queue
+                  {editing ? "Save" : "Queue"}
                 </KeyHint>
                 <KeyHint
                   keys="⌘↵"
