@@ -14,6 +14,7 @@ export function ComposerToolbar({
   isStreaming,
   canSteer,
   steerArmed,
+  editing,
   onSteer,
   disabled,
   sending,
@@ -38,6 +39,8 @@ export function ComposerToolbar({
   canSteer: boolean;
   /** ⌘ is held in the composer, so the send button steers. */
   steerArmed: boolean;
+  /** A queued message is in the editor, so the button saves it back to the queue. */
+  editing?: boolean | undefined;
   onSteer: () => void;
   disabled: boolean;
   sending: boolean;
@@ -152,7 +155,7 @@ export function ComposerToolbar({
                   keys="↵"
                   className={cn("transition-opacity duration-150", steerArmed && "opacity-40")}
                 >
-                  Queue
+                  {editing ? "Save" : "Queue"}
                 </KeyHint>
                 <KeyHint
                   keys="⌘↵"
@@ -198,14 +201,16 @@ export function ComposerToolbar({
               </Tip>
             ) : null}
             <Tip
-              label={steering ? "Steer" : canSteer ? "Queue" : "Send"}
+              label={steering ? "Steer" : editing ? "Save" : canSteer ? "Queue" : "Send"}
               keys={[steering ? "⌘↵" : "↵"]}
               description={
                 steering
                   ? "Stops the reply and sends this now."
-                  : canSteer
-                    ? "Hold ⌘ to steer instead."
-                    : undefined
+                  : editing
+                    ? "Puts it back in the queue. ⌘↵ sends it now."
+                    : canSteer
+                      ? "Hold ⌘ to steer instead."
+                      : undefined
               }
             >
               <button
@@ -219,9 +224,11 @@ export function ComposerToolbar({
                       ? "Waiting for approval"
                       : steering
                         ? "Steer"
-                        : canSteer
-                          ? "Queue"
-                          : "Send"
+                        : editing
+                          ? "Save"
+                          : canSteer
+                            ? "Queue"
+                            : "Send"
                 }
                 className={cn(
                   "inline-flex h-9 min-w-9 shrink-0 items-center justify-center rounded-full",
@@ -239,7 +246,11 @@ export function ComposerToolbar({
                     : "cursor-not-allowed bg-app-bg-2 text-app-fg-2",
                 )}
               >
-                <ArrowUp size={16} strokeWidth={2.25} />
+                {editing && !steering ? (
+                  <Check size={16} strokeWidth={2.25} />
+                ) : (
+                  <ArrowUp size={16} strokeWidth={2.25} />
+                )}
                 {steering ? (
                   <span className="app-fade-in text-[13px] font-medium">Steer</span>
                 ) : null}

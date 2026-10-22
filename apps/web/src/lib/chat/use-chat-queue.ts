@@ -17,6 +17,9 @@ export interface QueuedMessage {
   retryAttachmentMessageId?: string | undefined;
 }
 
+/** The part of a queued message that an edit can change. */
+export type QueuedEdit = Pick<QueuedMessage, "text" | "files">;
+
 type Queues = Map<string, QueuedMessage[]>;
 
 function queueKey(threadId: string | undefined): string {
@@ -67,8 +70,8 @@ export interface ChatQueue {
    */
   enqueue: (entry: Omit<QueuedMessage, "id">, position?: "back" | "front") => string | null;
   remove: (id: string) => void;
-  /** Replace an entry's text. An edit that leaves nothing to send removes the entry. */
-  update: (id: string, text: string) => void;
+  /** Replace an entry's text and files. An edit that leaves nothing to send removes the entry. */
+  update: (id: string, patch: QueuedEdit) => void;
   /** Move an entry to the head, so it sends next. */
   promote: (id: string) => void;
   /** Call after the oldest entry has started. */
@@ -176,24 +179,24 @@ export function useChatQueue(threadId: string | undefined): ChatQueue {
   );
 
   const update = useCallback(
-    (id: string, text: string) => {
+    (id: string, { text, files }: QueuedEdit) => {
       setQueues((prev) => {
         const list = prev.get(key) ?? [];
         const entry = list.find((m) => m.id === id);
 
-        if (!entry || entry.text === text) return prev;
+        if (!entry) return prev;
 
         // The same "empty" rule as `enqueue`, so an emptied entry cannot block the flush.
         const empty = isEmptyChatTurnInput({
           content: text.trim(),
-          hasFiles: entry.files.length > 0,
+          hasFiles: files.length > 0,
           artifactTargetId: entry.artifactTargetId,
           retryAttachmentIds: entry.retryAttachmentIds,
         });
 
         const next = empty
           ? list.filter((m) => m !== entry)
-          : list.map((m) => (m === entry ? { ...m, text: text.trim() } : m));
+          : list.map((m) => (m === entry ? { ...m, text: text.trim(), files } : m));
 
         const map = new Map(prev);
 

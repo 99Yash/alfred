@@ -166,6 +166,9 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   const [queueSending, setQueueSending] = useState(false);
   // Set by a completion; cleared once the head starts or fails for good.
   const [flushArmed, setFlushArmed] = useState(false);
+  // Stop holds the queue, so the next message does not send over the reply you stopped.
+  // Resume, or a row's send now, lets it go.
+  const [queuePaused, setQueuePaused] = useState(false);
   const busyAttemptsRef = useRef(0);
   const prevShowStreamRef = useRef(false);
   const lastErrorStreamIdRef = useRef<string | null>(null);
@@ -176,6 +179,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     setPrevThreadId(threadId);
     setQueueSending(false);
     setFlushArmed(false);
+    setQueuePaused(false);
     setQuote(null);
     setEditingQueuedId(null);
     setSteeringId(null);
@@ -267,9 +271,13 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   // An armed flush with nothing left to send disarms during render, so it cannot fire on a later enqueue.
   if (flushArmed && !queueSending && !isStreaming && queue.length === 0) setFlushArmed(false);
 
+  // An empty queue has nothing to hold.
+  if (queuePaused && queue.length === 0) setQueuePaused(false);
+
   // Send the head while armed. `queueSending` stops a burst while the new stream mounts.
+  // A pause keeps the arm, so Resume sends without a new completion.
   useEffect(() => {
-    if (!flushArmed || queueSending || isStreaming) return;
+    if (!flushArmed || queuePaused || queueSending || isStreaming) return;
     const next = queue[0];
 
     if (!next) return;
@@ -309,7 +317,17 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
 
       setQueueSending(false);
     })();
-  }, [flushArmed, queue, queueSending, isStreaming, editingQueuedId, send, threadId, dequeue]);
+  }, [
+    flushArmed,
+    queuePaused,
+    queue,
+    queueSending,
+    isStreaming,
+    editingQueuedId,
+    send,
+    threadId,
+    dequeue,
+  ]);
 
   // Retry sends the attachment ids, not files; the server copies the bytes (ADR-0065).
   const onRetry = useCallback(
@@ -414,6 +432,19 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     });
   }, [activeRunId, stopStream]);
 
+  // The Stop button. A steer stops through `onStopGeneration` and does not pause.
+  const onStopReply = useCallback(() => {
+    if (queue.length > 0) setQueuePaused(true);
+    onStopGeneration();
+  }, [queue.length, onStopGeneration]);
+
+  const onResumeQueue = useCallback(() => {
+    setQueuePaused(false);
+
+    // The stopped turn may have completed already, so arm the head here.
+    if (!showStream) setFlushArmed(true);
+  }, [showStream]);
+
   // Steer (#490): stop the reply and send this next. A run parked on an approval cannot stop.
   const canSteer = isStreaming && !approvalTrayActive;
 
@@ -441,6 +472,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   const onSendQueuedNow = useCallback(
     (id: string) => {
       promote(id);
+      setQueuePaused(false);
 
       if (canSteer) {
         setSteeringId(id);
@@ -503,7 +535,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
                   disabled={approvalTrayActive}
                   onSend={onSend}
                   onSteer={canSteer ? onSteer : undefined}
-                  onStopGeneration={onStopGeneration}
+                  onStopGeneration={onStopReply}
                   prefill={editPrefill}
                   ghostText={ghostText}
                   onGhostAccept={onGhostDone}
@@ -521,6 +553,8 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
                   onEditingQueuedChange={setEditingQueuedId}
                   steeringQueuedId={steeringId}
                   queueSendingHead={queueSending}
+                  queuePaused={queuePaused}
+                  onResumeQueue={onResumeQueue}
                   quote={quote}
                   onClearQuote={clearQuote}
                 />

@@ -17,6 +17,8 @@ export interface ComposerAttachments {
   addFiles: (files: FileList | File[]) => void;
   remove: (key: string) => void;
   clear: () => void;
+  /** Stage `next` in place of the current files. Returns the files it took off, unchanged. */
+  replace: (next: File[]) => File[];
   /** Raw files in staged order. */
   files: () => File[];
 }
@@ -93,6 +95,24 @@ export function useComposerAttachments(): ComposerAttachments {
     setItems([]);
   }, []);
 
+  // No validation: the files passed it when they were first staged.
+  const replace = useCallback((next: File[]) => {
+    const prev = itemsRef.current;
+
+    for (const a of prev) URL.revokeObjectURL(a.previewUrl);
+
+    const staged = next.map((file) => ({
+      key: crypto.randomUUID(),
+      file,
+      previewUrl: URL.createObjectURL(file),
+    }));
+
+    itemsRef.current = staged;
+    setItems(staged);
+
+    return prev.map((a) => a.file);
+  }, []);
+
   const files = useCallback(() => itemsRef.current.map((a) => a.file), []);
 
   useEffect(
@@ -102,5 +122,5 @@ export function useComposerAttachments(): ComposerAttachments {
     [],
   );
 
-  return { items, addFiles, remove, clear, files };
+  return { items, addFiles, remove, clear, replace, files };
 }
