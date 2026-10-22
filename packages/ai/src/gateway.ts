@@ -32,8 +32,16 @@ function gatewayBaseUrl(cfg: GatewayConfig, providerSegment: string): string {
   return `https://gateway.ai.cloudflare.com/v1/${cfg.accountId}/${cfg.gatewayId}/${providerSegment}`;
 }
 
+/**
+ * `cf-aig-skip-cache` keeps every model call off the gateway response cache, whatever the
+ * dashboard says. The cache key is the exact body, so a retry of an empty or malformed
+ * answer would replay that same answer.
+ */
 function gatewayHeaders(token: string) {
-  return { "cf-aig-authorization": `Bearer ${token}` } satisfies Record<string, string>;
+  return {
+    "cf-aig-authorization": `Bearer ${token}`,
+    "cf-aig-skip-cache": "true",
+  } satisfies Record<string, string>;
 }
 
 /**
@@ -44,7 +52,8 @@ function openaiGatewayFetch(token: string): typeof globalThis.fetch {
   return (input, init) => {
     const headers = new Headers(init?.headers);
     headers.delete("authorization");
-    headers.set("cf-aig-authorization", `Bearer ${token}`);
+
+    for (const [name, value] of Object.entries(gatewayHeaders(token))) headers.set(name, value);
 
     return fetch(input, { ...init, headers });
   };
@@ -93,7 +102,7 @@ function createGateway(config: GatewayConfig | undefined): Gateway {
     fetch: paced(),
   });
 
-  // No `headers`: `openaiGatewayFetch` sets `cf-aig-authorization`.
+  // No `headers`: `openaiGatewayFetch` sets the gateway headers.
   const cfOpenAI = createOpenAI({
     apiKey: config.token,
     baseURL: gatewayBaseUrl(config, "openai"),
