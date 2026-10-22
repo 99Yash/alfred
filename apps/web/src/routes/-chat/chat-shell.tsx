@@ -320,18 +320,16 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
         next.artifactTargetId,
       );
 
-      const sent = result.ok || result.reason === "empty";
-
       // `remove` is bound to this thread's queue, so a sent entry leaves it also after a thread
       // change. An `empty` entry is stale; drop it so it does not block the queue.
-      if (sent) remove(next.id);
+      if (result.ok || result.reason === "empty") remove(next.id);
 
       // A thread change or an unmount took the flags; they belong to another owner now.
       if (owner !== flushOwnerRef.current) return;
 
-      if (sent) {
+      if (result.ok) {
         setFlushArmed(false);
-        // A steer added during the send keeps its "Steering…" row.
+        // The started turn's completion sends a steer added during the send, so its row keeps "Steering…".
         setSteeringId((prev) => (prev === next.id ? null : prev));
         busyAttemptsRef.current = 0;
       } else if (result.reason === "busy" && busyAttemptsRef.current < QUEUE_BUSY_RETRIES) {
@@ -341,8 +339,8 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
 
         if (owner !== flushOwnerRef.current) return;
       } else {
-        // A hard error (already toasted) or a run that stays busy: keep it for the next completion.
-        // The disarm means no later completion sends a steer, so its row goes back to idle.
+        // An `empty` entry, a hard error (already toasted), or a run that stays busy. A failed entry
+        // waits for the next completion. No turn started, so nothing sends a steer; its row goes back to idle.
         setFlushArmed(false);
         setSteeringId(null);
         busyAttemptsRef.current = 0;
