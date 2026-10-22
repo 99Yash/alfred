@@ -715,11 +715,11 @@ describe("applyChatFrame — reasoningMs", () => {
     assert.equal(refOf(cell).reasoningMs, 250);
   });
 
-  test("stays null when no reasoning ever arrived", () => {
+  test("counts from the turn start when no reasoning arrived", () => {
     const cell = cellOf();
     applyChatFrame(cell, started(), 1_000);
     applyChatFrame(cell, delta(1, "answer"), 1_250);
-    assert.equal(drain(cell).snapshot.reasoningMs, null);
+    assert.equal(drain(cell).snapshot.reasoningMs, 250);
   });
 });
 

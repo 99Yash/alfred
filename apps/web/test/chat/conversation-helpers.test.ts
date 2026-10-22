@@ -11,6 +11,7 @@ const BLANK: StreamingMessage = {
   narration: [],
   reasoning: "",
   reasoningActive: false,
+  turnStartedTs: 0,
   reasoningMs: null,
   tools: [],
   connectNudges: [],

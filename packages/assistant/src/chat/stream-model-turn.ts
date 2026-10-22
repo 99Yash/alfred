@@ -9,6 +9,7 @@ import {
   type StepContext,
 } from "@alfred/assistant/execution";
 import { createVoiceStreamSanitizer } from "@alfred/ai/voice";
+import { freezeReasoningMs } from "./chat-turn-state";
 import type { TurnStopController } from "./turn-stop-controller";
 
 /** Flush coalesced text/reasoning/artifact deltas at least this often (ms) and at this size (chars). */
@@ -54,6 +55,7 @@ export interface StreamTurnState {
   assistantText: string;
   reasoningText: string;
   reasoningMs: number;
+  startedAt?: string | undefined;
   deltaSeq: number;
   reasoningSeq: number;
 }
@@ -92,6 +94,9 @@ export async function streamModelTurn(args: {
   let lastFlush = Date.now();
 
   const publishTextDelta = async (text: string): Promise<void> => {
+    // The first reply text the user sees ends the "Thought for" wait.
+    freezeReasoningMs(state, Date.now());
+
     for (const chunk of splitEventText(text)) {
       state.deltaSeq += 1;
       await publish({
@@ -135,8 +140,6 @@ export async function streamModelTurn(args: {
 
   let reasoningBuffer = "";
   let lastReasoningFlush = Date.now();
-  // For "Thought for Ns". Reasoning can resume after a tool, so it accumulates.
-  let reasoningStart = 0;
 
   const flushReasoning = async (): Promise<void> => {
     if (reasoningBuffer.length === 0) return;
@@ -260,7 +263,6 @@ export async function streamModelTurn(args: {
           await flush();
         }
       } else if (part.type === "reasoning-delta") {
-        if (reasoningStart === 0) reasoningStart = Date.now();
         state.reasoningText += part.text;
         reasoningBuffer += part.text;
 
@@ -271,15 +273,8 @@ export async function streamModelTurn(args: {
           await flushReasoning();
         }
       } else if (part.type === "reasoning-end") {
-        if (reasoningStart > 0) state.reasoningMs += Date.now() - reasoningStart;
-        reasoningStart = 0;
         await flushReasoning();
       } else if (part.type === "tool-call") {
-        if (reasoningStart > 0) {
-          state.reasoningMs += Date.now() - reasoningStart;
-          reasoningStart = 0;
-        }
-
         await flushReasoning();
         await flush();
 
@@ -311,13 +306,7 @@ export async function streamModelTurn(args: {
     if (!stopController.stopped) throw err;
   }
 
-  // Some providers end the stream without a `reasoning-end`; close the duration
-  // and flush any trailing thinking before the reply flush.
-  if (reasoningStart > 0) {
-    state.reasoningMs += Date.now() - reasoningStart;
-    reasoningStart = 0;
-  }
-
+  // Some providers end the stream without a `reasoning-end`; flush any trailing thinking before the reply.
   await flushReasoning();
   await flush();
   // Before the caller bumps the segment, so the tail lands on this one.

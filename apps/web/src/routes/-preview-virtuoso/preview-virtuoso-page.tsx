@@ -80,6 +80,7 @@ export function PreviewVirtuosoPage() {
       narration: [],
       reasoning: "",
       reasoningActive: true,
+      turnStartedTs: Date.now(),
       reasoningMs: null,
       tools: [],
       connectNudges: [],

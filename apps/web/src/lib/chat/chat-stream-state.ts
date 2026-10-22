@@ -64,7 +64,9 @@ export interface StreamingMessage {
   reasoning: string;
   /** Thinking still arrives and the reply has not started. */
   reasoningActive: boolean;
-  /** Thinking duration, frozen at the first reply token. */
+  /** Client time the turn started: the send ack, else the server time of its first frame. */
+  turnStartedTs: number;
+  /** Wait from `turnStartedTs` to the first reply token or approval request. Then frozen. */
   reasoningMs: number | null;
   tools: StreamingToolCall[];
   /** Repair offers from connection-health bounces, one per integration. The bounced call is retracted. */
@@ -103,7 +105,8 @@ interface StreamRef {
   /** Reasoning has one segment, 0. Read it through {@link reasoningText}. */
   reasoningLog: ChatDeltaLog;
   reasoningShown: number;
-  reasoningStartTs: number | null;
+  /** Write-once, except that a frame with an earlier server time moves it back. */
+  turnStartedTs: number;
   reasoningMs: number | null;
   replyStarted: boolean;
   tools: Map<string, StreamingToolCall>;
@@ -196,6 +199,7 @@ function createStreamRef(
   runId: string,
   mountId: number,
   seeded: boolean,
+  turnStartedTs: number,
 ): StreamRef {
   return {
     messageId,
@@ -208,7 +212,7 @@ function createStreamRef(
     shownSegment: 0,
     reasoningLog: createChatDeltaLog({ seq: 0, segment: 0 }),
     reasoningShown: 0,
-    reasoningStartTs: null,
+    turnStartedTs,
     reasoningMs: null,
     replyStarted: false,
     tools: new Map(),
@@ -231,7 +235,7 @@ function createStreamRef(
  */
 export function applyChatSeed(
   cell: ChatStreamCell,
-  seed: { messageId: string; runId: string },
+  seed: { messageId: string; runId: string; at: number },
 ): boolean {
   const existing = cell.current;
 
@@ -241,13 +245,24 @@ export function applyChatSeed(
   // The ack is the server's word that this run is newer, so the seed replaces any ref.
   // It keeps the old `mountId`, so a replay from before that turn still drops.
   if (existing) cell.retiredRunIds.add(existing.runId);
-  cell.current = createStreamRef(seed.messageId, seed.runId, existing?.mountId ?? 0, true);
+  cell.current = createStreamRef(seed.messageId, seed.runId, existing?.mountId ?? 0, true, seed.at);
   markChatTimingByAssistant(seed.messageId, "stream_seeded", undefined, {
     threadId: cell.threadId,
     runId: seed.runId,
   });
 
   return true;
+}
+
+/**
+ * When the server wrote the frame, read on the client clock. Clamped to receipt, so a
+ * server clock ahead of the browser cannot read as the future. A `?since` replay arrives
+ * in one burst, and this keeps its durations true where receipt time would read zero.
+ */
+function frameServerTs(frame: EventStreamFrame, now: number): number {
+  const ts = Date.parse(frame.createdAt);
+
+  return Number.isFinite(ts) ? Math.min(now, ts) : now;
 }
 
 /**
@@ -258,27 +273,32 @@ export function applyChatSeed(
  */
 function ensureStreamRef(
   cell: ChatStreamCell,
-  frameId: number,
+  frame: EventStreamFrame,
+  now: number,
   messageId: string,
   runId: string,
 ): StreamRef | null {
   const existing = cell.current;
+  const frameTs = frameServerTs(frame, now);
 
   if (existing && existing.messageId === messageId && existing.runId === runId) {
     // A seeded turn takes the serial of its first frame.
     if (existing.seeded) {
       existing.seeded = false;
-      existing.mountId = Math.max(existing.mountId, frameId);
+      existing.mountId = Math.max(existing.mountId, frame.id);
     }
+
+    // A mount from a later frame (a reload mid-turn) moves back to the real start.
+    existing.turnStartedTs = Math.min(existing.turnStartedTs, frameTs);
 
     return existing;
   }
 
-  if (existing && frameId < existing.mountId) return null;
+  if (existing && frame.id < existing.mountId) return null;
 
   if (cell.retiredRunIds.has(runId)) return null;
 
-  const fresh = createStreamRef(messageId, runId, frameId, false);
+  const fresh = createStreamRef(messageId, runId, frame.id, false, frameTs);
   cell.current = fresh;
 
   return fresh;
@@ -308,7 +328,7 @@ export function applyChatFrame(
     if (r !== null && r.stopped && r.messageId === p.messageId && r.runId === p.runId) return false;
 
     if (p.phase === "started") {
-      if (ensureStreamRef(cell, frame.id, p.messageId, p.runId) === null) return false;
+      if (ensureStreamRef(cell, frame, now, p.messageId, p.runId) === null) return false;
       markChatTimingByAssistant(p.messageId, "stream_started_event", undefined, {
         threadId: cell.threadId,
         runId: p.runId,
@@ -356,7 +376,7 @@ export function applyChatFrame(
   if (frame.kind === "chat.reasoning") {
     const p = frame.payload;
     // Mount before the stop check, so a new turn can replace a stopped one.
-    const r = ensureStreamRef(cell, frame.id, p.messageId, p.runId);
+    const r = ensureStreamRef(cell, frame, now, p.messageId, p.runId);
 
     if (r === null || r.stopped) return false;
 
@@ -376,7 +396,6 @@ export function applyChatFrame(
       r.reasoningShown = Math.min(r.reasoningShown, reasoningText(r).length);
     }
 
-    if (r.reasoningStartTs === null) r.reasoningStartTs = now;
     markChatTimingByAssistant(
       p.messageId,
       "first_reasoning_frame",
@@ -395,7 +414,7 @@ export function applyChatFrame(
 
   if (frame.kind === "chat.delta") {
     const p = frame.payload;
-    const r = ensureStreamRef(cell, frame.id, p.messageId, p.runId);
+    const r = ensureStreamRef(cell, frame, now, p.messageId, p.runId);
 
     if (r === null || r.stopped) return false;
 
@@ -415,10 +434,7 @@ export function applyChatFrame(
     // The first reply token freezes the thinking duration.
     if (!r.replyStarted) {
       r.replyStarted = true;
-
-      if (r.reasoningStartTs !== null && r.reasoningMs === null) {
-        r.reasoningMs = now - r.reasoningStartTs;
-      }
+      freezeReasoningMs(r, frameServerTs(frame, now));
     }
 
     // A higher segment closes the prior one into the narration trail.
@@ -490,7 +506,7 @@ export function applyChatFrame(
       return true;
     }
 
-    const r = ensureStreamRef(cell, frame.id, p.messageId, p.runId);
+    const r = ensureStreamRef(cell, frame, now, p.messageId, p.runId);
 
     if (r === null || r.stopped) return false;
     // Every arm below returns `true`.
@@ -563,6 +579,8 @@ export function applyChatFrame(
 
     if (!r || r.stopped || p.runId !== r.runId) return false;
     r.awaitingApproval = true;
+    // The approval wait is the user's time. The server freezes its value at the same point.
+    freezeReasoningMs(r, frameServerTs(frame, now));
     markChatTimingByAssistant(
       r.messageId,
       "approval_requested",
@@ -574,6 +592,11 @@ export function applyChatFrame(
   }
 
   return false;
+}
+
+/** Set `reasoningMs` once. Clamped at zero: the seed start is client time, a frame's is server time. */
+function freezeReasoningMs(ref: StreamRef, ts: number): void {
+  if (ref.reasoningMs === null) ref.reasoningMs = Math.max(0, ts - ref.turnStartedTs);
 }
 
 /** Cut both buffers at what is shown and mark the turn done and stopped. */
@@ -681,6 +704,7 @@ export function tickDrip(
       narration,
       reasoning: reasoning.slice(0, ref.reasoningShown),
       reasoningActive: reasoning.length > 0 && !ref.replyStarted && !ref.done,
+      turnStartedTs: ref.turnStartedTs,
       reasoningMs: ref.reasoningMs,
       tools: [...ref.tools.values()],
       connectNudges: [...ref.connectNudges.values()],
@@ -711,6 +735,7 @@ export function streamSnapshotsEqual(a: StreamingMessage | null, b: StreamingMes
     a.text !== b.text ||
     a.reasoning !== b.reasoning ||
     a.reasoningActive !== b.reasoningActive ||
+    a.turnStartedTs !== b.turnStartedTs ||
     a.reasoningMs !== b.reasoningMs ||
     a.awaitingApproval !== b.awaitingApproval ||
     a.compacting !== b.compacting ||

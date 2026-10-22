@@ -328,6 +328,7 @@ export function MessageBubble({
           reasoning={message.reasoning}
           active={false}
           durationMs={message.reasoningMs}
+          startedTs={null}
         />
       ) : null}
       {/* No `tools.length` gate: an all-bounced turn still has prose. */}

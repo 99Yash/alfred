@@ -87,7 +87,10 @@ export const chatMessages = pgTable(
     role: text("role").notNull().$type<ChatMessageRole>(),
     content: text("content").notNull().default(""),
     reasoning: text("reasoning"),
-    /** Drives the "Thought for Ns" label on reload. */
+    /**
+     * Drives the "Thought for Ns" label on reload. Claim to the first reply text or approval
+     * park. Rows before 2026-10-22 hold the sum of the reasoning spans only.
+     */
     reasoningMs: integer("reasoning_ms"),
     status: text("status").notNull().default("complete").$type<ChatMessageStatus>(),
     /** Set on a failed turn. The raw provider error is only logged, never stored. */
