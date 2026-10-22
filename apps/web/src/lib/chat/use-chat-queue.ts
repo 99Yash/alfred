@@ -21,7 +21,25 @@ export interface QueuedMessage {
 /** The part of a queued message that an edit can change. */
 export type QueuedEdit = Pick<QueuedMessage, "text" | "files">;
 
-type Queues = Map<string, QueuedMessage[]>;
+interface ThreadQueue {
+  entries: QueuedMessage[];
+  /** The entry with a send in flight. It holds the thread's one send until the send settles. */
+  sendingId: string | null;
+}
+
+type Queues = Map<string, ThreadQueue>;
+
+const NO_ENTRIES: QueuedMessage[] = [];
+
+/** Write one thread back. A thread with no entries and no send in flight leaves the map. */
+function withThread(prev: Queues, key: string, next: ThreadQueue): Queues {
+  const map = new Map(prev);
+
+  if (next.entries.length === 0 && next.sendingId === null) map.delete(key);
+  else map.set(key, next);
+
+  return map;
+}
 
 function queueKey(threadId: string | undefined): string {
   return threadId ?? "__new__";
@@ -35,23 +53,37 @@ function safeRandomId(): string {
   return crypto.randomUUID();
 }
 
+/** The in-flight send of one entry, bound to its thread queue. Settle it exactly once. */
+interface QueueClaim {
+  entry: QueuedMessage;
+  /** `remove`: the turn started, or the entry was stale (`empty`). `keep`: it waits for a later flush. */
+  settle: (outcome: "remove" | "keep") => void;
+}
+
 export interface ChatQueue {
   /** This thread's FIFO, shown as chips above the composer. */
   queue: QueuedMessage[];
+  /** This thread's entry with a send in flight. It stays set across thread changes until the send settles. */
+  sendingId: string | null;
   /**
    * The new entry's id, or `null` when the entry is empty, over a cap, or the queue is full.
    * `front` puts a steer (#490) ahead of the waiting entries.
    */
   enqueue: (entry: Omit<QueuedMessage, "id">, position?: "back" | "front") => string | null;
-  /**
-   * Drop an entry by id. The flush calls it with the id it sent, so a promote, steer, or remove
-   * during the send cannot make it drop a different entry.
-   */
+  /** Drop an entry by id. Refuses the entry with a send in flight. */
   remove: (id: string) => void;
-  /** Replace an entry's text and files. An edit that leaves nothing to send removes the entry. */
+  /**
+   * Replace an entry's text and files. An edit that leaves nothing to send removes the entry.
+   * Refuses the entry with a send in flight.
+   */
   update: (id: string, patch: QueuedEdit) => void;
   /** Move an entry to the head, so it sends next. */
   promote: (id: string) => void;
+  /**
+   * Claim an entry for a send. `null` when this thread already has a send in flight or the entry
+   * is gone. The settle is bound to this thread, so it lands here also after a thread change.
+   */
+  claim: (id: string) => QueueClaim | null;
 }
 
 /**
@@ -61,7 +93,8 @@ export interface ChatQueue {
 export function useChatQueue(threadId: string | undefined): ChatQueue {
   const [queues, setQueues] = useState<Queues>(() => new Map());
   const key = queueKey(threadId);
-  const queue = useMemo(() => queues.get(key) ?? [], [queues, key]);
+  const queue = useMemo(() => queues.get(key)?.entries ?? NO_ENTRIES, [queues, key]);
+  const sendingId = queues.get(key)?.sendingId ?? null;
 
   const enqueue = useCallback(
     (entry: Omit<QueuedMessage, "id">, position: "back" | "front" = "back"): string | null => {
@@ -94,7 +127,7 @@ export function useChatQueue(threadId: string | undefined): ChatQueue {
         return null;
 
       // When full, reject so the draft stays in the composer.
-      const currentLen = queues.get(key)?.length ?? 0;
+      const currentLen = queues.get(key)?.entries.length ?? 0;
 
       if (currentLen >= MAX_QUEUED_TURNS) {
         toast.error(`Only ${MAX_QUEUED_TURNS} messages can wait. Remove one or wait for a reply.`);
@@ -115,13 +148,15 @@ export function useChatQueue(threadId: string | undefined): ChatQueue {
       };
 
       setQueues((prev) => {
-        const prevList = prev.get(key) ?? [];
+        const thread = prev.get(key) ?? { entries: NO_ENTRIES, sendingId: null };
+        const prevList = thread.entries;
 
         if (prevList.length >= MAX_QUEUED_TURNS) return prev;
-        const next = new Map(prev);
-        next.set(key, position === "front" ? [queued, ...prevList] : [...prevList, queued]);
 
-        return next;
+        return withThread(prev, key, {
+          ...thread,
+          entries: position === "front" ? [queued, ...prevList] : [...prevList, queued],
+        });
       });
 
       return id;
@@ -132,16 +167,14 @@ export function useChatQueue(threadId: string | undefined): ChatQueue {
   const remove = useCallback(
     (id: string) => {
       setQueues((prev) => {
-        const list = prev.get(key) ?? [];
-        const next = list.filter((m) => m.id !== id);
+        const thread = prev.get(key);
 
-        if (next.length === list.length) return prev;
-        const map = new Map(prev);
+        if (!thread || thread.sendingId === id) return prev;
+        const next = thread.entries.filter((m) => m.id !== id);
 
-        if (next.length === 0) map.delete(key);
-        else map.set(key, next);
+        if (next.length === thread.entries.length) return prev;
 
-        return map;
+        return withThread(prev, key, { ...thread, entries: next });
       });
     },
     [key],
@@ -150,7 +183,10 @@ export function useChatQueue(threadId: string | undefined): ChatQueue {
   const update = useCallback(
     (id: string, { text, files }: QueuedEdit) => {
       setQueues((prev) => {
-        const list = prev.get(key) ?? [];
+        const thread = prev.get(key);
+
+        if (!thread || thread.sendingId === id) return prev;
+        const list = thread.entries;
         const entry = list.find((m) => m.id === id);
 
         if (!entry) return prev;
@@ -167,12 +203,7 @@ export function useChatQueue(threadId: string | undefined): ChatQueue {
           ? list.filter((m) => m !== entry)
           : list.map((m) => (m === entry ? { ...m, text: text.trim(), files } : m));
 
-        const map = new Map(prev);
-
-        if (next.length === 0) map.delete(key);
-        else map.set(key, next);
-
-        return map;
+        return withThread(prev, key, { ...thread, entries: next });
       });
     },
     [key],
@@ -181,18 +212,63 @@ export function useChatQueue(threadId: string | undefined): ChatQueue {
   const promote = useCallback(
     (id: string) => {
       setQueues((prev) => {
-        const list = prev.get(key) ?? [];
+        const thread = prev.get(key);
+        const list = thread?.entries ?? NO_ENTRIES;
         const entry = list.find((m) => m.id === id);
 
-        if (!entry || list[0] === entry) return prev;
-        const map = new Map(prev);
-        map.set(key, [entry, ...list.filter((m) => m !== entry)]);
+        if (!thread || !entry || list[0] === entry) return prev;
 
-        return map;
+        return withThread(prev, key, {
+          ...thread,
+          entries: [entry, ...list.filter((m) => m !== entry)],
+        });
       });
     },
     [key],
   );
 
-  return { queue, enqueue, remove, update, promote };
+  const claim = useCallback(
+    (id: string): QueueClaim | null => {
+      // The rendered state gives the answer now; the updater checks again against the latest state.
+      const thread = queues.get(key);
+      const entry = thread?.entries.find((m) => m.id === id);
+
+      if (!thread || !entry || thread.sendingId !== null) return null;
+
+      setQueues((prev) => {
+        const latest = prev.get(key);
+
+        if (!latest || latest.sendingId !== null || !latest.entries.some((m) => m.id === id))
+          return prev;
+
+        return withThread(prev, key, { ...latest, sendingId: id });
+      });
+
+      let settled = false;
+
+      return {
+        entry,
+        settle: (outcome) => {
+          if (settled) return;
+          settled = true;
+
+          // `key` is the claim's thread, not the one on screen when the send ends.
+          setQueues((prev) => {
+            const latest = prev.get(key);
+
+            if (!latest) return prev;
+
+            return withThread(prev, key, {
+              entries:
+                outcome === "remove" ? latest.entries.filter((m) => m.id !== id) : latest.entries,
+              sendingId: latest.sendingId === id ? null : latest.sendingId,
+            });
+          });
+        },
+      };
+    },
+    [key, queues],
+  );
+
+  return { queue, sendingId, enqueue, remove, update, promote, claim };
 }

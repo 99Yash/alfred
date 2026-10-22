@@ -65,7 +65,7 @@ export function Composer({
   editingQueuedId,
   onEditingQueuedChange,
   steeringQueuedId,
-  queueSendingHead,
+  sendingQueuedId,
   queuePaused,
   onResumeQueue,
   quote,
@@ -112,8 +112,8 @@ export function Composer({
   onEditingQueuedChange?: ((id: string | null) => void) | undefined;
   /** The queued message a steer stopped the reply for. */
   steeringQueuedId?: string | null | undefined;
-  /** The flush is sending the first queued message now. */
-  queueSendingHead?: boolean | undefined;
+  /** The queued message with a send in flight, at any position. */
+  sendingQueuedId?: string | null | undefined;
   /** Stop held the queue. It waits for Resume. */
   queuePaused?: boolean | undefined;
   onResumeQueue?: (() => void) | undefined;
@@ -417,7 +417,7 @@ export function Composer({
           isStreaming={isStreaming}
           canSteer={Boolean(onSteer)}
           steeringId={steeringQueuedId}
-          sendingHead={queueSendingHead}
+          sendingId={sendingQueuedId}
           paused={queuePaused}
           onResume={onResumeQueue}
           editingId={editingQueuedId}

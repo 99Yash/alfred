@@ -24,7 +24,7 @@ export function QueueTray({
   isStreaming,
   canSteer,
   steeringId,
-  sendingHead,
+  sendingId,
   editingId,
   paused,
   onResume,
@@ -38,8 +38,8 @@ export function QueueTray({
   canSteer: boolean;
   /** The row that a steer stopped the reply for. It sends when the stop lands. */
   steeringId?: string | null | undefined;
-  /** The flush is sending the first row now. */
-  sendingHead?: boolean | undefined;
+  /** The row with a send in flight, at any position. It cannot change until the send settles. */
+  sendingId?: string | null | undefined;
   editingId?: string | null | undefined;
   /** Stop held the queue. Nothing sends until Resume. */
   paused?: boolean | undefined;
@@ -100,7 +100,7 @@ export function QueueTray({
             state={
               item.id === steeringId
                 ? "steering"
-                : items[0] === item && sendingHead
+                : item.id === sendingId
                   ? "sending"
                   : item.id === editingId
                     ? "editing"
