@@ -158,20 +158,22 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   const clearQuote = useCallback(() => setQuote(null), []);
   // Per-thread client queue (#489): while a reply streams, submits queue as chips.
   // On completion the oldest sends, one at a time. A `busy` reply retries a few times, then waits.
-  const { queue, enqueue, remove, update, promote, dequeue } = useChatQueue(threadId);
+  const { queue, enqueue, remove, update, promote } = useChatQueue(threadId);
   // The queued message open for an in-place edit. The flush waits while it is next.
   const [editingQueuedId, setEditingQueuedId] = useState<string | null>(null);
   // The queued message a steer stopped the reply for. Its row shows "Steering…".
   const [steeringId, setSteeringId] = useState<string | null>(null);
-  const [queueSending, setQueueSending] = useState(false);
+  // The queued message that the flush is sending now.
+  const [sendingId, setSendingId] = useState<string | null>(null);
   // Set by a completion; cleared once the head starts or fails for good.
   const [flushArmed, setFlushArmed] = useState(false);
   // Stop holds the queue, so the next message does not send over the reply you stopped.
   // Resume, or a row's send now, lets it go.
   const [queuePaused, setQueuePaused] = useState(false);
   const busyAttemptsRef = useRef(0);
-  // An in-flight flush reads this after its await, so it does not write into another thread's state.
-  const threadIdRef = useRef(threadId);
+  // A flush takes the next number when it starts. A thread change or an unmount moves it on, so an
+  // in-flight flush whose number is old writes no flags after its await.
+  const flushOwnerRef = useRef(0);
   const prevShowStreamRef = useRef(false);
   const lastErrorStreamIdRef = useRef<string | null>(null);
   // Reset during render so the old thread's `showStream` cannot flush the new thread's queue.
@@ -179,7 +181,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
 
   if (prevThreadId !== threadId) {
     setPrevThreadId(threadId);
-    setQueueSending(false);
+    setSendingId(null);
     setFlushArmed(false);
     setQueuePaused(false);
     setQuote(null);
@@ -190,10 +192,14 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   // The refs reset in an effect, because render may not write a ref. React runs the effects of
   // one commit in order, so this runs before the flush effects below see the new thread.
   useEffect(() => {
-    threadIdRef.current = threadId;
     prevShowStreamRef.current = false;
     lastErrorStreamIdRef.current = null;
     busyAttemptsRef.current = 0;
+
+    // Not the flush effect's cleanup: that one re-runs when the flush sets `sendingId`.
+    return () => {
+      flushOwnerRef.current += 1;
+    };
   }, [threadId]);
 
   const onSend = useCallback(
@@ -283,15 +289,15 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   }, [showStream, queue.length, isStreaming, streamDone, streamError, streamRunId]);
 
   // An armed flush with nothing left to send disarms during render, so it cannot fire on a later enqueue.
-  if (flushArmed && !queueSending && !isStreaming && queue.length === 0) setFlushArmed(false);
+  if (flushArmed && sendingId === null && !isStreaming && queue.length === 0) setFlushArmed(false);
 
   // An empty queue has nothing to hold.
   if (queuePaused && queue.length === 0) setQueuePaused(false);
 
-  // Send the head while armed. `queueSending` stops a burst while the new stream mounts.
+  // Send the head while armed. `sendingId` stops a burst while the new stream mounts.
   // A pause keeps the arm, so Resume sends without a new completion.
   useEffect(() => {
-    if (!flushArmed || queuePaused || queueSending || isStreaming) return;
+    if (!flushArmed || queuePaused || sendingId !== null || isStreaming) return;
     const next = queue[0];
 
     if (!next) return;
@@ -300,8 +306,9 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     if (next.id === editingQueuedId) return;
 
     // oxlint-disable-next-line react/set-state-in-effect -- this effect starts the async send of the head when a stream completes, which no event handler sees. The in-flight flag must commit with the start, so a second run cannot send twice and the head chip shows its `sending` state.
-    setQueueSending(true);
-    const flushThreadId = threadId;
+    setSendingId(next.id);
+    // Taken before the await, so a thread change or an unmount during the send moves past it.
+    const owner = ++flushOwnerRef.current;
     void (async () => {
       const result = await send(
         threadId,
@@ -313,45 +320,45 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
         next.artifactTargetId,
       );
 
-      // The user changed threads during the send. `dequeue` is bound to this thread's queue,
-      // but every flag below now belongs to the other thread.
-      if (threadIdRef.current !== flushThreadId) {
-        if (result.ok || result.reason === "empty") dequeue();
+      const sent = result.ok || result.reason === "empty";
 
-        return;
-      }
+      // `remove` is bound to this thread's queue, so a sent entry leaves it also after a thread
+      // change. An `empty` entry is stale; drop it so it does not block the queue.
+      if (sent) remove(next.id);
 
-      if (result.ok || result.reason === "empty") {
-        // An `empty` entry is stale. Drop it so it does not block the queue.
-        dequeue();
+      // A thread change or an unmount took the flags; they belong to another owner now.
+      if (owner !== flushOwnerRef.current) return;
+
+      if (sent) {
         setFlushArmed(false);
-        setSteeringId(null);
+        // A steer added during the send keeps its "Steering…" row.
+        setSteeringId((prev) => (prev === next.id ? null : prev));
         busyAttemptsRef.current = 0;
       } else if (result.reason === "busy" && busyAttemptsRef.current < QUEUE_BUSY_RETRIES) {
         // Stay armed and try again. The chip shows the entry, so no toast.
         busyAttemptsRef.current += 1;
         await new Promise((resolve) => setTimeout(resolve, QUEUE_BUSY_RETRY_MS));
 
-        if (threadIdRef.current !== flushThreadId) return;
+        if (owner !== flushOwnerRef.current) return;
       } else {
         // A hard error (already toasted) or a run that stays busy: keep it for the next completion.
         setFlushArmed(false);
-        setSteeringId(null);
+        setSteeringId((prev) => (prev === next.id ? null : prev));
         busyAttemptsRef.current = 0;
       }
 
-      setQueueSending(false);
+      setSendingId(null);
     })();
   }, [
     flushArmed,
     queuePaused,
     queue,
-    queueSending,
+    sendingId,
     isStreaming,
     editingQueuedId,
     send,
     threadId,
-    dequeue,
+    remove,
   ]);
 
   // Retry sends the attachment ids, not files; the server copies the bytes (ADR-0065).
@@ -577,7 +584,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
                   editingQueuedId={editingQueuedId}
                   onEditingQueuedChange={setEditingQueuedId}
                   steeringQueuedId={steeringId}
-                  queueSendingHead={queueSending}
+                  queueSendingHead={sendingId !== null && queue[0]?.id === sendingId}
                   queuePaused={queuePaused}
                   onResumeQueue={onResumeQueue}
                   quote={quote}
