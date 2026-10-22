@@ -243,10 +243,11 @@ export interface ToolTurnTools extends ToolRunTools {
     transcript: readonly { role: string; content: unknown }[],
   ): Promise<void>;
   /**
-   * The connected-integration grounding line for the system prompt (ADR-0053). Pure over the
-   * snapshot. The workflow pins it into run state once, because the system prompt hash depends on it.
+   * The connected-integration grounding line for the system prompt (ADR-0053). Curated lines come
+   * from the snapshot; MCP lines read the owner's connections. The workflow pins it into run state
+   * once, because the system prompt hash depends on it.
    */
-  connectedSummary(): string;
+  connectedSummary(): Promise<string>;
 }
 
 /**
@@ -296,6 +297,7 @@ export function toolRuntimeForRun(
       }),
     connectedSummary: () =>
       buildConnectedSummaryFromAvailability(
+        identity.userId,
         availability,
         identity.allowedIntegrations,
         identity.runContext,

@@ -3,7 +3,12 @@
  * tool is findable by capability without hand-written copy (#413).
  */
 
-import { humanizeSlug, type ActionSlug, type IntegrationSlug } from "@alfred/contracts";
+import {
+  humanizeSlug,
+  singularizeWord,
+  type ActionSlug,
+  type IntegrationSlug,
+} from "@alfred/contracts";
 import { z } from "zod";
 import type { ToolDiscoveryMetadata } from "./registry";
 
@@ -131,29 +136,9 @@ function entitiesFromTokens(tokens: readonly string[]): string[] {
 
 /** A noun token plus its naive singular, so a query matches either number. */
 function entityForms(token: string): string[] {
-  const singular = singularize(token);
+  const singular = singularizeWord(token);
 
   return singular === token ? [token] : [token, singular];
-}
-
-function singularize(word: string): string {
-  if (word.length <= 3) return word;
-
-  if (word.endsWith("ies")) return `${word.slice(0, -3)}y`;
-
-  if (/(ss|sh|ch|x|z)es$/.test(word)) return word.slice(0, -2);
-
-  if (word.endsWith("s") && !/(ss|us|is|ous)$/.test(word)) return word.slice(0, -1);
-
-  return word;
-}
-
-/**
- * Singularize each word, so "pull requests" matches "pull request" (#414).
- * Expects a normalized, single-spaced string.
- */
-export function singularizePhrase(value: string): string {
-  return value.split(" ").map(singularize).join(" ");
 }
 
 /** Nouns from the top-level fields. Runs at boot, so a failed conversion yields none. */

@@ -10,8 +10,12 @@ import {
   mcpToolSearchInputSchema,
   unknownEffectEnvelopeSchema,
 } from "@alfred/contracts";
+import { AppError } from "@alfred/contracts/app-errors";
 import {
   inspectMcpToolLocal,
+  isMcpAuthorizationChallenge,
+  McpClientError,
+  McpOAuthAuthorizationRequiredError,
   searchMcpToolsLocal,
   type ExternalToolRef,
   type McpCallEnvelope,
@@ -62,6 +66,15 @@ function brokerResult(outcome: McpBrokerOutcome): McpBrokerToolResult {
   }
 }
 
+/** Only a new consent fixes these, so a retry repeats the same failure. */
+function needsMcpReauthorization(error: unknown): boolean {
+  return (
+    error instanceof McpOAuthAuthorizationRequiredError ||
+    isMcpAuthorizationChallenge(error) ||
+    (error instanceof McpClientError && error.code === "insufficient_scope")
+  );
+}
+
 function withTruncation<T extends object>(result: T, envelope: McpCallEnvelope): T {
   return envelope.truncation ? { ...result, truncation: envelope.truncation } : result;
 }
@@ -107,14 +120,25 @@ export const mcpTools: readonly RegisteredTool[] = [
         catalogRevision: input.catalogRevision,
       };
 
-      const outcome = await getMcpExecutionBroker().callTool({
-        userId: ctx.userId,
-        stagingId: ctx.stagingId,
-        traceId: ctx.runId,
-        ref,
-        arguments: input.arguments,
-        // The broker copies correlation ids from the staging row, so they cannot drift.
-      });
+      let outcome: McpBrokerOutcome;
+
+      try {
+        outcome = await getMcpExecutionBroker().callTool({
+          userId: ctx.userId,
+          stagingId: ctx.stagingId,
+          traceId: ctx.runId,
+          ref,
+          arguments: input.arguments,
+          // The broker copies correlation ids from the staging row, so they cannot drift.
+        });
+      } catch (error) {
+        // The manager already marked the row `auth_required`; without this the model reads "retry".
+        if (needsMcpReauthorization(error)) {
+          throw new AppError("mcp_reauth_required", { cause: error });
+        }
+
+        throw error;
+      }
 
       return brokerResult(outcome);
     },
@@ -124,7 +148,7 @@ export const mcpTools: readonly RegisteredTool[] = [
     action: "list_tools",
     riskTier: "no_risk",
     description:
-      "Search the tools in all connected MCP catalogs. Returns compact hits with an exact `ref`, namespace, and connection identity. `query` matches tool names, titles, and descriptions. Scope with `namespace` or `connectionId`; continue with `cursor`. Use mcp.inspect_tool to inspect a full descriptor. This is a local read.",
+      "Search the tools in all connected MCP catalogs. Returns compact hits with an exact `ref`, namespace, and connection identity. `query` matches tool names, titles, and descriptions: every word must match, and a word that names the connection (\"railway\" for Railway MCP) is skipped. Scope with `namespace` or `connectionId`; continue with `cursor`. Use mcp.inspect_tool to inspect a full descriptor. This is a local read.",
     discovery: {
       aliases: ["list mcp tools", "mcp catalog", "what mcp tools", "connected tools"],
       tags: ["mcp", "integration", "discovery"],

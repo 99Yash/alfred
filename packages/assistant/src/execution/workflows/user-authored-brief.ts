@@ -232,7 +232,7 @@ const bossTurnStep: Step<BriefRunState> = {
     const grounding = formatDateGrounding(parseIanaTimezone(state.timezone));
     const availability = await readIntegrationAvailability(ctx.userId);
     const tools = toolRuntimeForRun(briefToolRunIdentity(ctx, state), availability);
-    state.connectedSummary ??= tools.connectedSummary();
+    state.connectedSummary ??= await tools.connectedSummary();
 
     if (state.selfIdentity === undefined) {
       state.selfIdentity = selfIdentityGrounding();

@@ -52,6 +52,8 @@ export { mcpConsentAsk, type McpConsentAsk, type McpConsentConnection } from "./
 // `projectCatalogRevision` stays private to publication.
 export { canonicalArgsHash, descriptorHash } from "./hash";
 
+export { catalogWords, connectionNameWords } from "./catalog-query";
+
 export { inspectMcpToolLocal, listMcpToolsLocal, searchMcpToolsLocal } from "./list-tools";
 
 export { McpConnectionManager, type McpConnectionManagerPersistence } from "./manager";
