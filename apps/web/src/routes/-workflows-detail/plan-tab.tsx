@@ -97,13 +97,7 @@ export function PlanTab({
 
   const nameEmpty = draft.name.trim() === "";
 
-  const invalid =
-    nameEmpty ||
-    issues.cronEmpty ||
-    issues.cronInvalid ||
-    issues.timezoneInvalid ||
-    eventCapViolation ||
-    issues.rawKindMissing;
+  const invalid = nameEmpty || eventCapViolation || issues.blocksSave;
 
   const dirty = useMemo(() => {
     const original = draftFromWorkflow(workflow);

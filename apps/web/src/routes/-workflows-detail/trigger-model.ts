@@ -36,6 +36,8 @@ export interface TriggerIssues {
   cronInvalid: boolean;
   timezoneInvalid: boolean;
   rawKindMissing: boolean;
+  /** True when any flag above is true. Save reads this, not the flags one by one. */
+  blocksSave: boolean;
 }
 
 /** Empty for a raw-authorable source. */
@@ -95,13 +97,16 @@ export function triggerIssues(trigger: TriggerDraft): TriggerIssues {
   const cronEmpty = trigger.kind === "cron" && trigger.cronSchedule.trim() === "";
   const timezone = trigger.cronTimezone.trim();
 
-  return {
+  const flags = {
     cronEmpty,
     cronInvalid:
       trigger.kind === "cron" && !cronEmpty && !isLikelyValidWorkflowCron(trigger.cronSchedule),
     timezoneInvalid: trigger.kind === "cron" && timezone !== "" && !isIanaTimezone(timezone),
     rawKindMissing: rawEventSource(trigger) !== null && trigger.eventRawKind === "",
-  };
+  } satisfies Omit<TriggerIssues, "blocksSave">;
+
+  // A new flag must join `flags` to compile, and then it blocks save with no other edit.
+  return { ...flags, blocksSave: Object.values(flags).some(Boolean) };
 }
 
 /** Compares the hidden fields too, so an edit under another kind still counts as a change. */
