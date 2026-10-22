@@ -56,7 +56,7 @@ Triggers: `cron`, `manual`, `event` (Gmail `message_received`, and `{type:"raw",
 
 **How approval works today.** `requiresApproval = policyMode === "gated" || riskTier === "high"` (`tool-runtime/internal/dispatch/pipeline.ts:940`). The policy mode is per tool or per integration, from `user_action_policies` (`assistant/src/action-policies/resolve.ts:69-117`). The default is `gated`.
 
-**Conflict with the owner's model.** The owner wants the agent to do "anything the API allows". ADR-0087 designs code mode as read-only and network-less, for custody reasons. Writes through code mode need a new decision.
+**Owner decision (2026-10-22): code mode can write.** This supersedes the read-only scope of ADR-0087, which designs code mode as read-only and network-less for custody reasons. A new ADR must record the write scope. The set of write capabilities is not decided yet. The user can turn on some of them in settings.
 
 **The owner's permission example is a new axis.** Today, permission is per tool. The owner's example ("the agent may delete what it created") is per record: it depends on who made the record. The provenance data exists: `todos.created_by` (`user|agent`), `agent_run_id`, `resolved_by` (`db/src/schema/todos.ts:39-51`). No rule reads it. `system.resolve_todo` is `no_risk` and does not check `createdBy` (`assistant/src/tasks/resolve.ts:196`). A provenance rule is small and can come before code mode.
 
@@ -118,6 +118,8 @@ Triggers: `cron`, `manual`, `event` (Gmail `message_received`, and `{type:"raw",
 - New flow (ADR-0053): `warden opencode-review` runs OpenCode as the model loop. warden keeps the deterministic Phase 1 checks and the Phase 3 post-pass that the model cannot skip. Only the down lane is built.
 - Library surface: `@warden/core` exports `review()` and `runPostPass()`. Packages export raw `src/index.ts`, are not published, and the name is not settled (ADR-0040).
 
+**Owner decision (2026-10-22).** The developer lane is not a product bet until warden is in a decent shape.
+
 **What blocks a first-class integration.**
 
 - Parity gate #43 (the acceptance gate of the OpenCode pivot) has no GO.
@@ -140,7 +142,7 @@ Triggers: `cron`, `manual`, `event` (Gmail `message_received`, and `{type:"raw",
 
 **Logged-in sessions.** Cloud profiles keep cookies and login state on browser-use servers.
 
-**Custody conflict.** ADR-0087 rejected Freestyle.sh and Vercel Sandbox because they move private data to a third party. A browser-use Cloud profile holds the user's session cookies on a third party. Same objection. This is the owner's decision.
+**Custody (owner decision, 2026-10-22).** A third party may hold the user's session cookies and may run code. This supersedes the ADR-0087 objection to Freestyle.sh and Vercel Sandbox. The condition: Alfred must refresh the third-party session at intervals, as it does for MCP OAuth, and it must show when a session needs the user again.
 
 **Security.** The docs have no prompt-injection guidance. `secretBindings.allowedDomains` limits where a secret goes, but it does not limit navigation.
 
@@ -294,8 +296,8 @@ Roots: `WEB` = `-dimension-ai-web`, `AI` = `-dimension-ai-ai`.
 
 ## 11. Open questions for the owner
 
-1. Is the context graph the same thing as the loop entity from pass 1? If yes, it is the base for the other items.
-2. Must code mode write, or only read? Writes reopen ADR-0087.
-3. May a third party (browser-use Cloud, Claude Managed Agents) hold session cookies or run code? ADR-0087 said no for private reads.
-4. Is the developer lane (execution + warden review on GitHub Actions) a product bet now, or does it wait for warden gate #43?
+1. **Answered by §10d.** The context graph does not need a separate loop entity. `integration_objects` holds a thing with state, a referent holds an untracked thing, and `todos` holds the user's work ([context-graph.md](./context-graph.md)).
+2. **Answered (2026-10-22).** Code mode can write (§3). Open: which write capabilities exist, and which ones the user turns on in settings.
+3. **Answered (2026-10-22).** A third party may hold sessions and run code, if Alfred refreshes the session at intervals (§8).
+4. **Answered (2026-10-22).** The developer lane is not a product bet until warden is in a decent shape (§7.2).
 5. **The three gaps of 10d are drafted as an ADR-0092 amendment** (proposed, 2026-10-21; [ADR-0092 "Amendment 2026-10-21"](../decisions/ADR-0092-notification-referent-dedup-on-the-observation-log.md)). `about` becomes a list. Each item has an `owner` and a `quote` that code finds in the message. A resolved owner is an `owned_by` edge. Extraction runs in every triage category, so an `fyi` notes mail still gives referents. Open: may the classifier copy an open referent name from the same sender, so that one piece of work converges across days before D4 step 2 exists? No open issue tracks the amendment. #917 (S1 to S3) and #1247 (S2) are the nearest.

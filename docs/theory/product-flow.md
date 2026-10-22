@@ -81,7 +81,7 @@ Last verified: 2026-10-20 at `fd13e6427`.
 
 **Prompt size.** The static system prompt is about 42,400 chars (about 10.6K tokens). Rule 16 (the todo rubric) is about 9,600 chars of it. The dynamic part is typically 2-9K chars. Thus about 80% of each request is the fixed rubric. To / Cc and Subject are not bounded.
 
-**Production latency.** See section 5.
+**Production latency.** See section 6.
 
 ---
 
@@ -120,7 +120,46 @@ Last verified: 2026-10-20 at `fd13e6427`.
 
 ---
 
-## 5. Production measurements
+## 5. Chat (the boss agent)
+
+**Owner's model.** Not stated yet. On 2026-10-22 the owner asked for the verified model first.
+
+**Verified model** (at `1ec1f0082`).
+
+1. **Send.** The web app writes the user message through Replicache (`http/src/sync/write/chat.ts:31`). Then it posts `/api/chat/threads/:threadId/turn` (`http/src/chat.ts:109`). The route is transport only.
+2. **Admission** (`assistant/src/chat/turn-admission.ts:214`). One transaction writes the message, the attachments, the title seed, and one `agent_runs` row with the dedup key `chat:<userMessageId>`. A thread runs one turn at a time. A second message during a turn gets `busy` (`:113`). Then the run goes on the queue.
+3. **Transcript.** The worker reads only `role` and `content` of each thread message (`chat-turn.ts:995`). A large thread puts its older messages into a summary (`chat/compaction/chat-context-assembly.ts:24`). The tool calls and tool results of earlier turns are not in the transcript. Only `system.read_chat_history` can get them back.
+4. **Prompt.** A fixed charter (`chat-turn.ts:132`), then the artifact rules, then the self-identity line and the summary of connected integrations (`:196`). The date and time go in a separate runtime message, so the cached prefix stays stable. Alfred injects nothing about the user: no facts, no standing instructions, no todos, no recent briefing. The model must call a tool to get them.
+5. **Tools.** Each run starts with a kernel of 10 tools: `search_tools`, `load_tool`, `current_time`, `read_chat_history`, `spawn_sub_agent`, `await_sub_agent`, `ask_user`, `read_user_context`, `web_search`, and `search_context`. The run adds the tools that the previous turn on the thread loaded (`chat/thread-tool-carryover.ts`). It also adds a deterministic preload from the latest user message. Other tools need `search_tools` and then `load_tool`.
+6. **Model.** `route(tier)` (`chat-turn.ts:430`). Auto (`standard`) is `gpt-6-luna` at `medium` reasoning. Deep is the same model at `xhigh` (`max` for OpenAI). Both fall back to `gemini-3.8-flash` (`ai/src/provider.ts:78-88`). The loop has two steps: `chat-turn` (the model) and `dispatch-tools`. The step cap is 40 for standard and 60 for deep (`execution/workflows/turn-budgets.ts:12`). At the cap, the model answers one more time with no tools.
+7. **Approval.** Each call writes an `action_stagings` row, except for 7 fast-path tools and 2 join tools. The rule is `policyMode === "gated" || riskTier === "high"` (`tool-runtime/internal/dispatch/pipeline.ts:940`). `system.*` tools are always `autonomy` (`action-policies/resolve.ts:106`). For other tools the order is: tool override, integration mode, user default. The signup default is `gated`, and the seed sets only `system` to `autonomy` (`action-policies/index.ts:31`). So in Review mode, a read such as `gmail.search` also waits for approval. An approval parks the run. It expires after 24 hours (`contracts/src/runtime.ts:10`).
+8. **Sub-agents.** `spawn_sub_agent` starts a child run with the same tools, but the child cannot spawn. `await_sub_agent` parks the boss until the child ends (ADR-0073).
+9. **Reply.** Text and tool cards stream over SSE (`chat.delta`, `chat.tool`). At the end the worker writes the assistant `chat_messages` row (`chat/chat-turn-closure.ts:355`). Then it starts three jobs and does not wait for them: memory capture, compaction, and the title (`:327`).
+
+**Memory from chat.**
+
+- `CHAT_MEMORY_CAPTURE_ENABLED` is off by default (`env/src/server.ts:305`). When it is on, a job runs 12 minutes after the thread goes quiet. The job extracts propositions, but it writes nothing (`chat/chat-memory-capture.ts:235`, `TODO(#399)`).
+- The only chat tool that writes memory is `system.remember`, and it stores only a sender suppression (`tool-runtime/internal/tools/system.ts:491`). The other memory tools list, edit, or forget those instructions. So Alfred does not keep "I prefer morning meetings" or "I am on X this week".
+
+**What chat can read.**
+
+- `read_user_context` (`knowledge/user-context.ts:285`): profile, confirmed `user_facts`, the legacy `entities` and their relations, and recent memory.
+- `search_context` (`context-search/default-sources.ts:13`): documents, memory chunks, object state, and Drive.
+- The provider tools, after a load.
+- No tool reads the user's todos, past briefings, or triage tags. A search for `todos`, `briefing`, and `email_triage` in `context-search/` and `knowledge/user-context.ts` finds nothing.
+
+**Gaps.**
+
+- Chat cannot see what the other flows produce: todos, briefings, and triage tags. "What is on my plate?" has no direct answer.
+- Chat memory capture writes nothing. From chat, only a sender suppression persists. This is the main gap of the standing-instructions vision ("say it in chat, and Alfred keeps it").
+- `read_user_context` reads the legacy `entities`, not `entity_nodes` (see `context-graph.md`, point 1).
+- The prompt says "Write actions … are gated" (`chat-turn.ts:165`). The policy gates every non-system call in Review mode, reads too. The prompt and the policy do not agree.
+- The results of earlier turns leave the transcript. A follow-up must fetch them again.
+- Alfred cannot send a message outside a turn. The prompt tells the model not to promise a follow-up.
+
+---
+
+## 6. Production measurements
 
 ### Triage, 2026-10-13 to 2026-10-20 (Langfuse, 196 traces)
 
