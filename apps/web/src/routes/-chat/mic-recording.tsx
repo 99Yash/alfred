@@ -37,9 +37,12 @@ export function useMicRecording() {
     const session = sessionRef.current;
 
     if (!session) return null;
-    const blob = await session.finish();
+    // One take has one consumer. A second click gets `null` at once, before the first click's take arrives.
+    const take = session.finish();
 
-    // One take has one consumer: a second click shares the session promise but finds the session already taken.
+    if (!take) return null;
+    const blob = await take;
+
     if (sessionRef.current !== session) return null;
     sessionRef.current = null;
     reset();
@@ -86,8 +89,8 @@ export function useMicRecording() {
 interface MicSession {
   /** `true` once the recorder runs, `false` if `discard()` ran before the grant. Rejects on a permission or device error, after it releases what it opened. */
   readonly ready: Promise<boolean>;
-  /** Stop and resolve the take, or `null` if empty, not started, or discarded first. A second call returns the same promise. */
-  finish(): Promise<Blob | null>;
+  /** Stop and resolve the take, or `null` if empty, not started, or discarded first. Only the first call gets the take; a later call returns `null` at once. */
+  finish(): Promise<Blob | null> | null;
   /** Release everything now and drop the audio. A pending `finish()` resolves `null`; a later grant stops its tracks at once. */
   discard(): void;
 }
@@ -104,7 +107,7 @@ function openMicSession(sink: {
   let raf: number | null = null;
   let timer: ReturnType<typeof setInterval> | null = null;
   const chunks: Blob[] = [];
-  let finished: Promise<Blob | null> | null = null;
+  let claimed = false;
   let settle: ((blob: Blob | null) => void) | null = null;
 
   // The single release path. Every async continuation below checks `disposed` first.
@@ -210,8 +213,11 @@ function openMicSession(sink: {
 
   const ready = acquire();
 
-  const finish = (): Promise<Blob | null> => {
-    finished ??= new Promise((resolve) => {
+  const finish = (): Promise<Blob | null> | null => {
+    if (claimed) return null;
+    claimed = true;
+
+    return new Promise((resolve) => {
       const rec = recorder;
 
       if (disposed || !rec || rec.state === "inactive") {
@@ -234,8 +240,6 @@ function openMicSession(sink: {
 
       rec.stop();
     });
-
-    return finished;
   };
 
   const discard = () => {
