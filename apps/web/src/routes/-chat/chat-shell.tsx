@@ -342,8 +342,9 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
         if (owner !== flushOwnerRef.current) return;
       } else {
         // A hard error (already toasted) or a run that stays busy: keep it for the next completion.
+        // The disarm means no later completion sends a steer, so its row goes back to idle.
         setFlushArmed(false);
-        setSteeringId((prev) => (prev === next.id ? null : prev));
+        setSteeringId(null);
         busyAttemptsRef.current = 0;
       }
 
