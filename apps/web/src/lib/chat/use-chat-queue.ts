@@ -43,14 +43,15 @@ export interface ChatQueue {
    * `front` puts a steer (#490) ahead of the waiting entries.
    */
   enqueue: (entry: Omit<QueuedMessage, "id">, position?: "back" | "front") => string | null;
+  /**
+   * Drop an entry by id. The flush calls it with the id it sent, so a promote, steer, or remove
+   * during the send cannot make it drop a different entry.
+   */
   remove: (id: string) => void;
   /** Replace an entry's text and files. An edit that leaves nothing to send removes the entry. */
   update: (id: string, patch: QueuedEdit) => void;
   /** Move an entry to the head, so it sends next. */
   promote: (id: string) => void;
-  /** Call after the oldest entry has started. */
-  dequeue: () => void;
-  peek: () => QueuedMessage | undefined;
 }
 
 /**
@@ -193,22 +194,5 @@ export function useChatQueue(threadId: string | undefined): ChatQueue {
     [key],
   );
 
-  const dequeue = useCallback(() => {
-    setQueues((prev) => {
-      const list = prev.get(key) ?? [];
-
-      if (list.length === 0) return prev;
-      const rest = list.slice(1);
-      const map = new Map(prev);
-
-      if (rest.length === 0) map.delete(key);
-      else map.set(key, rest);
-
-      return map;
-    });
-  }, [key]);
-
-  const peek = useCallback(() => queue[0], [queue]);
-
-  return { queue, enqueue, remove, update, promote, dequeue, peek };
+  return { queue, enqueue, remove, update, promote };
 }
