@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { cn } from "~/lib/utils";
 import { ChatProse } from "./chat-prose";
 import { formatDuration } from "./duration";
+import { Elapsed } from "./elapsed";
 
 const ITEM = "reasoning";
 
@@ -12,15 +13,20 @@ const MIN_COMPLETE_MS = 400;
 
 const MIN_COMPLETE_CHARS = 160;
 
-/** Collapsible reasoning. Open and shimmering while active; collapses to "Thought for Ns" when the reply starts. */
+/**
+ * Collapsible reasoning. Open and shimmering while active; collapses to "Thought for Ns" when the reply starts.
+ * A live turn passes `startedTs`, so the active label counts up from the turn start.
+ */
 export function ReasoningSection({
   reasoning,
   active,
   durationMs,
+  startedTs,
 }: {
   reasoning: string;
   active: boolean;
   durationMs: number | null;
+  startedTs: number | null;
 }) {
   // Collapse during render when `active` turns false; an effect would flash the panel for a frame.
   const [value, setValue] = useState(active ? ITEM : "");
@@ -70,7 +76,12 @@ export function ReasoningSection({
           >
             <span>
               {active ? (
-                "Thinking"
+                <>
+                  Thinking
+                  {startedTs !== null ? (
+                    <ThinkingClock startedTs={startedTs} durationMs={durationMs} />
+                  ) : null}
+                </>
               ) : durationMs != null && durationMs >= MIN_COMPLETE_MS ? (
                 // Below the threshold, drop the duration rather than show "for 0.0s".
                 <>
@@ -98,5 +109,25 @@ export function ReasoningSection({
         </Accordion.Content>
       </Accordion.Item>
     </Accordion.Root>
+  );
+}
+
+/**
+ * " · 6.3s" after a live "Thinking" label. It stops at `durationMs`: an approval wait freezes it.
+ * The separator is part of the span, so nothing shows while `Elapsed` hides a short wait.
+ */
+export function ThinkingClock({
+  startedTs,
+  durationMs,
+}: {
+  startedTs: number;
+  durationMs: number | null;
+}) {
+  return (
+    <Elapsed
+      startedTs={startedTs}
+      endedTs={durationMs === null ? null : startedTs + durationMs}
+      className="text-[length:inherit] text-inherit before:mx-1 before:content-['·']"
+    />
   );
 }

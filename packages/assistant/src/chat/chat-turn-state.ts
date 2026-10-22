@@ -171,7 +171,27 @@ export function interruptChatRun(
   state.parkedAt = new Date().toISOString();
   state.parkKind = wake.kind === "hil" ? "gate" : "join";
 
+  // An approval wait is the user's time, not the model's.
+  if (state.parkKind === "gate") freezeReasoningMs(state, Date.now());
+
   return { kind: "interrupt", state, transcript, wake };
+}
+
+/**
+ * Set the "Thought for Ns" duration once: from the claim to the first published reply text,
+ * or to the first approval park if that comes first. It covers hidden reasoning and tool steps.
+ * The client counts the same span live from the send ack.
+ */
+export function freezeReasoningMs(
+  // The stream drain's structural state marks `startedAt` optional.
+  state: Pick<ChatRunState, "reasoningMs"> & Partial<Pick<ChatRunState, "startedAt">>,
+  now: number,
+): void {
+  if (state.reasoningMs > 0 || state.startedAt === undefined) return;
+  const startedAtMs = Date.parse(state.startedAt);
+
+  // Zero reads as "not set", so a same-millisecond reply still counts as set.
+  if (Number.isFinite(startedAtMs)) state.reasoningMs = Math.max(1, now - startedAtMs);
 }
 
 /**

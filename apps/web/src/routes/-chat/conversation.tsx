@@ -34,7 +34,7 @@ import {
 } from "./conversation-helpers";
 import { ChatApprovalTray } from "./approval-tray";
 import { AssistantMarkdown, CopyMessageButton, MessageBubble } from "./message-bubble";
-import { ReasoningSection } from "./reasoning-section";
+import { ReasoningSection, ThinkingClock } from "./reasoning-section";
 import { SourcesStrip } from "./sources-strip";
 import { ConnectNudgeRows } from "./connect-nudge-rows";
 import { collectSources } from "./sources";
@@ -520,6 +520,7 @@ function FeedFooter() {
                 reasoning={stream.reasoning}
                 active={stream.reasoningActive}
                 durationMs={stream.reasoningMs}
+                startedTs={stream.turnStartedTs}
               />
             </div>
           ) : null}
@@ -552,7 +553,12 @@ function FeedFooter() {
             </div>
           ) : shouldShowThinkingIndicator(stream) ? (
             <div ref={thinkingRef}>
-              <ThinkingIndicator />
+              <ThinkingIndicator
+                label="Thinking"
+                clock={
+                  <ThinkingClock startedTs={stream.turnStartedTs} durationMs={stream.reasoningMs} />
+                }
+              />
             </div>
           ) : null}
 
@@ -859,14 +865,24 @@ function FollowUpSuggestions({
   );
 }
 
-function ThinkingIndicator({ label = "Thinking…" }: { label?: string }) {
+function ThinkingIndicator({
+  label = "Thinking…",
+  clock,
+}: {
+  label?: string;
+  /** Counts up after the label, so the wait reads as work in progress. */
+  clock?: React.ReactNode;
+}) {
   return (
     <div className="animate-chat-in flex items-center gap-2.5 text-[14px] text-app-fg-3">
       {/* Pulsing Alfred mark instead of a spinner. */}
       <span className="chat-think-mark inline-flex shrink-0">
         <img src="/images/logo/alfred-logo.svg" alt="" className="size-[18px] rounded-[5px]" />
       </span>
-      <span className="animate-chat-shimmer">{label}</span>
+      <span className="animate-chat-shimmer">
+        {label}
+        {clock}
+      </span>
     </div>
   );
 }
