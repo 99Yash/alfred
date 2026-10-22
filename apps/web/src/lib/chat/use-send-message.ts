@@ -11,6 +11,7 @@ import { useReplicache } from "~/lib/replicache/context";
 import { toast } from "~/lib/toast";
 import { attachChatAssistantTiming, markChatSubmit, markChatTimingByUser } from "./timing";
 import { uploadAttachment } from "./upload-attachments";
+import { seedChatStream } from "./use-chat-stream";
 import type { ChatAttachmentDescriptor } from "@alfred/contracts";
 import { API_URL } from "~/lib/eden";
 
@@ -189,6 +190,14 @@ export function useSendMessage(): SendMessage {
             runId: payload.data.runId,
             assistantMessageId: payload.data.assistantMessageId,
           };
+
+          // Before the navigation below, so the thread route mounts with the turn live.
+          if (payload.data.runId) {
+            seedChatStream(tid, {
+              messageId: payload.data.assistantMessageId,
+              runId: payload.data.runId,
+            });
+          }
         } else {
           markChatTimingByUser(
             userMessageId,

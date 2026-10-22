@@ -137,8 +137,9 @@ function QueueRow({
 }) {
   const { quote, body } = splitQuote(item.text);
 
-  const fileHint =
-    item.files.length > 0 ? `${item.files.length} file${item.files.length > 1 ? "s" : ""}` : null;
+  // A retry carries stored attachments by id, not as files.
+  const fileCount = item.files.length + (item.retryAttachmentIds?.length ?? 0);
+  const fileHint = fileCount > 0 ? `${fileCount} file${fileCount > 1 ? "s" : ""}` : null;
 
   const sendNowLabel = canSteer ? "Steer" : "Send now";
   const busy = state === "steering" || state === "sending";

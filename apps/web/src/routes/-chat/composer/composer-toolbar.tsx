@@ -15,6 +15,7 @@ export function ComposerToolbar({
   canSteer,
   steerArmed,
   editing,
+  editCanSendNow,
   onSteer,
   disabled,
   sending,
@@ -41,6 +42,8 @@ export function ComposerToolbar({
   steerArmed: boolean;
   /** A queued message is in the editor, so the button saves it back to the queue. */
   editing?: boolean | undefined;
+  /** ⌘↵ during an edit also sends it now. Not while an approval or a question waits. */
+  editCanSendNow?: boolean | undefined;
   onSteer: () => void;
   disabled: boolean;
   sending: boolean;
@@ -207,7 +210,9 @@ export function ComposerToolbar({
                 steering
                   ? "Stops the reply and sends this now."
                   : editing
-                    ? "Puts it back in the queue. ⌘↵ sends it now."
+                    ? editCanSendNow
+                      ? "Puts it back in the queue. ⌘↵ sends it now."
+                      : "Puts it back in the queue."
                     : canSteer
                       ? "Hold ⌘ to steer instead."
                       : undefined
