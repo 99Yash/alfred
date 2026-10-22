@@ -52,8 +52,12 @@ export function useRailData(): RailData {
     });
   }, [failedRuns]);
 
+  // `useMutation` returns a new object each render; `mutate` is stable. A dep on the object
+  // would rebuild `railData`, and with it the AppShell rail, on every chat stream frame.
+  const runBriefingMutate = runBriefing.mutate;
+
   const onGenerateBriefing = useCallback(() => {
-    runBriefing.mutate(undefined, {
+    runBriefingMutate(undefined, {
       onSuccess: (data) => {
         if (data.status === "queued" || data.status === "running") setComposing(true);
       },
@@ -65,7 +69,7 @@ export function useRailData(): RailData {
         });
       },
     });
-  }, [runBriefing]);
+  }, [runBriefingMutate]);
 
   // Live todos and suggestions (ADR-0050).
   const {
