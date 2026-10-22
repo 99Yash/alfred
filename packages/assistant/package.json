@@ -120,7 +120,7 @@
     "resend": "catalog:",
     "sharp": "^0.35.2",
     "tldts": "7.4.11",
-    "undici": "^7.25.0",
+    "undici": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {
