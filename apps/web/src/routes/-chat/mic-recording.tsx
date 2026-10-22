@@ -16,116 +16,165 @@ export function useMicRecording() {
 
   if (levelsRef.current === null) levelsRef.current = new Float32Array(SAMPLE_COUNT);
 
-  const streamRef = useRef<MediaStream | null>(null);
-  const ctxRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const rafRef = useRef<number | null>(null);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const startedAtRef = useRef<number>(0);
+  // The current recording attempt. A session that is no longer here writes no state.
+  const sessionRef = useRef<MicSession | null>(null);
 
-  const teardown = () => {
-    if (rafRef.current != null) {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-    }
-
-    if (timerRef.current != null) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
-    analyserRef.current?.disconnect();
-    analyserRef.current = null;
-    void ctxRef.current?.close();
-    ctxRef.current = null;
-    recorderRef.current = null;
-    chunksRef.current = [];
+  const reset = () => {
     levelsRef.current = new Float32Array(SAMPLE_COUNT);
     setRecording(false);
     setElapsed(0);
   };
 
-  /** Stop and discard (X button, unmount). */
+  /** Stop and discard (X button). */
   const cancel = () => {
-    const recorder = recorderRef.current;
-
-    if (recorder && recorder.state !== "inactive") {
-      recorder.onstop = null;
-      recorder.stop();
-    }
-
-    teardown();
+    sessionRef.current?.discard();
+    sessionRef.current = null;
+    reset();
   };
 
-  /** Resolve with the audio, or null if nothing was captured. The last chunk only arrives at `onstop`. */
-  const finish = (): Promise<Blob | null> => {
-    const recorder = recorderRef.current;
+  /** Resolve with the audio, or null if nothing was captured or the take was discarded first. */
+  const finish = async (): Promise<Blob | null> => {
+    const session = sessionRef.current;
 
-    if (!recorder || recorder.state === "inactive") {
-      teardown();
+    if (!session) return null;
+    const blob = await session.finish();
 
-      return Promise.resolve(null);
+    if (sessionRef.current === session) {
+      sessionRef.current = null;
+      reset();
     }
 
-    return new Promise((resolve) => {
-      recorder.onstop = () => {
-        const type = recorder.mimeType || "audio/webm";
-        const chunks = chunksRef.current;
-        const blob = chunks.length > 0 ? new Blob(chunks, { type }) : null;
-        teardown();
-        resolve(blob);
-      };
-
-      recorder.stop();
-    });
+    return blob;
   };
 
+  /** Open a new session. The latest click wins: a session still waiting for permission is discarded. */
   const start = async () => {
+    sessionRef.current?.discard();
+    const session = openMicSession({ levels: levelsRef, onElapsed: setElapsed });
+    sessionRef.current = session;
     setError(null);
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
+      const live = await session.ready;
+
+      if (live && sessionRef.current === session) setRecording(true);
+    } catch (err) {
+      if (sessionRef.current !== session) return;
+      sessionRef.current = null;
+      reset();
+
+      const message =
+        err instanceof DOMException && err.name === "NotAllowedError"
+          ? "Microphone access denied"
+          : "Could not start the microphone";
+
+      setError(message);
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      sessionRef.current?.discard();
+      sessionRef.current = null;
+    };
+  }, []);
+
+  return { recording, error, elapsed, start, cancel, finish, levelsRef };
+}
+
+/** One recording attempt. It owns the stream, recorder, audio graph, RAF and timer it opens. */
+interface MicSession {
+  /** `true` once the recorder runs, `false` if `discard()` ran before the grant. Rejects on a permission or device error, after it releases what it opened. */
+  readonly ready: Promise<boolean>;
+  /** Stop and resolve the take, or `null` if empty, not started, or discarded first. A second call returns the same promise. */
+  finish(): Promise<Blob | null>;
+  /** Release everything now and drop the audio. A pending `finish()` resolves `null`; a later grant stops its tracks at once. */
+  discard(): void;
+}
+
+function openMicSession(sink: {
+  levels: React.RefObject<Float32Array | null>;
+  onElapsed: (seconds: number) => void;
+}): MicSession {
+  let disposed = false;
+  let stream: MediaStream | null = null;
+  let recorder: MediaRecorder | null = null;
+  let ctx: AudioContext | null = null;
+  let analyser: AnalyserNode | null = null;
+  let raf: number | null = null;
+  let timer: ReturnType<typeof setInterval> | null = null;
+  const chunks: Blob[] = [];
+  let finished: Promise<Blob | null> | null = null;
+  let settle: ((blob: Blob | null) => void) | null = null;
+
+  // The single release path. Every async continuation below checks `disposed` first.
+  const release = () => {
+    disposed = true;
+
+    if (raf != null) cancelAnimationFrame(raf);
+    raf = null;
+
+    if (timer != null) clearInterval(timer);
+    timer = null;
+
+    if (recorder) {
+      recorder.ondataavailable = null;
+      recorder.onstop = null;
+
+      if (recorder.state !== "inactive") recorder.stop();
+    }
+
+    recorder = null;
+    stream?.getTracks().forEach((t) => t.stop());
+    stream = null;
+    analyser?.disconnect();
+    analyser = null;
+    void ctx?.close();
+    ctx = null;
+  };
+
+  // A named function, not an IIFE: TypeScript inlines an IIFE into this flow and so narrows `disposed` to `false`.
+  const acquire = async (): Promise<boolean> => {
+    try {
+      const granted = await navigator.mediaDevices.getUserMedia({
         // No-ops where unsupported.
         audio: { echoCancellation: true, noiseSuppression: true },
       });
 
-      streamRef.current = stream;
+      if (disposed) {
+        granted.getTracks().forEach((t) => t.stop());
+
+        return false;
+      }
+
+      stream = granted;
 
       // Prefer opus-in-webm. Safari picks mp4/AAC when given no mimeType.
-      chunksRef.current = [];
-
       const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
         ? "audio/webm;codecs=opus"
         : undefined;
 
-      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) chunksRef.current.push(event.data);
+      const rec = new MediaRecorder(granted, mimeType ? { mimeType } : undefined);
+      rec.ondataavailable = (event) => {
+        if (!disposed && event.data.size > 0) chunks.push(event.data);
       };
 
-      recorderRef.current = recorder;
-      recorder.start();
+      recorder = rec;
+      rec.start();
       const AudioCtor: typeof AudioContext = window.AudioContext;
-      const ctx = new AudioCtor();
-      ctxRef.current = ctx;
-      const src = ctx.createMediaStreamSource(stream);
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 1024;
-      analyser.smoothingTimeConstant = 0.65;
-      src.connect(analyser);
-      analyserRef.current = analyser;
+      ctx = new AudioCtor();
+      const src = ctx.createMediaStreamSource(granted);
+      const node = ctx.createAnalyser();
+      node.fftSize = 1024;
+      node.smoothingTimeConstant = 0.65;
+      src.connect(node);
+      analyser = node;
 
-      const raw = new Float32Array(analyser.fftSize);
+      const raw = new Float32Array(node.fftSize);
 
       const tick = () => {
-        const a = analyserRef.current;
-
-        if (!a) return;
-        a.getFloatTimeDomainData(raw);
+        if (disposed) return;
+        node.getFloatTimeDomainData(raw);
         // RMS per bucket gives a smooth envelope and keeps relative loudness.
         const bucketSize = Math.floor(raw.length / SAMPLE_COUNT);
         const next = new Float32Array(SAMPLE_COUNT);
@@ -141,36 +190,62 @@ export function useMicRecording() {
           next[i] = Math.sqrt(sum / bucketSize);
         }
 
-        levelsRef.current = next;
-        rafRef.current = requestAnimationFrame(tick);
+        sink.levels.current = next;
+        raf = requestAnimationFrame(tick);
       };
 
-      rafRef.current = requestAnimationFrame(tick);
+      raf = requestAnimationFrame(tick);
 
-      startedAtRef.current = performance.now();
-      timerRef.current = setInterval(() => {
-        setElapsed(Math.floor((performance.now() - startedAtRef.current) / 1000));
+      const startedAt = performance.now();
+      timer = setInterval(() => {
+        if (!disposed) sink.onElapsed(Math.floor((performance.now() - startedAt) / 1000));
       }, 250);
 
-      setRecording(true);
+      return true;
     } catch (err) {
-      cancel();
-
-      const message =
-        err instanceof DOMException && err.name === "NotAllowedError"
-          ? "Microphone access denied"
-          : "Could not start the microphone";
-
-      setError(message);
+      release();
+      throw err;
     }
   };
 
-  useEffect(() => {
-    return () => cancel();
-    // Cleanup on unmount only; `cancel` reads refs.
-  }, []);
+  const ready = acquire();
 
-  return { recording, error, elapsed, start, cancel, finish, levelsRef };
+  const finish = (): Promise<Blob | null> => {
+    finished ??= new Promise((resolve) => {
+      const rec = recorder;
+
+      if (disposed || !rec || rec.state === "inactive") {
+        release();
+        resolve(null);
+
+        return;
+      }
+
+      settle = resolve;
+      // The last chunk only arrives before `onstop`, as no timeslice was given.
+      rec.onstop = () => {
+        const blob =
+          chunks.length > 0 ? new Blob(chunks, { type: rec.mimeType || "audio/webm" }) : null;
+
+        release();
+        settle = null;
+        resolve(blob);
+      };
+
+      rec.stop();
+    });
+
+    return finished;
+  };
+
+  const discard = () => {
+    if (disposed) return;
+    release();
+    settle?.(null);
+    settle = null;
+  };
+
+  return { ready, finish, discard };
 }
 
 const SAMPLE_COUNT = 56;
