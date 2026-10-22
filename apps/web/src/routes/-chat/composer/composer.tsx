@@ -16,7 +16,7 @@ import { toast } from "~/lib/toast";
 import { cn } from "~/lib/utils";
 import { safeGet, safeRemove, safeSet } from "~/lib/storage/storage";
 import { MicWaveform } from "../mic-recording";
-import type { ChatModelTier } from "@alfred/contracts";
+import { isEmptyChatTurnInput, type ChatModelTier } from "@alfred/contracts";
 import { TiptapComposer, type TiptapComposerHandle } from "../tiptap-composer";
 import { AttachmentChips } from "./attachment-chips";
 import { ComposerToolbar } from "./composer-toolbar";
@@ -266,7 +266,15 @@ export function Composer({
       const sendNow = mode === "steer" && !composerDisabled ? onSendQueuedNow : undefined;
       endEdit();
 
-      if (!body && files.length === 0) {
+      // The editor does not show a retry's stored attachments, so they keep the message alive.
+      if (
+        isEmptyChatTurnInput({
+          content: body,
+          hasFiles: files.length > 0,
+          artifactTargetId: item.artifactTargetId,
+          retryAttachmentIds: item.retryAttachmentIds,
+        })
+      ) {
         onRemoveQueued?.(item.id);
 
         return;
@@ -413,8 +421,13 @@ export function Composer({
           paused={queuePaused}
           onResume={onResumeQueue}
           editingId={editingQueuedId}
-          // One edit at a time. The composer cannot load a message while it is disabled.
-          onEdit={onUpdateQueued && !composerDisabled && !edit ? beginEdit : undefined}
+          // One edit at a time. The composer cannot load a message while it is disabled,
+          // or while voice input owns the editor.
+          onEdit={
+            onUpdateQueued && !composerDisabled && !edit && !mic.recording && !transcribing
+              ? beginEdit
+              : undefined
+          }
           onRemove={onRemoveQueued}
           onSendNow={composerDisabled ? undefined : onSendQueuedNow}
         />
@@ -581,6 +594,7 @@ export function Composer({
               canSteer={Boolean(onSteer)}
               steerArmed={steerArmed}
               editing={edit !== null}
+              editCanSendNow={!composerDisabled}
               onSteer={handleSteer}
               disabled={inputDisabled}
               sending={sending}

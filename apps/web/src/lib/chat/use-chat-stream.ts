@@ -3,6 +3,7 @@ import { openEventStream } from "~/lib/events/stream";
 import { toast } from "~/lib/toast";
 import {
   applyChatFrame,
+  applyChatSeed,
   applyOptimisticStop,
   applyStreamError,
   createChatStreamCell,
@@ -29,6 +30,33 @@ const STREAM_ERROR_MESSAGE = "Live updates disconnected — reply may be incompl
 
 const WATCHDOG_ERROR_MESSAGE =
   "Connection stalled — no updates received. The reply may be incomplete.";
+
+interface TurnSeed {
+  messageId: string;
+  runId: string;
+  at: number;
+}
+
+/**
+ * A seed outlives one subscription only for the `/chat` to `/chat/<id>` remount.
+ * StrictMode subscribes twice, so a read does not consume it.
+ */
+const SEED_TTL_MS = 30_000;
+
+const turnSeeds = new Map<string, TurnSeed>();
+
+const seedListeners = new Set<(threadId: string, seed: TurnSeed) => void>();
+
+/**
+ * Show a started turn from the send ack. Without it, the bubble, Stop, and the queue wait
+ * for the worker's "started" frame, and a new chat never sees that frame.
+ */
+export function seedChatStream(threadId: string, turn: { messageId: string; runId: string }) {
+  const seed = { ...turn, at: Date.now() };
+  turnSeeds.set(threadId, seed);
+
+  for (const listener of seedListeners) listener(threadId, seed);
+}
 
 /**
  * The in-flight turn for `threadId`, eased into smooth typing. The state machine is
@@ -108,6 +136,25 @@ export function useChatStream(threadId: string | undefined): ChatStream {
       if (applyOptimisticStop(cell)) ensureRaf();
     };
 
+    // A finished turn needs no seed, so a later mount does not show it again.
+    const dropSettledSeed = () => {
+      const cur = cell.current;
+      const seed = turnSeeds.get(threadId);
+
+      if (cur?.done && seed?.messageId === cur.messageId) turnSeeds.delete(threadId);
+    };
+
+    const onSeed = (seedThreadId: string, seed: TurnSeed) => {
+      if (seedThreadId !== threadId || !applyChatSeed(cell, seed)) return;
+      ensureRaf();
+      armWatchdog();
+    };
+
+    const stored = turnSeeds.get(threadId);
+
+    if (stored && Date.now() - stored.at < SEED_TTL_MS) onSeed(threadId, stored);
+    seedListeners.add(onSeed);
+
     const close = openEventStream({
       onFrame: (frame) => {
         const didChange = applyChatFrame(cell, frame, Date.now());
@@ -115,8 +162,10 @@ export function useChatStream(threadId: string | undefined): ChatStream {
         if (didChange) ensureRaf();
 
         // Any frame, even a dropped one, proves the bus is alive.
-        if (cell.current?.done) clearWatchdog();
-        else if (cell.current) armWatchdog();
+        if (cell.current?.done) {
+          clearWatchdog();
+          dropSettledSeed();
+        } else if (cell.current) armWatchdog();
       },
       onError: () => {
         clearWatchdog();
@@ -129,6 +178,7 @@ export function useChatStream(threadId: string | undefined): ChatStream {
     });
 
     return () => {
+      seedListeners.delete(onSeed);
       close();
       clearWatchdog();
       stopFnRef.current = null;

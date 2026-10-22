@@ -91,6 +91,8 @@ interface StreamRef {
   runId: string;
   /** Outbox serial of the frame that mounted this turn. A replayed older turn cannot replace it. */
   mountId: number;
+  /** Mounted from the send ack, so `mountId` is borrowed until the turn's first frame. */
+  seeded: boolean;
   /** Full received text per narration segment, deduped across seqs and attempts. */
   text: ChatDeltaLog;
   /** Highest segment index seen. */
@@ -127,10 +129,15 @@ interface StreamRef {
 export interface ChatStreamCell {
   readonly threadId: string;
   current: StreamRef | null;
+  /**
+   * Runs a seed replaced. A seed has no frame serial, so `mountId` cannot drop a late frame of
+   * the run before it. That run ended before the server started the seeded one.
+   */
+  retiredRunIds: Set<string>;
 }
 
 export function createChatStreamCell(threadId: string): ChatStreamCell {
-  return { threadId, current: null };
+  return { threadId, current: null, retiredRunIds: new Set() };
 }
 
 /**
@@ -184,28 +191,17 @@ function clearApprovalWait(ref: StreamRef): void {
   ref.awaitingApproval = false;
 }
 
-/**
- * Return the turn's ref, mounting it on the first frame of any kind, because
- * "started" can fire while `/chat` navigates to `/chat/<id>`.
- * Returns `null` for a different turn with a frame id below the live `mountId`
- * (a `Last-Event-ID` replay). The caller must drop that frame.
- */
-function ensureStreamRef(
-  cell: ChatStreamCell,
-  frameId: number,
+function createStreamRef(
   messageId: string,
   runId: string,
-): StreamRef | null {
-  const existing = cell.current;
-
-  if (existing && existing.messageId === messageId && existing.runId === runId) return existing;
-
-  if (existing && frameId < existing.mountId) return null;
-
-  const fresh: StreamRef = {
+  mountId: number,
+  seeded: boolean,
+): StreamRef {
+  return {
     messageId,
     runId,
-    mountId: frameId,
+    mountId,
+    seeded,
     text: createChatDeltaLog({ seq: 0, segment: 0 }),
     currentSegment: 0,
     shown: 0,
@@ -226,7 +222,63 @@ function ensureStreamRef(
     error: null,
     stopped: false,
   };
+}
 
+/**
+ * Mount the turn from the send ack, before its first frame. The worker publishes "started"
+ * only when it claims the job, and a new chat loses that frame while `/chat` navigates to
+ * `/chat/<id>`. Returns `false` when this turn is already mounted.
+ */
+export function applyChatSeed(
+  cell: ChatStreamCell,
+  seed: { messageId: string; runId: string },
+): boolean {
+  const existing = cell.current;
+
+  if (existing && existing.messageId === seed.messageId && existing.runId === seed.runId)
+    return false;
+
+  // The ack is the server's word that this run is newer, so the seed replaces any ref.
+  // It keeps the old `mountId`, so a replay from before that turn still drops.
+  if (existing) cell.retiredRunIds.add(existing.runId);
+  cell.current = createStreamRef(seed.messageId, seed.runId, existing?.mountId ?? 0, true);
+  markChatTimingByAssistant(seed.messageId, "stream_seeded", undefined, {
+    threadId: cell.threadId,
+    runId: seed.runId,
+  });
+
+  return true;
+}
+
+/**
+ * Return the turn's ref, mounting it on the first frame of any kind, because
+ * "started" can fire while `/chat` navigates to `/chat/<id>`.
+ * Returns `null` for a different turn with a frame id below the live `mountId`
+ * (a `Last-Event-ID` replay), or for a run a seed retired. The caller must drop that frame.
+ */
+function ensureStreamRef(
+  cell: ChatStreamCell,
+  frameId: number,
+  messageId: string,
+  runId: string,
+): StreamRef | null {
+  const existing = cell.current;
+
+  if (existing && existing.messageId === messageId && existing.runId === runId) {
+    // A seeded turn takes the serial of its first frame.
+    if (existing.seeded) {
+      existing.seeded = false;
+      existing.mountId = Math.max(existing.mountId, frameId);
+    }
+
+    return existing;
+  }
+
+  if (existing && frameId < existing.mountId) return null;
+
+  if (cell.retiredRunIds.has(runId)) return null;
+
+  const fresh = createStreamRef(messageId, runId, frameId, false);
   cell.current = fresh;
 
   return fresh;

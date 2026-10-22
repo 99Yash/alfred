@@ -170,6 +170,8 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   // Resume, or a row's send now, lets it go.
   const [queuePaused, setQueuePaused] = useState(false);
   const busyAttemptsRef = useRef(0);
+  // An in-flight flush reads this after its await, so it does not write into another thread's state.
+  const threadIdRef = useRef(threadId);
   const prevShowStreamRef = useRef(false);
   const lastErrorStreamIdRef = useRef<string | null>(null);
   // Reset during render so the old thread's `showStream` cannot flush the new thread's queue.
@@ -188,6 +190,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   // The refs reset in an effect, because render may not write a ref. React runs the effects of
   // one commit in order, so this runs before the flush effects below see the new thread.
   useEffect(() => {
+    threadIdRef.current = threadId;
     prevShowStreamRef.current = false;
     lastErrorStreamIdRef.current = null;
     busyAttemptsRef.current = 0;
@@ -209,8 +212,15 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
         return false;
 
       // Queue while a turn is active, including done-but-not-synced, so no stream mounts over that bubble.
-      if (showStream)
-        return enqueue({ text: trimmed, files: files ?? [], tier, artifactTargetId }) !== null;
+      // Queue behind waiting messages too, so a send never jumps ahead of them, paused or not.
+      if (showStream || queue.length > 0) {
+        const ok = enqueue({ text: trimmed, files: files ?? [], tier, artifactTargetId }) !== null;
+
+        // No turn will complete to arm the flush, for example after a hard error kept the head.
+        if (ok && !showStream && !queuePaused) setFlushArmed(true);
+
+        return ok;
+      }
 
       const result = await send(
         threadId,
@@ -238,7 +248,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
       // `useSendMessage` already toasted. Keep the draft.
       return false;
     },
-    [showStream, enqueue, send, threadId, tier],
+    [showStream, queue.length, queuePaused, enqueue, send, threadId, tier],
   );
 
   // On completion (stream done and synced), arm the flush of the oldest queued message.
@@ -265,7 +275,11 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
 
     if (!streamDone || !streamError) lastErrorStreamIdRef.current = null;
 
-    if ((completed || isNewErrorCompletion) && queue.length > 0) setFlushArmed(true);
+    if ((completed || isNewErrorCompletion) && queue.length > 0) {
+      // Each completion gives the head the full retry budget, also when a stream cut the last flush short.
+      busyAttemptsRef.current = 0;
+      setFlushArmed(true);
+    }
   }, [showStream, queue.length, isStreaming, streamDone, streamError, streamRunId]);
 
   // An armed flush with nothing left to send disarms during render, so it cannot fire on a later enqueue.
@@ -287,6 +301,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
 
     // oxlint-disable-next-line react/set-state-in-effect -- this effect starts the async send of the head when a stream completes, which no event handler sees. The in-flight flag must commit with the start, so a second run cannot send twice and the head chip shows its `sending` state.
     setQueueSending(true);
+    const flushThreadId = threadId;
     void (async () => {
       const result = await send(
         threadId,
@@ -298,6 +313,14 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
         next.artifactTargetId,
       );
 
+      // The user changed threads during the send. `dequeue` is bound to this thread's queue,
+      // but every flag below now belongs to the other thread.
+      if (threadIdRef.current !== flushThreadId) {
+        if (result.ok || result.reason === "empty") dequeue();
+
+        return;
+      }
+
       if (result.ok || result.reason === "empty") {
         // An `empty` entry is stale. Drop it so it does not block the queue.
         dequeue();
@@ -308,6 +331,8 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
         // Stay armed and try again. The chip shows the entry, so no toast.
         busyAttemptsRef.current += 1;
         await new Promise((resolve) => setTimeout(resolve, QUEUE_BUSY_RETRY_MS));
+
+        if (threadIdRef.current !== flushThreadId) return;
       } else {
         // A hard error (already toasted) or a run that stays busy: keep it for the next completion.
         setFlushArmed(false);
