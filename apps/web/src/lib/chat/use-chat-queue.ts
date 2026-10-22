@@ -77,8 +77,12 @@ export interface ChatQueue {
   promote: (id: string) => void;
   /**
    * Hold this thread for one send of an entry, run `send`, and release the hold when it settles.
-   * `false` when this thread already has a send in flight or the entry is gone. `send` starts before
-   * `run` returns. Its outcome lands on this thread also after a thread change.
+   * `false` when this thread already has a send in flight or the entry is gone from the rendered
+   * queue. Two checks cover the two edges of a hold: a private ref covers the start, before the hold
+   * renders, and the rendered `sendingId` covers the release, because the release clears it and drops
+   * a sent entry in one write. `send` starts before `run` returns. Its outcome lands on this thread
+   * also after a thread change. A `remove` outcome drops the entry by id, so the caller must not run
+   * an entry that has an edit open.
    */
   run: (id: string, send: (entry: QueuedMessage) => Promise<SendOutcome>) => boolean;
 }
@@ -228,10 +232,14 @@ export function useChatQueue(threadId: string | undefined): ChatQueue {
 
   const run = useCallback(
     (id: string, send: (entry: QueuedMessage) => Promise<SendOutcome>): boolean => {
-      const entry = queues.get(key)?.entries.find((m) => m.id === id);
+      const rendered = queues.get(key);
+      const entry = rendered?.entries.find((m) => m.id === id);
 
-      // The ref answers now. Rendered state lags a commit, and a state updater cannot refuse the caller.
-      if (!entry || heldRef.current.has(key)) return false;
+      // The ref answers now, before the hold renders. Rendered state lags a commit, and a state updater
+      // cannot refuse the caller. The rendered `sendingId` stays set until the release renders, so a
+      // run from that render cannot send the released entry again.
+      if (!rendered || !entry || heldRef.current.has(key) || rendered.sendingId !== null)
+        return false;
       heldRef.current.add(key);
       // The hold always records, also when a remove landed first, so the thread starts no second send.
       setQueues((prev) => {
