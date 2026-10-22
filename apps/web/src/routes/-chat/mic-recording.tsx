@@ -32,17 +32,17 @@ export function useMicRecording() {
     reset();
   };
 
-  /** Resolve with the audio, or null if nothing was captured or the take was discarded first. */
+  /** Resolve with the audio, or null if nothing was captured, the take was discarded first, or an earlier call already took it. */
   const finish = async (): Promise<Blob | null> => {
     const session = sessionRef.current;
 
     if (!session) return null;
     const blob = await session.finish();
 
-    if (sessionRef.current === session) {
-      sessionRef.current = null;
-      reset();
-    }
+    // One take has one consumer: a second click shares the session promise but finds the session already taken.
+    if (sessionRef.current !== session) return null;
+    sessionRef.current = null;
+    reset();
 
     return blob;
   };
