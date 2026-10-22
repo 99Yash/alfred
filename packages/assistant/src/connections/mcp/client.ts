@@ -420,6 +420,9 @@ export class McpRawClient {
       generation.negotiated = negotiated;
     } catch (err) {
       await this.#closeGeneration(generation, false).catch(() => undefined);
+
+      if (isMcpAuthorizationChallenge(err)) throw (await this.#renewRejectedToken(oauth)) ?? err;
+
       throw err;
     }
 
@@ -784,6 +787,11 @@ export class McpRawClient {
     }
 
     if (isMcpAuthorizationChallenge(err)) {
+      // A revoked or early-expired token: renew it once before asking the user to reconnect.
+      const renewal = await this.#renewRejectedToken(generation.oauth);
+
+      if (renewal) throw renewal;
+
       // Keep this code out of the pre-delivery set: the broker still owns effect ambiguity.
       generation.authorizationBlocked = new McpClientError(
         "authorization_required",
@@ -818,6 +826,33 @@ export class McpRawClient {
       "session_expired",
       "The MCP session expired; reconnect and refresh the catalog before retrying",
     );
+  }
+
+  /**
+   * The error to throw after a 401 when a refresh token can renew the access token,
+   * or `null` when only a new consent can help. Neither code claims the call was not delivered.
+   */
+  async #renewRejectedToken(oauth: McpBoundOAuthSession | null): Promise<McpClientError | null> {
+    if (!oauth) return null;
+
+    let renewed: boolean;
+
+    try {
+      renewed = await oauth.renewRejectedToken();
+    } catch (error) {
+      return new McpClientError(
+        "token_rejected",
+        "The MCP server rejected the access token, and the renewal did not finish. Try again shortly.",
+        { cause: error },
+      );
+    }
+
+    return renewed
+      ? new McpClientError(
+          "token_rejected",
+          "The MCP server rejected the access token. Alfred renewed it; check the outcome before you repeat a write.",
+        )
+      : null;
   }
 
   #closeGeneration(generation: McpClientGeneration, terminateSession: boolean): Promise<void> {

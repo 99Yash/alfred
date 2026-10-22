@@ -3,9 +3,10 @@
  * Start (`beginAuthorization`): discovery, client, state, PKCE verifier, then redirect.
  * Callback: `matchesState`, re-check the issuer, `finishAuthorization`, `saveTokens`.
  * Refresh happens only before delivery; the transport gets a token-only view, so it cannot replay `tools/call`.
+ * Alfred owns the refresh: the SDK `auth()` refreshes on every call and reads a slow token endpoint as lost consent.
  */
 import { parseOAuthScopeList } from "@alfred/contracts";
-import { db } from "@alfred/db";
+import { db, withDbSession } from "@alfred/db";
 import { credentialVault, type CredentialVault } from "@alfred/db/credential-vault";
 import { sha256Hex } from "@alfred/db/hash";
 import {
@@ -21,6 +22,10 @@ import { serverEnv } from "@alfred/env/server";
 import { logger } from "@alfred/logging";
 import {
   auth,
+  OAuthError,
+  OAuthErrorCode,
+  refreshAuthorization,
+  selectResourceURL,
   StreamableHTTPClientTransport,
   validateClientMetadataUrl,
   type AuthorizationServerMetadata,
@@ -44,7 +49,7 @@ import {
   type BuiltInClientResolution,
 } from "./built-ins";
 import type { McpAuthorizedOAuth, McpAuthorizedOAuthServer } from "./endpoint-authorization";
-import { isMcpAuthorizationChallenge, McpClientError } from "./errors";
+import { boundedMcpErrorText, isMcpAuthorizationChallenge, McpClientError } from "./errors";
 
 const oauthMetadataSchema = z.looseObject({
   issuer: z.url(),
@@ -89,6 +94,29 @@ const MCP_OAUTH_FETCH_TIMEOUT_MS = 30_000;
 const MCP_OAUTH_REFRESH_SKEW_MS = 60_000;
 
 const MCP_OAUTH_ATTEMPT_TTL_MS = 10 * 60_000;
+
+/**
+ * Token-endpoint answers that end the grant. Any other failure (a timeout, a 5xx,
+ * `server_error`, `temporarily_unavailable`) is transient and leaves the refresh token in place.
+ */
+const DEAD_GRANT_ERROR_CODES: ReadonlySet<string> = new Set([
+  OAuthErrorCode.InvalidGrant,
+  OAuthErrorCode.InvalidClient,
+  OAuthErrorCode.UnauthorizedClient,
+  OAuthErrorCode.UnsupportedGrantType,
+  OAuthErrorCode.InvalidScope,
+  OAuthErrorCode.AccessDenied,
+  OAuthErrorCode.InvalidRequest,
+]);
+
+/**
+ * One refresh per connection in this process. A server that rotates refresh tokens
+ * (Railway does) rejects the second use of the old one, and that ends the grant.
+ */
+const refreshFlights = new Map<string, Promise<RefreshOutcome>>();
+
+/** `fresh`: a usable access token is stored. `dead`: only a new consent can help. */
+type RefreshOutcome = "fresh" | "dead";
 
 /** `GET /api/integrations/mcp/callback` completes this handshake with its own `oauthHandshake("mcp")`. */
 const handshake = oauthHandshake("mcp");
@@ -139,9 +167,27 @@ export interface McpOAuthCredentialStore {
     userId: string;
     grantedScopes: string[];
   }): Promise<void>;
+  /** Serialize refreshes of one connection across processes. */
+  withRefreshLock<T>(connectionId: string, body: () => Promise<T>): Promise<T>;
 }
 
 class DbMcpOAuthCredentialStore implements McpOAuthCredentialStore {
+  /** A session lock, not a transaction: the body waits on the token endpoint. */
+  async withRefreshLock<T>(connectionId: string, body: () => Promise<T>): Promise<T> {
+    return withDbSession(async (session) => {
+      const identity = `mcp-oauth-refresh:${connectionId}`;
+      await session.client.query("select pg_advisory_lock(hashtextextended($1, 0))", [identity]);
+
+      try {
+        return await body();
+      } finally {
+        await session.client.query("select pg_advisory_unlock(hashtextextended($1, 0))", [
+          identity,
+        ]);
+      }
+    });
+  }
+
   async readForConnection(
     connectionId: string,
     userId: string,
@@ -503,6 +549,8 @@ export type McpOAuthAuthorizeOptions = Pick<AuthOptions, "forceReauthorization" 
 export interface McpBoundOAuthSession {
   authorize(options?: McpOAuthAuthorizeOptions): Promise<AuthResult>;
   refreshIfNeeded(options?: McpOAuthRequestOptions): Promise<void>;
+  /** After a 401: refresh once unless another flow already replaced the rejected token. */
+  renewRejectedToken(options?: McpOAuthRequestOptions): Promise<boolean>;
   finishAuthorization(
     callbackParams: URLSearchParams,
     options?: McpOAuthRequestOptions,
@@ -791,21 +839,29 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
   async authorizationNeedsRefresh(now = Date.now()): Promise<boolean> {
     const credential = await this.#store.readForConnection(this.#connectionId, this.#userId);
 
-    if (
-      !credential?.accessToken ||
-      credential.expiresIn === null ||
-      credential.lastAuthorizedAt === null
-    ) {
-      return false;
-    }
-
-    const expiresAt = credential.lastAuthorizedAt.getTime() + credential.expiresIn * 1_000;
-
-    return expiresAt <= now + MCP_OAUTH_REFRESH_SKEW_MS;
+    return credential?.accessToken ? tokenExpiresSoon(credential, now) : false;
   }
 
-  /** Run discovery, refresh, or consent through this generation's guarded fetch. */
-  authorize(options: McpOAuthAuthorizeOptions = {}): Promise<AuthResult> {
+  /**
+   * Use a stored token while it is valid and refresh it when it is not. Only a missing
+   * or dead grant reaches the SDK, which starts a new consent.
+   */
+  async authorize(options: McpOAuthAuthorizeOptions = {}): Promise<AuthResult> {
+    if (!options.forceReauthorization && !options.scope) {
+      const credential = await this.#store.readForConnection(this.#connectionId, this.#userId);
+
+      if (credential?.accessToken && !tokenExpiresSoon(credential)) return "AUTHORIZED";
+
+      if (credential?.refreshToken && (await this.#refreshShared(null, options)) === "fresh") {
+        return "AUTHORIZED";
+      }
+    }
+
+    return this.#authorizeWithSdk(options);
+  }
+
+  /** Discovery, registration, and consent through this generation's guarded fetch. */
+  #authorizeWithSdk(options: McpOAuthAuthorizeOptions): Promise<AuthResult> {
     const fetchFn = timeoutBoundFetch(
       this.#authorization.fetch,
       options.timeoutMs ?? MCP_OAUTH_FETCH_TIMEOUT_MS,
@@ -841,6 +897,127 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
   async refreshIfNeeded(options: McpOAuthRequestOptions = {}): Promise<void> {
     if (!(await this.authorizationNeedsRefresh())) return;
     await this.authorize(options);
+  }
+
+  async renewRejectedToken(options: McpOAuthRequestOptions = {}): Promise<boolean> {
+    const credential = await this.#store.readForConnection(this.#connectionId, this.#userId);
+
+    if (!credential?.refreshToken) return false;
+    const rejected = credential.accessToken ? this.#vault.open(credential.accessToken) : null;
+
+    return (await this.#refreshShared(rejected, options)) === "fresh";
+  }
+
+  /**
+   * Join the flight for this connection, or start one. A caller's abort does not stop it.
+   * A 401 waits for a running expiry check, then compares the stored token with the one rejected.
+   */
+  async #refreshShared(
+    rejectedAccessToken: string | null,
+    options: McpOAuthRequestOptions,
+  ): Promise<RefreshOutcome> {
+    const existing = refreshFlights.get(this.#connectionId);
+
+    if (existing && rejectedAccessToken === null) return existing;
+
+    if (existing) await existing.catch(() => undefined);
+
+    const flight = this.#store
+      .withRefreshLock(this.#connectionId, () => this.#refreshLocked(rejectedAccessToken, options))
+      .finally(() => {
+        if (refreshFlights.get(this.#connectionId) === flight) {
+          refreshFlights.delete(this.#connectionId);
+        }
+      });
+
+    refreshFlights.set(this.#connectionId, flight);
+
+    return flight;
+  }
+
+  /**
+   * Re-read under the lock: another process may have refreshed while this one waited.
+   * Executor's refresh rules, ported: a dead grant clears the tokens, a transient failure keeps them.
+   */
+  async #refreshLocked(
+    rejectedAccessToken: string | null,
+    options: McpOAuthRequestOptions,
+  ): Promise<RefreshOutcome> {
+    const credential = await this.#store.readForConnection(this.#connectionId, this.#userId);
+
+    if (!credential?.refreshToken) return "dead";
+
+    if (credential.accessToken) {
+      const stored = this.#vault.open(credential.accessToken);
+      const replaced = rejectedAccessToken !== null && stored !== rejectedAccessToken;
+
+      if (replaced || (rejectedAccessToken === null && !tokenExpiresSoon(credential))) {
+        return "fresh";
+      }
+    }
+
+    const discovery = await this.discoveryState();
+
+    if (!discovery) throw new Error("MCP OAuth discovery state is missing");
+    const metadata = discovery.authorizationServerMetadata;
+    const issuer = metadata?.issuer ?? discovery.authorizationServerUrl;
+    const clientInformation = await this.clientInformation({ issuer });
+
+    // No registered client: only the SDK consent flow can register one.
+    if (!clientInformation) return "dead";
+
+    const resource = await selectResourceURL(
+      this.#authorization.resource,
+      this,
+      discovery.resourceMetadata,
+    );
+
+    let tokens: StoredOAuthTokens;
+
+    try {
+      tokens = await refreshAuthorization(discovery.authorizationServerUrl, {
+        ...(metadata ? { metadata } : {}),
+        clientInformation,
+        refreshToken: this.#vault.open(credential.refreshToken),
+        ...(resource ? { resource } : {}),
+        fetchFn: timeoutBoundFetch(
+          this.#authorization.fetch,
+          options.timeoutMs ?? MCP_OAUTH_FETCH_TIMEOUT_MS,
+        ),
+      });
+    } catch (error) {
+      if (error instanceof OAuthError && DEAD_GRANT_ERROR_CODES.has(error.code)) {
+        logger.warn(
+          { event: "mcp_oauth_refresh_dead", connectionId: this.#connectionId, code: error.code },
+          "MCP OAuth refresh grant is dead; the connection needs a new consent",
+        );
+        await this.#store.update(credential.id, this.#userId, {
+          accessToken: null,
+          refreshToken: null,
+          idToken: null,
+        });
+
+        return "dead";
+      }
+
+      logger.warn(
+        {
+          event: "mcp_oauth_refresh_transient",
+          connectionId: this.#connectionId,
+          cause: boundedMcpErrorText(error),
+        },
+        "MCP OAuth refresh failed; the refresh token stays for the next attempt",
+      );
+      throw new McpClientError(
+        "authorization_unavailable",
+        "The MCP authorization server did not renew the access token. Try again shortly.",
+        { cause: error },
+      );
+    }
+
+    await this.saveTokens({ ...tokens, issuer }, { issuer });
+
+    return "fresh";
   }
 
   /** Complete the callback with the generation that ran discovery. */
@@ -977,6 +1154,18 @@ export function mcpOAuthProviderForConnection(
       ? { clientMetadataUrl: config.clientMetadataUrl }
       : {}),
   });
+}
+
+/** A token with no `expires_in` never expires by the clock; the server's 401 is the only signal. */
+function tokenExpiresSoon(
+  credential: Pick<McpOauthCredential, "expiresIn" | "lastAuthorizedAt">,
+  now = Date.now(),
+): boolean {
+  if (credential.expiresIn === null || credential.lastAuthorizedAt === null) return false;
+
+  const expiresAt = credential.lastAuthorizedAt.getTime() + credential.expiresIn * 1_000;
+
+  return expiresAt <= now + MCP_OAUTH_REFRESH_SKEW_MS;
 }
 
 function timeoutBoundFetch(fetchFn: FetchLike, timeoutMs: number): FetchLike {

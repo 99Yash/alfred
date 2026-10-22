@@ -19,6 +19,10 @@ class MemoryStore implements McpOAuthCredentialStore {
   readonly attempts = new Map<string, McpOauthAuthorizationAttempt>();
   grantedScopes: string[] = [];
 
+  async withRefreshLock<T>(_connectionId: string, body: () => Promise<T>): Promise<T> {
+    return body();
+  }
+
   async readForConnection(): Promise<McpOauthCredential | undefined> {
     return this.row;
   }

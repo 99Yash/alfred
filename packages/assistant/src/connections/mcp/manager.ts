@@ -191,6 +191,17 @@ export class McpConnectionManager {
 
   /** A connected client with a published catalog, cached per connection. On failure, mark the row `failed`. */
   async getReadyClient(connectionId: string, trace?: McpTraceContext): Promise<McpRawClient> {
+    try {
+      return await this.#getReadyClient(connectionId, trace);
+    } catch (err) {
+      // The start renewed a rejected token. One more start uses it.
+      if (!(err instanceof McpClientError) || err.code !== "token_rejected") throw err;
+
+      return this.#getReadyClient(connectionId, trace);
+    }
+  }
+
+  async #getReadyClient(connectionId: string, trace?: McpTraceContext): Promise<McpRawClient> {
     this.#assertAdmission(connectionId);
     await this.#waitForCatalogRefresh(connectionId);
     this.#assertAdmission(connectionId);
@@ -312,6 +323,14 @@ export class McpConnectionManager {
               ? "Authorization is required to connect this MCP server."
               : boundedMcpErrorText(err),
         });
+        this.#assertOpenGeneration(generation);
+        this.#generations.delete(connectionId);
+        throw err;
+      }
+
+      // A renewed token is not a failure: keep the row and its catalog as they are.
+      if (err instanceof McpClientError && err.code === "token_rejected") {
+        await client.close().catch(() => undefined);
         this.#assertOpenGeneration(generation);
         this.#generations.delete(connectionId);
         throw err;
