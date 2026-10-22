@@ -7,7 +7,13 @@ interface ComposerDraft {
   initialJSON: JSONContent | undefined;
   text: string;
   isEmpty: boolean;
-  onEditorChange: (nextText: string, nextJSON: JSONContent, nextEmpty: boolean) => void;
+  /** `persist: false` tracks the text but leaves the stored draft as it is. */
+  onEditorChange: (
+    nextText: string,
+    nextJSON: JSONContent,
+    nextEmpty: boolean,
+    persist?: boolean,
+  ) => void;
   resetDraft: () => void;
 }
 
@@ -28,8 +34,10 @@ export function useComposerDraft(threadId: string | undefined): ComposerDraft {
   });
 
   const onEditorChange = useCallback(
-    (nextText: string, nextJSON: JSONContent, nextEmpty: boolean) => {
+    (nextText: string, nextJSON: JSONContent, nextEmpty: boolean, persist = true) => {
       setEditorState({ text: nextText, isEmpty: nextEmpty });
+
+      if (!persist) return;
 
       if (nextEmpty) {
         safeRemove(draftKey);

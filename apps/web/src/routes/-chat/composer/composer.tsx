@@ -5,11 +5,12 @@ import {
   useState,
   type ClipboardEvent,
   type DragEvent,
+  type KeyboardEvent,
   type SubmitEvent,
   type RefObject,
 } from "react";
 import type { JSONContent } from "@tiptap/react";
-import { CornerDownRight, ImagePlus, X } from "lucide-react";
+import { CornerDownRight, ImagePlus, Pencil, X } from "lucide-react";
 import { ACCEPT_ATTR } from "~/lib/chat/upload-attachments";
 import { toast } from "~/lib/toast";
 import { cn } from "~/lib/utils";
@@ -21,7 +22,7 @@ import { AttachmentChips } from "./attachment-chips";
 import { ComposerToolbar } from "./composer-toolbar";
 import { QueueTray } from "./queue-tray";
 import { useSteerModifier } from "./use-steer-modifier";
-import { quoteMessage } from "../quote";
+import { quoteMessage, replaceQuotedBody, splitQuote } from "../quote";
 import { useMentionConnections } from "../mention-connection";
 import { MentionPalette } from "./mention-palette";
 import { useComposerAttachments } from "./use-composer-attachments";
@@ -29,7 +30,17 @@ import { useComposerDraft } from "./use-composer-draft";
 import { useComposerVoice } from "./use-composer-voice";
 import { useMentionController } from "./use-mention-controller";
 import { useTypeAnywhere } from "./use-type-anywhere";
-import type { QueuedMessage } from "~/lib/chat/use-chat-queue";
+import { KeyHint } from "./key-hint";
+import type { QueuedEdit, QueuedMessage } from "~/lib/chat/use-chat-queue";
+
+/** A queued message loaded into the editor for an edit. */
+interface QueueEditSession {
+  id: string;
+  /** The message's quote. `null` once the user removes it. */
+  quote: string | null;
+  /** The draft and files that the edit moved aside. They come back when the edit ends. */
+  stash: { json: JSONContent; files: File[] };
+}
 
 export function Composer({
   threadId,
@@ -55,6 +66,8 @@ export function Composer({
   onEditingQueuedChange,
   steeringQueuedId,
   queueSendingHead,
+  queuePaused,
+  onResumeQueue,
   quote,
   onClearQuote,
 }: {
@@ -92,15 +105,18 @@ export function Composer({
   onRemoveQueued?: ((id: string) => void) | undefined;
   /** Move a queued message to the head and stop the reply, so it sends next. */
   onSendQueuedNow?: ((id: string) => void) | undefined;
-  /** Replace a queued message's text (an in-place edit). */
-  onUpdateQueued?: ((id: string, text: string) => void) | undefined;
-  /** The queued message open for an edit. The flush waits while it is next. */
+  /** Replace a queued message's text and files, from an edit in this composer. */
+  onUpdateQueued?: ((id: string, patch: QueuedEdit) => void) | undefined;
+  /** The queued message loaded into this composer for an edit. The flush waits while it is next. */
   editingQueuedId?: string | null | undefined;
   onEditingQueuedChange?: ((id: string | null) => void) | undefined;
   /** The queued message a steer stopped the reply for. */
   steeringQueuedId?: string | null | undefined;
   /** The flush is sending the first queued message now. */
   queueSendingHead?: boolean | undefined;
+  /** Stop held the queue. It waits for Resume. */
+  queuePaused?: boolean | undefined;
+  onResumeQueue?: (() => void) | undefined;
   /** Text quoted from a reply. It is sent as a blockquote ahead of the message. */
   quote?: string | null | undefined;
   onClearQuote?: (() => void) | undefined;
@@ -141,9 +157,23 @@ export function Composer({
 
   const composerDisabled = disabled || sending;
 
-  // Stays enabled while streaming, so submits queue (#489).
+  // Edit loads a queued message into this editor, so the edit has the full composer: files,
+  // drop, paste, voice, mentions. The draft waits in the session and comes back after.
+  // The ref is for the editor callbacks, which run before the state commits.
+  const [edit, setEdit] = useState<QueueEditSession | null>(null);
+  const editRef = useRef<QueueEditSession | null>(null);
+
+  const putEdit = useCallback((next: QueueEditSession | null) => {
+    editRef.current = next;
+    setEdit(next);
+  }, []);
+
+  // Stays enabled while streaming, so submits queue (#489). An emptied edit can save: it removes the message.
   const canSend =
-    !composerDisabled && (!isEmpty || hasAttachments) && !mic.recording && !transcribing;
+    !composerDisabled &&
+    (edit !== null || !isEmpty || hasAttachments) &&
+    !mic.recording &&
+    !transcribing;
 
   const insertAtTrigger = useCallback(() => {
     if (disabled || sending) return;
@@ -152,10 +182,10 @@ export function Composer({
 
   useTypeAnywhere(editorRef, composerDisabled);
 
-  // Keyed on the nonce. Skipped while disabled (pending approval).
+  // Keyed on the nonce. Skipped while disabled (pending approval) or during an edit.
   const appliedPrefillNonce = useRef<number | null>(null);
   useEffect(() => {
-    if (!prefill || disabled || sending) return;
+    if (!prefill || disabled || sending || edit) return;
 
     // The Composer remounts per thread; skip a prefill from another thread.
     if (prefill.threadId !== threadId) return;
@@ -164,7 +194,7 @@ export function Composer({
     appliedPrefillNonce.current = prefill.nonce;
     setArtifactTargetId(prefill.artifactTargetId);
     editorRef.current?.insertText(prefill.text);
-  }, [prefill, disabled, sending, threadId, setArtifactTargetId]);
+  }, [prefill, disabled, sending, edit, threadId, setArtifactTargetId]);
 
   // A new quote puts the caret in the editor, so the user types the question next.
   useEffect(() => {
@@ -173,9 +203,11 @@ export function Composer({
 
   const handleEditorChange = useCallback(
     (nextText: string, nextJSON: JSONContent, nextEmpty: boolean) => {
-      onEditorChange(nextText, nextJSON, nextEmpty);
+      // The stored draft is the one in the stash, not the queued message.
+      const editing = editRef.current !== null;
+      onEditorChange(nextText, nextJSON, nextEmpty, !editing);
 
-      if (nextEmpty) setArtifactTargetId(undefined);
+      if (nextEmpty && !editing) setArtifactTargetId(undefined);
     },
     [onEditorChange, setArtifactTargetId],
   );
@@ -185,8 +217,72 @@ export function Composer({
     fileInputRef.current?.click();
   }, [disabled, sending, mic.recording]);
 
+  const beginEdit = useCallback(
+    (id: string) => {
+      const item = queued?.find((m) => m.id === id);
+      const editor = editorRef.current;
+
+      if (!item || !editor || editRef.current) return;
+      const { quote: itemQuote, body } = splitQuote(item.text);
+      const stash = { json: editor.getJSON(), files: attachments.replace(item.files) };
+      putEdit({ id, quote: itemQuote, stash });
+      editor.setText(body);
+      onEditingQueuedChange?.(id);
+    },
+    [queued, attachments, putEdit, onEditingQueuedChange],
+  );
+
+  const endEdit = useCallback(() => {
+    const session = editRef.current;
+
+    if (!session) return;
+    putEdit(null);
+    attachments.replace(session.stash.files);
+    // After `putEdit`, so the update stores the draft again.
+    editorRef.current?.setJSON(session.stash.json);
+    onEditingQueuedChange?.(null);
+  }, [attachments, putEdit, onEditingQueuedChange]);
+
+  // The message can leave the queue during the edit (Remove, or a send). Then the draft comes back.
+  const editGone = edit !== null && !queued?.some((m) => m.id === edit.id);
+  useEffect(() => {
+    if (editGone) endEdit();
+  }, [editGone, endEdit]);
+
+  // ↵ saves in place. ⌘↵ saves and sends it now, the same as the row's send now.
+  const saveEdit = useCallback(
+    (mode: "send" | "steer") => {
+      const session = editRef.current;
+      const item = queued?.find((m) => m.id === session?.id);
+
+      if (!session || !item) return;
+      const body = text.trim();
+      const files = attachments.files();
+      const sendNow = mode === "steer" ? onSendQueuedNow : undefined;
+      endEdit();
+
+      if (!body && files.length === 0) {
+        onRemoveQueued?.(item.id);
+
+        return;
+      }
+
+      // The quote lines stay byte for byte, unless the user removed the quote.
+      const next = session.quote ? replaceQuotedBody(item.text, body) : body;
+      onUpdateQueued?.(item.id, { text: next, files });
+      sendNow?.(item.id);
+    },
+    [queued, text, attachments, endEdit, onRemoveQueued, onUpdateQueued, onSendQueuedNow],
+  );
+
   const submit = useCallback(
     (mode: "send" | "steer") => {
+      if (editRef.current) {
+        if (canSend) saveEdit(mode);
+
+        return;
+      }
+
       // ⌘↵ with nothing to stop is a plain send.
       const deliver = mode === "steer" && onSteer ? onSteer : onSend;
 
@@ -208,6 +304,7 @@ export function Composer({
     },
     [
       canSend,
+      saveEdit,
       quote,
       text,
       onSend,
@@ -227,6 +324,24 @@ export function Composer({
     e.preventDefault();
     handleSubmit();
   };
+
+  // Esc cancels an edit. The mention palette handles its own Esc first and prevents the default.
+  const onFormKeyDown = (e: KeyboardEvent<HTMLFormElement>) => {
+    if (e.key !== "Escape" || !editRef.current || e.defaultPrevented) return;
+    e.stopPropagation();
+    endEdit();
+  };
+
+  // The quote chip shows the edited message's quote during an edit, and the pending quote otherwise.
+  const shownQuote = edit ? edit.quote : quote;
+
+  const clearEditQuote = useCallback(() => {
+    const session = editRef.current;
+
+    if (session) putEdit({ ...session, quote: null });
+  }, [putEdit]);
+
+  const clearShownQuote = edit ? clearEditQuote : onClearQuote;
 
   const onDragEnter = useCallback(
     (e: DragEvent<HTMLDivElement>) => {
@@ -281,9 +396,11 @@ export function Composer({
           canSteer={Boolean(onSteer)}
           steeringId={steeringQueuedId}
           sendingHead={queueSendingHead}
+          paused={queuePaused}
+          onResume={onResumeQueue}
           editingId={editingQueuedId}
-          onEditingChange={onEditingQueuedChange}
-          onUpdate={onUpdateQueued}
+          // One edit at a time. The composer cannot load a message while it is disabled.
+          onEdit={onUpdateQueued && !composerDisabled && !edit ? beginEdit : undefined}
           onRemove={onRemoveQueued}
           onSendNow={composerDisabled ? undefined : onSendQueuedNow}
         />
@@ -291,7 +408,8 @@ export function Composer({
       <form
         ref={formRef}
         onSubmit={onFormSubmit}
-        aria-label="Send a message"
+        onKeyDown={onFormKeyDown}
+        aria-label={edit ? "Edit a queued message" : "Send a message"}
         data-disabled={composerDisabled || undefined}
         // Above the queue tray, which tucks under the top edge.
         className="relative z-10"
@@ -356,16 +474,42 @@ export function Composer({
                 e.target.value = "";
               }}
             />
-            {quote && onClearQuote ? (
+            {edit ? (
+              <div className="app-fade-in mx-1 mb-1 flex items-center gap-2 py-1 pr-1 pl-2">
+                <Pencil size={13} aria-hidden className="shrink-0 text-app-purple-4" />
+                <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-app-fg-3">
+                  Editing a queued message
+                </span>
+                <KeyHint
+                  keys="esc"
+                  className="text-[11px] text-app-fg-2 [@media(pointer:coarse)]:hidden"
+                >
+                  Cancel
+                </KeyHint>
+                <button
+                  type="button"
+                  aria-label="Cancel the edit"
+                  onClick={endEdit}
+                  className={cn(
+                    "inline-flex size-6 shrink-0 items-center justify-center rounded-full",
+                    "text-app-fg-3 transition-colors hover:bg-app-bg-3 hover:text-app-fg-4",
+                    "app-focus",
+                  )}
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            ) : null}
+            {shownQuote && (edit || onClearQuote) ? (
               <div className="app-fade-in mx-1 mb-1 flex items-start gap-2 rounded-2xl bg-app-bg-a2 py-2 pr-2 pl-3">
                 <CornerDownRight size={14} aria-hidden className="mt-0.5 shrink-0 text-app-fg-2" />
                 <p className="line-clamp-2 min-w-0 flex-1 text-[13px] leading-snug whitespace-pre-wrap text-app-fg-3">
-                  {quote}
+                  {shownQuote}
                 </p>
                 <button
                   type="button"
                   aria-label="Remove quote"
-                  onClick={onClearQuote}
+                  onClick={clearShownQuote}
                   className={cn(
                     "inline-flex size-5 shrink-0 items-center justify-center rounded-full",
                     "text-app-fg-3 transition-colors hover:bg-app-bg-3 hover:text-app-fg-4",
@@ -389,11 +533,13 @@ export function Composer({
                 ref={editorRef}
                 initialJSON={initialJSON}
                 placeholder={
-                  isStreaming
-                    ? onSteer
-                      ? "Queue a follow-up, or steer the reply…"
-                      : "Queue a follow-up…"
-                    : "Type and press enter to start chatting…"
+                  edit
+                    ? "Clear it to remove it from the queue"
+                    : isStreaming
+                      ? onSteer
+                        ? "Queue a follow-up, or steer the reply…"
+                        : "Queue a follow-up…"
+                      : "Type and press enter to start chatting…"
                 }
                 disabled={composerDisabled}
                 onChange={handleEditorChange}
@@ -401,7 +547,7 @@ export function Composer({
                 onSubmitNow={handleSteer}
                 onSuggestionChange={mention.setSuggestion}
                 suggestionKeyDownRef={suggestionKeyDownRef}
-                ghostText={ghostText}
+                ghostText={edit ? undefined : ghostText}
                 onGhostAccept={onGhostAccept}
                 onGhostDismiss={onGhostDismiss}
               />
@@ -420,6 +566,7 @@ export function Composer({
               isStreaming={isStreaming}
               canSteer={Boolean(onSteer)}
               steerArmed={steerArmed}
+              editing={edit !== null}
               onSteer={handleSteer}
               disabled={composerDisabled}
               sending={sending}

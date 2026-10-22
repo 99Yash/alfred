@@ -20,6 +20,20 @@ function isCoarsePointer(): boolean {
   return typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
 }
 
+/** A text node may not be empty, so a blank line is an empty paragraph. */
+function textToDoc(text: string): JSONContent {
+  return {
+    type: "doc",
+    content: text
+      .split("\n")
+      .map((line) =>
+        line
+          ? { type: "paragraph", content: [{ type: "text", text: line }] }
+          : { type: "paragraph" },
+      ),
+  };
+}
+
 export interface SuggestionRenderState {
   query: string;
   /** Insert the option as a mention node and close the popup. */
@@ -37,6 +51,11 @@ export interface TiptapComposerHandle {
   clear: () => void;
   /** No text and no mentions. */
   isEmpty: () => boolean;
+  /** The whole document, to put back later with `setJSON`. */
+  getJSON: () => JSONContent;
+  setJSON: (json: JSONContent) => void;
+  /** Replace the document with plain text, one paragraph per line. */
+  setText: (text: string) => void;
 }
 
 interface TiptapComposerProps {
@@ -280,6 +299,13 @@ export function TiptapComposer({
       },
       clear: () => editor.commands.clearContent(true),
       isEmpty: () => editor.isEmpty,
+      getJSON: () => editor.getJSON(),
+      setJSON: (json) => {
+        editor.chain().setContent(json).focus("end").run();
+      },
+      setText: (text) => {
+        editor.chain().setContent(textToDoc(text)).focus("end").run();
+      },
     }),
     [editor],
   );
