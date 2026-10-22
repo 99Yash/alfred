@@ -56,8 +56,8 @@ export interface QueueDispatch {
 
 /**
  * Per-thread client queue (#489): while a reply streams, submits queue as chips. On completion the
- * oldest sends, one at a time. A `busy` reply retries a few times, then waits. Each send claims its
- * entry until it settles, so a thread change or a reorder cannot start that entry again.
+ * oldest sends, one at a time. A `busy` reply retries a few times, then waits. Each send holds its
+ * thread until it settles, so a thread change or a reorder cannot start that entry again.
  */
 export function useQueueDispatch({
   threadId,
@@ -67,7 +67,7 @@ export function useQueueDispatch({
   canSteer,
   stopGeneration,
 }: QueueDispatchInput): QueueDispatch {
-  const { queue, sendingId, enqueue, remove, update, promote, claim } = useChatQueue(threadId);
+  const { queue, sendingId, enqueue, remove, update, promote, run } = useChatQueue(threadId);
   const { onScreen: showStream, streaming: isStreaming, stream } = turn;
   // The queued message open for an in-place edit. The flush waits while it is next.
   const [editingQueuedId, setEditingQueuedId] = useState<string | null>(null);
@@ -85,7 +85,7 @@ export function useQueueDispatch({
   const prevShowStreamRef = useRef(false);
   const lastErrorStreamIdRef = useRef<string | null>(null);
   // Reset during render so the old thread's `showStream` cannot flush the new thread's queue.
-  // The send in flight is not reset: its claim belongs to its own thread until it settles.
+  // The send in flight is not reset: its hold belongs to its own thread until it settles.
   const [prevThreadId, setPrevThreadId] = useState(threadId);
 
   if (prevThreadId !== threadId) {
@@ -103,7 +103,7 @@ export function useQueueDispatch({
     lastErrorStreamIdRef.current = null;
     busyAttemptsRef.current = 0;
 
-    // Not the flush effect's cleanup: that one re-runs when the flush claims an entry.
+    // Not the flush effect's cleanup: that one re-runs when the flush holds the thread.
     return () => {
       flushOwnerRef.current += 1;
     };
@@ -201,7 +201,7 @@ export function useQueueDispatch({
   // An empty queue has nothing to hold.
   if (queuePaused && queue.length === 0) setQueuePaused(false);
 
-  // Send the head while armed. The thread's claim stops a burst while the new stream mounts.
+  // Send the head while armed. The thread's hold stops a burst while the new stream mounts.
   // A pause keeps the arm, so Resume sends without a new completion.
   useEffect(() => {
     if (!flushArmed || queuePaused || sendingId !== null || isStreaming) return;
@@ -212,55 +212,49 @@ export function useQueueDispatch({
     // Wait for the edit, so a half-edited message never sends. Saving or canceling re-runs this.
     if (next.id === editingQueuedId) return;
 
-    // The claim commits with the start, so a second run cannot send twice and the row shows `sending`.
-    const claimed = claim(next.id);
+    // No event handler sees a stream completion, so the start lives in this effect. `run` holds the
+    // thread before it returns, so a second run of this effect cannot send twice, and the row shows
+    // `sending`. The queue releases the hold on every exit with the outcome this body returns.
+    run(next.id, async (entry) => {
+      // Taken before the await, so a thread change or an unmount during the send moves past it.
+      const owner = ++flushOwnerRef.current;
 
-    if (!claimed) return;
-    // Taken before the await, so a thread change or an unmount during the send moves past it.
-    const owner = ++flushOwnerRef.current;
-    const { entry } = claimed;
-    void (async () => {
-      // Every exit settles the claim exactly once, also an old owner's and a throw's.
-      let outcome: "remove" | "keep" = "keep";
+      const result = await send(
+        threadId,
+        entry.text,
+        entry.tier,
+        entry.files,
+        entry.retryAttachmentIds,
+        entry.retryAttachmentMessageId,
+        entry.artifactTargetId,
+      );
 
-      try {
-        const result = await send(
-          threadId,
-          entry.text,
-          entry.tier,
-          entry.files,
-          entry.retryAttachmentIds,
-          entry.retryAttachmentMessageId,
-          entry.artifactTargetId,
-        );
+      // The hold is bound to this thread's queue, so a sent entry leaves it also after a thread
+      // change. An `empty` entry is stale; drop it so it does not block the queue.
+      const outcome = result.ok || result.reason === "empty" ? "remove" : "keep";
 
-        // The claim is bound to this thread's queue, so a sent entry leaves it also after a thread
-        // change. An `empty` entry is stale; drop it so it does not block the queue.
-        if (result.ok || result.reason === "empty") outcome = "remove";
+      // A thread change or an unmount took the flags; they belong to another owner now.
+      if (owner !== flushOwnerRef.current) return outcome;
 
-        // A thread change or an unmount took the flags; they belong to another owner now.
-        if (owner !== flushOwnerRef.current) return;
-
-        if (result.ok) {
-          setFlushArmed(false);
-          // The started turn's completion sends a steer added during the send, so its row keeps "Steering…".
-          setSteeringId((prev) => (prev === entry.id ? null : prev));
-          busyAttemptsRef.current = 0;
-        } else if (result.reason === "busy" && busyAttemptsRef.current < QUEUE_BUSY_RETRIES) {
-          // Stay armed and try again. The chip shows the entry, so no toast.
-          busyAttemptsRef.current += 1;
-          await new Promise((resolve) => setTimeout(resolve, QUEUE_BUSY_RETRY_MS));
-        } else {
-          // An `empty` entry, a hard error (already toasted), or a run that stays busy. A failed entry
-          // waits for the next completion. No turn started, so nothing sends a steer; its row goes back to idle.
-          setFlushArmed(false);
-          setSteeringId(null);
-          busyAttemptsRef.current = 0;
-        }
-      } finally {
-        claimed.settle(outcome);
+      if (result.ok) {
+        setFlushArmed(false);
+        // The started turn's completion sends a steer added during the send, so its row keeps "Steering…".
+        setSteeringId((prev) => (prev === entry.id ? null : prev));
+        busyAttemptsRef.current = 0;
+      } else if (result.reason === "busy" && busyAttemptsRef.current < QUEUE_BUSY_RETRIES) {
+        // Stay armed and try again. The chip shows the entry, so no toast.
+        busyAttemptsRef.current += 1;
+        await new Promise((resolve) => setTimeout(resolve, QUEUE_BUSY_RETRY_MS));
+      } else {
+        // An `empty` entry, a hard error (already toasted), or a run that stays busy. A failed entry
+        // waits for the next completion. No turn started, so nothing sends a steer; its row goes back to idle.
+        setFlushArmed(false);
+        setSteeringId(null);
+        busyAttemptsRef.current = 0;
       }
-    })();
+
+      return outcome;
+    });
   }, [
     flushArmed,
     queuePaused,
@@ -270,7 +264,7 @@ export function useQueueDispatch({
     editingQueuedId,
     send,
     threadId,
-    claim,
+    run,
   ]);
 
   // Retry sends the attachment ids, not files; the server copies the bytes (ADR-0065).

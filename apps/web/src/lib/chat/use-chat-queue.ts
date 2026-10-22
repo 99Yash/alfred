@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   isEmptyChatTurnInput,
   MAX_ATTACHMENTS_PER_MESSAGE,
@@ -53,12 +53,8 @@ function safeRandomId(): string {
   return crypto.randomUUID();
 }
 
-/** The in-flight send of one entry, bound to its thread queue. Settle it exactly once. */
-interface QueueClaim {
-  entry: QueuedMessage;
-  /** `remove`: the turn started, or the entry was stale (`empty`). `keep`: it waits for a later flush. */
-  settle: (outcome: "remove" | "keep") => void;
-}
+/** `remove`: the turn started, or the entry was stale (`empty`). `keep`: it waits for a later flush. */
+type SendOutcome = "remove" | "keep";
 
 export interface ChatQueue {
   /** This thread's FIFO, shown as chips above the composer. */
@@ -80,10 +76,11 @@ export interface ChatQueue {
   /** Move an entry to the head, so it sends next. */
   promote: (id: string) => void;
   /**
-   * Claim an entry for a send. `null` when this thread already has a send in flight or the entry
-   * is gone. The settle is bound to this thread, so it lands here also after a thread change.
+   * Hold this thread for one send of an entry, run `send`, and release the hold when it settles.
+   * `false` when this thread already has a send in flight or the entry is gone. `send` starts before
+   * `run` returns. Its outcome lands on this thread also after a thread change.
    */
-  claim: (id: string) => QueueClaim | null;
+  run: (id: string, send: (entry: QueuedMessage) => Promise<SendOutcome>) => boolean;
 }
 
 /**
@@ -95,6 +92,8 @@ export function useChatQueue(threadId: string | undefined): ChatQueue {
   const key = queueKey(threadId);
   const queue = useMemo(() => queues.get(key)?.entries ?? NO_ENTRIES, [queues, key]);
   const sendingId = queues.get(key)?.sendingId ?? null;
+  // The threads with a send in flight. `run` reads it synchronously, so two runs in one tick cannot both start.
+  const heldRef = useRef(new Set<string>());
 
   const enqueue = useCallback(
     (entry: Omit<QueuedMessage, "id">, position: "back" | "front" = "back"): string | null => {
@@ -227,48 +226,51 @@ export function useChatQueue(threadId: string | undefined): ChatQueue {
     [key],
   );
 
-  const claim = useCallback(
-    (id: string): QueueClaim | null => {
-      // The rendered state gives the answer now; the updater checks again against the latest state.
-      const thread = queues.get(key);
-      const entry = thread?.entries.find((m) => m.id === id);
+  const run = useCallback(
+    (id: string, send: (entry: QueuedMessage) => Promise<SendOutcome>): boolean => {
+      const entry = queues.get(key)?.entries.find((m) => m.id === id);
 
-      if (!thread || !entry || thread.sendingId !== null) return null;
-
+      // The ref answers now. Rendered state lags a commit, and a state updater cannot refuse the caller.
+      if (!entry || heldRef.current.has(key)) return false;
+      heldRef.current.add(key);
+      // The hold always records, also when a remove landed first, so the thread starts no second send.
       setQueues((prev) => {
-        const latest = prev.get(key);
+        const thread = prev.get(key) ?? { entries: NO_ENTRIES, sendingId: null };
 
-        if (!latest || latest.sendingId !== null || !latest.entries.some((m) => m.id === id))
-          return prev;
-
-        return withThread(prev, key, { ...latest, sendingId: id });
+        return withThread(prev, key, { ...thread, sendingId: id });
       });
 
-      let settled = false;
+      // `key` is the hold's thread, not the one on screen when the send ends.
+      const release = (outcome: SendOutcome) => {
+        heldRef.current.delete(key);
+        setQueues((prev) => {
+          const thread = prev.get(key);
 
-      return {
-        entry,
-        settle: (outcome) => {
-          if (settled) return;
-          settled = true;
+          if (!thread) return prev;
 
-          // `key` is the claim's thread, not the one on screen when the send ends.
-          setQueues((prev) => {
-            const latest = prev.get(key);
-
-            if (!latest) return prev;
-
-            return withThread(prev, key, {
-              entries:
-                outcome === "remove" ? latest.entries.filter((m) => m.id !== id) : latest.entries,
-              sendingId: latest.sendingId === id ? null : latest.sendingId,
-            });
+          return withThread(prev, key, {
+            entries:
+              outcome === "remove" ? thread.entries.filter((m) => m.id !== id) : thread.entries,
+            sendingId: thread.sendingId === id ? null : thread.sendingId,
           });
-        },
+        });
       };
+
+      // Every exit releases the hold exactly once, also a throw.
+      void (async () => {
+        let outcome: SendOutcome = "keep";
+
+        try {
+          outcome = await send(entry);
+        } finally {
+          release(outcome);
+        }
+      })();
+
+      return true;
     },
     [key, queues],
   );
 
-  return { queue, sendingId, enqueue, remove, update, promote, claim };
+  return { queue, sendingId, enqueue, remove, update, promote, run };
 }
