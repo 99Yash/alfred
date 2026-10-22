@@ -1,87 +1,36 @@
 import {
-  AUTHORABLE_EVENT_SOURCES,
-  EVENT_TYPES_BY_SOURCE,
   integrationDisplayName,
-  isAuthorableEventSource,
-  isIanaTimezone,
-  isRawAuthorableEventSource,
-  isTypedAuthorableEventSource,
   LOADABLE_INTEGRATION_SLUGS,
-  RAW_EVENT_TYPE,
-  type AuthorableEventSource,
   type LoadableIntegrationSlug,
 } from "@alfred/contracts";
-import {
-  isLikelyValidWorkflowCron,
-  type SyncedWorkflow,
-  type WorkflowUpdateArgs,
-} from "@alfred/sync";
+import { type SyncedWorkflow, type WorkflowUpdateArgs } from "@alfred/sync";
 import { AlertTriangle, Link2, Lock } from "lucide-react";
 import { useMemo, useState } from "react";
-import { AppButton, AppCard, AppPill, AppSegmented, AppTextarea } from "~/components/ui/v2";
+import { AppButton, AppCard, AppPill, AppTextarea } from "~/components/ui/v2";
 import { AppInput } from "~/components/ui/v2/input";
-import { AppSelect } from "~/components/ui/v2/select";
-import { useRawReceiptKinds } from "~/lib/integrations/use-raw-kinds";
 import { cn } from "~/lib/utils";
+import { TriggerEditor } from "./trigger-editor";
+import {
+  buildTrigger,
+  sameTriggerDraft,
+  triggerDraftFromWorkflow,
+  triggerIssues,
+  type TriggerDraft,
+} from "./trigger-model";
 import { WorkflowIcon } from "./workflow-icon";
-
-/**
- * Authorable trigger kinds. No `on_signal`: nothing produces signals yet (ADR-0047).
- * Each event source's options come from its `authoring` field in `@alfred/contracts`.
- */
-type TriggerKind = "cron" | "event" | "manual";
-
-const TRIGGER_TABS: ReadonlyArray<{ value: TriggerKind; label: string }> = [
-  { value: "cron", label: "Schedule" },
-  { value: "event", label: "Event" },
-  { value: "manual", label: "Manual" },
-];
-
-const AUTHORABLE_EVENT_SOURCE_OPTIONS: ReadonlyArray<{
-  value: AuthorableEventSource;
-  label: string;
-}> = AUTHORABLE_EVENT_SOURCES.map((source) => ({
-  value: source,
-  label: integrationDisplayName(source),
-}));
-
-function eventTypeLabel(type: string): string {
-  return type.replace(/[._-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-/** Empty for a raw-authorable source. */
-function typedEventTypes(source: AuthorableEventSource): readonly string[] {
-  return isTypedAuthorableEventSource(source) ? EVENT_TYPES_BY_SOURCE[source] : [];
-}
 
 interface Draft {
   name: string;
   brief: string;
-  kind: TriggerKind;
-  cronSchedule: string;
-  cronTimezone: string;
-  eventSource: AuthorableEventSource;
-  eventType: string;
-  /** Empty until the user picks one. */
-  eventRawKind: string;
+  trigger: TriggerDraft;
   allowed: LoadableIntegrationSlug[];
 }
 
 function draftFromWorkflow(w: SyncedWorkflow): Draft {
-  const t = w.trigger;
-
-  const eventSource: AuthorableEventSource =
-    t.kind === "event" && isAuthorableEventSource(t.source) ? t.source : "gmail";
-
   return {
     name: w.name,
     brief: w.brief ?? "",
-    kind: t.kind === "cron" || t.kind === "event" || t.kind === "manual" ? t.kind : "manual",
-    cronSchedule: t.kind === "cron" ? t.schedule : "0 8 * * *",
-    cronTimezone: t.kind === "cron" ? (t.timezone ?? "") : "",
-    eventSource,
-    eventType: t.kind === "event" ? t.type : (typedEventTypes(eventSource)[0] ?? ""),
-    eventRawKind: t.kind === "event" ? (t.rawKind ?? "") : "",
+    trigger: triggerDraftFromWorkflow(w.trigger),
     allowed: w.allowedIntegrations.filter((s): s is LoadableIntegrationSlug =>
       // SAFETY: widening the const tuple only types the `.includes` receiver.
       (LOADABLE_INTEGRATION_SLUGS as readonly string[]).includes(s),
@@ -89,38 +38,39 @@ function draftFromWorkflow(w: SyncedWorkflow): Draft {
   };
 }
 
-function buildTrigger(draft: Draft): WorkflowUpdateArgs["trigger"] {
-  if (draft.kind === "cron") {
-    const timezone = draft.cronTimezone.trim();
-
-    return {
-      kind: "cron",
-      schedule: draft.cronSchedule.trim(),
-      ...(timezone ? { timezone } : {}),
-    };
-  }
-
-  if (draft.kind === "event") {
-    if (isRawAuthorableEventSource(draft.eventSource)) {
-      return {
-        kind: "event",
-        source: draft.eventSource,
-        type: RAW_EVENT_TYPE,
-        rawKind: draft.eventRawKind,
-      };
-    }
-
-    return { kind: "event", source: draft.eventSource, type: draft.eventType };
-  }
-
-  return { kind: "manual" };
-}
-
 function sameAllowed(a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean {
   if (a.length !== b.length) return false;
   const set = new Set(a);
 
   return b.every((s) => set.has(s));
+}
+
+/** The submit action and the reason it is disabled. */
+function SaveButton({
+  invalid,
+  dirty,
+  saving,
+  onSave,
+}: {
+  invalid: boolean;
+  dirty: boolean;
+  saving: boolean;
+  onSave: () => void;
+}) {
+  return (
+    <div className="flex justify-end">
+      <AppButton
+        variant="primary"
+        onClick={onSave}
+        disabled={invalid || !dirty || saving}
+        title={
+          invalid ? "Fix the highlighted fields first" : !dirty ? "No changes to save" : undefined
+        }
+      >
+        {saving ? "Saving…" : "Submit changes"}
+      </AppButton>
+    </div>
+  );
 }
 
 export function PlanTab({
@@ -136,44 +86,24 @@ export function PlanTab({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  const eventTypes = typedEventTypes(draft.eventSource);
-
-  // Unconditional hook; `null` disables the query for Gmail and non-event kinds.
-  const rawSource =
-    draft.kind === "event" && isRawAuthorableEventSource(draft.eventSource)
-      ? draft.eventSource
-      : null;
-
-  const rawKinds = useRawReceiptKinds(rawSource);
-
-  const rawKindOptions = useMemo(
-    () => (rawKinds.data?.kinds ?? []).map((entry) => ({ value: entry.kind, label: entry.kind })),
-    [rawKinds.data],
-  );
-
-  const rawInventoryEmpty = rawSource !== null && rawKinds.isSuccess && rawKindOptions.length === 0;
-  const rawKindMissing = rawSource !== null && draft.eventRawKind === "";
+  // The one trigger validity call; the editor only shows it.
+  const issues = triggerIssues(draft.trigger);
 
   // The source must be inside a non-empty integration cap, or the run cannot act (the server checks too).
   const eventCapViolation =
-    draft.kind === "event" &&
+    draft.trigger.kind === "event" &&
     draft.allowed.length > 0 &&
-    !draft.allowed.includes(draft.eventSource);
-
-  const cronEmpty = draft.kind === "cron" && draft.cronSchedule.trim() === "";
-
-  const cronInvalid =
-    draft.kind === "cron" && !cronEmpty && !isLikelyValidWorkflowCron(draft.cronSchedule);
-
-  const timezoneInvalid =
-    draft.kind === "cron" &&
-    draft.cronTimezone.trim() !== "" &&
-    !isIanaTimezone(draft.cronTimezone.trim());
+    !draft.allowed.includes(draft.trigger.eventSource);
 
   const nameEmpty = draft.name.trim() === "";
 
   const invalid =
-    nameEmpty || cronEmpty || cronInvalid || timezoneInvalid || eventCapViolation || rawKindMissing;
+    nameEmpty ||
+    issues.cronEmpty ||
+    issues.cronInvalid ||
+    issues.timezoneInvalid ||
+    eventCapViolation ||
+    issues.rawKindMissing;
 
   const dirty = useMemo(() => {
     const original = draftFromWorkflow(workflow);
@@ -181,12 +111,7 @@ export function PlanTab({
     return (
       draft.name !== original.name ||
       draft.brief !== original.brief ||
-      draft.kind !== original.kind ||
-      draft.cronSchedule !== original.cronSchedule ||
-      draft.cronTimezone !== original.cronTimezone ||
-      draft.eventSource !== original.eventSource ||
-      draft.eventType !== original.eventType ||
-      draft.eventRawKind !== original.eventRawKind ||
+      !sameTriggerDraft(draft.trigger, original.trigger) ||
       !sameAllowed(draft.allowed, original.allowed)
     );
   }, [draft, workflow]);
@@ -210,7 +135,7 @@ export function PlanTab({
         name: draft.name.trim(),
         brief: draft.brief.trim() === "" ? null : draft.brief.trim(),
         allowedIntegrations: draft.allowed,
-        trigger: buildTrigger(draft),
+        trigger: buildTrigger(draft.trigger),
       });
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : "Save failed");
@@ -245,122 +170,12 @@ export function PlanTab({
         ) : null}
       </AppCard>
 
-      <AppCard>
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="text-sm font-medium text-app-fg-4">When</span>
-          <AppSegmented<TriggerKind>
-            value={draft.kind}
-            onValueChange={(kind) => !readOnly && setDraft((d) => ({ ...d, kind }))}
-            items={TRIGGER_TABS}
-            label="When this workflow runs"
-          />
-        </div>
-
-        {draft.kind === "cron" ? (
-          <div className="mt-4 space-y-3">
-            <div className="flex flex-wrap items-center gap-2 text-sm text-app-fg-4">
-              <span className="text-app-fg-3">Cron</span>
-              <AppInput
-                value={draft.cronSchedule}
-                readOnly={readOnly}
-                onChange={(e) => setDraft((d) => ({ ...d, cronSchedule: e.target.value }))}
-                className="w-44 font-mono"
-                placeholder="0 8 * * *"
-                aria-label="Cron expression"
-              />
-              <span className="text-app-fg-3">timezone</span>
-              <AppInput
-                value={draft.cronTimezone}
-                readOnly={readOnly}
-                onChange={(e) => setDraft((d) => ({ ...d, cronTimezone: e.target.value }))}
-                className="w-48"
-                placeholder="UTC (or America/New_York)"
-                aria-label="Cron timezone"
-              />
-            </div>
-            <p className="text-xs text-app-fg-3">
-              Standard 5-field cron. Leave timezone blank to inherit your account timezone.
-            </p>
-            {cronInvalid ? (
-              <p className="text-xs text-app-red-4">Use a valid 5-field cron expression.</p>
-            ) : null}
-            {timezoneInvalid ? (
-              <p className="text-xs text-app-red-4">
-                Use a valid IANA timezone, or leave it blank.
-              </p>
-            ) : null}
-          </div>
-        ) : null}
-
-        {draft.kind === "event" ? (
-          <div className="mt-4 space-y-3">
-            <div className="flex flex-wrap items-center gap-2 text-sm text-app-fg-4">
-              <span className="text-app-fg-3">On</span>
-              <AppSegmented<AuthorableEventSource>
-                value={draft.eventSource}
-                onValueChange={(eventSource) =>
-                  !readOnly &&
-                  setDraft((d) => ({
-                    ...d,
-                    eventSource,
-                    eventType: typedEventTypes(eventSource)[0] ?? "",
-                    eventRawKind: "",
-                  }))
-                }
-                items={AUTHORABLE_EVENT_SOURCE_OPTIONS}
-                label="Event source"
-              />
-              <span className="text-app-fg-3">when</span>
-              {rawSource === null ? (
-                <AppSegmented<string>
-                  value={draft.eventType}
-                  onValueChange={(eventType) => !readOnly && setDraft((d) => ({ ...d, eventType }))}
-                  items={eventTypes.map((t) => ({
-                    value: t,
-                    label: eventTypeLabel(t),
-                  }))}
-                  label="Event type"
-                />
-              ) : (
-                <AppSelect
-                  value={draft.eventRawKind === "" ? undefined : draft.eventRawKind}
-                  onChange={(eventRawKind) =>
-                    !readOnly && setDraft((d) => ({ ...d, eventRawKind: eventRawKind ?? "" }))
-                  }
-                  options={rawKindOptions}
-                  placeholder={rawKinds.isPending ? "Loading events…" : "Pick an event kind"}
-                  disabled={readOnly || rawKinds.isPending || rawKindOptions.length === 0}
-                  className="min-w-56 font-mono"
-                  label="Event kind"
-                />
-              )}
-            </div>
-            <p className="text-xs text-app-fg-3">
-              Alfred runs this workflow each time the selected event arrives, with the triggering
-              item passed in as context.
-            </p>
-            {rawInventoryEmpty ? (
-              <p className="text-xs text-app-amber-4">
-                {integrationDisplayName(draft.eventSource)} has not delivered any events yet. Kinds
-                appear here the day the first one arrives; see the integration page under Unmapped
-                events.
-              </p>
-            ) : null}
-            {rawSource !== null && rawKinds.isError ? (
-              <p className="text-xs text-app-red-4">
-                Could not load the event kinds for {integrationDisplayName(draft.eventSource)}.
-              </p>
-            ) : null}
-          </div>
-        ) : null}
-
-        {draft.kind === "manual" ? (
-          <p className="mt-4 text-xs leading-5 text-app-fg-3">
-            This workflow only runs when you trigger it with <strong>Run now</strong>. No schedule
-            or event.
-          </p>
-        ) : null}
-      </AppCard>
+      <TriggerEditor
+        value={draft.trigger}
+        issues={issues}
+        readOnly={readOnly}
+        onChange={(next) => setDraft((d) => ({ ...d, trigger: next }))}
+      />
 
       <AppCard>
         <label className="text-sm font-medium text-app-fg-4" htmlFor="app-workflow-prompt">
@@ -414,7 +229,7 @@ export function PlanTab({
       {eventCapViolation ? (
         <div className="flex items-center gap-2 rounded-xl bg-app-amber-1 px-3 py-2 text-xs text-app-amber-4">
           <AlertTriangle size={13} />
-          Add <strong>{integrationDisplayName(draft.eventSource)}</strong> to the allowed
+          Add <strong>{integrationDisplayName(draft.trigger.eventSource)}</strong> to the allowed
           integrations, or clear the cap. An event workflow must be allowed to use its own trigger
           source.
         </div>
@@ -428,22 +243,12 @@ export function PlanTab({
       ) : null}
 
       {!readOnly ? (
-        <div className="flex justify-end">
-          <AppButton
-            variant="primary"
-            onClick={() => void handleSave()}
-            disabled={invalid || !dirty || saving}
-            title={
-              invalid
-                ? "Fix the highlighted fields first"
-                : !dirty
-                  ? "No changes to save"
-                  : undefined
-            }
-          >
-            {saving ? "Saving…" : "Submit changes"}
-          </AppButton>
-        </div>
+        <SaveButton
+          invalid={invalid}
+          dirty={dirty}
+          saving={saving}
+          onSave={() => void handleSave()}
+        />
       ) : null}
     </div>
   );
