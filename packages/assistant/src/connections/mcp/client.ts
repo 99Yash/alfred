@@ -16,6 +16,7 @@ import {
   type McpResultProvenance,
 } from "@alfred/contracts";
 import { sha256Canonical } from "@alfred/db/hash";
+import { AsyncLocalStorage } from "node:async_hooks";
 import type {
   CacheScope,
   JsonSchemaType,
@@ -241,6 +242,27 @@ function createSchemaValidator(): McpSchemaValidator {
   };
 }
 
+/** The access token one request sent. A 401 renews only that token, never a newer one. */
+interface SentAccessToken {
+  token: string | undefined;
+}
+
+/** The transport reads the token inside the request's async context, so each request sees its own slot. */
+const sentAccessTokens = new AsyncLocalStorage<SentAccessToken>();
+
+/** One protocol request and the slot that records its access token. */
+interface TokenedRequest<T> {
+  sent: SentAccessToken;
+  result: Promise<T>;
+}
+
+/** Run one protocol request and record the access token it sent. */
+function sendWithToken<T>(request: () => Promise<T>): TokenedRequest<T> {
+  const sent: SentAccessToken = { token: undefined };
+
+  return { sent, result: sentAccessTokens.run(sent, request) };
+}
+
 interface McpClientGeneration {
   readonly authorization: McpAuthorizedEndpoint;
   readonly protocol: McpProtocolClient;
@@ -357,7 +379,14 @@ export class McpRawClient {
             ...(boundOAuth
               ? {
                   authProvider: {
-                    token: () => boundOAuth.accessToken(),
+                    token: async () => {
+                      const token = await boundOAuth.accessToken();
+                      const sent = sentAccessTokens.getStore();
+
+                      if (sent) sent.token = token;
+
+                      return token;
+                    },
                   },
                 }
               : this.#options.authProvider
@@ -398,8 +427,10 @@ export class McpRawClient {
       if (wasCurrent) this.#announceCatalogInvalidated();
     });
 
+    const handshake = sendWithToken(() => protocol.connect(trace));
+
     try {
-      const server = await protocol.connect(trace);
+      const server = await handshake.result;
       let negotiated: McpNegotiatedServer;
 
       try {
@@ -419,8 +450,13 @@ export class McpRawClient {
 
       generation.negotiated = negotiated;
     } catch (err) {
+      // Renew first: the close destroys the dispatcher that the token request uses.
+      const renewal = isMcpAuthorizationChallenge(err)
+        ? await this.#renewRejectedToken(oauth, handshake.sent.token)
+        : null;
+
       await this.#closeGeneration(generation, false).catch(() => undefined);
-      throw err;
+      throw renewal ?? err;
     }
 
     this.#generation = generation;
@@ -465,9 +501,11 @@ export class McpRawClient {
         );
       }
 
-      const page: McpProtocolPage = await protocol
-        .listTools(cursor, signal, trace)
-        .catch((err: unknown) => this.#throwProtocolError(err, generation));
+      const request = sendWithToken(() => protocol.listTools(cursor, signal, trace));
+
+      const page: McpProtocolPage = await request.result.catch((err: unknown) =>
+        this.#throwProtocolError(err, generation, request.sent),
+      );
 
       if (pageNumber === 1) {
         ttlMs = page.ttlMs;
@@ -687,9 +725,13 @@ export class McpRawClient {
       );
     }
 
-    const result: McpProtocolCallResult = await protocol
-      .callTool(tool, validated.data, options.signal, options.trace)
-      .catch((err: unknown) => this.#throwProtocolError(err, generation));
+    const request = sendWithToken(() =>
+      protocol.callTool(tool, validated.data, options.signal, options.trace),
+    );
+
+    const result: McpProtocolCallResult = await request.result.catch((err: unknown) =>
+      this.#throwProtocolError(err, generation, request.sent),
+    );
 
     const isToolError = result.isError === true;
     const outputValidator = this.#outputValidators.get(tool.name);
@@ -761,7 +803,11 @@ export class McpRawClient {
     this.#catalogInvalidatedHandler?.();
   }
 
-  async #throwProtocolError(err: unknown, generation: McpClientGeneration): Promise<never> {
+  async #throwProtocolError(
+    err: unknown,
+    generation: McpClientGeneration,
+    sent: SentAccessToken,
+  ): Promise<never> {
     if (err instanceof InsufficientScopeError) {
       const requiredScopes =
         err.requiredScope
@@ -784,6 +830,11 @@ export class McpRawClient {
     }
 
     if (isMcpAuthorizationChallenge(err)) {
+      // A revoked or early-expired token: renew it once before asking the user to reconnect.
+      const renewal = await this.#renewRejectedToken(generation.oauth, sent.token);
+
+      if (renewal) throw renewal;
+
       // Keep this code out of the pre-delivery set: the broker still owns effect ambiguity.
       generation.authorizationBlocked = new McpClientError(
         "authorization_required",
@@ -818,6 +869,36 @@ export class McpRawClient {
       "session_expired",
       "The MCP session expired; reconnect and refresh the catalog before retrying",
     );
+  }
+
+  /**
+   * The error to throw after a 401 when a refresh token can renew the access token,
+   * or `null` when only a new consent can help. Neither code claims the call was not delivered.
+   */
+  async #renewRejectedToken(
+    oauth: McpBoundOAuthSession | null,
+    rejectedAccessToken: string | undefined,
+  ): Promise<McpClientError | null> {
+    if (!oauth) return null;
+
+    let renewed: boolean;
+
+    try {
+      renewed = await oauth.renewRejectedToken(rejectedAccessToken);
+    } catch (error) {
+      return new McpClientError(
+        "token_rejected",
+        "The MCP server rejected the access token, and the renewal did not finish. Try again shortly.",
+        { cause: error },
+      );
+    }
+
+    return renewed
+      ? new McpClientError(
+          "token_rejected",
+          "The MCP server rejected the access token. Alfred renewed it; check the outcome before you repeat a write.",
+        )
+      : null;
   }
 
   #closeGeneration(generation: McpClientGeneration, terminateSession: boolean): Promise<void> {

@@ -25,6 +25,8 @@ const MCP_CLIENT_ERROR_CODES = [
   "invalid_output",
   "insufficient_scope",
   "authorization_required",
+  "authorization_unavailable",
+  "token_rejected",
   "admission_full",
 ] as const;
 
@@ -32,7 +34,8 @@ export type McpClientErrorCode = (typeof MCP_CLIENT_ERROR_CODES)[number];
 
 /**
  * Codes that prove the call never reached the remote tool, so a retry is safe.
- * `insufficient_scope` is a 403 before the tool ran. A code missing here counts
+ * `insufficient_scope` is a 403 before the tool ran. `authorization_unavailable` is a
+ * failed token refresh, which runs before any request. A code missing here counts
  * as possibly delivered, which over-blocks instead of re-sending.
  */
 const MCP_PRE_DELIVERY_ERROR_CODES: ReadonlySet<McpClientErrorCode> = new Set([
@@ -43,6 +46,7 @@ const MCP_PRE_DELIVERY_ERROR_CODES: ReadonlySet<McpClientErrorCode> = new Set([
   "write_tool",
   "invalid_arguments",
   "insufficient_scope",
+  "authorization_unavailable",
   "admission_full",
 ]);
 

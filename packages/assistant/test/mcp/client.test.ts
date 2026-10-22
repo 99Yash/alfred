@@ -337,6 +337,7 @@ describe("McpRawClient catalog", () => {
               return "AUTHORIZED" as const;
             },
             refreshIfNeeded: async () => undefined,
+            renewRejectedToken: async () => false,
             finishAuthorization: async () => undefined,
             accessToken: async () => "fresh",
           };
