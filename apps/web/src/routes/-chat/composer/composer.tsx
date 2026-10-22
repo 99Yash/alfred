@@ -155,6 +155,7 @@ export function Composer({
     [artifactTargetKey],
   );
 
+  // A send cannot start: an approval or a question waits, or a send runs.
   const composerDisabled = disabled || sending;
 
   // Edit loads a queued message into this editor, so the edit has the full composer: files,
@@ -168,17 +169,21 @@ export function Composer({
     setEdit(next);
   }, []);
 
+  // An edit changes only the queue, so an approval that arrives during it does not lock the editor.
+  // The edit can still save or cancel. It cannot send now.
+  const inputDisabled = composerDisabled && edit === null;
+
   // Stays enabled while streaming, so submits queue (#489). An emptied edit can save: it removes the message.
   const canSend =
-    !composerDisabled &&
+    !inputDisabled &&
     (edit !== null || !isEmpty || hasAttachments) &&
     !mic.recording &&
     !transcribing;
 
   const insertAtTrigger = useCallback(() => {
-    if (disabled || sending) return;
+    if (inputDisabled) return;
     editorRef.current?.insertAtTrigger();
-  }, [disabled, sending]);
+  }, [inputDisabled]);
 
   useTypeAnywhere(editorRef, composerDisabled);
 
@@ -213,9 +218,9 @@ export function Composer({
   );
 
   const onAttachClick = useCallback(() => {
-    if (disabled || sending || mic.recording) return;
+    if (inputDisabled || mic.recording) return;
     fileInputRef.current?.click();
-  }, [disabled, sending, mic.recording]);
+  }, [inputDisabled, mic.recording]);
 
   const beginEdit = useCallback(
     (id: string) => {
@@ -258,7 +263,7 @@ export function Composer({
       if (!session || !item) return;
       const body = text.trim();
       const files = attachments.files();
-      const sendNow = mode === "steer" ? onSendQueuedNow : undefined;
+      const sendNow = mode === "steer" && !composerDisabled ? onSendQueuedNow : undefined;
       endEdit();
 
       if (!body && files.length === 0) {
@@ -272,7 +277,16 @@ export function Composer({
       onUpdateQueued?.(item.id, { text: next, files });
       sendNow?.(item.id);
     },
-    [queued, text, attachments, endEdit, onRemoveQueued, onUpdateQueued, onSendQueuedNow],
+    [
+      queued,
+      text,
+      attachments,
+      composerDisabled,
+      endEdit,
+      onRemoveQueued,
+      onUpdateQueued,
+      onSendQueuedNow,
+    ],
   );
 
   const submit = useCallback(
@@ -345,11 +359,11 @@ export function Composer({
 
   const onDragEnter = useCallback(
     (e: DragEvent<HTMLDivElement>) => {
-      if (!e.dataTransfer.types.includes("Files") || composerDisabled) return;
+      if (!e.dataTransfer.types.includes("Files") || inputDisabled) return;
       dragDepth.current += 1;
       setIsDragging(true);
     },
-    [composerDisabled],
+    [inputDisabled],
   );
 
   const onDragLeave = useCallback((e: DragEvent<HTMLDivElement>) => {
@@ -367,10 +381,10 @@ export function Composer({
       if (!e.dataTransfer.files.length) return;
       e.preventDefault();
 
-      if (disabled || sending) return;
+      if (inputDisabled) return;
       attachments.addFiles(e.dataTransfer.files);
     },
-    [disabled, sending, attachments],
+    [inputDisabled, attachments],
   );
 
   const onPaste = useCallback(
@@ -381,10 +395,10 @@ export function Composer({
       // Only for pasted files; text paste falls through.
       e.preventDefault();
 
-      if (disabled || sending) return;
+      if (inputDisabled) return;
       attachments.addFiles(files);
     },
-    [disabled, sending, attachments],
+    [inputDisabled, attachments],
   );
 
   return (
@@ -410,11 +424,11 @@ export function Composer({
         onSubmit={onFormSubmit}
         onKeyDown={onFormKeyDown}
         aria-label={edit ? "Edit a queued message" : "Send a message"}
-        data-disabled={composerDisabled || undefined}
+        data-disabled={inputDisabled || undefined}
         // Above the queue tray, which tucks under the top edge.
         className="relative z-10"
       >
-        {!composerDisabled && suggestion && mentionCandidates.length > 0 ? (
+        {!inputDisabled && suggestion && mentionCandidates.length > 0 ? (
           <MentionPalette
             options={mentionCandidates}
             activeIdx={visibleMentionIdx}
@@ -433,7 +447,7 @@ export function Composer({
             // Frosted surface (see `.composer-frost`).
             "shadow-[var(--frost-shadow)]",
             "app-focus-within transition-shadow",
-            disabled && "opacity-70",
+            disabled && !edit && "opacity-70",
             sending && "opacity-80",
           )}
           onDragOver={(e) => {
@@ -450,7 +464,7 @@ export function Composer({
             className={cn(
               "pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-3xl bg-app-background/70 backdrop-blur-sm",
               "transition-opacity duration-100 motion-reduce:transition-none",
-              isDragging && !composerDisabled ? "opacity-100" : "opacity-0",
+              isDragging && !inputDisabled ? "opacity-100" : "opacity-0",
             )}
           >
             <span className="flex items-center gap-2 text-[13px] font-medium tracking-tight text-app-fg-4">
@@ -465,7 +479,7 @@ export function Composer({
               type="file"
               accept={ACCEPT_ATTR}
               multiple
-              disabled={composerDisabled}
+              disabled={inputDisabled}
               aria-label="Attach files"
               className="hidden"
               onChange={(e) => {
@@ -523,7 +537,7 @@ export function Composer({
             {hasAttachments ? (
               <AttachmentChips
                 items={attachments.items}
-                disabled={composerDisabled}
+                disabled={inputDisabled}
                 onRemove={attachments.remove}
               />
             ) : null}
@@ -541,7 +555,7 @@ export function Composer({
                         : "Queue a follow-up…"
                       : "Type and press enter to start chatting…"
                 }
-                disabled={composerDisabled}
+                disabled={inputDisabled}
                 onChange={handleEditorChange}
                 onSubmit={handleSubmit}
                 onSubmitNow={handleSteer}
@@ -568,7 +582,7 @@ export function Composer({
               steerArmed={steerArmed}
               editing={edit !== null}
               onSteer={handleSteer}
-              disabled={composerDisabled}
+              disabled={inputDisabled}
               sending={sending}
               mentionActive={suggestion !== null}
               onMentionClick={insertAtTrigger}
