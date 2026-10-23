@@ -187,4 +187,7 @@ jobs:
         with:
           name: grounding-eval-results
           path: .eval-results/*.json
+          # upload-artifact@v4 skips dot-directories by default, and
+          # `.eval-results/` is one: without this, no report ever uploads.
+          include-hidden-files: true
           if-no-files-found: ignore
