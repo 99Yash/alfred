@@ -91,17 +91,17 @@ interface QuestionAnchor {
  * The live-with-no-new-user-row path fires only when the last Virtuoso row is a
  * user row. Roles are only `user | assistant` (`packages/db/src/schema/chat.ts`),
  * and the durable assistant row joins the list at run end. A thread can still
- * end in a user row with no reply: a `busy` admission commits the user row and
- * starts no run (`turn-admission.ts`: the user-row insert at `:495`, the `busy`
- * return at `:611-616`, `runId: null` at `:627-629`); a closure write fault
- * lands no row at all (`chat-turn-closure.ts:385-409` catches it, and
- * `terminal-closure.ts:61-79` swallows closure faults). So a just-seeded
- * stream whose user row is still in flight (`seedChatStream` runs before
- * `chatMessageCreate`) sees the previous turn's assistant row last and anchors
- * nothing here; the arriving user row takes the `send` path. A live run that
- * owns the current last user row (mount or resume onto a live run, an approval
- * or `ask_user` wake) anchors `open`. One hop stays: a send onto a thread
- * whose last row is a reply-less user row first anchors that orphan row
+ * end in a user row with no reply. The user-row insert (`turn-admission.ts:495`)
+ * commits before two exits that start no run: a `busy` admission (`:611-616`),
+ * and a double submit that finds no existing run (`runId: null`, `:627-629`).
+ * A closure write fault lands no row at all (`chat-turn-closure.ts:385-409`
+ * catches it, and `terminal-closure.ts:61-79` swallows closure faults). So a
+ * just-seeded stream whose user row is not yet written (`seedChatStream` runs
+ * before `chatMessageCreate`) sees the previous turn's assistant row last and
+ * anchors nothing here; the arriving user row takes the `send` path. A live run
+ * whose last row is a user row anchors that row: `mount` at mount, `open` on a
+ * resume, a switch, an approval, or an `ask_user` wake. One hop stays: a send
+ * onto a thread whose last row is a reply-less user row first anchors that row
  * (`open`, instant), then anchors the new row (`send`, smooth) when it arrives.
  */
 export function useQuestionAnchor({
@@ -130,12 +130,14 @@ export function useQuestionAnchor({
   }, [messages]);
 
   // The durable assistant row joins the list only at run end, so while a run
-  // is live its user row is the last row. A just-seeded stream whose user row
-  // is still in flight still ends in the previous turn's assistant row.
+  // is live the last row is usually a user row. A just-seeded stream whose user
+  // row is not yet written still ends in the previous turn's assistant row.
   const lastRowIsUser = (messages.at(-1)?.role ?? null) === "user";
 
-  // Which question a live run answers, in one place. `null` while the run's
-  // user row is still in flight, so no path can anchor the previous question.
+  // The last user row while a run is live, in one place. Usually the question
+  // the run answers, but a `busy` row that lands during another run is last
+  // until that run's reply row inserts. `null` while the last row is not a user
+  // row, so no path can anchor the previous question.
   const liveQuestionId = live && lastRowIsUser ? lastUserId : null;
 
   // ---- The anchor, derived during render ------------------------------
