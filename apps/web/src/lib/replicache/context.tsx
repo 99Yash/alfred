@@ -105,7 +105,8 @@ export function ReplicacheProvider({ children }: { children: React.ReactNode }) 
     if (rep) {
       dispatch({ type: "retryPull", rep });
       // The puller callbacks report this pull's outcome. While the initial pull is pending, the
-      // initial-pull waiter also ends on this pull.
+      // initial-pull waiter (`awaitInitialPull`) resolves on this same attempt, and it re-arms if
+      // the attempt fails.
       // It rejects only with "Closed" after the client closes, when the lifecycle is already over.
       void rep.pull({ now: true }).catch(() => undefined);
 
@@ -188,10 +189,11 @@ export function ReplicacheProvider({ children }: { children: React.ReactNode }) 
           // In replicache@15.3.0 (pinned, ADR-0061) `pull()` resolves after the pull attempt
           // finishes, whether the puller call failed or succeeded; it rejects only with "Closed".
           // A successful attempt has applied its rows and fired subscriptions before it resolves.
-          // So the initial pull ends only on a resolve after a successful puller call. After a
-          // failed one, a `now: false` pull keeps Replicache's backoff, but it can add one extra
-          // pull after recovery. It also waits until the tab is visible, so a hidden tab can stay
-          // pending after a successful background pull until one more pull finishes.
+          // So the initial-pull waiter ends only on a resolve after a successful puller call. After
+          // a failed one, it re-arms with a `now: false` pull. That pull keeps Replicache's backoff
+          // and adds no request: its signal merges with the loop's own retry signal. It also waits
+          // until the tab is visible, so a hidden tab can stay pending after a successful
+          // background pull until one more successful pull finishes.
           // Re-check this if the Replicache version changes.
           const awaitInitialPull = (now: boolean) => {
             void instance.rep.pull({ now }).then(
