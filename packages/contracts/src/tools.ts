@@ -578,32 +578,6 @@ export const TOOL_LABELS = {
     title: "run a read-only GitHub API request",
   },
 
-  "notion.search": {
-    running: "Searching Notion",
-    done: "Searched Notion",
-    title: "search Notion",
-  },
-  "notion.get_page": {
-    running: "Reading a Notion page",
-    done: "Read a Notion page",
-    title: "read a Notion page",
-  },
-  "notion.create_page": {
-    running: "Creating a Notion page",
-    done: "Created a Notion page",
-    title: "create a Notion page",
-  },
-  "notion.append_blocks": {
-    running: "Adding to a Notion page",
-    done: "Added to a Notion page",
-    title: "add content to a Notion page",
-  },
-  "notion.request": {
-    running: "Querying the Notion API",
-    done: "Queried the Notion API",
-    title: "run a read-only Notion API request",
-  },
-
   "vercel.list_projects": {
     running: "Listing Vercel projects",
     done: "Listed Vercel projects",
@@ -717,12 +691,6 @@ export const TOOL_CATEGORIES = {
   "github.get_pull_requests": "source",
   "github.get_issue": "source",
   "github.request": "source",
-
-  "notion.search": "source",
-  "notion.get_page": "source",
-  "notion.create_page": "action",
-  "notion.append_blocks": "action",
-  "notion.request": "source",
 
   "vercel.list_projects": "source",
   "vercel.list_deployments": "source",

@@ -244,12 +244,12 @@ describe("tool discovery", () => {
   });
 
   test("exact load returns the specific unavailability code and reason, not a generic string", async () => {
-    registerTool(notionCreate);
-    // No Notion credential, so the model gets `not_connected`, not a generic refusal.
+    registerTool(slidesCreate);
+    // No Slides connection, so the model gets `not_connected`, not a generic refusal.
     assert.deepEqual(
       await resolveExactToolLoad({
         userId: "user_1",
-        name: "notion.create_page",
+        name: "slides.create_presentation",
         allowedIntegrations: [],
         context: { caller: "boss", interaction: "live_chat" },
         availability: {
@@ -258,16 +258,16 @@ describe("tool discovery", () => {
           passthroughEnabled: new Map(),
         },
       }),
-      { ok: false, status: "not_connected", reason: "Notion is not connected." },
+      { ok: false, status: "not_connected", reason: "Slides is not connected." },
     );
   });
 
   test("exact load reports the allowlist as not_allowed", async () => {
-    registerTool(notionCreate);
+    registerTool(slidesCreate);
     assert.deepEqual(
       await resolveExactToolLoad({
         userId: "user_1",
-        name: "notion.create_page",
+        name: "slides.create_presentation",
         allowedIntegrations: ["gmail"],
         context: { caller: "boss", interaction: "live_chat" },
         availability: {
@@ -288,7 +288,7 @@ describe("tool discovery", () => {
     assert.deepEqual(
       await resolveExactToolLoad({
         userId: "user_1",
-        name: "notion.nope",
+        name: "slides.nope",
         allowedIntegrations: [],
         context: { caller: "boss", interaction: "live_chat" },
         availability: {
@@ -297,7 +297,7 @@ describe("tool discovery", () => {
           passthroughEnabled: new Map(),
         },
       }),
-      { ok: false, status: "unknown_tool", reason: "Tool 'notion.nope' is not registered." },
+      { ok: false, status: "unknown_tool", reason: "Tool 'slides.nope' is not registered." },
     );
   });
 
@@ -495,51 +495,51 @@ describe("evaluateToolAvailability reason codes (#413)", () => {
 
 // Tools without authored discovery use the derived baseline. Strong unavailable matches show a
 // reason.
-const notionCreate = liveTool({
-  integration: "notion",
-  action: "create_page",
+const slidesCreate = liveTool({
+  integration: "slides",
+  action: "create_presentation",
   riskTier: "medium",
-  description: "Create a Notion page under a parent.",
+  description: "Create a Slides presentation under a parent.",
   inputSchema: z.object({ title: z.string(), content: z.string() }).strict(),
   execute: async () => ({ ok: true }),
 });
 
-const notionGet = liveTool({
-  integration: "notion",
-  action: "get_page",
+const slidesGet = liveTool({
+  integration: "slides",
+  action: "get_presentation",
   riskTier: "no_risk",
-  description: "Fetch a page by id from the workspace.",
-  inputSchema: z.object({ pageId: z.string() }).strict(),
+  description: "Fetch a presentation by id from the workspace.",
+  inputSchema: z.object({ presentationId: z.string() }).strict(),
   execute: async () => ({ ok: true }),
 });
 
 describe("derived-metadata discovery (#413)", () => {
   test("finds a tool with no authored discovery by capability, identity, and schema field", () => {
     const catalog = {
-      tools: [notionCreate, notionGet],
+      tools: [slidesCreate, slidesGet],
       access: {
         allowedIntegrations: [],
         availability: new Map<ToolName, ToolAvailabilityResult>([
-          [notionCreate.name, { available: true }],
-          [notionGet.name, { available: true }],
+          [slidesCreate.name, { available: true }],
+          [slidesGet.name, { available: true }],
         ]),
       },
     } as const;
 
     assert.equal(
-      searchToolCatalog({ query: "create page", ...catalog })[0]?.name,
-      "notion.create_page",
+      searchToolCatalog({ query: "create presentation", ...catalog })[0]?.name,
+      "slides.create_presentation",
       "matches the derived verb + entity",
     );
     assert.ok(
-      searchToolCatalog({ query: "notion", ...catalog }).some(
-        (c) => c.name === "notion.create_page",
+      searchToolCatalog({ query: "slides", ...catalog }).some(
+        (c) => c.name === "slides.create_presentation",
       ),
       "matches the derived identity tag",
     );
     assert.equal(
       searchToolCatalog({ query: "content", ...catalog })[0]?.name,
-      "notion.create_page",
+      "slides.create_presentation",
       "matches a derived schema-field entity",
     );
   });
@@ -548,25 +548,25 @@ describe("derived-metadata discovery (#413)", () => {
     const access: ToolCatalogAccess = {
       allowedIntegrations: [],
       availability: new Map<ToolName, ToolAvailabilityResult>([
-        [notionGet.name, { available: true }],
+        [slidesGet.name, { available: true }],
         [
-          notionCreate.name,
-          { available: false, code: "not_connected", reason: "Notion is not connected." },
+          slidesCreate.name,
+          { available: false, code: "not_connected", reason: "Slides is not connected." },
         ],
       ]),
     };
 
     const found = searchToolCatalog({
-      query: "page",
-      tools: [notionCreate, notionGet],
+      query: "presentation",
+      tools: [slidesCreate, slidesGet],
       access,
       includeUnavailable: true,
     });
 
-    const create = found.find((c) => c.name === "notion.create_page");
+    const create = found.find((c) => c.name === "slides.create_presentation");
     assert.equal(create?.availability, "unavailable");
-    assert.equal(create.unavailableReason, "Notion is not connected.");
-    const get = found.find((c) => c.name === "notion.get_page");
+    assert.equal(create.unavailableReason, "Slides is not connected.");
+    const get = found.find((c) => c.name === "slides.get_presentation");
     assert.equal(get?.availability, "available");
     assert.ok(
       found.indexOf(get) < found.indexOf(create),
@@ -579,14 +579,14 @@ describe("derived-metadata discovery (#413)", () => {
       allowedIntegrations: [],
       availability: new Map<ToolName, ToolAvailabilityResult>([
         [
-          notionCreate.name,
-          { available: false, code: "not_connected", reason: "Notion is not connected." },
+          slidesCreate.name,
+          { available: false, code: "not_connected", reason: "Slides is not connected." },
         ],
       ]),
     };
 
     assert.deepEqual(
-      searchToolCatalog({ query: "create page", tools: [notionCreate], access }),
+      searchToolCatalog({ query: "create presentation", tools: [slidesCreate], access }),
       [],
       "no includeUnavailable → hidden",
     );
@@ -596,13 +596,13 @@ describe("derived-metadata discovery (#413)", () => {
     // A description-only match scores below the floor for unavailable tools.
     const found = searchToolCatalog({
       query: "workspace",
-      tools: [notionGet],
+      tools: [slidesGet],
       access: {
         allowedIntegrations: [],
         availability: new Map<ToolName, ToolAvailabilityResult>([
           [
-            notionGet.name,
-            { available: false, code: "not_connected", reason: "Notion is not connected." },
+            slidesGet.name,
+            { available: false, code: "not_connected", reason: "Slides is not connected." },
           ],
         ]),
       },
@@ -615,13 +615,13 @@ describe("derived-metadata discovery (#413)", () => {
   test("never surfaces tools outside the workflow allowlist, available or not", () => {
     // The user cannot fix `not_allowed` in-run, so it stays hidden even with includeUnavailable.
     const found = searchToolCatalog({
-      query: "create page",
-      tools: [notionCreate],
+      query: "create presentation",
+      tools: [slidesCreate],
       access: {
         allowedIntegrations: ["gmail"],
         availability: new Map<ToolName, ToolAvailabilityResult>([
           [
-            notionCreate.name,
+            slidesCreate.name,
             {
               available: false,
               code: "not_allowed",

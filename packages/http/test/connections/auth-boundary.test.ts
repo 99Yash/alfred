@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { Elysia } from "elysia";
 
-import { notionIntegrationRoutes } from "../../src/connections/notion-routes";
+import { vercelIntegrationRoutes } from "../../src/connections/vercel-routes";
 import { errorHandler } from "../../src/middleware/error-handler";
 
 const SERVER_ENV_FIXTURES = {
@@ -36,23 +36,23 @@ for (const [key, value] of Object.entries(SERVER_ENV_FIXTURES)) {
 }
 
 describe("connections auth boundary", () => {
-  const app = new Elysia({ normalize: "typebox" }).use(errorHandler).use(notionIntegrationRoutes);
+  const app = new Elysia({ normalize: "typebox" }).use(errorHandler).use(vercelIntegrationRoutes);
 
   test("keeps the OAuth callback outside the auth guard", async () => {
     const response = await app.handle(
-      new Request("http://localhost/api/integrations/notion/callback?error=cancelled"),
+      new Request("http://localhost/api/integrations/vercel/callback?error=cancelled"),
     );
 
     assert.equal(response.status, 302);
     assert.equal(
       response.headers.get("location"),
-      "http://localhost:3000/integrations?notion_error=cancelled",
+      "http://localhost:3000/integrations?vercel_error=cancelled",
     );
   });
 
   test("keeps the connect step inside the auth guard", async () => {
     const response = await app.handle(
-      new Request("http://localhost/api/integrations/notion/connect"),
+      new Request("http://localhost/api/integrations/vercel/connect"),
     );
 
     assert.equal(response.status, 401);

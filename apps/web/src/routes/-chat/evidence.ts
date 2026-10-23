@@ -248,7 +248,6 @@ const SEARCH_TOOLS = new Set<ToolName>([
   "system.read_chat_history" satisfies ToolName,
   "gmail.search" satisfies ToolName,
   "github.search" satisfies ToolName,
-  "notion.search" satisfies ToolName,
   "drive.search_files" satisfies ToolName,
 ]);
 
@@ -450,26 +449,6 @@ const LIST_SPECS = new Map<ToolName, ListSpec>([
             start ? formatEventWindow(start, asString(item.end)) : undefined,
             location && location !== "null" ? location : undefined,
           ),
-        };
-      },
-    },
-  ],
-  [
-    "notion.search",
-    {
-      arrayKey: "hits",
-      faviconDomain: INTEGRATIONS.notion.domain,
-      hasMore: (result) => result.hasMore === true,
-      row: (item) => {
-        const title = asString(item.title);
-
-        if (!title) return null;
-
-        return {
-          key: asString(item.id) ?? title,
-          title,
-          href: asString(item.url),
-          meta: ago(item.lastEditedTime),
         };
       },
     },

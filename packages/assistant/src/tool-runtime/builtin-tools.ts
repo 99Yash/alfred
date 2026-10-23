@@ -16,7 +16,6 @@ import { driveTools } from "./internal/tools/drive";
 import { githubTools } from "./internal/tools/github";
 import { gmailTools } from "./internal/tools/gmail";
 import { mcpTools } from "./internal/tools/mcp";
-import { notionTools } from "./internal/tools/notion";
 import { sentryTools } from "./internal/tools/sentry";
 import { sheetsTools } from "./internal/tools/sheets";
 import { slidesTools } from "./internal/tools/slides";
@@ -46,7 +45,6 @@ export function registerBuiltinTools(): BuiltinToolRegistry {
   registerTools(docsTools);
   registerTools(sheetsTools);
   registerTools(slidesTools);
-  registerTools(notionTools);
   registerTools(sentryTools);
   registerTools(vercelTools);
   registerTools(mcpTools);

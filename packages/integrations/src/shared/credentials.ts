@@ -10,7 +10,7 @@ import { integrationCredentials, type IntegrationCredential } from "@alfred/db/s
 import { and, desc, eq } from "drizzle-orm";
 
 /**
- * Storage for single long-lived bearer tokens (Notion, Vercel, Sentry). Tokens are
+ * Storage for single long-lived bearer tokens (Vercel, Sentry). Tokens are
  * sealed on write and opened only where a caller needs a usable token (#453).
  *
  * Known gap: a token revoked at the provider stays `active` until a call fails.

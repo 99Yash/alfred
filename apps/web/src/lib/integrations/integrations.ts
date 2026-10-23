@@ -213,14 +213,17 @@ const INTEGRATION_PAGE_COPY = {
     category: "Productivity",
     capabilities: ["Search Workspace", "Read Pages", "Create Pages", "Append Content"],
     trust: {
-      title: "Alfred only sees what you share",
-      body: "Notion's OAuth grant scopes Alfred to the pages and databases you explicitly share with the integration. Nothing else in your workspace is visible.",
+      title: "You approve every call",
+      body: "Notion connects over MCP, and every MCP call is staged for your approval before it runs. Disconnect here to end the grant.",
     },
     overview: {
       body: "Connect Notion so Alfred can find and read your docs and write new pages or notes on your behalf.",
       heading: "Workspace Intelligence",
       detail:
-        "Alfred can search shared pages and databases, pull their contents into answers, create new pages under a parent, and append notes to existing pages.",
+        "Alfred can search your pages and databases, pull their contents into answers, and create or update pages over your Notion grant.",
+      extraHeading: "Connect it on the MCP tile",
+      extraDetail:
+        "Notion has no separate Alfred credential. It is a first-class MCP server: connect it from the MCP section of this page, and the consent screen is Notion's own.",
     },
   },
   railway: {

@@ -10,11 +10,11 @@ import { evaluateToolAvailability } from "../../src/tool-runtime/internal/regist
  * before any connection reason. On but disconnected returns the health reason.
  */
 
-const notionRequest = liveTool({
-  integration: "notion",
+const vercelRequest = liveTool({
+  integration: "vercel",
   action: "request",
   riskTier: "no_risk",
-  description: "Raw read-only Notion request.",
+  description: "Raw read-only Vercel request.",
   availability: { passthrough: true },
   inputSchema: z.object({ document: z.string() }),
   execute: async () => ({}),
@@ -23,18 +23,18 @@ const notionRequest = liveTool({
 const ctx = { caller: "boss", interaction: "live_chat" } as const;
 
 function snapshot(args: {
-  notionHealth?: "active" | "needs_reauth" | null;
+  vercelHealth?: "active" | "needs_reauth" | null;
   passthroughOn?: boolean;
 }): IntegrationAvailabilitySnapshot {
   return {
     integrations: new Map(
-      args.notionHealth === undefined
+      args.vercelHealth === undefined
         ? []
-        : [["notion", { health: args.notionHealth, accountLabel: null }]],
+        : [["vercel", { health: args.vercelHealth, accountLabel: null }]],
     ),
     providers: new Map(),
     passthroughEnabled: new Map(
-      args.passthroughOn === undefined ? [] : [["notion", args.passthroughOn]],
+      args.passthroughOn === undefined ? [] : [["vercel", args.passthroughOn]],
     ),
   };
 }
@@ -42,8 +42,8 @@ function snapshot(args: {
 describe("passthrough preference gate (feature_disabled)", () => {
   test("an unset preference (absent from the map) is feature_disabled", () => {
     const result = evaluateToolAvailability(
-      snapshot({ notionHealth: "active" }),
-      notionRequest,
+      snapshot({ vercelHealth: "active" }),
+      vercelRequest,
       new Set(),
       ctx,
     );
@@ -55,8 +55,8 @@ describe("passthrough preference gate (feature_disabled)", () => {
 
   test("an explicitly-off preference is feature_disabled", () => {
     const result = evaluateToolAvailability(
-      snapshot({ notionHealth: "active", passthroughOn: false }),
-      notionRequest,
+      snapshot({ vercelHealth: "active", passthroughOn: false }),
+      vercelRequest,
       new Set(),
       ctx,
     );
@@ -68,8 +68,8 @@ describe("passthrough preference gate (feature_disabled)", () => {
 
   test("preference ON + integration connected → available", () => {
     const result = evaluateToolAvailability(
-      snapshot({ notionHealth: "active", passthroughOn: true }),
-      notionRequest,
+      snapshot({ vercelHealth: "active", passthroughOn: true }),
+      vercelRequest,
       new Set(),
       ctx,
     );
@@ -79,8 +79,8 @@ describe("passthrough preference gate (feature_disabled)", () => {
 
   test("preference gate precedes the connection check: OFF + disconnected is feature_disabled, not not_connected", () => {
     const result = evaluateToolAvailability(
-      snapshot({ notionHealth: null, passthroughOn: false }),
-      notionRequest,
+      snapshot({ vercelHealth: null, passthroughOn: false }),
+      vercelRequest,
       new Set(),
       ctx,
     );
@@ -92,8 +92,8 @@ describe("passthrough preference gate (feature_disabled)", () => {
 
   test("preference ON but integration disconnected → honest connection reason, not feature_disabled", () => {
     const result = evaluateToolAvailability(
-      snapshot({ notionHealth: null, passthroughOn: true }),
-      notionRequest,
+      snapshot({ vercelHealth: null, passthroughOn: true }),
+      vercelRequest,
       new Set(),
       ctx,
     );
@@ -105,8 +105,8 @@ describe("passthrough preference gate (feature_disabled)", () => {
 
   test("preference ON but integration needs reauth → needs_reauth, not feature_disabled", () => {
     const result = evaluateToolAvailability(
-      snapshot({ notionHealth: "needs_reauth", passthroughOn: true }),
-      notionRequest,
+      snapshot({ vercelHealth: "needs_reauth", passthroughOn: true }),
+      vercelRequest,
       new Set(),
       ctx,
     );

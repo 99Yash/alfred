@@ -51,9 +51,9 @@ const GITHUB_PROFILE: RestPassthroughProfile = {
   headers: { Authorization: "Bearer gh-token", Accept: "application/vnd.github+json" },
 };
 
-const NOTION_PROFILE: RestPassthroughProfile = {
-  baseUrl: "https://api.notion.com/v1",
-  headers: { Authorization: "Bearer notion-token", "Notion-Version": "2022-06-28" },
+const CALENDAR_PROFILE: RestPassthroughProfile = {
+  baseUrl: "https://www.googleapis.com/calendar/v3",
+  headers: { Authorization: "Bearer calendar-token" },
 };
 
 const VERCEL_PROFILE: RestPassthroughProfile = {
@@ -192,21 +192,21 @@ describe("runRestPassthrough — HTTP envelope", () => {
     assert.deepEqual(result.body, { message: "Not Found" });
   });
 
-  test("a Notion read-via-POST (/search) passes the gate and issues the fetch with the body", async () => {
+  test("a Calendar read-via-POST (/freeBusy) passes the gate and issues the fetch with the body", async () => {
     let fetched = false;
 
     const result = await withMockedFetch(
       (capture) => {
         fetched = true;
         assert.equal(capture.init?.method, "POST");
-        assert.equal(capture.init.body, JSON.stringify({ query: "roadmap" }));
+        assert.equal(capture.init.body, JSON.stringify({ items: [{ id: "primary" }] }));
 
-        return jsonResponse({ results: [] });
+        return jsonResponse({ calendars: {} });
       },
       () =>
         runRestPassthrough(
-          capability("notion", NOTION_PROFILE),
-          req({ method: "POST", path: "/search", body: { query: "roadmap" } }),
+          capability("calendar", CALENDAR_PROFILE),
+          req({ method: "POST", path: "/freeBusy", body: { items: [{ id: "primary" }] } }),
         ),
     );
 
@@ -287,12 +287,12 @@ describe("runRestPassthrough — failure classification (never throws)", () => {
   });
 
   test("a URL that escapes the pinned namespace is a fail-closed invalid_path rejection", async () => {
-    // The gate already blocks `..`, so this forces the transport's own check: `/v2` is outside
-    // Notion's `/v1`.
+    // The gate already blocks `..`, so this forces the transport's own check: `/v4` is outside
+    // Calendar's `/calendar/v3`.
     let fetched = false;
 
     const escaping: RestPassthroughProfile = {
-      baseUrl: "https://api.notion.com/v1",
+      baseUrl: "https://www.googleapis.com/calendar/v3",
       headers: {},
     };
 
@@ -304,8 +304,8 @@ describe("runRestPassthrough — failure classification (never throws)", () => {
       },
       () =>
         runRestPassthrough(
-          capability("notion", escaping),
-          req({ method: "GET", path: "/../v2/pages" }),
+          capability("calendar", escaping),
+          req({ method: "GET", path: "/../v4/calendars" }),
         ),
     );
 

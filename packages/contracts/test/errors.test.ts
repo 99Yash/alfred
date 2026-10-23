@@ -98,10 +98,10 @@ test("httpErrorFromResponse builds a bounded, redacted error from a Response", a
     statusText: "Forbidden",
   });
 
-  const err = await httpErrorFromResponse("notion", res, { url: "/v1/pages", method: "GET" });
+  const err = await httpErrorFromResponse("vercel", res, { url: "/v9/projects", method: "GET" });
   assert.ok(isHttpError(err));
   assert.equal(err.status, 403);
-  assert.equal(err.provider, "notion");
+  assert.equal(err.provider, "vercel");
   assert.ok(!err.message.includes("leakme"));
   assert.match(err.message, /bad/);
 });

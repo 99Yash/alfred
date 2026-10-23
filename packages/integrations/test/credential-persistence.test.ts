@@ -312,9 +312,9 @@ describe("credential backfill (DB-backed)", { skip: SKIP }, () => {
       .insert(integrationCredentials)
       .values({
         userId,
-        provider: "notion",
+        provider: "vercel",
         accountId: randomUUID(),
-        accessToken: sql`${"plain-notion-access"}`,
+        accessToken: sql`${"plain-vercel-access"}`,
         refreshToken: null,
         scopes: [],
       })
@@ -366,7 +366,7 @@ describe("credential backfill (DB-backed)", { skip: SKIP }, () => {
     assert.equal(await getFreshAccessToken(seededIntegration.id), "plain-integration-access");
 
     const nullableRow = await rawIntegrationTokens(nullableIntegration.id);
-    assert.equal(vault.open(nullableRow.accessToken), "plain-notion-access");
+    assert.equal(vault.open(nullableRow.accessToken), "plain-vercel-access");
     assert.equal(nullableRow.refreshToken, null, "a NULL column must stay NULL");
 
     // Second run: nothing left to do, and the already-sealed rows are skipped
@@ -403,7 +403,7 @@ describe("credential backfill (DB-backed)", { skip: SKIP }, () => {
       .insert(integrationCredentials)
       .values({
         userId,
-        provider: "notion",
+        provider: "vercel",
         accountId: randomUUID(),
         accessToken: foreignEnvelope,
         refreshToken: null,
@@ -465,7 +465,7 @@ describe("credential backfill (DB-backed)", { skip: SKIP }, () => {
       .insert(integrationCredentials)
       .values({
         userId,
-        provider: "notion",
+        provider: "vercel",
         accountId: randomUUID(),
         // A raw SQL parameter: the brand refuses a string that is not a current envelope.
         accessToken: sql`${unsupported}`,

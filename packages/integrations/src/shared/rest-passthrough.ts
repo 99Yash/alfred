@@ -21,7 +21,7 @@ import { fetchWithRetry, type RetryPolicy } from "./retry";
 
 /** Where and as whom to send. The read gate is `RestProviderGateConfig` in `@alfred/assistant`. */
 export interface RestPassthroughProfile {
-  /** Origin plus optional namespace, no trailing slash, e.g. `"https://api.notion.com/v1"`. */
+  /** Origin plus optional namespace, no trailing slash, e.g. `"https://api.vercel.com"`. */
   baseUrl: string;
   /** The model cannot supply headers. */
   headers: Record<string, string>;

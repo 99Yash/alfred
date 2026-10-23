@@ -11,7 +11,6 @@ import {
   GitBranch,
   HardDrive,
   Mail,
-  NotebookText,
   Presentation,
   RefreshCw,
   Table2,
@@ -71,11 +70,6 @@ const PASSTHROUGH_META = {
     helper: "Raw read-only GitHub REST — workflow runs, commits, releases, branches, and contents.",
     icon: GitBranch,
     tint: "purple",
-  },
-  notion: {
-    helper: "Raw read-only Notion API — database schema, page properties, and search.",
-    icon: NotebookText,
-    tint: "pink",
   },
   vercel: {
     helper: "Raw read-only Vercel REST — project and deployment detail.",

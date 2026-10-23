@@ -298,7 +298,7 @@ Live backends today:
 
 - Google Workspace: Gmail, Calendar, Drive, Docs, Sheets, Slides.
 - GitHub App: install + user-to-server OAuth, installation tokens for REST, prod-only webhooks.
-- Notion OAuth.
+- Notion MCP OAuth: dynamic client registration and the Notion MCP tools. Notion has no REST connection (ADR-0093, 2026-10-23 amendment).
 - Railway MCP OAuth: dynamic client registration, live deployment reads, and MCP tools.
 - Vercel OAuth (the curated grant): the Vercel tools and the verified-pull deployment reads. Vercel has no MCP built-in, because its server accepts only loopback redirect URIs (`docs/plans/vercel-mcp-retirement.md`).
 - Sentry internal-integration token connect, prod-only webhooks.
