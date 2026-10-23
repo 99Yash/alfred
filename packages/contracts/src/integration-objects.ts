@@ -61,8 +61,8 @@ export interface ObjectKindDef {
   /**
    * True when one identity names one piece of work, so a todo may carry it as a source ref: a
    * live todo merges on it and a resolved todo suppresses it (ADR-0092 A1). A target (a branch, a
-   * service) fails again and again, so one dismissed failure would hide the next ones. It declares
-   * `false`. No default, on purpose.
+   * service) fails again and again, and a Sentry issue can regress, so one dismissed todo would hide
+   * the next failure. Each declares `false`. No default, on purpose.
    */
   readonly todoIdentity: boolean;
   /** Links evidence to a row of this kind with no grammar (ADR-0109 rule 2). Absent: it cannot. */
@@ -408,7 +408,8 @@ export const INTEGRATION_OBJECT_DEFS = {
         closesAskOn: ["resolved"],
         closesAskFrom: "live_confirmation",
         absorbing: [],
-        todoIdentity: true,
+        // A regression reopens the issue. It is new work, so a dismissed todo must not hide it.
+        todoIdentity: false,
         // Every issue link holds `/issues/<issue_id>/`.
         identity: { uniqueKey: { attribute: "issue_id", linkLabel: "issues" } },
       },
