@@ -1,4 +1,4 @@
-import type { Transition } from "motion/react";
+import type { TargetAndTransition, Transition } from "motion/react";
 import { useSyncExternalStore } from "react";
 
 /**
@@ -64,3 +64,33 @@ export const CHAT_PANEL = {
   duration: 0.45,
   ease: [0.32, 0.72, 0, 1],
 } as const satisfies Transition;
+
+type CollapseAxis = "height" | "width";
+
+/**
+ * Props for one row of a list that grows and shrinks: a fade plus a size
+ * collapse, so the rows after it reflow smoothly with no `layout` feature
+ * (`domMax`). Spread on the keyed `m.*` child of an
+ * `<AnimatePresence initial={false}>`, so a list's first render does not
+ * animate. Reads reduce live and passes it in the transition: list rows
+ * (queued messages, to-dos) outlive a preference change. `overflow: hidden`
+ * holds only while the size tweens, so a settled row does not clip a child's
+ * focus ring.
+ */
+export function useCollapseMotion(axis: CollapseAxis) {
+  const reduce = usePrefersReducedMotion();
+  const size = (value: 0 | "auto") => (axis === "height" ? { height: value } : { width: value });
+  const collapsed: TargetAndTransition = { opacity: 0, ...size(0), overflow: "hidden" };
+
+  return {
+    initial: collapsed,
+    animate: { opacity: 1, ...size("auto"), transitionEnd: { overflow: "visible" } },
+    exit: collapsed,
+    transition: { ...CHAT_POP, reduceMotion: reduce },
+  } as const satisfies {
+    initial: TargetAndTransition;
+    animate: TargetAndTransition;
+    exit: TargetAndTransition;
+    transition: LiveTransition;
+  };
+}

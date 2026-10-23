@@ -7,23 +7,13 @@ import { isAnswerEmpty, type AskUserSummary } from "./ask-user";
  * A settled `system.ask_user` call in the transcript (ADR-0099): the questions and
  * the answers, or why none arrived. Replaces the tool row in the activity trail.
  */
-export function QuestionAnswersCard({
-  summary,
-  inTrail = false,
-}: {
-  summary: AskUserSummary;
-  /** The trail owns the enter animation. */
-  inTrail?: boolean | undefined;
-}) {
+export function QuestionAnswersCard({ summary }: { summary: AskUserSummary }) {
   const answered = summary.status === "answered";
 
   return (
     <section
       aria-label={answered ? "Your answers" : "Question not answered"}
-      className={cn(
-        "rounded-xl bg-app-bg-2/60 p-3 shadow-[0_0_0_1px_var(--app-bg-a2)]",
-        !inTrail && "animate-chat-in",
-      )}
+      className="rounded-xl bg-app-bg-2/60 p-3 shadow-[0_0_0_1px_var(--app-bg-a2)]"
     >
       <div className="flex items-center gap-2">
         <MessageCircleQuestion size={14} className="shrink-0 text-app-fg-3" />

@@ -1,8 +1,9 @@
-import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { ArrowUp, CornerDownRight, ListEnd, Pause, Pencil, Play, Trash2 } from "lucide-react";
+import { AnimatePresence, m } from "motion/react";
 import type { ReactNode } from "react";
 import { cn } from "~/lib/utils";
 import type { QueuedMessage } from "~/lib/chat/use-chat-queue";
+import { useCollapseMotion } from "../motion";
 import { splitQuote } from "../quote";
 import { Tip } from "../tip";
 
@@ -50,7 +51,7 @@ export function QueueTray({
   /** Absent while no steer can run, e.g. while an approval waits. */
   onSendNow?: ((id: string) => void) | undefined;
 }) {
-  const [listRef] = useAutoAnimate<HTMLOListElement>();
+  const rowMotion = useCollapseMotion("height");
 
   if (items.length === 0) return null;
   const headEditing = items[0]?.id === editingId;
@@ -92,26 +93,29 @@ export function QueueTray({
           ) : null}
         </header>
       ) : null}
-      <ol ref={listRef} className="flex flex-col gap-px p-1.5">
-        {items.map((item) => (
-          <QueueRow
-            key={item.id}
-            item={item}
-            state={
-              item.id === steeringId
-                ? "steering"
-                : item.id === sendingId
-                  ? "sending"
-                  : item.id === editingId
-                    ? "editing"
-                    : "idle"
-            }
-            canSteer={canSteer}
-            onEdit={onEdit ? () => onEdit(item.id) : undefined}
-            onRemove={() => onRemove(item.id)}
-            onSendNow={onSendNow ? () => onSendNow(item.id) : undefined}
-          />
-        ))}
+      <ol className="flex flex-col gap-px p-1.5">
+        <AnimatePresence initial={false}>
+          {items.map((item) => (
+            <m.li key={item.id} {...rowMotion}>
+              <QueueRow
+                item={item}
+                state={
+                  item.id === steeringId
+                    ? "steering"
+                    : item.id === sendingId
+                      ? "sending"
+                      : item.id === editingId
+                        ? "editing"
+                        : "idle"
+                }
+                canSteer={canSteer}
+                onEdit={onEdit ? () => onEdit(item.id) : undefined}
+                onRemove={() => onRemove(item.id)}
+                onSendNow={onSendNow ? () => onSendNow(item.id) : undefined}
+              />
+            </m.li>
+          ))}
+        </AnimatePresence>
       </ol>
     </section>
   );
@@ -146,7 +150,7 @@ function QueueRow({
   const editing = state === "editing";
 
   return (
-    <li
+    <div
       className={cn(
         "group flex min-h-10 items-center gap-2.5 rounded-xl py-1 pr-1 pl-2.5",
         "transition-colors duration-150 focus-within:bg-app-bg-a2 hover:bg-app-bg-a2",
@@ -215,7 +219,7 @@ function QueueRow({
           </RowIcon>
         </div>
       )}
-    </li>
+    </div>
   );
 }
 

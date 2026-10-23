@@ -87,7 +87,7 @@ export function Conversation({
   // sent again. This holds `scrollTop` at the last `scroll` event, so the re-pin
   // gate can tell a programmatic move away from content growth below.
   const lastScrollTopRef = useRef(0);
-  // The footer also grows between React updates (auto-animate, accordion, markdown reflow).
+  // The footer also grows between React updates (row motion, accordion, markdown reflow).
   // A ResizeObserver on it re-pins through that growth.
   const footerElRef = useRef<HTMLElement | null>(null);
   const footerResizeRef = useRef<ResizeObserver | null>(null);

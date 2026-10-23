@@ -74,12 +74,9 @@ function failureReason(resultPreview: string | undefined): string | undefined {
  */
 export function ToolCallCard({
   tools,
-  inTrail = false,
   live,
 }: {
   tools: ToolCallView[];
-  /** Inside the trail, auto-animate owns the enter animation, so skip `animate-chat-in`. */
-  inTrail?: boolean | undefined;
   /** The run that owns these calls has not ended. Motion needs this AND a `started` call. */
   live: boolean;
 }) {
@@ -131,11 +128,7 @@ export function ToolCallCard({
 
   return (
     // Radix accordion so the panel animates both open and close.
-    <Accordion.Root
-      type="single"
-      collapsible
-      className={cn("text-[13px]", !inTrail && "animate-chat-in")}
-    >
+    <Accordion.Root type="single" collapsible className="text-[13px]">
       <Accordion.Item value={PANEL_ITEM}>
         <Accordion.Header>
           <Accordion.Trigger

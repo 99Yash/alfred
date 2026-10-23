@@ -1,6 +1,7 @@
-import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { Calendar, Check, Mail, X } from "lucide-react";
+import { AnimatePresence, m } from "motion/react";
 import { cn } from "~/lib/utils";
+import { useCollapseMotion } from "../motion";
 import type { RailTodoItem } from "./models";
 import { RailAddRow } from "./rail-add-row";
 import { SuggestionRow } from "./suggestion-row";
@@ -39,22 +40,24 @@ export function TodoFeed({
   /** `suggested → dismissed`. */
   onDismissSuggestion?: ((id: string) => void) | undefined;
 }) {
-  const [openListRef] = useAutoAnimate<HTMLUListElement>();
-  const [doneListRef] = useAutoAnimate<HTMLUListElement>();
-  const [suggestionsListRef] = useAutoAnimate<HTMLDivElement>();
+  // A toggle moves a row between lists as an exit plus an enter. A re-sort inside one list jumps.
+  const rowMotion = useCollapseMotion("height");
   const open = items.filter((t) => !t.done);
   const done = items.filter((t) => t.done);
 
   return (
     <div className="app-card-in space-y-4 px-1 pt-1">
-      <ul ref={openListRef} className="space-y-0.5">
-        {open.map((todo) => (
-          <TodoRow
-            key={todo.id}
-            todo={todo}
-            onToggle={onToggleTodo ? () => onToggleTodo(todo.id, false) : undefined}
-          />
-        ))}
+      <ul className="space-y-0.5">
+        <AnimatePresence initial={false}>
+          {open.map((todo) => (
+            <m.li key={todo.id} {...rowMotion}>
+              <TodoRow
+                todo={todo}
+                onToggle={onToggleTodo ? () => onToggleTodo(todo.id, false) : undefined}
+              />
+            </m.li>
+          ))}
+        </AnimatePresence>
       </ul>
 
       {open.length ? null : (
@@ -71,15 +74,18 @@ export function TodoFeed({
             Done
           </div>
         ) : null}
-        <ul ref={doneListRef} className="space-y-0.5">
-          {done.map((todo) => (
-            <TodoRow
-              key={todo.id}
-              todo={todo}
-              onToggle={onToggleTodo ? () => onToggleTodo(todo.id, true) : undefined}
-              onClear={onClearTodo ? () => onClearTodo(todo.id) : undefined}
-            />
-          ))}
+        <ul className="space-y-0.5">
+          <AnimatePresence initial={false}>
+            {done.map((todo) => (
+              <m.li key={todo.id} {...rowMotion}>
+                <TodoRow
+                  todo={todo}
+                  onToggle={onToggleTodo ? () => onToggleTodo(todo.id, true) : undefined}
+                  onClear={onClearTodo ? () => onClearTodo(todo.id) : undefined}
+                />
+              </m.li>
+            ))}
+          </AnimatePresence>
         </ul>
       </div>
 
@@ -89,17 +95,22 @@ export function TodoFeed({
             Suggestions
           </div>
         ) : null}
-        <div ref={suggestionsListRef} className="space-y-1">
-          {suggestions.map(({ id, label, detail }) => (
-            <SuggestionRow
-              key={id ?? label}
-              label={label}
-              detail={detail}
-              onAccept={id && onPromoteSuggestion ? () => onPromoteSuggestion(id) : undefined}
-              onComplete={id && onCompleteSuggestion ? () => onCompleteSuggestion(id) : undefined}
-              onDismiss={id && onDismissSuggestion ? () => onDismissSuggestion(id) : undefined}
-            />
-          ))}
+        <div className="space-y-1">
+          <AnimatePresence initial={false}>
+            {suggestions.map(({ id, label, detail }) => (
+              <m.div key={id ?? label} {...rowMotion}>
+                <SuggestionRow
+                  label={label}
+                  detail={detail}
+                  onAccept={id && onPromoteSuggestion ? () => onPromoteSuggestion(id) : undefined}
+                  onComplete={
+                    id && onCompleteSuggestion ? () => onCompleteSuggestion(id) : undefined
+                  }
+                  onDismiss={id && onDismissSuggestion ? () => onDismissSuggestion(id) : undefined}
+                />
+              </m.div>
+            ))}
+          </AnimatePresence>
         </div>
       </div>
     </div>
@@ -121,7 +132,7 @@ function TodoRow({
   onClear?: (() => void) | undefined;
 }) {
   return (
-    <li
+    <div
       className={cn(
         "group relative -mx-0.5 flex items-start rounded-xl",
         "transition-colors hover:bg-white/[0.07]",
@@ -186,6 +197,6 @@ function TodoRow({
           <X size={12} aria-hidden />
         </button>
       ) : null}
-    </li>
+    </div>
   );
 }

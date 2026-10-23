@@ -1,21 +1,22 @@
-import { useAutoAnimate } from "@formkit/auto-animate/react";
 import * as Accordion from "@radix-ui/react-accordion";
 import { AWAIT_SUB_AGENT_TOOL, isQuestionApproval, SPAWN_SUB_AGENT_TOOL } from "@alfred/contracts";
 import type { SyncedChatNarration } from "@alfred/sync";
 import { ChevronRight } from "lucide-react";
-import { useId, useState } from "react";
+import { AnimatePresence, m } from "motion/react";
+import { type ReactNode, useId, useState } from "react";
 import { askUserSummary, type AskUserSummary } from "~/components/approvals/ask-user";
 import { QuestionAnswersCard } from "~/components/approvals/question-answers-card";
 import type { SubAgentTrail } from "~/lib/chat/chat-stream-state";
 import { asString, parseJsonRecord } from "~/lib/json-record";
 import { cn } from "~/lib/utils";
 import { ChatProse } from "./chat-prose";
+import { useCollapseMotion } from "./motion";
 import { RunGlyphCluster } from "./run-glyph-cluster";
 import { runGlyphs, runSummary } from "./run-summary";
 import { SubAgentCard } from "./sub-agent-card";
 import { ToolCallCard } from "./tool-call-card";
 import { presentTool, type ToolCallView, visibleTools } from "./tool-call-presentation";
-import { buildTrail } from "./trail";
+import { buildTrail, type TrailItem } from "./trail";
 
 const ITEM = "tools";
 
@@ -55,8 +56,8 @@ export function ToolCallGroup({
   subAgents?: readonly SubAgentTrail[] | undefined;
 }) {
   const contentId = useId();
-  // auto-animate owns enter/move here (cards skip `animate-chat-in` via `inTrail`). It honors reduced motion.
-  const [trailRef] = useAutoAnimate<HTMLDivElement>();
+  // Each trail row owns its enter and exit, so the cards inside run no `animate-chat-in`.
+  const rowMotion = useCollapseMotion("height");
   // Open while active, collapse when done. Set during render to avoid a flash.
   const [value, setValue] = useState(active ? ITEM : "");
   const [prevActive, setPrevActive] = useState(active);
@@ -112,37 +113,46 @@ export function ToolCallGroup({
 
     const loneQuestion = questionSummary(only.tools);
 
-    return loneQuestion ? (
-      <QuestionAnswersCard summary={loneQuestion} />
-    ) : (
-      <ToolCallCard tools={only.tools} live={active} />
+    // Outside the trail, this group owns the lone card's entrance.
+    return (
+      <div className="animate-chat-in w-full">
+        {loneQuestion ? (
+          <QuestionAnswersCard summary={loneQuestion} />
+        ) : (
+          <ToolCallCard tools={only.tools} live={active} />
+        )}
+      </div>
     );
   }
 
+  const trailRow = (item: TrailItem): ReactNode => {
+    if (item.kind !== "tool") return <NarrationRow text={item.text} />;
+    const subAgent = subAgentFor(item.tools);
+
+    if (subAgent) return <SubAgentCard tool={subAgent.tool} trail={subAgent.childTrail} />;
+    const question = questionSummary(item.tools);
+
+    return question ? (
+      <QuestionAnswersCard summary={question} />
+    ) : (
+      <ToolCallCard tools={item.tools} live={active} />
+    );
+  };
+
   // Inline, no capped height: the feed's stick-to-bottom keeps the current step in view.
   const rail = (
-    <div
-      ref={trailRef}
-      className="mt-1.5 ml-3 flex flex-col gap-1.5 border-l-2 border-app-fg-a1 pl-3"
-    >
-      {trail.map((item) => {
-        if (item.kind !== "tool") return <NarrationRow key={item.key} text={item.text} />;
+    <div className="mt-1.5 ml-3 flex flex-col gap-1.5 border-l-2 border-app-fg-a1 pl-3">
+      <AnimatePresence initial={false}>
+        {trail.map((item) => {
+          if (item.kind === "tool" && isRedundantAwait(item.tools)) return null;
 
-        if (isRedundantAwait(item.tools)) return null;
-        const subAgent = subAgentFor(item.tools);
-
-        if (subAgent) {
-          return <SubAgentCard key={item.key} tool={subAgent.tool} trail={subAgent.childTrail} />;
-        }
-
-        const question = questionSummary(item.tools);
-
-        return question ? (
-          <QuestionAnswersCard key={item.key} summary={question} inTrail />
-        ) : (
-          <ToolCallCard key={item.key} tools={item.tools} inTrail live={active} />
-        );
-      })}
+          return (
+            <m.div key={item.key} {...rowMotion}>
+              {trailRow(item)}
+            </m.div>
+          );
+        })}
+      </AnimatePresence>
     </div>
   );
 
@@ -226,7 +236,7 @@ export function ToolCallGroup({
 /** A narration line between tool cards, marked with a dot. */
 function NarrationRow({ text }: { text: string }) {
   return (
-    // No `animate-chat-in`: the trail's auto-animate owns this row.
+    // No `animate-chat-in`: the trail row around it owns the entrance.
     <div className="flex items-start gap-2">
       <span aria-hidden className="flex size-6 shrink-0 items-center justify-center">
         <span className="size-1.5 rounded-full bg-app-fg-2" />
