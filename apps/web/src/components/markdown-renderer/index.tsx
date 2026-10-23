@@ -1,4 +1,3 @@
-import * as Tooltip from "@radix-ui/react-tooltip";
 import type { ComponentProps } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeKatex from "rehype-katex";
@@ -11,8 +10,8 @@ import { markdownComponents } from "./elements";
 
 import "katex/dist/katex.min.css";
 
-// Shared fenced-code renderer, for surfaces with their own wrapper typography.
-export { MarkdownPre } from "./markdown-pre";
+// The shared overrides, for surfaces with their own wrapper typography (the chat reply).
+export { markdownComponents } from "./elements";
 
 // Own module: a component file that also exports a plain function loses Fast Refresh.
 export { altTextImageComponents } from "./alt-text-image";
@@ -47,7 +46,7 @@ const SURFACE_TONE = [
   "text-app-fg-3",
   "[&_h1]:text-app-fg-4 [&_h2]:text-app-fg-4 [&_h3]:text-app-fg-4 [&_h4]:text-app-fg-4",
   "[&_strong]:text-app-fg-4",
-  "[&_a]:text-app-purple-4 hover:[&_a]:text-app-purple-3",
+  "[&_a:not(.not-prose)]:text-app-purple-4 hover:[&_a:not(.not-prose)]:text-app-purple-3",
   "[&_ul]:marker:text-app-fg-2 [&_ol]:marker:text-app-fg-2",
   "[&_blockquote]:border-app-bg-3/60 [&_blockquote]:text-app-fg-2",
   "[&_:not(pre)>code]:bg-app-bg-a2 [&_:not(pre)>code]:text-app-fg-4",
@@ -60,7 +59,7 @@ const MEDIA_TONE = [
   "text-white/85",
   "[&_h1]:text-white [&_h2]:text-white [&_h3]:text-white [&_h4]:text-white",
   "[&_strong]:text-white",
-  "[&_a]:text-app-purple-rail hover:[&_a]:text-white",
+  "[&_a:not(.not-prose)]:text-app-purple-rail hover:[&_a:not(.not-prose)]:text-white",
   "[&_ul]:marker:text-white/50 [&_ol]:marker:text-white/50",
   "[&_blockquote]:border-white/20 [&_blockquote]:text-white/65",
   "[&_:not(pre)>code]:bg-white/10 [&_:not(pre)>code]:text-white",
@@ -126,8 +125,9 @@ export function MarkdownRenderer({
         ...(size === "reading" ? READING_SIZE : COMPACT_SIZE),
         "[&_strong]:font-semibold",
         "[&_em]:italic",
-        "[&_a]:underline [&_a]:underline-offset-2",
-        "[&_a]:wrap-break-word",
+        // A `not-prose` anchor (the citation pill) styles itself.
+        "[&_a:not(.not-prose)]:underline [&_a:not(.not-prose)]:underline-offset-2",
+        "[&_a:not(.not-prose)]:wrap-break-word",
         "[&_ol]:list-decimal [&_ul]:list-disc",
         "[&_li]:pl-0.5",
         "[&_blockquote]:border-l-2 [&_blockquote]:pl-3",
@@ -152,21 +152,19 @@ export function MarkdownRenderer({
         className,
       )}
     >
-      <Tooltip.Provider delayDuration={200}>
-        <ReactMarkdown
-          remarkPlugins={[
-            remarkGfm,
-            remarkBreaks,
-            // Single-dollar text math off: stray "$5" shouldn't become math.
-            [remarkMath, { singleDollarTextMath: false }],
-            ...(extraRemarkPlugins ?? []),
-          ]}
-          rehypePlugins={[rehypeKatex]}
-          components={components}
-        >
-          {children}
-        </ReactMarkdown>
-      </Tooltip.Provider>
+      <ReactMarkdown
+        remarkPlugins={[
+          remarkGfm,
+          remarkBreaks,
+          // Single-dollar text math off: stray "$5" shouldn't become math.
+          [remarkMath, { singleDollarTextMath: false }],
+          ...(extraRemarkPlugins ?? []),
+        ]}
+        rehypePlugins={[rehypeKatex]}
+        components={components}
+      >
+        {children}
+      </ReactMarkdown>
     </div>
   );
 }
