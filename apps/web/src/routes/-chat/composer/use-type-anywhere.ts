@@ -12,8 +12,16 @@ export function useTypeAnywhere(
     const handler = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
 
-      if (!e.key || e.key.length !== 1) return;
+      // A modal owns the keyboard while it is open. The lightbox is the first
+      // input-less dialog here, so without this every key typed over it lands
+      // in the composer draft behind the overlay.
+      if (e.defaultPrevented) return;
+
       const target = e.target;
+
+      if (target instanceof HTMLElement && target.closest('[role="dialog"]')) return;
+
+      if (!e.key || e.key.length !== 1) return;
 
       if (
         target instanceof HTMLElement &&

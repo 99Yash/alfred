@@ -1,4 +1,4 @@
-import { isPassThrough, type ChatErrorKind } from "@alfred/contracts";
+import type { ChatErrorKind } from "@alfred/contracts";
 import type { SyncedChatAttachment, SyncedChatMessage } from "@alfred/sync";
 import { Check, Copy, CornerDownRight, RotateCcw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -10,7 +10,11 @@ import remarkGfm from "remark-gfm";
 import { altTextImageComponents, MarkdownPre } from "~/components/markdown-renderer";
 import { animateWords } from "~/lib/chat/animate-text";
 import { cn } from "~/lib/utils";
-import { AttachmentLightbox, type LightboxImage } from "./attachment-lightbox";
+import {
+  AttachmentLightbox,
+  useAttachmentLightbox,
+  type AttachmentOpener,
+} from "./attachment-lightbox";
 import { ConnectNudgeRows } from "./connect-nudge-rows";
 import { useMarkdownImageMode } from "./published-transcript";
 import { splitPersistedToolCalls } from "./connect-nudges";
@@ -194,30 +198,28 @@ export function AssistantMarkdown({ text, streaming }: { text: string; streaming
 
 /** Image attachments (ADR-0065) through the auth-gated proxy, with placeholders for pending or failed. */
 function MessageAttachments({ attachments }: { attachments: SyncedChatAttachment[] }) {
-  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
-  const srcOf = (id: string) => `${API_URL}/api/chat/attachments/${id}/content`;
-
-  // Only ready images enter the preview; a PDF or a pending row never does.
-  const images: LightboxImage[] = attachments
-    .filter((a) => a.status === "ready" && isPassThrough(a.mime))
-    .map((a) => ({ key: a.id, src: srcOf(a.id), name: a.name }));
+  const lightbox = useAttachmentLightbox(
+    attachments.map((a) => ({
+      key: a.id,
+      src: `${API_URL}/api/chat/attachments/${a.id}/content`,
+      name: a.name,
+      mime: a.mime,
+      // Only ready images enter the preview; a PDF or a pending row never does.
+      ready: a.status === "ready",
+    })),
+  );
 
   return (
     <div className="mb-1.5 flex flex-wrap justify-end gap-2">
-      {attachments.map((a) => {
-        // Resolve by id, never by render position: the image list skips PDFs and pending rows.
-        const imageIndex = images.findIndex((i) => i.key === a.id);
-
-        return (
-          <MessageAttachment
-            key={a.id}
-            attachment={a}
-            src={srcOf(a.id)}
-            onOpen={imageIndex === -1 ? undefined : () => setLightboxIndex(imageIndex)}
-          />
-        );
-      })}
-      <AttachmentLightbox images={images} index={lightboxIndex} onIndexChange={setLightboxIndex} />
+      {attachments.map((a) => (
+        <MessageAttachment
+          key={a.id}
+          attachment={a}
+          src={`${API_URL}/api/chat/attachments/${a.id}/content`}
+          onOpen={lightbox.openerFor(a.id)}
+        />
+      ))}
+      <AttachmentLightbox {...lightbox.lightboxProps} />
     </div>
   );
 }
@@ -244,8 +246,8 @@ function MessageAttachment({
 }: {
   attachment: SyncedChatAttachment;
   src: string;
-  /** Set only for an attachment in the preview's image list. */
-  onOpen?: (() => void) | undefined;
+  /** Set only for an attachment in the preview's image list. Passes the click through so the opener can keep the thumbnail for focus return. */
+  onOpen?: AttachmentOpener | undefined;
 }) {
   // Bump to remount the <img> and refetch after a load failure.
   const [loadAttempt, setLoadAttempt] = useState(0);
@@ -292,7 +294,7 @@ function MessageAttachment({
         type="button"
         aria-label={`Preview ${attachment.name}`}
         onClick={onOpen}
-        className={cn(className, "cursor-zoom-in")}
+        className={cn(className, "app-focus cursor-zoom-in")}
       >
         {thumbnail}
       </button>

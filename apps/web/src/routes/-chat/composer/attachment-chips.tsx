@@ -1,9 +1,7 @@
-import { isPassThrough } from "@alfred/contracts";
 import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { X } from "lucide-react";
-import { useState } from "react";
 import { cn } from "~/lib/utils";
-import { AttachmentLightbox, type LightboxImage } from "../attachment-lightbox";
+import { AttachmentLightbox, useAttachmentLightbox } from "../attachment-lightbox";
 import type { PendingAttachment } from "./use-composer-attachments";
 
 /** Staged attachment previews above the editor. */
@@ -18,19 +16,17 @@ export function AttachmentChips({
 }) {
   // auto-animate owns enter, exit, and reflow, and honors reduced motion.
   const [listRef] = useAutoAnimate<HTMLDivElement>();
-  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   // Only images enter the preview; a PDF chip never does.
-  const images: LightboxImage[] = items
-    .filter((a) => isPassThrough(a.file.type))
-    .map((a) => ({ key: a.key, src: a.previewUrl, name: a.file.name }));
+  const lightbox = useAttachmentLightbox(
+    items.map((a) => ({ key: a.key, src: a.previewUrl, name: a.file.name, mime: a.file.type })),
+  );
 
   return (
     <>
       <div ref={listRef} className="flex flex-wrap gap-2 px-1 pb-2">
         {items.map((a) => {
-          // Resolve by key, never by render position: the image list skips PDFs.
-          const imageIndex = images.findIndex((i) => i.key === a.key);
+          const onOpen = lightbox.openerFor(a.key);
 
           const thumbnail = (
             <img src={a.previewUrl} alt={a.file.name} className="size-full object-cover" />
@@ -42,17 +38,17 @@ export function AttachmentChips({
               className="group relative size-16 overflow-hidden rounded-xl border border-app-fg-a1/40 bg-app-bg-2"
             >
               {/* Preview stays available while disabled: it only reads. */}
-              {imageIndex === -1 ? (
-                thumbnail
-              ) : (
+              {onOpen ? (
                 <button
                   type="button"
                   aria-label={`Preview ${a.file.name}`}
-                  onClick={() => setLightboxIndex(imageIndex)}
-                  className="block size-full cursor-zoom-in"
+                  onClick={onOpen}
+                  className="app-focus-inset block size-full cursor-zoom-in"
                 >
                   {thumbnail}
                 </button>
+              ) : (
+                thumbnail
               )}
               <button
                 type="button"
@@ -72,7 +68,7 @@ export function AttachmentChips({
         })}
       </div>
       {/* Outside the auto-animate list, so the list only sees chips. */}
-      <AttachmentLightbox images={images} index={lightboxIndex} onIndexChange={setLightboxIndex} />
+      <AttachmentLightbox {...lightbox.lightboxProps} />
     </>
   );
 }
