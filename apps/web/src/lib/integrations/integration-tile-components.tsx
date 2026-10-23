@@ -554,6 +554,43 @@ const GoogleSheetsTile = (props: React.ComponentPropsWithoutRef<"svg">) => {
   );
 };
 
+/** Hand-drawn Google Contacts mark (head and shoulders) on the Google tile background. */
+const GoogleContactsTile = (props: React.ComponentPropsWithoutRef<"svg">) => {
+  const idJitter = React.useId();
+
+  return (
+    <svg
+      width="50"
+      height="50"
+      viewBox="0 0 50 50"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      {...props}
+    >
+      <rect width="50" height="50" fill="#171717" />
+      <rect width="50" height="50" fill={`url(#paint0_linear_${idJitter})`} />
+      <circle cx="25" cy="19.5" r="6" fill="#4285F4" />
+      <path
+        d="M13 36.5C13 30.70 17.70 27.5 25 27.5C32.30 27.5 37 30.70 37 36.5V38H13V36.5Z"
+        fill="#1967D2"
+      />
+      <defs>
+        <linearGradient
+          id={`paint0_linear_${idJitter}`}
+          x1="25"
+          y1="6.5"
+          x2="25"
+          y2="50"
+          gradientUnits="userSpaceOnUse"
+        >
+          <stop stopColor="white" />
+          <stop offset="1" stopColor="#D9D9D9" />
+        </linearGradient>
+      </defs>
+    </svg>
+  );
+};
+
 const GoogleSlidesTile = (props: React.ComponentPropsWithoutRef<"svg">) => {
   const idJitter = React.useId();
 
@@ -1725,6 +1762,7 @@ export {
   GoogleDriveTile,
   GoogleSheetsTile,
   GoogleSlidesTile,
+  GoogleContactsTile,
   LinearTile,
   NotionTile,
   RailwayTile,

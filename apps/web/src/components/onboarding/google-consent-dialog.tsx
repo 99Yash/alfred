@@ -30,13 +30,14 @@ export function GoogleConsentDialog({
             <IntegrationIcon brand="google_calendar" size="sm" />
             <IntegrationIcon brand="google_drive" size="sm" />
             <IntegrationIcon brand="google_docs" size="sm" />
+            <IntegrationIcon brand="google_contacts" size="sm" />
           </div>
 
           <ol className="space-y-4">
             <ConsentStep
               icon={<SquareCheckBig size={18} strokeWidth={2} className="text-emerald-400" />}
               title="Check every box"
-              body="Leave all permissions enabled so Alfred can work across your mail, calendar, and files. Unchecking any box quietly disables the matching feature."
+              body="Leave all permissions enabled so Alfred can work across your mail, calendar, files, and contacts. Unchecking any box quietly disables the matching feature."
             />
             <ConsentStep
               icon={<ShieldCheck size={18} strokeWidth={2} className="text-amber-300" />}

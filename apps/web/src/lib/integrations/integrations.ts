@@ -151,6 +151,18 @@ const INTEGRATION_PAGE_COPY = {
         "Alfred can summarize decks, create presentations, and add or edit slides on your behalf.",
     },
   },
+  contacts: {
+    description: "Look up people in your Google Contacts.",
+    category: "Productivity",
+    capabilities: ["Search Contacts", "Search Other Contacts", "Read Contact Details"],
+    trust: GOOGLE_TRUST,
+    overview: {
+      body: "Connect Google Contacts to Alfred so it can find the right person and address when you ask it to write to someone.",
+      heading: "Read-only contact access",
+      detail:
+        "Alfred reads your saved contacts and your Other contacts, the people you emailed but never saved. It cannot add, edit, or delete a contact.",
+    },
+  },
   slack: {
     description: "Manage Slack messages and channels.",
     category: "Apps",

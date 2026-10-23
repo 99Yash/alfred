@@ -9,6 +9,7 @@ import {
   type RegisteredTool,
 } from "./internal/registry";
 import { calendarTools } from "./internal/tools/calendar";
+import { contactsTools } from "./internal/tools/contacts";
 import { contextSearchTools } from "./internal/tools/context-search";
 import { corpusTools } from "./internal/tools/corpus";
 import { docsTools } from "./internal/tools/docs";
@@ -45,6 +46,7 @@ export function registerBuiltinTools(): BuiltinToolRegistry {
   registerTools(docsTools);
   registerTools(sheetsTools);
   registerTools(slidesTools);
+  registerTools(contactsTools);
   registerTools(sentryTools);
   registerTools(vercelTools);
   registerTools(mcpTools);

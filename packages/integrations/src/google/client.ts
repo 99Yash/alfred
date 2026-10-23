@@ -66,6 +66,14 @@ import {
   type CreatePresentationArgs,
   type GetPresentationArgs,
 } from "./slides";
+import {
+  getContact,
+  listContacts,
+  searchContacts,
+  type GetContactArgs,
+  type ListContactsArgs,
+  type SearchContactsArgs,
+} from "./contacts";
 import type { GoogleService } from "./http";
 import { GOOGLE_SCOPE, holdsAnyScope } from "@alfred/contracts";
 
@@ -86,7 +94,8 @@ export type GoogleAuthority =
   | "docs"
   | "drive"
   | "sheets"
-  | "slides";
+  | "slides"
+  | "contacts";
 
 const AUTHORITY_SCOPES = {
   gmail_read: [GOOGLE_SCOPE.gmail.readonly, GOOGLE_SCOPE.gmail.modify],
@@ -98,6 +107,7 @@ const AUTHORITY_SCOPES = {
   drive: [GOOGLE_SCOPE.drive.full],
   sheets: [GOOGLE_SCOPE.sheets.full],
   slides: [GOOGLE_SCOPE.slides.full],
+  contacts: [GOOGLE_SCOPE.contacts.readonly, GOOGLE_SCOPE.contacts.other],
 } satisfies Record<GoogleAuthority, readonly string[]>;
 
 export type GoogleCredential = Pick<CredentialRow, "id" | "accountId" | "accountLabel">;
@@ -297,6 +307,14 @@ export function createGoogleClient(
       },
       passthrough: (credentialId: string) => passthrough("slides", "slides", credentialId),
     },
+    contacts: {
+      searchContacts: ({ credentialId, ...args }: WithCredentialId<SearchContactsArgs>) =>
+        withToken("contacts", credentialId, args, searchContacts),
+      listContacts: ({ credentialId, ...args }: WithCredentialId<ListContactsArgs>) =>
+        withToken("contacts", credentialId, args, listContacts),
+      getContact: ({ credentialId, ...args }: WithCredentialId<GetContactArgs>) =>
+        withToken("contacts", credentialId, args, getContact),
+    },
   };
 }
 
@@ -349,6 +367,7 @@ export function googleClientForUser(options: ProviderBindOptions) {
     drive: { ...client.drive, credential: () => first("drive") },
     sheets: { ...client.sheets, credential: () => first("sheets") },
     slides: { ...client.slides, credential: () => first("slides") },
+    contacts: { ...client.contacts, credential: () => first("contacts") },
   };
 }
 

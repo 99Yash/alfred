@@ -557,6 +557,14 @@ export const TOOL_LABELS = {
     title: "run a read-only Slides API request",
   },
 
+  "contacts.search": {
+    running: "Searching contacts",
+    done: "Searched contacts",
+    title: "search contacts",
+  },
+  "contacts.list": { running: "Listing contacts", done: "Listed contacts", title: "list contacts" },
+  "contacts.get": { running: "Reading a contact", done: "Read a contact", title: "read a contact" },
+
   "github.search": {
     running: "Searching GitHub",
     done: "Searched GitHub",
@@ -691,6 +699,9 @@ export const TOOL_CATEGORIES = {
   "slides.batch_update": "action",
   "slides.add_slide": "action",
   "slides.request": "source",
+  "contacts.search": "source",
+  "contacts.list": "source",
+  "contacts.get": "source",
 
   "github.search": "source",
   "github.get_pull_request": "source",

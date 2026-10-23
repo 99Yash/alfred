@@ -129,7 +129,6 @@ export const isCredentialProvider = enumGuard(CREDENTIAL_PROVIDERS);
 
 export const SUPPORTED_PASSTHROUGH_SLUGS: readonly SupportedPassthroughSlug[] =
   LIVE_PROVIDER_SLUGS.filter(
-    // oxlint-disable-next-line typescript/no-unnecessary-condition -- registry-derived filter: every live slug has a passthrough today, so the check is an identity until a registry entry adds `passthrough: null`.
     (slug): slug is SupportedPassthroughSlug => INTEGRATIONS[slug].passthrough !== null,
   );
 

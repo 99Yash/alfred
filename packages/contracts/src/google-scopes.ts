@@ -26,6 +26,10 @@ export const GOOGLE_SCOPE = {
   docs: { full: "https://www.googleapis.com/auth/documents" },
   sheets: { full: "https://www.googleapis.com/auth/spreadsheets" },
   slides: { full: "https://www.googleapis.com/auth/presentations" },
+  contacts: {
+    readonly: "https://www.googleapis.com/auth/contacts.readonly",
+    other: "https://www.googleapis.com/auth/contacts.other.readonly",
+  },
 } as const;
 
 type ScopeLeaves<T> = T extends string ? T : { [K in keyof T]: ScopeLeaves<T[K]> }[keyof T];
@@ -46,6 +50,7 @@ export const GOOGLE_FEATURE_SCOPES = {
   docs: [GOOGLE_SCOPE.docs.full],
   sheets: [GOOGLE_SCOPE.sheets.full],
   slides: [GOOGLE_SCOPE.slides.full],
+  contacts: [GOOGLE_SCOPE.contacts.readonly, GOOGLE_SCOPE.contacts.other],
 } as const satisfies Record<string, readonly GoogleScope[]>;
 
 export type GoogleFeature = keyof typeof GOOGLE_FEATURE_SCOPES;

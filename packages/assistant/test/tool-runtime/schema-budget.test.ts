@@ -27,6 +27,7 @@ const KERNEL_SCHEMA_TOKENS_CEILING = 3_300;
 // Tools load lazily through system.load_tool, so only the kernel ceiling bounds the bytes
 // that one prompt carries. This ceiling only catches a schema that grows by mistake.
 // 2026-10-23: full 100,460 B after gmail.modify_message (Google REST parity, one tool per slice).
+// 2026-10-23: full 98,428 B after Notion went MCP-only (-5 tools) and contacts.* (+3 tools).
 const FULL_SCHEMA_BYTES_CEILING = 102_000;
 
 /** The artifact/search giants must never bootstrap the kernel. */
