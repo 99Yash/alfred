@@ -1,6 +1,6 @@
 import { AnimatePresence, m, useIsPresent } from "motion/react";
 import type { TargetAndTransition, Transition } from "motion/react";
-import { createContext, useContext, useSyncExternalStore } from "react";
+import { createContext, useCallback, useContext, useRef, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
 
 /**
@@ -84,7 +84,10 @@ const CollapseListContext = createContext<{
  * this. The list reads reduce once and hands it down; rows (queued messages,
  * to-dos) outlive a preference change, so the transition carries the live
  * value. `overflow: hidden` holds only while the size tweens, so a settled
- * row does not clip a child's focus ring.
+ * row does not clip a child's focus ring. `transitionEnd` alone does not do
+ * that: after a size tween to `"auto"` the row keeps inline
+ * `overflow: hidden` until its next render, so the item also clears the clip
+ * in place (see `CollapseItem`).
  */
 function collapseProps(axis: CollapseAxis, reduce: boolean) {
   const size = (value: 0 | "auto") => (axis === "height" ? { height: value } : { width: value });
@@ -111,7 +114,10 @@ function collapseProps(axis: CollapseAxis, reduce: boolean) {
  * take no pointer or keyboard input mid-exit. The list picks the tag, axis,
  * and reduce; the item sets `inert`. The row owns only its content: the
  * animated node takes no classes, so padding, borders, and `overflow-hidden`
- * go on an inner `div`.
+ * go on an inner `div`. When the enter lands the item sets inline
+ * `overflow: visible` directly on its node (a DOM write, not state, so no
+ * re-render): a leaving row keeps `hidden` through its collapse, and a
+ * re-entered row re-applies `hidden` through its next tween.
  */
 export function CollapseItem({ children }: { children: ReactNode }) {
   const list = useContext(CollapseListContext);
@@ -120,17 +126,36 @@ export function CollapseItem({ children }: { children: ReactNode }) {
 
   const motionProps = collapseProps(list.axis, list.reduce);
   const isPresent = useIsPresent();
+  const rowRef = useRef<HTMLElement | null>(null);
+
+  const setRowRef = useCallback((node: HTMLElement | null) => {
+    rowRef.current = node;
+  }, []);
+
+  const clearClipOnSettle = useCallback(() => {
+    rowRef.current?.style.setProperty("overflow", "visible");
+  }, []);
 
   if (list.itemTag === "li") {
     return (
-      <m.li {...motionProps} inert={!isPresent}>
+      <m.li
+        {...motionProps}
+        ref={setRowRef}
+        inert={!isPresent}
+        onAnimationComplete={clearClipOnSettle}
+      >
         {children}
       </m.li>
     );
   }
 
   return (
-    <m.div {...motionProps} inert={!isPresent}>
+    <m.div
+      {...motionProps}
+      ref={setRowRef}
+      inert={!isPresent}
+      onAnimationComplete={clearClipOnSettle}
+    >
       {children}
     </m.div>
   );
