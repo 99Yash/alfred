@@ -1,5 +1,5 @@
 import { cn } from "~/lib/utils";
-import { Favicon } from "./favicon";
+import { Favicon } from "~/components/favicon";
 import type { Source } from "./sources";
 
 /** Favicon chips for the sites a turn's web search used, one per site. */
