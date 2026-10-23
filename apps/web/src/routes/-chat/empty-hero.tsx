@@ -16,6 +16,7 @@ export function EmptyHero({
   onTierChange,
   queued,
   onRemoveQueued,
+  sendingQueuedId,
 }: {
   threadId: string | undefined;
   isStreaming: boolean;
@@ -29,6 +30,8 @@ export function EmptyHero({
   onTierChange: (tier: ChatModelTier) => void;
   queued?: QueuedMessage[] | undefined;
   onRemoveQueued?: ((id: string) => void) | undefined;
+  /** The queued message with a send in flight. Its row shows "Sending…" and cannot be removed. */
+  sendingQueuedId?: string | null | undefined;
 }) {
   const { data: session } = authClient.useSession();
   const name = firstName(session?.user);
@@ -62,6 +65,7 @@ export function EmptyHero({
           onTierChange={onTierChange}
           queued={queued}
           onRemoveQueued={onRemoveQueued}
+          sendingQueuedId={sendingQueuedId}
         />
         <ConnectToolsBar />
       </div>
