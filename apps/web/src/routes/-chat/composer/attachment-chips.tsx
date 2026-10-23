@@ -27,7 +27,7 @@ export function AttachmentChips({
 
   return (
     <>
-      <CollapseList className="flex flex-wrap gap-2 px-1 pb-2">
+      <CollapseList axis="width" className="flex flex-wrap gap-2 px-1 pb-2">
         {items.map((a) => {
           const onOpen = lightbox.openerFor(a.key);
 
@@ -37,7 +37,7 @@ export function AttachmentChips({
 
           // The motion box collapses; the chip inside keeps its 64 px.
           return (
-            <CollapseItem axis="width" key={a.key}>
+            <CollapseItem key={a.key}>
               <div className="group relative size-16 overflow-hidden rounded-xl border border-app-fg-a1/40 bg-app-bg-2">
                 {/* Preview stays available while disabled: it only reads. */}
                 {onOpen ? (
@@ -70,7 +70,7 @@ export function AttachmentChips({
           );
         })}
       </CollapseList>
-      {/* Outside the chip list, so a row exit keeps the preview mounted. */}
+      {/* Outside the list: every child of CollapseList becomes a presence row. */}
       {lightbox.preview}
     </>
   );

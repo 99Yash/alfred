@@ -47,7 +47,7 @@ export function TodoFeed({
     <div className="app-card-in space-y-4 px-1 pt-1">
       <CollapseList as="ul" className="space-y-0.5">
         {open.map((todo) => (
-          <CollapseItem as="li" key={todo.id}>
+          <CollapseItem key={todo.id}>
             <TodoRow
               todo={todo}
               onToggle={onToggleTodo ? () => onToggleTodo(todo.id, false) : undefined}
@@ -72,7 +72,7 @@ export function TodoFeed({
         ) : null}
         <CollapseList as="ul" className="space-y-0.5">
           {done.map((todo) => (
-            <CollapseItem as="li" key={todo.id}>
+            <CollapseItem key={todo.id}>
               <TodoRow
                 todo={todo}
                 onToggle={onToggleTodo ? () => onToggleTodo(todo.id, true) : undefined}

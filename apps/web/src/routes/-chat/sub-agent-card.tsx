@@ -120,22 +120,26 @@ export function SubAgentCard({ tool, trail }: { tool: ToolCallView; trail: SubAg
           <div className="mt-1.5 ml-3 flex flex-col gap-1.5 border-l-2 border-app-fg-a1 pl-3">
             {/* The brief makes the child's steps legible. */}
             {brief ? <p className="text-[12px] text-app-fg-3">{brief}</p> : null}
-            <CollapseList className="flex flex-col gap-1.5">
-              {steps.map((step) => (
-                <CollapseItem key={step.toolCallId} className="flex items-center gap-2">
-                  <div className="min-w-0 flex-1">
-                    <ToolCallCard tools={[step]} live={live} />
-                  </div>
-                  <Elapsed startedTs={step.startedTs} endedTs={step.endedTs} />
-                </CollapseItem>
-              ))}
-            </CollapseList>
-            {steps.length === 0 ? (
-              // A child whose only call bounced did call a tool, so do not say it called none.
-              <p className="text-[12px] text-app-fg-2">
-                {running ? "Getting started…" : "No steps to show."}
-              </p>
-            ) : null}
+            <div>
+              <CollapseList className="flex flex-col gap-1.5">
+                {steps.map((step) => (
+                  <CollapseItem key={step.toolCallId}>
+                    <div className="flex items-center gap-2">
+                      <div className="min-w-0 flex-1">
+                        <ToolCallCard tools={[step]} live={live} />
+                      </div>
+                      <Elapsed startedTs={step.startedTs} endedTs={step.endedTs} />
+                    </div>
+                  </CollapseItem>
+                ))}
+              </CollapseList>
+              {steps.length === 0 ? (
+                // A child whose only call bounced did call a tool, so do not say it called none.
+                <p className="text-[12px] text-app-fg-2">
+                  {running ? "Getting started…" : "No steps to show."}
+                </p>
+              ) : null}
+            </div>
           </div>
         </Accordion.Content>
       </Accordion.Item>

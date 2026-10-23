@@ -869,7 +869,7 @@ function ActivityPill({
         disabled={!show}
         tabIndex={show ? 0 : -1}
         // A width tween, not `layout`: `domAnimation` can reach pixel widths without the layout feature.
-        // `prefersReduced` is the live hook in motion.ts: this button lives for the whole thread,
+        // `prefersReduced` is the live hook in motion.tsx: this button lives for the whole thread,
         // so motion's mount-time check would miss a reduce change mid-thread.
         animate={{ width: face ? (labelWidth ?? "auto") : 36 }}
         transition={prefersReduced ? { duration: 0 } : CHAT_POP}
@@ -1044,7 +1044,7 @@ function FollowUpSuggestions({
   const isPresent = useIsPresent();
   // Live hook (not motion's mount-time snapshot): this row lives from the end of
   // one turn to the next send, so `height` and `marginBottom` need a call-site
-  // gate (see motion.ts). Opacity alone may still fade.
+  // gate (see motion.tsx). Opacity alone may still fade.
   const prefersReduced = usePrefersReducedMotion();
   // ⌥1…⌥9 picks a chip. Use `e.code`: Option+digit types a glyph on macOS.
   // Alt+digit is free in browsers; ⌘digit switches tabs.

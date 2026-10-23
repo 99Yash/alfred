@@ -92,7 +92,7 @@ export function QueueTray({
       ) : null}
       <CollapseList as="ol" className="flex flex-col gap-px p-1.5">
         {items.map((item) => (
-          <CollapseItem as="li" key={item.id}>
+          <CollapseItem key={item.id}>
             <QueueRow
               item={item}
               state={
