@@ -18,7 +18,14 @@ import {
   useRef,
   useState,
 } from "react";
-import { Virtuoso, type Components, type ListRange, type VirtuosoHandle } from "react-virtuoso";
+import {
+  Virtuoso,
+  type Components,
+  type ContextProp,
+  type ListProps,
+  type ListRange,
+  type VirtuosoHandle,
+} from "react-virtuoso";
 import { asQuestionStaging } from "~/components/approvals/ask-user";
 import { ToolIcon } from "~/components/approvals/tool-icon";
 import { markChatTimingByAssistant } from "~/lib/chat/timing";
@@ -44,10 +51,11 @@ import { ConnectNudgeRows } from "./connect-nudge-rows";
 import { collectSources } from "./sources";
 import { ToolCallGroup } from "./tool-call-group";
 import { CHAT_POP, CHAT_SWAP, usePrefersReducedMotion } from "./motion";
+import { MESSAGE_ID_ATTR, useQuestionAnchor } from "./use-question-anchor";
 
 /**
  * Scrollable message feed: synced messages, then the live streaming bubble.
- * Sticks to the bottom unless the user scrolls up.
+ * A new question moves to the top, and the reply fills the space below it (`useQuestionAnchor`).
  * react-virtuoso windows the DOM (#496): compaction never deletes messages, so long threads grow forever.
  * Replicache only appends, so no prepend paging is needed.
  */
@@ -80,23 +88,10 @@ export function Conversation({
   approvals?: readonly SyncedActionStaging[] | undefined;
 }) {
   const virtuosoRef = useRef<VirtuosoHandle | null>(null);
-  // Virtuoso's `autoscrollToBottom` waits for `atBottomThreshold`, so small stream growth stays below the fold.
-  // Pinning this element to `scrollHeight` follows the footer with no lag.
-  const scrollerElRef = useRef<HTMLElement | null>(null);
-  // Virtuoso's `atBottomStateChange` is edge-triggered: a dropped `true` is not
-  // sent again. This holds `scrollTop` at the last `scroll` event, so the re-pin
-  // gate can tell a programmatic move away from content growth below.
-  const lastScrollTopRef = useRef(0);
-  // The footer also grows between React updates (row motion, accordion, markdown reflow).
-  // A ResizeObserver on it re-pins through that growth.
-  const footerElRef = useRef<HTMLElement | null>(null);
-  const footerResizeRef = useRef<ResizeObserver | null>(null);
-  const stickRef = useRef(true);
   // Smooth jumps stall across many unmeasured rows, so use smooth only when the live edge is near.
   const lastRenderedIndexRef = useRef(0);
   // Lets the finished stream's copy button read the HTML before the durable copy syncs.
   const streamBodyRef = useRef<HTMLDivElement | null>(null);
-  const [showJump, setShowJump] = useState(false);
   const reducedMotion = usePrefersReducedMotion();
 
   const showStream = shouldShowStream(messages, stream);
@@ -122,6 +117,31 @@ export function Conversation({
     return map;
   }, [threadArtifacts]);
 
+  const onRangeChanged = useCallback((range: ListRange) => {
+    lastRenderedIndexRef.current = range.endIndex;
+  }, []);
+
+  const isNearLiveEdge = useCallback(
+    () => Math.max(0, messages.length - 1) - lastRenderedIndexRef.current <= 25,
+    [messages.length],
+  );
+
+  const {
+    attachScroller,
+    scrollerElRef,
+    setListEl,
+    setFooterEl,
+    belowFold,
+    anchored,
+    initialLocation,
+  } = useQuestionAnchor({
+    virtuosoRef,
+    messages,
+    threadId,
+    live: showStream && !stream.done,
+    smoothAnchor: () => !reducedMotion && isNearLiveEdge(),
+  });
+
   // Leaves out the stream snapshot, so windowed rows do not re-render each streaming frame.
   const itemContext = useMemo<FeedItemContext>(
     () => ({
@@ -131,205 +151,25 @@ export function Conversation({
       onRetry,
       onOpenArtifact,
       openArtifactId,
+      setListEl,
     }),
-    [messages, attachmentsByMessage, artifactsByMessage, onRetry, onOpenArtifact, openArtifactId],
+    [
+      messages,
+      attachmentsByMessage,
+      artifactsByMessage,
+      onRetry,
+      onOpenArtifact,
+      openArtifactId,
+      setListEl,
+    ],
   );
 
   const streamTimingRefs = useStreamRenderTiming(showStream ? stream : null);
 
-  // ---- Follow the live edge -------------------------------------------
-  // Scrolling up detaches; sending a new message re-attaches.
-  const lastUserId = useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const m = messages[i];
-
-      if (m && m.role === "user") return m.id;
-    }
-
-    return null;
-  }, [messages]);
-
-  // A new user message jumps to the live edge, even from far up.
-  // `followOutput` only pins near the bottom, so the jump is explicit. Skip the mount run.
-  // The jump-button reset happens during render; through the effect, a stale button shows for a frame.
-  // The first render stores `lastUserId` as `prevLastUserId`, so the reset never runs on mount.
-  const firstUserTurn = useRef(true);
-  const [prevLastUserId, setPrevLastUserId] = useState(lastUserId);
-
-  if (lastUserId !== prevLastUserId) {
-    setPrevLastUserId(lastUserId);
-    setShowJump(false);
-  }
-
-  useEffect(() => {
-    if (firstUserTurn.current) {
-      firstUserTurn.current = false;
-
-      return;
-    }
-
-    stickRef.current = true;
-    virtuosoRef.current?.scrollToIndex({ index: "LAST", align: "end", behavior: "auto" });
-  }, [lastUserId]);
-
-  // The live scroller distance at call time. Virtuoso's `atBottomStateChange`
-  // arrives through a 50 ms trailing throttle, so a programmatic scroll can move
-  // the feed between the scroll event and the callback; a held flag cannot see
-  // that, a live read can.
-  const isAtLiveBottom = useCallback(() => {
-    const el = scrollerElRef.current;
-
-    if (!el) return false;
-
-    return el.scrollHeight - el.scrollTop - el.clientHeight <= AT_BOTTOM_PX;
-  }, []);
-
-  // Re-attach only. `releasePin` detaches, because the pin rewrites `scrollTop` before `atBottom` can flip.
-  // The live read drops a stale `true` from a programmatic pass through the bottom.
-  // A dropped `true` is not sent again (Virtuoso de-duplicates `atBottom` before its
-  // 50 ms throttle), so refuse only when the scroller moved up since Virtuoso's read:
-  // content growth below a real arrival leaves `scrollTop` alone, and that must re-pin.
-  const onAtBottomChange = useCallback(
-    (atBottom: boolean) => {
-      const el = scrollerElRef.current;
-
-      if (!atBottom || !el) return;
-
-      if (isAtLiveBottom() || el.scrollTop >= lastScrollTopRef.current - 1) {
-        stickRef.current = true;
-        setShowJump(false);
-      }
-    },
-    [isAtLiveBottom],
-  );
-
-  // Detect scroll-up intent (wheel up, touch drag), not a position delta.
-  // The pin rewrites `scrollTop` every drip, so a position check loses the race.
-  // Ignore downward wheels so this does not fight the pin.
-  const releasePin = useCallback(() => {
-    if (!stickRef.current) return;
-    stickRef.current = false;
-    setShowJump(true);
-  }, []);
-
-  const onWheel = useCallback(
-    (e: WheelEvent) => {
-      if (e.deltaY < 0) releasePin();
-    },
-    [releasePin],
-  );
-
-  // Record in the `scroll` event itself, in the same dispatch as Virtuoso's own listener.
-  // A deferred record (rAF or throttle) lets a stale `true` from the far jump re-pin.
-  const recordScrollTop = useCallback(() => {
-    const el = scrollerElRef.current;
-
-    if (el) lastScrollTopRef.current = el.scrollTop;
-  }, []);
-
-  // Stable identity, so Virtuoso does not rebuild the listeners each render.
-  const attachScroller = useCallback(
-    (ref: HTMLElement | Window | null) => {
-      const prev = scrollerElRef.current;
-
-      if (prev) {
-        prev.removeEventListener("wheel", onWheel);
-        prev.removeEventListener("touchmove", releasePin);
-        prev.removeEventListener("scroll", recordScrollTop);
-      }
-
-      const el = ref instanceof HTMLElement ? ref : null;
-      scrollerElRef.current = el;
-
-      if (el) {
-        lastScrollTopRef.current = el.scrollTop;
-        el.addEventListener("wheel", onWheel, { passive: true });
-        el.addEventListener("touchmove", releasePin, { passive: true });
-        el.addEventListener("scroll", recordScrollTop, { passive: true });
-      }
-    },
-    [onWheel, releasePin, recordScrollTop],
-  );
-
-  const onRangeChanged = useCallback((range: ListRange) => {
-    lastRenderedIndexRef.current = range.endIndex;
-  }, []);
-
-  // Pin to the bottom on each stream tick. The footer is not virtualized, so its height is exact.
-  // `autoscrollToBottom` still runs to measure a new durable row that Virtuoso has not measured yet.
-  // The read and write share one rAF; inline, they forced a reflow every drip.
-  const pinRafRef = useRef<number | null>(null);
-
-  const schedulePin = useCallback(() => {
-    if (!stickRef.current) return;
-
-    if (pinRafRef.current != null) return; // one pin per frame
-    pinRafRef.current = requestAnimationFrame(() => {
-      pinRafRef.current = null;
-
-      if (!stickRef.current) return; // user scrolled up meanwhile
-      const el = scrollerElRef.current;
-
-      if (el) el.scrollTop = el.scrollHeight;
-      virtuosoRef.current?.autoscrollToBottom();
-    });
-  }, []);
-
-  useEffect(() => {
-    schedulePin();
-  }, [messages, stream, schedulePin]);
-
-  // Re-pin on footer growth between React updates.
-  // Pin synchronously here: after layout the read is cheap, and a rAF left the view ~30px behind.
-  // Writing `scrollTop` does not resize the footer, so there is no feedback loop.
-  useEffect(() => {
-    if (typeof ResizeObserver === "undefined") return;
-
-    const ro = new ResizeObserver(() => {
-      if (!stickRef.current) return;
-      const el = scrollerElRef.current;
-
-      if (el) el.scrollTop = el.scrollHeight;
-    });
-
-    footerResizeRef.current = ro;
-
-    if (footerElRef.current) ro.observe(footerElRef.current);
-
-    return () => {
-      ro.disconnect();
-      footerResizeRef.current = null;
-    };
-  }, []);
-
-  const setFooterEl = useCallback((el: HTMLElement | null) => {
-    const ro = footerResizeRef.current;
-    const prev = footerElRef.current;
-
-    if (ro && prev) ro.unobserve(prev);
-    footerElRef.current = el;
-
-    if (ro && el) ro.observe(el);
-  }, []);
-
-  // Cancel a pending pin on unmount. A per-run cleanup would cancel the burst's pin.
-  useEffect(
-    () => () => {
-      if (pinRafRef.current != null) cancelAnimationFrame(pinRafRef.current);
-    },
-    [],
-  );
-
-  const isNearLiveEdge = useCallback(
-    () => Math.max(0, messages.length - 1) - lastRenderedIndexRef.current <= 25,
-    [messages.length],
-  );
-
   // `scrollToIndex` measures rows as it goes, so it lands at the true bottom.
   // Smooth only near the edge or it stalls; instant under reduced motion.
+  // One jump: the view does not follow the reply after it.
   const jumpToBottom = useCallback(() => {
-    stickRef.current = true;
-    setShowJump(false);
     virtuosoRef.current?.scrollToIndex({
       index: "LAST",
       align: "end",
@@ -366,12 +206,10 @@ export function Conversation({
     io.observe(trayEl);
 
     return () => io.disconnect();
-  }, [trayEl]);
+  }, [trayEl, scrollerElRef]);
 
   // Near: one scroll. Far: land at the live edge first so Virtuoso measures the rows above the
-  // tray, then move to the card a frame later. The pass through the bottom must not
-  // re-pin; Virtuoso's own `atBottomStateChange` re-pins through the live gate above
-  // when the card lands within it.
+  // tray, then move to the card a frame later.
   const jumpToApproval = useCallback(() => {
     const el = trayEl;
 
@@ -398,20 +236,13 @@ export function Conversation({
     return () => window.removeEventListener(SCROLL_CHAT_TO_BOTTOM_EVENT, handler);
   }, []);
 
-  // The component stays mounted across thread navigations, so `initialTopMostItemIndex` cannot re-land.
-  // The jump-button reset happens during render; the effect only jumps.
-  const [prevThreadId, setPrevThreadId] = useState(threadId);
-
-  if (threadId !== prevThreadId) {
-    setPrevThreadId(threadId);
-    setShowJump(false);
-  }
-
+  // A switch usually remounts the feed (the shell shows a loader first), so
+  // `initialTopMostItemIndex` lands it. This covers the stay-mounted path.
+  // A thread with a live run anchors its question instead (the hook scrolls).
   useEffect(() => {
-    if (!threadId) return;
-    stickRef.current = true;
+    if (!threadId || anchored) return;
     virtuosoRef.current?.scrollToIndex({ index: "LAST", align: "end", behavior: "auto" });
-  }, [threadId]);
+  }, [threadId, anchored]);
 
   useEffect(() => {
     for (const message of messages) {
@@ -454,14 +285,6 @@ export function Conversation({
         ? { kind: "activity", label: describeActivity(stream) }
         : { kind: "latest" };
 
-  const followOutput = useCallback(() => (stickRef.current ? ("auto" as const) : false), []);
-
-  // Virtuoso reads this once on mount. Thread switches re-land through the effect above.
-  const [initialIndex] = useState(() => ({
-    index: Math.max(0, messages.length - 1),
-    align: "end" as const,
-  }));
-
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
       <FeedFooterContext value={footerValue}>
@@ -473,17 +296,14 @@ export function Conversation({
           computeItemKey={computeItemKey}
           itemContent={renderItem}
           components={FEED_COMPONENTS}
-          followOutput={followOutput}
-          atBottomThreshold={AT_BOTTOM_PX}
-          atBottomStateChange={onAtBottomChange}
           rangeChanged={onRangeChanged}
-          initialTopMostItemIndex={initialIndex}
+          initialTopMostItemIndex={initialLocation}
           increaseViewportBy={{ top: 800, bottom: 800 }}
           className="scroll-stable min-h-0 flex-1"
         />
       </FeedFooterContext>
       <ActivityPill
-        show={showJump}
+        show={belowFold}
         state={pillState}
         onClick={jumpToBottom}
         onReview={jumpToApproval}
@@ -503,6 +323,8 @@ interface FeedItemContext {
     | undefined;
   onOpenArtifact?: ((artifactId: string) => void) | undefined;
   openArtifactId?: string | null | undefined;
+  /** Registers the list element with the question anchor (the rows tail). Stable, so rows do not re-render. */
+  setListEl: (el: HTMLElement | null) => void;
 }
 
 const computeItemKey = (_: number, message: SyncedChatMessage) => message.id;
@@ -534,7 +356,7 @@ const FeedRow = memo(function FeedRow({
   const messageArtifacts = onOpenArtifact ? context.artifactsByMessage.get(message.id) : undefined;
 
   return (
-    <div className="flex flex-col gap-5 pb-5">
+    <div {...{ [MESSAGE_ID_ATTR]: message.id }} className="flex flex-col gap-5 pb-5">
       <MessageBubble
         message={message}
         attachments={context.attachmentsByMessage[message.id]}
@@ -568,7 +390,7 @@ interface FeedFooterValue {
   onFollowUp?: ((text: string) => void) | undefined;
   /** Pending approvals in tool-trail order. Ones with no tool card in the stream go last. */
   orderedApprovals: readonly SyncedActionStaging[];
-  /** Registers the footer with the parent's re-pin observer. */
+  /** Registers the footer content box with the question anchor (reserve and pill). */
   setFooterEl: (el: HTMLElement | null) => void;
   /** Registers the approval card list with the parent's jump-to-card pill. */
   setTrayEl: (el: HTMLDivElement | null) => void;
@@ -580,10 +402,21 @@ function FeedList({
   style,
   children,
   ref,
+  context: { setListEl },
   ...props
-}: React.HTMLAttributes<HTMLDivElement> & React.RefAttributes<HTMLDivElement>) {
+}: ListProps & ContextProp<FeedItemContext>) {
+  // One callback ref: Virtuoso's own ref, then the question anchor's.
+  const attach = useCallback(
+    (el: HTMLDivElement | null) => {
+      if (ref && "current" in ref) ref.current = el;
+      else ref?.(el);
+      setListEl(el);
+    },
+    [ref, setListEl],
+  );
+
   return (
-    <div ref={ref} {...props} style={style} className="mx-auto w-full max-w-3xl px-4">
+    <div ref={attach} {...props} style={style} className="mx-auto w-full max-w-3xl px-4">
       {children}
     </div>
   );
@@ -618,6 +451,7 @@ function FeedFooter() {
   return (
     // Virtuoso renders the Footer as a sibling of the List, so match its column here.
     // Without it the bubble snaps width when the durable row syncs.
+    // The question anchor owns this element's `min-height` (the reserve), so no style here.
     <div ref={setFooterEl} className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 pb-6">
       {/* `initial={false}`: chips already there when the thread opens do not animate in. */}
       <AnimatePresence initial={false}>
@@ -748,9 +582,6 @@ function prevUserTurn(
   return undefined;
 }
 
-/** `atBottomThreshold`, and the live distance test (`isAtLiveBottom`), one of the two re-pin clauses. */
-const AT_BOTTOM_PX = 80;
-
 /** The floating pill's band at the feed bottom (`bottom-4` + `h-9`, rounded up). A card under it is not in view. */
 const PILL_ZONE_PX = 64;
 
@@ -813,7 +644,7 @@ function pillFace(state: PillState): PillFace | null {
 }
 
 /**
- * Jump button, shown when the user scrolls up.
+ * Jump button, shown while the live end is below the fold (`belowFold`).
  * While streaming it widens into a pill that names the current step.
  * When an approval card waits off-screen, it names the card and jumps to it instead.
  */
