@@ -1,4 +1,3 @@
-import * as Tooltip from "@radix-ui/react-tooltip";
 import type { ComponentProps } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeKatex from "rehype-katex";
@@ -11,8 +10,8 @@ import { markdownComponents } from "./elements";
 
 import "katex/dist/katex.min.css";
 
-// Shared fenced-code renderer, for surfaces with their own wrapper typography.
-export { MarkdownPre } from "./markdown-pre";
+// The shared overrides, for surfaces with their own wrapper typography (the chat reply).
+export { markdownComponents } from "./elements";
 
 // Own module: a component file that also exports a plain function loses Fast Refresh.
 export { altTextImageComponents } from "./alt-text-image";
@@ -126,6 +125,7 @@ export function MarkdownRenderer({
         ...(size === "reading" ? READING_SIZE : COMPACT_SIZE),
         "[&_strong]:font-semibold",
         "[&_em]:italic",
+        // The citation pill keeps its look with its own `!` utilities.
         "[&_a]:underline [&_a]:underline-offset-2",
         "[&_a]:wrap-break-word",
         "[&_ol]:list-decimal [&_ul]:list-disc",
@@ -152,21 +152,19 @@ export function MarkdownRenderer({
         className,
       )}
     >
-      <Tooltip.Provider delayDuration={200}>
-        <ReactMarkdown
-          remarkPlugins={[
-            remarkGfm,
-            remarkBreaks,
-            // Single-dollar text math off: stray "$5" shouldn't become math.
-            [remarkMath, { singleDollarTextMath: false }],
-            ...(extraRemarkPlugins ?? []),
-          ]}
-          rehypePlugins={[rehypeKatex]}
-          components={components}
-        >
-          {children}
-        </ReactMarkdown>
-      </Tooltip.Provider>
+      <ReactMarkdown
+        remarkPlugins={[
+          remarkGfm,
+          remarkBreaks,
+          // Single-dollar text math off: stray "$5" shouldn't become math.
+          [remarkMath, { singleDollarTextMath: false }],
+          ...(extraRemarkPlugins ?? []),
+        ]}
+        rehypePlugins={[rehypeKatex]}
+        components={components}
+      >
+        {children}
+      </ReactMarkdown>
     </div>
   );
 }
