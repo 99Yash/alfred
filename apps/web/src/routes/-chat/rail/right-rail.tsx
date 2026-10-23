@@ -60,7 +60,8 @@ export function RightRail({ open, mode, onClose, data = EMPTY_RAIL_DATA }: Right
         "h-full shrink-0",
         "rounded-2xl bg-transparent",
         "shadow-[0_1px_2px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.04)]",
-        "overflow-hidden transition-[width,margin] duration-200 ease-out motion-reduce:transition-none",
+        // Same curve as `CHAT_PANEL` in `-chat/motion.ts`, so a swap with the artifact panel keeps the slot width on one curve.
+        "overflow-hidden transition-[width,margin] duration-450 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
         open ? "w-[340px]" : "pointer-events-none -ml-1.5 w-0",
       )}
     >

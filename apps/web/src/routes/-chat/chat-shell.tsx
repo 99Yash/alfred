@@ -1,5 +1,6 @@
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { RefreshCw } from "lucide-react";
+import { AnimatePresence } from "motion/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useArtifactStream } from "~/lib/chat/use-artifact-stream";
 import { stopChatRun } from "~/lib/chat/turn-controls";
@@ -72,7 +73,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   const isStreaming = showStream && !stream.done;
   const activeRunId = showStream ? stream.runId : undefined;
 
-  // Artifact sidebar (ADR-0075) takes the right slot while open and auto-opens the live run's newest artifact.
+  // Artifact sidebar (ADR-0075) shares the right slot with the Today rail and auto-opens the live run's newest artifact.
   // The live stream fills a body before the durable row syncs; resolve the open target's live body here.
   const artifactStream = useArtifactStream(threadId);
   const artifact = useArtifactPanel(threadId, activeRunId, artifactStream);
@@ -104,35 +105,41 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   );
 
   // Memoized so each render does not push a new node into AppShell.
-  const railNode = useMemo(
+  // The rail stays mounted and collapses while an artifact is open. Both run the same curve,
+  // so the slot width moves from one to the other with no jump.
+  const slotNode = useMemo(
     () => (
-      <RightRail
-        open={railOpen}
-        mode={railMode}
-        onClose={() => setRailOpen(false)}
-        data={railData}
-      />
-    ),
-    [railOpen, railMode, railData],
-  );
-
-  const artifactNode = useMemo(
-    () =>
-      artifact.selectedId ? (
-        <ArtifactSidebar
-          artifactId={artifact.selectedId}
-          liveStream={liveArtifact}
+      <>
+        <RightRail
+          open={railOpen && !artifact.isOpen}
           mode={railMode}
-          width={artifact.width}
-          onWidthChange={artifact.setWidth}
-          onClose={artifact.close}
-          onSuggestEdit={onSuggestArtifactEdit}
+          onClose={() => setRailOpen(false)}
+          data={railData}
         />
-      ) : null,
+        <AnimatePresence initial={false}>
+          {artifact.selectedId ? (
+            // One key for every artifact, so a switch swaps the body and does not replay the slide.
+            <ArtifactSidebar
+              key="artifact-panel"
+              artifactId={artifact.selectedId}
+              liveStream={liveArtifact}
+              mode={railMode}
+              width={artifact.width}
+              onWidthChange={artifact.setWidth}
+              onClose={artifact.close}
+              onSuggestEdit={onSuggestArtifactEdit}
+            />
+          ) : null}
+        </AnimatePresence>
+      </>
+    ),
     [
+      railOpen,
+      railMode,
+      railData,
+      artifact.isOpen,
       artifact.selectedId,
       liveArtifact,
-      railMode,
       artifact.width,
       artifact.setWidth,
       artifact.close,
@@ -140,8 +147,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
     ],
   );
 
-  // The artifact panel wins the slot while open.
-  useRightRail(artifactNode ?? railNode);
+  useRightRail(slotNode);
 
   const send = useSendMessage();
   // Persisted Auto/Deep tier, sent with every turn.

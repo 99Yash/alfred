@@ -41,3 +41,12 @@ export const CHAT_SWAP = { duration: 0.2, ease: CHAT_EASE } as const satisfies T
 
 /** A small element leaves or arrives: chips, pills, glyphs. */
 export const CHAT_POP = { duration: 0.15, ease: CHAT_EASE } as const satisfies Transition;
+
+/**
+ * A side panel slides in or out: the artifact sidebar and the inline Today rail. Same curve as
+ * Dimension's sidebar. The rail is CSS, so `right-rail.tsx` repeats it as a class literal.
+ */
+export const CHAT_PANEL = {
+  duration: 0.45,
+  ease: [0.32, 0.72, 0, 1],
+} as const satisfies Transition;
