@@ -139,6 +139,7 @@ export function Conversation({
     messages,
     threadId,
     live: showStream && !stream.done,
+    liveKey: showStream && !stream.done ? stream.runId : null,
     smoothAnchor: () => !reducedMotion && isNearLiveEdge(),
   });
 
@@ -236,7 +237,8 @@ export function Conversation({
     return () => window.removeEventListener(SCROLL_CHAT_TO_BOTTOM_EVENT, handler);
   }, []);
 
-  // The component stays mounted across thread navigations, so `initialTopMostItemIndex` cannot re-land.
+  // A switch usually remounts the feed (the shell shows a loader first), so
+  // `initialTopMostItemIndex` lands it. This covers the stay-mounted path.
   // A thread with a live run anchors its question instead (the hook scrolls).
   useEffect(() => {
     if (!threadId || anchored) return;
@@ -450,12 +452,8 @@ function FeedFooter() {
   return (
     // Virtuoso renders the Footer as a sibling of the List, so match its column here.
     // Without it the bubble snaps width when the durable row syncs.
-    // The question anchor writes `--feed-reserve`, so a short reply keeps its question at the top.
-    <div
-      ref={setFooterEl}
-      style={{ minHeight: "var(--feed-reserve, 0px)" }}
-      className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 pb-6"
-    >
+    // The question anchor owns this element's `min-height` (the reserve), so no style here.
+    <div ref={setFooterEl} className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 pb-6">
       {/* `initial={false}`: chips already there when the thread opens do not animate in. */}
       <AnimatePresence initial={false}>
         {onFollowUp && followUps.length > 0 ? (

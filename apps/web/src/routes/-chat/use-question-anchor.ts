@@ -16,8 +16,28 @@ const ANCHOR_GAP_PX = 24;
 /** The pill shows when the live end is more than this far below the fold. */
 const AT_BOTTOM_PX = 80;
 
-/** Written on the footer content box, read by its `min-height`. */
-const RESERVE_VAR = "--feed-reserve";
+/**
+ * Written on the footer content box; the only number JS owns. The footer
+ * `min-height` reads it against the reading area (`100cqh`, below), so a
+ * composer or window resize lands in the same layout instead of clamping
+ * `scrollTop` for one frame before a `ResizeObserver` can react.
+ */
+const TAIL_VAR = "--rows-tail";
+
+/** `container-type` property put on the Virtuoso scroller (removed on detach). */
+const SCROLLER_CONTAINER_TYPE = "size";
+
+const CONTAINER_TYPE_PROP = "container-type";
+
+/**
+ * The footer reserve. `100cqh` is the scroller height (the scroller is the
+ * query container), so JS never reads `clientHeight` for the reserve.
+ * Virtuoso reads its viewport through `offsetHeight` (`dist/index.mjs:2374`),
+ * which size containment leaves unchanged: the flex layout sizes the
+ * scroller, never its contents. `scroll-stable` (`scrollbar-gutter`) is
+ * orthogonal to containment.
+ */
+const RESERVE_MIN_HEIGHT = `max(0px, calc(100cqh - ${ANCHOR_GAP_PX}px - var(${TAIL_VAR}, 0px)))`;
 
 /** The feed row attribute that carries the message id. The hook finds the anchored row by it. */
 export const MESSAGE_ID_ATTR = "data-message-id";
@@ -60,18 +80,27 @@ interface QuestionAnchor {
  * the run ends, until the next send or a thread switch, so the view does not move at
  * the end of the turn either.
  *
- * The reserve is CSS `min-height` on the footer content box, sized from the rows only
- * (`clientHeight - ANCHOR_GAP_PX - rowsTail`, where `rowsTail` is the anchored row top to
- * the list bottom). It does not depend on the footer content, so the browser absorbs
- * every footer shrink (spinner out, trail collapse, the stream-to-durable handoff) in the
- * same layout. A `ResizeObserver` runs after layout, which is too late: the browser
- * clamps `scrollTop` in layout.
+ * The reserve is a `min-height` the hook writes on the footer content box, sized
+ * from the rows only: the browser keeps `rowsTail + (100cqh - gap - rowsTail)`
+ * at the reading area minus the gap, so every footer shrink (spinner out,
+ * trail collapse, the stream-to-durable handoff) and every reading-area change
+ * (composer clear, tray shrink, window resize) lands in the same layout. A
+ * `ResizeObserver` runs after layout, which is too late: the browser clamps
+ * `scrollTop` in layout.
+ *
+ * Branch 3 (live with no new user row) keys off the stream's own turn
+ * identity: it fires only once the live `runId` is stable across renders, so
+ * a just-seeded stream whose user row is still in flight never anchors the
+ * previous question. A live run that belongs to the current last user row
+ * (mount or resume onto a live run, an approval or `ask_user` wake) anchors
+ * `open` on the first stable render.
  */
 export function useQuestionAnchor({
   virtuosoRef,
   messages,
   threadId,
   live,
+  liveKey,
   smoothAnchor,
 }: {
   virtuosoRef: React.RefObject<VirtuosoHandle | null>;
@@ -79,6 +108,8 @@ export function useQuestionAnchor({
   threadId: string | undefined;
   /** `showStream && !stream.done`. */
   live: boolean;
+  /** The live turn's identity (`stream.runId`) while `live`, else `null`. */
+  liveKey: string | null;
   /** `!reducedMotion && isNearLiveEdge()`, read at anchor time. */
   smoothAnchor: () => boolean;
 }): QuestionAnchor {
@@ -97,18 +128,31 @@ export function useQuestionAnchor({
     live && lastUserId ? { id: lastUserId, kind: "mount" } : null,
   );
 
-  const [prev, setPrev] = useState({ threadId, lastUserId });
+  const [prev, setPrev] = useState({ threadId, lastUserId, liveKey });
 
   if (threadId !== prev.threadId) {
-    setPrev({ threadId, lastUserId });
+    setPrev({ threadId, lastUserId, liveKey });
     setAnchor(live && lastUserId ? { id: lastUserId, kind: "open" } : null);
   } else if (lastUserId !== prev.lastUserId) {
-    setPrev({ threadId, lastUserId });
+    setPrev({ threadId, lastUserId, liveKey });
 
     if (lastUserId) setAnchor({ id: lastUserId, kind: "send" });
-  } else if (live && lastUserId && anchor?.id !== lastUserId) {
-    // A live run found after a switch or on resume: the switch saw no stream yet.
+  } else if (
+    live &&
+    liveKey !== null &&
+    liveKey === prev.liveKey &&
+    lastUserId &&
+    anchor?.id !== lastUserId
+  ) {
+    // A live run for the current last user row: a mount or resume the switch
+    // saw no stream for yet, or a wake with no new user row. The key must be
+    // stable across renders, so a just-seeded stream whose user row is still
+    // in flight (`seedChatStream` runs before `chatMessageCreate`) never
+    // anchors the previous question here; its user row takes the `send` path.
+    setPrev({ threadId, lastUserId, liveKey });
     setAnchor({ id: lastUserId, kind: "open" });
+  } else if (liveKey !== prev.liveKey) {
+    setPrev({ threadId, lastUserId, liveKey });
   }
 
   // Virtuoso reads this once on mount. Later landings go through `scrollToIndex`.
@@ -126,21 +170,39 @@ export function useQuestionAnchor({
   const footerElRef = useRef<HTMLElement | null>(null);
   const observerRef = useRef<ResizeObserver | null>(null);
   const anchorRef = useRef<Anchor | null>(null);
-  // The reserve in px, or `null` for none. Kept so a new footer element gets it too.
-  const reserveRef = useRef<number | null>(null);
+  // The rows tail in px, or `null` for none. Kept so a new footer element gets it too.
+  const tailRef = useRef<number | null>(null);
   // False until the reserve was sized from the rendered anchored row.
   const exactRef = useRef(false);
   const [belowFold, setBelowFold] = useState(false);
 
-  const writeReserve = useCallback((px: number | null) => {
-    reserveRef.current = px;
+  // The hook owns every style it depends on: the footer `min-height` formula
+  // and the rows-tail variable (here), and the scroller `container-type`
+  // (in `attachScroller`). No string literal in another file reads them.
+  const writeTail = useCallback((px: number | null) => {
+    tailRef.current = px;
     const footer = footerElRef.current;
 
     if (!footer) return;
 
-    if (px === null) footer.style.removeProperty(RESERVE_VAR);
-    else footer.style.setProperty(RESERVE_VAR, `${px}px`);
+    if (px === null) footer.style.removeProperty(TAIL_VAR);
+    else footer.style.setProperty(TAIL_VAR, `${px}px`);
   }, []);
+
+  const syncFooterChrome = useCallback(
+    (el: HTMLElement | null, anchored: boolean) => {
+      if (!el) return;
+
+      if (anchored) {
+        el.style.minHeight = RESERVE_MIN_HEIGHT;
+        writeTail(tailRef.current);
+      } else {
+        el.style.minHeight = "";
+        el.style.removeProperty(TAIL_VAR);
+      }
+    },
+    [writeTail],
+  );
 
   const readBelowFold = useCallback(() => {
     const el = scrollerElRef.current;
@@ -148,7 +210,8 @@ export function useQuestionAnchor({
     if (el) setBelowFold(el.scrollHeight - el.scrollTop - el.clientHeight > AT_BOTTOM_PX);
   }, []);
 
-  // Size the reserve from the rows when the anchored row is rendered; else keep the last value.
+  // Size the rows tail when the anchored row is rendered; else keep the provisional
+  // zero (an over-reserve: the footer then holds the full reading area minus the gap).
   // A rect difference, so it does not depend on `scrollTop`.
   const measure = useCallback(() => {
     const scroller = scrollerElRef.current;
@@ -160,13 +223,13 @@ export function useQuestionAnchor({
 
       if (row) {
         const rowsTail = list.getBoundingClientRect().bottom - row.getBoundingClientRect().top;
-        writeReserve(Math.max(0, scroller.clientHeight - ANCHOR_GAP_PX - rowsTail));
+        writeTail(Math.max(0, rowsTail));
         exactRef.current = true;
       }
     }
 
     readBelowFold();
-  }, [writeReserve, readBelowFold]);
+  }, [writeTail, readBelowFold]);
 
   // Refine a provisional reserve on the first scroll after the anchored row renders.
   // A row that renders with no size change in the list fires no resize.
@@ -210,7 +273,10 @@ export function useQuestionAnchor({
     (ref: HTMLElement | Window | null) => {
       scrollerElRef.current?.removeEventListener("scroll", onScroll);
       const el = ref instanceof HTMLElement ? ref : null;
+      const prev = scrollerElRef.current;
+      prev?.style.removeProperty(CONTAINER_TYPE_PROP);
       swapObserved(scrollerElRef, el);
+      el?.style.setProperty(CONTAINER_TYPE_PROP, SCROLLER_CONTAINER_TYPE);
       el?.addEventListener("scroll", onScroll, { passive: true });
     },
     [onScroll, swapObserved],
@@ -223,10 +289,17 @@ export function useQuestionAnchor({
 
   const setFooterEl = useCallback(
     (el: HTMLElement | null) => {
+      const prev = footerElRef.current;
+
+      if (prev && prev !== el) {
+        prev.style.minHeight = "";
+        prev.style.removeProperty(TAIL_VAR);
+      }
+
       swapObserved(footerElRef, el);
-      writeReserve(reserveRef.current);
+      syncFooterChrome(el, anchorRef.current !== null);
     },
-    [swapObserved, writeReserve],
+    [swapObserved, syncFooterChrome],
   );
 
   // ---- The anchor scroll, once per anchor event -----------------------
@@ -247,20 +320,27 @@ export function useQuestionAnchor({
     exactRef.current = false;
 
     if (!anchor) {
-      writeReserve(null);
+      tailRef.current = null;
+      const footer = footerElRef.current;
+
+      if (footer) {
+        footer.style.minHeight = "";
+        footer.style.removeProperty(TAIL_VAR);
+      }
 
       return;
     }
 
-    // Over-reserve first, so the target is reachable before the row renders; the
-    // measure then sizes it exactly when the row is already there.
-    const scroller = scrollerElRef.current;
-
-    if (scroller) writeReserve(Math.max(0, scroller.clientHeight - ANCHOR_GAP_PX));
+    // Over-reserve first (a zero tail holds the full reading area minus the gap),
+    // so the target is reachable before the row renders; the measure then sizes
+    // the tail exactly when the row is already there. A refine never makes the
+    // target unreachable: rows plus footer stay at the reading area minus the gap.
+    syncFooterChrome(footerElRef.current, true);
+    writeTail(0);
     measure();
 
     if (anchor.kind !== "mount") scrollToAnchor(anchor);
-  }, [anchor, measure, writeReserve]);
+  }, [anchor, measure, syncFooterChrome, writeTail]);
 
   return {
     attachScroller,
