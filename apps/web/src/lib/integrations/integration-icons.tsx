@@ -159,6 +159,8 @@ const TILE_SIZE_CLASS = {
   xs: "size-6 rounded-full",
 } as const;
 
+export type IntegrationIconSize = keyof typeof TILE_SIZE_CLASS;
+
 const GLYPH_SIZE = {
   sm: 18,
   md: 24,
@@ -209,7 +211,7 @@ export function IntegrationIcon({
 }: {
   brand: IntegrationBrand;
   connected?: boolean | undefined;
-  size?: keyof typeof TILE_SIZE_CLASS | undefined;
+  size?: IntegrationIconSize | undefined;
   /** Unused. Tiles carry their own background. */
   variant?: "plain" | "frost" | undefined;
   title?: string | undefined;

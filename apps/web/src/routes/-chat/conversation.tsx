@@ -4,7 +4,7 @@ import type {
   SyncedChatAttachment,
   SyncedChatMessage,
 } from "@alfred/sync";
-import { ArrowDown } from "lucide-react";
+import { ArrowDown, MessageCircleQuestion } from "lucide-react";
 import { AnimatePresence, m, useIsPresent } from "motion/react";
 import {
   createContext,
@@ -19,6 +19,8 @@ import {
   useState,
 } from "react";
 import { Virtuoso, type Components, type ListRange, type VirtuosoHandle } from "react-virtuoso";
+import { asQuestionStaging } from "~/components/approvals/ask-user";
+import { ToolIcon } from "~/components/approvals/tool-icon";
 import { markChatTimingByAssistant } from "~/lib/chat/timing";
 import { useChatAttachmentsByMessage } from "~/lib/replicache/use-chat";
 import { useThreadArtifacts } from "~/lib/replicache/use-artifacts";
@@ -29,6 +31,7 @@ import { cn } from "~/lib/utils";
 import { ArtifactTriggerCard } from "./artifact-trigger-card";
 import {
   describeActivity,
+  reviewLabel,
   shouldShowStream,
   shouldShowThinkingIndicator,
   type FollowUpSuggestion,
@@ -80,6 +83,10 @@ export function Conversation({
   // Virtuoso's `autoscrollToBottom` waits for `atBottomThreshold`, so small stream growth stays below the fold.
   // Pinning this element to `scrollHeight` follows the footer with no lag.
   const scrollerElRef = useRef<HTMLElement | null>(null);
+  // Virtuoso's `atBottomStateChange` is edge-triggered: a dropped `true` is not
+  // sent again. This holds `scrollTop` at the last `scroll` event, so the re-pin
+  // gate can tell a programmatic move away from content growth below.
+  const lastScrollTopRef = useRef(0);
   // The footer also grows between React updates (auto-animate, accordion, markdown reflow).
   // A ResizeObserver on it re-pins through that growth.
   const footerElRef = useRef<HTMLElement | null>(null);
@@ -165,13 +172,36 @@ export function Conversation({
     virtuosoRef.current?.scrollToIndex({ index: "LAST", align: "end", behavior: "auto" });
   }, [lastUserId]);
 
-  // Re-attach only. `releasePin` detaches, because the pin rewrites `scrollTop` before `atBottom` can flip.
-  const onAtBottomChange = useCallback((atBottom: boolean) => {
-    if (atBottom) {
-      stickRef.current = true;
-      setShowJump(false);
-    }
+  // The live scroller distance at call time. Virtuoso's `atBottomStateChange`
+  // arrives through a 50 ms trailing throttle, so a programmatic scroll can move
+  // the feed between the scroll event and the callback; a held flag cannot see
+  // that, a live read can.
+  const isAtLiveBottom = useCallback(() => {
+    const el = scrollerElRef.current;
+
+    if (!el) return false;
+
+    return el.scrollHeight - el.scrollTop - el.clientHeight <= AT_BOTTOM_PX;
   }, []);
+
+  // Re-attach only. `releasePin` detaches, because the pin rewrites `scrollTop` before `atBottom` can flip.
+  // The live read drops a stale `true` from a programmatic pass through the bottom.
+  // A dropped `true` is not sent again (Virtuoso de-duplicates `atBottom` before its
+  // 50 ms throttle), so refuse only when the scroller moved up since Virtuoso's read:
+  // content growth below a real arrival leaves `scrollTop` alone, and that must re-pin.
+  const onAtBottomChange = useCallback(
+    (atBottom: boolean) => {
+      const el = scrollerElRef.current;
+
+      if (!atBottom || !el) return;
+
+      if (isAtLiveBottom() || el.scrollTop >= lastScrollTopRef.current - 1) {
+        stickRef.current = true;
+        setShowJump(false);
+      }
+    },
+    [isAtLiveBottom],
+  );
 
   // Detect scroll-up intent (wheel up, touch drag), not a position delta.
   // The pin rewrites `scrollTop` every drip, so a position check loses the race.
@@ -189,6 +219,14 @@ export function Conversation({
     [releasePin],
   );
 
+  // Record in the `scroll` event itself, in the same dispatch as Virtuoso's own listener.
+  // A deferred record (rAF or throttle) lets a stale `true` from the far jump re-pin.
+  const recordScrollTop = useCallback(() => {
+    const el = scrollerElRef.current;
+
+    if (el) lastScrollTopRef.current = el.scrollTop;
+  }, []);
+
   // Stable identity, so Virtuoso does not rebuild the listeners each render.
   const attachScroller = useCallback(
     (ref: HTMLElement | Window | null) => {
@@ -197,17 +235,20 @@ export function Conversation({
       if (prev) {
         prev.removeEventListener("wheel", onWheel);
         prev.removeEventListener("touchmove", releasePin);
+        prev.removeEventListener("scroll", recordScrollTop);
       }
 
       const el = ref instanceof HTMLElement ? ref : null;
       scrollerElRef.current = el;
 
       if (el) {
+        lastScrollTopRef.current = el.scrollTop;
         el.addEventListener("wheel", onWheel, { passive: true });
         el.addEventListener("touchmove", releasePin, { passive: true });
+        el.addEventListener("scroll", recordScrollTop, { passive: true });
       }
     },
-    [onWheel, releasePin],
+    [onWheel, releasePin, recordScrollTop],
   );
 
   const onRangeChanged = useCallback((range: ListRange) => {
@@ -279,19 +320,74 @@ export function Conversation({
     [],
   );
 
+  const isNearLiveEdge = useCallback(
+    () => Math.max(0, messages.length - 1) - lastRenderedIndexRef.current <= 25,
+    [messages.length],
+  );
+
   // `scrollToIndex` measures rows as it goes, so it lands at the true bottom.
   // Smooth only near the edge or it stalls; instant under reduced motion.
   const jumpToBottom = useCallback(() => {
     stickRef.current = true;
     setShowJump(false);
-    const lastIndex = Math.max(0, messages.length - 1);
-    const near = lastIndex - lastRenderedIndexRef.current <= 25;
     virtuosoRef.current?.scrollToIndex({
       index: "LAST",
       align: "end",
-      behavior: !reducedMotion && near ? "smooth" : "auto",
+      behavior: !reducedMotion && isNearLiveEdge() ? "smooth" : "auto",
     });
-  }, [reducedMotion, messages.length]);
+  }, [reducedMotion, isNearLiveEdge]);
+
+  // ---- Jump to a pending approval -------------------------------------
+  // Trail order, so the pill and the tray agree on which card is first.
+  const orderedApprovals = useMemo(
+    () => orderApprovalsByTool(approvals, stream),
+    [approvals, stream],
+  );
+
+  // The tray's card list. Only a mounted card sets it; the waiting placeholder has no card.
+  const [trayEl, setTrayEl] = useState<HTMLDivElement | null>(null);
+  // Keyed by element, so a new tray reads as in view until its own first callback (no "review" flash).
+  const [trayView, setTrayView] = useState<{ el: HTMLDivElement; inView: boolean } | null>(null);
+  const trayInView = trayEl === null || trayView?.el !== trayEl || trayView.inView;
+
+  // Root is the feed scroller, so the bottom margin is the pill zone, not the composer.
+  useEffect(() => {
+    if (!trayEl || typeof IntersectionObserver === "undefined") return;
+
+    const io = new IntersectionObserver(
+      (entries) => {
+        const entry = entries.at(-1);
+
+        if (entry) setTrayView({ el: trayEl, inView: entry.isIntersecting });
+      },
+      { root: scrollerElRef.current, rootMargin: `0px 0px -${PILL_ZONE_PX}px 0px`, threshold: 0 },
+    );
+
+    io.observe(trayEl);
+
+    return () => io.disconnect();
+  }, [trayEl]);
+
+  // Near: one scroll. Far: land at the live edge first so Virtuoso measures the rows above the
+  // tray, then move to the card a frame later. The pass through the bottom must not
+  // re-pin; Virtuoso's own `atBottomStateChange` re-pins through the live gate above
+  // when the card lands within it.
+  const jumpToApproval = useCallback(() => {
+    const el = trayEl;
+
+    if (!el) return;
+
+    if (isNearLiveEdge()) {
+      el.scrollIntoView({ block: "start", behavior: reducedMotion ? "auto" : "smooth" });
+
+      return;
+    }
+
+    virtuosoRef.current?.scrollToIndex({ index: "LAST", align: "end", behavior: "auto" });
+    requestAnimationFrame(() => {
+      el.scrollIntoView({ block: "start", behavior: "auto" });
+    });
+  }, [trayEl, isNearLiveEdge, reducedMotion]);
 
   // The finish toast's "Open" action.
   const onScrollRequest = useEffectEvent(() => jumpToBottom());
@@ -341,11 +437,22 @@ export function Conversation({
       streamBodyRef,
       followUps,
       onFollowUp,
-      approvals,
+      orderedApprovals,
       setFooterEl,
+      setTrayEl,
     }),
-    [showStream, stream, streamTimingRefs, followUps, onFollowUp, approvals, setFooterEl],
+    [showStream, stream, streamTimingRefs, followUps, onFollowUp, orderedApprovals, setFooterEl],
   );
+
+  const firstApproval = orderedApprovals[0];
+  const approvalLabel = reviewLabel(orderedApprovals);
+
+  const pillState: PillState =
+    trayEl && !trayInView && approvalLabel && firstApproval
+      ? { kind: "review", label: approvalLabel, first: firstApproval }
+      : showStream && !stream.done
+        ? { kind: "activity", label: describeActivity(stream) }
+        : { kind: "latest" };
 
   const followOutput = useCallback(() => (stickRef.current ? ("auto" as const) : false), []);
 
@@ -367,7 +474,7 @@ export function Conversation({
           itemContent={renderItem}
           components={FEED_COMPONENTS}
           followOutput={followOutput}
-          atBottomThreshold={80}
+          atBottomThreshold={AT_BOTTOM_PX}
           atBottomStateChange={onAtBottomChange}
           rangeChanged={onRangeChanged}
           initialTopMostItemIndex={initialIndex}
@@ -377,8 +484,9 @@ export function Conversation({
       </FeedFooterContext>
       <ActivityPill
         show={showJump}
-        activity={showStream && !stream.done ? describeActivity(stream) : null}
+        state={pillState}
         onClick={jumpToBottom}
+        onReview={jumpToApproval}
       />
     </div>
   );
@@ -458,9 +566,12 @@ interface FeedFooterValue {
   streamBodyRef: React.RefObject<HTMLDivElement | null>;
   followUps: ReadonlyArray<FollowUpSuggestion>;
   onFollowUp?: ((text: string) => void) | undefined;
-  approvals: readonly SyncedActionStaging[];
+  /** Pending approvals in tool-trail order. Ones with no tool card in the stream go last. */
+  orderedApprovals: readonly SyncedActionStaging[];
   /** Registers the footer with the parent's re-pin observer. */
   setFooterEl: (el: HTMLElement | null) => void;
+  /** Registers the approval card list with the parent's jump-to-card pill. */
+  setTrayEl: (el: HTMLDivElement | null) => void;
 }
 
 const FeedFooterContext = createContext<FeedFooterValue | null>(null);
@@ -499,12 +610,10 @@ function FeedFooter() {
     streamBodyRef,
     followUps,
     onFollowUp,
-    approvals,
+    orderedApprovals,
     setFooterEl,
+    setTrayEl,
   } = ctx;
-
-  // Sort approvals in tool-trail order. Ones with no tool card in the stream go last.
-  const orderedApprovals = orderApprovalsByTool(approvals, stream);
 
   return (
     // Virtuoso renders the Footer as a sibling of the List, so match its column here.
@@ -540,6 +649,7 @@ function FeedFooter() {
 
           {/* The actions a gated run waits on, under the trail that proposed them. */}
           <ChatApprovalTray
+            ref={setTrayEl}
             runId={stream.runId}
             approvals={orderedApprovals}
             awaitingApproval={stream.awaitingApproval}
@@ -638,28 +748,101 @@ function prevUserTurn(
   return undefined;
 }
 
+/** `atBottomThreshold`, and the live distance test (`isAtLiveBottom`), one of the two re-pin clauses. */
+const AT_BOTTOM_PX = 80;
+
+/** The floating pill's band at the feed bottom (`bottom-4` + `h-9`, rounded up). A card under it is not in view. */
+const PILL_ZONE_PX = 64;
+
+/** What the floating pill offers. One union, so a new state does not add a second content prop. */
+type PillState =
+  | { kind: "latest" }
+  | { kind: "activity"; label: string }
+  | { kind: "review"; label: string; first: SyncedActionStaging };
+
+interface PillFace {
+  /** Keys the icon crossfade. */
+  iconKey: string;
+  icon: React.ReactNode;
+  label: string;
+  ariaLabel: string;
+  /** Shimmer the label: the run is working, not waiting on the user. */
+  working: boolean;
+}
+
+/** The labelled pill content for each state, or `null` for the bare arrow. */
+function pillFace(state: PillState): PillFace | null {
+  switch (state.kind) {
+    case "latest":
+      return null;
+    case "activity":
+      return {
+        iconKey: "alfred",
+        icon: (
+          <span className="chat-think-mark inline-flex">
+            <img src="/images/logo/alfred-logo.svg" alt="" className="size-[18px] rounded-[5px]" />
+          </span>
+        ),
+        label: state.label,
+        ariaLabel: `${state.label} Scroll to latest.`,
+        working: true,
+      };
+    case "review": {
+      // A question is not an approval (ADR-0099): the chime toast's glyph, not the tool's brand.
+      const question = asQuestionStaging(state.first) !== null;
+
+      return {
+        iconKey: question ? "question" : `tool:${state.first.integration}`,
+        icon: question ? (
+          <MessageCircleQuestion size={16} className="text-app-purple-3" />
+        ) : (
+          <ToolIcon integration={state.first.integration} size="xs" />
+        ),
+        label: state.label,
+        ariaLabel: `${state.label}. Scroll to it.`,
+        working: false,
+      };
+    }
+
+    default: {
+      const _exhaustive: never = state;
+
+      return _exhaustive;
+    }
+  }
+}
+
 /**
- * Jump-to-latest button, shown when the user scrolls up.
+ * Jump button, shown when the user scrolls up.
  * While streaming it widens into a pill that names the current step.
+ * When an approval card waits off-screen, it names the card and jumps to it instead.
  */
 function ActivityPill({
   show,
-  activity,
+  state,
   onClick,
+  onReview,
 }: {
   show: boolean;
-  activity: string | null;
+  state: PillState;
+  /** Jump to the latest message. */
   onClick: () => void;
+  /** Jump to the first pending approval card. */
+  onReview: () => void;
 }) {
   const prefersReduced = usePrefersReducedMotion();
+  const face = pillFace(state);
   // Pixel-to-pixel width tween. Motion leaves a settled `"auto"` target as the string
   // `"auto"`, so an `"auto" -> 36` shrink after a settled grow measures 36 -> 36 and
   // snaps (round 0). The label content is measured instead; the last measured width
   // is kept for the exit so the shrink starts from a number. The label group is
   // `shrink-0` with the `max-w` cap (not a `min-w-0` flex child of the tweened
   // button), so `offsetWidth` reads its natural width at every button width (round 1).
+  // One labelled group serves both the activity and the review face, so this one ref
+  // never points at a group that is leaving; the icon and the text crossfade inside it.
   const labelRef = useRef<HTMLSpanElement | null>(null);
   const [labelWidth, setLabelWidth] = useState<number | null>(null);
+  const label = face?.label ?? null;
 
   useLayoutEffect(() => {
     const el = labelRef.current;
@@ -674,21 +857,21 @@ function ActivityPill({
     ro.observe(el);
 
     return () => ro.disconnect();
-  }, [activity]);
+  }, [label]);
 
   return (
     // Only the button takes pointer events.
     <div className="pointer-events-none absolute inset-x-0 bottom-4 z-10 flex justify-center">
       <m.button
         type="button"
-        onClick={onClick}
-        aria-label={activity ? `${activity} Scroll to latest.` : "Scroll to latest"}
+        onClick={state.kind === "review" ? onReview : onClick}
+        aria-label={face ? face.ariaLabel : "Scroll to latest"}
         disabled={!show}
         tabIndex={show ? 0 : -1}
         // A width tween, not `layout`: `domAnimation` can reach pixel widths without the layout feature.
         // `prefersReduced` is the live hook in motion.ts: this button lives for the whole thread,
         // so motion's mount-time check would miss a reduce change mid-thread.
-        animate={{ width: activity ? (labelWidth ?? "auto") : 36 }}
+        animate={{ width: face ? (labelWidth ?? "auto") : 36 }}
         transition={prefersReduced ? { duration: 0 } : CHAT_POP}
         className={cn(
           "relative inline-flex h-9 items-center justify-center overflow-hidden rounded-full",
@@ -702,9 +885,9 @@ function ActivityPill({
       >
         {/* `popLayout` lifts the leaving content out of flow, so "auto" measures only the new content. */}
         <AnimatePresence mode="popLayout" initial={false}>
-          {activity ? (
+          {face ? (
             <m.span
-              key="activity"
+              key="label"
               ref={labelRef}
               className="inline-flex max-w-[min(20rem,70vw)] shrink-0 items-center gap-2 pr-3 pl-2"
               initial={{ opacity: 0 }}
@@ -712,23 +895,32 @@ function ActivityPill({
               exit={{ opacity: 0 }}
               transition={CHAT_SWAP}
             >
-              <span aria-hidden className="chat-think-mark inline-flex shrink-0">
-                <img
-                  src="/images/logo/alfred-logo.svg"
-                  alt=""
-                  className="size-[18px] rounded-[5px]"
-                />
-              </span>
               <AnimatePresence mode="popLayout" initial={false}>
                 <m.span
-                  key={activity}
-                  className="animate-chat-shimmer-mask min-w-0 truncate text-[13px] font-medium text-app-fg-4"
+                  key={face.iconKey}
+                  aria-hidden
+                  className="inline-flex shrink-0"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
                   transition={CHAT_SWAP}
                 >
-                  {activity}
+                  {face.icon}
+                </m.span>
+              </AnimatePresence>
+              <AnimatePresence mode="popLayout" initial={false}>
+                <m.span
+                  key={face.label}
+                  className={cn(
+                    "min-w-0 truncate text-[13px] font-medium text-app-fg-4",
+                    face.working && "animate-chat-shimmer-mask",
+                  )}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={CHAT_SWAP}
+                >
+                  {face.label}
                 </m.span>
               </AnimatePresence>
               <ArrowDown size={13} aria-hidden className="shrink-0 text-app-fg-2" />

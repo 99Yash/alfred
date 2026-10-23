@@ -63,12 +63,15 @@ export function ChatApprovalTray({
   approvals,
   awaitingApproval,
   preview = false,
+  ref,
 }: {
   runId: string | undefined;
   approvals: readonly SyncedActionStaging[];
   awaitingApproval: boolean;
   /** Styleguide only: no toast, audio, API, or policy writes. */
   preview?: boolean | undefined;
+  /** The card list root, for the feed's jump-to-card pill. The waiting placeholder has no card, so it gets no ref. */
+  ref?: React.Ref<HTMLDivElement> | undefined;
 }) {
   const [recentDecision, setRecentDecision] = useState(false);
   const [previousRunId, setPreviousRunId] = useState(runId);
@@ -158,7 +161,8 @@ export function ChatApprovalTray({
   }
 
   return (
-    <div className="flex flex-col gap-2">
+    // `scroll-mt-6` clears the feed's top spacer when the pill scrolls the list to `block: "start"`.
+    <div ref={ref} className="flex scroll-mt-6 flex-col gap-2">
       {approvals.map((staging) => {
         // A question is a staged approval with a different card (ADR-0099). Unparseable input gets the ordinary card.
         const question = asQuestionStaging(staging);
