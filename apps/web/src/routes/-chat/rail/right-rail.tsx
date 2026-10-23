@@ -1,5 +1,7 @@
 import { useState } from "react";
+import { m } from "motion/react";
 import { cn } from "~/lib/utils";
+import { CHAT_PANEL, usePrefersReducedMotion, type LiveTransition } from "../motion";
 import type { ChatSidePanelMode, RailTab } from "./models";
 import { RailContent } from "./rail-content";
 import { EMPTY_RAIL_DATA, type RailData } from "./rail-data";
@@ -17,6 +19,10 @@ interface RightRailProps {
 
 export function RightRail({ open, mode, onClose, data = EMPTY_RAIL_DATA }: RightRailProps) {
   const [tab, setTab] = useState<RailTab>("todo");
+
+  // Live reduced-motion value for the inline motion tween below. Unconditional:
+  // the overlay branch returns early.
+  const reduce = usePrefersReducedMotion();
 
   if (mode === "overlay") {
     return (
@@ -53,20 +59,33 @@ export function RightRail({ open, mode, onClose, data = EMPTY_RAIL_DATA }: Right
     );
   }
 
+  // Inline: a motion width tween on `CHAT_PANEL`, the same transition value as
+  // the artifact clip box. One source and one clock, so the slot width stays on
+  // one curve during a swap. `initial={false}` skips a tween on mount.
+  // `-6` cancels the `gap-1.5` of the shell's `<main>` while closed, as the artifact panel does.
+  const transition: LiveTransition = {
+    ...(reduce ? { duration: 0 } : CHAT_PANEL),
+    reduceMotion: reduce,
+  };
+
   return (
-    <aside
+    <m.aside
       aria-label="Today"
+      initial={false}
+      animate={{ width: open ? 340 : 0, marginLeft: open ? 0 : -6 }}
+      transition={transition}
       className={cn(
         "h-full shrink-0",
         "rounded-2xl bg-transparent",
         "shadow-[0_1px_2px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.04)]",
-        "overflow-hidden transition-[width,margin] duration-200 ease-out motion-reduce:transition-none",
-        open ? "w-[340px]" : "pointer-events-none -ml-1.5 w-0",
+        // `overflow-hidden` keeps the rounded corners over full-bleed children (video, scrims).
+        "overflow-hidden",
+        !open && "pointer-events-none",
       )}
     >
       <div className="relative flex h-full w-[340px] flex-col">
         <RailContent tab={tab} onTabChange={setTab} data={data} />
       </div>
-    </aside>
+    </m.aside>
   );
 }

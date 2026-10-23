@@ -18,6 +18,7 @@ import {
   Pencil,
   X,
 } from "lucide-react";
+import { m, useIsPresent } from "motion/react";
 import {
   useCallback,
   useEffect,
@@ -39,6 +40,7 @@ import type { LiveArtifactStream } from "~/lib/chat/use-artifact-stream";
 import { useArtifact } from "~/lib/replicache/use-artifacts";
 import { cn } from "~/lib/utils";
 import type { ChatSidePanelMode } from "~/routes/-chat/rail/models";
+import { CHAT_PANEL, CHAT_SWAP, usePrefersReducedMotion, type LiveTransition } from "./motion";
 
 /** A new source fails to compile here until it has a label. */
 const EXTERNAL_FILE_SOURCE_LABEL = {
@@ -49,6 +51,7 @@ const EXTERNAL_FILE_SOURCE_LABEL = {
  * Artifact sidebar (ADR-0075 Phase 3): a `document` as markdown, `pages` as scaled iframes.
  * Replicache pokes on each authoring call, so pages appear while the boss is still `generating`.
  * Shares the shell's right-rail slot with the Today rail, in the same inline/overlay modes.
+ * Render it as the keyed child of an `AnimatePresence`: it slides in, and slides out before it unmounts.
  */
 
 export interface ArtifactEditSuggestion {
@@ -121,12 +124,28 @@ export function ArtifactSidebar({
 }: ArtifactSidebarProps) {
   const artifact = useArtifact(artifactId);
   const [fullscreen, setFullscreen] = useState(false);
+  // While the handle drags, the width follows the pointer with no tween.
+  const [resizing, setResizing] = useState(false);
+  // Live, not motion's per-mount check: the panel can stay open for a whole thread.
+  // `reduceMotion` carries the live value into motion, so an ON -> OFF change
+  // while open does not leave positional keys (`width`, `x`) on the mount snapshot.
+  const reduce = usePrefersReducedMotion();
+
+  const panelTransition: LiveTransition = {
+    ...(resizing || reduce ? { duration: 0 } : CHAT_PANEL),
+    reduceMotion: reduce,
+  };
+
+  // A leaving panel takes no clicks, focus, or Escape.
+  const isPresent = useIsPresent();
 
   // Shared by the strip, the present button, and the overlay, so presenting starts on the current page.
   const [pageIndex, setPageIndex] = useArtifactPageIndex(artifactId);
 
   // Escape exits fullscreen first, then closes the overlay. Effect Event, so the listener mounts once.
   const onEscape = useEffectEvent(() => {
+    if (!isPresent) return;
+
     if (fullscreen) setFullscreen(false);
     else if (mode === "overlay") onClose();
   });
@@ -185,23 +204,32 @@ export function ArtifactSidebar({
   if (mode === "overlay") {
     return (
       <>
-        <button
+        <m.button
           type="button"
           aria-label="Close artifact"
           onClick={onClose}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={CHAT_SWAP}
+          inert={!isPresent}
           className="fixed inset-0 z-40 bg-app-background/40 backdrop-blur-[2px]"
         />
-        <aside
+        <m.aside
           aria-label={title}
+          initial={{ x: "100%" }}
+          animate={{ x: 0 }}
+          exit={{ x: "100%" }}
+          transition={panelTransition}
+          inert={!isPresent}
           className={cn(
             "fixed inset-y-0 right-0 z-50 w-[560px] max-w-[92vw]",
             "border-l border-app-bg-3/60 bg-app-bg-1",
             "flex flex-col shadow-[0_20px_60px_rgba(0,0,0,0.18)]",
-            "animate-artifact-panel",
           )}
         >
           {inner}
-        </aside>
+        </m.aside>
         {fullscreen && artifact ? (
           <ArtifactPresentOverlay
             title={artifact.title}
@@ -216,30 +244,47 @@ export function ArtifactSidebar({
     );
   }
 
+  // The clip box tweens its width while the panel keeps its own, anchored left, so the panel slides in from the right edge.
+  // `-6` cancels the `gap-1.5` of the shell's `<main>` while closed, as the Today rail does.
+  // Clip on x only, so the panel's bottom shadow is not cut off.
   return (
-    <aside
-      aria-label={artifact?.title ?? "Artifact"}
-      style={{ width }}
-      className={cn(
-        "relative h-full shrink-0",
-        "overflow-hidden rounded-2xl border border-app-bg-3/60 bg-app-bg-1",
-        "shadow-[0_1px_2px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.04)]",
-        "animate-artifact-panel",
-      )}
+    <m.div
+      initial={{ width: 0, marginLeft: -6 }}
+      animate={{ width, marginLeft: 0 }}
+      exit={{ width: 0, marginLeft: -6 }}
+      transition={panelTransition}
+      inert={!isPresent}
+      className="h-full shrink-0 overflow-x-clip"
     >
-      <ResizeHandle width={width} onWidthChange={onWidthChange} />
-      {inner}
-      {fullscreen && artifact ? (
-        <ArtifactPresentOverlay
-          title={artifact.title}
-          pages={artifact.content?.kind === "pages" ? artifact.content.pages : []}
-          format={artifact.format ?? "pdf"}
-          index={pageIndex}
-          onIndexChange={setPageIndex}
-          onClose={() => setFullscreen(false)}
-        />
-      ) : null}
-    </aside>
+      <m.aside
+        aria-label={artifact?.title ?? "Artifact"}
+        style={{ width }}
+        // The open fades under reduced motion: the fade is the substitute for the slide.
+        // The close shows no fade because the width collapses first.
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={CHAT_SWAP}
+        className={cn(
+          "relative h-full",
+          "overflow-hidden rounded-2xl border border-app-bg-3/60 bg-app-bg-1",
+          "shadow-[0_1px_2px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.04)]",
+        )}
+      >
+        <ResizeHandle width={width} onWidthChange={onWidthChange} onDraggingChange={setResizing} />
+        {inner}
+        {fullscreen && artifact ? (
+          <ArtifactPresentOverlay
+            title={artifact.title}
+            pages={artifact.content?.kind === "pages" ? artifact.content.pages : []}
+            format={artifact.format ?? "pdf"}
+            index={pageIndex}
+            onIndexChange={setPageIndex}
+            onClose={() => setFullscreen(false)}
+          />
+        ) : null}
+      </m.aside>
+    </m.div>
   );
 }
 
@@ -531,9 +576,12 @@ function ExternalFileBody({ content, title }: { content: ExternalFileContent; ti
 function ResizeHandle({
   width,
   onWidthChange,
+  onDraggingChange,
 }: {
   width: number;
   onWidthChange: (width: number) => void;
+  /** Fires on press, before the first move, so the panel drops its width tween in time. */
+  onDraggingChange: (dragging: boolean) => void;
 }) {
   const drag = useRef<{ startX: number; startWidth: number } | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -546,10 +594,11 @@ function ResizeHandle({
       e.currentTarget.setPointerCapture(e.pointerId);
       drag.current = { startX: e.clientX, startWidth: width };
       setDragging(true);
+      onDraggingChange(true);
       document.body.style.userSelect = "none";
       document.body.style.cursor = "col-resize";
     },
-    [width],
+    [width, onDraggingChange],
   );
 
   const onPointerMove = useCallback(
@@ -566,9 +615,10 @@ function ResizeHandle({
     if (!drag.current) return;
     drag.current = null;
     setDragging(false);
+    onDraggingChange(false);
     document.body.style.userSelect = "";
     document.body.style.cursor = "";
-  }, []);
+  }, [onDraggingChange]);
 
   return (
     // react-doctor wants <hr>, but an <hr> cannot be a drag splitter. Keep role="separator".
