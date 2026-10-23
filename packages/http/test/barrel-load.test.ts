@@ -7,12 +7,12 @@ import { describe, test } from "node:test";
  * It does not catch a module-scope handle: `--test-force-exit` hides it.
  */
 const SERVICE_ENV_KEYS = [
-  "ANTHROPIC_API_KEY",
   "BETTER_AUTH_SECRET",
+  "CLOUDFLARE_ACCOUNT_ID",
+  "CLOUDFLARE_AI_GATEWAY_TOKEN",
+  "CLOUDFLARE_GATEWAY_ID",
   "DATABASE_URL",
-  "GOOGLE_GENERATIVE_AI_API_KEY",
   "OAUTH_CREDENTIAL_KEK",
-  "OPENAI_API_KEY",
   "REDIS_URL",
 ];
 

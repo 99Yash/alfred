@@ -97,7 +97,7 @@ function runFirstCall(input: string) {
 evalite<string, GroundingTaskOutput, null>("Agent passthrough — reaches uncurated github.request", {
   data: () => SELECTION_CASES.map((c) => ({ input: c.input, expected: null })),
   task: async (input) => {
-    void serverEnv().ANTHROPIC_API_KEY;
+    serverEnv();
 
     // Never throw: evalite's reporter hangs the job on an error.
     try {
@@ -233,7 +233,7 @@ evalite<HonestyCase, HonestyOutput, HonestyScenario>(
   {
     data: () => HONESTY_CASES.map((c) => ({ input: c, expected: c.scenario })),
     task: async (input) => {
-      void serverEnv().ANTHROPIC_API_KEY;
+      serverEnv();
 
       try {
         return await runHonestyScenario(input);

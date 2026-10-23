@@ -1,6 +1,5 @@
 import { closeConnections, db } from "@alfred/db";
 import { apiCallLog } from "@alfred/db/schemas";
-import { serverEnv } from "@alfred/env/server";
 import { toMessage } from "@alfred/contracts";
 import { and, desc, eq, gte, inArray } from "drizzle-orm";
 import { isStepCount, tool } from "ai";
@@ -126,7 +125,6 @@ async function smokeModel(modelId: (typeof MODEL_IDS)[number]): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  if (!serverEnv().OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is required");
   const startedAt = new Date();
 
   for (const modelId of MODEL_IDS) await smokeModel(modelId);

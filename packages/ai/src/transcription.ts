@@ -1,13 +1,11 @@
-import type { OpenAIProvider } from "@ai-sdk/openai";
 import { getStringPath, httpErrorFromResponse } from "@alfred/contracts";
-import { transcribe } from "ai";
 
 import type { GatewayConfig } from "./gateway";
 
 /**
- * Speech-to-text for composer voice input. `gateway.ts` picks the transport.
- * With Cloudflare, this POSTs `/ai/run`: the OpenAI passthrough sends
- * `/audio/transcriptions` with no key and gets 401. Without it, OpenAI is called directly.
+ * Speech-to-text for composer voice input, through the Cloudflare gateway.
+ * This POSTs `/ai/run`: the OpenAI passthrough sends `/audio/transcriptions` with no key
+ * and gets 401.
  */
 export interface TranscribeAudioResult {
   text: string;
@@ -15,16 +13,13 @@ export interface TranscribeAudioResult {
   durationInSeconds: number | undefined;
 }
 
-/** Both transports allow 25 MB, but Cloudflare counts the base64 body: 18 MB raw is ~24 MB. */
+/** The limit is 25 MB, but Cloudflare counts the base64 body: 18 MB raw is ~24 MB. */
 export const MAX_TRANSCRIBE_AUDIO_BYTES = 18 * 1024 * 1024;
 
 const TRANSCRIBE_TIMEOUT_MS = 300_000;
 
 /** Cloudflare's catalog has no `gpt-4o-mini-transcribe`. */
 const CLOUDFLARE_MODEL = "openai/gpt-4o-transcribe";
-
-/** Cheaper than `whisper-1`, with better punctuation on short clips. */
-const DIRECT_MODEL = "gpt-4o-mini-transcribe";
 
 /** `fetchImpl` must be the paced fetch: this call uses the same gateway budget as the model calls. */
 export async function transcribeViaCloudflareRun(
@@ -54,19 +49,6 @@ export async function transcribeViaCloudflareRun(
 
   // This model returns `{ text }` only.
   return { text, durationInSeconds: undefined };
-}
-
-export async function transcribeWithOpenAi(
-  openai: OpenAIProvider,
-  audio: Uint8Array,
-): Promise<TranscribeAudioResult> {
-  const result = await transcribe({
-    model: openai.transcription(DIRECT_MODEL),
-    audio,
-    abortSignal: AbortSignal.timeout(TRANSCRIBE_TIMEOUT_MS),
-  });
-
-  return { text: result.text, durationInSeconds: result.durationInSeconds };
 }
 
 /** Chrome records WebM/Opus and Safari MP4/AAC. The rest come from dropped files. */

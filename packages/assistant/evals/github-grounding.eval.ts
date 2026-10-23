@@ -103,7 +103,7 @@ function runFirstCall(input: string) {
 evalite<string, GroundingTaskOutput, ExpectedGithubCall>("Agent GitHub grounding", {
   data: () => CASES.map((c) => ({ input: c.input, expected: c.expected })),
   task: async (input) => {
-    void serverEnv().ANTHROPIC_API_KEY;
+    serverEnv();
     const result = await runFirstCall(input);
     const call = result.toolCalls.find((c) => c.toolName === SEARCH_TOOL) ?? result.toolCalls[0];
 
@@ -188,7 +188,7 @@ evalite<string, GroundingTaskOutput, null>("Agent GitHub LOC — no give-up", {
     { input: "how many lines of code did i change across my merged PRs this week", expected: null },
   ],
   task: async (input) => {
-    void serverEnv().ANTHROPIC_API_KEY;
+    serverEnv();
     const result = await runFirstCall(input);
     const call = result.toolCalls[0];
 

@@ -13,22 +13,21 @@ and `triage-classify` included. Every suite calls a real model, so a bare run
 costs real tokens. Name one suite to run one:
 `pnpm --filter @alfred/assistant exec evalite run date-grounding`.
 
-Env (loaded from `apps/server/.env`):
+Env (loaded from `apps/server/.env`): the three Cloudflare AI Gateway vars
+(`CLOUDFLARE_AI_GATEWAY_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_GATEWAY_ID`).
+Every model call goes through the gateway, so there are no provider keys to set.
 
-- `GOOGLE_GENERATIVE_AI_API_KEY` — the cheap classifier under test, and the
-  DEFAULT LLM judge. Both are `route("cheap")` (Gemini Flash-Lite). It covers
-  `triage-classify` end to end. Only three suites call `llmJudgeScorer` at all:
-  `triage-classify` and `voice-ai-tells` take the cheap default, and
-  `passthrough-honesty` pins a `route("standard")` judge (see the next bullet).
-  The other six suites score deterministically and need no judge.
-- Whatever `route("standard")` needs (`gpt-6-luna`, so `OPENAI_API_KEY`) — eight
-  of the nine suites GENERATE on that route, because the system under test there is
-  the chat agent itself: `boss-judgment`, `calendar-grounding`, `date-grounding`,
-  `github-grounding`, `passthrough-honesty`, `sender-suppression-grounding`,
-  `tool-selection-bloat` and `voice-ai-tells`. Provision this too, or a bare
-  `evalite run` fails everything except `triage-classify`. Only ONE suite also
-  JUDGES on that route — `passthrough-honesty`, because no deterministic scorer
-  stands behind its judge.
+- `route("cheap")` (Gemini Flash-Lite) is the cheap classifier under test, and the
+  DEFAULT LLM judge. It covers `triage-classify` end to end. Only three suites call
+  `llmJudgeScorer` at all: `triage-classify` and `voice-ai-tells` take the cheap
+  default, and `passthrough-honesty` pins a `route("standard")` judge (see the next
+  bullet). The other six suites score deterministically and need no judge.
+- `route("standard")` (`gpt-6-luna`) — eight of the nine suites GENERATE on that
+  route, because the system under test there is the chat agent itself:
+  `boss-judgment`, `calendar-grounding`, `date-grounding`, `github-grounding`,
+  `passthrough-honesty`, `sender-suppression-grounding`, `tool-selection-bloat` and
+  `voice-ai-tells`. Only ONE suite also JUDGES on that route — `passthrough-honesty`,
+  because no deterministic scorer stands behind its judge.
 
 The default judge model lives in ONE place, `lib/llm-judge.ts`. A suite that
 needs a stronger grader passes `model` to `llmJudgeScorer`; nothing else states

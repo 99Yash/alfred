@@ -98,7 +98,7 @@ function windowOverlaps(args: Record<string, unknown>, target: TargetWindow): bo
 evalite<string, TaskOutput, TargetWindow | null>("Agent date grounding", {
   data: () => CASES.map((c) => ({ input: c.input, expected: c.target })),
   task: async (input) => {
-    void serverEnv().ANTHROPIC_API_KEY;
+    serverEnv();
     // Like prod: the system prompt has no date. "Now" comes from the runtime line (#410).
     const system = buildChatSystemPrompt("", CONNECTED_SUMMARY, selfIdentityGrounding());
 

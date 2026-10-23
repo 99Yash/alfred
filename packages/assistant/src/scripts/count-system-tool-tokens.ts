@@ -1,14 +1,11 @@
 /**
  * One-off: what the `system.*` tool schemas cost per turn. Uses production's
  * `toolSchemaSize`, the same numbers as the `runtime.tool_surface` span. Bytes are exact;
- * tokens are the chars/4 estimate. With a valid ANTHROPIC_API_KEY (env or
- * apps/server/.env) it also prints Anthropic's real `count_tokens`.
+ * tokens are the chars/4 estimate. With the Cloudflare gateway vars set it also prints
+ * Anthropic's real `count_tokens`, called through the gateway.
  *
- * Run: pnpm --filter @alfred/assistant exec tsx src/scripts/count-system-tool-tokens.ts
+ * Run: pnpm --filter @alfred/assistant exec tsx --env-file-if-exists=../../apps/server/.env src/scripts/count-system-tool-tokens.ts
  */
-import { readFileSync } from "node:fs";
-import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
 import { asSchema } from "ai";
 import {
   registerBuiltinTools,
@@ -17,34 +14,17 @@ import {
 import type { ToolName } from "@alfred/contracts";
 import { systemToolKernel } from "@alfred/assistant/execution/tool-surface";
 import { toolSchemaSize } from "@alfred/assistant/tool-runtime/schema-budget";
+import { cloudflareGatewayConfig } from "@alfred/env/server";
 import { z } from "zod";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+type GatewayConfig = NonNullable<ReturnType<typeof cloudflareGatewayConfig>>;
 
 const MODEL = "claude-opus-4-8";
 
 const countTokensResponseSchema = z.object({ input_tokens: z.number() });
 
-function loadApiKey(): string | undefined {
-  if (process.env.ANTHROPIC_API_KEY) return process.env.ANTHROPIC_API_KEY;
-
-  try {
-    const text = readFileSync(resolve(__dirname, "../../../../apps/server/.env"), "utf8");
-
-    for (const line of text.split("\n")) {
-      const m = /^\s*ANTHROPIC_API_KEY=(.+)$/.exec(line);
-
-      if (m?.[1]) return m[1].trim().replace(/^["']|["']$/g, "");
-    }
-  } catch {
-    /* ignore */
-  }
-
-  return undefined;
-}
-
 async function realCount(
-  apiKey: string,
+  gateway: GatewayConfig,
   registry: BuiltinToolRegistry,
   names: ToolName[],
 ): Promise<number | null> {
@@ -70,10 +50,12 @@ async function realCount(
     });
 
   const call = async (t: unknown[]) => {
-    const res = await fetch("https://api.anthropic.com/v1/messages/count_tokens", {
+    const url = `https://gateway.ai.cloudflare.com/v1/${gateway.accountId}/${gateway.gatewayId}/anthropic/v1/messages/count_tokens`;
+
+    const res = await fetch(url, {
       method: "POST",
       headers: {
-        "x-api-key": apiKey,
+        "cf-aig-authorization": `Bearer ${gateway.token}`,
         "anthropic-version": "2023-06-01",
         "content-type": "application/json",
       },
@@ -127,17 +109,17 @@ async function main() {
   console.log(`ALL ${rows.length} system tools (pre-#405 eager)  : ${allTok} tok  (${allBytes} B)`);
   console.log(`kernel ${kRows.length} tools (current eager)        : ${kTok} tok  (${kBytes} B)`);
 
-  const key = loadApiKey();
+  const gateway = cloudflareGatewayConfig();
 
-  if (key) {
+  if (gateway) {
     const realAll = await realCount(
-      key,
+      gateway,
       registry,
       rows.map((r) => r.name),
     );
 
     const realKernel = await realCount(
-      key,
+      gateway,
       registry,
       kRows.map((r) => r.name),
     );
@@ -147,10 +129,10 @@ async function main() {
       console.log(`ALL ${rows.length} system tools : ${realAll} tok`);
       console.log(`kernel ${kRows.length} tools     : ${realKernel} tok`);
     } else {
-      console.log("\n(real count_tokens skipped — ANTHROPIC_API_KEY invalid/expired)");
+      console.log("\n(real count_tokens skipped — the gateway rejected the call)");
     }
   } else {
-    console.log("\n(real count_tokens skipped — no ANTHROPIC_API_KEY)");
+    console.log("\n(real count_tokens skipped — the Cloudflare gateway is not configured)");
   }
 }
 

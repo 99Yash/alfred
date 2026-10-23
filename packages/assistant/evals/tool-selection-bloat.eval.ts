@@ -182,7 +182,7 @@ function scorers() {
 evalite<string, TaskOutput, string>("Tool selection — LEAN menu (system + home)", {
   data: () => CASES.map((c) => ({ input: c.input, expected: c.expected })),
   task: async (input) => {
-    void serverEnv().ANTHROPIC_API_KEY;
+    serverEnv();
     const c = CASES.find((x) => x.input === input);
     const slugs: IntegrationSlug[] = c?.home ? ["system", c.home] : ["system"];
 
@@ -194,7 +194,7 @@ evalite<string, TaskOutput, string>("Tool selection — LEAN menu (system + home
 evalite<string, TaskOutput, string>("Tool selection — FULL menu (system + all 10)", {
   data: () => CASES.map((c) => ({ input: c.input, expected: c.expected })),
   task: async (input) => {
-    void serverEnv().ANTHROPIC_API_KEY;
+    serverEnv();
 
     return runUnderMenu(input, ["system", ...LIVE_PROVIDER_SLUGS]);
   },

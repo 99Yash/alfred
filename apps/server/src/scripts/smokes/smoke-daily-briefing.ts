@@ -15,7 +15,7 @@
  *
  * Pre-reqs:
  *   - Server worker running (`pnpm dev`).
- *   - `OPENAI_API_KEY` set.
+ *   - The Cloudflare AI Gateway vars set.
  *   - User row with a deliverable email (only when sending).
  */
 import { z } from "zod";

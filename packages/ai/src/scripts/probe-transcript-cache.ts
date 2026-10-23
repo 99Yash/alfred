@@ -1,16 +1,16 @@
 /**
- * Live check that the transcript cache breakpoint produces cache reads. Calls Anthropic directly.
+ * Live check that the transcript cache breakpoint produces cache reads. Calls Anthropic through
+ * the Cloudflare gateway.
  *
- *   $ ANTHROPIC_API_KEY=… pnpm --filter @alfred/ai exec tsx src/scripts/probe-transcript-cache.ts
+ *   $ pnpm --filter @alfred/ai exec tsx --env-file=../../apps/server/.env src/scripts/probe-transcript-cache.ts
  *
  * Turn 2 must read about the turn-1 prefix from cache. A read near 0 means caching is broken.
  */
 
-// Bypasses `route()` and `serverEnv()` on purpose: it measures raw Anthropic caching,
-// without fallback wrapping or unrelated required env vars.
-import { anthropic } from "@ai-sdk/anthropic";
+// Bypasses `route()` on purpose: it measures raw Anthropic caching, without fallback wrapping.
 import { getPath, toRecord } from "@alfred/contracts";
 import { generateText, type ModelMessage } from "ai";
+import { activeGateway } from "../gateway";
 import { attachProviderTurnPolicy, adaptProviderModel } from "../provider-adapter";
 
 const TTL = "5m" as const;
@@ -28,7 +28,10 @@ const systemBlock =
   "Here is durable context you must keep in mind: " +
   FILLER;
 
-const model = adaptProviderModel("anthropic", anthropic("claude-sonnet-4-6")).model;
+const model = adaptProviderModel(
+  "anthropic",
+  activeGateway().createAnthropic()("claude-sonnet-4-6"),
+).model;
 
 function cacheStats(meta: unknown) {
   // Anthropic's raw, snake_case cache numbers.
@@ -61,8 +64,6 @@ async function turn(label: string, transcript: ModelMessage[]): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  if (!process.env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY not set");
-
   const base: ModelMessage[] = [
     { role: "user", content: "Given the context, what animal is mentioned in the notes?" },
   ];
