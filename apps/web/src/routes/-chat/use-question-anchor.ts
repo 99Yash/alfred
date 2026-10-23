@@ -90,16 +90,19 @@ interface QuestionAnchor {
  *
  * The live-with-no-new-user-row path fires only when the last Virtuoso row is a
  * user row. Roles are only `user | assistant` (`packages/db/src/schema/chat.ts`),
- * and the durable assistant row joins the list only at run end (every
- * `chat-turn-closure.ts` ending writes one: completed and cancelled write
- * `complete`, failed writes `failed`; a close that yields to cancel runs only
- * because the cancel already wrote its row). So a just-seeded stream whose user
- * row is still in flight (`seedChatStream` runs before `chatMessageCreate`)
- * sees the previous turn's assistant row last and anchors nothing here; the
- * arriving user row takes the `send` path. A live run that owns the current
- * last user row (mount or resume onto a live run, an approval or `ask_user`
- * wake) anchors `open`. A user row with no live stream (a send whose request
- * failed before the run started) never anchors: there is no reply coming.
+ * and the durable assistant row joins the list at run end. A thread can still
+ * end in a user row with no reply: a `busy` admission commits the user row and
+ * starts no run (`turn-admission.ts`: the user-row insert at `:495`, the `busy`
+ * return at `:611-616`, `runId: null` at `:627-629`); a closure write fault
+ * lands no row at all (`chat-turn-closure.ts:385-409` catches it, and
+ * `terminal-closure.ts:61-79` swallows closure faults). So a just-seeded
+ * stream whose user row is still in flight (`seedChatStream` runs before
+ * `chatMessageCreate`) sees the previous turn's assistant row last and anchors
+ * nothing here; the arriving user row takes the `send` path. A live run that
+ * owns the current last user row (mount or resume onto a live run, an approval
+ * or `ask_user` wake) anchors `open`. One hop stays: a send onto a thread
+ * whose last row is a reply-less user row first anchors that orphan row
+ * (`open`, instant), then anchors the new row (`send`, smooth) when it arrives.
  */
 export function useQuestionAnchor({
   virtuosoRef,
@@ -131,29 +134,30 @@ export function useQuestionAnchor({
   // is still in flight still ends in the previous turn's assistant row.
   const lastRowIsUser = (messages.at(-1)?.role ?? null) === "user";
 
+  // Which question a live run answers, in one place. `null` while the run's
+  // user row is still in flight, so no path can anchor the previous question.
+  const liveQuestionId = live && lastRowIsUser ? lastUserId : null;
+
   // ---- The anchor, derived during render ------------------------------
   const [anchor, setAnchor] = useState<Anchor | null>(() =>
-    live && lastUserId ? { id: lastUserId, kind: "mount" } : null,
+    liveQuestionId ? { id: liveQuestionId, kind: "mount" } : null,
   );
 
   const [prev, setPrev] = useState({ threadId, lastUserId });
 
   if (threadId !== prev.threadId) {
     setPrev({ threadId, lastUserId });
-    setAnchor(live && lastUserId ? { id: lastUserId, kind: "open" } : null);
+    setAnchor(liveQuestionId ? { id: liveQuestionId, kind: "open" } : null);
   } else if (lastUserId !== prev.lastUserId) {
     setPrev({ threadId, lastUserId });
 
     if (lastUserId) setAnchor({ id: lastUserId, kind: "send" });
-  } else if (live && lastRowIsUser && lastUserId && anchor?.id !== lastUserId) {
+  } else if (liveQuestionId && anchor?.id !== liveQuestionId) {
     // A live run owns the current last row: a mount or resume the switch saw
     // no stream for yet, or a wake with no new user row. This never fires for
     // a just-seeded stream (its user row has not arrived, so the last row is
-    // still the previous turn's assistant row), and it does not count
-    // renders: a during-render `setPrev` re-runs the component in the same
-    // pass, so key equality can never mean "stable across renders".
-    setPrev({ threadId, lastUserId });
-    setAnchor({ id: lastUserId, kind: "open" });
+    // still the previous turn's assistant row).
+    setAnchor({ id: liveQuestionId, kind: "open" });
   }
 
   // Virtuoso reads this once on mount. Later landings go through `scrollToIndex`.
