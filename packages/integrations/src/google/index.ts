@@ -1,6 +1,8 @@
 export type {
   CalendarAttendee,
   CalendarEvent,
+  CalendarResponse,
+  CalendarSendUpdates,
   CreateEventArgs,
   ListEventsArgs,
   ListEventsResult,

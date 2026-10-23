@@ -11,10 +11,10 @@ export type GoogleService = "calendar" | "gmail" | "drive" | "docs" | "sheets" |
 
 export interface GoogleJsonRequest {
   /** Default `"GET"`. */
-  method?: "GET" | "POST" | "PUT" | undefined;
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | undefined;
   url: string;
   accessToken: string;
-  /** A non-GET sends `payload ?? {}`. */
+  /** A POST, PUT, or PATCH sends `payload ?? {}`. GET and DELETE send no body. */
   payload?: unknown;
   /** Default `"none"`. */
   retry?: RetryPolicy | "none" | undefined;
@@ -40,7 +40,7 @@ export async function googleJson<T>(
     {
       url,
       method,
-      body: method === "GET" ? undefined : (payload ?? {}),
+      body: method === "GET" || method === "DELETE" ? undefined : (payload ?? {}),
       ...(signal !== undefined ? { signal } : {}),
     },
     { provider: service, urlLabel: url, retry },

@@ -300,6 +300,86 @@ export function calendarCreateEventSendsInvitations(
   return (input.attendees?.length ?? 0) > 0;
 }
 
+const calendarEventRef = {
+  calendarId: z
+    .string()
+    .min(1)
+    .max(200)
+    .default("primary")
+    .describe("Calendar id. Use primary unless the event is on another calendar."),
+  eventId: z
+    .string()
+    .min(1)
+    .max(1024)
+    .describe(
+      "Event `id` from calendar.list_events. For a recurring event it names one occurrence.",
+    ),
+};
+
+const CALENDAR_UPDATE_FIELDS = [
+  "summary",
+  "description",
+  "location",
+  "start",
+  "end",
+  "addAttendees",
+  "removeAttendees",
+] as const;
+
+export const calendarUpdateEventInput = padDatetimeSeconds(
+  ["start", "end"],
+  coerceJsonArrayFields(
+    ["addAttendees", "removeAttendees"],
+    z
+      .object({
+        ...calendarEventRef,
+        summary: z.string().min(1).max(500).optional(),
+        description: z.string().max(10_000).optional(),
+        location: z.string().max(1_000).optional(),
+        start: z.iso
+          .datetime({ offset: true })
+          .optional()
+          .describe("New start. Set start and end together."),
+        end: z.iso.datetime({ offset: true }).optional(),
+        timeZone: z
+          .string()
+          .min(1)
+          .max(100)
+          .optional()
+          .describe("IANA timezone for a new start and end."),
+        addAttendees: z.array(modelToolEmail()).min(1).max(50).optional(),
+        removeAttendees: z.array(modelToolEmail()).min(1).max(50).optional(),
+      })
+      .strict()
+      .refine((value) => CALENDAR_UPDATE_FIELDS.some((field) => value[field] !== undefined), {
+        message: "change at least one field",
+      })
+      .refine((value) => (value.start === undefined) === (value.end === undefined), {
+        message: "set start and end together",
+        path: ["end"],
+      })
+      .refine(
+        (value) =>
+          value.start === undefined ||
+          value.end === undefined ||
+          new Date(value.end) > new Date(value.start),
+        { message: "end must be after start", path: ["end"] },
+      ),
+  ),
+);
+
+export type CalendarUpdateEventInput = z.infer<typeof calendarUpdateEventInput>;
+
+export const calendarDeleteEventInput = z.object(calendarEventRef).strict();
+
+export const calendarRespondToEventInput = z
+  .object({
+    ...calendarEventRef,
+    response: z.enum(["accepted", "declined", "tentative"]),
+    comment: z.string().max(1_000).optional().describe("A note to the organizer."),
+  })
+  .strict();
+
 /* ── docs ─────────────────────────────────────────────────────────────── */
 
 export const docsGetDocumentInput = z
@@ -1816,6 +1896,9 @@ export type AskUserUnansweredResult = Extract<AskUserResult, { status: "unanswer
 export const TOOL_INPUT_SCHEMAS = {
   "calendar.list_events": calendarListEventsInput,
   "calendar.create_event": calendarCreateEventInput,
+  "calendar.update_event": calendarUpdateEventInput,
+  "calendar.delete_event": calendarDeleteEventInput,
+  "calendar.respond_to_event": calendarRespondToEventInput,
   "docs.get_document": docsGetDocumentInput,
   "drive.search_files": driveSearchInput,
   "drive.get_file": driveGetFileInput,

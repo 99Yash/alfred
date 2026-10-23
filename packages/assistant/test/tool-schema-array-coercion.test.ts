@@ -37,6 +37,14 @@ const FIXTURES = {
     },
     arrayFields: ["attendees"],
   },
+  "calendar.update_event": {
+    base: {
+      eventId: "event-1",
+      addAttendees: ["a@example.com"],
+      removeAttendees: ["b@example.com"],
+    },
+    arrayFields: ["addAttendees", "removeAttendees"],
+  },
   "github.get_pull_requests": {
     base: {
       items: [

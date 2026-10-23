@@ -1,7 +1,20 @@
 import type { ProviderBindOptions } from "../shared/provider";
 import { restPassthroughCapability } from "../shared/rest-passthrough";
 import type { RetryPolicy } from "../shared/retry";
-import { createEvent, listEvents, type CreateEventArgs, type ListEventsArgs } from "./calendar";
+import {
+  createEvent,
+  deleteEvent,
+  getEvent,
+  listEvents,
+  respondToEvent,
+  updateEvent,
+  type CreateEventArgs,
+  type DeleteEventArgs,
+  type EventRefArgs,
+  type ListEventsArgs,
+  type RespondToEventArgs,
+  type UpdateEventArgs,
+} from "./calendar";
 import { getFreshAccessToken, listCredentials, type CredentialRow } from "./credentials";
 import { getDocument, type GetDocumentArgs } from "./docs";
 import {
@@ -206,6 +219,14 @@ export function createGoogleClient(
         withToken("calendar_read", credentialId, args, listEvents),
       createEvent: ({ credentialId, ...args }: WithCredentialId<CreateEventArgs>) =>
         withToken("calendar_write", credentialId, args, createEvent),
+      getEvent: ({ credentialId, ...args }: WithCredentialId<EventRefArgs>) =>
+        withToken("calendar_read", credentialId, args, getEvent),
+      updateEvent: ({ credentialId, ...args }: WithCredentialId<UpdateEventArgs>) =>
+        withToken("calendar_write", credentialId, args, updateEvent),
+      deleteEvent: ({ credentialId, ...args }: WithCredentialId<DeleteEventArgs>) =>
+        withToken("calendar_write", credentialId, args, deleteEvent),
+      respondToEvent: ({ credentialId, ...args }: WithCredentialId<RespondToEventArgs>) =>
+        withToken("calendar_write", credentialId, args, respondToEvent),
       passthrough: (credentialId: string) => passthrough("calendar", "calendar_read", credentialId),
     },
     docs: {

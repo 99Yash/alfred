@@ -58,7 +58,8 @@ export const REST_GATE_CONFIG = {
     authScopeDenylist: NO_AUTH_SCOPE_DENIALS,
   },
   calendar: {
-    readViaPostAllowlist: NO_READ_VIA_POST,
+    // `/freeBusy` is a POST read.
+    readViaPostAllowlist: [/^\/freeBusy$/],
     sideEffectingGetDenylist: NO_SIDE_EFFECTING_GET,
     authScopeDenylist: NO_AUTH_SCOPE_DENIALS,
   },

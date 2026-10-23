@@ -436,6 +436,21 @@ export const TOOL_LABELS = {
     done: "Created a calendar event",
     title: "create a calendar event",
   },
+  "calendar.update_event": {
+    running: "Updating a calendar event",
+    done: "Updated a calendar event",
+    title: "update a calendar event",
+  },
+  "calendar.delete_event": {
+    running: "Deleting a calendar event",
+    done: "Deleted a calendar event",
+    title: "delete a calendar event",
+  },
+  "calendar.respond_to_event": {
+    running: "Answering an invitation",
+    done: "Answered an invitation",
+    title: "answer a calendar invitation",
+  },
   "calendar.request": {
     running: "Querying the Calendar API",
     done: "Queried the Calendar API",
@@ -669,6 +684,9 @@ export const TOOL_CATEGORIES = {
 
   "calendar.list_events": "source",
   "calendar.create_event": "action",
+  "calendar.update_event": "action",
+  "calendar.delete_event": "action",
+  "calendar.respond_to_event": "action",
   "calendar.request": "source",
 
   "drive.search_files": "source",
