@@ -90,13 +90,18 @@ const SIDEBAR_BREAKPOINT = "(min-width: 1024px)";
 /* The motion feature bundle, loaded async so it stays out of the entry chunk.
    Only a dynamic `import()` may load `./motion-features`: a static import puts the
    features back in the entry chunk. `tsc` checks the resolved `FeatureBundle`. */
+let motionFeaturesPromise: Promise<FeatureBundle> | null = null;
+
 export function loadMotionFeatures(): Promise<FeatureBundle> {
-  return import("~/routes/-root/motion-features").then((mod) => mod.domAnimation);
+  return (motionFeaturesPromise ??= import("./motion-features").then((mod) => mod.domAnimation));
 }
 
-/* The shell waits for the same feature promise `LazyMotion` receives, so no `m.*`
+/* The shell waits on the shared feature promise `LazyMotion` receives, so no `m.*`
    under the shell mounts before its features exist, and a feature-chunk failure
-   lands in this lazy import's rejection path (the router's default error boundary). */
+   lands in this lazy import's rejection path (the router's default error boundary).
+   One module-scope promise serves both callers: `import()` caches by specifier, but
+   the `.then` chain would still be a fresh promise per call, so `??=` shares one
+   chain and its FIFO `.then` order. */
 const LazyAuthedAppShell = lazy(() =>
   Promise.all([import("./authed-app-shell"), loadMotionFeatures()]).then(([shell]) => shell),
 );
