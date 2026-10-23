@@ -1,6 +1,11 @@
 import { route, meteredGenerateObject } from "@alfred/ai";
 import { sanitizeVoice } from "@alfred/ai/voice";
-import { CHAT_FOLLOW_UP_LIMIT, chatFollowUpsSchema, collapseWhitespace } from "@alfred/contracts";
+import {
+  CHAT_FOLLOW_UP_LIMIT,
+  chatFollowUpSchema,
+  chatFollowUpsSchema,
+  collapseWhitespace,
+} from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { chatMessages } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
@@ -19,9 +24,9 @@ const FOLLOW_UPS_SYSTEM_PROMPT = [
   "Return an empty list when the reply closes the topic or needs no next step.",
 ].join("\n");
 
-// Loose on purpose: the caps are applied after cleaning, so one bad entry drops alone.
+// Loose on purpose: each entry is checked alone after cleaning, so one bad entry drops alone.
 const followUpsOutputSchema = z.object({
-  followUps: z.array(z.string()).max(CHAT_FOLLOW_UP_LIMIT * 2),
+  followUps: z.array(z.string()),
 });
 
 /** Write up to 3 next-prompt suggestions onto a completed reply (ADR-0112). Never throws. */
@@ -98,19 +103,21 @@ function cleanFollowUps(raw: readonly string[]): string[] {
   const seen = new Set<string>();
 
   for (const entry of raw) {
-    let s = collapseWhitespace(sanitizeVoice(entry));
-
-    s = s.replace(/^(?:[-*•]|\d+[.)])\s+/, "");
+    // Strip list marks and quotes first, so a dash inside quotes is repaired, not dropped.
+    let s = entry.replace(/^(?:[-*•]|\d+[.)])\s+/, "");
     s = s.replace(/^["'“”`]+|["'“”`]+$/g, "").trim();
+    s = collapseWhitespace(sanitizeVoice(s));
 
-    // `sanitizeVoice` keeps dashes inside quotes; the copy rule allows none.
-    if (s.length === 0 || /[—–]/.test(s)) continue;
+    // One bad entry drops alone. The schema holds trim, length, and the dash rule.
+    const parsed = chatFollowUpSchema.safeParse(s);
 
-    const key = s.toLowerCase();
+    if (!parsed.success) continue;
+
+    const key = parsed.data.toLowerCase();
 
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push(s);
+    out.push(parsed.data);
   }
 
   return out.slice(0, CHAT_FOLLOW_UP_LIMIT);
