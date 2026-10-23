@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "@tanstack/react-router";
+import type { FeatureBundle } from "motion/react";
 import {
   createContext,
   lazy,
@@ -86,7 +87,19 @@ export function useSidebarState(): SidebarStateValue {
 
 const SIDEBAR_BREAKPOINT = "(min-width: 1024px)";
 
-const LazyAuthedAppShell = lazy(() => import("./authed-app-shell"));
+/* The motion feature bundle, loaded async so it stays out of the entry chunk.
+   Only a dynamic `import()` may load `./motion-features`: a static import puts the
+   features back in the entry chunk. `tsc` checks the resolved `FeatureBundle`. */
+export function loadMotionFeatures(): Promise<FeatureBundle> {
+  return import("~/routes/-root/motion-features").then((mod) => mod.domAnimation);
+}
+
+/* The shell waits for the same feature promise `LazyMotion` receives, so no `m.*`
+   under the shell mounts before its features exist, and a feature-chunk failure
+   lands in this lazy import's rejection path (the router's default error boundary). */
+const LazyAuthedAppShell = lazy(() =>
+  Promise.all([import("./authed-app-shell"), loadMotionFeatures()]).then(([shell]) => shell),
+);
 
 function useSidebarMode(): "inline" | "overlay" {
   const [mode, setMode] = useState<"inline" | "overlay">(() => {
