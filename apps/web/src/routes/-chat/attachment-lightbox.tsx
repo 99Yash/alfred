@@ -15,11 +15,9 @@ import {
   useMemo,
   useRef,
   useState,
-  type Dispatch,
   type KeyboardEvent,
   type MouseEvent,
   type ReactElement,
-  type SetStateAction,
 } from "react";
 import { ArtifactIconButton } from "~/components/artifacts/artifact-icon-button";
 import { cn } from "~/lib/utils";
@@ -33,15 +31,11 @@ interface LightboxImage {
 }
 
 /** One previewable candidate. The hook filters these down to images. */
-interface LightboxCandidate {
-  /** Attachment id (sent) or staging key (composer). */
-  key: string;
-  src: string;
-  name: string;
+interface LightboxCandidate extends LightboxImage {
   /** MIME type; only `isPassThrough` types enter the preview. */
   mime: string;
-  /** False keeps the row out (for example, a pending sent attachment). Defaults to true. */
-  ready?: boolean | undefined;
+  /** False keeps the row out (for example, a pending sent attachment). Staged rows pass true. */
+  ready: boolean;
 }
 
 /**
@@ -50,18 +44,20 @@ interface LightboxCandidate {
  */
 export type AttachmentOpener = (event?: { currentTarget?: unknown }) => void;
 
-/** Props for {@link AttachmentLightbox}, owned by {@link useAttachmentLightbox}. */
+/** Props for the file-local preview dialog, owned by {@link useAttachmentLightbox}. */
 interface AttachmentLightboxProps {
   images: readonly LightboxImage[];
   selectedKey: string | null;
-  onSelectedKeyChange: Dispatch<SetStateAction<string | null>>;
+  dialogOpen: boolean;
+  onClose: () => void;
+  onSelectKey: (key: string) => void;
   onCloseAutoFocus: (event: Event) => void;
 }
 
-/** One preview owner: an opener per key plus the props for `<AttachmentLightbox>`. */
+/** One preview owner: an opener per key plus the rendered preview. */
 interface AttachmentLightboxOwner {
   openerFor: (key: string) => AttachmentOpener | undefined;
-  lightboxProps: AttachmentLightboxProps;
+  preview: ReactElement;
 }
 
 const FADE = cn(
@@ -71,12 +67,15 @@ const FADE = cn(
 
 /**
  * Owns one preview: filters `candidates` to images, keeps the selected key, and hands
- * each host an opener per key plus the props for `<AttachmentLightbox>`.
+ * each host an opener per key plus the rendered preview.
+ *
+ * Close keeps the last key and only flips `open` off, so the Radix exit fade still has
+ * the image and the focused control to fade. The key never falls back to `images[0]`.
  *
  * ```tsx
  * const lightbox = useAttachmentLightbox(candidates);
  * // per thumbnail: onOpen={lightbox.openerFor(a.id)}
- * <AttachmentLightbox {...lightbox.lightboxProps} />
+ * {lightbox.preview}
  * ```
  */
 export function useAttachmentLightbox(
@@ -85,12 +84,16 @@ export function useAttachmentLightbox(
   const images = useMemo<LightboxImage[]>(
     () =>
       candidates
-        .filter((c) => (c.ready ?? true) && isPassThrough(c.mime))
+        .filter((c) => c.ready && isPassThrough(c.mime))
         .map((c) => ({ key: c.key, src: c.src, name: c.name })),
     [candidates],
   );
 
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [selection, setSelection] = useState<{ key: string | null; open: boolean }>({
+    key: null,
+    open: false,
+  });
+
   const openerRef = useRef<HTMLElement | null>(null);
 
   const openerFor = useCallback(
@@ -105,7 +108,7 @@ export function useAttachmentLightbox(
             : document.activeElement instanceof HTMLElement
               ? document.activeElement
               : null;
-        setSelectedKey(key);
+        setSelection({ key, open: true });
       };
     },
     [images],
@@ -120,34 +123,57 @@ export function useAttachmentLightbox(
     if (opener?.isConnected) opener.focus();
   }, []);
 
+  const onClose = useCallback(() => {
+    setSelection((s) => ({ key: s.key, open: false }));
+  }, []);
+
+  const onSelectKey = useCallback((key: string) => {
+    setSelection({ key, open: true });
+  }, []);
+
+  const selectedKey = selection.key;
+  const selectedIndex = selectedKey === null ? -1 : images.findIndex((i) => i.key === selectedKey);
+  const dialogOpen = selection.open && selectedIndex !== -1;
+
   return {
     openerFor,
-    lightboxProps: { images, selectedKey, onSelectedKeyChange: setSelectedKey, onCloseAutoFocus },
+    preview: (
+      <AttachmentLightbox
+        images={images}
+        selectedKey={selectedKey}
+        dialogOpen={dialogOpen}
+        onClose={onClose}
+        onSelectKey={onSelectKey}
+        onCloseAutoFocus={onCloseAutoFocus}
+      />
+    ),
   };
 }
 
-/** Full-screen image preview. `selectedKey === null` (or a key outside `images`) is closed. */
-export function AttachmentLightbox({
+/** Full-screen image preview. File-local: hosts go through {@link useAttachmentLightbox}. */
+function AttachmentLightbox({
   images,
   selectedKey,
-  onSelectedKeyChange,
+  dialogOpen,
+  onClose,
+  onSelectKey,
   onCloseAutoFocus,
 }: AttachmentLightboxProps): ReactElement {
   const contentRef = useRef<HTMLDivElement | null>(null);
 
   // Resolve by key, never by render position: the image list skips PDFs and pending rows,
-  // and a keyed selection follows its image if the list grows or reorders.
+  // and a keyed selection follows its image if the list grows or reorders. The last key
+  // stays set through the exit, so the fade still has the image and the focused control.
   const selectedIndex = selectedKey === null ? -1 : images.findIndex((i) => i.key === selectedKey);
-  const open = selectedIndex !== -1;
-  const image = open ? images[selectedIndex] : undefined;
+  const image = selectedIndex === -1 ? undefined : images[selectedIndex];
   const multiple = images.length > 1;
 
   const go = (step: -1 | 1) => {
-    if (!open) return;
+    if (!dialogOpen || selectedIndex === -1) return;
     const next = Math.max(0, Math.min(selectedIndex + step, images.length - 1));
     const nextImage = images[next];
 
-    if (nextImage) onSelectedKeyChange(nextImage.key);
+    if (nextImage) onSelectKey(nextImage.key);
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -162,14 +188,14 @@ export function AttachmentLightbox({
 
   // Only a click on the bare backdrop closes; the image and the controls do not.
   const onBackdropClick = (event: MouseEvent<HTMLDivElement>) => {
-    if (event.target === event.currentTarget) onSelectedKeyChange(null);
+    if (event.target === event.currentTarget) onClose();
   };
 
   return (
     <RadixDialog.Root
-      open={open}
+      open={dialogOpen}
       onOpenChange={(next) => {
-        if (!next) onSelectedKeyChange(null);
+        if (!next) onClose();
       }}
     >
       <RadixDialog.Portal>
@@ -209,11 +235,7 @@ export function AttachmentLightbox({
                 >
                   <ExternalLink size={15} />
                 </a>
-                <ArtifactIconButton
-                  tone="dark"
-                  label="Close preview"
-                  onClick={() => onSelectedKeyChange(null)}
-                >
+                <ArtifactIconButton tone="dark" label="Close preview" onClick={onClose}>
                   <X size={16} />
                 </ArtifactIconButton>
               </div>

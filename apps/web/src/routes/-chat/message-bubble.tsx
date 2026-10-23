@@ -10,11 +10,7 @@ import remarkGfm from "remark-gfm";
 import { altTextImageComponents, MarkdownPre } from "~/components/markdown-renderer";
 import { animateWords } from "~/lib/chat/animate-text";
 import { cn } from "~/lib/utils";
-import {
-  AttachmentLightbox,
-  useAttachmentLightbox,
-  type AttachmentOpener,
-} from "./attachment-lightbox";
+import { useAttachmentLightbox, type AttachmentOpener } from "./attachment-lightbox";
 import { ConnectNudgeRows } from "./connect-nudge-rows";
 import { useMarkdownImageMode } from "./published-transcript";
 import { splitPersistedToolCalls } from "./connect-nudges";
@@ -219,7 +215,7 @@ function MessageAttachments({ attachments }: { attachments: SyncedChatAttachment
           onOpen={lightbox.openerFor(a.id)}
         />
       ))}
-      <AttachmentLightbox {...lightbox.lightboxProps} />
+      {lightbox.preview}
     </div>
   );
 }

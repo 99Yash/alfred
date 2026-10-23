@@ -1,7 +1,7 @@
 import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { X } from "lucide-react";
 import { cn } from "~/lib/utils";
-import { AttachmentLightbox, useAttachmentLightbox } from "../attachment-lightbox";
+import { useAttachmentLightbox } from "../attachment-lightbox";
 import type { PendingAttachment } from "./use-composer-attachments";
 
 /** Staged attachment previews above the editor. */
@@ -19,7 +19,13 @@ export function AttachmentChips({
 
   // Only images enter the preview; a PDF chip never does.
   const lightbox = useAttachmentLightbox(
-    items.map((a) => ({ key: a.key, src: a.previewUrl, name: a.file.name, mime: a.file.type })),
+    items.map((a) => ({
+      key: a.key,
+      src: a.previewUrl,
+      name: a.file.name,
+      mime: a.file.type,
+      ready: true,
+    })),
   );
 
   return (
@@ -68,7 +74,7 @@ export function AttachmentChips({
         })}
       </div>
       {/* Outside the auto-animate list, so the list only sees chips. */}
-      <AttachmentLightbox {...lightbox.lightboxProps} />
+      {lightbox.preview}
     </>
   );
 }
