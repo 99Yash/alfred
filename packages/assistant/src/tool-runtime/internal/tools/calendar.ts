@@ -6,8 +6,8 @@ import {
   calendarListEventsInput,
   calendarRespondToEventInput,
   calendarUpdateEventInput,
+  isHttpError,
   restPassthroughInput,
-  type CalendarUpdateEventInput,
   type IanaTimezone,
   type ToolRiskTier,
 } from "@alfred/contracts";
@@ -38,19 +38,26 @@ export function resolveCalendarCreateEventRiskTier(input: CalendarCreateEventInp
   return calendarCreateEventSendsInvitations(input) ? "high" : "medium";
 }
 
+type CalendarUpdateEventInput = z.infer<typeof calendarUpdateEventInput>;
+
+type CalendarDeleteEventInput = z.infer<typeof calendarDeleteEventInput>;
+
+type CalendarRespondToEventInput = z.infer<typeof calendarRespondToEventInput>;
+
 /** Google emails every guest about a change, so a change to an event with guests is high. */
 async function resolveCalendarUpdateEventRiskTier(
   input: CalendarUpdateEventInput,
   ctx: ToolExecuteContext,
 ): Promise<ToolRiskTier> {
   if (input.addAttendees || input.removeAttendees) return "high";
+  let credentialId: string | undefined;
 
   try {
-    const calendar = ctx.integrations.google.calendar;
-    const credential = await calendar.writeCredential();
+    const credential = await eventWriteCredential(input, ctx);
+    credentialId = credential.id;
 
-    const event = await calendar.getEvent({
-      credentialId: credential.id,
+    const event = await ctx.integrations.google.calendar.getEvent({
+      credentialId,
       calendarId: input.calendarId,
       eventId: input.eventId,
     });
@@ -58,7 +65,10 @@ async function resolveCalendarUpdateEventRiskTier(
     return (event.attendees ?? []).some((attendee) => !attendee.self) ? "high" : "medium";
   } catch (err) {
     // An unread event can still have guests, so the tier fails closed.
-    logger.warn({ err, event: "calendar_update_risk_read_failed" }, "calendar event read failed");
+    logger.warn(
+      { err, event: "calendar_update_risk_read_failed", credentialId, userId: ctx.userId },
+      "calendar event read failed",
+    );
 
     return "high";
   }
@@ -72,6 +82,7 @@ interface CalendarListWindow {
 
 interface CalendarCredential {
   id: string;
+  accountId: string;
   accountLabel: string | null;
 }
 
@@ -181,7 +192,16 @@ function assertNever(value: never): never {
   throw new Error(`Unhandled calendar partOfDay: ${String(value)}`);
 }
 
-function compactEvent(credential: CalendarCredential, event: CalendarEvent) {
+/** The title that list_events shows. A write compares `eventTitle` with it. */
+function eventTitle(event: CalendarEvent): string {
+  return event.summary?.trim() || "(no title)";
+}
+
+/**
+ * The fields from `accountId` to `title` are the reference that each write tool takes.
+ * `role` tells the model whether the user can change the event or can only answer it.
+ */
+function compactEvent(credential: CalendarCredential, calendarId: string, event: CalendarEvent) {
   const attendees = (event.attendees ?? [])
     .map((a) => {
       if (!a.email) return null;
@@ -199,9 +219,13 @@ function compactEvent(credential: CalendarCredential, event: CalendarEvent) {
   const end = event.end?.dateTime ?? event.end?.date ?? null;
 
   return {
+    accountId: credential.accountId,
+    calendarId,
     id: event.id,
+    recurringEventId: event.recurringEventId ?? null,
+    title: eventTitle(event),
+    role: event.organizer?.self ? ("organizer" as const) : ("guest" as const),
     accountLabel: credential.accountLabel,
-    title: event.summary?.trim() || "(no title)",
     start,
     end,
     allDay: Boolean(event.start?.date) && !event.start?.dateTime,
@@ -246,7 +270,7 @@ async function executeListEvents(input: CalendarListEventsInput, ctx: ToolExecut
         maxResults: input.maxResults,
       });
 
-      for (const event of result.events) events.push(compactEvent(credential, event));
+      for (const event of result.events) events.push(compactEvent(credential, "primary", event));
     } catch (err) {
       const failure = toPublicAppError(
         err,
@@ -298,56 +322,140 @@ async function executeCreateEvent(input: CalendarCreateEventInput, ctx: ToolExec
     attendees: input.attendees,
   });
 
-  return { event: compactEvent(credential, created) };
+  return { event: compactEvent(credential, input.calendarId, created) };
+}
+
+type CalendarEventRef = Pick<CalendarDeleteEventInput, "accountId" | "calendarId" | "eventId">;
+
+/** The account that the reference names, among the accounts that can write events. */
+async function eventWriteCredential(
+  ref: Pick<CalendarEventRef, "accountId">,
+  ctx: ToolExecuteContext,
+): Promise<CalendarCredential> {
+  const credentials = await ctx.integrations.google.calendar.writeCredentials();
+  const credential = credentials.find((candidate) => candidate.accountId === ref.accountId);
+
+  if (!credential) throw new AppError("calendar_account_unknown");
+
+  return credential;
+}
+
+/**
+ * Reads the event that a write names. A 404 and a 410 become public errors, because the
+ * generic "try again" text would make the model repeat a call that cannot pass.
+ */
+async function readEventForWrite(input: CalendarEventRef, ctx: ToolExecuteContext) {
+  const credential = await eventWriteCredential(input, ctx);
+  const ref = { credentialId: credential.id, calendarId: input.calendarId, eventId: input.eventId };
+
+  try {
+    const event = await ctx.integrations.google.calendar.getEvent(ref);
+
+    return { credential, ref, event, gone: event.status === "cancelled" };
+  } catch (err) {
+    if (isHttpError(err) && err.status === 410) {
+      return { credential, ref, event: null, gone: true };
+    }
+
+    if (isHttpError(err) && err.status === 404) {
+      throw new AppError("calendar_event_not_found", { cause: err });
+    }
+
+    throw err;
+  }
+}
+
+/** The id and the title must name the same event, so an approval cannot act on another one. */
+function assertEventTitle(
+  event: CalendarEvent,
+  input: Pick<CalendarDeleteEventInput, "eventTitle">,
+) {
+  if (eventTitle(event) !== input.eventTitle.trim()) {
+    throw new AppError("calendar_event_title_mismatch");
+  }
+}
+
+/** Google refuses a guest's change with a 403, which would reach the model as "try again". */
+function assertOrganizer(event: CalendarEvent, guestsMayChange: boolean) {
+  if (event.organizer?.self || (guestsMayChange && event.guestsCanModify)) return;
+
+  throw new AppError("calendar_event_not_organizer");
+}
+
+/** A 412 means that the event changed after the read that the checks used. */
+async function withEtagCheck<T>(write: () => Promise<T>): Promise<T> {
+  try {
+    return await write();
+  } catch (err) {
+    if (isHttpError(err) && err.status === 412) {
+      throw new AppError("calendar_event_changed", { cause: err });
+    }
+
+    throw err;
+  }
 }
 
 async function executeUpdateEvent(input: CalendarUpdateEventInput, ctx: ToolExecuteContext) {
-  const credential = await ctx.integrations.google.calendar.writeCredential();
+  const { credential, ref, event, gone } = await readEventForWrite(input, ctx);
 
-  const updated = await ctx.integrations.google.calendar.updateEvent({
-    credentialId: credential.id,
-    calendarId: input.calendarId,
-    eventId: input.eventId,
-    summary: input.summary,
-    description: input.description,
-    location: input.location,
-    start: input.start,
-    end: input.end,
-    timeZone: input.start ? (input.timeZone ?? ctx.timezone) : undefined,
-    addAttendees: input.addAttendees,
-    removeAttendees: input.removeAttendees,
-    sendUpdates: "all",
-  });
+  if (gone || !event) throw new AppError("calendar_event_cancelled");
+  assertEventTitle(event, input);
+  assertOrganizer(event, true);
 
-  return { event: compactEvent(credential, updated) };
+  const updated = await withEtagCheck(() =>
+    ctx.integrations.google.calendar.updateEvent({
+      ...ref,
+      current: event,
+      summary: input.summary,
+      description: input.description,
+      location: input.location,
+      start: input.start,
+      end: input.end,
+      timeZone: input.start ? (input.timeZone ?? ctx.timezone) : undefined,
+      addAttendees: input.addAttendees,
+      removeAttendees: input.removeAttendees,
+      sendUpdates: input.notifyGuests ? "all" : "none",
+    }),
+  );
+
+  return { event: compactEvent(credential, input.calendarId, updated) };
 }
 
-async function executeRespondToEvent(
-  input: z.infer<typeof calendarRespondToEventInput>,
-  ctx: ToolExecuteContext,
-) {
-  const calendar = ctx.integrations.google.calendar;
-  const credential = await calendar.writeCredential();
-  const ref = { credentialId: credential.id, calendarId: input.calendarId, eventId: input.eventId };
-  const event = await calendar.getEvent(ref);
+async function executeDeleteEvent(input: CalendarDeleteEventInput, ctx: ToolExecuteContext) {
+  const { ref, event, gone } = await readEventForWrite(input, ctx);
+  const result = { calendarId: input.calendarId, eventId: input.eventId };
+
+  // The event the user asked to remove is already gone, so a retry or a resume succeeds.
+  if (gone || !event) return { ok: true, alreadyDeleted: true, ...result };
+  assertEventTitle(event, input);
+  assertOrganizer(event, false);
+
+  const outcome = await withEtagCheck(() =>
+    ctx.integrations.google.calendar.deleteEvent({ ...ref, etag: event.etag, sendUpdates: "all" }),
+  );
+
+  return { ok: true, alreadyDeleted: outcome === "already_deleted", ...result };
+}
+
+async function executeRespondToEvent(input: CalendarRespondToEventInput, ctx: ToolExecuteContext) {
+  const { credential, ref, event, gone } = await readEventForWrite(input, ctx);
+
+  if (gone || !event) throw new AppError("calendar_event_cancelled");
+  assertEventTitle(event, input);
   const own = event.attendees?.find((attendee) => attendee.self);
 
   // An organizer's answer would email every guest about an "update" they did not need.
-  if (!own?.email || own.organizer) {
-    throw new Error(
-      "The user organizes this event or is not on its guest list, so there is no " +
-        "invitation to answer.",
-    );
-  }
+  if (!own?.email || own.organizer) throw new AppError("calendar_event_not_invited");
 
-  const answered = await calendar.respondToEvent({
+  const answered = await ctx.integrations.google.calendar.respondToEvent({
     ...ref,
     attendeeEmail: own.email,
     response: input.response,
     comment: input.comment,
+    sendUpdates: "all",
   });
 
-  return { response: input.response, event: compactEvent(credential, answered) };
+  return { response: input.response, event: compactEvent(credential, input.calendarId, answered) };
 }
 
 export const calendarTools: readonly RegisteredTool[] = [
@@ -367,7 +475,12 @@ export const calendarTools: readonly RegisteredTool[] = [
       tags: ["calendar", "schedule", "time"],
       entities: ["calendar", "event", "meeting", "schedule"],
       verbs: ["list", "check", "show", "find", "read"],
-      relatedTools: ["calendar.create_event", "calendar.update_event", "calendar.respond_to_event"],
+      relatedTools: [
+        "calendar.create_event",
+        "calendar.update_event",
+        "calendar.delete_event",
+        "calendar.respond_to_event",
+      ],
     },
     availability: {
       credential: { provider: "google", anyOfScopes: CALENDAR_READ_SCOPES },
@@ -387,7 +500,7 @@ export const calendarTools: readonly RegisteredTool[] = [
       tags: ["calendar", "schedule", "time", "write"],
       entities: ["calendar", "event", "meeting"],
       verbs: ["create", "schedule", "add", "book"],
-      relatedTools: ["calendar.list_events", "calendar.update_event"],
+      relatedTools: ["calendar.list_events", "calendar.update_event", "calendar.delete_event"],
     },
     availability: {
       credential: { provider: "google", anyOfScopes: CALENDAR_WRITE_SCOPES },
@@ -403,15 +516,17 @@ export const calendarTools: readonly RegisteredTool[] = [
     action: "update_event",
     riskTier: "medium",
     description:
-      "Change a Google Calendar event after the user approves it: title, description, " +
-      "location, time, or guests. Only the fields you pass change. Google emails the guests " +
-      "about the change. To move the event, pass start and end together.",
+      "Change a Google Calendar event that the user organizes: title, description, location, " +
+      "time, or guests. Pass the event reference from calendar.list_events. Only the fields " +
+      "you pass change. To move the event, pass start and end together. For a recurring " +
+      "event, the change applies to one occurrence unless you pass the recurringEventId. " +
+      "When the user is a guest, use calendar.respond_to_event.",
     discovery: {
       aliases: ["reschedule meeting", "move event", "edit calendar event", "add guest"],
       tags: ["calendar", "schedule", "time", "write"],
       entities: ["calendar", "event", "meeting", "guest"],
       verbs: ["update", "reschedule", "move", "edit", "rename", "invite"],
-      relatedTools: ["calendar.list_events", "calendar.delete_event"],
+      relatedTools: ["calendar.list_events", "calendar.delete_event", "calendar.respond_to_event"],
     },
     availability: {
       credential: { provider: "google", anyOfScopes: CALENDAR_WRITE_SCOPES },
@@ -427,46 +542,42 @@ export const calendarTools: readonly RegisteredTool[] = [
     action: "delete_event",
     riskTier: "high",
     description:
-      "Delete a Google Calendar event after the user approves it. Google emails the guests " +
-      "that it is cancelled. When the user is a guest and not the organizer, use " +
-      "calendar.respond_to_event with declined instead.",
+      "Delete a Google Calendar event that the user organizes, after the user approves it. " +
+      "Pass the event reference from calendar.list_events. Google emails the guests that it " +
+      "is cancelled. For a recurring event, it deletes one occurrence unless you pass the " +
+      "recurringEventId. When the user is a guest, use calendar.respond_to_event with " +
+      "declined instead.",
     discovery: {
       aliases: ["cancel meeting", "delete event", "remove from calendar"],
       tags: ["calendar", "schedule", "write"],
       entities: ["calendar", "event", "meeting"],
       verbs: ["delete", "cancel", "remove"],
-      relatedTools: ["calendar.list_events", "calendar.respond_to_event"],
+      relatedTools: ["calendar.list_events", "calendar.update_event", "calendar.respond_to_event"],
     },
     availability: {
       credential: { provider: "google", anyOfScopes: CALENDAR_WRITE_SCOPES },
     },
     inputSchema: calendarDeleteEventInput,
     execute: async (input, ctx) => {
-      const credential = await ctx.integrations.google.calendar.writeCredential();
-
-      await ctx.integrations.google.calendar.deleteEvent({
-        credentialId: credential.id,
-        calendarId: input.calendarId,
-        eventId: input.eventId,
-        sendUpdates: "all",
-      });
-
-      return { ok: true, calendarId: input.calendarId, eventId: input.eventId };
+      return executeDeleteEvent(input, ctx);
     },
   }),
   liveTool({
     integration: "calendar",
     action: "respond_to_event",
-    riskTier: "medium",
+    // Google emails the answer and the note to the organizer, so it is a real send.
+    riskTier: "high",
     description:
       "Accept, decline, or tentatively accept a Google Calendar invitation for the user, " +
-      "with an optional note. The organizer sees the answer.",
+      "with an optional note, after the user approves it. Pass the event reference from " +
+      "calendar.list_events. Google emails the answer to the organizer. For a recurring " +
+      "event, it answers one occurrence unless you pass the recurringEventId.",
     discovery: {
       aliases: ["rsvp", "accept invite", "decline meeting", "reply to invitation"],
       tags: ["calendar", "schedule", "write"],
       entities: ["calendar", "event", "meeting", "invitation"],
       verbs: ["accept", "decline", "respond", "rsvp"],
-      relatedTools: ["calendar.list_events"],
+      relatedTools: ["calendar.list_events", "calendar.update_event", "calendar.delete_event"],
     },
     availability: {
       credential: { provider: "google", anyOfScopes: CALENDAR_WRITE_SCOPES },
@@ -482,7 +593,7 @@ export const calendarTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     availability: { passthrough: true },
     description:
-      "Issue a raw, READ-ONLY Google Calendar REST call for anything the curated calendar tools don't cover — the user's calendar list (GET '/users/me/calendarList', '/users/me/calendarList/{id}'), a specific calendar's metadata (GET '/calendars/{id}'), raw event reads on any calendar (GET '/calendars/{id}/events', '/calendars/{id}/events/{eventId}'), the color palette (GET '/colors'), or free/busy across calendars (POST '/freeBusy' with a `body` of timeMin, timeMax, and items: [{id}]). Prefer the curated calendar.list_events for normal 'what's on my schedule' reads — it resolves the time window in the user's timezone; use this only for structure/metadata the curated tool doesn't return. Pass `method` (GET or HEAD only — writes are rejected at the boundary), a namespace-relative `path` beginning with '/' (include the API version's resource segment, e.g. '/users/me/calendarList'; never a full URL and never the '/calendar/v3' prefix), and `query` for parameters (timeMin, timeMax, singleEvents, maxResults). This is a raw, unvalidated read: a 404 or empty list may mean your path/params were wrong — NOT that the thing is absent. Correct the path once and retry, or state the uncertainty. Never report a raw empty as a confident zero.",
+      "Issue a raw, READ-ONLY Google Calendar REST call for anything the curated calendar tools don't cover — the user's calendar list (GET '/users/me/calendarList', '/users/me/calendarList/{id}'), a specific calendar's metadata (GET '/calendars/{id}'), raw event reads on any calendar (GET '/calendars/{id}/events', '/calendars/{id}/events/{eventId}'), the color palette (GET '/colors'), or free/busy across calendars (POST '/freeBusy' with a `body` of timeMin, timeMax, and items: [{id}]). Prefer the curated calendar.list_events for normal 'what's on my schedule' reads — it resolves the time window in the user's timezone; use this only for structure/metadata the curated tool doesn't return. Pass `method` (GET or HEAD; POST only for '/freeBusy'; the boundary rejects every other write), a namespace-relative `path` beginning with '/' (include the API version's resource segment, e.g. '/users/me/calendarList'; never a full URL and never the '/calendar/v3' prefix), and `query` for parameters (timeMin, timeMax, singleEvents, maxResults). This is a raw, unvalidated read: a 404 or empty list may mean your path/params were wrong — NOT that the thing is absent. Correct the path once and retry, or state the uncertainty. Never report a raw empty as a confident zero.",
     discovery: {
       aliases: ["calendar api", "list calendars", "call calendar", "calendar request"],
       tags: ["calendar", "schedule", "time"],

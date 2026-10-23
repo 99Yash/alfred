@@ -1,4 +1,9 @@
-import { calendarCreateEventSendsInvitations, parseEmailAddress } from "@alfred/contracts";
+import {
+  calendarCreateEventSendsInvitations,
+  isHttpError,
+  parseEmailAddress,
+  type CalendarResponse,
+} from "@alfred/contracts";
 import { z } from "zod";
 import type { RetryPolicy } from "../shared/retry";
 import { uncheckedResponse } from "../shared/authed-json";
@@ -16,7 +21,11 @@ const eventDateTimeSchema = z.object({
   timeZone: z.string().optional(),
 });
 
-const attendeeSchema = z.object({
+/**
+ * Loose, because a write sends each kept attendee back whole. Fields that this module does
+ * not model (`optional`, `resource`, `comment`) must survive.
+ */
+const attendeeSchema = z.looseObject({
   email: z.string().optional(),
   displayName: z.string().optional(),
   organizer: z.boolean().optional(),
@@ -26,7 +35,14 @@ const attendeeSchema = z.object({
 
 const eventSchema = z.object({
   id: z.string(),
+  /** Sent back as `If-Match`, so a write fails with 412 when the event changed. */
+  etag: z.string().optional(),
   status: z.string().optional(),
+  /** Set on an occurrence of a recurring event. It names the series. */
+  recurringEventId: z.string().optional(),
+  organizer: z.object({ email: z.string().optional(), self: z.boolean().optional() }).optional(),
+  /** Google's default is false: only the organizer can change the event. */
+  guestsCanModify: z.boolean().optional(),
   summary: z.string().optional(),
   description: z.string().optional(),
   location: z.string().optional(),
@@ -143,9 +159,9 @@ export interface EventRefArgs {
 }
 
 /** `all` emails the guests about the change. Google sends nothing to an event with no guests. */
-export type CalendarSendUpdates = "all" | "none";
+type SendUpdates = "all" | "none";
 
-function eventUrl(args: Omit<EventRefArgs, "accessToken">, sendUpdates?: CalendarSendUpdates) {
+function eventUrl(args: Omit<EventRefArgs, "accessToken">, sendUpdates?: SendUpdates) {
   const calendarId = encodeURIComponent(args.calendarId ?? "primary");
   const eventId = encodeURIComponent(args.eventId);
   const url = new URL(`${API_BASE}/calendars/${calendarId}/events/${eventId}`);
@@ -155,6 +171,7 @@ function eventUrl(args: Omit<EventRefArgs, "accessToken">, sendUpdates?: Calenda
   return url.toString();
 }
 
+/** A deleted event can come back with a 200 and `status: "cancelled"`. The caller checks it. */
 export async function getEvent(
   args: EventRefArgs,
   retry: RetryPolicy | "none" = "none",
@@ -166,21 +183,20 @@ export async function getEvent(
   });
 }
 
-/**
- * Attendee objects as Google sends them. A write sends each kept object back whole, so
- * fields this module does not model (`optional`, `resource`, `comment`) survive.
- */
-const rawAttendeesSchema = z.object({
-  attendees: z.array(z.looseObject({ email: z.string().optional() })).optional(),
-});
-
 function sameEmail(a: string | undefined, b: string): boolean {
   const left = parseEmailAddress(a);
 
   return left !== null && left === parseEmailAddress(b);
 }
 
+/** RFC3339. `date: null` clears the date of an all-day event, because a PATCH merges objects. */
+function timedSlot(dateTime: string, timeZone: string | undefined) {
+  return { dateTime, timeZone, date: null };
+}
+
 export interface UpdateEventArgs extends EventRefArgs {
+  /** The event as the caller read it. Its etag and guest list are the base of the write. */
+  current: Pick<CalendarEvent, "etag" | "attendees">;
   summary?: string | undefined;
   description?: string | undefined;
   location?: string | undefined;
@@ -190,23 +206,19 @@ export interface UpdateEventArgs extends EventRefArgs {
   timeZone?: string | undefined;
   addAttendees?: string[] | undefined;
   removeAttendees?: string[] | undefined;
-  sendUpdates: CalendarSendUpdates;
+  sendUpdates: SendUpdates;
 }
 
 /**
- * Patches only the set fields. An attendee change reads the current list first and writes
- * the whole list back, because Google replaces `attendees` as one value.
+ * Patches only the set fields. Google replaces `attendees` as one value, so a guest change
+ * writes the whole list from `current`. The etag makes Google refuse the write with 412
+ * when the event changed after that read.
  */
 export async function updateEvent(args: UpdateEventArgs): Promise<CalendarEvent> {
-  const { accessToken, addAttendees = [], removeAttendees = [] } = args;
-  let attendees: z.infer<typeof rawAttendeesSchema>["attendees"];
+  const { accessToken, current, addAttendees = [], removeAttendees = [] } = args;
+  let attendees: CalendarAttendee[] | undefined;
 
   if (addAttendees.length > 0 || removeAttendees.length > 0) {
-    const current = await googleJson("calendar", rawAttendeesSchema, {
-      url: eventUrl(args),
-      accessToken,
-    });
-
     const kept = (current.attendees ?? []).filter(
       (attendee) => !removeAttendees.some((email) => sameEmail(attendee.email, email)),
     );
@@ -222,8 +234,8 @@ export async function updateEvent(args: UpdateEventArgs): Promise<CalendarEvent>
     summary: args.summary,
     description: args.description,
     location: args.location,
-    ...(args.start ? { start: { dateTime: args.start, timeZone: args.timeZone } } : {}),
-    ...(args.end ? { end: { dateTime: args.end, timeZone: args.timeZone } } : {}),
+    ...(args.start ? { start: timedSlot(args.start, args.timeZone) } : {}),
+    ...(args.end ? { end: timedSlot(args.end, args.timeZone) } : {}),
     ...(attendees ? { attendees } : {}),
   };
 
@@ -232,29 +244,42 @@ export async function updateEvent(args: UpdateEventArgs): Promise<CalendarEvent>
     url: eventUrl(args, args.sendUpdates),
     accessToken,
     payload,
+    ifMatch: current.etag,
   });
 }
 
 export interface DeleteEventArgs extends EventRefArgs {
-  sendUpdates: CalendarSendUpdates;
+  /** The etag that the caller read. Google refuses the delete with 412 when it changed. */
+  etag?: string | undefined;
+  sendUpdates: SendUpdates;
 }
 
-/** Not idempotent at the wire: a second delete gets a 410. */
-export async function deleteEvent(args: DeleteEventArgs): Promise<void> {
-  await googleJson("calendar", uncheckedResponse, {
-    method: "DELETE",
-    url: eventUrl(args, args.sendUpdates),
-    accessToken: args.accessToken,
-  });
-}
+/**
+ * A second delete of the same event gets a 410 from Google. That is the outcome the caller
+ * asked for, so it returns `already_deleted`, and a retry or a resume does not fail.
+ */
+export async function deleteEvent(args: DeleteEventArgs): Promise<"deleted" | "already_deleted"> {
+  try {
+    await googleJson("calendar", uncheckedResponse, {
+      method: "DELETE",
+      url: eventUrl(args, args.sendUpdates),
+      accessToken: args.accessToken,
+      ifMatch: args.etag,
+    });
 
-export type CalendarResponse = "accepted" | "declined" | "tentative";
+    return "deleted";
+  } catch (err) {
+    if (isHttpError(err) && err.status === 410) return "already_deleted";
+    throw err;
+  }
+}
 
 export interface RespondToEventArgs extends EventRefArgs {
   /** The user's own attendee email on this event. */
   attendeeEmail: string;
   response: CalendarResponse;
   comment?: string | undefined;
+  sendUpdates: SendUpdates;
 }
 
 /**
@@ -270,7 +295,7 @@ export async function respondToEvent(args: RespondToEventArgs): Promise<Calendar
 
   return googleJson("calendar", eventSchema, {
     method: "PATCH",
-    url: eventUrl(args, "all"),
+    url: eventUrl(args, args.sendUpdates),
     accessToken: args.accessToken,
     payload: { attendees: [attendee], attendeesOmitted: true },
   });

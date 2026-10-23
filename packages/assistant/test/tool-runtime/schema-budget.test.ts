@@ -24,8 +24,8 @@ const KERNEL_SCHEMA_BYTES_CEILING = 13_000;
 
 const KERNEL_SCHEMA_TOKENS_CEILING = 3_300;
 
-// Raised 2026-10-23 for the Gmail and Calendar write tools: full 97,355 B. Tools load
-// lazily, so only the kernel ceiling bounds the bytes that one prompt carries.
+// Tools load lazily through system.load_tool, so only the kernel ceiling bounds the bytes
+// that one prompt carries. This ceiling only catches a schema that grows by mistake.
 const FULL_SCHEMA_BYTES_CEILING = 100_000;
 
 /** The artifact/search giants must never bootstrap the kernel. */

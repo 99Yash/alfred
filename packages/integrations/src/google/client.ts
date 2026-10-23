@@ -335,6 +335,9 @@ export function googleClientForUser(options: ProviderBindOptions) {
       readCredentials: () =>
         credentialsForAuthority(options.userId, "calendar_read", options.accountRef),
       writeCredential: () => first("calendar_write"),
+      /** Every account that can write events. An event reference picks one by `accountId`. */
+      writeCredentials: () =>
+        credentialsForAuthority(options.userId, "calendar_write", options.accountRef),
     },
     docs: { ...client.docs, credential: () => first("docs") },
     drive: { ...client.drive, credential: () => first("drive") },

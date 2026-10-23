@@ -25,10 +25,11 @@ import {
 } from "./artifacts";
 import { contextSearchRequestSchema } from "./context-search";
 import { githubSearchQueryIssues, sanitizeGithubSearchQuery } from "./github-search";
-import { enumGuard, isRecord } from "./guards";
+import { enumGuard, isRecord, parseEmailAddress } from "./guards";
 import { safeJsonParse } from "./json";
 import { mcpCallInput, mcpToolInspectInputSchema, mcpToolSearchInputSchema } from "./mcp";
 import { restPassthroughRequestSchema } from "./passthrough";
+import { typedKeys } from "./records";
 import { todoSourceSchema } from "./todos";
 import {
   GMAIL_SEARCH_DEFAULT_RESULTS,
@@ -256,20 +257,20 @@ function padDatetimeSeconds<S extends z.ZodType>(fields: readonly string[], sche
   }, schema);
 }
 
+const calendarIdInput = z
+  .string()
+  .min(1)
+  .max(200)
+  .default("primary")
+  .describe("Calendar id. Use primary unless the user or the event names another calendar.");
+
 export const calendarCreateEventInput = padDatetimeSeconds(
   ["start", "end"],
   coerceJsonArrayFields(
     ["attendees"],
     z
       .object({
-        calendarId: z
-          .string()
-          .min(1)
-          .max(200)
-          .default("primary")
-          .describe(
-            "Calendar id to create the event in. Use primary unless the user specified another calendar.",
-          ),
+        calendarId: calendarIdInput,
         summary: z.string().min(1).max(500),
         description: z.string().max(10_000).optional(),
         location: z.string().max(1_000).optional(),
@@ -300,31 +301,53 @@ export function calendarCreateEventSendsInvitations(
   return (input.attendees?.length ?? 0) > 0;
 }
 
+export const CALENDAR_RESPONSES = ["accepted", "declined", "tentative"] as const;
+
+export type CalendarResponse = (typeof CALENDAR_RESPONSES)[number];
+
+/** The reference that calendar.list_events returns. Each write tool takes all of it. */
 const calendarEventRef = {
-  calendarId: z
+  accountId: z
     .string()
     .min(1)
     .max(200)
-    .default("primary")
-    .describe("Calendar id. Use primary unless the event is on another calendar."),
+    .describe(
+      "Event `accountId` from calendar.list_events. It names the Google account that acts.",
+    ),
+  calendarId: calendarIdInput,
   eventId: z
     .string()
     .min(1)
     .max(1024)
     .describe(
-      "Event `id` from calendar.list_events. For a recurring event it names one occurrence.",
+      "Event `id` from calendar.list_events. For a recurring event it names one occurrence. " +
+        "To change the full series, pass the event's `recurringEventId`.",
+    ),
+  eventTitle: z
+    .string()
+    .min(1)
+    .max(500)
+    .describe(
+      "Event `title` from calendar.list_events, exactly as it is. The tool refuses the call " +
+        "when the event has a different title.",
     ),
 };
 
-const CALENDAR_UPDATE_FIELDS = [
-  "summary",
-  "description",
-  "location",
-  "start",
-  "end",
-  "addAttendees",
-  "removeAttendees",
-] as const;
+/** The fields that update_event changes. At least one is required. */
+const calendarEventChanges = {
+  summary: z.string().min(1).max(500).optional().describe("New title."),
+  description: z.string().max(10_000).optional(),
+  location: z.string().max(1_000).optional(),
+  start: z.iso
+    .datetime({ offset: true })
+    .optional()
+    .describe("New start. Set start and end together."),
+  end: z.iso.datetime({ offset: true }).optional(),
+  addAttendees: z.array(modelToolEmail()).min(1).max(50).optional(),
+  removeAttendees: z.array(modelToolEmail()).min(1).max(50).optional(),
+};
+
+const CALENDAR_EVENT_CHANGE_FIELDS = typedKeys(calendarEventChanges);
 
 export const calendarUpdateEventInput = padDatetimeSeconds(
   ["start", "end"],
@@ -333,25 +356,23 @@ export const calendarUpdateEventInput = padDatetimeSeconds(
     z
       .object({
         ...calendarEventRef,
-        summary: z.string().min(1).max(500).optional(),
-        description: z.string().max(10_000).optional(),
-        location: z.string().max(1_000).optional(),
-        start: z.iso
-          .datetime({ offset: true })
-          .optional()
-          .describe("New start. Set start and end together."),
-        end: z.iso.datetime({ offset: true }).optional(),
+        ...calendarEventChanges,
         timeZone: z
           .string()
           .min(1)
           .max(100)
           .optional()
           .describe("IANA timezone for a new start and end."),
-        addAttendees: z.array(modelToolEmail()).min(1).max(50).optional(),
-        removeAttendees: z.array(modelToolEmail()).min(1).max(50).optional(),
+        notifyGuests: z
+          .boolean()
+          .default(true)
+          .describe(
+            "Email the guests about the change. Set false for a change that the guests do not " +
+              "need to hear about, such as a typo fix.",
+          ),
       })
       .strict()
-      .refine((value) => CALENDAR_UPDATE_FIELDS.some((field) => value[field] !== undefined), {
+      .refine((value) => CALENDAR_EVENT_CHANGE_FIELDS.some((field) => value[field] !== undefined), {
         message: "change at least one field",
       })
       .refine((value) => (value.start === undefined) === (value.end === undefined), {
@@ -364,18 +385,27 @@ export const calendarUpdateEventInput = padDatetimeSeconds(
           value.end === undefined ||
           new Date(value.end) > new Date(value.start),
         { message: "end must be after start", path: ["end"] },
+      )
+      .refine(
+        (value) => {
+          const removed = new Set((value.removeAttendees ?? []).map(parseEmailAddress));
+
+          return !(value.addAttendees ?? []).some((email) => removed.has(parseEmailAddress(email)));
+        },
+        {
+          message: "an email cannot be in addAttendees and removeAttendees",
+          path: ["removeAttendees"],
+        },
       ),
   ),
 );
-
-export type CalendarUpdateEventInput = z.infer<typeof calendarUpdateEventInput>;
 
 export const calendarDeleteEventInput = z.object(calendarEventRef).strict();
 
 export const calendarRespondToEventInput = z
   .object({
     ...calendarEventRef,
-    response: z.enum(["accepted", "declined", "tentative"]),
+    response: z.enum(CALENDAR_RESPONSES),
     comment: z.string().max(1_000).optional().describe("A note to the organizer."),
   })
   .strict();
