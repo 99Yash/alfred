@@ -1,5 +1,6 @@
 import { githubSearchResultSchema, gmailSearchResultSchema } from "@alfred/contracts";
-import type { SyncedChatMessage } from "@alfred/sync";
+import type { SyncedActionStaging, SyncedChatMessage } from "@alfred/sync";
+import { asQuestionStaging } from "~/components/approvals/ask-user";
 import type { StreamingMessage } from "~/lib/chat/chat-stream-state";
 import type { IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { parseJsonRecord } from "~/lib/json-record";
@@ -54,6 +55,20 @@ export function describeActivity(stream: StreamingMessage): string {
   if (stream.reasoningActive) return "Thinking…";
 
   return "Working…";
+}
+
+/**
+ * Label for the pill when a pending card is off-screen, or `null` with none pending.
+ * A question is not an approval (ADR-0099), so a lone question gets its own verb.
+ */
+export function reviewLabel(approvals: readonly SyncedActionStaging[]): string | null {
+  const [first] = approvals;
+
+  if (!first) return null;
+
+  if (approvals.length > 1) return `Review ${approvals.length} actions`;
+
+  return asQuestionStaging(first) ? "Answer question" : "Review action";
 }
 
 export function buildFollowUpSuggestions(

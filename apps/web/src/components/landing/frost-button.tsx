@@ -67,7 +67,7 @@ export function FrostButton({
       data-loading={loading || undefined}
       aria-busy={loading || undefined}
       className={cn(
-        "frost-border press-scale isolate inline-flex items-center justify-center select-none",
+        "frost-border app-press isolate inline-flex items-center justify-center select-none",
         "rounded-full font-medium backdrop-blur-md",
         // hover wash
         "after:absolute after:inset-0 after:rounded-[inherit] after:content-['']",

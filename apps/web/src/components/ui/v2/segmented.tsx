@@ -61,7 +61,7 @@ export function AppSegmented<T extends string = string>({
             className={cn(
               "inline-flex h-7 items-center gap-1.5 rounded-lg px-3",
               "text-xs font-medium whitespace-nowrap",
-              "transition-[background-color,box-shadow,color,transform] duration-150",
+              "transition-[background-color,box-shadow,color,scale] duration-150",
               "app-press",
               glass
                 ? cn(

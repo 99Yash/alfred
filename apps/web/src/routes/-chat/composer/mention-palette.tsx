@@ -202,7 +202,7 @@ function MentionRow({
       className={cn(
         "app-press flex w-full items-center gap-2.5 rounded-xl px-2 py-1.5 text-left",
         // Both together so the press scale interpolates.
-        "transition-[background-color,transform]",
+        "transition-[background-color,scale]",
         isActive ? "bg-app-bg-a2" : "hover:bg-app-bg-a2",
         "outline-none",
       )}

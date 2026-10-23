@@ -54,15 +54,15 @@ rounded-app-{1..6}      0.125rem → 1rem radius scale
 
 ## Utilities
 
-| Class               | What it does                                                                      |
-| ------------------- | --------------------------------------------------------------------------------- |
-| `.app`              | Subtree opt-in: white bg, fg-3 text, -0.02em tracking, cursor:default.            |
-| `.app-elevated`     | Two-shadow stack (1px drop + 0-blur hairline). Bumps on hover.                    |
-| `.app-frost-header` | Masked backdrop-blur for fixed headers — fades to no-blur at the very top.        |
-| `.app-focus`        | One-pixel focus stroke, placed 2px outside small controls.                        |
-| `.app-focus-inset`  | One-pixel focus stroke inside fields and large surfaces.                          |
-| `.app-focus-within` | The inset stroke for a composite surface when a child has keyboard focus.         |
-| `.app-press`        | `active:scale(0.96)` press microinteraction. Used on every interactive primitive. |
+| Class               | What it does                                                                                                           |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `.app`              | Subtree opt-in: white bg, fg-3 text, -0.02em tracking, cursor:default.                                                 |
+| `.app-elevated`     | Two-shadow stack (1px drop + 0-blur hairline). Bumps on hover.                                                         |
+| `.app-frost-header` | Masked backdrop-blur for fixed headers — fades to no-blur at the very top.                                             |
+| `.app-focus`        | One-pixel focus stroke, placed 2px outside small controls.                                                             |
+| `.app-focus-inset`  | One-pixel focus stroke inside fields and large surfaces.                                                               |
+| `.app-focus-within` | The inset stroke for a composite surface when a child has keyboard focus.                                              |
+| `.app-press`        | `scale: 0.96` press microinteraction (the CSS `scale` property, not `transform`). Used on every interactive primitive. |
 
 ## Form values
 

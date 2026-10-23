@@ -93,8 +93,8 @@ export function AppButton({
       className={cn(
         "relative isolate inline-flex items-center justify-center",
         "font-medium whitespace-nowrap select-none",
-        /* Durations pair with this property order: fills tween 300ms, transform 150ms. */
-        "transition-[filter,background-color,box-shadow,transform] ease-out",
+        /* Durations pair with this property order: fills tween 300ms, the press scale 150ms. */
+        "transition-[filter,background-color,box-shadow,scale] ease-out",
         "[transition-duration:300ms,300ms,300ms,150ms]",
         "app-focus app-press",
         SIZE[size],
