@@ -12,8 +12,14 @@ import { getIntegrationPage } from "~/lib/integrations/integrations";
 import { asString, parseJsonRecord } from "~/lib/json-record";
 import { brandlessToolIcon } from "./animated-tool-icons";
 
-/** Its card names the tool the model loaded, read from the call. */
-const LOAD_TOOL = "system.load_tool" satisfies ToolName;
+/**
+ * Plumbing: the model finding and loading its own tools. Not work for the user, so no surface draws it.
+ * Read through {@link visibleTools}.
+ */
+const TRAIL_HIDDEN_TOOLS: ReadonlySet<string> = new Set([
+  "system.search_tools",
+  "system.load_tool",
+] satisfies ToolName[]);
 
 export interface ToolCallView {
   toolCallId: string;
@@ -38,11 +44,14 @@ export interface ToolPresentation {
   failed?: string | undefined;
   /** Readable secondary line, not raw JSON. */
   detail?: string | undefined;
-  /**
-   * The result is bookkeeping, not evidence (`load_tool` returns `{"ok":true,…}`), so hide the panel.
-   * A failed call still expands.
-   */
-  suppressResult?: boolean | undefined;
+}
+
+/**
+ * The calls a person sees. Every surface that draws or counts tool calls reads this, never the raw list.
+ * Filter once where the surface receives its list and pass the result down.
+ */
+export function visibleTools<T extends Pick<ToolCallView, "toolName">>(tools: readonly T[]): T[] {
+  return tools.filter((tool) => !TRAIL_HIDDEN_TOOLS.has(tool.toolName));
 }
 
 /** `"google_calendar.list_events"` → `"list_events"`. */
@@ -114,8 +123,6 @@ export function presentTool(tool: ToolCallView): ToolPresentation {
   // The wrench is for names this build does not know.
   const fallbackIcon = brandlessToolIcon(tool.toolName) ?? Wrench;
 
-  if (tool.toolName === LOAD_TOOL) return presentLoadTool(tool, fallbackIcon);
-
   if (slug === "system" || slug === "") {
     if (label) return { fallbackIcon, running: label.running, done: label.done, failed };
     const verb = humanizeTool(tool.toolName);
@@ -147,45 +154,5 @@ export function presentTool(tool: ToolCallView): ToolPresentation {
     done: verb,
     failed: `Couldn't ${verb}`,
     detail: provider?.name,
-  };
-}
-
-/**
- * The `load_tool` card names which capability Alfred loaded.
- * The name comes from the args while streaming and the result echo after reload.
- * If neither resolves, use the registry's generic copy.
- */
-function presentLoadTool(tool: ToolCallView, fallbackIcon: LucideIcon): ToolPresentation {
-  const args = parseJsonRecord(tool.argsPreview);
-  const result = parseJsonRecord(tool.resultPreview);
-  const target = asString(args?.name) ?? asString(result?.name);
-  const generic = toolLabel(tool.toolName);
-  const targetLabel = target ? toolLabel(target) : null;
-
-  const provider = target?.includes(".")
-    ? getIntegrationPage(target.slice(0, target.indexOf(".")))
-    : undefined;
-
-  if (!targetLabel) {
-    return {
-      brand: provider?.brand,
-      fallbackIcon,
-      running: generic?.running ?? "Loading a tool",
-      done: generic?.done ?? "Loaded a tool",
-      failed: "Couldn't load that tool",
-      detail: provider?.name,
-      suppressResult: true,
-    };
-  }
-
-  // The registry `title` is an infinitive phrase, so it completes "Ready to…".
-  return {
-    brand: provider?.brand,
-    fallbackIcon,
-    running: `Loading the tool to ${targetLabel.title}`,
-    done: `Ready to ${targetLabel.title}`,
-    failed: `Couldn't load the tool to ${targetLabel.title}`,
-    detail: provider?.name,
-    suppressResult: true,
   };
 }
