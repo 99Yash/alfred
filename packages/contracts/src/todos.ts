@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 
+import { getObjectKindDef, type ObjectStateProvider } from "./integration-objects";
 import { deriveLoopEntityRef } from "./loop-key";
 
 // ─── Status ────────────────────────────────────────────────────────────────
@@ -155,16 +156,35 @@ function newestIndexes(
 }
 
 /**
- * Sources for a todo from a Gmail thread: always the thread ref, plus a loop ref
- * (a PR, a Linear issue) when one is found, so re-notifications merge onto one todo.
+ * The `integration_objects` row a mail is about, by its identity tuple (ADR-0092 A1). The tuple,
+ * not the row id: the row id is random, and the tuple names the thing (ADR-0111 D2a).
+ */
+export interface TodoObjectRef {
+  provider: ObjectStateProvider;
+  kind: string;
+  externalId: string;
+  url: string | null;
+}
+
+/**
+ * Sources for a todo from a Gmail thread: always the thread ref, then the object ref when the mail
+ * resolved to an `integration_objects` row whose kind declares `todoIdentity`, then a loop ref
+ * (a PR, a Linear issue) when the subject names one. Any shared identity ref merges
+ * re-notifications onto one todo.
  * The loop ref needs a tracker sender, so a human email that quotes `(PR #1)` does not merge.
+ * It stays beside the object ref so that todos minted before the object ref still merge (#917).
  */
 export function gmailTodoSources(input: {
   threadId: string;
   subject: string | null | undefined;
   sender: string | null | undefined;
+  object: TodoObjectRef | null;
 }): TodoSource[] {
   const sources: TodoSource[] = [{ provider: "gmail", kind: "thread", id: input.threadId }];
+
+  const objectRef = input.object ? objectTodoSource(input.object) : null;
+
+  if (objectRef) sources.push(objectRef);
 
   const loopRef = deriveLoopEntityRef(input.subject, {
     sender: input.sender,
@@ -174,4 +194,24 @@ export function gmailTodoSources(input: {
   if (loopRef) sources.push({ provider: loopRef.provider, kind: loopRef.kind, id: loopRef.id });
 
   return sources;
+}
+
+/**
+ * A GitHub PR object ref and a GitHub PR loop ref share `(github, pull_request)` but not an id
+ * grammar (`12345` against `owner/repo#12`), so the two never match each other by accident.
+ * A bad display `url` must not cost the identity, so it is dropped on its own.
+ */
+function objectTodoSource(object: TodoObjectRef): TodoSource | null {
+  // A target kind gets no ref, so a dismissed CI failure on `main` does not hide the next one.
+  if (!getObjectKindDef(object.provider, object.kind)?.todoIdentity) return null;
+
+  const identity = { provider: object.provider, kind: object.kind, id: object.externalId };
+
+  const withUrl = object.url ? todoSourceSchema.safeParse({ ...identity, url: object.url }) : null;
+
+  if (withUrl?.success) return withUrl.data;
+
+  const bare = todoSourceSchema.safeParse(identity);
+
+  return bare.success ? bare.data : null;
 }

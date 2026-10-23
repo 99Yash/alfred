@@ -6,7 +6,7 @@
 
 **Extends ADR-0067** (a new observation kind, a new node kind, hard-key identity bridges for non-person nodes, and the first node that carries more than one identity). **Amends ADR-0066** (the `monitoring_alarm` floor reads the projected referent instead of its own sender regex). **Partially un-defers ADR-0060 / ADR-0067 P4** (one subject binding: standing instruction → entity node). **Reaffirms ADR-0058** with a recomputed cost table. Resolves the recurrence half of #353. #355 is already closed — PR #916 shipped the interim content/shape key on 2026-08-28 — so the durable form is tracked as #917. Motivated by the structural review of PR #916.
 
-**Amended 2026-10-21 (proposed, not built).** A thing that a provider tracks with state is its `integration_objects` row, not a `referent` node. A referent node is only for a thing that no connected provider tracks. Meeting-notes action items leave this ADR: they are work items, and a separate ADR decides them. See [Amendment 2026-10-21](#amendment-2026-10-21-proposed-one-owner-for-each-thing-meeting-notes-leave-this-adr) below D9.
+**Amended 2026-10-21 (proposed; only the object half of A1's D5 consumers is built).** A thing that a provider tracks with state is its `integration_objects` row, not a `referent` node. A referent node is only for a thing that no connected provider tracks. Meeting-notes action items leave this ADR: they are work items, and a separate ADR decides them. See [Amendment 2026-10-21](#amendment-2026-10-21-proposed-one-owner-for-each-thing-meeting-notes-leave-this-adr) below D9.
 
 ---
 
@@ -85,7 +85,7 @@ The store is built. The graph model is built. Only the extraction of non-person 
 
 ## Amendment 2026-10-21 (proposed): one owner for each thing; meeting notes leave this ADR
 
-**Status.** Proposed. Nothing in this section is built. It replaces an earlier draft of the same day, which made `about` a list of items with an owner for each item. The owner rejected that draft: one meeting-notes mail must not start tracking for every person that it names. Plain definitions of the words in this section are in [the context-graph glossary](../theory/context-graph.md).
+**Status.** Proposed. Only the object half of A1's D5 consumers is built (2026-10-23, #917). Nothing else in this section is built. It replaces an earlier draft of the same day, which made `about` a list of items with an owner for each item. The owner rejected that draft: one meeting-notes mail must not start tracking for every person that it names. Plain definitions of the words in this section are in [the context-graph glossary](../theory/context-graph.md).
 
 **Build status (verified 2026-10-21).**
 
@@ -95,10 +95,11 @@ The store is built. The graph model is built. Only the extraction of non-person 
 
 ### A1 — A thing with provider state is an integration object, not a referent node (amends D3 and D5)
 
-- **The provider row is the thing.** A hard key from a mail can resolve through `integration_object_keys` to an `integration_objects` row. Then that row is the thing. The fold mints no `referent` node for it, and consumers read the object id. D3's convergence of GitHub mail, Linear mail, and a webhook onto one record happens in `integration_object_keys`, which already exists.
+- **The provider row is the thing.** A hard key from a mail can resolve through `integration_object_keys` to an `integration_objects` row. Then that row is the thing. The fold mints no `referent` node for it, and consumers read the object's identity (see D5 consumers below). D3's convergence of GitHub mail, Linear mail, and a webhook onto one record happens in `integration_object_keys`, which already exists.
 - **A referent node is only for a thing that no connected provider tracks.** Examples: an SNS alarm whose mail has no ARN, a newsletter issue, or a hard key whose provider is not connected or has no row yet. D3's fallback identity and its hard-key identities still apply to these nodes.
 - **A later provider row takes over.** An `integration_objects` row can appear later for a hard key that a referent node holds. Then the fold links the node to the row. The row owns the state. The node keeps the mail history.
-- **D5 consumers.** `gmailTodoSources` carries the `integration_objects` id when a row exists. Otherwise it carries the `referent` node id. Otherwise it falls back to `deriveLoopEntityRef`, as D5 says.
+- **D5 consumers.** `gmailTodoSources` carries the object's identity `(provider, kind, externalId)` when a row exists. It does not carry the row id: `createId("iobj")` makes that id random, and the identity tuple has its own unique index (`integration_objects_identity_idx`). This is the same reason as ADR-0111 D2a. When no row exists, it carries the `referent` node id. The `deriveLoopEntityRef` ref stays beside both until a probe shows that the projection covers its cases, as D5 says. Then todos minted before the change still merge.
+- **Build status (2026-10-23).** The object half is built (#917). Triage resolves the mail through `reconcileEvidence` with the briefing's `about` reading and precedence rule. Triage resolves at mint time and the briefing resolves later, so the two can name different objects when a row changes between them. Only a hard edge (an `exact` key or an `identity` link) gives a ref: a ref merges and suppresses todos, a `prefix` key is a guess, and a `nomination` never closes an ask. Only a kind that declares `todoIdentity` in the object registry gives a ref. A target kind (`ci_target`, `deployment_target`) and `connection_health` declare `false`: a branch, a service, or a connection fails again and again, and the 30-day suppression of a resolved todo would hide each later failure behind the first dismissed one. The referent half waits for S1.
 
 ### A1a — The link stores the stable node id, with no foreign key
 

@@ -58,6 +58,13 @@ export interface ObjectKindDef {
   readonly closesAskOn: readonly LoopClosingStateCategory[];
   readonly closesAskFrom: ClosureProof;
   readonly absorbing: readonly StateCategory[];
+  /**
+   * True when one identity names one piece of work, so a todo may carry it as a source ref: a
+   * live todo merges on it and a resolved todo suppresses it (ADR-0092 A1). A target (a branch, a
+   * service) fails again and again, so one dismissed failure would hide the next ones. It declares
+   * `false`. No default, on purpose.
+   */
+  readonly todoIdentity: boolean;
   /** Links evidence to a row of this kind with no grammar (ADR-0109 rule 2). Absent: it cannot. */
   readonly identity?: ObjectIdentityDecl;
 }
@@ -341,12 +348,14 @@ export const INTEGRATION_OBJECT_DEFS = {
         closesAskOn: LOOP_CLOSING_STATE_CATEGORIES,
         closesAskFrom: "stored_projection",
         absorbing: ["resolved"],
+        todoIdentity: true,
       },
       // An attempt never closes an ask. Only its target does.
       ci_attempt: {
         closesAskOn: [],
         closesAskFrom: "stored_projection",
         absorbing: [],
+        todoIdentity: true,
       },
       // State is the latest attempt's outcome. A later failure reopens.
       ci_target: {
@@ -354,6 +363,7 @@ export const INTEGRATION_OBJECT_DEFS = {
         // A check-suite delivery carries `updated_at`, so rows order by provider time.
         closesAskFrom: "stored_projection",
         absorbing: [],
+        todoIdentity: false,
       },
     },
     prefixableKeys: { head_sha: 7 },
@@ -398,6 +408,7 @@ export const INTEGRATION_OBJECT_DEFS = {
         closesAskOn: ["resolved"],
         closesAskFrom: "live_confirmation",
         absorbing: [],
+        todoIdentity: true,
         // Every issue link holds `/issues/<issue_id>/`.
         identity: { uniqueKey: { attribute: "issue_id", linkLabel: "issues" } },
       },
@@ -425,6 +436,7 @@ export const INTEGRATION_OBJECT_DEFS = {
         closesAskOn: [],
         closesAskFrom: "stored_projection",
         absorbing: [],
+        todoIdentity: true,
       },
       // The build-failure mail names this target (ADR-0062 amendment 2026-10-20).
       deployment_target: {
@@ -433,6 +445,7 @@ export const INTEGRATION_OBJECT_DEFS = {
         // failure the mail reports. A live read must confirm the recovery.
         closesAskFrom: "live_confirmation",
         absorbing: [],
+        todoIdentity: false,
         // One project has many services in one environment, so only all three are unique. The
         // build-log link is `/project/<p>/service/<s>?id=<d>&environmentId=<e>`.
         identity: {
@@ -474,6 +487,7 @@ export const INTEGRATION_OBJECT_DEFS = {
         closesAskOn: [],
         closesAskFrom: "stored_projection",
         absorbing: [],
+        todoIdentity: true,
         // The failure mail links `vercel.com/<team>/<project>/<id>` with the `dpl_` removed. No
         // segment labels the id, so the link only nominates. An attempt never closes anyway.
         identity: { uniqueKey: { attribute: "deployment_id", droppedPrefix: "dpl_" } },
@@ -486,6 +500,7 @@ export const INTEGRATION_OBJECT_DEFS = {
         // The dispatch carries Vercel's own state, so nothing reorders into a false close.
         closesAskFrom: "stored_projection",
         absorbing: [],
+        todoIdentity: false,
       },
     },
     prefixableKeys: {},
@@ -519,6 +534,7 @@ export const INTEGRATION_OBJECT_DEFS = {
         // Every fold is a live authenticated read, so the row is current.
         closesAskFrom: "stored_projection",
         absorbing: [],
+        todoIdentity: false,
       },
     },
     prefixableKeys: {},
