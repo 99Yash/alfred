@@ -21,19 +21,16 @@ export function shouldShowStream(
 }
 
 /**
- * Show the bare spinner while running with nothing visible yet, or while a hidden call runs.
+ * Show the bare spinner while running with nothing visible yet.
+ * The group header (not this spinner) names a hidden plumbing step once one has run.
  * Check `done`: the live bubble stays mounted until sync, so a turn stopped early would spin when finished.
  * Ignores `narration`: closed prose is not live activity.
+ * Requires no reasoning: `ReasoningSection` already shows "Thinking" for the whole tool phase.
  */
 export function shouldShowThinkingIndicator(stream: StreamingMessage): boolean {
   if (stream.done || stream.text.length > 0 || stream.compacting || stream.awaitingCapacity) {
     return false;
   }
-
-  // No row draws a hidden call, so the spinner is the only sign of it.
-  const last = stream.tools.at(-1);
-
-  if (last?.status === "started" && visibleTools([last]).length === 0) return true;
 
   return (
     visibleTools(stream.tools).length === 0 &&
