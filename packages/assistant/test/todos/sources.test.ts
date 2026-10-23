@@ -125,6 +125,7 @@ describe("gmailTodoSources", () => {
       threadId: "thread_1",
       subject: "Quick question about Q3 numbers",
       sender: "priya@client.com",
+      object: null,
     });
 
     assert.deepEqual(sources, [{ provider: "gmail", kind: "thread", id: "thread_1" }]);
@@ -135,6 +136,7 @@ describe("gmailTodoSources", () => {
       threadId: "thread_1",
       subject: "Re: [OlivAIRepo/baserow-middleware] Stop dictation harvest (PR #786)",
       sender: "notifications@github.com",
+      object: null,
     });
 
     assert.deepEqual(sources, [
@@ -148,6 +150,7 @@ describe("gmailTodoSources", () => {
       threadId: "thread_1",
       subject: "Re: [owner/repo] Planning doc review (PR #12)",
       sender: "Priya <priya@client.com>",
+      object: null,
     });
 
     assert.deepEqual(sources, [{ provider: "gmail", kind: "thread", id: "thread_1" }]);
@@ -158,6 +161,7 @@ describe("gmailTodoSources", () => {
       threadId: "thread_1",
       subject: "ENG-123: interview loop feedback",
       sender: "Priya <priya@client.com>",
+      object: null,
     });
 
     assert.deepEqual(sources, [{ provider: "gmail", kind: "thread", id: "thread_1" }]);
@@ -168,6 +172,7 @@ describe("gmailTodoSources", () => {
       threadId: "thread_1",
       subject: "Netsmart: Save view issues",
       sender: "ClickUp <notifications@tasks.clickup.com>",
+      object: null,
     });
 
     assert.deepEqual(sources.at(-1), {
@@ -183,12 +188,14 @@ describe("gmailTodoSources", () => {
       threadId: "thread_A",
       subject: "Re: [owner/repo] Fix flaky test (PR #12)",
       sender: "notifications@github.com",
+      object: null,
     });
 
     const second = gmailTodoSources({
       threadId: "thread_B",
       subject: "Re: [owner/repo] Fix flaky test (PR #12)",
       sender: "notifications@github.com",
+      object: null,
     });
 
     assert.notEqual(first[0]?.id, second[0]?.id, "distinct transport threads");
@@ -200,12 +207,14 @@ describe("gmailTodoSources", () => {
       threadId: "thread_A",
       subject: "Re: [owner/repo] Fix flaky test (PR #12)",
       sender: "notifications@github.com",
+      object: null,
     });
 
     const b = gmailTodoSources({
       threadId: "thread_B",
       subject: "Re: [owner/repo] Add retries (PR #34)",
       sender: "notifications@github.com",
+      object: null,
     });
 
     assert.equal(todoSourcesOverlap(a, b), false);
@@ -216,12 +225,14 @@ describe("gmailTodoSources", () => {
       threadId: "thread_A",
       subject: 'ALARM: "Baserow response time alarm" in eu-west-1',
       sender: "no-reply@sns.amazonaws.com",
+      object: null,
     });
 
     const second = gmailTodoSources({
       threadId: "thread_B",
       subject: 'ALARM: "Baserow response time alarm" in eu-west-1 — threshold breached',
       sender: "AWS Notifications <no-reply@sns.amazonaws.com>",
+      object: null,
     });
 
     assert.deepEqual(first.at(-1), {
@@ -238,6 +249,7 @@ describe("gmailTodoSources", () => {
       threadId: "thread_1",
       subject: 'ALARM: "Baserow response time alarm" in eu-west-1',
       sender: "priya@client.com",
+      object: null,
     });
 
     assert.deepEqual(sources, [{ provider: "gmail", kind: "thread", id: "thread_1" }]);
@@ -286,6 +298,7 @@ describe("boundTodoSources", () => {
             threadId: `thread_${i}`,
             subject: "Re: [owner/repo] Long-lived PR (PR #7)",
             sender: "notifications@github.com",
+            object: null,
           }),
         ),
       );

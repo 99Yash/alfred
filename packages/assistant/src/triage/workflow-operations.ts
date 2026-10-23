@@ -3,7 +3,14 @@ import {
   publishEvent,
   type EmailTriageClassifiedPayload,
 } from "@alfred/assistant/triggers";
-import { documentAskReducer, gmailMessageLocatorSchema } from "@alfred/assistant/connections";
+import {
+  documentAskReducer,
+  gmailMessageLocatorSchema,
+  proposeReconcileCandidates,
+  reconcileEvidence,
+  selectPrimaryReconciledObject,
+  type ReconciledObject,
+} from "@alfred/assistant/connections";
 import { settings, type FeatureFlags, type UserSettings } from "@alfred/assistant/settings";
 import { getSenderSignificance, readUserContextLine, senderSuppressions } from "../knowledge";
 import {
@@ -53,7 +60,10 @@ import {
   type GmailDocumentMetadata,
   type SenderContext,
   type SignificanceBand,
+  type TodoObjectRef,
+  type TodoSource,
   type TriageCategory,
+  todoSourceKey,
   toMessage,
 } from "@alfred/contracts";
 import { gmailMailbox } from "@alfred/integrations/google";
@@ -518,23 +528,41 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     }
   } else if (written && todo.outcome.kind === "mint") {
     const { todo: suggestion } = todo.outcome;
+    const sender = ctxData.document.metadata.from ?? null;
+
+    // A failed read loses only the object ref; the thread and loop refs still merge.
+    const object = await resolveTodoObject({
+      userId: ctx.userId,
+      documentId: ctx.state.documentId,
+      document: ctxData.document,
+      sender,
+    }).catch(async (err: unknown) => {
+      await ctx.log(`suggest_todo: object resolve failed (non-fatal): ${toMessage(err)}`);
+
+      return null;
+    });
 
     try {
+      // The object and `loop` refs fold a thing that re-notifies on new threads into one todo
+      // (#355, ADR-0092 A1).
+      const sources = gmailTodoSources({
+        threadId: sourceThreadId,
+        subject: ctxData.document.title,
+        sender,
+        object,
+      });
+
       const suggested = await suggestTodo({
         userId: ctx.userId,
         agentRunId: ctx.runId,
         name: suggestion.name,
         assist: suggestion.assist,
-        // A `loop` ref folds a tracker that re-notifies on new threads into one todo (#355).
-        sources: gmailTodoSources({
-          threadId: sourceThreadId,
-          subject: ctxData.document.title,
-          sender: ctxData.document.metadata.from ?? null,
-        }),
+        sources,
       });
 
       await ctx.log(
-        `suggest_todo: ${suggested.status} todo=${suggested.todoId} category=${classification.category}`,
+        `suggest_todo: ${suggested.status} todo=${suggested.todoId} category=${classification.category}` +
+          (object ? ` ${objectLogField(object, sources)}` : ""),
       );
     } catch (err) {
       await ctx.log(`suggest_todo failed (non-fatal): ${toMessage(err)}`);
@@ -883,6 +911,65 @@ async function sentDocumentStatusAtClassifyTime(
     if (isHttpError(err) && err.status === 404) return { kind: "missing" };
     throw err;
   }
+}
+
+/**
+ * A todo ref merges live todos and suppresses a resolved one for 30 days, so only a hard edge may
+ * give one. A `prefix` is a guess from a short sha, and a `nomination` never closes an ask.
+ */
+const TODO_REF_MATCHES = {
+  exact: true,
+  identity: true,
+  prefix: false,
+  nomination: false,
+} satisfies Record<ReconciledObject<"about">["key"]["match"], boolean>;
+
+/** Names the resolved object, and says so when its kind gave the todo no ref (`todoIdentity`). */
+function objectLogField(object: TodoObjectRef, sources: readonly TodoSource[]): string {
+  const key = todoSourceKey({
+    provider: object.provider,
+    kind: object.kind,
+    id: object.externalId,
+  });
+
+  const carried = sources.some((source) => todoSourceKey(source) === key);
+
+  return `object=${object.provider}:${object.kind}:${object.externalId}${carried ? "" : " (no ref)"}`;
+}
+
+/**
+ * The `integration_objects` row this mail is about (ADR-0092 A1), by the briefing's `about`
+ * reading and precedence rule. `null` when the mail names no stored object by a hard edge.
+ */
+async function resolveTodoObject(args: {
+  userId: string;
+  documentId: string;
+  document: { title: string | null; content: string };
+  sender: string | null;
+}): Promise<TodoObjectRef | null> {
+  const candidates = proposeReconcileCandidates(
+    {
+      id: args.documentId,
+      text: { subject: args.document.title ?? "", content: args.document.content },
+    },
+    { reading: "about", sender: args.sender },
+  );
+
+  if (!candidates) return null;
+
+  const reconciled = await reconcileEvidence({ userId: args.userId, subjects: [candidates] });
+  const primary = selectPrimaryReconciledObject(reconciled.get(args.documentId));
+
+  if (!primary || !TODO_REF_MATCHES[primary.key.match]) return null;
+
+  const { state } = primary;
+
+  return {
+    provider: state.provider,
+    kind: state.kind,
+    externalId: state.externalId,
+    url: state.url,
+  };
 }
 
 /**
