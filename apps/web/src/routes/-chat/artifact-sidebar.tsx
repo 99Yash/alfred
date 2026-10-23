@@ -259,7 +259,8 @@ export function ArtifactSidebar({
       <m.aside
         aria-label={artifact?.title ?? "Artifact"}
         style={{ width }}
-        // Opacity keeps its fade under reduced motion: the fade is the substitute for the slide.
+        // The open fades under reduced motion: the fade is the substitute for the slide.
+        // The close shows no fade because the width collapses first.
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}

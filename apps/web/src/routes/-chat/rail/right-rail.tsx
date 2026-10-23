@@ -62,6 +62,7 @@ export function RightRail({ open, mode, onClose, data = EMPTY_RAIL_DATA }: Right
   // Inline: a motion width tween on `CHAT_PANEL`, the same transition value as
   // the artifact clip box. One source and one clock, so the slot width stays on
   // one curve during a swap. `initial={false}` skips a tween on mount.
+  // `-6` cancels the `gap-1.5` of the shell's `<main>` while closed, as the artifact panel does.
   const transition: LiveTransition = {
     ...(reduce ? { duration: 0 } : CHAT_PANEL),
     reduceMotion: reduce,
@@ -77,8 +78,8 @@ export function RightRail({ open, mode, onClose, data = EMPTY_RAIL_DATA }: Right
         "h-full shrink-0",
         "rounded-2xl bg-transparent",
         "shadow-[0_1px_2px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.04)]",
-        // `-6` cancels the `gap-1.5` of the shell's `<main>` while closed, as the artifact panel does.
-        "overflow-x-clip",
+        // `overflow-hidden` keeps the rounded corners over full-bleed children (video, scrims).
+        "overflow-hidden",
         !open && "pointer-events-none",
       )}
     >
