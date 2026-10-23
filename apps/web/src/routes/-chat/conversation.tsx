@@ -33,7 +33,6 @@ import { useChatAttachmentsByMessage } from "~/lib/replicache/use-chat";
 import { useThreadArtifacts } from "~/lib/replicache/use-artifacts";
 import type { StreamingMessage } from "~/lib/chat/chat-stream-state";
 import { SCROLL_CHAT_TO_BOTTOM_EVENT } from "~/lib/chat/use-run-complete";
-import { IntegrationGlyph } from "~/lib/integrations/integration-icons";
 import { cn } from "~/lib/utils";
 import { ArtifactTriggerCard } from "./artifact-trigger-card";
 import {
@@ -932,7 +931,6 @@ function FollowUpSuggestions({
             "focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
           )}
         >
-          <IntegrationGlyph brand={suggestion.brand} size={14} className="shrink-0" />
           <span className="min-w-0 truncate">{suggestion.text}</span>
           {i < 9 ? (
             <kbd

@@ -32,6 +32,7 @@ import { sanitizeVoice } from "@alfred/ai/voice";
 import { scheduleConversationCompactionIfNeeded } from "./compaction";
 import { classifyChatTurnFailure } from "./chat-failure-kind";
 import { closeNarrationSegment, type ChatRunState } from "./chat-turn-state";
+import { maybeGenerateFollowUps } from "./chat-follow-ups";
 import { maybeGenerateThreadTitle } from "./chat-thread-title";
 
 /**
@@ -324,7 +325,10 @@ async function insertFailedRow(
     .returning({ id: chatMessages.id });
 }
 
-/** Memory capture, compaction, and titling. Fire-and-forget: none may delay or fail the reply. */
+/**
+ * Memory capture, compaction, titling, and follow-up prompts. Fire-and-forget: none may
+ * delay or fail the reply.
+ */
 function armTurnFollowups(userId: string, runId: string, state: ChatRunState): void {
   void scheduleThreadIdleExtraction({
     userId,
@@ -347,6 +351,14 @@ function armTurnFollowups(userId: string, runId: string, state: ChatRunState): v
     runId,
     threadId: state.threadId,
     assistantMessageId: state.messageId,
+    assistantText: state.assistantText,
+  });
+  void maybeGenerateFollowUps({
+    userId,
+    runId,
+    threadId: state.threadId,
+    assistantMessageId: state.messageId,
+    userMessageId: state.userMessageId,
     assistantText: state.assistantText,
   });
 }

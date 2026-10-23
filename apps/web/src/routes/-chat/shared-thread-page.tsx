@@ -86,6 +86,7 @@ function toRenderableMessage(message: SharedThreadMessage): SyncedChatMessage {
     toolCalls: message.toolCalls,
     narration: message.narration,
     usage: null,
+    followUps: null,
     runId: null,
     rowVersion: 0,
     createdAt: message.createdAt,

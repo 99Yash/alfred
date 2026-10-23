@@ -100,6 +100,11 @@ export const chatMessages = pgTable(
     narration: jsonb("narration").$type<ChatMessageNarration[]>(),
     /** Summed from the run's `api_call_log` rows at finalize. */
     usage: jsonb("usage").$type<ChatMessageUsage>(),
+    /**
+     * Next-prompt suggestions on a completed reply, written after the reply closes (ADR-0112).
+     * Null until the cheap call lands, and when it fails or returns none.
+     */
+    followUps: text("follow_ups").array(),
     /** Set on both the user turn and its reply. */
     runId: text("run_id").references(() => agentRuns.id, { onDelete: "set null" }),
     rowVersion: integer("row_version").notNull().default(0),

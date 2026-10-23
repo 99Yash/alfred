@@ -1009,6 +1009,13 @@
       "when": 1792736837555,
       "tag": "0143_integration_credentials_drop_notion",
       "breakpoints": true
+    },
+    {
+      "idx": 144,
+      "version": "7",
+      "when": 1792770429479,
+      "tag": "0144_chat_message_follow_ups",
+      "breakpoints": true
     }
   ]
 }

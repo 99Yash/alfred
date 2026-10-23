@@ -113,6 +113,29 @@ export const chatMessageUsageSchema = z.object({
 
 export type ChatMessageUsage = z.infer<typeof chatMessageUsageSchema>;
 
+export const CHAT_FOLLOW_UP_LIMIT = 3;
+
+const CHAT_FOLLOW_UP_MAX_CHARS = 120;
+
+/**
+ * One next-prompt suggestion (ADR-0112). The dash rule lives here, not in the
+ * caller, so the sync read holds the same invariant as the server write.
+ */
+export const chatFollowUpSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(CHAT_FOLLOW_UP_MAX_CHARS)
+  .refine((s) => !/[—–]/.test(s), {
+    message: "Follow-up prompts cannot contain em or en dashes",
+  });
+
+/**
+ * Next-prompt suggestions on a completed reply (ADR-0112). The server parses before it
+ * writes; the sync read parses again, so a bad stored list reads as none.
+ */
+export const chatFollowUpsSchema = z.array(chatFollowUpSchema).min(1).max(CHAT_FOLLOW_UP_LIMIT);
+
 /**
  * Turn start response. `busy` is not an error: another message's run is in flight,
  * so the client keeps this one queued and retries after `runId` ends.
