@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "@tanstack/react-router";
+import { LazyMotion, type FeatureBundle } from "motion/react";
 import {
   createContext,
   lazy,
@@ -12,6 +13,7 @@ import {
   useMemo,
   useReducer,
   useState,
+  type ComponentProps,
   type ReactNode,
   type SetStateAction,
 } from "react";
@@ -28,6 +30,7 @@ import {
 } from "~/lib/onboarding/onboarding-hint";
 import { LOCAL_STORAGE_KEY, setLocalStorageItem } from "~/lib/storage/storage";
 import { resolveSetState } from "~/lib/set-state";
+import type AuthedAppShell from "./authed-app-shell";
 
 /* Right-rail slot: `useRightRail(node)` mounts a page's own aside. The last one registered wins. */
 
@@ -86,7 +89,53 @@ export function useSidebarState(): SidebarStateValue {
 
 const SIDEBAR_BREAKPOINT = "(min-width: 1024px)";
 
-const LazyAuthedAppShell = lazy(() => import("./authed-app-shell"));
+/* The motion feature bundle, loaded async so it stays out of the entry chunk.
+   Only a dynamic `import()` may load `./motion-features`: a static import puts the
+   features back in the entry chunk. `tsc` checks the resolved `FeatureBundle`. */
+let motionFeaturesPromise: Promise<FeatureBundle> | null = null;
+
+export function loadMotionFeatures(): Promise<FeatureBundle> {
+  return (motionFeaturesPromise ??= import("./motion-features").then((mod) => mod.domAnimation));
+}
+
+/* The shell owns its features synchronously. The lazy below resolves the shell
+   chunk and the feature chunk at once, then wraps the shell in an inner
+   `LazyMotion` with the resolved bundle. A sync bundle sets the renderer during
+   render, so the first shell render has it in each arrival order. The outer async
+   `LazyMotion` in `root-layout.tsx` stays for `/c/$slug`. One module-scope promise
+   serves both callers so the feature chunk loads once. A feature-chunk failure
+   rejects this lazy import into the router default error boundary.
+   `LazyMotion` gives a new provider value on each render, and each `m.*` reads it,
+   also through `memo`. So the inner `LazyMotion` is one element made here, and the
+   props reach the shell through a context: a shell render does not render it again. */
+type ShellProps = ComponentProps<typeof AuthedAppShell>;
+
+const ShellPropsContext = createContext<ShellProps | null>(null);
+
+const LazyAuthedAppShell = lazy(async () => {
+  const [shell, bundle] = await Promise.all([import("./authed-app-shell"), loadMotionFeatures()]);
+  const Shell = shell.default;
+
+  function ShellFromProps() {
+    const props = use(ShellPropsContext);
+
+    if (!props) throw new Error("ShellFromProps must render inside AuthedShellWithMotion");
+
+    return <Shell {...props} />;
+  }
+
+  const scoped = (
+    <LazyMotion features={bundle} strict>
+      <ShellFromProps />
+    </LazyMotion>
+  );
+
+  return {
+    default: function AuthedShellWithMotion(props: ShellProps) {
+      return <ShellPropsContext value={props}>{scoped}</ShellPropsContext>;
+    },
+  };
+});
 
 function useSidebarMode(): "inline" | "overlay" {
   const [mode, setMode] = useState<"inline" | "overlay">(() => {

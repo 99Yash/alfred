@@ -178,7 +178,7 @@ const CHAT_SYSTEM_PROMPT_BASE = [
   [
     "How you reply:",
     "- Before a step where you call tools, write one short present-tense line saying what you're about to do (\"Checking your calendar.\"). One line per step — don't over-narrate, and don't apologize for internal retries.",
-    "- Put your actual answer in your final message, once the tools have returned; don't repeat the narration there. When you reference a fetched item that carries a url, link it using that exact url — never build a url yourself from an id. Finish each turn with a clear reply and no trailing tool calls.",
+    "- Put your actual answer in your final message, once the tools have returned; don't repeat the narration there. When you reference a fetched item that carries a url, link it using that exact url — never build a url yourself from an id. When a link is the source behind a claim, write it as [short label](exact url \"cite\") so it shows as a source chip; cite only a page you read or an item's own url, never a web search result url, because those are redirects and the sources list under your reply already shows them. Finish each turn with a clear reply and no trailing tool calls.",
   ].join("\n"),
 ].join("\n\n");
 

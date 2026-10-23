@@ -7,7 +7,7 @@ import ReactMarkdown from "react-markdown";
 import remend from "remend";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
-import { altTextImageComponents, MarkdownPre } from "~/components/markdown-renderer";
+import { altTextImageComponents, markdownComponents } from "~/components/markdown-renderer";
 import { animateWords } from "~/lib/chat/animate-text";
 import { cn } from "~/lib/utils";
 import { useAttachmentLightbox, type AttachmentOpener } from "./attachment-lightbox";
@@ -26,9 +26,10 @@ import { API_URL } from "~/lib/eden";
 
 const MARKDOWN_CLASSES = cn(
   "[&_p]:leading-relaxed [&_p]:tracking-tight [&>*+*]:mt-6",
+  // The citation pill keeps its look with its own `!` utilities.
   "[&_a]:text-app-purple-4 [&_a]:underline [&_a]:underline-offset-2",
   "[&_li]:my-0.5 [&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5",
-  // Inline code only; fenced blocks render through `MarkdownPre`.
+  // Inline code only; fenced blocks render through the shared `pre` override.
   "[&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-app-bg-2 [&_:not(pre)>code]:px-1 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:text-[0.9em]",
   "[&_h1]:text-lg [&_h1]:font-semibold [&_h2]:text-base [&_h2]:font-semibold",
   "[&_blockquote]:border-l-2 [&_blockquote]:border-app-fg-a1 [&_blockquote]:pl-3 [&_blockquote]:text-app-fg-3 [&_strong]:font-semibold",
@@ -101,12 +102,12 @@ const FAILURE_ACTION_CLASS = cn(
   "focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
 );
 
-/** Fenced code uses the shared `CodeBlock`. Inline code gets the wrapper's chip style. */
-const BASE_COMPONENTS: Components = { pre: MarkdownPre };
-
-/** Streaming: each word fades up out of a blur. */
+/**
+ * The reply reads the shared overrides: links open in a new tab, `"cite"` links become pills, fenced code uses `CodeBlock`.
+ * Streaming adds a per-word reveal: each word fades up out of a blur.
+ */
 const STREAMING_COMPONENTS: Components = {
-  ...BASE_COMPONENTS,
+  ...markdownComponents,
   p: ({ children }) => <p>{animateWords(children)}</p>,
   li: ({ children }) => <li>{animateWords(children)}</li>,
 };
@@ -172,7 +173,7 @@ export function AssistantMarkdown({ text, streaming }: { text: string; streaming
   const imageComponents =
     useMarkdownImageMode() === "alt-text" ? altTextImageComponents("surface") : null;
 
-  const baseComponents = streaming ? STREAMING_COMPONENTS : BASE_COMPONENTS;
+  const baseComponents = streaming ? STREAMING_COMPONENTS : markdownComponents;
 
   return (
     <div
@@ -358,7 +359,7 @@ export function MessageBubble({
       : failure?.message;
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="group/reply flex flex-col gap-2">
       {message.reasoning && message.reasoning.trim().length > 0 ? (
         <ReasoningSection
           reasoning={message.reasoning}
@@ -403,10 +404,26 @@ export function MessageBubble({
           ) : null}
         </div>
       ) : null}
-      {message.content.length > 0 ? (
-        <CopyMessageButton content={message.content} htmlRef={bodyRef} />
+      {message.content.length > 0 || message.usage ? (
+        <div className="flex flex-wrap items-center gap-y-1">
+          {message.content.length > 0 ? (
+            <CopyMessageButton content={message.content} htmlRef={bodyRef} />
+          ) : null}
+          {/* Opacity, not display: the row keeps its height, so a hover never re-measures the feed.
+              `has-focus-visible`, not `focus-within`: a mouse click on Copy would latch `focus-within`. */}
+          {message.usage ? (
+            <div
+              className={cn(
+                "min-w-0 opacity-0 transition-opacity duration-150 ease-out",
+                "group-hover/reply:opacity-100 group-has-focus-visible/reply:opacity-100",
+                "pointer-coarse:opacity-100",
+              )}
+            >
+              <UsageLine usage={message.usage} tone={failed ? "failed" : "ok"} />
+            </div>
+          ) : null}
+        </div>
       ) : null}
-      {message.usage ? <UsageLine usage={message.usage} tone={failed ? "failed" : "ok"} /> : null}
     </div>
   );
 }
