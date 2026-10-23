@@ -17,7 +17,6 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
 } from "react";
 import { Virtuoso, type Components, type ListRange, type VirtuosoHandle } from "react-virtuoso";
 import { markChatTimingByAssistant } from "~/lib/chat/timing";
@@ -41,7 +40,7 @@ import { SourcesStrip } from "./sources-strip";
 import { ConnectNudgeRows } from "./connect-nudge-rows";
 import { collectSources } from "./sources";
 import { ToolCallGroup } from "./tool-call-group";
-import { CHAT_POP, CHAT_SWAP } from "./motion";
+import { CHAT_POP, CHAT_SWAP, usePrefersReducedMotion } from "./motion";
 
 /**
  * Scrollable message feed: synced messages, then the live streaming bubble.
@@ -653,7 +652,9 @@ function ActivityPill({
   // Pixel-to-pixel width tween. Motion leaves a settled `"auto"` target as the string
   // `"auto"`, so an `"auto" -> 36` shrink after a settled grow measures 36 -> 36 and
   // snaps (round 0). The label content is measured instead; the last measured width
-  // is kept for the exit so the shrink starts from a number.
+  // is kept for the exit so the shrink starts from a number. The label group is
+  // `shrink-0` with the `max-w` cap (not a `min-w-0` flex child of the tweened
+  // button), so `offsetWidth` reads its natural width at every button width (round 1).
   const labelRef = useRef<HTMLSpanElement | null>(null);
   const [labelWidth, setLabelWidth] = useState<number | null>(null);
 
@@ -682,7 +683,7 @@ function ActivityPill({
         disabled={!show}
         tabIndex={show ? 0 : -1}
         // A width tween, not `layout`: `domAnimation` can reach pixel widths without the layout feature.
-        // `prefersReduced` is the live hook below: this button lives for the whole thread,
+        // `prefersReduced` is the live hook in motion.ts: this button lives for the whole thread,
         // so motion's mount-time check would miss a reduce change mid-thread.
         animate={{ width: activity ? (labelWidth ?? "auto") : 36 }}
         transition={prefersReduced ? { duration: 0 } : CHAT_POP}
@@ -693,7 +694,6 @@ function ActivityPill({
           "hover:scale-105 hover:text-app-fg-4 active:scale-95",
           "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
           "focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
-          activity && "max-w-[min(20rem,70vw)]",
           show ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
         )}
       >
@@ -703,7 +703,7 @@ function ActivityPill({
             <m.span
               key="activity"
               ref={labelRef}
-              className="inline-flex min-w-0 items-center gap-2 pr-3 pl-2"
+              className="inline-flex max-w-[min(20rem,70vw)] shrink-0 items-center gap-2 pr-3 pl-2"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -769,30 +769,6 @@ function orderApprovalsByTool(
 
     return a.createdAt.localeCompare(b.createdAt);
   });
-}
-
-/** Reduced-motion preference, SSR-safe. */
-function usePrefersReducedMotion(): boolean {
-  return useSyncExternalStore(
-    subscribeReducedMotion,
-    () => getReducedMotionSnapshot(),
-    () => false,
-  );
-}
-
-function subscribeReducedMotion(onChange: () => void): () => void {
-  if (typeof window === "undefined") return () => {};
-
-  const mql = window.matchMedia("(prefers-reduced-motion: reduce)");
-  mql.addEventListener("change", onChange);
-
-  return () => mql.removeEventListener("change", onChange);
-}
-
-function getReducedMotionSnapshot(): boolean {
-  if (typeof window === "undefined") return false;
-
-  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
 interface StreamRenderTiming {
@@ -871,8 +847,9 @@ function FollowUpSuggestions({
 }) {
   const onPickEvent = useEffectEvent(onPick);
   const isPresent = useIsPresent();
-  // Live hook (not motion's mount-time snapshot): `marginBottom` is outside motion's
-  // reduced-motion positional keys, so it needs a call-site gate (see motion.ts).
+  // Live hook (not motion's mount-time snapshot): this row lives from the end of
+  // one turn to the next send, so `height` and `marginBottom` need a call-site
+  // gate (see motion.ts). Opacity alone may still fade.
   const prefersReduced = usePrefersReducedMotion();
   // ⌥1…⌥9 picks a chip. Use `e.code`: Option+digit types a glyph on macOS.
   // Alt+digit is free in browsers; ⌘digit switches tabs.
@@ -904,7 +881,11 @@ function FollowUpSuggestions({
       // Collapse, not just fade: the stream block mounts below in the same commit.
       // The -20 cancels the column's `gap-5`, so the stream ends where the chips began.
       exit={{ opacity: 0, height: 0, marginBottom: -20 }}
-      transition={prefersReduced ? { ...CHAT_POP, marginBottom: { duration: 0 } } : CHAT_POP}
+      transition={
+        prefersReduced
+          ? { ...CHAT_POP, height: { duration: 0 }, marginBottom: { duration: 0 } }
+          : CHAT_POP
+      }
       inert={!isPresent}
       // Clip only while leaving, so the chip focus rings show at rest.
       className={cn("flex flex-wrap gap-2 pt-1", !isPresent && "overflow-hidden")}
