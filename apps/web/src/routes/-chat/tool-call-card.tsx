@@ -96,7 +96,6 @@ export function ToolCallCard({
     done,
     failed: failedLabel,
     detail,
-    suppressResult,
   } = presentTool(tool);
 
   const resolved: ResolvedCall[] = tools.map((t) => ({
@@ -105,9 +104,7 @@ export function ToolCallCard({
   }));
 
   // Not gated on `running`, or an open panel would shut when a sibling starts.
-  // `load_tool` results get no panel unless they failed (see `suppressResult`).
-  const expandable =
-    tools.some((t) => Boolean(t.resultPreview)) && (failed || suppressResult !== true);
+  const expandable = tools.some((t) => Boolean(t.resultPreview));
 
   const title = running ? runningLabel : failed ? (failedLabel ?? `${done} failed`) : done;
   const BrandlessIcon = brand ? undefined : brandlessToolIcon(tool.toolName);
