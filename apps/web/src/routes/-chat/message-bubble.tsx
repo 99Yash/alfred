@@ -1,4 +1,4 @@
-import type { ChatErrorKind } from "@alfred/contracts";
+import { isPassThrough, type ChatErrorKind } from "@alfred/contracts";
 import type { SyncedChatAttachment, SyncedChatMessage } from "@alfred/sync";
 import { Check, Copy, CornerDownRight, RotateCcw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -10,6 +10,7 @@ import remarkGfm from "remark-gfm";
 import { altTextImageComponents, MarkdownPre } from "~/components/markdown-renderer";
 import { animateWords } from "~/lib/chat/animate-text";
 import { cn } from "~/lib/utils";
+import { AttachmentLightbox, type LightboxImage } from "./attachment-lightbox";
 import { ConnectNudgeRows } from "./connect-nudge-rows";
 import { useMarkdownImageMode } from "./published-transcript";
 import { splitPersistedToolCalls } from "./connect-nudges";
@@ -193,11 +194,30 @@ export function AssistantMarkdown({ text, streaming }: { text: string; streaming
 
 /** Image attachments (ADR-0065) through the auth-gated proxy, with placeholders for pending or failed. */
 function MessageAttachments({ attachments }: { attachments: SyncedChatAttachment[] }) {
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const srcOf = (id: string) => `${API_URL}/api/chat/attachments/${id}/content`;
+
+  // Only ready images enter the preview; a PDF or a pending row never does.
+  const images: LightboxImage[] = attachments
+    .filter((a) => a.status === "ready" && isPassThrough(a.mime))
+    .map((a) => ({ key: a.id, src: srcOf(a.id), name: a.name }));
+
   return (
     <div className="mb-1.5 flex flex-wrap justify-end gap-2">
-      {attachments.map((a) => (
-        <MessageAttachment key={a.id} attachment={a} />
-      ))}
+      {attachments.map((a) => {
+        // Resolve by id, never by render position: the image list skips PDFs and pending rows.
+        const imageIndex = images.findIndex((i) => i.key === a.id);
+
+        return (
+          <MessageAttachment
+            key={a.id}
+            attachment={a}
+            src={srcOf(a.id)}
+            onOpen={imageIndex === -1 ? undefined : () => setLightboxIndex(imageIndex)}
+          />
+        );
+      })}
+      <AttachmentLightbox images={images} index={lightboxIndex} onIndexChange={setLightboxIndex} />
     </div>
   );
 }
@@ -217,7 +237,16 @@ function AttachmentPlaceholder({ label, onRetry }: { label: string; onRetry?: ()
   return <div className={className}>{label}</div>;
 }
 
-function MessageAttachment({ attachment }: { attachment: SyncedChatAttachment }) {
+function MessageAttachment({
+  attachment,
+  src,
+  onOpen,
+}: {
+  attachment: SyncedChatAttachment;
+  src: string;
+  /** Set only for an attachment in the preview's image list. */
+  onOpen?: (() => void) | undefined;
+}) {
   // Bump to remount the <img> and refetch after a load failure.
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -242,26 +271,35 @@ function MessageAttachment({ attachment }: { attachment: SyncedChatAttachment })
     );
   }
 
-  const url = `${API_URL}/api/chat/attachments/${attachment.id}/content`;
+  const className =
+    "block size-40 overflow-hidden rounded-xl border border-app-fg-a1/30 bg-app-bg-2";
 
-  return (
-    <a
-      href={url}
-      target="_blank"
-      rel="noreferrer"
-      className="block size-40 overflow-hidden rounded-xl border border-app-fg-a1/30 bg-app-bg-2"
-    >
-      <img
-        key={loadAttempt}
-        src={url}
-        alt={attachment.name}
-        loading="lazy"
-        decoding="async"
-        className="size-full object-cover"
-        onError={() => setLoadFailed(true)}
-      />
-    </a>
+  const thumbnail = (
+    <img
+      key={loadAttempt}
+      src={src}
+      alt={attachment.name}
+      loading="lazy"
+      decoding="async"
+      className="size-full object-cover"
+      onError={() => setLoadFailed(true)}
+    />
   );
+
+  if (onOpen) {
+    return (
+      <button
+        type="button"
+        aria-label={`Preview ${attachment.name}`}
+        onClick={onOpen}
+        className={cn(className, "cursor-zoom-in")}
+      >
+        {thumbnail}
+      </button>
+    );
+  }
+
+  return <div className={className}>{thumbnail}</div>;
 }
 
 /** A synced user or assistant message. */
