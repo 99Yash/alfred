@@ -358,7 +358,7 @@ export function MessageBubble({
       : failure?.message;
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="group/reply flex flex-col gap-2">
       {message.reasoning && message.reasoning.trim().length > 0 ? (
         <ReasoningSection
           reasoning={message.reasoning}
@@ -403,10 +403,25 @@ export function MessageBubble({
           ) : null}
         </div>
       ) : null}
-      {message.content.length > 0 ? (
-        <CopyMessageButton content={message.content} htmlRef={bodyRef} />
+      {message.content.length > 0 || message.usage ? (
+        <div className="flex flex-wrap items-center gap-y-1">
+          {message.content.length > 0 ? (
+            <CopyMessageButton content={message.content} htmlRef={bodyRef} />
+          ) : null}
+          {/* Opacity, not display: the row keeps its height, so a hover never re-measures the feed. */}
+          {message.usage ? (
+            <div
+              className={cn(
+                "min-w-0 opacity-0 transition-opacity duration-150 ease-out",
+                "group-hover/reply:opacity-100 group-has-focus-visible/reply:opacity-100",
+                "pointer-coarse:opacity-100",
+              )}
+            >
+              <UsageLine usage={message.usage} tone={failed ? "failed" : "ok"} />
+            </div>
+          ) : null}
+        </div>
       ) : null}
-      {message.usage ? <UsageLine usage={message.usage} tone={failed ? "failed" : "ok"} /> : null}
     </div>
   );
 }
