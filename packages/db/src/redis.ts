@@ -22,7 +22,7 @@ const connections: IORedis[] = [];
  *   before `ready` still runs, and bounds the wait. Do not subscribe on it.
  * - `"subscriber"`: holds SUBSCRIBE channels. Like `"command"` but with no
  *   `commandTimeout` and with auto-resubscribe off. The owner must re-subscribe
- *   on `conn.on("ready")` (see `packages/assistant/src/realtime/replicache-events.ts`).
+ *   on `conn.on("ready")` (see `packages/assistant/src/realtime/user-channel-subscriptions.ts`).
  * - `"fail-fast"`: rejects every command sent before `ready`, so the first
  *   command after a lazy construction fails even on a healthy Redis. Use it only
  *   if the caller can get the answer from another store, or reads the key again
