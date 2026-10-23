@@ -125,7 +125,7 @@ export function SubAgentCard({ tool, trail }: { tool: ToolCallView; trail: SubAg
               {steps.map((step) => (
                 <div key={step.toolCallId} className="flex items-center gap-2">
                   <div className="min-w-0 flex-1">
-                    <ToolCallCard tools={[step]} inTrail />
+                    <ToolCallCard tools={[step]} inTrail live={live} />
                   </div>
                   <Elapsed startedTs={step.startedTs} endedTs={step.endedTs} />
                 </div>

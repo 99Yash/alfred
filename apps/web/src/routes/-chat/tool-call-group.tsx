@@ -115,7 +115,7 @@ export function ToolCallGroup({
     return loneQuestion ? (
       <QuestionAnswersCard summary={loneQuestion} />
     ) : (
-      <ToolCallCard tools={only.tools} />
+      <ToolCallCard tools={only.tools} live={active} />
     );
   }
 
@@ -140,7 +140,7 @@ export function ToolCallGroup({
         return question ? (
           <QuestionAnswersCard key={item.key} summary={question} inTrail />
         ) : (
-          <ToolCallCard key={item.key} tools={item.tools} inTrail />
+          <ToolCallCard key={item.key} tools={item.tools} inTrail live={active} />
         );
       })}
     </div>

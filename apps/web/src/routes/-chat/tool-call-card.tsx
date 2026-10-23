@@ -1,6 +1,6 @@
 import { getStringPath } from "@alfred/contracts";
 import * as Accordion from "@radix-ui/react-accordion";
-import { Check, ChevronRight, ExternalLink, Scissors, Search, X } from "lucide-react";
+import { ChevronRight, ExternalLink, Scissors, Search, X } from "lucide-react";
 import { AnimatePresence, m } from "motion/react";
 import { useId } from "react";
 import { IntegrationGlyph, IntegrationIcon } from "~/lib/integrations/integration-icons";
@@ -68,16 +68,20 @@ function failureReason(resultPreview: string | undefined): string | undefined {
 }
 
 /**
- * One tool call as a light inline row. It shimmers while running, then shows a check or a red ×.
+ * One tool call as a light inline row. It shimmers and glows only while its call runs in a live
+ * turn. A settled row dims one step with no glyph; a failed row shows a red ×.
  * The glyph is the integration's logo when the tool has one.
  */
 export function ToolCallCard({
   tools,
   inTrail = false,
+  live,
 }: {
   tools: ToolCallView[];
   /** Inside the trail, auto-animate owns the enter animation, so skip `animate-chat-in`. */
   inTrail?: boolean | undefined;
+  /** The run that owns these calls has not ended. Motion needs this AND a `started` call. */
+  live: boolean;
 }) {
   const panelId = useId();
   // A folded run of identical calls (see buildTrail). Running if any call is out, failed if any failed.
@@ -87,6 +91,8 @@ export function ToolCallCard({
   if (!tool) return null;
   const count = tools.length;
   const running = tools.some((t) => t.status === "started");
+  // A call still `started` after its run stopped keeps its label but stops moving.
+  const emphasized = live && running;
   const failed = tools.some((t) => foldClass(t.status) === "failed");
   // ADR-0070: non-text bytes were stripped, so flag the preview as incomplete.
   const trimmed = !failed && tools.some((t) => Boolean(t.sanitized));
@@ -144,7 +150,7 @@ export function ToolCallCard({
               // The halo marks the call in flight.
               <span
                 aria-hidden
-                className={cn("inline-flex shrink-0 rounded-full", running && "chat-node-glow")}
+                className={cn("inline-flex shrink-0 rounded-full", emphasized && "chat-node-glow")}
               >
                 <IntegrationIcon brand={brand} size="xs" />
               </span>
@@ -153,7 +159,7 @@ export function ToolCallCard({
                 aria-hidden
                 className={cn(
                   "inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-app-bg-2 shadow-(--app-shadow-elevated)",
-                  running && "chat-node-glow",
+                  emphasized && "chat-node-glow",
                 )}
               >
                 <Favicon domain={faviconDomain} size={16} />
@@ -162,12 +168,14 @@ export function ToolCallCard({
               <span
                 aria-hidden
                 className={cn(
-                  "inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-app-bg-2 text-app-fg-3 shadow-(--app-shadow-elevated)",
-                  running && "chat-node-glow",
+                  "inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-app-bg-2 shadow-(--app-shadow-elevated)",
+                  // Settled drawn glyphs dim one step; logos and favicons keep their color.
+                  running ? "text-app-fg-3" : "text-app-fg-2",
+                  emphasized && "chat-node-glow",
                 )}
               >
                 {BrandlessIcon ? (
-                  <RunningToolIcon icon={BrandlessIcon} running={running} size={13} />
+                  <RunningToolIcon icon={BrandlessIcon} running={emphasized} size={13} />
                 ) : (
                   <FallbackIcon size={13} />
                 )}
@@ -177,10 +185,15 @@ export function ToolCallCard({
               className={cn(
                 "min-w-0 truncate font-medium",
                 running
-                  ? "animate-chat-shimmer-mask text-app-fg-4"
+                  ? cn("text-app-fg-4", emphasized && "animate-chat-shimmer-mask")
                   : failed
                     ? "text-app-red-4"
-                    : "text-app-fg-4",
+                    : cn(
+                        "text-app-fg-3",
+                        // A row the user can open brightens back to full on hover or focus.
+                        expandable &&
+                          "transition-colors group-hover/toolrow:text-app-fg-4 group-focus-visible/toolrow:text-app-fg-4",
+                      ),
               )}
             >
               {/* Keyed on the text, so a fold whose label holds still does not blink.
@@ -234,28 +247,27 @@ export function ToolCallCard({
                   <Scissors size={12} aria-label="Result trimmed before storage" />
                 </span>
               ) : null}
+              {/* Only a failure earns a glyph; a settled success says so by going quiet. */}
               <AnimatePresence initial={false}>
-                {running ? null : (
+                {!running && failed ? (
                   <m.span
-                    key={failed ? "x" : "ok"}
+                    key="x"
                     className="inline-flex"
                     initial={{ opacity: 0, scale: 0.8 }}
                     animate={{ opacity: 1, scale: 1 }}
                     transition={CHAT_POP}
                   >
-                    {failed ? (
-                      <X size={14} aria-hidden className="text-app-red-4" />
-                    ) : (
-                      <Check size={14} aria-hidden className="text-app-green-4" />
-                    )}
+                    <X size={14} aria-hidden className="text-app-red-4" />
                   </m.span>
-                )}
+                ) : null}
               </AnimatePresence>
               {expandable ? (
+                // Opacity, not `hidden`, so the row's right edge holds still on hover.
+                // Touch has no hover, so a coarse pointer always sees it.
                 <ChevronRight
                   size={14}
                   aria-hidden
-                  className="text-app-fg-2 transition-[transform,color] duration-200 group-hover/toolrow:text-app-fg-4 group-data-[state=open]/toolrow:rotate-90"
+                  className="text-app-fg-2 opacity-0 transition-[transform,color,opacity] duration-200 group-hover/toolrow:text-app-fg-4 group-hover/toolrow:opacity-100 group-focus-visible/toolrow:opacity-100 group-data-[state=open]/toolrow:rotate-90 group-data-[state=open]/toolrow:opacity-100 pointer-coarse:opacity-100"
                 />
               ) : null}
             </span>
