@@ -1,20 +1,16 @@
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   BUILT_IN_MCP_PROVIDERS,
   type McpRecoveryDecision,
   type McpRecoveryOperationsPage,
 } from "@alfred/contracts";
 import { client } from "~/lib/eden";
-import {
-  flattenMcpRecoveryPages,
-  MCP_CONNECTIONS_QUERY_KEY,
-  MCP_SECTION,
-  type McpConnection,
-} from "./helpers";
+import { flattenMcpRecoveryPages, MCP_SECTION } from "./helpers";
 import { McpAddServerForm } from "./mcp-add-server-form";
 import { McpBuiltInCard } from "./mcp-built-in-card";
 import { McpConnectionCard } from "./mcp-connection-card";
 import { McpRecoveryList } from "./mcp-recovery-list";
+import { useMcpConnections } from "./use-mcp-connections";
 
 type McpRecoveryAction =
   | {
@@ -29,21 +25,7 @@ const FIRST_RECOVERY_PAGE: string | null = null;
 export function MCPServerSection() {
   const queryClient = useQueryClient();
 
-  const connectionQuery = useQuery<ReadonlyArray<McpConnection>>({
-    queryKey: MCP_CONNECTIONS_QUERY_KEY,
-    queryFn: async () => {
-      const response = await client.api.integrations.mcp.connections.get();
-
-      // oxlint-disable-next-line typescript/no-unnecessary-condition -- Eden treaty `data` is the server's JSON typed by its route, not parsed here; an empty body or a skewed deploy can leave it null.
-      if (response.error || !response.data) {
-        throw new Error("Could not load MCP connections");
-      }
-
-      return response.data.connections;
-    },
-    staleTime: 15_000,
-    refetchOnWindowFocus: true,
-  });
+  const connectionQuery = useMcpConnections();
 
   const connections = connectionQuery.data ?? [];
 

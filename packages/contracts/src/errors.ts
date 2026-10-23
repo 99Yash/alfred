@@ -117,8 +117,9 @@ export function isHttpError(err: unknown): err is HttpError {
 }
 
 /**
- * `omit` drops the body for providers that can echo user content redaction
- * cannot catch, such as a Notion page slice.
+ * `omit` drops the body for a provider whose error body can echo user content
+ * that redaction cannot catch. No current provider needs it. It stays because
+ * `ProviderClientConfig.bodyPolicy` makes each new provider choose.
  */
 export type ErrorBodyPolicy = "summarize" | "omit";
 
