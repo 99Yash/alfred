@@ -22,10 +22,6 @@ const ReplicacheContext = createContext<ReplicacheContextValue>({
 /** Pull and push retry a 401 forever, so without this the UI serves stale data silently. */
 const SESSION_EXPIRED_MESSAGE = "Your session expired. Please sign in again.";
 
-function syncErrorMessage(error: unknown): string {
-  return error instanceof Error ? `Sync failed: ${error.message}` : "Sync failed.";
-}
-
 interface SyncLifecycle {
   rep: Replicache<ClientMutators> | null;
   loadError: string | null;
@@ -44,7 +40,6 @@ type SyncLifecycleAction =
   | { type: "pullRecovered"; lifecycle: object }
   | { type: "pullReportedError"; lifecycle: object; message: string }
   | { type: "pullSucceeded"; lifecycle: object; rep: Replicache<ClientMutators> }
-  | { type: "pullFailed"; lifecycle: object; rep: Replicache<ClientMutators>; message: string }
   | { type: "loadFailed"; lifecycle: object; message: string }
   | { type: "retryPull"; rep: Replicache<ClientMutators> }
   | { type: "retryLoad" };
@@ -89,10 +84,6 @@ function syncLifecycleReducer(state: SyncLifecycle, action: SyncLifecycleAction)
       return state.lifecycle === action.lifecycle && state.rep === action.rep
         ? { ...state, pullError: null, initialPullPending: false }
         : state;
-    case "pullFailed":
-      return state.lifecycle === action.lifecycle && state.rep === action.rep
-        ? { ...state, pullError: state.pullError ?? action.message }
-        : state;
     case "loadFailed":
       return state.lifecycle === action.lifecycle
         ? { ...state, loadError: state.loadError ?? action.message }
@@ -112,29 +103,16 @@ export function ReplicacheProvider({ children }: { children: React.ReactNode }) 
 
   const retry = useCallback(() => {
     if (rep) {
-      const lifecycle = sync.lifecycle;
-
-      if (!lifecycle) return;
       dispatch({ type: "retryPull", rep });
-      void rep
-        .pull({ now: true })
-        .then(() => {
-          dispatch({ type: "pullSucceeded", lifecycle, rep });
-        })
-        .catch((error: unknown) => {
-          dispatch({
-            type: "pullFailed",
-            lifecycle,
-            rep,
-            message: syncErrorMessage(error),
-          });
-        });
+      // The puller callbacks report this pull's outcome, and the initial-pull waiter settles on it.
+      // It rejects only with "Closed" after the client closes, when the lifecycle is already over.
+      void rep.pull({ now: true }).catch(() => undefined);
 
       return;
     }
 
     dispatch({ type: "retryLoad" });
-  }, [rep, sync.lifecycle]);
+  }, [rep]);
 
   const contextValue = useMemo<ReplicacheContextValue>(
     () => ({ rep, loadError, pullError, initialPullPending, retry }),
@@ -150,6 +128,8 @@ export function ReplicacheProvider({ children }: { children: React.ReactNode }) 
 
     const lifecycle = {};
     let cancelled = false;
+    // Outcome of the latest puller call of this lifecycle's client.
+    let lastPullSucceeded = false;
     let close: (() => void) | undefined;
     let retryTimeout: ReturnType<typeof setTimeout> | undefined;
     let resolveRetry: (() => void) | undefined;
@@ -188,10 +168,14 @@ export function ReplicacheProvider({ children }: { children: React.ReactNode }) 
           const instance = createReplicache(userId, {
             onAuthError: handleAuthError,
             onPullSuccess: () => {
+              lastPullSucceeded = true;
+
               if (cancelled) return;
               dispatch({ type: "pullRecovered", lifecycle });
             },
             onPullError: (message) => {
+              lastPullSucceeded = false;
+
               if (cancelled) return;
               dispatch({ type: "pullReportedError", lifecycle, message });
             },
@@ -199,21 +183,32 @@ export function ReplicacheProvider({ children }: { children: React.ReactNode }) 
 
           close = instance.close;
           dispatch({ type: "ready", lifecycle, rep: instance.rep });
-          void instance.rep
-            .pull({ now: true })
-            .then(() => {
-              if (cancelled) return;
-              dispatch({ type: "pullSucceeded", lifecycle, rep: instance.rep });
-            })
-            .catch((error: unknown) => {
-              if (cancelled) return;
-              dispatch({
-                type: "pullFailed",
-                lifecycle,
-                rep: instance.rep,
-                message: syncErrorMessage(error),
-              });
-            });
+
+          // In replicache@15.3.0 (pinned, ADR-0061) `pull()` resolves after the pull attempt
+          // finishes, whether the puller call failed or succeeded; it rejects only with "Closed".
+          // A successful attempt has applied its rows and fired subscriptions before it resolves.
+          // So the initial pull ends only on a resolve after a successful puller call. After a
+          // failed one, a `now: false` pull waits for Replicache's own next backoff retry and
+          // sends no extra request. Re-check this if the Replicache version changes.
+          const awaitInitialPull = (now: boolean) => {
+            void instance.rep.pull({ now }).then(
+              () => {
+                if (cancelled) return;
+
+                if (lastPullSucceeded) {
+                  dispatch({ type: "pullSucceeded", lifecycle, rep: instance.rep });
+
+                  return;
+                }
+
+                awaitInitialPull(false);
+              },
+              // Rejects only with "Closed" after the client closes, when the lifecycle is already over.
+              () => undefined,
+            );
+          };
+
+          awaitInitialPull(true);
 
           return;
         } catch (err) {
