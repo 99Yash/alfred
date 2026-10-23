@@ -40,7 +40,7 @@ import type { LiveArtifactStream } from "~/lib/chat/use-artifact-stream";
 import { useArtifact } from "~/lib/replicache/use-artifacts";
 import { cn } from "~/lib/utils";
 import type { ChatSidePanelMode } from "~/routes/-chat/rail/models";
-import { CHAT_PANEL, CHAT_SWAP, usePrefersReducedMotion } from "./motion";
+import { CHAT_PANEL, CHAT_SWAP, usePrefersReducedMotion, type LiveTransition } from "./motion";
 
 /** A new source fails to compile here until it has a label. */
 const EXTERNAL_FILE_SOURCE_LABEL = {
@@ -127,8 +127,15 @@ export function ArtifactSidebar({
   // While the handle drags, the width follows the pointer with no tween.
   const [resizing, setResizing] = useState(false);
   // Live, not motion's per-mount check: the panel can stay open for a whole thread.
+  // `reduceMotion` carries the live value into motion, so an ON -> OFF change
+  // while open does not leave positional keys (`width`, `x`) on the mount snapshot.
   const reduce = usePrefersReducedMotion();
-  const panelTransition = resizing || reduce ? { duration: 0 } : CHAT_PANEL;
+
+  const panelTransition: LiveTransition = {
+    ...(resizing || reduce ? { duration: 0 } : CHAT_PANEL),
+    reduceMotion: reduce,
+  };
+
   // A leaving panel takes no clicks, focus, or Escape.
   const isPresent = useIsPresent();
 

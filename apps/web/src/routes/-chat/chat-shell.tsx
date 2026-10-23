@@ -107,44 +107,55 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   // Memoized so each render does not push a new node into AppShell.
   // The rail stays mounted and collapses while an artifact is open. Both run the same curve,
   // so the slot width moves from one to the other with no jump.
-  const slotNode = useMemo(
+  // Two element memos, not one: a single memo over both children would re-render the hidden
+  // rail (weather video, inbox feed) on each artifact stream delta and each drag move, and
+  // re-render the sidebar on each rail data change. React skips a child whose element is unchanged.
+  const railNode = useMemo(
     () => (
-      <>
-        <RightRail
-          open={railOpen && !artifact.isOpen}
-          mode={railMode}
-          onClose={() => setRailOpen(false)}
-          data={railData}
-        />
-        <AnimatePresence initial={false}>
-          {artifact.selectedId ? (
-            // One key for every artifact, so a switch swaps the body and does not replay the slide.
-            <ArtifactSidebar
-              key="artifact-panel"
-              artifactId={artifact.selectedId}
-              liveStream={liveArtifact}
-              mode={railMode}
-              width={artifact.width}
-              onWidthChange={artifact.setWidth}
-              onClose={artifact.close}
-              onSuggestEdit={onSuggestArtifactEdit}
-            />
-          ) : null}
-        </AnimatePresence>
-      </>
+      <RightRail
+        open={railOpen && !artifact.isOpen}
+        mode={railMode}
+        onClose={() => setRailOpen(false)}
+        data={railData}
+      />
     ),
+    [railOpen, artifact.isOpen, railMode, railData],
+  );
+
+  const artifactNode = useMemo(
+    () =>
+      artifact.selectedId ? (
+        // One key for every artifact, so a switch swaps the body and does not replay the slide.
+        <ArtifactSidebar
+          key="artifact-panel"
+          artifactId={artifact.selectedId}
+          liveStream={liveArtifact}
+          mode={railMode}
+          width={artifact.width}
+          onWidthChange={artifact.setWidth}
+          onClose={artifact.close}
+          onSuggestEdit={onSuggestArtifactEdit}
+        />
+      ) : null,
     [
-      railOpen,
-      railMode,
-      railData,
-      artifact.isOpen,
       artifact.selectedId,
       liveArtifact,
+      railMode,
       artifact.width,
       artifact.setWidth,
       artifact.close,
       onSuggestArtifactEdit,
     ],
+  );
+
+  const slotNode = useMemo(
+    () => (
+      <>
+        {railNode}
+        <AnimatePresence initial={false}>{artifactNode}</AnimatePresence>
+      </>
+    ),
+    [railNode, artifactNode],
   );
 
   useRightRail(slotNode);
