@@ -17,7 +17,7 @@ import {
   type RecordListView,
   type WebSearchView,
 } from "./evidence";
-import { Favicon } from "./favicon";
+import { Favicon } from "~/components/favicon";
 import { ToolResultJson } from "./tool-result-json";
 import { presentTool, type ToolCallView } from "./tool-call-presentation";
 import { foldClass } from "./trail";

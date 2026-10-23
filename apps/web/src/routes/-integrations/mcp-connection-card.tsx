@@ -1,7 +1,9 @@
 import { MCP_ADD_SERVER_MAX_LABEL_LENGTH } from "@alfred/contracts";
-import { AlertTriangle, Plug, Wrench } from "lucide-react";
+import { AlertTriangle, Wrench } from "lucide-react";
 import { useState } from "react";
+import { Favicon } from "~/components/favicon";
 import { AppButton, AppInput } from "~/components/ui/v2";
+import { domainOf } from "~/lib/favicon";
 import { mcpAuthorizeUrl, type McpConnection } from "./helpers";
 import { openAuthorizationTab } from "~/lib/integrations/authorization-tab";
 import { useMcpConnectionActions, type McpConnectionActions } from "./mcp-connection-actions";
@@ -56,7 +58,12 @@ export function McpConnectionCardView({ connection, actions }: McpConnectionCard
     <div className="space-y-2">
       <McpTile
         icon={{
-          glyph: warning ? <AlertTriangle size={18} /> : <Plug size={18} />,
+          glyph: warning ? (
+            <AlertTriangle size={18} />
+          ) : (
+            // `mcp.linear.app` has no icon of its own; the vendor site does.
+            <Favicon domain={domainOf(connection.endpointOrigin).replace(/^mcp\./, "")} size={20} />
+          ),
         }}
         label={connection.label}
         subtitle={subtitle}
