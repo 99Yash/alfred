@@ -408,7 +408,8 @@ export function MessageBubble({
           {message.content.length > 0 ? (
             <CopyMessageButton content={message.content} htmlRef={bodyRef} />
           ) : null}
-          {/* Opacity, not display: the row keeps its height, so a hover never re-measures the feed. */}
+          {/* Opacity, not display: the row keeps its height, so a hover never re-measures the feed.
+              `has-focus-visible`, not `focus-within`: a mouse click on Copy would latch `focus-within`. */}
           {message.usage ? (
             <div
               className={cn(
