@@ -113,6 +113,19 @@ export const chatMessageUsageSchema = z.object({
 
 export type ChatMessageUsage = z.infer<typeof chatMessageUsageSchema>;
 
+export const CHAT_FOLLOW_UP_LIMIT = 3;
+
+export const CHAT_FOLLOW_UP_MAX_CHARS = 120;
+
+/**
+ * Next-prompt suggestions on a completed reply (ADR-0112). The server parses before it
+ * writes; the sync read parses again, so a bad stored list reads as none.
+ */
+export const chatFollowUpsSchema = z
+  .array(z.string().trim().min(1).max(CHAT_FOLLOW_UP_MAX_CHARS))
+  .min(1)
+  .max(CHAT_FOLLOW_UP_LIMIT);
+
 /**
  * Turn start response. `busy` is not an error: another message's run is in flight,
  * so the client keeps this one queued and retries after `runId` ends.

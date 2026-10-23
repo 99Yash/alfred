@@ -13,6 +13,7 @@ import {
   briefingStatusSchema,
   chatAttachmentStatusSchema,
   chatErrorKindSchema,
+  chatFollowUpsSchema,
   chatMessageUsageSchema,
   fullBriefingSchema,
   isIntegrationSlug,
@@ -322,6 +323,8 @@ export const syncedChatMessageSchema = z.object({
   /** Interleaved with `toolCalls` by `segmentIndex`. */
   narration: z.array(syncedChatNarrationSchema).nullable().default(null),
   usage: chatMessageUsageSchema.nullable().default(null),
+  /** Next-prompt suggestions. A list that breaks the contract's caps reads as none. */
+  followUps: chatFollowUpsSchema.nullable().default(null).catch(null),
   runId: z.string().nullable(),
   rowVersion: z.number(),
   createdAt: isoDateTimeStringSchema,

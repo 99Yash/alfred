@@ -1,0 +1,1 @@
+ALTER TABLE "chat_messages" ADD COLUMN "follow_ups" text[];

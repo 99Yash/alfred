@@ -190,6 +190,7 @@ export async function chatMessageCreateClient(
       toolCalls: null,
       narration: null,
       usage: null,
+      followUps: null,
       runId: null,
       rowVersion: 0,
       createdAt: args.createdAt,
