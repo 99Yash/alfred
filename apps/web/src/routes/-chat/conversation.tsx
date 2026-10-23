@@ -84,7 +84,7 @@ export function Conversation({
   // Pinning this element to `scrollHeight` follows the footer with no lag.
   const scrollerElRef = useRef<HTMLElement | null>(null);
   // Virtuoso's `atBottomStateChange` is edge-triggered: a dropped `true` is not
-  // sent again. This holds the `scrollTop` Virtuoso last read, so the re-pin
+  // sent again. This holds `scrollTop` at the last `scroll` event, so the re-pin
   // gate can tell a programmatic move away from content growth below.
   const lastScrollTopRef = useRef(0);
   // The footer also grows between React updates (auto-animate, accordion, markdown reflow).
@@ -219,15 +219,15 @@ export function Conversation({
     [releasePin],
   );
 
-  // Stable identity, so Virtuoso does not rebuild the listeners each render.
-  // The `scroll` record runs in the same dispatch as Virtuoso's own listener,
-  // so it holds the value Virtuoso read.
+  // Record in the `scroll` event itself, in the same dispatch as Virtuoso's own listener.
+  // A deferred record (rAF or throttle) lets a stale `true` from the far jump re-pin.
   const recordScrollTop = useCallback(() => {
     const el = scrollerElRef.current;
 
     if (el) lastScrollTopRef.current = el.scrollTop;
   }, []);
 
+  // Stable identity, so Virtuoso does not rebuild the listeners each render.
   const attachScroller = useCallback(
     (ref: HTMLElement | Window | null) => {
       const prev = scrollerElRef.current;
@@ -748,7 +748,7 @@ function prevUserTurn(
   return undefined;
 }
 
-/** `atBottomThreshold`, and the live re-pin test (`isAtLiveBottom`) that every `atBottomStateChange` passes. */
+/** `atBottomThreshold`, and the live distance test (`isAtLiveBottom`), one of the two re-pin clauses. */
 const AT_BOTTOM_PX = 80;
 
 /** The floating pill's band at the feed bottom (`bottom-4` + `h-9`, rounded up). A card under it is not in view. */
