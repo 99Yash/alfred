@@ -5,6 +5,7 @@ import type {
   SyncedChatMessage,
 } from "@alfred/sync";
 import { ArrowDown } from "lucide-react";
+import { AnimatePresence, m, useIsPresent, useReducedMotionConfig } from "motion/react";
 import {
   createContext,
   memo,
@@ -39,6 +40,7 @@ import { SourcesStrip } from "./sources-strip";
 import { ConnectNudgeRows } from "./connect-nudge-rows";
 import { collectSources } from "./sources";
 import { ToolCallGroup } from "./tool-call-group";
+import { CHAT_POP, CHAT_SWAP } from "./motion";
 
 /**
  * Scrollable message feed: synced messages, then the live streaming bubble.
@@ -508,9 +510,12 @@ function FeedFooter() {
     // Virtuoso renders the Footer as a sibling of the List, so match its column here.
     // Without it the bubble snaps width when the durable row syncs.
     <div ref={setFooterEl} className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 pb-6">
-      {onFollowUp && followUps.length > 0 ? (
-        <FollowUpSuggestions suggestions={followUps} onPick={onFollowUp} />
-      ) : null}
+      {/* `initial={false}`: chips already there when the thread opens do not animate in. */}
+      <AnimatePresence initial={false}>
+        {onFollowUp && followUps.length > 0 ? (
+          <FollowUpSuggestions key="follow-ups" suggestions={followUps} onPick={onFollowUp} />
+        ) : null}
+      </AnimatePresence>
 
       {showStream && stream ? (
         <div key={`${stream.messageId}:${stream.runId}`} className="flex flex-col gap-2">
@@ -643,44 +648,77 @@ function ActivityPill({
   activity: string | null;
   onClick: () => void;
 }) {
+  const reduceMotion = useReducedMotionConfig();
+
   return (
     // Only the button takes pointer events.
     <div className="pointer-events-none absolute inset-x-0 bottom-4 z-10 flex justify-center">
-      <button
+      <m.button
         type="button"
         onClick={onClick}
         aria-label={activity ? `${activity} Scroll to latest.` : "Scroll to latest"}
         disabled={!show}
         tabIndex={show ? 0 : -1}
+        // A width tween, not `layout`: `domAnimation` can reach "auto" without the layout feature.
+        animate={{ width: activity ? "auto" : 36 }}
+        transition={reduceMotion ? { duration: 0 } : CHAT_POP}
         className={cn(
-          "inline-flex h-9 items-center rounded-full",
+          "relative inline-flex h-9 items-center justify-center overflow-hidden rounded-full",
           "bg-app-bg-1 text-app-fg-3 shadow-[0_4px_12px_rgba(0,0,0,0.16),inset_0_0_0_1px_var(--app-fg-a1)]",
           "transition-[opacity,scale] duration-150 ease-out",
           "hover:scale-105 hover:text-app-fg-4 active:scale-95",
           "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
           "focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
-          activity ? "max-w-[min(20rem,70vw)] gap-2 pr-3 pl-2" : "size-9 justify-center",
+          activity && "max-w-[min(20rem,70vw)]",
           show ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
         )}
       >
-        {activity ? (
-          <>
-            <span aria-hidden className="chat-think-mark inline-flex shrink-0">
-              <img
-                src="/images/logo/alfred-logo.svg"
-                alt=""
-                className="size-[18px] rounded-[5px]"
-              />
-            </span>
-            <span className="animate-chat-shimmer-mask min-w-0 truncate text-[13px] font-medium text-app-fg-4">
-              {activity}
-            </span>
-            <ArrowDown size={13} aria-hidden className="shrink-0 text-app-fg-2" />
-          </>
-        ) : (
-          <ArrowDown size={16} />
-        )}
-      </button>
+        {/* `popLayout` lifts the leaving content out of flow, so "auto" measures only the new content. */}
+        <AnimatePresence mode="popLayout" initial={false}>
+          {activity ? (
+            <m.span
+              key="activity"
+              className="inline-flex min-w-0 items-center gap-2 pr-3 pl-2"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={CHAT_SWAP}
+            >
+              <span aria-hidden className="chat-think-mark inline-flex shrink-0">
+                <img
+                  src="/images/logo/alfred-logo.svg"
+                  alt=""
+                  className="size-[18px] rounded-[5px]"
+                />
+              </span>
+              <AnimatePresence mode="popLayout" initial={false}>
+                <m.span
+                  key={activity}
+                  className="animate-chat-shimmer-mask min-w-0 truncate text-[13px] font-medium text-app-fg-4"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={CHAT_SWAP}
+                >
+                  {activity}
+                </m.span>
+              </AnimatePresence>
+              <ArrowDown size={13} aria-hidden className="shrink-0 text-app-fg-2" />
+            </m.span>
+          ) : (
+            <m.span
+              key="arrow"
+              className="inline-flex size-9 shrink-0 items-center justify-center"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={CHAT_SWAP}
+            >
+              <ArrowDown size={16} />
+            </m.span>
+          )}
+        </AnimatePresence>
+      </m.button>
     </div>
   );
 }
@@ -807,9 +845,14 @@ function FollowUpSuggestions({
   onPick: (text: string) => void;
 }) {
   const onPickEvent = useEffectEvent(onPick);
+  const isPresent = useIsPresent();
+  const reduceMotion = useReducedMotionConfig();
   // ⌥1…⌥9 picks a chip. Use `e.code`: Option+digit types a glyph on macOS.
   // Alt+digit is free in browsers; ⌘digit switches tabs.
   useEffect(() => {
+    // A leaving row takes no shortcut while it fades out under a new turn.
+    if (!isPresent) return;
+
     const handler = (e: KeyboardEvent) => {
       if (!e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return;
       const match = /^Digit([1-9])$/.exec(e.code);
@@ -825,10 +868,24 @@ function FollowUpSuggestions({
     window.addEventListener("keydown", handler);
 
     return () => window.removeEventListener("keydown", handler);
-  }, [suggestions]);
+  }, [suggestions, isPresent]);
 
   return (
-    <div className="animate-chat-in flex flex-wrap gap-2 pt-1">
+    <m.div
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      // Collapse, not just fade: the stream block mounts below in the same commit.
+      // The -20 cancels the column's `gap-5`, so the stream ends where the chips began.
+      exit={{ opacity: 0, height: 0, marginBottom: -20 }}
+      transition={
+        reduceMotion
+          ? { ...CHAT_POP, height: { duration: 0 }, marginBottom: { duration: 0 } }
+          : CHAT_POP
+      }
+      inert={!isPresent}
+      // Clip only while leaving, so the chip focus rings show at rest.
+      className={cn("flex flex-wrap gap-2 pt-1", !isPresent && "overflow-hidden")}
+    >
       {suggestions.map((suggestion, i) => (
         <button
           key={suggestion.id}
@@ -861,7 +918,7 @@ function FollowUpSuggestions({
           ) : null}
         </button>
       ))}
-    </div>
+    </m.div>
   );
 }
 

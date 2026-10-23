@@ -1,6 +1,7 @@
 import { getStringPath } from "@alfred/contracts";
 import * as Accordion from "@radix-ui/react-accordion";
 import { Check, ChevronRight, ExternalLink, Scissors, Search, X } from "lucide-react";
+import { AnimatePresence, m } from "motion/react";
 import { useId } from "react";
 import { IntegrationGlyph, IntegrationIcon } from "~/lib/integrations/integration-icons";
 import { asString, parseJsonRecord } from "~/lib/json-record";
@@ -21,6 +22,7 @@ import { Favicon } from "~/components/favicon";
 import { ToolResultJson } from "./tool-result-json";
 import { presentTool, type ToolCallView } from "./tool-call-presentation";
 import { foldClass } from "./trail";
+import { CHAT_POP, CHAT_SWAP } from "./motion";
 
 const PANEL_ITEM = "panel";
 
@@ -184,7 +186,20 @@ export function ToolCallCard({
                     : "text-app-fg-4",
               )}
             >
-              {title}
+              {/* Keyed on the text, so a fold whose label holds still does not blink.
+                  `initial={false}`: a row that mounts finished shows its final label at once. */}
+              <AnimatePresence mode="wait" initial={false}>
+                <m.span
+                  key={title}
+                  className="block truncate"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={CHAT_SWAP}
+                >
+                  {title}
+                </m.span>
+              </AnimatePresence>
             </span>
             {count > 1 ? (
               <span
@@ -222,11 +237,23 @@ export function ToolCallCard({
                   <Scissors size={12} aria-label="Result trimmed before storage" />
                 </span>
               ) : null}
-              {running ? null : failed ? (
-                <X size={14} aria-hidden className="text-app-red-4" />
-              ) : (
-                <Check size={14} aria-hidden className="text-app-green-4" />
-              )}
+              <AnimatePresence initial={false}>
+                {running ? null : (
+                  <m.span
+                    key={failed ? "x" : "ok"}
+                    className="inline-flex"
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={CHAT_POP}
+                  >
+                    {failed ? (
+                      <X size={14} aria-hidden className="text-app-red-4" />
+                    ) : (
+                      <Check size={14} aria-hidden className="text-app-green-4" />
+                    )}
+                  </m.span>
+                )}
+              </AnimatePresence>
               {expandable ? (
                 <ChevronRight
                   size={14}

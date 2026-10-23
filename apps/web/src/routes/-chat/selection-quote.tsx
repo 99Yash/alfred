@@ -1,8 +1,10 @@
 import { TextQuote } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { AnimatePresence, m, useIsPresent } from "motion/react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { useAppTheme } from "~/components/ui/v2";
 import { cn } from "~/lib/utils";
+import { CHAT_POP } from "./motion";
 
 const QUOTABLE_ATTR = "data-chat-quotable";
 
@@ -51,7 +53,6 @@ function readQuotableSelection(): SelectionAnchor | null {
  * `onQuote` and clears the selection. It hides while the pointer drags, on scroll, and on Escape.
  */
 export function SelectionQuote({ onQuote }: { onQuote: (text: string) => void }) {
-  const { resolved } = useAppTheme();
   const [anchor, setAnchor] = useState<SelectionAnchor | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
 
@@ -112,33 +113,72 @@ export function SelectionQuote({ onQuote }: { onQuote: (text: string) => void })
     };
   }, []);
 
-  if (!anchor) return null;
-
   return createPortal(
-    <button
-      ref={buttonRef}
-      type="button"
-      data-app-theme={resolved}
+    // Keyed per selection: a new selection enters fresh while the old pill leaves where it was.
+    <AnimatePresence>
+      {anchor ? (
+        <QuotePill
+          key={`${anchor.x},${anchor.y}`}
+          anchor={anchor}
+          buttonRef={buttonRef}
+          onPick={() => {
+            onQuote(anchor.text);
+            window.getSelection()?.removeAllRanges();
+            setAnchor(null);
+          }}
+        />
+      ) : null}
+    </AnimatePresence>,
+    document.body,
+  );
+}
+
+function QuotePill({
+  anchor,
+  buttonRef,
+  onPick,
+}: {
+  anchor: SelectionAnchor;
+  buttonRef: RefObject<HTMLButtonElement | null>;
+  onPick: () => void;
+}) {
+  const { resolved } = useAppTheme();
+  const isPresent = useIsPresent();
+
+  return (
+    // Motion owns `transform` on this wrapper. The button keeps its own `app-press` scale,
+    // and Tailwind's `-translate-*` is the separate CSS `translate` property.
+    <m.div
       style={{ left: anchor.x, top: anchor.y }}
-      // Keep the selection alive through the click.
-      onPointerDown={(e) => e.preventDefault()}
-      onClick={() => {
-        onQuote(anchor.text);
-        window.getSelection()?.removeAllRanges();
-        setAnchor(null);
-      }}
+      // The same reveal as a `Tip` pill, grown from the selection side.
+      initial={{ opacity: 0, scale: 0.96, y: 2 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.96 }}
+      transition={CHAT_POP}
+      // A leaving pill takes no second click.
+      inert={!isPresent}
       className={cn(
-        "app fixed z-200 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-full px-3 py-1.5",
+        "fixed z-200 -translate-x-1/2",
         anchor.placement === "above" ? "origin-bottom -translate-y-full" : "origin-top",
-        "bg-app-fg-4 text-xs font-medium text-app-bg-1 shadow-[0_2px_8px_rgba(0,0,0,0.18)]",
-        // The same reveal as a `Tip` pill, grown from the selection side.
-        "animate-[app-tooltip-in_160ms_cubic-bezier(0.22,1,0.36,1)] select-none motion-reduce:animate-none",
-        "app-press app-focus",
       )}
     >
-      <TextQuote size={13} aria-hidden />
-      Ask Alfred
-    </button>,
-    document.body,
+      <button
+        // Only the live pill owns the ref, so a leaving pill's unmount does not clear it.
+        ref={isPresent ? buttonRef : undefined}
+        type="button"
+        data-app-theme={resolved}
+        // Keep the selection alive through the click.
+        onPointerDown={(e) => e.preventDefault()}
+        onClick={onPick}
+        className={cn(
+          "app inline-flex items-center gap-1.5 rounded-full px-3 py-1.5",
+          "bg-app-fg-4 text-xs font-medium text-app-bg-1 shadow-[0_2px_8px_rgba(0,0,0,0.18)]",
+          "app-press app-focus select-none",
+        )}
+      >
+        <TextQuote size={13} aria-hidden />
+        Ask Alfred
+      </button>
+    </m.div>
   );
 }
