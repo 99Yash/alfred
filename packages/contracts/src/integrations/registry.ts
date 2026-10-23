@@ -132,6 +132,7 @@ export const INTEGRATIONS = {
       "read_message",
       "get_thread",
       "modify_thread",
+      "modify_message",
       "create_draft",
       "send_draft",
       "request",

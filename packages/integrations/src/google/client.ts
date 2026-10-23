@@ -37,6 +37,7 @@ import type {
   GmailThread,
   ListMessagesResult,
   ListMessagesArgs,
+  ModifyMessageLabelsArgs,
   ModifyThreadLabelsArgs,
   SendMessageResult,
   SendMessageArgs,
@@ -207,6 +208,11 @@ export function createGoogleClient(
         ...args
       }: WithCredentialId<ModifyThreadLabelsArgs>): Promise<GmailThread> =>
         mailbox(credentialId, "gmail_modify").modifyThreadLabels(args),
+      modifyMessageLabels: ({
+        credentialId,
+        ...args
+      }: WithCredentialId<ModifyMessageLabelsArgs>): Promise<GmailMessage> =>
+        mailbox(credentialId, "gmail_modify").modifyMessageLabels(args),
       createDraft: ({
         credentialId,
         ...args

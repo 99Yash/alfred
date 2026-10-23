@@ -84,6 +84,14 @@ const FIXTURES = {
     },
     arrayFields: ["addLabels", "removeLabels"],
   },
+  "gmail.modify_message": {
+    base: {
+      messageId: "message-1",
+      addLabels: ["TRASH"],
+      removeLabels: ["INBOX"],
+    },
+    arrayFields: ["addLabels", "removeLabels"],
+  },
   "sheets.update_values": {
     base: {
       spreadsheetId: "sid",

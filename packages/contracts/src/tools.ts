@@ -410,6 +410,11 @@ export const TOOL_LABELS = {
     done: "Changed Gmail labels",
     title: "change the labels of a Gmail thread",
   },
+  "gmail.modify_message": {
+    running: "Changing Gmail labels",
+    done: "Changed Gmail labels",
+    title: "change the labels of a Gmail message",
+  },
   "gmail.create_draft": {
     running: "Saving a Gmail draft",
     done: "Saved a Gmail draft",
@@ -652,6 +657,7 @@ export const TOOL_CATEGORIES = {
   "gmail.read_message": "source",
   "gmail.get_thread": "source",
   "gmail.modify_thread": "action",
+  "gmail.modify_message": "action",
   "gmail.create_draft": "action",
   "gmail.send_draft": "action",
   "gmail.request": "source",

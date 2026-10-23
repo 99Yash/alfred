@@ -5,6 +5,7 @@ import {
   GMAIL_SEARCH_SNIPPET_MAX_CHARS,
   collapseWhitespace,
   gmailGetThreadInput,
+  gmailModifyMessageInput,
   gmailModifyThreadInput,
   gmailReadMessageInput,
   gmailSearchInput,
@@ -12,6 +13,7 @@ import {
   gmailSendDraftInput,
   parseGmailDocumentMetadata,
   restPassthroughInput,
+  type GmailModifyMessageInput,
   type GmailModifyThreadInput,
   type ToolRiskTier,
 } from "@alfred/contracts";
@@ -22,6 +24,7 @@ import { gmailMailboxWritesEnabled } from "@alfred/env/server";
 import {
   type ExtractedMessage,
   type GmailLabel,
+  type GoogleClient,
   TRIAGE_CATEGORIES,
   extractMessageContent,
   labelNameFor,
@@ -43,11 +46,17 @@ const GMAIL_MODIFY_SCOPES = [GOOGLE_SCOPE.gmail.modify] as const;
 /** Gmail empties Trash after 30 days, and a spam mark trains Google's filter. */
 const DESTRUCTIVE_LABEL_IDS: ReadonlySet<string> = new Set(["TRASH", "SPAM"]);
 
-function modifyThreadLabelNames(input: GmailModifyThreadInput): string[] {
+/** The label edit that `modify_thread` and `modify_message` share. */
+type GmailLabelChange = Pick<
+  GmailModifyThreadInput | GmailModifyMessageInput,
+  "addLabels" | "removeLabels"
+>;
+
+function labelChangeNames(input: GmailLabelChange): string[] {
   return [...(input.addLabels ?? []), ...(input.removeLabels ?? [])];
 }
 
-export function resolveGmailModifyThreadRiskTier(input: GmailModifyThreadInput): ToolRiskTier {
+export function resolveGmailLabelChangeRiskTier(input: GmailLabelChange): ToolRiskTier {
   const trashesOrSpams = (input.addLabels ?? []).some((name) =>
     DESTRUCTIVE_LABEL_IDS.has(name.toUpperCase()),
   );
@@ -71,12 +80,12 @@ function triageLabelMessage(names: readonly string[]): string {
   );
 }
 
-function refuseGmailModifyThread(input: GmailModifyThreadInput): string | null {
+function refuseGmailLabelChange(input: GmailLabelChange): string | null {
   if (!gmailMailboxWritesEnabled()) {
     return "Gmail mailbox writes are off in this environment, so the labels did not change.";
   }
 
-  const triageLabels = modifyThreadLabelNames(input).filter((name) =>
+  const triageLabels = labelChangeNames(input).filter((name) =>
     TRIAGE_LABEL_NAMES.has(name.toLowerCase()),
   );
 
@@ -91,6 +100,72 @@ function findLabel(labels: readonly GmailLabel[], name: string): GmailLabel | un
     labels.find((label) => label.id === name || label.name === name) ??
     labels.find((label) => label.name.toLowerCase() === folded)
   );
+}
+
+type ResolvedLabelChange = {
+  labels: GmailLabel[];
+  addLabelIds: string[];
+  removeLabelIds: string[];
+  createdLabels: string[];
+  notFound: string[];
+};
+
+/**
+ * Names to ids, before any write. A missing added label is created; a missing removed label is
+ * reported, not created.
+ */
+async function resolveLabelChange(
+  gmail: GoogleClient["gmail"],
+  credentialId: string,
+  input: GmailLabelChange,
+): Promise<ResolvedLabelChange> {
+  const labels = await gmail.listLabels(credentialId);
+
+  const adds = (input.addLabels ?? []).map((name) => ({
+    name,
+    label: findLabel(labels, name),
+  }));
+
+  const removes = (input.removeLabels ?? []).map((name) => ({
+    name,
+    label: findLabel(labels, name),
+  }));
+
+  // A label id passes the name refusal, so check what each name resolved to before any write.
+  const triageLabels = [...adds, ...removes]
+    .flatMap(({ label }) => (label ? [label.name] : []))
+    .filter((name) => TRIAGE_LABEL_NAMES.has(name.toLowerCase()));
+
+  if (triageLabels.length > 0) throw new AppError("gmail_triage_label_refused");
+
+  const createdLabels: string[] = [];
+  const addLabelIds: string[] = [];
+
+  for (const { name, label } of adds) {
+    if (label) {
+      addLabelIds.push(label.id);
+      continue;
+    }
+
+    const createdLabel = await gmail.createLabel({ credentialId, name });
+    labels.push(createdLabel);
+    createdLabels.push(createdLabel.name);
+    addLabelIds.push(createdLabel.id);
+  }
+
+  return {
+    labels,
+    addLabelIds,
+    removeLabelIds: removes.flatMap(({ label }) => (label ? [label.id] : [])),
+    createdLabels,
+    notFound: removes.flatMap(({ name, label }) => (label ? [] : [name])),
+  };
+}
+
+function labelNamesFor(labels: readonly GmailLabel[], ids: Iterable<string>): string[] {
+  const names = new Map(labels.map((label) => [label.id, label.name] as const));
+
+  return [...ids].map((id) => names.get(id) ?? id);
 }
 
 function truncateSnippet(text: string | null): string | null {
@@ -393,60 +468,24 @@ export const gmailTools: readonly RegisteredTool[] = [
       credential: { provider: "google", anyOfScopes: GMAIL_MODIFY_SCOPES },
     },
     inputSchema: gmailModifyThreadInput,
-    resolveRiskTier: (input) => Promise.resolve(resolveGmailModifyThreadRiskTier(input)),
-    refuseInput: (input) => refuseGmailModifyThread(input),
+    resolveRiskTier: (input) => Promise.resolve(resolveGmailLabelChangeRiskTier(input)),
+    refuseInput: (input) => refuseGmailLabelChange(input),
     execute: async (input, ctx) => {
       const gmail = ctx.integrations.google.gmail;
       const credential = await gmail.modifyCredential();
-      const labels = await gmail.listLabels(credential.id);
+      const change = await resolveLabelChange(gmail, credential.id, input);
+      const { createdLabels, notFound } = change;
 
-      const adds = (input.addLabels ?? []).map((name) => ({
-        name,
-        label: findLabel(labels, name),
-      }));
-
-      const removes = (input.removeLabels ?? []).map((name) => ({
-        name,
-        label: findLabel(labels, name),
-      }));
-
-      // A label id passes the name refusal, so check what each name resolved to before any write.
-      const triageLabels = [...adds, ...removes]
-        .flatMap(({ label }) => (label ? [label.name] : []))
-        .filter((name) => TRIAGE_LABEL_NAMES.has(name.toLowerCase()));
-
-      if (triageLabels.length > 0) throw new AppError("gmail_triage_label_refused");
-
-      const created: string[] = [];
-      const addLabelIds: string[] = [];
-
-      for (const { name, label } of adds) {
-        if (label) {
-          addLabelIds.push(label.id);
-          continue;
-        }
-
-        const createdLabel = await gmail.createLabel({ credentialId: credential.id, name });
-        labels.push(createdLabel);
-        created.push(createdLabel.name);
-        addLabelIds.push(createdLabel.id);
-      }
-
-      const removeLabelIds = removes.flatMap(({ label }) => (label ? [label.id] : []));
-      const notFound = removes.flatMap(({ name, label }) => (label ? [] : [name]));
-
-      if (addLabelIds.length === 0 && removeLabelIds.length === 0) {
+      if (change.addLabelIds.length === 0 && change.removeLabelIds.length === 0) {
         return { ok: true, threadId: input.threadId, changed: false, notFound };
       }
 
       const thread = await gmail.modifyThreadLabels({
         credentialId: credential.id,
         threadId: input.threadId,
-        addLabelIds,
-        removeLabelIds,
+        addLabelIds: change.addLabelIds,
+        removeLabelIds: change.removeLabelIds,
       });
-
-      const labelNames = new Map(labels.map((label) => [label.id, label.name] as const));
 
       const threadLabelIds = new Set(
         (thread.messages ?? []).flatMap((message) => message.labelIds ?? []),
@@ -456,8 +495,60 @@ export const gmailTools: readonly RegisteredTool[] = [
         ok: true,
         threadId: thread.id,
         changed: true,
-        labels: [...threadLabelIds].map((id) => labelNames.get(id) ?? id),
-        createdLabels: created,
+        labels: labelNamesFor(change.labels, threadLabelIds),
+        createdLabels,
+        notFound,
+      };
+    },
+  }),
+  liveTool({
+    integration: "gmail",
+    action: "modify_message",
+    riskTier: "medium",
+    description:
+      "Add or remove labels on ONE Gmail message, by label name. Use it when only one message " +
+      "of a thread must change; gmail.modify_thread changes them all. A missing user label is " +
+      "created. System labels do the mailbox actions: remove INBOX to archive, UNREAD to mark " +
+      "read, add STARRED to star, TRASH to trash, SPAM to report spam. Remove TRASH to restore " +
+      "from trash; remove SPAM and add INBOX to restore from spam. Alfred's numbered triage " +
+      "labels are refused.",
+    discovery: {
+      aliases: ["label message", "trash message", "untrash email", "not spam", "mark message read"],
+      tags: ["email", "inbox", "labels", "write"],
+      entities: ["email", "message", "label", "inbox", "trash", "spam"],
+      verbs: ["label", "archive", "trash", "untrash", "restore", "star", "mark", "move"],
+      relatedTools: ["gmail.get_thread", "gmail.modify_thread"],
+    },
+    availability: {
+      credential: { provider: "google", anyOfScopes: GMAIL_MODIFY_SCOPES },
+    },
+    inputSchema: gmailModifyMessageInput,
+    resolveRiskTier: (input) => Promise.resolve(resolveGmailLabelChangeRiskTier(input)),
+    refuseInput: (input) => refuseGmailLabelChange(input),
+    execute: async (input, ctx) => {
+      const gmail = ctx.integrations.google.gmail;
+      const credential = await gmail.modifyCredential();
+      const change = await resolveLabelChange(gmail, credential.id, input);
+      const { createdLabels, notFound } = change;
+
+      if (change.addLabelIds.length === 0 && change.removeLabelIds.length === 0) {
+        return { ok: true, messageId: input.messageId, changed: false, notFound };
+      }
+
+      const message = await gmail.modifyMessageLabels({
+        credentialId: credential.id,
+        messageId: input.messageId,
+        addLabelIds: change.addLabelIds,
+        removeLabelIds: change.removeLabelIds,
+      });
+
+      return {
+        ok: true,
+        messageId: message.id,
+        threadId: message.threadId,
+        changed: true,
+        labels: labelNamesFor(change.labels, message.labelIds ?? []),
+        createdLabels,
         notFound,
       };
     },
