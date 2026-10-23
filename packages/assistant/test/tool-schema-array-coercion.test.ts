@@ -56,6 +56,24 @@ const FIXTURES = {
     },
     arrayFields: ["to", "cc", "bcc"],
   },
+  "gmail.create_draft": {
+    base: {
+      to: ["a@example.com"],
+      cc: ["c@example.com"],
+      bcc: ["d@example.com"],
+      subject: "Hello",
+      bodyText: "Body text.",
+    },
+    arrayFields: ["to", "cc", "bcc"],
+  },
+  "gmail.modify_thread": {
+    base: {
+      threadId: "thread-1",
+      addLabels: ["Receipts", "STARRED"],
+      removeLabels: ["INBOX"],
+    },
+    arrayFields: ["addLabels", "removeLabels"],
+  },
   "sheets.update_values": {
     base: {
       spreadsheetId: "sid",

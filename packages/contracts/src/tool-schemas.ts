@@ -801,6 +801,40 @@ export const gmailReadMessageInput = z
     };
   });
 
+const gmailThreadId = z
+  .string()
+  .min(1)
+  .describe("Gmail thread id: the `threadId` from gmail.search or gmail.read_message.");
+
+export const gmailGetThreadInput = z
+  .object({
+    threadId: gmailThreadId,
+    format: z
+      .enum(["full", "metadata"])
+      .default("full")
+      .describe("`metadata` omits bodies. Use it first on a long thread."),
+  })
+  .strict();
+
+/** Gmail's per-call cap is 100 labels in each direction. */
+const gmailLabelNames = z.array(z.string().trim().min(1).max(225)).min(1).max(100);
+
+export const gmailModifyThreadInput = coerceJsonArrayFields(
+  ["addLabels", "removeLabels"],
+  z
+    .object({
+      threadId: gmailThreadId,
+      addLabels: gmailLabelNames.optional(),
+      removeLabels: gmailLabelNames.optional(),
+    })
+    .strict()
+    .refine((value) => value.addLabels !== undefined || value.removeLabels !== undefined, {
+      message: "addLabels or removeLabels is required",
+    }),
+);
+
+export type GmailModifyThreadInput = z.infer<typeof gmailModifyThreadInput>;
+
 /* ── sheets ───────────────────────────────────────────────────────────── */
 
 /** `null` is a blank cell. */
@@ -1804,6 +1838,9 @@ export const TOOL_INPUT_SCHEMAS = {
   "gmail.search": gmailSearchInput,
   "gmail.send_draft": gmailSendDraftInput,
   "gmail.read_message": gmailReadMessageInput,
+  "gmail.get_thread": gmailGetThreadInput,
+  "gmail.modify_thread": gmailModifyThreadInput,
+  "gmail.create_draft": gmailSendDraftInput,
   "sheets.create_spreadsheet": sheetsCreateInput,
   "sheets.get_values": sheetsGetValuesInput,
   "sheets.update_values": sheetsUpdateValuesInput,
