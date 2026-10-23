@@ -1093,6 +1093,89 @@ export const slidesAddSlideInput = z
   })
   .strict();
 
+/* ── contacts ─────────────────────────────────────────────────────────── */
+
+/**
+ * `saved` is the user's address book. `other` is Google's "Other contacts": people
+ * the user emailed but never saved. The People API keeps them in separate collections.
+ */
+export const CONTACT_SOURCES = ["saved", "other"] as const;
+
+export type ContactSource = (typeof CONTACT_SOURCES)[number];
+
+/** People API caps a contact search page at 30. */
+const CONTACTS_SEARCH_MAX_RESULTS = 30;
+
+/** People API allows 1,000; a smaller page keeps the result inside the model budget. */
+const CONTACTS_LIST_MAX_PAGE = 100;
+
+const CONTACTS_LIST_DEFAULT_PAGE = 50;
+
+export const contactsSearchInput = withQueryAlias(
+  "query",
+  z
+    .object({
+      query: z
+        .string()
+        .min(1)
+        .max(200)
+        .describe(
+          "A name, email, or phone number (saved contacts also match an organization). Matches a prefix of each word, not a substring.",
+        ),
+      source: z
+        .enum(["all", ...CONTACT_SOURCES])
+        .default("all")
+        .catch("all")
+        .describe(
+          "`saved` searches the address book, `other` searches people the user emailed but never saved, `all` searches both.",
+        ),
+      maxResults: z.coerce
+        .number()
+        .int()
+        .min(1)
+        .max(CONTACTS_SEARCH_MAX_RESULTS)
+        .default(10)
+        .catch(10)
+        .describe(`Cap on results from each source (max ${CONTACTS_SEARCH_MAX_RESULTS}).`),
+    })
+    .strict(),
+);
+
+export const contactsListInput = z
+  .object({
+    source: z
+      .enum(CONTACT_SOURCES)
+      .default("saved")
+      .catch("saved")
+      .describe("`saved` lists the address book, `other` lists people the user emailed."),
+    pageSize: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(CONTACTS_LIST_MAX_PAGE)
+      .default(CONTACTS_LIST_DEFAULT_PAGE)
+      .catch(CONTACTS_LIST_DEFAULT_PAGE)
+      .describe(`Contacts per page (max ${CONTACTS_LIST_MAX_PAGE}).`),
+    pageToken: z
+      .string()
+      .optional()
+      .describe(
+        "Cursor from a previous page's nextPageToken. Send the same `source` and `pageSize` as that page.",
+      ),
+  })
+  .strict();
+
+export const contactsGetInput = z
+  .object({
+    resourceName: z
+      .string()
+      .regex(/^people\/c\d+$/, "A saved contact's resourceName, e.g. `people/c123`.")
+      .describe(
+        "A saved contact's `resourceName` (`people/…`) from contacts.search or contacts.list. Other contacts have no detail read.",
+      ),
+  })
+  .strict();
+
 /**
  * The shared REST passthrough request for every REST integration (ADR-0074).
  * Not `.strict()`: a write method should reach the read gate, which explains the rejection.
@@ -1923,6 +2006,9 @@ export const TOOL_INPUT_SCHEMAS = {
   "slides.get_presentation": slidesGetInput,
   "slides.batch_update": slidesBatchUpdateInput,
   "slides.add_slide": slidesAddSlideInput,
+  "contacts.search": contactsSearchInput,
+  "contacts.list": contactsListInput,
+  "contacts.get": contactsGetInput,
   "system.search_tools": searchToolsInput,
   "system.load_tool": loadToolInput,
   "system.current_time": currentTimeInput,

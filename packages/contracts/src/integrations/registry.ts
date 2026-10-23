@@ -230,6 +230,21 @@ export const INTEGRATIONS = {
     summaryBlurb: "the user's presentations",
     domain: "slides.google.com",
   },
+  contacts: {
+    kind: "provider",
+    status: "live",
+    displayName: "Contacts",
+    brand: "google_contacts",
+    credential: {
+      shape: "google_oauth",
+      features: ["contacts"],
+      anyOfScopes: [GOOGLE_SCOPE.contacts.readonly, GOOGLE_SCOPE.contacts.other],
+    },
+    passthrough: null,
+    actions: ["search", "list", "get"],
+    summaryBlurb: "the user's saved contacts and the people they email",
+    domain: "contacts.google.com",
+  },
   slack: { kind: "provider", status: "planned", displayName: "Slack", brand: "slack", actions: [] },
   linear: {
     kind: "provider",

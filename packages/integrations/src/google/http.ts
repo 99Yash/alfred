@@ -7,7 +7,11 @@ import type { RetryPolicy } from "../shared/retry";
  * it (it truncates bytes and sends no JSON `Accept`).
  */
 
+/** An API with a read-only passthrough namespace (ADR-0074). */
 export type GoogleService = "calendar" | "gmail" | "drive" | "docs" | "sheets" | "slides";
+
+/** Every Google API Alfred calls. People has curated reads only, so no passthrough. */
+export type GoogleApi = GoogleService | "people";
 
 export interface GoogleJsonRequest {
   /** Default `"GET"`. */
@@ -25,7 +29,7 @@ export interface GoogleJsonRequest {
 
 /** An empty response gives `{}`, then `schema` parses it. */
 export async function googleJson<T>(
-  service: GoogleService,
+  service: GoogleApi,
   schema: z.ZodType<T>,
   request: GoogleJsonRequest,
 ): Promise<T> {

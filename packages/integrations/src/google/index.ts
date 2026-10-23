@@ -155,6 +155,8 @@ export type {
 
 export { addSlide, batchUpdatePresentation, createPresentation, getPresentation } from "./slides";
 
+export type { ContactSummary } from "./contacts";
+
 export {
   findCredentialByEmail,
   findExpiringGmailWatches,
