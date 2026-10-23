@@ -26,8 +26,8 @@ import { API_URL } from "~/lib/eden";
 
 const MARKDOWN_CLASSES = cn(
   "[&_p]:leading-relaxed [&_p]:tracking-tight [&>*+*]:mt-6",
-  // A `not-prose` anchor (the citation pill) styles itself.
-  "[&_a:not(.not-prose)]:text-app-purple-4 [&_a:not(.not-prose)]:underline [&_a:not(.not-prose)]:underline-offset-2",
+  // The citation pill keeps its look with its own `!` utilities.
+  "[&_a]:text-app-purple-4 [&_a]:underline [&_a]:underline-offset-2",
   "[&_li]:my-0.5 [&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5",
   // Inline code only; fenced blocks render through the shared `pre` override.
   "[&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-app-bg-2 [&_:not(pre)>code]:px-1 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:text-[0.9em]",
