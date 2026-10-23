@@ -43,7 +43,7 @@ export function AppPill({
       className={cn(
         "inline-flex items-center justify-center gap-1.5",
         "h-8 rounded-lg px-2.5 text-sm font-medium whitespace-nowrap",
-        "transition-[box-shadow,background-color,transform]",
+        "transition-[box-shadow,background-color,scale]",
         "app-focus app-press",
         isAccent && tone ? TONE[tone] : cn("bg-app-bg-1 text-app-fg-4", "app-elevated"),
         className,

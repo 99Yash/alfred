@@ -102,10 +102,9 @@
   --frost-strength: 1; /* multiplier on inset white glow opacity */
   --frost-border-strength: 1; /* multiplier on hairline gradient opacity */
 
-  /* Motion. Active-press is instant (no transition) per Dimension. */
+  /* Motion. */
   --motion-hover: 200ms;
   --motion-easing: cubic-bezier(0.2, 0, 0, 1);
-  --press-scale: 0.96;
 
   /* Semantic surface tokens — Dimension's exact body bg `rgb(12, 12, 12)`
    * (#0c0c0c). All contrast comes from the foreground; the body stays calm. */
@@ -1345,12 +1344,6 @@
     color: transparent;
   }
 
-  /* Active-press helper. Applied via `:active` from inside primitives.
-   * Snap; no transition. */
-  .press-scale:active {
-    transform: scale(var(--press-scale));
-  }
-
   .frost-popover {
     background:
       radial-gradient(
@@ -2425,9 +2418,18 @@
     z-index: -1;
   }
 
-  /* Active-press microinteraction used across primitives. */
+  /* Active-press microinteraction used across primitives. Snap; no
+   * transition unless the element's own transition list includes `scale`.
+   *
+   * A delta class writes the property that the element's base placement
+   * does not use. Press and lift deltas write `scale`/`translate`, so they
+   * compose with `motion`'s inline `transform` on any `m.*` node.
+   * These rules sit in `@layer components`, so a same-element Tailwind
+   * `scale-*` utility wins over the press. Gate it with `not-active:`
+   * (for example `hover:not-active:scale-[1.04]`). Review-only: no gate
+   * catches it. */
   .app-press:active:not(:disabled) {
-    transform: scale(0.96);
+    scale: 0.96;
   }
 
   /* Card entrance — fade + 6px rise + slight blur. Use with inline
@@ -2558,21 +2560,33 @@
     }
   }
 
-  /* Hover-lift — 2px rise + shadow bump. The transform is on a
-   * `transition-transform` so it interpolates smoothly. Use on cards
-   * that benefit from a "comes towards you" hover affordance. */
+  /* Hover-lift — 2px rise + shadow bump. The rise writes `translate`
+   * (not `transform`, see `.app-press`), and the transition list includes
+   * `translate` so it interpolates smoothly. The list also includes `scale`
+   * so a press on a lift card still eases. A same-element `translate-*`
+   * utility wins over the lift. The rise applies only when
+   * the user allows motion. Use on cards that benefit from a "comes
+   * towards you" hover affordance. */
   .app-hover-lift {
     transition:
-      transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+      translate 220ms cubic-bezier(0.22, 1, 0.36, 1),
+      scale 220ms cubic-bezier(0.22, 1, 0.36, 1),
       box-shadow 220ms cubic-bezier(0.22, 1, 0.36, 1);
   }
-  .app-hover-lift:hover {
-    transform: translateY(-2px);
+  @media (prefers-reduced-motion: no-preference) {
+    .app-hover-lift:hover {
+      translate: 0 -2px;
+    }
   }
 
   /* Hero-stack child reveal — when a parent gets `:hover`, immediate
    * stack siblings fan out a touch and rotate microscopically. Used by
-   * the workflow card hero previews. */
+   * the workflow card hero previews.
+   *
+   * This delta stays on `transform` on purpose. The children take their
+   * static placement from Tailwind `translate-*`/`rotate-*` utilities
+   * (the individual properties), so the hover delta writes the OTHER
+   * property to compose with them. No `m.*` node carries `app-stack`. */
   .app-stack {
     transition: transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
   }
@@ -2589,11 +2603,13 @@
     .app-card-in,
     .app-fade-in,
     .app-tooltip-in,
-    .app-hover-lift,
     .app-stack {
       animation: none !important;
       transition: none !important;
       transform: none !important;
+    }
+    .app-hover-lift {
+      transition: none !important;
     }
   }
 

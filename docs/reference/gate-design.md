@@ -132,6 +132,7 @@ Each row is a rule from [review-checklist.md](./review-checklist.md), with the r
 | Webhook signature on the raw body (Backend) | Compiler: the verifier takes a branded raw-body type that only the raw-body reader mints | Medium |
 | Pin one side of an equality assert (Tests) | AST: two calls of one callee inside one `assert.equal`. The regex row is a `hint` | Medium |
 | Existence-only assert; mock `calls.length` alone (Tests) | AST: a `test` block whose only assertions are of that kind | Medium |
+| A delta class and a same-property utility on one element (Frontend) | AST: a delta class and a same-property `scale-*` or `translate-*` utility in one class string or in the arguments of one `cn(...)` call. The rule cannot see a class that a `className` prop brings from another module, so review keeps that part. Two sites existed, and #1481 fixed both | Medium |
 | Do not swallow a caught error (Backend) | AST: a `catch` with statements that does not rethrow, log or return a failure value. `no-empty` already fails an empty body | Low |
 | Name the clock of each timestamp (Backend) | Compiler: a brand for each clock. A wide migration for a rare bug | Low |
 | A literal pin needs a `why` (Tests) | An AST rule cannot tell a policy literal from a change detector | Low |

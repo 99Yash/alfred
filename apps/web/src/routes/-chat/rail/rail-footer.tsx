@@ -10,7 +10,7 @@ const CTA_CLASS = cn(
   "text-[var(--app-accent-fg)]",
   "bg-(image:--app-cta-bg)",
   "shadow-[var(--app-button-primary-shadow)]",
-  "app-press transition-[box-shadow,transform,filter]",
+  "app-press transition-[box-shadow,scale,filter]",
   "hover:brightness-[1.06]",
   "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
 );

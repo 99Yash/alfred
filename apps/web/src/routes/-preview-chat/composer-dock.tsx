@@ -53,7 +53,7 @@ export function ComposerDock({
                 aria-label="Send message"
                 className={cn(
                   "inline-flex size-8 items-center justify-center rounded-lg",
-                  "app-press transition-[box-shadow,transform,filter]",
+                  "app-press transition-[box-shadow,scale,filter]",
                   "app-focus",
                   canSend
                     ? cn(

@@ -1,6 +1,6 @@
 import { TextQuote } from "lucide-react";
 import { AnimatePresence, m, useIsPresent } from "motion/react";
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useAppTheme } from "~/components/ui/v2";
 import { cn } from "~/lib/utils";
@@ -8,8 +8,13 @@ import { CHAT_POP } from "./motion";
 
 const QUOTABLE_ATTR = "data-chat-quotable";
 
+const QUOTE_PILL_ATTR = "data-quote-pill";
+
 /** Spread on an element whose selected text can be quoted into the composer. */
 export const quotableProps = { [QUOTABLE_ATTR]: "" } as const;
+
+/** The pill's marker, read by the outside-click guard. */
+const quotePillProps = { [QUOTE_PILL_ATTR]: "" } as const;
 
 /** Above this gap from the viewport top, the button sits above the selection; else below. */
 const MIN_TOP_GAP = 48;
@@ -54,7 +59,6 @@ function readQuotableSelection(): SelectionAnchor | null {
  */
 export function SelectionQuote({ onQuote }: { onQuote: (text: string) => void }) {
   const [anchor, setAnchor] = useState<SelectionAnchor | null>(null);
-  const buttonRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     let pointerDown = false;
@@ -72,7 +76,9 @@ export function SelectionQuote({ onQuote }: { onQuote: (text: string) => void })
     };
 
     const onPointerDown = (e: PointerEvent) => {
-      if (e.target instanceof Node && buttonRef.current?.contains(e.target)) return;
+      // A click on the live pill is not an outside click. A leaving pill is
+      // inert, so its click falls through and hides it as before.
+      if (e.target instanceof Element && e.target.closest(`[${QUOTE_PILL_ATTR}]`)) return;
       pointerDown = true;
       hide();
     };
@@ -120,7 +126,6 @@ export function SelectionQuote({ onQuote }: { onQuote: (text: string) => void })
         <QuotePill
           key={`${anchor.x},${anchor.y}`}
           anchor={anchor}
-          buttonRef={buttonRef}
           onPick={() => {
             onQuote(anchor.text);
             window.getSelection()?.removeAllRanges();
@@ -133,22 +138,18 @@ export function SelectionQuote({ onQuote }: { onQuote: (text: string) => void })
   );
 }
 
-function QuotePill({
-  anchor,
-  buttonRef,
-  onPick,
-}: {
-  anchor: SelectionAnchor;
-  buttonRef: RefObject<HTMLButtonElement | null>;
-  onPick: () => void;
-}) {
+function QuotePill({ anchor, onPick }: { anchor: SelectionAnchor; onPick: () => void }) {
   const { resolved } = useAppTheme();
   const isPresent = useIsPresent();
 
   return (
-    // Motion owns `transform` on this wrapper. The button keeps its own `app-press` scale,
-    // and Tailwind's `-translate-*` is the separate CSS `translate` property.
-    <m.div
+    <m.button
+      type="button"
+      {...quotePillProps}
+      data-app-theme={resolved}
+      // Keep the selection alive through the click.
+      onPointerDown={(e) => e.preventDefault()}
+      onClick={onPick}
       style={{ left: anchor.x, top: anchor.y }}
       // The same reveal as a `Tip` pill, grown from the selection side.
       initial={{ opacity: 0, scale: 0.96, y: 2 }}
@@ -160,25 +161,13 @@ function QuotePill({
       className={cn(
         "fixed z-200 -translate-x-1/2",
         anchor.placement === "above" ? "origin-bottom -translate-y-full" : "origin-top",
+        "app inline-flex items-center gap-1.5 rounded-full px-3 py-1.5",
+        "bg-app-fg-4 text-xs font-medium text-app-bg-1 shadow-[0_2px_8px_rgba(0,0,0,0.18)]",
+        "app-press app-focus select-none",
       )}
     >
-      <button
-        // Only the live pill owns the ref, so a leaving pill's unmount does not clear it.
-        ref={isPresent ? buttonRef : undefined}
-        type="button"
-        data-app-theme={resolved}
-        // Keep the selection alive through the click.
-        onPointerDown={(e) => e.preventDefault()}
-        onClick={onPick}
-        className={cn(
-          "app inline-flex items-center gap-1.5 rounded-full px-3 py-1.5",
-          "bg-app-fg-4 text-xs font-medium text-app-bg-1 shadow-[0_2px_8px_rgba(0,0,0,0.18)]",
-          "app-press app-focus select-none",
-        )}
-      >
-        <TextQuote size={13} aria-hidden />
-        Ask Alfred
-      </button>
-    </m.div>
+      <TextQuote size={13} aria-hidden />
+      Ask Alfred
+    </m.button>
   );
 }
