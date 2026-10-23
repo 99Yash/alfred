@@ -257,7 +257,7 @@ async function runSourceChoice(input: string): Promise<TaskOutput> {
 evalite<string, TaskOutput, SourceCase["expected"]>("Boss judgment — source ladder", {
   data: () => SOURCE_CASES.map((c) => ({ input: c.input, expected: c.expected })),
   task: async (input) => {
-    void serverEnv().ANTHROPIC_API_KEY;
+    serverEnv();
 
     try {
       return await runSourceChoice(input);
@@ -450,7 +450,7 @@ evalite<ReplayCase, TaskOutput, null>("Boss judgment — thin person research re
       REPLAY_MESSAGES.map((message) => ({ input: { message, tier }, expected: null })),
     ),
   task: async (input) => {
-    void serverEnv().ANTHROPIC_API_KEY;
+    serverEnv();
 
     try {
       return await runThinPersonResearchReplay(input.message, input.tier);
@@ -611,7 +611,7 @@ evalite<ReplayCase, TaskOutput, null>("Boss judgment — person research depth",
       REPLAY_MESSAGES.map((message) => ({ input: { message, tier }, expected: null })),
     ),
   task: async (input) => {
-    void serverEnv().ANTHROPIC_API_KEY;
+    serverEnv();
 
     try {
       return await runPersonResearchDepth(input.message, input.tier);
@@ -791,7 +791,7 @@ async function runSubAgentInvestigation(brief: string): Promise<TaskOutput> {
 evalite<SubAgentCase, TaskOutput, null>("Sub-agent — investigation depth (generic)", {
   data: () => SUB_AGENT_CASES.map((c) => ({ input: c, expected: null })),
   task: async (input) => {
-    void serverEnv().ANTHROPIC_API_KEY;
+    serverEnv();
 
     try {
       return await runSubAgentInvestigation(input.brief);

@@ -97,7 +97,7 @@ function runFirstCall(input: string) {
 evalite<string, GroundingTaskOutput, ExpectedCalendarCall>("Agent calendar grounding", {
   data: () => CASES.map((c) => ({ input: c.input, expected: c.expected })),
   task: async (input) => {
-    void serverEnv().ANTHROPIC_API_KEY;
+    serverEnv();
     const result = await runFirstCall(input);
 
     const call =

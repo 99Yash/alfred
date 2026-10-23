@@ -21,9 +21,10 @@
 # single suite into a hard gate later, copy triage-eval.yml's `--threshold`
 # pattern scoped to that suite by name — don't gate the whole glob.
 #
-# Required repo secrets (same as triage-eval.yml):
-#   - ANTHROPIC_API_KEY             (the standard chat tier under test)
-#   - GOOGLE_GENERATIVE_AI_API_KEY  (cheap-tier + the Gemini fallback path)
+# Every model call goes through the Cloudflare AI Gateway (same as triage-eval.yml):
+#   - secret CLOUDFLARE_AI_GATEWAY_TOKEN  (a CI-only Unified Billing token)
+#   - variable CLOUDFLARE_ACCOUNT_ID
+#   - variable CLOUDFLARE_GATEWAY_ID
 name: grounding-evals
 
 on:
@@ -59,9 +60,10 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      # Real secrets — the only external services the evals actually call.
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-      GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
+      # Real gateway credentials — the only external service the evals actually call.
+      CLOUDFLARE_AI_GATEWAY_TOKEN: ${{ secrets.CLOUDFLARE_AI_GATEWAY_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_GATEWAY_ID: ${{ vars.CLOUDFLARE_GATEWAY_ID }}
       # Throwaway Postgres for the metering writes (migrated below, empty data).
       DATABASE_URL: postgresql://ci:ci@localhost:5432/alfred_ci
       # Format-valid dummies so serverEnv() passes; never used to connect.

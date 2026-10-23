@@ -32,7 +32,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
         async ({ body }) => {
           if (!transcriptionConfigured()) {
             throw Errors.ServiceUnavailableError(
-              "Voice transcription isn't configured — set the Cloudflare AI gateway or OPENAI_API_KEY on the server.",
+              "Voice transcription isn't configured — set the Cloudflare AI gateway on the server.",
             );
           }
 

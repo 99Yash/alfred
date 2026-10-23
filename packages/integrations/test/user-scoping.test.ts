@@ -30,8 +30,9 @@ function ensureCredentialTestEnv(): void {
   process.env.ALFRED_ALLOWED_EMAIL ??= "test@example.test";
   process.env.RESEND_API_KEY ??= "test";
   process.env.RESEND_FROM_EMAIL ??= "test@example.test";
-  process.env.ANTHROPIC_API_KEY ??= "test";
-  process.env.GOOGLE_GENERATIVE_AI_API_KEY ??= "test";
+  process.env.CLOUDFLARE_AI_GATEWAY_TOKEN ??= "test-cf-token";
+  process.env.CLOUDFLARE_ACCOUNT_ID ??= "test-cf-account";
+  process.env.CLOUDFLARE_GATEWAY_ID ??= "test-cf-gateway";
   process.env.GOOGLE_OAUTH_CLIENT_ID ??= "test";
   process.env.GOOGLE_OAUTH_CLIENT_SECRET ??= "test";
   process.env.GOOGLE_OAUTH_REDIRECT_URI ??= "http://localhost:3001/google/callback";

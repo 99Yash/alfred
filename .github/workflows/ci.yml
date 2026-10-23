@@ -174,8 +174,9 @@ jobs:
       ENTITY_ID_NAMESPACE: ci-dummy-entity-id-namespace-32-chars-long-enough-for-test-00
       RESEND_API_KEY: re_ci_dummy
       RESEND_FROM_EMAIL: Alfred <noreply@example.com>
-      ANTHROPIC_API_KEY: ci-dummy
-      GOOGLE_GENERATIVE_AI_API_KEY: ci-dummy
+      CLOUDFLARE_AI_GATEWAY_TOKEN: ci-dummy
+      CLOUDFLARE_ACCOUNT_ID: ci-dummy
+      CLOUDFLARE_GATEWAY_ID: ci-dummy
       GOOGLE_OAUTH_CLIENT_ID: ci-dummy
       GOOGLE_OAUTH_CLIENT_SECRET: ci-dummy
       GOOGLE_OAUTH_REDIRECT_URI: http://localhost:3001/api/integrations/google/callback
@@ -287,8 +288,9 @@ jobs:
       ENTITY_ID_NAMESPACE: ci-dummy-entity-id-namespace-32-chars-long-enough-for-test-00
       RESEND_API_KEY: re_ci_dummy
       RESEND_FROM_EMAIL: Alfred <noreply@example.com>
-      ANTHROPIC_API_KEY: ci-dummy
-      GOOGLE_GENERATIVE_AI_API_KEY: ci-dummy
+      CLOUDFLARE_AI_GATEWAY_TOKEN: ci-dummy
+      CLOUDFLARE_ACCOUNT_ID: ci-dummy
+      CLOUDFLARE_GATEWAY_ID: ci-dummy
       GOOGLE_OAUTH_CLIENT_ID: ci-dummy
       GOOGLE_OAUTH_CLIENT_SECRET: ci-dummy
       GOOGLE_OAUTH_REDIRECT_URI: http://localhost:3001/api/integrations/google/callback
@@ -547,8 +549,9 @@ jobs:
       ENTITY_ID_NAMESPACE: ci-dummy-entity-id-namespace-32-chars-long-enough-for-test-00
       RESEND_API_KEY: re_ci_dummy
       RESEND_FROM_EMAIL: Alfred <noreply@example.com>
-      ANTHROPIC_API_KEY: ci-dummy
-      GOOGLE_GENERATIVE_AI_API_KEY: ci-dummy
+      CLOUDFLARE_AI_GATEWAY_TOKEN: ci-dummy
+      CLOUDFLARE_ACCOUNT_ID: ci-dummy
+      CLOUDFLARE_GATEWAY_ID: ci-dummy
       GOOGLE_OAUTH_CLIENT_ID: ci-dummy
       GOOGLE_OAUTH_CLIENT_SECRET: ci-dummy
       GOOGLE_OAUTH_REDIRECT_URI: http://localhost:3001/api/integrations/google/callback
@@ -679,8 +682,9 @@ jobs:
       ENTITY_ID_NAMESPACE: ci-dummy-entity-id-namespace-32-chars-long-enough-for-test-00
       RESEND_API_KEY: re_ci_dummy
       RESEND_FROM_EMAIL: Alfred <noreply@example.com>
-      ANTHROPIC_API_KEY: ci-dummy
-      GOOGLE_GENERATIVE_AI_API_KEY: ci-dummy
+      CLOUDFLARE_AI_GATEWAY_TOKEN: ci-dummy
+      CLOUDFLARE_ACCOUNT_ID: ci-dummy
+      CLOUDFLARE_GATEWAY_ID: ci-dummy
       GOOGLE_OAUTH_CLIENT_ID: ci-dummy
       GOOGLE_OAUTH_CLIENT_SECRET: ci-dummy
       GOOGLE_OAUTH_REDIRECT_URI: http://localhost:3001/api/integrations/google/callback

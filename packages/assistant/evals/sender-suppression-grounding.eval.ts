@@ -281,7 +281,7 @@ evalite<string, GroundingTaskOutput, null>(
   {
     data: () => CASES.map((c) => ({ input: c.input, expected: null })),
     task: async (input) => {
-      void serverEnv().ANTHROPIC_API_KEY;
+      serverEnv();
 
       // Never throw: evalite's reporter hangs the job on an error. Score 0 instead.
       try {
@@ -339,7 +339,7 @@ evalite<ResolutionInput, ResolutionTaskOutput, string | null>(
         expected: c.expectedRememberEmail,
       })),
     task: async (input) => {
-      void serverEnv().ANTHROPIC_API_KEY;
+      serverEnv();
       const searchResult = gmailSearchResultSchema.parse(input.searchResult);
 
       try {

@@ -7,7 +7,7 @@
  *
  * Pre-reqs:
  *   - A server process running (`pnpm dev`).
- *   - `GOOGLE_GENERATIVE_AI_API_KEY` for the seed, synthesis, and `web_search` loops.
+ *   - The Cloudflare AI Gateway vars for the seed, synthesis, and `web_search` loops.
  *   - A user row, ideally with a connected Google credential.
  */
 import { z } from "zod";
@@ -102,13 +102,8 @@ const coldStartOutputSchema = z.object({
 });
 
 async function main() {
-  if (!serverEnv().GOOGLE_GENERATIVE_AI_API_KEY) {
-    console.log(
-      "[smoke-cold-start] GOOGLE_GENERATIVE_AI_API_KEY not set — the seed/synthesis boss calls and grounded web_search loops will fail. Set it in apps/server/.env first.",
-    );
-
-    return;
-  }
+  // Fails at boot without the Cloudflare gateway vars, before any run starts.
+  serverEnv();
 
   await warmPool();
   registerBuiltinWorkflows();

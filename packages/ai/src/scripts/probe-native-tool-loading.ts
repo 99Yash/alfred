@@ -882,13 +882,8 @@ function writeFixture(result: ScenarioResult): string {
 }
 
 async function main(): Promise<void> {
-  const gateway = activeGateway();
-
-  if (gateway.kind !== "cloudflare") {
-    throw new Error(
-      "probe requires the Cloudflare gateway (CLOUDFLARE_AI_GATEWAY_TOKEN + CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_GATEWAY_ID)",
-    );
-  }
+  // Throws when the Cloudflare gateway is not configured.
+  activeGateway();
 
   const scenario = selectedScenario();
   const scenarios: Array<() => Promise<ScenarioResult>> = [];

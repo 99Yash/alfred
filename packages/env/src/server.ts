@@ -35,6 +35,13 @@ const optionalLongSecret = () =>
 /** AES-256 key length in bytes. */
 const KEK_BYTES = 32;
 
+/** The three variables that route model calls through the Cloudflare AI Gateway. */
+const CLOUDFLARE_GATEWAY_KEYS = [
+  "CLOUDFLARE_AI_GATEWAY_TOKEN",
+  "CLOUDFLARE_ACCOUNT_ID",
+  "CLOUDFLARE_GATEWAY_ID",
+] as const;
+
 /**
  * A 256-bit key as base64 or base64url, normalized to base64url.
  * Checks the decoded length: `Buffer.from` skips bad characters, so a mangled
@@ -87,11 +94,10 @@ const serverEnvSchema = z
     // Not `.email()`: the form `Alfred <noreply@example.com>` is valid.
     RESEND_API_KEY: z.string().min(1),
     RESEND_FROM_EMAIL: z.string().min(1),
-    /** Direct provider keys. Not needed when the Cloudflare gateway is on. */
-    ANTHROPIC_API_KEY: optionalSecret(),
-    GOOGLE_GENERATIVE_AI_API_KEY: optionalSecret(),
-    OPENAI_API_KEY: optionalSecret(),
-    /** Cloudflare AI Gateway. Set all three to route every LLM call through it. */
+    /**
+     * Cloudflare AI Gateway (Unified Billing). Every model call goes through it; there are no
+     * direct provider keys. Required outside tests, see the refinement below.
+     */
     CLOUDFLARE_AI_GATEWAY_TOKEN: optionalSecret(),
     CLOUDFLARE_ACCOUNT_ID: optionalSecret(),
     CLOUDFLARE_GATEWAY_ID: optionalSecret(),
@@ -114,15 +120,9 @@ const serverEnvSchema = z
       blankAsUnset,
       z.coerce.number().int().min(0).max(10).optional(),
     ),
-    /** Legacy. Only a `cfut_` value is read, as an alias for `CLOUDFLARE_AI_GATEWAY_TOKEN`. */
-    AI_GATEWAY_API_KEY: optionalSecret().refine(
-      (v) => v === undefined || v.startsWith("vck_") || v.startsWith("cfut_"),
-      { error: "must start with vck_ (Vercel) or cfut_ (Cloudflare) when set" },
-    ),
     VOYAGE_API_KEY: z.string().optional(),
     /** Overrides the in-code Voyage price used by the embed cost cap. */
     VOYAGE_INPUT_PRICE_PER_MTOK_USD: z.coerce.number().positive().optional(),
-    PERPLEXITY_API_KEY: z.string().optional(),
     /** Fallback renderer for JS pages that `fetch_url` reads back empty. */
     FIRECRAWL_API_KEY: z.string().optional(),
     FIRECRAWL_BASE_URL: z.url().default("https://api.firecrawl.dev"),
@@ -236,22 +236,15 @@ const serverEnvSchema = z
     AGENT_WORKER_CONCURRENCY: agentWorkerConcurrencySchema,
   })
   .superRefine((data, ctx) => {
-    // Need the gateway or a direct key. Tests are exempt because they boot without env.
-    const cfToken =
-      data.CLOUDFLARE_AI_GATEWAY_TOKEN ??
-      (data.AI_GATEWAY_API_KEY?.startsWith("cfut_") ? data.AI_GATEWAY_API_KEY : undefined);
+    // Every model call needs the gateway. Tests are exempt because they boot without env.
+    if (data.NODE_ENV === "test") return;
 
-    const cfEnabled = Boolean(cfToken && data.CLOUDFLARE_ACCOUNT_ID && data.CLOUDFLARE_GATEWAY_ID);
-
-    if (cfEnabled) return;
-    const hasDirectKey = Boolean(data.ANTHROPIC_API_KEY ?? data.GOOGLE_GENERATIVE_AI_API_KEY);
-
-    if (!hasDirectKey && data.NODE_ENV !== "test") {
+    for (const key of CLOUDFLARE_GATEWAY_KEYS) {
+      if (data[key] !== undefined) continue;
       ctx.addIssue({
         code: "custom",
-        path: ["ANTHROPIC_API_KEY"],
-        message:
-          "either Cloudflare gateway (CLOUDFLARE_AI_GATEWAY_TOKEN + CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_GATEWAY_ID, or AI_GATEWAY_API_KEY=cfut_...) or a direct provider key (ANTHROPIC_API_KEY or GOOGLE_GENERATIVE_AI_API_KEY) must be set",
+        path: [key],
+        message: `required: every model call goes through the Cloudflare AI Gateway (${CLOUDFLARE_GATEWAY_KEYS.join(" + ")})`,
       });
     }
   });
@@ -306,19 +299,6 @@ export function chatMemoryCaptureEnabled(): boolean {
   return serverEnv().CHAT_MEMORY_CAPTURE_ENABLED === true;
 }
 
-function gatewayTokenFromEnv(): string | undefined {
-  const tokenField = serverEnvSchema.shape.CLOUDFLARE_AI_GATEWAY_TOKEN;
-  const legacyField = serverEnvSchema.shape.AI_GATEWAY_API_KEY;
-  const tokenResult = tokenField.safeParse(process.env.CLOUDFLARE_AI_GATEWAY_TOKEN);
-
-  if (tokenResult.success && tokenResult.data) return tokenResult.data;
-  const legacyResult = legacyField.safeParse(process.env.AI_GATEWAY_API_KEY);
-
-  if (legacyResult.success && legacyResult.data?.startsWith("cfut_")) return legacyResult.data;
-
-  return undefined;
-}
-
 // An alias, not `keyof ServerEnv` inline: the mapped type below must not copy the `?` of an
 // optional variable, or a read of its field would add `undefined`.
 type ServerEnvKey = keyof ServerEnv;
@@ -344,16 +324,11 @@ export function envFieldValue<K extends keyof ServerEnv>(key: K): ServerEnv[K] |
 export function cloudflareGatewayConfig():
   | { token: string; accountId: string; gatewayId: string }
   | undefined {
-  const token = gatewayTokenFromEnv();
+  const token = envFieldValue("CLOUDFLARE_AI_GATEWAY_TOKEN");
   const accountId = envFieldValue("CLOUDFLARE_ACCOUNT_ID");
   const gatewayId = envFieldValue("CLOUDFLARE_GATEWAY_ID");
 
   if (token && accountId && gatewayId) return { token, accountId, gatewayId };
 
   return undefined;
-}
-
-/** Whether to use the Cloudflare AI Gateway. Do not branch on the raw env fields. */
-export function cloudflareGatewayEnabled(): boolean {
-  return cloudflareGatewayConfig() !== undefined;
 }

@@ -28,7 +28,7 @@ export type BuiltInOAuthConfig = {
 
 /**
  * Only `*_MCP_CLIENT_ID` env keys. Plain `keyof ServerEnv` would let
- * `"OPENAI_API_KEY"` compile and be sent to a third-party server.
+ * `"CLOUDFLARE_AI_GATEWAY_TOKEN"` compile and be sent to a third-party server.
  */
 type McpClientIdEnvKey = Extract<keyof ServerEnv, `${string}_MCP_CLIENT_ID`>;
 

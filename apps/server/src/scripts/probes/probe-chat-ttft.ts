@@ -4,7 +4,7 @@
  * first chunk, with tools on and off, per model route. It calls the AI SDK
  * directly, so it measures the model, not the agent loop.
  *
- * Run locally from apps/server (needs the model keys and serverEnv vars):
+ * Run locally from apps/server (needs the Cloudflare gateway and serverEnv vars):
  *   ./node_modules/.bin/tsx --env-file=.env src/scripts/probes/probe-chat-ttft.ts
  * Tune with PROBE_RUNS (default 3), PROBE_MODELS (default "haiku,boss,opus"),
  * PROBE_MAX_OUT (default 400).
@@ -184,7 +184,6 @@ async function condition(
 }
 
 async function main(): Promise<void> {
-  if (!process.env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY not set");
   const { tools, count } = buildAllTools();
   console.log(
     `# Chat TTFT probe — runs=${RUNS} (median), maxOut=${MAX_OUT}, fullToolMenu=${count} tools\n` +

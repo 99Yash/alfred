@@ -1,6 +1,6 @@
-import { anthropic, createAnthropic } from "@ai-sdk/anthropic";
-import { createGoogleGenerativeAI, google } from "@ai-sdk/google";
-import { createOpenAI, openai } from "@ai-sdk/openai";
+import { createAnthropic } from "@ai-sdk/anthropic";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { createOpenAI } from "@ai-sdk/openai";
 import { parseJsonWith } from "@alfred/contracts";
 import { cloudflareGatewayConfig, serverEnv } from "@alfred/env/server";
 import type { APICallError } from "ai";
@@ -8,22 +8,17 @@ import { Agent } from "undici";
 import { z } from "zod";
 
 import { throttledGatewayFetch } from "./gateway-throttle";
-import {
-  type TranscribeAudioResult,
-  transcribeViaCloudflareRun,
-  transcribeWithOpenAi,
-} from "./transcription";
+import { type TranscribeAudioResult, transcribeViaCloudflareRun } from "./transcription";
 
 /**
- * The one place that picks host, credential, and model name for every model call:
- * "direct" (SDK defaults) or "cloudflare" (Unified Billing). Built from config; the only
- * module state is the connection pool below.
+ * The one place that picks host, credential, and model name for every model call. Every call
+ * goes through the Cloudflare AI Gateway (Unified Billing); there are no direct provider keys.
+ * Built from config; the only module state is the connection pool below.
  * Audio uses Cloudflare's `/ai/run` instead; see `transcription.ts`.
  */
 export type GatewayConfig = NonNullable<ReturnType<typeof cloudflareGatewayConfig>>;
 
 export interface Gateway {
-  readonly kind: "direct" | "cloudflare";
   createAnthropic(): ReturnType<typeof createAnthropic>;
   createOpenAI(): ReturnType<typeof createOpenAI>;
   createGoogle(): ReturnType<typeof createGoogleGenerativeAI>;
@@ -96,17 +91,7 @@ export function isGatewayMintedError(e: APICallError): boolean {
   return parseJsonWith(e.responseBody ?? "", gatewayErrorBodySchema) !== null;
 }
 
-function createGateway(config: GatewayConfig | undefined): Gateway {
-  if (!config) {
-    return {
-      kind: "direct",
-      createAnthropic: () => anthropic,
-      createOpenAI: () => openai,
-      createGoogle: () => google,
-      transcribe: (audio) => transcribeWithOpenAi(openai, audio),
-    };
-  }
-
+function createGateway(config: GatewayConfig): Gateway {
   // One queue for all providers: the budget is per gateway (see `gateway-throttle.ts`).
   const requestsPerMinute = serverEnv().CLOUDFLARE_AI_GATEWAY_RPM;
   const burst = serverEnv().CLOUDFLARE_AI_GATEWAY_BURST;
@@ -144,7 +129,6 @@ function createGateway(config: GatewayConfig | undefined): Gateway {
   });
 
   return {
-    kind: "cloudflare",
     createAnthropic: () => cfAnthropic,
     createOpenAI: () => cfOpenAI,
     createGoogle: () => cfGoogle,
@@ -153,14 +137,42 @@ function createGateway(config: GatewayConfig | undefined): Gateway {
   };
 }
 
-/** The only reader of `cloudflareGatewayConfig()` in this package. */
-export function activeGateway(): Gateway {
-  return createGateway(cloudflareGatewayConfig());
+function gatewayNotConfiguredError(): Error {
+  return new Error(
+    "[gateway] Cloudflare AI Gateway is not configured: set CLOUDFLARE_AI_GATEWAY_TOKEN, CLOUDFLARE_ACCOUNT_ID, and CLOUDFLARE_GATEWAY_ID",
+  );
 }
 
-/** Cloudflare needs no provider key; direct needs `OPENAI_API_KEY`. */
+/** Refuses every request, so a model call without the gateway fails with a named error. */
+const refuseFetch: typeof globalThis.fetch = () => Promise.reject(gatewayNotConfiguredError());
+
+/**
+ * Without config, handles still build: modules make route handles at import time, and the
+ * `@alfred/http` barrel must load with no env. The first request fails instead.
+ * `serverEnv()` requires the config outside tests, so only a test can reach this.
+ */
+function unconfiguredGateway(): Gateway {
+  // The SDKs read the key before they fetch; this placeholder only lets `refuseFetch` run.
+  const apiKey = "gateway-not-configured";
+
+  return {
+    createAnthropic: () => createAnthropic({ apiKey, fetch: refuseFetch }),
+    createOpenAI: () => createOpenAI({ apiKey, fetch: refuseFetch }),
+    createGoogle: () => createGoogleGenerativeAI({ apiKey, fetch: refuseFetch }),
+    transcribe: () => Promise.reject(gatewayNotConfiguredError()),
+  };
+}
+
+/** The only reader of `cloudflareGatewayConfig()` in this package. */
+export function activeGateway(): Gateway {
+  const config = cloudflareGatewayConfig();
+
+  return config ? createGateway(config) : unconfiguredGateway();
+}
+
+/** Whether voice input can run: it needs the gateway like every model call. */
 export function transcriptionConfigured(): boolean {
-  return cloudflareGatewayConfig() !== undefined || serverEnv().OPENAI_API_KEY !== undefined;
+  return cloudflareGatewayConfig() !== undefined;
 }
 
 export async function transcribeAudio(audio: Uint8Array): Promise<TranscribeAudioResult> {

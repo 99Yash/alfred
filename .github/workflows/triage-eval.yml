@@ -8,12 +8,14 @@
 # Spends real Gemini tokens. It runs on MANUAL DISPATCH ONLY today — the PR
 # trigger is parked in the `on:` block below, so no pull request runs this job.
 # The classifier under test and the LLM-as-judge scorer BOTH run on
-# `route("cheap")` (Gemini Flash-Lite), so one key covers the whole job — see
+# `route("cheap")` (Gemini Flash-Lite) through the Cloudflare AI Gateway — see
 # packages/assistant/evals/lib/llm-judge.ts for why the judge is cheap here and
 # which suite pins a stronger grader instead.
 #
-# Required repo secrets:
-#   - GOOGLE_GENERATIVE_AI_API_KEY  (the cheap-tier classifier AND the judge)
+# Every model call goes through the Cloudflare AI Gateway:
+#   - secret CLOUDFLARE_AI_GATEWAY_TOKEN  (a CI-only Unified Billing token)
+#   - variable CLOUDFLARE_ACCOUNT_ID
+#   - variable CLOUDFLARE_GATEWAY_ID
 #
 # The classifier itself is DB-free, but the metering wrapper that every model
 # call goes through (cost attribution, ADR-0015) looks up `model_prices` and
@@ -68,8 +70,10 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      # Real secret — the only external service this eval actually calls.
-      GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
+      # Real gateway credentials — the only external service this eval actually calls.
+      CLOUDFLARE_AI_GATEWAY_TOKEN: ${{ secrets.CLOUDFLARE_AI_GATEWAY_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_GATEWAY_ID: ${{ vars.CLOUDFLARE_GATEWAY_ID }}
       # Throwaway Postgres for the metering writes (migrated below, empty data).
       DATABASE_URL: postgresql://ci:ci@localhost:5432/alfred_ci
       # Format-valid dummies so serverEnv() passes; never used to connect.

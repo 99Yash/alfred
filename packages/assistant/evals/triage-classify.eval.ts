@@ -1026,7 +1026,7 @@ const RATIONALE_RUBRIC = `You are grading the REASONING of an email-triage class
 evalite<Case, TaskOutput, Expected>("Triage classifier", {
   data: () => CASES.map((c) => ({ input: c, expected: c.expected })),
   task: async (input) => {
-    void serverEnv().GOOGLE_GENERATIVE_AI_API_KEY;
+    serverEnv();
     const args = buildArgs(input);
     const email = { from: input.from, subject: input.subject, body: input.body };
     const context = renderJudgeContext(input, args.senderContext);
