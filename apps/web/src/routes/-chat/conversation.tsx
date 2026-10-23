@@ -94,8 +94,6 @@ export function Conversation({
   const streamBodyRef = useRef<HTMLDivElement | null>(null);
   const [showJump, setShowJump] = useState(false);
   const reducedMotion = usePrefersReducedMotion();
-  // True while a far jump to the approval card passes through the bottom on its way up to the card.
-  const landingRef = useRef(false);
 
   const showStream = shouldShowStream(messages, stream);
 
@@ -170,13 +168,29 @@ export function Conversation({
     virtuosoRef.current?.scrollToIndex({ index: "LAST", align: "end", behavior: "auto" });
   }, [lastUserId]);
 
-  // Re-attach only. `releasePin` detaches, because the pin rewrites `scrollTop` before `atBottom` can flip.
-  const onAtBottomChange = useCallback((atBottom: boolean) => {
-    if (atBottom && !landingRef.current) {
-      stickRef.current = true;
-      setShowJump(false);
-    }
+  // The live scroller distance at call time. Virtuoso's `atBottomStateChange`
+  // arrives through a 50 ms trailing throttle, so a programmatic scroll can move
+  // the feed between the scroll event and the callback; a held flag cannot see
+  // that, a live read can.
+  const isAtLiveBottom = useCallback(() => {
+    const el = scrollerElRef.current;
+
+    if (!el) return false;
+
+    return el.scrollHeight - el.scrollTop - el.clientHeight <= AT_BOTTOM_PX;
   }, []);
+
+  // Re-attach only. `releasePin` detaches, because the pin rewrites `scrollTop` before `atBottom` can flip.
+  // The live read drops a stale `true` from a programmatic pass through the bottom.
+  const onAtBottomChange = useCallback(
+    (atBottom: boolean) => {
+      if (atBottom && isAtLiveBottom()) {
+        stickRef.current = true;
+        setShowJump(false);
+      }
+    },
+    [isAtLiveBottom],
+  );
 
   // Detect scroll-up intent (wheel up, touch drag), not a position delta.
   // The pin rewrites `scrollTop` every drip, so a position check loses the race.
@@ -333,8 +347,8 @@ export function Conversation({
   }, [trayEl]);
 
   // Near: one scroll. Far: land at the live edge first so Virtuoso measures the rows above the
-  // tray, then move to the card a frame later. `landingRef` keeps that pass through the bottom
-  // from re-pinning; the landing decides the pin by where the card ends up.
+  // tray, then move to the card a frame later. The pass through the bottom must not
+  // re-pin; the landing decides the pin by where the card ends up, read live.
   const jumpToApproval = useCallback(() => {
     const el = trayEl;
 
@@ -346,21 +360,13 @@ export function Conversation({
       return;
     }
 
-    landingRef.current = true;
     virtuosoRef.current?.scrollToIndex({ index: "LAST", align: "end", behavior: "auto" });
     requestAnimationFrame(() => {
       el.scrollIntoView({ block: "start", behavior: "auto" });
-      landingRef.current = false;
-      const scroller = scrollerElRef.current;
 
-      if (
-        scroller &&
-        scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= AT_BOTTOM_PX
-      ) {
-        onAtBottomChange(true);
-      }
+      if (isAtLiveBottom()) onAtBottomChange(true);
     });
-  }, [trayEl, isNearLiveEdge, reducedMotion, onAtBottomChange]);
+  }, [trayEl, isNearLiveEdge, reducedMotion, isAtLiveBottom, onAtBottomChange]);
 
   // The finish toast's "Open" action.
   const onScrollRequest = useEffectEvent(() => jumpToBottom());
