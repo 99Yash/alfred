@@ -108,9 +108,8 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   // The rail stays mounted and collapses while an artifact is open. Both run the same curve,
   // so the slot width moves from one to the other with no jump.
   // Two element memos, not one: a single memo over both children would re-render the hidden
-  // rail (weather video, inbox feed) on each artifact stream delta and each drag move, and
-  // re-render the sidebar on each rail data change. An unchanged rail element skips the rail
-  // content; the sidebar still re-renders with the slot because presence context changes each render.
+  // rail (weather video, inbox feed) on each artifact stream delta and each drag move.
+  // An unchanged rail element skips the rail content.
   const railNode = useMemo(
     () => (
       <RightRail
