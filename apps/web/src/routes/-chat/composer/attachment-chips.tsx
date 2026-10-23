@@ -1,6 +1,7 @@
 import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { X } from "lucide-react";
 import { cn } from "~/lib/utils";
+import { useAttachmentLightbox } from "../attachment-lightbox";
 import type { PendingAttachment } from "./use-composer-attachments";
 
 /** Staged attachment previews above the editor. */
@@ -16,29 +17,64 @@ export function AttachmentChips({
   // auto-animate owns enter, exit, and reflow, and honors reduced motion.
   const [listRef] = useAutoAnimate<HTMLDivElement>();
 
+  // Only images enter the preview; a PDF chip never does.
+  const lightbox = useAttachmentLightbox(
+    items.map((a) => ({
+      key: a.key,
+      src: a.previewUrl,
+      name: a.file.name,
+      mime: a.file.type,
+      ready: true,
+    })),
+  );
+
   return (
-    <div ref={listRef} className="flex flex-wrap gap-2 px-1 pb-2">
-      {items.map((a) => (
-        <div
-          key={a.key}
-          className="group relative size-16 overflow-hidden rounded-xl border border-app-fg-a1/40 bg-app-bg-2"
-        >
-          <img src={a.previewUrl} alt={a.file.name} className="size-full object-cover" />
-          <button
-            type="button"
-            aria-label={`Remove ${a.file.name}`}
-            disabled={disabled}
-            onClick={() => onRemove(a.key)}
-            className={cn(
-              "absolute top-0.5 right-0.5 grid size-5 place-items-center rounded-full bg-app-background/80 text-app-fg-4 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100",
-              disabled &&
-                "cursor-not-allowed opacity-0 group-hover:opacity-0 focus-visible:opacity-0",
-            )}
-          >
-            <X size={12} />
-          </button>
-        </div>
-      ))}
-    </div>
+    <>
+      <div ref={listRef} className="flex flex-wrap gap-2 px-1 pb-2">
+        {items.map((a) => {
+          const onOpen = lightbox.openerFor(a.key);
+
+          const thumbnail = (
+            <img src={a.previewUrl} alt={a.file.name} className="size-full object-cover" />
+          );
+
+          return (
+            <div
+              key={a.key}
+              className="group relative size-16 overflow-hidden rounded-xl border border-app-fg-a1/40 bg-app-bg-2"
+            >
+              {/* Preview stays available while disabled: it only reads. */}
+              {onOpen ? (
+                <button
+                  type="button"
+                  aria-label={`Preview ${a.file.name}`}
+                  onClick={onOpen}
+                  className="app-focus-inset block size-full cursor-zoom-in"
+                >
+                  {thumbnail}
+                </button>
+              ) : (
+                thumbnail
+              )}
+              <button
+                type="button"
+                aria-label={`Remove ${a.file.name}`}
+                disabled={disabled}
+                onClick={() => onRemove(a.key)}
+                className={cn(
+                  "absolute top-0.5 right-0.5 grid size-5 place-items-center rounded-full bg-app-background/80 text-app-fg-4 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100",
+                  disabled &&
+                    "cursor-not-allowed opacity-0 group-hover:opacity-0 focus-visible:opacity-0",
+                )}
+              >
+                <X size={12} />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      {/* Outside the auto-animate list, so the list only sees chips. */}
+      {lightbox.preview}
+    </>
   );
 }

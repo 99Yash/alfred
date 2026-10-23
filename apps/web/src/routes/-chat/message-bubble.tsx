@@ -10,6 +10,7 @@ import remarkGfm from "remark-gfm";
 import { altTextImageComponents, MarkdownPre } from "~/components/markdown-renderer";
 import { animateWords } from "~/lib/chat/animate-text";
 import { cn } from "~/lib/utils";
+import { useAttachmentLightbox, type AttachmentOpener } from "./attachment-lightbox";
 import { ConnectNudgeRows } from "./connect-nudge-rows";
 import { useMarkdownImageMode } from "./published-transcript";
 import { splitPersistedToolCalls } from "./connect-nudges";
@@ -193,11 +194,28 @@ export function AssistantMarkdown({ text, streaming }: { text: string; streaming
 
 /** Image attachments (ADR-0065) through the auth-gated proxy, with placeholders for pending or failed. */
 function MessageAttachments({ attachments }: { attachments: SyncedChatAttachment[] }) {
+  const lightbox = useAttachmentLightbox(
+    attachments.map((a) => ({
+      key: a.id,
+      src: `${API_URL}/api/chat/attachments/${a.id}/content`,
+      name: a.name,
+      mime: a.mime,
+      // Only ready images enter the preview; a PDF or a pending row never does.
+      ready: a.status === "ready",
+    })),
+  );
+
   return (
     <div className="mb-1.5 flex flex-wrap justify-end gap-2">
       {attachments.map((a) => (
-        <MessageAttachment key={a.id} attachment={a} />
+        <MessageAttachment
+          key={a.id}
+          attachment={a}
+          src={`${API_URL}/api/chat/attachments/${a.id}/content`}
+          onOpen={lightbox.openerFor(a.id)}
+        />
       ))}
+      {lightbox.preview}
     </div>
   );
 }
@@ -217,7 +235,16 @@ function AttachmentPlaceholder({ label, onRetry }: { label: string; onRetry?: ()
   return <div className={className}>{label}</div>;
 }
 
-function MessageAttachment({ attachment }: { attachment: SyncedChatAttachment }) {
+function MessageAttachment({
+  attachment,
+  src,
+  onOpen,
+}: {
+  attachment: SyncedChatAttachment;
+  src: string;
+  /** Set only for an attachment in the preview's image list. Passes the click through so the opener can keep the thumbnail for focus return. */
+  onOpen?: AttachmentOpener | undefined;
+}) {
   // Bump to remount the <img> and refetch after a load failure.
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -242,26 +269,35 @@ function MessageAttachment({ attachment }: { attachment: SyncedChatAttachment })
     );
   }
 
-  const url = `${API_URL}/api/chat/attachments/${attachment.id}/content`;
+  const className =
+    "block size-40 overflow-hidden rounded-xl border border-app-fg-a1/30 bg-app-bg-2";
 
-  return (
-    <a
-      href={url}
-      target="_blank"
-      rel="noreferrer"
-      className="block size-40 overflow-hidden rounded-xl border border-app-fg-a1/30 bg-app-bg-2"
-    >
-      <img
-        key={loadAttempt}
-        src={url}
-        alt={attachment.name}
-        loading="lazy"
-        decoding="async"
-        className="size-full object-cover"
-        onError={() => setLoadFailed(true)}
-      />
-    </a>
+  const thumbnail = (
+    <img
+      key={loadAttempt}
+      src={src}
+      alt={attachment.name}
+      loading="lazy"
+      decoding="async"
+      className="size-full object-cover"
+      onError={() => setLoadFailed(true)}
+    />
   );
+
+  if (onOpen) {
+    return (
+      <button
+        type="button"
+        aria-label={`Preview ${attachment.name}`}
+        onClick={onOpen}
+        className={cn(className, "app-focus cursor-zoom-in")}
+      >
+        {thumbnail}
+      </button>
+    );
+  }
+
+  return <div className={className}>{thumbnail}</div>;
 }
 
 /** A synced user or assistant message. */
