@@ -103,18 +103,35 @@ export function loadMotionFeatures(): Promise<FeatureBundle> {
    render, so the first shell render has it in each arrival order. The outer async
    `LazyMotion` in `root-layout.tsx` stays for `/c/$slug`. One module-scope promise
    serves both callers so the feature chunk loads once. A feature-chunk failure
-   rejects this lazy import into the router default error boundary. */
+   rejects this lazy import into the router default error boundary.
+   `LazyMotion` gives a new provider value on each render, and each `m.*` reads it,
+   also through `memo`. So the inner `LazyMotion` is one element made here, and the
+   props reach the shell through a context: a shell render does not render it again. */
 const LazyAuthedAppShell = lazy(async () => {
   const [shell, bundle] = await Promise.all([import("./authed-app-shell"), loadMotionFeatures()]);
   const Shell = shell.default;
 
+  type ShellProps = ComponentProps<typeof Shell>;
+
+  const ShellPropsContext = createContext<ShellProps | null>(null);
+
+  function ShellFromProps() {
+    const props = use(ShellPropsContext);
+
+    if (!props) throw new Error("ShellFromProps must render inside AuthedShellWithMotion");
+
+    return <Shell {...props} />;
+  }
+
+  const scoped = (
+    <LazyMotion features={bundle} strict>
+      <ShellFromProps />
+    </LazyMotion>
+  );
+
   return {
-    default: function AuthedShellWithMotion(props: ComponentProps<typeof Shell>) {
-      return (
-        <LazyMotion features={bundle} strict>
-          <Shell {...props} />
-        </LazyMotion>
-      );
+    default: function AuthedShellWithMotion(props: ShellProps) {
+      return <ShellPropsContext value={props}>{scoped}</ShellPropsContext>;
     },
   };
 });
