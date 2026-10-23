@@ -36,7 +36,7 @@ export function ConnectToolsBar() {
           // A quiet centered pill under the composer, secondary to it.
           "group relative mx-auto mt-3 flex w-fit items-center gap-2.5",
           "rounded-full px-3.5 py-2",
-          // Transparent at rest; a fill on hover, a press-scale on pointer-down.
+          // Transparent at rest; a fill on hover, a press scale on pointer-down.
           "bg-transparent transition-[background-color,transform] duration-300",
           "ease-[cubic-bezier(0.22,1,0.36,1)]",
           "hover:bg-app-bg-2/60 hover:backdrop-blur-sm",

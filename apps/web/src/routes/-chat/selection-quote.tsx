@@ -146,9 +146,14 @@ function QuotePill({
   const isPresent = useIsPresent();
 
   return (
-    // Motion owns `transform` on this wrapper. The button keeps its own `app-press` scale,
-    // and Tailwind's `-translate-*` is the separate CSS `translate` property.
-    <m.div
+    <m.button
+      // Only the live pill owns the ref, so a leaving pill's unmount does not clear it.
+      ref={isPresent ? buttonRef : undefined}
+      type="button"
+      data-app-theme={resolved}
+      // Keep the selection alive through the click.
+      onPointerDown={(e) => e.preventDefault()}
+      onClick={onPick}
       style={{ left: anchor.x, top: anchor.y }}
       // The same reveal as a `Tip` pill, grown from the selection side.
       initial={{ opacity: 0, scale: 0.96, y: 2 }}
@@ -160,25 +165,13 @@ function QuotePill({
       className={cn(
         "fixed z-200 -translate-x-1/2",
         anchor.placement === "above" ? "origin-bottom -translate-y-full" : "origin-top",
+        "app inline-flex items-center gap-1.5 rounded-full px-3 py-1.5",
+        "bg-app-fg-4 text-xs font-medium text-app-bg-1 shadow-[0_2px_8px_rgba(0,0,0,0.18)]",
+        "app-press app-focus select-none",
       )}
     >
-      <button
-        // Only the live pill owns the ref, so a leaving pill's unmount does not clear it.
-        ref={isPresent ? buttonRef : undefined}
-        type="button"
-        data-app-theme={resolved}
-        // Keep the selection alive through the click.
-        onPointerDown={(e) => e.preventDefault()}
-        onClick={onPick}
-        className={cn(
-          "app inline-flex items-center gap-1.5 rounded-full px-3 py-1.5",
-          "bg-app-fg-4 text-xs font-medium text-app-bg-1 shadow-[0_2px_8px_rgba(0,0,0,0.18)]",
-          "app-press app-focus select-none",
-        )}
-      >
-        <TextQuote size={13} aria-hidden />
-        Ask Alfred
-      </button>
-    </m.div>
+      <TextQuote size={13} aria-hidden />
+      Ask Alfred
+    </m.button>
   );
 }

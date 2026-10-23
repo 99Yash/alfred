@@ -129,8 +129,8 @@ export function ComposerToolbar({
                 aria-label="Use recording"
                 className={cn(
                   "inline-flex size-9 shrink-0 items-center justify-center rounded-full",
-                  "app-press transition-[opacity,filter,transform]",
-                  "hover:scale-[1.04]",
+                  "app-press transition-[opacity,filter,scale]",
+                  "hover:not-active:scale-[1.04]",
                   "text-(--app-accent-fg)",
                   "bg-(image:--app-cta-bg)",
                   "shadow-(--app-button-primary-shadow)",
@@ -192,7 +192,7 @@ export function ComposerToolbar({
                   aria-label="Stop generating"
                   className={cn(
                     "inline-flex size-9 shrink-0 items-center justify-center rounded-full",
-                    "app-press transition-[opacity,filter,transform]",
+                    "app-press transition-[opacity,filter,scale]",
                     "bg-app-red-4 text-white",
                     "shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.18),0_8px_24px_rgba(255,47,0,0.32)]",
                     "hover:brightness-[1.05]",
@@ -237,8 +237,8 @@ export function ComposerToolbar({
                 }
                 className={cn(
                   "inline-flex h-9 min-w-9 shrink-0 items-center justify-center rounded-full",
-                  "app-focus app-press transition-[opacity,filter,transform,padding,background-color]",
-                  "duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] enabled:hover:scale-[1.04]",
+                  "app-focus app-press transition-[opacity,filter,scale,padding,background-color]",
+                  "duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] enabled:hover:not-active:scale-[1.04]",
                   steering ? "gap-1 pr-3.5 pl-3" : "px-0",
                   canSend
                     ? cn(

@@ -54,7 +54,7 @@ export function AccessNotice({ className }: { className?: string }) {
                   <a
                     href={`mailto:${CONTACT_EMAIL}?subject=Alfred%20access%20request`}
                     className={cn(
-                      "press-scale group inline-flex w-fit items-center gap-1.5 rounded-full",
+                      "app-press group inline-flex w-fit items-center gap-1.5 rounded-full",
                       "border border-amber-400/25 bg-amber-400/8 px-3.5 py-2",
                       "text-[13.5px] font-medium text-amber-200",
                       "transition-colors duration-200 hover:bg-amber-400/[0.14] hover:text-amber-100",
@@ -73,7 +73,7 @@ export function AccessNotice({ className }: { className?: string }) {
                     target="_blank"
                     rel="noopener noreferrer"
                     className={cn(
-                      "press-scale group inline-flex w-fit items-center gap-1.5 rounded-full",
+                      "app-press group inline-flex w-fit items-center gap-1.5 rounded-full",
                       "border border-neutral-700/70 bg-white/3 px-3.5 py-2",
                       "text-[13.5px] font-medium text-neutral-300",
                       "transition-colors duration-200 hover:bg-white/6 hover:text-white",

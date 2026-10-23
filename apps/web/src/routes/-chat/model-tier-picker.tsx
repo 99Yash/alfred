@@ -55,7 +55,7 @@ export function ModelTierPicker({
             className={cn(
               "inline-flex h-7 items-center gap-1.5 rounded-[10px] px-2 text-[12px]",
               "app-press text-app-fg-3 outline-none",
-              "transition-[box-shadow,color,background-color,transform]",
+              "transition-[box-shadow,color,background-color,scale]",
               "bg-linear-to-b from-app-bg-1 to-app-bg-2 shadow-(--app-shadow-elevated)",
               "hover:text-app-fg-4 hover:shadow-(--app-shadow-elevated-hover)",
               "data-[state=open]:text-app-fg-4 data-[state=open]:shadow-(--app-shadow-elevated-hover)",
@@ -108,7 +108,7 @@ export function ModelTierPicker({
                 onClick={() => onChange(option.value)}
                 className={cn(
                   "app-press flex w-full items-start gap-2.5 rounded-xl p-2 text-left outline-none",
-                  "transition-[background-color,transform] hover:bg-app-bg-a2 focus-visible:bg-app-bg-a2",
+                  "transition-[background-color,scale] hover:bg-app-bg-a2 focus-visible:bg-app-bg-a2",
                   "active:bg-app-bg-a3",
                   // A tint so the active tier shows before the eye finds the check.
                   checked && "bg-app-bg-a2",
