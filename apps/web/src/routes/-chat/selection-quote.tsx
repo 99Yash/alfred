@@ -13,6 +13,9 @@ const QUOTE_PILL_ATTR = "data-quote-pill";
 /** Spread on an element whose selected text can be quoted into the composer. */
 export const quotableProps = { [QUOTABLE_ATTR]: "" } as const;
 
+/** The pill's marker, read by the outside-click guard. */
+const quotePillProps = { [QUOTE_PILL_ATTR]: "" } as const;
+
 /** Above this gap from the viewport top, the button sits above the selection; else below. */
 const MIN_TOP_GAP = 48;
 
@@ -73,9 +76,8 @@ export function SelectionQuote({ onQuote }: { onQuote: (text: string) => void })
     };
 
     const onPointerDown = (e: PointerEvent) => {
-      // A click on the pill (live or leaving) is not an outside click. The
-      // leaving pill is inert, so it never receives the click, but the guard
-      // holds for either state.
+      // A click on the live pill is not an outside click. A leaving pill is
+      // inert, so its click falls through and hides it as before.
       if (e.target instanceof Element && e.target.closest(`[${QUOTE_PILL_ATTR}]`)) return;
       pointerDown = true;
       hide();
@@ -143,7 +145,7 @@ function QuotePill({ anchor, onPick }: { anchor: SelectionAnchor; onPick: () => 
   return (
     <m.button
       type="button"
-      data-quote-pill=""
+      {...quotePillProps}
       data-app-theme={resolved}
       // Keep the selection alive through the click.
       onPointerDown={(e) => e.preventDefault()}
