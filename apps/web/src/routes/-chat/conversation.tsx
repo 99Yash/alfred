@@ -83,6 +83,10 @@ export function Conversation({
   // Virtuoso's `autoscrollToBottom` waits for `atBottomThreshold`, so small stream growth stays below the fold.
   // Pinning this element to `scrollHeight` follows the footer with no lag.
   const scrollerElRef = useRef<HTMLElement | null>(null);
+  // Virtuoso's `atBottomStateChange` is edge-triggered: a dropped `true` is not
+  // sent again. This holds the `scrollTop` Virtuoso last read, so the re-pin
+  // gate can tell a programmatic move away from content growth below.
+  const lastScrollTopRef = useRef(0);
   // The footer also grows between React updates (auto-animate, accordion, markdown reflow).
   // A ResizeObserver on it re-pins through that growth.
   const footerElRef = useRef<HTMLElement | null>(null);
@@ -182,9 +186,16 @@ export function Conversation({
 
   // Re-attach only. `releasePin` detaches, because the pin rewrites `scrollTop` before `atBottom` can flip.
   // The live read drops a stale `true` from a programmatic pass through the bottom.
+  // A dropped `true` is not sent again (Virtuoso de-duplicates `atBottom` before its
+  // 50 ms throttle), so refuse only when the scroller moved up since Virtuoso's read:
+  // content growth below a real arrival leaves `scrollTop` alone, and that must re-pin.
   const onAtBottomChange = useCallback(
     (atBottom: boolean) => {
-      if (atBottom && isAtLiveBottom()) {
+      const el = scrollerElRef.current;
+
+      if (!atBottom || !el) return;
+
+      if (isAtLiveBottom() || el.scrollTop >= lastScrollTopRef.current - 1) {
         stickRef.current = true;
         setShowJump(false);
       }
@@ -209,6 +220,14 @@ export function Conversation({
   );
 
   // Stable identity, so Virtuoso does not rebuild the listeners each render.
+  // The `scroll` record runs in the same dispatch as Virtuoso's own listener,
+  // so it holds the value Virtuoso read.
+  const recordScrollTop = useCallback(() => {
+    const el = scrollerElRef.current;
+
+    if (el) lastScrollTopRef.current = el.scrollTop;
+  }, []);
+
   const attachScroller = useCallback(
     (ref: HTMLElement | Window | null) => {
       const prev = scrollerElRef.current;
@@ -216,17 +235,20 @@ export function Conversation({
       if (prev) {
         prev.removeEventListener("wheel", onWheel);
         prev.removeEventListener("touchmove", releasePin);
+        prev.removeEventListener("scroll", recordScrollTop);
       }
 
       const el = ref instanceof HTMLElement ? ref : null;
       scrollerElRef.current = el;
 
       if (el) {
+        lastScrollTopRef.current = el.scrollTop;
         el.addEventListener("wheel", onWheel, { passive: true });
         el.addEventListener("touchmove", releasePin, { passive: true });
+        el.addEventListener("scroll", recordScrollTop, { passive: true });
       }
     },
-    [onWheel, releasePin],
+    [onWheel, releasePin, recordScrollTop],
   );
 
   const onRangeChanged = useCallback((range: ListRange) => {
@@ -348,7 +370,8 @@ export function Conversation({
 
   // Near: one scroll. Far: land at the live edge first so Virtuoso measures the rows above the
   // tray, then move to the card a frame later. The pass through the bottom must not
-  // re-pin; the landing decides the pin by where the card ends up, read live.
+  // re-pin; Virtuoso's own `atBottomStateChange` re-pins through the live gate above
+  // when the card lands within it.
   const jumpToApproval = useCallback(() => {
     const el = trayEl;
 
@@ -363,10 +386,8 @@ export function Conversation({
     virtuosoRef.current?.scrollToIndex({ index: "LAST", align: "end", behavior: "auto" });
     requestAnimationFrame(() => {
       el.scrollIntoView({ block: "start", behavior: "auto" });
-
-      if (isAtLiveBottom()) onAtBottomChange(true);
     });
-  }, [trayEl, isNearLiveEdge, reducedMotion, isAtLiveBottom, onAtBottomChange]);
+  }, [trayEl, isNearLiveEdge, reducedMotion]);
 
   // The finish toast's "Open" action.
   const onScrollRequest = useEffectEvent(() => jumpToBottom());
@@ -727,7 +748,7 @@ function prevUserTurn(
   return undefined;
 }
 
-/** `atBottomThreshold`, and the far approval jump's re-pin test. */
+/** `atBottomThreshold`, and the live re-pin test (`isAtLiveBottom`) that every `atBottomStateChange` passes. */
 const AT_BOTTOM_PX = 80;
 
 /** The floating pill's band at the feed bottom (`bottom-4` + `h-9`, rounded up). A card under it is not in view. */
