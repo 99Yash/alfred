@@ -3,7 +3,7 @@ import type { SyncedChatMessage } from "@alfred/sync";
 import type { StreamingMessage } from "~/lib/chat/chat-stream-state";
 import type { IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { parseJsonRecord } from "~/lib/json-record";
-import { presentTool } from "./tool-call-presentation";
+import { presentTool, visibleTools } from "./tool-call-presentation";
 
 export interface FollowUpSuggestion {
   id: string;
@@ -21,19 +21,21 @@ export function shouldShowStream(
 }
 
 /**
- * Show the bare spinner only while running with nothing visible yet.
+ * Show the bare spinner while running with nothing visible yet.
+ * The group header (not this spinner) names a hidden plumbing step once one has run.
  * Check `done`: the live bubble stays mounted until sync, so a turn stopped early would spin when finished.
  * Ignores `narration`: closed prose is not live activity.
+ * Requires no reasoning: `ReasoningSection` already shows "Thinking" for the whole tool phase.
  */
 export function shouldShowThinkingIndicator(stream: StreamingMessage): boolean {
+  if (stream.done || stream.text.length > 0 || stream.compacting || stream.awaitingCapacity) {
+    return false;
+  }
+
   return (
-    !stream.done &&
-    stream.text.length === 0 &&
-    stream.tools.length === 0 &&
+    visibleTools(stream.tools).length === 0 &&
     stream.reasoning.length === 0 &&
-    !stream.reasoningActive &&
-    !stream.compacting &&
-    !stream.awaitingCapacity
+    !stream.reasoningActive
   );
 }
 
@@ -42,7 +44,8 @@ export function describeActivity(stream: StreamingMessage): string {
   if (stream.compacting) return "Condensing conversation…";
 
   if (stream.awaitingCapacity) return "Waiting for model capacity…";
-  const lastTool = stream.tools[stream.tools.length - 1];
+  // A hidden running step falls through to the writing/thinking label.
+  const lastTool = visibleTools(stream.tools).at(-1);
 
   if (lastTool && lastTool.status === "started") return `${presentTool(lastTool).running}…`;
 

@@ -14,7 +14,7 @@ import { RunGlyphCluster } from "./run-glyph-cluster";
 import { runGlyphs, runSummary } from "./run-summary";
 import { SubAgentCard } from "./sub-agent-card";
 import { ToolCallCard } from "./tool-call-card";
-import { presentTool, type ToolCallView } from "./tool-call-presentation";
+import { presentTool, type ToolCallView, visibleTools } from "./tool-call-presentation";
 import { buildTrail } from "./trail";
 
 const ITEM = "tools";
@@ -34,6 +34,10 @@ function questionSummary(item: ToolCallView[]): AskUserSummary | null {
 /**
  * A turn's tool calls and narration as one collapsible trail.
  * Expanded while the turn runs; collapsed to a summary when it lands.
+ * It draws `visibleTools(tools)` only: the trail, header, glyphs, and failed dot never see plumbing.
+ * While the turn runs, hidden plumbing is still live work: the header stays so it can say
+ * "Working on it" instead of leaving no live label. Gated on `active`, so the persisted
+ * bubble keeps the settled layout.
  * `buildTrail` alone decides if there is anything to draw. Do not gate on `tools.length`:
  * a step whose cards all bounced still has prose.
  */
@@ -76,7 +80,7 @@ export function ToolCallGroup({
 
   /**
    * Hide an `await_sub_agent` card when that child's trail is already on screen.
-   * It still counts in `tools` for the headline.
+   * It still counts in `shown` for the headline.
    */
   const isRedundantAwait = (item: ToolCallView[]): boolean => {
     const [tool] = item;
@@ -87,13 +91,19 @@ export function ToolCallGroup({
     return childRunId !== undefined && subAgents.some((s) => s.childRunId === childRunId);
   };
 
-  const trail = buildTrail(tools, narration);
+  const shown = visibleTools(tools);
+  const trail = buildTrail(shown, narration);
 
-  if (trail.length === 0) return null;
+  // Hidden plumbing draws no row but is still live work while the turn runs.
+  // Keep the header (never the lone-card branch) so the turn always names it.
+  // `active` gates it: the persisted bubble renders the settled layout.
+  const hasHiddenLiveWork = active && tools.length > shown.length;
+
+  if (trail.length === 0 && !hasHiddenLiveWork) return null;
 
   const only = trail.length === 1 ? trail[0] : undefined;
 
-  if (only?.kind === "tool" && only.tools.length === 1) {
+  if (!hasHiddenLiveWork && only?.kind === "tool" && only.tools.length === 1) {
     const loneSubAgent = subAgentFor(only.tools);
 
     if (loneSubAgent) {
@@ -136,16 +146,20 @@ export function ToolCallGroup({
     </div>
   );
 
-  // Prose with no cards: nothing to summarize. A tool item in the trail means `tools` is not empty.
-  const last = tools.at(-1);
+  // Prose with no cards: nothing to summarize. A tool item in the trail means `shown` is not empty.
+  // A hidden step that runs last leaves `last` settled, so the header reads "Working on it".
+  // With hidden live work and no visible `last`, the header still reads "Working on it".
+  const last = shown.at(-1);
 
-  if (!last || !trail.some((item) => item.kind === "tool")) {
+  if (!hasHiddenLiveWork && (!last || !trail.some((item) => item.kind === "tool"))) {
     return <div className="animate-chat-in w-full">{rail}</div>;
   }
 
-  const runningLabel = last.status === "started" ? presentTool(last).running : "Working on it";
-  const anyFailed = tools.some((t) => t.status === "failed");
-  const glyphs = runGlyphs(tools);
+  const runningLabel =
+    last && last.status === "started" ? presentTool(last).running : "Working on it";
+
+  const anyFailed = shown.some((t) => t.status === "failed");
+  const glyphs = runGlyphs(shown);
 
   return (
     <Accordion.Root
@@ -181,7 +195,7 @@ export function ToolCallGroup({
                 active ? "animate-chat-shimmer-mask text-app-fg-4" : "text-app-fg-4",
               )}
             >
-              {active ? runningLabel : runSummary(tools)}
+              {active ? runningLabel : runSummary(shown)}
             </span>
             <span className="ml-auto flex shrink-0 items-center gap-1.5">
               {!active && anyFailed ? (
