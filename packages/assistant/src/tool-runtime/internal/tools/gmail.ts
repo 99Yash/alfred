@@ -1,19 +1,30 @@
-/** Gmail tools. `gmail.send_draft` runs only after the staging gate approves it. */
+/** Gmail tools. Every write runs only after the staging gate approves it. */
 
 import {
   GOOGLE_SCOPE,
   GMAIL_SEARCH_SNIPPET_MAX_CHARS,
   collapseWhitespace,
+  gmailGetThreadInput,
+  gmailModifyThreadInput,
   gmailReadMessageInput,
   gmailSearchInput,
   gmailSearchResultSchema,
   gmailSendDraftInput,
   parseGmailDocumentMetadata,
   restPassthroughInput,
+  type GmailModifyThreadInput,
+  type ToolRiskTier,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
-import { type ExtractedMessage, extractMessageContent } from "@alfred/integrations/google";
+import { gmailMailboxWritesEnabled } from "@alfred/env/server";
+import {
+  type ExtractedMessage,
+  type GmailLabel,
+  TRIAGE_CATEGORIES,
+  extractMessageContent,
+  labelNameFor,
+} from "@alfred/integrations/google";
 import { and, eq, inArray } from "drizzle-orm";
 import { runRestPassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
@@ -25,6 +36,61 @@ function gmailThreadUrl(threadId: string): string {
 }
 
 const GMAIL_READ_SCOPES = [GOOGLE_SCOPE.gmail.readonly, GOOGLE_SCOPE.gmail.modify] as const;
+
+const GMAIL_MODIFY_SCOPES = [GOOGLE_SCOPE.gmail.modify] as const;
+
+/** Gmail empties Trash after 30 days, and a spam mark trains Google's filter. */
+const DESTRUCTIVE_LABEL_IDS: ReadonlySet<string> = new Set(["TRASH", "SPAM"]);
+
+function modifyThreadLabelNames(input: GmailModifyThreadInput): string[] {
+  return [...(input.addLabels ?? []), ...(input.removeLabels ?? [])];
+}
+
+export function resolveGmailModifyThreadRiskTier(input: GmailModifyThreadInput): ToolRiskTier {
+  const trashesOrSpams = (input.addLabels ?? []).some((name) =>
+    DESTRUCTIVE_LABEL_IDS.has(name.toUpperCase()),
+  );
+
+  return trashesOrSpams ? "high" : "medium";
+}
+
+/**
+ * Alfred's triage owns its numbered labels, and the history sync reads only added mail, so a
+ * label change from here would never reach the triage state. Case-folded, because
+ * {@link findLabel} matches a name without case.
+ */
+const TRIAGE_LABEL_NAMES: ReadonlySet<string> = new Set(
+  TRIAGE_CATEGORIES.map((category) => labelNameFor(category).toLowerCase()),
+);
+
+function triageLabelMessage(names: readonly string[]): string {
+  return (
+    `${names.join(", ")} ${names.length === 1 ? "is" : "are"} Alfred's triage labels. ` +
+    "Triage owns them, so this tool does not change them. Change the other labels only."
+  );
+}
+
+function refuseGmailModifyThread(input: GmailModifyThreadInput): string | null {
+  if (!gmailMailboxWritesEnabled()) {
+    return "Gmail mailbox writes are off in this environment, so the labels did not change.";
+  }
+
+  const triageLabels = modifyThreadLabelNames(input).filter((name) =>
+    TRIAGE_LABEL_NAMES.has(name.toLowerCase()),
+  );
+
+  return triageLabels.length > 0 ? triageLabelMessage(triageLabels) : null;
+}
+
+/** A system label's id is its name (`INBOX`), so an id match and a name match are one lookup. */
+function findLabel(labels: readonly GmailLabel[], name: string): GmailLabel | undefined {
+  const folded = name.toLowerCase();
+
+  return (
+    labels.find((label) => label.id === name || label.name === name) ??
+    labels.find((label) => label.name.toLowerCase() === folded)
+  );
+}
 
 function truncateSnippet(text: string | null): string | null {
   if (!text) return null;
@@ -249,16 +315,199 @@ export const gmailTools: readonly RegisteredTool[] = [
   }),
   liveTool({
     integration: "gmail",
+    action: "get_thread",
+    riskTier: "low",
+    description:
+      "Read a whole Gmail thread in order: each message's sender, recipients, date, unread state " +
+      "and body, plus the thread's label names. Pass a `threadId` from gmail.search.",
+    discovery: {
+      aliases: ["read thread", "read conversation", "email thread"],
+      tags: ["email", "inbox", "communication"],
+      entities: ["email", "thread", "conversation", "label"],
+      verbs: ["read", "open", "get"],
+      relatedTools: ["gmail.search", "gmail.modify_thread", "gmail.create_draft"],
+    },
+    availability: {
+      credential: { provider: "google", anyOfScopes: GMAIL_READ_SCOPES },
+    },
+    inputSchema: gmailGetThreadInput,
+    execute: async (input, ctx) => {
+      const gmail = ctx.integrations.google.gmail;
+      const credential = await gmail.readCredential();
+
+      const [thread, labels] = await Promise.all([
+        gmail.getThread({
+          credentialId: credential.id,
+          threadId: input.threadId,
+          format: input.format,
+        }),
+        gmail.listLabels(credential.id),
+      ]);
+
+      const labelNames = new Map(labels.map((label) => [label.id, label.name] as const));
+      const messages = thread.messages ?? [];
+      const threadLabelIds = new Set(messages.flatMap((message) => message.labelIds ?? []));
+
+      return {
+        threadId: thread.id,
+        url: gmailThreadUrl(thread.id),
+        labels: [...threadLabelIds].map((id) => labelNames.get(id) ?? id),
+        messageCount: messages.length,
+        messages: messages.map((message) => {
+          const extracted = extractMessageContent(message);
+
+          return {
+            messageId: message.id,
+            from: extracted.from,
+            to: extracted.to,
+            cc: extracted.cc,
+            subject: extracted.subject,
+            authoredAt: extracted.date?.toISOString() ?? null,
+            unread: message.labelIds?.includes("UNREAD") ?? false,
+            ...(input.format === "full"
+              ? { body: extracted.body }
+              : { snippet: truncateSnippet(message.snippet ?? null) }),
+          };
+        }),
+      };
+    },
+  }),
+  liveTool({
+    integration: "gmail",
+    action: "modify_thread",
+    riskTier: "medium",
+    description:
+      "Add or remove labels on every message of a Gmail thread, by label name. A missing user " +
+      "label is created. System labels do the mailbox actions: remove INBOX to archive, " +
+      "UNREAD to mark read, add STARRED to star, TRASH to trash, SPAM to report spam. Alfred's " +
+      "numbered triage labels are refused.",
+    discovery: {
+      aliases: ["label email", "archive email", "trash email", "mark as read", "star email"],
+      tags: ["email", "inbox", "labels", "write"],
+      entities: ["email", "thread", "label", "inbox", "trash", "spam"],
+      verbs: ["label", "archive", "trash", "delete", "star", "mark", "move"],
+      relatedTools: ["gmail.search", "gmail.get_thread"],
+    },
+    availability: {
+      credential: { provider: "google", anyOfScopes: GMAIL_MODIFY_SCOPES },
+    },
+    inputSchema: gmailModifyThreadInput,
+    resolveRiskTier: (input) => Promise.resolve(resolveGmailModifyThreadRiskTier(input)),
+    refuseInput: (input) => refuseGmailModifyThread(input),
+    execute: async (input, ctx) => {
+      const gmail = ctx.integrations.google.gmail;
+      const credential = await gmail.modifyCredential();
+      const labels = await gmail.listLabels(credential.id);
+
+      const adds = (input.addLabels ?? []).map((name) => ({
+        name,
+        label: findLabel(labels, name),
+      }));
+
+      const removes = (input.removeLabels ?? []).map((name) => ({
+        name,
+        label: findLabel(labels, name),
+      }));
+
+      // A label id passes the name refusal, so check what each name resolved to before any write.
+      const triageLabels = [...adds, ...removes]
+        .flatMap(({ label }) => (label ? [label.name] : []))
+        .filter((name) => TRIAGE_LABEL_NAMES.has(name.toLowerCase()));
+
+      if (triageLabels.length > 0) throw new Error(triageLabelMessage(triageLabels));
+
+      const created: string[] = [];
+      const addLabelIds: string[] = [];
+
+      for (const { name, label } of adds) {
+        if (label) {
+          addLabelIds.push(label.id);
+          continue;
+        }
+
+        const createdLabel = await gmail.createLabel({ credentialId: credential.id, name });
+        labels.push(createdLabel);
+        created.push(createdLabel.name);
+        addLabelIds.push(createdLabel.id);
+      }
+
+      const removeLabelIds = removes.flatMap(({ label }) => (label ? [label.id] : []));
+      const notFound = removes.flatMap(({ name, label }) => (label ? [] : [name]));
+
+      if (addLabelIds.length === 0 && removeLabelIds.length === 0) {
+        return { ok: true, threadId: input.threadId, changed: false, notFound };
+      }
+
+      const thread = await gmail.modifyThreadLabels({
+        credentialId: credential.id,
+        threadId: input.threadId,
+        addLabelIds,
+        removeLabelIds,
+      });
+
+      const labelNames = new Map(labels.map((label) => [label.id, label.name] as const));
+
+      const threadLabelIds = new Set(
+        (thread.messages ?? []).flatMap((message) => message.labelIds ?? []),
+      );
+
+      return {
+        ok: true,
+        threadId: thread.id,
+        changed: true,
+        labels: [...threadLabelIds].map((id) => labelNames.get(id) ?? id),
+        createdLabels: created,
+        notFound,
+      };
+    },
+  }),
+  liveTool({
+    integration: "gmail",
+    action: "create_draft",
+    riskTier: "low",
+    description:
+      "Save a plain-text Gmail draft and send nothing. The user reviews and sends it from Gmail, " +
+      "so any recipient is allowed. Pass `threadId` to save a reply draft in that thread.",
+    discovery: {
+      aliases: ["draft email", "save draft", "write a draft"],
+      tags: ["email", "communication", "write"],
+      entities: ["email", "draft", "reply"],
+      verbs: ["draft", "write", "compose", "save"],
+      relatedTools: ["gmail.get_thread", "gmail.send_draft"],
+    },
+    availability: {
+      credential: { provider: "google", anyOfScopes: GMAIL_MODIFY_SCOPES },
+    },
+    inputSchema: gmailSendDraftInput,
+    execute: async (input, ctx) => {
+      const gmail = ctx.integrations.google.gmail;
+      const credential = await gmail.modifyCredential();
+
+      const draft = await gmail.createDraft({
+        credentialId: credential.id,
+        to: input.to,
+        cc: input.cc,
+        bcc: input.bcc,
+        subject: input.subject,
+        bodyText: input.bodyText,
+        threadId: input.threadId,
+      });
+
+      return { ok: true, ...draft, url: "https://mail.google.com/mail/u/0/#drafts" };
+    },
+  }),
+  liveTool({
+    integration: "gmail",
     action: "send_draft",
     riskTier: "high",
     description:
-      "Send a Gmail message after the user approves it. Recipients must be the active mailbox or people the user has emailed before.",
+      "Send a Gmail message after the user approves it. Recipients must be the active mailbox or people the user has emailed before. To save without sending, use gmail.create_draft.",
     discovery: {
-      aliases: ["send email", "reply to email", "draft email"],
+      aliases: ["send email", "reply to email"],
       tags: ["email", "communication", "write"],
-      entities: ["email", "message", "draft", "reply"],
-      verbs: ["send", "reply", "draft", "write"],
-      relatedTools: ["gmail.search", "gmail.read_message"],
+      entities: ["email", "message", "reply"],
+      verbs: ["send", "reply", "write"],
+      relatedTools: ["gmail.search", "gmail.read_message", "gmail.create_draft"],
     },
     availability: {
       credential: { provider: "google", anyOfScopes: [GOOGLE_SCOPE.gmail.send] },

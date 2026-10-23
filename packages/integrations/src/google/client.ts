@@ -15,10 +15,16 @@ import {
   type ListFilesArgs,
 } from "./drive";
 import type {
+  CreateDraftResult,
+  CreateLabelArgs,
   GetMessageArgs,
+  GetThreadArgs,
+  GmailLabel,
   GmailMessage,
+  GmailThread,
   ListMessagesResult,
   ListMessagesArgs,
+  ModifyThreadLabelsArgs,
   SendMessageResult,
   SendMessageArgs,
 } from "./gmail";
@@ -60,6 +66,7 @@ export interface GoogleTokenResolver {
 export type GoogleAuthority =
   | "gmail_read"
   | "gmail_send"
+  | "gmail_modify"
   | "calendar_read"
   | "calendar_write"
   | "docs"
@@ -70,6 +77,7 @@ export type GoogleAuthority =
 const AUTHORITY_SCOPES = {
   gmail_read: [GOOGLE_SCOPE.gmail.readonly, GOOGLE_SCOPE.gmail.modify],
   gmail_send: [GOOGLE_SCOPE.gmail.send],
+  gmail_modify: [GOOGLE_SCOPE.gmail.modify],
   calendar_read: [GOOGLE_SCOPE.calendar.readonly, GOOGLE_SCOPE.calendar.events],
   calendar_write: [GOOGLE_SCOPE.calendar.events],
   docs: [GOOGLE_SCOPE.docs.full],
@@ -169,6 +177,28 @@ export function createGoogleClient(
         ...args
       }: WithCredentialId<SendMessageArgs>): Promise<SendMessageResult> =>
         mailbox(credentialId, "gmail_send").sendMessage(args),
+      getThread: ({
+        credentialId,
+        ...args
+      }: WithCredentialId<GetThreadArgs>): Promise<GmailThread> =>
+        mailbox(credentialId, "gmail_read").getThread(args),
+      listLabels: (credentialId: string): Promise<GmailLabel[]> =>
+        mailbox(credentialId, "gmail_read").listLabels(),
+      createLabel: ({
+        credentialId,
+        ...args
+      }: WithCredentialId<CreateLabelArgs>): Promise<GmailLabel> =>
+        mailbox(credentialId, "gmail_modify").createLabel(args),
+      modifyThreadLabels: ({
+        credentialId,
+        ...args
+      }: WithCredentialId<ModifyThreadLabelsArgs>): Promise<GmailThread> =>
+        mailbox(credentialId, "gmail_modify").modifyThreadLabels(args),
+      createDraft: ({
+        credentialId,
+        ...args
+      }: WithCredentialId<SendMessageArgs>): Promise<CreateDraftResult> =>
+        mailbox(credentialId, "gmail_modify").createDraft(args),
       passthrough: (credentialId: string) => passthrough("gmail", "gmail_read", credentialId),
     },
     calendar: {
@@ -277,6 +307,7 @@ export function googleClientForUser(options: ProviderBindOptions) {
       ...client.gmail,
       readCredential: () => first("gmail_read"),
       sendCredential: () => first("gmail_send"),
+      modifyCredential: () => first("gmail_modify"),
     },
     calendar: {
       ...client.calendar,

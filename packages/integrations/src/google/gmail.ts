@@ -408,6 +408,59 @@ export async function batchModifyMessages(args: BatchModifyMessagesArgs): Promis
   });
 }
 
+// users.threads
+
+const threadSchema = z.object({
+  id: z.string(),
+  messages: z.array(messageSchema).optional(),
+});
+
+export type GmailThread = z.infer<typeof threadSchema>;
+
+export interface GetThreadArgs {
+  accessToken: string;
+  threadId: string;
+  /** `full` includes bodies; `metadata` stops at headers and labels. */
+  format?: "full" | "metadata" | "minimal" | undefined;
+}
+
+export async function getThread(
+  args: GetThreadArgs,
+  retry: RetryPolicy | "none" = "none",
+): Promise<GmailThread> {
+  const url = new URL(`${API_BASE}/threads/${encodeURIComponent(args.threadId)}`);
+  url.searchParams.set("format", args.format ?? "full");
+
+  return googleJson("gmail", threadSchema, {
+    url: url.toString(),
+    accessToken: args.accessToken,
+    retry,
+  });
+}
+
+export interface ModifyThreadLabelsArgs {
+  accessToken: string;
+  threadId: string;
+  /** Label ids, at most 100. `TRASH` and `SPAM` are label ids here too. */
+  addLabelIds?: string[] | undefined;
+  removeLabelIds?: string[] | undefined;
+}
+
+/** Changes the labels of every message in the thread. Idempotent. Needs `gmail.modify`. */
+export async function modifyThreadLabels(args: ModifyThreadLabelsArgs): Promise<GmailThread> {
+  const payload = {
+    ...(args.addLabelIds?.length ? { addLabelIds: args.addLabelIds } : {}),
+    ...(args.removeLabelIds?.length ? { removeLabelIds: args.removeLabelIds } : {}),
+  };
+
+  return googleJson("gmail", threadSchema, {
+    method: "POST",
+    url: `${API_BASE}/threads/${encodeURIComponent(args.threadId)}/modify`,
+    accessToken: args.accessToken,
+    payload,
+  });
+}
+
 export interface SendMessageArgs {
   accessToken: string;
   to: string[];
@@ -440,8 +493,8 @@ function assertHeaderSafe(name: string, value: string): void {
   }
 }
 
-/** Needs the `gmail.send` scope; without it the call gets a 403. */
-export async function sendMessage(args: SendMessageArgs): Promise<SendMessageResult> {
+/** The Gmail `message` body for a plain-text mail: base64url MIME plus the optional thread. */
+function plainTextMessage(args: Omit<SendMessageArgs, "accessToken">) {
   for (const value of [...args.to, ...(args.cc ?? []), ...(args.bcc ?? [])]) {
     assertHeaderSafe("recipient", value);
   }
@@ -459,21 +512,55 @@ export async function sendMessage(args: SendMessageArgs): Promise<SendMessageRes
   headers.push("Content-Transfer-Encoding: 8bit");
 
   const mime = `${headers.join("\r\n")}\r\n\r\n${args.bodyText}`;
-  const raw = Buffer.from(mime, "utf8").toString("base64url");
 
-  const payload = {
-    raw,
+  return {
+    raw: Buffer.from(mime, "utf8").toString("base64url"),
     ...(args.threadId ? { threadId: args.threadId } : {}),
   };
+}
+
+/** Needs the `gmail.send` scope; without it the call gets a 403. */
+export async function sendMessage(args: SendMessageArgs): Promise<SendMessageResult> {
+  const { accessToken, ...message } = args;
 
   const parsed = await googleJson("gmail", messageSchema, {
     method: "POST",
     url: `${API_BASE}/messages/send`,
-    accessToken: args.accessToken,
-    payload,
+    accessToken,
+    payload: plainTextMessage(message),
   });
 
   return { id: parsed.id, threadId: parsed.threadId };
+}
+
+// users.drafts
+
+const draftResponseSchema = z.object({
+  id: z.string(),
+  message: messageRefSchema,
+});
+
+export interface CreateDraftResult {
+  draftId: string;
+  messageId: string;
+  threadId: string;
+}
+
+/**
+ * Saves a plain-text draft and sends nothing. Needs `gmail.modify` or `gmail.compose`. Not
+ * idempotent: a second call saves a second draft.
+ */
+export async function createDraft(args: SendMessageArgs): Promise<CreateDraftResult> {
+  const { accessToken, ...message } = args;
+
+  const parsed = await googleJson("gmail", draftResponseSchema, {
+    method: "POST",
+    url: `${API_BASE}/drafts`,
+    accessToken,
+    payload: { message: plainTextMessage(message) },
+  });
+
+  return { draftId: parsed.id, messageId: parsed.message.id, threadId: parsed.message.threadId };
 }
 
 // MIME helpers

@@ -2,14 +2,17 @@ import type { RetryPolicy } from "../shared/retry";
 import { getFreshAccessToken } from "./credentials";
 import {
   batchModifyMessages,
+  createDraft,
   createLabel,
   getAttachment,
   getMessage,
+  getThread,
   getThreadMessageLabels,
   listHistory,
   listLabels,
   listMessages,
   modifyMessageLabels,
+  modifyThreadLabels,
   sendMessage,
   startWatch,
   stopWatch,
@@ -17,10 +20,13 @@ import {
   type CreateLabelArgs,
   type GetAttachmentArgs,
   type GetMessageArgs,
+  type GetThreadArgs,
   type GmailMessage,
+  type GmailThread,
   type ListHistoryArgs,
   type ListMessagesArgs,
   type ModifyMessageLabelsArgs,
+  type ModifyThreadLabelsArgs,
   type SendMessageArgs,
   type StartWatchArgs,
 } from "./gmail";
@@ -46,6 +52,10 @@ export function gmailMailboxFor(
       listMessages({ ...args, accessToken: await accessToken() }, retry),
     getMessage: async (args: Unbound<GetMessageArgs>): Promise<GmailMessage> =>
       getMessage({ ...args, accessToken: await accessToken() }, retry),
+    getThread: async (args: Unbound<GetThreadArgs>): Promise<GmailThread> =>
+      getThread({ ...args, accessToken: await accessToken() }, retry),
+    modifyThreadLabels: async (args: Unbound<ModifyThreadLabelsArgs>): Promise<GmailThread> =>
+      modifyThreadLabels({ ...args, accessToken: await accessToken() }),
     /** `threads.get` in `minimal` format: message ids and labels only. */
     getThreadMessageLabels: async (args: { threadId: string }) =>
       getThreadMessageLabels({ ...args, accessToken: await accessToken() }),
@@ -64,6 +74,8 @@ export function gmailMailboxFor(
       batchModifyMessages({ ...args, accessToken: await accessToken() }),
     sendMessage: async (args: Unbound<SendMessageArgs>) =>
       sendMessage({ ...args, accessToken: await accessToken() }),
+    createDraft: async (args: Unbound<SendMessageArgs>) =>
+      createDraft({ ...args, accessToken: await accessToken() }),
     getAttachment: async (args: Unbound<GetAttachmentArgs>) =>
       getAttachment({ ...args, accessToken: await accessToken() }, retry),
   };

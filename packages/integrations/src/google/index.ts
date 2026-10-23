@@ -39,6 +39,7 @@ export type {
 export { downloadFile, exportFile, getFile, listFiles } from "./drive";
 
 export type {
+  CreateDraftResult,
   ExtractedAttachment,
   ExtractedMessage,
   GetAttachmentResult,
@@ -46,6 +47,7 @@ export type {
   GmailLabel,
   GmailMessage,
   GmailMessageRef,
+  GmailThread,
   ListHistoryResult,
   SendMessageResult,
   StartWatchResult,
