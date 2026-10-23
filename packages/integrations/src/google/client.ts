@@ -1,7 +1,20 @@
 import type { ProviderBindOptions } from "../shared/provider";
 import { restPassthroughCapability } from "../shared/rest-passthrough";
 import type { RetryPolicy } from "../shared/retry";
-import { createEvent, listEvents, type CreateEventArgs, type ListEventsArgs } from "./calendar";
+import {
+  createEvent,
+  deleteEvent,
+  getEvent,
+  listEvents,
+  respondToEvent,
+  updateEvent,
+  type CreateEventArgs,
+  type DeleteEventArgs,
+  type EventRefArgs,
+  type ListEventsArgs,
+  type RespondToEventArgs,
+  type UpdateEventArgs,
+} from "./calendar";
 import { getFreshAccessToken, listCredentials, type CredentialRow } from "./credentials";
 import { getDocument, type GetDocumentArgs } from "./docs";
 import {
@@ -206,6 +219,14 @@ export function createGoogleClient(
         withToken("calendar_read", credentialId, args, listEvents),
       createEvent: ({ credentialId, ...args }: WithCredentialId<CreateEventArgs>) =>
         withToken("calendar_write", credentialId, args, createEvent),
+      getEvent: ({ credentialId, ...args }: WithCredentialId<EventRefArgs>) =>
+        withToken("calendar_read", credentialId, args, getEvent),
+      updateEvent: ({ credentialId, ...args }: WithCredentialId<UpdateEventArgs>) =>
+        withToken("calendar_write", credentialId, args, updateEvent),
+      deleteEvent: ({ credentialId, ...args }: WithCredentialId<DeleteEventArgs>) =>
+        withToken("calendar_write", credentialId, args, deleteEvent),
+      respondToEvent: ({ credentialId, ...args }: WithCredentialId<RespondToEventArgs>) =>
+        withToken("calendar_write", credentialId, args, respondToEvent),
       passthrough: (credentialId: string) => passthrough("calendar", "calendar_read", credentialId),
     },
     docs: {
@@ -314,6 +335,9 @@ export function googleClientForUser(options: ProviderBindOptions) {
       readCredentials: () =>
         credentialsForAuthority(options.userId, "calendar_read", options.accountRef),
       writeCredential: () => first("calendar_write"),
+      /** Every account that can write events. An event reference picks one by `accountId`. */
+      writeCredentials: () =>
+        credentialsForAuthority(options.userId, "calendar_write", options.accountRef),
     },
     docs: { ...client.docs, credential: () => first("docs") },
     drive: { ...client.drive, credential: () => first("drive") },

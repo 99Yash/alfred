@@ -1,12 +1,22 @@
 import {
   calendarCreateEventInput,
+  calendarDeleteEventInput,
+  calendarRespondToEventInput,
+  calendarUpdateEventInput,
   gmailSendDraftInput,
+  type CalendarResponse,
   humanizeToolName,
   type JsonObject,
   type ToolName,
 } from "@alfred/contracts";
 import { asRecord } from "~/lib/json-record";
 import { capitalize } from "~/lib/strings";
+
+const RESPONSE_VERBS = {
+  accepted: "Accept",
+  declined: "Decline",
+  tentative: "Tentatively accept",
+} satisfies Record<CalendarResponse, string>;
 
 /**
  * Input-aware card titles, e.g. "Email maya@…" instead of "Send draft".
@@ -37,6 +47,36 @@ const TITLE_OVERRIDES = new Map<ToolName, (input: JsonObject) => string>([
       if (!parsed.success) return "Create a calendar event";
 
       return `Schedule “${parsed.data.summary}”`;
+    },
+  ],
+  [
+    "calendar.update_event",
+    (input) => {
+      const parsed = calendarUpdateEventInput.safeParse(input);
+
+      if (!parsed.success) return "Update a calendar event";
+
+      return `Update “${parsed.data.eventTitle}”`;
+    },
+  ],
+  [
+    "calendar.delete_event",
+    (input) => {
+      const parsed = calendarDeleteEventInput.safeParse(input);
+
+      if (!parsed.success) return "Delete a calendar event";
+
+      return `Delete “${parsed.data.eventTitle}”`;
+    },
+  ],
+  [
+    "calendar.respond_to_event",
+    (input) => {
+      const parsed = calendarRespondToEventInput.safeParse(input);
+
+      if (!parsed.success) return "Answer a calendar invitation";
+
+      return `${RESPONSE_VERBS[parsed.data.response]} “${parsed.data.eventTitle}”`;
     },
   ],
 ]);

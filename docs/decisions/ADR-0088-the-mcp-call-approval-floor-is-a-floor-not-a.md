@@ -23,3 +23,7 @@ Before this second use, the dispatcher promoted the named trust-boundary debt in
 The approval requirement on a pending staging row is monotonic. A resume can retain an existing gate after policy becomes less strict, and it can promote an old autonomous row when current validated input resolves to a stricter floor. It can never use a stored `requiresApproval: false` value to override a newly-required approval. Promotion binds the current validated proposal and hash, updates the effective risk snapshot and notification/expiry fields, and only then lets the status machine see the row. This closes the rolling-deploy/crash-resume case where an invite row was inserted as `medium` before #232 and resumed as `high` after it.
 
 The live-chat scheduling hint has no validated input or execution context. It therefore keeps every dynamic-risk tool in the serial approval lane. The real dispatch still resolves the input and can execute a lower-tier call under autonomy. This conservative hint prevents a dynamic `high` result from producing concurrent sibling approval cards.
+
+## Amendment — 2026-10-23: a resolver that reads remote state
+
+`calendar.update_event` is the first `resolveRiskTier` user that reads remote state, not only the input. It reads the event from Google and returns `high` when the event has a guest other than the user. A failed read returns `high`, so the resolver stays fail-closed. The read has no side effect, so the hook contract holds.

@@ -15,6 +15,7 @@ import {
   type GmailModifyThreadInput,
   type ToolRiskTier,
 } from "@alfred/contracts";
+import { AppError } from "@alfred/contracts/app-errors";
 import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
 import { gmailMailboxWritesEnabled } from "@alfred/env/server";
@@ -414,7 +415,7 @@ export const gmailTools: readonly RegisteredTool[] = [
         .flatMap(({ label }) => (label ? [label.name] : []))
         .filter((name) => TRIAGE_LABEL_NAMES.has(name.toLowerCase()));
 
-      if (triageLabels.length > 0) throw new Error(triageLabelMessage(triageLabels));
+      if (triageLabels.length > 0) throw new AppError("gmail_triage_label_refused");
 
       const created: string[] = [];
       const addLabelIds: string[] = [];

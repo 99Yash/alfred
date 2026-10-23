@@ -24,7 +24,9 @@ const KERNEL_SCHEMA_BYTES_CEILING = 13_000;
 
 const KERNEL_SCHEMA_TOKENS_CEILING = 3_300;
 
-const FULL_SCHEMA_BYTES_CEILING = 95_000;
+// Tools load lazily through system.load_tool, so only the kernel ceiling bounds the bytes
+// that one prompt carries. This ceiling only catches a schema that grows by mistake.
+const FULL_SCHEMA_BYTES_CEILING = 100_000;
 
 /** The artifact/search giants must never bootstrap the kernel. */
 const NON_KERNEL_GIANTS: readonly ToolName[] = [

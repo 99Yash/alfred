@@ -11,13 +11,15 @@ export type GoogleService = "calendar" | "gmail" | "drive" | "docs" | "sheets" |
 
 export interface GoogleJsonRequest {
   /** Default `"GET"`. */
-  method?: "GET" | "POST" | "PUT" | undefined;
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | undefined;
   url: string;
   accessToken: string;
-  /** A non-GET sends `payload ?? {}`. */
+  /** A POST, PUT, or PATCH sends `payload ?? {}`. GET and DELETE send no body. */
   payload?: unknown;
   /** Default `"none"`. */
   retry?: RetryPolicy | "none" | undefined;
+  /** An etag. The provider refuses the write with 412 when the resource changed. */
+  ifMatch?: string | undefined;
   signal?: AbortSignal | undefined;
 }
 
@@ -27,7 +29,7 @@ export async function googleJson<T>(
   schema: z.ZodType<T>,
   request: GoogleJsonRequest,
 ): Promise<T> {
-  const { method = "GET", url, accessToken, payload, retry = "none", signal } = request;
+  const { method = "GET", url, accessToken, payload, retry = "none", ifMatch, signal } = request;
 
   return authedJson(
     schema,
@@ -35,12 +37,13 @@ export async function googleJson<T>(
       headers: {
         Authorization: `Bearer ${accessToken}`,
         Accept: "application/json",
+        ...(ifMatch !== undefined ? { "If-Match": ifMatch } : {}),
       },
     },
     {
       url,
       method,
-      body: method === "GET" ? undefined : (payload ?? {}),
+      body: method === "GET" || method === "DELETE" ? undefined : (payload ?? {}),
       ...(signal !== undefined ? { signal } : {}),
     },
     { provider: service, urlLabel: url, retry },

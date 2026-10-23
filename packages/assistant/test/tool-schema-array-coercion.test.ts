@@ -37,6 +37,16 @@ const FIXTURES = {
     },
     arrayFields: ["attendees"],
   },
+  "calendar.update_event": {
+    base: {
+      accountId: "account-1",
+      eventId: "event-1",
+      eventTitle: "Weekly sync",
+      addAttendees: ["a@example.com"],
+      removeAttendees: ["b@example.com"],
+    },
+    arrayFields: ["addAttendees", "removeAttendees"],
+  },
   "github.get_pull_requests": {
     base: {
       items: [
