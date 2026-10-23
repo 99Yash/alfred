@@ -50,10 +50,10 @@ describe("splitPersistedToolCalls", () => {
       },
       {
         toolCallId: "b",
-        toolName: "notion.search",
+        toolName: "github.search",
         status: "failed",
         segmentIndex: 1,
-        connectNudge: { integration: "notion", action: "connect" },
+        connectNudge: { integration: "github", action: "connect" },
       },
       {
         toolCallId: "c",
@@ -67,7 +67,7 @@ describe("splitPersistedToolCalls", () => {
     // Same rule as the live stream: first position stays, last offer wins, so a reload matches.
     assert.deepEqual(nudges, [
       { integration: "gmail", action: "reconnect" },
-      { integration: "notion", action: "connect" },
+      { integration: "github", action: "connect" },
     ]);
     assert.deepEqual(cards, []);
   });

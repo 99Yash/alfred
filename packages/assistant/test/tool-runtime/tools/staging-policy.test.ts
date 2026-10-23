@@ -31,12 +31,12 @@ function tool(args: {
 }
 
 /** A non-`system` tool, so its policy mode comes from the user's policy. */
-function notionTool(args: { staging?: "fast_path"; policyGateWaiver?: string }) {
+function sheetsTool(args: { staging?: "fast_path"; policyGateWaiver?: string }) {
   return liveTool({
-    integration: "notion",
-    action: "append_blocks",
+    integration: "sheets",
+    action: "append_values",
     riskTier: "medium",
-    description: "test notion write",
+    description: "test sheets write",
     ...(args.staging ? { staging: args.staging } : {}),
     ...(args.policyGateWaiver ? { policyGateWaiver: args.policyGateWaiver } : {}),
     inputSchema: z.object({}).loose(),
@@ -96,20 +96,20 @@ describe("the fast path may not waive an approval a tool could require", () => {
   // Only `system` is forced to autonomy, so a non-system fast path would skip a real approval.
   test("a mid-tier non-system fast-path tool throws without a named waiver", () => {
     assert.throws(
-      () => registerTool(notionTool({ staging: "fast_path" })),
+      () => registerTool(sheetsTool({ staging: "fast_path" })),
       /only 'system' is forced to autonomy/,
     );
   });
 
   test("a non-system fast-path tool registers once the waiver names the reason", () => {
     assert.doesNotThrow(() =>
-      registerTool(notionTool({ staging: "fast_path", policyGateWaiver: "local read, #540 #5" })),
+      registerTool(sheetsTool({ staging: "fast_path", policyGateWaiver: "local read, #540 #5" })),
     );
   });
 
   test("a waiver without the fast path throws — nothing waives that tool's gate", () => {
     assert.throws(
-      () => registerTool(notionTool({ policyGateWaiver: "local read" })),
+      () => registerTool(sheetsTool({ policyGateWaiver: "local read" })),
       /does not declare staging='fast_path'/,
     );
   });

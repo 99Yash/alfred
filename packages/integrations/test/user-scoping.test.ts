@@ -86,8 +86,8 @@ describe("credential reads are scoped to the bound user (DB-backed)", { skip: SK
     assert.equal(rows[0]?.current_database, configured);
   });
 
-  // Bearer providers (notion/railway/vercel) converge on ONE WHERE clause in
-  // shared/credentials.ts, so notion stands in for all three. Dropping the
+  // Bearer providers (sentry/vercel) converge on ONE WHERE clause in
+  // shared/credentials.ts, so vercel stands in for both. Dropping the
   // `eq(userId)` predicate would leak B's row into A's reads here.
   test("bearer: reads bound to A never return B's credential", async () => {
     ensureCredentialTestEnv();
@@ -97,28 +97,28 @@ describe("credential reads are scoped to the bound user (DB-backed)", { skip: SK
     try {
       const a = await upsertBearerCredential({
         userId: userA,
-        provider: "notion",
+        provider: "vercel",
         accountId: `a-${randomUUID()}`,
-        accessToken: "notion-token-a",
+        accessToken: "vercel-token-a",
       });
 
       const b = await upsertBearerCredential({
         userId: userB,
-        provider: "notion",
+        provider: "vercel",
         accountId: `b-${randomUUID()}`,
-        accessToken: "notion-token-b",
+        accessToken: "vercel-token-b",
       });
 
-      const listed = await listActiveBearerCredentials(userA, "notion");
+      const listed = await listActiveBearerCredentials(userA, "vercel");
       assert.deepEqual(
         listed.map((r) => r.id),
         [a.id],
       );
       assert.ok(!listed.some((r) => r.id === b.id), "B's row must not appear in A's list");
 
-      const active = await getActiveBearerCredential(userA, "notion");
+      const active = await getActiveBearerCredential(userA, "vercel");
       assert.equal(active.id, a.id);
-      assert.equal(active.accessToken, "notion-token-a");
+      assert.equal(active.accessToken, "vercel-token-a");
     } finally {
       await db().delete(user).where(eq(user.id, userA));
       await db().delete(user).where(eq(user.id, userB));

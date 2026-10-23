@@ -1072,64 +1072,6 @@ export const slidesAddSlideInput = z
   })
   .strict();
 
-/* ── notion ───────────────────────────────────────────────────────────── */
-
-export const notionSearchInput = blankFieldToOmitted(
-  ["query"],
-  z
-    .object({
-      query: z
-        .string()
-        .min(1)
-        .max(500)
-        .optional()
-        .describe(
-          "Text to search across the workspace's shared pages and databases. Omit to list recently-edited items.",
-        ),
-      filter: z
-        .enum(["page", "database", "all"])
-        .default("all")
-        .describe("Restrict results to pages, databases, or both."),
-      pageSize: z.coerce.number().int().min(1).max(50).default(10).catch(10),
-    })
-    .strict(),
-);
-
-export const notionGetPageInput = z
-  .object({
-    pageId: z.string().min(1).max(200).describe("The Notion page id (with or without dashes)."),
-  })
-  .strict();
-
-export const notionCreatePageInput = z
-  .object({
-    parentPageId: z
-      .string()
-      .min(1)
-      .max(200)
-      .describe(
-        "Id of the parent page the new page is nested under. The integration must be shared with it.",
-      ),
-    title: z.string().min(1).max(2_000).describe("Title of the new page."),
-    content: z
-      .string()
-      .max(50_000)
-      .optional()
-      .describe("Optional body text. Each line becomes its own paragraph block."),
-  })
-  .strict();
-
-export const notionAppendBlocksInput = z
-  .object({
-    blockId: z.string().min(1).max(200).describe("Id of the page (or block) to append content to."),
-    content: z
-      .string()
-      .min(1)
-      .max(50_000)
-      .describe("Text to append. Each line becomes its own paragraph block."),
-  })
-  .strict();
-
 /**
  * The shared REST passthrough request for every REST integration (ADR-0074).
  * Not `.strict()`: a write method should reach the read gate, which explains the rejection.
@@ -1939,11 +1881,6 @@ export const TOOL_INPUT_SCHEMAS = {
   "github.get_pull_requests": githubGetPullRequestsInput,
   "github.get_issue": githubGetIssueInput,
   "github.request": restPassthroughInput,
-  "notion.search": notionSearchInput,
-  "notion.get_page": notionGetPageInput,
-  "notion.create_page": notionCreatePageInput,
-  "notion.append_blocks": notionAppendBlocksInput,
-  "notion.request": restPassthroughInput,
   "vercel.list_projects": vercelListProjectsInput,
   "vercel.list_deployments": vercelListDeploymentsInput,
   "vercel.redeploy": vercelRedeployInput,

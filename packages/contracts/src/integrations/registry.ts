@@ -250,17 +250,6 @@ export const INTEGRATIONS = {
     identityInSummary: true,
     domain: "github.com",
   },
-  notion: {
-    kind: "provider",
-    status: "live",
-    displayName: "Notion",
-    brand: "notion",
-    credential: { shape: "bearer", connect: "oauth" },
-    passthrough: { transport: "rest" },
-    actions: ["search", "get_page", "create_page", "append_blocks", "request"],
-    summaryBlurb: "the user's Notion pages and databases",
-    domain: "notion.so",
-  },
   vercel: {
     kind: "provider",
     status: "live",
@@ -283,8 +272,15 @@ export const INTEGRATIONS = {
     summaryBlurb: "the user's Sentry issues and error events",
     domain: "sentry.io",
   },
-  // Railway and Polylane (and Linear) are `planned` here but connect through MCP.
+  // Notion, Railway and Polylane (and Linear) are `planned` here but connect through MCP.
   // The entries exist for the slug and the brand art the MCP catalog uses (ADR-0093).
+  notion: {
+    kind: "provider",
+    status: "planned",
+    displayName: "Notion",
+    brand: "notion",
+    actions: [],
+  },
   railway: {
     kind: "provider",
     status: "planned",

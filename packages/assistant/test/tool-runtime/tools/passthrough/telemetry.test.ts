@@ -61,10 +61,10 @@ describe("passthroughTruncationTelemetry", () => {
       },
     };
 
-    const t = passthroughTruncationTelemetry("notion.request", RUN_ID, result);
+    const t = passthroughTruncationTelemetry("vercel.request", RUN_ID, result);
     assert.ok(t);
     assert.equal(t.succeeded, false);
-    assert.equal(t.integration, "notion");
+    assert.equal(t.integration, "vercel");
     assert.equal(t.droppedBodyBytesApprox, 1_500);
   });
 
@@ -116,7 +116,7 @@ describe("passthroughTruncationTelemetry", () => {
       },
     };
 
-    const t = passthroughTruncationTelemetry("notion.request", RUN_ID, result);
+    const t = passthroughTruncationTelemetry("vercel.request", RUN_ID, result);
     assert.ok(t);
     assert.equal(t.causes.length, 1, "only the well-formed cause survives");
     assert.equal(t.droppedArrayItemsApprox, 5);

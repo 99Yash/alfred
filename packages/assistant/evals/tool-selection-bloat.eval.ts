@@ -102,7 +102,6 @@ const CASES: Case[] = [
     home: "calendar",
   },
   { input: "search my email for the invoice from Stripe", expected: "gmail.search", home: "gmail" },
-  { input: "search my notion for the launch checklist", expected: "notion.search", home: "notion" },
   {
     input: "find the Q3 budget spreadsheet in my drive",
     expected: "drive.search_files",

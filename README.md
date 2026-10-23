@@ -84,7 +84,7 @@ LLM transport — required, boot validates. Every model call goes through the Cl
 | --------------------------------------------------------------------------------- | ----------------------------------------- |
 | `CLOUDFLARE_AI_GATEWAY_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_GATEWAY_ID` | Cloudflare AI Gateway, Unified Billing    |
 
-Feature-gated or optional locally: `VOYAGE_API_KEY` (embeddings; called directly, the gateway does not proxy Voyage), `GOOGLE_PUBSUB_*` (Gmail push), `NOTION_*`, `VERCEL_*`, `CHAT_S3_*`, `ENTITY_ID_NAMESPACE`, and observability keys (`SENTRY_DSN`, `SENTRY_TRACES_SAMPLE_RATE`, `LANGFUSE_*`, `POSTHOG_API_KEY`, `VITE_SENTRY_DSN`, `VITE_POSTHOG_*`).
+Feature-gated or optional locally: `VOYAGE_API_KEY` (embeddings; called directly, the gateway does not proxy Voyage), `GOOGLE_PUBSUB_*` (Gmail push), `VERCEL_*`, `CHAT_S3_*`, `ENTITY_ID_NAMESPACE`, and observability keys (`SENTRY_DSN`, `SENTRY_TRACES_SAMPLE_RATE`, `LANGFUSE_*`, `POSTHOG_API_KEY`, `VITE_SENTRY_DSN`, `VITE_POSTHOG_*`).
 
 `ENTITY_ID_NAMESPACE` (ADR-0067, user-model substrate) is the HMAC namespace for content-addressed stable entity IDs. It is optional today (no projection writes IDs yet) but **once the P1 projection lands it must be set and backed up like an auth secret — changing it remints every entity ID on replay.**
 

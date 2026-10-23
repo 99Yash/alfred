@@ -191,10 +191,6 @@ const serverEnvSchema = z
     /** Static OAuth client for the GitHub MCP. GitHub has no DCR, so unset means connect fails. */
     GITHUB_MCP_CLIENT_ID: optionalSecret(),
     GITHUB_MCP_CLIENT_SECRET: optionalSecret(),
-    /** Notion OAuth. Optional; Notion stays unconfigured until all three are set. */
-    NOTION_OAUTH_CLIENT_ID: optionalSecret(),
-    NOTION_OAUTH_CLIENT_SECRET: optionalSecret(),
-    NOTION_OAUTH_REDIRECT_URI: z.preprocess(blankAsUnset, z.url().optional()),
     /** Vercel integration. The slug builds `https://vercel.com/integrations/<slug>/new`. */
     VERCEL_CLIENT_ID: optionalSecret(),
     VERCEL_CLIENT_SECRET: optionalSecret(),

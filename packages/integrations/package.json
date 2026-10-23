@@ -6,7 +6,6 @@
     "./google": "./src/google/index.ts",
     "./google/internal": "./src/google/internal.ts",
     "./github": "./src/github/index.ts",
-    "./notion": "./src/notion/index.ts",
     "./vercel": "./src/vercel/index.ts",
     "./sentry": "./src/sentry/index.ts",
     "./shared": "./src/shared/index.ts"

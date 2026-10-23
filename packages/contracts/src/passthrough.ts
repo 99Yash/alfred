@@ -80,7 +80,7 @@ export const restPassthroughRequestSchema = z.object({
     .unknown()
     .optional()
     .describe(
-      "JSON request body — accepted only for an allowlisted read-via-POST endpoint (e.g. a Notion search/query). Ignored for GET/HEAD.",
+      "JSON request body — accepted only for an allowlisted read-via-POST endpoint (e.g. Google Calendar freeBusy). Ignored for GET/HEAD.",
     ),
 });
 

@@ -29,12 +29,6 @@ export const REST_GATE_CONFIG = {
       },
     ],
   },
-  notion: {
-    // Notion's search and database query are POST reads.
-    readViaPostAllowlist: [/^\/search$/, /^\/databases\/[^/]+\/query$/],
-    sideEffectingGetDenylist: NO_SIDE_EFFECTING_GET,
-    authScopeDenylist: NO_AUTH_SCOPE_DENIALS,
-  },
   vercel: {
     readViaPostAllowlist: NO_READ_VIA_POST,
     sideEffectingGetDenylist: NO_SIDE_EFFECTING_GET,

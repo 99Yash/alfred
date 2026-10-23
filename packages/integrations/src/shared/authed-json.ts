@@ -18,8 +18,8 @@ export interface AuthedJsonOptions {
   /** Defaults to the request URL. Pass a path when the URL could carry query secrets. */
   urlLabel?: string | undefined;
   /**
-   * Default `"summarize"`. Use `"omit"` when error bodies can echo request fragments
-   * (Notion): the body is logged here and the error carries none.
+   * Default `"summarize"`. Use `"omit"` when error bodies can echo request fragments:
+   * the body is logged here and the error carries none.
    */
   bodyPolicy?: ErrorBodyPolicy | undefined;
   /** A non-safe method also needs `idempotent: true` to retry. */

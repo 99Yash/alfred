@@ -8,41 +8,41 @@ import { deriveToolDiscovery } from "../src/tool-runtime/internal/metadata-defau
 describe("deriveToolDiscovery", () => {
   test("derives a searchable baseline from identity, action, and schema fields", () => {
     const discovery = deriveToolDiscovery({
-      integration: "notion",
-      action: "create_page",
-      description: "Create a Notion page under a parent.",
+      integration: "calendar",
+      action: "create_event",
+      description: "Create a calendar event under an organizer.",
       inputSchema: z
         .object({
           title: z.string(),
-          parentId: z.string(),
+          organizerId: z.string(),
           content: z.string(),
           pageToken: z.string().optional(),
         })
         .strict(),
     });
 
-    assert.equal(discovery.title, "Create Page", "title defaults to the humanized action");
+    assert.equal(discovery.title, "Create Event", "title defaults to the humanized action");
     assert.equal(
       discovery.summary,
-      "Create a Notion page under a parent.",
+      "Create a calendar event under an organizer.",
       "summary defaults to the description",
     );
-    assert.ok(discovery.tags?.includes("notion"), "the server identity becomes a tag");
+    assert.ok(discovery.tags?.includes("calendar"), "the server identity becomes a tag");
     assert.ok(discovery.verbs?.includes("create"), "the leading action token is a verb");
     assert.ok(discovery.verbs?.includes("add"), "generic verb synonyms improve recall");
-    assert.ok(discovery.entities?.includes("page"), "trailing action tokens are entities");
+    assert.ok(discovery.entities?.includes("event"), "trailing action tokens are entities");
     assert.ok(
       discovery.entities?.includes("title") && discovery.entities.includes("content"),
       "meaningful schema field names become entities",
     );
-    assert.ok(discovery.entities?.includes("parent"), "camelCase fields split into noun tokens");
+    assert.ok(discovery.entities?.includes("organizer"), "camelCase fields split into noun tokens");
     assert.ok(
       !discovery.entities?.includes("id") && !discovery.entities?.includes("pagetoken"),
       "plumbing field tokens are excluded",
     );
     assert.ok(
-      discovery.aliases?.includes("create page") &&
-        discovery.aliases.includes("notion create page"),
+      discovery.aliases?.includes("create event") &&
+        discovery.aliases.includes("calendar create event"),
       "aliases map likely phrasings onto the capability",
     );
     assert.equal(discovery.relatedTools, undefined, "relatedTools is authored-only");
@@ -96,17 +96,17 @@ describe("deriveToolDiscovery", () => {
 
   test("de-duplicates union members case-insensitively, authored first", () => {
     const discovery = deriveToolDiscovery({
-      integration: "notion",
+      integration: "github",
       action: "search",
-      description: "Search Notion.",
+      description: "Search GitHub.",
       inputSchema: z.object({}).strict(),
-      // "Notion" collides with the derived identity tag "notion".
-      overrides: { tags: ["Notion", "workspace"] },
+      // "GitHub" collides with the derived identity tag "github".
+      overrides: { tags: ["GitHub", "code"] },
     });
 
-    const notionTags = discovery.tags?.filter((tag) => tag.toLowerCase() === "notion") ?? [];
-    assert.equal(notionTags.length, 1, "the derived duplicate is dropped");
-    assert.equal(notionTags[0], "Notion", "the authored casing is kept");
+    const githubTags = discovery.tags?.filter((tag) => tag.toLowerCase() === "github") ?? [];
+    assert.equal(githubTags.length, 1, "the derived duplicate is dropped");
+    assert.equal(githubTags[0], "GitHub", "the authored casing is kept");
   });
 
   test("degrades to identity-only entities when the schema is not an object", () => {

@@ -15,7 +15,7 @@ import type { ToolCallDispatchResult } from "../../../../src/tool-runtime/dispat
  * Tests the shared router in `result-routing.ts`.
  */
 
-const REQUEST: ToolName = "notion.request";
+const REQUEST: ToolName = "vercel.request";
 
 describe("read-gate `rejected` is a VISIBLE, model-facing result", () => {
   const gateRejected: Extract<ToolCallDispatchResult, { kind: "executed" }> = {
@@ -44,8 +44,8 @@ describe("`feature_disabled` is HIDDEN nonExecution plumbing", () => {
     result: {
       status: "feature_disabled",
       toolName: REQUEST,
-      integration: "notion",
-      message: "Notion raw API access is turned off. Enable it under Settings → Features.",
+      integration: "vercel",
+      message: "Vercel raw API access is turned off. Enable it under Settings → Features.",
     },
   };
 

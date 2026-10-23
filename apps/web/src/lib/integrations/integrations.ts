@@ -3,6 +3,7 @@ import {
   credentialProviderOf,
   INTEGRATIONS,
   integrationRoutePrefix,
+  isBuiltInMCPProvider,
   isCatalogSlug,
   recordFromKeys,
   type CatalogSlug,
@@ -20,7 +21,7 @@ export type IntegrationCategory =
   | "Development"
   | "Your Integrations";
 
-type IntegrationActionLabel = "Manage" | "Connect" | "Coming Soon" | "Add";
+type IntegrationActionLabel = "Manage" | "Connect" | "Open" | "Coming Soon" | "Add";
 
 /** Web-only page copy. Registry facts come from `INTEGRATIONS`. */
 interface IntegrationPageCopy {
@@ -213,14 +214,17 @@ const INTEGRATION_PAGE_COPY = {
     category: "Productivity",
     capabilities: ["Search Workspace", "Read Pages", "Create Pages", "Append Content"],
     trust: {
-      title: "Alfred only sees what you share",
-      body: "Notion's OAuth grant scopes Alfred to the pages and databases you explicitly share with the integration. Nothing else in your workspace is visible.",
+      title: "You approve every call",
+      body: "Notion connects over MCP, and every MCP call is staged for your approval before it runs.",
     },
     overview: {
       body: "Connect Notion so Alfred can find and read your docs and write new pages or notes on your behalf.",
       heading: "Workspace Intelligence",
       detail:
-        "Alfred can search shared pages and databases, pull their contents into answers, create new pages under a parent, and append notes to existing pages.",
+        "Alfred can search your pages and databases, pull their contents into answers, and create or update pages over your Notion grant.",
+      extraHeading: "Connect it on the MCP tile",
+      extraDetail:
+        "Notion has no separate Alfred credential. It is a first-class MCP server: connect it from the MCP section of this page, and the consent screen is Notion's own.",
     },
   },
   railway: {
@@ -229,7 +233,7 @@ const INTEGRATION_PAGE_COPY = {
     capabilities: ["Read Projects", "Read Deployments", "Read Deployment Status"],
     trust: {
       title: "You approve every call",
-      body: "Railway connects over MCP, and every MCP call is staged for your approval before it runs. Disconnect here to end the grant.",
+      body: "Railway connects over MCP, and every MCP call is staged for your approval before it runs.",
     },
     overview: {
       body: "Connect Railway to give Alfred your deployment record: the projects, services, environments, and deployment states Railway already tracks.",
@@ -287,7 +291,7 @@ const INTEGRATION_PAGE_COPY = {
     ],
     trust: {
       title: "You approve every call",
-      body: "Polylane connects over MCP, and every MCP call is staged for your approval before it runs. Disconnect here to end the grant.",
+      body: "Polylane connects over MCP, and every MCP call is staged for your approval before it runs.",
     },
     overview: {
       body: "Connect Polylane to give Alfred your production record: the logs, metrics, and traces Polylane already collects, the infrastructure graph, the deployments, and the issues Polylane opens.",
@@ -304,13 +308,15 @@ const INTEGRATION_PAGE_COPY = {
 function buildPage(slug: CatalogSlug): IntegrationPage {
   const entry = INTEGRATIONS[slug];
   const live = entry.status === "live";
+  // A planned provider with a built-in MCP server connects on its detail page.
+  const mcpOnly = !live && isBuiltInMCPProvider(slug);
 
   return {
     slug,
     name: entry.displayName,
     brand: entry.brand,
-    status: live ? "available" : "soon",
-    actionLabel: live ? "Connect" : "Coming Soon",
+    status: live || mcpOnly ? "available" : "soon",
+    actionLabel: live ? "Connect" : mcpOnly ? "Open" : "Coming Soon",
     ...INTEGRATION_PAGE_COPY[slug],
   };
 }

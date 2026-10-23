@@ -22,7 +22,7 @@ function rest(partial: Partial<RestPassthroughRequest> & { path: string }): Rest
 
 const github = REST_GATE_CONFIG.github;
 
-const notion = REST_GATE_CONFIG.notion;
+const calendar = REST_GATE_CONFIG.calendar;
 
 describe("assertReadableRestRequest — method gate", () => {
   test("GET and HEAD in the pinned namespace pass without endpoint curation", () => {
@@ -67,16 +67,18 @@ describe("assertReadableRestRequest — read-via-POST allowlist", () => {
     assert.equal(r.reason, "path_not_allowlisted");
   });
 
-  test("Notion's allowlisted read-via-POST endpoints pass", () => {
-    for (const path of ["/search", "/databases/abc123/query"]) {
-      const r = assertReadableRestRequest(notion, rest({ method: "POST", path }));
-      assert.equal(r.ok, true, path);
-    }
+  test("Calendar's allowlisted read-via-POST endpoint passes", () => {
+    const r = assertReadableRestRequest(calendar, rest({ method: "POST", path: "/freeBusy" }));
+    assert.equal(r.ok, true);
   });
 
-  test("a Notion POST outside the allowlist is denied", () => {
-    for (const path of ["/pages", "/databases/abc123", "/blocks/x/children"]) {
-      const r = assertReadableRestRequest(notion, rest({ method: "POST", path }));
+  test("a Calendar POST outside the allowlist is denied", () => {
+    for (const path of [
+      "/calendars/primary/events",
+      "/freeBusy/extra",
+      "/calendars/primary/events/quickAdd",
+    ]) {
+      const r = assertReadableRestRequest(calendar, rest({ method: "POST", path }));
       assert.equal(r.ok, false, path);
 
       assert.equal(r.reason, "path_not_allowlisted", path);

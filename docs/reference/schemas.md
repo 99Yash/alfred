@@ -9,7 +9,7 @@ contract. Placement therefore follows **consumer need**, not file type:
 | ------------------------------------------------------ | ----------------------------------------------------------- | --------------------------------------------- |
 | Must browser and server agree on this shape?           | `@alfred/contracts`, split by domain file                   | `briefing.ts`, `events.ts`, `tool-schemas.ts` |
 | Is this a synced Replicache read model or mutator arg? | `@alfred/sync` (`src/schemas.ts` holds the shared registry) | `syncedNoteSchema`, `factValueSchema`         |
-| Is this a provider's wire shape?                       | The owning integration client                               | `google/gmail.ts`, `notion/oauth.ts`          |
+| Is this a provider's wire shape?                       | The owning integration client                               | `google/gmail.ts`, `vercel/oauth.ts`          |
 | Does code look schemas up by name across features?     | A registry table next to the dispatcher                     | `TOOL_INPUT_SCHEMAS`                          |
 | None of these - one feature parses one payload         | Colocate with the parser that owns the boundary             | `valueRangeSchema` in `sheets.ts`             |
 
