@@ -15,6 +15,9 @@ import { cn } from "~/lib/utils";
  * Public read-only `/c/$slug` (ADR-0102). Signed out; its only data is the `GET /api/shared/:slug` snapshot.
  * Do not add Replicache, a session, or a synced hook. The route's `publicRoute: true` stops the `/login` redirect.
  * `MessageBubble` must make no authenticated read; nothing in the build catches one.
+ * Motion rule: this page renders `m.*` outside the authed shell, so it sees no feature gate.
+ * Keep it that way: a public route that renders `m.*` must not change a keyed child
+ * before the features load (today a finished snapshot with static titles, so no exit can stick).
  */
 
 /** `FrostButton` has no `asChild`, and a button inside a link is invalid, so it navigates on click. */
