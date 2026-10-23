@@ -22,7 +22,7 @@ Measured on 3 real local replies (2026-10-23). Each call took 248 to 315 input t
 
 The prompts go into a new nullable column `chat_messages.follow_ups text[]`. The write is guarded on the row id, the user, the `runId` that made the call, and `status = 'complete'`. It bumps `row_version` and pokes Replicache. The web reads them through the existing `chatmsg` model. There is no new SSE frame, route, or table, and the prompts survive a reload.
 
-`chatFollowUpSchema` in `@alfred/contracts` holds the per-prompt rule: trimmed text, 1 to 120 characters, and no em or en dash. `chatFollowUpsSchema` builds a list of 1 to 3 prompts from it. The server keeps each entry that passes the per-prompt schema, drops the rest one at a time, removes duplicates, and caps the list at 3. `syncedChatMessageSchema` parses with the list schema again and reads a bad or older value as `null`. Before the parse, the server strips list marks and quotes, repairs dashes with `sanitizeVoice`, and collapses whitespace.
+`chatFollowUpSchema` in `@alfred/contracts` holds the per-prompt rule: trimmed text, 1 to 120 characters, and no em or en dash. `chatFollowUpsSchema` builds a list of 1 to 3 prompts from it. The server keeps each entry that passes the per-prompt schema, drops the rest one at a time, removes duplicates, and caps the list at 3. One case loses the whole list: an entry with a NUL byte passes the schema, but Postgres refuses the write. The column then stays `null`, so the invariant still holds. `syncedChatMessageSchema` parses with the list schema again and reads a bad or older value as `null`. Before the parse, the server strips list marks and quotes, repairs dashes with `sanitizeVoice`, and collapses whitespace.
 
 ## D4 — The rule-based chips are deleted
 
@@ -35,7 +35,7 @@ The chips are model-written, and the reply they extend can quote third-party mai
 ## Considered and rejected
 
 - **Generate in the HTTP request or in the web.** The web cannot import `@alfred/ai`, and the request only enqueues the run.
-- **Generate inside the boss run (a tool or a structured tail on the reply).** The reply would wait for the prompts, the call would use the expensive model, and the chat system prompt would change. `assertStableChatSystem` pins the prompt hash, so a run parked across the deploy would fail.
+- **Generate inside the boss run (a tool or a structured tail on the reply).** The reply would wait for the prompts, and the call would use the expensive model. The chat system prompt would also change. `assertStableChatSystem` pins the prompt hash, so a run parked across the deploy would fail.
 - **A new SSE frame.** The `completed` frame already ended the stream. The row and a Replicache poke are the existing path.
 - **A BullMQ job for each turn.** A retry queue for a cosmetic prompt costs more than it gives. The title uses fire-and-forget too.
 - **A separate table or a `jsonb` column.** One list of strings for each reply, read only with the reply, fits a `text[]` column.
