@@ -945,6 +945,27 @@ export const gmailModifyThreadInput = coerceJsonArrayFields(
 
 export type GmailModifyThreadInput = z.infer<typeof gmailModifyThreadInput>;
 
+const gmailMessageId = z
+  .string()
+  .min(1)
+  .describe("Gmail message id: a `messageId` from gmail.search or gmail.get_thread.");
+
+export const gmailModifyMessageInput = coerceJsonArrayFields(
+  ["addLabels", "removeLabels"],
+  z
+    .object({
+      messageId: gmailMessageId,
+      addLabels: gmailLabelNames.optional(),
+      removeLabels: gmailLabelNames.optional(),
+    })
+    .strict()
+    .refine((value) => value.addLabels !== undefined || value.removeLabels !== undefined, {
+      message: "addLabels or removeLabels is required",
+    }),
+);
+
+export type GmailModifyMessageInput = z.infer<typeof gmailModifyMessageInput>;
+
 /* ── sheets ───────────────────────────────────────────────────────────── */
 
 /** `null` is a blank cell. */
@@ -1953,6 +1974,7 @@ export const TOOL_INPUT_SCHEMAS = {
   "gmail.read_message": gmailReadMessageInput,
   "gmail.get_thread": gmailGetThreadInput,
   "gmail.modify_thread": gmailModifyThreadInput,
+  "gmail.modify_message": gmailModifyMessageInput,
   "gmail.create_draft": gmailSendDraftInput,
   "sheets.create_spreadsheet": sheetsCreateInput,
   "sheets.get_values": sheetsGetValuesInput,
