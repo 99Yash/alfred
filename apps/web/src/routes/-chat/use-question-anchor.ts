@@ -88,19 +88,24 @@ interface QuestionAnchor {
  * `ResizeObserver` runs after layout, which is too late: the browser clamps
  * `scrollTop` in layout.
  *
- * Branch 3 (live with no new user row) keys off the stream's own turn
- * identity: it fires only once the live `runId` is stable across renders, so
- * a just-seeded stream whose user row is still in flight never anchors the
- * previous question. A live run that belongs to the current last user row
- * (mount or resume onto a live run, an approval or `ask_user` wake) anchors
- * `open` on the first stable render.
+ * The live-with-no-new-user-row path fires only when the last Virtuoso row is a
+ * user row. Roles are only `user | assistant` (`packages/db/src/schema/chat.ts`),
+ * and the durable assistant row joins the list only at run end (every
+ * `chat-turn-closure.ts` ending writes one: completed and cancelled write
+ * `complete`, failed writes `failed`; a close that yields to cancel runs only
+ * because the cancel already wrote its row). So a just-seeded stream whose user
+ * row is still in flight (`seedChatStream` runs before `chatMessageCreate`)
+ * sees the previous turn's assistant row last and anchors nothing here; the
+ * arriving user row takes the `send` path. A live run that owns the current
+ * last user row (mount or resume onto a live run, an approval or `ask_user`
+ * wake) anchors `open`. A user row with no live stream (a send whose request
+ * failed before the run started) never anchors: there is no reply coming.
  */
 export function useQuestionAnchor({
   virtuosoRef,
   messages,
   threadId,
   live,
-  liveKey,
   smoothAnchor,
 }: {
   virtuosoRef: React.RefObject<VirtuosoHandle | null>;
@@ -108,8 +113,6 @@ export function useQuestionAnchor({
   threadId: string | undefined;
   /** `showStream && !stream.done`. */
   live: boolean;
-  /** The live turn's identity (`stream.runId`) while `live`, else `null`. */
-  liveKey: string | null;
   /** `!reducedMotion && isNearLiveEdge()`, read at anchor time. */
   smoothAnchor: () => boolean;
 }): QuestionAnchor {
@@ -123,36 +126,34 @@ export function useQuestionAnchor({
     return null;
   }, [messages]);
 
+  // The durable assistant row joins the list only at run end, so while a run
+  // is live its user row is the last row. A just-seeded stream whose user row
+  // is still in flight still ends in the previous turn's assistant row.
+  const lastRowIsUser = (messages.at(-1)?.role ?? null) === "user";
+
   // ---- The anchor, derived during render ------------------------------
   const [anchor, setAnchor] = useState<Anchor | null>(() =>
     live && lastUserId ? { id: lastUserId, kind: "mount" } : null,
   );
 
-  const [prev, setPrev] = useState({ threadId, lastUserId, liveKey });
+  const [prev, setPrev] = useState({ threadId, lastUserId });
 
   if (threadId !== prev.threadId) {
-    setPrev({ threadId, lastUserId, liveKey });
+    setPrev({ threadId, lastUserId });
     setAnchor(live && lastUserId ? { id: lastUserId, kind: "open" } : null);
   } else if (lastUserId !== prev.lastUserId) {
-    setPrev({ threadId, lastUserId, liveKey });
+    setPrev({ threadId, lastUserId });
 
     if (lastUserId) setAnchor({ id: lastUserId, kind: "send" });
-  } else if (
-    live &&
-    liveKey !== null &&
-    liveKey === prev.liveKey &&
-    lastUserId &&
-    anchor?.id !== lastUserId
-  ) {
-    // A live run for the current last user row: a mount or resume the switch
-    // saw no stream for yet, or a wake with no new user row. The key must be
-    // stable across renders, so a just-seeded stream whose user row is still
-    // in flight (`seedChatStream` runs before `chatMessageCreate`) never
-    // anchors the previous question here; its user row takes the `send` path.
-    setPrev({ threadId, lastUserId, liveKey });
+  } else if (live && lastRowIsUser && lastUserId && anchor?.id !== lastUserId) {
+    // A live run owns the current last row: a mount or resume the switch saw
+    // no stream for yet, or a wake with no new user row. This never fires for
+    // a just-seeded stream (its user row has not arrived, so the last row is
+    // still the previous turn's assistant row), and it does not count
+    // renders: a during-render `setPrev` re-runs the component in the same
+    // pass, so key equality can never mean "stable across renders".
+    setPrev({ threadId, lastUserId });
     setAnchor({ id: lastUserId, kind: "open" });
-  } else if (liveKey !== prev.liveKey) {
-    setPrev({ threadId, lastUserId, liveKey });
   }
 
   // Virtuoso reads this once on mount. Later landings go through `scrollToIndex`.
@@ -189,7 +190,7 @@ export function useQuestionAnchor({
     else footer.style.setProperty(TAIL_VAR, `${px}px`);
   }, []);
 
-  const syncFooterChrome = useCallback(
+  const applyFooterReserve = useCallback(
     (el: HTMLElement | null, anchored: boolean) => {
       if (!el) return;
 
@@ -291,15 +292,12 @@ export function useQuestionAnchor({
     (el: HTMLElement | null) => {
       const prev = footerElRef.current;
 
-      if (prev && prev !== el) {
-        prev.style.minHeight = "";
-        prev.style.removeProperty(TAIL_VAR);
-      }
+      if (prev && prev !== el) applyFooterReserve(prev, false);
 
       swapObserved(footerElRef, el);
-      syncFooterChrome(el, anchorRef.current !== null);
+      applyFooterReserve(el, anchorRef.current !== null);
     },
-    [swapObserved, syncFooterChrome],
+    [swapObserved, applyFooterReserve],
   );
 
   // ---- The anchor scroll, once per anchor event -----------------------
@@ -321,26 +319,23 @@ export function useQuestionAnchor({
 
     if (!anchor) {
       tailRef.current = null;
-      const footer = footerElRef.current;
-
-      if (footer) {
-        footer.style.minHeight = "";
-        footer.style.removeProperty(TAIL_VAR);
-      }
+      applyFooterReserve(footerElRef.current, false);
 
       return;
     }
 
     // Over-reserve first (a zero tail holds the full reading area minus the gap),
-    // so the target is reachable before the row renders; the measure then sizes
-    // the tail exactly when the row is already there. A refine never makes the
-    // target unreachable: rows plus footer stay at the reading area minus the gap.
-    syncFooterChrome(footerElRef.current, true);
+    // so the anchor target stays reachable while the row renders; the measure then
+    // sizes the tail exactly once the row is there. On mount there is no scroll
+    // (Virtuoso's initial location lands it); the over-reserve keeps that landing
+    // reachable too. A refine never makes the target unreachable: rows plus footer
+    // stay at the reading area minus the gap.
+    applyFooterReserve(footerElRef.current, true);
     writeTail(0);
     measure();
 
     if (anchor.kind !== "mount") scrollToAnchor(anchor);
-  }, [anchor, measure, syncFooterChrome, writeTail]);
+  }, [anchor, measure, applyFooterReserve, writeTail]);
 
   return {
     attachScroller,

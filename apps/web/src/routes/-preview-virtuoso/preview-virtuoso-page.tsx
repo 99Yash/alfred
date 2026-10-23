@@ -70,7 +70,9 @@ export function PreviewVirtuosoPage() {
 
     const full =
       "Streaming this reply in now. I'll keep adding sentences so the footer grows continuously and the question stays pinned at the top without you touching the scrollbar. " +
-      "Here is a second paragraph to push the content taller than the pill threshold in a single burst. " +
+      "Here is a second paragraph with enough text to outgrow the reserve on a typical viewport, so the pill shows and a click lands at the live end. ".repeat(
+        6,
+      ) +
       "And a third, with a short list:\n\n- alpha\n- beta\n- gamma\n\nThat should be enough to tell whether the anchor holds during a fast stream.";
 
     let shown = 0;
@@ -146,7 +148,7 @@ export function PreviewVirtuosoPage() {
         userId: "preview-user",
         threadId: THREAD_ID,
         role: "user",
-        content: `Freshly appended user message (#${seq}) — this should anchor the new question at the top.`,
+        content: `Freshly appended user message (#${seq}): this should anchor the new question at the top.`,
         reasoning: null,
         reasoningMs: null,
         status: "complete",

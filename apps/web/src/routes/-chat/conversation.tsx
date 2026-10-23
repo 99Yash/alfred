@@ -139,7 +139,6 @@ export function Conversation({
     messages,
     threadId,
     live: showStream && !stream.done,
-    liveKey: showStream && !stream.done ? stream.runId : null,
     smoothAnchor: () => !reducedMotion && isNearLiveEdge(),
   });
 
