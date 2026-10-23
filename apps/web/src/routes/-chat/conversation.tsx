@@ -578,9 +578,12 @@ function FeedFooter() {
 
           {stream.done ? <SourcesStrip sources={collectSources(stream.tools)} /> : null}
 
-          {/* Holds the copy button until the durable copy syncs in. */}
+          {/* Holds the copy button until the durable copy syncs in. It fades in once, here;
+              the durable button that replaces it does not, so the handoff does not blink. */}
           {stream.done && stream.text.length > 0 ? (
-            <CopyMessageButton content={stream.text} htmlRef={streamBodyRef} />
+            <div className="animate-chat-in">
+              <CopyMessageButton content={stream.text} htmlRef={streamBodyRef} />
+            </div>
           ) : null}
 
           {stream.done ? <span ref={doneRef} hidden /> : null}

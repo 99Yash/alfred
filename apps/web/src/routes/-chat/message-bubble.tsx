@@ -322,7 +322,7 @@ export function MessageBubble({
       : failure?.message;
 
   return (
-    <div className="group/message flex flex-col gap-2">
+    <div className="flex flex-col gap-2">
       {message.reasoning && message.reasoning.trim().length > 0 ? (
         <ReasoningSection
           reasoning={message.reasoning}
@@ -420,13 +420,7 @@ export function CopyMessageButton({
   };
 
   return (
-    <div
-      className={cn(
-        "-ml-1.5 flex items-center",
-        "opacity-0 transition-opacity duration-150",
-        "group-hover/message:opacity-100 focus-within:opacity-100",
-      )}
-    >
+    <div className="-ml-1.5 flex items-center">
       <button
         type="button"
         onClick={onCopy}
