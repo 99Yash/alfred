@@ -136,7 +136,9 @@ export function ToolCallGroup({
     );
   };
 
-  // Inline, no capped height: the feed's stick-to-bottom keeps the current step in view.
+  // Inline, no capped height: the anchored question holds still while the reply grows
+  // into the reserve below it, and a click on the pill jumps to the live end once it
+  // outgrows the viewport.
   // Each trail row owns its enter and exit, so the cards inside run no `animate-chat-in`.
   const rail = (
     <CollapseList className="mt-1.5 ml-3 flex flex-col gap-1.5 border-l-2 border-app-fg-a1 pl-3">

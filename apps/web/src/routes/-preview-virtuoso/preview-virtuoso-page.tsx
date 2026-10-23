@@ -61,7 +61,10 @@ export function PreviewVirtuosoPage() {
 
   const messages = useMemo(() => [...base, ...appended], [base, appended]);
 
-  // A reply that grows for ~5s then folds into the transcript, to test stick-to-bottom.
+  // A reply that grows for ~5s then folds into the transcript, to test the
+  // question anchor: the question pins to the top while the reply grows below it.
+  // Press "Append user turn" first: the default thread ends in an assistant row,
+  // so a stream alone anchors nothing.
   const simulateStream = useCallback(() => {
     if (timerRef.current) clearInterval(timerRef.current);
     const seq = base.length + appended.length;
@@ -69,9 +72,11 @@ export function PreviewVirtuosoPage() {
     const runId = `preview-stream-run-${seq}`;
 
     const full =
-      "Streaming this reply in now. I'll keep adding sentences so the footer grows continuously and the feed should ride the bottom the entire time without you touching the scrollbar. " +
-      "Here is a second paragraph to push the content taller than the detach threshold in a single burst. " +
-      "And a third, with a short list:\n\n- alpha\n- beta\n- gamma\n\nThat should be enough to tell whether stick-to-bottom holds during a fast stream.";
+      "Streaming this reply in now. I'll keep adding sentences so the footer grows continuously and the question stays pinned at the top without you touching the scrollbar. " +
+      "Here is a second paragraph with enough text to outgrow the reserve on a typical viewport, so the pill shows and a click lands at the live end. ".repeat(
+        14,
+      ) +
+      "And a third, with a short list:\n\n- alpha\n- beta\n- gamma\n\nThat should be enough to tell whether the anchor holds during a fast stream.";
 
     let shown = 0;
     setStream({
@@ -147,7 +152,7 @@ export function PreviewVirtuosoPage() {
         userId: "preview-user",
         threadId: THREAD_ID,
         role: "user",
-        content: `Freshly appended user message (#${seq}) — this should re-engage stick-to-bottom.`,
+        content: `Freshly appended user message (#${seq}): this should anchor the new question at the top.`,
         reasoning: null,
         reasoningMs: null,
         status: "complete",
