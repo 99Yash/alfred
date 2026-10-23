@@ -86,7 +86,7 @@ const CollapseListContext = createContext<{
  * value. `overflow: hidden` holds only while the size tweens, so a settled
  * row does not clip a child's focus ring.
  */
-function useCollapseProps(axis: CollapseAxis, reduce: boolean) {
+function collapseProps(axis: CollapseAxis, reduce: boolean) {
   const size = (value: 0 | "auto") => (axis === "height" ? { height: value } : { width: value });
   const collapsed: TargetAndTransition = { opacity: 0, ...size(0), overflow: "hidden" };
 
@@ -108,18 +108,17 @@ function useCollapseProps(axis: CollapseAxis, reduce: boolean) {
  * steps, queued messages, attachment chips, to-dos). The keyed `CollapseItem`
  * is the direct child of a `CollapseList`: its enter runs once on add, its
  * exit collapses its size, and while it leaves it is `inert`, so its buttons
- * take no pointer or keyboard input mid-exit. The list owns the animated node
- * (tag from the list tag, axis, reduce, `inert`); the row owns its content,
- * so keep size-affecting classes (padding, border, `min-h-*`) on an inner
- * `div`: the animated node measures its own natural size, and motion's
- * inline `overflow: visible` beats an `overflow-hidden` class.
+ * take no pointer or keyboard input mid-exit. The list picks the tag, axis,
+ * and reduce; the item sets `inert`. The row owns only its content: the
+ * animated node takes no classes, so padding, borders, and `overflow-hidden`
+ * go on an inner `div`.
  */
 export function CollapseItem({ children }: { children: ReactNode }) {
   const list = useContext(CollapseListContext);
 
   if (!list) throw new Error("CollapseItem must render inside a CollapseList");
 
-  const motionProps = useCollapseProps(list.axis, list.reduce);
+  const motionProps = collapseProps(list.axis, list.reduce);
   const isPresent = useIsPresent();
 
   if (list.itemTag === "li") {
@@ -140,9 +139,8 @@ export function CollapseItem({ children }: { children: ReactNode }) {
 /**
  * The list around keyed `CollapseItem` rows. Rows already present on the
  * first render do not animate (`initial={false}`): the list ignores rows
- * mounted with it. The `as` tag picks
- * the row tag (`ol`/`ul` rows are `li`, `div` rows are `div`); `axis` is
- * `width` only for the fixed-size chip row.
+ * mounted with it. The `as` tag picks the row tag (`ol`/`ul` rows are `li`,
+ * `div` rows are `div`); `axis` is `width` only for the fixed-size chip row.
  */
 export function CollapseList({
   as = "div",
