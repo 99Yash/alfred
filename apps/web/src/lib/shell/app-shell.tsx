@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import type { FeatureBundle } from "motion/react";
+import { LazyMotion, type FeatureBundle } from "motion/react";
 import {
   createContext,
   lazy,
@@ -13,6 +13,7 @@ import {
   useMemo,
   useReducer,
   useState,
+  type ComponentProps,
   type ReactNode,
   type SetStateAction,
 } from "react";
@@ -96,15 +97,27 @@ export function loadMotionFeatures(): Promise<FeatureBundle> {
   return (motionFeaturesPromise ??= import("./motion-features").then((mod) => mod.domAnimation));
 }
 
-/* The shell waits on the shared feature promise `LazyMotion` receives, so no `m.*`
-   under the shell mounts before its features exist, and a feature-chunk failure
-   lands in this lazy import's rejection path (the router's default error boundary).
-   One module-scope promise serves both callers: `import()` caches by specifier, but
-   the `.then` chain would still be a fresh promise per call, so `??=` shares one
-   chain and its FIFO `.then` order. */
-const LazyAuthedAppShell = lazy(() =>
-  Promise.all([import("./authed-app-shell"), loadMotionFeatures()]).then(([shell]) => shell),
-);
+/* The shell owns its features synchronously. The lazy below resolves the shell
+   chunk and the feature chunk at once, then wraps the shell in an inner
+   `LazyMotion` with the resolved bundle. A sync bundle sets the renderer during
+   render, so the first shell render has it in each arrival order. The outer async
+   `LazyMotion` in `root-layout.tsx` stays for `/c/$slug`. One module-scope promise
+   serves both callers so the feature chunk loads once. A feature-chunk failure
+   rejects this lazy import into the router default error boundary. */
+const LazyAuthedAppShell = lazy(async () => {
+  const [shell, bundle] = await Promise.all([import("./authed-app-shell"), loadMotionFeatures()]);
+  const Shell = shell.default;
+
+  return {
+    default: function AuthedShellWithMotion(props: ComponentProps<typeof Shell>) {
+      return (
+        <LazyMotion features={bundle} strict>
+          <Shell {...props} />
+        </LazyMotion>
+      );
+    },
+  };
+});
 
 function useSidebarMode(): "inline" | "overlay" {
   const [mode, setMode] = useState<"inline" | "overlay">(() => {

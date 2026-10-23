@@ -11,8 +11,8 @@ export function RootLayout() {
   }
 
   // `strict` throws on a full `motion.*` component: use `m.*`, which loads only these features.
-  // The authed shell suspends until the same feature promise resolves, so no `m.*`
-  // under it mounts before its features exist.
+  // The outer `LazyMotion` loads async for the public `/c/$slug` page. The authed
+  // shell brings its own resolved bundle, so its first render has the renderer.
   return (
     <LazyMotion features={loadMotionFeatures} strict>
       <MotionConfig reducedMotion="user">
