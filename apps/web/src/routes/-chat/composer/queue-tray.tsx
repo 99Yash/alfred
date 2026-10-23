@@ -1,9 +1,8 @@
 import { ArrowUp, CornerDownRight, ListEnd, Pause, Pencil, Play, Trash2 } from "lucide-react";
-import { AnimatePresence, m } from "motion/react";
 import type { ReactNode } from "react";
 import { cn } from "~/lib/utils";
 import type { QueuedMessage } from "~/lib/chat/use-chat-queue";
-import { useCollapseMotion } from "../motion";
+import { CollapseItem, CollapseList } from "../motion";
 import { splitQuote } from "../quote";
 import { Tip } from "../tip";
 
@@ -51,8 +50,6 @@ export function QueueTray({
   /** Absent while no steer can run, e.g. while an approval waits. */
   onSendNow?: ((id: string) => void) | undefined;
 }) {
-  const rowMotion = useCollapseMotion("height");
-
   if (items.length === 0) return null;
   const headEditing = items[0]?.id === editingId;
   const count = `${items.length} queued message${items.length > 1 ? "s" : ""}`;
@@ -93,30 +90,28 @@ export function QueueTray({
           ) : null}
         </header>
       ) : null}
-      <ol className="flex flex-col gap-px p-1.5">
-        <AnimatePresence initial={false}>
-          {items.map((item) => (
-            <m.li key={item.id} {...rowMotion}>
-              <QueueRow
-                item={item}
-                state={
-                  item.id === steeringId
-                    ? "steering"
-                    : item.id === sendingId
-                      ? "sending"
-                      : item.id === editingId
-                        ? "editing"
-                        : "idle"
-                }
-                canSteer={canSteer}
-                onEdit={onEdit ? () => onEdit(item.id) : undefined}
-                onRemove={() => onRemove(item.id)}
-                onSendNow={onSendNow ? () => onSendNow(item.id) : undefined}
-              />
-            </m.li>
-          ))}
-        </AnimatePresence>
-      </ol>
+      <CollapseList as="ol" className="flex flex-col gap-px p-1.5">
+        {items.map((item) => (
+          <CollapseItem as="li" key={item.id}>
+            <QueueRow
+              item={item}
+              state={
+                item.id === steeringId
+                  ? "steering"
+                  : item.id === sendingId
+                    ? "sending"
+                    : item.id === editingId
+                      ? "editing"
+                      : "idle"
+              }
+              canSteer={canSteer}
+              onEdit={onEdit ? () => onEdit(item.id) : undefined}
+              onRemove={() => onRemove(item.id)}
+              onSendNow={onSendNow ? () => onSendNow(item.id) : undefined}
+            />
+          </CollapseItem>
+        ))}
+      </CollapseList>
     </section>
   );
 }

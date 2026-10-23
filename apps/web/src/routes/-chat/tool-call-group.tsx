@@ -2,7 +2,6 @@ import * as Accordion from "@radix-ui/react-accordion";
 import { AWAIT_SUB_AGENT_TOOL, isQuestionApproval, SPAWN_SUB_AGENT_TOOL } from "@alfred/contracts";
 import type { SyncedChatNarration } from "@alfred/sync";
 import { ChevronRight } from "lucide-react";
-import { AnimatePresence, m } from "motion/react";
 import { type ReactNode, useId, useState } from "react";
 import { askUserSummary, type AskUserSummary } from "~/components/approvals/ask-user";
 import { QuestionAnswersCard } from "~/components/approvals/question-answers-card";
@@ -10,7 +9,7 @@ import type { SubAgentTrail } from "~/lib/chat/chat-stream-state";
 import { asString, parseJsonRecord } from "~/lib/json-record";
 import { cn } from "~/lib/utils";
 import { ChatProse } from "./chat-prose";
-import { useCollapseMotion } from "./motion";
+import { CollapseItem, CollapseList } from "./motion";
 import { RunGlyphCluster } from "./run-glyph-cluster";
 import { runGlyphs, runSummary } from "./run-summary";
 import { SubAgentCard } from "./sub-agent-card";
@@ -56,8 +55,6 @@ export function ToolCallGroup({
   subAgents?: readonly SubAgentTrail[] | undefined;
 }) {
   const contentId = useId();
-  // Each trail row owns its enter and exit, so the cards inside run no `animate-chat-in`.
-  const rowMotion = useCollapseMotion("height");
   // Open while active, collapse when done. Set during render to avoid a flash.
   const [value, setValue] = useState(active ? ITEM : "");
   const [prevActive, setPrevActive] = useState(active);
@@ -140,20 +137,15 @@ export function ToolCallGroup({
   };
 
   // Inline, no capped height: the feed's stick-to-bottom keeps the current step in view.
+  // Each trail row owns its enter and exit, so the cards inside run no `animate-chat-in`.
   const rail = (
-    <div className="mt-1.5 ml-3 flex flex-col gap-1.5 border-l-2 border-app-fg-a1 pl-3">
-      <AnimatePresence initial={false}>
-        {trail.map((item) => {
-          if (item.kind === "tool" && isRedundantAwait(item.tools)) return null;
+    <CollapseList className="mt-1.5 ml-3 flex flex-col gap-1.5 border-l-2 border-app-fg-a1 pl-3">
+      {trail.map((item) => {
+        if (item.kind === "tool" && isRedundantAwait(item.tools)) return null;
 
-          return (
-            <m.div key={item.key} {...rowMotion}>
-              {trailRow(item)}
-            </m.div>
-          );
-        })}
-      </AnimatePresence>
-    </div>
+        return <CollapseItem key={item.key}>{trailRow(item)}</CollapseItem>;
+      })}
+    </CollapseList>
   );
 
   // Prose with no cards: nothing to summarize. A tool item in the trail means `shown` is not empty.

@@ -1,5 +1,7 @@
+import { AnimatePresence, m, useIsPresent } from "motion/react";
 import type { TargetAndTransition, Transition } from "motion/react";
 import { useSyncExternalStore } from "react";
+import type { ReactNode } from "react";
 
 /**
  * Live reduced-motion preference, SSR-safe. Motion's own `reducedMotion="user"`
@@ -68,16 +70,15 @@ export const CHAT_PANEL = {
 type CollapseAxis = "height" | "width";
 
 /**
- * Props for one row of a list that grows and shrinks: a fade plus a size
- * collapse, so the rows after it reflow smoothly with no `layout` feature
- * (`domMax`). Spread on the keyed `m.*` child of an
- * `<AnimatePresence initial={false}>`, so a list's first render does not
- * animate. Reads reduce live and passes it in the transition: list rows
- * (queued messages, to-dos) outlive a preference change. `overflow: hidden`
- * holds only while the size tweens, so a settled row does not clip a child's
- * focus ring.
+ * The collapse behind {@link CollapseItem}: a fade plus a size collapse, so
+ * the rows after a leaving row reflow smoothly with no `layout` feature
+ * (`domMax`). File-local: call sites render `CollapseItem`, they never spread
+ * this. Reads reduce live and passes it in the transition: list rows (queued
+ * messages, to-dos) outlive a preference change. `overflow: hidden` holds
+ * only while the size tweens, so a settled row does not clip a child's focus
+ * ring.
  */
-export function useCollapseMotion(axis: CollapseAxis) {
+function useCollapseProps(axis: CollapseAxis) {
   const reduce = usePrefersReducedMotion();
   const size = (value: 0 | "auto") => (axis === "height" ? { height: value } : { width: value });
   const collapsed: TargetAndTransition = { opacity: 0, ...size(0), overflow: "hidden" };
@@ -93,4 +94,68 @@ export function useCollapseMotion(axis: CollapseAxis) {
     exit: TargetAndTransition;
     transition: LiveTransition;
   };
+}
+
+/**
+ * One row of a list that grows and shrinks (tool-trail rows, sub-agent
+ * steps, queued messages, attachment chips, to-dos). The keyed `CollapseItem`
+ * is the direct child of a `CollapseList`: its enter runs once on add, its
+ * exit collapses its size, and while it leaves it is `inert`, so its buttons
+ * take no pointer or keyboard input mid-exit. Keep size-affecting classes
+ * (padding, border, `min-h-*`, `overflow-hidden`) off `className`: the row
+ * measures its own natural size, and motion's inline `overflow: visible`
+ * beats a class. `className` carries layout only (`flex`, `gap`).
+ */
+export function CollapseItem({
+  axis = "height",
+  as = "div",
+  className,
+  children,
+}: {
+  /** `height` for stacked rows, `width` for the fixed-size chip row. */
+  axis?: CollapseAxis | undefined;
+  /** `li` inside an `ol`/`ul` list, `div` elsewhere. */
+  as?: "div" | "li" | undefined;
+  className?: string | undefined;
+  children: ReactNode;
+}) {
+  const motionProps = useCollapseProps(axis);
+  const isPresent = useIsPresent();
+
+  if (as === "li") {
+    return (
+      <m.li {...motionProps} className={className} inert={!isPresent}>
+        {children}
+      </m.li>
+    );
+  }
+
+  return (
+    <m.div {...motionProps} className={className} inert={!isPresent}>
+      {children}
+    </m.div>
+  );
+}
+
+/**
+ * The list around keyed `CollapseItem` rows. Rows already present on the
+ * first render do not animate (`initial={false}`), matching auto-animate,
+ * which ignored children present when its ref attached.
+ */
+export function CollapseList({
+  as = "div",
+  className,
+  children,
+}: {
+  as?: "div" | "ol" | "ul" | undefined;
+  className?: string | undefined;
+  children: ReactNode;
+}) {
+  const Container = as;
+
+  return (
+    <Container className={className}>
+      <AnimatePresence initial={false}>{children}</AnimatePresence>
+    </Container>
+  );
 }
