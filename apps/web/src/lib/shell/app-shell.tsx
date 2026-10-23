@@ -30,6 +30,7 @@ import {
 } from "~/lib/onboarding/onboarding-hint";
 import { LOCAL_STORAGE_KEY, setLocalStorageItem } from "~/lib/storage/storage";
 import { resolveSetState } from "~/lib/set-state";
+import type AuthedAppShell from "./authed-app-shell";
 
 /* Right-rail slot: `useRightRail(node)` mounts a page's own aside. The last one registered wins. */
 
@@ -107,13 +108,13 @@ export function loadMotionFeatures(): Promise<FeatureBundle> {
    `LazyMotion` gives a new provider value on each render, and each `m.*` reads it,
    also through `memo`. So the inner `LazyMotion` is one element made here, and the
    props reach the shell through a context: a shell render does not render it again. */
+type ShellProps = ComponentProps<typeof AuthedAppShell>;
+
+const ShellPropsContext = createContext<ShellProps | null>(null);
+
 const LazyAuthedAppShell = lazy(async () => {
   const [shell, bundle] = await Promise.all([import("./authed-app-shell"), loadMotionFeatures()]);
   const Shell = shell.default;
-
-  type ShellProps = ComponentProps<typeof Shell>;
-
-  const ShellPropsContext = createContext<ShellProps | null>(null);
 
   function ShellFromProps() {
     const props = use(ShellPropsContext);
