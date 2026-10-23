@@ -146,6 +146,7 @@ Each row is a rule from [review-checklist.md](./review-checklist.md), with the r
 | One return value per state; a closed status map (Backend) | The compiler holds a map after someone writes it. To decide that one is necessary is design | Stays review |
 | Scripts call the live owner (Backend) | A copy compiles. `no-restricted-imports` already fences each `internal` door | Stays review |
 | Render every state; SSR guards; show an error to the user (Frontend) | Behavior, not shape | Stays review |
+| A delta class and a same-property utility on one element (Frontend) | Class strings join across `cn` calls, variants, and `className` props, so a regex or an AST rule cannot see the final class list of an element. Two sites existed, and #1481 fixed both | Stays review |
 | Effect cleanup and no state after unmount (Frontend) | `react/exhaustive-deps` checks the dependency array. Whether an effect owns a resource to release is behavior | Stays review |
 | Centralize logic only when copies change together (Constants) | `check:duplicates` finds copies. Whether they change together is judgment | Stays review |
 | Keep the reason of a suppression true (Process) | A check cannot read whether a reason is still true | Stays review |

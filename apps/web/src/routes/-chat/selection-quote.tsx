@@ -1,12 +1,14 @@
 import { TextQuote } from "lucide-react";
 import { AnimatePresence, m, useIsPresent } from "motion/react";
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useAppTheme } from "~/components/ui/v2";
 import { cn } from "~/lib/utils";
 import { CHAT_POP } from "./motion";
 
 const QUOTABLE_ATTR = "data-chat-quotable";
+
+const QUOTE_PILL_ATTR = "data-quote-pill";
 
 /** Spread on an element whose selected text can be quoted into the composer. */
 export const quotableProps = { [QUOTABLE_ATTR]: "" } as const;
@@ -54,7 +56,6 @@ function readQuotableSelection(): SelectionAnchor | null {
  */
 export function SelectionQuote({ onQuote }: { onQuote: (text: string) => void }) {
   const [anchor, setAnchor] = useState<SelectionAnchor | null>(null);
-  const buttonRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     let pointerDown = false;
@@ -72,7 +73,10 @@ export function SelectionQuote({ onQuote }: { onQuote: (text: string) => void })
     };
 
     const onPointerDown = (e: PointerEvent) => {
-      if (e.target instanceof Node && buttonRef.current?.contains(e.target)) return;
+      // A click on the pill (live or leaving) is not an outside click. The
+      // leaving pill is inert, so it never receives the click, but the guard
+      // holds for either state.
+      if (e.target instanceof Element && e.target.closest(`[${QUOTE_PILL_ATTR}]`)) return;
       pointerDown = true;
       hide();
     };
@@ -120,7 +124,6 @@ export function SelectionQuote({ onQuote }: { onQuote: (text: string) => void })
         <QuotePill
           key={`${anchor.x},${anchor.y}`}
           anchor={anchor}
-          buttonRef={buttonRef}
           onPick={() => {
             onQuote(anchor.text);
             window.getSelection()?.removeAllRanges();
@@ -133,23 +136,14 @@ export function SelectionQuote({ onQuote }: { onQuote: (text: string) => void })
   );
 }
 
-function QuotePill({
-  anchor,
-  buttonRef,
-  onPick,
-}: {
-  anchor: SelectionAnchor;
-  buttonRef: RefObject<HTMLButtonElement | null>;
-  onPick: () => void;
-}) {
+function QuotePill({ anchor, onPick }: { anchor: SelectionAnchor; onPick: () => void }) {
   const { resolved } = useAppTheme();
   const isPresent = useIsPresent();
 
   return (
     <m.button
-      // Only the live pill owns the ref, so a leaving pill's unmount does not clear it.
-      ref={isPresent ? buttonRef : undefined}
       type="button"
+      data-quote-pill=""
       data-app-theme={resolved}
       // Keep the selection alive through the click.
       onPointerDown={(e) => e.preventDefault()}

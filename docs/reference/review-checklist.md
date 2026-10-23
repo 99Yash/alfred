@@ -90,6 +90,8 @@ Each rule has the rule, the reason, and an example.
   Why: a failure that only reaches the console is a silent failure.
 - **Make each control keyboard-reachable. Add ARIA where it is necessary. Do not use color as the only signal.**
   Why: the surface must work without a mouse and without color.
+- **Do not put a same-property Tailwind utility on an element that has a delta class.** On an `app-press` element, gate a `scale-*` utility with `not-active:`. On an `app-hover-lift` element, do not add a `translate-*` utility.
+  Why: the delta classes sit in `@layer components`, so the utility wins, and the press or the lift stops with no error. Example: `hover:not-active:scale-[1.04]` in `apps/web/src/routes/-chat/composer/composer-toolbar.tsx`.
 
 ## Tests
 
