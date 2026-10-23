@@ -1,6 +1,6 @@
 import { Calendar, Check, Mail, X } from "lucide-react";
 import { cn } from "~/lib/utils";
-import { CollapseItem, CollapseList } from "../motion";
+import { CollapseItem, CollapseList } from "../collapse-list";
 import type { RailTodoItem } from "./models";
 import { RailAddRow } from "./rail-add-row";
 import { SuggestionRow } from "./suggestion-row";

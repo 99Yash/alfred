@@ -6,7 +6,7 @@ import { asString, parseJsonRecord } from "~/lib/json-record";
 import { cn } from "~/lib/utils";
 import { brandlessToolIcon, RunningToolIcon } from "./animated-tool-icons";
 import { Elapsed } from "./elapsed";
-import { CollapseItem, CollapseList } from "./motion";
+import { CollapseItem, CollapseList } from "./collapse-list";
 import { RunGlyphCluster } from "./run-glyph-cluster";
 import { runGlyphs, runSummary } from "./run-summary";
 import { ToolCallCard } from "./tool-call-card";

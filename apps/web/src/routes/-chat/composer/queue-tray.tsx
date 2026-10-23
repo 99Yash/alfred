@@ -2,7 +2,7 @@ import { ArrowUp, CornerDownRight, ListEnd, Pause, Pencil, Play, Trash2 } from "
 import type { ReactNode } from "react";
 import { cn } from "~/lib/utils";
 import type { QueuedMessage } from "~/lib/chat/use-chat-queue";
-import { CollapseItem, CollapseList } from "../motion";
+import { CollapseItem, CollapseList } from "../collapse-list";
 import { splitQuote } from "../quote";
 import { Tip } from "../tip";
 

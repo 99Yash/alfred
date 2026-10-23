@@ -1,7 +1,7 @@
 import { X } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { useAttachmentLightbox } from "../attachment-lightbox";
-import { CollapseItem, CollapseList } from "../motion";
+import { CollapseItem, CollapseList } from "../collapse-list";
 import type { PendingAttachment } from "./use-composer-attachments";
 
 /** Staged attachment previews above the editor. */
