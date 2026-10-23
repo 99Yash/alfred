@@ -154,7 +154,7 @@ const INTEGRATION_PAGE_COPY = {
   contacts: {
     description: "Look up people in your Google Contacts.",
     category: "Productivity",
-    capabilities: ["Search Contacts", "Search Other Contacts", "Read Contact Details"],
+    capabilities: ["Search Contacts", "Browse Contacts", "Read Contact Details"],
     trust: GOOGLE_TRUST,
     overview: {
       body: "Connect Google Contacts to Alfred so it can find the right person and address when you ask it to write to someone.",
