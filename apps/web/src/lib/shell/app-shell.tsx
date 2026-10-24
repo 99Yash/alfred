@@ -330,6 +330,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   ]);
 
   // Close the palette on route change, during render. State, not a ref: React can discard a render.
+  // Not the rail or thread view model: their hooks clear on unmount, and a page that stays
+  // mounted across the change (ChatShell, thread to thread) does not set them again.
   const [prevLocation, setPrevLocation] = useState(location);
 
   if (prevLocation !== location) {
@@ -342,8 +344,6 @@ export function AppShell({ children }: { children: ReactNode }) {
 
     if (!sameHref) {
       setPaletteOpen(false);
-      setRightRailNode(null);
-      setThreadViewModel(null);
 
       // Close the overlay drawer on any navigation. Inline mode stays open.
       if (sidebarMode === "overlay") setSidebarOpen(false);
