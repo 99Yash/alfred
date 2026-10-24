@@ -98,7 +98,7 @@ const delta = (seq: number, text: string, opts: { segmentIndex?: number; turn?: 
   });
 
 const reasoning = (seq: number, text: string, turn: Turn = TURN) =>
-  reasoningFrame({ ...turn, seq, attempt: 0, fromSeq: 0, text });
+  reasoningFrame({ ...turn, seq, attempt: 0, fromSeq: 0, text, segmentIndex: 0 });
 
 const tool = (
   args: {

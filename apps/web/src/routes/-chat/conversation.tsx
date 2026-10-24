@@ -39,6 +39,7 @@ import {
   describeActivity,
   reviewLabel,
   shouldShowStream,
+  modelStepStartedTs,
   shouldShowThinkingIndicator,
   type FollowUpSuggestion,
 } from "./conversation-helpers";
@@ -501,12 +502,7 @@ function FeedFooter() {
             </div>
           ) : shouldShowThinkingIndicator(stream) ? (
             <div ref={thinkingRef}>
-              <ThinkingIndicator
-                label="Thinking"
-                clock={
-                  <ThinkingClock startedTs={stream.turnStartedTs} durationMs={stream.reasoningMs} />
-                }
-              />
+              <StepThinking stream={stream} />
             </div>
           ) : null}
 
@@ -947,6 +943,35 @@ function FollowUpSuggestions({
         </button>
       ))}
     </m.div>
+  );
+}
+
+/**
+ * The live model step at the end of the trail: its thinking as it streams, else the bare label.
+ * The clock counts from the step start. Only the first step can freeze it, on an approval.
+ */
+function StepThinking({ stream }: { stream: StreamingMessage }) {
+  const startedTs = modelStepStartedTs(stream);
+  const durationMs = startedTs === stream.turnStartedTs ? stream.reasoningMs : null;
+
+  if (stream.stepReasoning.length > 0) {
+    return (
+      // A new step mounts a new section, so it opens with the step's own text.
+      <ReasoningSection
+        key={startedTs}
+        reasoning={stream.stepReasoning}
+        active
+        durationMs={durationMs}
+        startedTs={startedTs}
+      />
+    );
+  }
+
+  return (
+    <ThinkingIndicator
+      label="Thinking"
+      clock={<ThinkingClock startedTs={startedTs} durationMs={durationMs} />}
+    />
   );
 }
 

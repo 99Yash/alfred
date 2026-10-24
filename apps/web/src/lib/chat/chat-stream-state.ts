@@ -60,10 +60,12 @@ export interface StreamingMessage {
   /** Eased text of the live segment. Closed segments move into `narration`. */
   text: string;
   narration: SyncedChatNarration[];
-  /** Eased reasoning text. */
+  /** Eased reasoning text of the whole turn, every step in order. */
   reasoning: string;
-  /** Thinking still arrives and the reply has not started. */
+  /** The first step still thinks: no reply text and no tool call yet. Later steps think in `stepReasoning`. */
   reasoningActive: boolean;
+  /** Eased reasoning of the model step on screen now. Empty when that step has none yet. */
+  stepReasoning: string;
   /** Client time the turn started: the send ack, else the server time of its first frame. */
   turnStartedTs: number;
   /** Wait from `turnStartedTs` to the first reply token or approval request. Then frozen. */
@@ -102,7 +104,7 @@ interface StreamRef {
   /** Eased chars shown of `shownSegment`. */
   shown: number;
   shownSegment: number;
-  /** Reasoning has one segment, 0. Read it through {@link reasoningText}. */
+  /** Reasoning per model step, keyed like `text`. Read the whole through {@link reasoningText}. */
   reasoningLog: ChatDeltaLog;
   reasoningShown: number;
   /** Write-once, except that a frame with an earlier server time moves it back. */
@@ -384,15 +386,19 @@ export function applyChatFrame(
       seq: p.seq,
       attempt: p.attempt,
       fromSeq: p.fromSeq,
-      segment: 0,
+      segment: p.segmentIndex,
       text: p.text,
     });
 
     if (applied === "dropped") return false;
     clearApprovalWait(r);
 
-    // A reclaimed attempt cut the older attempt's thinking.
+    // A step thinks before it writes, so its thinking closes the step before it.
+    if (p.segmentIndex > r.currentSegment) r.currentSegment = p.segmentIndex;
+
+    // A reclaimed attempt cut the older attempt's thinking, maybe whole steps.
     if (applied === "rewound") {
+      r.currentSegment = highestSegment(r);
       r.reasoningShown = Math.min(r.reasoningShown, reasoningText(r).length);
     }
 
@@ -442,7 +448,7 @@ export function applyChatFrame(
 
     // A reclaimed attempt cut the older attempt's uncommitted text, maybe whole segments.
     if (applied === "rewound") {
-      r.currentSegment = Math.max(0, ...r.text.segments.keys());
+      r.currentSegment = highestSegment(r);
       r.shown = Math.min(r.shown, (r.text.segments.get(r.shownSegment) ?? "").length);
     }
 
@@ -512,6 +518,9 @@ export function applyChatFrame(
     // Every arm below returns `true`.
     clearApprovalWait(r);
     applyStreamingToolEvent(r.tools, p, now);
+
+    // A step with no text still closes the step before it.
+    if (!p.nonExecution && p.segmentIndex > r.currentSegment) r.currentSegment = p.segmentIndex;
 
     if (p.connectNudge) {
       // Never cleared mid-turn. Last write wins, as in `splitPersistedToolCalls` on reload.
@@ -604,7 +613,13 @@ function freezeAndFinalizeTurn(ref: StreamRef, error: string | null): void {
   const eased = anchorEasedSegment(ref);
   // This bypasses the logs' marks. Safe: the ref is `stopped` below, so no later delta reads them.
   ref.text.segments.set(eased.segment, eased.text.slice(0, eased.shown));
-  ref.reasoningLog.segments.set(0, reasoningText(ref).slice(0, ref.reasoningShown));
+  // The eased counter spans every step, so spend it across the steps in order.
+  let budget = ref.reasoningShown;
+
+  for (const [index, text] of [...ref.reasoningLog.segments].toSorted(([a], [b]) => a - b)) {
+    ref.reasoningLog.segments.set(index, text.slice(0, budget));
+    budget = Math.max(0, budget - text.length);
+  }
 
   if (error !== null) ref.error = error;
   ref.stopped = true;
@@ -646,8 +661,39 @@ function ease(shown: number, full: number): number {
   return shown < full ? Math.min(full, shown + Math.max(2, Math.ceil((full - shown) / 8))) : shown;
 }
 
+/** Every step's thinking in step order. The server opens each block with a paragraph break. */
 function reasoningText(ref: StreamRef): string {
-  return ref.reasoningLog.segments.get(0) ?? "";
+  return [...ref.reasoningLog.segments.entries()]
+    .toSorted(([a], [b]) => a - b)
+    .map(([, text]) => text)
+    .join("");
+}
+
+/** Where the live step's thinking starts in {@link reasoningText}. */
+function stepReasoningOffset(ref: StreamRef): number {
+  let offset = 0;
+
+  for (const [index, text] of ref.reasoningLog.segments) {
+    if (index < ref.currentSegment) offset += text.length;
+  }
+
+  return offset;
+}
+
+/** The highest segment any applied frame named. After a rewind, the live step is this one. */
+function highestSegment(ref: StreamRef): number {
+  const tools = [...ref.tools.values()].map((tool) => tool.segmentIndex);
+
+  return Math.max(0, ...ref.text.segments.keys(), ...ref.reasoningLog.segments.keys(), ...tools);
+}
+
+/** The live segment has a tool call, so its text is a lead-in on the trail, not the reply. */
+function liveSegmentHasTools(ref: StreamRef): boolean {
+  for (const tool of ref.tools.values()) {
+    if (tool.segmentIndex === ref.currentSegment) return true;
+  }
+
+  return false;
 }
 
 interface EasedSegment {
@@ -688,10 +734,13 @@ export function tickDrip(
   const reasoning = reasoningText(ref);
   ref.reasoningShown = ease(ref.reasoningShown, reasoning.length);
   ref.shown = shown;
+  const leadIn = liveSegmentHasTools(ref);
   const narration: SyncedChatNarration[] = [];
 
   for (const [index, text] of ref.text.segments) {
-    if (index < ref.currentSegment && text.trim().length > 0) narration.push({ index, text });
+    const closed = index < ref.currentSegment || (leadIn && index === ref.currentSegment);
+
+    if (closed && text.trim().length > 0) narration.push({ index, text });
   }
 
   narration.sort((a, b) => a.index - b.index);
@@ -700,10 +749,12 @@ export function tickDrip(
     snapshot: {
       messageId: ref.messageId,
       runId: ref.runId,
-      text: eased.text.slice(0, shown),
+      text: leadIn ? "" : eased.text.slice(0, shown),
       narration,
       reasoning: reasoning.slice(0, ref.reasoningShown),
-      reasoningActive: reasoning.length > 0 && !ref.replyStarted && !ref.done,
+      reasoningActive:
+        reasoning.length > 0 && !ref.replyStarted && ref.tools.size === 0 && !ref.done,
+      stepReasoning: reasoning.slice(stepReasoningOffset(ref), ref.reasoningShown).trimStart(),
       turnStartedTs: ref.turnStartedTs,
       reasoningMs: ref.reasoningMs,
       tools: [...ref.tools.values()],
@@ -723,6 +774,19 @@ export function tickDrip(
 }
 
 /**
+ * Show everything received at once, with no typing animation. For a view that mounts
+ * over a turn already in progress, such as a return to a running thread.
+ */
+export function settleDrip(cell: ChatStreamCell): void {
+  const ref = cell.current;
+
+  if (!ref) return;
+  const eased = anchorEasedSegment(ref);
+  ref.shown = eased.text.length;
+  ref.reasoningShown = reasoningText(ref).length;
+}
+
+/**
  * Whether two projections render the same. Runs every frame, so it skips
  * write-once fields (`subId`, `childRunId`, `startedTs`). See `SubAgentTrail`.
  */
@@ -735,6 +799,7 @@ export function streamSnapshotsEqual(a: StreamingMessage | null, b: StreamingMes
     a.text !== b.text ||
     a.reasoning !== b.reasoning ||
     a.reasoningActive !== b.reasoningActive ||
+    a.stepReasoning !== b.stepReasoning ||
     a.turnStartedTs !== b.turnStartedTs ||
     a.reasoningMs !== b.reasoningMs ||
     a.awaitingApproval !== b.awaitingApproval ||
