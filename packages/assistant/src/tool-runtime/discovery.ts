@@ -516,7 +516,20 @@ function normalize(value: string): string {
     .trim();
 }
 
-const STOP_WORDS = new Set(["a", "an", "and", "for", "in", "my", "of", "on", "or", "the", "to", "with"]);
+const STOP_WORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "for",
+  "in",
+  "my",
+  "of",
+  "on",
+  "or",
+  "the",
+  "to",
+  "with",
+]);
 
 function meaningfulTokens(value: string): Set<string> {
   return new Set(value.split(" ").filter((token) => token.length > 1 && !STOP_WORDS.has(token)));
