@@ -47,7 +47,8 @@ export function buildArtifactReference(row: ArtifactReferenceRow): string {
     status: row.status,
     rowVersion: row.rowVersion,
     contentComplete,
-    contentChars: serializedContent.length,
+    // JSON length, which the reference budget measures. Write results report `contentChars`, the markdown length.
+    serializedChars: serializedContent.length,
     ...(contentComplete
       ? { baseContentHash: artifactContentHash(row.content), content: row.content }
       : {
