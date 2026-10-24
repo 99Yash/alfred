@@ -201,10 +201,7 @@ export function McpCatalogView({
         />
       </div>
       {statusLine}
-      <div
-        ref={listScrollRef}
-        className="scroll-stable max-h-[60vh] overflow-y-auto rounded-control bg-app-bg-a1"
-      >
+      <div ref={listScrollRef} className="scroll-stable -mx-3 max-h-[60vh] overflow-y-auto">
         {loading ? (
           <p className="p-3 text-xs text-app-fg-3" role="status">
             Loading tools…
@@ -230,7 +227,7 @@ export function McpCatalogView({
                   type="button"
                   data-tool-key={toolKey(tool)}
                   onClick={() => onSelect(tool)}
-                  className="group flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors outline-none hover:bg-app-bg-a1 focus-visible:bg-app-bg-a2"
+                  className="group flex w-full items-center gap-3 rounded-control px-3 py-2.5 text-left transition-colors outline-none hover:bg-app-bg-a2 focus-visible:bg-app-bg-a2"
                 >
                   <span className="min-w-0 flex-1">
                     {/* The remote name is the identity the model calls; a title only labels it. */}
