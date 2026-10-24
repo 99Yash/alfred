@@ -69,12 +69,14 @@ export const chatRunStateSchema = z
       .string()
       .regex(/^[a-f0-9]{64}$/)
       .optional(),
-    // Ephemeral per-turn text. Rebuilt after each artifact edit.
+    // Ephemeral text, read once per run. An edit does not rebuild it (see `artifactMediumStale`).
     artifactThreadFacts: z.string().optional(),
     // The selected artifact body, sent as a lower-trust assistant message, not system text.
     artifactReference: z.string().optional(),
     // `pdf` admits the PDF guide to the transcript.
     artifactDesignMedium: artifactFormatSchema.optional(),
+    // Set by an artifact edit. A create can change the medium; the run-start reference stays.
+    artifactMediumStale: z.literal(true).optional(),
     // The PDF guide enters the transcript once per run.
     pdfDesignGuideAdmitted: z.literal(true).optional(),
     // Snapshotted on the first turn. A plain string; parse with `parseIanaTimezone`.

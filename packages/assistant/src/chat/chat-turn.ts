@@ -184,7 +184,7 @@ const CHAT_SYSTEM_PROMPT_BASE = [
 
 /**
  * Constant artifact edit rules, so they stay in the cached prefix (#896).
- * Per-thread facts change on each edit, so they ride `artifactThreadFacts`.
+ * Per-thread facts ride `artifactThreadFacts`, read once per run.
  */
 const ARTIFACT_SYSTEM_GUIDANCE = [
   "For an edit, use system.update_artifact on the selected id; do not create a replacement artifact.",
@@ -361,16 +361,23 @@ const chatTurnStep: Step<ChatRunState> = {
         state.selfIdentity = state.systemPromptHash === undefined ? selfIdentityGrounding() : "";
       }
 
-      if (state.artifactThreadFacts === undefined || state.artifactReference === undefined) {
+      if (
+        state.artifactThreadFacts === undefined ||
+        state.artifactReference === undefined ||
+        state.artifactMediumStale
+      ) {
         const artifactContext = await buildThreadArtifactsContext(
           ctx.userId,
           state.threadId,
           state.artifactTargetId,
         );
 
-        state.artifactThreadFacts = artifactContext.threadFacts;
-        state.artifactReference = artifactContext.referenceMessage;
+        // Keep the run-start text. It sits before the user message, so a newer body
+        // there reads as content the user already had, and the model "removes" its own edit.
+        state.artifactThreadFacts ??= artifactContext.threadFacts;
+        state.artifactReference ??= artifactContext.referenceMessage;
         state.artifactDesignMedium = artifactContext.designMedium;
+        state.artifactMediumStale = undefined;
       }
 
       const { transcript: hydratedTranscript } = await hydrateTranscriptForModel(transcript);
@@ -833,9 +840,8 @@ const dispatchToolsStep: Step<ChatRunState> = {
           const { call } = completion;
 
           if (ARTIFACT_MUTATION_TOOLS.has(call.toolName) && completion.execution === "completed") {
-            // Re-read on the next step, so the model never sees a stale body or hash.
-            state.artifactThreadFacts = undefined;
-            state.artifactReference = undefined;
+            // The model sees this edit as its own tool call, after the run-start reference.
+            state.artifactMediumStale = true;
           }
 
           // `sanitized` goes to both the log and the live event, so live and reload agree (ADR-0070).
