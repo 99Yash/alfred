@@ -76,6 +76,8 @@ interface TiptapComposerProps {
   ghostText?: string | undefined;
   onGhostAccept?: (() => void) | undefined;
   onGhostDismiss?: (() => void) | undefined;
+  /** A plain-text paste with no files. Return `true` to take it; the editor then inserts nothing. */
+  onPasteText?: ((text: string) => boolean) | undefined;
 }
 
 /**
@@ -96,6 +98,7 @@ export function TiptapComposer({
   ghostText,
   onGhostAccept,
   onGhostDismiss,
+  onPasteText,
 }: TiptapComposerProps) {
   // Refs keep Tiptap's closures stable. An effect syncs them; a render-phase write can leak from a discarded render.
   const onChangeRef = useRef(onChange);
@@ -106,6 +109,7 @@ export function TiptapComposer({
   const ghostTextRef = useRef(ghostText);
   const onGhostAcceptRef = useRef(onGhostAccept);
   const onGhostDismissRef = useRef(onGhostDismiss);
+  const onPasteTextRef = useRef(onPasteText);
   // Skip Enter-submit while picking a mention.
   const suggestionOpenRef = useRef(false);
   useEffect(() => {
@@ -117,6 +121,7 @@ export function TiptapComposer({
     ghostTextRef.current = ghostText;
     onGhostAcceptRef.current = onGhostAccept;
     onGhostDismissRef.current = onGhostDismiss;
+    onPasteTextRef.current = onPasteText;
 
     if (disabled) suggestionOpenRef.current = false;
   }, [
@@ -128,6 +133,7 @@ export function TiptapComposer({
     ghostText,
     onGhostAccept,
     onGhostDismiss,
+    onPasteText,
   ]);
 
   const editor = useEditor({
@@ -211,6 +217,15 @@ export function TiptapComposer({
           "caret-app-purple-3",
           className ?? "",
         ),
+      },
+      // Runs before ProseMirror inserts the text. A file paste goes to the composer's `onPaste`.
+      handlePaste: (_view, event) => {
+        const data = event.clipboardData;
+
+        if (!data || data.files.length > 0) return false;
+        const text = data.getData("text/plain");
+
+        return text.length > 0 && (onPasteTextRef.current?.(text) ?? false);
       },
       handleKeyDown: (view, event) => {
         if (disabledRef.current) return true;
@@ -322,7 +337,6 @@ export function TiptapComposer({
             "pointer-events-none absolute inset-x-3 top-2",
             "flex items-center gap-1.5",
             "text-[15px] leading-7 font-medium tracking-tight text-app-fg-2",
-            "animate-chat-in",
           )}
         >
           <span className="min-w-0 truncate">{ghostText}</span>
@@ -337,17 +351,13 @@ export function TiptapComposer({
           </kbd>
         </span>
       ) : null}
-      {placeholder ? (
+      {placeholder && isEmpty && !ghostVisible ? (
         <span
           aria-hidden
-          data-visible={isEmpty && !ghostVisible}
           className={cn(
             // Matches the editor's first-line position (px-3 pt-2).
             "pointer-events-none absolute top-2 left-3",
             "text-[15px] leading-7 font-medium tracking-tight text-app-fg-2",
-            "transition-[opacity,filter,transform] duration-300 ease-out",
-            "data-[visible=true]:blur-0 data-[visible=true]:translate-x-0 data-[visible=true]:opacity-100",
-            "data-[visible=false]:translate-x-7 data-[visible=false]:opacity-0 data-[visible=false]:blur-sm",
           )}
         >
           {placeholder}

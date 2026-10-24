@@ -59,19 +59,20 @@ describe("assertAttachmentBatchAllowed", () => {
 
   test("does not accept GIF as phase-1 pass-through", () => {
     assert.equal(isPassThrough("image/gif"), false);
-    assert.throws(() => assertUploadAllowed("image/gif", 1), /Only images and PDFs/);
+    assert.throws(() => assertUploadAllowed("image/gif", 1), /Only images, PDFs, and text files/);
   });
 
-  test("accepts PDFs but keeps other degrade-text types gated", () => {
+  test("accepts PDFs and text files but keeps other degrade-text types gated", () => {
     assert.doesNotThrow(() => assertUploadAllowed("application/pdf", 1));
-    assert.throws(() => assertUploadAllowed("audio/mpeg", 1), /Only images and PDFs/);
+    assert.doesNotThrow(() => assertUploadAllowed("text/plain", 1));
+    assert.throws(() => assertUploadAllowed("audio/mpeg", 1), /Only images, PDFs, and text files/);
     assert.throws(
       () =>
         assertUploadAllowed(
           "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
           1,
         ),
-      /Only images and PDFs/,
+      /Only images, PDFs, and text files/,
     );
   });
 });
@@ -111,7 +112,7 @@ describe("toAttachmentRow", () => {
         size: 123,
         position: 0,
       },
-      degradation: { kind: "pdf", text: null },
+      degradation: { kind: "extracted", text: null },
     });
 
     assert.equal(Object.hasOwn(row, "degradedText"), true);

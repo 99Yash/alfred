@@ -110,7 +110,7 @@ export function buildAttachmentKey(opts: {
 
 const PDF_DEGRADED_ARTIFACT_SUFFIX = ".alfred-pdf-text.json";
 
-/** The durable text sidecar owned by one raw PDF object. */
+/** The durable text sidecar owned by one raw PDF or text object. The suffix predates text files; stored sidecars use it. */
 export function pdfDegradedArtifactKey(storageKey: string): string {
   return `${storageKey}${PDF_DEGRADED_ARTIFACT_SUFFIX}`;
 }

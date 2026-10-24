@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { describe, test } from "node:test";
 
-import { extractChatPdfText } from "@alfred/assistant/chat/attachment-ingest";
+import { extractChatAttachmentText } from "@alfred/assistant/chat/attachment-ingest";
 import { pdfDegradedArtifactKey } from "@alfred/assistant/chat/attachments/storage";
 
 async function pdfFixture(name: string): Promise<Uint8Array> {
@@ -14,7 +14,11 @@ async function pdfFixture(name: string): Promise<Uint8Array> {
 describe("chat PDF ingest", () => {
   test("extracts proven page markers", async () => {
     const storageKey = "chat/u1/t1/m1/att-pdf-happy-path-report.pdf";
-    const degradedText = await extractChatPdfText(await pdfFixture("born-digital-two-page.pdf"));
+
+    const degradedText = await extractChatAttachmentText(
+      await pdfFixture("born-digital-two-page.pdf"),
+      "application/pdf",
+    );
 
     assert.ok(degradedText);
     assert.match(degradedText, /\[page 1\]\n.*PAGE ONE MARKER alpha/s);

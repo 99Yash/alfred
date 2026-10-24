@@ -1,7 +1,7 @@
 import {
   Errors,
   getPath,
-  isPdfContentType,
+  hasExtractedText,
   isNonEmptyString,
   MAX_ATTACHMENT_BYTES_PER_MESSAGE,
   MAX_ATTACHMENTS_PER_MESSAGE,
@@ -458,8 +458,8 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
             size: src.size,
             position,
           },
-          degradation: isPdfContentType(src.mime)
-            ? { kind: "pdf", text: src.degradedText }
+          degradation: hasExtractedText(src.mime)
+            ? { kind: "extracted", text: src.degradedText }
             : { kind: "image" },
         }),
       );
