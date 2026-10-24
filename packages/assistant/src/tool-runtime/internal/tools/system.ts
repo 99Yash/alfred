@@ -727,7 +727,7 @@ export const systemTools: readonly RegisteredTool[] = [
     executionLane: "artifact_mutation",
     riskTier: "no_risk",
     description:
-      "Revise an existing artifact: rename it, make targeted text edits, replace a document's markdown, or replace a deck's full page list. Use this when the user asks for an edit to something you already produced this conversation. For a targeted change, send `edits`: exact oldString/newString pairs that save together, so you resend only what changes. Replace the full markdown or pages only for a broad rewrite. For cross-turn content replacement, work only from a reference with contentComplete=true and copy its baseContentHash; never replace content from a partial reference. Rename-only edits and `edits` need no hash.",
+      "Revise an existing artifact: rename it, make targeted text edits, replace a document's markdown, or replace a deck's full page list. Use this when the user asks to change content you already produced this conversation. To add a section or page at the end, use append_artifact_section or append_artifact_page instead. For a targeted change, send `edits`: exact oldString/newString pairs that save together, so you resend only what changes. Replace the full markdown or pages only for a broad rewrite. For cross-turn content replacement, work only from a reference with contentComplete=true and copy its baseContentHash; never replace content from a partial reference. Rename-only edits and `edits` need no hash.",
     availability: { requiresLiveChat: true },
     inputSchema: updateArtifactInput,
     execute: async (input, ctx) => {
