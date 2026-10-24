@@ -4,9 +4,10 @@ import {
   type SyncedChatMessage,
   type SyncedChatThread,
 } from "@alfred/sync";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ReadTransaction, Replicache } from "replicache";
 import type { ClientMutators } from "@alfred/sync";
+import { clearPendingTurn, usePendingTurn } from "~/lib/chat/pending-turn";
 import type { ReplicacheSnapshot } from "./client";
 import { useReplicache, useReplicacheStatus } from "./context";
 
@@ -101,8 +102,26 @@ export function useChatMessages(threadId: string | undefined): ChatMessagesState
   const current = snapshot?.rep === rep && snapshot.threadId === threadId ? snapshot.rows : null;
   const error = loadError ?? pullError;
 
+  // The sent message shows before its mirror; the synced row replaces it by id.
+  const pendingMessage = usePendingTurn(threadId)?.message ?? null;
+
+  const pendingSynced =
+    pendingMessage !== null && current !== null && current.some((m) => m.id === pendingMessage.id);
+
+  // Drop the copy once synced, so a later delete of the real row cannot bring it back.
+  useEffect(() => {
+    if (pendingMessage && pendingSynced)
+      clearPendingTurn(pendingMessage.threadId, pendingMessage.id);
+  }, [pendingMessage, pendingSynced]);
+
+  const messages = useMemo(() => {
+    const rows = current ?? [];
+
+    return pendingMessage && !pendingSynced ? [...rows, pendingMessage] : rows;
+  }, [current, pendingMessage, pendingSynced]);
+
   return {
-    messages: current ?? [],
+    messages,
     loading:
       Boolean(threadId) &&
       !error &&
@@ -162,5 +181,19 @@ export function useChatAttachmentsByMessage(
     );
   }, [rep, threadId]);
 
-  return snapshot?.rep === rep && snapshot.threadId === threadId ? snapshot.byMessage : {};
+  const synced =
+    snapshot?.rep === rep && snapshot.threadId === threadId ? snapshot.byMessage : null;
+
+  const pendingTurn = usePendingTurn(threadId);
+
+  // The pending message's files, until the mirror writes them (before the message, so one tick).
+  return useMemo(() => {
+    const byMessage = synced ?? {};
+
+    if (!pendingTurn || pendingTurn.attachments.length === 0) return byMessage;
+
+    if (byMessage[pendingTurn.message.id]) return byMessage;
+
+    return { ...byMessage, [pendingTurn.message.id]: pendingTurn.attachments };
+  }, [synced, pendingTurn]);
 }
