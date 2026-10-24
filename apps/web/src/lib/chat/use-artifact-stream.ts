@@ -1,5 +1,6 @@
 import type { EventPayload } from "@alfred/contracts/events";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+import { authClient } from "~/lib/auth/auth-client";
 import { frameThreadId, type EventStreamFrame } from "~/lib/events/frame";
 import { openEventStream } from "~/lib/events/stream";
 
@@ -156,53 +157,149 @@ export function selectLatestPendingForRun(
 }
 
 /**
- * Live artifact bodies for `threadId`, until the synced row replaces them.
- * The server sends about 5 deltas a second, so no easing; a version counter re-renders.
+ * One thread's live artifact bodies. It outlives the thread page: the shared event bus does
+ * not send a frame again to a later subscriber, so a page that built its own map on mount
+ * showed a blank body when the user came back mid-run.
  */
-export function useArtifactStream(threadId: string | undefined): ArtifactStreamState {
-  // Tagged with its thread, so a thread change reads no streams before the effect swaps the map.
-  const liveRef = useRef<{
-    threadId: string | undefined;
-    streams: Map<string, LiveArtifactStream>;
-  }>({ threadId, streams: new Map() });
+interface ThreadArtifacts {
+  streams: Map<string, LiveArtifactStream>;
+  /** From one module clock, so a re-created entry never repeats an old snapshot. */
+  version: number;
+  listeners: Set<() => void>;
+}
 
-  const [version, setVersion] = useState(0);
+const threads = new Map<string, ThreadArtifacts>();
+
+let clock = 0;
+
+function threadArtifacts(threadId: string): ThreadArtifacts {
+  const existing = threads.get(threadId);
+
+  if (existing) return existing;
+
+  const created: ThreadArtifacts = { streams: new Map(), version: ++clock, listeners: new Set() };
+  threads.set(threadId, created);
+
+  return created;
+}
+
+function publish(entry: ThreadArtifacts): void {
+  entry.version = ++clock;
+
+  for (const listener of entry.listeners) listener();
+}
+
+/** Drop a thread nobody watches once every body is done. The synced rows replace them. */
+function releaseIfSettled(threadId: string, entry: ThreadArtifacts): void {
+  if (entry.listeners.size > 0 || threads.get(threadId) !== entry) return;
+
+  for (const stream of entry.streams.values()) {
+    if (!stream.done) return;
+  }
+
+  threads.delete(threadId);
+}
+
+function onFrame(frame: EventStreamFrame): void {
+  if (frame.kind !== "artifact.delta" && frame.kind !== "chat.tool") return;
+  const named = frameThreadId(frame);
+  let targets: [string, ThreadArtifacts][];
+
+  if (named === null) {
+    targets = [...threads];
+  } else {
+    // Only a delta starts a body. A tool frame only resolves one that is already there.
+    const entry = frame.kind === "artifact.delta" ? threadArtifacts(named) : threads.get(named);
+    targets = entry ? [[named, entry]] : [];
+  }
+
+  for (const [threadId, entry] of targets) {
+    if (applyArtifactFrame(entry.streams, frame, threadId)) publish(entry);
+    releaseIfSettled(threadId, entry);
+  }
+}
+
+/** Freeze live bodies so the sidebar does not spin forever. The synced rows follow. */
+function onBusError(): void {
+  for (const [threadId, entry] of threads) {
+    let changed = false;
+
+    for (const [id, stream] of entry.streams) {
+      if (!stream.done) {
+        entry.streams.set(id, { ...stream, done: true });
+        changed = true;
+      }
+    }
+
+    if (changed) publish(entry);
+    releaseIfSettled(threadId, entry);
+  }
+}
+
+/**
+ * Keep every thread's live artifact bodies current while the app runs. Mount once, in the
+ * app shell, so a body keeps its frames while the user is on another page.
+ */
+export function useArtifactStreamStore(): void {
+  const { data: session } = authClient.useSession();
+  const userId = session?.user.id;
 
   useEffect(() => {
-    const streams = new Map<string, LiveArtifactStream>();
-    liveRef.current = { threadId, streams };
+    if (!userId) return;
+    const close = openEventStream({ onFrame, onError: onBusError });
 
-    if (!threadId) return;
+    return () => {
+      close();
 
-    const onFrame = (frame: EventStreamFrame) => {
-      if (applyArtifactFrame(streams, frame, threadId)) setVersion((v) => v + 1);
-    };
-
-    const onError = () => {
-      // Freeze live streams so the sidebar does not spin forever. The synced row follows.
-      let changed = false;
-
-      for (const [id, stream] of streams) {
-        if (!stream.done) {
-          streams.set(id, { ...stream, done: true });
-          changed = true;
+      // Another user's bodies must not show after a sign-in change.
+      for (const [threadId, entry] of threads) {
+        if (entry.listeners.size === 0) {
+          threads.delete(threadId);
+          continue;
         }
+
+        entry.streams.clear();
+        publish(entry);
       }
-
-      if (changed) setVersion((v) => v + 1);
     };
+  }, [userId]);
+}
 
-    const close = openEventStream({ onFrame, onError });
+function subscribeThread(threadId: string, listener: () => void): () => void {
+  const entry = threadArtifacts(threadId);
+  entry.listeners.add(listener);
 
-    return close;
-  }, [threadId]);
+  return () => {
+    entry.listeners.delete(listener);
+    // StrictMode subscribes again in the same commit, so wait one microtask before a release.
+    queueMicrotask(() => releaseIfSettled(threadId, entry));
+  };
+}
+
+/**
+ * Live artifact bodies for `threadId`, until the synced row replaces them.
+ * `useArtifactStreamStore` feeds the frames. The server sends about 5 deltas a second,
+ * so no easing; the entry version re-renders.
+ */
+export function useArtifactStream(threadId: string | undefined): ArtifactStreamState {
+  const subscribe = useCallback(
+    (listener: () => void) => (threadId ? subscribeThread(threadId, listener) : () => {}),
+    [threadId],
+  );
+
+  const getSnapshot = useCallback(
+    () => (threadId ? (threads.get(threadId)?.version ?? 0) : 0),
+    [threadId],
+  );
+
+  const version = useSyncExternalStore(subscribe, getSnapshot, () => 0);
 
   return useMemo<ArtifactStreamState>(() => {
     // New accessors per `version` and thread, so consumers recompute when a delta lands.
     void version;
 
     const current = (): ReadonlyMap<string, LiveArtifactStream> =>
-      liveRef.current.threadId === threadId ? liveRef.current.streams : NO_STREAMS;
+      (threadId ? threads.get(threadId)?.streams : undefined) ?? NO_STREAMS;
 
     return {
       byToolCallId: (toolCallId) => selectByToolCallId(current(), toolCallId),
