@@ -26,8 +26,8 @@ import {
   _setDispatchTraceSinksForTests,
   _setIntegrationAvailabilityReaderForTests,
   dispatchToolCall,
-  toolCallWouldGate,
 } from "../../../src/tool-runtime/internal/dispatch";
+import { toolCallWouldGate } from "../../../src/tool-runtime/approval-rule";
 import { _setStagingStoreForTests } from "../../../src/tool-runtime/internal/dispatch/staging-store";
 import { DEFAULT_APPROVAL_NOTIFY_DELAY_MS } from "@alfred/assistant/action-policies";
 import {

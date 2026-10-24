@@ -395,6 +395,7 @@ export const systemTools: readonly RegisteredTool[] = [
     description:
       `Ask the user ${ASK_USER_LIMITS.questions.min} to ${ASK_USER_LIMITS.questions.max} questions and wait for the answers before you continue. ` +
       "Ask only when the request is ambiguous and a wrong guess would waste work; never ask for something you can look up. " +
+      "Never ask whether to make a call that the connected-integrations list marks as waiting for approval; its approval card already asks. " +
       "If your reply would end by asking the user to choose or to supply something you need to finish, call this instead. " +
       "This includes an open answer, such as names or a list: offer the likeliest choices as options, and the free-text answer takes the rest. " +
       "Ask every question in one call, because each call pauses the turn. " +
