@@ -1,5 +1,4 @@
 import type { SyncedActionStaging, SyncedChatMessage } from "@alfred/sync";
-import { asQuestionStaging } from "~/components/approvals/ask-user";
 import type { StreamingMessage } from "~/lib/chat/chat-stream-state";
 import { presentTool, visibleTools } from "./tool-call-presentation";
 
@@ -81,20 +80,6 @@ export function describeActivity(stream: StreamingMessage, writingLabel: string 
   return "Working…";
 }
 
-/**
- * Label for the pill when a pending card is off-screen, or `null` with none pending.
- * A question is not an approval (ADR-0099), so a lone question gets its own verb.
- */
-export function reviewLabel(approvals: readonly SyncedActionStaging[]): string | null {
-  const [first] = approvals;
-
-  if (!first) return null;
-
-  if (approvals.length > 1) return `Review ${approvals.length} actions`;
-
-  return asQuestionStaging(first) ? "Answer question" : "Review action";
-}
-
 /** The model-written next prompts on the last reply (ADR-0112), once it is complete. */
 export function buildFollowUpSuggestions(
   messages: readonly SyncedChatMessage[],
@@ -104,4 +89,23 @@ export function buildFollowUpSuggestions(
   if (!last || last.role !== "assistant" || last.status !== "complete") return [];
 
   return (last.followUps ?? []).map((text, index) => ({ id: `${last.id}:${index}`, text }));
+}
+
+/** Sort approvals in tool-trail order. Ones with no tool card go last, by `createdAt`. */
+export function orderApprovalsByTool(
+  approvals: readonly SyncedActionStaging[],
+  stream: StreamingMessage | null,
+): readonly SyncedActionStaging[] {
+  if (approvals.length <= 1) return approvals;
+  const toolOrder = new Map<string, number>();
+  stream?.tools.forEach((tool, i) => toolOrder.set(tool.toolCallId, i));
+
+  return approvals.toSorted((a, b) => {
+    const ia = toolOrder.get(a.toolCallId) ?? Number.POSITIVE_INFINITY;
+    const ib = toolOrder.get(b.toolCallId) ?? Number.POSITIVE_INFINITY;
+
+    if (ia !== ib) return ia - ib;
+
+    return a.createdAt.localeCompare(b.createdAt);
+  });
 }

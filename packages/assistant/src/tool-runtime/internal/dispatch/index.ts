@@ -2,9 +2,7 @@
 export {
   dispatchToolCall,
   registerDispatchToolCallRoundAdapter,
-  toolRequiresApproval,
   resolveEffectiveRiskTier,
-  toolCallWouldGate,
   undeclaredToolMessage,
   buildDispatchRejectionTraceInput,
   _setDispatchTraceSinksForTests,

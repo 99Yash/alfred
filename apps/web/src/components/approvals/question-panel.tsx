@@ -105,18 +105,19 @@ export function AskUserQuestionPanel({
         />
       </div>
 
-      {blanks > 0 ? <BlankNotice blanks={blanks} total={questions.length} /> : null}
+      {/* No warning before any input: the Skip label says what an empty send does. */}
+      {blanks > 0 && blanks < questions.length ? (
+        <BlankNotice blanks={blanks} total={questions.length} />
+      ) : null}
     </div>
   );
 }
 
-/** Count of blank questions. Pages hide each other; this informs without blocking. */
+/** Count of blank questions after some input. Pages hide each other; this informs without blocking. */
 function BlankNotice({ blanks, total }: { blanks: number; total: number }) {
   return (
     <p role="status" className="text-[12px] leading-5 text-app-amber-4">
-      {blanks === total
-        ? `Nothing answered yet. Continue sends no answers and Alfred carries on with an assumption.`
-        : `${blanks} of ${total} questions ${blanks === 1 ? "is" : "are"} still blank. Continue sends only what you filled in.`}
+      {`${blanks} of ${total} questions ${blanks === 1 ? "is" : "are"} still blank. Alfred gets only what you filled in.`}
     </p>
   );
 }

@@ -47,7 +47,7 @@ function getReducedMotionSnapshot(): boolean {
 export type LiveTransition = Transition & { reduceMotion?: boolean };
 
 /** Same curve as the chat keyframes in index.css (`cubic-bezier(0.22, 1, 0.36, 1)`). */
-const CHAT_EASE = [0.22, 1, 0.36, 1] as const;
+export const CHAT_EASE = [0.22, 1, 0.36, 1] as const;
 
 /** A state swap: tool label, activity text. */
 export const CHAT_SWAP = { duration: 0.2, ease: CHAT_EASE } as const satisfies Transition;

@@ -47,7 +47,8 @@ export function QuestionSheet({
 
   return (
     <div
-      className={cn("border-t border-app-bg-a2 p-3 sm:px-4", className)}
+      // Only the answers scroll, so the actions stay in view in a short dock.
+      className={cn("flex min-h-0 flex-col border-t border-app-bg-a2 p-3 sm:px-4", className)}
       onKeyDown={(event) => {
         // Cmd/Ctrl+Enter continues, scoped to this sheet.
         if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey)) return;
@@ -57,22 +58,24 @@ export function QuestionSheet({
         onContinue();
       }}
     >
-      <AskUserQuestionPanel
-        input={input}
-        rawValue={raw}
-        onChange={onDraftChange}
-        disabled={locked}
-        idPrefix={idPrefix}
-      />
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <AskUserQuestionPanel
+          input={input}
+          rawValue={raw}
+          onChange={onDraftChange}
+          disabled={locked}
+          idPrefix={idPrefix}
+        />
 
-      {/* `alert` so a 409 from a stale row is spoken, not only painted. */}
-      {error ? (
-        <p role="alert" className="mt-2 text-[12px] text-app-red-4">
-          {error}
-        </p>
-      ) : null}
+        {/* `alert` so a 409 from a stale row is spoken, not only painted. */}
+        {error ? (
+          <p role="alert" className="mt-2 text-[12px] text-app-red-4">
+            {error}
+          </p>
+        ) : null}
+      </div>
 
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+      <div className="mt-3 flex shrink-0 flex-wrap items-center justify-between gap-2">
         <p className="text-[11.5px] leading-5 text-app-fg-2">
           <kbd className="rounded-control-xs bg-app-bg-1 px-1 font-sans">⌘</kbd>
           <kbd className="ml-0.5 rounded-control-xs bg-app-bg-1 px-1 font-sans">Enter</kbd> to
@@ -102,8 +105,8 @@ export function QuestionSheet({
               disabled={busy}
               onClick={onContinue}
             >
-              {/* The pager hides other pages, so the label warns of blanks. */}
-              {blanks > 0 ? "Continue anyway" : "Continue"}
+              {/* With nothing filled in, Continue sends no answers, so it reads as a skip. */}
+              {blanks === input.questions.length ? "Skip" : "Send answers"}
             </AppButton>
           </div>
         )}
