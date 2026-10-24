@@ -22,6 +22,7 @@ import {
 import { AnimatePresence, m } from "motion/react";
 import { useEffect, useImperativeHandle, useRef, use, useId, useState } from "react";
 import { asQuestionStaging, type QuestionStaging } from "~/components/approvals/ask-user";
+import { describeApprovalWait } from "./conversation-helpers";
 import { approveButtonLabel, cardTitle } from "~/components/approvals/card-spec";
 import { formatTimestamp } from "~/components/approvals/format";
 import { ApprovalInputEditor, ApprovalInputFacts } from "~/components/approvals/input-editor";
@@ -969,18 +970,6 @@ function policyCopy(riskTier: ToolRiskTier): string {
   }
 
   return "This action can change data outside Alfred. Review the details before it runs.";
-}
-
-/**
- * What the run waits on, for the feed marker and the activity pill. With no synced row yet
- * (the approval frame arrived first), it reads as an approval.
- */
-export function describeApprovalWait(approvals: readonly SyncedActionStaging[]): string {
-  const [first] = approvals;
-
-  if (approvals.length > 1) return `${approvals.length} actions wait for your approval`;
-
-  return first && asQuestionStaging(first) ? "Alfred has a question" : "Waiting for your approval";
 }
 
 /**

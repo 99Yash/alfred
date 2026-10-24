@@ -1,4 +1,5 @@
 import type { SyncedActionStaging, SyncedChatMessage } from "@alfred/sync";
+import { asQuestionStaging } from "~/components/approvals/ask-user";
 import type { StreamingMessage } from "~/lib/chat/chat-stream-state";
 import { presentTool, visibleTools } from "./tool-call-presentation";
 
@@ -86,6 +87,18 @@ export function describeActivity(
   if (stream.reasoningActive || shouldShowThinkingIndicator(stream, false)) return "Thinking…";
 
   return "Working…";
+}
+
+/**
+ * What the run waits on, for the feed marker and the activity pill. With no synced row yet
+ * (the approval frame arrived first), it reads as an approval.
+ */
+export function describeApprovalWait(approvals: readonly SyncedActionStaging[]): string {
+  const [first] = approvals;
+
+  if (approvals.length > 1) return `${approvals.length} actions wait for your approval`;
+
+  return first && asQuestionStaging(first) ? "Alfred has a question" : "Waiting for your approval";
 }
 
 /** The model-written next prompts on the last reply (ADR-0112), once it is complete. */

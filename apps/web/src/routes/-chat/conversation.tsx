@@ -36,13 +36,14 @@ import { cn } from "~/lib/utils";
 import { ArtifactTriggerCard } from "./artifact-trigger-card";
 import {
   describeActivity,
+  describeApprovalWait,
   describeWriting,
   shouldShowStream,
   modelStepStartedTs,
   shouldShowThinkingIndicator,
   type FollowUpSuggestion,
 } from "./conversation-helpers";
-import { ApprovalMarker, describeApprovalWait } from "./approval-dock";
+import { ApprovalMarker } from "./approval-dock";
 import { AssistantMarkdown, CopyMessageButton, MessageBubble } from "./message-bubble";
 import { ReasoningSection, ThinkingClock } from "./reasoning-section";
 import { SourcesStrip } from "./sources-strip";
