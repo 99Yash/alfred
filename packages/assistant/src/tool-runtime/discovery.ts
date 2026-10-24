@@ -295,10 +295,10 @@ function rankToolCatalog(args: ToolSearchArgs): RankedCandidate[] {
   const query = normalize(args.query);
 
   if (!query) return [];
-  const queryTokens = meaningfulTokens(query);
   // Singularize once: "my pull requests" must match the entity "pull request".
   const matchText = singularizePhrase(query);
-  const queryHasReadIntent = hasReadIntent(queryTokens);
+  const queryTokens = meaningfulTokens(matchText);
+  const queryHasReadIntent = hasReadIntent(meaningfulTokens(query));
   const ranked: RankedCandidate[] = [];
 
   for (const tool of args.tools ?? listRegisteredTools()) {
@@ -408,20 +408,24 @@ function scoreTool(
     reason = value;
     matched.entity = true;
   });
-  score += scorePhrases(tool.discovery.verbs, matchText, 30, "verb", (value) => {
-    reason = value;
-    matched.verb = true;
-  });
+  // A verb names the action, not the object, and most tools list several. "read or list"
+  // is one intent, so the verb field scores once and cannot outrank an entity match.
+  score += Math.min(
+    VERB_POINTS,
+    scorePhrases(tool.discovery.verbs, matchText, VERB_POINTS, "verb", (value) => {
+      reason = value;
+      matched.verb = true;
+    }),
+  );
 
-  const nameTokens = meaningfulTokens(name);
+  // Fold number on this side too: the query tokens are singular.
+  for (const token of catalogTokens(name)) if (queryTokens.has(token)) score += 20;
 
-  for (const token of nameTokens) if (queryTokens.has(token)) score += 20;
-
-  for (const token of meaningfulTokens(normalize(tool.discovery.title))) {
+  for (const token of catalogTokens(normalize(tool.discovery.title))) {
     if (queryTokens.has(token)) score += 8;
   }
 
-  for (const token of meaningfulTokens(normalize(tool.discovery.summary))) {
+  for (const token of catalogTokens(normalize(tool.discovery.summary))) {
     if (queryTokens.has(token)) score += 2;
   }
 
@@ -435,6 +439,12 @@ function scoreTool(
     (matched.entity && readOnly && queryHasReadIntent);
 
   return { score, reason, preloadEligible };
+}
+
+const VERB_POINTS = 30;
+
+function catalogTokens(value: string): Set<string> {
+  return meaningfulTokens(singularizePhrase(value));
 }
 
 function scorePhrases(
@@ -506,7 +516,7 @@ function normalize(value: string): string {
     .trim();
 }
 
-const STOP_WORDS = new Set(["a", "an", "and", "for", "in", "my", "of", "on", "the", "to", "with"]);
+const STOP_WORDS = new Set(["a", "an", "and", "for", "in", "my", "of", "on", "or", "the", "to", "with"]);
 
 function meaningfulTokens(value: string): Set<string> {
   return new Set(value.split(" ").filter((token) => token.length > 1 && !STOP_WORDS.has(token)));
