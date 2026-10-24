@@ -204,6 +204,8 @@ export interface StartChatTurnInput {
   userMessageId: string;
   content: string;
   tier?: "standard" | "deep" | undefined;
+  /** Used only when this turn creates the thread. After that, the thread row is the one source. */
+  fullAutonomy?: boolean | undefined;
   artifactTargetId?: string | undefined;
   attachments?: FreshAttachmentDescriptor[] | undefined;
   retryAttachmentIds?: string[] | undefined;
@@ -486,7 +488,12 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
     if (!thread) {
       await tx
         .insert(chatThreads)
-        .values({ id: threadId, userId: userId, lastMessageAt: now })
+        .values({
+          id: threadId,
+          userId: userId,
+          lastMessageAt: now,
+          fullAutonomy: input.fullAutonomy ?? false,
+        })
         .onConflictDoNothing();
     }
 

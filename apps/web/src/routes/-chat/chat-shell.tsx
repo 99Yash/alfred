@@ -8,6 +8,7 @@ import { useQueueDispatch } from "~/lib/chat/use-queue-dispatch";
 import { useChatStream } from "~/lib/chat/use-chat-stream";
 import { useRunComplete } from "~/lib/chat/use-run-complete";
 import { useSendMessage } from "~/lib/chat/use-send-message";
+import { usePendingTurn } from "~/lib/chat/pending-turn";
 import { useActionPolicy } from "~/lib/replicache/use-action-policy";
 import { useActionStagings } from "~/lib/replicache/use-action-stagings";
 import { useThreadActions } from "~/lib/chat/use-thread-actions";
@@ -16,6 +17,7 @@ import { useChatMessages, useChatThread } from "~/lib/replicache/use-chat";
 import { useRightRail } from "~/lib/shell/app-shell";
 import { toast } from "~/lib/toast";
 import { ChatApprovalDock, type ApprovalDockHandle } from "./approval-dock";
+import type { ChatApprovalMode } from "@alfred/sync";
 import { ArtifactSidebar, type ArtifactEditSuggestion } from "./artifact-sidebar";
 import { Composer } from "./composer/composer";
 import { useModelTier } from "./composer/use-model-tier";
@@ -164,7 +166,9 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
 
   useRightRail(slotNode);
 
-  const send = useSendMessage();
+  // Full autonomy picked before the thread exists. The first turn creates the thread with it.
+  const [draftFullAutonomy, setDraftFullAutonomy] = useState(false);
+  const send = useSendMessage({ fullAutonomyForNewThread: draftFullAutonomy });
   // Persisted Auto/Deep tier, sent with every turn.
   const [tier, setTier] = useModelTier();
   // Text quoted from a reply with "Ask Alfred". It rides on the next send as a blockquote.
@@ -176,6 +180,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   if (prevThreadId !== threadId) {
     setPrevThreadId(threadId);
     setQuote(null);
+    setDraftFullAutonomy(false);
   }
 
   const awaitingApproval = Boolean(showStream && stream.awaitingApproval);
@@ -222,22 +227,11 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
 
   const hasConversation = messages.length > 0 || showStream;
 
-  // Chat "Auto" sets the global `user_action_policies.defaultMode`.
-  // On `autonomy` the server skips staging, so no tray card shows. Settings rules still override.
-  const { policy, setDefaultMode, loading: policyLoading } = useActionPolicy();
-  const autoApprove = policy?.defaultMode === "autonomy";
-  const autoApprovePending = policyLoading;
-
-  const onToggleAutoApprove = useCallback(() => {
-    // After the subscription settles, the server mutator creates the row for a legacy user.
-    if (policyLoading) return;
-    void setDefaultMode(autoApprove ? "gated" : "autonomy");
-  }, [autoApprove, policyLoading, setDefaultMode]);
-
   /* Same hook as the sidebar row menu: one write path, one optimistic patch.
    * Passing `threadId` arms the bounce to `/chat` after deleting the open thread. */
   const threadActions = useThreadActions(threadId);
   const { thread } = useChatThread(threadId);
+  const pendingTurn = usePendingTurn(threadId);
   const [deleteOpen, setDeleteOpen] = useState(false);
 
   const onRenameThread = useCallback(
@@ -250,6 +244,48 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   const onTogglePinThread = useCallback(() => {
     if (threadId) threadActions?.setPinned(threadId, !thread?.pinned);
   }, [threadActions, threadId, thread?.pinned]);
+
+  // Review and Auto set the global `user_action_policies.defaultMode`; settings rules still win.
+  // Full autonomy is this thread's flag, which the gate reads live on each call (ADR-0069).
+  const { policy, setDefaultMode, loading: policyLoading } = useActionPolicy();
+
+  const fullAutonomy = threadId
+    ? (thread?.fullAutonomy ?? pendingTurn?.newThreadFullAutonomy ?? false)
+    : draftFullAutonomy;
+
+  const approvalMode: ChatApprovalMode = fullAutonomy
+    ? "full"
+    : policy?.defaultMode === "autonomy"
+      ? "auto"
+      : "review";
+
+  // The turn request creates the thread. Do not accept a change before that row is available.
+  const approvalModePending = policyLoading || (Boolean(threadId) && !thread);
+
+  const onApprovalModeChange = useCallback(
+    (next: ChatApprovalMode) => {
+      // After the subscription settles, the server mutator creates the row for a legacy user.
+      if (approvalModePending) return;
+
+      if (threadId) {
+        void threadActions?.setApprovalMode(threadId, next).catch(() => {
+          toast.error("Couldn't change the approval mode. Please try again.");
+        });
+
+        return;
+      }
+
+      setDraftFullAutonomy(next === "full");
+
+      // Full autonomy leaves the global default alone, so other threads keep their mode.
+      if (next !== "full") {
+        void setDefaultMode(next === "auto" ? "autonomy" : "gated").catch(() => {
+          toast.error("Couldn't change the approval mode. Please try again.");
+        });
+      }
+    },
+    [approvalModePending, setDefaultMode, threadActions, threadId],
+  );
 
   const onDeleteThread = useCallback(() => {
     if (!threadId) return;
@@ -294,9 +330,9 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
           onDelete={() => setDeleteOpen(true)}
           tier={tier}
           onTierChange={setTier}
-          autoApprove={autoApprove}
-          autoApprovePending={autoApprovePending}
-          onToggleAutoApprove={onToggleAutoApprove}
+          approvalMode={approvalMode}
+          approvalModePending={approvalModePending}
+          onApprovalModeChange={onApprovalModeChange}
         />
         <DeleteThreadDialog
           target={deleteOpen ? { title } : null}
@@ -330,9 +366,9 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
                   ghostText={ghostText}
                   onGhostAccept={onGhostDone}
                   onGhostDismiss={onGhostDone}
-                  autoApprove={autoApprove}
-                  autoApprovePending={autoApprovePending}
-                  onToggleAutoApprove={onToggleAutoApprove}
+                  approvalMode={approvalMode}
+                  approvalModePending={approvalModePending}
+                  onApprovalModeChange={onApprovalModeChange}
                   tier={tier}
                   onTierChange={setTier}
                   queued={queue.tray.items}
@@ -370,9 +406,9 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
             threadId={threadId}
             isStreaming={isStreaming}
             onSend={queue.submit}
-            autoApprove={autoApprove}
-            autoApprovePending={autoApprovePending}
-            onToggleAutoApprove={onToggleAutoApprove}
+            approvalMode={approvalMode}
+            approvalModePending={approvalModePending}
+            onApprovalModeChange={onApprovalModeChange}
             tier={tier}
             onTierChange={setTier}
             queued={queue.tray.items}

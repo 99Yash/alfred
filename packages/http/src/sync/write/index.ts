@@ -5,6 +5,7 @@ import {
   chatThreadCreateArgsSchema,
   chatThreadDeleteArgsSchema,
   chatThreadRenameArgsSchema,
+  chatThreadSetApprovalModeArgsSchema,
   chatThreadSetPinnedArgsSchema,
   factConfirmArgsSchema,
   factCreateArgsSchema,
@@ -35,6 +36,7 @@ import {
   chatThreadCreate,
   chatThreadDelete,
   chatThreadRename,
+  chatThreadSetApprovalMode,
   chatThreadSetPinned,
 } from "./chat";
 import { factConfirm, factCreate, factEdit, factReject } from "./facts";
@@ -115,6 +117,11 @@ export const serverMutators: ServerMutatorsRegistry = {
   chatThreadSetPinned: {
     args: chatThreadSetPinnedArgsSchema,
     run: chatThreadSetPinned,
+  },
+  chatThreadSetApprovalMode: {
+    args: chatThreadSetApprovalModeArgsSchema,
+    run: chatThreadSetApprovalMode,
+    followUp: (_userId, args) => (args.mode === "full" ? [] : [{ kind: "bustPolicyCache" }]),
   },
   // Bucket objects have no FK cascade, so delete them by key prefix after commit.
   chatThreadDelete: {

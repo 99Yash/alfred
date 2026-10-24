@@ -22,7 +22,8 @@ export function toolRequiresApproval(policyMode: PolicyMode, riskTier: ToolRiskT
  * Predict whether a fresh dispatch would park for approval. A scheduling hint,
  * not a gate: batch callers run gated calls one at a time, because a run parks
  * on one `approvalId` and a sibling card fails with 409 `wake_mismatch`.
- * Over-reports `resolveRiskTier` tools and `fast_path` tools.
+ * Over-reports `resolveRiskTier` tools and `fast_path` tools. Ignores chat full autonomy on
+ * purpose: the flag can turn off mid-batch, and then parallel gated siblings would collide.
  */
 export async function toolCallWouldGate(userId: string, toolName: string): Promise<boolean> {
   if (!isToolName(toolName)) return false;
@@ -45,6 +46,8 @@ export async function toolCallWouldGate(userId: string, toolName: string): Promi
  * The model skips its own confirm question for a tool this marks, so it must never mark a tool
  * that a call can run without a card. It under-reports instead: a dynamic tier that can rise
  * to `high` counts as not waiting. The opposite bias of `toolCallWouldGate`.
+ * Ignores chat full autonomy: under it the model skips its own confirm question, which is the
+ * user's intent, and a switch back to Review mid-turn only adds a second confirm.
  */
 export function toolAlwaysWaitsForApproval(toolName: ToolName, policyMode: PolicyMode): boolean {
   const tool = getTool(toolName);

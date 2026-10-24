@@ -266,6 +266,8 @@ export const syncedChatThreadSchema = z.object({
   lastMessageAt: isoDateTimeStringSchema.nullable(),
   // Defaulted so older cached rows still parse.
   pinned: z.boolean().default(false),
+  // Chat full autonomy (ADR-0069 amendment). Defaulted so older cached rows still parse.
+  fullAutonomy: z.boolean().default(false),
   rowVersion: z.number(),
   createdAt: isoDateTimeStringSchema,
   updatedAt: isoDateTimeStringSchema.nullable(),

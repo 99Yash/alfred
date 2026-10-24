@@ -23,6 +23,7 @@ import {
 import { callToast } from "~/lib/toast";
 import { cn } from "~/lib/utils";
 import { MODE_OPTIONS } from "./approval-mode-options";
+import type { ChatApprovalMode } from "@alfred/sync";
 import { TIER_OPTIONS } from "./model-tier-options";
 import { IconButton } from "./rail/icon-button";
 import { threadToMarkdown } from "./thread-markdown";
@@ -55,9 +56,9 @@ export interface ThreadMenuProps {
   onDelete: () => void;
   tier: ChatModelTier;
   onTierChange: (tier: ChatModelTier) => void;
-  autoApprove: boolean;
-  autoApprovePending: boolean;
-  onToggleAutoApprove: () => void;
+  approvalMode: ChatApprovalMode;
+  approvalModePending: boolean;
+  onApprovalModeChange: (mode: ChatApprovalMode) => void;
 }
 
 export function ThreadMenu({
@@ -70,9 +71,9 @@ export function ThreadMenu({
   onDelete,
   tier,
   onTierChange,
-  autoApprove,
-  autoApprovePending,
-  onToggleAutoApprove,
+  approvalMode,
+  approvalModePending,
+  onApprovalModeChange,
 }: ThreadMenuProps) {
   const { resolved } = useAppTheme();
   const [open, setOpen] = useState(false);
@@ -154,19 +155,22 @@ export function ThreadMenu({
 
           <DropdownMenu.Label className={sectionLabelClass}>Actions</DropdownMenu.Label>
           <DropdownMenu.RadioGroup
-            value={autoApprove ? "autonomy" : "gated"}
+            value={approvalMode}
             onValueChange={(next) => {
               // Ignore a re-select while pending, so a double click cannot flip it twice.
-              if (autoApprovePending) return;
+              if (approvalModePending) return;
 
-              if ((next === "autonomy") !== autoApprove) onToggleAutoApprove();
+              const option = MODE_OPTIONS.find((candidate) => candidate.value === next);
+
+              if (option && option.value !== approvalMode) onApprovalModeChange(option.value);
             }}
           >
             {MODE_OPTIONS.map((option) => (
               <DropdownMenu.RadioItem
-                key={option.label}
+                key={option.value}
                 className={radioItemClass}
-                value={option.autonomy ? "autonomy" : "gated"}
+                value={option.value}
+                disabled={approvalModePending}
               >
                 <DropdownMenu.ItemIndicator className="absolute left-2">
                   <option.Icon size={13} aria-hidden />

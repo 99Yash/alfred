@@ -1,0 +1,1 @@
+ALTER TABLE "chat_threads" ADD COLUMN "full_autonomy" boolean DEFAULT false NOT NULL;

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { isoDateTimeStringSchema, MAX_ATTACHMENTS_PER_MESSAGE } from "@alfred/contracts";
 import { SYNC_MODEL } from "../sync-model";
 import type { SyncedChatAttachment, SyncedChatMessage, SyncedChatThread } from "../schemas";
+import { policySetDefaultModeClient } from "./policy";
 
 // Only the user side has mutators. The worker writes assistant replies, and they arrive by pull.
 
@@ -12,6 +13,8 @@ export const chatThreadCreateArgsSchema = z.object({
   id: chatId,
   userId: z.string().min(1).max(100),
   createdAt: isoDateTimeStringSchema,
+  // The local mirror only. The turn request sets the server row (`startChatTurn`).
+  fullAutonomy: z.boolean().optional(),
 });
 
 export type ChatThreadCreateArgs = z.infer<typeof chatThreadCreateArgsSchema>;
@@ -40,6 +43,16 @@ export const chatThreadSetPinnedArgsSchema = z.object({
 });
 
 export type ChatThreadSetPinnedArgs = z.infer<typeof chatThreadSetPinnedArgsSchema>;
+
+export const chatThreadSetApprovalModeArgsSchema = z.object({
+  id: chatId,
+  mode: z.enum(["review", "auto", "full"]),
+});
+
+export type ChatThreadSetApprovalModeArgs = z.infer<typeof chatThreadSetApprovalModeArgsSchema>;
+
+/** Review/Auto change the global policy; Full autonomy changes only this thread. */
+export type ChatApprovalMode = ChatThreadSetApprovalModeArgs["mode"];
 
 export const chatThreadDeleteArgsSchema = z.object({
   id: chatId,
@@ -82,6 +95,7 @@ export async function chatThreadCreateClient(
     title: null,
     lastMessageAt: args.createdAt,
     pinned: false,
+    fullAutonomy: args.fullAutonomy ?? false,
     rowVersion: 0,
     createdAt: args.createdAt,
     updatedAt: args.createdAt,
@@ -95,15 +109,17 @@ async function patchThread(
   tx: WriteTransaction,
   id: string,
   patch: Partial<SyncedChatThread>,
-): Promise<void> {
+): Promise<boolean> {
   const thread = await readThread(tx, id);
 
-  if (!thread) return;
+  if (!thread) return false;
   await SYNC_MODEL.chatthread.put(tx, {
     ...thread,
     ...patch,
     rowVersion: thread.rowVersion + 1,
   } satisfies SyncedChatThread);
+
+  return true;
 }
 
 export async function chatThreadRenameClient(
@@ -118,6 +134,20 @@ export async function chatThreadSetPinnedClient(
   args: ChatThreadSetPinnedArgs,
 ): Promise<void> {
   await patchThread(tx, args.id, { pinned: args.pinned });
+}
+
+/** Both optimistic writes share one Replicache transaction and one server mutation. */
+export async function chatThreadSetApprovalModeClient(
+  tx: WriteTransaction,
+  args: ChatThreadSetApprovalModeArgs,
+): Promise<void> {
+  const patched = await patchThread(tx, args.id, { fullAutonomy: args.mode === "full" });
+
+  if (!patched) return;
+
+  if (args.mode !== "full") {
+    await policySetDefaultModeClient(tx, { mode: args.mode === "auto" ? "autonomy" : "gated" });
+  }
 }
 
 /** Delete a thread with its messages and their attachments. */

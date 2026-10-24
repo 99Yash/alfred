@@ -4,14 +4,15 @@ import { Composer } from "./composer/composer";
 import type { ChatModelTier } from "@alfred/contracts";
 import { ConnectToolsBar } from "./connect-tools-bar";
 import type { QueuedMessage } from "~/lib/chat/use-chat-queue";
+import type { ChatApprovalMode } from "@alfred/sync";
 
 export function EmptyHero({
   threadId,
   isStreaming,
   onSend,
-  autoApprove,
-  autoApprovePending,
-  onToggleAutoApprove,
+  approvalMode,
+  approvalModePending,
+  onApprovalModeChange,
   tier,
   onTierChange,
   queued,
@@ -23,9 +24,9 @@ export function EmptyHero({
   onSend?:
     | ((text: string, files?: File[], artifactTargetId?: string) => Promise<boolean>)
     | undefined;
-  autoApprove?: boolean | undefined;
-  autoApprovePending?: boolean | undefined;
-  onToggleAutoApprove?: (() => void) | undefined;
+  approvalMode?: ChatApprovalMode | undefined;
+  approvalModePending?: boolean | undefined;
+  onApprovalModeChange?: ((mode: ChatApprovalMode) => void) | undefined;
   tier: ChatModelTier;
   onTierChange: (tier: ChatModelTier) => void;
   queued?: QueuedMessage[] | undefined;
@@ -58,9 +59,9 @@ export function EmptyHero({
           threadId={threadId}
           isStreaming={isStreaming}
           onSend={onSend}
-          autoApprove={autoApprove}
-          autoApprovePending={autoApprovePending}
-          onToggleAutoApprove={onToggleAutoApprove}
+          approvalMode={approvalMode}
+          approvalModePending={approvalModePending}
+          onApprovalModeChange={onApprovalModeChange}
           tier={tier}
           onTierChange={onTierChange}
           queued={queued}

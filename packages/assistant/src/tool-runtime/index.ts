@@ -135,6 +135,11 @@ interface ToolCallRunBase {
   /** Dispatch refuses an effect once the run's fence moves past this value. */
   fence: CancellationFence;
   threadId?: string | undefined;
+  /**
+   * The chat thread whose full-autonomy flag the approval gate reads (ADR-0069 amendment).
+   * A chat turn and its sub-agents set it. A background run never does, so it keeps every floor.
+   */
+  approvalThreadId?: string | undefined;
   messageId?: string | undefined;
   scratchpadRunId?: string | undefined;
   timezone?: IanaTimezone | undefined;

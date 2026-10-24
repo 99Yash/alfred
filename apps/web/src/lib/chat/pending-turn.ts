@@ -9,6 +9,8 @@ import { useSyncExternalStore } from "react";
 interface PendingTurn {
   message: SyncedChatMessage;
   attachments: SyncedChatAttachment[];
+  /** Keep the new chat's selected mode visible until its thread row arrives. */
+  newThreadFullAutonomy?: boolean;
 }
 
 // One per thread: the composer holds a second send until the first settles.

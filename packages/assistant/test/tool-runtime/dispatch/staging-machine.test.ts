@@ -603,7 +603,7 @@ describe("dispatch staging machine (DB-free)", () => {
     assert.equal(row.requiresApproval, true);
   });
 
-  test("a policy change does not promote a pending medium-risk autonomous row", async () => {
+  test("a policy change promotes a pending medium-risk autonomous row", async () => {
     const toolCallId = "tc_calendar_policy_change";
 
     const input: unknown = calendarCreateEventTool.inputSchema.parse({
@@ -644,9 +644,9 @@ describe("dispatch staging machine (DB-free)", () => {
       }),
     );
 
-    assert.equal(result.kind, "executed", "a later policy change applies only to fresh calls");
-    assert.equal(executeCount, 1);
-    assert.equal(store.rows()[0]?.requiresApproval, false);
+    assert.equal(result.kind, "staged", "ADR-0069: pending rows follow the live approval rule");
+    assert.equal(executeCount, 0);
+    assert.equal(store.rows()[0]?.requiresApproval, true);
   });
 
   test("a pending gated row stays gated when the policy flips to autonomy mid-run", async () => {

@@ -1,15 +1,17 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { useReplicache } from "~/lib/replicache/context";
+import type { ChatApprovalMode } from "@alfred/sync";
 
 export interface ThreadActions {
   rename: (id: string, title: string) => void;
   setPinned: (id: string, pinned: boolean) => void;
+  setApprovalMode: (id: string, mode: ChatApprovalMode) => Promise<void>;
   remove: (id: string) => void;
 }
 
 /**
- * Rename, pin, and delete for the sidebar and header menus. Deleting the open
+ * Rename, pin, approval mode, and delete for the sidebar and header menus. Deleting the open
  * thread goes to `/chat`. `undefined` until Replicache opens: render inert rows.
  */
 export function useThreadActions(activeThreadId: string | undefined): ThreadActions | undefined {
@@ -22,6 +24,7 @@ export function useThreadActions(activeThreadId: string | undefined): ThreadActi
     return {
       rename: (id, title) => void rep.mutate.chatThreadRename({ id, title }),
       setPinned: (id, pinned) => void rep.mutate.chatThreadSetPinned({ id, pinned }),
+      setApprovalMode: (id, mode) => rep.mutate.chatThreadSetApprovalMode({ id, mode }),
       remove: (id) => {
         void rep.mutate.chatThreadDelete({ id });
 

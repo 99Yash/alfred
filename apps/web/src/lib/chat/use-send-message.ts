@@ -49,7 +49,13 @@ function safeRandomId(): string {
  * Upload files, show the message as a pending turn, start the turn over
  * `POST /api/chat/threads/:id/turn`, then mirror it into Replicache. The reply streams over SSE.
  */
-export function useSendMessage(): SendMessage {
+export interface SendMessageOptions {
+  /** Full autonomy picked before the thread exists. The server applies it only on create. */
+  fullAutonomyForNewThread?: boolean | undefined;
+}
+
+export function useSendMessage(options: SendMessageOptions = {}): SendMessage {
+  const fullAutonomyForNewThread = options.fullAutonomyForNewThread === true;
   const rep = useReplicache();
   const { data: session } = authClient.useSession();
   const userId = session?.user.id;
@@ -143,6 +149,7 @@ export function useSendMessage(): SendMessage {
       setPendingTurn({
         message: toSyncedUserMessage(messageArgs),
         attachments: attachmentArgs.map(toSyncedChatAttachment),
+        ...(isNew ? { newThreadFullAutonomy: fullAutonomyForNewThread } : {}),
       });
 
       // A new chat opens its page at once. The mounted page picks up the seed when the ack comes.
@@ -171,6 +178,7 @@ export function useSendMessage(): SendMessage {
             userMessageId,
             content,
             tier: tier ?? "standard",
+            fullAutonomy: isNew && fullAutonomyForNewThread ? true : undefined,
             attachments: uploaded.length > 0 ? uploaded : undefined,
             retryAttachmentIds: retryIds.length > 0 ? retryIds : undefined,
             retryAttachmentMessageId:
@@ -245,7 +253,12 @@ export function useSendMessage(): SendMessage {
 
         try {
           if (isNew) {
-            await rep.mutate.chatThreadCreate({ id: tid, userId, createdAt: now });
+            await rep.mutate.chatThreadCreate({
+              id: tid,
+              userId,
+              createdAt: now,
+              fullAutonomy: fullAutonomyForNewThread,
+            });
           }
 
           // Display only; the server already wrote the real rows. Replicache runs mutations in order.
@@ -285,6 +298,6 @@ export function useSendMessage(): SendMessage {
 
       return { ok: true, runId: null, assistantMessageId: userMessageId } satisfies SendResult;
     },
-    [rep, userId, navigate, router],
+    [rep, userId, navigate, router, fullAutonomyForNewThread],
   );
 }

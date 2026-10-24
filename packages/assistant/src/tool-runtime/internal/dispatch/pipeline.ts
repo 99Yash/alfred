@@ -673,6 +673,19 @@ const suppressRepeatedStage: DispatchStage<ValidatedDispatch, SuppressedDispatch
 };
 
 /**
+ * The chat thread's full-autonomy flag (ADR-0069 amendment). Read live, not from a run snapshot,
+ * so a switch mid-turn applies to the next call. No thread means a background run: `false`.
+ */
+async function readFullAutonomy(args: ToolCallDispatchArgs): Promise<boolean> {
+  if (args.approvalThreadId === undefined) return false;
+
+  return stagingStore().readThreadFullAutonomy({
+    userId: args.userId,
+    threadId: args.approvalThreadId,
+  });
+}
+
+/**
  * Stage 4: upsert the staging row, then act on its status. Pending parks or
  * executes, approved executes the decided input, and settled rows replay.
  */
@@ -701,7 +714,20 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
   // Some tools resolve their tier from input (Calendar invites go up, `mcp.call` can go down).
   const riskTier = await resolveEffectiveRiskTier(tool, input, ctx);
   const policyMode = await resolvePolicyMode(args.userId, toolName);
-  const requiresApproval = arm.forcesApproval || toolRequiresApproval(policyMode, riskTier);
+  const policyRequiresApproval = toolRequiresApproval(policyMode, riskTier);
+
+  // Read only when a card would stage, so the normal path makes no read. Never waives a question.
+  const fullAutonomy =
+    !arm.forcesApproval && policyRequiresApproval && (await readFullAutonomy(args));
+
+  const requiresApproval = arm.forcesApproval || (policyRequiresApproval && !fullAutonomy);
+
+  if (fullAutonomy) {
+    logger.info(
+      { runId: args.runId, toolName, riskTier, threadId: args.approvalThreadId },
+      "[dispatch] full autonomy waived the approval card",
+    );
+  }
 
   const approvalNotifyDelayMs = requiresApproval
     ? await resolveApprovalNotifyDelayMs(args.userId)
@@ -751,15 +777,9 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
 
   let promotedPendingApproval = false;
 
-  const riskFloorRequiresApproval =
-    arm.forcesApproval || toolRequiresApproval("autonomy", riskTier);
-
-  if (
-    !insertedNew &&
-    row.status === "pending" &&
-    riskFloorRequiresApproval &&
-    !row.requiresApproval
-  ) {
+  // Reclaim uses the complete live requirement, including policy for low/medium tools.
+  // A pending row may gain a gate after a mode change, but it must never lose one.
+  if (!insertedNew && row.status === "pending" && requiresApproval && !row.requiresApproval) {
     const promoted = await stagingStore().promotePendingApproval(row.id, {
       riskTier,
       proposedInput: persistedProposedInput,
