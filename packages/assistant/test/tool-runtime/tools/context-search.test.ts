@@ -44,6 +44,7 @@ const CONTEXT = {
   timezone: parseIanaTimezone("UTC"),
   caller: "boss" as const,
   runContext: { caller: "boss" as const, interaction: "live_chat" as const },
+  activeTools: [],
 };
 
 const ROUND_RUN: ToolCallRun = {

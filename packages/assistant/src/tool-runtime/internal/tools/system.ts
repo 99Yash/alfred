@@ -195,10 +195,21 @@ export const systemTools: readonly RegisteredTool[] = [
           context: ctx.runContext,
         });
 
+        // A bare `{ ok: true }` here reads as "now loaded", so the model loads the same tool again.
+        const alreadyActive = result.ok && ctx.activeTools.includes(result.name);
+
         span.end({
-          outcome: result.ok ? "ok" : result.status,
+          outcome: alreadyActive ? "already_active" : result.ok ? "ok" : result.status,
           latencyMs: Date.now() - startMs,
         });
+
+        if (alreadyActive) {
+          return {
+            ...result,
+            alreadyActive: true,
+            message: `${result.name} was already loaded, so this load changed nothing. Call ${result.name} directly; do not load it again.`,
+          };
+        }
 
         return result;
       } catch (error) {

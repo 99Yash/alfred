@@ -525,6 +525,7 @@ const validateInputStage: DispatchStage<ResolvedDispatch, ValidatedDispatch> = a
     timezone: args.timezone ?? (await settings({ userId: args.userId }).timezone()),
     caller,
     runContext: args.runContext,
+    activeTools: args.activeTools,
     threadId: args.threadId,
     messageId: args.messageId,
     allowedIntegrations: args.allowedIntegrations,

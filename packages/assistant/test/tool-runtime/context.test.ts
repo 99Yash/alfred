@@ -22,6 +22,7 @@ describe("toolExecuteContext", () => {
     timezone: parseIanaTimezone("America/New_York"),
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
+    activeTools: [],
   } satisfies ToolExecuteContextFields;
 
   test("returns every supplied field unchanged", () => {

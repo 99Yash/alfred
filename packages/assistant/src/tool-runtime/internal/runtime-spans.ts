@@ -72,8 +72,8 @@ export function recordRoundToolActivation(
 
 export const RUNTIME_TOOL_LOAD = "runtime.tool_load";
 
-/** Mirrors `resolveExactToolLoad`. */
-type ToolLoadOutcome = "ok" | "unknown_tool" | ToolUnavailabilityCode;
+/** Mirrors `resolveExactToolLoad`. `already_active` is a load that changed nothing. */
+type ToolLoadOutcome = "ok" | "already_active" | "unknown_tool" | ToolUnavailabilityCode;
 
 /**
  * `model_load`: `system.load_tool`. `inactive_bounce`: the model called an inactive

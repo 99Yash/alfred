@@ -23,6 +23,7 @@ describe("liveTool resolveRiskTier wiring", () => {
     timezone: parseIanaTimezone("UTC"),
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
+    activeTools: [],
   });
 
   test("preserves the static riskTier as the floor on the registry entry", () => {
