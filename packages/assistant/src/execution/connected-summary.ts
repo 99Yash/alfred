@@ -1,10 +1,13 @@
 import {
   LIVE_PROVIDERS,
   type IntegrationAvailabilitySnapshot,
+  type ToolName,
   type ToolRunContext,
 } from "@alfred/contracts";
+import { resolvePolicyMode } from "@alfred/assistant/action-policies";
 import { listOwnedConnections } from "@alfred/assistant/connections/mcp";
 import { availableToolNamesByIntegration } from "@alfred/assistant/tool-runtime";
+import { toolAlwaysWaitsForApproval } from "@alfred/assistant/tool-runtime/approval-rule";
 
 /**
  * One line per connected integration for the system prompt (ADR-0053). Grounding only;
@@ -12,7 +15,7 @@ import { availableToolNamesByIntegration } from "@alfred/assistant/tool-runtime"
  */
 
 const CONNECTED_HEADER =
-  "You are connected to these integrations right now — call each as integration.action (for example calendar.list_events), and an MCP server's tools through mcp.call. Treat this list as authoritative: do not offer or attempt an integration that is not on it.";
+  "You are connected to these integrations right now — call each as integration.action (for example calendar.list_events), and an MCP server's tools through mcp.call. Treat this list as authoritative: do not offer or attempt an integration that is not on it. A line marks the calls that wait for the user's approval: each one shows the user an approval card, and that card is the confirmation. Any other call may run at once.";
 
 const NO_INTEGRATIONS_TEXT =
   "You have no integrations connected right now. If the user asks about their email, calendar, files, or other connected data, tell them they need to connect it first — never pretend to have access you do not.";
@@ -53,7 +56,11 @@ export async function buildConnectedSummaryFromAvailability(
       continue;
     }
 
-    if (tools.length > 0) lines.push(`- ${tools.join(", ")} — ${entry.summaryBlurb}${binding}`);
+    if (tools.length > 0) {
+      const approval = await approvalLabel(userId, tools);
+      const suffix = approval ? `. ${approval}` : "";
+      lines.push(`- ${tools.join(", ")} — ${entry.summaryBlurb}${binding}${suffix}`);
+    }
   }
 
   if (availableByIntegration.get("mcp")?.includes("mcp.call")) {
@@ -63,6 +70,29 @@ export async function buildConnectedSummaryFromAvailability(
   if (lines.length === 0) return NO_INTEGRATIONS_TEXT;
 
   return [CONNECTED_HEADER, ...lines].join("\n");
+}
+
+/**
+ * Marks only the calls that always wait, so the label never claims a call runs at once: a
+ * dynamic tier can still gate one (ADR-0088). Names the smaller group to save tokens. MCP lines
+ * get no label, because `mcp.call` resolves its tier per remote tool.
+ */
+async function approvalLabel(userId: string, tools: readonly ToolName[]): Promise<string | null> {
+  const waits: ToolName[] = [];
+  const others: ToolName[] = [];
+
+  for (const name of tools) {
+    const mode = await resolvePolicyMode(userId, name);
+    (toolAlwaysWaitsForApproval(name, mode) ? waits : others).push(name);
+  }
+
+  if (waits.length === 0) return null;
+
+  if (others.length === 0) return "Every call waits for the user's approval.";
+
+  return waits.length <= others.length
+    ? `These wait for the user's approval: ${waits.join(", ")}.`
+    : `Every call waits for the user's approval except ${others.join(", ")}.`;
 }
 
 /**

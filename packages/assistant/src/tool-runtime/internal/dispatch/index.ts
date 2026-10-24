@@ -2,7 +2,6 @@
 export {
   dispatchToolCall,
   registerDispatchToolCallRoundAdapter,
-  toolRequiresApproval,
   resolveEffectiveRiskTier,
   toolCallWouldGate,
   undeclaredToolMessage,
@@ -13,3 +12,5 @@ export {
   type DispatchStageOutcome,
   type ToolCallDispatchResult,
 } from "./pipeline";
+
+export { toolRequiresApproval } from "../../approval-rule";

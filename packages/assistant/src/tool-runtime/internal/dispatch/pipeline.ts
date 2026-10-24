@@ -8,7 +8,6 @@ import type {
   AskUserUnansweredReason,
   IntegrationAvailabilitySnapshot,
   IntegrationSlug,
-  PolicyMode,
   ToolName,
   ToolRiskTier,
 } from "@alfred/contracts";
@@ -83,6 +82,7 @@ import {
   passthroughTruncationTelemetry,
 } from "../tools/passthrough";
 import { toolExecuteContext } from "../../context";
+import { toolRequiresApproval } from "../../approval-rule";
 import {
   getTool,
   resolveToolAvailability,
@@ -932,15 +932,6 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
     }
   }
 };
-
-/**
- * Approval is needed when policy is `gated` or the tier is `high`.
- * "Auto" must not authorize an irreversible action, such as a real email send.
- * Dispatch and `toolCallWouldGate` both use this one gate.
- */
-export function toolRequiresApproval(policyMode: PolicyMode, riskTier: ToolRiskTier): boolean {
-  return policyMode === "gated" || riskTier === "high";
-}
 
 /**
  * Resolve input-dependent risk. A downgrade needs a declared
