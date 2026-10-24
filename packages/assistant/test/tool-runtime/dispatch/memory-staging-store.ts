@@ -163,6 +163,10 @@ export function memoryStagingStore(): MemoryStagingStore {
       return cancellationFenceSchema.parse({ generation: fences.get(runId) ?? 0 });
     },
 
+    async readThreadFullAutonomy() {
+      return false;
+    },
+
     async upsertStaging(values: StagingInsertValues) {
       const key = conflictKey(values.runId, values.toolCallId);
       const existingId = byConflictKey.get(key);

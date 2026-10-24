@@ -12,6 +12,8 @@ export const chatThreadCreateArgsSchema = z.object({
   id: chatId,
   userId: z.string().min(1).max(100),
   createdAt: isoDateTimeStringSchema,
+  // The local mirror only. The turn request sets the server row (`startChatTurn`).
+  fullAutonomy: z.boolean().optional(),
 });
 
 export type ChatThreadCreateArgs = z.infer<typeof chatThreadCreateArgsSchema>;
@@ -40,6 +42,13 @@ export const chatThreadSetPinnedArgsSchema = z.object({
 });
 
 export type ChatThreadSetPinnedArgs = z.infer<typeof chatThreadSetPinnedArgsSchema>;
+
+export const chatThreadSetFullAutonomyArgsSchema = z.object({
+  id: chatId,
+  fullAutonomy: z.boolean(),
+});
+
+export type ChatThreadSetFullAutonomyArgs = z.infer<typeof chatThreadSetFullAutonomyArgsSchema>;
 
 export const chatThreadDeleteArgsSchema = z.object({
   id: chatId,
@@ -82,6 +91,7 @@ export async function chatThreadCreateClient(
     title: null,
     lastMessageAt: args.createdAt,
     pinned: false,
+    fullAutonomy: args.fullAutonomy ?? false,
     rowVersion: 0,
     createdAt: args.createdAt,
     updatedAt: args.createdAt,
@@ -118,6 +128,13 @@ export async function chatThreadSetPinnedClient(
   args: ChatThreadSetPinnedArgs,
 ): Promise<void> {
   await patchThread(tx, args.id, { pinned: args.pinned });
+}
+
+export async function chatThreadSetFullAutonomyClient(
+  tx: WriteTransaction,
+  args: ChatThreadSetFullAutonomyArgs,
+): Promise<void> {
+  await patchThread(tx, args.id, { fullAutonomy: args.fullAutonomy });
 }
 
 /** Delete a thread with its messages and their attachments. */

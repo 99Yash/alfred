@@ -7,7 +7,7 @@ import { AppButton, AppCard, AppSegmented, type AppSegmentedItem } from "~/compo
 import { SectionHeading } from "./section-heading";
 
 const MODE_ITEMS: ReadonlyArray<AppSegmentedItem<PolicyMode>> = [
-  { value: "autonomy", label: "Full autonomy", icon: <Zap size={13} aria-hidden /> },
+  { value: "autonomy", label: "Auto", icon: <Zap size={13} aria-hidden /> },
   { value: "gated", label: "Gated", icon: <ShieldCheck size={13} aria-hidden /> },
 ];
 
@@ -67,11 +67,11 @@ export function ProviderPolicy({ provider }: { provider: IntegrationPage }) {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
             <p className="text-sm font-medium text-app-fg-4">
-              {mode === "autonomy" ? "Full autonomy" : "Gated"}
+              {mode === "autonomy" ? "Auto" : "Gated"}
             </p>
             <p className="mt-1 text-xs leading-5 text-app-fg-3">
               {mode === "autonomy"
-                ? `Alfred acts on ${provider.name} without pausing for approval.`
+                ? `Alfred acts on ${provider.name} without pausing for approval. Risky actions still ask.`
                 : `Alfred pauses for your approval before any action on ${provider.name}, including reading messages beyond a short preview.`}
             </p>
           </div>

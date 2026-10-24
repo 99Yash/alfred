@@ -5,11 +5,12 @@ import { useReplicache } from "~/lib/replicache/context";
 export interface ThreadActions {
   rename: (id: string, title: string) => void;
   setPinned: (id: string, pinned: boolean) => void;
+  setFullAutonomy: (id: string, fullAutonomy: boolean) => void;
   remove: (id: string) => void;
 }
 
 /**
- * Rename, pin, and delete for the sidebar and header menus. Deleting the open
+ * Rename, pin, full autonomy, and delete for the sidebar and header menus. Deleting the open
  * thread goes to `/chat`. `undefined` until Replicache opens: render inert rows.
  */
 export function useThreadActions(activeThreadId: string | undefined): ThreadActions | undefined {
@@ -22,6 +23,8 @@ export function useThreadActions(activeThreadId: string | undefined): ThreadActi
     return {
       rename: (id, title) => void rep.mutate.chatThreadRename({ id, title }),
       setPinned: (id, pinned) => void rep.mutate.chatThreadSetPinned({ id, pinned }),
+      setFullAutonomy: (id, fullAutonomy) =>
+        void rep.mutate.chatThreadSetFullAutonomy({ id, fullAutonomy }),
       remove: (id) => {
         void rep.mutate.chatThreadDelete({ id });
 

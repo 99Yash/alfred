@@ -1,5 +1,6 @@
 /**
- * The dispatch gate's only SQL: `action_stagings` and the owning run's status.
+ * The dispatch gate's only SQL: `action_stagings`, the owning run's status, and the chat
+ * thread's full-autonomy flag.
  * `test/tool-runtime/dispatch/staging-store-contract.ts` runs the same suite on
  * this and the in-memory test adapter.
  *
@@ -25,6 +26,7 @@ import { db } from "@alfred/db";
 import {
   actionStagings,
   agentRuns,
+  chatThreads,
   type ActionStaging,
   type NewActionStaging,
 } from "@alfred/db/schemas";
@@ -126,6 +128,12 @@ export interface StagingStore {
 
   /** An absent run reads as `{ generation: 0 }`. */
   readCancellationFence(runId: string): Promise<CancellationFence>;
+
+  /**
+   * The thread's full-autonomy flag, read live (ADR-0069 amendment). A thread that is absent or
+   * owned by another user reads as `false`, so a doubt keeps the card.
+   */
+  readThreadFullAutonomy(query: { userId: string; threadId: string }): Promise<boolean>;
 
   /** Idempotent on `(runId, toolCallId)`. On conflict, returns the stored row unchanged. */
   upsertStaging(values: StagingInsertValues): Promise<{ row: StagingRow; wasInserted: boolean }>;
@@ -274,6 +282,16 @@ export const postgresStagingStore: StagingStore = {
     return cancellationFenceSchema.parse({
       generation: rows[0]?.generation ?? 0,
     });
+  },
+
+  async readThreadFullAutonomy(query) {
+    const rows = await db()
+      .select({ fullAutonomy: chatThreads.fullAutonomy })
+      .from(chatThreads)
+      .where(and(eq(chatThreads.id, query.threadId), eq(chatThreads.userId, query.userId)))
+      .limit(1);
+
+    return rows[0]?.fullAutonomy === true;
   },
 
   async upsertStaging(values) {

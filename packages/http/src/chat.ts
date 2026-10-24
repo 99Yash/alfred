@@ -115,6 +115,7 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
             userMessageId: body.userMessageId,
             content: body.content,
             tier: body.tier,
+            fullAutonomy: body.fullAutonomy,
             artifactTargetId: body.artifactTargetId,
             attachments: body.attachments,
             retryAttachmentIds: body.retryAttachmentIds,
@@ -128,6 +129,8 @@ export const chatRoutes = new Elysia({ prefix: "/api/chat", normalize: "typebox"
             content: t.String({ minLength: 0, maxLength: 100_000 }),
             // Model tier from the composer's picker; `route` maps it.
             tier: t.Optional(t.Union([t.Literal("standard"), t.Literal("deep")])),
+            // Chat full autonomy picked before the thread exists. Ignored for an existing thread.
+            fullAutonomy: t.Optional(t.Boolean()),
             // From the artifact sidebar. `startChatTurn` scopes it to this thread.
             artifactTargetId: t.Optional(t.String({ minLength: 1, maxLength: 100 })),
             // The id must match the upload's: the storage key is rebuilt from it.

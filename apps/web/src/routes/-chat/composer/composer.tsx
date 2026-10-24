@@ -37,6 +37,7 @@ import { useMentionController } from "./use-mention-controller";
 import { useTypeAnywhere } from "./use-type-anywhere";
 import { KeyHint } from "./key-hint";
 import type { QueuedEdit, QueuedMessage } from "~/lib/chat/use-chat-queue";
+import type { ChatApprovalMode } from "../approval-mode-options";
 
 /** A text paste at or over this length becomes a `.txt` attachment (about 4 KB, as in Dimension). */
 const LARGE_PASTE_MIN_CHARACTERS = 4_000;
@@ -60,9 +61,9 @@ export function Composer({
   ghostText,
   onGhostAccept,
   onGhostDismiss,
-  autoApprove,
-  autoApprovePending,
-  onToggleAutoApprove,
+  approvalMode,
+  approvalModePending,
+  onApprovalModeChange,
   tier,
   onTierChange,
   prefill,
@@ -103,11 +104,11 @@ export function Composer({
   ghostText?: string | undefined;
   onGhostAccept?: (() => void) | undefined;
   onGhostDismiss?: (() => void) | undefined;
-  /** Chat "Auto" mode. Absent hides the control. */
-  autoApprove?: boolean | undefined;
-  /** Policy still loading: disable the toggle. */
-  autoApprovePending?: boolean | undefined;
-  onToggleAutoApprove?: (() => void) | undefined;
+  /** Chat approval mode. Absent hides the control. */
+  approvalMode?: ChatApprovalMode | undefined;
+  /** Policy still loading: disable the picker. */
+  approvalModePending?: boolean | undefined;
+  onApprovalModeChange?: ((mode: ChatApprovalMode) => void) | undefined;
   tier: ChatModelTier;
   onTierChange: (tier: ChatModelTier) => void;
   /** Queued messages for this thread, shown as chips (#489). */
@@ -652,9 +653,9 @@ export function Composer({
               onVoiceStart={onVoiceStart}
               onVoiceConfirm={() => void onVoiceConfirm()}
               onStopGeneration={onStopGeneration}
-              autoApprove={autoApprove}
-              autoApprovePending={autoApprovePending}
-              onToggleAutoApprove={onToggleAutoApprove}
+              approvalMode={approvalMode}
+              approvalModePending={approvalModePending}
+              onApprovalModeChange={onApprovalModeChange}
               tier={tier}
               onTierChange={onTierChange}
             />

@@ -5,6 +5,7 @@ import type {
   ChatThreadCreateArgs,
   ChatThreadDeleteArgs,
   ChatThreadRenameArgs,
+  ChatThreadSetFullAutonomyArgs,
   ChatThreadSetPinnedArgs,
 } from "@alfred/sync";
 import { and, eq, sql } from "drizzle-orm";
@@ -24,6 +25,7 @@ export async function chatThreadCreate(
       userId,
       lastMessageAt: new Date(args.createdAt),
       createdAt: new Date(args.createdAt),
+      fullAutonomy: args.fullAutonomy ?? false,
     })
     .onConflictDoNothing();
 }
@@ -85,6 +87,21 @@ export async function chatThreadSetPinned(
   await tx
     .update(chatThreads)
     .set({ pinned: args.pinned, rowVersion: sql`${chatThreads.rowVersion} + 1` })
+    .where(and(eq(chatThreads.id, args.id), eq(chatThreads.userId, userId)));
+}
+
+/**
+ * The approval gate reads this column live on each call that would stage (ADR-0069 amendment).
+ * So a change mid-turn applies to the next call, and no cache needs a bust.
+ */
+export async function chatThreadSetFullAutonomy(
+  tx: DbTransaction,
+  args: ChatThreadSetFullAutonomyArgs,
+  userId: string,
+): Promise<void> {
+  await tx
+    .update(chatThreads)
+    .set({ fullAutonomy: args.fullAutonomy, rowVersion: sql`${chatThreads.rowVersion} + 1` })
     .where(and(eq(chatThreads.id, args.id), eq(chatThreads.userId, userId)));
 }
 

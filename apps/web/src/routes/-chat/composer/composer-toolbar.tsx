@@ -7,6 +7,7 @@ import type { ChatModelTier } from "@alfred/contracts";
 import type { useMicRecording } from "../mic-recording";
 import { Tip } from "../tip";
 import { KeyHint } from "./key-hint";
+import type { ChatApprovalMode } from "../approval-mode-options";
 
 export function ComposerToolbar({
   mic,
@@ -27,9 +28,9 @@ export function ComposerToolbar({
   onVoiceStart,
   onVoiceConfirm,
   onStopGeneration,
-  autoApprove,
-  autoApprovePending,
-  onToggleAutoApprove,
+  approvalMode,
+  approvalModePending,
+  onApprovalModeChange,
   tier,
   onTierChange,
 }: {
@@ -55,9 +56,9 @@ export function ComposerToolbar({
   onVoiceStart: () => void;
   onVoiceConfirm: () => void;
   onStopGeneration?: (() => void) | undefined;
-  autoApprove?: boolean | undefined;
-  autoApprovePending?: boolean | undefined;
-  onToggleAutoApprove?: (() => void) | undefined;
+  approvalMode?: ChatApprovalMode | undefined;
+  approvalModePending?: boolean | undefined;
+  onApprovalModeChange?: ((mode: ChatApprovalMode) => void) | undefined;
   tier: ChatModelTier;
   onTierChange: (tier: ChatModelTier) => void;
 }) {
@@ -99,11 +100,11 @@ export function ComposerToolbar({
           onChange={onTierChange}
           disabled={disabled || mic.recording}
         />
-        {onToggleAutoApprove ? (
+        {onApprovalModeChange && approvalMode ? (
           <ApprovalModePicker
-            on={Boolean(autoApprove)}
-            disabled={Boolean(autoApprovePending)}
-            onToggle={onToggleAutoApprove}
+            mode={approvalMode}
+            disabled={Boolean(approvalModePending)}
+            onChange={onApprovalModeChange}
           />
         ) : null}
         {transcribing ? (

@@ -13,6 +13,7 @@ import { ShareThreadDialog } from "./share-thread-dialog";
 import { ThreadMenu } from "./thread-menu";
 import { ThreadUsageButton } from "./thread-usage";
 import { Tip } from "./tip";
+import type { ChatApprovalMode } from "./approval-mode-options";
 
 export function TopBar({
   title,
@@ -30,9 +31,9 @@ export function TopBar({
   onDelete,
   tier,
   onTierChange,
-  autoApprove,
-  autoApprovePending,
-  onToggleAutoApprove,
+  approvalMode,
+  approvalModePending,
+  onApprovalModeChange,
 }: {
   title: string;
   /** Absent until the first turn creates the thread; Share and the menu hide until then. */
@@ -52,9 +53,9 @@ export function TopBar({
   onDelete: () => void;
   tier: ChatModelTier;
   onTierChange: (tier: ChatModelTier) => void;
-  autoApprove: boolean;
-  autoApprovePending: boolean;
-  onToggleAutoApprove: () => void;
+  approvalMode: ChatApprovalMode;
+  approvalModePending: boolean;
+  onApprovalModeChange: (mode: ChatApprovalMode) => void;
 }) {
   const { open: sidebarOpen, setOpen: setSidebarOpen } = useSidebarState();
   const [shareOpen, setShareOpen] = useState(false);
@@ -124,9 +125,9 @@ export function TopBar({
           onDelete={onDelete}
           tier={tier}
           onTierChange={onTierChange}
-          autoApprove={autoApprove}
-          autoApprovePending={autoApprovePending}
-          onToggleAutoApprove={onToggleAutoApprove}
+          approvalMode={approvalMode}
+          approvalModePending={approvalModePending}
+          onApprovalModeChange={onApprovalModeChange}
         />
         <span aria-hidden className="mx-1 h-5 w-px bg-app-bg-3" />
         <ArtifactMenu

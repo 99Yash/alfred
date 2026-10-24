@@ -66,6 +66,12 @@ export const chatThreads = pgTable(
     /** Thread list sort key. */
     lastMessageAt: timestamp("last_message_at", { withTimezone: true }),
     pinned: boolean("pinned").notNull().default(false),
+    /**
+     * Chat full autonomy: this thread's runs and their sub-agents skip every approval card, the
+     * high-tier floor included (ADR-0069 amendment). The gate reads it live, so a change mid-turn
+     * applies to the next call.
+     */
+    fullAutonomy: boolean("full_autonomy").notNull().default(false),
     rowVersion: integer("row_version").notNull().default(0),
     ...lifecycle_dates,
   },

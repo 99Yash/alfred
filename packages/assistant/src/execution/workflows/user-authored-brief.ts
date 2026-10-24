@@ -108,6 +108,8 @@ function briefToolRunIdentity(
     runId: ctx.runId,
     workflow: USER_AUTHORED_BRIEF_WORKFLOW_SLUG,
     scratchpadRunId: state.subAgent?.parentRunId ?? ctx.runId,
+    // A sub-agent of a chat turn follows that thread's full-autonomy flag.
+    approvalThreadId: state.subAgent?.chat?.threadId,
     timezone: state.timezone ? parseIanaTimezone(state.timezone) : undefined,
     allowedIntegrations: state.allowedIntegrations,
     allowedTools: state.allowedTools?.filter(isToolName),

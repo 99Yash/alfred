@@ -108,6 +108,7 @@ function chatToolRunIdentity(
     caller: "boss",
     runContext: CHAT_TOOL_RUN_CONTEXT,
     threadId: state.threadId,
+    approvalThreadId: state.threadId,
     messageId: state.messageId,
     scratchpadRunId: ctx.runId,
     timezone: state.timezone ? parseIanaTimezone(state.timezone) : undefined,
