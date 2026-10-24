@@ -61,7 +61,7 @@ export function PickerMenu({
           loop
           data-app-theme={resolved}
           className={cn(
-            "app app-frost-overlay app-frost-edge relative z-50 flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-0.5 overflow-hidden rounded-surface p-1.5",
+            "app app-frost-overlay app-frost-edge relative z-50 flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-0.5 overflow-hidden rounded-surface p-1",
             // Grow out of the trigger, not out of the menu's bottom center.
             "origin-(--radix-dropdown-menu-content-transform-origin) outline-none",
             "motion-safe:data-[state=open]:animate-[app-popover-in_180ms_cubic-bezier(0.22,1,0.36,1)]",
@@ -99,8 +99,8 @@ export function PickerMenuItem({
       value={value}
       onSelect={onSelect}
       className={cn(
-        // Concentric with the menu: its radius minus its `p-1.5`.
-        "app-press flex w-full cursor-default items-start gap-2.5 rounded-[calc(var(--radius-surface)-6px)] p-2 text-left outline-none select-none",
+        // Concentric with the menu: `rounded-control` (14px) plus the menu's `p-1` is `rounded-surface` (18px).
+        "app-press flex w-full cursor-default items-start gap-2.5 rounded-control p-2 text-left outline-none select-none",
         "transition-[background-color,scale]",
         // Checked is a step stronger than highlighted, so a highlight never looks checked.
         "data-[state=checked]:bg-app-bg-a3 data-[state=unchecked]:data-highlighted:bg-app-bg-a2",
