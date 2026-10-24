@@ -972,6 +972,18 @@ function policyCopy(riskTier: ToolRiskTier): string {
 }
 
 /**
+ * What the run waits on, for the feed marker and the activity pill. With no synced row yet
+ * (the approval frame arrived first), it reads as an approval.
+ */
+export function describeApprovalWait(approvals: readonly SyncedActionStaging[]): string {
+  const [first] = approvals;
+
+  if (approvals.length > 1) return `${approvals.length} actions wait for your approval`;
+
+  return first && asQuestionStaging(first) ? "Alfred has a question" : "Waiting for your approval";
+}
+
+/**
  * The feed's line where the docked card waits. It shows only while a row is pending, so a
  * reload and a live decision both leave only the tool row behind.
  */
@@ -981,13 +993,7 @@ export function ApprovalMarker({ approvals }: { approvals: readonly SyncedAction
 
   if (!first) return null;
 
-  const label =
-    approvals.length > 1
-      ? `${approvals.length} actions wait for your approval`
-      : asQuestionStaging(first)
-        ? "Alfred has a question"
-        : "Waiting for your approval";
-
+  const label = describeApprovalWait(approvals);
   const fade = dockMotion(reduceMotion, CHAT_SWAP.duration);
 
   return (

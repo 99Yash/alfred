@@ -42,7 +42,7 @@ import {
   shouldShowThinkingIndicator,
   type FollowUpSuggestion,
 } from "./conversation-helpers";
-import { ApprovalMarker } from "./approval-dock";
+import { ApprovalMarker, describeApprovalWait } from "./approval-dock";
 import { AssistantMarkdown, CopyMessageButton, MessageBubble } from "./message-bubble";
 import { ReasoningSection, ThinkingClock } from "./reasoning-section";
 import { SourcesStrip } from "./sources-strip";
@@ -242,7 +242,16 @@ export function Conversation({
 
   const pillState: PillState =
     showStream && !stream.done
-      ? { kind: "activity", label: describeActivity(stream, writingLabel) }
+      ? {
+          kind: "activity",
+          label: describeActivity(
+            stream,
+            writingLabel,
+            stream.awaitingApproval || approvals.length > 0
+              ? describeApprovalWait(approvals)
+              : null,
+          ),
+        }
       : { kind: "latest" };
 
   return (
