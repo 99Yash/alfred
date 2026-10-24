@@ -28,30 +28,30 @@ const stream = (over: Partial<StreamingMessage>): StreamingMessage => ({ ...BLAN
 
 describe("shouldShowThinkingIndicator", () => {
   test("a running turn with nothing to show yet spins", () => {
-    assert.equal(shouldShowThinkingIndicator(BLANK), true);
+    assert.equal(shouldShowThinkingIndicator(BLANK, false), true);
   });
 
   // `shouldShowStream` keeps the bubble until the row syncs, so a turn stopped before any delta is done and empty.
   test("a done turn with nothing to show does not spin", () => {
-    assert.equal(shouldShowThinkingIndicator(stream({ done: true })), false);
+    assert.equal(shouldShowThinkingIndicator(stream({ done: true }), false), false);
   });
 
   test("closed narration is not live activity — a running turn still spins under it", () => {
     assert.equal(
-      shouldShowThinkingIndicator(stream({ narration: [{ index: 0, text: "Looking" }] })),
+      shouldShowThinkingIndicator(stream({ narration: [{ index: 0, text: "Looking" }] }), false),
       true,
     );
   });
 
   // A later step thinks again after the first step's thinking closed.
   test("closed thinking is not live activity — a running turn still spins under it", () => {
-    assert.equal(shouldShowThinkingIndicator(stream({ reasoning: "hmm" })), true);
+    assert.equal(shouldShowThinkingIndicator(stream({ reasoning: "hmm" }), false), true);
   });
 
   test("any other in-flow indicator wins", () => {
-    assert.equal(shouldShowThinkingIndicator(stream({ compacting: true })), false);
-    assert.equal(shouldShowThinkingIndicator(stream({ text: "Sure" })), false);
-    assert.equal(shouldShowThinkingIndicator(stream({ reasoningActive: true })), false);
+    assert.equal(shouldShowThinkingIndicator(stream({ compacting: true }), false), false);
+    assert.equal(shouldShowThinkingIndicator(stream({ text: "Sure" }), false), false);
+    assert.equal(shouldShowThinkingIndicator(stream({ reasoningActive: true }), false), false);
     assert.equal(
       shouldShowThinkingIndicator(
         stream({
@@ -66,6 +66,7 @@ describe("shouldShowThinkingIndicator", () => {
             },
           ],
         }),
+        false,
       ),
       false,
     );
