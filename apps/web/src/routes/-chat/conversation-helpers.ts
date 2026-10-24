@@ -1,4 +1,5 @@
 import type { SyncedActionStaging, SyncedChatMessage } from "@alfred/sync";
+import { asQuestionStaging } from "~/components/approvals/ask-user";
 import type { StreamingMessage } from "~/lib/chat/chat-stream-state";
 import { presentTool, visibleTools } from "./tool-call-presentation";
 
@@ -59,17 +60,25 @@ export function describeWriting(title: string | null): string {
 }
 
 /**
- * Label for the floating activity pill: the running tool's verb, else the document the run
- * writes, else responding, else thinking.
+ * Label for the floating activity pill: what the run waits on, else the latest running tool's
+ * verb, else the document the run writes, else responding, else thinking.
+ * Check the wait first, so a parked run never reads as a running tool.
  */
-export function describeActivity(stream: StreamingMessage, writingLabel: string | null): string {
+export function describeActivity(
+  stream: StreamingMessage,
+  writingLabel: string | null,
+  approvalWait: string | null,
+): string {
   if (stream.compacting) return "Condensing conversation…";
 
   if (stream.awaitingCapacity) return "Waiting for model capacity…";
-  // A hidden running step falls through to the writing/thinking label.
-  const lastTool = visibleTools(stream.tools).at(-1);
 
-  if (lastTool && lastTool.status === "started") return `${presentTool(lastTool).running}…`;
+  if (approvalWait) return approvalWait;
+  // Parallel calls can settle out of order, so take the latest one still running, not the last one.
+  // A hidden running step falls through to the writing/thinking label.
+  const runningTool = visibleTools(stream.tools).findLast((tool) => tool.status === "started");
+
+  if (runningTool) return `${presentTool(runningTool).running}…`;
 
   if (writingLabel) return `${writingLabel}…`;
 
@@ -78,6 +87,18 @@ export function describeActivity(stream: StreamingMessage, writingLabel: string 
   if (stream.reasoningActive || shouldShowThinkingIndicator(stream, false)) return "Thinking…";
 
   return "Working…";
+}
+
+/**
+ * What the run waits on, for the feed marker and the activity pill. With no synced row yet
+ * (the approval frame arrived first), it reads as an approval.
+ */
+export function describeApprovalWait(approvals: readonly SyncedActionStaging[]): string {
+  const [first] = approvals;
+
+  if (approvals.length > 1) return `${approvals.length} actions wait for your approval`;
+
+  return first && asQuestionStaging(first) ? "Alfred has a question" : "Waiting for your approval";
 }
 
 /** The model-written next prompts on the last reply (ADR-0112), once it is complete. */

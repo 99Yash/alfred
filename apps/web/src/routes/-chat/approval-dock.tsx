@@ -22,6 +22,7 @@ import {
 import { AnimatePresence, m } from "motion/react";
 import { useEffect, useImperativeHandle, useRef, use, useId, useState } from "react";
 import { asQuestionStaging, type QuestionStaging } from "~/components/approvals/ask-user";
+import { describeApprovalWait } from "./conversation-helpers";
 import { approveButtonLabel, cardTitle } from "~/components/approvals/card-spec";
 import { formatTimestamp } from "~/components/approvals/format";
 import { ApprovalInputEditor, ApprovalInputFacts } from "~/components/approvals/input-editor";
@@ -981,13 +982,7 @@ export function ApprovalMarker({ approvals }: { approvals: readonly SyncedAction
 
   if (!first) return null;
 
-  const label =
-    approvals.length > 1
-      ? `${approvals.length} actions wait for your approval`
-      : asQuestionStaging(first)
-        ? "Alfred has a question"
-        : "Waiting for your approval";
-
+  const label = describeApprovalWait(approvals);
   const fade = dockMotion(reduceMotion, CHAT_SWAP.duration);
 
   return (

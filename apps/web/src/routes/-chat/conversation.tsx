@@ -36,6 +36,7 @@ import { cn } from "~/lib/utils";
 import { ArtifactTriggerCard } from "./artifact-trigger-card";
 import {
   describeActivity,
+  describeApprovalWait,
   describeWriting,
   shouldShowStream,
   modelStepStartedTs,
@@ -242,7 +243,16 @@ export function Conversation({
 
   const pillState: PillState =
     showStream && !stream.done
-      ? { kind: "activity", label: describeActivity(stream, writingLabel) }
+      ? {
+          kind: "activity",
+          label: describeActivity(
+            stream,
+            writingLabel,
+            stream.awaitingApproval || approvals.length > 0
+              ? describeApprovalWait(approvals)
+              : null,
+          ),
+        }
       : { kind: "latest" };
 
   return (
