@@ -7,6 +7,7 @@ import {
   type DragEvent,
   type KeyboardEvent,
   type SubmitEvent,
+  type ReactNode,
   type RefObject,
 } from "react";
 import type { JSONContent } from "@tiptap/react";
@@ -70,6 +71,8 @@ export function Composer({
   onResumeQueue,
   quote,
   onClearQuote,
+  dock,
+  onApproveShortcut,
 }: {
   threadId: string | undefined;
   isStreaming: boolean;
@@ -120,6 +123,10 @@ export function Composer({
   /** Text quoted from a reply. It is sent as a blockquote ahead of the message. */
   quote?: string | null | undefined;
   onClearQuote?: (() => void) | undefined;
+  /** The approval dock. It sits above the queue tray, and both tuck under the composer. */
+  dock?: ReactNode | undefined;
+  /** ⌘↵ in an empty composer runs this, the docked card's primary action. */
+  onApproveShortcut?: (() => void) | undefined;
 }) {
   const editorRef = useRef<TiptapComposerHandle | null>(null);
   const formRef = useRef<HTMLFormElement | null>(null);
@@ -299,6 +306,13 @@ export function Composer({
 
   const submit = useCallback(
     (mode: "send" | "steer") => {
+      // ⌘↵ with nothing typed approves the docked card. With a draft, it queues the draft.
+      if (mode === "steer" && onApproveShortcut && !editRef.current && isEmpty && !hasAttachments) {
+        onApproveShortcut();
+
+        return;
+      }
+
       if (editRef.current) {
         if (canSend) saveEdit(mode);
 
@@ -325,6 +339,9 @@ export function Composer({
         .finally(() => setSending(false));
     },
     [
+      onApproveShortcut,
+      isEmpty,
+      hasAttachments,
       canSend,
       saveEdit,
       quote,
@@ -411,6 +428,7 @@ export function Composer({
 
   return (
     <div className="flex flex-col gap-2">
+      {dock}
       {queued && queued.length > 0 && onRemoveQueued ? (
         <QueueTray
           items={queued}

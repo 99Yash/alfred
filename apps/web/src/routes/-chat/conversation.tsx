@@ -4,7 +4,7 @@ import type {
   SyncedChatAttachment,
   SyncedChatMessage,
 } from "@alfred/sync";
-import { ArrowDown, MessageCircleQuestion } from "lucide-react";
+import { ArrowDown } from "lucide-react";
 import { AnimatePresence, m, useIsPresent } from "motion/react";
 import {
   createContext,
@@ -26,8 +26,6 @@ import {
   type ListRange,
   type VirtuosoHandle,
 } from "react-virtuoso";
-import { asQuestionStaging } from "~/components/approvals/ask-user";
-import { ToolIcon } from "~/components/approvals/tool-icon";
 import { markChatTimingByAssistant } from "~/lib/chat/timing";
 import { useChatAttachmentsByMessage } from "~/lib/replicache/use-chat";
 import { useThreadArtifacts } from "~/lib/replicache/use-artifacts";
@@ -39,13 +37,12 @@ import { ArtifactTriggerCard } from "./artifact-trigger-card";
 import {
   describeActivity,
   describeWriting,
-  reviewLabel,
   shouldShowStream,
   modelStepStartedTs,
   shouldShowThinkingIndicator,
   type FollowUpSuggestion,
 } from "./conversation-helpers";
-import { ChatApprovalTray } from "./approval-tray";
+import { ApprovalMarker } from "./approval-dock";
 import { AssistantMarkdown, CopyMessageButton, MessageBubble } from "./message-bubble";
 import { ReasoningSection, ThinkingClock } from "./reasoning-section";
 import { SourcesStrip } from "./sources-strip";
@@ -84,8 +81,8 @@ export function Conversation({
   /** The artifact open in the sidebar, so its card shows "Viewing". */
   openArtifactId?: string | null | undefined;
   /**
-   * Pending approvals for the live run, shown at the tail of the streaming turn.
-   * Each row disappears when its decision syncs.
+   * Pending approvals for the live run, in tool-trail order. The dock above the composer shows
+   * the cards; the feed keeps one marker line at the tail of the streaming turn.
    */
   approvals?: readonly SyncedActionStaging[] | undefined;
 }) {
@@ -142,21 +139,14 @@ export function Conversation({
     [messages.length],
   );
 
-  const {
-    attachScroller,
-    scrollerElRef,
-    setListEl,
-    setFooterEl,
-    belowFold,
-    anchored,
-    initialLocation,
-  } = useQuestionAnchor({
-    virtuosoRef,
-    messages,
-    threadId,
-    live: showStream && !stream.done,
-    smoothAnchor: () => !reducedMotion && isNearLiveEdge(),
-  });
+  const { attachScroller, setListEl, setFooterEl, belowFold, anchored, initialLocation } =
+    useQuestionAnchor({
+      virtuosoRef,
+      messages,
+      threadId,
+      live: showStream && !stream.done,
+      smoothAnchor: () => !reducedMotion && isNearLiveEdge(),
+    });
 
   // Leaves out the stream snapshot, so windowed rows do not re-render each streaming frame.
   const itemContext = useMemo<FeedItemContext>(
@@ -192,56 +182,6 @@ export function Conversation({
       behavior: !reducedMotion && isNearLiveEdge() ? "smooth" : "auto",
     });
   }, [reducedMotion, isNearLiveEdge]);
-
-  // ---- Jump to a pending approval -------------------------------------
-  // Trail order, so the pill and the tray agree on which card is first.
-  const orderedApprovals = useMemo(
-    () => orderApprovalsByTool(approvals, stream),
-    [approvals, stream],
-  );
-
-  // The tray's card list. Only a mounted card sets it; the waiting placeholder has no card.
-  const [trayEl, setTrayEl] = useState<HTMLDivElement | null>(null);
-  // Keyed by element, so a new tray reads as in view until its own first callback (no "review" flash).
-  const [trayView, setTrayView] = useState<{ el: HTMLDivElement; inView: boolean } | null>(null);
-  const trayInView = trayEl === null || trayView?.el !== trayEl || trayView.inView;
-
-  // Root is the feed scroller, so the bottom margin is the pill zone, not the composer.
-  useEffect(() => {
-    if (!trayEl || typeof IntersectionObserver === "undefined") return;
-
-    const io = new IntersectionObserver(
-      (entries) => {
-        const entry = entries.at(-1);
-
-        if (entry) setTrayView({ el: trayEl, inView: entry.isIntersecting });
-      },
-      { root: scrollerElRef.current, rootMargin: `0px 0px -${PILL_ZONE_PX}px 0px`, threshold: 0 },
-    );
-
-    io.observe(trayEl);
-
-    return () => io.disconnect();
-  }, [trayEl, scrollerElRef]);
-
-  // Near: one scroll. Far: land at the live edge first so Virtuoso measures the rows above the
-  // tray, then move to the card a frame later.
-  const jumpToApproval = useCallback(() => {
-    const el = trayEl;
-
-    if (!el) return;
-
-    if (isNearLiveEdge()) {
-      el.scrollIntoView({ block: "start", behavior: reducedMotion ? "auto" : "smooth" });
-
-      return;
-    }
-
-    virtuosoRef.current?.scrollToIndex({ index: "LAST", align: "end", behavior: "auto" });
-    requestAnimationFrame(() => {
-      el.scrollIntoView({ block: "start", behavior: "auto" });
-    });
-  }, [trayEl, isNearLiveEdge, reducedMotion]);
 
   // The finish toast's "Open" action.
   const onScrollRequest = useEffectEvent(() => jumpToBottom());
@@ -285,9 +225,8 @@ export function Conversation({
       writingLabel,
       followUps,
       onFollowUp,
-      orderedApprovals,
+      approvals,
       setFooterEl,
-      setTrayEl,
     }),
     [
       showStream,
@@ -296,20 +235,15 @@ export function Conversation({
       writingLabel,
       followUps,
       onFollowUp,
-      orderedApprovals,
+      approvals,
       setFooterEl,
     ],
   );
 
-  const firstApproval = orderedApprovals[0];
-  const approvalLabel = reviewLabel(orderedApprovals);
-
   const pillState: PillState =
-    trayEl && !trayInView && approvalLabel && firstApproval
-      ? { kind: "review", label: approvalLabel, first: firstApproval }
-      : showStream && !stream.done
-        ? { kind: "activity", label: describeActivity(stream, writingLabel) }
-        : { kind: "latest" };
+    showStream && !stream.done
+      ? { kind: "activity", label: describeActivity(stream, writingLabel) }
+      : { kind: "latest" };
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
@@ -328,12 +262,7 @@ export function Conversation({
           className="scroll-stable min-h-0 flex-1"
         />
       </FeedFooterContext>
-      <ActivityPill
-        show={belowFold}
-        state={pillState}
-        onClick={jumpToBottom}
-        onReview={jumpToApproval}
-      />
+      <ActivityPill show={belowFold} state={pillState} onClick={jumpToBottom} />
     </div>
   );
 }
@@ -416,12 +345,10 @@ interface FeedFooterValue {
   writingLabel: string | null;
   followUps: ReadonlyArray<FollowUpSuggestion>;
   onFollowUp?: ((text: string) => void) | undefined;
-  /** Pending approvals in tool-trail order. Ones with no tool card in the stream go last. */
-  orderedApprovals: readonly SyncedActionStaging[];
+  /** Pending approvals for the live run. The dock above the composer shows them; the feed keeps a marker. */
+  approvals: readonly SyncedActionStaging[];
   /** Registers the footer content box with the question anchor (reserve and pill). */
   setFooterEl: (el: HTMLElement | null) => void;
-  /** Registers the approval card list with the parent's jump-to-card pill. */
-  setTrayEl: (el: HTMLDivElement | null) => void;
 }
 
 const FeedFooterContext = createContext<FeedFooterValue | null>(null);
@@ -472,9 +399,8 @@ function FeedFooter() {
     writingLabel,
     followUps,
     onFollowUp,
-    orderedApprovals,
+    approvals,
     setFooterEl,
-    setTrayEl,
   } = ctx;
 
   return (
@@ -511,13 +437,12 @@ function FeedFooter() {
             active={!stream.done}
           />
 
-          {/* The actions a gated run waits on, under the trail that proposed them. */}
-          <ChatApprovalTray
-            ref={setTrayEl}
-            runId={stream.runId}
-            approvals={orderedApprovals}
-            awaitingApproval={stream.awaitingApproval}
-          />
+          {/* The card is docked above the composer. The feed keeps one line where it waits. */}
+          <AnimatePresence initial={false}>
+            {approvals.length > 0 ? (
+              <ApprovalMarker key="approval-marker" approvals={approvals} />
+            ) : null}
+          </AnimatePresence>
 
           {stream.compacting ? <ThinkingIndicator label="Condensing conversation…" /> : null}
           {stream.awaitingCapacity ? (
@@ -609,14 +534,8 @@ function prevUserTurn(
   return undefined;
 }
 
-/** The floating pill's band at the feed bottom (`bottom-4` + `h-9`, rounded up). A card under it is not in view. */
-const PILL_ZONE_PX = 64;
-
 /** What the floating pill offers. One union, so a new state does not add a second content prop. */
-type PillState =
-  | { kind: "latest" }
-  | { kind: "activity"; label: string }
-  | { kind: "review"; label: string; first: SyncedActionStaging };
+type PillState = { kind: "latest" } | { kind: "activity"; label: string };
 
 interface PillFace {
   /** Keys the icon crossfade. */
@@ -645,23 +564,6 @@ function pillFace(state: PillState): PillFace | null {
         ariaLabel: `${state.label} Scroll to latest.`,
         working: true,
       };
-    case "review": {
-      // A question is not an approval (ADR-0099): the chime toast's glyph, not the tool's brand.
-      const question = asQuestionStaging(state.first) !== null;
-
-      return {
-        iconKey: question ? "question" : `tool:${state.first.integration}`,
-        icon: question ? (
-          <MessageCircleQuestion size={16} className="text-app-purple-3" />
-        ) : (
-          <ToolIcon integration={state.first.integration} size="xs" />
-        ),
-        label: state.label,
-        ariaLabel: `${state.label}. Scroll to it.`,
-        working: false,
-      };
-    }
-
     default: {
       const _exhaustive: never = state;
 
@@ -673,20 +575,16 @@ function pillFace(state: PillState): PillFace | null {
 /**
  * Jump button, shown while the live end is below the fold (`belowFold`).
  * While streaming it widens into a pill that names the current step.
- * When an approval card waits off-screen, it names the card and jumps to it instead.
  */
 function ActivityPill({
   show,
   state,
   onClick,
-  onReview,
 }: {
   show: boolean;
   state: PillState;
   /** Jump to the latest message. */
   onClick: () => void;
-  /** Jump to the first pending approval card. */
-  onReview: () => void;
 }) {
   const prefersReduced = usePrefersReducedMotion();
   const face = pillFace(state);
@@ -696,8 +594,8 @@ function ActivityPill({
   // is kept for the exit so the shrink starts from a number. The label group is
   // `shrink-0` with the `max-w` cap (not a `min-w-0` flex child of the tweened
   // button), so `offsetWidth` reads its natural width at every button width (round 1).
-  // One labelled group serves both the activity and the review face, so this one ref
-  // never points at a group that is leaving; the icon and the text crossfade inside it.
+  // One labelled group serves every labelled face, so this one ref never points at a group
+  // that is leaving; the icon and the text crossfade inside it.
   const labelRef = useRef<HTMLSpanElement | null>(null);
   const [labelWidth, setLabelWidth] = useState<number | null>(null);
   const label = face?.label ?? null;
@@ -722,7 +620,7 @@ function ActivityPill({
     <div className="pointer-events-none absolute inset-x-0 bottom-4 z-10 flex justify-center">
       <m.button
         type="button"
-        onClick={state.kind === "review" ? onReview : onClick}
+        onClick={onClick}
         aria-label={face ? face.ariaLabel : "Scroll to latest"}
         disabled={!show}
         tabIndex={show ? 0 : -1}
@@ -804,25 +702,6 @@ function ActivityPill({
 const EMPTY_FOLLOW_UPS: ReadonlyArray<FollowUpSuggestion> = [];
 
 const EMPTY_APPROVALS: readonly SyncedActionStaging[] = [];
-
-/** Sort approvals in tool-trail order. Ones with no tool card go last, by `createdAt`. */
-function orderApprovalsByTool(
-  approvals: readonly SyncedActionStaging[],
-  stream: StreamingMessage | null,
-): readonly SyncedActionStaging[] {
-  if (approvals.length <= 1) return approvals;
-  const toolOrder = new Map<string, number>();
-  stream?.tools.forEach((tool, i) => toolOrder.set(tool.toolCallId, i));
-
-  return approvals.toSorted((a, b) => {
-    const ia = toolOrder.get(a.toolCallId) ?? Number.POSITIVE_INFINITY;
-    const ib = toolOrder.get(b.toolCallId) ?? Number.POSITIVE_INFINITY;
-
-    if (ia !== ib) return ia - ib;
-
-    return a.createdAt.localeCompare(b.createdAt);
-  });
-}
 
 interface StreamRenderTiming {
   thinking: (el: HTMLDivElement | null) => void;

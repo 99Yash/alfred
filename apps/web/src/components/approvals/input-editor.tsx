@@ -11,7 +11,7 @@ import { useState } from "react";
 import type { z } from "zod";
 import { AppDateTimePicker, AppInput, AppSelect, AppSwitch, AppTextarea } from "~/components/ui/v2";
 import { asRecord } from "~/lib/json-record";
-import { formatJson, parseJson } from "./format";
+import { formatJson, formatTimestamp, parseJson } from "./format";
 
 type FieldControlSpec = Exclude<FieldSpec, { kind: "boolean" }>;
 
@@ -63,6 +63,94 @@ export function ApprovalInputEditor({
       ))}
     </div>
   );
+}
+
+/**
+ * The same fields as {@link ApprovalInputEditor}, read-only: one label and value per filled
+ * field, no controls. Empty fields are left out. Input with no field specs shows as JSON.
+ */
+export function ApprovalInputFacts({ toolName, value }: { toolName: ToolName; value: unknown }) {
+  const record = asRecord(value);
+  const fieldSpecs = toolInputFields(toolName);
+
+  if (!record || !fieldSpecs) {
+    return (
+      <pre className="overflow-x-auto rounded-xl bg-app-bg-2/60 p-3 font-mono text-[12px] leading-5 whitespace-pre-wrap text-app-fg-3">
+        {formatJson(value)}
+      </pre>
+    );
+  }
+
+  const facts = editorFieldsForTool(toolName, fieldSpecs, record).flatMap((field) => {
+    const text = factText(field, record);
+
+    return text === null ? [] : [{ field, text }];
+  });
+
+  if (facts.length === 0) return null;
+
+  return (
+    <dl className="grid grid-cols-[minmax(5rem,auto)_1fr] gap-x-4 gap-y-1.5 text-[13px] leading-5">
+      {facts.map(({ field, text }) => (
+        <div key={field.key} className="contents">
+          <dt className="text-app-fg-2">{field.label}</dt>
+          <dd className="min-w-0 wrap-break-word whitespace-pre-wrap text-app-fg-4">{text}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/** One field's value as display text, or `null` when it is empty. */
+function factText(field: FieldSpec, record: JsonObject): string | null {
+  switch (field.kind) {
+    case "boolean": {
+      const flag = fieldValue(field, record);
+
+      return flag === undefined ? null : flag ? "Yes" : "No";
+    }
+
+    case "select": {
+      const picked = fieldValue(field, record);
+
+      if (!picked) return null;
+
+      return field.options.find((option) => option.value === picked)?.label ?? picked;
+    }
+
+    case "datetime": {
+      const iso = fieldValue(field, record);
+
+      return iso ? formatTimestamp(iso) : null;
+    }
+
+    case "text":
+    case "email":
+    case "textarea": {
+      const text = fieldValue(field, record)?.trim();
+
+      return text ? text : null;
+    }
+
+    case "number":
+    case "integer": {
+      const numeric = fieldValue(field, record);
+
+      return numeric === undefined ? null : String(numeric);
+    }
+
+    case "string_array": {
+      const items = fieldValue(field, record);
+
+      return items.length > 0 ? items.join(", ") : null;
+    }
+
+    case "json": {
+      const raw = fieldValue(field, record);
+
+      return raw === undefined || raw === null ? null : formatJson(raw);
+    }
+  }
 }
 
 // JSON Schema loses calendarListEventsInput's explicit-vs-relative refine, so
