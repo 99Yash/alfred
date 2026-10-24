@@ -23,6 +23,7 @@ import { collectSources } from "./sources";
 import { ToolCallGroup } from "./tool-call-group";
 import { WorkflowRecoveryCta } from "./workflow-recovery-cta";
 import { UsageLine } from "./usage-line";
+import { MessageTime } from "./message-time";
 import { API_URL } from "~/lib/eden";
 
 const MARKDOWN_CLASSES = cn(
@@ -297,8 +298,15 @@ export function MessageBubble({
           </div>
         ) : null}
         {body.length > 0 ? (
-          <div className="max-w-[80%] rounded-surface bg-app-bg-2 px-4 py-2.5 text-sm leading-relaxed tracking-tight whitespace-pre-wrap text-app-fg-4">
-            {body}
+          // The time sits beside the bubble's last line, so it adds no height to the feed.
+          <div className="group/sent flex w-full items-end justify-end gap-2">
+            <MessageTime
+              iso={message.createdAt}
+              revealClassName="pb-1 group-hover/sent:opacity-100 group-has-focus-visible/sent:opacity-100"
+            />
+            <div className="max-w-[80%] rounded-surface bg-app-bg-2 px-4 py-2.5 text-sm leading-relaxed tracking-tight whitespace-pre-wrap text-app-fg-4">
+              {body}
+            </div>
           </div>
         ) : null}
       </div>
@@ -367,26 +375,21 @@ export function MessageBubble({
           ) : null}
         </div>
       ) : null}
-      {message.content.length > 0 || message.usage ? (
-        <div className="flex flex-wrap items-center gap-y-1">
-          {message.content.length > 0 ? (
-            <CopyMessageButton content={message.content} htmlRef={bodyRef} />
-          ) : null}
-          {/* Opacity, not display: the row keeps its height, so a hover never re-measures the feed.
-              `has-focus-visible`, not `focus-within`: a mouse click on Copy would latch `focus-within`. */}
-          {message.usage ? (
-            <div
-              className={cn(
-                "min-w-0 opacity-0 transition-opacity duration-150 ease-out",
-                "group-hover/reply:opacity-100 group-has-focus-visible/reply:opacity-100",
-                "pointer-coarse:opacity-100",
-              )}
-            >
-              <UsageLine usage={message.usage} tone={failed ? "failed" : "ok"} />
-            </div>
-          ) : null}
-        </div>
-      ) : null}
+      <div className="flex flex-wrap items-center gap-1">
+        {message.content.length > 0 ? (
+          <CopyMessageButton content={message.content} htmlRef={bodyRef} />
+        ) : null}
+        {message.usage ? (
+          <div className="min-w-0">
+            <UsageLine usage={message.usage} tone={failed ? "failed" : "ok"} />
+          </div>
+        ) : null}
+        {/* `has-focus-visible`, not `focus-within`: a mouse click on Copy would latch `focus-within`. */}
+        <MessageTime
+          iso={message.createdAt}
+          revealClassName="px-1 group-hover/reply:opacity-100 group-has-focus-visible/reply:opacity-100"
+        />
+      </div>
     </div>
   );
 }

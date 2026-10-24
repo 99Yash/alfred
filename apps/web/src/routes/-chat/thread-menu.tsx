@@ -20,19 +20,17 @@ import {
   appMenuSurfaceClass,
   useAppTheme,
 } from "~/components/ui/v2";
-import { formatCost, formatTokens } from "~/lib/usage-format";
 import { callToast } from "~/lib/toast";
 import { cn } from "~/lib/utils";
 import { MODE_OPTIONS } from "./approval-mode-options";
 import { TIER_OPTIONS } from "./model-tier-options";
 import { IconButton } from "./rail/icon-button";
 import { threadToMarkdown } from "./thread-markdown";
-import { useThreadUsageSummary } from "./thread-usage";
 import { Tip } from "./tip";
 
 /**
  * The chat header's "..." menu, in groups: Rename/Pin, Copy as Markdown,
- * model effort and autonomy, usage, then Delete.
+ * model effort and autonomy, then Delete. Usage lives in the header's `ThreadUsageButton`.
  * Effort and autonomy mirror the composer's pickers and read labels from `TIER_OPTIONS` / `MODE_OPTIONS`.
  */
 
@@ -60,32 +58,6 @@ export interface ThreadMenuProps {
   autoApprove: boolean;
   autoApprovePending: boolean;
   onToggleAutoApprove: () => void;
-}
-
-/**
- * Read-only usage row. Nothing before a turn has usage.
- * Owns its separator: a wrapper separator around `null` draws two rules.
- */
-function UsageRow({ messages }: { messages: readonly SyncedChatMessage[] }) {
-  const summary = useThreadUsageSummary(messages);
-
-  if (summary.turns === 0) return null;
-
-  return (
-    <>
-      <DropdownMenu.Separator className={appMenuSeparatorClass} />
-      <div className="px-2 pt-1.5 pb-2 text-[11px] leading-relaxed text-app-fg-2 tabular-nums">
-        <div className="font-medium text-app-fg-4">
-          {formatCost(summary.costUsd)} · {summary.turns} {summary.turns === 1 ? "turn" : "turns"}
-        </div>
-        <div>
-          {formatTokens(summary.inputTokens)} in · {formatTokens(summary.outputTokens)} out ·{" "}
-          {formatTokens(summary.cachedInputTokens)} cached
-        </div>
-        <div>Excludes the in-flight turn.</div>
-      </div>
-    </>
-  );
 }
 
 export function ThreadMenu({
@@ -203,8 +175,6 @@ export function ThreadMenu({
               </DropdownMenu.RadioItem>
             ))}
           </DropdownMenu.RadioGroup>
-
-          <UsageRow messages={messages} />
 
           <DropdownMenu.Separator className={appMenuSeparatorClass} />
 
