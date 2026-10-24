@@ -45,6 +45,13 @@ function splitEventText(text: string): string[] {
   return chunks;
 }
 
+/** The paragraph break a new reasoning block needs after `prev`, so markdown keeps the blocks apart. */
+function reasoningBlockBreak(prev: string): string {
+  if (prev.trim().length === 0 || prev.endsWith("\n\n")) return "";
+
+  return prev.endsWith("\n") ? "\n" : "\n\n";
+}
+
 /** The slice of `ChatRunState` the drain mutates. Structural, so this module does not import the workflow. */
 export interface StreamTurnState {
   threadId: string;
@@ -140,6 +147,8 @@ export async function streamModelTurn(args: {
 
   let reasoningBuffer = "";
   let lastReasoningFlush = Date.now();
+  // Each step and each summary part opens a new block. Without a break the saved text reads "done!Next".
+  let reasoningBreakPending = true;
 
   const flushReasoning = async (): Promise<void> => {
     if (reasoningBuffer.length === 0) return;
@@ -161,6 +170,7 @@ export async function streamModelTurn(args: {
           attempt: ctx.attempt,
           fromSeq: ctx.state.reasoningSeq,
           text: chunk,
+          segmentIndex: state.segmentIndex,
         },
       });
     }
@@ -262,9 +272,16 @@ export async function streamModelTurn(args: {
         if (buffer.length >= DELTA_FLUSH_CHARS || Date.now() - lastFlush >= DELTA_FLUSH_MS) {
           await flush();
         }
+      } else if (part.type === "reasoning-start") {
+        reasoningBreakPending = true;
       } else if (part.type === "reasoning-delta") {
-        state.reasoningText += part.text;
-        reasoningBuffer += part.text;
+        const text = reasoningBreakPending
+          ? `${reasoningBlockBreak(state.reasoningText)}${part.text}`
+          : part.text;
+
+        if (part.text.length > 0) reasoningBreakPending = false;
+        state.reasoningText += text;
+        reasoningBuffer += text;
 
         if (
           reasoningBuffer.length >= DELTA_FLUSH_CHARS ||

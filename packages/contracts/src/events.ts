@@ -129,6 +129,8 @@ export const chatReasoningSchema = z.object({
   /** The committed reasoning `seq` this attempt started after. */
   fromSeq: z.number().int().nonnegative().default(0),
   text: z.string().max(CHAT_DELTA_MAX),
+  /** The model step's narration segment (see `chatDeltaSchema.segmentIndex`). Its thinking comes before its text. */
+  segmentIndex: z.number().int().nonnegative().default(0),
 });
 
 /**

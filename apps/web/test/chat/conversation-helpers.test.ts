@@ -11,6 +11,7 @@ const BLANK: StreamingMessage = {
   narration: [],
   reasoning: "",
   reasoningActive: false,
+  stepReasoning: "",
   turnStartedTs: 0,
   reasoningMs: null,
   tools: [],
@@ -42,10 +43,14 @@ describe("shouldShowThinkingIndicator", () => {
     );
   });
 
+  // A later step thinks again after the first step's thinking closed.
+  test("closed thinking is not live activity — a running turn still spins under it", () => {
+    assert.equal(shouldShowThinkingIndicator(stream({ reasoning: "hmm" })), true);
+  });
+
   test("any other in-flow indicator wins", () => {
     assert.equal(shouldShowThinkingIndicator(stream({ compacting: true })), false);
     assert.equal(shouldShowThinkingIndicator(stream({ text: "Sure" })), false);
-    assert.equal(shouldShowThinkingIndicator(stream({ reasoning: "hmm" })), false);
     assert.equal(shouldShowThinkingIndicator(stream({ reasoningActive: true })), false);
     assert.equal(
       shouldShowThinkingIndicator(

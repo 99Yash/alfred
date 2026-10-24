@@ -16,22 +16,40 @@ export function shouldShowStream(
 }
 
 /**
- * Show the bare spinner while running with nothing visible yet.
- * The group header (not this spinner) names a hidden plumbing step once one has run.
+ * Show "Thinking" at the end of the trail while a model step runs with nothing else live:
+ * before the first frame, and again between tools in each later step.
  * Check `done`: the live bubble stays mounted until sync, so a turn stopped early would spin when finished.
  * Ignores `narration`: closed prose is not live activity.
- * Requires no reasoning: `ReasoningSection` already shows "Thinking" for the whole tool phase.
+ * Not while `reasoningActive`: the top `ReasoningSection` shows the first step's "Thinking".
+ * Not while a visible tool runs: its card shows the work. A hidden plumbing call shows nothing, so it still counts.
  */
 export function shouldShowThinkingIndicator(stream: StreamingMessage): boolean {
-  if (stream.done || stream.text.length > 0 || stream.compacting || stream.awaitingCapacity) {
+  if (
+    stream.done ||
+    stream.text.length > 0 ||
+    stream.compacting ||
+    stream.awaitingCapacity ||
+    stream.awaitingApproval ||
+    stream.reasoningActive
+  ) {
     return false;
   }
 
-  return (
-    visibleTools(stream.tools).length === 0 &&
-    stream.reasoning.length === 0 &&
-    !stream.reasoningActive
-  );
+  return !visibleTools(stream.tools).some((tool) => tool.status === "started");
+}
+
+/**
+ * When the live model step started, for the "Thinking" clock: the turn start, or the end of
+ * the last tool call, because the next step starts when the tools return.
+ */
+export function modelStepStartedTs(stream: StreamingMessage): number {
+  let startedTs = stream.turnStartedTs;
+
+  for (const tool of stream.tools) {
+    if (tool.endedTs !== null && tool.endedTs > startedTs) startedTs = tool.endedTs;
+  }
+
+  return startedTs;
 }
 
 /** Label for the floating activity pill: the running tool's verb, else writing, else thinking. */
@@ -46,7 +64,7 @@ export function describeActivity(stream: StreamingMessage): string {
 
   if (stream.text.length > 0) return "Responding…";
 
-  if (stream.reasoningActive) return "Thinking…";
+  if (stream.reasoningActive || shouldShowThinkingIndicator(stream)) return "Thinking…";
 
   return "Working…";
 }

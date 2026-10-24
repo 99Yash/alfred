@@ -39,6 +39,7 @@ const CHAT_REASONING: EventPayload<"chat.reasoning"> = {
   attempt: 0,
   fromSeq: 0,
   text: "thinking",
+  segmentIndex: 0,
 };
 
 const CHAT_TOOL: EventPayload<"chat.tool"> = {

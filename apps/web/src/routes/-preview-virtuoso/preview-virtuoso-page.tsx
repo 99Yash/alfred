@@ -86,6 +86,7 @@ export function PreviewVirtuosoPage() {
       narration: [],
       reasoning: "",
       reasoningActive: true,
+      stepReasoning: "",
       turnStartedTs: Date.now(),
       reasoningMs: null,
       tools: [],
