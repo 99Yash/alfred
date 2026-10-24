@@ -3,13 +3,17 @@
  * `route` is in server-only `@alfred/ai`; keep it out of web (`pnpm check:web-boundaries`).
  */
 import type { ChatModelTier } from "@alfred/contracts";
-import * as PopoverPrimitive from "@radix-ui/react-popover";
-import { Check, ChevronDown } from "lucide-react";
-import { use, useId, useState } from "react";
-import { AppThemeContext, type AppResolvedTheme } from "~/components/ui/v2/theme";
+import { useAppTheme } from "~/components/ui/v2";
+import type { AppResolvedTheme } from "~/components/ui/v2/theme";
 import { cn } from "~/lib/utils";
 import { TIER_OPTIONS, tierOption } from "./model-tier-options";
-import { Tip } from "./tip";
+import {
+  PickerChevron,
+  PickerMenu,
+  PickerMenuItem,
+  pickerTriggerClass,
+  pickerTriggerNeutralClass,
+} from "./picker-menu";
 
 // A distinct mark per tier, light and dark variants (public/images/logo/alfred-logo{,-pro}-{light,dark}.svg).
 const TIER_MARK = {
@@ -32,107 +36,42 @@ export function ModelTierPicker({
   onChange: (value: ChatModelTier) => void;
   disabled?: boolean | undefined;
 }) {
-  const listboxId = useId();
-  const [open, setOpen] = useState(false);
-  // The popover portals out of `.app`, so stamp the theme on the content.
-  const themeCtx = use(AppThemeContext);
-  const resolved: AppResolvedTheme = themeCtx?.resolved ?? "dark";
-
-  const dataTheme =
-    themeCtx?.mode === "dark" || themeCtx?.mode === "light" ? themeCtx.mode : undefined;
-
+  const { resolved } = useAppTheme();
   const selected = tierOption(value);
 
   return (
-    <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
-      <Tip label="Choose how hard Alfred thinks">
-        <PopoverPrimitive.Trigger asChild>
-          <button
-            type="button"
-            disabled={disabled}
-            aria-haspopup="listbox"
-            aria-controls={listboxId}
-            className={cn(
-              "inline-flex h-7 items-center gap-1.5 rounded-control-sm px-2 text-[12px]",
-              "app-press text-app-fg-3 outline-none",
-              "transition-[box-shadow,color,background-color,scale]",
-              "bg-linear-to-b from-app-bg-1 to-app-bg-2 shadow-(--app-shadow-elevated)",
-              "hover:text-app-fg-4 hover:shadow-(--app-shadow-elevated-hover)",
-              "data-[state=open]:text-app-fg-4 data-[state=open]:shadow-(--app-shadow-elevated-hover)",
-              "disabled:cursor-not-allowed disabled:opacity-50",
-              "app-focus",
-            )}
-          >
-            <img
-              src={TIER_MARK[selected.value][resolved]}
-              alt=""
-              className="size-[18px] shrink-0"
-            />
-            {selected.label}
-            <ChevronDown
-              size={12}
-              className={cn(
-                "shrink-0 text-app-fg-2 transition-transform duration-200",
-                open && "rotate-180",
-              )}
-            />
-          </button>
-        </PopoverPrimitive.Trigger>
-      </Tip>
-      <PopoverPrimitive.Portal>
-        <PopoverPrimitive.Content
-          id={listboxId}
-          role="listbox"
-          aria-label="Model tier"
-          side="top"
-          align="start"
-          sideOffset={8}
-          collisionPadding={16}
-          data-app-theme={dataTheme}
-          className={cn(
-            "app app-frost-overlay z-50 flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-0.5 overflow-hidden rounded-surface p-1.5",
-            "origin-bottom outline-none",
-            "motion-safe:data-[state=open]:animate-[app-popover-in_180ms_cubic-bezier(0.22,1,0.36,1)]",
-            "motion-safe:data-[state=closed]:animate-[app-popover-out_120ms_cubic-bezier(0.22,1,0.36,1)]",
-          )}
+    <PickerMenu
+      label="Model tier"
+      value={value}
+      tip="Choose how hard Alfred thinks"
+      trigger={
+        <button
+          type="button"
+          disabled={disabled}
+          className={cn(pickerTriggerClass, pickerTriggerNeutralClass)}
         >
-          {TIER_OPTIONS.map((option) => {
-            const checked = option.value === value;
-
-            return (
-              <button
-                key={option.value}
-                type="button"
-                role="option"
-                aria-selected={checked}
-                onClick={() => onChange(option.value)}
-                className={cn(
-                  "app-press flex w-full items-start gap-2.5 rounded-surface p-2 text-left outline-none",
-                  "transition-[background-color,scale] hover:bg-app-bg-a2 focus-visible:bg-app-bg-a2",
-                  "active:bg-app-bg-a3",
-                  // A tint so the active tier shows before the eye finds the check.
-                  checked && "bg-app-bg-a2",
-                )}
-              >
-                <img
-                  src={TIER_MARK[option.value][resolved]}
-                  alt=""
-                  className="mt-0.5 size-7 shrink-0"
-                />
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[13px] font-medium text-app-fg-4">
-                    {option.label}
-                  </span>
-                  <span className="block text-[11.5px] leading-snug text-app-fg-2">
-                    {option.description}
-                  </span>
-                </span>
-                {checked ? <Check size={14} className="mt-0.5 shrink-0 text-app-purple-4" /> : null}
-              </button>
-            );
-          })}
-        </PopoverPrimitive.Content>
-      </PopoverPrimitive.Portal>
-    </PopoverPrimitive.Root>
+          <img src={TIER_MARK[selected.value][resolved]} alt="" className="size-[18px] shrink-0" />
+          {selected.label}
+          <PickerChevron />
+        </button>
+      }
+    >
+      {TIER_OPTIONS.map((option) => (
+        <PickerMenuItem
+          key={option.value}
+          value={option.value}
+          label={option.label}
+          description={option.description}
+          icon={
+            <img
+              src={TIER_MARK[option.value][resolved]}
+              alt=""
+              className="mt-0.5 size-7 shrink-0"
+            />
+          }
+          onSelect={() => onChange(option.value)}
+        />
+      ))}
+    </PickerMenu>
   );
 }
