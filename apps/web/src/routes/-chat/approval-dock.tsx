@@ -102,10 +102,14 @@ export function ChatApprovalDock({
   const [settled, setSettled] = useState<SyncedActionStaging | null>(null);
   const [previousRunId, setPreviousRunId] = useState(runId);
 
+  // A new run starts fresh. A run that ends (End run, or the turn finishes) keeps its done row.
   if (runId !== previousRunId) {
     setPreviousRunId(runId);
-    setSettled(null);
-    setIndex(0);
+
+    if (runId !== undefined) {
+      setSettled(null);
+      setIndex(0);
+    }
   }
 
   useEffect(() => {
@@ -216,7 +220,7 @@ export function ChatApprovalDock({
   return (
     // `initial={false}`: a thread that opens with an approval pending shows the dock in place.
     <AnimatePresence initial={false}>
-      {runId && current ? (
+      {current && (runId !== undefined || settled) ? (
         <m.section
           key="approval-dock"
           aria-label={question ? "Question from Alfred" : "Approval required"}
