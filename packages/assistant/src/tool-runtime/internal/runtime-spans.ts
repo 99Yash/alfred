@@ -114,7 +114,8 @@ export interface ToolLoadSpanCloser {
 
 /**
  * The one owner of the `runtime.tool_load` span shape. A failed load is recoverable,
- * so it closes at WARNING, not ERROR. Only the first `end`/`error` closes.
+ * so it closes at WARNING, not ERROR. An `already_active` load also closes at WARNING:
+ * it loaded nothing and cost the model a step. Only the first `end`/`error` closes.
  */
 export function startToolLoadSpan(args: ToolLoadSpanArgs): ToolLoadSpanCloser {
   const span = runtimeSpanStarter(buildToolLoadSpanInput(args));
