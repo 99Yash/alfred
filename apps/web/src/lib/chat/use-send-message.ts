@@ -4,9 +4,11 @@ import {
   turnStartResponseSchema,
   type ChatModelTier,
 } from "@alfred/contracts";
-import { useNavigate } from "@tanstack/react-router";
+import { toSyncedChatAttachment, toSyncedUserMessage } from "@alfred/sync";
+import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { authClient } from "~/lib/auth/auth-client";
+import { clearPendingTurn, setPendingTurn } from "./pending-turn";
 import { useReplicache } from "~/lib/replicache/context";
 import { toast } from "~/lib/toast";
 import { attachChatAssistantTiming, markChatSubmit, markChatTimingByUser } from "./timing";
@@ -44,14 +46,15 @@ function safeRandomId(): string {
 }
 
 /**
- * Upload files, start the turn over `POST /api/chat/threads/:id/turn`, then mirror
- * it into Replicache for instant display. The reply streams over SSE.
+ * Upload files, show the message as a pending turn, start the turn over
+ * `POST /api/chat/threads/:id/turn`, then mirror it into Replicache. The reply streams over SSE.
  */
 export function useSendMessage(): SendMessage {
   const rep = useReplicache();
   const { data: session } = authClient.useSession();
   const userId = session?.user.id;
   const navigate = useNavigate();
+  const router = useRouter();
 
   return useCallback(
     async (
@@ -123,6 +126,38 @@ export function useSendMessage(): SendMessage {
           return { ok: false, reason: "empty" } satisfies SendResult;
       }
 
+      const messageArgs = { id: userMessageId, threadId: tid, userId, content, createdAt: now };
+
+      const attachmentArgs = uploaded.map((attachment) => ({
+        id: attachment.id,
+        messageId: userMessageId,
+        threadId: tid,
+        name: attachment.name,
+        mime: attachment.mime,
+        size: attachment.size,
+        position: attachment.position,
+        createdAt: now,
+      }));
+
+      // The bubble shows now. The Replicache mirror waits for the ack: a failed start cannot take back a pushed row.
+      setPendingTurn({
+        message: toSyncedUserMessage(messageArgs),
+        attachments: attachmentArgs.map(toSyncedChatAttachment),
+      });
+
+      // A new chat opens its page at once. The mounted page picks up the seed when the ack comes.
+      const opened = isNew
+        ? navigate({ to: "/chat/$threadId", params: { threadId: tid } })
+        : Promise.resolve();
+
+      // No turn started. Drop the bubble and leave the new chat's page; the draft waits where it was.
+      const abandon = async () => {
+        clearPendingTurn(tid, userMessageId);
+        await opened;
+
+        if (isNew && router.state.location.pathname === `/chat/${tid}`) router.history.back();
+      };
+
       let successPayload: { runId: string | null; assistantMessageId: string } | null = null;
 
       try {
@@ -157,6 +192,7 @@ export function useSendMessage(): SendMessage {
           );
           console.error("[chat] turn start failed:", res.status, body);
           toast.error("Couldn't send your message. Please try again.");
+          await abandon();
 
           return { ok: false, reason: "error" } satisfies SendResult;
         }
@@ -172,6 +208,7 @@ export function useSendMessage(): SendMessage {
               { status: res.status, blockingRunId: payload.data.runId },
               { summarize: true },
             );
+            await abandon();
 
             return {
               ok: false,
@@ -191,7 +228,6 @@ export function useSendMessage(): SendMessage {
             assistantMessageId: payload.data.assistantMessageId,
           };
 
-          // Before the navigation below, so the thread route mounts with the turn live.
           if (payload.data.runId) {
             seedChatStream(tid, {
               messageId: payload.data.assistantMessageId,
@@ -212,33 +248,15 @@ export function useSendMessage(): SendMessage {
             await rep.mutate.chatThreadCreate({ id: tid, userId, createdAt: now });
           }
 
-          await rep.mutate.chatMessageCreate({
-            id: userMessageId,
-            threadId: tid,
-            userId,
-            content,
-            createdAt: now,
-          });
-
           // Display only; the server already wrote the real rows. Replicache runs mutations in order.
-          for (const attachment of uploaded) {
-            await rep.mutate.chatAttachmentCreate({
-              id: attachment.id,
-              messageId: userMessageId,
-              threadId: tid,
-              name: attachment.name,
-              mime: attachment.mime,
-              size: attachment.size,
-              position: attachment.position,
-              createdAt: now,
-            });
+          // Files before the message: the read hooks see both in one tick, so the pending bubble hands off whole.
+          for (const attachment of attachmentArgs) {
+            await rep.mutate.chatAttachmentCreate(attachment);
           }
+
+          await rep.mutate.chatMessageCreate(messageArgs);
         } catch (err) {
           console.warn("[chat] local turn mirror failed:", toMessage(err));
-        }
-
-        if (isNew) {
-          void navigate({ to: "/chat/$threadId", params: { threadId: tid } });
         }
       } catch (err) {
         markChatTimingByUser(
@@ -249,6 +267,7 @@ export function useSendMessage(): SendMessage {
         );
         console.error("[chat] turn start error:", toMessage(err));
         toast.error("Couldn't send your message. Please try again.");
+        await abandon();
 
         return { ok: false, reason: "error" } satisfies SendResult;
       }
@@ -266,6 +285,6 @@ export function useSendMessage(): SendMessage {
 
       return { ok: true, runId: null, assistantMessageId: userMessageId } satisfies SendResult;
     },
-    [rep, userId, navigate],
+    [rep, userId, navigate, router],
   );
 }

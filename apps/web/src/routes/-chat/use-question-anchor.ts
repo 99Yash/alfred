@@ -95,10 +95,9 @@ interface QuestionAnchor {
  * commits before two exits that start no run: a `busy` admission (`:611-616`),
  * and a double submit that finds no existing run (`runId: null`, `:627-629`).
  * A closure write fault lands no row at all (`chat-turn-closure.ts:385-409`
- * catches it, and `terminal-closure.ts:61-79` swallows closure faults). So a
- * just-seeded stream whose user row is not yet written (`seedChatStream` runs
- * before `chatMessageCreate`) sees the previous turn's assistant row last and
- * anchors nothing here; the arriving user row takes the `send` path. A live run
+ * catches it, and `terminal-closure.ts:61-79` swallows closure faults). A sent
+ * user row arrives before its seed, as a pending turn (`lib/chat/pending-turn.ts`),
+ * so it takes the `send` path and the seed finds it anchored. A live run
  * whose last row is a user row anchors that row: `mount` at mount, `open` on a
  * resume, a switch, an approval, or an `ask_user` wake. One hop stays: a send
  * onto a thread whose last row is a reply-less user row first anchors that row
@@ -130,8 +129,7 @@ export function useQuestionAnchor({
   }, [messages]);
 
   // The durable assistant row joins the list only at run end, so while a run
-  // is live the last row is usually a user row. A just-seeded stream whose user
-  // row is not yet written still ends in the previous turn's assistant row.
+  // is live the last row is usually a user row.
   const lastRowIsUser = (messages.at(-1)?.role ?? null) === "user";
 
   // The last user row while a run is live, in one place. Usually the question
@@ -156,9 +154,9 @@ export function useQuestionAnchor({
     if (lastUserId) setAnchor({ id: lastUserId, kind: "send" });
   } else if (liveQuestionId && anchor?.id !== liveQuestionId) {
     // A live run owns the current last row: a mount or resume the switch saw
-    // no stream for yet, or a wake with no new user row. This never fires for
-    // a just-seeded stream (its user row has not arrived, so the last row is
-    // still the previous turn's assistant row).
+    // no stream for yet, or a wake with no new user row. A send on an open
+    // thread never lands here (its pending row took `send` before the seed).
+    // A new chat's page mounts with that row and no stream, so its seed does.
     setAnchor({ id: liveQuestionId, kind: "open" });
   }
 

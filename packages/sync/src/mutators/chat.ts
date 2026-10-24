@@ -145,17 +145,9 @@ export async function chatThreadDeleteClient(
   }
 }
 
-/**
- * Show an already-uploaded attachment before the pull (ADR-0065). Idempotent on id.
- * The turn endpoint checks the object and writes the real row.
- */
-export async function chatAttachmentCreateClient(
-  tx: WriteTransaction,
-  args: ChatAttachmentCreateArgs,
-): Promise<void> {
-  if (await SYNC_MODEL.chatatt.get(tx, { id: args.id })) return;
-
-  const value: SyncedChatAttachment = {
+/** The row `chatAttachmentCreateClient` writes. The web also shows it before the turn starts. */
+export function toSyncedChatAttachment(args: ChatAttachmentCreateArgs): SyncedChatAttachment {
+  return {
     id: args.id,
     messageId: args.messageId,
     name: args.name,
@@ -167,8 +159,42 @@ export async function chatAttachmentCreateClient(
     createdAt: args.createdAt,
     updatedAt: args.createdAt,
   };
+}
 
-  await SYNC_MODEL.chatatt.put(tx, value);
+/**
+ * Show an already-uploaded attachment before the pull (ADR-0065). Idempotent on id.
+ * The turn endpoint checks the object and writes the real row.
+ */
+export async function chatAttachmentCreateClient(
+  tx: WriteTransaction,
+  args: ChatAttachmentCreateArgs,
+): Promise<void> {
+  if (await SYNC_MODEL.chatatt.get(tx, { id: args.id })) return;
+
+  await SYNC_MODEL.chatatt.put(tx, toSyncedChatAttachment(args));
+}
+
+/** The row `chatMessageCreateClient` writes. The web also shows it before the turn starts. */
+export function toSyncedUserMessage(args: ChatMessageCreateArgs): SyncedChatMessage {
+  return {
+    id: args.id,
+    userId: args.userId,
+    threadId: args.threadId,
+    role: "user",
+    content: args.content,
+    reasoning: null,
+    reasoningMs: null,
+    status: "complete",
+    errorKind: null,
+    toolCalls: null,
+    narration: null,
+    usage: null,
+    followUps: null,
+    runId: null,
+    rowVersion: 0,
+    createdAt: args.createdAt,
+    updatedAt: args.createdAt,
+  };
 }
 
 /** Append the user's message and bump the thread's lastMessageAt. Idempotent on id. */
@@ -177,27 +203,7 @@ export async function chatMessageCreateClient(
   args: ChatMessageCreateArgs,
 ): Promise<void> {
   if (!(await SYNC_MODEL.chatmsg.get(tx, { id: args.id }))) {
-    const message: SyncedChatMessage = {
-      id: args.id,
-      userId: args.userId,
-      threadId: args.threadId,
-      role: "user",
-      content: args.content,
-      reasoning: null,
-      reasoningMs: null,
-      status: "complete",
-      errorKind: null,
-      toolCalls: null,
-      narration: null,
-      usage: null,
-      followUps: null,
-      runId: null,
-      rowVersion: 0,
-      createdAt: args.createdAt,
-      updatedAt: args.createdAt,
-    };
-
-    await SYNC_MODEL.chatmsg.put(tx, message);
+    await SYNC_MODEL.chatmsg.put(tx, toSyncedUserMessage(args));
   }
 
   const thread = await readThread(tx, args.threadId);
