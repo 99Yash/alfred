@@ -78,6 +78,7 @@ async function main(): Promise<void> {
     userId: "smoke-user",
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
+    activeTools: [],
     timezone: DEFAULT_USER_TIMEZONE,
   });
 

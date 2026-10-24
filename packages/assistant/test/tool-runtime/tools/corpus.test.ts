@@ -49,6 +49,7 @@ describe("system.corpus_search", () => {
         timezone: parseIanaTimezone("UTC"),
         caller: "boss" as const,
         runContext: { caller: "boss" as const, interaction: "background" as const },
+        activeTools: [],
       }),
       corpus: {
         search: async (args) => {
@@ -79,6 +80,7 @@ describe("system.corpus_search", () => {
         timezone: parseIanaTimezone("UTC"),
         caller: "boss" as const,
         runContext: { caller: "boss" as const, interaction: "background" as const },
+        activeTools: [],
       }),
       corpus: {
         search: async () => [],

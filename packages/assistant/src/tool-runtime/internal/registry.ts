@@ -99,6 +99,8 @@ export interface ToolExecuteContext {
   timezone: IanaTimezone;
   caller: "boss" | { subId: string };
   runContext: ToolRunContext;
+  /** The run's tool surface when dispatch ran this call. */
+  activeTools: readonly ToolName[];
   /** Set only for chat dispatch. Artifact tools (ADR-0075) refuse without them. */
   threadId?: string | undefined;
   messageId?: string | undefined;

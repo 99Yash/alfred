@@ -72,8 +72,8 @@ export function recordRoundToolActivation(
 
 export const RUNTIME_TOOL_LOAD = "runtime.tool_load";
 
-/** Mirrors `resolveExactToolLoad`. */
-type ToolLoadOutcome = "ok" | "unknown_tool" | ToolUnavailabilityCode;
+/** Mirrors `resolveExactToolLoad`. `already_active` is a load that changed nothing. */
+type ToolLoadOutcome = "ok" | "already_active" | "unknown_tool" | ToolUnavailabilityCode;
 
 /**
  * `model_load`: `system.load_tool`. `inactive_bounce`: the model called an inactive
@@ -114,7 +114,8 @@ export interface ToolLoadSpanCloser {
 
 /**
  * The one owner of the `runtime.tool_load` span shape. A failed load is recoverable,
- * so it closes at WARNING, not ERROR. Only the first `end`/`error` closes.
+ * so it closes at WARNING, not ERROR. An `already_active` load also closes at WARNING:
+ * it loaded nothing and cost the model a step. Only the first `end`/`error` closes.
  */
 export function startToolLoadSpan(args: ToolLoadSpanArgs): ToolLoadSpanCloser {
   const span = runtimeSpanStarter(buildToolLoadSpanInput(args));
