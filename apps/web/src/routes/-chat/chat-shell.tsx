@@ -8,6 +8,7 @@ import { useQueueDispatch } from "~/lib/chat/use-queue-dispatch";
 import { useChatStream } from "~/lib/chat/use-chat-stream";
 import { useRunComplete } from "~/lib/chat/use-run-complete";
 import { useSendMessage } from "~/lib/chat/use-send-message";
+import { usePendingTurn } from "~/lib/chat/pending-turn";
 import { useActionPolicy } from "~/lib/replicache/use-action-policy";
 import { useActionStagings } from "~/lib/replicache/use-action-stagings";
 import { useThreadActions } from "~/lib/chat/use-thread-actions";
@@ -16,7 +17,7 @@ import { useChatMessages, useChatThread } from "~/lib/replicache/use-chat";
 import { useRightRail } from "~/lib/shell/app-shell";
 import { toast } from "~/lib/toast";
 import { ChatApprovalDock, type ApprovalDockHandle } from "./approval-dock";
-import type { ChatApprovalMode } from "./approval-mode-options";
+import type { ChatApprovalMode } from "@alfred/sync";
 import { ArtifactSidebar, type ArtifactEditSuggestion } from "./artifact-sidebar";
 import { Composer } from "./composer/composer";
 import { useModelTier } from "./composer/use-model-tier";
@@ -230,6 +231,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
    * Passing `threadId` arms the bounce to `/chat` after deleting the open thread. */
   const threadActions = useThreadActions(threadId);
   const { thread } = useChatThread(threadId);
+  const pendingTurn = usePendingTurn(threadId);
   const [deleteOpen, setDeleteOpen] = useState(false);
 
   const onRenameThread = useCallback(
@@ -246,7 +248,10 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   // Review and Auto set the global `user_action_policies.defaultMode`; settings rules still win.
   // Full autonomy is this thread's flag, which the gate reads live on each call (ADR-0069).
   const { policy, setDefaultMode, loading: policyLoading } = useActionPolicy();
-  const fullAutonomy = threadId ? thread?.fullAutonomy === true : draftFullAutonomy;
+
+  const fullAutonomy = threadId
+    ? (thread?.fullAutonomy ?? pendingTurn?.newThreadFullAutonomy ?? false)
+    : draftFullAutonomy;
 
   const approvalMode: ChatApprovalMode = fullAutonomy
     ? "full"
@@ -254,23 +259,32 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
       ? "auto"
       : "review";
 
-  const approvalModePending = policyLoading;
+  // The turn request creates the thread. Do not accept a change before that row is available.
+  const approvalModePending = policyLoading || (Boolean(threadId) && !thread);
 
   const onApprovalModeChange = useCallback(
     (next: ChatApprovalMode) => {
       // After the subscription settles, the server mutator creates the row for a legacy user.
-      if (policyLoading) return;
-      const nextFull = next === "full";
+      if (approvalModePending) return;
 
-      if (nextFull !== fullAutonomy) {
-        if (threadId) threadActions?.setFullAutonomy(threadId, nextFull);
-        else setDraftFullAutonomy(nextFull);
+      if (threadId) {
+        void threadActions?.setApprovalMode(threadId, next).catch(() => {
+          toast.error("Couldn't change the approval mode. Please try again.");
+        });
+
+        return;
       }
 
+      setDraftFullAutonomy(next === "full");
+
       // Full autonomy leaves the global default alone, so other threads keep their mode.
-      if (!nextFull) void setDefaultMode(next === "auto" ? "autonomy" : "gated");
+      if (next !== "full") {
+        void setDefaultMode(next === "auto" ? "autonomy" : "gated").catch(() => {
+          toast.error("Couldn't change the approval mode. Please try again.");
+        });
+      }
     },
-    [fullAutonomy, policyLoading, setDefaultMode, threadActions, threadId],
+    [approvalModePending, setDefaultMode, threadActions, threadId],
   );
 
   const onDeleteThread = useCallback(() => {

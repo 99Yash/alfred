@@ -49,8 +49,8 @@ import {
   chatThreadDeleteClient,
   chatThreadRenameArgsSchema,
   chatThreadRenameClient,
-  chatThreadSetFullAutonomyArgsSchema,
-  chatThreadSetFullAutonomyClient,
+  chatThreadSetApprovalModeArgsSchema,
+  chatThreadSetApprovalModeClient,
   chatThreadSetPinnedArgsSchema,
   chatThreadSetPinnedClient,
 } from "./chat";
@@ -98,7 +98,7 @@ export const clientMutators = {
   chatAttachmentCreate: chatAttachmentCreateClient,
   chatThreadRename: chatThreadRenameClient,
   chatThreadSetPinned: chatThreadSetPinnedClient,
-  chatThreadSetFullAutonomy: chatThreadSetFullAutonomyClient,
+  chatThreadSetApprovalMode: chatThreadSetApprovalModeClient,
   chatThreadDelete: chatThreadDeleteClient,
   triageTagOverride: triageTagOverrideClient,
 };
@@ -133,7 +133,7 @@ export const mutatorArgsSchemas = {
   chatAttachmentCreate: chatAttachmentCreateArgsSchema,
   chatThreadRename: chatThreadRenameArgsSchema,
   chatThreadSetPinned: chatThreadSetPinnedArgsSchema,
-  chatThreadSetFullAutonomy: chatThreadSetFullAutonomyArgsSchema,
+  chatThreadSetApprovalMode: chatThreadSetApprovalModeArgsSchema,
   chatThreadDelete: chatThreadDeleteArgsSchema,
   triageTagOverride: triageTagOverrideArgsSchema,
 } satisfies {

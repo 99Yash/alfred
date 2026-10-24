@@ -3,6 +3,7 @@ import { z } from "zod";
 import { isoDateTimeStringSchema, MAX_ATTACHMENTS_PER_MESSAGE } from "@alfred/contracts";
 import { SYNC_MODEL } from "../sync-model";
 import type { SyncedChatAttachment, SyncedChatMessage, SyncedChatThread } from "../schemas";
+import { policySetDefaultModeClient } from "./policy";
 
 // Only the user side has mutators. The worker writes assistant replies, and they arrive by pull.
 
@@ -43,12 +44,15 @@ export const chatThreadSetPinnedArgsSchema = z.object({
 
 export type ChatThreadSetPinnedArgs = z.infer<typeof chatThreadSetPinnedArgsSchema>;
 
-export const chatThreadSetFullAutonomyArgsSchema = z.object({
+export const chatThreadSetApprovalModeArgsSchema = z.object({
   id: chatId,
-  fullAutonomy: z.boolean(),
+  mode: z.enum(["review", "auto", "full"]),
 });
 
-export type ChatThreadSetFullAutonomyArgs = z.infer<typeof chatThreadSetFullAutonomyArgsSchema>;
+export type ChatThreadSetApprovalModeArgs = z.infer<typeof chatThreadSetApprovalModeArgsSchema>;
+
+/** Review/Auto change the global policy; Full autonomy changes only this thread. */
+export type ChatApprovalMode = ChatThreadSetApprovalModeArgs["mode"];
 
 export const chatThreadDeleteArgsSchema = z.object({
   id: chatId,
@@ -105,15 +109,17 @@ async function patchThread(
   tx: WriteTransaction,
   id: string,
   patch: Partial<SyncedChatThread>,
-): Promise<void> {
+): Promise<boolean> {
   const thread = await readThread(tx, id);
 
-  if (!thread) return;
+  if (!thread) return false;
   await SYNC_MODEL.chatthread.put(tx, {
     ...thread,
     ...patch,
     rowVersion: thread.rowVersion + 1,
   } satisfies SyncedChatThread);
+
+  return true;
 }
 
 export async function chatThreadRenameClient(
@@ -130,11 +136,18 @@ export async function chatThreadSetPinnedClient(
   await patchThread(tx, args.id, { pinned: args.pinned });
 }
 
-export async function chatThreadSetFullAutonomyClient(
+/** Both optimistic writes share one Replicache transaction and one server mutation. */
+export async function chatThreadSetApprovalModeClient(
   tx: WriteTransaction,
-  args: ChatThreadSetFullAutonomyArgs,
+  args: ChatThreadSetApprovalModeArgs,
 ): Promise<void> {
-  await patchThread(tx, args.id, { fullAutonomy: args.fullAutonomy });
+  const patched = await patchThread(tx, args.id, { fullAutonomy: args.mode === "full" });
+
+  if (!patched) return;
+
+  if (args.mode !== "full") {
+    await policySetDefaultModeClient(tx, { mode: args.mode === "auto" ? "autonomy" : "gated" });
+  }
 }
 
 /** Delete a thread with its messages and their attachments. */

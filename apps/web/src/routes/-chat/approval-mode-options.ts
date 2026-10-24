@@ -1,13 +1,6 @@
 import { Eye, ShieldOff, Zap } from "lucide-react";
 import type { ComponentType } from "react";
-
-/**
- * The chat's approval mode. `review` and `auto` set the global
- * `user_action_policies.defaultMode`; integration and tool rules still win, and `high`-tier
- * tools still ask (ADR-0069). `full` sets this thread's `fullAutonomy` flag, which waives every
- * approval card for the thread's runs and their sub-agents (ADR-0069 amendment).
- */
-export type ChatApprovalMode = "review" | "auto" | "full";
+import type { ChatApprovalMode } from "@alfred/sync";
 
 export interface ModeOption {
   value: ChatApprovalMode;

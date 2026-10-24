@@ -777,17 +777,9 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
 
   let promotedPendingApproval = false;
 
-  // The floor implies `policyRequiresApproval`, so `fullAutonomy` is a live read here. A row
-  // staged under full autonomy is promoted if the user turned it off before this re-dispatch.
-  const riskFloorRequiresApproval =
-    arm.forcesApproval || (toolRequiresApproval("autonomy", riskTier) && !fullAutonomy);
-
-  if (
-    !insertedNew &&
-    row.status === "pending" &&
-    riskFloorRequiresApproval &&
-    !row.requiresApproval
-  ) {
+  // Reclaim uses the complete live requirement, including policy for low/medium tools.
+  // A pending row may gain a gate after a mode change, but it must never lose one.
+  if (!insertedNew && row.status === "pending" && requiresApproval && !row.requiresApproval) {
     const promoted = await stagingStore().promotePendingApproval(row.id, {
       riskTier,
       proposedInput: persistedProposedInput,

@@ -4,7 +4,7 @@ import { Composer } from "./composer/composer";
 import type { ChatModelTier } from "@alfred/contracts";
 import { ConnectToolsBar } from "./connect-tools-bar";
 import type { QueuedMessage } from "~/lib/chat/use-chat-queue";
-import type { ChatApprovalMode } from "./approval-mode-options";
+import type { ChatApprovalMode } from "@alfred/sync";
 
 export function EmptyHero({
   threadId,

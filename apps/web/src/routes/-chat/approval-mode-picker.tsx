@@ -4,7 +4,8 @@
  * change can apply to the parked run's next call.
  */
 import { cn } from "~/lib/utils";
-import { MODE_OPTIONS, modeOption, type ChatApprovalMode } from "./approval-mode-options";
+import { MODE_OPTIONS, modeOption } from "./approval-mode-options";
+import type { ChatApprovalMode } from "@alfred/sync";
 import { PickerChevron, PickerMenu, PickerMenuItem } from "./picker-menu";
 import { pickerTriggerClass, pickerTriggerNeutralClass } from "./picker-menu-classes";
 
@@ -97,7 +98,7 @@ export function ApprovalModePicker({
               </span>
             }
             onSelect={() => {
-              if (option.value !== mode) onChange(option.value);
+              if (!disabled && option.value !== mode) onChange(option.value);
             }}
           />
         );

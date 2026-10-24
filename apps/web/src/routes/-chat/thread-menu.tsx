@@ -22,7 +22,8 @@ import {
 } from "~/components/ui/v2";
 import { callToast } from "~/lib/toast";
 import { cn } from "~/lib/utils";
-import { MODE_OPTIONS, type ChatApprovalMode } from "./approval-mode-options";
+import { MODE_OPTIONS } from "./approval-mode-options";
+import type { ChatApprovalMode } from "@alfred/sync";
 import { TIER_OPTIONS } from "./model-tier-options";
 import { IconButton } from "./rail/icon-button";
 import { threadToMarkdown } from "./thread-markdown";
@@ -169,6 +170,7 @@ export function ThreadMenu({
                 key={option.value}
                 className={radioItemClass}
                 value={option.value}
+                disabled={approvalModePending}
               >
                 <DropdownMenu.ItemIndicator className="absolute left-2">
                   <option.Icon size={13} aria-hidden />

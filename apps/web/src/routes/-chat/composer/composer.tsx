@@ -37,7 +37,7 @@ import { useMentionController } from "./use-mention-controller";
 import { useTypeAnywhere } from "./use-type-anywhere";
 import { KeyHint } from "./key-hint";
 import type { QueuedEdit, QueuedMessage } from "~/lib/chat/use-chat-queue";
-import type { ChatApprovalMode } from "../approval-mode-options";
+import type { ChatApprovalMode } from "@alfred/sync";
 
 /** A text paste at or over this length becomes a `.txt` attachment (about 4 KB, as in Dimension). */
 const LARGE_PASTE_MIN_CHARACTERS = 4_000;
@@ -654,7 +654,7 @@ export function Composer({
               onVoiceConfirm={() => void onVoiceConfirm()}
               onStopGeneration={onStopGeneration}
               approvalMode={approvalMode}
-              approvalModePending={approvalModePending}
+              approvalModePending={Boolean(approvalModePending) || (sending && !threadId)}
               onApprovalModeChange={onApprovalModeChange}
               tier={tier}
               onTierChange={onTierChange}

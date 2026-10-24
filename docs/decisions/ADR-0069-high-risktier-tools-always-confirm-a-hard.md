@@ -81,6 +81,13 @@ apply.
 
 **Mechanics.**
 
+- `chatThreadSetApprovalMode` writes the thread flag and, for Review or Auto, the global
+  default in one mutation. Both writes share one server savepoint and one optimistic client
+  transaction. A failed write cannot leave half of a mode change committed. After commit,
+  Review and Auto invalidate the policy cache. Full autonomy leaves the global default alone.
+- Before the first turn returns, the pending turn carries the selected full-autonomy flag
+  across navigation. The picker keeps that mode visible and disables mode changes until the
+  thread row is available. An absent row does not permit a mode change.
 - `ToolCallRunBase.approvalThreadId` names the thread. `chatToolRunIdentity` sets it to the
   turn's thread. `briefToolRunIdentity` sets it to `subAgent.chat.threadId`, so a sub-agent of a
   chat turn follows the flag. Any other run leaves it unset.
@@ -93,7 +100,8 @@ apply.
   to waive.
 - The promotion path uses the same live value. A row staged without approval under full
   autonomy is promoted into the approval queue if the owner turned the flag off before a
-  re-dispatch.
+  re-dispatch. This check uses the complete current approval rule, including policy for
+  low- and medium-risk tools, rather than only the high-tier floor.
 - A row that already waits for approval keeps waiting when the owner turns the flag on. ADR-0034
   says that a pending row can gain a gate but never lose one. The owner approves that card.
 - The predictors do not read the flag. `toolCallWouldGate` keeps its over-report, so the batch

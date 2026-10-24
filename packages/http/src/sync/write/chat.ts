@@ -5,11 +5,13 @@ import type {
   ChatThreadCreateArgs,
   ChatThreadDeleteArgs,
   ChatThreadRenameArgs,
-  ChatThreadSetFullAutonomyArgs,
+  ChatThreadSetApprovalModeArgs,
   ChatThreadSetPinnedArgs,
 } from "@alfred/sync";
 import { and, eq, sql } from "drizzle-orm";
 import type { DbTransaction } from "@alfred/db";
+import { MutatorForbiddenError } from "../authz";
+import { policySetDefaultMode } from "./action-policies";
 
 // Only the user side writes through Replicache; the worker writes replies. Idempotent on id.
 
@@ -91,18 +93,25 @@ export async function chatThreadSetPinned(
 }
 
 /**
- * The approval gate reads this column live on each call that would stage (ADR-0069 amendment).
- * So a change mid-turn applies to the next call, and no cache needs a bust.
+ * One savepoint owns the thread flag and global default. A failure rolls back both writes.
+ * The registry busts the policy cache after commit when Review or Auto changes the default.
  */
-export async function chatThreadSetFullAutonomy(
+export async function chatThreadSetApprovalMode(
   tx: DbTransaction,
-  args: ChatThreadSetFullAutonomyArgs,
+  args: ChatThreadSetApprovalModeArgs,
   userId: string,
 ): Promise<void> {
-  await tx
+  const [thread] = await tx
     .update(chatThreads)
-    .set({ fullAutonomy: args.fullAutonomy, rowVersion: sql`${chatThreads.rowVersion} + 1` })
-    .where(and(eq(chatThreads.id, args.id), eq(chatThreads.userId, userId)));
+    .set({ fullAutonomy: args.mode === "full", rowVersion: sql`${chatThreads.rowVersion} + 1` })
+    .where(and(eq(chatThreads.id, args.id), eq(chatThreads.userId, userId)))
+    .returning({ id: chatThreads.id });
+
+  if (!thread) throw new MutatorForbiddenError("Chat thread is unavailable");
+
+  if (args.mode !== "full") {
+    await policySetDefaultMode(tx, { mode: args.mode === "auto" ? "autonomy" : "gated" }, userId);
+  }
 }
 
 /** Messages cascade by FK. Bucket objects are cleaned by the follow-up. */

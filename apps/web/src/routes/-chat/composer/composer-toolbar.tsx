@@ -7,7 +7,7 @@ import type { ChatModelTier } from "@alfred/contracts";
 import type { useMicRecording } from "../mic-recording";
 import { Tip } from "../tip";
 import { KeyHint } from "./key-hint";
-import type { ChatApprovalMode } from "../approval-mode-options";
+import type { ChatApprovalMode } from "@alfred/sync";
 
 export function ComposerToolbar({
   mic,

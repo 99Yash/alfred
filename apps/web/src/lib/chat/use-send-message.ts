@@ -149,6 +149,7 @@ export function useSendMessage(options: SendMessageOptions = {}): SendMessage {
       setPendingTurn({
         message: toSyncedUserMessage(messageArgs),
         attachments: attachmentArgs.map(toSyncedChatAttachment),
+        ...(isNew ? { newThreadFullAutonomy: fullAutonomyForNewThread } : {}),
       });
 
       // A new chat opens its page at once. The mounted page picks up the seed when the ack comes.

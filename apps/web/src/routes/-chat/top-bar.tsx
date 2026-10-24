@@ -13,7 +13,7 @@ import { ShareThreadDialog } from "./share-thread-dialog";
 import { ThreadMenu } from "./thread-menu";
 import { ThreadUsageButton } from "./thread-usage";
 import { Tip } from "./tip";
-import type { ChatApprovalMode } from "./approval-mode-options";
+import type { ChatApprovalMode } from "@alfred/sync";
 
 export function TopBar({
   title,
