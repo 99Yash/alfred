@@ -6,6 +6,7 @@ import { GithubReconnectBanner } from "~/components/github-reconnect-banner";
 import { ScopeGapBanner } from "~/components/scope-gap-banner";
 import { AppThemed } from "~/components/ui/v2/themed";
 import { useEventBridge } from "~/lib/events/use-event-bridge";
+import { useArtifactStreamStore } from "~/lib/chat/use-artifact-stream";
 import { useChatStreamStore } from "~/lib/chat/use-chat-stream";
 import { useChatThreads } from "~/lib/replicache/use-chat";
 import { useThreadActions } from "~/lib/chat/use-thread-actions";
@@ -44,6 +45,7 @@ export default function AuthedAppShell({
   // Here, not in AppShell, so public routes do not load the event and sync code.
   useEventBridge();
   useChatStreamStore();
+  useArtifactStreamStore();
 
   const chatThreads = useChatThreads();
   const realThreads = useMemo(() => groupChatThreads(chatThreads), [chatThreads]);
