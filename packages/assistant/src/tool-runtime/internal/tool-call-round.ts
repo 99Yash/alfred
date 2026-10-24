@@ -98,30 +98,41 @@ export async function runToolCallRound<Call extends ProposedToolCall>(
       }
 
       if (result.kind === "staged" || result.kind === "parked") continue;
-      transcript = [...transcript, toolResultMessage(call, result)];
-      calls.push(completedToolCall(call, result));
 
       if (result.kind === "inactive_tool") reissue = true;
 
       const activation = SURFACE_ACTIVATIONS.get(call.toolName);
+      let routed = result;
 
       if (activation !== undefined && result.kind === "executed") {
         const before = activeNames;
+        const name = activation.activate(result.toolResult, input.run);
 
-        activeNames = foldActivation(
-          activeNames,
-          activation.activate(result.toolResult, input.run),
-          restoreSurface,
-        );
+        activeNames = foldActivation(activeNames, name, restoreSurface);
+
+        // `restoreSurface` drops a name it cannot resolve, so mark only a name that is active now.
+        if (name !== undefined && activation.loadedNote !== undefined) {
+          const loaded = activeNames.find((active) => active === name);
+
+          if (loaded !== undefined && isRecord(result.toolResult)) {
+            routed = {
+              ...result,
+              toolResult: { ...result.toolResult, ...activation.loadedNote(loaded) },
+            };
+          }
+        }
 
         if (activation.loadSource !== null) {
-          for (const name of activeNames) {
-            if (!before.includes(name)) {
-              recordRoundToolActivation(input.run, name, activation.loadSource);
+          for (const active of activeNames) {
+            if (!before.includes(active)) {
+              recordRoundToolActivation(input.run, active, activation.loadSource);
             }
           }
         }
       }
+
+      transcript = [...transcript, toolResultMessage(call, routed)];
+      calls.push(completedToolCall(call, routed));
     }
 
     span.end("committed", results);
@@ -193,10 +204,21 @@ async function dispatchGatedConcurrent<Call extends ProposedToolCall>(
 /** Reads a tool name to activate from a result. `restoreSurface` validates it. */
 type SurfaceActivator = (result: unknown, run: ToolCallRun) => string | undefined;
 
-/** `loadSource` is `null` when the tool's handler records its own load span. */
+/** The fields the round adds to a result whose activation folded a tool in. */
+interface LoadedNote {
+  loaded: ToolName;
+  message: string;
+}
+
+/**
+ * `loadSource` is `null` when the tool's handler records its own load span.
+ * `loadedNote` names the folded tool on the result. Without it, the model cannot
+ * tell which candidate is active and loads it again.
+ */
 interface SurfaceActivation {
   activate: SurfaceActivator;
   loadSource: RoundToolLoadSource | null;
+  loadedNote?: (name: ToolName) => LoadedNote;
 }
 
 /**
@@ -218,6 +240,10 @@ const SURFACE_ACTIVATIONS: ReadonlyMap<string, SurfaceActivation> = new Map([
     "system.search_tools",
     {
       loadSource: "search_fold",
+      loadedNote: (name) => ({
+        loaded: name,
+        message: `${name} is loaded. Call it directly on your next turn; do not load it.`,
+      }),
       activate: (result, run) => {
         const candidates = getPath(result, "candidates");
 
