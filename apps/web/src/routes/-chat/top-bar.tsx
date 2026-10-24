@@ -11,6 +11,7 @@ import { ArtifactMenu } from "./artifact-menu";
 import { IconButton } from "./rail/icon-button";
 import { ShareThreadDialog } from "./share-thread-dialog";
 import { ThreadMenu } from "./thread-menu";
+import { ThreadUsageButton } from "./thread-usage";
 import { Tip } from "./tip";
 
 export function TopBar({
@@ -43,7 +44,7 @@ export function TopBar({
   selectedArtifactId: string | null;
   onOpenArtifact: (artifactId: string) => void;
   onCloseArtifact: () => void;
-  /** For the thread menu's usage rollup. */
+  /** For the usage button's rollup and the menu's Copy as Markdown. */
   threadMessages?: readonly SyncedChatMessage[] | undefined;
   /** The bar owns the inline editor; the caller owns the mutator. */
   onRename: (title: string) => void;
@@ -99,6 +100,7 @@ export function TopBar({
         )}
       </div>
       <div className="flex items-center gap-1.5">
+        {threadId ? <ThreadUsageButton messages={messages} /> : null}
         {threadId ? (
           <Tip label="Share thread">
             <IconButton

@@ -31,7 +31,6 @@ import { SelectionQuote } from "./selection-quote";
 import { useRailData } from "./rail/use-rail-data";
 import { useRailMode } from "./rail/use-rail-mode";
 import { TopBar } from "./top-bar";
-import { ThreadTotal } from "./thread-usage";
 import { pendingToolCallId, useArtifactPanel } from "./use-artifact-panel";
 
 /** Chat scaffold for `/chat` and `/chat/$threadId`: top bar, feed or hero, composer, right rail. */
@@ -318,7 +317,6 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
             />
             <div className="shrink-0 px-4 pb-4">
               <div className="mx-auto flex w-full max-w-3xl flex-col gap-2">
-                <ThreadTotal messages={messages} />
                 <Composer
                   key={threadId ?? "new"}
                   threadId={threadId}
