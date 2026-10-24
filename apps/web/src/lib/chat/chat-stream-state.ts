@@ -752,7 +752,8 @@ export function tickDrip(
       text: leadIn ? "" : eased.text.slice(0, shown),
       narration,
       reasoning: reasoning.slice(0, ref.reasoningShown),
-      reasoningActive: reasoning.length > 0 && !ref.replyStarted && ref.tools.size === 0 && !ref.done,
+      reasoningActive:
+        reasoning.length > 0 && !ref.replyStarted && ref.tools.size === 0 && !ref.done,
       stepReasoning: reasoning.slice(stepReasoningOffset(ref), ref.reasoningShown).trimStart(),
       turnStartedTs: ref.turnStartedTs,
       reasoningMs: ref.reasoningMs,
