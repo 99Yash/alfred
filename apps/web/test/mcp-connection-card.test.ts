@@ -45,12 +45,12 @@ function render(overrides: Partial<McpConnectionActions> = {}, status = connecti
   );
 }
 
-test("the remove confirmation is closed at first render", async () => {
+test("the tile has one main button and keeps the rest behind the actions menu", async () => {
   const html = render();
 
   assert.match(html, /Billing MCP/);
-  assert.match(html, />Remove</);
-  assert.doesNotMatch(html, />Confirm<|>Cancel</, "the confirm step is closed at first render");
+  assert.match(html, /aria-label="Billing MCP actions"/);
+  assert.doesNotMatch(html, />Disconnect<|>Remove<|>Rename</, "secondary actions are in the menu");
 
   const source = await readFile(
     new URL("../src/routes/-integrations/mcp-connection-card.tsx", import.meta.url),
@@ -67,12 +67,11 @@ test("an auth_required connection offers consent and never a reconnect", () => {
   assert.doesNotMatch(html, />Reconnect<|>Connect</);
 });
 
-test("a ready connection offers explicit reconnect and disconnect", () => {
+test("a ready connection offers reconnect and shows its tool count", () => {
   const html = render();
 
   assert.match(html, />Reconnect</);
-  assert.match(html, />Disconnect</);
-  assert.match(html, /Last connected/);
+  assert.match(html, /Connected · 3 tools/);
 });
 
 test("a blocked removal renders the server message and the recovery anchor", () => {

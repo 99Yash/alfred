@@ -13,7 +13,13 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useState } from "react";
-import { useAppTheme } from "~/components/ui/v2";
+import {
+  appMenuDangerItemClass,
+  appMenuItemClass,
+  appMenuSeparatorClass,
+  appMenuSurfaceClass,
+  useAppTheme,
+} from "~/components/ui/v2";
 import { formatCost, formatTokens } from "~/lib/usage-format";
 import { callToast } from "~/lib/toast";
 import { cn } from "~/lib/utils";
@@ -30,21 +36,10 @@ import { Tip } from "./tip";
  * Effort and autonomy mirror the composer's pickers and read labels from `TIER_OPTIONS` / `MODE_OPTIONS`.
  */
 
-const menuSurfaceClass = cn(
-  "app z-200 min-w-[232px] rounded-surface p-1",
-  "border border-app-bg-3/70 bg-app-bg-1",
-  "shadow-[0_8px_28px_rgba(0,0,0,0.16),0_0_0_1px_rgba(0,0,0,0.04)]",
-  "data-[state=open]:animate-[app-fade-in_120ms_ease-out]",
-);
-
-const menuItemClass = cn(
-  "flex h-8 cursor-default items-center gap-2.5 rounded-control px-2 text-sm font-medium select-none",
-  "text-app-fg-3 outline-none",
-  "data-[highlighted]:bg-app-bg-a2 data-[highlighted]:text-app-fg-4",
-);
+const menuSurfaceClass = cn(appMenuSurfaceClass, "min-w-[232px]");
 
 // `relative` anchors the `ItemIndicator`; `pl-7` keeps the text baseline fixed.
-const radioItemClass = cn(menuItemClass, "relative pl-7 data-[state=checked]:text-app-fg-4");
+const radioItemClass = cn(appMenuItemClass, "relative pl-7 data-[state=checked]:text-app-fg-4");
 
 const sectionLabelClass = "px-2 pt-2 pb-1 text-[11px] font-medium text-app-fg-2 select-none";
 
@@ -78,7 +73,7 @@ function UsageRow({ messages }: { messages: readonly SyncedChatMessage[] }) {
 
   return (
     <>
-      <DropdownMenu.Separator className="my-1 h-px bg-app-bg-3/70" />
+      <DropdownMenu.Separator className={appMenuSeparatorClass} />
       <div className="px-2 pt-1.5 pb-2 text-[11px] leading-relaxed text-app-fg-2 tabular-nums">
         <div className="font-medium text-app-fg-4">
           {formatCost(summary.costUsd)} · {summary.turns} {summary.turns === 1 ? "turn" : "turns"}
@@ -139,11 +134,11 @@ export function ThreadMenu({
           // Rename editor, whose blur then commits and closes it. Prevent the refocus.
           onCloseAutoFocus={(event) => event.preventDefault()}
         >
-          <DropdownMenu.Item className={menuItemClass} onSelect={onRename}>
+          <DropdownMenu.Item className={appMenuItemClass} onSelect={onRename}>
             <Pencil size={14} aria-hidden className="text-app-fg-2" />
             Rename
           </DropdownMenu.Item>
-          <DropdownMenu.Item className={menuItemClass} onSelect={onTogglePin}>
+          <DropdownMenu.Item className={appMenuItemClass} onSelect={onTogglePin}>
             {pinned ? (
               <PinOff size={14} aria-hidden className="text-app-fg-2" />
             ) : (
@@ -152,7 +147,7 @@ export function ThreadMenu({
             {pinned ? "Unpin" : "Pin"}
           </DropdownMenu.Item>
           <DropdownMenu.Item
-            className={menuItemClass}
+            className={appMenuItemClass}
             disabled={messages.length === 0}
             onSelect={copyMarkdown}
           >
@@ -160,7 +155,7 @@ export function ThreadMenu({
             Copy as Markdown
           </DropdownMenu.Item>
 
-          <DropdownMenu.Separator className="my-1 h-px bg-app-bg-3/70" />
+          <DropdownMenu.Separator className={appMenuSeparatorClass} />
 
           <DropdownMenu.Label className={sectionLabelClass}>Thinking</DropdownMenu.Label>
           <DropdownMenu.RadioGroup
@@ -211,15 +206,9 @@ export function ThreadMenu({
 
           <UsageRow messages={messages} />
 
-          <DropdownMenu.Separator className="my-1 h-px bg-app-bg-3/70" />
+          <DropdownMenu.Separator className={appMenuSeparatorClass} />
 
-          <DropdownMenu.Item
-            className={cn(
-              menuItemClass,
-              "text-app-red-4 data-highlighted:bg-app-red-1 data-highlighted:text-app-red-4",
-            )}
-            onSelect={onDelete}
-          >
+          <DropdownMenu.Item className={appMenuDangerItemClass} onSelect={onDelete}>
             <Trash2 size={14} aria-hidden />
             Delete
           </DropdownMenu.Item>

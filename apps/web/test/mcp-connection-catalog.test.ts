@@ -44,6 +44,8 @@ function render(overrides: Partial<McpCatalogViewProps> = {}) {
     createElement(McpCatalogView, {
       connectionStatus: "ready",
       connectionLastError: null,
+      searchQuery: "",
+      onSearchChange() {},
       loading: false,
       readError: false,
       tools: [],
@@ -82,7 +84,6 @@ test("MCP catalog renders a populated page from the persisted slice", () => {
   assert.match(html, /Create issue/);
   assert.match(html, /create_issue/);
   assert.match(html, /Create a GitHub issue\./);
-  assert.match(html, />Inspect</);
 });
 
 test("MCP catalog keeps the connection's persisted status above the list", () => {
@@ -105,13 +106,14 @@ test("MCP catalog renders a stale or missing descriptor as a refusal, not an emp
     message: "The MCP catalog changed. Search again and select a current tool reference.",
   };
 
-  const notFoundHtml = render({ tools: [tool], inspection: notFound });
-  const staleHtml = render({ tools: [tool], inspection: catalogStale });
+  const selected = { tools: [tool], selectedRemoteName: "create_issue" };
+  const notFoundHtml = render({ ...selected, inspection: notFound });
+  const staleHtml = render({ ...selected, inspection: catalogStale });
 
   assert.match(notFoundHtml, /not available for the current user/);
-  assert.match(notFoundHtml, /Back to tools/);
+  assert.match(notFoundHtml, />All tools</);
   assert.match(staleHtml, /The MCP catalog changed/);
-  assert.match(staleHtml, />Back to tools</);
+  assert.match(staleHtml, />All tools</);
 });
 
 test("MCP catalog renders an inspected descriptor through getStringPath, never raw", () => {
@@ -134,7 +136,7 @@ test("MCP catalog shows the inspection loading state before the descriptor arriv
   });
 
   assert.match(html, /Loading tool…/);
-  // Only the detail panel shows the loading line; the list stays.
+  // The detail pane names the selected tool while its descriptor loads.
   assert.match(html, /create_issue/);
-  assert.doesNotMatch(html, />Close<|>Back to tools</);
+  assert.doesNotMatch(html, /Create a GitHub issue\./);
 });

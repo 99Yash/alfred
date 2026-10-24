@@ -35,3 +35,10 @@ export { AppThemeProvider, useAppTheme } from "./theme";
 export { AppThemed } from "./themed";
 
 export { AppThemeToggle } from "./theme-toggle";
+
+export {
+  appMenuDangerItemClass,
+  appMenuItemClass,
+  appMenuSeparatorClass,
+  appMenuSurfaceClass,
+} from "./menu";

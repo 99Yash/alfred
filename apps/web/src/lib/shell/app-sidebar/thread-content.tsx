@@ -3,7 +3,14 @@ import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Link } from "@tanstack/react-router";
 import { ChevronDown, Ellipsis, Pencil, Pin, PinOff, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { AppInput, useAppTheme } from "~/components/ui/v2";
+import {
+  AppInput,
+  appMenuDangerItemClass,
+  appMenuItemClass,
+  appMenuSeparatorClass,
+  appMenuSurfaceClass,
+  useAppTheme,
+} from "~/components/ui/v2";
 import type { ThreadEntry } from "~/lib/shell/thread-view-model";
 import { cn } from "~/lib/utils";
 import type { SidebarThreadActions } from "./types";
@@ -262,18 +269,7 @@ function ThreadRowMenu({
   );
 }
 
-const menuSurfaceClass = cn(
-  "app z-200 min-w-[168px] rounded-surface p-1",
-  "border border-app-bg-3/70 bg-app-bg-1",
-  "shadow-[0_8px_28px_rgba(0,0,0,0.16),0_0_0_1px_rgba(0,0,0,0.04)]",
-  "data-[state=open]:animate-[app-fade-in_120ms_ease-out]",
-);
-
-const menuItemClass = cn(
-  "flex h-8 cursor-default items-center gap-2.5 rounded-control px-2 text-sm font-medium select-none",
-  "text-app-fg-3 outline-none",
-  "data-[highlighted]:bg-app-bg-a2 data-[highlighted]:text-app-fg-4",
-);
+const menuSurfaceClass = cn(appMenuSurfaceClass, "min-w-[168px]");
 
 function ThreadMenuContent({
   as,
@@ -300,11 +296,11 @@ function ThreadMenuContent({
   return (
     <Portal>
       <Content data-app-theme={resolved} className={menuSurfaceClass} {...positionProps}>
-        <Item className={menuItemClass} onSelect={onRename}>
+        <Item className={appMenuItemClass} onSelect={onRename}>
           <Pencil size={14} aria-hidden className="text-app-fg-2" />
           Rename
         </Item>
-        <Item className={menuItemClass} onSelect={onTogglePin}>
+        <Item className={appMenuItemClass} onSelect={onTogglePin}>
           {entry.pinned ? (
             <PinOff size={14} aria-hidden className="text-app-fg-2" />
           ) : (
@@ -312,14 +308,8 @@ function ThreadMenuContent({
           )}
           {entry.pinned ? "Unpin" : "Pin"}
         </Item>
-        <Separator className="my-1 h-px bg-app-bg-3/70" />
-        <Item
-          className={cn(
-            menuItemClass,
-            "text-app-red-4 data-highlighted:bg-app-red-1 data-highlighted:text-app-red-4",
-          )}
-          onSelect={onDelete}
-        >
+        <Separator className={appMenuSeparatorClass} />
+        <Item className={appMenuDangerItemClass} onSelect={onDelete}>
           <Trash2 size={14} aria-hidden />
           Delete
         </Item>
