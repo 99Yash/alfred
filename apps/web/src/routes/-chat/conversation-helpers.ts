@@ -22,11 +22,13 @@ export function shouldShowStream(
  * Ignores `narration`: closed prose is not live activity.
  * Not while `reasoningActive`: the top `ReasoningSection` shows the first step's "Thinking".
  * Not while a visible tool runs: its card shows the work. A hidden plumbing call shows nothing, so it still counts.
+ * While the run writes a document, show it under the step's text too: the text is a lead-in
+ * whose tool card arrives only when the body is complete.
  */
-export function shouldShowThinkingIndicator(stream: StreamingMessage): boolean {
+export function shouldShowThinkingIndicator(stream: StreamingMessage, writing: boolean): boolean {
   if (
     stream.done ||
-    stream.text.length > 0 ||
+    (stream.text.length > 0 && !writing) ||
     stream.compacting ||
     stream.awaitingCapacity ||
     stream.awaitingApproval ||
@@ -52,8 +54,16 @@ export function modelStepStartedTs(stream: StreamingMessage): number {
   return startedTs;
 }
 
-/** Label for the floating activity pill: the running tool's verb, else writing, else thinking. */
-export function describeActivity(stream: StreamingMessage): string {
+/** The live step's label while the run writes a document body into the side panel. */
+export function describeWriting(title: string | null): string {
+  return title ? `Writing “${title}”` : "Writing the document";
+}
+
+/**
+ * Label for the floating activity pill: the running tool's verb, else the document the run
+ * writes, else responding, else thinking.
+ */
+export function describeActivity(stream: StreamingMessage, writingLabel: string | null): string {
   if (stream.compacting) return "Condensing conversation…";
 
   if (stream.awaitingCapacity) return "Waiting for model capacity…";
@@ -62,9 +72,11 @@ export function describeActivity(stream: StreamingMessage): string {
 
   if (lastTool && lastTool.status === "started") return `${presentTool(lastTool).running}…`;
 
+  if (writingLabel) return `${writingLabel}…`;
+
   if (stream.text.length > 0) return "Responding…";
 
-  if (stream.reasoningActive || shouldShowThinkingIndicator(stream)) return "Thinking…";
+  if (stream.reasoningActive || shouldShowThinkingIndicator(stream, false)) return "Thinking…";
 
   return "Working…";
 }

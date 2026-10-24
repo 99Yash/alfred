@@ -4,7 +4,6 @@ import { Check, Copy, CornerDownRight, RotateCcw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
-import remend from "remend";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import { altTextImageComponents, markdownComponents } from "~/components/markdown-renderer";
@@ -18,6 +17,7 @@ import { splitQuote } from "./quote";
 import { ReasoningSection } from "./reasoning-section";
 import { quotableProps } from "./selection-quote";
 import { SourcesStrip } from "./sources-strip";
+import { healStreamingMarkdown } from "./streaming-markdown";
 import { collectSources } from "./sources";
 import { ToolCallGroup } from "./tool-call-group";
 import { WorkflowRecoveryCta } from "./workflow-recovery-cta";
@@ -112,62 +112,9 @@ const STREAMING_COMPONENTS: Components = {
   li: ({ children }) => <li>{animateWords(children)}</li>,
 };
 
-/** A delimiter row (`|---|:--:|`), maybe half-typed. */
-const TABLE_DELIMITER = /^\s*\|?[\s:|-]*-[\s:|-]*$/;
-
-/**
- * While streaming, hide a trailing table until its first data row starts.
- * Before the delimiter row is complete, remark-gfm shows the header as raw pipes.
- */
-function hideIncompleteTableTail(text: string): string {
-  // Skip the O(n) split per token unless the last non-blank line has a pipe.
-  let last = text.length - 1;
-
-  while (last >= 0 && /\s/.test(text.charAt(last))) last--;
-
-  if (last < 0) return text; // all blank
-  const lastLineStart = text.lastIndexOf("\n", last) + 1;
-
-  if (!text.slice(lastLineStart, last + 1).includes("|")) return text;
-
-  const lines = text.split("\n");
-  // A header that just got its newline is still a fragment.
-  let end = lines.length - 1;
-
-  while (end >= 0 && lines[end]?.trim() === "") end--;
-
-  if (end < 0) return text;
-  let start = end + 1;
-
-  for (let i = end; i >= 0; i--) {
-    if (lines[i]?.includes("|")) start = i;
-    else break;
-  }
-
-  if (start > end) return text; // no trailing pipe lines
-  const block = lines.slice(start, end + 1);
-
-  // Prose with an inline `|` does not start the line with a pipe.
-  if (!/^\s*\|/.test(block[0] ?? "")) return text;
-  const dataRowStarted = block.length > 2 && TABLE_DELIMITER.test(block[1] ?? "");
-
-  if (dataRowStarted) return text; // valid table
-
-  return lines.slice(0, start).join("\n"); // hold back the header
-}
-
-/**
- * Stop half-typed markdown from showing raw markers while streaming.
- * `remend` closes open inline tokens and shows a half-typed link as text.
- * `katex` is off because this path has no math plugin. The final body is not touched.
- */
-function healStreamingMarkdown(text: string): string {
-  return remend(hideIncompleteTableTail(text), { linkMode: "text-only", katex: false });
-}
-
 /** Assistant markdown, with a caret and per-word reveal while streaming. */
 export function AssistantMarkdown({ text, streaming }: { text: string; streaming?: boolean }) {
-  const body = streaming ? healStreamingMarkdown(text) : text;
+  const body = streaming ? healStreamingMarkdown(text, { math: false }) : text;
 
   // No `MarkdownRenderer` here, so merge its image override by hand. Keep it last so no remote `<img>` returns.
   const imageComponents =
