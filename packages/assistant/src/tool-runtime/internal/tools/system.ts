@@ -116,7 +116,7 @@ export const systemTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     availability: { surface: "kernel" },
     description:
-      "Search registered tools and connected MCP catalogs by capability. The best available registered hit is already loaded for you: call it directly on your next turn. Connected catalog hits instead return name mcp.call with an exact ref (connectionId, remoteName, catalogRevision); load mcp.call with system.load_tool and pass that ref's fields to invoke the remote tool.",
+      "Search registered tools and connected MCP catalogs by capability. The result field loaded names the registered hit that is already loaded: call it directly on your next turn. Connected catalog hits instead return name mcp.call with an exact ref (connectionId, remoteName, catalogRevision); load mcp.call with system.load_tool and pass that ref's fields to invoke the remote tool.",
     discovery: {
       title: "Search tools",
       summary:
