@@ -139,7 +139,7 @@ export function RailLink({
       >
         <Icon size={16} strokeWidth={1.75} aria-hidden />
         {badge ? (
-          <span className="absolute -top-0.5 -right-0.5 inline-flex h-3.75 min-w-3.75 items-center justify-center rounded-full bg-app-purple-4 px-1 text-[9px] font-semibold text-white tabular-nums">
+          <span className="absolute -top-0.5 -right-0.5 inline-flex h-3.75 min-w-3.75 items-center justify-center rounded-full bg-app-purple-4 px-1 text-[9px] font-semibold text-app-bg-1 tabular-nums">
             {badge}
           </span>
         ) : null}

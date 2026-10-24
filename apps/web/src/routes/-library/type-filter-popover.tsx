@@ -95,7 +95,7 @@ export function TypeFilterPopover({
                     className={cn(
                       "grid size-4 shrink-0 place-items-center rounded-control-xs text-[10px]",
                       checked
-                        ? "bg-app-purple-4 text-[var(--app-accent-fg)]"
+                        ? "bg-app-purple-4 text-app-bg-1"
                         : "bg-app-bg-a2 text-transparent ring-1 ring-app-bg-4 ring-inset",
                     )}
                   >

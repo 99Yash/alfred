@@ -44,7 +44,7 @@ export function DialogContent({
       <RadixDialog.Overlay
         className={cn(
           "fixed inset-0 z-100",
-          "bg-[rgb(var(--gray-0)/0.7)] backdrop-blur-[4px]",
+          "bg-black/70 backdrop-blur-[4px]",
           "data-[state=open]:animate-[dialog-overlay-in_180ms_cubic-bezier(0.2,0,0,1)]",
           "data-[state=closed]:animate-[dialog-overlay-out_140ms_cubic-bezier(0.2,0,0,1)]",
           overlayClassName,
@@ -57,7 +57,8 @@ export function DialogContent({
           "fixed top-1/2 left-1/2 z-101",
           "-translate-x-1/2 -translate-y-1/2",
           "w-[calc(100vw-2rem)] max-w-lg",
-          themed ? "app app-frost-overlay" : "frost-popover",
+          // The unthemed frost panel is always dark, so `app-media` gives its tokens the dark values.
+          themed ? "app app-frost-overlay" : "app-media frost-popover",
           "rounded-panel",
           "overflow-hidden",
           "data-[state=open]:animate-[dialog-content-in_180ms_cubic-bezier(0.2,0,0,1)]",
@@ -76,15 +77,11 @@ export function DialogContent({
           </>
         ) : (
           <div className="space-y-1 px-6 pt-5 pb-3">
-            <RadixDialog.Title
-              className={cn("text-base font-medium", themed ? "text-app-fg-4" : "text-gray-1000")}
-            >
+            <RadixDialog.Title className="text-base font-medium text-app-fg-4">
               {title}
             </RadixDialog.Title>
             {description ? (
-              <RadixDialog.Description
-                className={cn("text-[13px]", themed ? "text-app-fg-3" : "text-gray-800")}
-              >
+              <RadixDialog.Description className="text-[13px] text-app-fg-3">
                 {description}
               </RadixDialog.Description>
             ) : (

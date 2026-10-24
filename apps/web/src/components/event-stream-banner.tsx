@@ -16,7 +16,7 @@ export function EventStreamBanner() {
       className="pointer-events-auto flex w-full max-w-2xl items-center justify-center gap-2 rounded-surface border border-app-fg-a1 bg-app-bg-1/90 px-3.5 py-2.5 text-[13px] leading-snug text-app-fg-4 shadow-[0_8px_24px_-12px_rgba(0,0,0,0.25)] backdrop-blur-sm"
     >
       <span
-        className="inline-flex size-2 shrink-0 animate-pulse rounded-full bg-amber-500"
+        className="inline-flex size-2 shrink-0 animate-pulse rounded-full bg-app-amber-4"
         aria-hidden
       />
       <span>Live updates disconnected — reconnecting…</span>

@@ -45,11 +45,30 @@ text-app-fg-{1..4}      foreground (1 = disabled, 4 = brand ink #181925)
 text-app-fg-a{1..4}     alpha variants
 
 bg-app-{purple|green|red|amber|sky|blue|yellow|pink|orange|gray}-{1..4}
-                       -1 = tint  -2 = soft / border  -3 = icon / chart  -4 = accent
+                       -1 = tint  -2 = soft / border  -3 = icon / chart  -4 = text / solid fill
 
 --app-accent-ring       shared one-pixel focus stroke
 shadow-[var(--app-shadow-elevated)]   the two-shadow stack
 ```
+
+### Color
+
+The `raw-palette-color` gate in `scripts/consolidation-rules.mjs` rejects a raw Tailwind hue or gray (`text-rose-600`) and a white-alpha step (`text-white/70`) in app code. Use the `app-*` tokens:
+
+| Need                                     | Class                                                     |
+| ---------------------------------------- | --------------------------------------------------------- |
+| Status text: error, warning, success     | `text-app-red-4`, `text-app-amber-4`, `text-app-green-4`  |
+| Status box                               | `bg-app-red-1` + `border-app-red-2` + `text-app-red-4`    |
+| Ink on a solid `-4` fill (badge, button) | `text-app-bg-1`                                           |
+| Fixed dark surface (video, lightbox)     | `app-media` on its root, then the tokens below            |
+| White-alpha ink inside `app-media`       | `text-app-fg-a{1..4}` (30, 50, 70, 92%)                   |
+| White-alpha fill or hairline             | `bg-app-bg-a{1..4}`, `ring-app-bg-a{1..4}` (4, 6, 9, 14%) |
+
+Every light `-4` hue meets WCAG AA (4.5:1) as text on white and on its own `-1` tint. Purple is the one exception: `-4` is the brand accent (`--app-accent-from`), which meets AA on white but only 4:1 on its tint. In dark mode `-4` is a light pastel, so white ink on a `-4` fill fails there: use `text-app-bg-1`, which flips with the theme.
+
+`.app-media` gives its subtree the dark token values and no background. Put it on a surface that is dark in both themes, such as the rail over the weather video. A portal leaves the scope, so a menu that opens from inside it uses the normal themed tokens.
+
+Solid `white` and `black`, and `black/N` scrims, stay legal. The landing page, the legal pages, the styleguide, and `ui/legacy` are exempt.
 
 ### Radius
 
@@ -59,8 +78,8 @@ Radius comes from what the element is, not from how round it should look. The ti
 | -------------------- | ---- | ------------------------------------------------------------------- |
 | `rounded-control-xs` | 6px  | Elements 20px tall or smaller: kbd, checkbox, tag, skeleton bar.    |
 | `rounded-control-sm` | 8px  | 24-28px controls: `AppButton size="sm"`, small icon buttons.        |
-| `rounded-control`    | 10px | 32-40px controls: buttons, nav and thread rows, inputs, menu items. |
-| `rounded-surface`    | 14px | Cards, banners, menus, popovers, toasts, message bubbles.           |
+| `rounded-control`    | 14px | 32-40px controls: buttons, nav and thread rows, inputs, menu items. |
+| `rounded-surface`    | 18px | Cards, banners, menus, popovers, toasts, message bubbles.           |
 | `rounded-panel`      | 20px | App shell, sidebar, rail, composer, dialogs.                        |
 | `rounded-full`       | pill | Chips, badges, avatars, dots.                                       |
 

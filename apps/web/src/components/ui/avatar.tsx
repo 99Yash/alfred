@@ -22,7 +22,7 @@ export function Avatar({ className, initial, size = "md", ref, ...rest }: Avatar
     <span
       ref={ref}
       className={cn(
-        "inline-grid place-items-center rounded-full font-medium text-white/90 select-none",
+        "inline-grid place-items-center rounded-full font-medium text-white select-none",
         "bg-[radial-gradient(circle_at_30%_30%,#a5a5a5,#1e1e1e_70%)]",
         "shadow-[inset_0_0_0_0.5px_rgba(255,255,255,0.12),inset_0_-1px_0_rgba(0,0,0,0.4)]",
         SIZE[size],

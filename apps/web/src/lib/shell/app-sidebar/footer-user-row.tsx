@@ -37,7 +37,7 @@ export function RailUserButton() {
       >
         <span
           aria-hidden
-          className="inline-flex size-7 items-center justify-center rounded-full bg-app-pink-4 text-xs font-semibold text-white"
+          className="inline-flex size-7 items-center justify-center rounded-full bg-app-pink-4 text-xs font-semibold text-app-bg-1"
         >
           {initial}
         </span>

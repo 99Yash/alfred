@@ -425,7 +425,7 @@ function ArtifactSubline({
   if (artifact.status === "error") {
     return (
       <>
-        <AlertTriangle size={12} className="text-amber-500" />
+        <AlertTriangle size={12} className="text-app-amber-4" />
         <span>Generation incomplete</span>
       </>
     );
@@ -730,7 +730,7 @@ function CopyMarkdownButton({ markdown }: { markdown: string }) {
   return (
     <ArtifactIconButton label={copied ? "Copied" : "Copy markdown"} onClick={onCopy}>
       {copied ? (
-        <Check size={14} className="animate-check-pop text-emerald-500" />
+        <Check size={14} className="animate-check-pop text-app-green-4" />
       ) : (
         <Copy size={14} />
       )}

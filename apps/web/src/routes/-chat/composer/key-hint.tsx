@@ -16,9 +16,7 @@ export function KeyHint({
 }) {
   return (
     <span className={cn("inline-flex items-center gap-1", className)}>
-      <Kbd className={cn("border-app-fg-a1/40 bg-app-bg-1 text-app-fg-3", kbdClassName)}>
-        {keys}
-      </Kbd>
+      <Kbd className={kbdClassName}>{keys}</Kbd>
       {children}
     </span>
   );

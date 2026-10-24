@@ -18,7 +18,7 @@ interface CallToastOptions {
   duration?: number | undefined;
   /** `null` hides the icon. */
   icon?: ReactNode | null | undefined;
-  /** Default `top-right`. */
+  /** Default `bottom-right`. */
   position?: ToastPosition | undefined;
   /** Runs `onClick`, then dismisses. For "Undo", match `duration` to the deferred commit. */
   action?: { label: string; onClick: () => void };
@@ -74,7 +74,7 @@ export function callToast({
   variant,
   duration = 5000,
   icon,
-  position = "top-right",
+  position = "bottom-right",
   action,
 }: CallToastOptions): string | number {
   const intent = variant ?? "default";
@@ -204,13 +204,13 @@ function emojiToast({
   );
 }
 
-/** Warnings and errors go top-center; success and info go bottom-right. */
+/** Every variant goes bottom-right unless the caller passes a `position`. */
 export const toast = {
-  message: (input: Shorthand) => shorthand("default", "top-right")(input),
+  message: (input: Shorthand) => shorthand("default", "bottom-right")(input),
   success: shorthand("success", "bottom-right"),
   info: shorthand("info", "bottom-right"),
-  warning: shorthand("warning", "top-center"),
-  error: shorthand("error", "top-center"),
+  warning: shorthand("warning", "bottom-right"),
+  error: shorthand("error", "bottom-right"),
   emoji: emojiToast,
   custom: callToast,
   dismiss: (id?: string | number) => sonnerToast.dismiss(id),

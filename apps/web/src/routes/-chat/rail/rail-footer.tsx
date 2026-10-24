@@ -62,7 +62,7 @@ export function RailFooter({
   );
 
   return (
-    <div className="shrink-0 border-t border-white/10 p-3">
+    <div className="shrink-0 border-t border-app-bg-a3 p-3">
       {latestBriefing ? (
         <Link
           to="/briefings/$date"

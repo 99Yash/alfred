@@ -9,7 +9,7 @@ export function altTextImageComponents(tone: "surface" | "media" = "surface"): C
   return {
     img: ({ alt }) =>
       alt ? (
-        <span className={cn("italic", tone === "media" ? "text-white/55" : "text-app-fg-2")}>
+        <span className={cn("italic", tone === "media" ? "text-app-fg-a2" : "text-app-fg-2")}>
           [{alt}]
         </span>
       ) : null,

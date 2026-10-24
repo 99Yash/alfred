@@ -1,6 +1,5 @@
 import type { AskUserUnansweredReason } from "@alfred/contracts";
-import { Check, MessageCircleQuestion, X } from "lucide-react";
-import { cn } from "~/lib/utils";
+import { Check, MessageCircleQuestion } from "lucide-react";
 import { isAnswerEmpty, type AskUserSummary } from "./ask-user";
 
 /**
@@ -20,17 +19,15 @@ export function QuestionAnswersCard({ summary }: { summary: AskUserSummary }) {
         <p className="min-w-0 flex-1 truncate text-[13px] font-medium text-app-fg-4">
           {answered ? "Your answers" : "No answer"}
         </p>
-        <span
-          aria-hidden
-          className={cn(
-            "grid size-4 shrink-0 place-items-center rounded-full",
-            answered
-              ? "text-app-green-4 shadow-[0_0_0_1px_var(--app-green-2)]"
-              : "text-app-fg-3 shadow-[0_0_0_1px_var(--app-fg-a1)]",
-          )}
-        >
-          {answered ? <Check size={10} strokeWidth={3} /> : <X size={10} strokeWidth={3} />}
-        </span>
+        {/* No mark when unanswered: a circled X in this corner reads as a close button. */}
+        {answered ? (
+          <span
+            aria-hidden
+            className="grid size-4 shrink-0 place-items-center rounded-full text-app-green-4 shadow-[0_0_0_1px_var(--app-green-2)]"
+          >
+            <Check size={10} strokeWidth={3} />
+          </span>
+        ) : null}
       </div>
 
       {summary.status === "unanswered" ? (

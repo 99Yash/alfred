@@ -22,7 +22,7 @@ export function SuggestionRow({
     <div
       className={cn(
         "group relative -mx-0.5 flex items-start gap-1 rounded-surface p-2",
-        "transition-colors hover:bg-white/[0.07]",
+        "transition-colors hover:bg-app-bg-a2",
       )}
     >
       <button
@@ -34,14 +34,14 @@ export function SuggestionRow({
         }
         className={cn(
           "app-press flex min-w-0 flex-1 items-start gap-1.5 rounded-control-sm text-left",
-          "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
+          "outline-none focus-visible:ring-2 focus-visible:ring-app-fg-a2",
         )}
       >
         <span className="min-w-0 flex-1">
           {/* `title` shows the full text if it clips. */}
           <span
             title={label}
-            className="line-clamp-2 block text-[12.5px] leading-5 font-medium text-pretty text-white"
+            className="line-clamp-2 block text-[12.5px] leading-5 font-medium text-pretty text-app-fg-4"
           >
             {label}
           </span>
@@ -49,7 +49,7 @@ export function SuggestionRow({
           {detail ? (
             <span
               title={detail}
-              className="mt-0.5 block truncate text-[11px] leading-4 text-white/45 tabular-nums"
+              className="mt-0.5 block truncate text-[11px] leading-4 text-app-fg-a2 tabular-nums"
             >
               {detail}
             </span>
@@ -61,13 +61,13 @@ export function SuggestionRow({
             <Plus
               size={14}
               aria-hidden
-              className="text-white/55 transition-colors group-hover:text-white"
+              className="text-app-fg-a2 transition-colors group-hover:text-app-fg-4"
             />
           ) : (
             <ChevronRight
               size={13}
               aria-hidden
-              className="text-white/55 transition-colors group-hover:text-white/80"
+              className="text-app-fg-a2 transition-colors group-hover:text-app-fg-a4"
             />
           )}
         </span>
@@ -79,9 +79,9 @@ export function SuggestionRow({
           aria-label={`Mark done: ${label}`}
           className={cn(
             "app-press inline-flex size-6 shrink-0 items-center justify-center rounded-control-sm",
-            "text-white/45 transition-[color,background-color,opacity] hover:bg-white/10 hover:text-white",
+            "text-app-fg-a2 transition-[color,background-color,opacity] hover:bg-app-bg-a3 hover:text-app-fg-4",
             "opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100",
-            "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
+            "outline-none focus-visible:ring-2 focus-visible:ring-app-fg-a2",
           )}
         >
           <Check size={13} strokeWidth={2.5} aria-hidden />
@@ -94,9 +94,9 @@ export function SuggestionRow({
           aria-label={`Dismiss suggestion: ${label}`}
           className={cn(
             "app-press inline-flex size-6 shrink-0 items-center justify-center rounded-control-sm",
-            "text-white/45 transition-[color,background-color,opacity] hover:bg-white/10 hover:text-white",
+            "text-app-fg-a2 transition-[color,background-color,opacity] hover:bg-app-bg-a3 hover:text-app-fg-4",
             "opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100",
-            "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
+            "outline-none focus-visible:ring-2 focus-visible:ring-app-fg-a2",
           )}
         >
           <X size={12} aria-hidden />

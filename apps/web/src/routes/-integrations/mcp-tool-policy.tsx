@@ -290,7 +290,7 @@ function McpToolPolicyReviewView({
         </p>
       ) : readError ? (
         <div className="flex items-center gap-2" role="alert">
-          <p className="text-xs text-red-600">Could not load the MCP tool review.</p>
+          <p className="text-xs text-app-red-4">Could not load the MCP tool review.</p>
           <AppButton size="sm" variant="white" onClick={onRetry}>
             Retry
           </AppButton>

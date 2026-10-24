@@ -60,7 +60,7 @@ export function OnboardingFlow({
   })();
 
   return (
-    <div className="relative isolate min-h-dvh overflow-x-hidden bg-[#0c0c0c]">
+    <div className="app-media relative isolate min-h-dvh overflow-x-hidden bg-[#0c0c0c]">
       <GoogleConsentDialog
         open={consentOpen}
         onOpenChange={setConsentOpen}
@@ -82,14 +82,14 @@ export function OnboardingFlow({
           >
             <div className="flex h-full max-w-lg flex-col">
               <p
-                className="onboarding-headline-in text-[15px] font-medium text-white"
+                className="onboarding-headline-in text-[15px] font-medium text-app-fg-4"
                 style={{ animationDelay: "40ms" }}
               >
                 Setting up Alfred · Step {step} of 3
               </p>
               <h1
                 className={cn(
-                  "onboarding-headline-in mt-4 max-w-[20rem] font-medium text-balance text-white sm:max-w-none",
+                  "onboarding-headline-in mt-4 max-w-[20rem] font-medium text-balance text-app-fg-4 sm:max-w-none",
                   "text-4xl leading-[1.05] tracking-[-0.04em] sm:text-5xl",
                 )}
                 style={{ animationDelay: "80ms" }}
@@ -97,13 +97,13 @@ export function OnboardingFlow({
                 {active.headline}
               </h1>
               <p
-                className="onboarding-headline-in mt-5 max-w-md text-[15px] leading-relaxed text-white/90"
+                className="onboarding-headline-in mt-5 max-w-md text-[15px] leading-relaxed text-app-fg-a4"
                 style={{ animationDelay: "120ms" }}
               >
                 {active.lead}
               </p>
 
-              <ul className="mt-7 flex flex-col gap-3 text-white">
+              <ul className="mt-7 flex flex-col gap-3 text-app-fg-4">
                 {active.bullets.map((bullet, idx) => (
                   <Bullet
                     key={bullet.text}
@@ -130,37 +130,37 @@ export function OnboardingFlow({
                   {finishing && step === 3 ? "Finishing…" : primaryAction.label}
                   <ArrowRight className="size-3.5" />
                 </FrostButton>
-                <span className="max-w-[32ch] text-[13px] leading-relaxed text-white/60">
+                <span className="max-w-[32ch] text-[13px] leading-relaxed text-app-fg-a3">
                   {step === 2
                     ? "Optional — connect GitHub now or do it later from Integrations. Google Drive/Docs/Sheets show as Included once Workspace is linked."
                     : active.assurance}
                 </span>
                 {step === 2 ? (
-                  <span className="text-[11.5px] text-white/45">
+                  <span className="text-[11.5px] text-app-fg-a2">
                     Tip: you can always change this in Settings → Integrations.
                   </span>
                 ) : null}
               </div>
 
               {step === 2 && connectedEmail ? (
-                <p className="onboarding-check-pop mt-4 inline-flex items-center gap-2 text-[12.5px] text-white/85">
-                  <CheckCircle2 size={13} className="text-emerald-300" />
+                <p className="onboarding-check-pop mt-4 inline-flex items-center gap-2 text-[12.5px] text-app-fg-a4">
+                  <CheckCircle2 size={13} className="text-app-green-4" />
                   Google Workspace connected as{" "}
-                  <span className="font-medium text-white">{connectedEmail}</span>
+                  <span className="font-medium text-app-fg-4">{connectedEmail}</span>
                 </p>
               ) : null}
 
               {step === 2 && connectedGithub ? (
-                <p className="onboarding-check-pop mt-2 inline-flex items-center gap-2 text-[12.5px] text-white/85">
-                  <CheckCircle2 size={13} className="text-emerald-300" />
+                <p className="onboarding-check-pop mt-2 inline-flex items-center gap-2 text-[12.5px] text-app-fg-a4">
+                  <CheckCircle2 size={13} className="text-app-green-4" />
                   GitHub connected as{" "}
-                  <span className="font-medium text-white">@{connectedGithub}</span>
+                  <span className="font-medium text-app-fg-4">@{connectedGithub}</span>
                 </p>
               ) : null}
 
               {/* Step pager, pinned to the bottom */}
               <div className="mt-10 lg:mt-auto lg:pt-10">
-                <h2 className="mb-3 text-[17px] font-semibold text-white">Get set up</h2>
+                <h2 className="mb-3 text-[17px] font-semibold text-app-fg-4">Get set up</h2>
                 <ul className="flex flex-wrap gap-2">
                   {STEPS.map((s, idx) => {
                     const stepNumber = idx + 1;
@@ -175,13 +175,13 @@ export function OnboardingFlow({
                             isActive
                               ? "bg-white text-[#0c0c0c] shadow-[0_1px_1px_rgba(0,0,0,0.08),0_0_0_1px_rgba(0,0,0,0.05)]"
                               : isDone
-                                ? "bg-white/8 text-white/85 backdrop-blur"
-                                : "bg-white/4 text-white/60",
+                                ? "bg-app-bg-a3 text-app-fg-a4 backdrop-blur"
+                                : "bg-app-bg-a1 text-app-fg-a3",
                           )}
                           aria-current={isActive ? "step" : undefined}
                         >
                           {isDone ? (
-                            <span className="size-1.5 rounded-full bg-emerald-400" aria-hidden />
+                            <span className="size-1.5 rounded-full bg-app-green-4" aria-hidden />
                           ) : null}
                           {isActive ? (
                             <span className="size-1.5 rounded-full bg-[#0c0c0c]" aria-hidden />
@@ -190,13 +190,13 @@ export function OnboardingFlow({
                           <span className="tabular text-[11px] opacity-60">
                             {String(idx + 1).padStart(2, "0")}
                           </span>
-                          {isDone ? <CheckCircle2 size={12} className="text-emerald-500" /> : null}
+                          {isDone ? <CheckCircle2 size={12} className="text-app-green-4" /> : null}
                         </div>
                       </li>
                     );
                   })}
                 </ul>
-                <div className="mt-3 h-1 w-full overflow-hidden rounded-full bg-white/10">
+                <div className="mt-3 h-1 w-full overflow-hidden rounded-full bg-app-bg-a3">
                   <div
                     className="h-full rounded-full bg-white transition-all duration-500 ease-out"
                     style={{ width: `${(step / 3) * 100}%` }}
@@ -219,11 +219,11 @@ export function OnboardingFlow({
                 }}
               />
               <div className="relative ml-5 w-[calc(100%-20px)] pt-16">
-                <p className="pl-5 text-[12.5px] font-bold tracking-[0.18em] text-white/55 uppercase mix-blend-plus-lighter">
+                <p className="pl-5 text-[12.5px] font-bold tracking-[0.18em] text-app-fg-a2 uppercase mix-blend-plus-lighter">
                   Mumbai · {localTime} · {active.pagerLabel}
                 </p>
-                <div className="relative mt-4 h-px w-full bg-linear-to-r from-white/5 to-white/50">
-                  <div className="absolute -top-[5px] -left-[4.5px] z-40 grid size-2.5 place-items-center rounded-full bg-white/10">
+                <div className="relative mt-4 h-px w-full bg-linear-to-r from-app-bg-a1 to-app-fg-a2">
+                  <div className="absolute -top-[5px] -left-[4.5px] z-40 grid size-2.5 place-items-center rounded-full bg-app-bg-a3">
                     <div className="size-1 rounded-full bg-white" />
                   </div>
                   <div className="absolute -top-[5px] -left-[14px] z-40 grid h-2.5 items-center">
@@ -237,10 +237,10 @@ export function OnboardingFlow({
             <div className="relative flex flex-col pl-5">
               <div className="mx-auto flex w-full max-w-[720px] flex-col pt-4 pr-6 pb-32 pl-10 sm:pr-10">
                 <div className="mb-6 flex flex-col gap-1.5">
-                  <h3 className="text-[34px] leading-tight font-medium tracking-[-0.04em] text-white sm:text-[36px]">
+                  <h3 className="text-[34px] leading-tight font-medium tracking-[-0.04em] text-app-fg-4 sm:text-[36px]">
                     {active.showcaseTitle}
                   </h3>
-                  <p className="max-w-2xl pr-10 text-[15px] text-white/85">
+                  <p className="max-w-2xl pr-10 text-[15px] text-app-fg-a4">
                     {active.showcaseDescription}
                   </p>
                 </div>
@@ -383,28 +383,28 @@ function UnlockShowcase() {
   return (
     <ShowcaseFrame>
       <div className="p-7">
-        <p className="text-[12.5px] font-medium tracking-[0.16em] text-white/55 uppercase">
+        <p className="text-[12.5px] font-medium tracking-[0.16em] text-app-fg-a2 uppercase">
           What you'll unlock
         </p>
-        <h4 className="mt-2 text-[34px] leading-[1.08] font-medium tracking-[-0.04em] text-white sm:text-[38px]">
+        <h4 className="mt-2 text-[34px] leading-[1.08] font-medium tracking-[-0.04em] text-app-fg-4 sm:text-[38px]">
           Six things Alfred handles
           <br />
           the moment you connect.
         </h4>
       </div>
-      <div className="h-px w-full bg-linear-to-r from-white/40 via-white/10 to-transparent" />
-      <ul className="grid grid-cols-1 gap-px bg-white/10 sm:grid-cols-2">
+      <div className="h-px w-full bg-linear-to-r from-app-fg-a2 via-app-bg-a3 to-transparent" />
+      <ul className="grid grid-cols-1 gap-px bg-app-bg-a3 sm:grid-cols-2">
         {UNLOCK_FEATURES.map((f) => (
           <li
             key={f.key}
-            className="flex items-start gap-3 bg-white/4 p-5 backdrop-blur-sm transition-colors hover:bg-white/[0.07]"
+            className="flex items-start gap-3 bg-app-bg-a1 p-5 backdrop-blur-sm transition-colors hover:bg-app-bg-a2"
           >
-            <span className="grid size-9 shrink-0 place-items-center rounded-control bg-white/15 text-white ring-1 ring-white/20 backdrop-blur-sm ring-inset">
+            <span className="grid size-9 shrink-0 place-items-center rounded-control bg-app-bg-a4 text-app-fg-4 ring-1 ring-app-bg-a4 backdrop-blur-sm ring-inset">
               <f.icon size={17} strokeWidth={2} />
             </span>
             <div className="min-w-0">
-              <p className="text-[14px] font-semibold text-white">{f.headline}</p>
-              <p className="mt-0.5 text-[13px] leading-[1.5] text-white/80">{f.body}</p>
+              <p className="text-[14px] font-semibold text-app-fg-4">{f.headline}</p>
+              <p className="mt-0.5 text-[13px] leading-[1.5] text-app-fg-a4">{f.body}</p>
             </div>
           </li>
         ))}
@@ -448,22 +448,22 @@ function ConnectShowcase({
   return (
     <ShowcaseFrame>
       <div className="px-7 pt-7 pb-6">
-        <p className="text-[12.5px] font-medium tracking-[0.16em] text-white/55 uppercase">
+        <p className="text-[12.5px] font-medium tracking-[0.16em] text-app-fg-a2 uppercase">
           Connect your tools
         </p>
-        <h4 className="mt-2 text-[34px] leading-[1.08] font-medium tracking-[-0.04em] text-white sm:text-[38px]">
+        <h4 className="mt-2 text-[34px] leading-[1.08] font-medium tracking-[-0.04em] text-app-fg-4 sm:text-[38px]">
           Seven integrations.
           <br />
           One assistant.
         </h4>
-        <p className="mt-3 text-[13px] leading-relaxed text-white/60">
+        <p className="mt-3 text-[13px] leading-relaxed text-app-fg-a3">
           GitHub connects here. Drive, Docs, Sheets &amp; Slides are{" "}
-          <span className="font-medium text-emerald-200">Included</span> once Google Workspace is
+          <span className="font-medium text-app-green-4">Included</span> once Google Workspace is
           linked. Everything else is coming soon.
         </p>
       </div>
-      <div className="h-px w-full bg-linear-to-r from-white/40 via-white/10 to-transparent" />
-      <ul className="grid grid-cols-1 gap-px bg-white/10 sm:grid-cols-2">
+      <div className="h-px w-full bg-linear-to-r from-app-fg-a2 via-app-bg-a3 to-transparent" />
+      <ul className="grid grid-cols-1 gap-px bg-app-bg-a3 sm:grid-cols-2">
         {POPULAR_INTEGRATIONS.map((p) => {
           const { displayName: name, brand } = INTEGRATIONS[p.slug];
           // GitHub connects here; Google products ride the Workspace grant; the rest is "Soon".
@@ -485,12 +485,12 @@ function ConnectShowcase({
           return (
             <li
               key={p.slug}
-              className="flex items-center gap-3 bg-white/4 px-5 py-4 backdrop-blur-sm transition-colors hover:bg-white/[0.07]"
+              className="flex items-center gap-3 bg-app-bg-a1 px-5 py-4 backdrop-blur-sm transition-colors hover:bg-app-bg-a2"
             >
               <IntegrationIcon brand={brand} size="md" title={name} variant="frost" />
               <div className="min-w-0 flex-1">
-                <p className="truncate text-[14px] font-semibold text-white">{name}</p>
-                <p className="truncate text-[12.5px] text-white/75">{detail}</p>
+                <p className="truncate text-[14px] font-semibold text-app-fg-4">{name}</p>
+                <p className="truncate text-[12.5px] text-app-fg-a3">{detail}</p>
               </div>
               {status === "available" ? (
                 <ConnectPill onClick={onConnectGithub} label={`Connect ${name}`} />
@@ -515,7 +515,7 @@ function ConnectPill({ onClick, label }: { onClick: () => void; label: string })
         "inline-flex shrink-0 items-center rounded-full bg-white px-3.5 py-1.5 text-[12px] font-medium text-[#0c0c0c]",
         "shadow-[0_1px_1px_rgba(0,0,0,0.08),0_0_0_1px_rgba(0,0,0,0.05)]",
         "transition-all duration-150 hover:translate-y-[-1px] hover:shadow-[0_2px_8px_rgba(0,0,0,0.12)] active:translate-y-0 active:scale-[0.99]",
-        "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:outline-none",
+        "focus-visible:ring-2 focus-visible:ring-app-fg-a3 focus-visible:outline-none",
       )}
     >
       Connect
@@ -529,10 +529,10 @@ function IntegrationStatusBadge({ status }: { status: IntegrationTileStatus }) {
       <span
         className={cn(
           "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[11.5px] font-medium",
-          "bg-emerald-300/15 text-emerald-100 ring-1 ring-emerald-300/30 backdrop-blur-sm ring-inset",
+          "bg-app-green-1 text-app-green-4 ring-1 ring-app-green-2 backdrop-blur-sm ring-inset",
         )}
       >
-        <CheckCircle2 size={12} className="text-emerald-300" />
+        <CheckCircle2 size={12} className="text-app-green-4" />
         {status === "connected" ? "Connected" : "Included"}
       </span>
     );
@@ -542,7 +542,7 @@ function IntegrationStatusBadge({ status }: { status: IntegrationTileStatus }) {
     <span
       className={cn(
         "inline-flex shrink-0 items-center rounded-full px-3 py-1 text-[11.5px] font-medium tracking-[0.1em] uppercase",
-        "bg-white/10 text-white/70 ring-1 ring-white/15 backdrop-blur-sm ring-inset",
+        "bg-app-bg-a3 text-app-fg-a3 ring-1 ring-app-bg-a4 backdrop-blur-sm ring-inset",
       )}
     >
       Soon
@@ -588,30 +588,30 @@ function FinishShowcase() {
   return (
     <ShowcaseFrame>
       <div className="px-7 pt-7 pb-6">
-        <p className="text-[12.5px] font-medium tracking-[0.16em] text-white/55 uppercase">
+        <p className="text-[12.5px] font-medium tracking-[0.16em] text-app-fg-a2 uppercase">
           You're all set
         </p>
-        <h4 className="mt-2 text-[34px] leading-[1.08] font-medium tracking-[-0.04em] text-white sm:text-[38px]">
+        <h4 className="mt-2 text-[34px] leading-[1.08] font-medium tracking-[-0.04em] text-app-fg-4 sm:text-[38px]">
           Alfred is ready.
           <br />
           More surfaces coming soon.
         </h4>
       </div>
-      <div className="h-px w-full bg-linear-to-r from-white/40 via-white/10 to-transparent" />
-      <ul className="grid grid-cols-1 gap-px bg-white/10 sm:grid-cols-3">
+      <div className="h-px w-full bg-linear-to-r from-app-fg-a2 via-app-bg-a3 to-transparent" />
+      <ul className="grid grid-cols-1 gap-px bg-app-bg-a3 sm:grid-cols-3">
         {INSTALL_TILES.map((tile) => (
           <li
             key={tile.key}
-            className="flex flex-col gap-3 bg-white/4 p-5 backdrop-blur-sm transition-colors hover:bg-white/[0.07]"
+            className="flex flex-col gap-3 bg-app-bg-a1 p-5 backdrop-blur-sm transition-colors hover:bg-app-bg-a2"
           >
-            <span className="grid size-10 place-items-center rounded-control bg-white/15 text-white ring-1 ring-white/20 backdrop-blur-sm ring-inset">
+            <span className="grid size-10 place-items-center rounded-control bg-app-bg-a4 text-app-fg-4 ring-1 ring-app-bg-a4 backdrop-blur-sm ring-inset">
               <tile.icon size={18} strokeWidth={2} />
             </span>
             <div>
-              <p className="text-[14px] font-semibold text-white">{tile.title}</p>
-              <p className="mt-0.5 text-[13px] text-white/80">{tile.body}</p>
+              <p className="text-[14px] font-semibold text-app-fg-4">{tile.title}</p>
+              <p className="mt-0.5 text-[13px] text-app-fg-a4">{tile.body}</p>
             </div>
-            <span className="mt-auto inline-flex w-fit items-center gap-1.5 rounded-full bg-white/10 px-2 py-0.5 text-[11px] font-medium tracking-[0.1em] text-white/70 uppercase ring-1 ring-white/15 ring-inset">
+            <span className="mt-auto inline-flex w-fit items-center gap-1.5 rounded-full bg-app-bg-a3 px-2 py-0.5 text-[11px] font-medium tracking-[0.1em] text-app-fg-a3 uppercase ring-1 ring-app-bg-a4 ring-inset">
               Coming soon
             </span>
           </li>
@@ -628,8 +628,8 @@ function ShowcaseFrame({ children }: { children: ReactNode }) {
     <div
       className={cn(
         "onboarding-panel-in relative isolate overflow-hidden rounded-panel",
-        "bg-white/4 backdrop-blur-xl",
-        "ring-1 ring-white/12 ring-inset",
+        "bg-app-bg-a1 backdrop-blur-xl",
+        "ring-1 ring-app-bg-a4 ring-inset",
         "shadow-[0_30px_80px_-30px_rgba(15,30,55,0.55)]",
       )}
     >
@@ -655,12 +655,12 @@ function Bullet({
       style={{ animationDelay: `${160 + index * 70}ms` }}
     >
       <span
-        className="mt-0.5 grid size-6 place-items-center rounded-full bg-white/8 text-white ring-1 ring-white/10"
+        className="mt-0.5 grid size-6 place-items-center rounded-full bg-app-bg-a3 text-app-fg-4 ring-1 ring-app-bg-a3"
         aria-hidden
       >
         <span className="scale-[0.85]">{icon}</span>
       </span>
-      <span className="text-[15px] leading-6 text-white">{children}</span>
+      <span className="text-[15px] leading-6 text-app-fg-4">{children}</span>
     </li>
   );
 }

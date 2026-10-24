@@ -119,7 +119,7 @@ export function InboxFeed({
   if (!items.length && (!pagination || pagination.total === 0)) {
     return (
       <div className="app-card-in px-2 py-4">
-        <p className="text-[12px] leading-5 text-white/65">
+        <p className="text-[12px] leading-5 text-app-fg-a3">
           Connect Gmail to see your latest unread threads here.
         </p>
       </div>
@@ -149,15 +149,15 @@ export function InboxFeed({
           className={cn(
             "-mx-1.5 inline-flex items-center gap-1.5 rounded-control-sm px-1.5 py-0.5",
             "text-[10.5px] font-medium tracking-tight uppercase transition-colors",
-            "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
+            "outline-none focus-visible:ring-2 focus-visible:ring-app-fg-a2",
             unreadOnly
               ? "bg-app-purple-4/20 text-app-purple-4"
-              : "text-white/60 hover:text-white/85",
+              : "text-app-fg-a3 hover:text-app-fg-a4",
           )}
         >
           <span
             aria-hidden
-            className={cn("size-1.5 rounded-full", unreadOnly ? "bg-app-purple-4" : "bg-white/55")}
+            className={cn("size-1.5 rounded-full", unreadOnly ? "bg-app-purple-4" : "bg-app-fg-a2")}
           />
           Unread · {totalUnread}
         </button>
@@ -183,9 +183,9 @@ export function InboxFeed({
               disabled={visibleUnreadIds.length === 0 || markReadPending}
               onClick={() => onMarkRead(visibleUnreadIds)}
               className={cn(
-                "text-[11px] text-white/65 transition-colors hover:text-white",
-                "rounded-control-xs outline-none focus-visible:ring-2 focus-visible:ring-white/40",
-                "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-white/65",
+                "text-[11px] text-app-fg-a3 transition-colors hover:text-app-fg-4",
+                "rounded-control-xs outline-none focus-visible:ring-2 focus-visible:ring-app-fg-a2",
+                "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-app-fg-a3",
               )}
             >
               Mark all read
@@ -197,11 +197,11 @@ export function InboxFeed({
       {items.length === 0 && pagination?.isLoading ? (
         // Page still loading after "Next": show a loader, not a flash of "No matches".
         <div className="flex items-center justify-center px-2 py-6">
-          <Loader2 size={14} className="animate-spin text-white/70" aria-hidden />
+          <Loader2 size={14} className="animate-spin text-app-fg-a3" aria-hidden />
         </div>
       ) : filtered.length === 0 ? (
         <div className="px-2 py-6 text-center">
-          <p className="text-[12px] text-white/55">No matches.</p>
+          <p className="text-[12px] text-app-fg-a2">No matches.</p>
         </div>
       ) : (
         <ul className="space-y-0.5">
@@ -248,9 +248,9 @@ function Pagination({
       <PaginationButton label="Previous page" onClick={onPrev} disabled={prevDisabled}>
         <ChevronLeft size={12} />
       </PaginationButton>
-      <span className="inline-flex min-w-[28px] items-center justify-center gap-1 px-1 text-center text-[10.5px] text-white/70 tabular-nums">
+      <span className="inline-flex min-w-[28px] items-center justify-center gap-1 px-1 text-center text-[10.5px] text-app-fg-a3 tabular-nums">
         {isLoading ? (
-          <Loader2 size={10} className="animate-spin text-white/70" aria-hidden />
+          <Loader2 size={10} className="animate-spin text-app-fg-a3" aria-hidden />
         ) : null}
         {page + 1}/{pageCount}
       </span>
@@ -281,9 +281,9 @@ function PaginationButton({
       className={cn(
         "inline-flex size-6 items-center justify-center rounded-control-sm",
         "app-press transition-colors",
-        "text-white/70 hover:bg-white/10 hover:text-white",
-        "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-white/70",
-        "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
+        "text-app-fg-a3 hover:bg-app-bg-a3 hover:text-app-fg-4",
+        "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-app-fg-a3",
+        "outline-none focus-visible:ring-2 focus-visible:ring-app-fg-a2",
       )}
     >
       {children}
@@ -297,12 +297,12 @@ function SearchBar({ value, onChange }: { value: string; onChange: (v: string) =
       className={cn(
         "-mx-0.5 flex items-center gap-1.5 rounded-control px-2 py-1.5",
         // White-alpha so the field shows on the rail's video; the purple ring is too dim there.
-        "bg-white/6 ring-1 ring-white/15 ring-inset",
-        "focus-within:bg-white/10 focus-within:ring-white/45",
+        "bg-app-bg-a2 ring-1 ring-app-bg-a4 ring-inset",
+        "focus-within:bg-app-bg-a3 focus-within:ring-app-fg-a2",
         "transition-[background-color,box-shadow]",
       )}
     >
-      <Search size={12} className="shrink-0 text-white/55" />
+      <Search size={12} className="shrink-0 text-app-fg-a2" />
       <input
         type="text"
         value={value}
@@ -310,7 +310,7 @@ function SearchBar({ value, onChange }: { value: string; onChange: (v: string) =
         placeholder="Filter inbox"
         aria-label="Filter inbox"
         className={cn(
-          "min-w-0 flex-1 bg-transparent text-[12px] leading-5 text-white placeholder:text-white/55",
+          "min-w-0 flex-1 bg-transparent text-[12px] leading-5 text-app-fg-4 placeholder:text-app-fg-a2",
           "outline-none",
         )}
       />
@@ -319,7 +319,7 @@ function SearchBar({ value, onChange }: { value: string; onChange: (v: string) =
           type="button"
           onClick={() => onChange("")}
           aria-label="Clear filter"
-          className="shrink-0 text-white/55 transition-colors hover:text-white"
+          className="shrink-0 text-app-fg-a2 transition-colors hover:text-app-fg-4"
         >
           <X size={12} />
         </button>
@@ -350,8 +350,8 @@ function InboxRow({
     muted && "opacity-55 hover:opacity-100 focus-visible:opacity-100",
     interactive
       ? cn(
-          "app-press transition-[background-color,opacity] hover:bg-white/[0.07]",
-          "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
+          "app-press transition-[background-color,opacity] hover:bg-app-bg-a2",
+          "outline-none focus-visible:ring-2 focus-visible:ring-app-fg-a2",
         )
       : "cursor-default",
   );
@@ -374,7 +374,7 @@ function InboxRow({
           <span
             className={cn(
               "min-w-0 truncate text-[13px] leading-5",
-              item.unread ? "font-medium text-white" : "text-white/75",
+              item.unread ? "font-medium text-app-fg-4" : "text-app-fg-a3",
             )}
           >
             {item.sender}
@@ -383,13 +383,13 @@ function InboxRow({
             {item.category ? (
               <CategoryChip category={item.category} source={item.categorySource} />
             ) : null}
-            <span className="text-[11px] text-white/55 tabular-nums">{item.time}</span>
+            <span className="text-[11px] text-app-fg-a2 tabular-nums">{item.time}</span>
           </span>
         </span>
         <span
           className={cn(
             "block truncate text-[12px] leading-4",
-            item.unread ? "text-white/80" : "text-white/60",
+            item.unread ? "text-app-fg-a4" : "text-app-fg-a3",
           )}
         >
           {item.subject}
@@ -397,7 +397,7 @@ function InboxRow({
         <span
           className={cn(
             "block truncate text-[11px] leading-4",
-            item.unread ? "text-white/60" : "text-white/45",
+            item.unread ? "text-app-fg-a3" : "text-app-fg-a2",
           )}
         >
           {item.preview}
@@ -430,7 +430,7 @@ function SenderAvatar({ item }: { item: RailInboxItem }) {
         aria-hidden
         className={cn(
           "mt-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-full",
-          "bg-white/10 ring-1 ring-white/15 ring-inset",
+          "bg-app-bg-a3 ring-1 ring-app-bg-a4 ring-inset",
         )}
       >
         <IntegrationGlyph brand={item.senderBrand} size={16} />
@@ -459,7 +459,7 @@ function SenderAvatar({ item }: { item: RailInboxItem }) {
           decoding="async"
           className={cn(
             "relative z-10 size-4 rounded-control-xs",
-            "bg-white/85 p-px dark:bg-white/90",
+            "bg-app-fg-a4 p-px dark:bg-app-fg-a4",
           )}
           onError={(e) => {
             e.currentTarget.style.display = "none";
@@ -532,7 +532,7 @@ function CategoryChip({
             chipClass,
             "relative transition-[filter,box-shadow] hover:brightness-110",
             "before:absolute before:-inset-1.5 before:content-['']",
-            "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
+            "outline-none focus-visible:ring-2 focus-visible:ring-app-fg-a2",
           )}
           aria-label={`Change triage tag, currently ${TRIAGE_DISPLAY[category]}${sourceSuffix}`}
         >
@@ -544,8 +544,8 @@ function CategoryChip({
           align="start"
           sideOffset={6}
           className={cn(
-            "z-50 min-w-[168px] rounded-control p-1",
-            "bg-app-bg-1/95 text-app-fg-4 shadow-xl ring-1 ring-white/15 backdrop-blur",
+            "z-50 min-w-[168px] rounded-surface p-1",
+            "bg-app-bg-1/95 text-app-fg-4 shadow-xl ring-1 ring-app-bg-a4 backdrop-blur",
           )}
         >
           {TRIAGE_CATEGORIES.map((option) => (
@@ -554,7 +554,7 @@ function CategoryChip({
               onSelect={() => onChange(option)}
               className={cn(
                 "flex h-8 cursor-default items-center gap-2 rounded-control px-2 select-none",
-                "text-[12px] outline-none data-[highlighted]:bg-white/10",
+                "text-[12px] outline-none data-[highlighted]:bg-app-bg-a3",
               )}
             >
               <span aria-hidden className={cn("size-2 rounded-full", CATEGORY_SWATCH[option])} />
@@ -577,11 +577,10 @@ const CATEGORY_CHIP = {
   payment: "bg-app-amber-1 text-app-amber-4",
   follow_up: "bg-app-sky-1 text-app-sky-4",
   meeting: "bg-app-sky-1 text-app-sky-4",
-  // Gray is white-alpha: theme tokens disappear on the rail's dark video.
-  fyi: "bg-white/10 text-white/75",
+  fyi: "bg-app-bg-a3 text-app-fg-a3",
   done: "bg-app-green-1 text-app-green-4",
-  newsletter: "bg-white/10 text-white/75",
-  marketing: "bg-white/10 text-white/75",
+  newsletter: "bg-app-bg-a3 text-app-fg-a3",
+  marketing: "bg-app-bg-a3 text-app-fg-a3",
 } satisfies Record<TriageCategory, string>;
 
 const CATEGORY_SWATCH = {
@@ -631,10 +630,9 @@ function InboxDetailPane({
           onClick={onClose}
           className={cn(
             "-mx-1.5 inline-flex items-center gap-1.5 rounded-control-sm px-1.5 py-1",
-            // White-alpha, not theme tokens: the video is dark in both themes.
-            "text-[11px] font-medium tracking-tight text-white/65 uppercase",
-            "transition-colors hover:bg-white/10 hover:text-white",
-            "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
+            "text-[11px] font-medium tracking-tight text-app-fg-a3 uppercase",
+            "transition-colors hover:bg-app-bg-a3 hover:text-app-fg-4",
+            "outline-none focus-visible:ring-2 focus-visible:ring-app-fg-a2",
           )}
         >
           <ArrowLeft size={12} />
@@ -646,9 +644,9 @@ function InboxDetailPane({
             target="_blank"
             rel="noreferrer noopener"
             className={cn(
-              "inline-flex items-center gap-1 text-[11px] text-white/65",
-              "transition-colors hover:text-white",
-              "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
+              "inline-flex items-center gap-1 text-[11px] text-app-fg-a3",
+              "transition-colors hover:text-app-fg-4",
+              "outline-none focus-visible:ring-2 focus-visible:ring-app-fg-a2",
               "-mx-1.5 rounded-control-sm px-1.5 py-1",
             )}
           >
@@ -660,16 +658,16 @@ function InboxDetailPane({
 
       {isLoading ? (
         <div className="flex items-center justify-center px-2 py-8">
-          <Loader2 size={16} className="animate-spin text-white/70" aria-hidden />
+          <Loader2 size={16} className="animate-spin text-app-fg-a3" aria-hidden />
         </div>
       ) : isError || !data ? (
         <div className="px-2 py-6 text-center">
-          <p className="text-[12px] text-white/60">Couldn't load this email.</p>
+          <p className="text-[12px] text-app-fg-a3">Couldn't load this email.</p>
         </div>
       ) : (
         <article className="space-y-3 px-1">
           <header className="space-y-1.5">
-            <h3 className="text-[14px] leading-5 font-medium wrap-break-word text-white">
+            <h3 className="text-[14px] leading-5 font-medium wrap-break-word text-app-fg-4">
               {data.subject || "(no subject)"}
             </h3>
             <div className="flex flex-wrap items-center gap-2">
@@ -680,14 +678,14 @@ function InboxDetailPane({
                   onChange={changeCategory}
                 />
               ) : null}
-              <span className="text-[11px] text-white/60 tabular-nums">
+              <span className="text-[11px] text-app-fg-a3 tabular-nums">
                 {data.messages.length} message
                 {data.messages.length === 1 ? "" : "s"}
               </span>
             </div>
           </header>
           {data.messages.length === 0 ? (
-            <p className="px-1 text-[12px] text-white/60">(no messages)</p>
+            <p className="px-1 text-[12px] text-app-fg-a3">(no messages)</p>
           ) : (
             <ol className="space-y-2.5">
               {data.messages.map((m, i) => (
@@ -740,8 +738,7 @@ function ThreadMessageCard({
   return (
     <div
       className={cn(
-        // `app-purple-3` is the one purple step with the same hex in both themes.
-        "rounded-surface bg-white/[0.07] ring-1 ring-white/15",
+        "rounded-surface bg-app-bg-a2 ring-1 ring-app-bg-a4",
         "transition-shadow",
         isSelected && "ring-2 ring-app-purple-3",
       )}
@@ -751,28 +748,28 @@ function ThreadMessageCard({
         onClick={() => setOpen((v) => !v)}
         className={cn(
           "flex w-full items-start gap-2 rounded-surface px-2.5 py-2 text-left",
-          "transition-colors hover:bg-white/[0.06]",
-          "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
+          "transition-colors hover:bg-app-bg-a2",
+          "outline-none focus-visible:ring-2 focus-visible:ring-app-fg-a2",
         )}
         aria-expanded={open}
       >
         <SenderInitialAvatar name={message.senderDisplay} />
         <span className="min-w-0 flex-1">
           <span className="flex items-baseline gap-2">
-            <span className="min-w-0 truncate text-[12.5px] font-medium text-white">
+            <span className="min-w-0 truncate text-[12.5px] font-medium text-app-fg-4">
               {message.senderDisplay}
             </span>
             {message.authoredAtRelative ? (
-              <span className="ml-auto shrink-0 text-[11px] text-white/55 tabular-nums">
+              <span className="ml-auto shrink-0 text-[11px] text-app-fg-a2 tabular-nums">
                 {message.authoredAtRelative}
               </span>
             ) : null}
           </span>
           {!open && summary ? (
-            <span className="mt-0.5 block truncate text-[11.5px] text-white/60">{summary}</span>
+            <span className="mt-0.5 block truncate text-[11.5px] text-app-fg-a3">{summary}</span>
           ) : null}
           {open && message.senderEmail ? (
-            <span className="mt-0.5 block truncate text-[11px] text-white/55">
+            <span className="mt-0.5 block truncate text-[11px] text-app-fg-a2">
               {message.senderEmail}
             </span>
           ) : null}
@@ -782,8 +779,8 @@ function ThreadMessageCard({
       {open ? (
         <div className="space-y-2 px-2.5 pb-2.5">
           {hasHtml ? <ViewToggle value={view} onChange={setView} /> : null}
-          {/* Fixed dark glass: `bg-app-bg-1` is white in light mode and washes out over the video. */}
-          <div className="overflow-hidden rounded-control bg-black/25 ring-1 ring-white/10">
+          {/* Darker glass so the message body reads over a bright video frame. */}
+          <div className="overflow-hidden rounded-control bg-black/25 ring-1 ring-app-bg-a3">
             {view === "original" && message.htmlBody ? (
               <EmailHtmlFrame html={message.htmlBody} />
             ) : message.body.trim() ? (
@@ -794,7 +791,7 @@ function ThreadMessageCard({
                 </MarkdownRenderer>
               </div>
             ) : (
-              <p className="px-3 py-2.5 text-[12px] text-white/55 italic">(empty body)</p>
+              <p className="px-3 py-2.5 text-[12px] text-app-fg-a2 italic">(empty body)</p>
             )}
           </div>
           {message.attachments.length > 0 ? (
@@ -829,7 +826,7 @@ function ViewToggle({
   onChange: (next: "reader" | "original") => void;
 }) {
   return (
-    <fieldset className="inline-flex items-center gap-0 rounded-control-sm border-0 bg-black/25 p-0.5 text-[10.5px] font-medium tracking-tight uppercase ring-1 ring-white/15">
+    <fieldset className="inline-flex items-center gap-0 rounded-control-sm border-0 bg-black/25 p-0.5 text-[10.5px] font-medium tracking-tight uppercase ring-1 ring-app-bg-a4">
       <legend className="sr-only">Message view</legend>
       <ToggleButton active={value === "reader"} onClick={() => onChange("reader")}>
         Reader
@@ -857,8 +854,8 @@ function ToggleButton({
       aria-pressed={active}
       className={cn(
         "app-press rounded-control-xs px-1.5 py-0.5 transition-colors",
-        "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
-        active ? "bg-white/16 text-white" : "text-white/60 hover:text-white/85",
+        "outline-none focus-visible:ring-2 focus-visible:ring-app-fg-a2",
+        active ? "bg-app-bg-a4 text-app-fg-4" : "text-app-fg-a3 hover:text-app-fg-a4",
       )}
     >
       {children}
@@ -1023,8 +1020,8 @@ function AttachmentStrip({
   return (
     <section aria-label="Attachments" className="space-y-1.5">
       <div className="flex items-center gap-1.5 px-0.5">
-        <Paperclip size={11} className="text-white/60" aria-hidden />
-        <span className="text-[10.5px] font-medium tracking-tight text-white/60 uppercase">
+        <Paperclip size={11} className="text-app-fg-a3" aria-hidden />
+        <span className="text-[10.5px] font-medium tracking-tight text-app-fg-a3 uppercase">
           {attachments.length} attachment{attachments.length === 1 ? "" : "s"}
         </span>
       </div>
@@ -1053,10 +1050,10 @@ function AttachmentRow({ attachment, href }: { attachment: InboxAttachment; href
         <Icon size={14} />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[12px] leading-4 font-medium text-white">
+        <span className="block truncate text-[12px] leading-4 font-medium text-app-fg-4">
           {attachment.filename}
         </span>
-        <span className="block text-[11px] leading-4 text-white/55 tabular-nums">
+        <span className="block text-[11px] leading-4 text-app-fg-a2 tabular-nums">
           {formatBytes(attachment.size)}
           {attachment.mimeType ? (
             <>
@@ -1070,17 +1067,17 @@ function AttachmentRow({ attachment, href }: { attachment: InboxAttachment; href
           ) : null}
         </span>
       </span>
-      {href ? <ExternalLink size={12} className="shrink-0 text-white/55" aria-hidden /> : null}
+      {href ? <ExternalLink size={12} className="shrink-0 text-app-fg-a2" aria-hidden /> : null}
     </>
   );
 
   const shared = cn(
     "group flex items-center gap-2.5 rounded-control px-2 py-1.5",
-    "bg-white/[0.07] ring-1 ring-white/15",
+    "bg-app-bg-a2 ring-1 ring-app-bg-a4",
     href
       ? cn(
-          "transition-colors hover:bg-white/[0.10] hover:ring-white/25",
-          "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
+          "transition-colors hover:bg-app-bg-a3 hover:ring-app-fg-a1",
+          "outline-none focus-visible:ring-2 focus-visible:ring-app-fg-a2",
         )
       : "",
   );
@@ -1146,7 +1143,7 @@ function attachmentVisual(mimeType: string, filename: string) {
     return { tone: "bg-app-amber-1 text-app-amber-4", icon: FileText };
   }
 
-  return { tone: "bg-white/10 text-white/80", icon: FileIcon };
+  return { tone: "bg-app-bg-a3 text-app-fg-a4", icon: FileIcon };
 }
 
 function extensionFor(filename: string, mimeType: string): string {

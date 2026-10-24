@@ -23,7 +23,7 @@ export function ApprovalsTab({ workflow }: { workflow: SyncedWorkflow }) {
     <div className="grid gap-4">
       {error ? (
         <AppCard className="flex items-center justify-between gap-3">
-          <p className="text-xs text-rose-600">{error}</p>
+          <p className="text-xs text-app-red-4">{error}</p>
           <AppButton variant="white" size="sm" onClick={retry}>
             Retry
           </AppButton>

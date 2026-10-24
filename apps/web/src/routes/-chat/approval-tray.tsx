@@ -248,7 +248,6 @@ function useRecordDecision<Decision extends RecordedDecision>({
           message: "Review the refreshed contract",
           description:
             "Alfred updated the derived schedule and account details. Approve it again to activate the workflow.",
-          position: "top-center",
         });
 
         return;
@@ -261,7 +260,7 @@ function useRecordDecision<Decision extends RecordedDecision>({
       if (pendingToast) {
         const { tone, message, description } = pendingToast;
         const recorded = tone === "success" ? toast.success : toast.info;
-        recorded({ message, description, position: "top-center" });
+        recorded({ message, description });
       }
     });
   };

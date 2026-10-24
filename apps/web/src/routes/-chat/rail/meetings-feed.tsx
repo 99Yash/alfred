@@ -23,7 +23,7 @@ export function MeetingsFeed({
   if (!items.length && !lookahead.length) {
     return (
       <div className="app-card-in px-2 py-4">
-        <p className="text-[12px] leading-5 text-white/55">
+        <p className="text-[12px] leading-5 text-app-fg-a2">
           {calendarConnected
             ? "Nothing on your calendar today."
             : "Connect Google Calendar to see your day at a glance."}
@@ -36,7 +36,7 @@ export function MeetingsFeed({
     <div className="app-card-in space-y-2">
       {items.length ? (
         <>
-          <div className="px-1 text-[10.5px] font-medium tracking-tight text-white/55 uppercase">
+          <div className="px-1 text-[10.5px] font-medium tracking-tight text-app-fg-a2 uppercase">
             Today · {items.length}
           </div>
           <ul className="space-y-1">
@@ -67,9 +67,9 @@ function MeetingRow({ meeting }: { meeting: RailMeetingItem }) {
         type="button"
         className={cn(
           "group -mx-0.5 w-full rounded-surface p-2 text-left",
-          "app-press transition-colors hover:bg-white/[0.07]",
+          "app-press transition-colors hover:bg-app-bg-a2",
           "flex items-start gap-2.5",
-          "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
+          "outline-none focus-visible:ring-2 focus-visible:ring-app-fg-a2",
         )}
       >
         <span
@@ -79,17 +79,17 @@ function MeetingRow({ meeting }: { meeting: RailMeetingItem }) {
             "size-10 leading-none",
             isNext
               ? "bg-app-amber-1 text-app-amber-4 ring-1 ring-app-amber-2"
-              : "bg-white/10 text-white/70",
+              : "bg-app-bg-a3 text-app-fg-a3",
           )}
         >
           <span className="text-[11px] font-semibold tabular-nums">{meeting.time}</span>
-          <span className="mt-0.5 text-[9px] tracking-tight text-white/55 uppercase">
+          <span className="mt-0.5 text-[9px] tracking-tight text-app-fg-a2 uppercase">
             {meeting.duration}
           </span>
         </span>
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-1.5">
-            <span className="min-w-0 truncate text-[13px] leading-5 font-medium text-white">
+            <span className="min-w-0 truncate text-[13px] leading-5 font-medium text-app-fg-4">
               {meeting.title}
             </span>
             {isNext ? (
@@ -105,7 +105,9 @@ function MeetingRow({ meeting }: { meeting: RailMeetingItem }) {
               </span>
             ) : null}
           </span>
-          <span className="block truncate text-[11px] leading-4 text-white/55">{meeting.with}</span>
+          <span className="block truncate text-[11px] leading-4 text-app-fg-a2">
+            {meeting.with}
+          </span>
         </span>
       </button>
     </li>

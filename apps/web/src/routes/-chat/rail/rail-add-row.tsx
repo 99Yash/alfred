@@ -4,7 +4,7 @@ import { cn } from "~/lib/utils";
 
 const WRAPPER = cn(
   "group -mx-0.5 w-full rounded-surface p-2",
-  "border border-dashed border-white/15 focus-within:border-white/35 hover:border-white/35",
+  "border border-dashed border-app-bg-a4 focus-within:border-app-fg-a1 hover:border-app-fg-a1",
   "flex items-center gap-2 transition-colors",
 );
 
@@ -24,15 +24,15 @@ export function RailAddRow({
         type="button"
         className={cn(
           WRAPPER,
-          "text-left outline-none focus-visible:ring-2 focus-visible:ring-white/40",
+          "text-left outline-none focus-visible:ring-2 focus-visible:ring-app-fg-a2",
         )}
       >
         <Plus
           size={12}
           aria-hidden
-          className="text-white/60 transition-colors group-hover:text-white"
+          className="text-app-fg-a3 transition-colors group-hover:text-app-fg-4"
         />
-        <span className="text-[12px] text-white/65 transition-colors group-hover:text-white/90">
+        <span className="text-[12px] text-app-fg-a3 transition-colors group-hover:text-app-fg-a4">
           {placeholder}
         </span>
       </button>
@@ -52,7 +52,7 @@ export function RailAddRow({
       <Plus
         size={12}
         aria-hidden
-        className="shrink-0 text-white/60 transition-colors group-focus-within:text-white"
+        className="shrink-0 text-app-fg-a3 transition-colors group-focus-within:text-app-fg-4"
       />
       <input
         type="text"
@@ -67,8 +67,8 @@ export function RailAddRow({
           }
         }}
         className={cn(
-          "min-w-0 flex-1 bg-transparent text-[12px] text-white outline-none",
-          "placeholder:text-white/65",
+          "min-w-0 flex-1 bg-transparent text-[12px] text-app-fg-4 outline-none",
+          "placeholder:text-app-fg-a3",
         )}
       />
     </div>

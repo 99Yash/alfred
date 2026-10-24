@@ -73,6 +73,15 @@
  */
 export const REGISTRY_UNION = String.raw`(?:(?:\w*Integration|LiveProvider|Planned|Catalog|Google|GithubApp|Bearer|TokenPaste|Supported\w*)Slug|(?:Bearer|Credential)Provider)`;
 
+/**
+ * Production web code that the design-token gates scan. The landing page, the
+ * public legal pages that share its background, the styleguide and the
+ * components only it renders, and `ui/legacy` keep the older dimension grammar
+ * on purpose (components/ui/legacy/README.md).
+ */
+const WEB_APP_TOKEN_PATHS =
+  /^apps\/web\/src\/(?!components\/landing\/|components\/ui\/legacy\/|components\/legal\/|routes\/-styleguide\/|routes\/-preview-landing\/|routes\/-legal\/|components\/(?:dimension-chat-thread|dimension-composer-shell|quick-access-rail|ui\/frost-panel|ui\/tabs|ui\/command-palette|ui\/icon-button|ui\/status-dot)\.tsx$)/;
+
 /** @type {ConsolidationRule[]} */
 export const RULES = [
   {
@@ -971,14 +980,27 @@ export const RULES = [
     // `:` after a variant, the `!` important prefix), so `rounded-control`
     // and an identifier like `roundedCorners` never match.
     //
-    // `paths` keeps the rule on the production app. The landing page, the
-    // styleguide and the components only it renders, and `ui/legacy` keep the
-    // older dimension grammar on purpose (components/ui/legacy/README.md).
+    // `paths` keeps the rule on the production app (WEB_APP_TOKEN_PATHS).
     re: /(?:^|[\s"'`:!])rounded(?:-(?:[trblsexy]|tl|tr|bl|br|ss|se|es|ee))?(?:-(?:xs|sm|md|lg|xl|[234]xl|\[(?!inherit\])[^\]\s]+\]))?(?=[\s"'`]|$)/,
-    paths:
-      /^apps\/web\/src\/(?!components\/landing\/|components\/ui\/legacy\/|routes\/-styleguide\/|routes\/-preview-landing\/|components\/(?:dimension-chat-thread|dimension-composer-shell|quick-access-rail|ui\/frost-panel)\.tsx$)/,
+    paths: WEB_APP_TOKEN_PATHS,
     severity: "gate",
     fix: "Use a role tier from apps/web/src/index.css: `rounded-control-xs` (20px and smaller: kbd, checkbox, tag), `rounded-control-sm` (24-28px controls), `rounded-control` (32-40px buttons, rows, inputs, menu items), `rounded-surface` (cards, banners, menus, popovers), `rounded-panel` (shell, sidebar, rail, composer, dialogs), or `rounded-full` for pills. Pick by what the element is, and give a container its inner tier plus its padding.",
+  },
+  {
+    id: "raw-palette-color",
+    // A raw Tailwind hue or gray, or a white-alpha step, in app code. Status
+    // text used `text-rose-600` in one file and `text-red-600` in the next,
+    // because the light `-4` tokens failed contrast; and the surfaces over the
+    // weather video used ten white-alpha steps for four roles. Now each light
+    // `-4` hue is AA text, and `.app-media` gives a fixed dark surface the
+    // dark token values, so the `app-*` tokens cover both cases.
+    //
+    // Solid `white` and `black`, and `black/N` scrims, stay legal: paper,
+    // switch thumbs, and overlays do not change with the theme.
+    re: /(?:^|[\s"'`:!])(?:text|bg|border(?:-[trblxyse])?|ring(?:-offset)?|outline|divide|fill|stroke|from|via|to|decoration|placeholder|caret|accent|shadow)-(?:(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,4}|white\/(?:\d+|\[[^\]\s]+\]))(?:\/(?:\d+|\[[^\]\s]+\]))?(?=[\s"'`]|$)/,
+    paths: WEB_APP_TOKEN_PATHS,
+    severity: "gate",
+    fix: "Use an `app-*` token from apps/web/src/index.css. Status: `text-app-{red,amber,green}-4` for text and solid fills, `-1` for a tint fill, `-2` for its border or ring, and `text-app-bg-1` for ink on a solid `-4` fill. On a fixed dark surface (video, lightbox, overlay), add `app-media` to its root and use `text-app-fg-a{1..4}` / `bg-app-bg-a{1..4}` for white-alpha ink and fills.",
   },
 ];
 

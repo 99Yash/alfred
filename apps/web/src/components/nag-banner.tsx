@@ -26,7 +26,7 @@ export function NagBanner({ message, actionLabel, onAction, onDismiss }: NagBann
     >
       <TriangleAlert size={16} className="shrink-0 text-app-amber-4" />
       <p className="min-w-0 flex-1 text-[13px] leading-snug text-pretty">{message}</p>
-      <AppButton size="sm" onClick={onAction} className="shrink-0 bg-amber-500 text-amber-950">
+      <AppButton size="sm" onClick={onAction} className="shrink-0 bg-app-amber-4 text-app-bg-1">
         {actionLabel}
       </AppButton>
       <button

@@ -28,13 +28,13 @@ export function CodeBlock({ language, code }: CodeBlockProps) {
     <div
       data-type="code-block"
       className={cn(
-        "not-prose my-2 overflow-hidden rounded-control",
-        "border border-white/10 bg-[#111317]",
+        "app-media not-prose my-2 overflow-hidden rounded-control",
+        "border border-app-bg-a3 bg-[#111317]",
         "shadow-[0_0_0_0.5px_rgba(0,0,0,0.4)]",
       )}
     >
-      <div className="flex items-center justify-between gap-4 border-b border-white/6 px-2.5 py-1">
-        <span className="font-mono text-[10.5px] tracking-wide text-white/45 lowercase">
+      <div className="flex items-center justify-between gap-4 border-b border-app-bg-a2 px-2.5 py-1">
+        <span className="font-mono text-[10.5px] tracking-wide text-app-fg-a2 lowercase">
           {language || "text"}
         </span>
         <button
@@ -44,9 +44,9 @@ export function CodeBlock({ language, code }: CodeBlockProps) {
           title={copied ? "Copied" : "Copy code"}
           className={cn(
             "grid size-6 place-items-center rounded-control-sm",
-            "text-white/55 transition-colors",
-            "hover:bg-white/10 hover:text-white/90",
-            "focus-visible:ring-2 focus-visible:ring-white/30 focus-visible:outline-none",
+            "text-app-fg-a2 transition-colors",
+            "hover:bg-app-bg-a3 hover:text-app-fg-a4",
+            "focus-visible:ring-2 focus-visible:ring-app-fg-a1 focus-visible:outline-none",
           )}
         >
           <span className="relative grid size-3.5 place-items-center">

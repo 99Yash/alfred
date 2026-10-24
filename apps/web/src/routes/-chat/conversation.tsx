@@ -546,7 +546,7 @@ function FeedFooter() {
           {stream.error ? (
             <div
               role="alert"
-              className="rounded-control-sm border border-red-200 bg-red-50 px-3 py-2.5 text-[13px] leading-snug text-red-800 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200"
+              className="rounded-control-sm border border-app-red-2 bg-app-red-1 px-3 py-2.5 text-[13px] leading-snug text-app-red-4"
             >
               {stream.error}
             </div>

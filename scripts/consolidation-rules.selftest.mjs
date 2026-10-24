@@ -1084,10 +1084,10 @@ const LINE_FILE = "packages/assistant/src/connections/ingestion/chat-media.ts";
  */
 const OBJECT_STATE_FILE = "packages/assistant/src/connections/object-state/store.ts";
 
-/** A production web file. `raw-radius-class` names its own `paths`. */
+/** A production web file. The design-token gates name their own `paths`. */
 const WEB_APP_FILE = "apps/web/src/lib/shell/app-sidebar/thread-content.tsx";
 
-/** A landing-page file, which keeps the dimension radius grammar on purpose. */
+/** A landing-page file, which keeps the dimension grammar on purpose. */
 const WEB_LANDING_FILE = "apps/web/src/components/landing/hero-band.tsx";
 
 /**
@@ -1304,6 +1304,39 @@ const LINE_CASES = [
     name: "raw-radius-class — the landing page keeps the dimension grammar",
     caught: false,
     code: `          "inline-flex h-9 w-full items-center gap-2 rounded-xl pr-2 pl-3 text-left",`,
+    file: WEB_LANDING_FILE,
+  },
+  {
+    name: "raw-palette-color — a raw Tailwind hue for status text skips the AA token",
+    caught: true,
+    rule: "raw-palette-color",
+    code: `          <p className="mt-1 text-xs text-rose-600">{runNow.error.message}</p>`,
+    file: WEB_APP_FILE,
+  },
+  {
+    name: "raw-palette-color — a white-alpha step on media skips the app-media tokens",
+    caught: true,
+    rule: "raw-palette-color",
+    code: `            "text-white/70 hover:bg-white/[0.07] hover:text-white",`,
+    file: WEB_APP_FILE,
+  },
+  {
+    name: "raw-palette-color — a variant-prefixed raw hue is still raw",
+    caught: true,
+    rule: "raw-palette-color",
+    code: `        "data-[state=active]:bg-emerald-400/15 dark:text-red-200",`,
+    file: WEB_APP_FILE,
+  },
+  {
+    name: "raw-palette-color — app tokens, solid white, and black scrims are the intended form",
+    caught: false,
+    code: `  "bg-app-red-1 text-app-red-4 ring-app-bg-a3 text-app-fg-a3 bg-white text-white bg-black/70",`,
+    file: WEB_APP_FILE,
+  },
+  {
+    name: "raw-palette-color — the landing page keeps the dimension grammar",
+    caught: false,
+    code: `        "text-white/70 bg-neutral-900 ring-purple-500",`,
     file: WEB_LANDING_FILE,
   },
   {

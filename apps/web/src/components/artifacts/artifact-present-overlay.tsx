@@ -56,14 +56,14 @@ export function ArtifactPresentOverlay({
   const current = pages[safeIndex];
 
   return createPortal(
-    <div className="animate-artifact-fullscreen fixed inset-0 z-80 flex flex-col bg-black/90 backdrop-blur-sm">
-      <div className="flex h-12 shrink-0 items-center justify-between px-4 text-white/80">
+    <div className="app-media animate-artifact-fullscreen fixed inset-0 z-80 flex flex-col bg-black/90 backdrop-blur-sm">
+      <div className="flex h-12 shrink-0 items-center justify-between px-4 text-app-fg-a4">
         <span className="truncate text-sm">{title}</span>
         <div className="flex items-center gap-3">
           <span className="text-[12px] tabular-nums">
             {safeIndex + 1} / {pages.length}
           </span>
-          <ArtifactIconButton label="Exit fullscreen" onClick={onClose} tone="dark">
+          <ArtifactIconButton label="Exit fullscreen" onClick={onClose}>
             <X size={16} />
           </ArtifactIconButton>
         </div>
@@ -109,7 +109,7 @@ function NavButton({
       onClick={onClick}
       className={cn(
         "absolute top-1/2 grid size-10 -translate-y-1/2 place-items-center rounded-full",
-        "bg-white/10 text-white transition-colors hover:bg-white/20",
+        "bg-app-bg-a3 text-app-fg-4 transition-colors hover:bg-app-bg-a4",
         "disabled:cursor-not-allowed disabled:opacity-30",
         side === "left" ? "left-3" : "right-3",
       )}

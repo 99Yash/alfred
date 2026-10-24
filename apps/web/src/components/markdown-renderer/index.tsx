@@ -22,8 +22,9 @@ interface MarkdownRendererProps {
   children: string;
   className?: string | undefined;
   /**
-   * `surface` follows theme tokens. `media` is fixed white-alpha for the rail's
-   * weather video, which is always dark, so theme ink would invert against it.
+   * `surface` follows theme tokens. `media` is for the rail's weather video,
+   * which is always dark: it reads the white-alpha steps of the `.app-media`
+   * scope that the rail sets.
    */
   tone?: "surface" | "media" | undefined;
   /**
@@ -54,17 +55,16 @@ const SURFACE_TONE = [
   "[&_hr]:border-app-bg-3/60",
 ] as const;
 
-/** Literal link color: the light-mode `--app-purple-4` fails AA on the dark video. */
 const MEDIA_TONE = [
-  "text-white/85",
-  "[&_h1]:text-white [&_h2]:text-white [&_h3]:text-white [&_h4]:text-white",
-  "[&_strong]:text-white",
-  "[&_a]:text-app-purple-rail hover:[&_a]:text-white",
-  "[&_ul]:marker:text-white/50 [&_ol]:marker:text-white/50",
-  "[&_blockquote]:border-white/20 [&_blockquote]:text-white/65",
-  "[&_:not(pre)>code]:bg-white/10 [&_:not(pre)>code]:text-white",
-  "[&_th]:border-white/20 [&_th]:text-white [&_td]:border-white/20",
-  "[&_hr]:border-white/20",
+  "text-app-fg-a4",
+  "[&_h1]:text-app-fg-4 [&_h2]:text-app-fg-4 [&_h3]:text-app-fg-4 [&_h4]:text-app-fg-4",
+  "[&_strong]:text-app-fg-4",
+  "[&_a]:text-app-purple-4 hover:[&_a]:text-app-fg-4",
+  "[&_ul]:marker:text-app-fg-a2 [&_ol]:marker:text-app-fg-a2",
+  "[&_blockquote]:border-app-bg-a4 [&_blockquote]:text-app-fg-a3",
+  "[&_:not(pre)>code]:bg-app-bg-a3 [&_:not(pre)>code]:text-app-fg-4",
+  "[&_th]:border-app-bg-a4 [&_th]:text-app-fg-4 [&_td]:border-app-bg-a4",
+  "[&_hr]:border-app-bg-a4",
 ] as const;
 
 const COMPACT_SIZE = [

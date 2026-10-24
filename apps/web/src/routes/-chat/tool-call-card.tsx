@@ -458,7 +458,7 @@ function EvidenceListDetail({ view, spaced }: { view: RecordListView; spaced: bo
               ) : (
                 <span
                   aria-hidden
-                  className="size-4 shrink-0 rounded-control-xs bg-app-bg-2 ring-1 ring-white/10 ring-inset"
+                  className="size-4 shrink-0 rounded-control-xs bg-app-bg-2 ring-1 ring-app-bg-a3 ring-inset"
                 />
               )}
               <span className="min-w-0 flex-1 truncate text-[13px] text-app-fg-4 group-hover/row:underline">

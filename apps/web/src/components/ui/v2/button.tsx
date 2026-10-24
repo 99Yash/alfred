@@ -60,7 +60,7 @@ const VARIANT = {
     "disabled:cursor-not-allowed disabled:opacity-50",
   ),
   destructive: cn(
-    "bg-app-red-4 text-white",
+    "bg-app-red-4 text-app-bg-1",
     "shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.18),0_8px_24px_rgba(255,47,0,0.32)]",
     "hover:brightness-[1.05]",
     "hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.20),0_2px_4px_rgba(0,0,0,0.22),0_12px_32px_rgba(255,47,0,0.42)]",

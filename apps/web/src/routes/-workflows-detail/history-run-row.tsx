@@ -84,7 +84,7 @@ export function HistoryRunRow({
             {row.replayOfRunId ? " · replay" : ""}
           </p>
           {row.coverageGaps.length > 0 ? (
-            <ul className="mt-2 space-y-1 text-xs leading-5 text-amber-700">
+            <ul className="mt-2 space-y-1 text-xs leading-5 text-app-amber-4">
               {row.coverageGaps.map((problem) => (
                 <li key={`${problem.code}:${problem.field}`}>{problem.message}</li>
               ))}

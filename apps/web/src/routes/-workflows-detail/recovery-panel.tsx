@@ -43,11 +43,11 @@ export function RecoveryPanel({ workflowId, revisionId }: RecoveryPanelProps) {
 
   if (recovery.isError || recovery.data.status === "failed") {
     return (
-      <AppCard className="flex items-start gap-3 px-4 py-3 text-sm text-rose-700">
+      <AppCard className="flex items-start gap-3 px-4 py-3 text-sm text-app-red-4">
         <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
         <div>
           <p className="font-medium">This draft could not be recovered.</p>
-          <p className="mt-0.5 text-xs leading-5 text-rose-600">
+          <p className="mt-0.5 text-xs leading-5 text-app-red-4">
             The draft may have changed while the connection was open. Review its current version.
           </p>
         </div>
@@ -59,11 +59,11 @@ export function RecoveryPanel({ workflowId, revisionId }: RecoveryPanelProps) {
     const recoveryNavigation = recovery.data.recovery;
 
     return (
-      <AppCard className="flex items-start gap-3 px-4 py-3 text-sm text-amber-800">
+      <AppCard className="flex items-start gap-3 px-4 py-3 text-sm text-app-amber-4">
         <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
         <div className="min-w-0">
           <p className="font-medium">Connection restored, but setup is not complete.</p>
-          <ul className="mt-1 space-y-1 text-xs leading-5 text-amber-700">
+          <ul className="mt-1 space-y-1 text-xs leading-5 text-app-amber-4">
             {recovery.data.readiness.map((problem) => (
               <li key={`${problem.code}:${problem.field}`}>{problem.message}</li>
             ))}
@@ -99,7 +99,7 @@ export function RecoveryPanel({ workflowId, revisionId }: RecoveryPanelProps) {
 
   if (!proposal.success) {
     return (
-      <AppCard className="flex items-start gap-3 px-4 py-3 text-sm text-rose-700">
+      <AppCard className="flex items-start gap-3 px-4 py-3 text-sm text-app-red-4">
         <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
         The recovered activation proposal is invalid. Review the draft before activation.
       </AppCard>
@@ -121,7 +121,7 @@ export function RecoveryPanel({ workflowId, revisionId }: RecoveryPanelProps) {
   return (
     <AppCard className="p-4 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_6px_18px_rgba(0,0,0,0.04)]">
       <div className="flex items-start gap-3">
-        <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600" aria-hidden="true" />
+        <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-app-green-4" aria-hidden="true" />
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-app-fg-4">Ready to activate</p>
           <p className="mt-0.5 text-xs leading-5 text-pretty text-app-fg-3">
