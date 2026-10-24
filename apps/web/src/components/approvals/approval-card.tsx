@@ -3,7 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { AlertTriangle, Ban, Check, Pencil, RefreshCw, Workflow, X } from "lucide-react";
 import { AppButton, AppCard, AppTextarea } from "~/components/ui/v2";
 import { cn } from "~/lib/utils";
-import { toolChipLabel } from "./card-spec";
+import { approveButtonLabel, toolChipLabel } from "./card-spec";
 import { formatTimestamp, shortId, triggerLabel } from "./format";
 import { ApprovalInputEditor } from "./input-editor";
 import { RiskPill } from "./risk-pill";
@@ -199,11 +199,7 @@ export function ApprovalCard({
           disabled={busy}
           onClick={() => void decide(approveDecision())}
         >
-          {edited && staging.toolName === "system.activate_workflow"
-            ? "Review changes"
-            : edited
-              ? "Approve changes"
-              : "Approve"}
+          {approveButtonLabel(staging.toolName, staging.riskTier, edited)}
         </AppButton>
       </div>
     </AppCard>

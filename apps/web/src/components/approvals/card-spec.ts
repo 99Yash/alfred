@@ -6,8 +6,10 @@ import {
   gmailSendDraftInput,
   type CalendarResponse,
   humanizeToolName,
+  isWriteRiskTier,
   type JsonObject,
   type ToolName,
+  type ToolRiskTier,
 } from "@alfred/contracts";
 import { asRecord } from "~/lib/json-record";
 import { capitalize } from "~/lib/strings";
@@ -121,7 +123,18 @@ const APPROVE_VERBS = new Map<ToolName, string>([
   ["system.activate_workflow", "Activate"],
 ]);
 
-/** The approve button's verb for `toolName`, or `null` for the generic label. */
-export function approveVerb(toolName: ToolName): string | null {
-  return APPROVE_VERBS.get(toolName) ?? null;
+/**
+ * The approve button's label, shared by the chat dock and the `/approvals` card: the tool's
+ * verb ("Create event") when it has one, else the generic label for its tier.
+ */
+export function approveButtonLabel(
+  toolName: ToolName,
+  riskTier: ToolRiskTier,
+  edited: boolean,
+): string {
+  if (edited && toolName === "system.activate_workflow") return "Review changes";
+
+  if (edited) return isWriteRiskTier(riskTier) ? "Approve changes" : "Allow changes";
+
+  return APPROVE_VERBS.get(toolName) ?? (isWriteRiskTier(riskTier) ? "Approve" : "Allow once");
 }

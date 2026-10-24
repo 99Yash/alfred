@@ -1,5 +1,5 @@
 import type { IntegrationSlug, PolicyMode, ToolRiskTier } from "@alfred/contracts";
-import { isLoadableIntegrationSlug, isWriteRiskTier } from "@alfred/contracts";
+import { isLoadableIntegrationSlug } from "@alfred/contracts";
 import type { SyncedActionStaging } from "@alfred/sync";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { Link } from "@tanstack/react-router";
@@ -22,7 +22,7 @@ import {
 import { AnimatePresence, m } from "motion/react";
 import { useEffect, useImperativeHandle, useRef, use, useId, useState } from "react";
 import { asQuestionStaging, type QuestionStaging } from "~/components/approvals/ask-user";
-import { approveVerb, cardTitle } from "~/components/approvals/card-spec";
+import { approveButtonLabel, cardTitle } from "~/components/approvals/card-spec";
 import { formatTimestamp } from "~/components/approvals/format";
 import { ApprovalInputEditor, ApprovalInputFacts } from "~/components/approvals/input-editor";
 import { RiskChip } from "~/components/approvals/risk-pill";
@@ -39,13 +39,12 @@ import { AppButton, AppSwitch, AppTextarea } from "~/components/ui/v2";
 import { Kbd } from "~/components/ui/kbd";
 import { AppThemeContext } from "~/components/ui/v2/theme";
 import { responseErrorMessage } from "~/lib/api-error";
-import type { StreamingMessage } from "~/lib/chat/chat-stream-state";
 import { client } from "~/lib/eden";
 import { getIntegrationPage } from "~/lib/integrations/integrations";
 import { useActionPolicy } from "~/lib/replicache/use-action-policy";
 import { callToast, toast } from "~/lib/toast";
 import { cn } from "~/lib/utils";
-import { usePrefersReducedMotion, type LiveTransition } from "./motion";
+import { CHAT_EASE, CHAT_SWAP, usePrefersReducedMotion, type LiveTransition } from "./motion";
 
 // Hoisted so `leading` props do not allocate per render.
 const ICON_X = <X size={13} />;
@@ -60,8 +59,11 @@ const ICON_PENCIL = <Pencil size={13} />;
 
 const ICON_EYE = <Eye size={13} />;
 
-/** The house curve (`app-card-in`, the chat keyframes). */
-const DOCK_EASE = [0.22, 1, 0.36, 1] as const;
+/** The dock rises from behind the composer. */
+const DOCK_ENTER_S = 0.28;
+
+/** The pager's content shift. */
+const DOCK_PAGE_S = 0.16;
 
 /** The done row stays this long after a decision, so the user sees the result. */
 const DONE_HOLD_MS = 900;
@@ -71,7 +73,7 @@ const COIN_POP_MS = 260;
 
 /** What the composer and the dock's own ⌘↵ call: the current card's primary action. */
 export interface ApprovalDockHandle {
-  approve: () => void;
+  runPrimary: () => void;
 }
 
 /**
@@ -94,7 +96,8 @@ export function ChatApprovalDock({
   ref?: React.Ref<ApprovalDockHandle> | undefined;
 }) {
   const reduceMotion = usePrefersReducedMotion();
-  const [index, setIndex] = useState(0);
+  // The card on screen, by id: a new or decided row must not swap it without a click.
+  const [shownId, setShownId] = useState<string | null>(null);
   // +1 or -1: the pager direction, for the content shift.
   const [direction, setDirection] = useState(1);
 
@@ -108,7 +111,7 @@ export function ChatApprovalDock({
 
     if (runId !== undefined) {
       setSettled(null);
-      setIndex(0);
+      setShownId(null);
     }
   }
 
@@ -119,14 +122,14 @@ export function ChatApprovalDock({
     return () => window.clearTimeout(timer);
   }, [settled]);
 
-  const lastIndex = Math.max(approvals.length - 1, 0);
-  const shownIndex = Math.min(index, lastIndex);
-  const current = settled ?? approvals[shownIndex] ?? null;
+  // The chosen card while it waits, else the first one. A settled card holds the dock first.
+  const pending = approvals.find((row) => row.id === shownId) ?? approvals[0] ?? null;
+  const current = settled ?? pending;
 
   // The current card registers its primary action here, for ⌘↵.
   const primaryRef = useRef<(() => void) | null>(null);
 
-  useImperativeHandle(ref, () => ({ approve: () => primaryRef.current?.() }), []);
+  useImperativeHandle(ref, () => ({ runPrimary: () => primaryRef.current?.() }), []);
 
   // Chime once per new batch. Key: the row chimed; value: its toast, or `null` once retired.
   // Deleting a retired key would re-chime the row. Lazy, because `useRef(new Map())` allocates each render.
@@ -190,29 +193,27 @@ export function ChatApprovalDock({
   }, [approvals, preview]);
 
   const page = (step: 1 | -1) => {
+    const position = pending ? approvals.indexOf(pending) : -1;
+    const next = approvals[position + step];
+
+    if (!next) return;
     setDirection(step);
-    setIndex(Math.min(Math.max(shownIndex + step, 0), lastIndex));
+    setShownId(next.id);
   };
 
-  const dockTransition: LiveTransition = reduceMotion
-    ? { duration: 0.12, ease: "linear", reduceMotion }
-    : { duration: 0.28, ease: DOCK_EASE, reduceMotion };
+  const dockTransition = dockMotion(reduceMotion, DOCK_ENTER_S);
+  const exitTransition = dockMotion(reduceMotion, CHAT_SWAP.duration);
+  const pageTransition = dockMotion(reduceMotion, DOCK_PAGE_S);
 
-  const exitTransition: LiveTransition = reduceMotion
-    ? { duration: 0.12, ease: "linear", reduceMotion }
-    : { duration: 0.2, ease: DOCK_EASE, reduceMotion };
-
-  const pageTransition: LiveTransition = reduceMotion
-    ? { duration: 0.12, ease: "linear", reduceMotion }
-    : { duration: 0.16, ease: DOCK_EASE, reduceMotion };
-
-  // A pending card counts in the pager. A settled card that left `pending` does not.
-  const total = approvals.length;
-  const position = settled ? approvals.findIndex((row) => row.id === settled.id) : shownIndex;
-
-  const pager =
-    total > 1 && position >= 0 && !settled ? (
-      <Pager position={position} total={total} onPage={page} />
+  // Only pending cards page. A card's own `busy` disables it, so a late reply cannot swap cards.
+  const renderPager = (busy: boolean) =>
+    approvals.length > 1 && pending && !settled ? (
+      <Pager
+        position={approvals.indexOf(pending)}
+        total={approvals.length}
+        disabled={busy}
+        onPage={page}
+      />
     ) : null;
 
   const question = current ? asQuestionStaging(current) : null;
@@ -233,6 +234,9 @@ export function ChatApprovalDock({
           }
           onKeyDown={(e) => {
             if (e.key !== "Enter" || !(e.metaKey || e.ctrlKey) || e.defaultPrevented) return;
+
+            // React bubbles portal events, such as the Permissions popover. Act only on keys from the dock itself.
+            if (!(e.target instanceof Node) || !e.currentTarget.contains(e.target)) return;
             e.preventDefault();
             primaryRef.current?.();
           }}
@@ -254,7 +258,7 @@ export function ChatApprovalDock({
               <DockQuestionCard
                 question={question}
                 preview={preview}
-                pager={pager}
+                renderPager={renderPager}
                 primaryRef={primaryRef}
                 onDecisionStart={() => dismissChime(current.id)}
                 onDecision={() => setSettled(current)}
@@ -263,7 +267,7 @@ export function ChatApprovalDock({
               <DockApprovalCard
                 staging={current}
                 preview={preview}
-                pager={pager}
+                renderPager={renderPager}
                 primaryRef={primaryRef}
                 onDecisionStart={() => dismissChime(current.id)}
                 onDecision={() => setSettled(current)}
@@ -279,10 +283,13 @@ export function ChatApprovalDock({
 function Pager({
   position,
   total,
+  disabled,
   onPage,
 }: {
   position: number;
   total: number;
+  /** A decision is in flight on the shown card. */
+  disabled: boolean;
   onPage: (step: 1 | -1) => void;
 }) {
   return (
@@ -291,7 +298,11 @@ function Pager({
       aria-label={`Approval ${position + 1} of ${total}`}
       className="flex shrink-0 items-center gap-0.5 text-[12px] font-medium text-app-fg-3 tabular-nums"
     >
-      <PagerButton label="Previous approval" disabled={position === 0} onClick={() => onPage(-1)}>
+      <PagerButton
+        label="Previous approval"
+        disabled={disabled || position === 0}
+        onClick={() => onPage(-1)}
+      >
         <ChevronLeft size={14} />
       </PagerButton>
       <span aria-hidden className="px-0.5">
@@ -299,7 +310,7 @@ function Pager({
       </span>
       <PagerButton
         label="Next approval"
-        disabled={position === total - 1}
+        disabled={disabled || position === total - 1}
         onClick={() => onPage(1)}
       >
         <ChevronRight size={14} />
@@ -419,8 +430,8 @@ function useRecordDecision<Decision extends RecordedDecision>({
 
 interface DockCardProps {
   preview: boolean | undefined;
-  /** The "1 of 2" control, or `null` for a lone card. */
-  pager: React.ReactNode;
+  /** The "1 of 2" control, or `null` for a lone card. Pass the card's `busy`. */
+  renderPager: (busy: boolean) => React.ReactNode;
   /** Set to the card's primary action while it can run, for ⌘↵. */
   primaryRef: React.RefObject<(() => void) | null>;
   onDecisionStart: () => void;
@@ -430,7 +441,7 @@ interface DockCardProps {
 function DockApprovalCard({
   staging,
   preview,
-  pager,
+  renderPager,
   primaryRef,
   onDecisionStart,
   onDecision,
@@ -481,7 +492,7 @@ function DockApprovalCard({
     };
   });
 
-  const approveLabel = approvalLabel(staging.toolName, staging.riskTier, edited);
+  const approveLabel = approveButtonLabel(staging.toolName, staging.riskTier, edited);
   const approved = decisionKind === "approve";
 
   return (
@@ -519,7 +530,7 @@ function DockApprovalCard({
           </span>
         ) : (
           <>
-            {pager}
+            {renderPager(busy)}
             {canAlwaysAllow(staging) ? (
               <PermissionsAffordance
                 staging={staging}
@@ -540,13 +551,7 @@ function DockApprovalCard({
         )}
       </div>
 
-      {/* Collapses to the done row on a decision: grid rows 1fr → 0fr. */}
-      <div
-        className={cn(
-          "grid min-h-0 flex-1 transition-[grid-template-rows] duration-220 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
-          decided ? "grid-rows-[0fr]" : "grid-rows-[1fr]",
-        )}
-      >
+      <CollapseOnDecide decided={decided}>
         <div className="flex min-h-0 flex-col overflow-hidden">
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-1 sm:px-4">
             {editing ? (
@@ -689,9 +694,30 @@ function DockApprovalCard({
             </div>
           </div>
         </div>
-      </div>
+      </CollapseOnDecide>
     </>
   );
+}
+
+/** Body and actions collapse to the done row on a decision: grid rows 1fr → 0fr. */
+function CollapseOnDecide({ decided, children }: { decided: boolean; children: React.ReactNode }) {
+  return (
+    <div
+      className={cn(
+        "grid min-h-0 flex-1 transition-[grid-template-rows] duration-220 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
+        decided ? "grid-rows-[0fr]" : "grid-rows-[1fr]",
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
+/** Reduced motion: opacity only, 120 ms linear. Otherwise the house curve. */
+function dockMotion(reduceMotion: boolean, duration: number): LiveTransition {
+  return reduceMotion
+    ? { duration: 0.12, ease: "linear", reduceMotion }
+    : { duration, ease: CHAT_EASE, reduceMotion };
 }
 
 /** Toast for a run-ending write decision. Approve and reject resume the run, so no toast. */
@@ -736,7 +762,7 @@ function questionDecisionToast(decision: QuestionDecision): DecisionToast | null
 function DockQuestionCard({
   question,
   preview,
-  pager,
+  renderPager,
   primaryRef,
   onDecisionStart,
   onDecision,
@@ -786,17 +812,13 @@ function DockQuestionCard({
               : "Answer to continue this turn."}
           </p>
         </div>
-        {decided ? null : pager}
+        {decided ? null : renderPager(busy)}
       </div>
 
-      <div
-        className={cn(
-          "grid min-h-0 flex-1 transition-[grid-template-rows] duration-220 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
-          decided ? "grid-rows-[0fr]" : "grid-rows-[1fr]",
-        )}
-      >
-        <div className="min-h-0 overflow-y-auto overscroll-contain">
+      <CollapseOnDecide decided={decided}>
+        <div className="flex min-h-0 flex-col overflow-hidden">
           <QuestionSheet
+            className="flex-1"
             question={question}
             draftInput={draftInput}
             onDraftChange={setDraftInput}
@@ -812,7 +834,7 @@ function DockQuestionCard({
             }
           />
         </div>
-      </div>
+      </CollapseOnDecide>
     </>
   );
 }
@@ -934,19 +956,6 @@ function canAlwaysAllow(staging: SyncedActionStaging): boolean {
   return staging.riskTier !== "high" && isLoadableIntegrationSlug(staging.integration);
 }
 
-/** The tool's verb ("Create event") when it has one, else the generic label. */
-function approvalLabel(
-  toolName: SyncedActionStaging["toolName"],
-  riskTier: ToolRiskTier,
-  edited: boolean,
-): string {
-  if (edited && toolName === "system.activate_workflow") return "Review changes";
-
-  if (edited) return isWriteRiskTier(riskTier) ? "Approve changes" : "Allow changes";
-
-  return approveVerb(toolName) ?? (isWriteRiskTier(riskTier) ? "Approve" : "Allow once");
-}
-
 function policyCopy(riskTier: ToolRiskTier): string {
   if (riskTier === "no_risk") {
     return "This integration is set to ask first. This action does not change external data.";
@@ -976,9 +985,7 @@ export function ApprovalMarker({ approvals }: { approvals: readonly SyncedAction
         ? "Alfred has a question"
         : "Waiting for your approval";
 
-  const fade: LiveTransition = reduceMotion
-    ? { duration: 0.12, ease: "linear", reduceMotion }
-    : { duration: 0.2, ease: DOCK_EASE, reduceMotion };
+  const fade = dockMotion(reduceMotion, CHAT_SWAP.duration);
 
   return (
     <m.div
@@ -996,23 +1003,4 @@ export function ApprovalMarker({ approvals }: { approvals: readonly SyncedAction
       <span className="animate-chat-shimmer">{label}</span>
     </m.div>
   );
-}
-
-/** Sort approvals in tool-trail order. Ones with no tool card go last, by `createdAt`. */
-export function orderApprovalsByTool(
-  approvals: readonly SyncedActionStaging[],
-  stream: StreamingMessage | null,
-): readonly SyncedActionStaging[] {
-  if (approvals.length <= 1) return approvals;
-  const toolOrder = new Map<string, number>();
-  stream?.tools.forEach((tool, i) => toolOrder.set(tool.toolCallId, i));
-
-  return approvals.toSorted((a, b) => {
-    const ia = toolOrder.get(a.toolCallId) ?? Number.POSITIVE_INFINITY;
-    const ib = toolOrder.get(b.toolCallId) ?? Number.POSITIVE_INFINITY;
-
-    if (ia !== ib) return ia - ib;
-
-    return a.createdAt.localeCompare(b.createdAt);
-  });
 }

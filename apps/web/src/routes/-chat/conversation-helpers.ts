@@ -1,4 +1,4 @@
-import type { SyncedChatMessage } from "@alfred/sync";
+import type { SyncedActionStaging, SyncedChatMessage } from "@alfred/sync";
 import type { StreamingMessage } from "~/lib/chat/chat-stream-state";
 import { presentTool, visibleTools } from "./tool-call-presentation";
 
@@ -89,4 +89,23 @@ export function buildFollowUpSuggestions(
   if (!last || last.role !== "assistant" || last.status !== "complete") return [];
 
   return (last.followUps ?? []).map((text, index) => ({ id: `${last.id}:${index}`, text }));
+}
+
+/** Sort approvals in tool-trail order. Ones with no tool card go last, by `createdAt`. */
+export function orderApprovalsByTool(
+  approvals: readonly SyncedActionStaging[],
+  stream: StreamingMessage | null,
+): readonly SyncedActionStaging[] {
+  if (approvals.length <= 1) return approvals;
+  const toolOrder = new Map<string, number>();
+  stream?.tools.forEach((tool, i) => toolOrder.set(tool.toolCallId, i));
+
+  return approvals.toSorted((a, b) => {
+    const ia = toolOrder.get(a.toolCallId) ?? Number.POSITIVE_INFINITY;
+    const ib = toolOrder.get(b.toolCallId) ?? Number.POSITIVE_INFINITY;
+
+    if (ia !== ib) return ia - ib;
+
+    return a.createdAt.localeCompare(b.createdAt);
+  });
 }

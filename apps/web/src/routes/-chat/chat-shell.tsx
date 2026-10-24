@@ -15,12 +15,16 @@ import { DeleteThreadDialog } from "~/lib/chat/delete-thread-dialog";
 import { useChatMessages, useChatThread } from "~/lib/replicache/use-chat";
 import { useRightRail } from "~/lib/shell/app-shell";
 import { toast } from "~/lib/toast";
-import { ChatApprovalDock, orderApprovalsByTool, type ApprovalDockHandle } from "./approval-dock";
+import { ChatApprovalDock, type ApprovalDockHandle } from "./approval-dock";
 import { ArtifactSidebar, type ArtifactEditSuggestion } from "./artifact-sidebar";
 import { Composer } from "./composer/composer";
 import { useModelTier } from "./composer/use-model-tier";
 import { Conversation } from "./conversation";
-import { buildFollowUpSuggestions, shouldShowStream } from "./conversation-helpers";
+import {
+  buildFollowUpSuggestions,
+  orderApprovalsByTool,
+  shouldShowStream,
+} from "./conversation-helpers";
 import { EmptyHero } from "./empty-hero";
 import { RightRail } from "./rail/right-rail";
 import { SelectionQuote } from "./selection-quote";
@@ -190,8 +194,10 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   );
 
   const hasPendingApproval = runApprovals.length > 0;
-  const approvalTrayActive = awaitingApproval || hasPendingApproval;
+  const approvalPending = awaitingApproval || hasPendingApproval;
   const dockRef = useRef<ApprovalDockHandle | null>(null);
+  // ⌘↵ in an empty composer: the docked card's primary action (approve, or send answers).
+  const runDockPrimary = useCallback(() => dockRef.current?.runPrimary(), []);
 
   // Freeze the bubble and show Send this frame, then stop on the server.
   // The worker finalizes the partial reply through normal sync, so stop feels instant.
@@ -204,7 +210,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   }, [activeRunId, stopStream]);
 
   // Steer (#490): stop the reply and send this next. A run parked on an approval cannot stop.
-  const canSteer = isStreaming && !approvalTrayActive;
+  const canSteer = isStreaming && !approvalPending;
 
   const queue = useQueueDispatch({
     threadId,
@@ -318,7 +324,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
                   threadId={threadId}
                   isStreaming={isStreaming}
                   // The dock shows only with the turn on screen, and then a send queues behind it.
-                  disabled={approvalTrayActive && !showStream}
+                  disabled={approvalPending && !showStream}
                   onSend={queue.submit}
                   onSteer={queue.steer}
                   onStopGeneration={queue.stopReply}
@@ -334,7 +340,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
                   queued={queue.tray.items}
                   onRemoveQueued={queue.tray.remove}
                   // A run parked on an approval cannot stop, so "Send now" would only reorder.
-                  onSendQueuedNow={approvalTrayActive ? undefined : queue.tray.sendNow}
+                  onSendQueuedNow={approvalPending ? undefined : queue.tray.sendNow}
                   onUpdateQueued={queue.tray.update}
                   editingQueuedId={queue.tray.editingId}
                   onEditingQueuedChange={queue.tray.setEditingId}
@@ -351,9 +357,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
                       approvals={orderedApprovals}
                     />
                   }
-                  onApproveShortcut={
-                    hasPendingApproval ? () => dockRef.current?.approve() : undefined
-                  }
+                  onApproveShortcut={hasPendingApproval ? runDockPrimary : undefined}
                 />
               </div>
             </div>
