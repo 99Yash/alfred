@@ -4,7 +4,7 @@
  */
 
 import { Drawer } from "vaul";
-import { use, useSyncExternalStore, type ReactNode } from "react";
+import { use, useSyncExternalStore, type ReactNode, type RefObject } from "react";
 import { Dialog, DialogContent } from "~/components/ui/dialog";
 import { cn } from "~/lib/utils";
 import { AppThemeContext } from "./theme";
@@ -38,6 +38,11 @@ interface AppModalProps {
   description?: ReactNode | undefined;
   /** Applies to both the dialog and the sheet. */
   className?: string | undefined;
+  /**
+   * Where focus goes on close. A modal opened from state (no Radix trigger)
+   * otherwise drops focus on `body`.
+   */
+  returnFocusTo?: RefObject<HTMLElement | null> | undefined;
   children: ReactNode;
 }
 
@@ -47,9 +52,18 @@ export function AppModal({
   title,
   description,
   className,
+  returnFocusTo,
   children,
 }: AppModalProps) {
   const isDesktop = useIsDesktop();
+
+  const onCloseAutoFocus = returnFocusTo
+    ? (event: Event) => {
+        event.preventDefault();
+        returnFocusTo.current?.focus();
+      }
+    : undefined;
+
   // The sheet portals outside `.app`; stamp the theme so tokens resolve.
   const themeCtx = use(AppThemeContext);
   const dataTheme = themeCtx?.resolved;
@@ -57,7 +71,13 @@ export function AppModal({
   if (isDesktop) {
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent title={title} description={description} themed className={className}>
+        <DialogContent
+          title={title}
+          description={description}
+          themed
+          className={className}
+          onCloseAutoFocus={onCloseAutoFocus}
+        >
           {children}
         </DialogContent>
       </Dialog>
@@ -70,6 +90,7 @@ export function AppModal({
         <Drawer.Overlay className="fixed inset-0 z-100 bg-black/50 backdrop-blur-[2px]" />
         <Drawer.Content
           data-app-theme={dataTheme}
+          onCloseAutoFocus={onCloseAutoFocus}
           className={cn(
             "app fixed inset-x-0 bottom-0 z-101 flex max-h-[90vh] flex-col",
             "rounded-t-panel bg-app-bg-1 text-app-fg-4 outline-none",

@@ -1,16 +1,14 @@
-import { MCP_ADD_SERVER_MAX_LABEL_LENGTH } from "@alfred/contracts";
-import { AlertTriangle, Wrench } from "lucide-react";
-import { useState } from "react";
+import { AlertTriangle, RotateCw } from "lucide-react";
 import { Favicon } from "~/components/favicon";
-import { AppButton, AppInput } from "~/components/ui/v2";
+import { AppButton } from "~/components/ui/v2";
 import { domainOf } from "~/lib/favicon";
 import { mcpAuthorizeUrl, type McpConnection } from "./helpers";
 import { openAuthorizationTab } from "~/lib/integrations/authorization-tab";
 import { useMcpConnectionActions, type McpConnectionActions } from "./mcp-connection-actions";
-import { McpConnectionCatalogPanel } from "./mcp-connection-catalog";
+import { McpActionErrorText, McpConnectionMenu } from "./mcp-connection-menu";
 import { McpConnectionWarning } from "./mcp-connection-warning";
 import { McpTile } from "./mcp-tile";
-import { mcpConnectionHealthText } from "./mcp-server-status";
+import { mcpConnectionSubtitle } from "./mcp-server-status";
 
 export interface McpConnectionCardViewProps {
   connection: McpConnection;
@@ -19,15 +17,11 @@ export interface McpConnectionCardViewProps {
 
 /**
  * One user-added MCP server, rendered from props so `renderToStaticMarkup` can test it.
- * The remove confirm is inline state, not a browser dialog.
+ * Like a built-in tile, it has one main button; the rest is in the "..." menu.
  * `auth_required` has no usable credential (`reconnect` returns 400), so it
  * navigates to consent instead of offering Reconnect.
  */
 export function McpConnectionCardView({ connection, actions }: McpConnectionCardViewProps) {
-  const [editingLabel, setEditingLabel] = useState<string | null>(null);
-  const [confirmingRemove, setConfirmingRemove] = useState(false);
-  const [toolsOpen, setToolsOpen] = useState(false);
-
   const needsConsent = connection.status === "auth_required";
 
   const warning =
@@ -37,151 +31,52 @@ export function McpConnectionCardView({ connection, actions }: McpConnectionCard
   const busy = actions.pending !== null;
 
   const subtitle = actions.error ? (
-    <span role="alert" className="text-app-red-4">
-      {actions.error.message}
-      {actions.error.kind === "blocked_remove" ? (
-        <>
-          {" "}
-          <a href="#mcp-recovery" className="underline">
-            Resolve the pending operation
-          </a>
-        </>
-      ) : null}
-    </span>
+    <McpActionErrorText error={actions.error} />
   ) : warning ? (
     <McpConnectionWarning connection={connection} />
   ) : (
-    mcpConnectionHealthText(connection)
+    mcpConnectionSubtitle(connection)
   );
 
   return (
-    <div className="space-y-2">
-      <McpTile
-        icon={{
-          glyph: warning ? (
-            <AlertTriangle size={18} />
-          ) : (
-            // `mcp.linear.app` has no icon of its own; the vendor site does.
-            <Favicon domain={domainOf(connection.endpointOrigin).replace(/^mcp\./, "")} size={20} />
-          ),
-        }}
-        label={connection.label}
-        subtitle={subtitle}
-        warning={warning}
-      >
-        {editingLabel !== null ? (
-          <form
-            className="flex shrink-0 items-center gap-1"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const label = editingLabel.trim();
-
-              if (label.length === 0) return;
-
-              actions.onRename(label);
-              setEditingLabel(null);
-            }}
-          >
-            <AppInput
-              // The click just revealed this editor; focus it.
-              autoFocus
-              aria-label="Connection label"
-              className="h-7 w-32 text-[13px]"
-              maxLength={MCP_ADD_SERVER_MAX_LABEL_LENGTH}
-              value={editingLabel}
-              onChange={(event) => setEditingLabel(event.target.value)}
-            />
-            <AppButton size="sm" variant="primary" type="submit" disabled={busy}>
-              Save
-            </AppButton>
-            <AppButton size="sm" variant="ghost" onClick={() => setEditingLabel(null)}>
-              Cancel
-            </AppButton>
-          </form>
-        ) : confirmingRemove ? (
-          <div className="flex shrink-0 items-center gap-1" role="group">
-            <span className="text-xs text-app-fg-3">Remove this connection?</span>
-            <AppButton
-              size="sm"
-              variant="destructive"
-              disabled={busy}
-              onClick={() => {
-                setConfirmingRemove(false);
-                actions.onRemove();
-              }}
-            >
-              Confirm
-            </AppButton>
-            <AppButton size="sm" variant="ghost" onClick={() => setConfirmingRemove(false)}>
-              Cancel
-            </AppButton>
-          </div>
+    <McpTile
+      icon={{
+        glyph: warning ? (
+          <AlertTriangle size={18} />
         ) : (
-          <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
-            {needsConsent ? (
-              <AppButton
-                size="sm"
-                variant="white"
-                leading={<AlertTriangle size={12} />}
-                onClick={() => {
-                  openAuthorizationTab(mcpAuthorizeUrl(connection.id));
-                }}
-              >
-                Grant access
-              </AppButton>
-            ) : (
-              <AppButton
-                size="sm"
-                variant="ghost"
-                loading={actions.pending === "reconnect"}
-                disabled={busy && actions.pending !== "reconnect"}
-                onClick={actions.onReconnect}
-              >
-                {connection.status === "disconnected" ? "Connect" : "Reconnect"}
-              </AppButton>
-            )}
-            {connection.status !== "disconnected" ? (
-              <AppButton
-                size="sm"
-                variant="ghost"
-                loading={actions.pending === "disconnect"}
-                disabled={busy && actions.pending !== "disconnect"}
-                onClick={actions.onDisconnect}
-              >
-                Disconnect
-              </AppButton>
-            ) : null}
-            <AppButton
-              size="sm"
-              variant="ghost"
-              leading={<Wrench size={12} />}
-              disabled={busy}
-              onClick={() => setToolsOpen((open) => !open)}
-            >
-              {toolsOpen ? "Hide tools" : "View tools"}
-            </AppButton>
-            <AppButton
-              size="sm"
-              variant="ghost"
-              disabled={busy}
-              onClick={() => setEditingLabel(connection.label)}
-            >
-              Rename
-            </AppButton>
-            <AppButton
-              size="sm"
-              variant="ghost"
-              disabled={busy}
-              onClick={() => setConfirmingRemove(true)}
-            >
-              Remove
-            </AppButton>
-          </div>
-        )}
-      </McpTile>
-
-      {toolsOpen ? <McpConnectionCatalogPanel connection={connection} /> : null}
-    </div>
+          // `mcp.linear.app` has no icon of its own; the vendor site does.
+          <Favicon domain={domainOf(connection.endpointOrigin).replace(/^mcp\./, "")} size={20} />
+        ),
+      }}
+      label={connection.label}
+      subtitle={subtitle}
+      warning={warning}
+    >
+      {needsConsent ? (
+        <AppButton
+          size="sm"
+          variant="white"
+          leading={<AlertTriangle size={12} />}
+          onClick={() => {
+            openAuthorizationTab(mcpAuthorizeUrl(connection.id));
+          }}
+        >
+          Grant access
+        </AppButton>
+      ) : (
+        <AppButton
+          size="sm"
+          variant="white"
+          leading={<RotateCw size={12} />}
+          loading={actions.pending === "reconnect"}
+          disabled={busy && actions.pending !== "reconnect"}
+          onClick={actions.onReconnect}
+        >
+          {connection.status === "disconnected" ? "Connect" : "Reconnect"}
+        </AppButton>
+      )}
+      <McpConnectionMenu connection={connection} actions={actions} custom />
+    </McpTile>
   );
 }
 
