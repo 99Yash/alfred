@@ -2409,6 +2409,34 @@
       0 16px 40px -12px rgba(0, 0, 0, 0.22);
   }
 
+  /* `app-frost-edge` — a lit hairline for an `app-frost-overlay` menu:
+   * bright at the top-left and bottom-right corners, dim along the sides.
+   * Ported from dimension's frost-border recipe. A masked `::before`, so
+   * the element needs `position: relative` and no `::before` of its own. */
+  .app-frost-edge::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    padding: 1px;
+    border-radius: inherit;
+    background: linear-gradient(
+      to bottom right,
+      rgba(255, 255, 255, 0.22) 0%,
+      rgba(255, 255, 255, 0.05) 42%,
+      rgba(255, 255, 255, 0.05) 62%,
+      rgba(255, 255, 255, 0.14) 100%
+    );
+    -webkit-mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
   /* `app-frost-header` — masked backdrop-blur that fades to no-blur at the
    * very top. Page background shows through the top edge, blur kicks in
    * over content lower down. Use on any sticky header. */

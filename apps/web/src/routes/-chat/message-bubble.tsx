@@ -1,4 +1,4 @@
-import type { ChatErrorKind } from "@alfred/contracts";
+import { isPassThrough, type ChatErrorKind } from "@alfred/contracts";
 import type { SyncedChatAttachment, SyncedChatMessage } from "@alfred/sync";
 import { Check, Copy, CornerDownRight, RotateCcw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -9,6 +9,7 @@ import remarkGfm from "remark-gfm";
 import { altTextImageComponents, markdownComponents } from "~/components/markdown-renderer";
 import { animateWords } from "~/lib/chat/animate-text";
 import { cn } from "~/lib/utils";
+import { AttachmentFileTile } from "./attachment-file-tile";
 import { useAttachmentLightbox, type AttachmentOpener } from "./attachment-lightbox";
 import { ConnectNudgeRows } from "./connect-nudge-rows";
 import { useMarkdownImageMode } from "./published-transcript";
@@ -140,7 +141,7 @@ export function AssistantMarkdown({ text, streaming }: { text: string; streaming
   );
 }
 
-/** Image attachments (ADR-0065) through the auth-gated proxy, with placeholders for pending or failed. */
+/** Attachments (ADR-0065) through the auth-gated proxy, with placeholders for pending or failed. */
 function MessageAttachments({ attachments }: { attachments: SyncedChatAttachment[] }) {
   const lightbox = useAttachmentLightbox(
     attachments.map((a) => ({
@@ -148,7 +149,7 @@ function MessageAttachments({ attachments }: { attachments: SyncedChatAttachment
       src: `${API_URL}/api/chat/attachments/${a.id}/content`,
       name: a.name,
       mime: a.mime,
-      // Only ready images enter the preview; a PDF or a pending row never does.
+      // Only ready images enter the preview; a PDF, a text file, or a pending row never does.
       ready: a.status === "ready",
     })),
   );
@@ -219,6 +220,21 @@ function MessageAttachment({
 
   const className =
     "block size-40 overflow-hidden rounded-surface border border-app-fg-a1/30 bg-app-bg-2";
+
+  // A PDF or text file has no image to show. Its tile opens the file in a new tab.
+  if (!isPassThrough(attachment.mime)) {
+    return (
+      <a
+        href={src}
+        target="_blank"
+        rel="noreferrer"
+        aria-label={`Open ${attachment.name}`}
+        className={cn(className, "app-focus hover:bg-app-bg-3")}
+      >
+        <AttachmentFileTile name={attachment.name} />
+      </a>
+    );
+  }
 
   const thumbnail = (
     <img

@@ -16,6 +16,8 @@ import {
   policySetDefaultModeClient,
   policySetIntegrationModeArgsSchema,
   policySetIntegrationModeClient,
+  policySetToolModeArgsSchema,
+  policySetToolModeClient,
 } from "./policy";
 import { workflowUpdateArgsSchema, workflowUpdateClient } from "./workflows";
 import {
@@ -79,6 +81,7 @@ export const clientMutators = {
   prefDelete: prefDeleteClient,
   policySetIntegrationMode: policySetIntegrationModeClient,
   policySetDefaultMode: policySetDefaultModeClient,
+  policySetToolMode: policySetToolModeClient,
   workflowUpdate: workflowUpdateClient,
   todoCreate: todoCreateClient,
   todoComplete: todoCompleteClient,
@@ -112,6 +115,7 @@ export const mutatorArgsSchemas = {
   prefDelete: prefDeleteArgsSchema,
   policySetIntegrationMode: policySetIntegrationModeArgsSchema,
   policySetDefaultMode: policySetDefaultModeArgsSchema,
+  policySetToolMode: policySetToolModeArgsSchema,
   workflowUpdate: workflowUpdateArgsSchema,
   todoCreate: todoCreateArgsSchema,
   todoComplete: todoCompleteArgsSchema,

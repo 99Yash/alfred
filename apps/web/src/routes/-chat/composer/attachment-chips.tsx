@@ -1,5 +1,7 @@
+import { isPassThrough } from "@alfred/contracts";
 import { X } from "lucide-react";
 import { cn } from "~/lib/utils";
+import { AttachmentFileTile } from "../attachment-file-tile";
 import { useAttachmentLightbox } from "../attachment-lightbox";
 import { CollapseItem, CollapseList } from "../collapse-list";
 import type { PendingAttachment } from "./use-composer-attachments";
@@ -14,7 +16,7 @@ export function AttachmentChips({
   disabled?: boolean | undefined;
   onRemove: (key: string) => void;
 }) {
-  // Only images enter the preview; a PDF chip never does.
+  // Only images enter the preview; a PDF or text chip never does.
   const lightbox = useAttachmentLightbox(
     items.map((a) => ({
       key: a.key,
@@ -31,8 +33,11 @@ export function AttachmentChips({
         {items.map((a) => {
           const onOpen = lightbox.openerFor(a.key);
 
-          const thumbnail = (
+          // A PDF or text file has no image to show, so it gets a file face.
+          const thumbnail = isPassThrough(a.file.type) ? (
             <img src={a.previewUrl} alt={a.file.name} className="size-full object-cover" />
+          ) : (
+            <AttachmentFileTile name={a.file.name} compact />
           );
 
           // The motion box collapses; the chip inside keeps its 64 px.

@@ -8,7 +8,7 @@ import {
 
 /** Chat attachment upload (ADR-0065). Validation mirrors the server's `assertUploadAllowed`. */
 
-/** Images and PDFs today. */
+/** Images, PDFs, and text files today. */
 const ACCEPTED_MIME_TYPES = SUPPORTED_FILE_TYPES.filter(isChatUploadAllowed);
 
 export const ACCEPT_ATTR = ACCEPTED_MIME_TYPES.join(",");
@@ -22,7 +22,7 @@ export function validateFile(file: File): string | null {
   if (!policy) return `${file.name}: unsupported file type`;
 
   if (!isChatUploadAllowed(file.type)) {
-    return `${file.name}: only images and PDFs are supported right now`;
+    return `${file.name}: only images, PDFs, and text files are supported right now`;
   }
 
   if (file.size <= 0) return `${file.name}: file is empty`;

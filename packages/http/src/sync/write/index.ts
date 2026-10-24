@@ -14,6 +14,7 @@ import {
   noteCreateArgsSchema,
   policySetDefaultModeArgsSchema,
   policySetIntegrationModeArgsSchema,
+  policySetToolModeArgsSchema,
   prefDeleteArgsSchema,
   prefSetArgsSchema,
   todoClearArgsSchema,
@@ -39,7 +40,11 @@ import {
 import { factConfirm, factCreate, factEdit, factReject } from "./facts";
 import type { RegisteredServerMutator } from "./mutator";
 import { noteCreate } from "./notes";
-import { policySetDefaultMode, policySetIntegrationMode } from "./action-policies";
+import {
+  policySetDefaultMode,
+  policySetIntegrationMode,
+  policySetToolMode,
+} from "./action-policies";
 import { prefDelete, prefSet } from "./preferences";
 import {
   todoClear,
@@ -81,6 +86,11 @@ export const serverMutators: ServerMutatorsRegistry = {
   policySetDefaultMode: {
     args: policySetDefaultModeArgsSchema,
     run: policySetDefaultMode,
+    followUp: () => [{ kind: "bustPolicyCache" }],
+  },
+  policySetToolMode: {
+    args: policySetToolModeArgsSchema,
+    run: policySetToolMode,
     followUp: () => [{ kind: "bustPolicyCache" }],
   },
   workflowUpdate: { args: workflowUpdateArgsSchema, run: workflowUpdate },

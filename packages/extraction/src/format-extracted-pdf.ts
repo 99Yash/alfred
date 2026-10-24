@@ -1,3 +1,4 @@
+import type { ContentFormat } from "@alfred/contracts";
 import type { MediaExtractionResult } from "./media-extraction";
 
 interface MarkedPage {
@@ -31,18 +32,31 @@ export function formatExtractedMediaText(result: MediaExtractionResult): string 
   return result.content;
 }
 
+const FORMAT_NOUNS = {
+  pdf: "PDF",
+  document: "document",
+  spreadsheet: "spreadsheet",
+  text: "text file",
+} as const satisfies Readonly<Record<ContentFormat, string>>;
+
 /** The user-facing message for each failed result kind. The type excludes `extracted`. */
 export function mediaFailureMessage(
   result: Exclude<MediaExtractionResult, { kind: "extracted" }>,
 ): string {
+  const noun = FORMAT_NOUNS[result.format];
+
   switch (result.kind) {
     case "needs_ocr":
-      return "This PDF is image-based and needs OCR to extract text, which is not yet supported.";
+      return `This ${noun} is image-based and needs OCR to extract text, which is not yet supported.`;
     case "encrypted":
-      return "This PDF is encrypted and its text cannot be extracted.";
+      return `This ${noun} is encrypted and its text cannot be extracted.`;
     case "invalid":
-      return `This PDF is invalid: ${result.reason}`;
+      return `This ${noun} is invalid: ${result.reason}`;
     case "limit_exceeded":
-      return `PDF extraction exceeded the limit: ${result.message}`;
+      return `${capitalizeFirst(noun)} extraction exceeded the limit: ${result.message}`;
   }
+}
+
+function capitalizeFirst(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }

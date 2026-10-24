@@ -4,8 +4,8 @@ import {
   classifyUpload,
   Errors,
   isApiError,
+  hasExtractedText,
   isChatUploadAllowed,
-  isPdfContentType,
   MAX_ATTACHMENT_BYTES_PER_MESSAGE,
   MAX_ATTACHMENTS_PER_MESSAGE,
   normalizeMimeType,
@@ -17,8 +17,8 @@ import { buildAttachmentKey, headObject } from "./storage";
 
 /** Chat attachment validation and rows (ADR-0065). The server builds the key; the client never picks it. */
 
-/** What the model can read. PDF `text: null` means OCR is needed; images never carry it. */
-export type AttachmentDegradation = { kind: "image" } | { kind: "pdf"; text: string | null };
+/** What the model can read. `text: null` means a PDF needs OCR; images never carry text. */
+export type AttachmentDegradation = { kind: "image" } | { kind: "extracted"; text: string | null };
 
 const MIN_MODEL_IMAGE_EDGE_PX = 64;
 
@@ -148,7 +148,7 @@ export function assertUploadAllowed(mime: string, size: number): IngestPolicyEnt
 
   if (!isChatUploadAllowed(mime)) {
     throw Errors.BadRequestError(
-      "Only images and PDFs are supported right now — other file types are coming soon.",
+      "Only images, PDFs, and text files are supported right now — other file types are coming soon.",
     );
   }
 
@@ -188,7 +188,7 @@ export function toAttachmentRow(opts: {
   const { userId, threadId, messageId, attachment, degradation } = opts;
   assertUploadAllowed(attachment.mime, attachment.size);
 
-  if (isPdfContentType(attachment.mime) !== (degradation.kind === "pdf")) {
+  if (hasExtractedText(attachment.mime) !== (degradation.kind === "extracted")) {
     throw Errors.BadRequestError("Attachment content state doesn't match its file type");
   }
 
@@ -208,7 +208,7 @@ export function toAttachmentRow(opts: {
     size: attachment.size,
     position: attachment.position,
     status: "ready",
-    ...(degradation.kind === "pdf" ? { degradedText: degradation.text } : {}),
+    ...(degradation.kind === "extracted" ? { degradedText: degradation.text } : {}),
   };
 }
 

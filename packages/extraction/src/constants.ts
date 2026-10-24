@@ -3,7 +3,7 @@
  * A new format also needs a row in `INGEST_POLICY` (contracts) and `FORMAT_REGISTRY`.
  */
 
-import { FETCH_URL_MAX_TEXT_CHARS } from "@alfred/contracts";
+import { CHAT_TEXT_ATTACHMENT_MAX_CHARACTERS, FETCH_URL_MAX_TEXT_CHARS } from "@alfred/contracts";
 import type { ContentFormat } from "@alfred/contracts";
 
 export type ExtractionDoor = "chatUpload" | "fetchUrl" | "gmailAttachment";
@@ -72,7 +72,12 @@ export const OFFICE_LIMITS_BY_DOOR = {
 
 /** Text decodes fast, so it gets a short parse budget. */
 export const TEXT_LIMITS_BY_DOOR = {
-  chatUpload: { ...OFFICE_LIMITS_BY_DOOR.chatUpload, maxParseMilliseconds: 5_000 },
+  // The whole text goes into the chat transcript, so it gets the chat cap, not the office one.
+  chatUpload: {
+    ...OFFICE_LIMITS_BY_DOOR.chatUpload,
+    maxCharacters: CHAT_TEXT_ATTACHMENT_MAX_CHARACTERS,
+    maxParseMilliseconds: 5_000,
+  },
   fetchUrl: {
     ...OFFICE_LIMITS_BY_DOOR.fetchUrl,
     maxCharacters: 100_000,

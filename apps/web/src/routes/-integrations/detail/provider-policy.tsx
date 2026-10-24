@@ -1,5 +1,6 @@
-import type { PolicyMode } from "@alfred/contracts";
+import { isToolName, type PolicyMode, type ToolName } from "@alfred/contracts";
 import { AlertCircle, RefreshCw, ShieldCheck, Zap } from "lucide-react";
+import { toolChipLabel } from "~/components/approvals/card-spec";
 import { useActionPolicy } from "~/lib/replicache/use-action-policy";
 import type { IntegrationPage } from "~/lib/integrations/integrations";
 import { AppButton, AppCard, AppSegmented, type AppSegmentedItem } from "~/components/ui/v2";
@@ -15,10 +16,17 @@ const RETRY_LEADING = <RefreshCw size={13} aria-hidden />;
 export function ProviderPolicy({ provider }: { provider: IntegrationPage }) {
   // Every catalog slug is a loadable provider, so every page has a policy row.
   const { slug } = provider;
-  const { modeFor, setIntegrationMode, loading, error, retry } = useActionPolicy();
+
+  const { policy, modeFor, setIntegrationMode, setToolMode, loading, error, retry } =
+    useActionPolicy();
 
   // `gated` while loading, so the less-safe option never flashes.
   const mode: PolicyMode = modeFor(slug) ?? "gated";
+
+  // Set from an approval card ("Always allow this action"). This list is the only way to undo one.
+  const toolOverrides = Object.entries(policy?.integrationRules[slug]?.toolOverrides ?? {}).filter(
+    (entry): entry is [ToolName, PolicyMode] => isToolName(entry[0]),
+  );
 
   if (error) {
     return (
@@ -79,6 +87,32 @@ export function ProviderPolicy({ provider }: { provider: IntegrationPage }) {
             className={loading ? "opacity-60" : undefined}
           />
         </div>
+        {toolOverrides.length > 0 ? (
+          <div className="space-y-2 border-t border-app-fg-a1/30 pt-3">
+            <p className="text-xs font-medium text-app-fg-3">Action exceptions</p>
+            <ul className="space-y-1.5">
+              {toolOverrides.map(([toolName, toolMode]) => (
+                <li key={toolName} className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm text-app-fg-4">{toolChipLabel(toolName)}</p>
+                    <p className="text-xs text-app-fg-3">
+                      {toolMode === "autonomy" ? "Always allowed" : "Always asks first"}
+                    </p>
+                  </div>
+                  <AppButton
+                    size="sm"
+                    variant="ghost"
+                    disabled={loading}
+                    onClick={() => void setToolMode(toolName, null)}
+                    className="shrink-0"
+                  >
+                    Reset
+                  </AppButton>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
       </AppCard>
     </section>
   );

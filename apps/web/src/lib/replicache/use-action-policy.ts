@@ -1,5 +1,10 @@
-import type { IntegrationSlug, LoadableIntegrationSlug, PolicyMode } from "@alfred/contracts";
-import { resolveIntegrationMode } from "@alfred/contracts";
+import type {
+  IntegrationSlug,
+  LoadableIntegrationSlug,
+  PolicyMode,
+  ToolName,
+} from "@alfred/contracts";
+import { resolveIntegrationMode, resolveToolMode } from "@alfred/contracts";
 import { SYNC_MODEL, type SyncedActionPolicy } from "@alfred/sync";
 import { useCallback } from "react";
 import type { ReadTransaction } from "replicache";
@@ -15,7 +20,11 @@ export interface ActionPolicyState {
   policy: SyncedActionPolicy | null;
   /** The integration's rule, else the user default. */
   modeFor: (slug: IntegrationSlug) => PolicyMode | null;
+  /** The tool's override, else {@link modeFor}. */
+  toolModeFor: (toolName: ToolName) => PolicyMode | null;
   setIntegrationMode: (slug: LoadableIntegrationSlug, mode: PolicyMode) => Promise<void>;
+  /** `null` clears the override. */
+  setToolMode: (toolName: ToolName, mode: PolicyMode | null) => Promise<void>;
   setDefaultMode: (mode: PolicyMode) => Promise<void>;
   loading: boolean;
   error: string | null;
@@ -24,7 +33,7 @@ export interface ActionPolicyState {
 
 /**
  * The user's action policy: one row per user, so the scan yields at most one value.
- * `modeFor` uses `resolveIntegrationMode`, the same rule the server enforces.
+ * `modeFor` and `toolModeFor` use the same rules the server enforces.
  */
 export function useActionPolicy(): ActionPolicyState {
   const { rep, loadError, retry } = useReplicacheStatus();
@@ -35,6 +44,20 @@ export function useActionPolicy(): ActionPolicyState {
     (slug: IntegrationSlug): PolicyMode | null =>
       policy ? resolveIntegrationMode(policy.integrationRules, slug, policy.defaultMode) : null,
     [policy],
+  );
+
+  const toolModeFor = useCallback(
+    (toolName: ToolName): PolicyMode | null =>
+      policy ? resolveToolMode(policy.integrationRules, toolName, policy.defaultMode) : null,
+    [policy],
+  );
+
+  const setToolMode = useCallback(
+    async (toolName: ToolName, mode: PolicyMode | null): Promise<void> => {
+      if (!rep) return;
+      await rep.mutate.policySetToolMode({ toolName, mode });
+    },
+    [rep],
   );
 
   const setIntegrationMode = useCallback(
@@ -56,7 +79,9 @@ export function useActionPolicy(): ActionPolicyState {
   return {
     policy,
     modeFor,
+    toolModeFor,
     setIntegrationMode,
+    setToolMode,
     setDefaultMode,
     loading: rows === null && !loadError,
     error: loadError,

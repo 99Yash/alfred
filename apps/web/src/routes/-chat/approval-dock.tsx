@@ -1,5 +1,5 @@
-import type { IntegrationSlug, PolicyMode, ToolRiskTier } from "@alfred/contracts";
-import { isLoadableIntegrationSlug } from "@alfred/contracts";
+import type { ToolRiskTier } from "@alfred/contracts";
+import { humanizeToolName, isLoadableIntegrationSlug } from "@alfred/contracts";
 import type { SyncedActionStaging } from "@alfred/sync";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { Link } from "@tanstack/react-router";
@@ -466,7 +466,7 @@ function DockApprovalCard({
     run,
   } = useApprovalDecision(staging);
 
-  const { modeFor, setIntegrationMode } = useActionPolicy();
+  const { modeFor, toolModeFor, setIntegrationMode, setToolMode } = useActionPolicy();
   // The facts list by default; Edit swaps in the field editor.
   const [editing, setEditing] = useState(false);
 
@@ -535,11 +535,20 @@ function DockApprovalCard({
               <PermissionsAffordance
                 staging={staging}
                 preview={preview}
-                modeFor={modeFor}
-                onFlip={(autonomy) => {
+                integrationAllowed={modeFor(staging.integration) === "autonomy"}
+                toolAllowed={toolModeFor(staging.toolName) === "autonomy"}
+                onFlipIntegration={(autonomy) => {
                   if (!isLoadableIntegrationSlug(staging.integration)) return;
                   setError(null);
                   setIntegrationMode(staging.integration, autonomy ? "autonomy" : "gated").catch(
+                    (err: unknown) => {
+                      setError(err instanceof Error ? err.message : "Failed to update policy");
+                    },
+                  );
+                }}
+                onFlipTool={(autonomy) => {
+                  setError(null);
+                  setToolMode(staging.toolName, autonomy ? "autonomy" : "gated").catch(
                     (err: unknown) => {
                       setError(err instanceof Error ? err.message : "Failed to update policy");
                     },
@@ -844,29 +853,31 @@ function DockQuestionCard({
 }
 
 /**
- * "Always allow {integration}" in a popover in the card head. The policy write is optimistic.
- * The staged row is frozen at dispatch, so this action still needs Approve.
+ * "Always allow this action" and "Always allow {integration}" in a popover in the card head.
+ * Policy writes are optimistic. The staged row is frozen at dispatch, so this action still
+ * needs Approve.
  */
 function PermissionsAffordance({
   staging,
   preview,
-  modeFor,
-  onFlip,
+  integrationAllowed,
+  toolAllowed,
+  onFlipIntegration,
+  onFlipTool,
 }: {
   staging: SyncedActionStaging;
   preview: boolean | undefined;
-  modeFor: (slug: IntegrationSlug) => PolicyMode | null;
-  onFlip: (autonomy: boolean) => void;
+  integrationAllowed: boolean;
+  toolAllowed: boolean;
+  onFlipIntegration: (autonomy: boolean) => void;
+  onFlipTool: (autonomy: boolean) => void;
 }) {
   const popoverId = useId();
   const integrationName = getIntegrationPage(staging.integration)?.name ?? staging.integration;
-  const alwaysAllowed = modeFor(staging.integration) === "autonomy";
+  const toolTitle = humanizeToolName(staging.toolName);
 
-  // The popover portals out of `.app`, so stamp the theme on the content.
-  const themeCtx = use(AppThemeContext);
-
-  const dataTheme =
-    themeCtx?.mode === "dark" || themeCtx?.mode === "light" ? themeCtx.mode : undefined;
+  // The popover portals out of `.app`, so stamp the resolved theme on the content.
+  const dataTheme = use(AppThemeContext)?.resolved;
 
   return (
     <PopoverPrimitive.Root>
@@ -894,44 +905,78 @@ function PermissionsAffordance({
           collisionPadding={16}
           data-app-theme={dataTheme}
           className={cn(
-            "app app-frost-overlay z-50 flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-2 overflow-hidden rounded-surface p-3",
+            "app app-frost-overlay z-50 flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-3 overflow-hidden rounded-surface p-3",
             "app-fade-in outline-none",
           )}
         >
           <p className="text-[11px] font-medium tracking-tight text-app-fg-2">
             Default permissions
           </p>
-          <div className="flex items-start gap-3">
-            <AppSwitch
-              id={`permissions-always-${staging.id}`}
-              checked={alwaysAllowed}
-              onCheckedChange={(checked) => {
-                if (!preview) onFlip(checked === true);
-              }}
-              className="mt-0.5 shrink-0"
-            />
-            <div className="min-w-0">
-              <label
-                htmlFor={`permissions-always-${staging.id}`}
-                className="block text-[13px] leading-5 font-medium text-app-fg-4"
-              >
-                Always allow {integrationName}
-              </label>
-              <p className="mt-0.5 text-[11.5px] leading-snug text-app-fg-2">
-                {alwaysAllowed
-                  ? `Alfred acts without asking for ${integrationName} actions like this.`
-                  : `Alfred asks before every ${integrationName} action.`}
-              </p>
-              {!alwaysAllowed ? (
-                <p className="mt-1.5 text-[11.5px] leading-snug text-app-fg-2">
-                  Applies from Alfred's next action. This one still needs your approval.
-                </p>
-              ) : null}
-            </div>
-          </div>
+          <PermissionSwitch
+            id={`permissions-tool-${staging.id}`}
+            checked={toolAllowed}
+            onCheckedChange={(checked) => {
+              if (!preview) onFlipTool(checked);
+            }}
+            label="Always allow this action"
+            hint={
+              toolAllowed
+                ? `Alfred can ${toolTitle} without asking.`
+                : `Alfred asks before it can ${toolTitle}.`
+            }
+          />
+          <PermissionSwitch
+            id={`permissions-integration-${staging.id}`}
+            checked={integrationAllowed}
+            onCheckedChange={(checked) => {
+              if (!preview) onFlipIntegration(checked);
+            }}
+            label={`Always allow ${integrationName}`}
+            hint={
+              integrationAllowed
+                ? `Alfred acts without asking for ${integrationName} actions like this.`
+                : `Alfred asks before every ${integrationName} action.`
+            }
+          />
+          {!toolAllowed ? (
+            <p className="text-[11.5px] leading-snug text-app-fg-2">
+              Applies from Alfred's next action. This one still needs your approval.
+            </p>
+          ) : null}
         </PopoverPrimitive.Content>
       </PopoverPrimitive.Portal>
     </PopoverPrimitive.Root>
+  );
+}
+
+function PermissionSwitch({
+  id,
+  checked,
+  onCheckedChange,
+  label,
+  hint,
+}: {
+  id: string;
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+  label: string;
+  hint: string;
+}) {
+  return (
+    <div className="flex items-start gap-3">
+      <AppSwitch
+        id={id}
+        checked={checked}
+        onCheckedChange={(next) => onCheckedChange(next === true)}
+        className="mt-0.5 shrink-0"
+      />
+      <div className="min-w-0">
+        <label htmlFor={id} className="block text-[13px] leading-5 font-medium text-app-fg-4">
+          {label}
+        </label>
+        <p className="mt-0.5 text-[11.5px] leading-snug text-app-fg-2">{hint}</p>
+      </div>
+    </div>
   );
 }
 

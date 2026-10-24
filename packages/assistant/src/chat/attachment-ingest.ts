@@ -1,4 +1,4 @@
-import { Errors, isApiError, isPdfContentType } from "@alfred/contracts";
+import { Errors, hasExtractedText, isApiError } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { chatAttachments } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
@@ -31,24 +31,28 @@ import { logger } from "@alfred/logging";
 /** Chat upload ingest (ADR-0065): quota, duplicate check, decode, bucket write, and owner-scoped read. */
 
 /**
- * Extract text from a PDF. A scanned PDF returns no text and continues. An invalid,
- * encrypted, or over-limit PDF throws, so no ready row is left with nothing readable.
+ * Extract the model-readable text of a PDF or text upload. A scanned PDF returns no text and
+ * continues. An invalid, encrypted, empty, or over-limit file throws, so no ready row is left
+ * with nothing readable.
  */
-export async function extractChatPdfText(bytes: Uint8Array): Promise<string | null> {
+export async function extractChatAttachmentText(
+  bytes: Uint8Array,
+  mime: string,
+): Promise<string | null> {
   const media = extraction({ door: "chatUpload" });
   let result: Awaited<ReturnType<typeof media.extract>>;
 
   try {
-    result = await media.extract({ mime: "application/pdf", bytes });
+    result = await media.extract({ mime, bytes });
   } catch (err) {
-    logger.warn({ err }, "[chat] PDF extraction failed");
-    throw Errors.BadGatewayError("Couldn't read the PDF. Try again.");
+    logger.warn({ err }, "[chat] attachment text extraction failed");
+    throw Errors.BadGatewayError("Couldn't read the file. Try again.");
   }
 
   if (!result) throw Errors.BadRequestError("Unsupported file type.");
 
   if (result.kind === "extracted") {
-    // Chat text carries `[page N]` markers (ADR-0091 D4).
+    // Chat text carries `[page N]` markers for a PDF (ADR-0091 D4).
     return formatExtractedMediaText(result);
   }
 
@@ -109,6 +113,7 @@ async function readPdfDegradedArtifact(storageKey: string): Promise<PdfDegradedA
 
 async function ensurePdfDegradedArtifact(
   storageKey: string,
+  mime: string,
   fallbackBytes?: Uint8Array,
 ): Promise<string | null> {
   const artifact = await readPdfDegradedArtifact(storageKey);
@@ -116,7 +121,7 @@ async function ensurePdfDegradedArtifact(
   if (artifact) return degradedTextFromArtifact(artifact);
 
   const bytes = fallbackBytes ?? (await readObject(storageKey));
-  const degradedText = await extractChatPdfText(bytes);
+  const degradedText = await extractChatAttachmentText(bytes, mime);
   await writePdfDegradedArtifact(storageKey, degradedText);
 
   return degradedText;
@@ -127,14 +132,17 @@ export async function resolveAttachmentDegradation(opts: {
   storageKey: string;
   mime: string;
 }): Promise<AttachmentDegradation> {
-  if (!isPdfContentType(opts.mime)) return { kind: "image" };
+  if (!hasExtractedText(opts.mime)) return { kind: "image" };
 
   try {
-    return { kind: "pdf", text: await ensurePdfDegradedArtifact(opts.storageKey) };
+    return {
+      kind: "extracted",
+      text: await ensurePdfDegradedArtifact(opts.storageKey, opts.mime),
+    };
   } catch (err) {
     if (isApiError(err, "BAD_REQUEST")) throw err;
-    logger.warn({ err }, "[chat] PDF artifact read failed");
-    throw Errors.BadGatewayError("Couldn't read the uploaded PDF. Try again.");
+    logger.warn({ err }, "[chat] attachment text artifact read failed");
+    throw Errors.BadGatewayError("Couldn't read the uploaded file. Try again.");
   }
 }
 
@@ -203,7 +211,7 @@ export async function uploadChatAttachment(
         throw Errors.ConflictError("Attachment already exists");
       }
 
-      const isPdf = isPdfContentType(input.mime);
+      const isExtracted = hasExtractedText(input.mime);
 
       if (await objectExists(storageKey)) {
         const candidateBytes = await input.readBytes();
@@ -215,8 +223,8 @@ export async function uploadChatAttachment(
         });
         assertStoredAttachmentBytesMatch({ storedBytes, candidateBytes });
 
-        if (isPdf) {
-          await ensurePdfDegradedArtifact(storageKey, storedBytes);
+        if (isExtracted) {
+          await ensurePdfDegradedArtifact(storageKey, input.mime, storedBytes);
         }
 
         await schedulePendingUploadCleanup(input.userId, storageKey);
@@ -226,8 +234,8 @@ export async function uploadChatAttachment(
 
       const bytes = await input.readBytes();
 
-      const degradation: AttachmentDegradation = isPdf
-        ? { kind: "pdf", text: await extractChatPdfText(bytes) }
+      const degradation: AttachmentDegradation = isExtracted
+        ? { kind: "extracted", text: await extractChatAttachmentText(bytes, input.mime) }
         : { kind: "image" };
 
       if (degradation.kind === "image") {
@@ -245,7 +253,7 @@ export async function uploadChatAttachment(
       // Schedule cleanup now: if a later write or the turn commit fails, the job reaps the orphan.
       await schedulePendingUploadCleanup(input.userId, storageKey);
 
-      if (degradation.kind === "pdf") {
+      if (degradation.kind === "extracted") {
         await writePdfDegradedArtifact(storageKey, degradation.text);
       }
 

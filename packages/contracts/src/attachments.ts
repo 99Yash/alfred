@@ -123,7 +123,21 @@ const CHAT_UPLOAD_ALLOWED_TYPES = new Set<string>([
   "image/webp",
   "application/pdf",
   "application/x-pdf",
+  "text/plain",
+  "text/markdown",
+  "text/csv",
 ] satisfies readonly (keyof typeof INGEST_POLICY)[]);
+
+/**
+ * Most characters a chat text attachment may hold. The whole text goes into the transcript.
+ * The composer checks it before it turns a large paste into a file.
+ */
+export const CHAT_TEXT_ATTACHMENT_MAX_CHARACTERS = 100_000;
+
+/** A chat upload whose model-readable form is extracted text (PDF or plain text), not an image. */
+export function hasExtractedText(mime: string): boolean {
+  return getContentFormat(mime) !== null;
+}
 
 export const SUPPORTED_FILE_TYPES = Object.keys(INGEST_POLICY);
 

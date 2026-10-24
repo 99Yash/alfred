@@ -17,7 +17,11 @@ import { toast } from "~/lib/toast";
 import { cn } from "~/lib/utils";
 import { safeGet, safeRemove, safeSet } from "~/lib/storage/storage";
 import { MicWaveform } from "../mic-recording";
-import { isEmptyChatTurnInput, type ChatModelTier } from "@alfred/contracts";
+import {
+  CHAT_TEXT_ATTACHMENT_MAX_CHARACTERS,
+  isEmptyChatTurnInput,
+  type ChatModelTier,
+} from "@alfred/contracts";
 import { TiptapComposer, type TiptapComposerHandle } from "../tiptap-composer";
 import { AttachmentChips } from "./attachment-chips";
 import { ComposerToolbar } from "./composer-toolbar";
@@ -33,6 +37,9 @@ import { useMentionController } from "./use-mention-controller";
 import { useTypeAnywhere } from "./use-type-anywhere";
 import { KeyHint } from "./key-hint";
 import type { QueuedEdit, QueuedMessage } from "~/lib/chat/use-chat-queue";
+
+/** A text paste at or over this length becomes a `.txt` attachment (about 4 KB, as in Dimension). */
+const LARGE_PASTE_MIN_CHARACTERS = 4_000;
 
 /** A queued message loaded into the editor for an edit. */
 interface QueueEditSession {
@@ -412,6 +419,26 @@ export function Composer({
     [inputDisabled, attachments],
   );
 
+  // Dimension's rule: a long paste becomes a text file, so the message and its bubble stay short.
+  const onPasteText = useCallback(
+    (text: string): boolean => {
+      if (edit || inputDisabled || text.length < LARGE_PASTE_MIN_CHARACTERS) return false;
+
+      if (text.length > CHAT_TEXT_ATTACHMENT_MAX_CHARACTERS) {
+        toast.error(
+          `This paste is too long to attach. The limit is ${CHAT_TEXT_ATTACHMENT_MAX_CHARACTERS.toLocaleString()} characters.`,
+        );
+
+        return true;
+      }
+
+      attachments.addFiles([new File([text], "Pasted text.txt", { type: "text/plain" })]);
+
+      return true;
+    },
+    [edit, inputDisabled, attachments],
+  );
+
   const onPaste = useCallback(
     (e: ClipboardEvent<HTMLDivElement>) => {
       const files = Array.from(e.clipboardData.files);
@@ -595,6 +622,7 @@ export function Composer({
                 ghostText={edit ? undefined : ghostText}
                 onGhostAccept={onGhostAccept}
                 onGhostDismiss={onGhostDismiss}
+                onPasteText={onPasteText}
               />
             </div>
             {mic.recording ? (
