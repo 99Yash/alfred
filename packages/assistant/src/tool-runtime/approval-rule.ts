@@ -1,18 +1,43 @@
 /**
- * The approval rule (ADR-0034, ADR-0069). Dispatch applies it to each call. The connected
- * summary applies it to each listed tool, so the prompt and the gate cannot disagree.
+ * The approval rule (ADR-0034, ADR-0069) and its two predictors. Dispatch applies the rule to
+ * each call. The batch scheduler and the connected summary predict it before a call, so the
+ * prompt, the scheduler, and the gate cannot disagree.
  */
 
-import type { PolicyMode, ToolName, ToolRiskTier } from "@alfred/contracts";
+import { isToolName, type PolicyMode, type ToolName, type ToolRiskTier } from "@alfred/contracts";
+import { resolvePolicyMode } from "@alfred/assistant/action-policies";
+import { STAGING_ARM } from "./internal/dispatch/staging-arm";
 import { getTool } from "./internal/registry";
 
 /**
  * Approval is needed when policy is `gated` or the tier is `high`.
  * "Auto" must not authorize an irreversible action, such as a real email send.
- * Dispatch and `toolCallWouldGate` both use this one gate.
+ * Dispatch and both predictors use this one gate.
  */
 export function toolRequiresApproval(policyMode: PolicyMode, riskTier: ToolRiskTier): boolean {
   return policyMode === "gated" || riskTier === "high";
+}
+
+/**
+ * Predict whether a fresh dispatch would park for approval. A scheduling hint,
+ * not a gate: batch callers run gated calls one at a time, because a run parks
+ * on one `approvalId` and a sibling card fails with 409 `wake_mismatch`.
+ * Over-reports `resolveRiskTier` tools and `fast_path` tools.
+ */
+export async function toolCallWouldGate(userId: string, toolName: string): Promise<boolean> {
+  if (!isToolName(toolName)) return false;
+  const policyMode = await resolvePolicyMode(userId, toolName);
+  const tool = getTool(toolName);
+
+  if (!tool) return false;
+
+  // The `question` arm always parks (ADR-0099).
+  if (STAGING_ARM[tool.staging]?.forcesApproval) return true;
+
+  // No validated input here, so assume a dynamic tier may gate.
+  if (tool.resolveRiskTier) return true;
+
+  return toolRequiresApproval(policyMode, tool.riskTier);
 }
 
 /**
@@ -26,18 +51,15 @@ export function toolAlwaysWaitsForApproval(toolName: ToolName, policyMode: Polic
 
   if (!tool) return false;
 
-  switch (tool.staging) {
-    case "fast_path":
-    case "join":
-      return false;
-    case "question":
-      // ADR-0099: `STAGING_ARM.question.forcesApproval`.
-      return true;
-    case "staged": {
-      // A declared downgrade can take the tier below `high`. Dispatch clamps an undeclared one.
-      const lowestTier = tool.riskTierDowngradeReason === undefined ? tool.riskTier : "no_risk";
+  const arm = STAGING_ARM[tool.staging];
 
-      return toolRequiresApproval(policyMode, lowestTier);
-    }
-  }
+  // `join` and `fast_path` return before the gate.
+  if (!arm) return false;
+
+  if (arm.forcesApproval) return true;
+
+  // A declared downgrade can take the tier below `high`. Dispatch clamps an undeclared one.
+  const lowestTier = tool.riskTierDowngradeReason === undefined ? tool.riskTier : "no_risk";
+
+  return toolRequiresApproval(policyMode, lowestTier);
 }

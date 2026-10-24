@@ -82,7 +82,7 @@ import {
   passthroughTruncationTelemetry,
 } from "../tools/passthrough";
 import { toolExecuteContext } from "../../context";
-import { toolRequiresApproval } from "../../approval-rule";
+import { toolCallWouldGate, toolRequiresApproval } from "../../approval-rule";
 import {
   getTool,
   resolveToolAvailability,
@@ -993,28 +993,6 @@ export async function resolveEffectiveRiskTier(
   );
 
   return resolved;
-}
-
-/**
- * Predict whether a fresh dispatch would park for approval. A scheduling hint,
- * not a gate: batch callers run gated calls one at a time, because a run parks
- * on one `approvalId` and a sibling card fails with 409 `wake_mismatch`.
- * Over-reports `resolveRiskTier` tools and `fast_path` tools.
- */
-export async function toolCallWouldGate(userId: string, toolName: string): Promise<boolean> {
-  if (!isToolName(toolName)) return false;
-  const policyMode = await resolvePolicyMode(userId, toolName);
-  const tool = getTool(toolName);
-
-  if (!tool) return false;
-
-  // The `question` arm always parks (ADR-0099).
-  if (STAGING_ARM[tool.staging]?.forcesApproval) return true;
-
-  // No validated input here, so assume a dynamic tier may gate.
-  if (tool.resolveRiskTier) return true;
-
-  return toolRequiresApproval(policyMode, tool.riskTier);
 }
 
 const dispatchToolCallRoundAdapter: DispatchToolCallRoundAdapter = {

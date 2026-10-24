@@ -14,10 +14,7 @@ import { clearToolRegistryForTests } from "@alfred/assistant/tool-runtime";
 
 import { registerBuiltinTools } from "../../../src/tool-runtime/builtin-tools";
 import { listRegisteredTools } from "../../../src/tool-runtime/internal/registry";
-import {
-  toolCallWouldGate,
-  toolRequiresApproval,
-} from "../../../src/tool-runtime/internal/dispatch";
+import { toolCallWouldGate, toolRequiresApproval } from "../../../src/tool-runtime/approval-rule";
 
 /**
  * `toolCallWouldGate` keeps gated calls out of the concurrent batch. It mirrors the

@@ -78,11 +78,14 @@ export async function buildConnectedSummaryFromAvailability(
  * get no label, because `mcp.call` resolves its tier per remote tool.
  */
 async function approvalLabel(userId: string, tools: readonly ToolName[]): Promise<string | null> {
+  const modes = await Promise.all(
+    tools.map(async (name) => ({ name, mode: await resolvePolicyMode(userId, name) })),
+  );
+
   const waits: ToolName[] = [];
   const others: ToolName[] = [];
 
-  for (const name of tools) {
-    const mode = await resolvePolicyMode(userId, name);
+  for (const { name, mode } of modes) {
     (toolAlwaysWaitsForApproval(name, mode) ? waits : others).push(name);
   }
 
