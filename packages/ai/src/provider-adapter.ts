@@ -271,6 +271,26 @@ export function googleLeg(modelId: GoogleModelId): RouteLeg {
 }
 
 /**
+ * The Responses API reads a function tool with no `strict` as strict. Strict decoding fills
+ * every optional field, so a `document` artifact always carried a `format` and failed the
+ * schema on every retry. The dispatcher validates each input against the tool's own schema,
+ * so the API does not have to enforce it.
+ */
+const nonStrictToolsMiddleware: LanguageModelV4Middleware = {
+  specificationVersion: "v4",
+  transformParams: async ({ params }) => {
+    if (!params.tools) return params;
+
+    return {
+      ...params,
+      tools: params.tools.map((tool) =>
+        tool.type === "function" && tool.strict === undefined ? { ...tool, strict: false } : tool,
+      ),
+    };
+  },
+};
+
+/**
  * `store: false` on every OpenAI leg (ADR-0077). Unified Billing is a Zero Data Retention org,
  * so replaying a reasoning item by `rs_…` id returns 400.
  */
@@ -279,9 +299,12 @@ export function openAiLeg(modelId: OpenAiModelId): RouteLeg {
 
   const model = wrapLanguageModel({
     model: leg.model,
-    middleware: defaultSettingsMiddleware({
-      settings: { providerOptions: { openai: { store: false } } },
-    }),
+    middleware: [
+      defaultSettingsMiddleware({
+        settings: { providerOptions: { openai: { store: false } } },
+      }),
+      nonStrictToolsMiddleware,
+    ],
   });
 
   return { ...leg, model };
