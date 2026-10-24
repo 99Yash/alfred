@@ -304,7 +304,7 @@ export function MessageBubble({
               iso={message.createdAt}
               revealClassName="pb-1 group-hover/sent:opacity-100 group-has-focus-visible/sent:opacity-100"
             />
-            <div className="max-w-[80%] rounded-surface bg-app-bg-2 px-4 py-2.5 text-sm leading-relaxed tracking-tight whitespace-pre-wrap text-app-fg-4">
+            <div className="max-w-[80%] min-w-0 rounded-surface bg-app-bg-2 px-4 py-2.5 text-sm leading-relaxed tracking-tight wrap-break-word whitespace-pre-wrap text-app-fg-4">
               {body}
             </div>
           </div>

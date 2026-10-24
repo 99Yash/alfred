@@ -80,17 +80,58 @@ function useThreadUsageSummary(messages: readonly SyncedChatMessage[]) {
 
 type ThreadUsageSummary = ReturnType<typeof useThreadUsageSummary>;
 
-/** One bar per metered turn, height by cost. Failed turns are red because they still billed. */
+/**
+ * The panel fits about 85 one-pixel bars with their gaps. Past this count, adjacent turns share a bar,
+ * so a long thread stays inside the popover.
+ */
+const MAX_COST_BARS = 64;
+
+interface CostBar {
+  key: string;
+  first: number;
+  last: number;
+  costUsd: number;
+  failed: boolean;
+}
+
+/** One bar per turn up to {@link MAX_COST_BARS}; past it, equal runs of adjacent turns with their costs summed. */
+function costBars(turns: readonly TurnCost[]): CostBar[] {
+  const size = Math.ceil(turns.length / MAX_COST_BARS);
+  const bars: CostBar[] = [];
+
+  for (let start = 0; start < turns.length; start += size) {
+    const run = turns.slice(start, start + size);
+
+    bars.push({
+      key: run[0]?.messageId ?? `${start}`,
+      first: start + 1,
+      last: start + run.length,
+      costUsd: run.reduce((sum, t) => sum + t.costUsd, 0),
+      failed: run.some((t) => t.failed),
+    });
+  }
+
+  return bars;
+}
+
+/** One bar per metered turn (or run of turns), height by cost. Failed turns are red because they still billed. */
 function TurnCostBars({ turns }: { turns: readonly TurnCost[] }) {
-  const max = Math.max(...turns.map((t) => t.costUsd));
+  const bars = costBars(turns);
+  const max = Math.max(...bars.map((b) => b.costUsd));
 
   return (
     <div className="flex h-10 items-end gap-0.5" aria-hidden>
-      {turns.map((turn, index) => (
+      {bars.map((turn) => (
         <Tip
-          key={turn.messageId}
-          label={`Turn ${index + 1} · ${formatCost(turn.costUsd)}`}
-          description={turn.failed ? "This turn failed. Its calls still billed." : undefined}
+          key={turn.key}
+          label={`${turn.first === turn.last ? `Turn ${turn.first}` : `Turns ${turn.first} to ${turn.last}`} · ${formatCost(turn.costUsd)}`}
+          description={
+            turn.failed
+              ? turn.first === turn.last
+                ? "This turn failed. Its calls still billed."
+                : "A turn in this run failed. Its calls still billed."
+              : undefined
+          }
           delayDuration={0}
         >
           {/* The full-height hit box makes a tiny bar still easy to hover. */}
@@ -191,7 +232,10 @@ function UsagePanel({ summary }: { summary: ThreadUsageSummary }) {
           <span>
             {summary.turns} {turnNoun}
           </span>
-          <span>{formatCost(summary.costUsd / summary.turns)} avg</span>
+          {/* With one turn the average only repeats the total. */}
+          {summary.turns > 1 ? (
+            <span>{formatCost(summary.costUsd / summary.turns)} avg</span>
+          ) : null}
         </div>
       </div>
 
@@ -218,7 +262,10 @@ function UsagePanel({ summary }: { summary: ThreadUsageSummary }) {
                 {Icon ? (
                   <Icon className="size-3.5 shrink-0" style={{ color: provider.tint }} />
                 ) : null}
-                <span className="min-w-0 truncate text-app-fg-4">{modelLabel(m.model)}</span>
+                {/* A long model id truncates, so the tip carries the full id. */}
+                <Tip label={m.model}>
+                  <span className="min-w-0 truncate text-app-fg-4">{modelLabel(m.model)}</span>
+                </Tip>
                 {m.fallbackCalls > 0 ? (
                   <span className="shrink-0 text-app-amber-4">{m.fallbackCalls} fallback</span>
                 ) : null}

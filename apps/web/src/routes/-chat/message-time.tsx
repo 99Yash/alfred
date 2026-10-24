@@ -10,7 +10,10 @@ function sameDay(a: Date, b: Date): boolean {
   );
 }
 
-/** "3:42 PM" today, "Yesterday 3:42 PM", then "Oct 21, 3:42 PM". The browser's zone, like the rest of the feed. */
+/**
+ * "3:42 PM" today, "Yesterday 3:42 PM", "Oct 21, 3:42 PM" this year, then "Oct 21, 2025, 3:42 PM".
+ * Without the year, a message from a year ago reads as this year's. The browser's zone, like the rest of the feed.
+ */
 function shortStamp(date: Date, now: Date): string {
   const clock = date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 
@@ -21,7 +24,15 @@ function shortStamp(date: Date, now: Date): string {
 
   if (sameDay(date, yesterday)) return `Yesterday ${clock}`;
 
-  return formatDateTime(date.toISOString());
+  if (date.getFullYear() === now.getFullYear()) return formatDateTime(date.toISOString());
+
+  return date.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 /**
