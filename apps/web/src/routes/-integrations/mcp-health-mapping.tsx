@@ -410,14 +410,14 @@ function MappingForm({
       <div className="flex items-center gap-1">
         <AppButton
           type="submit"
-          size="sm"
+          size="lg"
           variant="primary"
           disabled={pending || !readOnlyConfirmed}
         >
           Approve health mapping
         </AppButton>
         {onClear ? (
-          <AppButton type="button" size="sm" variant="ghost" disabled={pending} onClick={onClear}>
+          <AppButton type="button" size="lg" variant="ghost" disabled={pending} onClick={onClear}>
             Clear mapping
           </AppButton>
         ) : null}
@@ -438,7 +438,7 @@ function McpHealthMappingView({
   onClear,
 }: McpHealthMappingController) {
   return (
-    <div className="space-y-2 rounded-control bg-app-bg-2 p-2">
+    <div className="space-y-2 border-t border-app-bg-3 pt-4">
       <p className="text-xs font-medium text-app-fg-4">Briefing health mapping</p>
 
       {loading ? (
@@ -459,7 +459,7 @@ function McpHealthMappingView({
       ) : state.status === "not_found" ? (
         <p className="text-xs text-app-fg-3">This tool is not in the current catalog.</p>
       ) : state.status === "not_read_only" ? (
-        <p className="text-xs text-app-red-4" role="alert">
+        <p className="text-xs text-app-fg-3">
           This descriptor is not marked read-only, so Alfred will not run a health mapping for it.
         </p>
       ) : state.status === "invalid" ? (

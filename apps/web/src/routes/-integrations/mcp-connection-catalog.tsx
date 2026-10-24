@@ -1,9 +1,10 @@
 import { getStringPath } from "@alfred/contracts";
 import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, Search } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from "react";
 import { AppButton, AppInput } from "~/components/ui/v2";
 import { client } from "~/lib/eden";
+import { cn } from "~/lib/utils";
 import {
   MCP_CONNECTION_TOOLS_QUERY_KEY,
   type McpConnection,
@@ -15,6 +16,11 @@ import { McpHealthMappingReview } from "./mcp-health-mapping";
 import { McpToolPolicyReview } from "./mcp-tool-policy";
 
 type SelectedToolRef = { readonly remoteName: string; readonly catalogRevision: string };
+
+/** One catalog row's identity: the list key, and the row that takes focus back from the detail. */
+function toolKey(tool: { ref: SelectedToolRef }): string {
+  return `${tool.ref.catalogRevision}:${tool.ref.remoteName}`;
+}
 
 /** Wait this long after the last key before the catalog search asks the server. */
 const SEARCH_DEBOUNCE_MS = 200;
@@ -35,9 +41,18 @@ function McpInspectionDetail({ inspection }: { inspection: McpConnectionToolInsp
   const description = getStringPath(inspection.tool, "description");
 
   return (
-    <div className="space-y-1">
-      <p className="text-sm font-medium text-app-fg-4">{title ?? name}</p>
-      {title && title !== name ? <p className="text-xs text-app-fg-2">{name}</p> : null}
+    <div className="space-y-1 transition-opacity duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] starting:opacity-0">
+      {title ? <p className="text-sm font-medium text-app-fg-4">{title}</p> : null}
+      {title === name ? null : (
+        <p
+          className={cn(
+            "font-mono",
+            title ? "text-xs text-app-fg-2" : "text-[13px] font-medium text-app-fg-4",
+          )}
+        >
+          {name}
+        </p>
+      )}
       {description ? (
         <p className="text-[13px] leading-5 whitespace-pre-wrap text-app-fg-3">{description}</p>
       ) : null}
@@ -65,12 +80,26 @@ export interface McpCatalogViewProps {
   healthMappingReview: ReactNode;
   onSelect: (tool: McpConnectionTool) => void;
   onDismissInspection: () => void;
+  /** The view's outer box, measured when a tool opens. */
+  rootRef?: Ref<HTMLDivElement> | undefined;
+  /** The list scroller, so "All tools" can restore its position. */
+  listScrollRef?: Ref<HTMLDivElement> | undefined;
+  /** The list's height when the tool opened; the detail never renders shorter. */
+  detailMinHeight?: number | null | undefined;
+  /** Slide the list in from the left: true only after "All tools", never on the modal's first open. */
+  listEntersFromDetail?: boolean | undefined;
 }
+
+/** A drill-in or back swap: a short fade and an 8px slide, which reduced motion keeps as a fade. */
+const VIEW_SWAP_CLASS =
+  "transition-[opacity,translate] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] starting:opacity-0 motion-reduce:starting:translate-x-0";
 
 /**
  * The catalog view without hooks, so `renderToStaticMarkup` reaches every state (no jsdom).
  * A non-ready status sits above the list, so a refused refresh never looks like "no tools" (ADR-0094).
- * A selected tool replaces the list with its detail; "All tools" goes back.
+ * A selected tool replaces the list with its detail; "All tools" goes back. The detail
+ * keeps at least the list's height, so a short description does not collapse the centered
+ * modal around it.
  */
 export function McpCatalogView({
   connectionStatus,
@@ -91,6 +120,10 @@ export function McpCatalogView({
   healthMappingReview,
   onSelect,
   onDismissInspection,
+  rootRef,
+  listScrollRef,
+  detailMinHeight = null,
+  listEntersFromDetail = false,
 }: McpCatalogViewProps) {
   const statusLine =
     connectionStatus === "ready" ? null : (
@@ -101,13 +134,25 @@ export function McpCatalogView({
 
   if (selectedRemoteName !== null) {
     return (
-      <div className="max-h-[70vh] space-y-4 overflow-y-auto px-6 pb-6">
+      // Distinct keys: React must mount a new root, or `@starting-style` never runs.
+      <div
+        key="detail"
+        ref={rootRef}
+        className={cn(
+          "max-h-[70vh] space-y-4 overflow-y-auto px-6 pb-6",
+          VIEW_SWAP_CLASS,
+          "starting:translate-x-2",
+        )}
+        style={detailMinHeight === null ? undefined : { minHeight: detailMinHeight }}
+      >
         <div className="flex items-center gap-2">
           <AppButton
             size="sm"
             variant="ghost"
             leading={<ChevronLeft size={12} />}
             onClick={onDismissInspection}
+            className="-ml-2"
+            data-catalog-back
           >
             All tools
           </AppButton>
@@ -133,7 +178,14 @@ export function McpCatalogView({
   }
 
   return (
-    <div className="space-y-3 px-6 pb-6">
+    <div
+      key="list"
+      ref={rootRef}
+      className={cn(
+        "space-y-3 px-6 pb-6",
+        listEntersFromDetail && [VIEW_SWAP_CLASS, "starting:-translate-x-2"],
+      )}
+    >
       <div className="relative">
         <Search
           size={14}
@@ -149,44 +201,60 @@ export function McpCatalogView({
         />
       </div>
       {statusLine}
-      <div className="scroll-stable -mx-2 max-h-[60vh] overflow-y-auto">
+      <div
+        ref={listScrollRef}
+        className="scroll-stable max-h-[60vh] overflow-y-auto rounded-control bg-app-bg-a1"
+      >
         {loading ? (
-          <p className="px-2 py-3 text-xs text-app-fg-3" role="status">
+          <p className="p-3 text-xs text-app-fg-3" role="status">
             Loading tools…
           </p>
         ) : readError ? (
-          <div className="flex items-center gap-2 px-2 py-3" role="alert">
+          <div className="flex items-center gap-2 p-3" role="alert">
             <p className="text-xs text-app-red-4">Could not load MCP tools.</p>
             <AppButton size="sm" variant="white" onClick={onRetry}>
               Retry
             </AppButton>
           </div>
         ) : tools.length === 0 ? (
-          <p className="px-2 py-3 text-xs text-app-fg-3">
+          <p className="p-3 text-xs text-app-fg-3">
             {searchQuery.trim().length > 0
               ? `No tools match “${searchQuery.trim()}”.`
               : "No tools are published for this connection yet."}
           </p>
         ) : (
-          <ul>
+          <ul className="divide-y divide-app-bg-a2">
             {tools.map((tool) => (
-              <li key={`${tool.ref.catalogRevision}:${tool.ref.remoteName}`}>
+              <li key={toolKey(tool)}>
                 <button
                   type="button"
+                  data-tool-key={toolKey(tool)}
                   onClick={() => onSelect(tool)}
-                  className="group flex w-full items-center gap-3 rounded-control p-2 text-left outline-none hover:bg-app-bg-a2 focus-visible:bg-app-bg-a2"
+                  className="group flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors outline-none hover:bg-app-bg-a1 focus-visible:bg-app-bg-a2"
                 >
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13px] font-medium text-app-fg-4">
-                      {tool.title ?? tool.ref.remoteName}
+                    {/* The remote name is the identity the model calls; a title only labels it. */}
+                    <span className="flex min-w-0 items-baseline gap-2">
+                      {tool.title ? (
+                        <span className="truncate text-[13px] font-medium text-app-fg-4">
+                          {tool.title}
+                        </span>
+                      ) : null}
+                      {tool.title === tool.ref.remoteName ? null : (
+                        <code
+                          className={cn(
+                            "truncate font-mono",
+                            tool.title
+                              ? "shrink-2 text-[11px] text-app-fg-2"
+                              : "text-[12.5px] font-medium text-app-fg-4",
+                          )}
+                        >
+                          {tool.ref.remoteName}
+                        </code>
+                      )}
                     </span>
-                    {tool.title && tool.title !== tool.ref.remoteName ? (
-                      <span className="block truncate text-xs text-app-fg-2">
-                        {tool.ref.remoteName}
-                      </span>
-                    ) : null}
                     {tool.description ? (
-                      <span className="mt-0.5 line-clamp-2 text-xs text-app-fg-3">
+                      <span className="mt-0.5 block truncate text-xs text-app-fg-3">
                         {tool.description}
                       </span>
                     ) : null}
@@ -194,7 +262,7 @@ export function McpCatalogView({
                   <ChevronRight
                     size={14}
                     aria-hidden
-                    className="shrink-0 text-app-fg-2 group-hover:text-app-fg-4"
+                    className="shrink-0 text-app-fg-2 transition-[translate,color] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:translate-x-0.5 group-hover:text-app-fg-4 group-focus-visible:text-app-fg-4 motion-reduce:group-hover:translate-x-0"
                   />
                 </button>
               </li>
@@ -202,7 +270,7 @@ export function McpCatalogView({
           </ul>
         )}
         {hasNextPage ? (
-          <div className="flex justify-center px-2 pt-2">
+          <div className="flex justify-center px-3 py-2">
             <AppButton size="sm" variant="ghost" disabled={loadingMore} onClick={onLoadMore}>
               {loadingMore ? "Loading more…" : "Load more"}
             </AppButton>
@@ -222,7 +290,35 @@ export function McpConnectionCatalogPanel({ connection }: { connection: McpConne
   const [selected, setSelected] = useState<SelectedToolRef | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [detailMinHeight, setDetailMinHeight] = useState<number | null>(null);
+  const [returnedFromDetail, setReturnedFromDetail] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const listScrollRef = useRef<HTMLDivElement>(null);
+  const listScrollTop = useRef(0);
+  const returnFocusKey = useRef<string | null>(null);
   const connectionId = connection.id;
+
+  // Each swap unmounts the focused button. Before paint, put the list back where the
+  // user left it, and move focus to the row they opened or to "All tools".
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+
+    if (selected !== null) {
+      root?.querySelector<HTMLElement>("[data-catalog-back]")?.focus({ preventScroll: true });
+
+      return;
+    }
+
+    if (listScrollRef.current) listScrollRef.current.scrollTop = listScrollTop.current;
+
+    const key = returnFocusKey.current;
+
+    if (key !== null) {
+      root
+        ?.querySelector<HTMLElement>(`[data-tool-key="${CSS.escape(key)}"]`)
+        ?.focus({ preventScroll: true });
+    }
+  }, [selected]);
 
   useEffect(() => {
     const timer = window.setTimeout(
@@ -330,13 +426,23 @@ export function McpConnectionCatalogPanel({ connection }: { connection: McpConne
       inspectionLoading={inspectQuery.isFetching}
       policyReview={policyReview}
       healthMappingReview={healthMappingReview}
-      onSelect={(tool) =>
+      onSelect={(tool) => {
+        listScrollTop.current = listScrollRef.current?.scrollTop ?? 0;
+        returnFocusKey.current = toolKey(tool);
+        setDetailMinHeight(rootRef.current?.offsetHeight ?? null);
         setSelected({
           remoteName: tool.ref.remoteName,
           catalogRevision: tool.ref.catalogRevision,
-        })
-      }
-      onDismissInspection={() => setSelected(null)}
+        });
+      }}
+      onDismissInspection={() => {
+        setReturnedFromDetail(true);
+        setSelected(null);
+      }}
+      rootRef={rootRef}
+      listScrollRef={listScrollRef}
+      detailMinHeight={detailMinHeight}
+      listEntersFromDetail={returnedFromDetail}
     />
   );
 }

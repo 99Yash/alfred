@@ -248,14 +248,14 @@ function McpToolPolicyForm({ initial, pending, onSave, onClear }: McpToolPolicyF
       <div className="flex items-center gap-1">
         <AppButton
           type="submit"
-          size="sm"
+          size="lg"
           variant="primary"
           disabled={pending || riskTier === undefined}
         >
           Save review
         </AppButton>
         {onClear ? (
-          <AppButton type="button" size="sm" variant="ghost" disabled={pending} onClick={onClear}>
+          <AppButton type="button" size="lg" variant="ghost" disabled={pending} onClick={onClear}>
             Clear review
           </AppButton>
         ) : null}
@@ -281,7 +281,7 @@ function McpToolPolicyReviewView({
   onClear,
 }: McpToolPolicyReviewViewProps) {
   return (
-    <div className="space-y-2 rounded-control bg-app-bg-2 p-2">
+    <div className="space-y-2 border-t border-app-bg-3 pt-4">
       <p className="text-xs font-medium text-app-fg-4">Approval policy</p>
 
       {loading ? (
