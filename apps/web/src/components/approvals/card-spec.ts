@@ -95,3 +95,33 @@ export function cardTitle(toolName: ToolName, input: unknown): string {
 export function toolChipLabel(toolName: ToolName): string {
   return capitalize(humanizeToolName(toolName));
 }
+
+/**
+ * Short verbs for the approve button, e.g. "Create event". A tool not listed here gets
+ * the generic "Approve". Keep each one short enough for a button.
+ */
+const APPROVE_VERBS = new Map<ToolName, string>([
+  ["gmail.send_draft", "Send email"],
+  ["gmail.create_draft", "Save draft"],
+  ["gmail.modify_thread", "Update labels"],
+  ["gmail.modify_message", "Update labels"],
+  ["calendar.create_event", "Create event"],
+  ["calendar.update_event", "Update event"],
+  ["calendar.delete_event", "Delete event"],
+  ["calendar.respond_to_event", "Send response"],
+  ["sheets.create_spreadsheet", "Create sheet"],
+  ["sheets.update_values", "Update cells"],
+  ["sheets.append_values", "Add rows"],
+  ["sheets.batch_update", "Update sheet"],
+  ["sheets.add_sheet", "Add tab"],
+  ["slides.create_presentation", "Create deck"],
+  ["slides.batch_update", "Update deck"],
+  ["slides.add_slide", "Add slide"],
+  ["vercel.redeploy", "Redeploy"],
+  ["system.activate_workflow", "Activate"],
+]);
+
+/** The approve button's verb for `toolName`, or `null` for the generic label. */
+export function approveVerb(toolName: ToolName): string | null {
+  return APPROVE_VERBS.get(toolName) ?? null;
+}

@@ -1,5 +1,4 @@
-import type { SyncedActionStaging, SyncedChatMessage } from "@alfred/sync";
-import { asQuestionStaging } from "~/components/approvals/ask-user";
+import type { SyncedChatMessage } from "@alfred/sync";
 import type { StreamingMessage } from "~/lib/chat/chat-stream-state";
 import { presentTool, visibleTools } from "./tool-call-presentation";
 
@@ -79,20 +78,6 @@ export function describeActivity(stream: StreamingMessage, writingLabel: string 
   if (stream.reasoningActive || shouldShowThinkingIndicator(stream, false)) return "Thinking…";
 
   return "Working…";
-}
-
-/**
- * Label for the pill when a pending card is off-screen, or `null` with none pending.
- * A question is not an approval (ADR-0099), so a lone question gets its own verb.
- */
-export function reviewLabel(approvals: readonly SyncedActionStaging[]): string | null {
-  const [first] = approvals;
-
-  if (!first) return null;
-
-  if (approvals.length > 1) return `Review ${approvals.length} actions`;
-
-  return asQuestionStaging(first) ? "Answer question" : "Review action";
 }
 
 /** The model-written next prompts on the last reply (ADR-0112), once it is complete. */
