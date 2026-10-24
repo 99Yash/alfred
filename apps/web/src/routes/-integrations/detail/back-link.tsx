@@ -7,7 +7,7 @@ export function BackLink() {
     <Link
       to="/integrations"
       className={cn(
-        "-ml-1 inline-flex h-8 items-center gap-2 rounded-lg px-2 text-sm",
+        "-ml-1 inline-flex h-8 items-center gap-2 rounded-control px-2 text-sm",
         "app-press text-app-fg-3 transition-colors hover:bg-app-bg-a2 hover:text-app-fg-4",
         "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
       )}

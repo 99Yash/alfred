@@ -13,7 +13,7 @@ export function AppInput({ className, readOnly, ref, ...rest }: AppInputProps) {
       ref={ref}
       readOnly={readOnly}
       className={cn(
-        "h-9 w-full rounded-xl px-3 text-sm",
+        "h-9 w-full rounded-control px-3 text-sm",
         "app-focus-inset transition-shadow",
         "placeholder:text-app-fg-2",
         readOnly

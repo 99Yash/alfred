@@ -45,7 +45,7 @@ export function AppSegmented<T extends string = string>({
       <TabsPrimitive.List
         aria-label={label}
         className={cn(
-          "inline-flex items-center gap-1 rounded-xl p-1",
+          "inline-flex items-center gap-1 rounded-surface p-1",
           glass
             ? // Always over the dark video, so literals: theme tokens go white-on-white in light mode.
               "bg-white/12 shadow-[0_1px_12px_rgba(0,0,0,0.18)] ring-1 ring-white/15 backdrop-blur-xl backdrop-saturate-150"
@@ -59,7 +59,7 @@ export function AppSegmented<T extends string = string>({
             value={item.value}
             disabled={disabled || item.disabled}
             className={cn(
-              "inline-flex h-7 items-center gap-1.5 rounded-lg px-3",
+              "inline-flex h-7 items-center gap-1.5 rounded-control-sm px-3",
               "text-xs font-medium whitespace-nowrap",
               "transition-[background-color,box-shadow,color,scale] duration-150",
               "app-press",

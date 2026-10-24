@@ -12,7 +12,7 @@ export function TrustNotice({ provider }: { provider: IntegrationPage }) {
           <span
             aria-hidden
             className={cn(
-              "grid size-9 shrink-0 place-items-center rounded-xl",
+              "grid size-9 shrink-0 place-items-center rounded-control",
               "bg-app-purple-1 text-app-purple-4",
             )}
           >

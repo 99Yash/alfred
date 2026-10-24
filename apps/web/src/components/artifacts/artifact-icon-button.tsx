@@ -20,7 +20,7 @@ export function ArtifactIconButton({
       title={label}
       onClick={onClick}
       className={cn(
-        "grid size-7 shrink-0 place-items-center rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-app-fg-3/40 focus-visible:outline-none",
+        "grid size-7 shrink-0 place-items-center rounded-control-sm transition-colors focus-visible:ring-2 focus-visible:ring-app-fg-3/40 focus-visible:outline-none",
         tone === "dark"
           ? "text-white/70 hover:bg-white/10 hover:text-white"
           : "text-app-fg-3 hover:bg-app-bg-a2 hover:text-app-fg-4",

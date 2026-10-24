@@ -74,7 +74,7 @@ export function LibraryPage({ dimmed = false }: { dimmed?: boolean }) {
           ) : (
             <div className="space-y-4">
               {error ? (
-                <div className="flex items-center justify-between gap-4 rounded-xl bg-app-bg-2 px-4 py-3">
+                <div className="flex items-center justify-between gap-4 rounded-surface bg-app-bg-2 px-4 py-3">
                   <p className="text-xs text-app-fg-3">
                     Showing cached artifacts. <span className="text-app-red-4">{error}</span>
                   </p>

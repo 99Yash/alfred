@@ -113,7 +113,7 @@ function Item({ value, keywords, onSelect, icon: Icon, shortcut, disabled, child
       onSelect={onSelect}
       {...(disabled === undefined ? {} : { disabled })}
       className={cn(
-        "group flex h-11 items-center gap-2.5 rounded-md px-2.5",
+        "group flex h-11 items-center gap-2.5 rounded-control-sm px-2.5",
         "text-sm font-medium text-gray-900",
         "cursor-pointer select-none",
         "data-[selected=true]:bg-[rgb(var(--gray-50))] data-[selected=true]:text-gray-1000",
@@ -124,7 +124,7 @@ function Item({ value, keywords, onSelect, icon: Icon, shortcut, disabled, child
       {Icon ? (
         <span
           className={cn(
-            "inline-flex size-7 shrink-0 items-center justify-center rounded-md",
+            "inline-flex size-7 shrink-0 items-center justify-center rounded-control-sm",
             "frost-icon-tile text-gray-900",
             "group-data-[selected=true]:text-gray-1000",
           )}

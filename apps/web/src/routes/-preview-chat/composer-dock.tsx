@@ -17,7 +17,7 @@ export function ComposerDock({
   return (
     <div className="shrink-0 pt-1 pb-5">
       <div className="mx-auto w-full max-w-3xl px-6">
-        <div className={cn("app-elevated app-focus-within rounded-3xl bg-app-bg-1 p-2")}>
+        <div className={cn("app-elevated app-focus-within rounded-panel bg-app-bg-1 p-2")}>
           <textarea
             aria-label="Ask Alfred"
             value={value}
@@ -52,7 +52,7 @@ export function ComposerDock({
                 disabled={!canSend}
                 aria-label="Send message"
                 className={cn(
-                  "inline-flex size-8 items-center justify-center rounded-lg",
+                  "inline-flex size-8 items-center justify-center rounded-control",
                   "app-press transition-[box-shadow,scale,filter]",
                   "app-focus",
                   canSend
@@ -84,7 +84,7 @@ function ComposerIcon({ label, children }: { label: string; children: ReactNode 
       type="button"
       aria-label={label}
       className={cn(
-        "inline-flex size-8 items-center justify-center rounded-lg",
+        "inline-flex size-8 items-center justify-center rounded-control",
         "app-press text-app-fg-3 transition-colors hover:bg-app-bg-a2 hover:text-app-fg-4",
         "app-focus",
       )}

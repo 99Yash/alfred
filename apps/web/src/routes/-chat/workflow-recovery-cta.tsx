@@ -26,7 +26,7 @@ export function WorkflowRecoveryCta({ tools }: { tools: readonly ToolCallView[] 
     return (
       <a
         href={`${API_URL}${recovery.data.path}`}
-        className="inline-flex w-fit items-center gap-1.5 rounded-lg bg-app-purple-1 px-3 py-2 text-[13px] font-medium text-app-purple-4 transition-colors hover:bg-app-purple-2 focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:outline-none"
+        className="inline-flex w-fit items-center gap-1.5 rounded-control bg-app-purple-1 px-3 py-2 text-[13px] font-medium text-app-purple-4 transition-colors hover:bg-app-purple-2 focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:outline-none"
       >
         {recovery.data.label}
         <ArrowRight size={13} aria-hidden />

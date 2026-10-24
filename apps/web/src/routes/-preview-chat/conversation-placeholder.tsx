@@ -43,7 +43,7 @@ function UserTurn({ text }: { text: string }) {
     <div className="flex justify-end">
       <div
         className={cn(
-          "max-w-[80%] rounded-2xl rounded-tr-md px-4 py-2.5 text-sm",
+          "max-w-[80%] rounded-surface rounded-tr-control-sm px-4 py-2.5 text-sm",
           "bg-app-bg-2 text-app-fg-4",
         )}
       >

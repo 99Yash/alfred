@@ -73,7 +73,7 @@ export function RailContent({
                 aria-label="Close panel"
                 onClick={onClose}
                 className={cn(
-                  "inline-flex size-7 shrink-0 items-center justify-center rounded-lg",
+                  "inline-flex size-7 shrink-0 items-center justify-center rounded-control-sm",
                   "app-press text-white/70 transition-colors hover:bg-white/[0.07] hover:text-white",
                   "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
                 )}

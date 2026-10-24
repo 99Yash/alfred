@@ -24,7 +24,7 @@ export function RelatedSetup({ provider }: { provider: IntegrationPage }) {
             to="/integrations/$slug"
             params={{ slug: item.slug }}
             className={cn(
-              "app-card-in flex items-center gap-3 rounded-2xl bg-app-bg-1 px-3 py-2.5",
+              "app-card-in flex items-center gap-3 rounded-surface bg-app-bg-1 px-3 py-2.5",
               "app-press shadow-[var(--app-shadow-elevated)] transition-shadow",
               "hover:shadow-[var(--app-shadow-elevated-hover)]",
               "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",

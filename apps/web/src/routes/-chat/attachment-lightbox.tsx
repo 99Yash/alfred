@@ -231,7 +231,7 @@ function AttachmentLightbox({
                   rel="noreferrer"
                   aria-label="Open in new tab"
                   title="Open in new tab"
-                  className="grid size-7 shrink-0 place-items-center rounded-lg text-white/70 transition-colors hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:outline-none"
+                  className="grid size-7 shrink-0 place-items-center rounded-control-sm text-white/70 transition-colors hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:outline-none"
                 >
                   <ExternalLink size={15} />
                 </a>
@@ -289,7 +289,7 @@ function LightboxFigure({ image }: { image: LightboxImage }) {
     <img
       src={image.src}
       alt={image.name}
-      className="max-h-[80vh] max-w-[90vw] rounded-xl object-contain shadow-2xl"
+      className="max-h-[80vh] max-w-[90vw] rounded-surface object-contain shadow-2xl"
       onError={() => setFailed(true)}
     />
   );

@@ -183,7 +183,7 @@ export function UserSection() {
           placeholder="Your name"
           disabled
           aria-label="Username"
-          className="!h-10 !rounded-2xl"
+          className="!h-10"
         />
       </SettingCard>
 
@@ -194,7 +194,7 @@ export function UserSection() {
         tone="sky"
         footer="Used to identify your account."
       >
-        <AppInput value={email} readOnly aria-label="Email" className="!h-10 !rounded-2xl" />
+        <AppInput value={email} readOnly aria-label="Email" className="!h-10" />
       </SettingCard>
 
       <SettingCard

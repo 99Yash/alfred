@@ -204,7 +204,7 @@ export function ApprovalsPage() {
                 type="button"
                 onClick={clearFilters}
                 className={cn(
-                  "inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[12px] font-medium text-app-fg-3",
+                  "inline-flex items-center gap-1 rounded-control px-2 py-1 text-[12px] font-medium text-app-fg-3",
                   "transition-colors hover:bg-app-bg-a2 hover:text-app-fg-4",
                   "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
                 )}
@@ -356,7 +356,7 @@ function EmptyState({
   return (
     <AppCard className="flex flex-col items-center justify-center gap-2 px-6 py-12 text-center">
       <span
-        className="grid size-10 place-items-center rounded-xl bg-app-bg-2 text-app-fg-3"
+        className="grid size-10 place-items-center rounded-control bg-app-bg-2 text-app-fg-3"
         aria-hidden
       >
         <ClipboardCheck size={18} />

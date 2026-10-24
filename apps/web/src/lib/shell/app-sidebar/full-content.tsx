@@ -64,19 +64,19 @@ export function FullContent({
           to="/chat"
           aria-label="Alfred — home"
           className={cn(
-            "inline-flex size-8 items-center justify-center rounded-lg",
+            "inline-flex size-8 items-center justify-center rounded-control",
             "app-press transition-colors hover:bg-app-bg-a2",
             "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
           )}
         >
-          <img src="/images/logo/alfred-logo.svg" alt="" className="size-6 rounded-[7px]" />
+          <img src="/images/logo/alfred-logo.svg" alt="" className="size-6 rounded-control-sm" />
         </Link>
         <button
           type="button"
           aria-label={chevronMode === "overlay" ? "Hide sidebar" : "Minimize sidebar"}
           onClick={onChevron}
           className={cn(
-            "inline-flex size-8 items-center justify-center rounded-lg",
+            "inline-flex size-8 items-center justify-center rounded-control",
             "app-press text-app-fg-2 transition-colors hover:bg-app-bg-a2 hover:text-app-fg-4",
             "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
           )}

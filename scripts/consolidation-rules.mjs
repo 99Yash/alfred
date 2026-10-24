@@ -959,6 +959,27 @@ export const RULES = [
     owners: ["scripts/consolidation-rules.mjs", "scripts/consolidation-rules.selftest.mjs"],
     fix: "Name every rule the directive suppresses, in the spelling the config uses, then give the reason after ` -- `: `// oxlint-disable-next-line <plugin>/<rule> -- <why this line is the exception>`. See docs/reference/gate-design.md § Suppressions and disarms.",
   },
+  {
+    id: "raw-radius-class",
+    // A t-shirt or arbitrary radius class in app code. Each one was a local
+    // guess, so a 36px thread row came out at 14px beside a 32px button at
+    // 10px. The `--radius-*` role tiers in apps/web/src/index.css `@theme`
+    // are now the only radius names; `rounded-full`, `rounded-none`, and
+    // `rounded-[inherit]` stay legal because they are shapes, not sizes.
+    //
+    // The token edges are a class list's edges (space, quote, backtick, the
+    // `:` after a variant, the `!` important prefix), so `rounded-control`
+    // and an identifier like `roundedCorners` never match.
+    //
+    // `paths` keeps the rule on the production app. The landing page, the
+    // styleguide and the components only it renders, and `ui/legacy` keep the
+    // older dimension grammar on purpose (components/ui/legacy/README.md).
+    re: /(?:^|[\s"'`:!])rounded(?:-(?:[trblsexy]|tl|tr|bl|br|ss|se|es|ee))?(?:-(?:xs|sm|md|lg|xl|[234]xl|\[(?!inherit\])[^\]\s]+\]))?(?=[\s"'`]|$)/,
+    paths:
+      /^apps\/web\/src\/(?!components\/landing\/|components\/ui\/legacy\/|routes\/-styleguide\/|routes\/-preview-landing\/|components\/(?:dimension-chat-thread|dimension-composer-shell|quick-access-rail|ui\/frost-panel)\.tsx$)/,
+    severity: "gate",
+    fix: "Use a role tier from apps/web/src/index.css: `rounded-control-xs` (20px and smaller: kbd, checkbox, tag), `rounded-control-sm` (24-28px controls), `rounded-control` (32-40px buttons, rows, inputs, menu items), `rounded-surface` (cards, banners, menus, popovers), `rounded-panel` (shell, sidebar, rail, composer, dialogs), or `rounded-full` for pills. Pick by what the element is, and give a container its inner tier plus its padding.",
+  },
 ];
 
 /**

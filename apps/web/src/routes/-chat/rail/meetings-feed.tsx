@@ -66,7 +66,7 @@ function MeetingRow({ meeting }: { meeting: RailMeetingItem }) {
       <button
         type="button"
         className={cn(
-          "group -mx-0.5 w-full rounded-xl p-2 text-left",
+          "group -mx-0.5 w-full rounded-surface p-2 text-left",
           "app-press transition-colors hover:bg-white/[0.07]",
           "flex items-start gap-2.5",
           "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
@@ -75,7 +75,7 @@ function MeetingRow({ meeting }: { meeting: RailMeetingItem }) {
         <span
           aria-hidden
           className={cn(
-            "mt-0.5 inline-flex shrink-0 flex-col items-center justify-center rounded-md",
+            "mt-0.5 inline-flex shrink-0 flex-col items-center justify-center rounded-control",
             "size-10 leading-none",
             isNext
               ? "bg-app-amber-1 text-app-amber-4 ring-1 ring-app-amber-2"

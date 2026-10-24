@@ -28,11 +28,11 @@ interface AppButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 /* Matches the 13/14px `leading` icons, so the swap does not resize the button. */
 const SPINNER_SIZE = { sm: 13, md: 14, lg: 14 } satisfies Record<AppButtonSize, number>;
 
-/* 12px on a 28px `sm` button looks like a pill, so small buttons get a smaller radius. */
+/* Radius follows height (index.css `--radius-*`): the 28px `sm` button is `control-sm`, 32-36px is `control`. */
 const SIZE = {
-  sm: "h-7 px-2.5 text-[13px] gap-1.5 rounded-[9px]",
-  md: "h-8 px-2.5 text-sm gap-2 rounded-[10px]",
-  lg: "h-9 px-3 text-sm gap-2 rounded-xl",
+  sm: "h-7 px-2.5 text-[13px] gap-1.5 rounded-control-sm",
+  md: "h-8 px-2.5 text-sm gap-2 rounded-control",
+  lg: "h-9 px-3 text-sm gap-2 rounded-control",
 } satisfies Record<AppButtonSize, string>;
 
 const VARIANT = {

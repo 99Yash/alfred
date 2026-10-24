@@ -49,8 +49,22 @@ bg-app-{purple|green|red|amber|sky|blue|yellow|pink|orange|gray}-{1..4}
 
 --app-accent-ring       shared one-pixel focus stroke
 shadow-[var(--app-shadow-elevated)]   the two-shadow stack
-rounded-app-{1..6}      0.125rem → 1rem radius scale
 ```
+
+### Radius
+
+Radius comes from what the element is, not from how round it should look. The tiers live in `index.css` `@theme`, and the `raw-radius-class` gate in `scripts/consolidation-rules.mjs` rejects any other radius class in app code.
+
+| Class                | Size | Use it for                                                          |
+| -------------------- | ---- | ------------------------------------------------------------------- |
+| `rounded-control-xs` | 6px  | Elements 20px tall or smaller: kbd, checkbox, tag, skeleton bar.    |
+| `rounded-control-sm` | 8px  | 24-28px controls: `AppButton size="sm"`, small icon buttons.        |
+| `rounded-control`    | 10px | 32-40px controls: buttons, nav and thread rows, inputs, menu items. |
+| `rounded-surface`    | 14px | Cards, banners, menus, popovers, toasts, message bubbles.           |
+| `rounded-panel`      | 20px | App shell, sidebar, rail, composer, dialogs.                        |
+| `rounded-full`       | pill | Chips, badges, avatars, dots.                                       |
+
+A container is its inner tier plus its padding: a `rounded-surface` menu with `p-1` holds `rounded-control` items. `cn()` knows these names, so a `className` override replaces the radius instead of adding a second one.
 
 ## Utilities
 

@@ -36,7 +36,7 @@ export function ToolRow(props: ToolRowProps) {
       {props.integration ? (
         <span
           aria-hidden
-          className="inline-flex size-6 shrink-0 items-center justify-center rounded-md bg-app-bg-2"
+          className="inline-flex size-6 shrink-0 items-center justify-center rounded-control-sm bg-app-bg-2"
         >
           <IntegrationGlyph brand={props.integration} size={14} />
         </span>
@@ -44,7 +44,7 @@ export function ToolRow(props: ToolRowProps) {
         <span
           aria-hidden
           className={cn(
-            "inline-flex size-6 shrink-0 items-center justify-center rounded-md",
+            "inline-flex size-6 shrink-0 items-center justify-center rounded-control-sm",
             APP_TINTS[props.tone],
           )}
         >

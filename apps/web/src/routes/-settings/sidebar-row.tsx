@@ -18,7 +18,7 @@ export function SidebarRow({
       onClick={onClick}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "group inline-flex w-full items-center gap-2.5 rounded-xl",
+        "group inline-flex w-full items-center gap-2.5 rounded-control",
         "h-9 px-3 text-sm font-medium whitespace-nowrap",
         "transition-[background-color,color] duration-150",
         "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",

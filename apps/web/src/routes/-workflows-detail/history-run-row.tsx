@@ -146,7 +146,7 @@ export function HistoryRunRow({
       </div>
 
       {expanded && row.effects.length > 0 ? (
-        <ul className="ml-12 divide-y divide-app-bg-3 overflow-hidden rounded-2xl bg-app-bg-2/40 shadow-[0_0_0_1px_rgba(0,0,0,0.04)]">
+        <ul className="ml-12 divide-y divide-app-bg-3 overflow-hidden rounded-surface bg-app-bg-2/40 shadow-[0_0_0_1px_rgba(0,0,0,0.04)]">
           {row.effects.map((effect) => (
             <li
               key={effect.effectKey}

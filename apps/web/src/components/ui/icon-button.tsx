@@ -32,7 +32,7 @@ export function IconButton({
       aria-label={label}
       title={label}
       className={cn(
-        "inline-grid place-items-center rounded-lg",
+        "inline-grid place-items-center rounded-control",
         "text-gray-800 hover:bg-gray-100 hover:text-gray-900",
         "transition-[transform,color,background-color] duration-150 active:scale-[0.96]",
         "outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-0",

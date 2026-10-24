@@ -328,7 +328,7 @@ export function TiptapComposer({
           <span className="min-w-0 truncate">{ghostText}</span>
           <kbd
             className={cn(
-              "inline-flex h-[18px] shrink-0 items-center justify-center rounded-md px-1.5",
+              "inline-flex h-[18px] shrink-0 items-center justify-center rounded-control-sm px-1.5",
               "font-sans text-[10.5px] leading-none font-medium",
               "bg-app-bg-a2 text-app-fg-2",
             )}
@@ -377,7 +377,7 @@ function MentionChipNodeView({ node }: NodeViewProps) {
       title={disconnected ? `@${label} is not connected` : undefined}
       className={cn(
         "inline-flex items-center gap-[3px] align-baseline",
-        "mx-px rounded-[6px] px-1.5 py-px",
+        "mx-px rounded-control-xs px-1.5 py-px",
         "bg-app-bg-a2 font-medium text-app-fg-4",
         "ring-1 ring-app-fg-a1/20 ring-inset",
         "text-[0.92em] leading-[1.35]",

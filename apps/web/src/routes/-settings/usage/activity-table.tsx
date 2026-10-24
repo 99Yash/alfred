@@ -25,7 +25,7 @@ function ModelChip({ model }: { model: string }) {
   const Icon = provider?.Icon;
 
   return (
-    <span className="inline-flex items-center gap-1 rounded-md bg-app-bg-a2 px-1.5 py-0.5 text-[11px] text-app-fg-3">
+    <span className="inline-flex items-center gap-1 rounded-control-xs bg-app-bg-a2 px-1.5 py-0.5 text-[11px] text-app-fg-3">
       {Icon ? (
         <Icon className="size-3 shrink-0" style={{ color: provider.tint }} aria-hidden />
       ) : null}
@@ -38,7 +38,7 @@ function CategoryPill({ category, label }: { category: UsageRunCategory; label: 
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] font-medium",
+        "inline-flex items-center rounded-control-sm px-1.5 py-0.5 text-[11px] font-medium",
         CATEGORY_TILE[category],
       )}
       title={CATEGORY_LABELS[category]}
@@ -177,7 +177,7 @@ export function ActivityTable({ start, end, categories }: ActivityTableProps) {
               Array.from({ length: 6 }, (_, i) => (
                 <tr key={i} className="border-b border-app-bg-2 last:border-0">
                   <td colSpan={5} className="px-5 py-3">
-                    <span className="block h-4 w-full animate-pulse rounded bg-app-bg-2" />
+                    <span className="block h-4 w-full animate-pulse rounded-control-xs bg-app-bg-2" />
                   </td>
                 </tr>
               ))

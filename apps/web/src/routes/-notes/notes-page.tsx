@@ -64,7 +64,7 @@ export function NotesPage() {
             createNote();
           }}
           className={cn(
-            "mt-10 w-full rounded-2xl bg-app-bg-1 p-1",
+            "mt-10 w-full rounded-surface bg-app-bg-1 p-1",
             "shadow-[0_1px_2px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.06)]",
             "focus-within:shadow-[0_1px_2px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.06),0_0_0_4px_var(--app-purple-2)]",
             "transition-shadow",
@@ -149,7 +149,7 @@ export function NotesPage() {
           {notes.length === 0 ? (
             <AppCard className="flex flex-col items-center justify-center gap-2 px-6 py-12 text-center">
               <span
-                className="grid size-10 place-items-center rounded-xl bg-app-bg-2 text-app-fg-3"
+                className="grid size-10 place-items-center rounded-control bg-app-bg-2 text-app-fg-3"
                 aria-hidden
               >
                 <FileText size={18} />

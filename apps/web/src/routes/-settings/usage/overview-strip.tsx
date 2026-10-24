@@ -19,7 +19,7 @@ function Stat({ icon: Icon, label, value, loading }: StatProps) {
         {label}
       </span>
       {loading ? (
-        <span className="h-6 w-16 animate-pulse rounded-md bg-app-bg-2" aria-hidden />
+        <span className="h-6 w-16 animate-pulse rounded-control-sm bg-app-bg-2" aria-hidden />
       ) : (
         <span className="text-lg font-semibold text-app-fg-4 tabular-nums">{value}</span>
       )}

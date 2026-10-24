@@ -69,7 +69,7 @@ export function SubAgentCard({ tool, trail }: { tool: ToolCallView; trail: SubAg
           <Accordion.Trigger
             aria-controls={contentId}
             className={cn(
-              "group/subagent -mx-2 flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left",
+              "group/subagent -mx-2 flex w-full items-center gap-2 rounded-control px-2 py-1 text-left",
               "outline-none focus-visible:ring-2 focus-visible:ring-app-fg-2",
             )}
           >

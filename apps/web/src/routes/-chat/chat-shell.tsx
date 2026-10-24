@@ -371,12 +371,12 @@ function ConversationLoading() {
       aria-label="Loading conversation"
     >
       <span className="sr-only">Loading conversation</span>
-      <div className="ml-auto h-5 w-2/5 animate-pulse rounded-sm bg-app-bg-3 motion-reduce:animate-none" />
+      <div className="ml-auto h-5 w-2/5 animate-pulse rounded-control-xs bg-app-bg-3 motion-reduce:animate-none" />
       <div className="space-y-3">
-        <div className="h-4 w-4/5 animate-pulse rounded-sm bg-app-bg-3 motion-reduce:animate-none" />
-        <div className="h-4 w-3/5 animate-pulse rounded-sm bg-app-bg-3 motion-reduce:animate-none" />
+        <div className="h-4 w-4/5 animate-pulse rounded-control-xs bg-app-bg-3 motion-reduce:animate-none" />
+        <div className="h-4 w-3/5 animate-pulse rounded-control-xs bg-app-bg-3 motion-reduce:animate-none" />
       </div>
-      <div className="h-24 w-full animate-pulse rounded-md bg-app-bg-2 motion-reduce:animate-none" />
+      <div className="h-24 w-full animate-pulse rounded-control-sm bg-app-bg-2 motion-reduce:animate-none" />
     </div>
   );
 }
@@ -389,7 +389,7 @@ function ConversationLoadError({ message, onRetry }: { message: string; onRetry:
         <button
           type="button"
           onClick={onRetry}
-          className="app-press inline-flex h-9 items-center gap-2 rounded-md bg-app-bg-2 px-3 text-sm font-medium text-app-fg-4 transition-colors hover:bg-app-bg-a2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app-purple-2"
+          className="app-press inline-flex h-9 items-center gap-2 rounded-control bg-app-bg-2 px-3 text-sm font-medium text-app-fg-4 transition-colors hover:bg-app-bg-a2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app-purple-2"
         >
           <RefreshCw className="size-4" aria-hidden="true" />
           Try again

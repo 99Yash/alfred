@@ -124,7 +124,7 @@ function TodoRow({
   return (
     <div
       className={cn(
-        "group relative -mx-0.5 flex items-start rounded-xl",
+        "group relative -mx-0.5 flex items-start rounded-surface",
         "transition-colors hover:bg-white/[0.07]",
       )}
     >
@@ -133,7 +133,7 @@ function TodoRow({
         onClick={onToggle}
         aria-pressed={todo.done ?? false}
         className={cn(
-          "app-press min-w-0 flex-1 rounded-xl p-2 text-left",
+          "app-press min-w-0 flex-1 rounded-surface p-2 text-left",
           "flex items-start gap-2.5",
           "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
         )}
@@ -141,7 +141,7 @@ function TodoRow({
         <span
           aria-hidden
           className={cn(
-            "mt-0.5 inline-flex size-4 shrink-0 items-center justify-center rounded-md",
+            "mt-0.5 inline-flex size-4 shrink-0 items-center justify-center rounded-control-xs",
             "border transition-colors",
             todo.done
               ? "border-app-purple-4 bg-app-purple-4 text-white"
@@ -178,7 +178,7 @@ function TodoRow({
           onClick={onClear}
           aria-label={`Clear completed to-do: ${todo.title}`}
           className={cn(
-            "app-press my-1 mr-1 inline-flex size-6 shrink-0 items-center justify-center self-center rounded-md",
+            "app-press my-1 mr-1 inline-flex size-6 shrink-0 items-center justify-center self-center rounded-control-sm",
             "text-white/45 transition-[color,background-color,opacity] hover:bg-white/10 hover:text-white",
             "opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100",
             "outline-none focus-visible:ring-2 focus-visible:ring-white/40",

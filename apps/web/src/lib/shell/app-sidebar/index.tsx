@@ -152,7 +152,7 @@ export function AppSidebar({
           style={{ width: asideWidth }}
           className={cn(
             "relative h-full shrink-0 overflow-hidden",
-            "rounded-2xl bg-app-bg-1",
+            "rounded-panel bg-app-bg-1",
             "shadow-[0_1px_2px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.04)]",
             "flex flex-col",
             !dragging && "transition-[width,opacity,margin] duration-200 ease-out",

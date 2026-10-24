@@ -148,7 +148,7 @@ export function ChatApprovalTray({
     if (!awaitingApproval) return null;
 
     return (
-      <div className="app-frost-overlay animate-chat-in rounded-2xl px-4 py-3">
+      <div className="app-frost-overlay animate-chat-in rounded-surface px-4 py-3">
         <div className="flex items-center gap-2 text-[13px] text-app-fg-3">
           <Loader2 size={14} className="animate-spin" />
           <span className={cn(!recentDecision && "animate-chat-shimmer")}>
@@ -329,7 +329,7 @@ function InlineApprovalCard({
   return (
     <section
       aria-label="Approval required"
-      className={cn("app-frost-overlay animate-chat-in overflow-hidden rounded-2xl")}
+      className={cn("app-frost-overlay animate-chat-in overflow-hidden rounded-surface")}
     >
       <Accordion.Root type="single" collapsible value={panelValue} onValueChange={setPanelValue}>
         <Accordion.Item value={PANEL_ITEM}>
@@ -423,7 +423,7 @@ function InlineApprovalCard({
               />
 
               {staging.recentRejection ? (
-                <div className="mt-2 flex items-start gap-2 rounded-xl bg-app-amber-1 px-3 py-2 text-[12px] leading-5 text-app-amber-4 shadow-[0_0_0_1px_var(--app-amber-2)]">
+                <div className="mt-2 flex items-start gap-2 rounded-surface bg-app-amber-1 px-3 py-2 text-[12px] leading-5 text-app-amber-4 shadow-[0_0_0_1px_var(--app-amber-2)]">
                   <AlertTriangle size={14} className="mt-0.5 shrink-0" />
                   <p className="min-w-0">
                     Last rejected {formatTimestamp(staging.recentRejection.decidedAt)}
@@ -457,14 +457,14 @@ function InlineApprovalCard({
 
               <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                  <span className="inline-flex items-center gap-1.5 rounded-lg bg-app-bg-1 px-2 py-1 text-[12px] font-medium text-app-fg-3 shadow-[0_0_0_1px_var(--app-fg-a1)]">
+                  <span className="inline-flex items-center gap-1.5 rounded-control bg-app-bg-1 px-2 py-1 text-[12px] font-medium text-app-fg-3 shadow-[0_0_0_1px_var(--app-fg-a1)]">
                     <ShieldCheck size={13} />
                     {toolChipLabel(staging.toolName)}
                   </span>
                   <Link
                     to="/approvals"
                     className={cn(
-                      "inline-flex min-h-8 items-center gap-1 rounded-lg px-2 text-[12px] font-medium text-app-fg-3",
+                      "inline-flex min-h-8 items-center gap-1 rounded-control px-2 text-[12px] font-medium text-app-fg-3",
                       "transition-[background-color,color] hover:bg-app-bg-a2 hover:text-app-fg-4",
                       "app-focus",
                     )}
@@ -622,10 +622,14 @@ function InlineQuestionCard({
   return (
     <section
       aria-label="Question from Alfred"
-      className="app-frost-overlay animate-chat-in overflow-hidden rounded-2xl"
+      className="app-frost-overlay animate-chat-in overflow-hidden rounded-surface"
     >
       <div className="flex items-center gap-3 p-3 sm:px-4">
-        <img src="/images/logo/alfred-logo.svg" alt="" className="size-8 shrink-0 rounded-[9px]" />
+        <img
+          src="/images/logo/alfred-logo.svg"
+          alt=""
+          className="size-8 shrink-0 rounded-control"
+        />
         <div className="min-w-0 flex-1">
           <p className="truncate text-[15px] leading-6 font-medium text-app-fg-4">
             {count === 1 ? "Alfred has a question" : `Alfred has ${count} questions`}
@@ -691,7 +695,7 @@ function PermissionsAffordance({
           type="button"
           aria-controls={popoverId}
           className={cn(
-            "absolute top-2.5 right-3 inline-flex h-7 items-center gap-1 rounded-lg px-2 text-[12px] font-medium text-app-fg-3",
+            "absolute top-2.5 right-3 inline-flex h-7 items-center gap-1 rounded-control-sm px-2 text-[12px] font-medium text-app-fg-3",
             "app-focus app-press transition-[box-shadow,color,background-color]",
             "hover:bg-app-bg-a2 hover:text-app-fg-4",
           )}
@@ -710,7 +714,7 @@ function PermissionsAffordance({
           collisionPadding={16}
           data-app-theme={dataTheme}
           className={cn(
-            "app app-frost-overlay z-50 flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-2 overflow-hidden rounded-2xl p-3",
+            "app app-frost-overlay z-50 flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-2 overflow-hidden rounded-surface p-3",
             "app-fade-in outline-none",
           )}
         >

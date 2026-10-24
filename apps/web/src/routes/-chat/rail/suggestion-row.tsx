@@ -21,7 +21,7 @@ export function SuggestionRow({
   return (
     <div
       className={cn(
-        "group relative -mx-0.5 flex items-start gap-1 rounded-xl p-2",
+        "group relative -mx-0.5 flex items-start gap-1 rounded-surface p-2",
         "transition-colors hover:bg-white/[0.07]",
       )}
     >
@@ -33,7 +33,7 @@ export function SuggestionRow({
           onAccept ? `${detail ? `${label} ${detail}` : label}, add as a to-do` : undefined
         }
         className={cn(
-          "app-press flex min-w-0 flex-1 items-start gap-1.5 rounded-md text-left",
+          "app-press flex min-w-0 flex-1 items-start gap-1.5 rounded-control-sm text-left",
           "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
         )}
       >
@@ -78,7 +78,7 @@ export function SuggestionRow({
           onClick={onComplete}
           aria-label={`Mark done: ${label}`}
           className={cn(
-            "app-press inline-flex size-6 shrink-0 items-center justify-center rounded-md",
+            "app-press inline-flex size-6 shrink-0 items-center justify-center rounded-control-sm",
             "text-white/45 transition-[color,background-color,opacity] hover:bg-white/10 hover:text-white",
             "opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100",
             "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
@@ -93,7 +93,7 @@ export function SuggestionRow({
           onClick={onDismiss}
           aria-label={`Dismiss suggestion: ${label}`}
           className={cn(
-            "app-press inline-flex size-6 shrink-0 items-center justify-center rounded-md",
+            "app-press inline-flex size-6 shrink-0 items-center justify-center rounded-control-sm",
             "text-white/45 transition-[color,background-color,opacity] hover:bg-white/10 hover:text-white",
             "opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100",
             "outline-none focus-visible:ring-2 focus-visible:ring-white/40",

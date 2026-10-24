@@ -63,7 +63,7 @@ export function Tabs<T extends string = string>({
 function listClassName(variant: TabsVariant, className?: string): string {
   if (variant === "segmented") {
     return cn(
-      "inline-flex items-center gap-1 rounded-2xl bg-black/20 p-1 backdrop-blur-sm",
+      "inline-flex items-center gap-1 rounded-surface bg-black/20 p-1 backdrop-blur-sm",
       className,
     );
   }
@@ -85,7 +85,7 @@ function triggerClassName(variant: TabsVariant): string {
   if (variant === "segmented") {
     return cn(
       base,
-      "grid h-9 min-w-14 place-items-center gap-1.5 rounded-[14px] px-3 text-sm font-medium",
+      "grid h-9 min-w-14 place-items-center gap-1.5 rounded-control px-3 text-sm font-medium",
       "active:scale-[0.96]",
       "text-gray-800 hover:text-gray-900",
       "data-[state=active]:bg-white/12 data-[state=active]:text-gray-1000",

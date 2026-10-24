@@ -72,7 +72,7 @@ export function AppModal({
           data-app-theme={dataTheme}
           className={cn(
             "app fixed inset-x-0 bottom-0 z-101 flex max-h-[90vh] flex-col",
-            "rounded-t-3xl bg-app-bg-1 text-app-fg-4 outline-none",
+            "rounded-t-panel bg-app-bg-1 text-app-fg-4 outline-none",
             className,
           )}
         >

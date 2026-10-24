@@ -46,7 +46,7 @@ export function HeroPanel({ provider }: { provider: IntegrationPage }) {
     <div
       aria-hidden
       className={cn(
-        "app-card-in relative h-[200px] w-full overflow-hidden rounded-3xl",
+        "app-card-in relative h-[200px] w-full overflow-hidden rounded-panel",
         "bg-app-bg-2",
       )}
       style={{ animationDelay: "60ms" }}

@@ -227,14 +227,6 @@
   --app-orange-3: #ffa366;
   --app-orange-4: #f76808;
 
-  /* Radius scale — app grammar lives at the extremes (small + 16px + full). */
-  --app-radius-1: 0.125rem;
-  --app-radius-2: 0.25rem;
-  --app-radius-3: 0.375rem;
-  --app-radius-4: 0.5rem;
-  --app-radius-5: 0.75rem;
-  --app-radius-6: 1rem;
-
   /* Shadow stack used everywhere — drop + hairline-as-border, all in one box-shadow */
   --app-shadow-elevated: 0 1px 1px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.05);
   --app-shadow-elevated-hover: 0 1px 1px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.1);
@@ -660,13 +652,17 @@
   --color-app-orange-3: var(--app-orange-3);
   --color-app-orange-4: var(--app-orange-4);
 
-  /* Radius utilities — rounded-app-1 .. rounded-app-6 */
-  --radius-app-1: var(--app-radius-1);
-  --radius-app-2: var(--app-radius-2);
-  --radius-app-3: var(--app-radius-3);
-  --radius-app-4: var(--app-radius-4);
-  --radius-app-5: var(--app-radius-5);
-  --radius-app-6: var(--app-radius-6);
+  /* Radius by role. Pick the tier from what the element is, not from how
+   * round it should look: a 36px nav row and a 32px button are both
+   * `control`. A container is its inner tier plus its padding, so a 14px
+   * menu with `p-1` holds 10px items. Pills, avatars, and dots stay
+   * `rounded-full`. `cn()` in lib/utils.ts lists the same names so
+   * tailwind-merge resolves a conflicting override. */
+  --radius-control-xs: 6px; /* 20px and smaller: kbd, checkbox, tag, skeleton bar */
+  --radius-control-sm: 8px; /* 24-28px: small buttons, icon buttons, menu triggers */
+  --radius-control: 10px; /* 32-40px: buttons, nav and thread rows, inputs, menu items */
+  --radius-surface: 14px; /* cards, banners, menus, popovers, toasts, message bubbles */
+  --radius-panel: 20px; /* app shell, sidebar, rail, composer, dialogs */
 }
 
 @layer base {

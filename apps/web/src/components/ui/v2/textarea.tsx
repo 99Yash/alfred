@@ -24,7 +24,7 @@ export function AppTextarea({
       rows={rows ?? (variant === "card" ? 4 : 1)}
       readOnly={readOnly}
       className={cn(
-        "block w-full resize-none rounded-2xl px-3.5 py-2.5 text-sm",
+        "block w-full resize-none rounded-surface px-3.5 py-2.5 text-sm",
         "transition-shadow",
         "placeholder:text-app-fg-2",
         variant === "card"

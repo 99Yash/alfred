@@ -30,7 +30,7 @@ const MARKDOWN_CLASSES = cn(
   "[&_a]:text-app-purple-4 [&_a]:underline [&_a]:underline-offset-2",
   "[&_li]:my-0.5 [&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5",
   // Inline code only; fenced blocks render through the shared `pre` override.
-  "[&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-app-bg-2 [&_:not(pre)>code]:px-1 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:text-[0.9em]",
+  "[&_:not(pre)>code]:rounded-control-xs [&_:not(pre)>code]:bg-app-bg-2 [&_:not(pre)>code]:px-1 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:text-[0.9em]",
   "[&_h1]:text-lg [&_h1]:font-semibold [&_h2]:text-base [&_h2]:font-semibold",
   "[&_blockquote]:border-l-2 [&_blockquote]:border-app-fg-a1 [&_blockquote]:pl-3 [&_blockquote]:text-app-fg-3 [&_strong]:font-semibold",
   // GFM tables: the table scrolls inside the bubble, with row dividers and tabular figures.
@@ -95,7 +95,7 @@ const FAILURE_PRESENTATION = {
 const LEGACY_FAILURE = { message: "This reply didn't finish.", retry: "same" } as const;
 
 const FAILURE_ACTION_CLASS = cn(
-  "inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[13px] font-medium",
+  "inline-flex shrink-0 items-center gap-1 rounded-control px-2 py-1 text-[13px] font-medium",
   "text-app-fg-3 hover:bg-app-red-2 hover:text-app-fg-4",
   "transition-[background-color,color] duration-150",
   "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
@@ -170,7 +170,7 @@ function MessageAttachments({ attachments }: { attachments: SyncedChatAttachment
 
 function AttachmentPlaceholder({ label, onRetry }: { label: string; onRetry?: () => void }) {
   const className =
-    "grid size-40 place-items-center rounded-xl border border-app-fg-a1/30 bg-app-bg-2 px-2 text-center text-xs text-app-fg-3";
+    "grid size-40 place-items-center rounded-surface border border-app-fg-a1/30 bg-app-bg-2 px-2 text-center text-xs text-app-fg-3";
 
   if (onRetry) {
     return (
@@ -218,7 +218,7 @@ function MessageAttachment({
   }
 
   const className =
-    "block size-40 overflow-hidden rounded-xl border border-app-fg-a1/30 bg-app-bg-2";
+    "block size-40 overflow-hidden rounded-surface border border-app-fg-a1/30 bg-app-bg-2";
 
   const thumbnail = (
     <img
@@ -281,7 +281,7 @@ export function MessageBubble({
           </div>
         ) : null}
         {body.length > 0 ? (
-          <div className="max-w-[80%] rounded-2xl bg-app-bg-2 px-4 py-2.5 text-sm leading-relaxed tracking-tight whitespace-pre-wrap text-app-fg-4">
+          <div className="max-w-[80%] rounded-surface bg-app-bg-2 px-4 py-2.5 text-sm leading-relaxed tracking-tight whitespace-pre-wrap text-app-fg-4">
             {body}
           </div>
         ) : null}
@@ -330,7 +330,7 @@ export function MessageBubble({
           role="alert"
           className={cn(
             "inline-flex w-fit max-w-[80%] flex-wrap items-center gap-x-3 gap-y-1.5",
-            "rounded-xl bg-app-red-1 px-3 py-2",
+            "rounded-surface bg-app-red-1 px-3 py-2",
           )}
         >
           <p className="text-[13px] leading-snug text-app-red-4">{failureMessage}</p>
@@ -427,7 +427,7 @@ export function CopyMessageButton({
         aria-label={copied ? "Copied" : "Copy message"}
         title={copied ? "Copied" : "Copy message"}
         className={cn(
-          "inline-flex size-7 items-center justify-center rounded-lg",
+          "inline-flex size-7 items-center justify-center rounded-control-sm",
           "text-app-fg-2 hover:bg-app-bg-2 hover:text-app-fg-4",
           "transition-[background-color,color] duration-150",
           "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",

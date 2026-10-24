@@ -143,7 +143,7 @@ function Disclosure({ summary, children }: { summary: string; children: React.Re
         className={cn(
           "flex cursor-pointer list-none items-center gap-1.5 text-xs font-medium text-app-fg-3",
           "transition-colors hover:text-app-fg-4",
-          "rounded outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
+          "rounded-control-xs outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
           "[&::-webkit-details-marker]:hidden",
         )}
       >

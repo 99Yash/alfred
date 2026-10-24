@@ -25,7 +25,7 @@ export function IconButton({
       aria-pressed={onClick ? active : undefined}
       onClick={onClick}
       className={cn(
-        "inline-flex size-8 items-center justify-center rounded-lg",
+        "inline-flex size-8 items-center justify-center rounded-control",
         "app-press transition-colors",
         "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
         active

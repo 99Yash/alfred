@@ -1084,6 +1084,12 @@ const LINE_FILE = "packages/assistant/src/connections/ingestion/chat-media.ts";
  */
 const OBJECT_STATE_FILE = "packages/assistant/src/connections/object-state/store.ts";
 
+/** A production web file. `raw-radius-class` names its own `paths`. */
+const WEB_APP_FILE = "apps/web/src/lib/shell/app-sidebar/thread-content.tsx";
+
+/** A landing-page file, which keeps the dimension radius grammar on purpose. */
+const WEB_LANDING_FILE = "apps/web/src/components/landing/hero-band.tsx";
+
 /**
  * @type {{name: string, caught: boolean, code: string, file?: string, rule?: string, lanes?: "gate"|"all"}[]} `file`
  *   defaults to {@link LINE_FILE}, as in {@link CASES}.
@@ -1262,6 +1268,43 @@ const LINE_CASES = [
     name: "object-state-row-lock-mode — FOR UPDATE outside the module stays the package's idiom",
     caught: false,
     code: `      .for("update")`,
+  },
+  {
+    // `raw-radius-class` names its own `paths`. These fix it in both
+    // directions: a t-shirt size, an arbitrary px value, and a variant-prefixed
+    // side class fire in the app; the role tiers and the shape classes stay
+    // quiet; and the same raw class on the landing page stays quiet.
+    name: "raw-radius-class — a t-shirt radius on a thread row is a local guess",
+    caught: true,
+    rule: "raw-radius-class",
+    code: `          "inline-flex h-9 w-full items-center gap-2 rounded-xl pr-2 pl-3 text-left",`,
+    file: WEB_APP_FILE,
+  },
+  {
+    name: "raw-radius-class — an arbitrary px radius is a local guess",
+    caught: true,
+    rule: "raw-radius-class",
+    code: `  md: "h-8 px-2.5 text-sm gap-2 rounded-[10px]",`,
+    file: WEB_APP_FILE,
+  },
+  {
+    name: "raw-radius-class — a variant-prefixed side radius is still raw",
+    caught: true,
+    rule: "raw-radius-class",
+    code: `      className="size-20 sm:rounded-t-3xl"`,
+    file: WEB_APP_FILE,
+  },
+  {
+    name: "raw-radius-class — role tiers and shape classes are the intended form",
+    caught: false,
+    code: `  "rounded-control-sm rounded-t-panel rounded-full rounded-[inherit] rounded-none",`,
+    file: WEB_APP_FILE,
+  },
+  {
+    name: "raw-radius-class — the landing page keeps the dimension grammar",
+    caught: false,
+    code: `          "inline-flex h-9 w-full items-center gap-2 rounded-xl pr-2 pl-3 text-left",`,
+    file: WEB_LANDING_FILE,
   },
   {
     // `unowned-live-confirmation-proof` is the only witness that a caller's

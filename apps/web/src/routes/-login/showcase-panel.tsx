@@ -34,14 +34,14 @@ export function ShowcasePanel() {
           <div
             aria-hidden
             className={cn(
-              "absolute inset-x-3 top-3 bottom-[-12px] rounded-2xl bg-app-bg-1",
+              "absolute inset-x-3 top-3 bottom-[-12px] rounded-surface bg-app-bg-1",
               "shadow-[0_1px_1px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.04)]",
               "opacity-70",
             )}
           />
           <div
             className={cn(
-              "relative space-y-4 rounded-2xl bg-app-bg-1 p-5",
+              "relative space-y-4 rounded-surface bg-app-bg-1 p-5",
               "shadow-[0_1px_1px_rgba(0,0,0,0.06),0_0_0_1px_rgba(0,0,0,0.05),0_12px_32px_-12px_rgba(0,0,0,0.10)]",
             )}
           >

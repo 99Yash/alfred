@@ -132,7 +132,7 @@ export function MarkdownRenderer({
         "[&_li]:pl-0.5",
         "[&_blockquote]:border-l-2 [&_blockquote]:pl-3",
         // `anywhere` breaks a long token only when it cannot fit; `break-all` splits every token.
-        "[&_:not(pre)>code]:rounded [&_:not(pre)>code]:px-1 [&_:not(pre)>code]:py-px",
+        "[&_:not(pre)>code]:rounded-control-xs [&_:not(pre)>code]:px-1 [&_:not(pre)>code]:py-px",
         "[&_:not(pre)>code]:font-mono",
         "[&_:not(pre)>code]:wrap-anywhere",
         // display:block makes a wide table scroll instead of losing its columns.
@@ -143,7 +143,7 @@ export function MarkdownRenderer({
         "[&_td]:wrap-break-word [&_th]:wrap-break-word",
         "[&_hr]:border-t",
         // Cap width so a large image cannot widen the rail.
-        "[&_img]:h-auto [&_img]:max-w-full [&_img]:rounded",
+        "[&_img]:h-auto [&_img]:max-w-full [&_img]:rounded-control-xs",
         "[&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden",
         "[&_.katex]:text-[1em]",
         // `min-w-0` lets the flex parent shrink us, so a long URL cannot force the card open.

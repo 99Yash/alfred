@@ -37,7 +37,7 @@ export function QuestionApprovalCard({
           <img
             src="/images/logo/alfred-logo.svg"
             alt=""
-            className="size-8 shrink-0 rounded-[9px]"
+            className="size-8 shrink-0 rounded-control"
           />
           <div className="min-w-0 flex-1">
             <h2 className="text-[15px] leading-snug font-medium text-pretty text-app-fg-4">
@@ -48,7 +48,7 @@ export function QuestionApprovalCard({
                 to="/workflows/$workflow"
                 params={{ workflow: staging.workflowSlug }}
                 className={cn(
-                  "inline-flex items-center gap-1 rounded font-medium transition-colors hover:text-app-fg-4",
+                  "inline-flex items-center gap-1 rounded-control-xs font-medium transition-colors hover:text-app-fg-4",
                   "app-focus",
                 )}
               >

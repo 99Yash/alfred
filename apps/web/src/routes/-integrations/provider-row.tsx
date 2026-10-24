@@ -44,7 +44,7 @@ export function ProviderRow({ provider, index }: { provider: IntegrationPage; in
       params={{ slug: provider.slug }}
       className={cn(
         cardClassName,
-        "overflow-hidden rounded-2xl bg-app-bg-1",
+        "overflow-hidden rounded-surface bg-app-bg-1",
         "shadow-[var(--app-shadow-elevated)]",
         "app-press transition-shadow",
         "hover:shadow-[var(--app-shadow-elevated-hover)]",

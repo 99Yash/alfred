@@ -147,7 +147,7 @@ export function InboxFeed({
           }}
           aria-pressed={unreadOnly}
           className={cn(
-            "-mx-1.5 inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5",
+            "-mx-1.5 inline-flex items-center gap-1.5 rounded-control-sm px-1.5 py-0.5",
             "text-[10.5px] font-medium tracking-tight uppercase transition-colors",
             "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
             unreadOnly
@@ -184,7 +184,7 @@ export function InboxFeed({
               onClick={() => onMarkRead(visibleUnreadIds)}
               className={cn(
                 "text-[11px] text-white/65 transition-colors hover:text-white",
-                "rounded outline-none focus-visible:ring-2 focus-visible:ring-white/40",
+                "rounded-control-xs outline-none focus-visible:ring-2 focus-visible:ring-white/40",
                 "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-white/65",
               )}
             >
@@ -279,7 +279,7 @@ function PaginationButton({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        "inline-flex size-6 items-center justify-center rounded-md",
+        "inline-flex size-6 items-center justify-center rounded-control-sm",
         "app-press transition-colors",
         "text-white/70 hover:bg-white/10 hover:text-white",
         "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-white/70",
@@ -295,7 +295,7 @@ function SearchBar({ value, onChange }: { value: string; onChange: (v: string) =
   return (
     <div
       className={cn(
-        "-mx-0.5 flex items-center gap-1.5 rounded-lg px-2 py-1.5",
+        "-mx-0.5 flex items-center gap-1.5 rounded-control px-2 py-1.5",
         // White-alpha so the field shows on the rail's video; the purple ring is too dim there.
         "bg-white/6 ring-1 ring-white/15 ring-inset",
         "focus-within:bg-white/10 focus-within:ring-white/45",
@@ -345,7 +345,7 @@ function InboxRow({
   const muted = item.attentionBand === "muted";
 
   const sharedClass = cn(
-    "group relative -mx-0.5 w-full rounded-xl p-2 text-left",
+    "group relative -mx-0.5 w-full rounded-surface p-2 text-left",
     "flex items-start gap-2.5",
     muted && "opacity-55 hover:opacity-100 focus-visible:opacity-100",
     interactive
@@ -457,7 +457,10 @@ function SenderAvatar({ item }: { item: RailInboxItem }) {
           alt=""
           loading="lazy"
           decoding="async"
-          className={cn("relative z-10 size-4 rounded-[3px]", "bg-white/85 p-px dark:bg-white/90")}
+          className={cn(
+            "relative z-10 size-4 rounded-control-xs",
+            "bg-white/85 p-px dark:bg-white/90",
+          )}
           onError={(e) => {
             e.currentTarget.style.display = "none";
           }}
@@ -491,7 +494,7 @@ function CategoryChip({
   onChange?: ((category: TriageCategory) => void) | undefined;
 }) {
   const chipClass = cn(
-    "inline-flex h-4 items-center rounded-md px-1.5",
+    "inline-flex h-4 items-center rounded-control-xs px-1.5",
     "text-[10px] font-medium tracking-tight whitespace-nowrap uppercase",
     source === "user" && "gap-1 ring-1 ring-current/25 ring-inset",
     CATEGORY_CHIP[category],
@@ -541,7 +544,7 @@ function CategoryChip({
           align="start"
           sideOffset={6}
           className={cn(
-            "z-50 min-w-[168px] rounded-lg p-1",
+            "z-50 min-w-[168px] rounded-control p-1",
             "bg-app-bg-1/95 text-app-fg-4 shadow-xl ring-1 ring-white/15 backdrop-blur",
           )}
         >
@@ -550,7 +553,7 @@ function CategoryChip({
               key={option}
               onSelect={() => onChange(option)}
               className={cn(
-                "flex h-8 cursor-default items-center gap-2 rounded-md px-2 select-none",
+                "flex h-8 cursor-default items-center gap-2 rounded-control px-2 select-none",
                 "text-[12px] outline-none data-[highlighted]:bg-white/10",
               )}
             >
@@ -627,7 +630,7 @@ function InboxDetailPane({
           type="button"
           onClick={onClose}
           className={cn(
-            "-mx-1.5 inline-flex items-center gap-1.5 rounded-md px-1.5 py-1",
+            "-mx-1.5 inline-flex items-center gap-1.5 rounded-control-sm px-1.5 py-1",
             // White-alpha, not theme tokens: the video is dark in both themes.
             "text-[11px] font-medium tracking-tight text-white/65 uppercase",
             "transition-colors hover:bg-white/10 hover:text-white",
@@ -646,7 +649,7 @@ function InboxDetailPane({
               "inline-flex items-center gap-1 text-[11px] text-white/65",
               "transition-colors hover:text-white",
               "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
-              "-mx-1.5 rounded-md px-1.5 py-1",
+              "-mx-1.5 rounded-control-sm px-1.5 py-1",
             )}
           >
             Open in Gmail
@@ -738,7 +741,7 @@ function ThreadMessageCard({
     <div
       className={cn(
         // `app-purple-3` is the one purple step with the same hex in both themes.
-        "rounded-xl bg-white/[0.07] ring-1 ring-white/15",
+        "rounded-surface bg-white/[0.07] ring-1 ring-white/15",
         "transition-shadow",
         isSelected && "ring-2 ring-app-purple-3",
       )}
@@ -747,7 +750,7 @@ function ThreadMessageCard({
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "flex w-full items-start gap-2 rounded-xl px-2.5 py-2 text-left",
+          "flex w-full items-start gap-2 rounded-surface px-2.5 py-2 text-left",
           "transition-colors hover:bg-white/[0.06]",
           "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
         )}
@@ -780,7 +783,7 @@ function ThreadMessageCard({
         <div className="space-y-2 px-2.5 pb-2.5">
           {hasHtml ? <ViewToggle value={view} onChange={setView} /> : null}
           {/* Fixed dark glass: `bg-app-bg-1` is white in light mode and washes out over the video. */}
-          <div className="overflow-hidden rounded-lg bg-black/25 ring-1 ring-white/10">
+          <div className="overflow-hidden rounded-control bg-black/25 ring-1 ring-white/10">
             {view === "original" && message.htmlBody ? (
               <EmailHtmlFrame html={message.htmlBody} />
             ) : message.body.trim() ? (
@@ -826,7 +829,7 @@ function ViewToggle({
   onChange: (next: "reader" | "original") => void;
 }) {
   return (
-    <fieldset className="inline-flex items-center gap-0 rounded-md border-0 bg-black/25 p-0.5 text-[10.5px] font-medium tracking-tight uppercase ring-1 ring-white/15">
+    <fieldset className="inline-flex items-center gap-0 rounded-control-sm border-0 bg-black/25 p-0.5 text-[10.5px] font-medium tracking-tight uppercase ring-1 ring-white/15">
       <legend className="sr-only">Message view</legend>
       <ToggleButton active={value === "reader"} onClick={() => onChange("reader")}>
         Reader
@@ -853,7 +856,7 @@ function ToggleButton({
       onClick={onClick}
       aria-pressed={active}
       className={cn(
-        "app-press rounded px-1.5 py-0.5 transition-colors",
+        "app-press rounded-control-xs px-1.5 py-0.5 transition-colors",
         "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
         active ? "bg-white/16 text-white" : "text-white/60 hover:text-white/85",
       )}
@@ -943,7 +946,7 @@ function EmailHtmlFrame({ html }: { html: string }) {
             type="button"
             onClick={() => setShowRemoteMedia(true)}
             className={cn(
-              "app-press shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium",
+              "app-press shrink-0 rounded-control-xs px-1.5 py-0.5 text-[11px] font-medium",
               "text-black/70 ring-1 ring-black/15 hover:bg-black/[0.06]",
               "outline-none focus-visible:ring-2 focus-visible:ring-black/40",
             )}
@@ -1043,7 +1046,7 @@ function AttachmentRow({ attachment, href }: { attachment: InboxAttachment; href
         aria-hidden
         className={cn(
           "inline-flex shrink-0 items-center justify-center",
-          "size-8 rounded-md",
+          "size-8 rounded-control",
           tone,
         )}
       >
@@ -1072,7 +1075,7 @@ function AttachmentRow({ attachment, href }: { attachment: InboxAttachment; href
   );
 
   const shared = cn(
-    "group flex items-center gap-2.5 rounded-lg px-2 py-1.5",
+    "group flex items-center gap-2.5 rounded-control px-2 py-1.5",
     "bg-white/[0.07] ring-1 ring-white/15",
     href
       ? cn(

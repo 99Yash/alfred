@@ -399,7 +399,7 @@ function UnlockShowcase() {
             key={f.key}
             className="flex items-start gap-3 bg-white/4 p-5 backdrop-blur-sm transition-colors hover:bg-white/[0.07]"
           >
-            <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-white/15 text-white ring-1 ring-white/20 backdrop-blur-sm ring-inset">
+            <span className="grid size-9 shrink-0 place-items-center rounded-control bg-white/15 text-white ring-1 ring-white/20 backdrop-blur-sm ring-inset">
               <f.icon size={17} strokeWidth={2} />
             </span>
             <div className="min-w-0">
@@ -604,7 +604,7 @@ function FinishShowcase() {
             key={tile.key}
             className="flex flex-col gap-3 bg-white/4 p-5 backdrop-blur-sm transition-colors hover:bg-white/[0.07]"
           >
-            <span className="grid size-10 place-items-center rounded-xl bg-white/15 text-white ring-1 ring-white/20 backdrop-blur-sm ring-inset">
+            <span className="grid size-10 place-items-center rounded-control bg-white/15 text-white ring-1 ring-white/20 backdrop-blur-sm ring-inset">
               <tile.icon size={18} strokeWidth={2} />
             </span>
             <div>
@@ -627,7 +627,7 @@ function ShowcaseFrame({ children }: { children: ReactNode }) {
   return (
     <div
       className={cn(
-        "onboarding-panel-in relative isolate overflow-hidden rounded-[24px]",
+        "onboarding-panel-in relative isolate overflow-hidden rounded-panel",
         "bg-white/4 backdrop-blur-xl",
         "ring-1 ring-white/12 ring-inset",
         "shadow-[0_30px_80px_-30px_rgba(15,30,55,0.55)]",

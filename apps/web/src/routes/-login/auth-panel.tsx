@@ -43,7 +43,7 @@ export function AuthPanel({ redirect }: { redirect?: string | undefined }) {
             src="/images/logo/alfred-logo.svg"
             alt="Alfred"
             aria-hidden
-            className="mb-1 inline-block size-9 rounded-2xl shadow-[0_1px_2px_rgba(0,0,0,0.10)]"
+            className="mb-1 inline-block size-9 rounded-control shadow-[0_1px_2px_rgba(0,0,0,0.10)]"
           />
           <h1 className="text-[22px] leading-tight font-medium tracking-[-0.04em] text-app-fg-4">
             Sign in to Alfred

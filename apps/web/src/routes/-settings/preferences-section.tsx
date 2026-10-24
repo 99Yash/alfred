@@ -31,7 +31,7 @@ export function PreferencesSection() {
         icon={Bot}
         tone="purple"
       >
-        <div className="inline-flex h-9 items-center gap-2 rounded-xl bg-app-bg-2 px-3 text-sm text-app-fg-3">
+        <div className="inline-flex h-9 items-center gap-2 rounded-control bg-app-bg-2 px-3 text-sm text-app-fg-3">
           <Sparkles size={13} className="text-app-fg-2" />
           <span>Alfred (default)</span>
         </div>

@@ -228,7 +228,7 @@ export function UsageLine({
     <div
       className={cn(
         "inline-flex max-w-full flex-wrap items-center gap-x-2.5 gap-y-1.5",
-        "rounded-lg px-2.5 py-1.5",
+        "rounded-control px-2.5 py-1.5",
         "text-[11px] leading-none text-app-fg-2 tabular-nums",
         toneClass.container,
       )}
@@ -337,7 +337,7 @@ export function UsageLine({
                 : `${served}${provider ? ` Provider: ${provider.label}.` : ""} ${effortNote}`
             }
           >
-            <span className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-app-fg-4 transition-colors">
+            <span className="inline-flex items-center gap-1.5 rounded-control-sm px-1.5 py-1 text-app-fg-4 transition-colors">
               {fallback ? (
                 <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-app-amber-4" />
               ) : null}

@@ -546,7 +546,7 @@ function FeedFooter() {
           {stream.error ? (
             <div
               role="alert"
-              className="rounded-md border border-red-200 bg-red-50 px-3 py-2.5 text-[13px] leading-snug text-red-800 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200"
+              className="rounded-control-sm border border-red-200 bg-red-50 px-3 py-2.5 text-[13px] leading-snug text-red-800 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200"
             >
               {stream.error}
             </div>
@@ -609,7 +609,7 @@ function prevUserTurn(
   return undefined;
 }
 
-/** The floating pill's band at the feed bottom (`bottom-4` + `h-9`, rounded up). A card under it is not in view. */
+/** The floating pill's band at the feed bottom (`bottom-4` + `h-9`, rounded-control up). A card under it is not in view. */
 const PILL_ZONE_PX = 64;
 
 /** What the floating pill offers. One union, so a new state does not add a second content prop. */
@@ -638,7 +638,11 @@ function pillFace(state: PillState): PillFace | null {
         iconKey: "alfred",
         icon: (
           <span className="chat-think-mark inline-flex">
-            <img src="/images/logo/alfred-logo.svg" alt="" className="size-[18px] rounded-[5px]" />
+            <img
+              src="/images/logo/alfred-logo.svg"
+              alt=""
+              className="size-[18px] rounded-control-xs"
+            />
           </span>
         ),
         label: state.label,
@@ -963,7 +967,7 @@ function FollowUpSuggestions({
           {i < 9 ? (
             <kbd
               className={cn(
-                "inline-flex h-[17px] min-w-[17px] shrink-0 items-center justify-center rounded-md px-1",
+                "inline-flex h-[17px] min-w-[17px] shrink-0 items-center justify-center rounded-control-sm px-1",
                 "font-sans text-[10px] leading-none font-medium tabular-nums",
                 "bg-app-bg-a2 text-app-fg-2 transition-colors duration-150",
                 "group-hover/chip:bg-app-bg-3 group-hover/chip:text-app-fg-3",
@@ -1026,7 +1030,7 @@ function ThinkingIndicator({
     <div className="animate-chat-in flex items-center gap-2.5 text-[14px] text-app-fg-3">
       {/* Pulsing Alfred mark instead of a spinner. */}
       <span className="chat-think-mark inline-flex shrink-0">
-        <img src="/images/logo/alfred-logo.svg" alt="" className="size-[18px] rounded-[5px]" />
+        <img src="/images/logo/alfred-logo.svg" alt="" className="size-[18px] rounded-control-xs" />
       </span>
       <span className="animate-chat-shimmer">
         {label}

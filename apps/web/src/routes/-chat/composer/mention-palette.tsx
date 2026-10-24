@@ -65,7 +65,7 @@ export function MentionPalette({
       ref={rootRef}
       className={cn(
         "absolute inset-x-0 bottom-full z-20 mb-2",
-        "app-elevated rounded-2xl bg-app-bg-1 p-1.5",
+        "app-elevated rounded-surface bg-app-bg-1 p-1.5",
         "max-h-72 overflow-y-auto",
         // Grows from the composer edge. `motion-safe:` is needed: the global reduce block skips arbitrary animations.
         "origin-bottom",
@@ -133,7 +133,7 @@ const ROW_PRESENTATION: RowPresentationTable = {
       srText: "Not connected",
       label: "Connect",
       className:
-        "shrink-0 rounded-md bg-app-bg-2 px-1.5 py-0.5 text-[10px] font-medium text-app-fg-3",
+        "shrink-0 rounded-control-sm bg-app-bg-2 px-1.5 py-0.5 text-[10px] font-medium text-app-fg-3",
     },
   },
   unavailable: {
@@ -200,7 +200,7 @@ function MentionRow({
       onMouseEnter={() => onHover(index)}
       onClick={() => onPick(option)}
       className={cn(
-        "app-press flex w-full items-center gap-2.5 rounded-xl px-2 py-1.5 text-left",
+        "app-press flex w-full items-center gap-2.5 rounded-surface px-2 py-1.5 text-left",
         // Both together so the press scale interpolates.
         "transition-[background-color,scale]",
         isActive ? "bg-app-bg-a2" : "hover:bg-app-bg-a2",
@@ -236,7 +236,7 @@ function MentionRow({
         </>
       ) : null}
       {isActive ? (
-        <span className="shrink-0 rounded bg-app-bg-2 px-1.5 py-0.5 text-[10px] text-app-fg-2 tabular-nums">
+        <span className="shrink-0 rounded-control-xs bg-app-bg-2 px-1.5 py-0.5 text-[10px] text-app-fg-2 tabular-nums">
           ↵
         </span>
       ) : null}
@@ -258,7 +258,7 @@ function ConnectPanel({
 }) {
   return (
     <section aria-labelledby={labelledById} className="app-fade-in px-1 pb-0.5">
-      <div className="flex items-center gap-2.5 rounded-xl bg-app-bg-a2 p-2">
+      <div className="flex items-center gap-2.5 rounded-surface bg-app-bg-a2 p-2">
         <OptionAvatar
           option={option}
           className="grid size-7 shrink-0 place-items-center rounded-full bg-app-bg-1 opacity-80"

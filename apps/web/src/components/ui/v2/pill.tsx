@@ -1,4 +1,4 @@
-/** 32px rounded pill, as a button or a static chip. `chevron` marks a menu trigger. */
+/** 32px rounded-control-xs pill, as a button or a static chip. `chevron` marks a menu trigger. */
 
 import type { ButtonHTMLAttributes, ReactNode, Ref } from "react";
 import { cn } from "~/lib/utils";
@@ -42,7 +42,7 @@ export function AppPill({
       type={type ?? "button"}
       className={cn(
         "inline-flex items-center justify-center gap-1.5",
-        "h-8 rounded-lg px-2.5 text-sm font-medium whitespace-nowrap",
+        "h-8 rounded-control px-2.5 text-sm font-medium whitespace-nowrap",
         "transition-[box-shadow,background-color,scale]",
         "app-focus app-press",
         isAccent && tone ? TONE[tone] : cn("bg-app-bg-1 text-app-fg-4", "app-elevated"),

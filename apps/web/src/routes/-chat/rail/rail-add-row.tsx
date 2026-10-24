@@ -3,7 +3,7 @@ import { useState } from "react";
 import { cn } from "~/lib/utils";
 
 const WRAPPER = cn(
-  "group -mx-0.5 w-full rounded-xl p-2",
+  "group -mx-0.5 w-full rounded-surface p-2",
   "border border-dashed border-white/15 focus-within:border-white/35 hover:border-white/35",
   "flex items-center gap-2 transition-colors",
 );

@@ -281,7 +281,7 @@ function McpToolPolicyReviewView({
   onClear,
 }: McpToolPolicyReviewViewProps) {
   return (
-    <div className="space-y-2 rounded-lg bg-app-bg-2 p-2">
+    <div className="space-y-2 rounded-control bg-app-bg-2 p-2">
       <p className="text-xs font-medium text-app-fg-4">Approval policy</p>
 
       {loading ? (

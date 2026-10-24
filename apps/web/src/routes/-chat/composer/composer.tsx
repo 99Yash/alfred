@@ -456,7 +456,7 @@ export function Composer({
         ) : null}
         <div
           className={cn(
-            "composer-frost @container/composer relative overflow-hidden rounded-3xl p-2",
+            "composer-frost @container/composer relative overflow-hidden rounded-panel p-2",
             // Frosted surface (see `.composer-frost`).
             "shadow-[var(--frost-shadow)]",
             "app-focus-within transition-shadow",
@@ -475,7 +475,7 @@ export function Composer({
           <div
             aria-hidden
             className={cn(
-              "pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-3xl bg-app-background/70 backdrop-blur-sm",
+              "pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-panel bg-app-background/70 backdrop-blur-sm",
               "transition-opacity duration-100 motion-reduce:transition-none",
               isDragging && !inputDisabled ? "opacity-100" : "opacity-0",
             )}
@@ -528,7 +528,7 @@ export function Composer({
               </div>
             ) : null}
             {shownQuote && (edit || onClearQuote) ? (
-              <div className="app-fade-in mx-1 mb-1 flex items-start gap-2 rounded-2xl bg-app-bg-a2 py-2 pr-2 pl-3">
+              <div className="app-fade-in mx-1 mb-1 flex items-start gap-2 rounded-surface bg-app-bg-a2 py-2 pr-2 pl-3">
                 <CornerDownRight size={14} aria-hidden className="mt-0.5 shrink-0 text-app-fg-2" />
                 <p className="line-clamp-2 min-w-0 flex-1 text-[13px] leading-snug whitespace-pre-wrap text-app-fg-3">
                   {shownQuote}

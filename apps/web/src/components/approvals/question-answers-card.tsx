@@ -13,7 +13,7 @@ export function QuestionAnswersCard({ summary }: { summary: AskUserSummary }) {
   return (
     <section
       aria-label={answered ? "Your answers" : "Question not answered"}
-      className="rounded-xl bg-app-bg-2/60 p-3 shadow-[0_0_0_1px_var(--app-bg-a2)]"
+      className="rounded-surface bg-app-bg-2/60 p-3 shadow-[0_0_0_1px_var(--app-bg-a2)]"
     >
       <div className="flex items-center gap-2">
         <MessageCircleQuestion size={14} className="shrink-0 text-app-fg-3" />
@@ -61,7 +61,7 @@ export function QuestionAnswersCard({ summary }: { summary: AskUserSummary }) {
                   {answer.selectedOptions.map((label) => (
                     <span
                       key={label}
-                      className="rounded-md bg-app-purple-1 px-1.5 py-0.5 text-[12px] font-medium text-app-fg-4"
+                      className="rounded-control-sm bg-app-purple-1 px-1.5 py-0.5 text-[12px] font-medium text-app-fg-4"
                     >
                       {label}
                     </span>

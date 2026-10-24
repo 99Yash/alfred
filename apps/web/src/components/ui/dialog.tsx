@@ -58,7 +58,7 @@ export function DialogContent({
           "-translate-x-1/2 -translate-y-1/2",
           "w-[calc(100vw-2rem)] max-w-lg",
           themed ? "app app-frost-overlay" : "frost-popover",
-          "rounded-3xl",
+          "rounded-panel",
           "overflow-hidden",
           "data-[state=open]:animate-[dialog-content-in_180ms_cubic-bezier(0.2,0,0,1)]",
           "data-[state=closed]:animate-[dialog-content-out_140ms_cubic-bezier(0.2,0,0,1)]",

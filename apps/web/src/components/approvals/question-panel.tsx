@@ -52,10 +52,10 @@ export function AskUserQuestionPanel({
         </MarkdownRenderer>
       ) : null}
 
-      <div className="rounded-xl bg-app-bg-2/60 p-3 shadow-[0_0_0_1px_var(--app-bg-a2)]">
+      <div className="rounded-surface bg-app-bg-2/60 p-3 shadow-[0_0_0_1px_var(--app-bg-a2)]">
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">
-            <span className="inline-flex max-w-full items-center truncate rounded-md bg-app-bg-1 px-1.5 py-0.5 text-[11px] font-medium text-app-fg-3">
+            <span className="inline-flex max-w-full items-center truncate rounded-control-sm bg-app-bg-1 px-1.5 py-0.5 text-[11px] font-medium text-app-fg-3">
               {question.header}
             </span>
             <p
@@ -233,7 +233,7 @@ function PagerButton({
         onClick();
       }}
       className={cn(
-        "inline-flex size-6 items-center justify-center rounded-lg text-app-fg-3",
+        "inline-flex size-6 items-center justify-center rounded-control-sm text-app-fg-3",
         "app-focus app-press transition-colors",
         inert
           ? "cursor-not-allowed opacity-40"
@@ -297,7 +297,7 @@ function OptionList({
           <label
             key={option.label}
             className={cn(
-              "relative flex items-start gap-2.5 rounded-xl px-2.5 py-2",
+              "relative flex items-start gap-2.5 rounded-surface px-2.5 py-2",
               "transition-colors",
               checked ? "bg-app-purple-1" : "hover:bg-app-bg-a2",
               disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
@@ -314,13 +314,13 @@ function OptionList({
             />
             <span
               aria-hidden
-              className="pointer-events-none absolute inset-0 rounded-xl peer-focus-visible:outline peer-focus-visible:outline-1 peer-focus-visible:-outline-offset-1 peer-focus-visible:outline-[var(--app-accent-ring)]"
+              className="pointer-events-none absolute inset-0 rounded-surface peer-focus-visible:outline peer-focus-visible:outline-1 peer-focus-visible:-outline-offset-1 peer-focus-visible:outline-[var(--app-accent-ring)]"
             />
             <span
               aria-hidden
               className={cn(
                 "mt-0.5 grid size-4 shrink-0 place-items-center transition-colors",
-                multi ? "rounded-[5px]" : "rounded-full",
+                multi ? "rounded-control-xs" : "rounded-full",
                 checked
                   ? "bg-[var(--app-accent-from)] text-[var(--app-accent-fg)]"
                   : "bg-app-bg-1 shadow-[0_0_0_1px_var(--app-fg-a1)]",

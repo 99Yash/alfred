@@ -53,7 +53,7 @@ function McpRecoveryCard({
           {operation.lastError ? ` · ${operation.lastError}` : ""}
         </p>
         {operation.displayInput !== null ? (
-          <pre className="max-h-32 overflow-auto rounded-lg bg-app-bg-2 p-2 text-xs text-app-fg-3">
+          <pre className="max-h-32 overflow-auto rounded-control bg-app-bg-2 p-2 text-xs text-app-fg-3">
             {JSON.stringify(operation.displayInput, null, 2)}
           </pre>
         ) : null}

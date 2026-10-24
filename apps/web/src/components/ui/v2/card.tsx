@@ -16,7 +16,7 @@ export function AppCard({ className, padded = true, interactive, ref, ...rest }:
     <div
       ref={ref}
       className={cn(
-        "w-full overflow-hidden rounded-2xl bg-app-bg-1",
+        "w-full overflow-hidden rounded-surface bg-app-bg-1",
         /* Theme-aware: a black shadow is invisible on the dark background. */
         "shadow-[var(--app-shadow-elevated)]",
         padded && "p-5",

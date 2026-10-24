@@ -64,7 +64,7 @@ export const BriefingLink: NonNullable<Components["a"]> = ({
       target="_blank"
       rel="noreferrer noopener"
       className={cn(
-        "-mx-0.5 inline-flex items-center gap-1 rounded-md px-1.5 align-middle leading-[1.2] font-medium whitespace-normal",
+        "-mx-0.5 inline-flex items-center gap-1 rounded-control-sm px-1.5 align-middle leading-[1.2] font-medium whitespace-normal",
         "!text-app-fg-4 !no-underline",
         "bg-app-bg-3/50 transition-colors duration-150",
         "hover:bg-app-bg-3",

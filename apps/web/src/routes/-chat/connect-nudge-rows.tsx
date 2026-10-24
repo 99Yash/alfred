@@ -38,7 +38,7 @@ function NudgeRows({ nudges }: { nudges: readonly ChatConnectNudge[] }) {
           key={view.integration}
           className={cn(
             "app-fade-in flex w-fit max-w-full flex-wrap items-center gap-x-3 gap-y-1.5",
-            "rounded-xl bg-app-bg-2 px-3 py-2",
+            "rounded-surface bg-app-bg-2 px-3 py-2",
           )}
         >
           <span className="flex min-w-0 items-center gap-2">
@@ -54,7 +54,7 @@ function NudgeRows({ nudges }: { nudges: readonly ChatConnectNudge[] }) {
               })
             }
             className={cn(
-              "group/nudge inline-flex items-center gap-1 rounded-md text-[13px] font-medium",
+              "group/nudge inline-flex items-center gap-1 rounded-control-sm text-[13px] font-medium",
               "text-app-purple-4 outline-none",
               "focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
             )}

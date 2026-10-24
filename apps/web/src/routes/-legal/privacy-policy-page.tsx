@@ -50,7 +50,7 @@ export function PrivacyPolicyPage() {
       </LegalSection>
 
       <LegalSection heading="Limited Use disclosure">
-        <p className="rounded-xl border border-neutral-800 bg-neutral-900/50 p-4 text-neutral-300">
+        <p className="rounded-surface border border-neutral-800 bg-neutral-900/50 p-4 text-neutral-300">
           Alfred&rsquo;s use and transfer of information received from Google APIs to any other app
           will adhere to the{" "}
           <a

@@ -48,13 +48,13 @@ function TryAlfredBanner() {
       <div
         className={cn(
           "frost-border flex flex-wrap items-center gap-x-4 gap-y-3",
-          "rounded-[28px] bg-app-bg-2/60 px-4 py-3.5 backdrop-blur-md",
+          "rounded-panel bg-app-bg-2/60 px-4 py-3.5 backdrop-blur-md",
         )}
       >
         <img
           src="/images/logo/alfred-logo.svg"
           alt=""
-          className="size-10 shrink-0 rounded-[12px]"
+          className="size-10 shrink-0 rounded-control"
         />
         <div className="flex min-w-0 flex-col">
           <p className="text-sm font-medium text-app-fg-4">This is Alfred.</p>
@@ -103,7 +103,7 @@ function ArtifactPanel({ artifact }: { artifact: SharedThreadArtifact }) {
   const images = useMarkdownImageMode();
 
   return (
-    <section className="rounded-2xl border border-app-bg-3/70 bg-app-bg-1 p-5">
+    <section className="rounded-surface border border-app-bg-3/70 bg-app-bg-1 p-5">
       <div className="mb-3 flex items-center gap-2">
         {body.kind === "pages" ? (
           <Layers size={14} aria-hidden className="text-app-fg-2" />
@@ -131,7 +131,7 @@ function AttachmentNote({ count, role }: { count: number; role: "user" | "assist
   return (
     <p
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-lg bg-app-bg-2 px-2.5 py-1 text-xs text-app-fg-2",
+        "inline-flex items-center gap-1.5 rounded-control bg-app-bg-2 px-2.5 py-1 text-xs text-app-fg-2",
         role === "user" ? "self-end" : "self-start",
       )}
     >
@@ -241,7 +241,7 @@ function SharedThreadBody({ urlSlug }: { urlSlug: string }) {
             type="button"
             onClick={() => setShowArtifacts((open) => !open)}
             className={cn(
-              "self-start rounded-lg px-2 py-1 text-xs font-medium",
+              "self-start rounded-control px-2 py-1 text-xs font-medium",
               "text-app-fg-3 transition-colors hover:bg-app-bg-a2 hover:text-app-fg-4",
               "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
             )}

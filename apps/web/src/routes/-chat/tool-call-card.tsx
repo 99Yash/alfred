@@ -135,7 +135,7 @@ export function ToolCallCard({
             disabled={!expandable}
             aria-controls={expandable ? panelId : undefined}
             className={cn(
-              "group/toolrow -mx-2 flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-app-fg-2",
+              "group/toolrow -mx-2 flex w-full items-center gap-2 rounded-control px-2 py-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-app-fg-2",
               expandable ? "cursor-pointer" : "cursor-default",
             )}
           >
@@ -207,7 +207,7 @@ export function ToolCallCard({
             {count > 1 ? (
               <span
                 className={cn(
-                  "shrink-0 rounded px-1.5 py-0.5 text-[10px] leading-none font-medium tabular-nums",
+                  "shrink-0 rounded-control-xs px-1.5 py-0.5 text-[10px] leading-none font-medium tabular-nums",
                   failed ? "bg-app-red-2 text-app-red-4" : "bg-app-bg-2 text-app-fg-2",
                 )}
                 aria-label={`${count} times`}
@@ -343,7 +343,7 @@ export function ToolCallCard({
 /** `fetch_url` panel: a linked page card and a peek at the text Alfred read. */
 function FetchUrlDetail({ view, spaced }: { view: FetchUrlView; spaced: boolean }) {
   return (
-    <div className={cn("rounded-lg bg-app-bg-a1 p-2.5", spaced && "mt-1.5")}>
+    <div className={cn("rounded-control bg-app-bg-a1 p-2.5", spaced && "mt-1.5")}>
       <a
         href={view.href}
         target="_blank"
@@ -371,7 +371,7 @@ function WebSearchDetail({ view, spaced }: { view: WebSearchView; spaced: boolea
   return (
     <div
       className={cn(
-        "flex flex-col divide-y divide-app-bg-a2 overflow-hidden rounded-lg bg-app-bg-a1",
+        "flex flex-col divide-y divide-app-bg-a2 overflow-hidden rounded-control bg-app-bg-a1",
         spaced && "mt-1.5",
       )}
     >
@@ -408,7 +408,7 @@ function BadgePill({ badge }: { badge: EvidenceBadge }) {
   return (
     <span
       className={cn(
-        "shrink-0 rounded px-1.5 py-0.5 text-[10px] leading-none font-medium capitalize",
+        "shrink-0 rounded-control-xs px-1.5 py-0.5 text-[10px] leading-none font-medium capitalize",
         BADGE_TONES[badge.tone],
       )}
     >
@@ -427,7 +427,7 @@ function EvidenceListDetail({ view, spaced }: { view: RecordListView; spaced: bo
         : null;
 
   return (
-    <div className={cn("overflow-hidden rounded-lg", spaced && "mt-1.5")}>
+    <div className={cn("overflow-hidden rounded-control", spaced && "mt-1.5")}>
       {view.query ? (
         <p className="flex items-center gap-1.5 border-b border-app-bg-a2 bg-app-bg-a1 px-2.5 py-1.5 text-[11px] text-app-fg-3">
           <Search size={11} aria-hidden className="shrink-0 text-app-fg-2" />
@@ -458,7 +458,7 @@ function EvidenceListDetail({ view, spaced }: { view: RecordListView; spaced: bo
               ) : (
                 <span
                   aria-hidden
-                  className="size-4 shrink-0 rounded-[4px] bg-app-bg-2 ring-1 ring-white/10 ring-inset"
+                  className="size-4 shrink-0 rounded-control-xs bg-app-bg-2 ring-1 ring-white/10 ring-inset"
                 />
               )}
               <span className="min-w-0 flex-1 truncate text-[13px] text-app-fg-4 group-hover/row:underline">
@@ -507,7 +507,7 @@ function EvidenceListDetail({ view, spaced }: { view: RecordListView; spaced: bo
 /** Panel for a single object: linked title, state pill, facts, and a body peek. */
 function EntityDetail({ view, spaced }: { view: EntityView; spaced: boolean }) {
   return (
-    <div className={cn("rounded-lg bg-app-bg-a1 p-2.5", spaced && "mt-1.5")}>
+    <div className={cn("rounded-control bg-app-bg-a1 p-2.5", spaced && "mt-1.5")}>
       {view.href ? (
         <a
           href={view.href}

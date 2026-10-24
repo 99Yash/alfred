@@ -40,7 +40,7 @@ export function WorkflowCard({ workflow, index }: { workflow: WorkflowDefinition
       params={{ workflow: workflow.id }}
       className={cn(
         "app-card-in app-hover-lift app-press",
-        "group flex min-h-[268px] flex-col overflow-hidden rounded-2xl bg-app-bg-1",
+        "group flex min-h-[268px] flex-col overflow-hidden rounded-surface bg-app-bg-1",
         "shadow-[var(--app-shadow-elevated)] hover:shadow-[var(--app-shadow-elevated-hover)]",
         "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
       )}
@@ -62,7 +62,7 @@ export function WorkflowCard({ workflow, index }: { workflow: WorkflowDefinition
       <div className="relative -mt-5 flex flex-1 flex-col p-5">
         <span
           className={cn(
-            "grid size-9 shrink-0 place-items-center rounded-xl bg-app-bg-1 ring-1",
+            "grid size-9 shrink-0 place-items-center rounded-control bg-app-bg-1 ring-1",
             "shadow-[var(--app-shadow-elevated)]",
             tint.ring,
             tint.accent,
@@ -77,7 +77,7 @@ export function WorkflowCard({ workflow, index }: { workflow: WorkflowDefinition
             {workflow.description}
           </p>
         </div>
-        <span className="mt-3 inline-flex w-fit items-center gap-1 rounded-md bg-app-bg-2 px-2 py-0.5 text-[11px] text-app-fg-3 tabular-nums">
+        <span className="mt-3 inline-flex w-fit items-center gap-1 rounded-control-sm bg-app-bg-2 px-2 py-0.5 text-[11px] text-app-fg-3 tabular-nums">
           <Clock3 size={11} />
           {workflow.cadence}
         </span>

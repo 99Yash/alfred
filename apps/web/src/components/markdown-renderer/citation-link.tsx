@@ -29,14 +29,14 @@ export function CitationLink({ href, children }: CitationLinkProps) {
             rel="noreferrer noopener"
             className={cn(
               "mx-0.5 inline-flex max-w-[28ch] items-center gap-1 align-middle",
-              "rounded-md border border-app-bg-3/50 bg-app-bg-a1 px-1.5 py-px",
+              "rounded-control-sm border border-app-bg-3/50 bg-app-bg-a1 px-1.5 py-px",
               "text-[0.92em] !no-underline",
               "!text-app-fg-3 hover:bg-app-bg-a2 hover:!text-app-fg-4",
               "transition-[background-color,color,scale] duration-150 active:scale-[0.96]",
               "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-3",
             )}
           >
-            <Favicon domain={domain} size={14} className="rounded-[3px]" />
+            <Favicon domain={domain} size={14} className="rounded-control-xs" />
             <span className="truncate">{children}</span>
           </a>
         </Tooltip.Trigger>
@@ -45,7 +45,7 @@ export function CitationLink({ href, children }: CitationLinkProps) {
             side="top"
             sideOffset={6}
             className={cn(
-              "z-50 rounded-md px-2 py-1 text-[11px] font-medium",
+              "z-50 rounded-control-sm px-2 py-1 text-[11px] font-medium",
               "bg-app-fg-4 text-app-bg-1 shadow-md",
               "select-none",
             )}

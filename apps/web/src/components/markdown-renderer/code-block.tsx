@@ -28,7 +28,7 @@ export function CodeBlock({ language, code }: CodeBlockProps) {
     <div
       data-type="code-block"
       className={cn(
-        "not-prose my-2 overflow-hidden rounded-lg",
+        "not-prose my-2 overflow-hidden rounded-control",
         "border border-white/10 bg-[#111317]",
         "shadow-[0_0_0_0.5px_rgba(0,0,0,0.4)]",
       )}
@@ -43,7 +43,7 @@ export function CodeBlock({ language, code }: CodeBlockProps) {
           aria-label={copied ? "Copied" : "Copy code"}
           title={copied ? "Copied" : "Copy code"}
           className={cn(
-            "grid size-6 place-items-center rounded-md",
+            "grid size-6 place-items-center rounded-control-sm",
             "text-white/55 transition-colors",
             "hover:bg-white/10 hover:text-white/90",
             "focus-visible:ring-2 focus-visible:ring-white/30 focus-visible:outline-none",

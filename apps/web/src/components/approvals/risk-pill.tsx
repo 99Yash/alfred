@@ -27,7 +27,7 @@ export function RiskChip({ riskTier }: { riskTier: ToolRiskTier }) {
   return (
     <span
       className={cn(
-        "inline-flex h-5 items-center rounded-md px-1.5 text-[11px] leading-4 font-medium whitespace-nowrap",
+        "inline-flex h-5 items-center rounded-control-xs px-1.5 text-[11px] leading-4 font-medium whitespace-nowrap",
         tone
           ? {
               red: "bg-app-red-1 text-app-red-4",

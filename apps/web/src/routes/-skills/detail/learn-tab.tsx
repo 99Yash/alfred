@@ -106,7 +106,7 @@ export function LearnTab({
       {learning ? (
         <div
           className={cn(
-            "flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs",
+            "flex items-center gap-2 rounded-surface px-4 py-2.5 text-xs",
             "bg-app-amber-1 shadow-[0_0_0_1px_var(--app-amber-2)]",
             "text-app-amber-4",
           )}
