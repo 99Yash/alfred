@@ -246,6 +246,12 @@ export const APP_ERROR_REGISTRY = defineFailureCatalog({
       fix: (): Fix => ({ kind: "correct_input" }),
     },
   ),
+  web_search_quota_exhausted: {
+    message:
+      "Web search is unavailable: the search provider's quota is used up. Do not call web search again in this turn; answer from other sources or tell the user.",
+    why: "The grounded Gemini search returned a quota or billing fault with no refill delay.",
+    fix: { kind: "none" },
+  },
 });
 
 export type AppErrorCode = keyof typeof APP_ERROR_REGISTRY;

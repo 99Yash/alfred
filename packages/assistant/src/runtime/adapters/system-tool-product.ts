@@ -1,4 +1,6 @@
+import { isQuotaOrBillingError } from "@alfred/ai";
 import { toMessage, type TodoSource } from "@alfred/contracts";
+import { AppError } from "@alfred/contracts/app-errors";
 import {
   editStandingInstruction,
   forgetStandingInstruction,
@@ -223,12 +225,19 @@ const instructionAdapter: SystemToolInstructionAdapter = {
 
 const webSearchAdapter: SystemToolWebSearchAdapter = {
   async webSearch({ input, context }) {
+    // The SDK already retried. A money fault does not refill, so the generic "retry" fix only buys a second failure.
     const { answer, citations, results, searchQueries } = await runWebSearch({
       query: input.query,
       userId: context.userId,
       runId: context.runId,
       stepId: context.stepId,
       idempotencyKey: context.toolCallId,
+    }).catch((err: unknown) => {
+      if (isQuotaOrBillingError(err)) {
+        throw new AppError("web_search_quota_exhausted", { cause: err });
+      }
+
+      throw err;
     });
 
     return { ok: true, query: input.query, answer, citations, results, searchQueries };
