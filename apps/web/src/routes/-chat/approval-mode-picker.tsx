@@ -5,13 +5,8 @@
  */
 import { cn } from "~/lib/utils";
 import { MODE_OPTIONS, modeOption } from "./approval-mode-options";
-import {
-  PickerChevron,
-  PickerMenu,
-  PickerMenuItem,
-  pickerTriggerClass,
-  pickerTriggerNeutralClass,
-} from "./picker-menu";
+import { PickerChevron, PickerMenu, PickerMenuItem } from "./picker-menu";
+import { pickerTriggerClass, pickerTriggerNeutralClass } from "./picker-menu-classes";
 
 const modeValue = (autonomy: boolean) => (autonomy ? "autopilot" : "review");
 

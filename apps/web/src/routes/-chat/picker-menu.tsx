@@ -9,21 +9,6 @@ import { useAppTheme } from "~/components/ui/v2";
 import { cn } from "~/lib/utils";
 import { Tip } from "./tip";
 
-/** Pill trigger base. The caller adds the fill; `group` lets {@link PickerChevron} read the open state. */
-export const pickerTriggerClass = cn(
-  "group inline-flex h-7 items-center gap-1.5 rounded-control-sm px-2 text-[12px] font-medium",
-  "app-press transition-[box-shadow,color,background-color,scale] outline-none",
-  "disabled:cursor-not-allowed disabled:opacity-50",
-  "app-focus",
-);
-
-/** The neutral pill fill. */
-export const pickerTriggerNeutralClass = cn(
-  "bg-linear-to-b from-app-bg-1 to-app-bg-2 text-app-fg-3 shadow-(--app-shadow-elevated)",
-  "enabled:hover:text-app-fg-4 enabled:hover:shadow-(--app-shadow-elevated-hover)",
-  "data-[state=open]:text-app-fg-4 data-[state=open]:shadow-(--app-shadow-elevated-hover)",
-);
-
 export function PickerChevron({ className }: { className?: string | undefined }) {
   return (
     <ChevronDown
@@ -76,7 +61,7 @@ export function PickerMenu({
           loop
           data-app-theme={resolved}
           className={cn(
-            "app app-frost-overlay app-frost-edge relative z-50 flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-0.5 overflow-hidden rounded-surface p-1.5",
+            "app app-frost-overlay app-frost-edge relative z-50 flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-0.5 overflow-hidden rounded-surface p-1",
             // Grow out of the trigger, not out of the menu's bottom center.
             "origin-(--radix-dropdown-menu-content-transform-origin) outline-none",
             "motion-safe:data-[state=open]:animate-[app-popover-in_180ms_cubic-bezier(0.22,1,0.36,1)]",
@@ -114,8 +99,8 @@ export function PickerMenuItem({
       value={value}
       onSelect={onSelect}
       className={cn(
-        // Concentric with the menu: its radius minus its `p-1.5`.
-        "app-press flex w-full cursor-default items-start gap-2.5 rounded-[calc(var(--radius-surface)-6px)] p-2 text-left outline-none select-none",
+        // Concentric with the menu: `rounded-control` (14px) plus the menu's `p-1` is `rounded-surface` (18px).
+        "app-press flex w-full cursor-default items-start gap-2.5 rounded-control p-2 text-left outline-none select-none",
         "transition-[background-color,scale]",
         // Checked is a step stronger than highlighted, so a highlight never looks checked.
         "data-[state=checked]:bg-app-bg-a3 data-[state=unchecked]:data-highlighted:bg-app-bg-a2",
