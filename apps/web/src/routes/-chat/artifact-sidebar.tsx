@@ -36,11 +36,13 @@ import { ArtifactPresentOverlay } from "~/components/artifacts/artifact-present-
 import { useArtifactPageIndex } from "~/components/artifacts/use-artifact-pages";
 import { MarkdownRenderer } from "~/components/markdown-renderer";
 import { printArtifactPages } from "~/lib/artifacts/export-artifact";
+import { easeShownChars } from "~/lib/chat/chat-stream-state";
 import type { LiveArtifactStream } from "~/lib/chat/use-artifact-stream";
 import { useArtifact } from "~/lib/replicache/use-artifacts";
 import { cn } from "~/lib/utils";
 import type { ChatSidePanelMode } from "~/routes/-chat/rail/models";
 import { CHAT_PANEL, CHAT_SWAP, usePrefersReducedMotion, type LiveTransition } from "./motion";
+import { healStreamingMarkdown } from "./streaming-markdown";
 
 /** A new source fails to compile here until it has a label. */
 const EXTERNAL_FILE_SOURCE_LABEL = {
@@ -456,26 +458,7 @@ function ArtifactBody({
   pageIndex: number;
   onPageIndexChange: Dispatch<SetStateAction<number>>;
 }) {
-  if (isDocument) {
-    const markdown = documentView.markdown;
-
-    if (markdown.trim().length === 0) {
-      return documentView.generating ? (
-        <ArtifactCenteredState
-          icon={<Loader2 size={20} className="animate-spin" />}
-          text="Writing…"
-        />
-      ) : (
-        <ArtifactCenteredState icon={<FileText size={20} />} text="Empty document." />
-      );
-    }
-
-    return (
-      <div className="minimal-scrollbar flex-1 overflow-y-auto p-5">
-        <MarkdownRenderer size="reading">{markdown}</MarkdownRenderer>
-      </div>
-    );
-  }
+  if (isDocument) return <DocumentBody documentView={documentView} />;
 
   if (!artifact)
     return (
@@ -503,6 +486,65 @@ function ArtifactBody({
       onPageIndexChange={onPageIndexChange}
     />
   );
+}
+
+function DocumentBody({ documentView }: { documentView: DocumentView }) {
+  const reduce = usePrefersReducedMotion();
+  const eased = useEasedText(documentView.markdown, documentView.generating && !reduce);
+
+  if (documentView.markdown.trim().length === 0) {
+    return documentView.generating ? (
+      <ArtifactCenteredState
+        icon={<Loader2 size={20} className="animate-spin" />}
+        text="Writing…"
+      />
+    ) : (
+      <ArtifactCenteredState icon={<FileText size={20} />} text="Empty document." />
+    );
+  }
+
+  return (
+    <div className="minimal-scrollbar flex-1 overflow-y-auto p-5">
+      <MarkdownRenderer size="reading">
+        {documentView.generating ? healStreamingMarkdown(eased, { math: true }) : eased}
+      </MarkdownRenderer>
+    </div>
+  );
+}
+
+/**
+ * Reveal a live body at the pace of the chat text. Deltas land about 5 times a second, so
+ * the raw body jumps a sentence at a time. Only growth of a live body eases. A mount, a
+ * change that is not a prefix, or a change after the body stops shows in full at once.
+ */
+function useEasedText(text: string, live: boolean): string {
+  const [shown, setShown] = useState(text.length);
+  const [prevText, setPrevText] = useState(text);
+  let current = shown;
+
+  if (prevText !== text) {
+    setPrevText(text);
+
+    if (!live || !text.startsWith(prevText)) {
+      current = text.length;
+      setShown(current);
+    }
+  }
+
+  // A backlog left when the body stops still eases out.
+  const behind = current < text.length;
+
+  useEffect(() => {
+    if (!behind) return;
+
+    const frame = requestAnimationFrame(() =>
+      setShown((value) => easeShownChars(value, text.length)),
+    );
+
+    return () => cancelAnimationFrame(frame);
+  }, [behind, current, text.length]);
+
+  return text.slice(0, current);
 }
 
 /**

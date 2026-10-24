@@ -32,11 +32,13 @@ import { markChatTimingByAssistant } from "~/lib/chat/timing";
 import { useChatAttachmentsByMessage } from "~/lib/replicache/use-chat";
 import { useThreadArtifacts } from "~/lib/replicache/use-artifacts";
 import type { StreamingMessage } from "~/lib/chat/chat-stream-state";
+import { useArtifactStream } from "~/lib/chat/use-artifact-stream";
 import { SCROLL_CHAT_TO_BOTTOM_EVENT } from "~/lib/chat/use-run-complete";
 import { cn } from "~/lib/utils";
 import { ArtifactTriggerCard } from "./artifact-trigger-card";
 import {
   describeActivity,
+  describeWriting,
   reviewLabel,
   shouldShowStream,
   modelStepStartedTs,
@@ -116,6 +118,20 @@ export function Conversation({
 
     return map;
   }, [threadArtifacts]);
+
+  // A document the live run writes now. Its tool call starts only when the body is complete,
+  // so without this the step reads "Thinking" the whole time the body streams.
+  const artifactStreams = useArtifactStream(threadId);
+  const writing = showStream && !stream.done ? artifactStreams.writingForRun(stream.runId) : null;
+
+  // An append or update names no title, so read it off the synced row.
+  const writingLabel = writing
+    ? describeWriting(
+        writing.title ??
+          threadArtifacts.find((artifact) => artifact.id === writing.artifactId)?.title ??
+          null,
+      )
+    : null;
 
   const onRangeChanged = useCallback((range: ListRange) => {
     lastRenderedIndexRef.current = range.endIndex;
@@ -266,13 +282,23 @@ export function Conversation({
       stream,
       streamTimingRefs,
       streamBodyRef,
+      writingLabel,
       followUps,
       onFollowUp,
       orderedApprovals,
       setFooterEl,
       setTrayEl,
     }),
-    [showStream, stream, streamTimingRefs, followUps, onFollowUp, orderedApprovals, setFooterEl],
+    [
+      showStream,
+      stream,
+      streamTimingRefs,
+      writingLabel,
+      followUps,
+      onFollowUp,
+      orderedApprovals,
+      setFooterEl,
+    ],
   );
 
   const firstApproval = orderedApprovals[0];
@@ -282,7 +308,7 @@ export function Conversation({
     trayEl && !trayInView && approvalLabel && firstApproval
       ? { kind: "review", label: approvalLabel, first: firstApproval }
       : showStream && !stream.done
-        ? { kind: "activity", label: describeActivity(stream) }
+        ? { kind: "activity", label: describeActivity(stream, writingLabel) }
         : { kind: "latest" };
 
   return (
@@ -386,6 +412,8 @@ interface FeedFooterValue {
   stream: StreamingMessage | null;
   streamTimingRefs: StreamRenderTiming;
   streamBodyRef: React.RefObject<HTMLDivElement | null>;
+  /** Replaces the live "Thinking" label while the run writes a document. */
+  writingLabel: string | null;
   followUps: ReadonlyArray<FollowUpSuggestion>;
   onFollowUp?: ((text: string) => void) | undefined;
   /** Pending approvals in tool-trail order. Ones with no tool card in the stream go last. */
@@ -441,6 +469,7 @@ function FeedFooter() {
       done: doneRef,
     },
     streamBodyRef,
+    writingLabel,
     followUps,
     onFollowUp,
     orderedApprovals,
@@ -469,6 +498,7 @@ function FeedFooter() {
                 active={stream.reasoningActive}
                 durationMs={stream.reasoningMs}
                 startedTs={stream.turnStartedTs}
+                activeLabel={writingLabel ?? undefined}
               />
             </div>
           ) : null}
@@ -500,9 +530,11 @@ function FeedFooter() {
                 <AssistantMarkdown text={stream.text} streaming={!stream.done} />
               </div>
             </div>
-          ) : shouldShowThinkingIndicator(stream) ? (
+          ) : null}
+
+          {shouldShowThinkingIndicator(stream, writingLabel !== null) ? (
             <div ref={thinkingRef}>
-              <StepThinking stream={stream} />
+              <StepThinking stream={stream} writingLabel={writingLabel} />
             </div>
           ) : null}
 
@@ -948,11 +980,17 @@ function FollowUpSuggestions({
 
 /**
  * The live model step at the end of the trail: its thinking as it streams, else the bare label.
- * The clock counts from the step start. Only the first step can freeze it, on an approval.
+ * The clock counts from the step start and does not stop: the step runs until a tool or the
+ * reply takes over. `reasoningMs` is the first wait only, so it must not stop this clock.
  */
-function StepThinking({ stream }: { stream: StreamingMessage }) {
+function StepThinking({
+  stream,
+  writingLabel,
+}: {
+  stream: StreamingMessage;
+  writingLabel: string | null;
+}) {
   const startedTs = modelStepStartedTs(stream);
-  const durationMs = startedTs === stream.turnStartedTs ? stream.reasoningMs : null;
 
   if (stream.stepReasoning.length > 0) {
     return (
@@ -961,16 +999,17 @@ function StepThinking({ stream }: { stream: StreamingMessage }) {
         key={startedTs}
         reasoning={stream.stepReasoning}
         active
-        durationMs={durationMs}
+        durationMs={null}
         startedTs={startedTs}
+        activeLabel={writingLabel ?? undefined}
       />
     );
   }
 
   return (
     <ThinkingIndicator
-      label="Thinking"
-      clock={<ThinkingClock startedTs={startedTs} durationMs={durationMs} />}
+      label={writingLabel ?? "Thinking"}
+      clock={<ThinkingClock startedTs={startedTs} durationMs={null} />}
     />
   );
 }

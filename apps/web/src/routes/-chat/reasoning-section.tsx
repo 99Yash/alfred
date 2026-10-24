@@ -22,11 +22,14 @@ export function ReasoningSection({
   active,
   durationMs,
   startedTs,
+  activeLabel = "Thinking",
 }: {
   reasoning: string;
   active: boolean;
   durationMs: number | null;
   startedTs: number | null;
+  /** Replaces "Thinking" while active, for a step that writes a document body. */
+  activeLabel?: string | undefined;
 }) {
   // Collapse during render when `active` turns false; an effect would flash the panel for a frame.
   const [value, setValue] = useState(active ? ITEM : "");
@@ -77,7 +80,7 @@ export function ReasoningSection({
             <span>
               {active ? (
                 <>
-                  Thinking
+                  {activeLabel}
                   {startedTs !== null ? (
                     <ThinkingClock startedTs={startedTs} durationMs={durationMs} />
                   ) : null}

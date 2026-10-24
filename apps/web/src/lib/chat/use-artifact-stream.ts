@@ -28,6 +28,8 @@ export interface ArtifactStreamState {
   byArtifactId: (artifactId: string) => LiveArtifactStream | null;
   /** The newest unresolved create in the run. The panel opens it before the row syncs. */
   latestPendingForRun: (runId: string) => LiveArtifactStream | null;
+  /** The newest body the run still writes, of any mode. The chat labels the live step with it. */
+  writingForRun: (runId: string) => LiveArtifactStream | null;
 }
 
 const NO_STREAMS: ReadonlyMap<string, LiveArtifactStream> = new Map();
@@ -156,6 +158,20 @@ export function selectLatestPendingForRun(
   return latest;
 }
 
+/** Like {@link selectLatestPendingForRun}, but an update or append counts too. */
+function selectWritingForRun(
+  streams: ReadonlyMap<string, LiveArtifactStream>,
+  runId: string,
+): LiveArtifactStream | null {
+  let latest: LiveArtifactStream | null = null;
+
+  for (const stream of streams.values()) {
+    if (stream.runId === runId && !stream.done) latest = stream;
+  }
+
+  return latest;
+}
+
 /**
  * One thread's live artifact bodies. It outlives the thread page: the shared event bus does
  * not send a frame again to a later subscriber, so a page that built its own map on mount
@@ -278,8 +294,8 @@ function subscribeThread(threadId: string, listener: () => void): () => void {
 
 /**
  * Live artifact bodies for `threadId`, until the synced row replaces them.
- * `useArtifactStreamStore` feeds the frames. The server sends about 5 deltas a second,
- * so no easing; the entry version re-renders.
+ * `useArtifactStreamStore` feeds the frames, about 5 deltas a second. The entry version
+ * re-renders; the sidebar eases the body between deltas.
  */
 export function useArtifactStream(threadId: string | undefined): ArtifactStreamState {
   const subscribe = useCallback(
@@ -305,6 +321,7 @@ export function useArtifactStream(threadId: string | undefined): ArtifactStreamS
       byToolCallId: (toolCallId) => selectByToolCallId(current(), toolCallId),
       byArtifactId: (artifactId) => selectByArtifactId(current(), artifactId),
       latestPendingForRun: (runId) => selectLatestPendingForRun(current(), runId),
+      writingForRun: (runId) => selectWritingForRun(current(), runId),
     };
   }, [version, threadId]);
 }

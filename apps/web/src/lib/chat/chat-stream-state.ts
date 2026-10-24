@@ -656,8 +656,11 @@ export function applyStreamError(cell: ChatStreamCell, message: string): boolean
   return true;
 }
 
-/** A few chars per animation frame, proportional so a big backlog catches up. */
-function ease(shown: number, full: number): number {
+/**
+ * Chars to show next animation frame: a few more, proportional so a big backlog catches up.
+ * The live chat text and the live artifact body share this pace.
+ */
+export function easeShownChars(shown: number, full: number): number {
   return shown < full ? Math.min(full, shown + Math.max(2, Math.ceil((full - shown) / 8))) : shown;
 }
 
@@ -730,9 +733,9 @@ export function tickDrip(
 
   if (!ref) return null;
   const eased = anchorEasedSegment(ref);
-  const shown = ease(eased.shown, eased.text.length);
+  const shown = easeShownChars(eased.shown, eased.text.length);
   const reasoning = reasoningText(ref);
-  ref.reasoningShown = ease(ref.reasoningShown, reasoning.length);
+  ref.reasoningShown = easeShownChars(ref.reasoningShown, reasoning.length);
   ref.shown = shown;
   const leadIn = liveSegmentHasTools(ref);
   const narration: SyncedChatNarration[] = [];
