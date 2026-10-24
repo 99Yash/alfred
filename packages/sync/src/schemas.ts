@@ -413,7 +413,7 @@ export type SyncedTriageTag = z.infer<typeof syncedTriageTagSchema>;
 export const policyModeSchema = z.enum(POLICY_MODES);
 
 const rawIntegrationRuleSchema = z.object({
-  mode: policyModeSchema,
+  mode: policyModeSchema.optional(),
   toolOverrides: z.record(z.string(), policyModeSchema).optional(),
 });
 
@@ -433,7 +433,10 @@ export const integrationRuleSchema: z.ZodType<IntegrationRule> = rawIntegrationR
   (rule) => {
     const toolOverrides = normalizeToolOverrides(rule.toolOverrides);
 
-    return toolOverrides ? { mode: rule.mode, toolOverrides } : { mode: rule.mode };
+    return {
+      ...(rule.mode ? { mode: rule.mode } : {}),
+      ...(toolOverrides ? { toolOverrides } : {}),
+    };
   },
 );
 

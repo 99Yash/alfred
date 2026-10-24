@@ -1,4 +1,11 @@
-import { LOADABLE_INTEGRATION_SLUGS, POLICY_MODES } from "@alfred/contracts";
+import {
+  integrationFromToolName,
+  isLoadableIntegrationSlug,
+  LOADABLE_INTEGRATION_SLUGS,
+  POLICY_MODES,
+  toolNameSchema,
+  withToolOverride,
+} from "@alfred/contracts";
 import type { WriteTransaction } from "replicache";
 import { z } from "zod";
 import { SYNC_MODEL } from "../sync-model";
@@ -25,6 +32,41 @@ export async function policySetIntegrationModeClient(
       ...current.integrationRules,
       [args.slug]: { ...current.integrationRules[args.slug], mode: args.mode },
     },
+    rowVersion: current.rowVersion + 1,
+  };
+
+  await SYNC_MODEL.actionpolicy.put(tx, next);
+}
+
+export const policySetToolModeArgsSchema = z.object({
+  // `system.*` never gates, and `mcp.call` stands for every MCP tool, so neither takes an override.
+  toolName: toolNameSchema.refine(
+    (toolName) => isLoadableIntegrationSlug(integrationFromToolName(toolName)),
+    "Tool has no approval policy",
+  ),
+  /** `null` clears the override. */
+  mode: z.enum(POLICY_MODES).nullable(),
+});
+
+export type PolicySetToolModeArgs = z.infer<typeof policySetToolModeArgsSchema>;
+
+/** Set or clear one tool's override ("Always allow this tool"). */
+export async function policySetToolModeClient(
+  tx: WriteTransaction,
+  args: PolicySetToolModeArgs,
+): Promise<void> {
+  const [current] = await SYNC_MODEL.actionpolicy.scan(tx);
+
+  if (!current) return;
+
+  const next: SyncedActionPolicy = {
+    ...current,
+    integrationRules: withToolOverride(
+      current.integrationRules,
+      args.toolName,
+      args.mode,
+      current.defaultMode,
+    ),
     rowVersion: current.rowVersion + 1,
   };
 

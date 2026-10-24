@@ -1,8 +1,12 @@
 import { DEFAULT_APPROVAL_NOTIFY_DELAY_MS } from "@alfred/assistant/action-policies";
-import type { IntegrationRules } from "@alfred/contracts";
+import { withToolOverride, type IntegrationRules } from "@alfred/contracts";
 import { userActionPolicies } from "@alfred/db/schemas";
-import type { PolicySetDefaultModeArgs, PolicySetIntegrationModeArgs } from "@alfred/sync";
-import { sql } from "drizzle-orm";
+import type {
+  PolicySetDefaultModeArgs,
+  PolicySetIntegrationModeArgs,
+  PolicySetToolModeArgs,
+} from "@alfred/sync";
+import { eq, sql } from "drizzle-orm";
 import type { DbTransaction } from "@alfred/db";
 
 /**
@@ -45,6 +49,51 @@ export async function policySetIntegrationMode(
             to_jsonb(${args.mode}::text),
             true
           )`,
+        rowVersion: sql`${userActionPolicies.rowVersion} + 1`,
+      },
+    });
+}
+
+/**
+ * Set or clear one tool's override. Read-modify-write under a row lock, so the drop rule in
+ * `withToolOverride` sees the same integration mode the client computed against.
+ */
+export async function policySetToolMode(
+  tx: DbTransaction,
+  args: PolicySetToolModeArgs,
+  userId: string,
+): Promise<void> {
+  const [row] = await tx
+    .select({
+      defaultMode: userActionPolicies.defaultMode,
+      integrationRules: userActionPolicies.integrationRules,
+    })
+    .from(userActionPolicies)
+    .where(eq(userActionPolicies.userId, userId))
+    .for("update")
+    .limit(1);
+
+  const defaultMode = row?.defaultMode ?? "gated";
+
+  const integrationRules = withToolOverride(
+    row?.integrationRules ?? DEFAULT_INTEGRATION_RULES,
+    args.toolName,
+    args.mode,
+    defaultMode,
+  );
+
+  await tx
+    .insert(userActionPolicies)
+    .values({
+      userId,
+      defaultMode,
+      integrationRules,
+      approvalNotifyDelayMs: DEFAULT_APPROVAL_NOTIFY_DELAY_MS,
+    })
+    .onConflictDoUpdate({
+      target: userActionPolicies.userId,
+      set: {
+        integrationRules,
         rowVersion: sql`${userActionPolicies.rowVersion} + 1`,
       },
     });

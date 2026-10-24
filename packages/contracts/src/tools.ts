@@ -82,8 +82,9 @@ export const isWriteRiskTier = enumGuard(WRITE_RISK_TIERS);
 
 export type RiskTierCounts = Record<ToolRiskTier, number>;
 
+/** `mode` is absent when a rule only holds tool overrides; the user default then applies. */
 export interface IntegrationRule {
-  mode: PolicyMode;
+  mode?: PolicyMode;
   toolOverrides?: Partial<Record<ToolName, PolicyMode>>;
 }
 
@@ -96,6 +97,50 @@ export function resolveIntegrationMode(
   defaultMode: PolicyMode,
 ): PolicyMode {
   return rules[slug]?.mode ?? defaultMode;
+}
+
+/** One tool's mode: its override, then its integration's mode, then the user default. `resolvePolicyMode` adds the `system.*` floor. */
+export function resolveToolMode(
+  rules: IntegrationRules,
+  toolName: ToolName,
+  defaultMode: PolicyMode,
+): PolicyMode {
+  const integration = integrationFromToolName(toolName);
+
+  return (
+    rules[integration]?.toolOverrides?.[toolName] ??
+    resolveIntegrationMode(rules, integration, defaultMode)
+  );
+}
+
+/**
+ * Set or clear (`null`) one tool's override. An override equal to the integration's mode is
+ * dropped, so `toolOverrides` holds only real exceptions. The client and server mutators share it.
+ */
+export function withToolOverride(
+  rules: IntegrationRules,
+  toolName: ToolName,
+  mode: PolicyMode | null,
+  defaultMode: PolicyMode,
+): IntegrationRules {
+  const integration = integrationFromToolName(toolName);
+  const rule = rules[integration];
+  const overrides = { ...rule?.toolOverrides };
+
+  if (mode === null || mode === resolveIntegrationMode(rules, integration, defaultMode)) {
+    delete overrides[toolName];
+  } else {
+    overrides[toolName] = mode;
+  }
+
+  const next: IntegrationRule = {
+    ...(rule?.mode ? { mode: rule.mode } : {}),
+    ...(Object.keys(overrides).length > 0 ? { toolOverrides: overrides } : {}),
+  };
+
+  const { [integration]: _previous, ...rest } = rules;
+
+  return next.mode || next.toolOverrides ? { ...rest, [integration]: next } : rest;
 }
 
 export function integrationFromToolName(toolName: ToolName): IntegrationSlug {

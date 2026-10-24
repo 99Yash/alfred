@@ -6,14 +6,8 @@
  * It holds a Promise, so a burst of reads for one user makes one DB read.
  */
 
-import type {
-  IntegrationRule,
-  IntegrationRules,
-  IntegrationSlug,
-  PolicyMode,
-  ToolName,
-} from "@alfred/contracts";
-import { integrationFromToolName } from "@alfred/contracts";
+import type { IntegrationRules, PolicyMode, ToolName } from "@alfred/contracts";
+import { integrationFromToolName, resolveToolMode } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { userActionPolicies } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
@@ -90,10 +84,6 @@ export async function getResolvedPolicy(userId: string): Promise<ResolvedPolicy>
   return pending;
 }
 
-function pickRule(rules: IntegrationRules, slug: IntegrationSlug): IntegrationRule | undefined {
-  return rules[slug];
-}
-
 /**
  * Read order: `system.*`, then tool override, then integration mode, then user default (ADR-0034).
  * `system.*` returns `autonomy` before the row is read (ADR-0040 D5), so no data bug
@@ -106,14 +96,8 @@ export async function resolvePolicyMode(userId: string, toolName: ToolName): Pro
   if (integration === "system") return "autonomy";
 
   const policy = await getResolvedPolicy(userId);
-  const rule = pickRule(policy.integrationRules, integration);
-  const override = rule?.toolOverrides?.[toolName];
 
-  if (override) return override;
-
-  if (rule?.mode) return rule.mode;
-
-  return policy.defaultMode;
+  return resolveToolMode(policy.integrationRules, toolName, policy.defaultMode);
 }
 
 export async function resolveApprovalNotifyDelayMs(userId: string): Promise<number> {
