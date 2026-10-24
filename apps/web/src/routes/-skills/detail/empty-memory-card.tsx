@@ -6,7 +6,7 @@ export function EmptyMemoryCard() {
   return (
     <AppCard className="flex flex-col items-center gap-2 px-6 py-12 text-center">
       <span
-        className="grid size-10 place-items-center rounded-xl bg-app-bg-2 text-app-fg-3"
+        className="grid size-10 place-items-center rounded-control bg-app-bg-2 text-app-fg-3"
         aria-hidden
       >
         <Sparkles size={18} />

@@ -193,7 +193,7 @@ export function ComposerToolbar({
                   className={cn(
                     "inline-flex size-9 shrink-0 items-center justify-center rounded-full",
                     "app-press transition-[opacity,filter,scale]",
-                    "bg-app-red-4 text-white",
+                    "bg-app-red-4 text-app-bg-1",
                     "shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.18),0_8px_24px_rgba(255,47,0,0.32)]",
                     "hover:brightness-[1.05]",
                     "app-focus",

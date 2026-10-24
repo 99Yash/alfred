@@ -154,7 +154,7 @@ function syncErrorBanner(error: string | null, onRetry: () => void): ReactNode {
   if (!error) return null;
 
   return (
-    <div className="mx-auto mt-4 flex w-full max-w-[720px] shrink-0 items-center justify-between gap-3 rounded-xl bg-app-bg-2 px-3 py-2 text-xs text-app-fg-3">
+    <div className="mx-auto mt-4 flex w-full max-w-[720px] shrink-0 items-center justify-between gap-3 rounded-surface bg-app-bg-2 px-3 py-2 text-xs text-app-fg-3">
       <span>
         Showing a cached artifact. <span className="text-app-red-4">{error}</span>
       </span>
@@ -192,7 +192,7 @@ function ArtifactHeader({
   return (
     <header className="flex min-h-[60px] shrink-0 items-center justify-between gap-4 px-4 shadow-[inset_0_-1px_0_rgba(0,0,0,0.06)] sm:px-6">
       <div className="flex min-w-0 items-center gap-3">
-        <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-app-bg-a2 text-app-fg-3">
+        <span className="grid size-8 shrink-0 place-items-center rounded-control bg-app-bg-a2 text-app-fg-3">
           {isPages ? <Layers size={16} /> : <FileText size={16} />}
         </span>
         <div className="min-w-0">
@@ -271,7 +271,7 @@ function ArtifactBody({
 
     return (
       <main className="scroll-stable min-h-0 flex-1 overflow-y-auto px-4 py-8">
-        <article className="mx-auto w-full max-w-[720px] rounded-2xl bg-app-bg-1 p-6 shadow-[0_8px_24px_rgba(0,0,0,0.08),0_0_0_1px_rgba(0,0,0,0.06)] sm:p-10">
+        <article className="mx-auto w-full max-w-[720px] rounded-surface bg-app-bg-1 p-6 shadow-[0_8px_24px_rgba(0,0,0,0.08),0_0_0_1px_rgba(0,0,0,0.06)] sm:p-10">
           <MarkdownRenderer size="reading">{markdown}</MarkdownRenderer>
         </article>
       </main>
@@ -332,7 +332,7 @@ function ArtifactDialog({
         className="absolute inset-0 -z-10 bg-app-background/97 backdrop-blur-xl"
       />
       {compact ? (
-        <div className="w-[min(420px,92vw)] rounded-2xl bg-app-bg-1 p-6 shadow-[0_24px_64px_rgba(0,0,0,0.20),0_0_0_1px_rgba(0,0,0,0.06)]">
+        <div className="w-[min(420px,92vw)] rounded-panel bg-app-bg-1 p-6 shadow-[0_24px_64px_rgba(0,0,0,0.20),0_0_0_1px_rgba(0,0,0,0.06)]">
           {children}
         </div>
       ) : (

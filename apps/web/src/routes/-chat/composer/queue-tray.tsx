@@ -68,7 +68,7 @@ export function QueueTray({
       aria-label="Queued messages"
       className={cn(
         // Tucked: the composer overlaps the bottom edge, so the tray reads as one stack with it.
-        "relative z-0 mx-3 -mb-5 rounded-t-[20px] border border-b-0 border-app-fg-a1/30 pb-5",
+        "relative z-0 mx-3 -mb-5 rounded-t-panel border border-b-0 border-app-fg-a1/30 pb-5",
         "bg-app-bg-2/90 shadow-[0_-1px_12px_rgba(0,0,0,0.04)] backdrop-blur-md",
         "app-card-in",
       )}
@@ -147,7 +147,7 @@ function QueueRow({
   return (
     <div
       className={cn(
-        "group flex min-h-10 items-center gap-2.5 rounded-xl py-1 pr-1 pl-2.5",
+        "group flex min-h-10 items-center gap-2.5 rounded-surface py-1 pr-1 pl-2.5",
         "transition-colors duration-150 focus-within:bg-app-bg-a2 hover:bg-app-bg-a2",
         (busy || editing) && "bg-app-purple-1/40 hover:bg-app-purple-1/40",
       )}
@@ -166,7 +166,7 @@ function QueueRow({
         aria-label={onEdit ? `Edit queued message: ${body || fileHint || "attachment"}` : undefined}
         className={cn(
           "flex min-w-0 flex-1 items-center gap-1.5 text-left text-[13px] leading-snug text-app-fg-4",
-          "rounded-md outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2/60",
+          "rounded-control-sm outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2/60",
           onEdit && !busy && !editing && "cursor-text",
         )}
       >

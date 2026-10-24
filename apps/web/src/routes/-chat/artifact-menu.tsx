@@ -77,7 +77,7 @@ export function ArtifactMenu({
             aria-controls={listboxId}
             aria-label={`Artifacts (${artifacts.length})`}
             className={cn(
-              "app-press inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-[13px] font-medium",
+              "app-press inline-flex h-8 items-center gap-1.5 rounded-control px-2 text-[13px] font-medium",
               "transition-colors outline-none",
               "focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
               panelShowsArtifact
@@ -102,7 +102,7 @@ export function ArtifactMenu({
           collisionPadding={16}
           data-app-theme={dataTheme}
           className={cn(
-            "app app-frost-overlay z-50 flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-0.5 overflow-hidden rounded-2xl p-1.5",
+            "app app-frost-overlay z-50 flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-0.5 overflow-hidden rounded-surface p-1.5",
             "app-fade-in outline-none",
           )}
         >
@@ -120,12 +120,12 @@ export function ArtifactMenu({
                   setOpen(false);
                 }}
                 className={cn(
-                  "flex w-full items-center gap-2.5 rounded-xl p-2 text-left transition-colors outline-none",
+                  "flex w-full items-center gap-2.5 rounded-surface p-2 text-left transition-colors outline-none",
                   "hover:bg-app-bg-a2 focus-visible:bg-app-bg-a2",
                   checked && "bg-app-bg-a2",
                 )}
               >
-                <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-app-bg-1 text-app-fg-3">
+                <span className="grid size-8 shrink-0 place-items-center rounded-control bg-app-bg-1 text-app-fg-3">
                   {artifactIcon(artifact, 15)}
                 </span>
                 <span className="min-w-0 flex-1">

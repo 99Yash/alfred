@@ -25,7 +25,7 @@ export const SCROLL_CHAT_TO_BOTTOM_EVENT = "alfred:scroll-chat-to-bottom";
 const SNIPPET_MAX = 140;
 
 const ALFRED_TOAST_ICON = (
-  <img src="/images/logo/alfred-logo.svg" alt="" className="size-4.5 rounded-[5px]" />
+  <img src="/images/logo/alfred-logo.svg" alt="" className="size-4.5 rounded-control-xs" />
 );
 
 /** A one-line preview cut at a word. `null` for a turn with no text. */

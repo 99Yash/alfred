@@ -117,7 +117,7 @@ function SkillsLoading() {
   return (
     <div className="space-y-2" aria-label="Loading skills">
       {[0, 1, 2].map((item) => (
-        <div key={item} className="h-[76px] animate-pulse rounded-2xl bg-app-bg-2" />
+        <div key={item} className="h-[76px] animate-pulse rounded-surface bg-app-bg-2" />
       ))}
     </div>
   );

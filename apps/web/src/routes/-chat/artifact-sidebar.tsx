@@ -269,7 +269,7 @@ export function ArtifactSidebar({
         transition={CHAT_SWAP}
         className={cn(
           "relative h-full",
-          "overflow-hidden rounded-2xl border border-app-bg-3/60 bg-app-bg-1",
+          "overflow-hidden rounded-surface border border-app-bg-3/60 bg-app-bg-1",
           "shadow-[0_1px_2px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.04)]",
         )}
       >
@@ -320,7 +320,7 @@ function ArtifactHeader({
 
   return (
     <header className="flex h-[60px] shrink-0 items-center gap-2 border-b border-app-bg-3/50 px-3">
-      <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-app-bg-a2 text-app-fg-3">
+      <span className="grid size-8 shrink-0 place-items-center rounded-control bg-app-bg-a2 text-app-fg-3">
         {isPages ? <Layers size={16} /> : <FileText size={16} />}
       </span>
       <div className="min-w-0 flex-1">
@@ -350,7 +350,7 @@ function ArtifactHeader({
           target="_blank"
           rel="noreferrer"
           aria-label={`Open ${artifact?.title ?? "file"} in Drive`}
-          className="grid size-8 place-items-center rounded-lg text-app-fg-3 transition-colors hover:bg-app-bg-a2 hover:text-app-fg-4"
+          className="grid size-8 place-items-center rounded-control text-app-fg-3 transition-colors hover:bg-app-bg-a2 hover:text-app-fg-4"
         >
           <ExternalLink size={14} />
         </a>
@@ -425,7 +425,7 @@ function ArtifactSubline({
   if (artifact.status === "error") {
     return (
       <>
-        <AlertTriangle size={12} className="text-amber-500" />
+        <AlertTriangle size={12} className="text-app-amber-4" />
         <span>Generation incomplete</span>
       </>
     );
@@ -600,7 +600,7 @@ function ExternalFileBody({ content, title }: { content: ExternalFileContent; ti
             href={content.webViewLink}
             target="_blank"
             rel="noreferrer"
-            className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 font-medium text-app-fg-4 transition-colors hover:bg-app-bg-a2"
+            className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-control-sm px-1.5 py-0.5 font-medium text-app-fg-4 transition-colors hover:bg-app-bg-a2"
           >
             Open in Drive
             <ExternalLink size={12} />
@@ -730,7 +730,7 @@ function CopyMarkdownButton({ markdown }: { markdown: string }) {
   return (
     <ArtifactIconButton label={copied ? "Copied" : "Copy markdown"} onClick={onCopy}>
       {copied ? (
-        <Check size={14} className="animate-check-pop text-emerald-500" />
+        <Check size={14} className="animate-check-pop text-app-green-4" />
       ) : (
         <Copy size={14} />
       )}

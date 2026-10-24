@@ -94,7 +94,7 @@ export function ConnectToolsBar() {
                         aria-hidden
                         className={cn(
                           "absolute -right-0.5 -bottom-0.5 grid size-2.5 place-items-center",
-                          "rounded-full bg-emerald-400 text-black",
+                          "rounded-full bg-app-green-4 text-app-bg-1",
                           "ring-2 ring-app-background",
                         )}
                       >

@@ -18,7 +18,7 @@ export function SourcesStrip({ sources }: { sources: Source[] }) {
           style={{ animationDelay: `${i * 40}ms`, animationFillMode: "backwards" }}
           className={cn(
             "animate-chat-in group/source inline-flex items-center gap-1.5",
-            "rounded-lg border border-app-bg-3/50 bg-app-bg-a1 py-1 pr-2 pl-1.5",
+            "rounded-control border border-app-bg-3/50 bg-app-bg-a1 py-1 pr-2 pl-1.5",
             "text-xs text-app-fg-3 no-underline",
             "transition-[background-color,color,translate,box-shadow] duration-150",
             "hover:-translate-y-px hover:bg-app-bg-a2 hover:text-app-fg-4 hover:shadow-sm",

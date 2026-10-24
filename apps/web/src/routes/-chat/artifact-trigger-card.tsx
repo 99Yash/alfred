@@ -43,13 +43,13 @@ export function ArtifactTriggerCard({
       aria-label={`Open artifact: ${artifact.title}`}
       className={cn(
         // Tailwind v4 lifts with the CSS `translate` property, so transition `translate`.
-        "group flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-[background-color,border-color,box-shadow,translate] duration-200",
+        "group flex w-full items-center gap-3 rounded-surface border px-3 py-2.5 text-left transition-[background-color,border-color,box-shadow,translate] duration-200",
         active
           ? "border-app-fg-3 bg-app-bg-a2"
           : "border-app-bg-3/60 bg-app-bg-a2/40 hover:-translate-y-px hover:border-app-bg-3 hover:bg-app-bg-a2 hover:shadow-[0_2px_10px_rgba(0,0,0,0.05)]",
       )}
     >
-      <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-app-bg-1 text-app-fg-3 shadow-[0_0_0_1px_rgba(0,0,0,0.04)]">
+      <span className="grid size-9 shrink-0 place-items-center rounded-control bg-app-bg-1 text-app-fg-3 shadow-[0_0_0_1px_rgba(0,0,0,0.04)]">
         {generating ? (
           <Loader2 size={16} className="animate-spin" />
         ) : isPages ? (

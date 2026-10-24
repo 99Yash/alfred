@@ -213,7 +213,7 @@ function AttachmentLightbox({
           onKeyDown={onKeyDown}
           onClick={onBackdropClick}
           className={cn(
-            "fixed inset-0 z-101 flex flex-col items-center justify-center gap-3 p-6 focus:outline-none",
+            "app-media fixed inset-0 z-101 flex flex-col items-center justify-center gap-3 p-6 focus:outline-none",
             FADE,
           )}
         >
@@ -231,11 +231,11 @@ function AttachmentLightbox({
                   rel="noreferrer"
                   aria-label="Open in new tab"
                   title="Open in new tab"
-                  className="grid size-7 shrink-0 place-items-center rounded-lg text-white/70 transition-colors hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:outline-none"
+                  className="grid size-7 shrink-0 place-items-center rounded-control-sm text-app-fg-a3 transition-colors hover:bg-app-bg-a3 hover:text-app-fg-4 focus-visible:ring-2 focus-visible:ring-app-fg-a2 focus-visible:outline-none"
                 >
                   <ExternalLink size={15} />
                 </a>
-                <ArtifactIconButton tone="dark" label="Close preview" onClick={onClose}>
+                <ArtifactIconButton label="Close preview" onClick={onClose}>
                   <X size={16} />
                 </ArtifactIconButton>
               </div>
@@ -252,10 +252,10 @@ function AttachmentLightbox({
                     onClick={() => go(-1)}
                   />
                 ) : null}
-                <div className="flex max-w-60 items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs text-white/80">
+                <div className="flex max-w-60 items-center gap-2 rounded-full bg-app-bg-a3 px-3 py-1 text-xs text-app-fg-a4">
                   <span className="truncate">{image.name}</span>
                   {multiple ? (
-                    <span className="shrink-0 text-white/50 tabular-nums">
+                    <span className="shrink-0 text-app-fg-a2 tabular-nums">
                       {selectedIndex + 1} / {images.length}
                     </span>
                   ) : null}
@@ -283,13 +283,13 @@ function AttachmentLightbox({
 function LightboxFigure({ image }: { image: LightboxImage }) {
   const [failed, setFailed] = useState(false);
 
-  if (failed) return <p className="text-sm text-white/70">Couldn't load this image.</p>;
+  if (failed) return <p className="text-sm text-app-fg-a3">Couldn't load this image.</p>;
 
   return (
     <img
       src={image.src}
       alt={image.name}
-      className="max-h-[80vh] max-w-[90vw] rounded-xl object-contain shadow-2xl"
+      className="max-h-[80vh] max-w-[90vw] rounded-surface object-contain shadow-2xl"
       onError={() => setFailed(true)}
     />
   );
@@ -319,9 +319,9 @@ function LightboxNavButton({
           if (!disabled) onClick();
         }}
         className={cn(
-          "grid size-8 place-items-center rounded-full bg-white/10 text-white transition-colors",
-          "focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:outline-none",
-          disabled ? "cursor-not-allowed opacity-30" : "hover:bg-white/20",
+          "grid size-8 place-items-center rounded-full bg-app-bg-a3 text-app-fg-4 transition-colors",
+          "focus-visible:ring-2 focus-visible:ring-app-fg-a2 focus-visible:outline-none",
+          disabled ? "cursor-not-allowed opacity-30" : "hover:bg-app-bg-a4",
         )}
       >
         {side === "left" ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}

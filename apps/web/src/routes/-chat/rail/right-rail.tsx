@@ -76,9 +76,9 @@ export function RightRail({ open, mode, onClose, data = EMPTY_RAIL_DATA }: Right
       transition={transition}
       className={cn(
         "h-full shrink-0",
-        "rounded-2xl bg-transparent",
+        "rounded-panel bg-transparent",
         "shadow-[0_1px_2px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.04)]",
-        // `overflow-hidden` keeps the rounded corners over full-bleed children (video, scrims).
+        // `overflow-hidden` keeps the rounded-control-xs corners over full-bleed children (video, scrims).
         "overflow-hidden",
         !open && "pointer-events-none",
       )}

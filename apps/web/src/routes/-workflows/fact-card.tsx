@@ -12,7 +12,7 @@ export function FactCard({
   return (
     <div
       className={cn(
-        "absolute h-[52px] w-[60%] rounded-lg px-3 py-2",
+        "absolute h-[52px] w-[60%] rounded-control px-3 py-2",
         "flex flex-col justify-center gap-1.5 shadow-(--app-shadow-elevated)",
         highlight ? cn("bg-app-bg-1", accent) : "bg-app-bg-2",
         className,

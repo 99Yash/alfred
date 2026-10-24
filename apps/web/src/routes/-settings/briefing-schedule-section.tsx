@@ -166,7 +166,10 @@ function ScheduleRow({
   return (
     <div className="flex items-center justify-between gap-4 px-5 py-3.5">
       <div className="flex min-w-0 items-center gap-3">
-        <span className={`grid size-8 shrink-0 place-items-center rounded-xl ${tint}`} aria-hidden>
+        <span
+          className={`grid size-8 shrink-0 place-items-center rounded-control ${tint}`}
+          aria-hidden
+        >
           <Icon size={14} />
         </span>
         <div className="min-w-0 space-y-0.5">

@@ -220,7 +220,7 @@ export function IntegrationIcon({
   const badge = connected ? (
     <span
       className={cn(
-        "absolute z-10 grid place-items-center rounded-full bg-emerald-400 text-black",
+        "absolute z-10 grid place-items-center rounded-full bg-app-green-4 text-app-bg-1",
         // The ring matches the canvas, so the check looks cut out.
         "shadow-[0_1px_4px_rgba(0,0,0,0.28)] ring-2 ring-app-background",
         CHECK_SIZE_CLASS[size],

@@ -28,7 +28,7 @@ export function Favicon({
   return (
     <span
       className={cn(
-        "grid shrink-0 place-items-center overflow-hidden rounded-[4px] bg-app-bg-2 ring-1 ring-white/10 ring-inset",
+        "grid shrink-0 place-items-center overflow-hidden rounded-control-xs bg-app-bg-2 ring-1 ring-app-bg-a3 ring-inset",
         className,
       )}
       style={{ width: size, height: size }}

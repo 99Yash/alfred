@@ -44,7 +44,7 @@ export function TypeFilterPopover({
         <button
           type="button"
           className={cn(
-            "inline-flex h-9 items-center gap-2 rounded-xl px-3",
+            "inline-flex h-9 items-center gap-2 rounded-control px-3",
             "bg-app-bg-1 text-sm font-medium text-app-fg-4",
             "shadow-[0_1px_2px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.06)]",
             "transition-colors outline-none hover:bg-app-bg-a1",
@@ -66,7 +66,7 @@ export function TypeFilterPopover({
           collisionPadding={16}
           data-app-theme={dataTheme}
           className={cn(
-            "app app-frost-overlay z-50 w-[250px] rounded-2xl p-2",
+            "app app-frost-overlay z-50 w-[250px] rounded-surface p-2",
             "app-fade-in outline-none",
           )}
         >
@@ -85,7 +85,7 @@ export function TypeFilterPopover({
                   aria-pressed={checked}
                   onClick={() => toggleType(type.value)}
                   className={cn(
-                    "flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-sm",
+                    "flex h-8 w-full items-center gap-2 rounded-control px-2 text-left text-sm",
                     "text-app-fg-3 transition-colors outline-none",
                     "hover:bg-app-bg-a1 hover:text-app-fg-4",
                     "focus-visible:bg-app-bg-a1 focus-visible:text-app-fg-4",
@@ -93,9 +93,9 @@ export function TypeFilterPopover({
                 >
                   <span
                     className={cn(
-                      "grid size-4 shrink-0 place-items-center rounded text-[10px]",
+                      "grid size-4 shrink-0 place-items-center rounded-control-xs text-[10px]",
                       checked
-                        ? "bg-app-purple-4 text-[var(--app-accent-fg)]"
+                        ? "bg-app-purple-4 text-app-bg-1"
                         : "bg-app-bg-a2 text-transparent ring-1 ring-app-bg-4 ring-inset",
                     )}
                   >
@@ -111,7 +111,7 @@ export function TypeFilterPopover({
               type="button"
               onClick={() => onSelectedTypesChange(new Set())}
               className={cn(
-                "mt-1 h-7 w-full rounded-lg text-[12px] text-app-fg-3 outline-none",
+                "mt-1 h-7 w-full rounded-control-sm text-[12px] text-app-fg-3 outline-none",
                 "hover:bg-app-bg-a1 hover:text-app-fg-4",
                 "focus-visible:ring-2 focus-visible:ring-app-purple-2",
               )}

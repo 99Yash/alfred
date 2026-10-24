@@ -28,7 +28,7 @@ export function AgentRow({
       <div className="flex min-w-0 items-center gap-3">
         <span
           className={cn(
-            "grid size-8 shrink-0 place-items-center rounded-xl",
+            "grid size-8 shrink-0 place-items-center rounded-control",
             APP_TINTS[agent.tint],
           )}
           aria-hidden

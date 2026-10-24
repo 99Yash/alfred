@@ -23,7 +23,7 @@ export function ApprovalsTab({ workflow }: { workflow: SyncedWorkflow }) {
     <div className="grid gap-4">
       {error ? (
         <AppCard className="flex items-center justify-between gap-3">
-          <p className="text-xs text-rose-600">{error}</p>
+          <p className="text-xs text-app-red-4">{error}</p>
           <AppButton variant="white" size="sm" onClick={retry}>
             Retry
           </AppButton>
@@ -64,7 +64,7 @@ export function ApprovalsTab({ workflow }: { workflow: SyncedWorkflow }) {
         {integrations.length === 0 ? (
           <p className="mt-2 text-xs leading-5 text-app-fg-3">No integrations allowed.</p>
         ) : (
-          <div className="mt-4 divide-y divide-app-bg-3 overflow-hidden rounded-2xl bg-app-bg-2/40 shadow-[0_0_0_1px_rgba(0,0,0,0.04)]">
+          <div className="mt-4 divide-y divide-app-bg-3 overflow-hidden rounded-surface bg-app-bg-2/40 shadow-[0_0_0_1px_rgba(0,0,0,0.04)]">
             {integrations.map((slug) => (
               <PolicyRow
                 key={slug}

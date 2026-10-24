@@ -21,7 +21,7 @@ const TONE = {
 } satisfies Record<BriefingReferenceKind, string>;
 
 const BASE =
-  "inline-flex items-baseline gap-1 rounded font-medium align-baseline whitespace-normal";
+  "inline-flex items-baseline gap-1 rounded-control-xs font-medium align-baseline whitespace-normal";
 
 function ChipIcon({ kind }: { kind: BriefingReferenceKind }) {
   if (kind === "email")

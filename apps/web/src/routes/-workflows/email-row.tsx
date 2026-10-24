@@ -12,7 +12,7 @@ export function EmailRow({
   return (
     <div
       className={cn(
-        "flex h-[34px] items-center gap-2 rounded-lg bg-app-bg-2 px-2.5",
+        "flex h-[34px] items-center gap-2 rounded-control bg-app-bg-2 px-2.5",
         "absolute inset-x-0 shadow-(--app-shadow-elevated)",
         highlight && cn("bg-app-bg-1", accent),
         className,

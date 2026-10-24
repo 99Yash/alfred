@@ -17,7 +17,7 @@ export function FeaturedHero({ brands }: { brands: ReadonlyArray<IntegrationBran
     <div
       aria-hidden
       className={cn(
-        "app-card-in relative mt-8 h-[180px] w-full overflow-hidden rounded-3xl",
+        "app-card-in relative mt-8 h-[180px] w-full overflow-hidden rounded-panel",
         "bg-app-bg-2",
       )}
       style={{ animationDelay: "60ms" }}

@@ -11,7 +11,7 @@ export function SkillRow({ skill, index }: { skill: SyncedSkill; index: number }
       to="/skills/$slug"
       params={{ slug: skill.slug }}
       className={cn(
-        "block rounded-2xl",
+        "block rounded-surface",
         "app-card-in",
         "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-4 focus-visible:ring-offset-app-background",
       )}
@@ -19,7 +19,7 @@ export function SkillRow({ skill, index }: { skill: SyncedSkill; index: number }
     >
       <div
         className={cn(
-          "group relative flex items-center gap-3 rounded-2xl bg-app-bg-1 p-4",
+          "group relative flex items-center gap-3 rounded-surface bg-app-bg-1 p-4",
           "shadow-[0_1px_1px_rgba(0,0,0,0.05),0_0_0_1px_rgba(0,0,0,0.05)]",
           "app-press transition-shadow",
           "hover:shadow-[0_2px_4px_rgba(0,0,0,0.07),0_0_0_1px_rgba(0,0,0,0.08)]",
@@ -28,7 +28,7 @@ export function SkillRow({ skill, index }: { skill: SyncedSkill; index: number }
         <span
           aria-hidden
           className={cn(
-            "grid size-11 shrink-0 place-items-center rounded-xl ring-1",
+            "grid size-11 shrink-0 place-items-center rounded-surface ring-1",
             "bg-app-purple-1 text-app-purple-4 ring-app-purple-2",
           )}
         >

@@ -26,7 +26,7 @@ function McpInspectionDetail({
   if (inspection.status !== "tool") {
     // `not_found` and `catalog_stale` are refusals, not empty catalogs; say why.
     return (
-      <div className="space-y-2 rounded-lg bg-app-bg-2 p-2" role="alert">
+      <div className="space-y-2 rounded-control bg-app-bg-2 p-2" role="alert">
         <p className="text-xs text-app-fg-3">{inspection.message}</p>
         <AppButton size="sm" variant="white" onClick={onDismiss}>
           Back to tools
@@ -40,7 +40,7 @@ function McpInspectionDetail({
   const description = getStringPath(inspection.tool, "description");
 
   return (
-    <div className="space-y-1 rounded-lg bg-app-bg-2 p-2">
+    <div className="space-y-1 rounded-control bg-app-bg-2 p-2">
       <p className="text-xs font-medium text-app-fg-4">{title ?? name}</p>
       <p className="text-xs text-app-fg-2">{name}</p>
       {description ? <p className="text-xs text-app-fg-3">{description}</p> : null}
@@ -124,7 +124,7 @@ export function McpCatalogView({
         </p>
       ) : readError ? (
         <div className="flex items-center gap-2" role="alert">
-          <p className="text-xs text-red-600">Could not load MCP tools.</p>
+          <p className="text-xs text-app-red-4">Could not load MCP tools.</p>
           <AppButton size="sm" variant="white" onClick={onRetry}>
             Retry
           </AppButton>

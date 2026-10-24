@@ -141,7 +141,7 @@ export function PlanTab({
   return (
     <div className="grid gap-4">
       {readOnly ? (
-        <div className="flex items-center gap-2 rounded-xl bg-app-bg-2 px-3 py-2 text-xs text-app-fg-3">
+        <div className="flex items-center gap-2 rounded-surface bg-app-bg-2 px-3 py-2 text-xs text-app-fg-3">
           <Lock size={13} />
           Built-in workflow. Its definition is managed by Alfred and can't be edited here.
         </div>
@@ -221,7 +221,7 @@ export function PlanTab({
       </AppCard>
 
       {eventCapViolation ? (
-        <div className="flex items-center gap-2 rounded-xl bg-app-amber-1 px-3 py-2 text-xs text-app-amber-4">
+        <div className="flex items-center gap-2 rounded-surface bg-app-amber-1 px-3 py-2 text-xs text-app-amber-4">
           <AlertTriangle size={13} />
           Add <strong>{integrationDisplayName(draft.trigger.eventSource)}</strong> to the allowed
           integrations, or clear the cap. An event workflow must be allowed to use its own trigger
@@ -230,7 +230,7 @@ export function PlanTab({
       ) : null}
 
       {saveError ? (
-        <div className="flex items-center gap-2 rounded-xl bg-app-red-1 px-3 py-2 text-xs text-app-red-4">
+        <div className="flex items-center gap-2 rounded-surface bg-app-red-1 px-3 py-2 text-xs text-app-red-4">
           <AlertTriangle size={13} />
           {saveError}
         </div>

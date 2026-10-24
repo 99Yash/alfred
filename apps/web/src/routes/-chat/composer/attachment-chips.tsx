@@ -38,7 +38,7 @@ export function AttachmentChips({
           // The motion box collapses; the chip inside keeps its 64 px.
           return (
             <CollapseItem key={a.key}>
-              <div className="group relative size-16 overflow-hidden rounded-xl border border-app-fg-a1/40 bg-app-bg-2">
+              <div className="group relative size-16 overflow-hidden rounded-surface border border-app-fg-a1/40 bg-app-bg-2">
                 {/* Preview stays available while disabled: it only reads. */}
                 {onOpen ? (
                   <button

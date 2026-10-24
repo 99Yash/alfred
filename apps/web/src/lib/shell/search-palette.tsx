@@ -280,7 +280,7 @@ export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
       <div
         className={cn(
           "relative mx-4 w-full max-w-[640px]",
-          "rounded-2xl bg-app-bg-1 ring-1 ring-app-bg-3/80",
+          "rounded-surface bg-app-bg-1 ring-1 ring-app-bg-3/80",
           "shadow-[0_30px_80px_rgba(0,0,0,0.32)]",
           "overflow-hidden",
         )}
@@ -309,7 +309,7 @@ export function SearchPalette({ onClose, recentThreads }: SearchPaletteProps) {
           />
           <kbd
             className={cn(
-              "inline-flex h-[18px] shrink-0 items-center justify-center rounded-md px-1.5",
+              "inline-flex h-[18px] shrink-0 items-center justify-center rounded-control-sm px-1.5",
               "text-[10.5px] font-medium tabular-nums",
               "bg-app-bg-a2 font-sans text-app-fg-2",
             )}
@@ -434,7 +434,7 @@ function PaletteRow({
       onMouseEnter={onMouseEnter}
       onClick={onClick}
       className={cn(
-        "group flex h-10 w-full items-center gap-3 rounded-xl px-2.5",
+        "group flex h-10 w-full items-center gap-3 rounded-control px-2.5",
         "transition-colors",
         "outline-none",
         active
@@ -445,7 +445,7 @@ function PaletteRow({
       <span
         aria-hidden
         className={cn(
-          "inline-flex size-7 shrink-0 items-center justify-center rounded-lg",
+          "inline-flex size-7 shrink-0 items-center justify-center rounded-control-sm",
           "bg-app-bg-2 text-app-fg-3",
           active && "bg-app-purple-1 text-app-purple-4",
         )}
@@ -471,7 +471,7 @@ function FootKbd({ children }: { children: ReactNode }) {
   return (
     <kbd
       className={cn(
-        "inline-flex h-4 min-w-[16px] items-center justify-center rounded px-1",
+        "inline-flex h-4 min-w-[16px] items-center justify-center rounded-control-xs px-1",
         "text-[10px] leading-none font-medium tabular-nums",
         "bg-app-bg-a2 font-sans text-app-fg-3",
       )}

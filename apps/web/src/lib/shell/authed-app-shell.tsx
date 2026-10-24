@@ -76,7 +76,7 @@ export default function AuthedAppShell({
           <div
             className={cn(
               "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
-              "rounded-2xl bg-app-bg-1",
+              "rounded-panel bg-app-bg-1",
               "shadow-[0_1px_2px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.04)]",
             )}
           >

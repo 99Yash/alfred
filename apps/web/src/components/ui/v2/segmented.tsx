@@ -44,11 +44,12 @@ export function AppSegmented<T extends string = string>({
     <TabsPrimitive.Root value={value} onValueChange={emit}>
       <TabsPrimitive.List
         aria-label={label}
+        // Both pills, so the active chip follows the track's curve at any tier value.
         className={cn(
-          "inline-flex items-center gap-1 rounded-xl p-1",
+          "inline-flex items-center gap-1 rounded-full p-1",
           glass
-            ? // Always over the dark video, so literals: theme tokens go white-on-white in light mode.
-              "bg-white/12 shadow-[0_1px_12px_rgba(0,0,0,0.18)] ring-1 ring-white/15 backdrop-blur-xl backdrop-saturate-150"
+            ? // The rail's `.app-media` scope gives these tokens their dark values over the video.
+              "bg-app-bg-a4 shadow-[0_1px_12px_rgba(0,0,0,0.18)] ring-1 ring-app-bg-a4 backdrop-blur-xl backdrop-saturate-150"
             : "bg-app-bg-2 ring-1 ring-app-bg-3",
           className,
         )}
@@ -59,7 +60,7 @@ export function AppSegmented<T extends string = string>({
             value={item.value}
             disabled={disabled || item.disabled}
             className={cn(
-              "inline-flex h-7 items-center gap-1.5 rounded-lg px-3",
+              "inline-flex h-7 items-center gap-1.5 rounded-full px-3",
               "text-xs font-medium whitespace-nowrap",
               "transition-[background-color,box-shadow,color,scale] duration-150",
               "app-press",
@@ -67,12 +68,12 @@ export function AppSegmented<T extends string = string>({
                 ? cn(
                     "app-focus [--app-accent-ring:rgba(255,255,255,0.5)]",
                     /* off */
-                    "text-white/70 hover:text-white",
-                    /* on: fixed dark chip, since bg-app-bg-1 turns white in light mode */
-                    "data-[state=active]:bg-[rgba(7,17,31,0.72)] data-[state=active]:text-white",
-                    "data-[state=active]:ring-1 data-[state=active]:ring-white/10",
+                    "text-app-fg-a3 hover:text-app-fg-4",
+                    /* on: a dark chip in the navy of the rail's bottom scrim */
+                    "data-[state=active]:bg-[rgba(7,17,31,0.72)] data-[state=active]:text-app-fg-4",
+                    "data-[state=active]:ring-1 data-[state=active]:ring-app-bg-a3",
                     "data-[state=active]:shadow-[var(--app-shadow-elevated)]",
-                    "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-white/70",
+                    "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-app-fg-a3",
                   )
                 : cn(
                     "app-focus",

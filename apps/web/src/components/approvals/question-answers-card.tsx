@@ -1,6 +1,5 @@
 import type { AskUserUnansweredReason } from "@alfred/contracts";
-import { Check, MessageCircleQuestion, X } from "lucide-react";
-import { cn } from "~/lib/utils";
+import { Check, MessageCircleQuestion } from "lucide-react";
 import { isAnswerEmpty, type AskUserSummary } from "./ask-user";
 
 /**
@@ -13,24 +12,22 @@ export function QuestionAnswersCard({ summary }: { summary: AskUserSummary }) {
   return (
     <section
       aria-label={answered ? "Your answers" : "Question not answered"}
-      className="rounded-xl bg-app-bg-2/60 p-3 shadow-[0_0_0_1px_var(--app-bg-a2)]"
+      className="rounded-surface bg-app-bg-2/60 p-3 shadow-[0_0_0_1px_var(--app-bg-a2)]"
     >
       <div className="flex items-center gap-2">
         <MessageCircleQuestion size={14} className="shrink-0 text-app-fg-3" />
         <p className="min-w-0 flex-1 truncate text-[13px] font-medium text-app-fg-4">
           {answered ? "Your answers" : "No answer"}
         </p>
-        <span
-          aria-hidden
-          className={cn(
-            "grid size-4 shrink-0 place-items-center rounded-full",
-            answered
-              ? "text-app-green-4 shadow-[0_0_0_1px_var(--app-green-2)]"
-              : "text-app-fg-3 shadow-[0_0_0_1px_var(--app-fg-a1)]",
-          )}
-        >
-          {answered ? <Check size={10} strokeWidth={3} /> : <X size={10} strokeWidth={3} />}
-        </span>
+        {/* No mark when unanswered: a circled X in this corner reads as a close button. */}
+        {answered ? (
+          <span
+            aria-hidden
+            className="grid size-4 shrink-0 place-items-center rounded-full text-app-green-4 shadow-[0_0_0_1px_var(--app-green-2)]"
+          >
+            <Check size={10} strokeWidth={3} />
+          </span>
+        ) : null}
       </div>
 
       {summary.status === "unanswered" ? (
@@ -61,7 +58,7 @@ export function QuestionAnswersCard({ summary }: { summary: AskUserSummary }) {
                   {answer.selectedOptions.map((label) => (
                     <span
                       key={label}
-                      className="rounded-md bg-app-purple-1 px-1.5 py-0.5 text-[12px] font-medium text-app-fg-4"
+                      className="rounded-control-sm bg-app-purple-1 px-1.5 py-0.5 text-[12px] font-medium text-app-fg-4"
                     >
                       {label}
                     </span>

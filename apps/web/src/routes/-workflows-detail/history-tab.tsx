@@ -37,7 +37,7 @@ export function HistoryTab({ workflow }: { workflow: SyncedWorkflow }) {
               write still waits for your approval.
             </p>
             {runNow.isError ? (
-              <p className="mt-1 text-xs text-rose-600">{runNow.error.message}</p>
+              <p className="mt-1 text-xs text-app-red-4">{runNow.error.message}</p>
             ) : null}
           </div>
           <AppButton
@@ -60,14 +60,14 @@ export function HistoryTab({ workflow }: { workflow: SyncedWorkflow }) {
           ) : null}
         </div>
         {replay.isError ? (
-          <p className="mb-2 text-xs text-rose-600">{replay.error.message}</p>
+          <p className="mb-2 text-xs text-app-red-4">{replay.error.message}</p>
         ) : null}
 
         {history.isPending ? (
           <p className="py-6 text-center text-xs text-app-fg-3">Loading runs…</p>
         ) : history.isError ? (
           <div className="flex flex-col items-center gap-2 py-6 text-center">
-            <p className="text-xs text-rose-600">{history.error.message}</p>
+            <p className="text-xs text-app-red-4">{history.error.message}</p>
             <AppButton variant="white" size="sm" onClick={() => void history.refetch()}>
               Try again
             </AppButton>

@@ -46,7 +46,7 @@ export function ApprovalModePicker({
             aria-haspopup="listbox"
             aria-controls={listboxId}
             className={cn(
-              "inline-flex h-7 items-center gap-1.5 rounded-[10px] px-2 text-[12px] font-medium",
+              "inline-flex h-7 items-center gap-1.5 rounded-control-sm px-2 text-[12px] font-medium",
               "app-press transition-[box-shadow,color,background-color] outline-none",
               "disabled:cursor-not-allowed disabled:opacity-50",
               "app-focus",
@@ -88,7 +88,7 @@ export function ApprovalModePicker({
           collisionPadding={16}
           data-app-theme={dataTheme}
           className={cn(
-            "app app-frost-overlay z-50 flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-0.5 overflow-hidden rounded-2xl p-1.5",
+            "app app-frost-overlay z-50 flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-0.5 overflow-hidden rounded-surface p-1.5",
             "origin-bottom outline-none",
             "motion-safe:data-[state=open]:animate-[app-popover-in_180ms_cubic-bezier(0.22,1,0.36,1)]",
             "motion-safe:data-[state=closed]:animate-[app-popover-out_120ms_cubic-bezier(0.22,1,0.36,1)]",
@@ -111,7 +111,7 @@ export function ApprovalModePicker({
                     if (!checked) onToggle();
                   }}
                   className={cn(
-                    "app-press flex w-full items-start gap-2.5 rounded-xl p-2 text-left transition-colors outline-none",
+                    "app-press flex w-full items-start gap-2.5 rounded-surface p-2 text-left transition-colors outline-none",
                     "hover:bg-app-bg-a2 focus-visible:bg-app-bg-a2",
                     "active:bg-app-bg-a3",
                     // Selected is a step stronger than hover, so hover never looks selected.
@@ -120,7 +120,7 @@ export function ApprovalModePicker({
                 >
                   <span
                     className={cn(
-                      "mt-0.5 grid size-7 shrink-0 place-items-center rounded-lg",
+                      "mt-0.5 grid size-7 shrink-0 place-items-center rounded-control-sm",
                       option.autonomy
                         ? "bg-app-green-1 text-app-green-4"
                         : "bg-app-bg-2 text-app-fg-3",

@@ -5,7 +5,7 @@ import { cn } from "~/lib/utils";
 import type { RailBriefingSummary } from "./rail-data";
 
 const CTA_CLASS = cn(
-  "inline-flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2",
+  "inline-flex w-full items-center justify-between gap-3 rounded-surface px-3 py-2",
   "text-left",
   "text-[var(--app-accent-fg)]",
   "bg-(image:--app-cta-bg)",
@@ -62,7 +62,7 @@ export function RailFooter({
   );
 
   return (
-    <div className="shrink-0 border-t border-white/10 p-3">
+    <div className="shrink-0 border-t border-app-bg-a3 p-3">
       {latestBriefing ? (
         <Link
           to="/briefings/$date"

@@ -178,7 +178,7 @@ export function ToolCallGroup({
           <Accordion.Trigger
             aria-controls={contentId}
             className={cn(
-              "group/tools -mx-2 flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[13px]",
+              "group/tools -mx-2 flex w-full items-center gap-2 rounded-control px-2 py-1 text-left text-[13px]",
               "outline-none focus-visible:ring-2 focus-visible:ring-app-fg-2",
             )}
           >
@@ -187,7 +187,7 @@ export function ToolCallGroup({
                 <img
                   src="/images/logo/alfred-logo.svg"
                   alt=""
-                  className="size-[18px] rounded-[5px]"
+                  className="size-[18px] rounded-control-xs"
                 />
               </span>
             ) : (

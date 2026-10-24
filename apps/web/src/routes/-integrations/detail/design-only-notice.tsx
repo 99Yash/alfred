@@ -14,7 +14,7 @@ export function DesignOnlyNotice({ name }: { name: string }) {
       <AppCard className="flex items-start gap-3">
         <span
           aria-hidden
-          className="grid size-9 shrink-0 place-items-center rounded-xl bg-app-bg-2 text-app-fg-3"
+          className="grid size-9 shrink-0 place-items-center rounded-control bg-app-bg-2 text-app-fg-3"
         >
           <Compass size={17} />
         </span>

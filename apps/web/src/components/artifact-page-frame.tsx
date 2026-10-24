@@ -47,7 +47,7 @@ export function ArtifactPageFrame({
   return (
     <div
       ref={frameRef}
-      className={cn("relative overflow-hidden rounded-lg shadow-2xl", className)}
+      className={cn("relative overflow-hidden rounded-control shadow-2xl", className)}
       // Page surface color, so no white edge flashes in dark mode. Aspect from `pageGeometry`.
       style={{ backgroundColor: surfaceColor, aspectRatio: `${pageWidth} / ${pageHeight}` }}
     >

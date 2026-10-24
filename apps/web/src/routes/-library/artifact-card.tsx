@@ -33,7 +33,7 @@ export function ArtifactCard({ artifact, index }: { artifact: SyncedArtifact; in
       to="/library/$artifact"
       params={{ artifact: artifact.id }}
       className={cn(
-        "group app-card-in block overflow-hidden rounded-2xl bg-app-bg-1",
+        "group app-card-in block overflow-hidden rounded-surface bg-app-bg-1",
         "shadow-[0_1px_1px_rgba(0,0,0,0.05),0_0_0_1px_rgba(0,0,0,0.05)]",
         "app-press transition-shadow",
         "hover:shadow-[0_4px_12px_rgba(0,0,0,0.08),0_0_0_1px_rgba(0,0,0,0.08)]",
@@ -47,12 +47,12 @@ export function ArtifactCard({ artifact, index }: { artifact: SyncedArtifact; in
             html={firstPage.html}
             title={`${artifact.title} cover preview`}
             format={artifact.format ?? "pdf"}
-            className="mx-auto h-full max-w-[210px] rounded-lg shadow-[0_4px_12px_rgba(0,0,0,0.10)]"
+            className="mx-auto h-full max-w-[210px] rounded-control shadow-[0_4px_12px_rgba(0,0,0,0.10)]"
           />
         ) : (
           <div
             className={cn(
-              "mx-auto flex h-full max-w-[210px] flex-col rounded-lg p-4 text-app-fg-4",
+              "mx-auto flex h-full max-w-[210px] flex-col rounded-control p-4 text-app-fg-4",
               "shadow-[0_4px_12px_rgba(0,0,0,0.10),0_0_0_1px_rgba(0,0,0,0.05)]",
               "bg-app-bg-1",
             )}
@@ -80,7 +80,7 @@ export function ArtifactCard({ artifact, index }: { artifact: SyncedArtifact; in
         <span
           aria-hidden
           className={cn(
-            "grid size-9 shrink-0 place-items-center rounded-xl ring-1",
+            "grid size-9 shrink-0 place-items-center rounded-control ring-1",
             tint.bg,
             tint.fg,
             tint.ring,

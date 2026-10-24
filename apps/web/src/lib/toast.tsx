@@ -18,7 +18,7 @@ interface CallToastOptions {
   duration?: number | undefined;
   /** `null` hides the icon. */
   icon?: ReactNode | null | undefined;
-  /** Default `top-right`. */
+  /** Default `bottom-right`. */
   position?: ToastPosition | undefined;
   /** Runs `onClick`, then dismisses. For "Undo", match `duration` to the deferred commit. */
   action?: { label: string; onClick: () => void };
@@ -74,7 +74,7 @@ export function callToast({
   variant,
   duration = 5000,
   icon,
-  position = "top-right",
+  position = "bottom-right",
   action,
 }: CallToastOptions): string | number {
   const intent = variant ?? "default";
@@ -88,7 +88,7 @@ export function callToast({
     (id) => (
       <div
         className={cn(
-          "app app-toast pointer-events-auto flex w-88 max-w-[calc(100vw-2rem)] gap-2.5 rounded-2xl px-3 py-2.5",
+          "app app-toast pointer-events-auto flex w-88 max-w-[calc(100vw-2rem)] gap-2.5 rounded-surface px-3 py-2.5",
           multiline ? "items-start" : "items-center",
           spec.cardClass,
         )}
@@ -122,7 +122,7 @@ export function callToast({
               sonnerToast.dismiss(id);
             }}
             className={cn(
-              "-my-0.5 shrink-0 self-center rounded-lg px-2.5 py-1 text-[12.5px] font-semibold",
+              "-my-0.5 shrink-0 self-center rounded-control px-2.5 py-1 text-[12.5px] font-semibold",
               // A resting fill so it reads as a button before hover.
               "bg-app-bg-a2 text-app-fg-4 ring-1 ring-app-fg-a1/60 ring-inset",
               "transition-[background-color,box-shadow,transform] duration-150 hover:ring-app-fg-a1 active:scale-[0.96]",
@@ -179,7 +179,7 @@ function emojiToast({
         type="button"
         onClick={() => sonnerToast.dismiss(id)}
         className={cn(
-          "app app-toast app-toast--emoji pointer-events-auto relative isolate flex w-full max-w-xs min-w-60 items-center overflow-hidden rounded-2xl px-3 py-2.5 text-left",
+          "app app-toast app-toast--emoji pointer-events-auto relative isolate flex w-full max-w-xs min-w-60 items-center overflow-hidden rounded-surface px-3 py-2.5 text-left",
           "transition-transform duration-150 active:scale-[0.98]",
         )}
         data-app-theme={appThemeAttr()}
@@ -204,13 +204,13 @@ function emojiToast({
   );
 }
 
-/** Warnings and errors go top-center; success and info go bottom-right. */
+/** Every variant goes bottom-right unless the caller passes a `position`. */
 export const toast = {
-  message: (input: Shorthand) => shorthand("default", "top-right")(input),
+  message: (input: Shorthand) => shorthand("default", "bottom-right")(input),
   success: shorthand("success", "bottom-right"),
   info: shorthand("info", "bottom-right"),
-  warning: shorthand("warning", "top-center"),
-  error: shorthand("error", "top-center"),
+  warning: shorthand("warning", "bottom-right"),
+  error: shorthand("error", "bottom-right"),
   emoji: emojiToast,
   custom: callToast,
   dismiss: (id?: string | number) => sonnerToast.dismiss(id),

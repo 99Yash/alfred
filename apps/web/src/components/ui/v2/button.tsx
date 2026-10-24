@@ -28,11 +28,11 @@ interface AppButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 /* Matches the 13/14px `leading` icons, so the swap does not resize the button. */
 const SPINNER_SIZE = { sm: 13, md: 14, lg: 14 } satisfies Record<AppButtonSize, number>;
 
-/* 12px on a 28px `sm` button looks like a pill, so small buttons get a smaller radius. */
+/* Radius follows height (index.css `--radius-*`): the 28px `sm` button is `control-sm`, 32-36px is `control`. */
 const SIZE = {
-  sm: "h-7 px-2.5 text-[13px] gap-1.5 rounded-[9px]",
-  md: "h-8 px-2.5 text-sm gap-2 rounded-[10px]",
-  lg: "h-9 px-3 text-sm gap-2 rounded-xl",
+  sm: "h-7 px-2.5 text-[13px] gap-1.5 rounded-control-sm",
+  md: "h-8 px-2.5 text-sm gap-2 rounded-control",
+  lg: "h-9 px-3 text-sm gap-2 rounded-control",
 } satisfies Record<AppButtonSize, string>;
 
 const VARIANT = {
@@ -60,7 +60,7 @@ const VARIANT = {
     "disabled:cursor-not-allowed disabled:opacity-50",
   ),
   destructive: cn(
-    "bg-app-red-4 text-white",
+    "bg-app-red-4 text-app-bg-1",
     "shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.18),0_8px_24px_rgba(255,47,0,0.32)]",
     "hover:brightness-[1.05]",
     "hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.20),0_2px_4px_rgba(0,0,0,0.22),0_12px_32px_rgba(255,47,0,0.42)]",

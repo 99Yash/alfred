@@ -24,8 +24,11 @@ export function SkillDetailPage() {
     return (
       <DetailShell>
         <BackLink />
-        <div className="h-24 animate-pulse rounded-2xl bg-app-bg-2" aria-label="Loading skill" />
-        <div className="h-64 animate-pulse rounded-2xl bg-app-bg-2" />
+        <div
+          className="h-24 animate-pulse rounded-surface bg-app-bg-2"
+          aria-label="Loading skill"
+        />
+        <div className="h-64 animate-pulse rounded-surface bg-app-bg-2" />
       </DetailShell>
     );
   }

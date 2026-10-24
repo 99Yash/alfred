@@ -176,7 +176,12 @@
   --app-fg-a3: rgba(0, 0, 0, 0.6);
   --app-fg-a4: rgba(24, 25, 37, 0.88);
 
-  /* Hue scale — 10 hues × 4 stops + 4 alpha variants of the -4 stop. */
+  /* Hue scale — 10 hues × 4 stops. -1 is a tint fill, -2 a tint border or
+   * ring, -3 a mid tone, -4 the text and solid-fill step. Each light -4
+   * meets WCAG AA (4.5:1) as text on white and on its own -1 tint, so
+   * status text uses the token, never a raw Tailwind hue. Purple is the one
+   * exception: it is the app accent, so it is the brand purple, which meets
+   * AA on white but only 4:1 on its tint. */
   --app-gray-1: #f7f7f7;
   --app-gray-2: #e0e0e0;
   --app-gray-3: #cccccc;
@@ -185,55 +190,47 @@
   --app-blue-1: #f0fbff;
   --app-blue-2: #c2f1ff;
   --app-blue-3: #4cd5ff;
-  --app-blue-4: #00c4ff;
+  --app-blue-4: #0078a8;
 
   --app-red-1: #fff3f0;
   --app-red-2: #ffe2db;
   --app-red-3: #ffd5cc;
-  --app-red-4: #ff2f00;
+  --app-red-4: #d42a00;
 
   --app-green-1: #effbf2;
   --app-green-2: #c2efcd;
   --app-green-3: #71da8b;
-  --app-green-4: #33c758;
+  --app-green-4: #1a7f37;
 
   --app-amber-1: #fff8eb;
   --app-amber-2: #ffeac2;
   --app-amber-3: #ffc65c;
-  --app-amber-4: #ffa600;
+  --app-amber-4: #a35f00;
 
   --app-purple-1: #f1f1fe;
   --app-purple-2: #dad9fc;
   --app-purple-3: #b5b3f9;
-  --app-purple-4: #918df6;
+  --app-purple-4: var(--app-accent-from);
 
   --app-sky-1: #ebf2ff;
   --app-sky-2: #bed5fe;
   --app-sky-3: #689ffd;
-  --app-sky-4: #2c78fc;
+  --app-sky-4: #1f63d6;
 
   --app-yellow-1: #fffdeb;
   --app-yellow-2: #fff6b3;
   --app-yellow-3: #ffec5c;
-  --app-yellow-4: #f5d90a;
+  --app-yellow-4: #857000;
 
   --app-pink-1: #fff0f9;
   --app-pink-2: #ffc2e9;
   --app-pink-3: #f075c3;
-  --app-pink-4: #d6409f;
+  --app-pink-4: #c02f86;
 
   --app-orange-1: #fff6f0;
   --app-orange-2: #ffdac2;
   --app-orange-3: #ffa366;
-  --app-orange-4: #f76808;
-
-  /* Radius scale — app grammar lives at the extremes (small + 16px + full). */
-  --app-radius-1: 0.125rem;
-  --app-radius-2: 0.25rem;
-  --app-radius-3: 0.375rem;
-  --app-radius-4: 0.5rem;
-  --app-radius-5: 0.75rem;
-  --app-radius-6: 1rem;
+  --app-orange-4: #bd4b00;
 
   /* Shadow stack used everywhere — drop + hairline-as-border, all in one box-shadow */
   --app-shadow-elevated: 0 1px 1px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.05);
@@ -415,8 +412,16 @@
   }
 }
 
-/* Explicit override — always wins, works without system preference. */
-.app[data-app-theme="dark"] {
+/* Explicit override — always wins, works without system preference.
+ *
+ * `.app-media` takes the same dark values for a fixed dark surface that
+ * does not follow the theme: the rail over the weather video, the
+ * onboarding page, the image lightbox, and the presentation overlay. It
+ * sets only tokens, not a background, so the media stays visible. Inside
+ * it, `text-app-fg-a3` and `bg-app-bg-a2` are the white-alpha ink and
+ * fills, and status chips read as they do in dark mode. */
+.app[data-app-theme="dark"],
+.app-media {
   --app-background: #0a0a0a;
   --app-background-subtle: #060606;
   --app-bg-1: #0a0a0a;
@@ -660,13 +665,17 @@
   --color-app-orange-3: var(--app-orange-3);
   --color-app-orange-4: var(--app-orange-4);
 
-  /* Radius utilities — rounded-app-1 .. rounded-app-6 */
-  --radius-app-1: var(--app-radius-1);
-  --radius-app-2: var(--app-radius-2);
-  --radius-app-3: var(--app-radius-3);
-  --radius-app-4: var(--app-radius-4);
-  --radius-app-5: var(--app-radius-5);
-  --radius-app-6: var(--app-radius-6);
+  /* Radius by role. Pick the tier from what the element is, not from how
+   * round it should look: a 36px nav row and a 32px button are both
+   * `control`. A container is its inner tier plus its padding, so an 18px
+   * menu with `p-1` holds 14px items. Pills, avatars, and dots stay
+   * `rounded-full`. `cn()` in lib/utils.ts lists the same names so
+   * tailwind-merge resolves a conflicting override. */
+  --radius-control-xs: 6px; /* 20px and smaller: kbd, checkbox, tag, skeleton bar */
+  --radius-control-sm: 8px; /* 24-28px: small buttons, icon buttons, menu triggers */
+  --radius-control: 14px; /* 32-40px: buttons, nav and thread rows, inputs, menu items */
+  --radius-surface: 18px; /* cards, banners, menus, popovers, toasts, message bubbles */
+  --radius-panel: 20px; /* app shell, sidebar, rail, composer, dialogs */
 }
 
 @layer base {
@@ -1991,7 +2000,8 @@
    * The default is `color-scheme: light`, which leaves scrollbars white-on-
    * grey even on near-black surfaces. Explicit attribute overrides win;
    * system mode falls through to `light dark` so the OS picks. */
-  .app[data-app-theme="dark"] {
+  .app[data-app-theme="dark"],
+  .app-media {
     color-scheme: dark;
   }
   .app[data-app-theme="light"] {

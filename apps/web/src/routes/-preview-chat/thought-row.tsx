@@ -21,12 +21,12 @@ export function ThoughtRow({
         aria-expanded={open}
         className={cn(
           "group/th flex items-center gap-2 text-sm leading-5",
-          "outline-none focus-visible:rounded-md focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
+          "outline-none focus-visible:rounded-control-sm focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
         )}
       >
         <span
           aria-hidden
-          className="inline-flex size-6 shrink-0 items-center justify-center rounded-md bg-app-bg-2 text-app-fg-3"
+          className="inline-flex size-6 shrink-0 items-center justify-center rounded-control-sm bg-app-bg-2 text-app-fg-3"
         >
           <Sparkles size={12} />
         </span>

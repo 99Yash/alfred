@@ -15,7 +15,7 @@ export function WorkflowIcon({ children, tone }: { children: ReactNode; tone: Wo
   return (
     <span
       aria-hidden
-      className={cn("grid size-9 shrink-0 place-items-center rounded-xl", TONE[tone])}
+      className={cn("grid size-9 shrink-0 place-items-center rounded-control", TONE[tone])}
     >
       {children}
     </span>

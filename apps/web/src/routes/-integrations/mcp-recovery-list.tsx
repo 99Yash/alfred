@@ -53,7 +53,7 @@ function McpRecoveryCard({
           {operation.lastError ? ` · ${operation.lastError}` : ""}
         </p>
         {operation.displayInput !== null ? (
-          <pre className="max-h-32 overflow-auto rounded-lg bg-app-bg-2 p-2 text-xs text-app-fg-3">
+          <pre className="max-h-32 overflow-auto rounded-control bg-app-bg-2 p-2 text-xs text-app-fg-3">
             {JSON.stringify(operation.displayInput, null, 2)}
           </pre>
         ) : null}
@@ -156,7 +156,7 @@ export function McpRecoveryList({
   if (readError) {
     return (
       <div className="flex items-center gap-2 px-1 pt-2" role="alert">
-        <p className="text-xs text-red-600">Could not load MCP recovery operations.</p>
+        <p className="text-xs text-app-red-4">Could not load MCP recovery operations.</p>
         <AppButton size="sm" variant="white" onClick={onReadRetry}>
           Retry
         </AppButton>
@@ -183,7 +183,7 @@ export function McpRecoveryList({
   return (
     <div className="space-y-2 pt-2">
       {operations.some((operation) => operation.attemptLifecycle !== "prepared") ? (
-        <div className="flex items-center gap-2 px-1 text-xs text-amber-600">
+        <div className="flex items-center gap-2 px-1 text-xs text-app-amber-4">
           <AlertTriangle size={14} aria-hidden />
           Some operations might have completed. Check the remote system before you continue.
         </div>
@@ -209,7 +209,7 @@ export function McpRecoveryList({
         </AppButton>
       ) : null}
       {mutationError ? (
-        <p className="px-1 text-xs text-red-600">Could not update the recovery operation.</p>
+        <p className="px-1 text-xs text-app-red-4">Could not update the recovery operation.</p>
       ) : null}
     </div>
   );

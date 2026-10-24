@@ -63,18 +63,18 @@ export function ArtifactPagesBody({
                 aria-current={active ? "true" : undefined}
                 onClick={() => onPageIndexChange(index)}
                 className={cn(
-                  "w-[84px] shrink-0 rounded-xl border p-1 text-left transition-colors",
+                  "w-[84px] shrink-0 rounded-surface border p-1 text-left transition-colors",
                   active
                     ? "border-app-fg-3 bg-app-bg-a2"
                     : "border-app-bg-3/60 bg-app-bg-a2/40 hover:bg-app-bg-a2",
                 )}
               >
-                <div className="overflow-hidden rounded-lg bg-white">
+                <div className="overflow-hidden rounded-control bg-white">
                   <ArtifactPageFrame
                     html={page.html}
                     title={`${page.title || `Page ${index + 1}`} thumbnail`}
                     format={format}
-                    className="rounded-lg shadow-none"
+                    className="rounded-control shadow-none"
                   />
                 </div>
                 <div className="mt-1 truncate text-[10px] text-app-fg-4">
@@ -84,7 +84,7 @@ export function ArtifactPagesBody({
             );
           })}
           {generating ? (
-            <div className="grid w-[84px] shrink-0 place-items-center rounded-xl border border-dashed border-app-bg-3/60 bg-app-bg-a2/30 p-1">
+            <div className="grid w-[84px] shrink-0 place-items-center rounded-surface border border-dashed border-app-bg-3/60 bg-app-bg-a2/30 p-1">
               <Loader2 size={14} className="animate-spin text-app-fg-4" />
             </div>
           ) : null}

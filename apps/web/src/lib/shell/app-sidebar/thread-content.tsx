@@ -46,7 +46,7 @@ export function ThreadGroupBlock({
         onClick={onToggle}
         aria-expanded={!collapsed}
         className={cn(
-          "group/heading inline-flex w-full items-center gap-1.5 rounded-lg px-3 pt-2 pb-1",
+          "group/heading inline-flex w-full items-center gap-1.5 rounded-control px-3 pt-2 pb-1",
           "text-[11px] font-medium tracking-tight text-app-fg-2 uppercase",
           "transition-colors hover:text-app-fg-3",
           "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
@@ -134,7 +134,7 @@ function ThreadRow({
           event.preventDefault();
         }}
         className={cn(
-          "inline-flex h-9 w-full items-center gap-2 rounded-xl pr-2 pl-3 text-left",
+          "inline-flex h-9 w-full items-center gap-2 rounded-control pr-2 pl-3 text-left",
           "app-press transition-[background-color,color] duration-150",
           "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
           active
@@ -240,7 +240,7 @@ function ThreadRowMenu({
           type="button"
           aria-label="Chat actions"
           className={cn(
-            "absolute top-1/2 right-1.5 inline-flex size-6 -translate-y-1/2 items-center justify-center rounded-lg",
+            "absolute top-1/2 right-1.5 inline-flex size-6 -translate-y-1/2 items-center justify-center rounded-control-sm",
             "text-app-fg-2 transition-colors hover:bg-app-bg-3 hover:text-app-fg-4",
             "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
             open ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
@@ -263,14 +263,14 @@ function ThreadRowMenu({
 }
 
 const menuSurfaceClass = cn(
-  "app z-200 min-w-[168px] rounded-xl p-1",
+  "app z-200 min-w-[168px] rounded-surface p-1",
   "border border-app-bg-3/70 bg-app-bg-1",
   "shadow-[0_8px_28px_rgba(0,0,0,0.16),0_0_0_1px_rgba(0,0,0,0.04)]",
   "data-[state=open]:animate-[app-fade-in_120ms_ease-out]",
 );
 
 const menuItemClass = cn(
-  "flex h-8 cursor-default items-center gap-2.5 rounded-lg px-2 text-sm font-medium select-none",
+  "flex h-8 cursor-default items-center gap-2.5 rounded-control px-2 text-sm font-medium select-none",
   "text-app-fg-3 outline-none",
   "data-[highlighted]:bg-app-bg-a2 data-[highlighted]:text-app-fg-4",
 );

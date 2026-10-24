@@ -1,5 +1,6 @@
 import { TriangleAlert, X } from "lucide-react";
 import type { ReactNode } from "react";
+import { AppButton } from "~/components/ui/v2";
 import { cn } from "~/lib/utils";
 
 interface NagBannerProps {
@@ -18,24 +19,16 @@ export function NagBanner({ message, actionLabel, onAction, onDismiss }: NagBann
     <div
       role="alert"
       className={cn(
-        "pointer-events-auto flex w-full max-w-2xl items-center gap-3 rounded-xl px-3.5 py-2.5",
+        "pointer-events-auto flex w-full max-w-2xl items-center gap-3 rounded-surface px-3.5 py-2.5",
         "border border-app-amber-2 bg-app-amber-1 text-app-fg-4 backdrop-blur-sm",
         "shadow-[0_8px_24px_-12px_rgba(0,0,0,0.25)]",
       )}
     >
       <TriangleAlert size={16} className="shrink-0 text-app-amber-4" />
       <p className="min-w-0 flex-1 text-[13px] leading-snug text-pretty">{message}</p>
-      <button
-        type="button"
-        onClick={onAction}
-        className={cn(
-          "shrink-0 rounded-full px-3 py-1 text-[13px] font-medium",
-          "bg-amber-500 text-amber-950",
-          "transition-[background-color,transform] duration-150 hover:bg-amber-400 active:scale-[0.96]",
-        )}
-      >
+      <AppButton size="sm" onClick={onAction} className="shrink-0 bg-app-amber-4 text-app-bg-1">
         {actionLabel}
-      </button>
+      </AppButton>
       <button
         type="button"
         onClick={onDismiss}

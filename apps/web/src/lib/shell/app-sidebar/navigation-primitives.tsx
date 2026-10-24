@@ -24,7 +24,7 @@ export function SidebarHeading({ children }: { children: ReactNode }) {
 
 const navRowClass = (active = false) =>
   cn(
-    "group inline-flex h-9 w-full items-center gap-2.5 rounded-xl px-3 text-left",
+    "group inline-flex h-9 w-full items-center gap-2.5 rounded-control px-3 text-left",
     "app-press transition-[background-color,color] duration-150",
     "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
     active
@@ -82,7 +82,7 @@ export function NavLink({ to, ...props }: BaseNavProps & { to: string }) {
 
 function KbdHint({ children }: { children: ReactNode }) {
   return (
-    <kbd className="inline-flex h-4.5 min-w-5 items-center justify-center rounded-md bg-app-bg-a2 px-1 font-sans text-[10.5px] leading-none font-medium text-app-fg-3 tabular-nums">
+    <kbd className="inline-flex h-4.5 min-w-5 items-center justify-center rounded-control-xs bg-app-bg-a2 px-1 font-sans text-[10.5px] leading-none font-medium text-app-fg-3 tabular-nums">
       {children}
     </kbd>
   );
@@ -108,7 +108,7 @@ export function RailTip({
           sideOffset={8}
           data-app-theme={resolved}
           className={cn(
-            "app z-200 inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium",
+            "app z-200 inline-flex items-center gap-1.5 rounded-control px-2 py-1 text-xs font-medium",
             "bg-app-fg-4 text-app-bg-1 shadow-[0_2px_8px_rgba(0,0,0,0.18)]",
             "select-none data-[state=delayed-open]:animate-[app-fade-in_120ms_ease-out]",
           )}
@@ -139,7 +139,7 @@ export function RailLink({
       >
         <Icon size={16} strokeWidth={1.75} aria-hidden />
         {badge ? (
-          <span className="absolute -top-0.5 -right-0.5 inline-flex h-3.75 min-w-3.75 items-center justify-center rounded-full bg-app-purple-4 px-1 text-[9px] font-semibold text-white tabular-nums">
+          <span className="absolute -top-0.5 -right-0.5 inline-flex h-3.75 min-w-3.75 items-center justify-center rounded-full bg-app-purple-4 px-1 text-[9px] font-semibold text-app-bg-1 tabular-nums">
             {badge}
           </span>
         ) : null}

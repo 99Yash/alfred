@@ -21,7 +21,7 @@ export function CategoryCards({ start, end, selected, onToggle }: CategoryCardsP
     return (
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
         {Array.from({ length: 4 }, (_, i) => (
-          <div key={i} className="h-20 animate-pulse rounded-2xl bg-app-bg-2" aria-hidden />
+          <div key={i} className="h-20 animate-pulse rounded-surface bg-app-bg-2" aria-hidden />
         ))}
       </div>
     );
@@ -66,7 +66,7 @@ export function CategoryCards({ start, end, selected, onToggle }: CategoryCardsP
             <div className="flex items-center justify-between gap-2">
               <span
                 className={cn(
-                  "inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] font-medium",
+                  "inline-flex items-center rounded-control-sm px-1.5 py-0.5 text-[11px] font-medium",
                   CATEGORY_TILE[c.category],
                 )}
               >

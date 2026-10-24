@@ -22,7 +22,7 @@ export function RunGroup({
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         className={cn(
-          "group/run flex w-full items-center gap-2 rounded-lg px-1.5 py-1 text-left",
+          "group/run flex w-full items-center gap-2 rounded-control px-1.5 py-1 text-left",
           "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
         )}
       >

@@ -59,11 +59,11 @@ export function RailContent({
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_bottom,transparent,rgba(0,0,0,0.08)_28%,rgba(7,17,31,0.70)_100%)]" />
       <div className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-[linear-gradient(to_bottom,rgba(0,0,0,0.55),rgba(0,0,0,0.42)_38%,rgba(0,0,0,0.16)_72%,transparent)]" />
 
-      <div className="relative z-10 flex h-full min-h-0 flex-col text-white">
+      <div className="app-media relative z-10 flex h-full min-h-0 flex-col text-app-fg-4">
         {/* Header rows fade up in sequence on entrance. */}
         <div className="px-4 py-5">
           <div className="flex items-start justify-between gap-3">
-            <div className="animate-rail-head min-w-0 flex-1 truncate text-[0.8125rem] font-medium text-white/75 mix-blend-plus-lighter">
+            <div className="animate-rail-head min-w-0 flex-1 truncate text-[0.8125rem] font-medium text-app-fg-a3 mix-blend-plus-lighter">
               {greeting(now)}
               {firstName(session?.user) ? `, ${firstName(session?.user)}` : ""}
             </div>
@@ -73,9 +73,9 @@ export function RailContent({
                 aria-label="Close panel"
                 onClick={onClose}
                 className={cn(
-                  "inline-flex size-7 shrink-0 items-center justify-center rounded-lg",
-                  "app-press text-white/70 transition-colors hover:bg-white/[0.07] hover:text-white",
-                  "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
+                  "inline-flex size-7 shrink-0 items-center justify-center rounded-control-sm",
+                  "app-press text-app-fg-a3 transition-colors hover:bg-app-bg-a2 hover:text-app-fg-4",
+                  "outline-none focus-visible:ring-2 focus-visible:ring-app-fg-a2",
                 )}
               >
                 <X size={13} />
@@ -83,7 +83,7 @@ export function RailContent({
             ) : null}
           </div>
           <WeatherHero />
-          <div className="animate-rail-head mt-2 text-xs text-white/55 mix-blend-plus-lighter [animation-delay:210ms]">
+          <div className="animate-rail-head mt-2 text-xs text-app-fg-a2 mix-blend-plus-lighter [animation-delay:210ms]">
             {formatRailDate(now)}
           </div>
         </div>

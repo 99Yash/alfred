@@ -13,7 +13,7 @@ export function CapabilityChip({ children }: { children: ReactNode }) {
     >
       <span
         aria-hidden
-        className="grid size-5 place-items-center rounded-md bg-app-purple-1 text-app-purple-4"
+        className="grid size-5 place-items-center rounded-control-xs bg-app-purple-1 text-app-purple-4"
       >
         <Check size={11} strokeWidth={2.5} />
       </span>

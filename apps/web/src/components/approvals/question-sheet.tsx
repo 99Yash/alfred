@@ -77,8 +77,9 @@ export function QuestionSheet({
 
       <div className="mt-3 flex shrink-0 flex-wrap items-center justify-between gap-2">
         <p className="text-[11.5px] leading-5 text-app-fg-2">
-          <kbd className="rounded bg-app-bg-1 px-1 font-sans">⌘</kbd>
-          <kbd className="ml-0.5 rounded bg-app-bg-1 px-1 font-sans">Enter</kbd> to continue
+          <kbd className="rounded-control-xs bg-app-bg-1 px-1 font-sans">⌘</kbd>
+          <kbd className="ml-0.5 rounded-control-xs bg-app-bg-1 px-1 font-sans">Enter</kbd> to
+          continue
         </p>
         {decided ? (
           <div className="flex min-h-8 items-center gap-2 text-[13px] font-medium text-app-fg-3">

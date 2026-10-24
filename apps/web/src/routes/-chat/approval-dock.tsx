@@ -242,7 +242,7 @@ export function ChatApprovalDock({
           }}
           className={cn(
             // Tucked: the queue tray or the composer overlaps the bottom edge, as the queue tray does.
-            "relative z-0 mx-3 -mb-5 flex max-h-[min(50vh,32rem)] flex-col overflow-hidden rounded-t-[20px] pb-5",
+            "relative z-0 mx-3 -mb-5 flex max-h-[min(50vh,32rem)] flex-col overflow-hidden rounded-t-panel pb-5",
             "border border-b-0 border-app-fg-a1/30 bg-app-bg-2/90 backdrop-blur-md",
             "shadow-[0_-1px_12px_rgba(0,0,0,0.05)]",
           )}
@@ -337,7 +337,7 @@ function PagerButton({
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        "app-press app-focus inline-flex size-6 items-center justify-center rounded-md text-app-fg-2",
+        "app-press app-focus inline-flex size-6 items-center justify-center rounded-control-sm text-app-fg-2",
         "transition-colors duration-150 hover:bg-app-bg-a2 hover:text-app-fg-4",
         "disabled:pointer-events-none disabled:opacity-40",
       )}
@@ -407,7 +407,6 @@ function useRecordDecision<Decision extends RecordedDecision>({
           message: "Review the refreshed contract",
           description:
             "Alfred updated the derived schedule and account details. Approve it again to activate the workflow.",
-          position: "top-center",
         });
 
         return;
@@ -420,7 +419,7 @@ function useRecordDecision<Decision extends RecordedDecision>({
       if (pendingToast) {
         const { tone, message, description } = pendingToast;
         const recorded = tone === "success" ? toast.success : toast.info;
-        recorded({ message, description, position: "top-center" });
+        recorded({ message, description });
       }
     });
   };
@@ -567,7 +566,7 @@ function DockApprovalCard({
             )}
 
             {staging.recentRejection ? (
-              <div className="mt-2 flex items-start gap-2 rounded-xl bg-app-amber-1 px-3 py-2 text-[12px] leading-5 text-app-amber-4 shadow-[0_0_0_1px_var(--app-amber-2)]">
+              <div className="mt-2 flex items-start gap-2 rounded-surface bg-app-amber-1 px-3 py-2 text-[12px] leading-5 text-app-amber-4 shadow-[0_0_0_1px_var(--app-amber-2)]">
                 <AlertTriangle size={14} className="mt-0.5 shrink-0" />
                 <p className="min-w-0">
                   Last rejected {formatTimestamp(staging.recentRejection.decidedAt)}
@@ -629,7 +628,7 @@ function DockApprovalCard({
               <Link
                 to="/approvals"
                 className={cn(
-                  "inline-flex min-h-8 items-center gap-1 rounded-lg px-2 text-[12px] font-medium text-app-fg-3",
+                  "inline-flex min-h-8 items-center gap-1 rounded-control px-2 text-[12px] font-medium text-app-fg-3",
                   "transition-[background-color,color] hover:bg-app-bg-a2 hover:text-app-fg-4",
                   "app-focus",
                 )}
@@ -799,7 +798,11 @@ function DockQuestionCard({
   return (
     <>
       <div className="flex shrink-0 items-center gap-3 px-3 pt-3 pb-2 sm:px-4">
-        <img src="/images/logo/alfred-logo.svg" alt="" className="size-7 shrink-0 rounded-[8px]" />
+        <img
+          src="/images/logo/alfred-logo.svg"
+          alt=""
+          className="size-7 shrink-0 rounded-control-sm"
+        />
         <div className="min-w-0 flex-1">
           <p className="truncate text-[14px] leading-5 font-semibold text-app-fg-4">
             {count === 1 ? "Alfred has a question" : `Alfred has ${count} questions`}
@@ -871,7 +874,7 @@ function PermissionsAffordance({
           type="button"
           aria-controls={popoverId}
           className={cn(
-            "inline-flex h-7 shrink-0 items-center gap-1 rounded-lg px-2 text-[12px] font-medium text-app-fg-3",
+            "inline-flex h-7 shrink-0 items-center gap-1 rounded-control-sm px-2 text-[12px] font-medium text-app-fg-3",
             "app-focus app-press transition-[box-shadow,color,background-color]",
             "hover:bg-app-bg-a2 hover:text-app-fg-4",
           )}
@@ -890,7 +893,7 @@ function PermissionsAffordance({
           collisionPadding={16}
           data-app-theme={dataTheme}
           className={cn(
-            "app app-frost-overlay z-50 flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-2 overflow-hidden rounded-2xl p-3",
+            "app app-frost-overlay z-50 flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-2 overflow-hidden rounded-surface p-3",
             "app-fade-in outline-none",
           )}
         >

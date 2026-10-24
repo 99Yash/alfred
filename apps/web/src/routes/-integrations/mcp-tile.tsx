@@ -37,7 +37,7 @@ export function McpTile({
         />
       ) : (
         <span
-          className="grid size-9 shrink-0 place-items-center rounded-xl bg-app-bg-2 text-app-fg-3 ring-1 ring-app-bg-3"
+          className="grid size-9 shrink-0 place-items-center rounded-control bg-app-bg-2 text-app-fg-3 ring-1 ring-app-bg-3"
           aria-hidden
         >
           {icon.glyph}

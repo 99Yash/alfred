@@ -22,7 +22,7 @@ export function SupportPage() {
         </a>
 
         <header className="mt-10 flex items-center gap-3">
-          <img src="/images/logo/alfred-logo.svg" alt="Alfred" className="size-8 rounded-[9px]" />
+          <img src="/images/logo/alfred-logo.svg" alt="Alfred" className="size-8 rounded-control" />
           <span className="text-[15px] font-semibold text-white">Alfred</span>
         </header>
 

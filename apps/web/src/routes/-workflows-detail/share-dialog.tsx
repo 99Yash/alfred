@@ -44,7 +44,7 @@ export function ShareDialog({ workflow, open, onClose }: ShareDialogProps) {
       />
       <div
         className={cn(
-          "relative w-[min(520px,92vw)] rounded-2xl bg-app-bg-1",
+          "relative w-[min(520px,92vw)] rounded-panel bg-app-bg-1",
           "shadow-[0_24px_64px_rgba(0,0,0,0.18),0_0_0_1px_rgba(0,0,0,0.06)]",
         )}
       >
@@ -55,7 +55,7 @@ export function ShareDialog({ workflow, open, onClose }: ShareDialogProps) {
           </p>
         </div>
         <div className="px-6 pb-6">
-          <div className="rounded-2xl bg-app-bg-2/60 p-4 shadow-[0_0_0_1px_rgba(0,0,0,0.05)]">
+          <div className="rounded-surface bg-app-bg-2/60 p-4 shadow-[0_0_0_1px_rgba(0,0,0,0.05)]">
             <div className="flex items-center gap-3">
               <WorkflowIcon tone="purple">
                 <Share2 size={16} />
@@ -67,7 +67,7 @@ export function ShareDialog({ workflow, open, onClose }: ShareDialogProps) {
             </div>
             <div
               className={cn(
-                "mt-4 flex items-center gap-2 rounded-xl bg-app-bg-1 px-3 py-2",
+                "mt-4 flex items-center gap-2 rounded-surface bg-app-bg-1 px-3 py-2",
                 "shadow-[0_0_0_1px_rgba(0,0,0,0.05)]",
               )}
             >

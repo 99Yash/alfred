@@ -14,7 +14,7 @@ export function LibraryEmpty({ query }: { query: string }): ReactNode {
       <div className="flex flex-col items-center">
         <span
           aria-hidden
-          className="grid size-12 place-items-center rounded-2xl bg-app-bg-2 text-app-fg-3"
+          className="grid size-12 place-items-center rounded-surface bg-app-bg-2 text-app-fg-3"
         >
           <PartyPopper size={22} strokeWidth={1.5} />
         </span>

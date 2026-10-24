@@ -47,7 +47,7 @@ export function IntegrationsBody() {
               placeholder="Search for integration"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              className="!h-[44px] w-full !rounded-2xl !pl-10"
+              className="!h-[44px] w-full !pl-10"
               aria-label="Search integrations"
             />
           </div>

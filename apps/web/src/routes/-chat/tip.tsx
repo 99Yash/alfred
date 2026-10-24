@@ -67,7 +67,7 @@ export function Tip({
           collisionPadding={8}
           data-app-theme={resolved}
           className={cn(
-            "app-tip group/tip app z-200 max-w-[16rem] rounded-lg px-2.5 py-1.5 text-xs",
+            "app-tip group/tip app z-200 max-w-[16rem] rounded-control px-2.5 py-1.5 text-xs",
             "bg-app-fg-4 text-app-bg-1 shadow-[0_2px_8px_rgba(0,0,0,0.18)]",
             "select-none",
           )}

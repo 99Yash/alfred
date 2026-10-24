@@ -78,14 +78,14 @@ export function ToolResultJson({
   };
 
   return (
-    <div className="group/json relative overflow-hidden rounded-lg bg-app-bg-a1">
+    <div className="group/json relative overflow-hidden rounded-control bg-app-bg-a1">
       <button
         type="button"
         onClick={onCopy}
         aria-label={copied ? "Copied" : "Copy result"}
         title={copied ? "Copied" : "Copy result"}
         className={cn(
-          "absolute top-1.5 right-1.5 z-10 grid size-6 place-items-center rounded-md",
+          "absolute top-1.5 right-1.5 z-10 grid size-6 place-items-center rounded-control-sm",
           "bg-app-bg-2 text-app-fg-2 opacity-0 transition-[opacity,color] duration-150",
           "group-hover/json:opacity-100 focus-visible:opacity-100",
           "hover:text-app-fg-4 focus-visible:ring-2 focus-visible:ring-app-fg-2 focus-visible:outline-none",

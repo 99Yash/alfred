@@ -43,7 +43,7 @@ export function MemoryPage() {
             <button
               type="button"
               onClick={retry}
-              className="mt-1 rounded-lg bg-app-bg-2 px-3 py-1.5 text-xs font-medium text-app-fg-4 transition-colors outline-none hover:bg-app-bg-3 focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background"
+              className="mt-1 rounded-control bg-app-bg-2 px-3 py-1.5 text-xs font-medium text-app-fg-4 transition-colors outline-none hover:bg-app-bg-3 focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background"
             >
               Retry
             </button>
@@ -77,7 +77,7 @@ export function MemoryPage() {
               {proposed.length === 0 ? (
                 <AppCard className="flex flex-col items-center justify-center gap-2 px-6 py-12 text-center">
                   <span
-                    className="grid size-10 place-items-center rounded-xl bg-app-bg-2 text-app-fg-3"
+                    className="grid size-10 place-items-center rounded-control bg-app-bg-2 text-app-fg-3"
                     aria-hidden
                   >
                     <Sparkles size={18} />
@@ -116,7 +116,7 @@ export function MemoryPage() {
               {confirmed.length === 0 ? (
                 <AppCard className="flex flex-col items-center justify-center gap-2 px-6 py-12 text-center">
                   <span
-                    className="grid size-10 place-items-center rounded-xl bg-app-bg-2 text-app-fg-3"
+                    className="grid size-10 place-items-center rounded-control bg-app-bg-2 text-app-fg-3"
                     aria-hidden
                   >
                     <Brain size={18} />

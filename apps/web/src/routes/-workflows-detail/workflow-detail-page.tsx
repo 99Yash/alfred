@@ -80,7 +80,7 @@ export function WorkflowDetailPage() {
             </p>
           ) : null}
           {workflow.blocked ? (
-            <p className="mt-2 max-w-xl text-xs leading-5 text-rose-600">
+            <p className="mt-2 max-w-xl text-xs leading-5 text-app-red-4">
               {workflow.blocked.message}
             </p>
           ) : null}

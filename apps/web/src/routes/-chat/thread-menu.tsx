@@ -31,14 +31,14 @@ import { Tip } from "./tip";
  */
 
 const menuSurfaceClass = cn(
-  "app z-200 min-w-[232px] rounded-xl p-1",
+  "app z-200 min-w-[232px] rounded-surface p-1",
   "border border-app-bg-3/70 bg-app-bg-1",
   "shadow-[0_8px_28px_rgba(0,0,0,0.16),0_0_0_1px_rgba(0,0,0,0.04)]",
   "data-[state=open]:animate-[app-fade-in_120ms_ease-out]",
 );
 
 const menuItemClass = cn(
-  "flex h-8 cursor-default items-center gap-2.5 rounded-lg px-2 text-sm font-medium select-none",
+  "flex h-8 cursor-default items-center gap-2.5 rounded-control px-2 text-sm font-medium select-none",
   "text-app-fg-3 outline-none",
   "data-[highlighted]:bg-app-bg-a2 data-[highlighted]:text-app-fg-4",
 );

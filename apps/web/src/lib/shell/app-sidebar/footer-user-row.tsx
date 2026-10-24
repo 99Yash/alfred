@@ -31,13 +31,13 @@ export function RailUserButton() {
         to="/settings"
         aria-label={`${label} — settings`}
         className={cn(
-          "app-press inline-flex size-9 shrink-0 items-center justify-center rounded-xl",
+          "app-press inline-flex size-9 shrink-0 items-center justify-center rounded-control",
           "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
         )}
       >
         <span
           aria-hidden
-          className="inline-flex size-7 items-center justify-center rounded-full bg-app-pink-4 text-xs font-semibold text-white"
+          className="inline-flex size-7 items-center justify-center rounded-full bg-app-pink-4 text-xs font-semibold text-app-bg-1"
         >
           {initial}
         </span>

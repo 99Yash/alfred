@@ -35,19 +35,19 @@ export function GoogleConsentDialog({
 
           <ol className="space-y-4">
             <ConsentStep
-              icon={<SquareCheckBig size={18} strokeWidth={2} className="text-emerald-400" />}
+              icon={<SquareCheckBig size={18} strokeWidth={2} className="text-app-green-4" />}
               title="Check every box"
               body="Leave all permissions enabled so Alfred can work across your mail, calendar, files, and contacts. Unchecking any box quietly disables the matching feature."
             />
             <ConsentStep
-              icon={<ShieldCheck size={18} strokeWidth={2} className="text-amber-300" />}
+              icon={<ShieldCheck size={18} strokeWidth={2} className="text-app-amber-4" />}
               title="Continue past the safety screen"
               body={
                 <>
                   Google will warn the app isn&apos;t verified, which is expected for a private app
                   that&apos;s only ever used by you. Click{" "}
-                  <span className="font-medium text-white">Advanced</span> →{" "}
-                  <span className="font-medium text-white">Go to Alfred</span> to continue.
+                  <span className="font-medium text-app-fg-4">Advanced</span> →{" "}
+                  <span className="font-medium text-app-fg-4">Go to Alfred</span> to continue.
                 </>
               }
             />
@@ -57,7 +57,7 @@ export function GoogleConsentDialog({
             <button
               type="button"
               onClick={() => onOpenChange(false)}
-              className="rounded-full px-3.5 py-2 text-sm font-medium text-white/70 transition-colors hover:text-white"
+              className="rounded-full px-3.5 py-2 text-sm font-medium text-app-fg-a3 transition-colors hover:text-app-fg-4"
             >
               Cancel
             </button>
@@ -74,12 +74,12 @@ export function GoogleConsentDialog({
 function ConsentStep({ icon, title, body }: { icon: ReactNode; title: string; body: ReactNode }) {
   return (
     <li className="flex gap-3">
-      <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-full bg-white/6 ring-1 ring-white/10">
+      <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-full bg-app-bg-a2 ring-1 ring-app-bg-a3">
         {icon}
       </span>
       <div className="space-y-0.5">
-        <p className="text-sm font-medium text-white">{title}</p>
-        <p className="text-[13px] leading-relaxed text-white/70">{body}</p>
+        <p className="text-sm font-medium text-app-fg-4">{title}</p>
+        <p className="text-[13px] leading-relaxed text-app-fg-a3">{body}</p>
       </div>
     </li>
   );

@@ -41,12 +41,12 @@ export function RailContent({
             to="/chat"
             aria-label="Alfred — home"
             className={cn(
-              "absolute inset-0 inline-flex items-center justify-center rounded-xl",
+              "absolute inset-0 inline-flex items-center justify-center rounded-surface",
               "transition-opacity duration-150 group-hover/logo:opacity-0",
               "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
             )}
           >
-            <img src="/images/logo/alfred-logo.svg" alt="" className="size-6 rounded-[7px]" />
+            <img src="/images/logo/alfred-logo.svg" alt="" className="size-6 rounded-control-sm" />
           </Link>
           <RailTip label="Expand sidebar">
             <button

@@ -20,7 +20,7 @@ export function BriefingDetailPage() {
             className={cn(
               "inline-flex items-center gap-2 text-sm text-app-fg-3",
               "transition-colors hover:text-app-fg-4",
-              "rounded outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
+              "rounded-control-xs outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
             )}
           >
             <ArrowLeft size={14} />
@@ -40,7 +40,7 @@ export function BriefingDetailPage() {
               <button
                 type="button"
                 onClick={retry}
-                className="mt-1 rounded-lg bg-app-bg-2 px-3 py-1.5 text-xs font-medium text-app-fg-4 transition-colors outline-none hover:bg-app-bg-3 focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background"
+                className="mt-1 rounded-control bg-app-bg-2 px-3 py-1.5 text-xs font-medium text-app-fg-4 transition-colors outline-none hover:bg-app-bg-3 focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background"
               >
                 Retry
               </button>

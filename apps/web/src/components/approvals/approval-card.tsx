@@ -71,7 +71,7 @@ export function ApprovalCard({
               to="/workflows/$workflow"
               params={{ workflow: staging.workflowSlug }}
               className={cn(
-                "inline-flex items-center gap-1 rounded font-medium transition-colors hover:text-app-fg-4",
+                "inline-flex items-center gap-1 rounded-control-xs font-medium transition-colors hover:text-app-fg-4",
                 "app-focus",
               )}
             >
@@ -86,7 +86,7 @@ export function ApprovalCard({
             <span className="tabular-nums">{formatTimestamp(staging.createdAt)}</span>
           </div>
           <div className="mt-1.5 flex flex-wrap items-center gap-x-2">
-            <span className="rounded-md bg-app-bg-2/70 px-1.5 py-0.5 text-[11px] font-medium text-app-fg-3">
+            <span className="rounded-control-sm bg-app-bg-2/70 px-1.5 py-0.5 text-[11px] font-medium text-app-fg-3">
               {toolChipLabel(staging.toolName)}
             </span>
             {staging.brief ? (
@@ -99,7 +99,7 @@ export function ApprovalCard({
       </div>
 
       {staging.recentRejection ? (
-        <div className="flex items-start gap-2 rounded-xl bg-app-amber-1 px-3 py-2.5 text-xs leading-5 text-app-amber-4 shadow-[0_0_0_1px_var(--app-amber-2)]">
+        <div className="flex items-start gap-2 rounded-surface bg-app-amber-1 px-3 py-2.5 text-xs leading-5 text-app-amber-4 shadow-[0_0_0_1px_var(--app-amber-2)]">
           <AlertTriangle size={15} className="mt-0.5 shrink-0" />
           <div className="min-w-0">
             <p className="font-medium">
@@ -151,7 +151,7 @@ export function ApprovalCard({
                 })
               }
               className={cn(
-                "inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12px] font-medium text-app-red-4",
+                "inline-flex items-center gap-1.5 rounded-control px-2 py-1 text-[12px] font-medium text-app-red-4",
                 "transition-colors hover:bg-app-red-1 disabled:cursor-not-allowed disabled:opacity-40",
                 "app-focus [--app-accent-ring:var(--app-red-2)]",
               )}

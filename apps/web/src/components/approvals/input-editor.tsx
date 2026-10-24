@@ -44,7 +44,7 @@ export function ApprovalInputEditor({
   const fields = editorFieldsForTool(toolName, fieldSpecs, record);
 
   return (
-    <div className="grid gap-3 rounded-xl bg-app-bg-2/60 p-3 shadow-[0_0_0_1px_var(--app-bg-a2)] sm:grid-cols-2">
+    <div className="grid gap-3 rounded-surface bg-app-bg-2/60 p-3 shadow-[0_0_0_1px_var(--app-bg-a2)] sm:grid-cols-2">
       {fields.map((field) => (
         <EditableField
           key={field.key}
@@ -75,7 +75,7 @@ export function ApprovalInputFacts({ toolName, value }: { toolName: ToolName; va
 
   if (!record || !fieldSpecs) {
     return (
-      <pre className="overflow-x-auto rounded-xl bg-app-bg-2/60 p-3 font-mono text-[12px] leading-5 whitespace-pre-wrap text-app-fg-3">
+      <pre className="overflow-x-auto rounded-surface bg-app-bg-2/60 p-3 font-mono text-[12px] leading-5 whitespace-pre-wrap text-app-fg-3">
         {formatJson(value)}
       </pre>
     );
@@ -209,7 +209,7 @@ function EditableField({
 }) {
   if (field.kind === "boolean") {
     return (
-      <div className="flex min-h-16 items-center justify-between gap-3 rounded-lg bg-app-bg-1/70 px-3 py-2 shadow-[0_0_0_1px_var(--app-fg-a1)]">
+      <div className="flex min-h-16 items-center justify-between gap-3 rounded-control bg-app-bg-1/70 px-3 py-2 shadow-[0_0_0_1px_var(--app-fg-a1)]">
         <label htmlFor={id} className="min-w-0 text-[12px] font-medium text-app-fg-3">
           {field.label}
         </label>
@@ -430,7 +430,7 @@ function JsonFallbackEditor({
   }
 
   return (
-    <div className="rounded-xl bg-app-bg-2/60 p-3 shadow-[0_0_0_1px_var(--app-bg-a2)]">
+    <div className="rounded-surface bg-app-bg-2/60 p-3 shadow-[0_0_0_1px_var(--app-bg-a2)]">
       <p className="text-[12px] leading-5 text-app-fg-3">
         This tool has no structured form yet. Edit the raw input below.
       </p>

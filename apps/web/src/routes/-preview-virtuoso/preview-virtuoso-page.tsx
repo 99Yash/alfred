@@ -179,7 +179,7 @@ export function PreviewVirtuosoPage() {
         <button
           type="button"
           onClick={simulateStream}
-          className="rounded-md bg-app-bg-2 px-3 py-1 hover:bg-app-bg-3"
+          className="rounded-control-sm bg-app-bg-2 px-3 py-1 hover:bg-app-bg-3"
           data-testid="simulate-stream"
         >
           Simulate stream
@@ -187,7 +187,7 @@ export function PreviewVirtuosoPage() {
         <button
           type="button"
           onClick={appendUserTurn}
-          className="rounded-md bg-app-bg-2 px-3 py-1 hover:bg-app-bg-3"
+          className="rounded-control-sm bg-app-bg-2 px-3 py-1 hover:bg-app-bg-3"
           data-testid="append-user"
         >
           Append user turn
@@ -195,7 +195,7 @@ export function PreviewVirtuosoPage() {
         <button
           type="button"
           onClick={() => window.dispatchEvent(new Event(SCROLL_CHAT_TO_BOTTOM_EVENT))}
-          className="rounded-md bg-app-bg-2 px-3 py-1 hover:bg-app-bg-3"
+          className="rounded-control-sm bg-app-bg-2 px-3 py-1 hover:bg-app-bg-3"
           data-testid="scroll-event"
         >
           Fire scroll-to-bottom event

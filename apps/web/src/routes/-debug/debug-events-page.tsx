@@ -51,13 +51,13 @@ export function DebugEventsPage() {
           }}
           placeholder={"Optional message\u2026"}
           aria-label="Demo event message"
-          className="flex-1 rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+          className="flex-1 rounded-control-sm border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
         />
         <button
           type="button"
           onClick={() => void sendDemo()}
           disabled={sending}
-          className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+          className="rounded-control-sm bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
         >
           {sending ? "Sending\u2026" : "Send demo event"}
         </button>
@@ -68,7 +68,7 @@ export function DebugEventsPage() {
       ) : (
         <ul className="space-y-2">
           {frames.map((frame) => (
-            <li key={frame.id} className="rounded-md border px-4 py-3 text-sm">
+            <li key={frame.id} className="rounded-control-sm border px-4 py-3 text-sm">
               <div className="flex items-center justify-between text-xs text-muted-foreground">
                 <span className="font-mono">
                   #{frame.id}

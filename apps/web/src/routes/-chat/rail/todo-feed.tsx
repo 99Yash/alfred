@@ -66,7 +66,7 @@ export function TodoFeed({
 
       <div className={done.length ? "pt-1" : undefined}>
         {done.length ? (
-          <div className="px-2 pb-1.5 text-[10.5px] font-medium tracking-tight text-white/55 uppercase">
+          <div className="px-2 pb-1.5 text-[10.5px] font-medium tracking-tight text-app-fg-a2 uppercase">
             Done
           </div>
         ) : null}
@@ -85,7 +85,7 @@ export function TodoFeed({
 
       <div className={suggestions.length ? "pt-3" : undefined}>
         {suggestions.length ? (
-          <div className="px-1 pb-1.5 text-[10.5px] font-medium tracking-tight text-white/55 uppercase">
+          <div className="px-1 pb-1.5 text-[10.5px] font-medium tracking-tight text-app-fg-a2 uppercase">
             Suggestions
           </div>
         ) : null}
@@ -108,7 +108,7 @@ export function TodoFeed({
 }
 
 function EmptyHint({ children }: { children: React.ReactNode }) {
-  return <p className="px-2 py-3 text-[12px] leading-5 text-white/65">{children}</p>;
+  return <p className="px-2 py-3 text-[12px] leading-5 text-app-fg-a3">{children}</p>;
 }
 
 function TodoRow({
@@ -124,8 +124,8 @@ function TodoRow({
   return (
     <div
       className={cn(
-        "group relative -mx-0.5 flex items-start rounded-xl",
-        "transition-colors hover:bg-white/[0.07]",
+        "group relative -mx-0.5 flex items-start rounded-surface",
+        "transition-colors hover:bg-app-bg-a2",
       )}
     >
       <button
@@ -133,19 +133,19 @@ function TodoRow({
         onClick={onToggle}
         aria-pressed={todo.done ?? false}
         className={cn(
-          "app-press min-w-0 flex-1 rounded-xl p-2 text-left",
+          "app-press min-w-0 flex-1 rounded-surface p-2 text-left",
           "flex items-start gap-2.5",
-          "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
+          "outline-none focus-visible:ring-2 focus-visible:ring-app-fg-a2",
         )}
       >
         <span
           aria-hidden
           className={cn(
-            "mt-0.5 inline-flex size-4 shrink-0 items-center justify-center rounded-md",
+            "mt-0.5 inline-flex size-4 shrink-0 items-center justify-center rounded-control-xs",
             "border transition-colors",
             todo.done
-              ? "border-app-purple-4 bg-app-purple-4 text-white"
-              : "border-white/25 bg-transparent group-hover:border-white/50",
+              ? "border-app-purple-4 bg-app-purple-4 text-app-bg-1"
+              : "border-app-fg-a1 bg-transparent group-hover:border-app-fg-a2",
           )}
         >
           {todo.done ? <Check size={10} strokeWidth={3} /> : null}
@@ -154,13 +154,13 @@ function TodoRow({
           <span
             className={cn(
               "block text-[13px] leading-5 font-medium",
-              todo.done ? "text-white/55 line-through" : "text-white",
+              todo.done ? "text-app-fg-a2 line-through" : "text-app-fg-4",
             )}
           >
             {todo.title}
           </span>
           {todo.due || todo.source ? (
-            <span className="mt-0.5 flex items-center gap-1.5 text-[11px] text-white/55">
+            <span className="mt-0.5 flex items-center gap-1.5 text-[11px] text-app-fg-a2">
               {todo.source === "email" ? (
                 <Mail size={10} className="text-app-sky-4" aria-hidden />
               ) : null}
@@ -178,10 +178,10 @@ function TodoRow({
           onClick={onClear}
           aria-label={`Clear completed to-do: ${todo.title}`}
           className={cn(
-            "app-press my-1 mr-1 inline-flex size-6 shrink-0 items-center justify-center self-center rounded-md",
-            "text-white/45 transition-[color,background-color,opacity] hover:bg-white/10 hover:text-white",
+            "app-press my-1 mr-1 inline-flex size-6 shrink-0 items-center justify-center self-center rounded-control-sm",
+            "text-app-fg-a2 transition-[color,background-color,opacity] hover:bg-app-bg-a3 hover:text-app-fg-4",
             "opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100",
-            "outline-none focus-visible:ring-2 focus-visible:ring-white/40",
+            "outline-none focus-visible:ring-2 focus-visible:ring-app-fg-a2",
           )}
         >
           <X size={12} aria-hidden />

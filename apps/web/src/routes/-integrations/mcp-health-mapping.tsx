@@ -438,7 +438,7 @@ function McpHealthMappingView({
   onClear,
 }: McpHealthMappingController) {
   return (
-    <div className="space-y-2 rounded-lg bg-app-bg-2 p-2">
+    <div className="space-y-2 rounded-control bg-app-bg-2 p-2">
       <p className="text-xs font-medium text-app-fg-4">Briefing health mapping</p>
 
       {loading ? (
@@ -447,7 +447,7 @@ function McpHealthMappingView({
         </p>
       ) : readError ? (
         <div className="flex items-center gap-2" role="alert">
-          <p className="text-xs text-red-600">Could not load the MCP health mapping.</p>
+          <p className="text-xs text-app-red-4">Could not load the MCP health mapping.</p>
           <AppButton size="sm" variant="white" onClick={onRetry}>
             Retry
           </AppButton>

@@ -46,7 +46,7 @@ function useCopiedFlag() {
 
 /** Text action on a share row: Preview, Revoke, confirm. */
 const ROW_ACTION_CLASS = cn(
-  "inline-flex items-center rounded-lg px-2 py-1 text-xs font-medium no-underline",
+  "inline-flex items-center rounded-control px-2 py-1 text-xs font-medium no-underline",
   "text-app-fg-2 transition-colors hover:bg-app-bg-a2 hover:text-app-fg-4",
   "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
   "disabled:pointer-events-none disabled:opacity-50",
@@ -82,7 +82,7 @@ function ShareRow({
   };
 
   return (
-    <div className="rounded-xl border border-app-bg-3/70 bg-app-bg-2/40 p-3">
+    <div className="rounded-surface border border-app-bg-3/70 bg-app-bg-2/40 p-3">
       <div className="flex items-center gap-2">
         <input
           readOnly
@@ -90,7 +90,7 @@ function ShareRow({
           aria-label="Public link to this thread"
           onFocus={(event) => event.currentTarget.select()}
           className={cn(
-            "min-w-0 flex-1 truncate rounded-lg bg-app-bg-1 px-2.5 py-1.5",
+            "min-w-0 flex-1 truncate rounded-control bg-app-bg-1 px-2.5 py-1.5",
             "font-mono text-xs text-app-fg-3",
             "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",
           )}
