@@ -7,13 +7,8 @@ import { useAppTheme } from "~/components/ui/v2";
 import type { AppResolvedTheme } from "~/components/ui/v2/theme";
 import { cn } from "~/lib/utils";
 import { TIER_OPTIONS, tierOption } from "./model-tier-options";
-import {
-  PickerChevron,
-  PickerMenu,
-  PickerMenuItem,
-  pickerTriggerClass,
-  pickerTriggerNeutralClass,
-} from "./picker-menu";
+import { PickerChevron, PickerMenu, PickerMenuItem } from "./picker-menu";
+import { pickerTriggerClass, pickerTriggerNeutralClass } from "./picker-menu-classes";
 
 // A distinct mark per tier, light and dark variants (public/images/logo/alfred-logo{,-pro}-{light,dark}.svg).
 const TIER_MARK = {
