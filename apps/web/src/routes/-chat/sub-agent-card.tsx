@@ -10,7 +10,8 @@ import { CollapseItem, CollapseList } from "./collapse-list";
 import { RunGlyphCluster } from "./run-glyph-cluster";
 import { runGlyphs, runSummary } from "./run-summary";
 import { ToolCallCard } from "./tool-call-card";
-import { presentTool, type ToolCallView, visibleTools } from "./tool-call-presentation";
+import { useMcpServerLookup } from "./mcp-server";
+import { hasMcpCall, presentTool, type ToolCallView, visibleTools } from "./tool-call-presentation";
 
 const ITEM = "subagent";
 
@@ -34,6 +35,7 @@ export function SubAgentCard({ tool, trail }: { tool: ToolCallView; trail: SubAg
   }
 
   const steps = visibleTools(trail.tools);
+  const mcpServers = useMcpServerLookup(hasMcpCall(steps));
   const spawn = presentTool(tool);
   const brief = asString(parseJsonRecord(tool.argsPreview)?.brief);
   // `cancelled` also means the child did not finish.
@@ -48,7 +50,7 @@ export function SubAgentCard({ tool, trail }: { tool: ToolCallView; trail: SubAg
         ? "Sub-task didn't finish"
         : // The child's steps, else the spawn label.
           steps.length > 0
-          ? runSummary(steps)
+          ? runSummary(steps, mcpServers)
           : spawn.done;
 
   const SpawnIcon = brandlessToolIcon(tool.toolName);
@@ -86,7 +88,7 @@ export function SubAgentCard({ tool, trail }: { tool: ToolCallView; trail: SubAg
                 )}
               </span>
             ) : (
-              <RunGlyphCluster glyphs={runGlyphs(steps)} />
+              <RunGlyphCluster glyphs={runGlyphs(steps, mcpServers)} />
             )}
             <span
               className={cn(

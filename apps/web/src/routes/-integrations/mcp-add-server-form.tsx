@@ -27,7 +27,8 @@ import {
   navigateAuthorizationTab,
   reserveAuthorizationTab,
 } from "~/lib/integrations/authorization-tab";
-import { mcpAuthorizeUrl, MCP_CONNECTIONS_QUERY_KEY, MCP_SECTION } from "./helpers";
+import { mcpAuthorizeUrl, MCP_SECTION } from "./helpers";
+import { MCP_CONNECTIONS_QUERY_KEY } from "~/lib/integrations/mcp-connections";
 import { McpTile } from "./mcp-tile";
 
 /**

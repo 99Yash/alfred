@@ -1,8 +1,8 @@
 import { AlertTriangle, RotateCw } from "lucide-react";
 import { Favicon } from "~/components/favicon";
 import { AppButton } from "~/components/ui/v2";
-import { domainOf } from "~/lib/favicon";
-import { mcpAuthorizeUrl, type McpConnection } from "./helpers";
+import { mcpAuthorizeUrl } from "./helpers";
+import { mcpConnectionFaviconDomain, type McpConnection } from "~/lib/integrations/mcp-connections";
 import { openAuthorizationTab } from "~/lib/integrations/authorization-tab";
 import { useMcpConnectionActions, type McpConnectionActions } from "./mcp-connection-actions";
 import { McpActionErrorText, McpConnectionMenu } from "./mcp-connection-menu";
@@ -41,10 +41,7 @@ export function McpConnectionCardView({ connection, actions }: McpConnectionCard
   return (
     <McpTile
       icon={{
-        // `mcp.linear.app` has no icon of its own; the vendor site does.
-        glyph: (
-          <Favicon domain={domainOf(connection.endpointOrigin).replace(/^mcp\./, "")} size={20} />
-        ),
+        glyph: <Favicon domain={mcpConnectionFaviconDomain(connection)} size={20} />,
       }}
       label={connection.label}
       subtitle={subtitle}

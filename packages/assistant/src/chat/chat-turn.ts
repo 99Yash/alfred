@@ -42,6 +42,7 @@ import {
   systemToolKernel,
   type ChatTurnRetries,
   uniqueToolNames,
+  toolArgsPreview,
   toolCardTerminal,
   toolEventOutcome,
   toolRuntimeForRun,
@@ -869,6 +870,8 @@ const dispatchToolsStep: Step<ChatRunState> = {
             toolCallId: call.toolCallId,
             toolName: call.toolName,
             status,
+            // The reload reads the args too, so a saved row matches the live one.
+            argsPreview: toolArgsPreview(call.input),
             resultPreview,
             ...(resultTruncated ? { resultTruncated } : {}),
             ...(sanitized ? { sanitized } : {}),

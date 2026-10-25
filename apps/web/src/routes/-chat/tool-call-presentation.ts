@@ -1,4 +1,5 @@
 import {
+  mcpRemoteToolPhrase,
   SPAWN_SUB_AGENT_TOOL,
   toStringArray,
   type ToolCategory,
@@ -11,6 +12,7 @@ import { type IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { getIntegrationPage } from "~/lib/integrations/integrations";
 import { asString, parseJsonRecord } from "~/lib/json-record";
 import { brandlessToolIcon } from "./animated-tool-icons";
+import { MCP_CALL_TOOL, type McpServerLookup } from "./mcp-server";
 
 /**
  * Plumbing: the model finding and loading its own tools. Not work for the user, so no surface draws it.
@@ -37,6 +39,8 @@ export interface ToolCallView {
 
 export interface ToolPresentation {
   brand?: IntegrationBrand | undefined;
+  /** A user-added MCP server has no brand artwork, so its row shows the vendor's favicon. */
+  faviconDomain?: string | undefined;
   fallbackIcon: LucideIcon;
   running: string;
   done: string;
@@ -62,6 +66,22 @@ function actionSegment(toolName: string): string {
 /** For a tool not in the registry: `"google_calendar.list_events"` → `"list events"`. */
 function humanizeTool(toolName: string): string {
   return actionSegment(toolName).replace(/_/g, " ");
+}
+
+/** The remote tool an `mcp.call` names. `undefined` when the args preview does not carry both ids. */
+function mcpCallTarget(
+  argsPreview: string | undefined,
+): { connectionId: string; remoteName: string } | undefined {
+  const args = parseJsonRecord(argsPreview);
+  const connectionId = asString(args?.connectionId);
+  const remoteName = asString(args?.remoteName);
+
+  return connectionId && remoteName ? { connectionId, remoteName } : undefined;
+}
+
+/** True when any call is an `mcp.call`, so a surface asks for the server list only then. */
+export function hasMcpCall(tools: readonly Pick<ToolCallView, "toolName">[]): boolean {
+  return tools.some((tool) => tool.toolName === MCP_CALL_TOOL);
 }
 
 export type { ToolCategory };
@@ -95,8 +115,11 @@ export function toolCategory(toolName: string): ToolCategory {
   );
 }
 
-/** A readable tool call: integration logo, present-tense phrase, and the meaningful argument. */
-export function presentTool(tool: ToolCallView): ToolPresentation {
+/**
+ * A readable tool call: integration logo, present-tense phrase, and the meaningful argument.
+ * `mcpServers` names the server behind an `mcp.call`. Without it the row still names the remote tool.
+ */
+export function presentTool(tool: ToolCallView, mcpServers?: McpServerLookup): ToolPresentation {
   const args = parseJsonRecord(tool.argsPreview);
 
   const slug = tool.toolName.includes(".")
@@ -122,6 +145,24 @@ export function presentTool(tool: ToolCallView): ToolPresentation {
   const failed = label ? `Couldn't ${label.title}` : undefined;
   // The wrench is for names this build does not know.
   const fallbackIcon = brandlessToolIcon(tool.toolName) ?? Wrench;
+
+  const mcpTarget = tool.toolName === MCP_CALL_TOOL ? mcpCallTarget(tool.argsPreview) : undefined;
+
+  if (mcpTarget) {
+    // The remote name is the server's own word for the action, e.g. "list deployments".
+    const action = mcpRemoteToolPhrase(mcpTarget.remoteName);
+    const server = mcpServers?.(mcpTarget.connectionId);
+
+    return {
+      brand: server?.brand,
+      faviconDomain: server?.faviconDomain,
+      fallbackIcon,
+      running: `Running ${action}`,
+      done: `Ran ${action}`,
+      failed: `Couldn't run ${action}`,
+      detail: server?.label,
+    };
+  }
 
   if (slug === "system" || slug === "") {
     if (label) return { fallbackIcon, running: label.running, done: label.done, failed };

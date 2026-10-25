@@ -90,6 +90,14 @@ function boundToolIdentity(call: { toolCallId: string; toolName: string }) {
   };
 }
 
+/**
+ * The args a tool card shows. The live `started` event and the saved tool-call log both use it,
+ * so a reloaded row names the same query, brief, or MCP server as the live one.
+ */
+export function toolArgsPreview(input: unknown): string {
+  return preview(input).text;
+}
+
 export function toolCardStarted(
   target: ToolCardTarget,
   call: { toolCallId: string; toolName: string; input: unknown },
@@ -101,7 +109,7 @@ export function toolCardStarted(
     messageId: target.messageId,
     ...boundToolIdentity(call),
     status: "started",
-    argsPreview: preview(call.input).text,
+    argsPreview: toolArgsPreview(call.input),
     segmentIndex,
     ...(target.subAgent ? { subAgent: target.subAgent } : {}),
   };

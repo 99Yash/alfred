@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { INTEGRATION_STATUS_QUERY_KEY } from "~/lib/integrations/use-integration-status";
-import { MCP_CONNECTIONS_QUERY_KEY } from "./helpers";
+import { MCP_CONNECTIONS_QUERY_KEY } from "~/lib/integrations/mcp-connections";
 
 /**
  * Refetch integration reads on focus after OAuth in another tab.

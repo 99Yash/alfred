@@ -1,4 +1,4 @@
-import type { McpConnection } from "./helpers";
+import type { McpConnection } from "~/lib/integrations/mcp-connections";
 
 /** Status text for a connection that exists. A tile with no row writes its own copy. */
 export function mcpConnectionStatusText(

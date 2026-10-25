@@ -397,6 +397,19 @@ export const mcpCallInput = z
 
 export type McpCallInput = z.infer<typeof mcpCallInput>;
 
+/**
+ * A remote tool name as words a person reads: `list_deployments`, `list-deployments`, and
+ * `listDeployments` all give `"list deployments"`. The name is the server's own, an open string,
+ * so `humanizeSlug` does not apply.
+ */
+export function mcpRemoteToolPhrase(remoteName: string): string {
+  return remoteName
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_\-\s]+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
 /** Page cap, so one result never dumps the whole catalog (up to 1,000 tools). */
 export const MCP_LIST_TOOLS_MAX_LIMIT = 50;
 

@@ -8,6 +8,8 @@ import {
   humanizeToolName,
   isWriteRiskTier,
   type JsonObject,
+  mcpCallInput,
+  mcpRemoteToolPhrase,
   type ToolName,
   type ToolRiskTier,
 } from "@alfred/contracts";
@@ -79,6 +81,16 @@ const TITLE_OVERRIDES = new Map<ToolName, (input: JsonObject) => string>([
       if (!parsed.success) return "Answer a calendar invitation";
 
       return `${RESPONSE_VERBS[parsed.data.response]} “${parsed.data.eventTitle}”`;
+    },
+  ],
+  [
+    "mcp.call",
+    (input) => {
+      const parsed = mcpCallInput.safeParse(input);
+
+      if (!parsed.success) return "Call a connected tool";
+
+      return capitalize(`run ${mcpRemoteToolPhrase(parsed.data.remoteName)}`);
     },
   ],
 ]);
