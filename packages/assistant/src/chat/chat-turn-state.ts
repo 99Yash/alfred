@@ -6,6 +6,7 @@ import {
   type AgentTranscriptMessage,
 } from "@alfred/contracts";
 import { sha256Hex } from "@alfred/db/hash";
+import type { ChatMessageToolCall } from "@alfred/db/schemas";
 import { z } from "zod";
 import {
   foldToolSurfaceState,
@@ -28,6 +29,8 @@ const pendingToolCallSchema = basePendingToolCallSchema.extend({
 
 export type PendingToolCall = z.infer<typeof pendingToolCallSchema>;
 
+// `satisfies`: a key the persisted card declares and this shape lacks fails to compile.
+// `nonExecution` is the one state-only key; the pull drops it on purpose.
 const toolCallLogSchema = z.object({
   toolCallId: z.string(),
   toolName: z.string(),
@@ -36,13 +39,15 @@ const toolCallLogSchema = z.object({
   resultPreview: z.string().optional(),
   // A pruned preview still parses, so persist the fact for reloads.
   resultTruncated: z.boolean().optional(),
+  // The sanitizer stripped non-text bytes from the result (ADR-0070).
+  sanitized: z.boolean().optional(),
   // A `failed` entry rejected before execution: malformed, invented, inactive, or disallowed.
   nonExecution: z.boolean().optional(),
   // Connection-health rejection only (#378). `.catch`: a slug this build does not
   // know reads as no nudge instead of failing the whole state parse.
   connectNudge: chatConnectNudgeSchema.optional().catch(undefined),
   segmentIndex: z.number().int().nonnegative().default(0),
-});
+} satisfies Record<keyof ChatMessageToolCall | "nonExecution", z.ZodType>);
 
 const narrationSegmentSchema = z.object({
   index: z.number().int().nonnegative(),

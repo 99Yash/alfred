@@ -284,6 +284,8 @@ export const syncedChatToolCallSchema = z.object({
   resultPreview: z.string().optional(),
   /** `resultPreview` was pruned. A pruned preview still parses, so readers cannot tell otherwise. */
   resultTruncated: z.boolean().optional(),
+  /** The sanitizer stripped non-text bytes from the result (ADR-0070). Optional so older rows still parse. */
+  sanitized: z.boolean().optional(),
   /** The narration segment this call follows. Defaulted so older rows still parse. */
   segmentIndex: z.number().default(0),
   /**
