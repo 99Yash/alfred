@@ -898,6 +898,7 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
       return executeAndCommit(row, tool, reparsed.data, ctx, {
         expectedFence: args.fence,
         editedByUser,
+        ...(editedByUser ? { executedInput: reparsed.data } : {}),
       });
     }
 
@@ -921,6 +922,7 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
         toolResult: row.executeResult,
         editedByUser: row.decidedInput !== null,
         sanitized: row.executeSanitized,
+        ...(row.decidedInput !== null ? { executedInput: row.decidedInput } : {}),
       };
 
     case "failed":
@@ -928,6 +930,7 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
         kind: "failed",
         stagingId: row.id,
         error: extractStoredError(row.executeError),
+        ...(row.decidedInput !== null ? { executedInput: row.decidedInput } : {}),
       };
 
     default: {
@@ -1379,7 +1382,7 @@ async function executeAndCommit(
   tool: ReturnType<typeof getTool> & object,
   input: unknown,
   ctx: ToolExecuteContext,
-  opts: { expectedFence: CancellationFence; editedByUser: boolean },
+  opts: { expectedFence: CancellationFence; editedByUser: boolean; executedInput?: unknown },
 ): Promise<DispatchResult> {
   // Second fence read, for a cancel that landed during dispatch. The row exists
   // now, so close it instead of leaving it pending.
@@ -1425,7 +1428,12 @@ async function executeAndCommit(
       executedAt: now,
     });
 
-    return { kind: "failed", stagingId: row.id, error };
+    return {
+      kind: "failed",
+      stagingId: row.id,
+      error,
+      ...(opts.executedInput !== undefined ? { executedInput: opts.executedInput } : {}),
+    };
   }
 
   // ADR-0070 §1.1: sanitize before the value reaches the row or the transcript.
@@ -1457,6 +1465,7 @@ async function executeAndCommit(
     toolResult: persistedResult,
     editedByUser: opts.editedByUser,
     sanitized: didSanitize,
+    ...(opts.executedInput !== undefined ? { executedInput: opts.executedInput } : {}),
   };
 }
 

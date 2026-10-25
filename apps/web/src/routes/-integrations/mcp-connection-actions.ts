@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { responseErrorMessage } from "~/lib/api-error";
 import { client } from "~/lib/eden";
-import { MCP_CONNECTIONS_QUERY_KEY, type McpConnection } from "./helpers";
+import { MCP_CONNECTIONS_QUERY_KEY, type McpConnection } from "~/lib/integrations/mcp-connections";
 
 /** The action in flight; its spinner disables the others. */
 type McpConnectionPendingAction = "reconnect" | "disconnect" | "rename" | "remove";

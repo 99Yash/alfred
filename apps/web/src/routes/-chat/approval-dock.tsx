@@ -28,6 +28,7 @@ import { formatTimestamp } from "~/components/approvals/format";
 import { ApprovalInputEditor, ApprovalInputFacts } from "~/components/approvals/input-editor";
 import { RiskChip } from "~/components/approvals/risk-pill";
 import { ToolIcon } from "~/components/approvals/tool-icon";
+import { McpServerIcon, useMcpCallServer } from "./mcp-server";
 import { QuestionSheet } from "~/components/approvals/question-sheet";
 import {
   useApprovalDecision,
@@ -494,11 +495,18 @@ function DockApprovalCard({
 
   const approveLabel = approveButtonLabel(staging.toolName, staging.riskTier, edited);
   const approved = decisionKind === "approve";
+  // An `mcp.call` shows the server it will reach, not a generic gear. The draft, not the
+  // proposal: an edit that picks another server changes what Approve runs.
+  const mcpServer = useMcpCallServer(staging.toolName, draftInput);
 
   return (
     <>
       <div className="flex shrink-0 items-center gap-3 px-3 pt-3 pb-2 sm:px-4">
-        <ToolIcon integration={staging.integration} />
+        {mcpServer && (mcpServer.brand || mcpServer.faviconDomain) ? (
+          <McpServerIcon server={mcpServer} />
+        ) : (
+          <ToolIcon integration={staging.integration} />
+        )}
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
             <p className="min-w-0 truncate text-[14px] leading-5 font-semibold text-app-fg-4">
@@ -507,6 +515,7 @@ function DockApprovalCard({
             <RiskChip riskTier={staging.riskTier} />
           </div>
           <p className="mt-0.5 truncate text-[12px] leading-[18px] text-app-fg-3">
+            {mcpServer ? `${mcpServer.label} · ` : null}
             {decided && decisionKind !== null ? (
               <ResolvedCopy kind={decisionKind} edited={edited} />
             ) : (

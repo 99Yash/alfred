@@ -1,10 +1,10 @@
 import { isQuestionApproval, SPAWN_SUB_AGENT_TOOL } from "@alfred/contracts";
 import type { SyncedChatNarration } from "@alfred/sync";
-import type { ToolCallView } from "./tool-call-presentation";
+import { foldIdentity, type ToolCallView } from "./tool-call-presentation";
 
 export type TrailItem =
   | { kind: "narration"; key: string; text: string }
-  // One row per run of identical calls, with a `2×` badge. Grouped on (toolName, `foldClass`),
+  // One row per run of identical calls, with a `2×` badge. Grouped on (`foldIdentity`, `foldClass`),
   // so a failure never hides in a success's count. An in-flight call joins its run.
   | { kind: "tool"; key: string; tools: ToolCallView[] };
 
@@ -58,7 +58,7 @@ export function buildTrail(
       if (
         prev?.kind === "tool" &&
         head &&
-        head.toolName === tool.toolName &&
+        foldIdentity(head) === foldIdentity(tool) &&
         foldClass(head.status) === foldClass(tool.status) &&
         // Never fold spawns or questions (ADR-0099): each owns its own trail or answers.
         tool.toolName !== SPAWN_SUB_AGENT_TOOL &&

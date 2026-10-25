@@ -1,4 +1,5 @@
 import { Wrench } from "lucide-react";
+import { Favicon } from "~/components/favicon";
 import { IntegrationIcon } from "~/lib/integrations/integration-icons";
 import { cn } from "~/lib/utils";
 import type { RunGlyph } from "./run-summary";
@@ -29,6 +30,16 @@ export function RunGlyphCluster({ glyphs }: { glyphs: RunGlyph[] }) {
             size="xs"
             className={cn("ring-2 ring-app-background", i > 0 && "-ml-2")}
           />
+        ) : glyph.kind === "favicon" ? (
+          <span
+            key={glyph.key}
+            className={cn(
+              "inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-app-bg-2 shadow-(--app-shadow-elevated) ring-2 ring-app-background",
+              i > 0 && "-ml-2",
+            )}
+          >
+            <Favicon domain={glyph.domain} size={16} />
+          </span>
         ) : (
           // Static here; it plays on row hover.
           <span

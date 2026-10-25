@@ -10,7 +10,7 @@ import { McpAddServerForm } from "./mcp-add-server-form";
 import { McpBuiltInCard } from "./mcp-built-in-card";
 import { McpConnectionCard } from "./mcp-connection-card";
 import { McpRecoveryList } from "./mcp-recovery-list";
-import { useMcpConnections } from "./use-mcp-connections";
+import { useMcpConnections } from "~/lib/integrations/mcp-connections";
 
 type McpRecoveryAction =
   | {

@@ -16,6 +16,7 @@ import { DeleteThreadDialog } from "~/lib/chat/delete-thread-dialog";
 import { useChatMessages, useChatThread } from "~/lib/replicache/use-chat";
 import { useRightRail } from "~/lib/shell/app-shell";
 import { toast } from "~/lib/toast";
+import { McpServerScopeProvider } from "./mcp-server";
 import { ChatApprovalDock, type ApprovalDockHandle } from "./approval-dock";
 import type { ChatApprovalMode } from "@alfred/sync";
 import { ArtifactSidebar, type ArtifactEditSuggestion } from "./artifact-sidebar";
@@ -313,110 +314,112 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   // 600ms skip delay so a sweep across the usage strip does not re-arm the 300ms delay per cell.
   return (
     <Tooltip.Provider delayDuration={300} skipDelayDuration={600}>
-      <div className="relative flex h-full min-w-0 flex-col">
-        <TopBar
-          title={title}
-          threadId={threadId}
-          pinned={thread?.pinned ?? false}
-          railOpen={railOpen}
-          onToggleRail={() => setRailOpen((v) => !v)}
-          artifacts={artifact.artifacts}
-          selectedArtifactId={artifact.selectedId}
-          onOpenArtifact={artifact.open}
-          onCloseArtifact={artifact.close}
-          threadMessages={messages}
-          onRename={onRenameThread}
-          onTogglePin={onTogglePinThread}
-          onDelete={() => setDeleteOpen(true)}
-          tier={tier}
-          onTierChange={setTier}
-          approvalMode={approvalMode}
-          approvalModePending={approvalModePending}
-          onApprovalModeChange={onApprovalModeChange}
-        />
-        <DeleteThreadDialog
-          target={deleteOpen ? { title } : null}
-          onCancel={() => setDeleteOpen(false)}
-          onConfirm={onDeleteThread}
-        />
-        {hasConversation ? (
-          <>
-            <Conversation
-              messages={messages}
-              stream={stream}
-              onFollowUp={(text) => void queue.submit(text)}
-              onRetry={queue.retry}
-              followUps={chipFollowUps}
-              onOpenArtifact={artifact.open}
-              openArtifactId={artifact.selectedId}
-              approvals={orderedApprovals}
-            />
-            <div className="shrink-0 px-4 pb-4">
-              <div className="mx-auto flex w-full max-w-3xl flex-col gap-2">
-                <Composer
-                  key={threadId ?? "new"}
-                  threadId={threadId}
-                  isStreaming={isStreaming}
-                  // The dock shows only with the turn on screen, and then a send queues behind it.
-                  disabled={approvalPending && !showStream}
-                  onSend={queue.submit}
-                  onSteer={queue.steer}
-                  onStopGeneration={queue.stopReply}
-                  prefill={editPrefill}
-                  ghostText={ghostText}
-                  onGhostAccept={onGhostDone}
-                  onGhostDismiss={onGhostDone}
-                  approvalMode={approvalMode}
-                  approvalModePending={approvalModePending}
-                  onApprovalModeChange={onApprovalModeChange}
-                  tier={tier}
-                  onTierChange={setTier}
-                  queued={queue.tray.items}
-                  onRemoveQueued={queue.tray.remove}
-                  // A run parked on an approval cannot stop, so "Send now" would only reorder.
-                  onSendQueuedNow={approvalPending ? undefined : queue.tray.sendNow}
-                  onUpdateQueued={queue.tray.update}
-                  editingQueuedId={queue.tray.editingId}
-                  onEditingQueuedChange={queue.tray.setEditingId}
-                  steeringQueuedId={queue.tray.steeringId}
-                  sendingQueuedId={queue.tray.sendingId}
-                  queuePaused={queue.tray.paused}
-                  onResumeQueue={queue.tray.resume}
-                  quote={quote}
-                  onClearQuote={clearQuote}
-                  dock={
-                    <ChatApprovalDock
-                      ref={dockRef}
-                      runId={showStream ? stream.runId : undefined}
-                      approvals={orderedApprovals}
-                    />
-                  }
-                  onApproveShortcut={hasPendingApproval ? runDockPrimary : undefined}
-                />
-              </div>
-            </div>
-            <SelectionQuote onQuote={setQuote} />
-          </>
-        ) : messagesLoading ? (
-          <ConversationLoading />
-        ) : messagesError ? (
-          <ConversationLoadError message={messagesError} onRetry={retryMessages} />
-        ) : (
-          <EmptyHero
+      <McpServerScopeProvider>
+        <div className="relative flex h-full min-w-0 flex-col">
+          <TopBar
+            title={title}
             threadId={threadId}
-            isStreaming={isStreaming}
-            onSend={queue.submit}
+            pinned={thread?.pinned ?? false}
+            railOpen={railOpen}
+            onToggleRail={() => setRailOpen((v) => !v)}
+            artifacts={artifact.artifacts}
+            selectedArtifactId={artifact.selectedId}
+            onOpenArtifact={artifact.open}
+            onCloseArtifact={artifact.close}
+            threadMessages={messages}
+            onRename={onRenameThread}
+            onTogglePin={onTogglePinThread}
+            onDelete={() => setDeleteOpen(true)}
+            tier={tier}
+            onTierChange={setTier}
             approvalMode={approvalMode}
             approvalModePending={approvalModePending}
             onApprovalModeChange={onApprovalModeChange}
-            tier={tier}
-            onTierChange={setTier}
-            queued={queue.tray.items}
-            onRemoveQueued={queue.tray.remove}
-            sendingQueuedId={queue.tray.sendingId}
           />
-        )}
-      </div>
+          <DeleteThreadDialog
+            target={deleteOpen ? { title } : null}
+            onCancel={() => setDeleteOpen(false)}
+            onConfirm={onDeleteThread}
+          />
+          {hasConversation ? (
+            <>
+              <Conversation
+                messages={messages}
+                stream={stream}
+                onFollowUp={(text) => void queue.submit(text)}
+                onRetry={queue.retry}
+                followUps={chipFollowUps}
+                onOpenArtifact={artifact.open}
+                openArtifactId={artifact.selectedId}
+                approvals={orderedApprovals}
+              />
+              <div className="shrink-0 px-4 pb-4">
+                <div className="mx-auto flex w-full max-w-3xl flex-col gap-2">
+                  <Composer
+                    key={threadId ?? "new"}
+                    threadId={threadId}
+                    isStreaming={isStreaming}
+                    // The dock shows only with the turn on screen, and then a send queues behind it.
+                    disabled={approvalPending && !showStream}
+                    onSend={queue.submit}
+                    onSteer={queue.steer}
+                    onStopGeneration={queue.stopReply}
+                    prefill={editPrefill}
+                    ghostText={ghostText}
+                    onGhostAccept={onGhostDone}
+                    onGhostDismiss={onGhostDone}
+                    approvalMode={approvalMode}
+                    approvalModePending={approvalModePending}
+                    onApprovalModeChange={onApprovalModeChange}
+                    tier={tier}
+                    onTierChange={setTier}
+                    queued={queue.tray.items}
+                    onRemoveQueued={queue.tray.remove}
+                    // A run parked on an approval cannot stop, so "Send now" would only reorder.
+                    onSendQueuedNow={approvalPending ? undefined : queue.tray.sendNow}
+                    onUpdateQueued={queue.tray.update}
+                    editingQueuedId={queue.tray.editingId}
+                    onEditingQueuedChange={queue.tray.setEditingId}
+                    steeringQueuedId={queue.tray.steeringId}
+                    sendingQueuedId={queue.tray.sendingId}
+                    queuePaused={queue.tray.paused}
+                    onResumeQueue={queue.tray.resume}
+                    quote={quote}
+                    onClearQuote={clearQuote}
+                    dock={
+                      <ChatApprovalDock
+                        ref={dockRef}
+                        runId={showStream ? stream.runId : undefined}
+                        approvals={orderedApprovals}
+                      />
+                    }
+                    onApproveShortcut={hasPendingApproval ? runDockPrimary : undefined}
+                  />
+                </div>
+              </div>
+              <SelectionQuote onQuote={setQuote} />
+            </>
+          ) : messagesLoading ? (
+            <ConversationLoading />
+          ) : messagesError ? (
+            <ConversationLoadError message={messagesError} onRetry={retryMessages} />
+          ) : (
+            <EmptyHero
+              threadId={threadId}
+              isStreaming={isStreaming}
+              onSend={queue.submit}
+              approvalMode={approvalMode}
+              approvalModePending={approvalModePending}
+              onApprovalModeChange={onApprovalModeChange}
+              tier={tier}
+              onTierChange={setTier}
+              queued={queue.tray.items}
+              onRemoveQueued={queue.tray.remove}
+              sendingQueuedId={queue.tray.sendingId}
+            />
+          )}
+        </div>
+      </McpServerScopeProvider>
     </Tooltip.Provider>
   );
 }

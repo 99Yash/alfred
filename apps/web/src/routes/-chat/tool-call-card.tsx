@@ -20,7 +20,8 @@ import {
 } from "./evidence";
 import { Favicon } from "~/components/favicon";
 import { ToolResultJson } from "./tool-result-json";
-import { presentTool, type ToolCallView } from "./tool-call-presentation";
+import { useMcpServerLookup } from "./mcp-server";
+import { hasMcpCall, presentTool, type ToolCallView } from "./tool-call-presentation";
 import { foldClass } from "./trail";
 import { CHAT_POP, CHAT_SWAP } from "./motion";
 
@@ -81,6 +82,7 @@ export function ToolCallCard({
   live: boolean;
 }) {
   const panelId = useId();
+  const mcpServers = useMcpServerLookup(hasMcpCall(tools));
   // A folded run of identical calls (see buildTrail). Running if any call is out, failed if any failed.
   const [tool] = tools;
 
@@ -101,7 +103,8 @@ export function ToolCallCard({
     done,
     failed: failedLabel,
     detail,
-  } = presentTool(tool);
+    faviconDomain: serverFavicon,
+  } = presentTool(tool, mcpServers);
 
   const resolved: ResolvedCall[] = tools.map((t) => ({
     browsing: presentBrowsing(t),
@@ -114,8 +117,11 @@ export function ToolCallCard({
   const title = running ? runningLabel : failed ? (failedLabel ?? `${done} failed`) : done;
   const BrandlessIcon = brand ? undefined : brandlessToolIcon(tool.toolName);
   // One browsing page shows its favicon; a fold of several URLs keeps the browsing glyph.
+  // A user-added MCP server shows its vendor's favicon.
   const browsing = resolved[0]?.browsing ?? null;
-  const faviconDomain = browsing?.kind === "fetch_url" && count === 1 ? browsing.domain : undefined;
+
+  const faviconDomain =
+    browsing?.kind === "fetch_url" && count === 1 ? browsing.domain : serverFavicon;
 
   // The search query for a single call; a fold of different queries falls back to the label.
   const query = count === 1 ? searchQueryOf(tool) : undefined;

@@ -24,14 +24,6 @@ export const MCP_SECTION = {
 
 export const BUILT_IN_MCP_HAYSTACK = `${MCP_SECTION.heading} ${MCP_SECTION.name} ${MCP_SECTION.description}`;
 
-/** MCP connection list key. Each mutating component invalidates it itself; no refresh callback is passed down. */
-export const MCP_CONNECTIONS_QUERY_KEY = ["integrations", "mcp", "connections"] as const;
-
-type McpConnectionsResponse = EdenData<typeof client.api.integrations.mcp.connections.get>;
-
-/** Derived from the route, so a new server field reaches every reader. */
-export type McpConnection = McpConnectionsResponse["connections"][number];
-
 /** One connection's catalog key. The panel owns this read; the list never passes a catalog in. */
 export const MCP_CONNECTION_TOOLS_QUERY_KEY = [
   "integrations",

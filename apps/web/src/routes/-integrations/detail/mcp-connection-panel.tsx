@@ -1,6 +1,6 @@
 import type { BuiltInMCPProvider } from "@alfred/contracts";
 import { McpBuiltInCard } from "../mcp-built-in-card";
-import { useMcpConnections } from "../use-mcp-connections";
+import { useMcpConnections } from "~/lib/integrations/mcp-connections";
 import { SectionHeading } from "./section-heading";
 
 /**

@@ -218,6 +218,8 @@ export function completedToolCall<Call extends ProposedToolCall>(
     sanitized: result.kind === "executed" && result.sanitized === true,
     nonExecution: status === "failed" && isNonExecutionFailure(result),
     connectNudge: connectNudgeFromDispatch(result),
+    executedInput:
+      result.kind === "executed" || result.kind === "failed" ? result.executedInput : undefined,
   };
 }
 

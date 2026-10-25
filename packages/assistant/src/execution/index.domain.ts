@@ -98,6 +98,7 @@ export { withStepLease, type StepLease } from "./executor";
 
 export {
   shouldPublishToolStarted,
+  toolArgsPreview,
   toolCardStarted,
   toolCardTerminal,
 } from "./workflows/tool-card-events";

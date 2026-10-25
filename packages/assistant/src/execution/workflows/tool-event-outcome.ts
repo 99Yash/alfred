@@ -18,6 +18,11 @@ export interface ToolEventOutcome {
   nonExecution?: true | undefined;
   /** A connection-health bounce, shown to the user as a repair offer. */
   connectNudge?: ChatConnectNudge | undefined;
+  /**
+   * The args the card shows when an approval edit changed them. It replaces the `started`
+   * preview, so a card never names an operation that did not run.
+   */
+  argsPreview?: string | undefined;
 }
 
 export function toolEventOutcome(completion: CompletedToolCall): ToolEventOutcome {
@@ -30,5 +35,7 @@ export function toolEventOutcome(completion: CompletedToolCall): ToolEventOutcom
     sanitized: completion.sanitized ? true : undefined,
     nonExecution: completion.nonExecution ? true : undefined,
     connectNudge: completion.connectNudge,
+    argsPreview:
+      completion.executedInput === undefined ? undefined : preview(completion.executedInput).text,
   };
 }

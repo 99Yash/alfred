@@ -40,6 +40,7 @@ export {
   appendSystemNote,
   aggregateRunUsage,
   shouldPublishToolStarted,
+  toolArgsPreview,
   toolCardStarted,
   toolCardTerminal,
   toolEventOutcome,

@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import type { McpConnection } from "../src/routes/-integrations/helpers";
+import type { McpConnection } from "../src/lib/integrations/mcp-connections";
 import { McpConnectionCardView } from "../src/routes/-integrations/mcp-connection-card";
 import type { McpConnectionActions } from "../src/routes/-integrations/mcp-connection-actions";
 

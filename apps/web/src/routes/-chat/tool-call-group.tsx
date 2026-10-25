@@ -10,11 +10,12 @@ import { asString, parseJsonRecord } from "~/lib/json-record";
 import { cn } from "~/lib/utils";
 import { ChatProse } from "./chat-prose";
 import { CollapseItem, CollapseList } from "./collapse-list";
+import { useMcpServerLookup } from "./mcp-server";
 import { RunGlyphCluster } from "./run-glyph-cluster";
 import { runGlyphs, runSummary } from "./run-summary";
 import { SubAgentCard } from "./sub-agent-card";
 import { ToolCallCard } from "./tool-call-card";
-import { presentTool, type ToolCallView, visibleTools } from "./tool-call-presentation";
+import { hasMcpCall, presentTool, type ToolCallView, visibleTools } from "./tool-call-presentation";
 import { buildTrail, type TrailItem } from "./trail";
 
 const ITEM = "tools";
@@ -55,6 +56,7 @@ export function ToolCallGroup({
   subAgents?: readonly SubAgentTrail[] | undefined;
 }) {
   const contentId = useId();
+  const mcpServers = useMcpServerLookup(hasMcpCall(tools));
   // Open while active, collapse when done. Set during render to avoid a flash.
   const [value, setValue] = useState(active ? ITEM : "");
   const [prevActive, setPrevActive] = useState(active);
@@ -160,10 +162,10 @@ export function ToolCallGroup({
   }
 
   const runningLabel =
-    last && last.status === "started" ? presentTool(last).running : "Working on it";
+    last && last.status === "started" ? presentTool(last, mcpServers).running : "Working on it";
 
   const anyFailed = shown.some((t) => t.status === "failed");
-  const glyphs = runGlyphs(shown);
+  const glyphs = runGlyphs(shown, mcpServers);
 
   return (
     <Accordion.Root
@@ -199,7 +201,7 @@ export function ToolCallGroup({
                 active ? "animate-chat-shimmer-mask text-app-fg-4" : "text-app-fg-4",
               )}
             >
-              {active ? runningLabel : runSummary(shown)}
+              {active ? runningLabel : runSummary(shown, mcpServers)}
             </span>
             <span className="ml-auto flex shrink-0 items-center gap-1.5">
               {!active && anyFailed ? (

@@ -1,4 +1,4 @@
-import type { McpConnection } from "./helpers";
+import type { McpConnection } from "~/lib/integrations/mcp-connections";
 
 /**
  * One line, like every other tile subtitle. The stored diagnostic shows on hover and in

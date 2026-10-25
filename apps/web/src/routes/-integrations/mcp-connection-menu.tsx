@@ -13,7 +13,7 @@ import {
 } from "~/components/ui/v2";
 import { AppThemeContext } from "~/components/ui/v2/theme";
 import { cn } from "~/lib/utils";
-import type { McpConnection } from "./helpers";
+import type { McpConnection } from "~/lib/integrations/mcp-connections";
 import type { McpConnectionActions } from "./mcp-connection-actions";
 import { McpConnectionCatalogPanel } from "./mcp-connection-catalog";
 import { mcpConnectionHealthText } from "./mcp-server-status";
