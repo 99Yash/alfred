@@ -15,6 +15,7 @@
     "./connections/ingress": "./src/connections/ingress/index.ts",
     "./connections/verified-pull": "./src/connections/verified-pull/index.ts",
     "./connections/object-state/railway-reducer": "./src/connections/object-state/railway-reducer.ts",
+    "./connections/object-state/url-family-backtest": "./src/connections/object-state/url-family-backtest.ts",
     "./connections/object-state/test-support": "./src/connections/object-state/test-support.ts",
     "./artifacts": "./src/artifacts/index.ts",
     "./artifacts/content-hash": "./src/artifacts/content-hash.ts",
