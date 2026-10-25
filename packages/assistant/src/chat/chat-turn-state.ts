@@ -29,8 +29,9 @@ const pendingToolCallSchema = basePendingToolCallSchema.extend({
 
 export type PendingToolCall = z.infer<typeof pendingToolCallSchema>;
 
-// `satisfies`: a key the persisted card declares and this shape lacks fails to compile.
-// `nonExecution` is the one state-only key; the pull drops it on purpose.
+// `satisfies`: a key the persisted card declares and this shape lacks fails to compile,
+// and so does a key this shape adds that the card does not declare. It checks keys, not
+// value types. `nonExecution` is the one key the sync wire drops on purpose.
 const toolCallLogSchema = z.object({
   toolCallId: z.string(),
   toolName: z.string(),
