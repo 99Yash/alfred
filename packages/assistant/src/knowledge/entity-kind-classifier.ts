@@ -14,10 +14,10 @@ import {
   type EntityKindClassification,
   type EntityNodeKind,
   type IdentityRef,
+  type ListEvidenceCode,
   type ServiceEvidenceCode,
 } from "@alfred/contracts";
 import type { Observation } from "@alfred/db/schemas";
-import { z } from "zod";
 import type { ContactKind, EntityKind } from "./entity-graph";
 
 const AUTHORITATIVE_CONFIDENCE = 0.99;
@@ -27,18 +27,6 @@ const STRONG_CONFIDENCE = 0.92;
 const PERSON_CONFIDENCE = 0.82;
 
 const WEAK_CONFIDENCE = 0.58;
-
-/** Closed set: codes persist in `entities.metadata.listEvidence`, so a retired code must fail the parse. */
-export const LIST_EVIDENCE_CODES = [
-  "gmail:list_id",
-  "gmail:list_unsubscribe",
-  "gmail:precedence:bulk",
-  "gmail:precedence:list",
-] as const;
-
-export const listEvidenceCodeSchema = z.enum(LIST_EVIDENCE_CODES);
-
-export type ListEvidenceCode = z.infer<typeof listEvidenceCodeSchema>;
 
 /** Exact `Precedence:` values, lowercased and trimmed. */
 const BULK_PRECEDENCE_CODES: ReadonlyMap<string, ListEvidenceCode> = new Map([

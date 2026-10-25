@@ -13,6 +13,9 @@ import {
   isRecord,
   type GmailCorrespondentsObservation,
   type PersonToken,
+  type CorrespondenceStats,
+  type ListEvidenceCode,
+  parsePersonEntityMetadata,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
@@ -25,12 +28,7 @@ import {
   type UpsertContactByAliasArgs,
 } from "./entity-graph";
 import type { DbTransaction } from "@alfred/db";
-import {
-  listEvidenceCodes,
-  type GmailPayloadSignals,
-  type ListEvidenceCode,
-} from "./entity-kind-classifier";
-import { type CorrespondenceStats, parsePersonEntityMetadata } from "./entity-metadata";
+import { listEvidenceCodes, type GmailPayloadSignals } from "./entity-kind-classifier";
 import { gmailPayloadSignalsFromHeaders } from "./gmail-reducer";
 import { computeSignificance, loadUserDomains, runSignificancePass } from "./significance";
 

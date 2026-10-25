@@ -7,7 +7,6 @@
 import {
   canonicalizeFactKey,
   classifyConnectedAccount,
-  getPath,
   isFactKey,
   isNonBlankString,
   isNonEmptyString,
@@ -155,15 +154,12 @@ export function isSingleValuedKey(canonicalKey: string): boolean {
 // --- authorship ---
 
 /**
- * Sources that can carry an author. Attachments and Sentry events map to
+ * Sources that can carry an author. Attachments, GitHub and Sentry events map to
  * `unknown`, which rejects. The cleanup backfill passes `unknown` for a missing document.
  */
-export type AuthorshipSource = "gmail" | "github" | "unknown";
+export type AuthorshipSource = "gmail" | "unknown";
 
-export type AuthorshipIdentity =
-  | { kind: "email"; value: string; accountId?: string }
-  | { kind: "provider_user_id"; provider: "github"; value: string; workspaceId?: string }
-  | { kind: "provider_login"; provider: "github"; value: string };
+export type AuthorshipIdentity = { kind: "email"; value: string; accountId?: string };
 
 export type AuthorshipProof =
   | {
@@ -179,12 +175,6 @@ export type AuthorshipProof =
       accountId: string | null;
       accountEmail: string;
       fromEmail: string;
-    }
-  | {
-      source: "github";
-      method: "author_id" | "author_login";
-      observed: AuthorshipIdentity;
-      matchedSelf: AuthorshipIdentity;
     };
 
 export type AuthorshipRejectReason =
@@ -225,7 +215,6 @@ export interface SelfIdentity {
   readonly emails: readonly string[];
   /** `documents.accountId` to that mailbox's email, so a work mailbox is not matched to a personal address. */
   readonly gmailAccountEmailById?: Readonly<Record<string, string>>;
-  readonly github?: { login?: string | null; userId?: string | null };
 }
 
 /** Typed on `AuthorshipDocument["source"]`, so a new document source breaks this switch. */
@@ -233,9 +222,9 @@ function toAuthorshipSource(source: AuthorshipDocument["source"]): AuthorshipSou
   switch (source) {
     case "gmail":
       return "gmail";
+    // Neither an attachment nor a machine event can prove user authorship. A GitHub document is
+    // a one-line webhook summary (`describeGithubActivity`), not text the user wrote.
     case "github":
-      return "github";
-    // Neither an attachment nor a machine event can prove user authorship.
     case "gmail_attachment":
     case "sentry":
     case "unknown":
@@ -331,74 +320,6 @@ function authoredByGmail(
   };
 }
 
-/** First non-empty string at any of `paths`, else null. */
-function firstMetaString(metadata: unknown, paths: readonly string[]): string | null {
-  for (const path of paths) {
-    const v = getPath(metadata, path);
-
-    if (isNonEmptyString(v)) return v;
-  }
-
-  return null;
-}
-
-function authoredByGithub(metadata: unknown, self: SelfIdentity): Authorship {
-  const selfLogin = self.github?.login?.toLowerCase() || null;
-  const selfUserId = self.github?.userId || null;
-
-  if (!selfLogin && !selfUserId) {
-    return { authoredByUser: false, source: "github", reason: "missing_self_identity" };
-  }
-
-  const authorId = firstMetaString(metadata, ["authorId", "author_id"]);
-
-  const authorLogin = firstMetaString(metadata, [
-    "authorLogin",
-    "author_login",
-    "authorHandle",
-    "author",
-  ]);
-
-  if (!authorId && !authorLogin) {
-    return { authoredByUser: false, source: "github", reason: "missing_author_identity" };
-  }
-
-  if (selfUserId && authorId && authorId === selfUserId) {
-    return {
-      authoredByUser: true,
-      source: "github",
-      proof: {
-        source: "github",
-        method: "author_id",
-        observed: { kind: "provider_user_id", provider: "github", value: authorId },
-        matchedSelf: { kind: "provider_user_id", provider: "github", value: selfUserId },
-      },
-    };
-  }
-
-  if (selfLogin && authorLogin && authorLogin.toLowerCase() === selfLogin) {
-    return {
-      authoredByUser: true,
-      source: "github",
-      proof: {
-        source: "github",
-        method: "author_login",
-        observed: { kind: "provider_login", provider: "github", value: authorLogin },
-        matchedSelf: { kind: "provider_login", provider: "github", value: selfLogin },
-      },
-    };
-  }
-
-  return {
-    authoredByUser: false,
-    source: "github",
-    reason: "identity_mismatch",
-    observed: authorLogin
-      ? { kind: "provider_login", provider: "github", value: authorLogin }
-      : { kind: "provider_user_id", provider: "github", value: authorId ?? "" },
-  };
-}
-
 /** Is this document authored by the user (not "about" the user)? Defaults to `false`. */
 export function authoredByUser(doc: AuthorshipDocument, self: SelfIdentity): Authorship {
   const source = toAuthorshipSource(doc.source);
@@ -406,8 +327,6 @@ export function authoredByUser(doc: AuthorshipDocument, self: SelfIdentity): Aut
   switch (source) {
     case "gmail":
       return authoredByGmail(doc.sender, doc.accountId, self);
-    case "github":
-      return authoredByGithub(doc.metadata, self);
     case "unknown":
       return { authoredByUser: false, source, reason: "unsupported_source" };
     default: {

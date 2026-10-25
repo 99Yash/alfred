@@ -136,7 +136,7 @@ export {
   type SenderSignificance,
 } from "./significance";
 
-export { type Significance } from "./entity-metadata";
+export { type Significance } from "@alfred/contracts";
 
 export {
   editStandingInstruction,

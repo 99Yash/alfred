@@ -5,13 +5,13 @@ import { toDisplayText, type AgentTranscriptMessage } from "@alfred/contracts";
 import type { ChildRunOutcome } from "@alfred/assistant/execution/sub-agents";
 import { AWAIT_SUB_AGENT_CEILING_MS } from "@alfred/assistant/execution/sub-agent-join-wake-queue";
 import {
-  awaitedChildRunId,
   crossFinalizeBoundary,
   FINALIZE_GUARD_SEQUENCE,
   guardSpawnedChildren,
   type GuardSpawnedChildrenDeps,
 } from "@alfred/assistant/chat/finalize-guards";
 import type { ChatRunState } from "@alfred/assistant/chat/chat-turn-state";
+import { joinChildRunId } from "@alfred/assistant/tool-runtime";
 import { openChatTurnRetries } from "@alfred/assistant/execution/workflows/turn-budgets";
 import type { StepContext } from "@alfred/assistant/execution";
 
@@ -408,13 +408,13 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
     assert.equal(rec.published.length, 0, "no segment churn for a correctly-awaited child");
   });
 
-  test("awaitedChildRunId extracts the childRunId from a well-formed await input", () => {
-    assert.equal(awaitedChildRunId({ childRunId: "run_child" }), "run_child");
-    assert.equal(awaitedChildRunId({ childRunId: "" }), null);
-    assert.equal(awaitedChildRunId({ childRunId: 42 }), null);
-    assert.equal(awaitedChildRunId({}), null);
-    assert.equal(awaitedChildRunId(null), null);
-    assert.equal(awaitedChildRunId("run_child"), null);
+  test("joinChildRunId extracts the childRunId from a well-formed await input", () => {
+    assert.equal(joinChildRunId({ childRunId: "run_child" }), "run_child");
+    assert.equal(joinChildRunId({ childRunId: "" }), null);
+    assert.equal(joinChildRunId({ childRunId: 42 }), null);
+    assert.equal(joinChildRunId({}), null);
+    assert.equal(joinChildRunId(null), null);
+    assert.equal(joinChildRunId("run_child"), null);
   });
 
   test("the live segment transition: a zero-length delta closes the premature answer", async () => {

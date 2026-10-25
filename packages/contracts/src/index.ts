@@ -60,6 +60,8 @@ export {
 
 export * from "./identity-affiliation";
 
+export * from "./person-entity-metadata";
+
 export * from "./tool-constants";
 
 export * from "./inbox-constants";

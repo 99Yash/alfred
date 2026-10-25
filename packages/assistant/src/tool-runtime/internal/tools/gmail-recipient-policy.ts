@@ -6,23 +6,20 @@
  */
 
 import {
-  getPath,
+  hasUserWrittenTo,
   parseEmailAddress,
-  toStringArray,
+  parsePersonEntityMetadata,
   type GmailSendDraftInput,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { entities, type Entity } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
-import { z } from "zod";
 
 type PersonContactEvidence = Pick<Entity, "aliases" | "metadata">;
 
 type SendDraftRecipients = Pick<GmailSendDraftInput, "to" | "cc" | "bcc">;
 
 type LoadPersonContactEvidence = (userId: string) => Promise<readonly PersonContactEvidence[]>;
-
-const priorOutboundCountSchema = z.number().int().positive();
 
 async function loadPersonContactEvidence(userId: string): Promise<PersonContactEvidence[]> {
   return db()
@@ -52,13 +49,9 @@ function addPreviouslyContactedAliases(
   rows: readonly PersonContactEvidence[],
 ): void {
   for (const row of rows) {
-    const outbound = priorOutboundCountSchema.safeParse(
-      getPath(row.metadata, "correspondence", "outbound"),
-    );
+    if (!hasUserWrittenTo(parsePersonEntityMetadata(row.metadata))) continue;
 
-    if (!outbound.success) continue;
-
-    for (const alias of toStringArray(row.aliases)) {
+    for (const alias of row.aliases) {
       const normalized = parseEmailAddress(alias);
 
       if (normalized) allowed.add(normalized);

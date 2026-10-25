@@ -11,17 +11,15 @@ import {
   jsonObjectSchema,
   toStringArray,
   type JsonObject,
-} from "@alfred/contracts";
-import { db } from "@alfred/db";
-import { entities, user } from "@alfred/db/schemas";
-import { and, eq, inArray, sql } from "drizzle-orm";
-import {
   type CorrespondenceStats,
   type PersonEntityMetadata,
   type Significance,
   type SignificanceScoreComponents,
   parsePersonEntityMetadata,
-} from "./entity-metadata";
+} from "@alfred/contracts";
+import { db } from "@alfred/db";
+import { entities, user } from "@alfred/db/schemas";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { logger } from "@alfred/logging";
 
 export interface SignificanceWeights {

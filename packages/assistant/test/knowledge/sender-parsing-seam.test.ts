@@ -92,13 +92,13 @@ describe("[campaign-04 seam] authoredByGmail — From-header normalization via e
     );
 
     assert.equal(r.authoredByUser, true);
-    assert.equal(r.proof.source === "gmail" && r.proof.fromEmail, "yash@gmail.com");
+    assert.equal(r.proof.fromEmail, "yash@gmail.com");
   });
 
   test("normalizes a bare (no angle brackets), upper-case From the same way", () => {
     const r = authoredByUser(gmailDoc({ from: "YASH@GMAIL.COM" }, "acc_personal"), self);
     assert.equal(r.authoredByUser, true);
-    assert.equal(r.proof.source === "gmail" && r.proof.fromEmail, "yash@gmail.com");
+    assert.equal(r.proof.fromEmail, "yash@gmail.com");
   });
 
   test("QUIRK: a Gmail +tag is NOT stripped — 'yash+work@gmail.com' ≠ self 'yash@gmail.com'", () => {
