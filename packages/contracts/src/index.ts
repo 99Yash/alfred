@@ -36,6 +36,8 @@ export * from "./attachment-content-references";
 
 export * from "./integration-objects";
 
+export * from "./url-family";
+
 export * from "./object-identity";
 
 export * from "./integration-availability";

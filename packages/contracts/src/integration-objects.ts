@@ -4,6 +4,7 @@
  * definition per provider, which Postgres cannot check.
  */
 
+import { z } from "zod";
 import { emailDomain, isDomainOrSubdomain, normalizeDomain } from "./domain";
 import { enumGuard, getStringPath, parseEmailAddress } from "./guards";
 import { canonicalizeIdentityValue } from "./user-model";
@@ -70,27 +71,45 @@ export interface ObjectKindDef {
 }
 
 /** One attribute of `integration_objects.attributes` that names the object. */
-export interface IdentityAttribute {
-  readonly attribute: string;
-  /** A prefix the provider removes in its links (Vercel `dpl_`). The bare value then also counts. */
-  readonly droppedPrefix?: string;
-  /**
-   * The path segment or query parameter that precedes the value in a provider link: `service` in
-   * `/service/<id>`, `environmentId` in `?environmentId=<id>`. It tells which kind the value names.
-   * Absent: the value may sit anywhere in the link, so the link only nominates the object.
-   */
-  readonly linkLabel?: string;
-}
+export const identityAttributeSchema = z
+  .strictObject({
+    attribute: z.string().min(1),
+    /** A prefix the provider removes in its links (Vercel `dpl_`). The bare value then also counts. */
+    droppedPrefix: z.string().min(1).optional(),
+    /**
+     * The path segment or query parameter that precedes the value in a provider link: `service` in
+     * `/service/<id>`, `environmentId` in `?environmentId=<id>`. It tells which kind the value
+     * names. Absent: the value may sit anywhere in the link, so the link only nominates the object.
+     */
+    linkLabel: z.string().min(1).optional(),
+  })
+  .readonly();
+
+export type IdentityAttribute = z.infer<typeof identityAttributeSchema>;
 
 /**
  * The identity a kind declares (ADR-0109 rule 2). Two or more strong values, or one value the
- * provider guarantees unique. The type, not a runtime check, rejects one value that is not a key.
+ * provider guarantees unique. The tuple schema also rejects repeated attribute names.
  * All values must occur in one provider link. A link proves the object only when each value has a
  * `linkLabel` (see {@link identityProvesLink}).
  */
-export type ObjectIdentityDecl =
-  | { readonly uniqueKey: IdentityAttribute }
-  | { readonly tuple: readonly [IdentityAttribute, IdentityAttribute, ...IdentityAttribute[]] };
+export const objectIdentityDeclSchema = z.union([
+  z.strictObject({ uniqueKey: identityAttributeSchema }).readonly(),
+  z
+    .strictObject({
+      tuple: z
+        .tuple([identityAttributeSchema, identityAttributeSchema], identityAttributeSchema)
+        .refine(
+          (attributes) =>
+            new Set(attributes.map(({ attribute }) => attribute)).size === attributes.length,
+          { message: "identity tuple attributes must be distinct" },
+        )
+        .readonly(),
+    })
+    .readonly(),
+]);
+
+export type ObjectIdentityDecl = z.infer<typeof objectIdentityDeclSchema>;
 
 export function identityAttributes(decl: ObjectIdentityDecl): readonly IdentityAttribute[] {
   return "uniqueKey" in decl ? [decl.uniqueKey] : decl.tuple;
@@ -726,11 +745,22 @@ const TRAILING_PUNCTUATION_RE = /[.,;:!?]+$/;
 /** Opaque ids hold `-` and `_`. A segment with any other character is not an id. */
 const ID_LIKE_RE = /^[A-Za-z0-9_-]+$/;
 
-/**
- * Reads one link. `null` when it does not parse or no provider owns its host. Each path segment is
- * labeled by the segment before it, and each query value by its parameter name.
- */
-function parseProviderLink(raw: string): ProviderLink | null {
+/** True when a path segment or query value of a link can be an id. */
+export function isLinkIdValue(value: string): boolean {
+  return ID_LIKE_RE.test(value);
+}
+
+/** One link of a text, split into the parts that can hold an identity. */
+export interface LinkParts {
+  readonly host: string;
+  /** The path segments, not decoded, without empty segments. */
+  readonly segments: readonly string[];
+  /** The query parameters, decoded, in order. */
+  readonly query: readonly (readonly [string, string])[];
+}
+
+/** Reads one link. `null` when it does not parse. */
+function parseLinkParts(raw: string): LinkParts | null {
   let url: URL;
 
   try {
@@ -740,20 +770,49 @@ function parseProviderLink(raw: string): ProviderLink | null {
     return null;
   }
 
-  const host = normalizeDomain(url.hostname);
+  return {
+    host: normalizeDomain(url.hostname),
+    segments: url.pathname.split("/").filter((segment) => segment.length > 0),
+    query: [...url.searchParams],
+  };
+}
+
+/** The links in a text, in order, on any host. A link that does not parse is dropped. */
+export function collectLinkParts(text: string): LinkParts[] {
+  const links: LinkParts[] = [];
+
+  for (const [raw] of text.matchAll(LINK_RE)) {
+    const link = parseLinkParts(raw);
+
+    if (link) links.push(link);
+  }
+
+  return links;
+}
+
+/**
+ * Reads one link. `null` when it does not parse or no provider owns its host. Each path segment is
+ * labeled by the segment before it, and each query value by its parameter name.
+ */
+function parseProviderLink(raw: string): ProviderLink | null {
+  const link = parseLinkParts(raw);
+
+  return link && providerLink(link);
+}
+
+function providerLink({ host, segments, query }: LinkParts): ProviderLink | null {
   const provider = OBJECT_STATE_PROVIDERS.find((candidate) => isProviderDomain(candidate, host));
 
   if (!provider) return null;
 
   const values: ProviderLinkValue[] = [];
-  const segments = url.pathname.split("/").filter((segment) => segment.length > 0);
 
   segments.forEach((value, index) => {
-    if (ID_LIKE_RE.test(value)) values.push({ label: segments[index - 1] ?? null, value });
+    if (isLinkIdValue(value)) values.push({ label: segments[index - 1] ?? null, value });
   });
 
-  for (const [label, value] of url.searchParams) {
-    if (ID_LIKE_RE.test(value)) values.push({ label, value });
+  for (const [label, value] of query) {
+    if (isLinkIdValue(value)) values.push({ label, value });
   }
 
   return { provider, values };
@@ -764,15 +823,7 @@ function parseProviderLink(raw: string): ProviderLink | null {
  * caller can tell which values belong together. A link on no provider domain is dropped.
  */
 export function collectProviderLinks(text: string): ProviderLink[] {
-  const links: ProviderLink[] = [];
-
-  for (const [raw] of text.matchAll(LINK_RE)) {
-    const link = parseProviderLink(raw);
-
-    if (link) links.push(link);
-  }
-
-  return links;
+  return collectLinkParts(text).flatMap((link) => providerLink(link) ?? []);
 }
 
 /**
