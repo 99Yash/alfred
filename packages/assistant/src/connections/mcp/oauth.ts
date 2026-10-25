@@ -7,7 +7,12 @@
  */
 import { parseOAuthScopeList } from "@alfred/contracts";
 import { db, type DbSessionRunner, withDbSession } from "@alfred/db";
-import { credentialVault, type CredentialVault } from "@alfred/db/credential-vault";
+import {
+  credentialVault,
+  CredentialVaultError,
+  type CredentialVault,
+  type SealedCredentialSecret,
+} from "@alfred/db/credential-vault";
 import { sha256Hex } from "@alfred/db/hash";
 import {
   mcpConnections,
@@ -130,6 +135,14 @@ const REFUSED_CLIENT_ERROR_CODES: ReadonlySet<string> = new Set([
   OAuthErrorCode.InvalidClient,
   OAuthErrorCode.UnauthorizedClient,
 ]);
+
+/** Sealed columns a read checks against the current KEK. */
+const SEALED_CREDENTIAL_FIELDS = [
+  "clientSecret",
+  "accessToken",
+  "refreshToken",
+  "idToken",
+] as const;
 
 /** `GET /api/integrations/mcp/callback` completes this handshake with its own `oauthHandshake("mcp")`. */
 const handshake = oauthHandshake("mcp");
@@ -797,7 +810,7 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
   }
 
   async discoveryState(): Promise<OAuthDiscoveryState | undefined> {
-    const credential = await this.#store.readForConnection(this.#connectionId, this.#userId);
+    const credential = await this.#readCredential();
 
     if (!credential?.discoveryState) return undefined;
 
@@ -845,7 +858,7 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
   async invalidateCredentials(
     scope: "all" | "client" | "tokens" | "verifier" | "discovery",
   ): Promise<void> {
-    const credential = await this.#store.readForConnection(this.#connectionId, this.#userId);
+    const credential = await this.#readCredential();
 
     if (!credential) return;
 
@@ -873,7 +886,7 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
   }
 
   async authorizationNeedsRefresh(now = Date.now()): Promise<boolean> {
-    const credential = await this.#store.readForConnection(this.#connectionId, this.#userId);
+    const credential = await this.#readCredential();
 
     return credential?.accessToken ? tokenExpiresSoon(credential, now) : false;
   }
@@ -885,7 +898,7 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
   async authorize(options: McpOAuthAuthorizeOptions = {}): Promise<AuthResult> {
     // `scope` alone does not skip this: `mcpConsentAsk` forces consent when it exceeds the grant.
     if (!options.forceReauthorization) {
-      const credential = await this.#store.readForConnection(this.#connectionId, this.#userId);
+      const credential = await this.#readCredential();
 
       if (credential?.accessToken && !tokenExpiresSoon(credential)) return "AUTHORIZED";
 
@@ -989,7 +1002,7 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
     reason: RefreshReason,
     options: McpOAuthRequestOptions,
   ): Promise<RefreshOutcome> {
-    const credential = await this.#store.readForConnection(this.#connectionId, this.#userId);
+    const credential = await this.#readCredential();
     const stored = credential?.accessToken ? this.#vault.open(credential.accessToken) : undefined;
 
     if (
@@ -1134,8 +1147,59 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
     return (await this.tokens())?.access_token;
   }
 
-  async #credentialForIssuer(issuer?: string): Promise<McpOauthCredential | undefined> {
+  /**
+   * The row for this connection. A secret the current KEK cannot open (left by a KEK rotation)
+   * is a dead grant: clear it here, so every caller sees no grant and the SDK starts a new consent.
+   */
+  async #readCredential(): Promise<McpOauthCredential | undefined> {
     const credential = await this.#store.readForConnection(this.#connectionId, this.#userId);
+
+    if (!credential) return undefined;
+
+    const unopenable = SEALED_CREDENTIAL_FIELDS.filter((field) => !this.#opens(credential[field]));
+
+    if (unopenable.length === 0) return credential;
+
+    const patch = {
+      accessToken: null,
+      refreshToken: null,
+      idToken: null,
+      ...(unopenable.includes("clientSecret")
+        ? { clientInformation: null, clientSecret: null }
+        : {}),
+    } satisfies OAuthCredentialPatch;
+
+    logger.warn(
+      { event: "mcp_oauth_credential_unopenable", connectionId: this.#connectionId, unopenable },
+      "MCP OAuth secrets do not open with the current OAUTH_CREDENTIAL_KEK; the connection needs a new consent",
+    );
+    await this.#store.update(credential.id, this.#userId, patch);
+
+    return { ...credential, ...patch };
+  }
+
+  /** `false` only for an envelope sealed under another key. Any other vault failure still throws. */
+  #opens(sealed: SealedCredentialSecret | null): boolean {
+    if (sealed === null) return true;
+
+    try {
+      this.#vault.open(sealed);
+
+      return true;
+    } catch (error) {
+      if (
+        error instanceof CredentialVaultError &&
+        (error.failure === "unknown_key" || error.failure === "authentication_failed")
+      ) {
+        return false;
+      }
+
+      throw error;
+    }
+  }
+
+  async #credentialForIssuer(issuer?: string): Promise<McpOauthCredential | undefined> {
+    const credential = await this.#readCredential();
 
     if (!credential || !issuer) return credential;
 
