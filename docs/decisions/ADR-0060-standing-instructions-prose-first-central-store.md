@@ -4,6 +4,8 @@
 
 **ADR-0067 amendment (2026-06-23).** `user_facts` remains the standing-instruction **read projection**, not the authoritative write source. Chat/user corrections now enter the append-only observation log as `source='user'|'alfred_chat'` observations; the projection emits the ADR-0060 `user_facts` shape for existing retrievers. This prevents two systems of record for the same intent.
 
+**ADR-0113 amendment (2026-10-25, proposed).** The v2 shape gains a plain-text `scope`, matched at read time by the cheap triage call, beside optional exact targets. `enforcement` becomes the stored `effects` list, and capture stores only the effects that the user's words ask for. Resolve-at-write still holds for targets. Capture never expands a class of mail into a sender list.
+
 **Why this is its own ADR.** Surfaced 2026-06-17. It is architectural and hard-to-reverse (a stored wire format + an application model a dozen call sites depend on), it **reverses a framing locked six questions earlier in the same session** (an enumerated per-consumer `effects` contract → prose-first), it **refines a repeatedly-enshrined principle** ("category stays honest, never bend it"), and it **amends ADR-0051** by feeding the deliberately context-free cheap classifier a new deterministic signal. Each is hard-to-reverse or surprising-without-context.
 
 **Micro-decisions.**

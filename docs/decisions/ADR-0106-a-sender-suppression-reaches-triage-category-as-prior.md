@@ -2,6 +2,8 @@
 
 **Decision.** Register a fourth suppression effect, `deprioritize_triage_category`, and render the matched instruction's `phrasing` into the triage `Observations` block — first, above every derived signal — so the cheap model weighs the user's own words when it picks the Gmail label. This implements ADR-0066 signal 3 (standing instructions extended to the category). The rendering follows ADR-0051 §5's anti-brittleness line: a deterministic fact fed as a hint, never a rewrite.
 
+**ADR-0113 amendment (2026-10-25, proposed).** The sender-only match and the derived-membership rule (every row carries every effect, and no reader branches on the stored list) are superseded: readers branch on the stored `effects`, and a scope can match mail from any sender. The verbatim `phrasing` render, its placement inside the conditional branch, and the trace split stay.
+
 **Prior, not floor.** The stored directives say routine notices are low priority AND that a genuinely urgent one may still surface. Only a model can separate those two, so no deterministic demotion survives: the handling rule beside the phrasing uses prior language ("treat as a prior", "prefer", "allowing"), never an exclusive condition. The protective security floor still outranks a user down-rank.
 
 **Placement is load-bearing.** A first version put the handling rule in `SYSTEM_PROMPT`, where it reached every email including ones with no instruction; a paired eval run moved four unrelated rows (`clickup-bot-done-buries-live` flipped `action_needed` → `fyi`). The rule now ships inside the conditional branch, scoped to the matched sender, so mail with no instruction sees a byte-identical prompt.

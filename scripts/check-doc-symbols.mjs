@@ -83,6 +83,7 @@ const ALLOWED = new Map([
     "CONTEXT.md central store retriever — designed interface, implementation deferred",
   ],
   ["force_category", "CONTEXT.md standing-instruction effect — designed, handler deferred"],
+  ["senderFilter", "CONTEXT.md standing-instruction v2 field (ADR-0113) — designed, not built"],
   // Metavariables and analogies in review examples.
   ["DocArg", "illustrative shape in the database.md derive example"],
   ["fooSchema", "metavariable in the database.md derive example"],

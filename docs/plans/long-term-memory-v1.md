@@ -137,7 +137,7 @@ This keeps the slice honest (no implied mailbox mutation) and leaves "create a G
 
 ### Slice scope boundary
 
-**In:** date+tz grounding recovery (GROUND-001); `system.remember` + source-resolving `system.resolve_todo`; the suppression row + the single shared reader + the dual-surface check + audit breadcrumbs; the honest chat copy; recurrence-decay **as an eval-backed prompt generalization** (defense-in-depth, not the load-bearing fix). **Out (deferred):** failure A (cold-outreach mis-classification — sender-prior/rubric); topic-scoped suppression; time-boxed snooze; a polished memory changelog/revoke UI (rely on the existing `factEdit`/reject mutation in-slice); eager connected tool declaration + dispatch floor (rest of P0); Gmail-filter creation (real mailbox mutation — a separate explicit action); confidence-decay sweep (D2); forced re-triage of stale rows. **Note (ADR-0059):** failure A and the significance score + team graph are **no longer deferred behind this slice** — P3 + P4a are reordered _ahead_ of it as the root fix; the slice's per-sender suppression is the override on top, not the substitute.
+**In:** date+tz grounding recovery (GROUND-001); `system.remember` + source-resolving `system.resolve_todo`; the suppression row + the single shared reader + the dual-surface check + audit breadcrumbs; the honest chat copy; recurrence-decay **as an eval-backed prompt generalization** (defense-in-depth, not the load-bearing fix). **Out (deferred):** failure A (cold-outreach mis-classification — sender-prior/rubric); topic-scoped suppression; time-boxed snooze; a polished memory changelog/revoke UI (rely on the existing `factEdit`/reject mutation in-slice); eager connected tool declaration + dispatch floor (rest of P0); Gmail-filter creation (real mailbox mutation — a separate explicit action); confidence-decay sweep (D2, since superseded by ADR-0111 D2b: no stored decay); forced re-triage of stale rows. **Note (ADR-0059):** failure A and the significance score + team graph are **no longer deferred behind this slice** — P3 + P4a are reordered _ahead_ of it as the root fix; the slice's per-sender suppression is the override on top, not the substitute.
 
 ## Phases
 
@@ -212,11 +212,13 @@ Population is **passive-capture only — never cold-start** (cold-start is accou
 
 ### P6 — Post-demo
 
-- Confidence-decay sweep (ADR-0050 **D2**).
+- ~~Confidence-decay sweep (ADR-0050 **D2**).~~ Superseded by ADR-0111 D2b: stored confidence never decays. A reader judges currency at an explicit `asOf`, and the curiosity step (ADR-0111 D5) re-checks claims the reader marks stale.
 - Loop-2 misses dataset → eval lane (ADR-0055) wiring; no auto-tuning.
 - Hybrid retrieval: Postgres tsvector FTS + pgvector fused (RRF) — no new infra; better recall for names/IDs. (Not turbopuffer.)
 
 ## Standing instructions — generalization build order (ADR-0060)
+
+> **Amended by ADR-0113 (proposed, 2026-10-25).** The match model below is replaced in part. A v2 instruction also stores a plain-text `scope`, and the cheap triage call matches it at read time, so a class of mail ("all investment senders") is never expanded into a sender list at capture. `target` narrows to exact `sender_email` / `sender_domain` hits that match in code; `person`, `category`, and `topic` targets become scope text. `enforcement` becomes the stored `effects` list, and readers branch on it. Precedence is an exact target hit, then a scope match, then recency. ADR-0113 also gives the migration of the active v1 rows. Where this section disagrees, ADR-0113 governs.
 
 The shipped suppress-sender slice is one corner of a 3-axis space (action × target × effect). ADR-0060 generalizes it into **one central store + one retriever + prose-first application + a deterministic-enforcement carve-out**. This is **one coherent ship, ordered by dependency — not staged scope** (no V1/V2). Each step lands behind the next; the existing slice keeps working throughout (the suppression row is the `enforcement`-bearing special case of schema v2).
 

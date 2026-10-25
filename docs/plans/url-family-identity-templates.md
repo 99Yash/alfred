@@ -90,7 +90,10 @@ interface UrlFamilyTemplate {
    - G5: each declared same-item or different-item mail pair yields the expected keys. A missing, unkeyed, or ambiguous mail fails the pair. For a family with known pairs, the owner supplies these controls. A family with no known pairs can still pass the consistency gates; the report states this limit. A template need not join two mails in every corpus: the Railway attempt sample has one mail per key.
    - A template that keys no mail has no evidence, and it fails.
 3. **Approve.** The owner sees the back-test output: keys, their mails in time order, and the control result. Then the owner approves.
-4. **Watch.** A scheduled job runs the same gates over new mail. A gate failure sets `drifted`, and the template stops proposing until the owner reviews it again.
+4. **Watch.** A scheduled job runs the same gates over a watch corpus: the new mail plus the approved discrimination examples. Those examples are the mails that made the control fail at approval, and the G5 pairs. Thus a quiet interval cannot remove the evidence that tells a container from an item. The job gives one of three results:
+   - `pass`: every gate passes.
+   - `insufficient_evidence`: no gate fails, but the new mail has no keyed mail or no event. The status stays `reviewed`, and the report shows the date of the last keyed mail.
+   - `drifted`: a gate fails on the watch corpus. For example, a new mail matches an event subject and yields no key (G3), a new mail names two keys (G2), or an approved pair no longer gives the expected keys (G5). The template stops proposing until the owner reviews it again.
 
 The production back-test is `apps/server/src/scripts/dry-runs/backtest-url-family-templates.ts`. It reads stored Gmail documents and calls `backtestUrlFamilyTemplate` (`connections/object-state/url-family-backtest.ts`), which applies G1-G5 and derives the container control. The template matcher and `collectProviderLinks` read links through the same `collectLinkParts` in `contracts/src/integration-objects.ts`.
 
@@ -113,9 +116,16 @@ The ids must occur in the selected user's mail corpus and yield one key each. A 
 Stripe is not an object-state provider, so today no read can confirm that an invoice is paid. The receipt mail is the only evidence. Proposal: a new closure source, `issuer_mail`, which applies only when all of these are true:
 
 - The template is `reviewed` and its kind is `once`.
-- The mail passes DKIM, aligned to a domain in `senders`.
+- **Positive closing state.** The event's `state` is in `LOOP_CLOSING_STATE_CATEGORIES` and the kind's own closing set (`closesOpenAsk`). An `active` or `failed` event never closes, even after an opening event. For `stripe.hosted_invoice`, only a receipt event (`resolved`) can close.
+- **Order.** The closing mail's source time is after the latest opening event on the same key. Ties and missing source times do not close.
+- **Authenticated evidence.** The mail passes DKIM with a signing domain (`d=`) aligned to a domain in `senders`. The result comes from the trusted receiver: the Gmail `Authentication-Results` header that Google adds, not a header that the sender can write. The signature that passes must also cover the evidence that the decision uses:
+  - its `h=` tag lists `Subject` and `From`, because the event comes from the subject (RFC 6376 §5.4);
+  - it has no `l=` body length tag, or the link that fills the identity is inside the signed length (RFC 6376 §8.2).
+
+  If the stored document does not keep the signature tags or the trusted result, the mail cannot close. It still proposes.
 - The key is exact (every identity slot filled from one link).
-- The event is not an opening event, and it comes after an opening event on the same key.
+
+**Later adverse evidence reopens.** After an `issuer_mail` close, a later mail on the same key with a `failed` or `active` event reopens the item. Examples are a refund, a dispute, or a failed payment after a receipt. The same order and authentication rules apply to the adverse mail. This follows ADR-0109: later failure evidence outranks an earlier soft close. The reopen is an observation with its own source time, and the earlier close stays in history.
 
 This amends ADR-0062 and ADR-0103 (closure needs `verified_push` or `verified_pull`) and ADR-0109 (a soft edge closes only through a verified read). Readers show `issuer_mail` separately from a provider read. The decision belongs to the owner.
 
@@ -149,6 +159,6 @@ The initial production run above used G1-G4. A review replay of the stored URL e
    - Add a recurring `ci_run` kind with its own `ObjectKindDef`, between `ci_attempt` and `ci_target`.
 
    Either way, the template becomes a built-in constant only after a kind can hold the key.
-6. The `issuer_mail` closure source, only after the section 6 decision.
+6. The `issuer_mail` closure source, only after the section 6 decision. On 2026-10-25 no code in `packages/` or `apps/` reads `Authentication-Results` or a DKIM signature. Thus this step must first store the trusted result and the passing signature's `d=`, `h=`, and `l=` tags at Gmail ingest.
 
 Follow the repository rule: add no tests. The Zod parse enforces the contract. The back-test checks consistency and the declared pairs; the owner confirms the joins. State the residual risk in each PR body: a family can change its link format without notice, and only the drift job detects it.

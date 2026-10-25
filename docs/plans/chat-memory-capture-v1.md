@@ -21,13 +21,13 @@ The boss chat has a **read** path (`system.read_user_context`, `packages/api/src
 
 ```
                      ┌─ user says it            → source=user / alfred_chat   (rank 0/1, authoritative)
- chat transcript ──▶ ├─ Alfred infers (web)     → source=enrichment          (rank 3, provisional → decays)
+ chat transcript ──▶ ├─ Alfred infers (web)     → source=enrichment          (rank 3, provisional → proposal expires)
  (idle-debounced)    └─ Alfred confirms (integ.) → deterministic check         (no tokens)
         │
         ▼  end-of-thread extractor (cheap model)  — CRISP propositions only
    [ observations ]  append-only system of record (insertObservation HARD GATE, ADR-0067 P1)
         │              kinds: user_correction | user_confirmation | user_rejection | enrichment_fact
-        ▼  fact projection (chat = pilot)          — verification + source-rank precedence + decay
+        ▼  fact projection (chat = pilot)          — verification + source-rank precedence + proposal expiry
    [ user_facts ]  (subject=user, via proposeFact, #330 gate; source.kind=agent + chat provenance) ─┐
    [ entities.metadata ] (subject=entity, e.g. "dvd: co-founder"; row_version bump)                  ─┴─▶ read_user_context (UNCHANGED)
         │
@@ -44,16 +44,16 @@ The boss chat has a **read** path (`system.read_user_context`, `packages/api/src
 
 **D2 — Reuse the existing `proposed`/`confirmed` status machine; do not invent a parallel one.** `read_user_context` reads `status='confirmed'` only (`user-context.ts:327`), while Replicache syncs `status IN ('proposed','confirmed')` (`replicache/entities.ts:195`). So **a `proposed` fact is visible to the user for review but invisible to the boss**. Confirmed = readable. Caveat: current FACT sync does not filter `valid_until`, so expiry must either move the row out of the synced status set or tighten the sync query in the same slice.
 
-**D3 — 3-day TTL = expire, not auto-commit; and expiry is projection-only.** An uncorroborated **inferred** (`enrichment`-rank) `proposed` fact that accrues no supporting evidence within 3 days leaves the review/read surfaces by updating the projected row to an inactive existing status (`superseded` in v1) plus `valid_until=now` and a lifecycle reason. Do **not** write `rejected_inferences`; user rejection and passive expiry are different. The append-only observation row stays, so a later corroboration can project a fresh row without losing audit history. TTL never auto-downgrades user/`alfred_chat` corrections.
+**D3 — 3-day TTL = expire, not auto-commit; and expiry is projection-only.** An uncorroborated **inferred** (`enrichment`-rank) `proposed` fact that accrues no supporting evidence within 3 days leaves the review/read surfaces by updating the projected row to an inactive existing status (`superseded` in v1) plus a lifecycle reason. It does **not** write `valid_until`: expiry is a review decision, not evidence that the statement stopped being true (ADR-0111 D2b). The sweep uses its run's fixed start time as `asOf`, so a replay with the same inputs gives the same result. Do **not** write `rejected_inferences`; user rejection and passive expiry are different. The append-only observation row stays, so a later corroboration can project a fresh row without losing audit history. TTL never auto-downgrades user/`alfred_chat` corrections.
 
 **D4 — Decay is conditioned on the fact's epistemic character, not on authorship.** (The user rejected blanket "user-asserted = exempt": headcount is volatile — layoffs could make "Oliv > 6" false, which the user can't anticipate; and some user assertions should be verified if cheaply possible.) Two orthogonal axes per proposition:
 
 - **Verification route** — `self_evident` (no source needed) · `integration_checkable` (Alfred confirms against connected data, no user needed) · `external_checkable` (needs web/authoritative outside source) · `user_only` (subjective/private, only the user attests).
-- **Volatility** — `stable` (name, co-founder-of) · `volatile` (headcount, title, current company) → carries `valid_until` + re-verification, using the existing `user_facts` bi-temporal columns.
+- **Volatility** — `stable` (name, co-founder-of) · `volatile` (headcount, title, current company) → sets how soon a reader treats the statement as `stale` at its `asOf` and asks for re-verification (ADR-0111 D2b). `valid_until` holds only an end that the evidence establishes.
 
 Conflict **precedence is already law in the contract**: `OBSERVATION_SOURCE_RANK` = `user:0 > alfred_chat:1 > integrations:2 > enrichment:3`, with "a projection may propose facts from integrations, but must never overwrite a user-authoritative correction" (`packages/contracts/src/user-model.ts:61`).
 
-**D5 — Verification is _active_ and hybrid, budget-gated, deterministic-first.** Mirrors ADR-0057's significance-gated, budget-capped web enrichment. Active-verify the cheap-and-authoritative (`integration_checkable`, via **deterministic SQL/API — zero tokens**) and _significant_ `external_checkable` facts (one `web_search`); passive-hold the long tail; `user_only` trusted-with-validity-window plus a light deterministic sanity-check when one is cheaply available. The verification outcome sets confidence + `valid_until`.
+**D5 — Verification is _active_ and hybrid, budget-gated, deterministic-first.** Mirrors ADR-0057's significance-gated, budget-capped web enrichment. Active-verify the cheap-and-authoritative (`integration_checkable`, via **deterministic SQL/API — zero tokens**) and _significant_ `external_checkable` facts (one `web_search`); passive-hold the long tail; `user_only` trusted-with-validity-window plus a light deterministic sanity-check when one is cheaply available. The verification outcome is new evidence: it can raise confidence and sets `lastVerifiedAt`. It sets `validFrom`/`validUntil` only when the source establishes them.
 
 **D6 — Extract CRISP propositions only; diffuse/countable signal is a deterministic projection, never LLM-articulated.** The boss must **never** articulate "Oliv has ~12 people." That truth is `COUNT(DISTINCT sender@oliv.ai)` over ingested mail — free, exact, no tokens — i.e. an observation-log aggregate. Crisp, nameable, checkable claims (dvd is a co-founder; his name is Venkata; I prefer morning standups) get extracted; diffuse signal (headcount, who-you-talk-to-most, activity level, org membership) is computed on demand. Fuzzy/aggregate _extraction_ deferred.
 
@@ -75,7 +75,7 @@ Conflict **precedence is already law in the contract**: `OBSERVATION_SOURCE_RANK
 | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | `active`                | `user_facts.status = 'confirmed'` + (`valid_until` null or future)                                                                              |
 | review-visible proposal | `user_facts.status = 'proposed'` + (`valid_until` null or future); enforce this in FACT sync or by moving expired rows to an inactive status    |
-| `expired_at`            | `user_facts.valid_until`; expired uncorroborated proposals leave `proposed`/`confirmed` (`superseded` v1, no `rejected_inferences`)             |
+| `expired_at`            | the lifecycle reason plus the sweep's `asOf`, never `valid_until`; expired uncorroborated proposals leave `proposed`/`confirmed` (`superseded` v1, no `rejected_inferences`) |
 | `overridden_at`         | `supersedes_id` (pointer) + `updated_at` (when)                                                                                                 |
 | `reason`                | v1: `source.meta.lifecycleReason` / projection metadata; later: first-class string if expiry/override queries need it indexed                   |
 | source integration      | observation `source`; a projected fact's provenance = **union of contributing observations' sources** (multi-source corroboration is derivable) |
@@ -87,9 +87,9 @@ Conflict **precedence is already law in the contract**: `OBSERVATION_SOURCE_RANK
 1. **Trigger** — idle-debounce BullMQ job per thread (D9), reuse `memory.extract` infra.
 2. **Extractor** — cheap-model pass over the transcript → crisp propositions, each tagged `{subject: user|entity, key, value, verificationClass, volatility, attribution, confidence, rationale}` (D4/D6).
 3. **Write observations** — via `insertObservation`: user assertions → `user`/`alfred_chat` + `user_correction`/`user_confirmation`; web-inferred → `enrichment` + `enrichment_fact` (D7).
-4. **Verify (hybrid, deterministic-first, budget-capped)** — `integration_checkable` → SQL/API check; significant `external_checkable` → one `web_search`; `user_only` → trust + `valid_until`; skip the tail (D5).
+4. **Verify (hybrid, deterministic-first, budget-capped)** — `integration_checkable` → SQL/API check; significant `external_checkable` → one `web_search`; `user_only` → trust, and the reader judges currency at `asOf`; skip the tail (D5).
 5. **Project (chat pilot)** — `subject=user` → `user_facts` via `proposeFact` (#330, `source.kind="agent"` + chat provenance); `subject=entity` → `entities.metadata` with a row-version bump. **Authority from observation source-rank, not the writer tag (D11):** `user`/`alfred_chat` corrections carry authoritative-supersede + may promote to `confirmed`; `enrichment_fact` is provisional → `proposed`. Status is set from authority × verification, never from confidence alone.
-6. **Decay sweep** — piggyback the daily memory cron: `enrichment`-rank `proposed` facts older than 3d with no corroborating observation family → `status='superseded'`, `valid_until=now`, lifecycle reason, no `rejected_inferences` (D3).
+6. **Decay sweep** — piggyback the daily memory cron: `enrichment`-rank `proposed` facts older than 3d with no corroborating observation family → `status='superseded'` + lifecycle reason, with the run start as `asOf`; `valid_until` unchanged; no `rejected_inferences` (D3).
 7. **Review UI** — wire `/memory` to real FACT Replicache data + mutators; add the chat-shell entry point (D10).
 8. **Read** — unchanged (`read_user_context`).
 
