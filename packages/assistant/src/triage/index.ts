@@ -59,7 +59,7 @@ export type {
   LiveInboundGmailDocument,
 } from "./gmail-reconcile";
 
-export { TRIAGE_WORKFLOW_SLUG, triageWorkflowInputSchema } from "./workflow-input";
+export { triageWorkflowInputSchema } from "./workflow-input";
 
 export type { TriageWorkflowInput } from "./workflow-input";
 

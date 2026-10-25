@@ -1,5 +1,13 @@
-import { eventTriggerPhrase, integrationDisplayName } from "@alfred/contracts";
+import {
+  COLD_START_WORKFLOW_SLUG,
+  DAILY_BRIEFING_WORKFLOW_SLUG,
+  eventTriggerPhrase,
+  integrationDisplayName,
+  REPLY_DRAFTING_WORKFLOW_SLUG,
+  TRIAGE_WORKFLOW_SLUG,
+} from "@alfred/contracts";
 import type { SyncedWorkflow } from "@alfred/sync";
+import type { ComponentType } from "react";
 import { lowerFirst } from "~/lib/strings";
 import {
   CalendarClock,
@@ -10,11 +18,16 @@ import {
   Workflow as WorkflowIcon,
   Zap,
 } from "lucide-react";
+import { BriefingHero } from "./briefing-hero";
+import { ResearchHero } from "./research-hero";
+import { TriageHero } from "./triage-hero";
 
 /** Tints cycled by slug hash for workflows without their own art. */
 const FALLBACK_TINTS = ["violet", "emerald", "amber"] as const;
 
 type WorkflowTint = (typeof FALLBACK_TINTS)[number];
+
+type WorkflowHero = ComponentType<{ accent: string }>;
 
 export type WorkflowDefinition = {
   id: string;
@@ -23,6 +36,7 @@ export type WorkflowDefinition = {
   cadence: string;
   icon: LucideIcon;
   tint: WorkflowTint;
+  hero: WorkflowHero | undefined;
   status: "active" | "draft";
   prompt: string;
   trigger: {
@@ -32,12 +46,15 @@ export type WorkflowDefinition = {
   integrations: ReadonlyArray<string>;
 };
 
-const KNOWN_PRESENTATION = new Map<string, { icon: LucideIcon; tint: WorkflowTint }>([
-  ["morning-briefing", { icon: Mail, tint: "violet" }],
-  ["daily-briefing", { icon: Mail, tint: "violet" }],
-  ["email-triage", { icon: CheckCircle2, tint: "emerald" }],
-  ["cold-start-research", { icon: CalendarClock, tint: "amber" }],
-  ["reply-drafting", { icon: PencilLine, tint: "emerald" }],
+/** Art for the builtin workflows, keyed on the slugs the server registers. */
+const KNOWN_PRESENTATION = new Map<
+  string,
+  { icon: LucideIcon; tint: WorkflowTint; hero?: WorkflowHero }
+>([
+  [DAILY_BRIEFING_WORKFLOW_SLUG, { icon: Mail, tint: "violet", hero: BriefingHero }],
+  [TRIAGE_WORKFLOW_SLUG, { icon: CheckCircle2, tint: "emerald", hero: TriageHero }],
+  [COLD_START_WORKFLOW_SLUG, { icon: CalendarClock, tint: "amber", hero: ResearchHero }],
+  [REPLY_DRAFTING_WORKFLOW_SLUG, { icon: PencilLine, tint: "emerald" }],
 ]);
 
 function hashSlug(slug: string): number {
@@ -57,7 +74,7 @@ function presentationFor(w: SyncedWorkflow) {
   const icon =
     w.trigger.kind === "cron" ? CalendarClock : w.trigger.kind === "event" ? Zap : WorkflowIcon;
 
-  return { icon, tint };
+  return { icon, tint, hero: undefined };
 }
 
 function describeCron(schedule: string, timezone?: string): string {
@@ -126,7 +143,7 @@ function describeTrigger(trigger: SyncedWorkflow["trigger"]): TriggerView {
 }
 
 export function syncedWorkflowToView(w: SyncedWorkflow): WorkflowDefinition {
-  const { icon, tint } = presentationFor(w);
+  const { icon, tint, hero } = presentationFor(w);
   const t = describeTrigger(w.trigger);
 
   return {
@@ -136,6 +153,7 @@ export function syncedWorkflowToView(w: SyncedWorkflow): WorkflowDefinition {
     cadence: t.cadence,
     icon,
     tint,
+    hero,
     status: w.status === "active" ? "active" : "draft",
     prompt: w.brief ?? "",
     trigger: { type: t.type, summary: t.summary },

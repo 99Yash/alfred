@@ -1,8 +1,6 @@
 import { z } from "zod";
 
-/** Input schema and slug, apart from the workflow so enqueue callers import little. */
-
-export const TRIAGE_WORKFLOW_SLUG = "email-triage";
+/** Input schema, apart from the workflow so enqueue callers import little. */
 
 /** Why the run started. The run state reuses this schema. */
 export const triageRunReasonSchema = z.enum(["ingest", "webhook", "manual", "reply"]);

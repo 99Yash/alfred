@@ -54,7 +54,6 @@ export {
 } from "./store";
 
 export {
-  DAILY_BRIEFING_WORKFLOW_SLUG,
   LEGACY_MORNING_BRIEFING_WORKFLOW_SLUG,
   dailyBriefingWorkflowInputSchema,
   legacyMorningBriefingWorkflowInputSchema,

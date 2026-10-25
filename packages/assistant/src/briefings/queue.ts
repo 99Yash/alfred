@@ -1,4 +1,4 @@
-import type { BriefingSlot } from "@alfred/contracts";
+import { type BriefingSlot, DAILY_BRIEFING_WORKFLOW_SLUG } from "@alfred/contracts";
 import { Queue, Worker, type Job } from "bullmq";
 import { createRedisConnection } from "@alfred/db/redis";
 import { selectEmailableUsers } from "@alfred/assistant/delivery";
@@ -6,7 +6,6 @@ import { scheduledFireTime, startRun } from "@alfred/assistant/execution";
 import { settings } from "@alfred/assistant/settings";
 import { inZone } from "@alfred/assistant/time";
 import { resolveBriefingPreferences } from "./preferences";
-import { DAILY_BRIEFING_WORKFLOW_SLUG } from "./workflow-input";
 import { logger } from "@alfred/logging";
 
 /**

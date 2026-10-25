@@ -3,7 +3,7 @@
  * consumer, and decision trace. Triage never imports this; the seam is `email-triage.classified`.
  */
 
-export { REPLY_DRAFTING_WORKFLOW_SLUG, replyDraftingWorkflowInputSchema } from "./workflow-input";
+export { replyDraftingWorkflowInputSchema } from "./workflow-input";
 
 export type { ReplyDraftingWorkflowInput } from "./workflow-input";
 

@@ -18,12 +18,11 @@
  *   pnpm exec tsx --env-file=.env src/scripts/dry-runs/triage-classification-watch.ts
  * Set `TRIAGE_WATCH_DAYS=30` to change the window (default 14).
  */
-import { TRIAGE_WORKFLOW_SLUG } from "@alfred/assistant/triage";
 import type {
   DecisionTraceFor,
   DecisionTraceKind,
 } from "@alfred/assistant/execution/decision-traces";
-import { toMessage } from "@alfred/contracts";
+import { toMessage, TRIAGE_WORKFLOW_SLUG } from "@alfred/contracts";
 import { db, warmPool } from "@alfred/db";
 import { sql, type SQL } from "drizzle-orm";
 import { z } from "zod";

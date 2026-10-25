@@ -24,8 +24,8 @@
  */
 import { randomUUID } from "node:crypto";
 import { closeAgentQueue, startRun } from "@alfred/assistant/execution";
-import { TRIAGE_WORKFLOW_SLUG, type TriageWorkflowInput } from "@alfred/assistant/triage";
-import { toMessage } from "@alfred/contracts";
+import { type TriageWorkflowInput } from "@alfred/assistant/triage";
+import { toMessage, TRIAGE_WORKFLOW_SLUG } from "@alfred/contracts";
 import { db, warmPool } from "@alfred/db";
 import {
   documents,

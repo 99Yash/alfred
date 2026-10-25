@@ -2,9 +2,6 @@ import { briefingSlotSchema } from "@alfred/contracts";
 import { z } from "zod";
 import { isLocalDateKey } from "@alfred/assistant/time";
 
-/** The live briefing workflow, for both slots. */
-export const DAILY_BRIEFING_WORKFLOW_SLUG = "daily-briefing";
-
 const briefingWorkflowInputBaseSchema = z.object({
   /** `morning` may suppress on quiet cron runs; `evening` always sends. */
   slot: briefingSlotSchema.default("morning"),

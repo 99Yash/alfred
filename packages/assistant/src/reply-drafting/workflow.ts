@@ -9,6 +9,7 @@ import {
   type ReplyDraftProvenance,
   type ReplyDraftResult,
   type ReplyDraftTriageSnapshot,
+  REPLY_DRAFTING_WORKFLOW_SLUG,
 } from "@alfred/contracts";
 import { z } from "zod";
 import {
@@ -34,7 +35,7 @@ import { gatherReplyContext, loadReplyDocument, replyGatherSchema } from "./gath
 import { prepareReplyStaging } from "./verifier";
 // Side-effect import: registers the `reply_drafting.decision` trace kind.
 import "./decision";
-import { REPLY_DRAFTING_WORKFLOW_SLUG, replyDraftingWorkflowInputSchema } from "./workflow-input";
+import { replyDraftingWorkflowInputSchema } from "./workflow-input";
 import {
   decideReplyWorthiness,
   noDraftResult,

@@ -1,15 +1,15 @@
+import {
+  COLD_START_WORKFLOW_SLUG,
+  DAILY_BRIEFING_WORKFLOW_SLUG,
+  TRIAGE_WORKFLOW_SLUG,
+} from "@alfred/contracts";
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { COLD_START_WORKFLOW_SLUG } from "@alfred/assistant/knowledge/cold-start/workflow-input";
 import { SUB_AGENT_WORKFLOW_SLUG } from "@alfred/assistant/execution/sub-agent-metadata";
-import {
-  DAILY_BRIEFING_WORKFLOW_SLUG,
-  LEGACY_MORNING_BRIEFING_WORKFLOW_SLUG,
-} from "@alfred/assistant/briefings/workflow-input";
+import { LEGACY_MORNING_BRIEFING_WORKFLOW_SLUG } from "@alfred/assistant/briefings/workflow-input";
 import { LEARN_SKILL_WORKFLOW_SLUG } from "@alfred/assistant/skills/workflow-input";
 import { SKILL_DOCUMENTATION_WORKFLOW_SLUG } from "@alfred/assistant/skills/skill-documentation-workflow-input";
-import { TRIAGE_WORKFLOW_SLUG } from "@alfred/assistant/triage/workflow-input";
 import { SLUG_CATEGORY } from "@alfred/assistant/execution/usage-report";
 
 /** `SLUG_CATEGORY` hard-codes slugs to avoid heavy imports; this catches a rename that would misfile cost. */

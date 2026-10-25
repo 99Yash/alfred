@@ -10,9 +10,9 @@
  *   - The Cloudflare AI Gateway vars for the seed, synthesis, and `web_search` loops.
  *   - A user row, ideally with a connected Google credential.
  */
+import { COLD_START_WORKFLOW_SLUG } from "@alfred/contracts";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
-import { COLD_START_WORKFLOW_SLUG } from "@alfred/assistant/knowledge";
 import { startRun, closeAgentQueue } from "@alfred/assistant/execution";
 import { warmPool } from "@alfred/db";
 import { db } from "@alfred/db";
