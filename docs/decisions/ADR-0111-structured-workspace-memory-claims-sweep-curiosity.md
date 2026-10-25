@@ -19,7 +19,7 @@ The briefing is the prose surface. It reads the structured memory and writes pro
 
 A **claim** is one statement about a workspace: an open label, the statement, its subject, an optional object (the two ends are in D2a), citations, a status, a valid time, and a confidence. Claims are a deterministic projection over the ADR-0067 `observations` log. This is the same pattern as ADR-0080. All writers append observations. Only the projection writes claim rows. A replay rebuilds the table.
 
-- **Confidence is a projection output.** The projection calculates it from the grounding tier (the ADR-0080 ranking), the number of independent sources that agree, and the age of the newest evidence. The model never reports its own confidence, because self-reported model confidence is not calibrated.
+- **Confidence is a projection output.** The projection calculates it from the grounding tier (the ADR-0080 ranking) and the number of independent sources that agree. Age is not an input, because a stored value cannot depend on the time of the read. The reader judges currency at an explicit `asOf` instant (D2b). The model never reports its own confidence, because self-reported model confidence is not calibrated.
 - **A user correction cannot be reverted.** A correction or a rejection is a `source=user` observation with rank 0. The projection gives it precedence by construction. No later inference changes it.
 - **A claim never restates provider state.** If an integration object owns a fact (ADR-0062, ADR-0092 amendment A1), for example a Linear issue status, the claim points to the object and the reader does a live read. The claim does not copy the value. D2a gives the form of that pointer.
 - **The first slice activates the projection runner.** v1 is committed. The `--activate` step has not run in prod.
@@ -38,6 +38,36 @@ A claim has two ends: the subject and the optional object. ADR-0092 A1 gives eac
 - **The writer picks the form.** The sweep (D4), the curiosity step (D5), and a user correction write the form into the observation. When an `integration_objects` row exists for the thing, they write `object`. If not, they write `node`. The projection copies the form and does not look it up, so a replay gives the same rows.
 - **A later provider row does not move a claim.** A claim can name a referent node, and later an `integration_objects` row can appear for the same hard key. ADR-0092 A1 then links the node to the row, and the reader follows that link for its live read. The claim keeps its `node` end.
 - **A missing end hides the claim.** If a reader finds no live node or row for an end, it does not show the claim. This is the ADR-0092 A1a rule for a link.
+
+## D2b — Memory keeps evidence time, learning time, and validity separate
+
+**Design extension, 2026-10-24; not implemented.** Facts, relationships, and workspace claims need time information in their model-facing reads. A single `updatedAt` cannot say whether the world changed, Alfred learned something late, or a background job rebuilt a row.
+
+The observation log owns the evidence and its original recording time. Projections derive the current view and its history. The following names state the proposed contract; implementation must reuse existing fields where their meaning agrees, rather than add parallel timestamps.
+
+| Time | Meaning | Owner |
+| ---- | ------- | ----- |
+| `occurredAt` | When the source event happened, for example when an email was sent. This is not necessarily when its statement became true. | Source observation; already present. |
+| `recordedAt` | When Alfred first saved this observation. A retry or replay preserves it. This is distinct from arrival of the raw document. | Observation log; assess whether existing `createdAt` provides this guarantee. |
+| `validFrom`, `validUntil` | When the statement applies in the world, if the evidence establishes that interval. | Grounded observation payload, then the derived fact, relationship, or claim. |
+| `firstLearnedAt` | The earliest recording time of evidence supporting this statement. | Projection over original observation recording times. |
+| `lastSupportedAt` | The source time of the newest supporting evidence. Importing an old source today does not make this time today. | Projection over supporting observations. |
+| `lastVerifiedAt` | When a source check last confirmed the statement. Reading stored memory or rebuilding a projection is not verification. | Projection over explicit verification evidence. |
+| `lastChangedAt` | When Alfred accepted a change to the statement or its status, rather than when a database row was rewritten. | Projection over accepted changes and their original recording times. |
+
+**Validity and unknown dates.** Validity uses a start-inclusive, end-exclusive interval. A missing start means the start is unknown. A missing end means no end has been established; it is not proof that the statement is still true. A source event date must not silently become the statement's effective date. For example, an email sent on October 20 can report a role change effective October 15. If a source gives only a date, preserve that precision and the relevant zone; do not invent an exact midnight instant. Contract and storage support for uncertain dates remains part of slice 2.
+
+**Changes, late evidence, and corrections.** New evidence appends to the log. A changed statement gets a successor with evidence links; the prior statement remains available for history. New recording time alone does not let old evidence replace newer evidence. Source authority, subject, validity, and correction precedence still govern the result. A user correction takes precedence over later automatic inference, and the user can revise it with another explicit correction. When its effective date is unknown, keep that uncertainty rather than close the old validity interval at the time Alfred received the correction.
+
+**Two historical questions.** Readers distinguish "what applied on date X?" from "what did Alfred know on date Y?" The first selects by validity. The second limits observations to those recorded by Y before it computes the view. A correction received after Y must not appear in a reconstruction of what Alfred knew at Y. Both dates can be supplied together. The existing active projection alone does not provide this historical read.
+
+**Currency is evaluated when used.** The reader evaluates whether evidence is current enough for the task at an explicit `asOf` instant. A project blocker can need a much shorter check interval than a communication preference. An old historical event does not become false with age, and an instruction does not expire merely because it is old. Stored confidence never uses age. A reader that weighs age does it at its own `asOf` and does not write the result back, so replay with the same inputs gives the same result. A recent cached or unchanged source response is not fresh proof unless the source can establish its currency. Missing source dates remain unknown.
+
+**Model-facing reads.** Chat, triage, briefing, and user-defined workflows receive the relevant statement with its source, status, known validity, evidence dates, and currency assessment. The assessment distinguishes `current`, `stale`, `unknown`, and `conflicted`; the reader also supplies the evaluation time. The model can then use a statement, qualify it, or request verification. Triage keeps its existing bounded claim allowance. Historical details can be expanded on demand. A long workflow reads again before a decision that depends on information that can have changed.
+
+**Example.** On October 24 Alfred imports an email sent on October 10 saying "Maya owns billing". Its source time is October 10, and its learning time is October 24. The start of Maya's ownership remains unknown unless the email gives it. A later user correction says "Dev took over on October 18". The current view names Dev from October 18 and closes Maya's interval at that date, while retaining both sources. Replaying the log must not make either statement appear newly verified. A request for what Alfred knew before the correction excludes that correction.
+
+**Current implementation gap.** `user_facts` has `validFrom`, `validUntil`, `createdAt`, and `updatedAt`; `observations` has `occurredAt` and lifecycle dates. `readUserContext` currently returns facts as only key, value, and confidence, and relationships without explicit time fields. The evidence-card contract already separates `occurredAt`, `observedAt`, and `indexedAt`; adapters must preserve those meanings. Slice 2 defines the missing time semantics and history support; slice 5 carries them into shared readers. Existing rows must not be backfilled with invented verification or effective dates.
 
 ## D3 — A workspace is one connected email account
 
@@ -64,9 +94,9 @@ The sweep does not replace `memory-extraction`. That workflow keeps its job, whi
 
 ## D5 — A curiosity step reinforces low-confidence claims
 
-The **curiosity step** is an agent that researches a claim. It runs only when a claim's confidence is below a threshold. A gap (an entity with no claim) counts as zero confidence. An old claim loses confidence with age, so the step also reinforces stale claims.
+The **curiosity step** is an agent that researches a claim. It runs when a claim's confidence is below a threshold, or when the reader marks the claim `stale` at the step's `asOf` (D2b). A gap (an entity with no claim) counts as zero confidence. Stored confidence does not decay with age.
 
-- **Order.** Low confidence × significance (ADR-0057) sets the queue order.
+- **Order.** Low confidence × significance (ADR-0057) sets the queue order. A stale claim enters the queue with its stored confidence, so significance still decides which stale claim goes first.
 - **Schedule.** The queue drains each night after the `memory-extraction` cron and before the morning briefing. Chat and the boss can start research on one gap.
 - **Sources.** The step uses a live integration read first, then mailbox search, then the web.
 
@@ -98,11 +128,13 @@ The **curiosity step** is an agent that researches a claim. It runs only when a 
 
 ## Slices
 
+The [shared-memory implementation plan](../plans/shared-context-memory-v1.md) proposes the detailed build order and the changes required to older chat-capture plans. Its first release proves one explicit correction across chat, triage, and user-defined workflows before adding passive learning and curiosity. The slices below describe the capability groups, not a requirement to finish the full background system before connecting readers.
+
 1. Activate the ADR-0067 projection runner (#218).
-2. Add the claims projection with confidence, the two claim end forms (D2a), and the workspace map.
+2. Add the claims projection with confidence, the two claim end forms (D2a), the time semantics and history support (D2b), and the workspace map.
 3. Add the reconciliation sweep, the shared cost cap, and the backfill.
 4. Add the curiosity step and the on-demand system tool.
-5. Add the readers: briefing, the chat read tool, and the triage hint. The briefing reader needs ADR-0092 A1, A1a, and S2 first. A briefing item must carry the key of its thing before the reader can load the claims for it.
+5. Add the readers: briefing, the chat read tool, and the triage hint, with evidence dates, validity, and task-dependent currency (D2b). User-defined workflows use the same read contract. The briefing reader needs ADR-0092 A1, A1a, and S2 first. A briefing item must carry the key of its thing before the reader can load the claims for it.
 6. Add the action proposals, the `/memory` claims section, and the disconnect dialog.
 
 ## Alternatives
