@@ -10,7 +10,7 @@ import {
   type TriggerConsumer,
 } from "@alfred/assistant/triggers";
 import { recordReplyDraftDecision } from "./decision";
-import { type ReplyDraftingWorkflowInput } from "./workflow-input";
+import type { ReplyDraftingWorkflowInput } from "./workflow-input";
 import {
   decideReplyWorthiness,
   noDraftResult,
