@@ -113,6 +113,7 @@
     "bullmq": "catalog:",
     "cron-parser": "^5.5.0",
     "drizzle-orm": "^0.45.2",
+    "effect": "catalog:",
     "files-sdk": "^2.0.0",
     "graphql": "^17.0.2",
     "ioredis": "catalog:",

@@ -2,9 +2,19 @@
  * Builds live `McpRawClient`s from `mcp_connections` rows on demand: connect,
  * refresh the catalog, insert the revision, and promote it only while that generation is live.
  * Tests inject `clientFactory` and `persistence` to run offline.
+ *
+ * The only Effect module in Alfred (ADR-0114). Rules for an edit here:
+ * - Each public method returns a `Promise`. No exported signature names an Effect type.
+ * - An interrupt abandons a pending promise; the promise still runs. So code in a lifecycle
+ *   fiber reaches persistence only through `lifecycleStore`, where each write is uninterruptible.
+ *   The public methods run outside any fiber and call `#persistence` directly.
+ * - A scope runs its finalizers in reverse order: fibers forked into it stop before the client closes.
+ * - `Effect.forkIn` on a closed scope interrupts the new fiber at once.
+ * - At the `Promise` boundary (`#settle`), an interrupt becomes `McpClientError("not_connected")`.
  */
 
 import type { ExternalToolRef } from "@alfred/contracts";
+import { Cause, Effect, Exit, Fiber, Scope } from "effect";
 import {
   McpRawClient,
   type McpCallEnvelope,
@@ -86,12 +96,6 @@ const DISCONNECTED_PATCH: McpConnectionUpdate = {
   currentCatalogRevisionId: null,
 };
 
-interface CatalogRefreshState {
-  dirty: boolean;
-  promise: Promise<void>;
-  generation: McpManagerGeneration;
-}
-
 type McpManagerCloseIntent =
   | "shutdown"
   | "failure"
@@ -101,14 +105,76 @@ type McpManagerCloseIntent =
   // Close only; the next generation writes the status.
   | "credential_replaced";
 
+/**
+ * One live client for one connection. `scope` owns the client and every fiber
+ * that works on it, so closing the scope interrupts them and then closes the client.
+ * A fiber stops at its next step after an interrupt; durable writes finish first (`write`).
+ */
 interface McpManagerGeneration {
   readonly connectionId: string;
-  phase: "starting" | "ready" | "closing";
-  start: Promise<McpRawClient> | null;
+  readonly scope: Scope.Closeable;
+  /** Null for a closing tombstone. */
+  start: Fiber.Fiber<McpRawClient, unknown> | null;
+  /** Set when the start publishes a catalog. */
   client: McpRawClient | null;
-  closeDone: Promise<void> | null;
+  refresh: Fiber.Fiber<void, unknown> | null;
+  refreshDirty: boolean;
+  /** Set once, by the first close. A closing generation admits no caller. */
+  closing: Promise<void> | null;
   closeIntent: McpManagerCloseIntent | null;
   closeFailure: string | null;
+}
+
+function newGeneration(connectionId: string): McpManagerGeneration {
+  return {
+    connectionId,
+    scope: Scope.makeUnsafe(),
+    start: null,
+    client: null,
+    refresh: null,
+    refreshDirty: false,
+    closing: null,
+    closeIntent: null,
+    closeFailure: null,
+  };
+}
+
+/** A promise step. An interrupt abandons it at once. */
+function step<A>(run: (signal: AbortSignal) => PromiseLike<A>): Effect.Effect<A, unknown> {
+  return Effect.tryPromise({ try: run, catch: (error) => error });
+}
+
+/** A durable write. An interrupt waits for it, so a close never races a write it abandoned. */
+function write<A>(run: () => PromiseLike<A>): Effect.Effect<A, unknown> {
+  return Effect.uninterruptible(step(run));
+}
+
+function closeQuietly(client: McpRawClient): Effect.Effect<void> {
+  return Effect.promise(() => client.close().catch(() => undefined));
+}
+
+function bothSignals(caller: AbortSignal | undefined, fiber: AbortSignal): AbortSignal {
+  return caller ? AbortSignal.any([caller, fiber]) : fiber;
+}
+
+/**
+ * The persistence port for lifecycle fibers (ADR-0114 D3). A read stops on an interrupt.
+ * A write cannot be interrupted, so a close waits for a write that started. Code in a
+ * lifecycle fiber reaches persistence only through this port. The client's OAuth callbacks
+ * write outside it (ADR-0114 residual risk).
+ */
+function lifecycleStore(persistence: McpConnectionManagerPersistence) {
+  return {
+    readConnection: (connectionId: string) => step(() => persistence.readConnection(connectionId)),
+    updateConnection: (connectionId: string, patch: McpConnectionUpdate) =>
+      write(() => persistence.updateConnection(connectionId, patch)),
+    insertCatalogRevision: (
+      input: Parameters<McpConnectionManagerPersistence["insertCatalogRevision"]>[0],
+    ) => write(() => persistence.insertCatalogRevision(input)),
+    compareAndSetCatalogRevision: (
+      input: Parameters<McpConnectionManagerPersistence["compareAndSetCatalogRevision"]>[0],
+    ) => write(() => persistence.compareAndSetCatalogRevision(input)),
+  };
 }
 
 /** A start failure that writes `auth_required`: the server asks for consent or rejects the stored grant. */
@@ -191,17 +257,18 @@ function liveClientFactory(): McpClientFactory {
 
 export class McpConnectionManager {
   readonly #generations = new Map<string, McpManagerGeneration>();
-  readonly #catalogRefreshes = new Map<string, CatalogRefreshState>();
   readonly #activeRevisionIds = new Map<string, string>();
   readonly #clientFactory: McpClientFactory;
   readonly #persistence: McpConnectionManagerPersistence;
-  /** Ids being deleted. Checked at entry and after each await, so no client opens for them. */
+  readonly #store: ReturnType<typeof lifecycleStore>;
+  /** Ids being deleted. Admission refuses them; a successful delete closes the live generation. */
   readonly #removals = new Set<string>();
   #shuttingDown = false;
 
   constructor(options: McpConnectionManagerOptions = {}) {
     this.#clientFactory = options.clientFactory ?? liveClientFactory();
     this.#persistence = options.persistence ?? DEFAULT_PERSISTENCE;
+    this.#store = lifecycleStore(this.#persistence);
   }
 
   /** A connected client with a published catalog, cached per connection. On failure, mark the row `failed`. */
@@ -222,66 +289,64 @@ export class McpConnectionManager {
     this.#assertAdmission(connectionId);
     const current = this.#generations.get(connectionId);
 
-    if (current?.phase === "ready" && current.client) return current.client;
+    if (current?.client) return current.client;
 
-    if (current?.phase === "starting" && current.start) return current.start;
+    if (current?.start) return this.#settle(connectionId, Fiber.await(current.start));
 
-    if (current?.phase === "closing") throw this.#notConnected(connectionId);
-
-    const generation: McpManagerGeneration = {
-      connectionId,
-      phase: "starting",
-      start: null,
-      client: null,
-      closeDone: null,
-      closeIntent: null,
-      closeFailure: null,
-    };
-
+    const generation = newGeneration(connectionId);
     this.#generations.set(connectionId, generation);
-    const start = this.#startClient(connectionId, generation, trace);
-    generation.start = start;
+    generation.start = Effect.runFork(this.#startClient(generation, trace));
 
-    return start;
+    return this.#settle(connectionId, Fiber.await(generation.start));
   }
 
-  async #startClient(
-    connectionId: string,
+  #startClient(
     generation: McpManagerGeneration,
     trace?: McpTraceContext,
-  ): Promise<McpRawClient> {
-    const connection = await this.#persistence.readConnection(connectionId);
-    this.#assertOpenGeneration(generation);
+  ): Effect.Effect<McpRawClient, unknown> {
+    const { connectionId } = generation;
 
-    if (!connection) {
-      this.#generations.delete(connectionId);
-      throw new McpConnectionNotFoundError(connectionId);
-    }
+    return Effect.gen({ self: this }, function* () {
+      const connection = yield* this.#store.readConnection(connectionId);
 
-    let client: McpRawClient;
+      if (!connection) return yield* Effect.fail(new McpConnectionNotFoundError(connectionId));
 
-    try {
-      client = await this.#clientFactory(connection);
-    } catch (error) {
-      if (this.#generations.get(connectionId) === generation) {
-        this.#generations.delete(connectionId);
-      }
+      const client = yield* Effect.acquireRelease(
+        step(async () => this.#clientFactory(connection)),
+        closeQuietly,
+      ).pipe(Scope.provide(generation.scope));
 
-      throw error;
-    }
+      return yield* this.#openClient(generation, client, trace).pipe(
+        Effect.catch((err) => this.#settleFailedStart(generation, connection, err)),
+      );
+    }).pipe(
+      // Every failed start leaves the map, so the next caller starts again (ADR-0114 D5).
+      // An interrupt is a close, and the close removes the generation itself.
+      Effect.onExit((exit) =>
+        Exit.isSuccess(exit) || Cause.hasInterruptsOnly(exit.cause)
+          ? Effect.void
+          : Scope.close(generation.scope, Exit.void).pipe(
+              Effect.andThen(
+                Effect.sync(() => {
+                  if (this.#generations.get(connectionId) === generation) {
+                    this.#generations.delete(connectionId);
+                  }
+                }),
+              ),
+            ),
+      ),
+    );
+  }
 
-    let initializing = true;
-    client.onCatalogInvalidated(() => {
-      if (initializing) return;
-      this.#scheduleCatalogRefresh(generation, client);
-    });
+  #openClient(
+    generation: McpManagerGeneration,
+    client: McpRawClient,
+    trace?: McpTraceContext,
+  ): Effect.Effect<McpRawClient, unknown> {
+    const { connectionId } = generation;
 
-    try {
-      await this.#patch(connectionId, {
-        status: "connecting",
-        lastError: null,
-      });
-      this.#assertOpenGeneration(generation);
+    return Effect.gen({ self: this }, function* () {
+      yield* this.#store.updateConnection(connectionId, { status: "connecting", lastError: null });
 
       const connectSpan = startMcpTraceSpan({
         name: "runtime.mcp.connect",
@@ -289,96 +354,89 @@ export class McpConnectionManager {
         metadata: { connectionId },
       });
 
-      try {
-        await client.connect(connectSpan.context);
-        this.#assertOpenGeneration(generation);
-        connectSpan.end({ status: "connected" });
-      } catch (error) {
-        connectSpan.end({ status: "error", level: "ERROR" });
-        throw error;
-      }
+      yield* step(() => client.connect(connectSpan.context)).pipe(
+        Effect.onExit((exit) =>
+          Effect.sync(() =>
+            connectSpan.end(
+              Exit.isSuccess(exit) ? { status: "connected" } : { status: "error", level: "ERROR" },
+            ),
+          ),
+        ),
+      );
 
       for (let attempt = 1; attempt <= MAX_CATALOG_STABILIZATION_ATTEMPTS; attempt += 1) {
-        await this.#refreshAndPersistStable(generation, client, undefined, connectSpan.context);
+        yield* this.#prepareAndPersistStable(generation, client, undefined, connectSpan.context);
 
         if (client.catalog) break;
 
         if (attempt === MAX_CATALOG_STABILIZATION_ATTEMPTS) {
-          throw new McpClientError(
-            "catalog_stale",
-            "The MCP catalog kept changing while the connection was starting",
+          return yield* Effect.fail(
+            new McpClientError(
+              "catalog_stale",
+              "The MCP catalog kept changing while the connection was starting",
+            ),
           );
         }
       }
 
-      this.#assertOpenGeneration(generation);
       generation.client = client;
-      generation.phase = "ready";
-      initializing = false;
+      // Registered only now: the start loop above already handles an earlier invalidation.
+      client.onCatalogInvalidated(() => this.#scheduleCatalogRefresh(generation, client));
 
       return client;
-    } catch (err) {
-      initializing = false;
+    });
+  }
 
-      if (!this.#isOpenGeneration(generation)) {
-        await client.close().catch(() => undefined);
-        throw this.#notConnected(connectionId);
-      }
+  /** Close the client, write the row state for this failure, and fail with the original error. */
+  #settleFailedStart(
+    generation: McpManagerGeneration,
+    connection: McpConnectionWithServer,
+    err: unknown,
+  ): Effect.Effect<never, unknown> {
+    const { connectionId } = generation;
 
+    return Effect.gen({ self: this }, function* () {
       if (needsConsent(err, connection)) {
-        await client.close().catch(() => undefined);
-        this.#assertOpenGeneration(generation);
-        await this.#patch(connectionId, {
+        yield* Scope.close(generation.scope, Exit.void);
+        yield* this.#store.updateConnection(connectionId, {
           status: "auth_required",
           lastError:
             err instanceof McpOAuthAuthorizationRequiredError
               ? "Authorization is required to connect this MCP server."
               : boundedMcpErrorText(err),
         });
-        this.#assertOpenGeneration(generation);
-        this.#generations.delete(connectionId);
-        throw err;
+      } else if (err instanceof McpClientError && err.code === "token_rejected") {
+        // A renewed token is not a failure: keep the row and its catalog as they are.
+        yield* Scope.close(generation.scope, Exit.void);
+      } else {
+        const expectedCurrentRevisionId =
+          this.#activeRevisionIds.get(connectionId) ?? connection.currentCatalogRevisionId;
+
+        this.#activeRevisionIds.delete(connectionId);
+        yield* Scope.close(generation.scope, Exit.void);
+        // Not `toMessage`: the SDK error holds the whole response body.
+        yield* this.#store.compareAndSetCatalogRevision({
+          connectionId,
+          expectedCurrentRevisionId,
+          nextRevisionId: null,
+          patch: { status: "failed", lastError: boundedMcpErrorText(err) },
+        });
       }
 
-      // A renewed token is not a failure: keep the row and its catalog as they are.
-      if (err instanceof McpClientError && err.code === "token_rejected") {
-        await client.close().catch(() => undefined);
-        this.#assertOpenGeneration(generation);
-        this.#generations.delete(connectionId);
-        throw err;
-      }
-
-      const expectedCurrentRevisionId =
-        this.#activeRevisionIds.get(connectionId) ?? connection.currentCatalogRevisionId;
-
-      this.#activeRevisionIds.delete(connectionId);
-      await client.close().catch(() => undefined);
-      this.#assertOpenGeneration(generation);
-      // Not `toMessage`: the SDK error holds the whole response body.
-      await this.#persistence.compareAndSetCatalogRevision({
-        connectionId,
-        expectedCurrentRevisionId,
-        nextRevisionId: null,
-        patch: {
-          status: "failed",
-          lastError: boundedMcpErrorText(err),
-        },
-      });
-      this.#assertOpenGeneration(generation);
-      this.#generations.delete(connectionId);
-      throw err;
-    }
+      return yield* Effect.fail(err);
+    });
   }
 
   /** Refresh and publish the catalog. An unchanged catalog only updates `lastConnectedAt`. */
   async refreshCatalog(connectionId: string, trace?: McpTraceContext): Promise<McpCatalogSnapshot> {
     const client = await this.getReadyClient(connectionId, trace);
+    const generation = this.#requireReadyGeneration(connectionId, client);
 
-    return this.#refreshAndPersistStable(
-      this.#requireReadyGeneration(connectionId, client),
-      client,
-      undefined,
-      trace,
+    return this.#runInGeneration(
+      generation,
+      this.#prepareAndPersistStable(generation, client, undefined, trace).pipe(
+        Effect.map((prepared) => prepared.catalog),
+      ),
     );
   }
 
@@ -388,12 +446,11 @@ export class McpConnectionManager {
     trace?: McpTraceContext,
   ): Promise<McpPreparedToolCall> {
     const client = await this.getReadyClient(connectionId, trace);
+    const generation = this.#requireReadyGeneration(connectionId, client);
 
-    return this.#prepareAndPersistStable(
-      this.#requireReadyGeneration(connectionId, client),
-      client,
-      signal,
-      trace,
+    return this.#runInGeneration(
+      generation,
+      this.#prepareAndPersistStable(generation, client, signal, trace),
     );
   }
 
@@ -413,7 +470,7 @@ export class McpConnectionManager {
     const owned = await this.#persistence.readOwnedConnection(connectionId, userId);
 
     if (!owned) return false;
-    const generation = this.#beginClosing(connectionId);
+    const generation = this.#generations.get(connectionId) ?? this.#tombstone(connectionId);
     await this.#closeGeneration(generation, "disconnect");
 
     return true;
@@ -437,7 +494,7 @@ export class McpConnectionManager {
 
       const lastError = boundedMcpErrorText(error);
 
-      await this.#patch(connectionId, {
+      await this.#persistence.updateConnection(connectionId, {
         status: before.status,
         currentCatalogRevisionId: before.currentCatalogRevisionId,
         lastError,
@@ -494,7 +551,7 @@ export class McpConnectionManager {
 
       if (outcome !== "removed") return outcome;
 
-      const generation = this.#beginClosing(connectionId);
+      const generation = this.#generations.get(connectionId) ?? this.#tombstone(connectionId);
       await this.#closeGeneration(generation, "removal");
 
       return "removed";
@@ -518,282 +575,270 @@ export class McpConnectionManager {
   /** Drop all live clients, for shutdown. Rows are untouched. */
   async closeAll(): Promise<void> {
     this.#shuttingDown = true;
-    const generations = [...this.#generations.values()];
-
-    for (const generation of generations) generation.phase = "closing";
     await Promise.all(
-      generations.map((generation) => this.#closeGeneration(generation, "shutdown")),
+      [...this.#generations.values()].map((generation) =>
+        this.#closeGeneration(generation, "shutdown"),
+      ),
     );
   }
 
-  async #insertCatalog(connectionId: string, snapshot: McpCatalogSnapshot): Promise<string> {
-    const revision = await this.#persistence.insertCatalogRevision({
-      connectionId,
-      revisionHash: snapshot.revision,
-      descriptors: snapshot.tools,
-    });
-
-    return revision.id;
+  /** Run `effect` as a child of the generation. A close interrupts it; the caller gets `not_connected`. */
+  #runInGeneration<A>(
+    generation: McpManagerGeneration,
+    effect: Effect.Effect<A, unknown>,
+  ): Promise<A> {
+    return this.#settle(
+      generation.connectionId,
+      Effect.forkIn(effect, generation.scope).pipe(Effect.flatMap(Fiber.await)),
+    );
   }
 
-  async #activateCatalog(
+  /** Turn a fiber outcome back into a Promise result. An interrupt means the generation closed. */
+  async #settle<A>(
+    connectionId: string,
+    outcome: Effect.Effect<Exit.Exit<A, unknown>>,
+  ): Promise<A> {
+    const exit = await Effect.runPromise(outcome);
+
+    if (Exit.isSuccess(exit)) return exit.value;
+
+    if (Cause.hasInterruptsOnly(exit.cause)) throw this.#notConnected(connectionId);
+
+    throw Cause.squash(exit.cause);
+  }
+
+  #insertCatalog(
+    connectionId: string,
+    snapshot: McpCatalogSnapshot,
+  ): Effect.Effect<string, unknown> {
+    return this.#store
+      .insertCatalogRevision({
+        connectionId,
+        revisionHash: snapshot.revision,
+        descriptors: snapshot.tools,
+      })
+      .pipe(Effect.map((revision) => revision.id));
+  }
+
+  #activateCatalog(
     connectionId: string,
     expectedCurrentRevisionId: string | null,
     revisionId: string,
     negotiated: McpNegotiatedServer | null,
-  ): Promise<boolean> {
-    const activated = await this.#persistence.compareAndSetCatalogRevision({
-      connectionId,
-      expectedCurrentRevisionId,
-      nextRevisionId: revisionId,
-      patch: {
-        status: "ready",
-        lastConnectedAt: new Date(),
-        lastError: null,
-        ...(negotiated
-          ? {
-              negotiatedProtocolVersion: negotiated.protocolVersion,
-              serverIdentity: {
-                protocolVersion: negotiated.protocolVersion,
-                serverName: negotiated.serverName,
-                serverVersion: negotiated.serverVersion,
-                hasTools: negotiated.hasTools,
-                toolsListChanged: negotiated.toolsListChanged,
-              },
-            }
-          : {}),
-      },
-    });
-
-    return activated !== undefined;
-  }
-
-  async #patch(connectionId: string, patch: McpConnectionUpdate): Promise<void> {
-    await this.#persistence.updateConnection(connectionId, patch);
+  ): Effect.Effect<boolean, unknown> {
+    return this.#store
+      .compareAndSetCatalogRevision({
+        connectionId,
+        expectedCurrentRevisionId,
+        nextRevisionId: revisionId,
+        patch: {
+          status: "ready",
+          lastConnectedAt: new Date(),
+          lastError: null,
+          ...(negotiated
+            ? {
+                negotiatedProtocolVersion: negotiated.protocolVersion,
+                serverIdentity: {
+                  protocolVersion: negotiated.protocolVersion,
+                  serverName: negotiated.serverName,
+                  serverVersion: negotiated.serverVersion,
+                  hasTools: negotiated.hasTools,
+                  toolsListChanged: negotiated.toolsListChanged,
+                },
+              }
+            : {}),
+        },
+      })
+      .pipe(Effect.map((activated) => activated !== undefined));
   }
 
   /** Publish only a snapshot still live after the transaction; a list-change event forces one more loop. */
-  async #refreshAndPersistStable(
+  #prepareAndPersistStable(
     generation: McpManagerGeneration,
     client: McpRawClient,
-    signal?: AbortSignal,
-    trace?: McpTraceContext,
-  ): Promise<McpCatalogSnapshot> {
-    return (await this.#prepareAndPersistStable(generation, client, signal, trace)).catalog;
-  }
-
-  async #prepareAndPersistStable(
-    generation: McpManagerGeneration,
-    client: McpRawClient,
-    signal?: AbortSignal,
-    trace?: McpTraceContext,
-  ): Promise<McpPreparedToolCall> {
+    signal: AbortSignal | undefined,
+    trace: McpTraceContext | undefined,
+  ): Effect.Effect<McpPreparedToolCall, unknown> {
     const { connectionId } = generation;
-    this.#assertOpenGeneration(generation);
 
-    const span = startMcpTraceSpan({
-      name: "runtime.mcp.catalog_refresh",
-      ...(trace ? { parent: trace } : {}),
-      metadata: { connectionId },
-    });
-
-    try {
-      const prepared = await this.#prepareAndPersistStableInner(
-        generation,
-        client,
-        signal,
-        span.context,
-      );
-
-      span.end({
-        status: "ready",
-        metadata: {
-          catalogRevision: prepared.catalog.revision,
-          toolCount: prepared.catalog.tools.length,
-        },
+    return Effect.suspend(() => {
+      const span = startMcpTraceSpan({
+        name: "runtime.mcp.catalog_refresh",
+        ...(trace ? { parent: trace } : {}),
+        metadata: { connectionId },
       });
 
-      return prepared;
-    } catch (error) {
-      span.end({ status: "error", level: "ERROR" });
-      throw error;
-    }
+      return this.#prepareAndPersistStableInner(generation, client, signal, span.context).pipe(
+        Effect.onExit((exit) =>
+          Effect.sync(() =>
+            Exit.isSuccess(exit)
+              ? span.end({
+                  status: "ready",
+                  metadata: {
+                    catalogRevision: exit.value.catalog.revision,
+                    toolCount: exit.value.catalog.tools.length,
+                  },
+                })
+              : span.end({ status: "error", level: "ERROR" }),
+          ),
+        ),
+      );
+    });
   }
 
-  async #prepareAndPersistStableInner(
+  #prepareAndPersistStableInner(
     generation: McpManagerGeneration,
     client: McpRawClient,
     signal: AbortSignal | undefined,
     trace: McpTraceContext,
-  ): Promise<McpPreparedToolCall> {
+  ): Effect.Effect<McpPreparedToolCall, unknown> {
     const { connectionId } = generation;
 
-    for (let attempt = 1; attempt <= MAX_CATALOG_STABILIZATION_ATTEMPTS; attempt += 1) {
-      this.#assertOpenGeneration(generation);
-      const durableBefore = await this.#persistence.readConnection(connectionId);
+    return Effect.gen({ self: this }, function* () {
+      for (let attempt = 1; attempt <= MAX_CATALOG_STABILIZATION_ATTEMPTS; attempt += 1) {
+        const durableBefore = yield* this.#store.readConnection(connectionId);
 
-      if (!durableBefore) throw new McpConnectionNotFoundError(connectionId);
-      this.#assertOpenGeneration(generation);
-      let priorCatalog = client.catalog;
-      const activeRevisionId = this.#activeRevisionIds.get(connectionId);
+        if (!durableBefore) return yield* Effect.fail(new McpConnectionNotFoundError(connectionId));
+        let priorCatalog = client.catalog;
+        const activeRevisionId = this.#activeRevisionIds.get(connectionId);
 
-      if (
-        priorCatalog &&
-        (activeRevisionId === undefined ||
-          durableBefore.currentCatalogRevisionId !== activeRevisionId)
-      ) {
-        client.invalidateCatalogAuthority();
-        priorCatalog = null;
-      }
-
-      let prepared: McpPreparedToolCall;
-
-      try {
-        prepared = await client.prepareToolCall(signal, trace);
-        this.#assertOpenGeneration(generation);
-      } catch (err) {
         if (
-          err instanceof McpClientError &&
-          err.code === "catalog_stale" &&
-          attempt < MAX_CATALOG_STABILIZATION_ATTEMPTS
+          priorCatalog &&
+          (activeRevisionId === undefined ||
+            durableBefore.currentCatalogRevisionId !== activeRevisionId)
         ) {
+          client.invalidateCatalogAuthority();
+          priorCatalog = null;
+        }
+
+        const prepared = yield* step((fiberSignal) =>
+          client.prepareToolCall(bothSignals(signal, fiberSignal), trace),
+        ).pipe(
+          Effect.catchIf(
+            (err) =>
+              err instanceof McpClientError &&
+              err.code === "catalog_stale" &&
+              attempt < MAX_CATALOG_STABILIZATION_ATTEMPTS,
+            () => Effect.succeed(null),
+          ),
+        );
+
+        if (!prepared) continue;
+        const snapshot = prepared.catalog;
+
+        if (
+          snapshot === priorCatalog &&
+          activeRevisionId !== undefined &&
+          durableBefore.currentCatalogRevisionId === activeRevisionId
+        ) {
+          return prepared;
+        }
+
+        const revisionId = yield* this.#insertCatalog(connectionId, snapshot);
+
+        if (client.catalog !== snapshot) continue;
+
+        const activated = yield* this.#activateCatalog(
+          connectionId,
+          durableBefore.currentCatalogRevisionId,
+          revisionId,
+          client.negotiatedServer,
+        );
+
+        if (!activated) {
+          client.invalidateCatalogAuthority();
           continue;
         }
 
-        throw err;
+        this.#activeRevisionIds.set(connectionId, revisionId);
+
+        if (client.catalog === snapshot) return prepared;
+
+        // An event beat pointer activation. Remove the stale entry before the retry.
+        yield* this.#store.compareAndSetCatalogRevision({
+          connectionId,
+          expectedCurrentRevisionId: revisionId,
+          nextRevisionId: null,
+          patch: { status: "stale" },
+        });
+        this.#activeRevisionIds.delete(connectionId);
       }
 
-      const snapshot = prepared.catalog;
-
-      if (
-        snapshot === priorCatalog &&
-        activeRevisionId !== undefined &&
-        durableBefore.currentCatalogRevisionId === activeRevisionId
-      ) {
-        return prepared;
-      }
-
-      const revisionId = await this.#insertCatalog(connectionId, snapshot);
-      this.#assertOpenGeneration(generation);
-
-      if (client.catalog !== snapshot) continue;
-
-      const activated = await this.#activateCatalog(
-        connectionId,
-        durableBefore.currentCatalogRevisionId,
-        revisionId,
-        client.negotiatedServer,
+      return yield* Effect.fail(
+        new McpClientError(
+          "catalog_stale",
+          `The MCP catalog changed during ${MAX_CATALOG_STABILIZATION_ATTEMPTS} consecutive refresh attempts`,
+        ),
       );
-
-      this.#assertOpenGeneration(generation);
-
-      if (!activated) {
-        client.invalidateCatalogAuthority();
-        continue;
-      }
-
-      this.#activeRevisionIds.set(connectionId, revisionId);
-
-      if (client.catalog === snapshot) return prepared;
-
-      // An event beat pointer activation. Remove the stale entry before the retry.
-      await this.#persistence.compareAndSetCatalogRevision({
-        connectionId,
-        expectedCurrentRevisionId: revisionId,
-        nextRevisionId: null,
-        patch: { status: "stale" },
-      });
-      this.#assertOpenGeneration(generation);
-      this.#activeRevisionIds.delete(connectionId);
-    }
-
-    throw new McpClientError(
-      "catalog_stale",
-      `The MCP catalog changed during ${MAX_CATALOG_STABILIZATION_ATTEMPTS} consecutive refresh attempts`,
-    );
+    });
   }
 
-  /** Coalesce list-change bursts into one durable invalidate → refresh cycle. */
+  /**
+   * Coalesce list-change bursts into one durable invalidate → refresh cycle.
+   * The refresh fiber lives in the generation scope; a refresh failure closes the generation.
+   */
   #scheduleCatalogRefresh(generation: McpManagerGeneration, client: McpRawClient): void {
-    const { connectionId } = generation;
+    if (generation.closing) return;
+    generation.refreshDirty = true;
 
-    if (!this.#isReadyGeneration(generation, client)) return;
-    const existing = this.#catalogRefreshes.get(connectionId);
+    if (generation.refresh) return;
 
-    if (existing) {
-      existing.dirty = true;
+    const refresh = Effect.runFork(
+      Effect.forkIn(this.#drainCatalogRefreshes(generation, client), generation.scope).pipe(
+        Effect.flatMap(Fiber.join),
+      ),
+    );
 
-      return;
-    }
+    generation.refresh = refresh;
+    refresh.addObserver((exit) => {
+      generation.refresh = null;
 
-    const state: CatalogRefreshState = {
-      dirty: true,
-      promise: Promise.resolve(),
-      generation,
-    };
+      // An event after the drain loop's last check set the flag, but saw a refresh still running.
+      if (Exit.isSuccess(exit)) {
+        if (generation.refreshDirty) this.#scheduleCatalogRefresh(generation, client);
 
-    state.promise = this.#drainCatalogRefreshes(generation, client, state).finally(() => {
-      if (this.#catalogRefreshes.get(connectionId) === state) {
-        this.#catalogRefreshes.delete(connectionId);
+        return;
       }
 
-      if (state.dirty && this.#isReadyGeneration(generation, client)) {
-        this.#scheduleCatalogRefresh(generation, client);
+      // An interrupt is a close; a failure during a close is not a refresh failure.
+      if (Cause.hasInterruptsOnly(exit.cause) || generation.closing) return;
+      void this.#closeGeneration(
+        generation,
+        "failure",
+        boundedMcpErrorText(Cause.squash(exit.cause)),
+      ).catch(() => undefined);
+    });
+  }
+
+  #drainCatalogRefreshes(
+    generation: McpManagerGeneration,
+    client: McpRawClient,
+  ): Effect.Effect<void, unknown> {
+    const { connectionId } = generation;
+
+    return Effect.gen({ self: this }, function* () {
+      while (generation.refreshDirty) {
+        generation.refreshDirty = false;
+        // Fail closed: do not serve the invalidated revision while fetching.
+        const expectedCurrentRevisionId = this.#activeRevisionIds.get(connectionId) ?? null;
+        yield* this.#store.compareAndSetCatalogRevision({
+          connectionId,
+          expectedCurrentRevisionId,
+          nextRevisionId: null,
+          patch: { status: "stale", lastError: null },
+        });
+        this.#activeRevisionIds.delete(connectionId);
+        yield* this.#prepareAndPersistStable(generation, client, undefined, undefined);
       }
     });
-    // Observe the rejection even with no waiter; awaiters still get it.
-    void state.promise.catch(() => undefined);
-    this.#catalogRefreshes.set(connectionId, state);
-  }
-
-  async #drainCatalogRefreshes(
-    generation: McpManagerGeneration,
-    client: McpRawClient,
-    state: CatalogRefreshState,
-  ): Promise<void> {
-    while (state.dirty && this.#isReadyGeneration(generation, client)) {
-      state.dirty = false;
-      await this.#refreshInvalidatedCatalog(generation, client);
-    }
-  }
-
-  async #refreshInvalidatedCatalog(
-    generation: McpManagerGeneration,
-    client: McpRawClient,
-  ): Promise<void> {
-    const { connectionId } = generation;
-
-    try {
-      this.#assertOpenGeneration(generation);
-      // Fail closed: do not serve the invalidated revision while fetching.
-      const expectedCurrentRevisionId = this.#activeRevisionIds.get(connectionId) ?? null;
-      await this.#persistence.compareAndSetCatalogRevision({
-        connectionId,
-        expectedCurrentRevisionId,
-        nextRevisionId: null,
-        patch: {
-          status: "stale",
-          lastError: null,
-        },
-      });
-      this.#assertOpenGeneration(generation);
-      this.#activeRevisionIds.delete(connectionId);
-      await this.#refreshAndPersistStable(generation, client);
-    } catch (err) {
-      if (!this.#isOpenGeneration(generation)) return;
-      // Do not await here: the closer waits on this promise, so awaiting would deadlock.
-      void this.#closeGeneration(generation, "failure", boundedMcpErrorText(err)).catch(
-        () => undefined,
-      );
-    }
   }
 
   async #waitForCatalogRefresh(connectionId: string): Promise<void> {
     for (;;) {
-      const state = this.#catalogRefreshes.get(connectionId);
+      const refresh = this.#generations.get(connectionId)?.refresh;
 
-      if (!state) return;
-      await state.promise;
+      if (!refresh) return;
+      await Effect.runPromise(Fiber.await(refresh));
     }
   }
 
@@ -801,7 +846,7 @@ export class McpConnectionManager {
     if (
       this.#shuttingDown ||
       this.#removals.has(connectionId) ||
-      this.#generations.get(connectionId)?.phase === "closing"
+      this.#generations.get(connectionId)?.closing
     ) {
       throw this.#notConnected(connectionId);
     }
@@ -814,56 +859,19 @@ export class McpConnectionManager {
     );
   }
 
-  #isOpenGeneration(generation: McpManagerGeneration): boolean {
-    return (
-      !this.#shuttingDown &&
-      !this.#removals.has(generation.connectionId) &&
-      this.#generations.get(generation.connectionId) === generation &&
-      generation.phase !== "closing"
-    );
-  }
-
-  #assertOpenGeneration(generation: McpManagerGeneration): void {
-    if (!this.#isOpenGeneration(generation)) throw this.#notConnected(generation.connectionId);
-  }
-
-  #isReadyGeneration(generation: McpManagerGeneration, client: McpRawClient): boolean {
-    return (
-      this.#isOpenGeneration(generation) &&
-      generation.phase === "ready" &&
-      generation.client === client
-    );
-  }
-
   #requireReadyGeneration(connectionId: string, client: McpRawClient): McpManagerGeneration {
     const generation = this.#generations.get(connectionId);
 
-    if (!generation || !this.#isReadyGeneration(generation, client)) {
+    if (!generation || generation.closing || generation.client !== client) {
       throw this.#notConnected(connectionId);
     }
 
     return generation;
   }
 
-  #beginClosing(connectionId: string): McpManagerGeneration {
-    const current = this.#generations.get(connectionId);
-
-    if (current) {
-      current.phase = "closing";
-
-      return current;
-    }
-
-    const tombstone: McpManagerGeneration = {
-      connectionId,
-      phase: "closing",
-      start: null,
-      client: null,
-      closeDone: null,
-      closeIntent: null,
-      closeFailure: null,
-    };
-
+  /** A closing placeholder with no client: admission refuses the id until its close finishes. */
+  #tombstone(connectionId: string): McpManagerGeneration {
+    const tombstone = newGeneration(connectionId);
     this.#generations.set(connectionId, tombstone);
 
     return tombstone;
@@ -874,8 +882,6 @@ export class McpConnectionManager {
     intent: McpManagerCloseIntent,
     failure?: string,
   ): Promise<void> {
-    generation.phase = "closing";
-
     // `disconnect` and `removal` always win; `failure` cannot override them.
     // `shutdown` and `credential_replaced` apply only when nothing stronger is set.
     if (
@@ -891,41 +897,38 @@ export class McpConnectionManager {
 
     if (failure !== undefined) generation.closeFailure = failure;
 
-    return (generation.closeDone ??= (async () => {
-      await generation.start?.catch(() => undefined);
+    return (generation.closing ??= Effect.runPromise(
+      Effect.gen({ self: this }, function* () {
+        const { connectionId } = generation;
 
-      for (;;) {
-        const refresh = this.#catalogRefreshes.get(generation.connectionId);
+        // The start and every fiber in the scope stop at their next step; the scope then closes the client.
+        if (generation.start) yield* Fiber.interrupt(generation.start);
+        yield* Scope.close(generation.scope, Exit.void);
+        this.#activeRevisionIds.delete(connectionId);
+        const selectedIntent = generation.closeIntent;
 
-        if (!refresh || refresh.generation !== generation) break;
-        await refresh.promise.catch(() => undefined);
-      }
+        if (selectedIntent === "disconnect") {
+          yield* this.#store.updateConnection(connectionId, DISCONNECTED_PATCH);
+        } else if (selectedIntent === "failure") {
+          yield* this.#store.compareAndSetCatalogRevision({
+            connectionId,
+            expectedCurrentRevisionId: null,
+            nextRevisionId: null,
+            patch: {
+              status: "failed",
+              lastError: generation.closeFailure ?? "The MCP catalog refresh failed",
+            },
+          });
 
-      this.#activeRevisionIds.delete(generation.connectionId);
-      await generation.client?.close().catch(() => undefined);
-      const selectedIntent = generation.closeIntent;
-
-      if (selectedIntent === "disconnect") {
-        await this.#patch(generation.connectionId, DISCONNECTED_PATCH);
-      } else if (selectedIntent === "failure") {
-        await this.#persistence.compareAndSetCatalogRevision({
-          connectionId: generation.connectionId,
-          expectedCurrentRevisionId: null,
-          nextRevisionId: null,
-          patch: {
-            status: "failed",
-            lastError: generation.closeFailure ?? "The MCP catalog refresh failed",
-          },
-        });
-
-        if (generation.closeIntent === "disconnect") {
-          await this.#patch(generation.connectionId, DISCONNECTED_PATCH);
+          if (generation.closeIntent === "disconnect") {
+            yield* this.#store.updateConnection(connectionId, DISCONNECTED_PATCH);
+          }
         }
-      }
 
-      if (this.#generations.get(generation.connectionId) === generation) {
-        this.#generations.delete(generation.connectionId);
-      }
-    })());
+        if (this.#generations.get(connectionId) === generation) {
+          this.#generations.delete(connectionId);
+        }
+      }),
+    ));
   }
 }

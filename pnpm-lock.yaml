@@ -72,6 +72,9 @@ catalogs:
     dotenv:
       specifier: ^17.4.2
       version: 17.4.2
+    effect:
+      specifier: 4.0.6
+      version: 4.0.6
     elysia:
       specifier: 1.4.28
       version: 1.4.28
@@ -593,6 +596,9 @@ importers:
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0)
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.6
       files-sdk:
         specifier: ^2.0.0
         version: 2.2.3(@aws-sdk/client-s3@3.1106.0)(@aws-sdk/s3-presigned-post@3.1106.0)(@aws-sdk/s3-request-presigner@3.1106.0)(@opentelemetry/api@1.9.1)(ai@7.0.99(zod@4.6.5))(fastify@5.11.2)(hono@4.13.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(supports-color@8.1.1)(zod@4.6.5)
@@ -5101,6 +5107,9 @@ packages:
 
   ee-first@1.1.1:
     resolution: {integrity: sha512-WMwm9LhRUo+WUaRN+vRuETqG89IgZphVSNkdFgeb6sS/E4OrDIN7t48CAewSHXc6C8lefD8KKfr5vY61brQlow==}
+
+  effect@4.0.6:
+    resolution: {integrity: sha512-Tc3mkzuLR6t6P9dhLt0D2GrxYtmU5td4XEJEiXCmILz53IRIfJyHsKZWjTA3xEjiwpNTtXBgI4iqYPxMztBDrw==}
 
   electron-to-chromium@1.5.415:
     resolution: {integrity: sha512-958V+Kbhtgz+SxXeEVKBjrlKRBIDAYvUJfwhjxMZ5S6ut9jAl7l9ZKBkBrvjyjZE36PabLUo2L8kEeV5O4vgJg==}
@@ -11173,6 +11182,8 @@ snapshots:
 
   ee-first@1.1.1:
     optional: true
+
+  effect@4.0.6: {}
 
   electron-to-chromium@1.5.415: {}
 

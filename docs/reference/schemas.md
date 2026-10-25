@@ -139,3 +139,7 @@ parse seam exists, so the validator mints the brand instead of an assertion.
 Revisit only if a concrete driver appears - measured web-bundle pressure from
 zod, a second consumer needing Standard Schema at boundaries, or adoption of
 Effect-the-runtime itself.
+
+ADR-0114 adopts Effect-the-runtime in one file only (the MCP connection
+manager). That file parses no external data, so it does not fire this trigger.
+A second Effect module with a parse boundary would.
