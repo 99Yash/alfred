@@ -68,6 +68,13 @@ export type McpConnectionRenameOutcome =
   | { outcome: "not_found" }
   | { outcome: "built_in" };
 
+/** Reconnect result, one per HTTP route branch. */
+export type McpConnectionReconnectOutcome =
+  | { outcome: "connected" }
+  | { outcome: "auth_required" }
+  | { outcome: "not_found" }
+  | { outcome: "failed"; lastError: string };
+
 const MAX_CATALOG_STABILIZATION_ATTEMPTS = 3;
 
 /**
@@ -102,6 +109,14 @@ interface McpManagerGeneration {
   closeDone: Promise<void> | null;
   closeIntent: McpManagerCloseIntent | null;
   closeFailure: string | null;
+}
+
+/** A start failure that writes `auth_required`: the server asks for consent or rejects the stored grant. */
+function needsConsent(err: unknown, connection: McpConnectionWithServer): boolean {
+  return (
+    err instanceof McpOAuthAuthorizationRequiredError ||
+    (connection.credentialId !== null && isMcpAuthorizationChallenge(err))
+  );
 }
 
 class McpConnectionNotFoundError extends Error {
@@ -310,10 +325,7 @@ export class McpConnectionManager {
         throw this.#notConnected(connectionId);
       }
 
-      if (
-        err instanceof McpOAuthAuthorizationRequiredError ||
-        (connection.credentialId !== null && isMcpAuthorizationChallenge(err))
-      ) {
+      if (needsConsent(err, connection)) {
         await client.close().catch(() => undefined);
         this.#assertOpenGeneration(generation);
         await this.#patch(connectionId, {
@@ -410,29 +422,31 @@ export class McpConnectionManager {
   /**
    * Reopen the connection. On failure, restore the old status and revision
    * pointer and record `lastError`, so a failed reconnect never loses a working catalog.
-   * `false` means not found or not the caller's.
+   * A consent ask is the exception: the start wrote `auth_required`, and the card offers consent.
    */
-  async reconnect(connectionId: string, userId: string): Promise<boolean> {
+  async reconnect(connectionId: string, userId: string): Promise<McpConnectionReconnectOutcome> {
     const before = await this.#persistence.readOwnedConnection(connectionId, userId);
 
-    if (!before) return false;
+    if (!before) return { outcome: "not_found" };
     await this.disconnect(connectionId, userId);
 
     try {
       await this.getReadyClient(connectionId);
     } catch (error) {
-      // `getReadyClient` already wrote `auth_required`. Keep it, so the card offers consent.
-      if (error instanceof McpOAuthAuthorizationRequiredError) throw error;
+      if (needsConsent(error, before)) return { outcome: "auth_required" };
+
+      const lastError = boundedMcpErrorText(error);
 
       await this.#patch(connectionId, {
         status: before.status,
         currentCatalogRevisionId: before.currentCatalogRevisionId,
-        lastError: boundedMcpErrorText(error),
+        lastError,
       });
-      throw error;
+
+      return { outcome: "failed", lastError };
     }
 
-    return true;
+    return { outcome: "connected" };
   }
 
   /** Rename an owned connection. Built-ins are refused: `ensureBuiltInConnection` resets their label. */

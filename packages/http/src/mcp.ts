@@ -456,23 +456,20 @@ export const mcpIntegrationRoutes = new Elysia({
       .post(
         "/connections/:id/reconnect",
         async ({ params, user }) => {
-          let reconnected: boolean;
+          // The manager keeps the published catalog if the remote is down between close and open.
+          const reconnected = await getMcpConnectionManager().reconnect(params.id, user.id);
 
-          try {
-            // The manager keeps the published catalog if the remote is down between close and open.
-            reconnected = await getMcpConnectionManager().reconnect(params.id, user.id);
-          } catch (error) {
+          switch (reconnected.outcome) {
+            case "connected":
+              return { status: "connected" as const };
             // Not a failure: the row is `auth_required` and the card now offers consent.
-            if (error instanceof McpOAuthAuthorizationRequiredError) {
+            case "auth_required":
               return { status: "auth_required" as const };
-            }
-
-            throw Errors.BadRequestError(boundedMcpErrorText(error));
+            case "not_found":
+              throw Errors.NotFoundError("MCP connection not found");
+            case "failed":
+              throw Errors.BadRequestError(reconnected.lastError);
           }
-
-          if (!reconnected) throw Errors.NotFoundError("MCP connection not found");
-
-          return { status: "connected" as const };
         },
         { params: t.Object({ id: t.String({ minLength: 1 }) }) },
       )
