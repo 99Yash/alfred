@@ -31,7 +31,7 @@ import { faviconFor as faviconUrl } from "~/lib/favicon";
 import { IntegrationGlyph } from "~/lib/integrations/integration-icons";
 import { cn } from "~/lib/utils";
 import { hasRemoteEmailMedia } from "./inbox-feed-media";
-import { APP_TINTS } from "~/lib/tints";
+import { APP_TINTS, type AppTint } from "~/lib/tints";
 import { type RailInboxItem } from "./models";
 import type { InboxPagination } from "./rail-data";
 
@@ -753,7 +753,7 @@ function ThreadMessageCard({
         )}
         aria-expanded={open}
       >
-        <SenderInitialAvatar name={message.senderDisplay} />
+        <SenderInitialAvatar initial={message.initial} tone={message.tone} />
         <span className="min-w-0 flex-1">
           <span className="flex items-baseline gap-2">
             <span className="min-w-0 truncate text-[12.5px] font-medium text-app-fg-4">
@@ -967,44 +967,20 @@ function EmailHtmlFrame({ html }: { html: string }) {
   );
 }
 
-/** Monogram avatar, same tone mapping as the inbox rows. */
-function SenderInitialAvatar({ name }: { name: string }) {
-  const tone = useMemo(() => toneFromName(name), [name]);
-  const initial = (name.trim().charAt(0) || "?").toUpperCase();
-
+/** Monogram avatar, same tint and initial as the inbox row. */
+function SenderInitialAvatar({ initial, tone }: { initial: string; tone: AppTint }) {
   return (
     <span
       aria-hidden
       className={cn(
         "mt-0.5 inline-flex size-6 shrink-0 items-center justify-center rounded-full",
         "text-[10.5px] font-semibold",
-        tone,
+        APP_TINTS[tone],
       )}
     >
       {initial}
     </span>
   );
-}
-
-const TONE_CLASSES = [
-  "bg-app-purple-1 text-app-purple-4",
-  "bg-app-sky-1 text-app-sky-4",
-  "bg-app-amber-1 text-app-amber-4",
-  "bg-app-green-1 text-app-green-4",
-  "bg-app-red-1 text-app-red-4",
-] as const;
-
-function toneFromName(name: string): string {
-  if (!name) return TONE_CLASSES[0];
-  let hash = 5381;
-
-  for (let i = 0; i < name.length; i++) {
-    hash = ((hash << 5) + hash + name.charCodeAt(i)) | 0;
-  }
-
-  const idx = Math.abs(hash) % TONE_CLASSES.length;
-
-  return TONE_CLASSES[idx] ?? TONE_CLASSES[0];
 }
 
 /** Attachment downloads need an OAuth token we keep off the browser, so chips link to the Gmail thread. */
