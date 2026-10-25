@@ -42,7 +42,7 @@ lives beside the state it drives, and `runtime/adapters/trigger-consumers.ts`
 holds only the registration line. The object-state fold is the example:
 `packages/assistant/src/connections/object-state/activity-consumer.ts` sits
 beside the ADR-0062 reducers and store it calls (#986), and it builds one
-consumer per provider rather than one file per provider (#1090).
+consumer per inbound source rather than one file per provider (#1090).
 
 ## The eleven seams
 

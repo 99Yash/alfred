@@ -5,7 +5,7 @@ import {
   type VercelProject,
 } from "@alfred/integrations/vercel";
 import { z } from "zod";
-import { VERIFIED_PULL_EVENT_TYPE, type VerifiedPullEvent } from "../object-state";
+import { VERIFIED_PULL_EVENT_TYPE, type VercelPullEvent } from "../object-state";
 import {
   MAX_VERIFIED_PULL_TARGETS,
   type VerifiedPullProvider,
@@ -28,10 +28,7 @@ import {
  */
 
 /** The identity the dispatch and the pull share. The fold input owns the shape. */
-export type VercelPullTarget = Extract<
-  VerifiedPullEvent,
-  { provider: "vercel" }
->["payload"]["target"];
+export type VercelPullTarget = VercelPullEvent["payload"]["target"];
 
 interface VercelProjectRef {
   projectId: string;
@@ -347,11 +344,12 @@ export async function discoverVercelTargets(
 function mintVercelPullReceipt(
   target: VercelPullTarget,
   reading: VerifiedPullReading,
-): VerifiedPullEvent {
+): VercelPullEvent {
   return { provider: "vercel", eventType: VERIFIED_PULL_EVENT_TYPE, payload: { target, reading } };
 }
 
 export const vercelVerifiedPullProvider: VerifiedPullProvider<
+  VercelPullEvent,
   VercelPullTarget,
   VercelReadSession,
   never

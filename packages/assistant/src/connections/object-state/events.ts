@@ -113,6 +113,12 @@ export type VerifiedPullEvent = Extract<
   { eventType: typeof VERIFIED_PULL_EVENT_TYPE }
 >;
 
+/** The Railway member of the pull union. The Railway provider is generic over this, never the union. */
+export type RailwayPullEvent = Extract<VerifiedPullEvent, { provider: "railway" }>;
+
+/** The Vercel member of the pull union. The Vercel provider is generic over this, never the union. */
+export type VercelPullEvent = Extract<VerifiedPullEvent, { provider: "vercel" }>;
+
 /**
  * The one door from a stored receipt body to the fold. `null`: the type folds nothing, or the body
  * is not an object. Each switch names every declared type, so a new type does not compile until it

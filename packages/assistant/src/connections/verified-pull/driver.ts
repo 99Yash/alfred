@@ -47,8 +47,9 @@ export interface VerifiedPullResult<Target, Names> {
 }
 
 /** One provider's half of the verified pull. `Session` is opaque to the driver. */
-export interface VerifiedPullProvider<Target, Session, Names> {
-  provider: ObjectStateProvider;
+export interface VerifiedPullProvider<E extends VerifiedPullEvent, Target, Session, Names> {
+  /** Tied to the minted member, so a Railway minter cannot fill a Vercel event. */
+  provider: E["provider"];
   targetKind: string;
   attemptKeyKind: string;
   /**
@@ -65,7 +66,7 @@ export interface VerifiedPullProvider<Target, Session, Names> {
   /** Display names only, never identity. */
   resolveNames(session: Session): Promise<Map<string, Names>>;
   readStatus(session: Session, target: Target): Promise<VerifiedPullRead>;
-  mintReceipt(target: Target, reading: VerifiedPullReading): VerifiedPullEvent;
+  mintReceipt(target: Target, reading: VerifiedPullReading): E;
   toActivityItem(result: VerifiedPullResult<Target, Names>): IntegrationActivityItem;
 }
 
@@ -125,8 +126,8 @@ const DEMOTE_AFTER_ABSENT_READS = 3;
  * now `success`, or a row a deleted deployment marked failed (#1167). The
  * verdict is re-read from the row, so a stale read that lost never prints.
  */
-async function pullVerifiedTargets<Target, Session, Names>(
-  source: VerifiedPullProvider<Target, Session, Names>,
+async function pullVerifiedTargets<E extends VerifiedPullEvent, Target, Session, Names>(
+  source: VerifiedPullProvider<E, Target, Session, Names>,
   userId: string,
   targets: readonly Target[],
 ): Promise<VerifiedPullResult<Target, Names>[]> {
@@ -241,8 +242,8 @@ async function pullVerifiedTargets<Target, Session, Names>(
  * target the pull last proved green, and a provider with no push has no other signal for it.
  * Never throws; a fault returns no lines (ADR-0048-D).
  */
-async function gatherVerifiedPull<Target, Session, Names>(
-  source: VerifiedPullProvider<Target, Session, Names>,
+async function gatherVerifiedPull<E extends VerifiedPullEvent, Target, Session, Names>(
+  source: VerifiedPullProvider<E, Target, Session, Names>,
   args: { userId: string; digestItems: readonly VerifiedPullTriggerItem[] },
 ): Promise<IntegrationActivityItem[]> {
   try {
@@ -286,8 +287,8 @@ async function gatherVerifiedPull<Target, Session, Names>(
 }
 
 /** The target row and its status in the pull's vocabulary; `null` status for any other state. */
-async function readTargetRow<Target, Session, Names>(
-  source: VerifiedPullProvider<Target, Session, Names>,
+async function readTargetRow<E extends VerifiedPullEvent, Target, Session, Names>(
+  source: VerifiedPullProvider<E, Target, Session, Names>,
   userId: string,
   targetId: string,
 ): Promise<{ row: ObjectState | null; status: VerifiedPullStatus | null }> {
@@ -307,8 +308,8 @@ async function readTargetRow<Target, Session, Names>(
   return { row, status };
 }
 
-function rowsToTargets<Target, Session, Names>(
-  source: VerifiedPullProvider<Target, Session, Names>,
+function rowsToTargets<E extends VerifiedPullEvent, Target, Session, Names>(
+  source: VerifiedPullProvider<E, Target, Session, Names>,
   rows: readonly ObjectState[],
 ): Target[] {
   const targets: Target[] = [];
@@ -323,8 +324,8 @@ function rowsToTargets<Target, Session, Names>(
 }
 
 /** Bind a provider to the driver for the registry. */
-export function defineVerifiedPull<Target, Session, Names>(
-  source: VerifiedPullProvider<Target, Session, Names>,
+export function defineVerifiedPull<E extends VerifiedPullEvent, Target, Session, Names>(
+  source: VerifiedPullProvider<E, Target, Session, Names>,
 ): VerifiedPull {
   return {
     provider: source.provider,

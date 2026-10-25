@@ -718,7 +718,8 @@ async function gatherIntegrationActivity(args: {
 
     if (!eventType) return [];
 
-    // `null` only for a body that is not an object, which still gets the generic line.
+    // `null` only for a body that is not an object. A NULL (pruned) body reads as `{}`, so it
+    // still gets the event line; only an array or scalar body gets the generic line.
     const event = parseGithubEvent(eventType, row.payload);
 
     if (event?.eventType === "repository_dispatch") {

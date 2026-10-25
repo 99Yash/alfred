@@ -6,7 +6,7 @@ import {
   RAILWAY_MCP_STORED_ISSUER,
   type McpPreparedToolCall,
 } from "../mcp";
-import { VERIFIED_PULL_EVENT_TYPE, type VerifiedPullEvent } from "../object-state";
+import { VERIFIED_PULL_EVENT_TYPE, type RailwayPullEvent } from "../object-state";
 import { z } from "zod";
 import {
   MAX_VERIFIED_PULL_TARGETS,
@@ -23,10 +23,7 @@ import {
  * Reads use the ready, issuer-pinned MCP connection and parse only structured output.
  * The fold input owns the target shape, so the pull and the reducer cannot drift.
  */
-export type RailwayPullTarget = Extract<
-  VerifiedPullEvent,
-  { provider: "railway" }
->["payload"]["target"];
+export type RailwayPullTarget = RailwayPullEvent["payload"]["target"];
 
 /** Display names only, never identity. */
 interface RailwayTargetNames {
@@ -243,7 +240,7 @@ function parseProviderInstant(value: string | null): Date | null {
 function mintRailwayPullReceipt(
   target: RailwayPullTarget,
   reading: VerifiedPullReading,
-): VerifiedPullEvent {
+): RailwayPullEvent {
   return { provider: "railway", eventType: VERIFIED_PULL_EVENT_TYPE, payload: { target, reading } };
 }
 
@@ -367,6 +364,7 @@ export async function readRailwayMcpReadiness(
 }
 
 export const railwayVerifiedPullProvider: VerifiedPullProvider<
+  RailwayPullEvent,
   RailwayPullTarget,
   RailwayReadSession,
   RailwayTargetNames
