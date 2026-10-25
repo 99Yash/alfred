@@ -72,7 +72,7 @@ export interface ObjectKindDef {
 
 /** One attribute of `integration_objects.attributes` that names the object. */
 export const identityAttributeSchema = z
-  .object({
+  .strictObject({
     attribute: z.string().min(1),
     /** A prefix the provider removes in its links (Vercel `dpl_`). The bare value then also counts. */
     droppedPrefix: z.string().min(1).optional(),
@@ -89,16 +89,21 @@ export type IdentityAttribute = z.infer<typeof identityAttributeSchema>;
 
 /**
  * The identity a kind declares (ADR-0109 rule 2). Two or more strong values, or one value the
- * provider guarantees unique. The type, not a runtime check, rejects one value that is not a key.
+ * provider guarantees unique. The tuple schema also rejects repeated attribute names.
  * All values must occur in one provider link. A link proves the object only when each value has a
  * `linkLabel` (see {@link identityProvesLink}).
  */
 export const objectIdentityDeclSchema = z.union([
-  z.object({ uniqueKey: identityAttributeSchema }).readonly(),
+  z.strictObject({ uniqueKey: identityAttributeSchema }).readonly(),
   z
-    .object({
+    .strictObject({
       tuple: z
         .tuple([identityAttributeSchema, identityAttributeSchema], identityAttributeSchema)
+        .refine(
+          (attributes) =>
+            new Set(attributes.map(({ attribute }) => attribute)).size === attributes.length,
+          { message: "identity tuple attributes must be distinct" },
+        )
         .readonly(),
     })
     .readonly(),

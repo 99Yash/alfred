@@ -7,21 +7,20 @@
  *   $ pnpm --filter server exec tsx --env-file=<main-checkout>/apps/server/.env \
  *       src/scripts/dry-runs/backtest-url-family-templates.ts <templates.json> <userId> [days]
  *
- * `templates.json` is an array of templates. `days` defaults to 35. Exit code 1 when a template
- * does not parse or does not pass.
+ * `templates.json` is a non-empty array. Each entry is a template or a back-test case:
+ * `{ template, expectedPairs: [{ mailIds: ["doc_a", "doc_b"], relation: "same" | "different" }] }`.
+ * Pair controls check known joins and separations. Without them, PASS checks consistency only.
+ * `days` defaults to 35. Exit code 1 when a case does not parse or does not pass.
  */
 
 import { readFile } from "node:fs/promises";
 import {
   backtestUrlFamilyTemplate,
+  urlFamilyBacktestCaseSchema,
   type BacktestMail,
   type UrlFamilyBacktest,
 } from "@alfred/assistant/connections/object-state/url-family-backtest";
-import {
-  parseGmailDocumentMetadata,
-  safeJsonParse,
-  urlFamilyTemplateSchema,
-} from "@alfred/contracts";
+import { parseGmailDocumentMetadata, safeJsonParse } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
 import { createHash } from "node:crypto";
@@ -70,6 +69,11 @@ function printReport(report: UrlFamilyBacktest): void {
     `\n## ${template.provider}.${template.kind} (${template.lifecycle}): ${report.passed ? "PASS" : "FAIL"}`,
   );
   console.log(
+    report.checkedPairs > 0
+      ? `pair controls=${report.checkedPairs} failures=${report.pairFailures.length}`
+      : "pair controls: none; PASS checks consistency only; the owner must confirm the joins",
+  );
+  console.log(
     `sender mails=${report.senderMails} keyed mails=${keys.reduce((n, key) => n + key.mails.length, 0)} ` +
       `keys=${keys.length} ambiguous=${report.ambiguousMails.length} ` +
       `coverage misses=${report.coverageMisses.length} reopened=${reopened}`,
@@ -82,7 +86,7 @@ function printReport(report: UrlFamilyBacktest): void {
 
   if (report.unmatchedHosts.size > 0) {
     console.log(
-      `links on template hosts that matched no pattern: ${JSON.stringify([...report.unmatchedHosts])}`,
+      `links on template hosts with no single identity: ${JSON.stringify([...report.unmatchedHosts])}`,
     );
   }
 
@@ -102,6 +106,11 @@ function printReport(report: UrlFamilyBacktest): void {
     console.log(`  ambiguous: ${mail.id} ${mail.subject ?? ""}`);
 
   for (const mail of report.coverageMisses) console.log(`  miss: ${mail.id} ${mail.subject ?? ""}`);
+
+  for (const pair of report.pairFailures)
+    console.log(
+      `  pair failed (${pair.relation}): ${pair.mailIds.join(", ")} (missing or wrong key)`,
+    );
 }
 
 async function main(): Promise<number> {
@@ -114,7 +123,8 @@ async function main(): Promise<number> {
   }
 
   const parsed = z
-    .array(urlFamilyTemplateSchema)
+    .array(urlFamilyBacktestCaseSchema)
+    .min(1)
     .safeParse(safeJsonParse(await readFile(path, "utf8")));
 
   if (!parsed.success) {
@@ -129,7 +139,9 @@ async function main(): Promise<number> {
 
   console.log(`mails=${mails.length} days=${days}`);
 
-  const reports = parsed.data.map((template) => backtestUrlFamilyTemplate(template, mails));
+  const reports = parsed.data.map(({ template, expectedPairs }) =>
+    backtestUrlFamilyTemplate(template, mails, expectedPairs),
+  );
 
   reports.forEach(printReport);
 

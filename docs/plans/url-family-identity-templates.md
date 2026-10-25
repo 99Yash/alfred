@@ -5,7 +5,7 @@ evidence: "Read-only replay of 35 days of production Gmail (995 mails) on 2026-1
 
 # URL-family identity templates
 
-Alfred must connect related mails about one thing, for example a payment request and its receipt, or three failure mails about one deploy. Each integration and each industry puts the identity of a thing in a different place. This plan makes that place reviewed data, which a deterministic back-test proves on real mail before it can link anything.
+Alfred must connect related mails about one thing, for example a payment request and its receipt, or three failure mails about one deploy. Each integration and each industry puts the identity of a thing in a different place. This plan makes that place reviewed data. A deterministic back-test checks it on real mail before the owner approves it. The consistency gates alone do not prove that related mail joins; known pairs need explicit controls.
 
 The plan extends the current registry: `ObjectKindDef.identity` and `IdentityAttribute.linkLabel` in `packages/contracts/src/integration-objects.ts` (ADR-0109 rule 2). It adds no second registry.
 
@@ -67,6 +67,9 @@ interface UrlFamilyTemplate {
 - The current `linkLabel` stays as a separate binding form for built-in kinds. It is not shorthand for a pattern: a label matches a path segment or a query parameter, in any position and order, and no whole-link pattern is equal to that. A template uses patterns, and its identity attributes have no `linkLabel`.
 - `events[].subject` is plain text: `{ "prefix": ... }` or `{ "contains": ... }`, compared without case. A model drafts the template, so the data holds no regular expression.
 - A mail links an item only through one link that fills every identity slot. Two different keys in one mail link nothing, as in `labeledTuple` today.
+- Every matching pattern contributes its identity. Pattern order gives no precedence. A link with conflicting identities gives no single key, and its candidates reach the back-test ambiguity gate.
+- Identity declarations and attributes reject unknown fields. A declaration has exactly one form (`uniqueKey` or `tuple`), and a tuple names distinct attributes.
+- Path matching uses a suffix-state grid, with at most two distinct bindings per state. A grid above 16,384 states does not match. This bounds work for repeated `**` parts and long URLs without recursive path enumeration.
 - `containers` is data for review and for the negative control (section 5). Code never makes a key from a container slot alone.
 - `events` maps the issuer's subject line to a state. Without the closure decision in section 6, an event only proposes. It never closes.
 
@@ -84,11 +87,26 @@ interface UrlFamilyTemplate {
    - G2: no mail names two different keys of the template.
    - G3: every mail whose subject matches an event also yields a key.
    - G4: the negative control fails. The control is the same template with `identity` set to the container slots, read as `once`. A `recurring` control cannot fail G1, so the control is always `once`. If the control passes, the corpus cannot tell a container from an item for this family, and the template waits for more mail. A template without containers has no control.
+   - G5: each declared same-item or different-item mail pair yields the expected keys. A missing, unkeyed, or ambiguous mail fails the pair. For a family with known pairs, the owner supplies these controls. A family with no known pairs can still pass the consistency gates; the report states this limit. A template need not join two mails in every corpus: the Railway attempt sample has one mail per key.
    - A template that keys no mail has no evidence, and it fails.
 3. **Approve.** The owner sees the back-test output: keys, their mails in time order, and the control result. Then the owner approves.
 4. **Watch.** A scheduled job runs the same gates over new mail. A gate failure sets `drifted`, and the template stops proposing until the owner reviews it again.
 
-The production back-test is `apps/server/src/scripts/dry-runs/backtest-url-family-templates.ts`. It reads stored Gmail documents and calls `backtestUrlFamilyTemplate` (`connections/object-state/url-family-backtest.ts`), which applies G1-G4 and derives the control. The template matcher and `collectProviderLinks` read links through the same `collectLinkParts` in `contracts/src/integration-objects.ts`.
+The production back-test is `apps/server/src/scripts/dry-runs/backtest-url-family-templates.ts`. It reads stored Gmail documents and calls `backtestUrlFamilyTemplate` (`connections/object-state/url-family-backtest.ts`), which applies G1-G5 and derives the container control. The template matcher and `collectProviderLinks` read links through the same `collectLinkParts` in `contracts/src/integration-objects.ts`.
+
+The command accepts a non-empty array of templates or back-test cases. A case keeps corpus controls separate from the runtime template:
+
+```json
+{
+  "template": "<the full template object>",
+  "expectedPairs": [
+    { "mailIds": ["doc_request", "doc_receipt"], "relation": "same" },
+    { "mailIds": ["doc_request", "doc_next_invoice"], "relation": "different" }
+  ]
+}
+```
+
+The ids must occur in the selected user's mail corpus and yield one key each. A pair outside the selected time window fails. Without pair controls, PASS means consistency only; the owner must confirm the joins before approval.
 
 ## 6. Open decision: can an issuer mail close an item?
 
@@ -116,7 +134,9 @@ The production command gave this result on 2026-10-25, over the same 995 mails (
 | Control: Stripe with account as identity | once | 5 | 2 | FAIL, as required |
 | Control: Railway attempt with the target tuple | once | 12 | 2 | FAIL, as required |
 
-The `github.actions_run` result proves the template against mail only. No `integration_objects` row holds a `run_id` today, so the template has nothing to join until build step 5 lands. Two quirks appeared only in real mail: a GitHub re-run keeps its `run_id`, and GitHub writes both "Run failed" and "PR run failed". A family without stable ids in its links, for example many bank alerts, gets no template. It needs a provider read or it stays unjoined.
+The `github.actions_run` result checks the template against mail only. No `integration_objects` row holds a `run_id` today, so the template has nothing to join until build step 5 lands. Two quirks appeared only in real mail: a GitHub re-run keeps its `run_id`, and GitHub writes both "Run failed" and "PR run failed". A family without stable ids in its links, for example many bank alerts, gets no template. It needs a provider read or it stays unjoined.
+
+The initial production run above used G1-G4. A review replay of the stored URL extracts showed why pair controls are needed: the decoded Stripe invoice identity gave 5 mails, 3 keys, and 2 joined pairs; the full URL token gave 5 keys and no joins, but both passed G1-G4. G5 checks those known pairs rather than treating consistency as proof of useful joins.
 
 ## 8. Build order
 
@@ -131,4 +151,4 @@ The `github.actions_run` result proves the template against mail only. No `integ
    Either way, the template becomes a built-in constant only after a kind can hold the key.
 6. The `issuer_mail` closure source, only after the section 6 decision.
 
-Follow the repository rule: add no tests. The Zod parse at the owning boundary and the back-test gates carry the proof. State the residual risk in each PR body: a family can change its link format without notice, and only the drift job detects it.
+Follow the repository rule: add no tests. The Zod parse enforces the contract. The back-test checks consistency and the declared pairs; the owner confirms the joins. State the residual risk in each PR body: a family can change its link format without notice, and only the drift job detects it.

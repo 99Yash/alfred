@@ -1,7 +1,7 @@
 /**
  * URL-family identity templates (docs/plans/url-family-identity-templates.md). A template is
  * reviewed data that says where one sender family puts the identity of a thing in its links. A
- * back-test proves it on stored mail before it may link anything.
+ * back-test checks it on stored mail before the owner may approve it.
  *
  * A built-in kind keeps its `linkLabel` declarations: a label is order-free and matches a path
  * segment or a query parameter, so no whole-link pattern is equal to it. A template uses patterns.
@@ -23,6 +23,9 @@ import {
 const SLOT_NAME_RE = /^[a-z][a-z0-9_]*$/;
 
 const SLOT_PART_RE = /^\{([a-z][a-z0-9_]*)\}$/;
+
+// Bound the pattern/URL state grid before allocating it. Large links fail closed.
+const MAX_PATH_MATCH_STATES = 16_384;
 
 const slotNameSchema = z.string().regex(SLOT_NAME_RE);
 
@@ -94,7 +97,9 @@ export const urlFamilyTemplateSchema = z
     /** Each attribute names a slot. Patterns place the values, so no attribute has a `linkLabel`. */
     identity: objectIdentityDeclSchema,
     /** Slots that never identify the item alone. Data for review and for the negative control. */
-    containers: z.array(slotNameSchema),
+    containers: z.array(slotNameSchema).refine((slots) => new Set(slots).size === slots.length, {
+      message: "container slots must be distinct",
+    }),
     events: z.array(urlFamilyEventSchema).optional(),
   })
   .superRefine((template, ctx) => {
@@ -173,35 +178,56 @@ function identitySlots(decl: ObjectIdentityDecl): string[] {
   return identityAttributes(decl).map((attribute) => attribute.attribute);
 }
 
-/** Every binding of `pattern` to `segments`. A `**` can give more than one. */
+/**
+ * Up to two distinct complete bindings. Each suffix state needs only two: slot names are unique
+ * in a parsed pattern, so a prefix cannot make different suffix bindings equal. A `**` consumes
+ * zero segments or one more segment; it never enumerates every decomposition of the path.
+ */
 function pathBindings(
   pattern: readonly string[],
   segments: readonly string[],
-  bound: Readonly<Record<string, string>> = {},
 ): Record<string, string>[] {
-  const [head, ...rest] = pattern;
+  if ((pattern.length + 1) * (segments.length + 1) > MAX_PATH_MATCH_STATES) return [];
 
-  if (head === undefined) return segments.length === 0 ? [{ ...bound }] : [];
+  let next: Record<string, string>[][] = Array.from({ length: segments.length + 1 }, () => []);
 
-  if (head === "**") {
-    return segments
-      .flatMap((_, index) => pathBindings(rest, segments.slice(index), bound))
-      .concat(pathBindings(rest, [], bound));
+  next[segments.length] = [{}];
+
+  for (const part of pattern.toReversed()) {
+    const current: Record<string, string>[][] = Array.from(
+      { length: segments.length + 1 },
+      () => [],
+    );
+
+    const slot = slotName(part);
+
+    for (let index = segments.length; index >= 0; index--) {
+      const bindings: Record<string, string>[] = [];
+      const segment = segments[index];
+
+      if (part === "**") {
+        for (const candidate of [...(next[index] ?? []), ...(current[index + 1] ?? [])]) {
+          if (!bindings.some((binding) => sameBinding(binding, candidate)))
+            bindings.push(candidate);
+
+          if (bindings.length === 2) break;
+        }
+      } else if (
+        segment !== undefined &&
+        (slot !== null ? isLinkIdValue(segment) : part === "*" || part === segment)
+      ) {
+        for (const binding of next[index + 1] ?? []) {
+          bindings.push(slot === null ? binding : { ...binding, [slot]: segment });
+        }
+      }
+
+      current[index] = bindings;
+    }
+
+    next = current;
   }
 
-  const [segment, ...tail] = segments;
-
-  if (segment === undefined) return [];
-
-  if (head === "*") return pathBindings(rest, tail, bound);
-
-  const slot = slotName(head);
-
-  if (slot) {
-    return isLinkIdValue(segment) ? pathBindings(rest, tail, { ...bound, [slot]: segment }) : [];
-  }
-
-  return segment === head ? pathBindings(rest, tail, bound) : [];
+  return next[0] ?? [];
 }
 
 function sameBinding(a: Readonly<Record<string, string>>, b: Readonly<Record<string, string>>) {
@@ -240,10 +266,12 @@ function decodeSlot(spec: SlotDecode, value: string): Record<string, string> | n
 }
 
 /**
- * The slots one link fills, from the first pattern it matches. `null` when it matches none. A
- * pattern whose path binds two ways, or whose parameter holds two values, does not match.
+ * All distinct identities from all matching patterns. Conflicting patterns remain visible to
+ * the mail-level ambiguity gate. A path with conflicting bindings does not match.
  */
-function matchLink(template: UrlFamilyTemplate, link: LinkParts): Record<string, string> | null {
+function linkIdentityKeys(template: UrlFamilyTemplate, link: LinkParts): (readonly string[])[] {
+  const keys = new Map<string, readonly string[]>();
+
   for (const pattern of template.links) {
     if (!pattern.hosts.some((host) => isDomainOrSubdomain(link.host, host))) continue;
 
@@ -277,10 +305,25 @@ function matchLink(template: UrlFamilyTemplate, link: LinkParts): Record<string,
       else matched = false;
     }
 
-    if (matched) return slots;
+    if (matched) {
+      const key: string[] = [];
+
+      for (const name of identitySlots(template.identity)) {
+        const value = slots[name];
+
+        if (value === undefined) {
+          matched = false;
+          break;
+        }
+
+        key.push(value);
+      }
+
+      if (matched) keys.set(key.join("\u0000"), key);
+    }
   }
 
-  return null;
+  return [...keys.values()];
 }
 
 /** True when the link is on a host of the template, whether or not a pattern matches it. */
@@ -291,27 +334,16 @@ export function isUrlFamilyHost(template: UrlFamilyTemplate, link: LinkParts): b
 }
 
 /**
- * The identity key one link names, in declared order. `null` when the link fills no key. Values
- * from two links never combine into one key.
+ * The identity key one link names, in declared order. `null` when no key or conflicting keys
+ * match. Values from two links never combine into one key.
  */
 export function urlFamilyLinkKey(
   template: UrlFamilyTemplate,
   link: LinkParts,
 ): readonly string[] | null {
-  const slots = matchLink(template, link);
+  const [key, ...others] = linkIdentityKeys(template, link);
 
-  if (!slots) return null;
-
-  const key: string[] = [];
-
-  for (const name of identitySlots(template.identity)) {
-    const value = slots[name];
-
-    if (value === undefined) return null;
-    key.push(value);
-  }
-
-  return key;
+  return key !== undefined && others.length === 0 ? key : null;
 }
 
 /** The distinct keys that the links of a text name, in order. */
@@ -319,9 +351,7 @@ export function urlFamilyKeys(template: UrlFamilyTemplate, text: string): (reado
   const keys = new Map<string, readonly string[]>();
 
   for (const link of collectLinkParts(text)) {
-    const key = urlFamilyLinkKey(template, link);
-
-    if (key) keys.set(key.join("\u0000"), key);
+    for (const key of linkIdentityKeys(template, link)) keys.set(key.join("\u0000"), key);
   }
 
   return [...keys.values()];
