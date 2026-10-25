@@ -334,6 +334,14 @@ export function wildcardTargetPath(packageDir, key, target, subpath) {
   return path.split("/").includes("..") ? null : path;
 }
 
+/** The `package.json` fields whose keys `workspaceExportIndex` reads as declared dependencies. */
+const DEPENDENCY_FIELDS = [
+  "dependencies",
+  "devDependencies",
+  "peerDependencies",
+  "optionalDependencies",
+];
+
 /**
  * Every named workspace package, with the `exports` keys it publishes, plus one
  * listing of every file inside the workspaces.
@@ -349,10 +357,15 @@ export function wildcardTargetPath(packageDir, key, target, subpath) {
  * asserted at all: a package with no `exports` map resolves `.` through `main`, and a
  * map that does not parse is `pnpm check:exports`'s failure, not a licence for this
  * check to report every subpath under it as dead.
+ *
+ * `dependencies` holds every package name that a parsed workspace manifest declares in
+ * any dependency field, so a fence on a third-party package can be gated on that
+ * declaration.
  */
 export function workspaceExportIndex(root) {
   const { workspaces, globs, failures } = listWorkspaces(root);
   const packages = new Map();
+  const dependencies = new Set();
   const listed = new Set(globs.length === 0 ? [] : listGitSourceFiles(globs, root));
 
   for (const { name, dir, manifest } of workspaces) {
@@ -365,6 +378,15 @@ export function workspaceExportIndex(root) {
     } catch {
       packages.set(name, { dir, keys: new Map(), problem: `${manifest} does not parse` });
       continue;
+    }
+
+    for (const field of DEPENDENCY_FIELDS) {
+      const declared = parsed?.[field];
+
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- shape-checks a dependency map of a parsed package.json; no schema exists for it
+      if (declared !== null && typeof declared === "object") {
+        for (const dependency of Object.keys(declared)) dependencies.add(dependency);
+      }
     }
 
     // oxlint-disable-next-line anti-slop/no-runtime-typeof -- shape-checks the exports map of a parsed package.json; no schema exists for it
@@ -396,5 +418,5 @@ export function workspaceExportIndex(root) {
     packages.set(name, { dir, keys, problem: null });
   }
 
-  return { packages, listed, failures };
+  return { packages, dependencies, listed, failures };
 }

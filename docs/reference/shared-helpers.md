@@ -132,6 +132,8 @@ helpers hold the one assertion that puts the key union back, so a call site need
 - `redactSecrets`, `summarizeBody`, `MAX_ERROR_BODY_CHARS`
 - `isHttpError`, `httpErrorFromResponse`
 - We deliberately do **not** use Effect here — see the shared-error-primitives decision.
+  ADR-0114 runs one file on Effect (the MCP connection lifecycle in `manager.ts`), and that
+  file throws these same errors. A lint fence keeps `effect` out of every other file.
 
 ### Public failure catalog — `@alfred/contracts/app-errors` (`src/app-errors/index.ts`)
 

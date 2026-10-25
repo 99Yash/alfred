@@ -562,11 +562,14 @@ export function restrictedImportSites(config) {
  *     directory with no index, so a must-resolve rule would reject a pattern whose
  *     whole purpose is to cover a depth that does not exist yet.
  *
- * A bare specifier whose leading segments name no workspace package at all is the
- * refusal branch. It is the same branch as "the package was deleted", and it also
- * fails closed on a future external fence (`lodash`, `node:fs`) instead of ignoring
- * it. It has nothing to write on this tree, which is the point: a refusal that
- * fires on a healthy repo would have been tuned away.
+ *   - a bare specifier naming a THIRD-PARTY package (ADR-0114's `effect` fence) is
+ *     gated on a workspace manifest declaring that package as a dependency. Its
+ *     subpaths are the third party's to publish, so they are not resolved.
+ *
+ * A bare specifier whose leading segments name neither a workspace package nor a
+ * declared dependency is the refusal branch. It is the same branch as "the package
+ * was deleted", and it also fails closed on an external fence (`lodash`, `node:fs`)
+ * that no manifest declares instead of ignoring it.
  */
 export function restrictedSpecifierFailures(root) {
   const failures = [];
@@ -580,7 +583,13 @@ export function restrictedSpecifierFailures(root) {
   const { sites, failures: readerFailures } = restrictedImportSites(resolved.config);
   failures.push(...readerFailures);
 
-  const { packages, listed, failures: workspaceFailures } = workspaceExportIndex(root);
+  const {
+    packages,
+    dependencies,
+    listed,
+    failures: workspaceFailures,
+  } = workspaceExportIndex(root);
+
   failures.push(...workspaceFailures);
 
   if (packages.size === 0) {
@@ -624,8 +633,10 @@ export function restrictedSpecifierFailures(root) {
 
         if (entry === undefined) {
           checked += 1;
+
+          if (dependencies.has(packageName)) continue;
           failures.push(
-            `${where} · "${specifier}" restricts "${packageName}", which no workspace package declares. Delete the group, or repoint it at the package that owns the door now — oxlint matches this string as text, so it fences nothing and reports nothing.`,
+            `${where} · "${specifier}" restricts "${packageName}", which no workspace package declares, and no workspace manifest declares it as a dependency. Delete the group, or repoint it at the package that owns the door now — oxlint matches this string as text, so it fences nothing and reports nothing.`,
           );
           continue;
         }

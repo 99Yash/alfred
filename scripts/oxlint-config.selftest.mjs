@@ -371,6 +371,26 @@ function deadPackageFailures() {
   });
 }
 
+/** A group naming a third-party package passes only while a workspace manifest declares it (ADR-0114). */
+function undeclaredThirdPartyFailures() {
+  const declared = {
+    ...workspace("@alfred/live", { ".": "./src/index.ts" }),
+    dependencies: { "third-party": "1.0.0" },
+  };
+
+  return drive("a group naming an undeclared third-party package is reported", {
+    mutated: {
+      packages: { live: workspace("@alfred/live", { ".": "./src/index.ts" }) },
+      rules: fence(["third-party"]),
+    },
+    control: {
+      packages: { live: declared },
+      rules: fence(["third-party", "third-party/*"]),
+    },
+    expected: 'restricts "third-party", which no workspace package declares',
+  });
+}
+
 /** A group naming a subpath the package stopped publishing. */
 function deadSubpathFailures() {
   return drive("a group naming an unpublished subpath is reported", {
@@ -1794,6 +1814,7 @@ export function oxlintConfigSelfTestFailures() {
     ...missingRootConfigFailures(),
     ...emptyRootConfigFailures(),
     ...deadPackageFailures(),
+    ...undeclaredThirdPartyFailures(),
     ...deadSubpathFailures(),
     ...wildcardKeyFailures(),
     ...sealedSubpathFailures(),
