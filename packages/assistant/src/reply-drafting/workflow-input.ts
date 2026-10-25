@@ -1,7 +1,7 @@
 import { replyDraftInvocationSchema, replyDraftTriageSnapshotSchema } from "@alfred/contracts";
 import { z } from "zod";
 
-/** Input for `reply-drafting` (ADR-0098). Separate so callers can name the run without the recipe. */
+/** Input for `reply-drafting` (ADR-0098). Separate so callers can parse the input without the recipe. */
 
 export const replyDraftingWorkflowInputSchema = z.object({
   documentId: z.string().min(1),
