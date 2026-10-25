@@ -966,7 +966,27 @@ export async function resolveEffectiveRiskTier(
 
   const resolved = await call.declaredRiskTier(ctx);
   const staticRank = TOOL_RISK_RANK[tool.riskTier];
-  const resolvedRank = TOOL_RISK_RANK[resolved];
+  // The resolver type is `Promise<ToolRiskTier>`, but nothing enforces that at
+  // runtime, so a future resolver can hand back a non-tier (ADR-0088). Fail
+  // closed to the static tier without a second parse: an unknown key reads back
+  // `undefined` from the rank table.
+  const resolvedRank: number | undefined = TOOL_RISK_RANK[resolved];
+
+  // oxlint-disable-next-line typescript/no-unnecessary-condition -- ADR-0088: the resolver runs in plain JS, where `Promise<ToolRiskTier>` is unenforced; a non-tier reads back `undefined` here, which the compiler cannot see.
+  if (resolvedRank === undefined) {
+    logger.warn(
+      {
+        event: "tool_risk_tier_invalid",
+        toolName: tool.name,
+        staticRiskTier: tool.riskTier,
+        resolvedRiskTier: resolved,
+        runId: ctx.runId,
+      },
+      "Ignored invalid resolved tool risk tier",
+    );
+
+    return tool.riskTier;
+  }
 
   if (resolvedRank >= staticRank) return resolved;
 

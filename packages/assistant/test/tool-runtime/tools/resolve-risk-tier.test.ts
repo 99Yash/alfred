@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { z } from "zod";
-import { parseIanaTimezone } from "@alfred/contracts";
+import { parseIanaTimezone, type ToolRiskTier } from "@alfred/contracts";
 
 import { toolExecuteContext } from "@alfred/assistant/tool-runtime/context";
 import { liveTool, type BoundToolCall, type RegisteredTool } from "@alfred/assistant/tool-runtime";
 import { resolveEffectiveRiskTier } from "../../../src/tool-runtime/internal/dispatch";
+import { asContractViolation } from "../../support/contract-violation";
 
 /**
  * The registry half of `resolveRiskTier`. `test/mcp/risk.test.ts` covers the resolver.
@@ -108,5 +109,21 @@ describe("liveTool resolveRiskTier wiring", () => {
     });
 
     assert.equal(await resolveEffectiveRiskTier(bound(tool, { n: 3 }), ctx), "low");
+  });
+
+  test("an invalid resolver result fails closed to the static tier", async () => {
+    const tool = liveTool({
+      integration: "mcp",
+      action: "call",
+      riskTier: "high",
+      description: "t",
+      inputSchema: z.object({ n: z.number() }),
+      // Model a resolver that failed to validate a persisted or protocol value.
+      resolveRiskTier: async () => asContractViolation<ToolRiskTier>("not_a_tier"),
+      riskTierDowngradeReason: "reviewed test policy",
+      execute: async () => ({ ok: true }),
+    });
+
+    assert.equal(await resolveEffectiveRiskTier(bound(tool, { n: 3 }), ctx), "high");
   });
 });
