@@ -1,4 +1,5 @@
 import { logger } from "@alfred/logging";
+import { rateLimitClientAddress } from "@alfred/auth/rate-limit";
 import { Errors, isApiError } from "@alfred/contracts";
 import {
   createRedisConnection,
@@ -25,43 +26,10 @@ function getPublicRateRedis(): BoundedRedis {
   return publicRateRedis;
 }
 
-/** Railway-internal proxy hops. Same list as `TRUSTED_PROXY_RANGES` in `packages/auth/src/rate-limit.ts`. */
-const INFRASTRUCTURE_PREFIXES = ["10.", "192.168.", "127.", "100.", "::1", "fd", "fc"] as const;
-
-function isInfrastructureHop(address: string): boolean {
-  if (address.startsWith("172.")) {
-    const second = Number(address.split(".")[1]);
-
-    return Number.isInteger(second) && second >= 16 && second <= 31;
-  }
-
-  return INFRASTRUCTURE_PREFIXES.some((prefix) => address.startsWith(prefix));
-}
-
-/**
- * The caller's address, read right to left from `x-forwarded-for`.
- * The leftmost entry is client-controlled, so reading it lets a caller spoof a fresh bucket.
- * `null` puts the caller in one shared bucket.
- */
-function clientAddressFromForwardedFor(header: string | null | undefined): string | null {
-  if (!header) return null;
-
-  const hops = header
-    .split(",")
-    .map((hop) => hop.trim())
-    .filter((hop) => hop.length > 0);
-
-  for (const hop of [...hops].reverse()) {
-    if (!isInfrastructureHop(hop)) return hop;
-  }
-
-  return null;
-}
-
 /** A hook, not a handler call, so a new route on the same instance inherits the limit. */
 export function publicRateLimit(bucket: string): Elysia {
   return new Elysia({ name: `public-rate-limit-${bucket}` }).onBeforeHandle(async ({ request }) => {
-    const caller = clientAddressFromForwardedFor(request.headers.get("x-forwarded-for"));
+    const caller = rateLimitClientAddress(request);
     const window = Math.floor(Date.now() / 1000 / WINDOW_SECONDS);
     const key = `ratelimit:public:${bucket}:${caller ?? "unknown"}:${window}`;
 

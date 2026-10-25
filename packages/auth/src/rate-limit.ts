@@ -2,6 +2,7 @@ import { logger } from "@alfred/logging";
 import { createRedisConnection, incrementExpiringCounter, type EvalRedis } from "@alfred/db/redis";
 import type { ServerEnv } from "@alfred/env/server";
 import type { BetterAuthOptions } from "better-auth";
+import { getIP } from "better-auth/api";
 
 /**
  * Better Auth's rate limit, counted in Redis so it survives restarts and spans processes (#458).
@@ -18,6 +19,7 @@ const AUTH_RATE_LIMIT_WINDOW_SECONDS = 10;
  * Proxy hops to skip in `x-forwarded-for`. With an empty list, a spoofed header puts
  * every caller in one bucket, so anyone could lock out the real user.
  * Safe only while the API is reachable only through Railway's proxy. Matches the `Caddyfile`.
+ * Both the auth and the public http limiter read it, only through {@link authIpAddress}.
  */
 const TRUSTED_PROXY_RANGES = [
   "10.0.0.0/8",
@@ -129,4 +131,12 @@ export function authIpAddress(): NonNullable<
   NonNullable<BetterAuthOptions["advanced"]>["ipAddress"]
 > {
   return { trustedProxies: [...TRUSTED_PROXY_RANGES] };
+}
+
+/**
+ * The caller's address under the trust rule Better Auth applies to auth routes.
+ * `null` when no hop is trustworthy; the caller then shares one bucket.
+ */
+export function rateLimitClientAddress(request: Request): string | null {
+  return getIP(request, { advanced: { ipAddress: authIpAddress() } });
 }
