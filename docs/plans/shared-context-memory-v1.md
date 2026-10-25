@@ -204,7 +204,15 @@ Each numbered slice is a reviewable deliverable. Split a slice into dependent PR
 - **Failure.** A read failure or a missing projection leaves the briefing item without claims, and the trace records the typed read status. A failure never blocks the briefing, and it never returns an older legacy value.
 - **Correction.** The user can correct or reject a claim where the briefing shows it, through the slice 2 operation. The next briefing and the other readers show the change. Log the claim ids and revisions that each briefing used.
 
-**Exit:** another source reinforces the existing claim instead of creating another authority; corrections and archived scope behave the same in every reader and review surface. A briefing item with a known referent shows its dated, scoped claims, and a correction made in the briefing reaches chat, triage, and workflows.
+**Continuing context (owner decision of 2026-10-21, [product-direction §10d](../theory/product-direction.md)).** The scoped read above adds claims only to items that something else selected. That is not sufficient. A meeting summary whose mail is `fyi` would enter memory and never reach a briefing, and a continuing project or job search would disappear on a quiet day. Today briefing gather has no memory input at all: it reads the triage digest, calendar, weather, and integration activity (`briefings/gather.ts`), and `isQuietMorning` reads only activity, meetings, and mail counts (`briefings/read.ts`). Thus this slice adds a bounded candidate source:
+
+- **Candidates.** Claims in the user's own workspace that are about work the user takes part in, that are still valid at `asOf`, and that got new support since the previous briefing or are open with a date in the briefing window. A meeting summary learned from notes mail is a candidate on the next briefing after it is learned, whatever the category of its mail.
+- **Bound.** At most a small fixed number of candidates for each briefing, chosen by recency of support and significance. The number is set from measurement before rollout. The trace records selected and omitted counts.
+- **Selection, not a fact.** A candidate enters the same selection as the other inputs. The model chooses and orders it, as the owner decision allows. It shows with its evidence date and currency (D2b), and it is never stated as current fact past its `recheckAfter`.
+- **Independent of todos and mail.** The source does not need new priority mail or the todo surface. A quiet morning with a selected candidate is not quiet for `isQuietMorning`.
+- **Failure.** A read failure gives no candidates and a typed status in the trace. It never blocks the briefing.
+
+**Exit:** another source reinforces the existing claim instead of creating another authority; corrections and archived scope behave the same in every reader and review surface. A briefing item with a known referent shows its dated, scoped claims, and a correction made in the briefing reaches chat, triage, and workflows. On a day with no new priority mail, a briefing can select a continuing-context claim, and a meeting summary from `fyi` mail can reach the next briefing.
 
 ### Slice 8 — Add bounded verification and curiosity
 
@@ -270,7 +278,19 @@ Follow the repository rule: add no tests, type fixtures, or round-trip probes. T
 
 For each implementation slice, run `pnpm check-types`, `pnpm check`, and relevant existing checks. For this planning change, run the documentation checks and `git diff --check`. For schema slices, generate then migrate and check the constraint snapshot. Use existing completed-run checksums, original append snapshots, stable sync keys, and activation guards. Extend their coverage to every newly activated output rather than trust a kind-only checksum.
 
-Release scenarios must include: a new chat after a correction; a related and unrelated email; a workflow at start and after approval; old evidence imported late; future-effective ownership; an ambiguous person; a rejected inference; duplicate source evidence; absent activation; a read failure; workspace isolation; archive; and a replay after correction. A source report and a decision trace must show whether each case read canonical memory or degraded.
+Passing one claim id to three consumers proves shared access. It does not prove useful behavior. Thus the release also needs these product cases, each checked as the result that the owner sees:
+
+| Case | Required result |
+| --- | --- |
+| Investment notice from a new sender | It follows the owner's attention policy (ADR-0113 migration). |
+| Remove or narrow an instruction | Existing mail that a consumer can still read reflects the change at the next read. |
+| Correct an ownership claim | The next decision that reads the claim uses the correction. |
+| An instruction said in chat | It is stored, or the boss asks one question. It is never lost without a trace. Prod on 2026-10-25 has two 2026-09-14 chat instructions with no observation and no fact ("turbo-insta meant to be inactive. ignore it"), and the 2026-10-21 evening briefing led with turbo-insta Dependabot alerts. |
+| Quiet day, useful continuing context | The briefing can select that context (slice 7). |
+| Receipt followed by a refund or a dispute | The item reports the correct remaining obligation (URL-family plan §6). |
+| A failure with no later joined evidence | The briefing shows it as unresolved with its date, not as the current state (#257). The 2026-10-19 morning and evening briefings repeated a 2026-10-18 Railway build failure as not recovered. |
+
+Release scenarios must also include: a new chat after a correction; a related and unrelated email; a workflow at start and after approval; old evidence imported late; future-effective ownership; an ambiguous person; a rejected inference; duplicate source evidence; absent activation; a read failure; workspace isolation; archive; and a replay after correction. A source report and a decision trace must show whether each case read canonical memory or degraded.
 
 Log the projection revision, selected memory ids, source dates, evaluation time, selected/omitted counts, read status, prompt size, DB time, and metered spend. Avoid source bodies in routine logs. Measure the triage increment against its baseline and the #435 budget before broad rollout. A memory failure must not block mail ingestion or create an unsupported classification.
 

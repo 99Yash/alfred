@@ -90,7 +90,9 @@ interface UrlFamilyTemplate {
    - G5: each declared same-item or different-item mail pair yields the expected keys. A missing, unkeyed, or ambiguous mail fails the pair. For a family with known pairs, the owner supplies these controls. A family with no known pairs can still pass the consistency gates; the report states this limit. A template need not join two mails in every corpus: the Railway attempt sample has one mail per key.
    - A template that keys no mail has no evidence, and it fails.
 3. **Approve.** The owner sees the back-test output: keys, their mails in time order, and the control result. Then the owner approves.
-4. **Watch.** A scheduled job runs the same gates over a watch corpus: the new mail plus the approved discrimination examples. Those examples are the mails that made the control fail at approval, and the G5 pairs. Thus a quiet interval cannot remove the evidence that tells a container from an item. The job gives one of three results:
+4. **Watch.** A scheduled job runs the same gates over a watch corpus: the new mail plus the approved discrimination examples. Those examples are the mails that made the control fail at approval, and the G5 pairs. Thus a quiet interval cannot remove the evidence that tells a container from an item.
+
+   **Opening history.** Approval examples are not operational history. A key can open in one watch interval and open again in a different thread in a later interval, and no single watch corpus then holds both openings. Thus each reviewed template keeps an indexed opening history: template id and revision, key, thread id, mail id, and `internalDate`, unique on (template, key, mail). The back-test at approval fills it. Each watch run appends the new openings first, then runs G1 against the full history for each key that it touched, not against the watch corpus alone. A new template revision starts a new history from its own back-test. The job gives one of three results:
    - `pass`: every gate passes.
    - `insufficient_evidence`: no gate fails, but the new mail has no keyed mail or no event. The status stays `reviewed`, and the report shows the date of the last keyed mail.
    - `drifted`: a gate fails on the watch corpus. For example, a new mail matches an event subject and yields no key (G3), a new mail names two keys (G2), or an approved pair no longer gives the expected keys (G5). The template stops proposing until the owner reviews it again.
@@ -117,15 +119,38 @@ Stripe is not an object-state provider, so today no read can confirm that an inv
 
 - The template is `reviewed` and its kind is `once`.
 - **Positive closing state.** The event's `state` is in `LOOP_CLOSING_STATE_CATEGORIES` and the kind's own closing set (`closesOpenAsk`). An `active` or `failed` event never closes, even after an opening event. For `stripe.hosted_invoice`, only a receipt event (`resolved`) can close.
-- **Order.** The closing mail's source time is after the latest opening event on the same key. Ties and missing source times do not close.
+- **Order, on one named clock.** The ordering clock is the Gmail `internalDate`, the time at which Google accepted the message. The sender cannot write it. The sender's `Date` header is not used, because the required DKIM coverage does not include it, and an unsigned `Date` can change while the signature still passes. Today `authoredAt` prefers the `Date` header (`gmail-ingest.ts`), so closure reads `internalDate` from the stored metadata, as the briefing reader already does (`briefings/read.ts`). Every comparison in this section, for a close and for a reopen, uses this one clock:
+  - The closing mail's `internalDate` is after the `internalDate` of the latest opening event on the same key. A tie or a missing `internalDate` does not close.
+  - **Duplicates.** One message (one `Message-ID`, or one Gmail message id when `Message-ID` is absent) counts one time. A second copy of a receipt in another thread is the same evidence. It does not move the order, and it does not close a second time.
+  - A message that the user's own account inserted, for example by an import, has an `internalDate` that the importer chose. Such a message proposes, and it does not close.
 - **Authenticated evidence.** The mail passes DKIM with a signing domain (`d=`) aligned to a domain in `senders`. The result comes from the trusted receiver: the Gmail `Authentication-Results` header that Google adds, not a header that the sender can write. The signature that passes must also cover the evidence that the decision uses:
   - its `h=` tag lists `Subject` and `From`, because the event comes from the subject (RFC 6376 §5.4);
   - it has no `l=` body length tag, or the link that fills the identity is inside the signed length (RFC 6376 §8.2).
 
-  If the stored document does not keep the signature tags or the trusted result, the mail cannot close. It still proposes.
+  If the stored document does not keep the signature tags or the trusted result, the mail cannot close. It still proposes. Prod on 2026-10-25: `documents.raw` keeps the full Gmail message. In the last 200 mails, `Authentication-Results` and every `DKIM-Signature` header are present, each signature has `d=`, `h=`, and `b=`, and none has `l=`. No code reads them yet.
 - The key is exact (every identity slot filled from one link).
 
-**Later adverse evidence reopens.** After an `issuer_mail` close, a later mail on the same key with a `failed` or `active` event reopens the item. Examples are a refund, a dispute, or a failed payment after a receipt. The same order and authentication rules apply to the adverse mail. This follows ADR-0109: later failure evidence outranks an earlier soft close. The reopen is an observation with its own source time, and the earlier close stays in history.
+**Three separate things.** This section keeps three concepts apart, and each has its own rule:
+
+| Concept | What it is | Who writes it |
+| --- | --- | --- |
+| Object state | The issuer's state of the thing, for example `paid`, `refunded`, `disputed`. | The event map of the template, through the reducer. |
+| Evidence history | Every observation, in `internalDate` order, with its authentication result. | Append only. A close or a reopen never deletes an earlier row. |
+| Outstanding obligation | What the user must still do, for example "pay this invoice" or "review this dispute". | A per-kind obligation table, from the object state. |
+
+An open loop and a todo follow the outstanding obligation, not the newest event.
+
+**Later evidence changes the obligation by kind.** Each `once` kind declares, for each event state, the obligation that results. A later event does not reopen by default. For `stripe.hosted_invoice`:
+
+| Later event, after a receipt | Object state | Outstanding obligation |
+| --- | --- | --- |
+| Refund | `refunded` | None. A refund completes a transaction, and Stripe shows a refunded invoice as needing no action. The loop stays closed. Readers can show the refund as a fact. |
+| Dispute | `disputed` | "Review the dispute". This is a new obligation with its own text. It is not "pay this invoice" again. |
+| Failed payment on the same invoice | `open` | "Pay this invoice". The pay obligation reopens. |
+
+A kind with no declared obligation for an event state does not change the obligation for that event. The event goes into the evidence history only. The same order, duplicate, and authentication rules apply to the later mail. This follows ADR-0109: later failure evidence outranks an earlier soft close, but only where the kind says that the failure restores an obligation. The change is an observation with its own `internalDate`, and the earlier close stays in history.
+
+**What this does not cover.** Exact-key templates join only the mail that a reviewed template keys. Evidence that no template joins (a failure mail with no key, or a key with no later mail) still needs the stale-negative guard of issue #257: a reader shows it as unresolved, with its date, and never as the current state. This plan does not close #257.
 
 This amends ADR-0062 and ADR-0103 (closure needs `verified_push` or `verified_pull`) and ADR-0109 (a soft edge closes only through a verified read). Readers show `issuer_mail` separately from a provider read. The decision belongs to the owner.
 
