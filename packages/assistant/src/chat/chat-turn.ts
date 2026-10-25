@@ -849,8 +849,15 @@ const dispatchToolsStep: Step<ChatRunState> = {
           // `sanitized` goes to both the log and the live event, so live and reload agree (ADR-0070).
           const outcome = toolEventOutcome(completion);
 
-          const { status, resultPreview, resultTruncated, sanitized, nonExecution, connectNudge } =
-            outcome;
+          const {
+            status,
+            argsPreview,
+            resultPreview,
+            resultTruncated,
+            sanitized,
+            nonExecution,
+            connectNudge,
+          } = outcome;
 
           // A live artifact stream is keyed by toolCallId; this lets it adopt the synced row.
           const artifactId = (() => {
@@ -870,8 +877,9 @@ const dispatchToolsStep: Step<ChatRunState> = {
             toolCallId: call.toolCallId,
             toolName: call.toolName,
             status,
-            // The reload reads the args too, so a saved row matches the live one.
-            argsPreview: toolArgsPreview(call.input),
+            // The reload reads the args too, so a saved row matches the live one. An approval
+            // edit replaces the proposal, so the row names what ran.
+            argsPreview: argsPreview ?? toolArgsPreview(call.input),
             resultPreview,
             ...(resultTruncated ? { resultTruncated } : {}),
             ...(sanitized ? { sanitized } : {}),

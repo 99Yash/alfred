@@ -79,6 +79,18 @@ function mcpCallTarget(
   return connectionId && remoteName ? { connectionId, remoteName } : undefined;
 }
 
+/**
+ * What makes two calls the same operation for a folded row. An `mcp.call` is one tool name for
+ * every server, so its target joins the key: two servers or two remote tools never share a row.
+ */
+export function foldIdentity(tool: Pick<ToolCallView, "toolName" | "argsPreview">): string {
+  const target = tool.toolName === MCP_CALL_TOOL ? mcpCallTarget(tool.argsPreview) : undefined;
+
+  return target
+    ? `${tool.toolName}\u0000${target.connectionId}\u0000${target.remoteName}`
+    : tool.toolName;
+}
+
 /** True when any call is an `mcp.call`, so a surface asks for the server list only then. */
 export function hasMcpCall(tools: readonly Pick<ToolCallView, "toolName">[]): boolean {
   return tools.some((tool) => tool.toolName === MCP_CALL_TOOL);

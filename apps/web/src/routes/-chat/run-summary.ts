@@ -3,7 +3,12 @@ import { type IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { lowerFirst } from "~/lib/strings";
 import { brandlessToolIcon } from "./animated-tool-icons";
 import { type McpServerLookup } from "./mcp-server";
-import { presentTool, toolCategory, type ToolCallView } from "./tool-call-presentation";
+import {
+  foldIdentity,
+  presentTool,
+  toolCategory,
+  type ToolCallView,
+} from "./tool-call-presentation";
 
 // Run summary for `ToolCallGroup` and `SubAgentCard`. Its own module to avoid a cycle between them.
 
@@ -64,7 +69,7 @@ export function runSummary(tools: ToolCallView[], mcpServers?: McpServerLookup):
   const sources = succeeded.filter((t) => toolCategory(t.toolName) === "source");
   const actions = succeeded.filter((t) => toolCategory(t.toolName) === "action");
 
-  const distinctSources = new Set(sources.map((t) => t.toolName));
+  const distinctSources = new Set(sources.map(foldIdentity));
 
   const [firstSource] = sources;
   const [firstAction] = actions;

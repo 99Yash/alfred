@@ -128,6 +128,7 @@ export function toolCardTerminal(
     messageId: target.messageId,
     ...boundToolIdentity(call),
     status: outcome.status,
+    ...(outcome.argsPreview === undefined ? {} : { argsPreview: outcome.argsPreview }),
     resultPreview: outcome.resultPreview,
     ...(outcome.resultTruncated ? { resultTruncated: outcome.resultTruncated } : {}),
     ...(outcome.sanitized ? { sanitized: outcome.sanitized } : {}),

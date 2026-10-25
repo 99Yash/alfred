@@ -495,8 +495,9 @@ function DockApprovalCard({
 
   const approveLabel = approveButtonLabel(staging.toolName, staging.riskTier, edited);
   const approved = decisionKind === "approve";
-  // An `mcp.call` shows the server it will reach, not a generic gear.
-  const mcpServer = useMcpCallServer(staging.toolName, staging.proposedInput);
+  // An `mcp.call` shows the server it will reach, not a generic gear. The draft, not the
+  // proposal: an edit that picks another server changes what Approve runs.
+  const mcpServer = useMcpCallServer(staging.toolName, draftInput);
 
   return (
     <>

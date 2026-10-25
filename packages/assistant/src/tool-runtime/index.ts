@@ -183,6 +183,11 @@ export interface CompletedToolCall<Call extends ProposedToolCall = ProposedToolC
   nonExecution: boolean;
   /** Set only when the floor refused the call on connection health. */
   connectNudge?: ChatConnectNudge | undefined;
+  /**
+   * Set only after an approval edit: the input that ran. `call.input` stays the model's proposal,
+   * so a card that names the operation reads this first.
+   */
+  executedInput?: unknown;
 }
 
 export type ToolCallRoundOutcome<Call extends ProposedToolCall = ProposedToolCall> =

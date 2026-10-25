@@ -1,5 +1,5 @@
 import { BUILT_IN_MCP_CATALOG, getStringPath, type ToolName } from "@alfred/contracts";
-import { createContext, use, type ReactNode } from "react";
+import { createContext, use, useEffect, useRef, type ReactNode } from "react";
 import { Favicon } from "~/components/favicon";
 import {
   IntegrationIcon,
@@ -7,6 +7,7 @@ import {
   type IntegrationIconSize,
 } from "~/lib/integrations/integration-icons";
 import { brandForIntegration } from "~/lib/integrations/integrations";
+import { toast } from "~/lib/toast";
 import { cn } from "~/lib/utils";
 import {
   mcpConnectionFaviconDomain,
@@ -35,7 +36,41 @@ const NO_SERVERS: McpServerLookup = () => undefined;
 const McpServerScope = createContext(false);
 
 export function McpServerScopeProvider({ children }: { children: ReactNode }) {
-  return <McpServerScope.Provider value={true}>{children}</McpServerScope.Provider>;
+  return (
+    <McpServerScope.Provider value={true}>
+      <McpServerLoadError />
+      {children}
+    </McpServerScope.Provider>
+  );
+}
+
+/**
+ * A failed connection read leaves the rows on their generic glyph, the same as a deleted server.
+ * Say so once, with a retry. This observer never fetches: the rows' lookup owns the request,
+ * so a chat with no `mcp.call` stays quiet.
+ */
+function McpServerLoadError() {
+  const { data, isError, refetch } = useMcpConnections({ enabled: false });
+  // One toast per outage: a refetch on window focus that fails again stays silent.
+  const announced = useRef(false);
+
+  useEffect(() => {
+    if (data) {
+      announced.current = false;
+
+      return;
+    }
+
+    if (!isError || announced.current) return;
+    announced.current = true;
+    toast.warning({
+      message: "Couldn't load your MCP servers",
+      description: "Tool rows show without the server name.",
+      action: { label: "Retry", onClick: () => void refetch() },
+    });
+  }, [data, isError, refetch]);
+
+  return null;
 }
 
 function serverView(connection: McpConnection): McpServerView {

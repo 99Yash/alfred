@@ -65,8 +65,16 @@ export type ToolCallDispatchResult =
       toolResult: unknown;
       editedByUser: boolean;
       sanitized?: boolean;
+      /** Set only after an approval edit: the input that ran, not the model's proposal. */
+      executedInput?: unknown;
     }
-  | { kind: "failed"; stagingId: string | null; error: PublicAppError }
+  | {
+      kind: "failed";
+      stagingId: string | null;
+      error: PublicAppError;
+      /** Set only after an approval edit: the input that ran, not the model's proposal. */
+      executedInput?: unknown;
+    }
   | { kind: "rejected"; stagingId: string | null; result: RejectedToolResult }
   | { kind: "unanswered"; stagingId: string | null; result: UnansweredQuestionsToolResult }
   | {
