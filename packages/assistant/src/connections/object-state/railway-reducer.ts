@@ -1,48 +1,24 @@
-import { canonicalizeRailwayTargetId, getIdPath, getStringPath, isRecord } from "@alfred/contracts";
+import { canonicalizeRailwayTargetId } from "@alfred/contracts";
+import type { ObjectStateEvent } from "./events";
 import type { ObjectStateDelta } from "./store";
 
 /**
  * Railway reducer (#1094). Pure. Folds a verified pull into an attempt delta plus a target delta
- * (`projectId/serviceId/environmentId`), which closes by succession. `mintRailwayPullReceipt` is
- * the only minter, so a bare type check is enough. Unproven input folds nothing (ADR-0048-D).
+ * (`projectId/serviceId/environmentId`), which closes by succession. The pull minter is the only
+ * producer. Unproven input folds nothing (ADR-0048-D).
  */
-export const RAILWAY_PULL_EVENT_TYPE = "deployment_status" as const;
-
-export function reduceRailwayEvent(
-  eventType: string,
-  _action: string | null,
-  payload: unknown,
-): ObjectStateDelta[] {
-  if (eventType !== RAILWAY_PULL_EVENT_TYPE) return [];
-
-  if (!isRecord(payload)) return [];
-
-  const target = isRecord(payload.target) ? payload.target : null;
-  const deployment = isRecord(payload.deployment) ? payload.deployment : null;
-
-  if (!target || !deployment) return [];
-
-  // Re-validate the token: the reducer trusts no caller, not even the mint.
-  const token = pullNativeState(getStringPath(deployment, "status"));
-
-  if (!token) return [];
-
-  const deploymentId = getIdPath(deployment, "id");
+export function reduceRailwayEvent({
+  payload: { target, reading },
+}: Extract<ObjectStateEvent, { provider: "railway" }>): ObjectStateDelta[] {
+  const token = reading.status;
+  const deploymentId = reading.attemptId;
 
   if (!deploymentId) return [];
 
-  const projectId = getStringPath(target, "projectId");
-  const serviceId = getStringPath(target, "serviceId");
-  const environmentId = getStringPath(target, "environmentId");
-
-  const targetId = canonicalizeRailwayTargetId({
-    projectId: projectId ?? "",
-    serviceId: serviceId ?? "",
-    environmentId: environmentId ?? "",
-  });
-
-  const providerEventTime = parsePullEventTime(getStringPath(deployment, "createdAt"));
-  const url = getStringPath(deployment, "url");
+  const { projectId, serviceId, environmentId } = target;
+  const targetId = canonicalizeRailwayTargetId({ projectId, serviceId, environmentId });
+  const providerEventTime = reading.providerEventTime;
+  const url = reading.url;
 
   const attempt: ObjectStateDelta = {
     kind: "deployment_attempt",
@@ -78,27 +54,4 @@ export function reduceRailwayEvent(
   };
 
   return [attempt, targetDelta];
-}
-
-/** Known outcome tokens only. A new token folds nothing until this file classifies it. */
-function pullNativeState(token: string | undefined): "success" | "failure" | "pending" | null {
-  switch (token) {
-    case "success":
-      return "success";
-    case "failure":
-      return "failure";
-    case "pending":
-      return "pending";
-    case undefined:
-    default:
-      return null;
-  }
-}
-
-function parsePullEventTime(value: string | undefined): Date | undefined {
-  if (!value) return undefined;
-
-  const time = new Date(value);
-
-  return Number.isNaN(time.getTime()) ? undefined : time;
 }

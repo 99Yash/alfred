@@ -1,5 +1,12 @@
 import type { IntegrationActivityItem, ObjectStateProvider } from "@alfred/contracts";
-import { deliveryInstantNow, objectStateStore, type ObjectState } from "../object-state";
+import {
+  deliveryInstantNow,
+  objectStateStore,
+  type ObjectState,
+  type VerifiedPullEvent,
+  type VerifiedPullReading,
+  type VerifiedPullStatus,
+} from "../object-state";
 
 /**
  * The verified pull (#1094, #1192; ADR-0062 amendment 2026-09-20).
@@ -7,28 +14,15 @@ import { deliveryInstantNow, objectStateStore, type ObjectState } from "../objec
  * The read folds through the same store guards as a push.
  * It is a deterministic read over a user grant, so no approval step applies.
  */
-export type VerifiedPullStatus = "success" | "failure" | "pending";
 
-/** What one read proved. A `null` read mints nothing and never closes a loop (ADR-0048-D). */
-export interface VerifiedPullReading {
-  status: VerifiedPullStatus;
-  /** The dedup key, such as a deployment id. */
-  attemptId: string;
-  providerEventTime: Date | null;
-  url: string | null;
-}
+// The reading is part of the fold input, so `object-state` owns it.
+export type { VerifiedPullReading, VerifiedPullStatus };
 
 /**
  * One read's result. `absent`: every read succeeded and none held the target. `null`: a fault, or a
  * target this build cannot read. Neither proves a state, but only `absent` counts toward demotion.
  */
 export type VerifiedPullRead = VerifiedPullReading | "absent" | null;
-
-/** The body the provider's reducer folds. */
-export interface VerifiedPullReceipt {
-  eventType: string;
-  payload: unknown;
-}
 
 export interface VerifiedPullTriggerItem {
   subject?: string | null;
@@ -71,7 +65,7 @@ export interface VerifiedPullProvider<Target, Session, Names> {
   /** Display names only, never identity. */
   resolveNames(session: Session): Promise<Map<string, Names>>;
   readStatus(session: Session, target: Target): Promise<VerifiedPullRead>;
-  mintReceipt(target: Target, reading: VerifiedPullReading): VerifiedPullReceipt;
+  mintReceipt(target: Target, reading: VerifiedPullReading): VerifiedPullEvent;
   toActivityItem(result: VerifiedPullResult<Target, Names>): IntegrationActivityItem;
 }
 
@@ -213,14 +207,9 @@ async function pullVerifiedTargets<Target, Session, Names>(
       continue;
     }
 
-    const receipt = source.mintReceipt(target, reading);
-
     await objectStateStore.applyEvent({
       userId,
-      provider: source.provider,
-      eventType: receipt.eventType,
-      action: null,
-      payload: receipt.payload,
+      event: source.mintReceipt(target, reading),
       // No receipt row, so a JS clock instant (zero microseconds).
       deliveredAt: deliveryInstantNow(),
     });

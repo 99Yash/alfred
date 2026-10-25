@@ -5,13 +5,12 @@ import {
   type VercelProject,
 } from "@alfred/integrations/vercel";
 import { z } from "zod";
-import { VERCEL_PULL_EVENT_TYPE } from "../object-state/vercel-reducer";
+import { VERIFIED_PULL_EVENT_TYPE, type VerifiedPullEvent } from "../object-state";
 import {
   MAX_VERIFIED_PULL_TARGETS,
   type VerifiedPullProvider,
   type VerifiedPullRead,
   type VerifiedPullReading,
-  type VerifiedPullReceipt,
   type VerifiedPullStatus,
   verifiedPullVerdict,
 } from "./driver";
@@ -27,12 +26,12 @@ import {
  * A body the client's schema refuses still throws, and the throw reads as unverified here.
  * A deployment counts only if it names its own repo, branch, and environment.
  */
-/** The identity the dispatch and the pull share. */
-export interface VercelPullTarget {
-  repoFullName: string;
-  branch: string;
-  environment: string;
-}
+
+/** The identity the dispatch and the pull share. The fold input owns the shape. */
+export type VercelPullTarget = Extract<
+  VerifiedPullEvent,
+  { provider: "vercel" }
+>["payload"]["target"];
 
 interface VercelProjectRef {
   projectId: string;
@@ -344,27 +343,12 @@ export async function discoverVercelTargets(
   }
 }
 
-/** The only minter of the pull shape `reduceVercelEvent` folds. Takes a parsed reading, never text. */
+/** The only minter of the pull event `reduceVercelEvent` folds. Takes a parsed reading, never text. */
 function mintVercelPullReceipt(
   target: VercelPullTarget,
-  parsed: VerifiedPullReading,
-): VerifiedPullReceipt {
-  return {
-    eventType: VERCEL_PULL_EVENT_TYPE,
-    payload: {
-      target: {
-        repoFullName: target.repoFullName,
-        branch: target.branch,
-        environment: target.environment,
-      },
-      deployment: {
-        id: parsed.attemptId,
-        status: parsed.status,
-        createdAt: parsed.providerEventTime?.toISOString() ?? null,
-        url: parsed.url,
-      },
-    },
-  };
+  reading: VerifiedPullReading,
+): VerifiedPullEvent {
+  return { provider: "vercel", eventType: VERIFIED_PULL_EVENT_TYPE, payload: { target, reading } };
 }
 
 export const vercelVerifiedPullProvider: VerifiedPullProvider<

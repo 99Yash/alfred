@@ -10,7 +10,7 @@ import { inArray, like } from "drizzle-orm";
 
 import { closeReplicachePokeBridge } from "@alfred/assistant/realtime";
 import { gatherDayShape } from "@alfred/assistant/briefings/gather";
-import { objectStateStore } from "@alfred/assistant/connections";
+import { objectStateStore, parseReceiptEvent } from "@alfred/assistant/connections";
 import { deliveryInstantFromDate } from "@alfred/assistant/connections/object-state/test-support";
 import { closeRedis } from "@alfred/db/redis";
 import { dbBackedSkip } from "../support/db-backed";
@@ -57,16 +57,25 @@ function prPayload(number: number, opts: { merged?: boolean } = {}) {
   };
 }
 
-/** Use the production write path so `stateDeliveredAt` is real. */
-async function mergePr(userId: string, number: number, deliveredAt: Date): Promise<void> {
+/** Use the production write path, through the receipt parse, so `stateDeliveredAt` is real. */
+async function foldPr(
+  userId: string,
+  action: string,
+  payload: ReturnType<typeof prPayload>,
+  deliveredAt: Date,
+): Promise<void> {
+  const event = parseReceiptEvent("github", "pull_request", { ...payload, action });
+
+  assert.ok(event, "a pull_request body parses");
   await objectStateStore.applyEvent({
     userId,
-    provider: "github",
-    eventType: "pull_request",
-    action: "closed",
-    payload: prPayload(number, { merged: true }),
+    event,
     deliveredAt: deliveryInstantFromDate(deliveredAt),
   });
+}
+
+async function mergePr(userId: string, number: number, deliveredAt: Date): Promise<void> {
+  await foldPr(userId, "closed", prPayload(number, { merged: true }), deliveredAt);
 }
 
 /** Every receipt needs a credential (ADR-0097). */
@@ -205,28 +214,14 @@ describe("gatherDayShape (DB-backed)", { skip: SKIP }, () => {
 
   test("a still-open PR never reaches shipped (absence never closes)", async () => {
     const userId = await seedUser();
-    await objectStateStore.applyEvent({
-      userId,
-      provider: "github",
-      eventType: "pull_request",
-      action: "opened",
-      payload: prPayload(31),
-      deliveredAt: deliveryInstantFromDate(IN_WINDOW),
-    });
+    await foldPr(userId, "opened", prPayload(31), IN_WINDOW);
 
     assert.deepEqual((await shapeFor(userId, 0)).shipped, []);
   });
 
   test("a closed-unmerged PR is abandoned, not shipped", async () => {
     const userId = await seedUser();
-    await objectStateStore.applyEvent({
-      userId,
-      provider: "github",
-      eventType: "pull_request",
-      action: "closed",
-      payload: prPayload(41, { merged: false }),
-      deliveredAt: deliveryInstantFromDate(IN_WINDOW),
-    });
+    await foldPr(userId, "closed", prPayload(41, { merged: false }), IN_WINDOW);
 
     assert.deepEqual((await shapeFor(userId, 0)).shipped, []);
   });

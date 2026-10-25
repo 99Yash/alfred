@@ -42,6 +42,7 @@ import {
   deliveryInstantSchema,
   deliveryInstantValue,
 } from "./delivery-instant";
+import type { ObjectStateEvent } from "./events";
 import { reduceGithubEvent } from "./github-reducer";
 import { reduceMcpEvent } from "./mcp-reducer";
 import { reduceRailwayEvent } from "./railway-reducer";
@@ -93,10 +94,8 @@ export interface ObjectState {
 
 interface ApplyEventArgs {
   userId: string;
-  provider: ObjectStateProvider;
-  eventType: string;
-  action: string | null;
-  payload: unknown;
+  /** Typed: a stored receipt enters through `parseReceiptEvent`, a pull builds its member. */
+  event: ObjectStateEvent;
   /**
    * Receipt time for the recency guard. Not a `Date`: Postgres stores microseconds and `Date` drops
    * them. Read it with `receiptDeliveryInstant()` or `deliveryInstantOf(column)`. Only a pull,
@@ -209,16 +208,26 @@ interface IdentityCandidateRow {
 /** Postgres caps one statement at 65535 parameters. A text can hold many provider links. */
 const IDENTITY_VALUE_CHUNK = 1000;
 
-type ReduceFn = (eventType: string, action: string | null, payload: unknown) => ObjectStateDelta[];
+/** The only per-provider code in the store. A provider with no reducer does not compile. */
+function reduce(event: ObjectStateEvent): ObjectStateDelta[] {
+  switch (event.provider) {
+    case "github":
+      return reduceGithubEvent(event);
+    case "sentry":
+      return reduceSentryEvent(event);
+    case "railway":
+      return reduceRailwayEvent(event);
+    case "vercel":
+      return reduceVercelEvent(event);
+    case "mcp":
+      return reduceMcpEvent(event);
+    default: {
+      const _exhaustive: never = event;
 
-/** The only per-provider code in the store. */
-const REDUCERS = {
-  github: reduceGithubEvent,
-  sentry: reduceSentryEvent,
-  railway: reduceRailwayEvent,
-  vercel: reduceVercelEvent,
-  mcp: reduceMcpEvent,
-} satisfies Record<ObjectStateProvider, ReduceFn>;
+      return _exhaustive;
+    }
+  }
+}
 
 const DEFAULT_OBJECT_LIST_LIMIT = 100;
 
@@ -339,8 +348,8 @@ function inKeyLockOrder(upserts: readonly PendingKeyUpsert[]): PendingKeyUpsert[
 
 export const objectStateStore: ObjectStateStore = {
   async applyEvent(args) {
-    const reduce = REDUCERS[args.provider];
-    const deltas = reduce(args.eventType, args.action, args.payload);
+    const { provider } = args.event;
+    const deltas = reduce(args.event);
 
     if (deltas.length === 0) return;
 
@@ -353,10 +362,10 @@ export const objectStateStore: ObjectStateStore = {
 
       for (const delta of inLockOrder(deltas)) {
         // No kind def means no absorbing policy, so the guard would fail open.
-        if (!getObjectKindDef(args.provider, delta.kind)) continue;
+        if (!getObjectKindDef(provider, delta.kind)) continue;
 
         // An unknown native token is a no-op, never a guessed state.
-        const stateCategory = getObjectDef(args.provider).normalize(delta.kind, delta.nativeState);
+        const stateCategory = getObjectDef(provider).normalize(delta.kind, delta.nativeState);
 
         if (!stateCategory) continue;
 
@@ -367,7 +376,7 @@ export const objectStateStore: ObjectStateStore = {
             : null;
 
         const identity: ObjectIdentity = {
-          provider: args.provider,
+          provider,
           kind: delta.kind,
           externalId: delta.externalId,
         };
@@ -383,7 +392,7 @@ export const objectStateStore: ObjectStateStore = {
             .insert(integrationObjects)
             .values({
               userId: args.userId,
-              provider: args.provider,
+              provider,
               kind: delta.kind,
               externalId: delta.externalId,
               stateCategory,
@@ -441,7 +450,7 @@ export const objectStateStore: ObjectStateStore = {
           // The kind declares which states are final. CI runs and deploys declare none (#1093).
           const wouldLeaveAbsorbingState =
             stateCategory !== existing.stateCategory &&
-            isAbsorbingState(args.provider, delta.kind, existing.stateCategory);
+            isAbsorbingState(provider, delta.kind, existing.stateCategory);
 
           if (isNewer && !wouldLeaveAbsorbingState) {
             await tx
@@ -474,7 +483,7 @@ export const objectStateStore: ObjectStateStore = {
           .values({
             userId: args.userId,
             objectId: pending.objectId,
-            provider: args.provider,
+            provider,
             keyKind: pending.keyKind,
             keyValue: pending.keyValue,
           })

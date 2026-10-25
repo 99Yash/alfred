@@ -24,6 +24,12 @@ export { objectStateFoldConsumers } from "./activity-consumer";
 export {
   approvedMcpHealthExternalId,
   MCP_APPROVED_HEALTH_EVENT_TYPE,
-  MCP_APPROVED_HEALTH_KEY_KIND,
-  MCP_APPROVED_HEALTH_KIND,
-} from "./mcp-reducer";
+  parseReceiptEvent,
+  VERIFIED_PULL_EVENT_TYPE,
+  type ApprovedMcpHealthExternalId,
+  type VerifiedPullEvent,
+  type VerifiedPullReading,
+  type VerifiedPullStatus,
+} from "./events";
+
+export { MCP_APPROVED_HEALTH_KEY_KIND, MCP_APPROVED_HEALTH_KIND } from "./mcp-reducer";

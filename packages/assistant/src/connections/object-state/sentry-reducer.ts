@@ -1,11 +1,5 @@
-import {
-  type EventTypeForSource,
-  getIdPath,
-  getStringPath,
-  isEventTypeForSource,
-  linkNamesObject,
-  type SentryIssueNativeState,
-} from "@alfred/contracts";
+import { linkNamesObject, type SentryIssueNativeState } from "@alfred/contracts";
+import type { ObjectStateEvent, SentryLifecycleEventType } from "./events";
 import type { ObjectStateDelta } from "./store";
 
 /**
@@ -14,24 +8,18 @@ import type { ObjectStateDelta } from "./store";
  * closure are declared in `INTEGRATION_OBJECT_DEFS.sentry.issue`.
  */
 export function reduceSentryEvent(
-  eventType: string,
-  _action: string | null,
-  payload: unknown,
+  event: Extract<ObjectStateEvent, { provider: "sentry" }>,
 ): ObjectStateDelta[] {
-  // Narrow the bare `string` so the switch below is exhaustive (ADR-0097).
-  if (!isEventTypeForSource("sentry", eventType)) return [];
-  const nativeState = issueNativeState(eventType);
-
-  if (nativeState === null) return [];
-
-  // Same reader as `ingress/sentry.ts`, so the dedup key and the projection agree.
-  const issueId = getIdPath(payload, "data", "issue", "id");
+  const nativeState = issueNativeState(event.eventType);
+  const issue = event.payload.data?.issue;
+  // The same id rule as `ingress/sentry.ts`, so the dedup key and the projection agree.
+  const issueId = issue?.id;
 
   if (!issueId) return [];
 
-  const shortId = getStringPath(payload, "data", "issue", "shortId");
-  const projectSlug = getStringPath(payload, "data", "issue", "project", "slug");
-  const permalink = getStringPath(payload, "data", "issue", "permalink");
+  const shortId = issue.shortId;
+  const projectSlug = issue.project?.slug;
+  const permalink = issue.permalink;
 
   const keys: ObjectStateDelta["keys"] = [{ keyKind: "issue_id", keyValue: issueId }];
 
@@ -45,7 +33,7 @@ export function reduceSentryEvent(
       externalId: issueId,
       nativeState,
       closureSource: "verified_push",
-      title: getStringPath(payload, "data", "issue", "title"),
+      title: issue.title,
       // Only a `sentry.io` permalink whose `/issues/<id>` is this issue. Else `url` stays null;
       // identity rides on the id.
       url:
@@ -63,11 +51,8 @@ export function reduceSentryEvent(
   ];
 }
 
-/**
- * Lifecycle token for a Sentry event type, or `null`. Exhaustive like `sentryDeliveryKey`, so a new
- * type does not compile until it is classified here.
- */
-function issueNativeState(eventType: EventTypeForSource<"sentry">): SentryIssueNativeState | null {
+/** Lifecycle token for a Sentry lifecycle event type. Exhaustive like `sentryDeliveryKey`. */
+function issueNativeState(eventType: SentryLifecycleEventType): SentryIssueNativeState {
   switch (eventType) {
     case "issue_created":
     case "issue_unresolved":
@@ -76,12 +61,6 @@ function issueNativeState(eventType: EventTypeForSource<"sentry">): SentryIssueN
       return "resolved";
     case "issue_archived":
       return "archived";
-    // Not lifecycle transitions. Named, not defaulted, to keep the switch exhaustive.
-    case "issue_assigned":
-    case "error_created":
-    case "event_alert_triggered":
-    case "seer_pr_created":
-      return null;
     default: {
       const _exhaustive: never = eventType;
 

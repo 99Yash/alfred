@@ -95,8 +95,9 @@ The receive path stores one `event_receipts` row and publishes
 `<source>.<event>` on the trigger bus (ADR-0097). The `github-activity-fold`
 and `sentry-activity-fold` trigger consumers read the receipt back and run the
 ADR-0062 object-state reducer over it. `objectStateFoldConsumers()` builds one
-consumer per provider from a table the `ObjectStateProvider` union keys, so a
-provider without a fold is a compile error. The consumers live beside the
+consumer per inbound source. Each one parses the body once with
+`parseReceiptEvent` into an `ObjectStateEvent`, a union keyed on provider and
+event type, so a provider without a reducer is a compile error. The consumers live beside the
 reducers and store they drive, in
 `packages/assistant/src/connections/object-state/activity-consumer.ts`, and the
 connections barrel exports the builder. Runtime composition only registers them

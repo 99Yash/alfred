@@ -7,7 +7,7 @@ import { closeConnections, db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
 
-import { objectStateStore } from "../src/connections/object-state";
+import { objectStateStore, parseReceiptEvent } from "../src/connections/object-state";
 import { deliveryInstantFromDate } from "../src/connections/object-state/test-support";
 import { githubObjectStateAdapter } from "../src/connections/object-state/github-adapter";
 import { reduceGithubEvent } from "../src/connections/object-state/github-reducer";
@@ -43,10 +43,21 @@ function prPayload(
   };
 }
 
+/** The fold path: the stored body goes through the one parse door, then the GitHub reducer. */
+function reduceGithub(
+  eventType: string,
+  action: string,
+  payload: Partial<ReturnType<typeof prPayload>>,
+) {
+  const event = parseReceiptEvent("github", eventType, { ...payload, action });
+
+  return event?.provider === "github" ? reduceGithubEvent(event) : [];
+}
+
 describe("github reducer (pure)", () => {
   test("opened / synchronize / reopened map to the open native state + head_sha key", () => {
     for (const action of ["opened", "synchronize", "reopened"]) {
-      const [delta] = reduceGithubEvent("pull_request", action, prPayload(7, SHA_A));
+      const [delta] = reduceGithub("pull_request", action, prPayload(7, SHA_A));
       assert.ok(delta, `${action} should produce a delta`);
       assert.equal(delta.kind, "pull_request");
       assert.equal(delta.externalId, "7");
@@ -60,25 +71,24 @@ describe("github reducer (pure)", () => {
 
   test("closed collapses the merged boolean into merged vs closed", () => {
     assert.equal(
-      reduceGithubEvent("pull_request", "closed", prPayload(7, SHA_A, { merged: true }))[0]
-        ?.nativeState,
+      reduceGithub("pull_request", "closed", prPayload(7, SHA_A, { merged: true }))[0]?.nativeState,
       "merged",
     );
     assert.equal(
-      reduceGithubEvent("pull_request", "closed", prPayload(7, SHA_A, { merged: false }))[0]
+      reduceGithub("pull_request", "closed", prPayload(7, SHA_A, { merged: false }))[0]
         ?.nativeState,
       "closed",
     );
   });
 
   test("externalId uses GitHub's global PR id, not the repo-scoped PR number", () => {
-    const [first] = reduceGithubEvent(
+    const [first] = reduceGithub(
       "pull_request",
       "opened",
       prPayload(1, SHA_A, { id: 111, repo: "o/one" }),
     );
 
-    const [second] = reduceGithubEvent(
+    const [second] = reduceGithub(
       "pull_request",
       "opened",
       prPayload(1, SHA_B, { id: 222, repo: "o/two" }),
@@ -90,9 +100,9 @@ describe("github reducer (pure)", () => {
   });
 
   test("non-lifecycle actions and non-PR events are no-ops", () => {
-    assert.deepEqual(reduceGithubEvent("pull_request", "labeled", prPayload(7, SHA_A)), []);
-    assert.deepEqual(reduceGithubEvent("push", "created", prPayload(7, SHA_A)), []);
-    assert.deepEqual(reduceGithubEvent("pull_request", "opened", {}), []);
+    assert.deepEqual(reduceGithub("pull_request", "labeled", prPayload(7, SHA_A)), []);
+    assert.deepEqual(reduceGithub("push", "created", prPayload(7, SHA_A)), []);
+    assert.deepEqual(reduceGithub("pull_request", "opened", {}), []);
   });
 });
 
@@ -201,13 +211,13 @@ describe("objectStateStore contract (DB-backed)", { skip: SKIP }, () => {
     await closeConnections();
   });
 
-  async function apply(action: string, payload: unknown, deliveredAt: Date) {
+  async function apply(action: string, payload: ReturnType<typeof prPayload>, deliveredAt: Date) {
+    const event = parseReceiptEvent("github", "pull_request", { ...payload, action });
+
+    assert.ok(event, "a pull_request body parses");
     await objectStateStore.applyEvent({
       userId,
-      provider: "github",
-      eventType: "pull_request",
-      action,
-      payload,
+      event,
       deliveredAt: deliveryInstantFromDate(deliveredAt),
     });
   }

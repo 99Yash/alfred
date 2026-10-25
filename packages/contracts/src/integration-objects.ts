@@ -6,7 +6,7 @@
 
 import { z } from "zod";
 import { emailDomain, isDomainOrSubdomain, normalizeDomain } from "./domain";
-import { enumGuard, getStringPath, parseEmailAddress } from "./guards";
+import { enumGuard, parseEmailAddress } from "./guards";
 import { canonicalizeIdentityValue } from "./user-model";
 
 export const OBJECT_STATE_CATEGORIES = ["active", "resolved", "failed", "abandoned"] as const;
@@ -291,7 +291,7 @@ export function canonicalizeVercelTargetId(input: {
   return `${base}#${environment}`;
 }
 
-export const VERCEL_DEPLOYMENT_OUTCOMES = ["success", "failure", "pending"] as const;
+const VERCEL_DEPLOYMENT_OUTCOMES = ["success", "failure", "pending"] as const;
 
 export type VercelDeploymentOutcome = (typeof VERCEL_DEPLOYMENT_OUTCOMES)[number];
 
@@ -316,22 +316,23 @@ const VERCEL_DISPATCH_ACTION_OUTCOMES: ReadonlyMap<string, VercelDeploymentOutco
  * `client_payload.state.detail: "deployment_deleted"`, so the action alone cannot tell it from a
  * failed build. Measured 2026-10-17: every prod `error` receipt (298) was a deletion.
  */
-export function isVercelDeploymentDeletion(action: string | null, payload: unknown): boolean {
-  return (
-    action === "vercel.deployment.error" &&
-    getStringPath(payload, "client_payload", "state", "detail") === "deployment_deleted"
-  );
+export function isVercelDeploymentDeletion(
+  action: string | null | undefined,
+  detail: string | undefined,
+): boolean {
+  return action === "vercel.deployment.error" && detail === "deployment_deleted";
 }
 
 /**
- * Outcome of one dispatch body. `null` for an unknown action and for a deletion: neither is
- * evidence about the target's health. It must never read as a success.
+ * Outcome of one dispatch: its `action` and its `client_payload.state.detail`. `null` for an unknown
+ * action and for a deletion: neither is evidence about the target's health. It must never read as a
+ * success.
  */
 export function vercelDeploymentOutcome(
-  action: string | null,
-  payload: unknown,
+  action: string | null | undefined,
+  detail: string | undefined,
 ): VercelDeploymentOutcome | null {
-  if (action === null || isVercelDeploymentDeletion(action, payload)) return null;
+  if (!action || isVercelDeploymentDeletion(action, detail)) return null;
 
   return VERCEL_DISPATCH_ACTION_OUTCOMES.get(action) ?? null;
 }

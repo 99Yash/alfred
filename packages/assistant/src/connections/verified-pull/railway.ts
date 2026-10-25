@@ -6,14 +6,13 @@ import {
   RAILWAY_MCP_STORED_ISSUER,
   type McpPreparedToolCall,
 } from "../mcp";
-import { RAILWAY_PULL_EVENT_TYPE } from "../object-state/railway-reducer";
+import { VERIFIED_PULL_EVENT_TYPE, type VerifiedPullEvent } from "../object-state";
 import { z } from "zod";
 import {
   MAX_VERIFIED_PULL_TARGETS,
   type VerifiedPullProvider,
   type VerifiedPullRead,
   type VerifiedPullReading,
-  type VerifiedPullReceipt,
   type VerifiedPullStatus,
   verifiedPullVerdict,
 } from "./driver";
@@ -22,12 +21,12 @@ import {
  * Railway's half of the verified pull (#1094). Railway mails failures, not successes.
  * The folded rows re-arm the next gather's trigger and add red/green verdict lines.
  * Reads use the ready, issuer-pinned MCP connection and parse only structured output.
+ * The fold input owns the target shape, so the pull and the reducer cannot drift.
  */
-export interface RailwayPullTarget {
-  projectId: string;
-  serviceId: string;
-  environmentId: string;
-}
+export type RailwayPullTarget = Extract<
+  VerifiedPullEvent,
+  { provider: "railway" }
+>["payload"]["target"];
 
 /** Display names only, never identity. */
 interface RailwayTargetNames {
@@ -240,27 +239,12 @@ function parseProviderInstant(value: string | null): Date | null {
   return Number.isNaN(time.getTime()) ? null : time;
 }
 
-/** The only minter of the pull shape `reduceRailwayEvent` folds. Takes a parsed reading, never text. */
+/** The only minter of the pull event `reduceRailwayEvent` folds. Takes a parsed reading, never text. */
 function mintRailwayPullReceipt(
   target: RailwayPullTarget,
-  parsed: VerifiedPullReading,
-): VerifiedPullReceipt {
-  return {
-    eventType: RAILWAY_PULL_EVENT_TYPE,
-    payload: {
-      target: {
-        projectId: target.projectId,
-        serviceId: target.serviceId,
-        environmentId: target.environmentId,
-      },
-      deployment: {
-        id: parsed.attemptId,
-        status: parsed.status,
-        createdAt: parsed.providerEventTime?.toISOString() ?? null,
-        url: parsed.url,
-      },
-    },
-  };
+  reading: VerifiedPullReading,
+): VerifiedPullEvent {
+  return { provider: "railway", eventType: VERIFIED_PULL_EVENT_TYPE, payload: { target, reading } };
 }
 
 /** Display names by target id. A failure gives an empty map, and titles show ids. */

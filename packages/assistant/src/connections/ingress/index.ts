@@ -24,3 +24,5 @@ export { inboundDeliveryKey, projectionKind } from "./descriptor";
 export { INBOUND_SOURCES, inboundSource } from "./registry";
 
 export { readInboundTriggerHealth } from "./health";
+
+export { parseGithubEvent } from "./receipt-schemas";
