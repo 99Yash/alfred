@@ -22,6 +22,7 @@ import {
   isIntegrationSlug,
   isTerminalStatus,
   isToolName,
+  isToolRiskTier,
   isUnknownEffectEnvelope,
   jsonValueSchema,
   sanitizeErrorMessage,
@@ -964,16 +965,13 @@ export async function resolveEffectiveRiskTier(
 
   if (!tool.resolvesRiskTier) return tool.riskTier;
 
-  const resolved = await call.declaredRiskTier(ctx);
-  const staticRank = TOOL_RISK_RANK[tool.riskTier];
-  // The resolver type is `Promise<ToolRiskTier>`, but nothing enforces that at
-  // runtime, so a future resolver can hand back a non-tier (ADR-0088). Fail
-  // closed to the static tier without a second parse: an unknown key reads back
-  // `undefined` from the rank table.
-  const resolvedRank: number | undefined = TOOL_RISK_RANK[resolved];
+  const resolved: unknown = await call.declaredRiskTier(ctx);
 
-  // oxlint-disable-next-line typescript/no-unnecessary-condition -- ADR-0088: the resolver runs in plain JS, where `Promise<ToolRiskTier>` is unenforced; a non-tier reads back `undefined` here, which the compiler cannot see.
-  if (resolvedRank === undefined) {
+  // The resolver type is `Promise<ToolRiskTier>`, but nothing enforces that at
+  // runtime, so a resolver can hand back a non-tier (ADR-0088). Fail closed to
+  // the static tier. This checks only the resolver result, so the input is
+  // still parsed one time.
+  if (!isToolRiskTier(resolved)) {
     logger.warn(
       {
         event: "tool_risk_tier_invalid",
@@ -987,6 +985,9 @@ export async function resolveEffectiveRiskTier(
 
     return tool.riskTier;
   }
+
+  const staticRank = TOOL_RISK_RANK[tool.riskTier];
+  const resolvedRank = TOOL_RISK_RANK[resolved];
 
   if (resolvedRank >= staticRank) return resolved;
 
