@@ -199,7 +199,6 @@ describe("authoredByUser (#330 — conservative, evidence-returning)", () => {
   const self: SelfIdentity = {
     emails: ["yash@oliv.ai"],
     gmailAccountEmailById: { acc_work: "yash@oliv.ai", acc_personal: "yash@gmail.com" },
-    github: { login: "99Yash", userId: "583231" },
   };
 
   function gmailDoc(
@@ -253,45 +252,9 @@ describe("authoredByUser (#330 — conservative, evidence-returning)", () => {
     assert.equal(r.reason, "missing_author_identity");
   });
 
-  test("github author id/login matches self", () => {
-    const byId = authoredByUser(
-      { source: "github", metadata: { authorId: "583231" }, accountId: null, sender: null },
-      self,
-    );
-
-    assert.equal(byId.authoredByUser, true);
-    assert.equal(byId.proof.method, "author_id");
-
-    const byLogin = authoredByUser(
-      { source: "github", metadata: { authorLogin: "99yash" }, accountId: null, sender: null },
-      self,
-    );
-
-    assert.equal(byLogin.authoredByUser, true);
-    assert.equal(byLogin.proof.method, "author_login");
-
-    const other = authoredByUser(
-      { source: "github", metadata: { authorLogin: "mattpocock" }, accountId: null, sender: null },
-      self,
-    );
-
-    assert.equal(other.authoredByUser, false);
-    assert.equal(other.reason, "identity_mismatch");
-  });
-
-  test("github with no self identity fails missing_self_identity (default deny)", () => {
-    const r = authoredByUser(
-      { source: "github", metadata: { authorLogin: "anyone" }, accountId: null, sender: null },
-      { emails: ["yash@oliv.ai"] },
-    );
-
-    assert.equal(r.authoredByUser, false);
-    assert.equal(r.reason, "missing_self_identity");
-  });
-
   test("a source with no author identity is unsupported_source", () => {
     // No `DOCUMENT_SOURCES` provider has a third-party author, so this is the full reject set.
-    const sources = ["gmail_attachment", "sentry", "unknown"] as const;
+    const sources = ["github", "gmail_attachment", "sentry", "unknown"] as const;
 
     for (const source of sources) {
       const r = authoredByUser({ source, metadata: {}, accountId: null, sender: null }, self);

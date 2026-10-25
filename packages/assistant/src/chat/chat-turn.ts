@@ -25,6 +25,7 @@ import { logger } from "@alfred/logging";
 import { buildThreadArtifactsContext } from "@alfred/assistant/artifacts";
 import { readIntegrationAvailability } from "@alfred/assistant/connections";
 import { selfIdentityGrounding, settings } from "@alfred/assistant/settings";
+import { joinChildRunId } from "@alfred/assistant/tool-runtime";
 import {
   appendModelResponseMessages,
   toModelMessages,
@@ -81,7 +82,7 @@ import {
   type ChatRunState,
   type PendingToolCall,
 } from "./chat-turn-state";
-import { awaitedChildRunId, crossFinalizeBoundary } from "./finalize-guards";
+import { crossFinalizeBoundary } from "./finalize-guards";
 import { carryForwardThreadTools } from "./thread-tool-carryover";
 import { isChatStopRequested } from "./stop-signal";
 import { streamModelTurn } from "./stream-model-turn";
@@ -891,7 +892,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
 
           // The boss already saw this child's outcome, so the finalize guard must not fold it again (ADR-0073).
           if (call.toolName === AWAIT_SUB_AGENT_TOOL && completion.execution === "completed") {
-            const childRunId = awaitedChildRunId(call.input);
+            const childRunId = joinChildRunId(call.input);
 
             if (childRunId && !state.foldedChildRunIds.includes(childRunId)) {
               state.foldedChildRunIds = [...state.foldedChildRunIds, childRunId];

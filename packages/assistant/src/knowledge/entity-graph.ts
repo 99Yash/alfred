@@ -6,11 +6,12 @@ import {
   jsonObjectSchema,
   parseEmailAddress,
   type JsonObject,
+  hasUserWrittenTo,
+  parsePersonEntityMetadata,
 } from "@alfred/contracts";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { classifyContactKind } from "./entity-kind-classifier";
-import { parsePersonEntityMetadata } from "./entity-metadata";
 
 /** `entities.kind` values (ADR-0012). The union derives from the tuple. */
 export const ENTITY_KINDS = [
@@ -189,8 +190,7 @@ function classifyStoredContact(
     address,
     canonicalName,
     listEvidence: parsed.listEvidence ?? [],
-    userHasWrittenTo:
-      parsed.userHasWrittenTo === true || (parsed.correspondence?.outbound ?? 0) > 0,
+    userHasWrittenTo: hasUserWrittenTo(parsed),
   });
 }
 

@@ -1,9 +1,21 @@
 /**
  * Typed views over the `entities.metadata` jsonb bag written by team-graph
  * capture (ADR-0059 P4a). No job title: mail headers do not carry one.
+ * Here, not in `knowledge`, because the `gmail.send_draft` recipient policy reads it too.
  */
 import { z } from "zod";
-import { listEvidenceCodeSchema } from "./entity-kind-classifier";
+
+/** Closed set: codes persist in `entities.metadata.listEvidence`, so a retired code must fail the parse. */
+export const LIST_EVIDENCE_CODES = [
+  "gmail:list_id",
+  "gmail:list_unsubscribe",
+  "gmail:precedence:bulk",
+  "gmail:precedence:list",
+] as const;
+
+export const listEvidenceCodeSchema = z.enum(LIST_EVIDENCE_CODES);
+
+export type ListEvidenceCode = z.infer<typeof listEvidenceCodeSchema>;
 
 /** Correspondence per `person` entity, from the user's point of view. */
 const correspondenceStatsSchema = z.object({
@@ -63,4 +75,12 @@ export function parsePersonEntityMetadata(raw: unknown): PersonEntityMetadata {
   const parsed = personEntityMetadataSchema.safeParse(raw ?? {});
 
   return parsed.success ? parsed.data : {};
+}
+
+/**
+ * The user has sent mail to this contact. Reads the sticky flag as well as `outbound`, because an
+ * overwrite scan resets `outbound`. Both come only from the user's own sent mail.
+ */
+export function hasUserWrittenTo(metadata: PersonEntityMetadata): boolean {
+  return metadata.userHasWrittenTo === true || (metadata.correspondence?.outbound ?? 0) > 0;
 }

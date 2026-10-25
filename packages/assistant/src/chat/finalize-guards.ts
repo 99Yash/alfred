@@ -1,6 +1,4 @@
 import {
-  isNonEmptyString,
-  isRecord,
   INTEGRATION_SLUGS,
   SPAWN_SUB_AGENT_TOOL,
   toDisplayText,
@@ -33,14 +31,6 @@ import { closeNarrationSegment, interruptChatRun, type ChatRunState } from "./ch
  * The work between "the model answered" and "the turn may complete".
  * Each guard returns a `StepResult` to take over (park or regenerate), or `null`.
  */
-
-/** The `childRunId` argument of a `system.await_sub_agent` call, if present. */
-export function awaitedChildRunId(input: unknown): string | null {
-  if (!isRecord(input)) return null;
-  const id = input.childRunId;
-
-  return isNonEmptyString(id) ? id : null;
-}
 
 /** Truncated, model-readable rendering of a folded child's output/error. */
 function renderChildOutcome(value: unknown): string {

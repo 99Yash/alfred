@@ -33,7 +33,7 @@ export { isMutatingToolName } from "./internal/result-routing";
 
 export { withdrawToolCallApproval } from "./approval-lifecycle";
 
-export { joinToolInput } from "./join-contract";
+export { joinChildRunId, joinToolInput } from "./join-contract";
 
 export { questionToolInput, QUESTION_TOOL_PROBE_INPUT } from "./question-contract";
 
