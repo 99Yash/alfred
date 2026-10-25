@@ -2039,9 +2039,3 @@ export const TOOL_INPUT_SCHEMAS = {
   "mcp.list_tools": mcpToolSearchInputSchema,
   "mcp.inspect_tool": mcpToolInspectInputSchema,
 } satisfies Partial<Record<ToolName, z.ZodType>>;
-
-/** Result shapes that web or model code depends on. Most results stay free-form JSON. */
-export const TOOL_OUTPUT_SCHEMAS = {
-  "gmail.search": gmailSearchResultSchema,
-  "github.search": githubSearchResultSchema,
-} satisfies Partial<Record<ToolName, z.ZodType>>;

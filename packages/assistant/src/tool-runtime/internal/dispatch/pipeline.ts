@@ -22,7 +22,6 @@ import {
   isIntegrationSlug,
   isTerminalStatus,
   isToolName,
-  isToolRiskTier,
   isUnknownEffectEnvelope,
   jsonValueSchema,
   sanitizeErrorMessage,
@@ -86,6 +85,7 @@ import { toolCallWouldGate, toolRequiresApproval } from "../../approval-rule";
 import {
   getTool,
   resolveToolAvailability,
+  type BoundToolCall,
   type RegisteredTool,
   type ToolExecuteContext,
 } from "../registry";
@@ -158,11 +158,9 @@ function safeUnknownToolCandidate(toolName: string): string | undefined {
 }
 
 // oxlint-disable-next-line anti-slop/no-unknown-returns -- a tool's redacted input is free-form at the registry seam; it goes to the trace as received.
-function redactTraceInput(tool: RegisteredTool, input: unknown): unknown {
-  if (!tool.redactInput) return input;
-
+function redactTraceInput(call: BoundToolCall): unknown {
   try {
-    return tool.redactInput(input);
+    return call.redactedInput();
   } catch (err) {
     logger.warn({ err }, "[dispatch] tool input redaction failed");
 
@@ -207,14 +205,12 @@ export function buildDispatchRejectionTraceInput(args: {
   toolName?: string | undefined;
   /** Sanitized, bounded name the model asked for, for unknown tools. */
   candidateToolName?: string | undefined;
-  /** Pass only payloads safe for trace I/O. */
-  input?: unknown;
-  /** Set only when `input` is schema-valid for this tool. */
-  tool?: RegisteredTool | undefined;
+  /** The rejected call. Only its redacted input reaches the trace; an unparsed input never does. */
+  call?: BoundToolCall | undefined;
   startedAt?: Date;
 }): DispatchRejectionInput {
   const toolName = args.toolName ?? args.dispatch.toolName;
-  const input = args.tool ? redactTraceInput(args.tool, args.input) : undefined;
+  const input = args.call ? redactTraceInput(args.call) : undefined;
 
   return {
     runId: args.dispatch.runId,
@@ -241,8 +237,7 @@ function recordRejection(args: {
   issues?: readonly RejectionIssue[] | undefined;
   toolName?: string | undefined;
   candidateToolName?: string | undefined;
-  input?: unknown;
-  tool?: RegisteredTool | undefined;
+  call?: BoundToolCall | undefined;
 }): void {
   dispatchRejectionRecorder(buildDispatchRejectionTraceInput(args));
 }
@@ -307,7 +302,7 @@ interface ResolvedDispatch {
 }
 
 interface ValidatedDispatch extends ResolvedDispatch {
-  input: unknown;
+  call: BoundToolCall;
   ctx: ToolExecuteContext;
   arm: GatedArmPolicy;
 }
@@ -473,21 +468,21 @@ const validateInputStage: DispatchStage<ResolvedDispatch, ValidatedDispatch> = a
     );
   }
 
-  const parsed = tool.inputSchema.safeParse(normalized.input);
+  const binding = tool.bind(normalized.input);
 
-  if (!parsed.success) {
+  if (!binding.success) {
     // List model-facing params only, so the model is not invited to send a runtime-only field.
     const message = enrichInvalidInputMessage(
-      parsed.error.message,
+      binding.error.message,
       tool.modelInputSchema,
-      parsed.error.issues,
+      binding.error.issues,
     );
 
     recordRejection({
       dispatch: args,
       outcome: "invalid_input",
       reason: message,
-      issues: parsed.error.issues,
+      issues: binding.error.issues,
       toolName,
     });
 
@@ -497,12 +492,13 @@ const validateInputStage: DispatchStage<ResolvedDispatch, ValidatedDispatch> = a
         status: "invalid_input",
         toolName,
         message,
-        issues: parsed.error.issues,
+        issues: binding.error.issues,
       },
     };
   }
 
-  const input: unknown = parsed.data;
+  const { call } = binding;
+  const input = call.input;
   const approvedResourceScope = workflowCapabilities[0]?.resourceScope;
 
   if (approvedResourceScope && !inputMatchesWorkflowResourceScope(input, approvedResourceScope)) {
@@ -533,7 +529,7 @@ const validateInputStage: DispatchStage<ResolvedDispatch, ValidatedDispatch> = a
   });
 
   // A refusal that depends on the caller, which the schema cannot express. Its owner decides it.
-  const refusal = tool.refuseInput?.(input, ctx) ?? null;
+  const refusal = call.refusal(ctx);
 
   if (refusal !== null) {
     recordRejection({
@@ -541,8 +537,7 @@ const validateInputStage: DispatchStage<ResolvedDispatch, ValidatedDispatch> = a
       outcome: "invalid_input",
       reason: refusal,
       toolName,
-      tool,
-      input,
+      call,
     });
 
     return {
@@ -559,9 +554,9 @@ const validateInputStage: DispatchStage<ResolvedDispatch, ValidatedDispatch> = a
   switch (tool.staging) {
     case "join":
       // ADR-0073: park on the child instead of making the boss poll.
-      return await resolveAwaitSubAgentWithSpan(tool, input, ctx);
+      return await resolveAwaitSubAgentWithSpan(call, ctx);
     case "fast_path":
-      return executeFastPath(tool, input, ctx);
+      return executeFastPath(call, ctx);
     case "question": {
       // ADR-0099: only the user fills `answers`. A fresh call with answers is the
       // model answering itself. Backstop: the model schema has no `answers` key.
@@ -577,8 +572,7 @@ const validateInputStage: DispatchStage<ResolvedDispatch, ValidatedDispatch> = a
           outcome: "invalid_input",
           reason: message,
           toolName,
-          tool,
-          input,
+          call,
         });
 
         return {
@@ -604,7 +598,7 @@ const validateInputStage: DispatchStage<ResolvedDispatch, ValidatedDispatch> = a
   // Only `staged` and `question` reach here, so the arm is non-null.
   const arm: GatedArmPolicy = STAGING_ARM[tool.staging];
 
-  return continueWith({ ...resolved, input, ctx, arm });
+  return continueWith({ ...resolved, call, ctx, arm });
 };
 
 /**
@@ -614,7 +608,8 @@ const validateInputStage: DispatchStage<ResolvedDispatch, ValidatedDispatch> = a
 const suppressRepeatedStage: DispatchStage<ValidatedDispatch, SuppressedDispatch> = async (
   validated,
 ) => {
-  const { args, tool, toolName, arm, input, ctx } = validated;
+  const { args, toolName, arm, call, ctx } = validated;
+  const input = call.input;
 
   const proposedInputHash = hashToolInput(toolName, input);
 
@@ -660,7 +655,7 @@ const suppressRepeatedStage: DispatchStage<ValidatedDispatch, SuppressedDispatch
   if (priorReject) {
     return settleWithoutExecution(arm, {
       dispatch: args,
-      tool,
+      call,
       toolName,
       stagingId: null,
       input,
@@ -690,8 +685,10 @@ async function readFullAutonomy(args: ToolCallDispatchArgs): Promise<boolean> {
  * executes, approved executes the decided input, and settled rows replay.
  */
 const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (suppressed) => {
-  const { args, tool, toolName, integration, input, ctx, arm, proposedInputHash, requestHash } =
+  const { args, tool, toolName, integration, call, ctx, arm, proposedInputHash, requestHash } =
     suppressed;
+
+  const input = call.input;
 
   // The staging insert autocommits, so the executor cannot roll it back. Check
   // the run first. `null` means absent or unparseable.
@@ -712,7 +709,7 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
   }
 
   // Some tools resolve their tier from input (Calendar invites go up, `mcp.call` can go down).
-  const riskTier = await resolveEffectiveRiskTier(tool, input, ctx);
+  const riskTier = await resolveEffectiveRiskTier(call, ctx);
   const policyMode = await resolvePolicyMode(args.userId, toolName);
   const policyRequiresApproval = toolRequiresApproval(policyMode, riskTier);
 
@@ -740,7 +737,7 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
   const expiresAt = requiresApproval ? new Date(Date.now() + APPROVAL_EXPIRY_MS) : null;
 
   // A gated row keeps raw input, because resume executes it. An autonomous row stores it redacted.
-  const redactedInput = tool.redactInput ? tool.redactInput(input) : input;
+  const redactedInput = call.redactedInput();
   const proposedInputForRow = !requiresApproval ? redactedInput : input;
   // Strict parse: resume executes this value, so a bad value must throw, not persist.
   const persistedProposedInput = jsonValueSchema.parse(proposedInputForRow);
@@ -852,7 +849,7 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
         if (exhausted) return exhausted;
       }
 
-      return executeAndCommit(row, tool, input, ctx, {
+      return executeAndCommit(row, call, ctx, {
         expectedFence: args.fence,
         editedByUser: false,
       });
@@ -863,9 +860,9 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
       const editedByUser = row.decidedInput !== null;
       const useInput = editedByUser ? row.decidedInput : row.proposedInput;
       // A user edit may break the schema. Fail the row instead of throwing.
-      const reparsed = tool.inputSchema.safeParse(useInput);
+      const rebound = tool.bind(useInput);
 
-      if (!reparsed.success) {
+      if (!rebound.success) {
         const error = publicAppError("tool_input_invalid");
         await commitAndPoke(row, ctx, {
           status: "failed",
@@ -878,7 +875,7 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
           dispatch: args,
           outcome: "failed",
           reason: error.message,
-          issues: reparsed.error.issues,
+          issues: rebound.error.issues,
           toolName,
         });
 
@@ -895,10 +892,10 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
         if (exhausted) return exhausted;
       }
 
-      return executeAndCommit(row, tool, reparsed.data, ctx, {
+      return executeAndCommit(row, rebound.call, ctx, {
         expectedFence: args.fence,
         editedByUser,
-        ...(editedByUser ? { executedInput: reparsed.data } : {}),
+        ...(editedByUser ? { executedInput: rebound.call.input } : {}),
       });
     }
 
@@ -906,7 +903,7 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
     case "expired":
       return settleWithoutExecution(arm, {
         dispatch: args,
-        tool,
+        call: storedCall(tool, row.proposedInput),
         toolName,
         stagingId: row.id,
         input: row.proposedInput,
@@ -943,8 +940,7 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
         outcome: "failed",
         reason: diagnostic,
         toolName,
-        tool,
-        input: row.proposedInput,
+        call: storedCall(tool, row.proposedInput),
       });
 
       return {
@@ -961,28 +957,14 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
  * `riskTierDowngradeReason`; otherwise it is clamped (ADR-0088).
  */
 export async function resolveEffectiveRiskTier(
-  tool: RegisteredTool,
-  input: unknown,
+  call: BoundToolCall,
   ctx: ToolExecuteContext,
 ): Promise<ToolRiskTier> {
-  if (!tool.resolveRiskTier) return tool.riskTier;
+  const { tool } = call;
 
-  const resolved: unknown = await tool.resolveRiskTier(input, ctx);
+  if (!tool.resolvesRiskTier) return tool.riskTier;
 
-  if (!isToolRiskTier(resolved)) {
-    logger.warn(
-      {
-        event: "tool_risk_tier_invalid",
-        toolName: tool.name,
-        staticRiskTier: tool.riskTier,
-        runId: ctx.runId,
-      },
-      "Ignored invalid resolved tool risk tier",
-    );
-
-    return tool.riskTier;
-  }
-
+  const resolved = await call.declaredRiskTier(ctx);
   const staticRank = TOOL_RISK_RANK[tool.riskTier];
   const resolvedRank = TOOL_RISK_RANK[resolved];
 
@@ -1211,11 +1193,12 @@ function actionTokens(action: string): string[] {
  * `LANGFUSE_CAPTURE_IO` is on. Errors close the span and rethrow.
  */
 async function executeToolWithSpan(
-  tool: ReturnType<typeof getTool> & object,
-  input: unknown,
+  call: BoundToolCall,
   ctx: ToolExecuteContext,
-  // oxlint-disable-next-line anti-slop/no-unknown-returns -- a tool's `execute` result is free-form JSON unless a TOOL_OUTPUT_SCHEMAS entry parses it later.
+  // oxlint-disable-next-line anti-slop/no-unknown-returns -- a tool's `execute` result is free-form JSON; the callers sanitize it into a `JsonValue`.
 ): Promise<unknown> {
+  const { tool } = call;
+
   const span = toolSpanStarter({
     runId: ctx.runId,
     toolName: tool.name,
@@ -1224,12 +1207,12 @@ async function executeToolWithSpan(
     caller: callerLabel(ctx.caller),
     stepId: ctx.stepId,
     // Always redacted: a span is never a resume payload.
-    input: tool.redactInput ? tool.redactInput(input) : input,
+    input: call.redactedInput(),
     startedAt: new Date(),
   });
 
   try {
-    const result = await tool.execute(input, ctx);
+    const result = await call.execute(ctx);
     // ADR-0074: record passthrough truncation in span metadata, which is kept even with I/O capture off.
     const thermometer = passthroughTruncationTelemetry(tool.name, ctx.runId, result);
 
@@ -1251,12 +1234,13 @@ async function executeToolWithSpan(
 }
 
 async function resolveAwaitSubAgentWithSpan(
-  tool: RegisteredTool,
-  input: unknown,
+  call: BoundToolCall,
   ctx: ToolExecuteContext,
 ): Promise<DispatchResult> {
-  // Parse before the span opens, so a bad input cannot leave a span open.
-  const { childRunId } = joinToolInput.parse(input);
+  const { tool } = call;
+  // `registerTool` probes that a join tool's parsed input carries this contract. Parse before
+  // the span opens, so a bad input cannot leave a span open.
+  const { childRunId } = joinToolInput.parse(call.input);
 
   const span = toolSpanStarter({
     runId: ctx.runId,
@@ -1265,7 +1249,7 @@ async function resolveAwaitSubAgentWithSpan(
     userId: ctx.userId,
     caller: callerLabel(ctx.caller),
     stepId: ctx.stepId,
-    input: tool.redactInput ? tool.redactInput(input) : input,
+    input: call.redactedInput(),
     startedAt: new Date(),
   });
 
@@ -1379,8 +1363,7 @@ async function commitAndPoke(
 
 async function executeAndCommit(
   row: StagingRow,
-  tool: ReturnType<typeof getTool> & object,
-  input: unknown,
+  call: BoundToolCall,
   ctx: ToolExecuteContext,
   opts: { expectedFence: CancellationFence; editedByUser: boolean; executedInput?: unknown },
 ): Promise<DispatchResult> {
@@ -1408,12 +1391,12 @@ async function executeAndCommit(
 
   try {
     // The MCP broker mints its ledger row 1:1 with this staging row.
-    result = await executeToolWithSpan(tool, input, { ...ctx, stagingId: row.id });
+    result = await executeToolWithSpan(call, { ...ctx, stagingId: row.id });
   } catch (err) {
     // ADR-0070 §1.3: map to a public error, so raw exception text never persists.
     error = toPublicAppError(err);
     logger.error(
-      { err, event: "tool_execution_failed", toolName: tool.name, runId: ctx.runId },
+      { err, event: "tool_execution_failed", toolName: call.tool.name, runId: ctx.runId },
       error.message,
     );
   }
@@ -1445,7 +1428,7 @@ async function executeAndCommit(
     logger.warn(
       `[dispatch] sanitized ${sanitizedResult.removed} poison code unit(s)` +
         `${sanitizedResult.collisions > 0 ? `, ${sanitizedResult.collisions} key collision(s)` : ""}` +
-        ` from ${tool.name} result`,
+        ` from ${call.tool.name} result`,
     );
   }
 
@@ -1470,12 +1453,13 @@ async function executeAndCommit(
 }
 
 async function executeFastPath(
-  tool: ReturnType<typeof getTool> & object,
-  input: unknown,
+  call: BoundToolCall,
   ctx: ToolExecuteContext,
 ): Promise<DispatchResult> {
+  const { tool } = call;
+
   try {
-    const result = await executeToolWithSpan(tool, input, ctx);
+    const result = await executeToolWithSpan(call, ctx);
     // ADR-0070 §1.1: the fast path result also reaches the transcript.
     const sanitized = sanitizeToolResult(result);
     const jsonResult = toJsonValue(sanitized.value);
@@ -1558,9 +1542,11 @@ function settleWithoutExecution(
   arm: GatedArmPolicy,
   args: {
     dispatch: ToolCallDispatchArgs;
-    tool: RegisteredTool;
+    /** The trace's input. `undefined` when a stored input no longer parses. */
+    call: BoundToolCall | undefined;
     toolName: ToolName;
     stagingId: string | null;
+    /** The input that the user rejected, as it was proposed. */
     input: unknown;
     status: PriorRejectionStatus;
     reason: string | null;
@@ -1574,8 +1560,7 @@ function settleWithoutExecution(
     outcome: "rejected",
     reason,
     toolName: args.toolName,
-    tool: args.tool,
-    input: args.input,
+    call: args.call,
   });
 
   if (arm.settled === "unanswered") {
@@ -1629,6 +1614,16 @@ function synthesizeUnansweredQuestions(args: {
       "correction.",
     retryPolicy: "do_not_retry_identical",
   };
+}
+
+/**
+ * Bind a stored `proposed_input` for the trace only. A row written before a schema change may no
+ * longer parse; then the trace keeps no input, because only a parsed input has a redaction path.
+ */
+function storedCall(tool: RegisteredTool, stored: unknown): BoundToolCall | undefined {
+  const binding = tool.bind(stored);
+
+  return binding.success ? binding.call : undefined;
 }
 
 function extractStoredError(stored: unknown): PublicAppError {

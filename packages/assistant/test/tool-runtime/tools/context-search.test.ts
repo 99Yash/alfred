@@ -27,6 +27,7 @@ import {
   registerSystemToolContextSearch,
   unregisterSystemToolContextSearch,
 } from "../../../src/runtime/adapters/system-tool-context-search";
+import { executeTool } from "../../support/execute-tool";
 
 /**
  * `system.search_context` end to end over a fake source: tool, seam, `searchContext`,
@@ -190,7 +191,7 @@ describe("system.search_context", () => {
       dispatch: async ({ input }) => ({
         kind: "executed",
         stagingId: null,
-        toolResult: await tool.execute(input, toolExecuteContext(CONTEXT)),
+        toolResult: await executeTool(tool, input, toolExecuteContext(CONTEXT)),
         editedByUser: false,
       }),
       wouldWaitForApproval: () => Promise.resolve(false),

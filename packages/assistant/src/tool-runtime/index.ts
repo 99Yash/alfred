@@ -45,6 +45,7 @@ export {
   registerTools,
   clearToolRegistryForTests,
   riskTierCountsForIntegration,
+  type BoundToolCall,
   type RegisteredTool,
   type ToolExecuteContext,
   type ToolExecuteContextFields,

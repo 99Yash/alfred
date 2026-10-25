@@ -36,7 +36,7 @@ export async function toolCallWouldGate(userId: string, toolName: string): Promi
   if (STAGING_ARM[tool.staging]?.forcesApproval) return true;
 
   // No validated input here, so assume a dynamic tier may gate.
-  if (tool.resolveRiskTier) return true;
+  if (tool.resolvesRiskTier) return true;
 
   return toolRequiresApproval(policyMode, tool.riskTier);
 }

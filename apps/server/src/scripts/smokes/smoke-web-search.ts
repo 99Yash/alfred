@@ -30,8 +30,11 @@ async function main(): Promise<void> {
   if (!tool) throw new Error("system.web_search did not register");
   console.log(`✓ registered: ${tool.name} (riskTier=${tool.riskTier})`);
 
-  const output = await tool.execute(
-    { query: "What are Cloudflare Durable Object facets?" },
+  const binding = tool.bind({ query: "What are Cloudflare Durable Object facets?" });
+
+  if (!binding.success) throw binding.error;
+
+  const output = await binding.call.execute(
     toolExecuteContext({
       runId: "smoke-run",
       scratchpadRunId: "smoke-run",

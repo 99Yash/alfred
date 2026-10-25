@@ -85,7 +85,11 @@ async function main(): Promise<void> {
   let failures = 0;
 
   for (const c of CASES) {
-    const result = await tool.execute({ url: c.url }, context);
+    const binding = tool.bind({ url: c.url });
+
+    if (!binding.success) throw binding.error;
+
+    const result = await binding.call.execute(context);
     const ok = getPath(result, "ok") === true;
     const reason = getStringPath(result, "reason");
     const text = getStringPath(result, "text");

@@ -104,7 +104,7 @@ describe("toolCallWouldGate mirrors the dispatch gate for every registered tool"
 
       for (const tool of tools) {
         const expected =
-          tool.resolveRiskTier || tool.staging === "question"
+          tool.resolvesRiskTier || tool.staging === "question"
             ? true
             : toolRequiresApproval(
                 await resolvePolicyMode(MIRROR_USER_ID, tool.name),
