@@ -41,10 +41,8 @@ export function McpConnectionCardView({ connection, actions }: McpConnectionCard
   return (
     <McpTile
       icon={{
-        glyph: warning ? (
-          <AlertTriangle size={18} />
-        ) : (
-          // `mcp.linear.app` has no icon of its own; the vendor site does.
+        // `mcp.linear.app` has no icon of its own; the vendor site does.
+        glyph: (
           <Favicon domain={domainOf(connection.endpointOrigin).replace(/^mcp\./, "")} size={20} />
         ),
       }}

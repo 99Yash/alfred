@@ -462,6 +462,11 @@ export const mcpIntegrationRoutes = new Elysia({
             // The manager keeps the published catalog if the remote is down between close and open.
             reconnected = await getMcpConnectionManager().reconnect(params.id, user.id);
           } catch (error) {
+            // Not a failure: the row is `auth_required` and the card now offers consent.
+            if (error instanceof McpOAuthAuthorizationRequiredError) {
+              return { status: "auth_required" as const };
+            }
+
             throw Errors.BadRequestError(boundedMcpErrorText(error));
           }
 

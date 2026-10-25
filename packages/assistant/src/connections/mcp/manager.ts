@@ -421,6 +421,9 @@ export class McpConnectionManager {
     try {
       await this.getReadyClient(connectionId);
     } catch (error) {
+      // `getReadyClient` already wrote `auth_required`. Keep it, so the card offers consent.
+      if (error instanceof McpOAuthAuthorizationRequiredError) throw error;
+
       await this.#patch(connectionId, {
         status: before.status,
         currentCatalogRevisionId: before.currentCatalogRevisionId,

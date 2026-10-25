@@ -20,7 +20,7 @@ type BuiltInState =
   | { readonly kind: "needs_consent"; readonly connection: McpConnection }
   | { readonly kind: "connected"; readonly connection: McpConnection };
 
-/** One predicate, so the amber ring never shows without its icon and message. */
+/** One predicate, so the amber badge never shows without its message. */
 function isWarningConnection(connection: McpConnection): boolean {
   return (
     connection.status === "failed" ||
