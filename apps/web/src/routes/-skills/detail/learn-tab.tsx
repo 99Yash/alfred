@@ -1,3 +1,4 @@
+import { isTerminalStatus } from "@alfred/contracts/agent";
 import type { SyncedSkill, SyncedSkillRevision, SyncedSkillRun } from "@alfred/sync";
 import { Command, RotateCw } from "lucide-react";
 import { useState } from "react";
@@ -23,9 +24,7 @@ export function LearnTab({
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  const hasActiveRun = runs.some(
-    (run) => run.status !== "completed" && run.status !== "failed" && run.status !== "cancelled",
-  );
+  const hasActiveRun = runs.some((run) => !isTerminalStatus(run.status));
 
   const learning = submitting || hasActiveRun;
 
