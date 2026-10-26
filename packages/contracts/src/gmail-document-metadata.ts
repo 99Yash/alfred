@@ -2,7 +2,7 @@ import { z } from "zod";
 import { attachmentContentReferenceSchema } from "./attachment-content-references";
 import { contentFormatSchema } from "./attachments";
 import { documentPagesMixedSchema } from "./document-pages";
-import { PARSED_DOCUMENT_METADATA, parsePersistedMetadata } from "./persisted-metadata";
+import { parsePersistedMetadata } from "./persisted-metadata";
 
 const nullableStringField = z.string().nullable().optional();
 
@@ -11,6 +11,10 @@ const optionalIdentifierField = z.string().min(1).nullable().optional();
 /**
  * `documents.metadata` on a `gmail` (mail) row. Loose, so keys from a raw SQL merge or an older
  * deploy survive. Strict for writers; the read parse drops a bad field on a legacy row.
+ *
+ * Branded on output: `.$type<>()` makes the raw column a union of loose objects, and a loose
+ * object is assignable to every arm, so without one brand per arm a mail value would compile
+ * where an attachment value is required. The brand literal is named by no call site.
  */
 export const gmailDocumentMetadataSchema = z
   .looseObject({
@@ -27,13 +31,14 @@ export const gmailDocumentMetadataSchema = z
     /** Set by `setMediaPending` while the mail's attachments wait for extraction. */
     mediaPending: z.boolean().optional(),
   })
-  .brand(PARSED_DOCUMENT_METADATA);
+  .brand<"ParsedGmailDocumentMetadata">();
 
 export type GmailDocumentMetadata = z.output<typeof gmailDocumentMetadataSchema>;
 
 /**
  * `documents.metadata` on a `gmail_attachment` row: the mail that first carried the content,
- * page offsets (ADR-0091 D6), and the later carriers in `references`.
+ * page offsets (ADR-0091 D6), and the later carriers in `references`. Brand is its own
+ * literal (see the mail arm): a parsed mail value must not compile as a parsed attachment.
  */
 export const gmailAttachmentMetadataSchema = z
   .looseObject({
@@ -59,7 +64,7 @@ export const gmailAttachmentMetadataSchema = z
       )
       .optional(),
   })
-  .brand(PARSED_DOCUMENT_METADATA);
+  .brand<"ParsedGmailAttachmentMetadata">();
 
 export type GmailAttachmentMetadata = z.output<typeof gmailAttachmentMetadataSchema>;
 

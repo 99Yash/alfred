@@ -33,19 +33,3 @@ export const documentPagesMixedSchema = z.array(
 );
 
 export type DocumentPagesMixed = z.infer<typeof documentPagesMixedSchema>;
-
-/** Parse offset pages. Legacy `{page,text}` rows return `null`. */
-export function parseDocumentPages(raw: unknown): DocumentPages | null {
-  if (!Array.isArray(raw)) return null;
-  const parsed = documentPagesSchema.safeParse(raw);
-
-  return parsed.success ? parsed.data : null;
-}
-
-/** Parse pages that can include legacy `{page,text}` entries. */
-export function parseDocumentPagesMixed(raw: unknown): DocumentPagesMixed | null {
-  if (!Array.isArray(raw)) return null;
-  const parsed = documentPagesMixedSchema.safeParse(raw);
-
-  return parsed.success ? parsed.data : null;
-}

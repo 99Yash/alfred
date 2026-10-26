@@ -4,6 +4,7 @@ import {
   receiptDocumentMetadataSchema,
   type IanaTimezone,
   type InboundEventSource,
+  type ReceiptDocumentMetadata,
 } from "@alfred/contracts";
 import { db, type DbTransaction } from "@alfred/db";
 import { sha256Hex } from "@alfred/db/hash";
@@ -37,7 +38,7 @@ export function receiptDocumentJoin(): SQL | undefined {
 
 /** Display fields of a receipt's document. Never selects `raw`. */
 export type ReceiptDocument = Pick<Document, "title" | "content" | "url" | "authoredAt"> & {
-  summary: string | null;
+  summary: Exclude<ReceiptDocumentMetadata["summary"], undefined>;
 };
 
 /** The receipt's document, or `null`. */

@@ -8,15 +8,18 @@ import {
   type gmailAttachmentMetadataSchema,
   type gmailDocumentMetadataSchema,
 } from "./gmail-document-metadata";
-import { PARSED_DOCUMENT_METADATA, parsePersistedMetadata } from "./persisted-metadata";
+import { parsePersistedMetadata } from "./persisted-metadata";
 
-/** `documents.metadata` on an inbound receipt row (ADR-0090). Legacy and smoke rows hold `{}`. */
+/**
+ * `documents.metadata` on an inbound receipt row (ADR-0090). Legacy and smoke rows hold `{}`.
+ * Own brand literal (see the mail arm in `gmail-document-metadata.ts`).
+ */
 export const receiptDocumentMetadataSchema = z
   .looseObject({
     kind: z.string().min(1).optional(),
     summary: z.string().nullable().optional(),
   })
-  .brand(PARSED_DOCUMENT_METADATA);
+  .brand<"ParsedReceiptDocumentMetadata">();
 
 export type ReceiptDocumentMetadata = z.output<typeof receiptDocumentMetadataSchema>;
 
@@ -61,5 +64,9 @@ export function parseDocumentMetadata(row: {
         source: row.source,
         metadata: parsePersistedMetadata(receiptDocumentMetadataSchema, row.metadata),
       };
+    default: {
+      const exhaustive: never = row.source;
+      throw new Error(`[documents] unknown source ${String(exhaustive)}`);
+    }
   }
 }
