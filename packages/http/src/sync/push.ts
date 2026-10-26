@@ -1,3 +1,4 @@
+import { keyGuard } from "@alfred/contracts";
 import { logger } from "@alfred/logging";
 import { db } from "@alfred/db";
 import { runAtomic } from "@alfred/db/helpers";
@@ -21,9 +22,7 @@ import type { DbTransaction } from "@alfred/db";
 // instead of refusing it.
 export type PushResponse = Record<string, never>;
 
-function isKnownMutator(name: string): name is MutatorName {
-  return Object.prototype.hasOwnProperty.call(serverMutators, name);
-}
+const isKnownMutator = keyGuard(serverMutators);
 
 // The push handler owns the outer transaction; `advanceLMID`/`getLMID` and the
 // per-mutation savepoint (`subTx`) all run against a `DbTransaction`, never a

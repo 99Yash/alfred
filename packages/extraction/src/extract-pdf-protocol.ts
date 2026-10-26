@@ -67,11 +67,11 @@ function positiveSafeInteger(name: string, value: unknown): number {
 }
 
 function isPdfExtractionLimitKind(value: unknown): value is PdfExtractionLimitKind {
-  return typeof value === "string" && Object.hasOwn(PDF_EXTRACTION_LIMIT_MESSAGES, value);
+  return typeof value === "string" && Object.hasOwn(PDF_EXTRACTION_LIMIT_MESSAGES, value); // drift-ok: the child process imports this file, so no @alfred/contracts keyGuard
 }
 
 function isPdfExtractionResultKind(value: unknown): value is ExtractedPdf["kind"] {
-  return typeof value === "string" && Object.hasOwn(PDF_EXTRACTION_RESULT_KINDS, value);
+  return typeof value === "string" && Object.hasOwn(PDF_EXTRACTION_RESULT_KINDS, value); // drift-ok: the child process imports this file, so no @alfred/contracts keyGuard
 }
 
 export function parsePdfExtractionLimits(value: unknown): ExtractionLimits {

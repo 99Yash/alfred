@@ -7,6 +7,7 @@
 import { z } from "zod";
 
 import { parseBriefingReference, type BriefingReference } from "./briefing-references";
+import { enumGuard } from "./guards";
 
 export interface BriefingContextSignalDef {
   readonly description: string;
@@ -40,9 +41,7 @@ export const BRIEFING_CONTEXT_SIGNALS = {
   },
 } as const satisfies Record<BriefingContextSignalKind, BriefingContextSignalDef>;
 
-export function isBriefingContextSignalKind(value: string): value is BriefingContextSignalKind {
-  return Object.prototype.hasOwnProperty.call(BRIEFING_CONTEXT_SIGNALS, value);
-}
+export const isBriefingContextSignalKind = enumGuard(BRIEFING_CONTEXT_SIGNAL_KINDS);
 
 export const MAX_BRIEFING_SIGNAL_SUMMARY_LENGTH = 280;
 

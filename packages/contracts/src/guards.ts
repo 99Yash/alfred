@@ -107,6 +107,18 @@ export function enumGuard<const T extends readonly string[]>(
 }
 
 /**
+ * Make a guard from a closed table literal: `keyGuard(FACT_ONTOLOGY)` narrows to `FactKey`.
+ * Precondition (as for `typedKeys`): the runtime own keys are exactly the declared keys.
+ * It reads with `Object.hasOwn`, so `"toString"` and `"__proto__"` are not keys.
+ */
+export function keyGuard<T extends object>(
+  table: T,
+): (value: unknown) => value is Extract<keyof T, string> {
+  return (value): value is Extract<keyof T, string> =>
+    typeof value === "string" && Object.hasOwn(table, value);
+}
+
+/**
  * The lowercase `local@domain` from a `From:`-style header, or `null`.
  * Self-mail checks (`isSelfAuthored`, the retire backfills) use this.
  * A change here moves what they drop.
