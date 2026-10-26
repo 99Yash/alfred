@@ -296,7 +296,7 @@ const DEPLOYMENT_STATUSES = ["success", "failure", "pending"] as const;
 /** A deployment's verdict, from a Vercel dispatch or a verified Railway/Vercel pull. */
 export type DeploymentStatus = (typeof DEPLOYMENT_STATUSES)[number];
 
-/** Parses a stored `nativeState` string into the deployment vocabulary (`null` for anything else). */
+/** Narrows a stored `nativeState` value to a declared deployment status. */
 export const isDeploymentStatus = enumGuard(DEPLOYMENT_STATUSES);
 
 const DEPLOYMENT_STATE_CATEGORIES = {
