@@ -177,7 +177,8 @@ function pullRequestUrlKeys(text: string): ExtractedKey[] {
 }
 
 /**
- * - `about`: needs the provider sender gate (the provider `domains` list, with subdomains). Returns the mail's own PR or CI target, because
+ * - `about`: needs the provider sender gate (the provider `domains` list, with
+ *   subdomains). Returns the mail's own PR or CI target, because
  *   the briefing drops an item on it.
  * - `mentions`: every PR URL, no provenance. Not bare shas: a sha in prose is not a claim about a
  *   PR, and suppressing a real ask over a coincidence costs the user a message.

@@ -15,8 +15,8 @@ import {
   type ToolName,
 } from "@alfred/contracts";
 
-import { migrateRecordedToolNames, systemToolKernel } from "./tool-surface";
 import { uniqueToolNames } from "@alfred/assistant/tool-runtime";
+import { migrateRecordedToolNames, systemToolKernel } from "./tool-surface";
 
 export interface ToolSurfaceUsage {
   /** Non-kernel tools on the final surface. */

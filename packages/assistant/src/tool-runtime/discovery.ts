@@ -45,10 +45,8 @@ type AvailabilityTag =
   | { availability: "unavailable"; unavailableReason: string };
 
 export type ToolSearchCandidate =
-  | (ToolCandidateBase & {
-      /** A curated catalog hit, including `mcp.call` itself. */
-      ref?: never;
-    } & AvailabilityTag)
+  /** A curated catalog hit, including `mcp.call` itself. No ref: only a connected hit carries one. */
+  | (ToolCandidateBase & { ref?: never } & AvailabilityTag)
   | (ToolCandidateBase & {
       name: "mcp.call";
       /** A connected catalog hit; pass this ref's fields to mcp.call. */

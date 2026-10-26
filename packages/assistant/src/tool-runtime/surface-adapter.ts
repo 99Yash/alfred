@@ -29,8 +29,8 @@ const toolsRuntimeAdapter: ToolRuntimeAdapter = {
       case "exact":
         return registeredToolNames(source.names);
       case "legacy":
-        // Legacy surfaces never stored system tools as integration tools;
-        // `namesForIntegrations` includes them on purpose.
+        // A legacy checkpoint restores only the system kernel, not every system tool (#412,
+        // ADR-0053 amendment); `namesForIntegrations` includes them on purpose.
         return uniqueToolNames([
           ...requiredToolKernelNames(),
           ...integrationToolNames(
