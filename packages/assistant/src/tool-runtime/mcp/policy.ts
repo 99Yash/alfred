@@ -11,16 +11,11 @@ import type {
   McpRetryContract,
   ToolRiskTier,
 } from "@alfred/contracts";
-import { db, type DbTransaction } from "@alfred/db";
+import { db } from "@alfred/db";
 import { runAtomic, type DbRunner } from "@alfred/db/helpers";
-import { mcpConnections, mcpToolPolicy, type McpToolPolicyRow } from "@alfred/db/schemas";
+import { mcpToolPolicy, type McpToolPolicyRow } from "@alfred/db/schemas";
 import { and, desc, eq } from "drizzle-orm";
-import {
-  resolveMcpToolIdentity,
-  upsertToolPolicy,
-  type McpToolIdentityResolution,
-  type ResolveMcpToolIdentityInput,
-} from "./invocations";
+import { lockMcpReviewTarget, resolveMcpReviewTarget, upsertToolPolicy } from "./invocations";
 
 /** Review state of one `(connection, remoteName)` at a caller-named revision. */
 export type McpToolPolicyState =
@@ -41,52 +36,6 @@ export type McpToolPolicyClearState = Extract<
   McpToolPolicyState,
   { status: "unreviewed" | "catalog_stale" | "not_found" | "connection_missing" }
 >;
-
-type UnresolvedIdentity = Extract<McpToolIdentityResolution, { status: "unresolved" }>;
-
-/** A subtype of both write results, so a mutation can return it directly. */
-type McpToolPolicyUnresolvedState = Extract<
-  McpToolPolicyState,
-  { status: "catalog_stale" | "not_found" | "connection_missing" }
->;
-
-function identityInput(input: {
-  userId: string;
-  ref: ExternalToolRef;
-}): ResolveMcpToolIdentityInput {
-  return {
-    userId: input.userId,
-    connectionId: input.ref.connectionId,
-    remoteName: input.ref.remoteName,
-    catalogRevision: input.ref.catalogRevision,
-  };
-}
-
-function policyStateFromUnresolved(unresolved: UnresolvedIdentity): McpToolPolicyUnresolvedState {
-  switch (unresolved.reason) {
-    case "connection_missing":
-      return { status: "connection_missing" };
-    case "revision_stale":
-      return { status: "catalog_stale" };
-    case "descriptor_missing":
-      return { status: "not_found" };
-  }
-}
-
-/** Lock the owned connection row so the revision cannot move before the write. False if not owned. */
-async function lockOwnedConnection(
-  tx: DbTransaction,
-  userId: string,
-  connectionId: string,
-): Promise<boolean> {
-  const [row] = await tx
-    .select({ id: mcpConnections.id })
-    .from(mcpConnections)
-    .where(and(eq(mcpConnections.id, connectionId), eq(mcpConnections.userId, userId)))
-    .for("update");
-
-  return row !== undefined;
-}
 
 /** The latest review for the pair under any descriptor hash. Fills `drifted.previous`. */
 async function readLatestPairPolicy(
@@ -114,9 +63,9 @@ export async function readMcpToolPolicyState(
   input: { userId: string; ref: ExternalToolRef },
   runner: DbRunner = db(),
 ): Promise<McpToolPolicyState> {
-  const identity = await resolveMcpToolIdentity(identityInput(input), runner);
+  const identity = await resolveMcpReviewTarget(input, runner);
 
-  if (identity.status === "unresolved") return policyStateFromUnresolved(identity);
+  if (identity.status !== "resolved") return identity;
 
   if (identity.policy !== undefined) return { status: "reviewed", policy: identity.policy };
 
@@ -143,15 +92,9 @@ export async function reviewMcpToolPolicy(
   runner: DbRunner = db(),
 ): Promise<McpToolPolicyReviewState> {
   return runAtomic(runner, async (tx) => {
-    if (!(await lockOwnedConnection(tx, input.userId, input.ref.connectionId))) {
-      return { status: "connection_missing" };
-    }
+    const identity = await lockMcpReviewTarget(tx, input);
 
-    const identity = await resolveMcpToolIdentity(identityInput(input), tx);
-
-    if (identity.status === "unresolved") {
-      return policyStateFromUnresolved(identity);
-    }
+    if (identity.status !== "resolved") return identity;
 
     const policy = await upsertToolPolicy(
       {
@@ -183,15 +126,9 @@ export async function clearMcpToolPolicy(
   runner: DbRunner = db(),
 ): Promise<McpToolPolicyClearState> {
   return runAtomic(runner, async (tx) => {
-    if (!(await lockOwnedConnection(tx, input.userId, input.ref.connectionId))) {
-      return { status: "connection_missing" };
-    }
+    const identity = await lockMcpReviewTarget(tx, input);
 
-    const identity = await resolveMcpToolIdentity(identityInput(input), tx);
-
-    if (identity.status === "unresolved") {
-      return policyStateFromUnresolved(identity);
-    }
+    if (identity.status !== "resolved") return identity;
 
     await tx
       .delete(mcpToolPolicy)

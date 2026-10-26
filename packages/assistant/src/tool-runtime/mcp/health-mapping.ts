@@ -12,18 +12,15 @@ import {
   type McpHealthMapping,
   type McpHealthMappingDefinition,
 } from "@alfred/contracts";
-import { db, type DbTransaction } from "@alfred/db";
+import { db } from "@alfred/db";
 import { requireRow, runAtomic, type DbRunner } from "@alfred/db/helpers";
-import { mcpConnections, mcpHealthMapping, type McpHealthMappingRow } from "@alfred/db/schemas";
+import { mcpHealthMapping, type McpHealthMappingRow } from "@alfred/db/schemas";
 import { and, desc, eq } from "drizzle-orm";
 import {
   isReadOnlyMcpToolIdentity,
-  resolveMcpToolIdentity,
-  type McpToolIdentityResolution,
-  type ResolveMcpToolIdentityInput,
+  lockMcpReviewTarget,
+  resolveMcpReviewTarget,
 } from "./invocations";
-
-type UnresolvedIdentity = Extract<McpToolIdentityResolution, { status: "unresolved" }>;
 
 export type McpHealthMappingResolution =
   | { status: "reviewed"; mapping: McpHealthMapping }
@@ -52,48 +49,6 @@ export type McpHealthMappingClearState = Extract<
   McpHealthMappingResolution,
   { status: "unreviewed" | "catalog_stale" | "not_found" | "connection_missing" }
 >;
-
-type McpHealthMappingUnresolvedState = Extract<
-  McpHealthMappingResolution,
-  { status: "catalog_stale" | "not_found" | "connection_missing" }
->;
-
-function identityInput(input: {
-  userId: string;
-  ref: ExternalToolRef;
-}): ResolveMcpToolIdentityInput {
-  return {
-    userId: input.userId,
-    connectionId: input.ref.connectionId,
-    remoteName: input.ref.remoteName,
-    catalogRevision: input.ref.catalogRevision,
-  };
-}
-
-function stateFromUnresolved(identity: UnresolvedIdentity): McpHealthMappingUnresolvedState {
-  switch (identity.reason) {
-    case "connection_missing":
-      return { status: "connection_missing" };
-    case "revision_stale":
-      return { status: "catalog_stale" };
-    case "descriptor_missing":
-      return { status: "not_found" };
-  }
-}
-
-async function lockOwnedConnection(
-  tx: DbTransaction,
-  userId: string,
-  connectionId: string,
-): Promise<boolean> {
-  const [row] = await tx
-    .select({ id: mcpConnections.id })
-    .from(mcpConnections)
-    .where(and(eq(mcpConnections.id, connectionId), eq(mcpConnections.userId, userId)))
-    .for("update");
-
-  return row !== undefined;
-}
 
 async function readExactMapping(
   input: { userId: string; connectionId: string; remoteName: string; descriptorHash: string },
@@ -157,9 +112,9 @@ export async function readMcpHealthMappingState(
   input: { userId: string; ref: ExternalToolRef },
   runner: DbRunner = db(),
 ): Promise<McpHealthMappingResolution> {
-  const identity = await resolveMcpToolIdentity(identityInput(input), runner);
+  const identity = await resolveMcpReviewTarget(input, runner);
 
-  if (identity.status === "unresolved") return stateFromUnresolved(identity);
+  if (identity.status !== "resolved") return identity;
 
   if (!isReadOnlyMcpToolIdentity(identity)) return { status: "not_read_only" };
 
@@ -202,13 +157,9 @@ export async function reviewMcpHealthMapping(
   const definition = mcpHealthMappingDefinitionSchema.parse(input.definition);
 
   return runAtomic(runner, async (tx) => {
-    if (!(await lockOwnedConnection(tx, input.userId, input.ref.connectionId))) {
-      return { status: "connection_missing" };
-    }
+    const identity = await lockMcpReviewTarget(tx, input);
 
-    const identity = await resolveMcpToolIdentity(identityInput(input), tx);
-
-    if (identity.status === "unresolved") return stateFromUnresolved(identity);
+    if (identity.status !== "resolved") return identity;
 
     // The published descriptor decides read-only, not the owner's checkbox.
     // Built-in providers own their object state, so no MCP mapping for them.
@@ -278,13 +229,9 @@ export async function clearMcpHealthMapping(
   runner: DbRunner = db(),
 ): Promise<McpHealthMappingClearState> {
   return runAtomic(runner, async (tx) => {
-    if (!(await lockOwnedConnection(tx, input.userId, input.ref.connectionId))) {
-      return { status: "connection_missing" };
-    }
+    const identity = await lockMcpReviewTarget(tx, input);
 
-    const identity = await resolveMcpToolIdentity(identityInput(input), tx);
-
-    if (identity.status === "unresolved") return stateFromUnresolved(identity);
+    if (identity.status !== "resolved") return identity;
 
     await tx
       .delete(mcpHealthMapping)
