@@ -105,7 +105,7 @@ const LOCAL_CLASS_IS_ROLE_ACCOUNT = {
   group: { whole: false, edge: false, token: false },
 } satisfies Record<MatchedSenderClass, Record<LocalPartMatch, boolean>>;
 
-/** Group words that name a shared mailbox when they are the whole local part. */
+/** Group words that name a shared mailbox as any token (`team@`, `team-alpha@`, `sales+lead@`, `eng.team@`). Other group words do not (D5): `eng.priya@` is a person. */
 const SHARED_GROUP_MAILBOX_WORDS: ReadonlySet<SenderWord> = new Set(["team", "sales"]);
 
 /** A mail host (`bounce.acme.com`) or a no-reply host is not an employer domain. */
@@ -139,11 +139,7 @@ function isRoleServiceLocalPart(localPart: string): boolean {
 
   if (LOCAL_CLASS_IS_ROLE_ACCOUNT[classified.senderClass][classified.match]) return true;
 
-  return (
-    classified.match === "whole" &&
-    classified.word !== null &&
-    SHARED_GROUP_MAILBOX_WORDS.has(classified.word)
-  );
+  return classified.words.some((word) => SHARED_GROUP_MAILBOX_WORDS.has(word));
 }
 
 function isMailServiceHost(domain: string): boolean {

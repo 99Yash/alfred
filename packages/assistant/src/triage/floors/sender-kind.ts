@@ -1,10 +1,12 @@
 import {
-  isExactGroupLocal,
+  classifyLocalPart,
   isOwnershipCollabActivity,
   isPassiveCollabActivity,
   isServiceEvidenceCode,
   parseMailbox,
   type CollabActivityKind,
+  type LocalPartMatch,
+  type MatchedSenderClass,
   type ServiceEvidenceCode,
 } from "@alfred/contracts";
 import type { TriageClassification } from "../classify";
@@ -160,11 +162,23 @@ function senderKindFloorShouldDemoteCategory(
   return reason !== null;
 }
 
+/** Which sender classes lose the reply lane by address alone. Total: only an exact group envelope demotes. */
+const GROUP_ENVELOPE_LOCAL_CLASS = {
+  automated: { whole: false, edge: false, token: false },
+  role: { whole: false, edge: false, token: false },
+  group: { whole: true, edge: false, token: false },
+} satisfies Record<MatchedSenderClass, Record<LocalPartMatch, boolean>>;
+
 /** The whole local part is a group envelope (`team@`). `sam.all@` does not match. */
 function isGroupEnvelopeSender(sender: string | null | undefined): boolean {
   const mailbox = parseMailbox(sender);
 
-  return mailbox ? isExactGroupLocal(mailbox.localPart) : false;
+  if (!mailbox) return false;
+  const classified = classifyLocalPart(mailbox.localPart);
+
+  if (classified.senderClass === "none") return false;
+
+  return GROUP_ENVELOPE_LOCAL_CLASS[classified.senderClass][classified.match];
 }
 
 const COLLAB_STATE_TRANSITION_RE =

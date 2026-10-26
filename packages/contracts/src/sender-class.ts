@@ -91,12 +91,12 @@ export type LocalPartClass =
   | {
       readonly senderClass: MatchedSenderClass;
       readonly match: LocalPartMatch;
-      /** The table word for a whole or token match; `null` for an edge match. */
-      readonly word: SenderWord | null;
+      /** Every table word found as the whole local part or a token run. Empty for an edge match. */
+      readonly words: readonly SenderWord[];
     }
-  | { readonly senderClass: "none"; readonly match: null; readonly word: null };
+  | { readonly senderClass: "none"; readonly match: null; readonly words: readonly SenderWord[] };
 
-const NO_CLASS: LocalPartClass = { senderClass: "none", match: null, word: null };
+const NO_CLASS: LocalPartClass = { senderClass: "none", match: null, words: [] };
 
 const TOKEN_SEPARATOR_RE = /[._+-]/;
 
@@ -161,30 +161,36 @@ export function classifyLocalPart(localPart: string): LocalPartClass {
   const tokens = value.split(TOKEN_SEPARATOR_RE).filter(Boolean);
   const whole = tokens.length > 0 ? wordForRun(tokens) : null;
 
-  if (whole) return { senderClass: senderWordClass(whole), match: "whole", word: whole };
+  if (whole) return { senderClass: senderWordClass(whole), match: "whole", words: [whole] };
 
   if (AUTOMATED_PREFIX_RE.test(value) || SERVICE_WORD_SUFFIX_RE.test(value)) {
-    return { senderClass: "automated", match: "edge", word: null };
+    return { senderClass: "automated", match: "edge", words: [] };
   }
 
-  if (ROLE_PREFIX_RE.test(value)) return { senderClass: "role", match: "edge", word: null };
+  if (ROLE_PREFIX_RE.test(value)) return { senderClass: "role", match: "edge", words: [] };
 
-  let best: { readonly senderClass: MatchedSenderClass; readonly word: SenderWord } | null = null;
+  let best: MatchedSenderClass | null = null;
+  const words: SenderWord[] = [];
 
   for (let start = 0; start < tokens.length; start++) {
     for (let end = start + 1; end <= Math.min(tokens.length, start + MAX_GLUED_TOKENS); end++) {
       const word = wordForRun(tokens.slice(start, end));
 
       if (!word) continue;
+
       const senderClass = senderWordClass(word);
 
-      if (!best || TOKEN_CLASS_RANK[senderClass] < TOKEN_CLASS_RANK[best.senderClass]) {
-        best = { senderClass, word };
+      words.push(word);
+
+      if (!best || TOKEN_CLASS_RANK[senderClass] < TOKEN_CLASS_RANK[best]) {
+        best = senderClass;
       }
     }
   }
 
-  return best ? { ...best, match: "token" } : NO_CLASS;
+  if (!best) return NO_CLASS;
+
+  return { senderClass: best, match: "token", words: [...new Set(words)] };
 }
 
 /**
@@ -201,13 +207,6 @@ export function isGroupLocal(localPart: string): boolean {
 
       return word !== null && senderWordClass(word) === "group";
     });
-}
-
-/** The whole local part is a group word, no infix (#1187). `dev.patel@` is a person. */
-export function isExactGroupLocal(localPart: string): boolean {
-  const classified = classifyLocalPart(localPart);
-
-  return classified.senderClass === "group" && classified.match === "whole";
 }
 
 const FIRST_LAST_LOCAL_RE = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+$/i;

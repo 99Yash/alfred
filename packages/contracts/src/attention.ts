@@ -5,7 +5,7 @@
  */
 import { z } from "zod";
 import { parseMailbox } from "./domain";
-import { classifyLocalPart } from "./sender-class";
+import { classifyLocalPart, type MatchedSenderClass } from "./sender-class";
 import type { TriageCategory } from "./triage";
 
 // ─── Significance bucketing (ADR-0059) ───
@@ -134,10 +134,22 @@ export function normalizeSubjectForRecurrence(subject: string): string {
 // matches, at any position. `team@`, `info@`, and `support@` are often staffed,
 // so a role or group word does not match.
 
+/** Which sender classes read as bulk. Total: a new class fails to compile here. */
+const BULK_SENDER_CLASS = {
+  automated: true,
+  role: false,
+  group: false,
+} satisfies Record<MatchedSenderClass, boolean>;
+
 export function isLikelyBulkSender(from: string | null | undefined): boolean {
   const mailbox = parseMailbox(from);
 
-  return mailbox ? classifyLocalPart(mailbox.localPart).senderClass === "automated" : false;
+  if (!mailbox) return false;
+  const classified = classifyLocalPart(mailbox.localPart);
+
+  if (classified.senderClass === "none") return false;
+
+  return BULK_SENDER_CLASS[classified.senderClass];
 }
 
 // ─── Windowed item scoring (the cross-row recurrence pass) ───────────────────
