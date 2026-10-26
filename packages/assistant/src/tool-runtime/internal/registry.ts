@@ -297,7 +297,7 @@ export interface BoundToolCall {
   effectiveRiskTier: (ctx: ToolExecuteContext) => Promise<ToolRiskTier>;
   /**
    * See {@link LiveToolArgs.redactInput}. The input itself when the tool declares no redactor.
-   * The only value a trace sink or a staging row takes.
+   * The only value the trace sinks (`ToolSpanInput`, `DispatchRejectionInput`) take.
    */
   redactedInput: () => RedactedToolInput;
   /** See {@link LiveToolArgs.execute}. A throw is recorded by the dispatcher. */
