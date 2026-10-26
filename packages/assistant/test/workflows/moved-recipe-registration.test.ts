@@ -24,7 +24,8 @@ import type { Workflow, WorkflowInput } from "@alfred/assistant/execution";
  */
 describe("moved product recipes keep their identity at their owning module seam", () => {
   // `dedupKey` ignores the trigger, but `WorkflowInput` requires one. `createRun` parses
-  // `metadata` and `input` before a hook runs, so each sample holds an already-parsed value.
+  // `metadata` and `input` before a hook runs, so a sample for a recipe that declares a
+  // schema must hold that schema's output. The empty `{}` values are not parsed.
   const sampleBase: WorkflowInput = {
     userId: "u1",
     trigger: { kind: "manual" },
