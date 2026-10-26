@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { after, afterEach, describe, test } from "node:test";
 
 import { closeConnections } from "@alfred/db";
-import { getStringPath, parseIanaTimezone } from "@alfred/contracts";
+import { parseIanaTimezone } from "@alfred/contracts";
 import type { DispatchRejectionInput } from "@alfred/ai";
 import { z } from "zod";
 
@@ -15,6 +15,7 @@ import {
   clearToolRegistryForTests,
   liveTool,
   registerTool,
+  type BoundToolCall,
   type RegisteredTool,
   type ToolCallDispatchArgs,
 } from "@alfred/assistant/tool-runtime";
@@ -44,12 +45,15 @@ const redactingTool: RegisteredTool = liveTool({
   description: "test redacting tool",
   inputSchema: z.object({ url: z.string() }),
   execute: async () => null,
-  redactInput: (input: unknown) => {
-    const url = getStringPath(input, "url") ?? "";
-
-    return { url: url.replace(/token=[^&#]*/i, "token=[REDACTED]") };
-  },
+  redactInput: (input) => ({ url: input.url.replace(/token=[^&#]*/i, "token=[REDACTED]") }),
 });
+
+function boundRedactingCall(input: unknown): BoundToolCall {
+  const binding = redactingTool.bind(input);
+  assert.ok(binding.success, "the fixture input must parse");
+
+  return binding.call;
+}
 
 afterEach(() => {
   clearToolRegistryForTests();
@@ -88,8 +92,7 @@ describe("buildDispatchRejectionTraceInput", () => {
     const trace = buildDispatchRejectionTraceInput({
       dispatch: baseDispatch,
       toolName: "system.fetch_url",
-      tool: redactingTool,
-      input: { url: "https://example.com/?token=secret&page=2" },
+      call: boundRedactingCall({ url: "https://example.com/?token=secret&page=2" }),
       outcome: "rejected",
       reason: "rejected by user",
       startedAt,
@@ -106,8 +109,7 @@ describe("buildDispatchRejectionTraceInput", () => {
         input: { url: "https://example.com/?token=latest-dispatch" },
       },
       toolName: "system.fetch_url",
-      tool: redactingTool,
-      input: { url: "https://example.com/?token=stored-row" },
+      call: boundRedactingCall({ url: "https://example.com/?token=stored-row" }),
       outcome: "rejected",
       reason: "rejected by user",
       startedAt,

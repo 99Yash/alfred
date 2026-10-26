@@ -7,6 +7,7 @@ import { getTool } from "../../../src/tool-runtime/internal/registry";
 import { registerBuiltinTools } from "../../../src/tool-runtime/builtin-tools";
 import { toolExecuteContext } from "../../../src/tool-runtime/context";
 import type { Corpus, ModelFacingHit } from "@alfred/corpus";
+import { executeTool } from "../../support/execute-tool";
 
 describe("system.corpus_search", () => {
   const tool = (() => {
@@ -60,7 +61,7 @@ describe("system.corpus_search", () => {
       } satisfies Corpus,
     };
 
-    const result = await tool.execute({ query: "resume platform team" }, ctx);
+    const result = await executeTool(tool, { query: "resume platform team" }, ctx);
 
     // The tool passes no user: the bind in `toolExecuteContext` owns it.
     assert.deepEqual(seen, [{ query: "resume platform team" }]);
@@ -87,7 +88,7 @@ describe("system.corpus_search", () => {
       } satisfies Corpus,
     };
 
-    const result = await tool.execute({ query: "nothing matches" }, ctx);
+    const result = await executeTool(tool, { query: "nothing matches" }, ctx);
 
     assert.equal(getPath(result, "ok"), true);
     assert.deepEqual(getPath(result, "hits"), []);

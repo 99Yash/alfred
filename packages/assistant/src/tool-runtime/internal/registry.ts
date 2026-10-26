@@ -154,7 +154,7 @@ export interface LiveToolArgs<
    */
   refuseInput?: (input: z.infer<S>, ctx: ToolExecuteContext) => string | null;
   /** Receives parsed input. A throw is recorded by the dispatcher. */
-  // oxlint-disable-next-line anti-slop/no-unknown-returns -- a tool's `execute` result is free-form JSON unless a TOOL_OUTPUT_SCHEMAS entry parses it later.
+  // oxlint-disable-next-line anti-slop/no-unknown-returns -- a tool's `execute` result is free-form JSON; dispatch sanitizes it into a `JsonValue`.
   execute: (input: z.infer<S>, ctx: ToolExecuteContext) => Promise<unknown>;
   /**
    * Scrub secrets before the input reaches a trace or a staging row (#293).
@@ -163,13 +163,42 @@ export interface LiveToolArgs<
   redactInput?: (input: z.infer<S>) => z.infer<S>;
 }
 
+/**
+ * One call of one tool, after its input parsed. It holds the typed input, so each hook runs on
+ * the one parse that {@link RegisteredTool.bind} did. The registry is heterogeneous, so the
+ * input type is erased only at this interface, never inside a hook.
+ */
+export interface BoundToolCall {
+  tool: RegisteredTool;
+  /** The parsed input. The hashes, the scope check, and the staging row read it. */
+  input: unknown;
+  /** See {@link LiveToolArgs.refuseInput}. `null` when the tool declares no refusal. */
+  refusal: (ctx: ToolExecuteContext) => string | null;
+  /**
+   * The tier that the tool declares for this input: `resolveRiskTier`, else the static tier.
+   * Dispatch clamps an undeclared downgrade (ADR-0088).
+   */
+  declaredRiskTier: (ctx: ToolExecuteContext) => Promise<ToolRiskTier>;
+  /** See {@link LiveToolArgs.redactInput}. The input itself when the tool declares no redactor. */
+  // oxlint-disable-next-line anti-slop/no-unknown-returns -- the registry erases each tool's input type; the redacted input goes to the trace and the staging row as received.
+  redactedInput: () => unknown;
+  /** See {@link LiveToolArgs.execute}. A throw is recorded by the dispatcher. */
+  // oxlint-disable-next-line anti-slop/no-unknown-returns -- a tool's `execute` result is free-form JSON; dispatch sanitizes it into a `JsonValue`.
+  execute: (ctx: ToolExecuteContext) => Promise<unknown>;
+}
+
+/** The result of {@link RegisteredTool.bind}: a bound call, or the reason the input did not parse. */
+export type ToolInputBinding =
+  | { success: true; call: BoundToolCall }
+  | { success: false; error: z.ZodError };
+
 export interface RegisteredTool {
   name: ToolName;
   integration: IntegrationSlug;
   action: string;
   riskTier: ToolRiskTier;
-  /** See {@link LiveToolArgs.resolveRiskTier}. Erased to `unknown` at the registry boundary. */
-  resolveRiskTier?: (input: unknown, ctx: ToolExecuteContext) => Promise<ToolRiskTier>;
+  /** Whether the tool declares {@link LiveToolArgs.resolveRiskTier}, so its tier depends on input. */
+  resolvesRiskTier: boolean;
   /** See {@link LiveToolArgs.riskTierDowngradeReason}. */
   riskTierDowngradeReason?: string | undefined;
   /** See {@link ToolStagingPolicy}. Resolved from the optional declaration. */
@@ -184,13 +213,8 @@ export interface RegisteredTool {
   inputSchema: z.ZodType;
   /** Falls back to `inputSchema`, so it is always set. */
   modelInputSchema: z.ZodType;
-  /** See {@link LiveToolArgs.refuseInput}. Erased to `unknown` at the registry boundary. */
-  refuseInput?: (input: unknown, ctx: ToolExecuteContext) => string | null;
-  // oxlint-disable-next-line anti-slop/no-unknown-returns -- the registry erases each tool's `execute` result; it is free-form JSON unless a TOOL_OUTPUT_SCHEMAS entry parses it.
-  execute: (input: unknown, ctx: ToolExecuteContext) => Promise<unknown>;
-  /** See {@link LiveToolArgs.redactInput}. Erased to `unknown` at the registry boundary. */
-  // oxlint-disable-next-line anti-slop/no-unknown-returns -- the registry erases each tool's redacted input; it goes to the trace as received.
-  redactInput?: (input: unknown) => unknown;
+  /** Parse raw input through `inputSchema` one time. Every per-call hook is on the result. */
+  bind: (input: unknown) => ToolInputBinding;
 }
 
 function evaluateRunContextGates(
@@ -380,11 +404,12 @@ export function liveTool<
   const name = buildToolName(args.integration, args.action);
   const { redactInput, resolveRiskTier, refuseInput } = args;
 
-  return {
+  const tool: RegisteredTool = {
     name,
     integration: args.integration,
     action: args.action,
     riskTier: args.riskTier,
+    resolvesRiskTier: resolveRiskTier !== undefined,
     riskTierDowngradeReason: args.riskTierDowngradeReason,
     staging: args.staging ?? "staged",
     executionLane: args.executionLane,
@@ -401,32 +426,29 @@ export function liveTool<
     availability: args.availability,
     inputSchema: args.inputSchema,
     modelInputSchema: args.modelInputSchema ?? args.inputSchema,
-    execute: async (input, ctx) => {
-      const parsed = args.inputSchema.parse(input);
+    bind: (raw) => {
+      const parsed = args.inputSchema.safeParse(raw);
 
-      return args.execute(parsed, ctx);
+      if (!parsed.success) return { success: false, error: parsed.error };
+
+      const input = parsed.data;
+
+      return {
+        success: true,
+        call: {
+          tool,
+          input,
+          refusal: (ctx) => refuseInput?.(input, ctx) ?? null,
+          declaredRiskTier: (ctx) =>
+            resolveRiskTier ? resolveRiskTier(input, ctx) : Promise.resolve(args.riskTier),
+          redactedInput: () => (redactInput ? redactInput(input) : input),
+          execute: (ctx) => args.execute(input, ctx),
+        },
+      };
     },
-    ...(redactInput
-      ? {
-          // SAFETY: restores the erased generic S. Dispatch passes raw pre-parse
-          // input and catches a throw, so the redactor reads fields defensively.
-          // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- restores the erased generic S
-          redactInput: (input: unknown) => redactInput(input as z.infer<S>),
-        }
-      : {}),
-    ...(resolveRiskTier
-      ? {
-          resolveRiskTier: (input: unknown, ctx: ToolExecuteContext) =>
-            resolveRiskTier(args.inputSchema.parse(input), ctx),
-        }
-      : {}),
-    ...(refuseInput
-      ? {
-          refuseInput: (input: unknown, ctx: ToolExecuteContext) =>
-            refuseInput(args.inputSchema.parse(input), ctx),
-        }
-      : {}),
   };
+
+  return tool;
 }
 
 const REGISTRY = new Map<ToolName, RegisteredTool>();
@@ -456,7 +478,7 @@ export function registerTool(tool: RegisteredTool): void {
   }
 
   if (tool.riskTierDowngradeReason !== undefined) {
-    if (!tool.resolveRiskTier) {
+    if (!tool.resolvesRiskTier) {
       throw new Error(
         `[tools] '${tool.name}' declares riskTierDowngradeReason without resolveRiskTier`,
       );
@@ -471,10 +493,10 @@ export function registerTool(tool: RegisteredTool): void {
   // `toolRequiresApproval`: `policyMode === "gated" || riskTier === "high"`.
   if (tool.staging === "fast_path") {
     // A dynamic `resolveRiskTier` can return `high`.
-    if (tool.riskTier === "high" || tool.resolveRiskTier) {
+    if (tool.riskTier === "high" || tool.resolvesRiskTier) {
       throw new Error(
         `[tools] '${tool.name}' declares staging='fast_path' but can require approval ` +
-          `(riskTier='${tool.riskTier}'${tool.resolveRiskTier ? ", dynamic resolveRiskTier" : ""}) — ` +
+          `(riskTier='${tool.riskTier}'${tool.resolvesRiskTier ? ", dynamic resolveRiskTier" : ""}) — ` +
           "the fast path skips the approval gate",
       );
     }

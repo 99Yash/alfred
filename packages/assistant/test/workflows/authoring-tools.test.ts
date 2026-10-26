@@ -19,6 +19,7 @@ import { definitionFromProposal } from "@alfred/assistant/automation/authoring";
 import { refreshWorkflowActivationProposal } from "@alfred/assistant/automation/revisions";
 import { createRun } from "@alfred/assistant/execution/service";
 import { dbBackedSkip } from "../support/db-backed";
+import { executeTool } from "../support/execute-tool";
 
 const SKIP = dbBackedSkip("database");
 
@@ -168,7 +169,8 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
     assert.ok(activateTool);
     const userId = await seedUser(userIds);
 
-    const authorResult = await authorTool.execute(
+    const authorResult = await executeTool(
+      authorTool,
       {
         name: "Weekday inbox brief",
         description: "A concise inbox brief.",
@@ -197,7 +199,8 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
 
     assert.ok(recoverTool);
 
-    const recoveredResult = await recoverTool.execute(
+    const recoveredResult = await executeTool(
+      recoverTool,
       { workflowId: proposal.workflowId, revisionId: proposal.baseRevisionId },
       context(userId, "author-run"),
     );
@@ -219,7 +222,8 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
       },
     };
 
-    const activateResult = await activateTool.execute(
+    const activateResult = await executeTool(
+      activateTool,
       editedActivation,
       context(userId, "author-run"),
     );
@@ -228,7 +232,8 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
     assert.equal(activateResult.status, "activated");
     assert.equal(activateResult.revisedFromApprovalEdit, true);
 
-    const retriedActivation = await activateTool.execute(
+    const retriedActivation = await executeTool(
+      activateTool,
       editedActivation,
       context(userId, "author-run"),
     );
@@ -314,7 +319,8 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
     assert.ok(activateTool);
     const userId = await seedUser(userIds);
 
-    const authorResult = await authorTool.execute(
+    const authorResult = await executeTool(
+      authorTool,
       {
         name: "Manual review",
         brief: "Review the current inbox when I ask.",
@@ -329,7 +335,8 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
 
     const proposal = activateWorkflowInputSchema.parse(getPath(authorResult, "activationProposal"));
 
-    const result = await activateTool.execute(
+    const result = await executeTool(
+      activateTool,
       { ...proposal, baseContentHash: "sha256:stale" },
       context(userId, "stale-activate-run"),
     );
@@ -351,7 +358,8 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
     assert.ok(activateTool);
     const userId = await seedUser(userIds);
 
-    const authorResult = await authorTool.execute(
+    const authorResult = await executeTool(
+      authorTool,
       {
         name: "Editable morning check",
         brief: "Check the current time every weekday morning.",
@@ -389,7 +397,8 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
       "Every weekday at 9:00 AM (Asia/Kolkata)",
     );
 
-    const activated = await activateTool.execute(
+    const activated = await executeTool(
+      activateTool,
       refreshed.input,
       context(userId, "refresh-activate-run"),
     );
@@ -404,7 +413,8 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
     assert.ok(activateTool);
     const userId = await seedUser(userIds);
 
-    const authorResult = await authorTool.execute(
+    const authorResult = await executeTool(
+      authorTool,
       {
         name: "Protected proposal",
         brief: "Check the current time on request.",
@@ -419,7 +429,8 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
 
     const proposal = activateWorkflowInputSchema.parse(getPath(authorResult, "activationProposal"));
 
-    const result = await activateTool.execute(
+    const result = await executeTool(
+      activateTool,
       {
         ...proposal,
         authoringProposal: { ...proposal.authoringProposal, intent: "Misleading intent." },
@@ -445,10 +456,11 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
       externalEffects: [] as string[],
     };
 
-    const first = await authorTool.execute(input, context(userId, "assumption-author-1"));
+    const first = await executeTool(authorTool, input, context(userId, "assumption-author-1"));
     const firstProposal = activateWorkflowInputSchema.parse(getPath(first, "activationProposal"));
 
-    const second = await authorTool.execute(
+    const second = await executeTool(
+      authorTool,
       {
         ...input,
         workflowId: firstProposal.workflowId,
@@ -469,7 +481,8 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
     assert.ok(authorTool);
     const userId = await seedUser(userIds);
 
-    const result = await authorTool.execute(
+    const result = await executeTool(
+      authorTool,
       {
         name: "Disconnected inbox review",
         brief: "Review Gmail.",

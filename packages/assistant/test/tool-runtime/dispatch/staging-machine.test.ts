@@ -175,13 +175,28 @@ function registerDoubles(): void {
       }),
     }),
   );
+  // Keep the real schema and tier hooks. Replace only the provider call.
   registerTool({
     ...calendarCreateEventTool,
-    execute: async (input) => {
-      executeCount += 1;
-      lastExecutedInput = input;
+    bind: (raw) => {
+      const binding = calendarCreateEventTool.bind(raw);
 
-      return { ok: true };
+      if (!binding.success) return binding;
+
+      const { call } = binding;
+
+      return {
+        success: true,
+        call: {
+          ...call,
+          execute: async () => {
+            executeCount += 1;
+            lastExecutedInput = call.input;
+
+            return { ok: true };
+          },
+        },
+      };
     },
   });
 }

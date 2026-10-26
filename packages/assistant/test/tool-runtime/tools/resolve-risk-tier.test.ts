@@ -4,15 +4,22 @@ import { z } from "zod";
 import { parseIanaTimezone, type ToolRiskTier } from "@alfred/contracts";
 
 import { toolExecuteContext } from "@alfred/assistant/tool-runtime/context";
-import { liveTool } from "@alfred/assistant/tool-runtime";
+import { liveTool, type BoundToolCall, type RegisteredTool } from "@alfred/assistant/tool-runtime";
 import { resolveEffectiveRiskTier } from "../../../src/tool-runtime/internal/dispatch";
 import { asContractViolation } from "../../support/contract-violation";
 
 /**
  * The registry half of `resolveRiskTier`. `test/mcp/risk.test.ts` covers the resolver.
- * The wrapper re-parses input through `inputSchema`, so the resolver sees the validated shape.
- * `mcp.call` is only a valid name. The coercing schema makes the re-parse visible.
+ * `bind` parses input through `inputSchema`, so the resolver sees the validated shape.
+ * `mcp.call` is only a valid name. The coercing schema makes the parse visible.
  */
+function bound(tool: RegisteredTool, input: unknown): BoundToolCall {
+  const binding = tool.bind(input);
+  assert.ok(binding.success, "the fixture input must parse");
+
+  return binding.call;
+}
+
 describe("liveTool resolveRiskTier wiring", () => {
   const ctx = toolExecuteContext({
     runId: "run_1",
@@ -40,7 +47,7 @@ describe("liveTool resolveRiskTier wiring", () => {
     assert.equal(tool.riskTier, "high");
   });
 
-  test("a tool without the hook exposes no resolveRiskTier (static fallback)", () => {
+  test("a tool without the hook does not resolve its tier from input (static fallback)", () => {
     const tool = liveTool({
       integration: "mcp",
       action: "call",
@@ -50,10 +57,10 @@ describe("liveTool resolveRiskTier wiring", () => {
       execute: async () => ({ ok: true }),
     });
 
-    assert.equal(tool.resolveRiskTier, undefined);
+    assert.equal(tool.resolvesRiskTier, false);
   });
 
-  test("re-parses raw input through inputSchema before the resolver sees it", async () => {
+  test("parses raw input through inputSchema before the resolver sees it", async () => {
     let seen: unknown;
 
     const tool = liveTool({
@@ -70,7 +77,7 @@ describe("liveTool resolveRiskTier wiring", () => {
       execute: async () => ({ ok: true }),
     });
 
-    const tier = await tool.resolveRiskTier?.({ n: "3" }, ctx);
+    const tier = await bound(tool, { n: "3" }).declaredRiskTier(ctx);
     assert.equal(tier, "low");
     assert.deepEqual(seen, { n: 3 }, "the resolver receives the parsed (coerced) input");
   });
@@ -86,7 +93,7 @@ describe("liveTool resolveRiskTier wiring", () => {
       execute: async () => ({ ok: true }),
     });
 
-    assert.equal(await resolveEffectiveRiskTier(tool, { n: 3 }, ctx), "high");
+    assert.equal(await resolveEffectiveRiskTier(bound(tool, { n: 3 }), ctx), "high");
   });
 
   test("allows a declared reviewed downgrade", async () => {
@@ -101,7 +108,7 @@ describe("liveTool resolveRiskTier wiring", () => {
       execute: async () => ({ ok: true }),
     });
 
-    assert.equal(await resolveEffectiveRiskTier(tool, { n: 3 }, ctx), "low");
+    assert.equal(await resolveEffectiveRiskTier(bound(tool, { n: 3 }), ctx), "low");
   });
 
   test("an invalid resolver result fails closed to the static tier", async () => {
@@ -117,6 +124,6 @@ describe("liveTool resolveRiskTier wiring", () => {
       execute: async () => ({ ok: true }),
     });
 
-    assert.equal(await resolveEffectiveRiskTier(tool, { n: 3 }, ctx), "high");
+    assert.equal(await resolveEffectiveRiskTier(bound(tool, { n: 3 }), ctx), "high");
   });
 });
