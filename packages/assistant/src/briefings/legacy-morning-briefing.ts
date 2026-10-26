@@ -10,7 +10,12 @@ import { type Workflow } from "@alfred/assistant/execution";
 import { send } from "@alfred/assistant/delivery";
 import { inZone, parseLocalDateKey } from "@alfred/assistant/time";
 import { composeBriefing } from "./compose";
-import { gatherBriefingWithSuppressionAudit, type BriefingInstructionSuppression } from "./gather";
+import {
+  gatherBriefingWithSuppressionAudit,
+  instructionSuppressionLogPart,
+  type BriefingInstructionSuppression,
+} from "./gather";
+import { gatherCounts } from "./read";
 import { settings } from "@alfred/assistant/settings";
 import { resolveBriefingPreferences } from "./preferences";
 import { renderBriefingEmailHtml } from "./references";
@@ -475,25 +480,4 @@ function formatDateLabel(briefingDate: string, timezone: IanaTimezone): string {
     month: "long",
     day: "numeric",
   }).format(noonUtc);
-}
-
-interface GatheredCounts {
-  email: number;
-  activity: number;
-  meetings: number;
-}
-
-function gatherCounts(gather: BriefingGather): GatheredCounts {
-  return {
-    email: Object.values(gather.email.categories).reduce((sum, items) => sum + items.length, 0),
-    activity: gather.integration_activity.items.length,
-    meetings: gather.calendar?.events.length ?? 0,
-  };
-}
-
-function instructionSuppressionLogPart(items: readonly BriefingInstructionSuppression[]): string {
-  if (items.length === 0) return " instruction_suppressions=0";
-  const factIds = [...new Set(items.map((item) => item.factId))].join(",");
-
-  return ` instruction_suppressions=${items.length} fact_ids=${factIds}`;
 }

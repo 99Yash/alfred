@@ -147,6 +147,15 @@ export interface BriefingInstructionSuppression {
   effect: "exclude_briefing_priority";
 }
 
+export function instructionSuppressionLogPart(
+  items: readonly BriefingInstructionSuppression[],
+): string {
+  if (items.length === 0) return " instruction_suppressions=0";
+  const factIds = [...new Set(items.map((item) => item.factId))].join(",");
+
+  return ` instruction_suppressions=${items.length} fact_ids=${factIds}`;
+}
+
 export interface GatherBriefingDigestArgs {
   userId: string;
   /** Defaults to 24h before `windowEnd`. */

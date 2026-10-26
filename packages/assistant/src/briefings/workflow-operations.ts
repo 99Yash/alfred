@@ -1,8 +1,12 @@
-import { gatherBriefingWithSuppressionAudit, type BriefingInstructionSuppression } from "./gather";
+import {
+  gatherBriefingWithSuppressionAudit,
+  instructionSuppressionLogPart,
+  type BriefingInstructionSuppression,
+} from "./gather";
 import { inZone, parseLocalDateKey } from "@alfred/assistant/time";
 import { settings } from "@alfred/assistant/settings";
 import { resolveBriefingPreferences } from "./preferences";
-import { fetchLatestWatermark, isQuietMorning } from "./read";
+import { fetchLatestWatermark, gatherCounts, isQuietMorning } from "./read";
 import {
   beginBriefing,
   markBriefingComposed,
@@ -516,21 +520,6 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
   };
 }
 
-/** Counts for the suppression gate. The raw `email` count is only the fallback for `demandingEmailCount` (#259). */
-interface GatheredCounts {
-  email: number;
-  activity: number;
-  meetings: number;
-}
-
-function gatherCounts(gather: BriefingGather): GatheredCounts {
-  return {
-    email: Object.values(gather.email.categories).reduce((sum, items) => sum + items.length, 0),
-    activity: gather.integration_activity.items.length,
-    meetings: gather.calendar?.events.length ?? 0,
-  };
-}
-
 function uniqueStrings(values: readonly string[]): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
@@ -544,13 +533,6 @@ function uniqueStrings(values: readonly string[]): string[] {
   }
 
   return out;
-}
-
-function instructionSuppressionLogPart(items: readonly BriefingInstructionSuppression[]): string {
-  if (items.length === 0) return " instruction_suppressions=0";
-  const factIds = [...new Set(items.map((item) => item.factId))].join(",");
-
-  return ` instruction_suppressions=${items.length} fact_ids=${factIds}`;
 }
 
 function pickFirstName(name: string | null): string | null {
