@@ -1,15 +1,24 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { PassthroughResult } from "@alfred/contracts";
-import { passthroughTruncationTelemetry } from "../../../../src/tool-runtime/internal/tools/passthrough";
+import {
+  passthroughSpanFacts,
+  passthroughTruncationTelemetry,
+} from "../../../../src/tool-runtime/internal/tools/passthrough";
 
 /**
  * Turns a clipped passthrough result's `handleEligible` marker into a span signal (ADR-0074).
- * Fires only on a truncated `http` outcome.
- * It reads every tool's result as `unknown`, so it must never throw.
+ * Fires only on a truncated `http` outcome. The tool's typed output feeds `passthroughSpanFacts`,
+ * so the telemetry reads no `unknown`.
  */
 
 const RUN_ID = "run_thermo_1";
+
+function telemetryFor(toolName: string, result: PassthroughResult) {
+  const facts = passthroughSpanFacts(result).passthroughTruncation;
+
+  return facts === undefined ? null : passthroughTruncationTelemetry(toolName, RUN_ID, facts);
+}
 
 function truncatedResult(): PassthroughResult {
   return {
@@ -29,9 +38,9 @@ function truncatedResult(): PassthroughResult {
   };
 }
 
-describe("passthroughTruncationTelemetry", () => {
+describe("passthroughSpanFacts + passthroughTruncationTelemetry", () => {
   test("emits the full L0-trigger signal for a truncated http success", () => {
-    const t = passthroughTruncationTelemetry("github.request", RUN_ID, truncatedResult());
+    const t = telemetryFor("github.request", truncatedResult());
     assert.ok(t, "a truncated http result must produce a signal");
     assert.equal(t.handleEligible, true);
     assert.equal(t.integration, "github");
@@ -61,7 +70,7 @@ describe("passthroughTruncationTelemetry", () => {
       },
     };
 
-    const t = passthroughTruncationTelemetry("vercel.request", RUN_ID, result);
+    const t = telemetryFor("vercel.request", result);
     assert.ok(t);
     assert.equal(t.succeeded, false);
     assert.equal(t.integration, "vercel");
@@ -70,7 +79,7 @@ describe("passthroughTruncationTelemetry", () => {
 
   test("returns null for a non-truncated http result", () => {
     const result: PassthroughResult = { outcome: "http", status: 200, succeeded: true, body: [] };
-    assert.equal(passthroughTruncationTelemetry("github.request", RUN_ID, result), null);
+    assert.equal(telemetryFor("github.request", result), null);
   });
 
   test("returns null for rejected / transport outcomes", () => {
@@ -87,38 +96,7 @@ describe("passthroughTruncationTelemetry", () => {
       message: "timed out",
     };
 
-    assert.equal(passthroughTruncationTelemetry("github.request", RUN_ID, rejected), null);
-    assert.equal(passthroughTruncationTelemetry("github.request", RUN_ID, transport), null);
-  });
-
-  test("returns null (never throws) for a non-passthrough tool result", () => {
-    assert.equal(passthroughTruncationTelemetry("github.search", RUN_ID, { items: [] }), null);
-    assert.equal(passthroughTruncationTelemetry("system.load_tool", RUN_ID, "done"), null);
-    assert.equal(passthroughTruncationTelemetry("github.request", RUN_ID, null), null);
-  });
-
-  test("drops malformed truncation causes without throwing", () => {
-    const result = {
-      outcome: "http",
-      status: 200,
-      succeeded: true,
-      body: [],
-      truncation: {
-        handleEligible: true,
-        originalBytesApprox: 100,
-        returnedBytes: 10,
-        causes: [
-          { kind: "array_items", droppedApprox: 5 },
-          { kind: "bogus_kind", droppedApprox: 9 },
-          { kind: "string_chars" }, // missing droppedApprox
-          "not an object",
-        ],
-      },
-    };
-
-    const t = passthroughTruncationTelemetry("vercel.request", RUN_ID, result);
-    assert.ok(t);
-    assert.equal(t.causes.length, 1, "only the well-formed cause survives");
-    assert.equal(t.droppedArrayItemsApprox, 5);
+    assert.equal(telemetryFor("github.request", rejected), null);
+    assert.equal(telemetryFor("github.request", transport), null);
   });
 });

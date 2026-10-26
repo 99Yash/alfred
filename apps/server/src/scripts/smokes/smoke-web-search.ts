@@ -34,7 +34,7 @@ async function main(): Promise<void> {
 
   if (!binding.success) throw binding.error;
 
-  const output = await binding.call.execute(
+  const { output } = await binding.call.execute(
     toolExecuteContext({
       runId: "smoke-run",
       scratchpadRunId: "smoke-run",

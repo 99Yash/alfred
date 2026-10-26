@@ -85,6 +85,10 @@ export const actionStagings = pgTable(
     // True when the sanitizer stripped NUL or lone surrogates from `executeResult` (ADR-0070).
     // A replay must repeat the "may be incomplete" notice.
     executeSanitized: boolean("execute_sanitized").notNull().default(false),
+    // The typed side data the tool returned beside `executeResult` (a surface activation, an
+    // artifact id). Written in the same update, so a replay returns what the live call did.
+    // NULL when the tool declares none. The tool runtime parses it on replay.
+    executeEffects: jsonb("execute_effects").$type<JsonValue>(),
     executeError: jsonb("execute_error").$type<JsonValue>(),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     notifyAfterAt: timestamp("notify_after_at", { withTimezone: true }),

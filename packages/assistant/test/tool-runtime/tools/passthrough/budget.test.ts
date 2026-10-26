@@ -35,6 +35,7 @@ describe("a budget-exhausted result is VISIBLE, model-facing, not a failure", ()
     kind: "executed",
     stagingId: "as_test",
     toolResult: passthroughBudgetExhausted(PASSTHROUGH_PER_RUN_CEILING),
+    effects: {},
     editedByUser: false,
   };
 

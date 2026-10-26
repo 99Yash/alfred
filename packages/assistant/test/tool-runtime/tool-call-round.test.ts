@@ -9,6 +9,7 @@ import {
   type ProposedToolCall,
   type ToolCallRun,
   type ToolRuntimeAdapter,
+  type ToolEffects,
 } from "@alfred/assistant/tool-runtime";
 import { _setToolRuntimeSpanStarterForTests } from "../../src/tool-runtime/internal/runtime-spans";
 
@@ -35,11 +36,16 @@ function call(toolCallId: string, toolName: string): ProposedToolCall {
   return { toolCallId, toolName, input: {} };
 }
 
-function executed(result: unknown, sanitized = false): ToolCallDispatchResult {
+function executed(
+  result: unknown,
+  sanitized = false,
+  effects: ToolEffects = {},
+): ToolCallDispatchResult {
   return {
     kind: "executed",
     stagingId: null,
     toolResult: result,
+    effects,
     editedByUser: false,
     ...(sanitized ? { sanitized: true } : {}),
   };
@@ -269,7 +275,12 @@ describe("executeToolCallRound", () => {
           },
         },
       ],
-      ["load", executed({ ok: true, name: "calendar.list_events" })],
+      [
+        "load",
+        executed({ ok: true, name: "calendar.list_events" }, false, {
+          activation: { kind: "load", name: "calendar.list_events" },
+        }),
+      ],
     ]);
 
     await withAdapters(

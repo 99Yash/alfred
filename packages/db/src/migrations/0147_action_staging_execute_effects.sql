@@ -1,0 +1,1 @@
+ALTER TABLE "action_stagings" ADD COLUMN "execute_effects" jsonb;

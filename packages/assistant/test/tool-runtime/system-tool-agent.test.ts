@@ -92,6 +92,7 @@ describe("system-tool agent seam with a registered adapter", () => {
       kind: "executed" as const,
       stagingId: null,
       toolResult: childResult,
+      effects: {},
       editedByUser: false as const,
     };
 
@@ -148,6 +149,7 @@ describe("system-tool agent seam with a registered adapter", () => {
           kind: "executed",
           stagingId: null,
           toolResult: null,
+          effects: {},
           editedByUser: false,
         }),
       scratchpad: () => stubScratchpad,

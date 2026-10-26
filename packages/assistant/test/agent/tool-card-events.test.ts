@@ -31,6 +31,7 @@ function completion(
     execution: "completed",
     sanitized: false,
     nonExecution: false,
+    effects: {},
     ...options,
   };
 }

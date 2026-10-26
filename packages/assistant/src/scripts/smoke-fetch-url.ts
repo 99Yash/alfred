@@ -89,7 +89,7 @@ async function main(): Promise<void> {
 
     if (!binding.success) throw binding.error;
 
-    const result = await binding.call.execute(context);
+    const { output: result } = await binding.call.execute(context);
     const ok = getPath(result, "ok") === true;
     const reason = getStringPath(result, "reason");
     const text = getStringPath(result, "text");

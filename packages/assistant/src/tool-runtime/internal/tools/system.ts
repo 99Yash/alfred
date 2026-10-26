@@ -64,7 +64,7 @@ import {
 } from "@alfred/assistant/tool-runtime";
 import { inZone } from "@alfred/assistant/time";
 import { redactCredentialUrl, runFetchUrl } from "./fetch-url";
-import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
+import { liveTool, NO_TOOL_EFFECTS, type RegisteredTool } from "@alfred/assistant/tool-runtime";
 import {
   resolveExactToolLoad,
   searchAvailableTools,
@@ -138,6 +138,18 @@ export const systemTools: readonly RegisteredTool[] = [
         throw error;
       }
     },
+    // The round folds the best hit the run may call. Test `name`, not `ref`: the curated
+    // `mcp.call` entry has no ref. Search also ranks unavailable matches, so skip them.
+    // An empty fold stores NULL, the same as a row from before the effects column.
+    effects: (output) => {
+      const names = output.candidates.flatMap((candidate) =>
+        candidate.availability === "available" && candidate.name !== "mcp.call"
+          ? [candidate.name]
+          : [],
+      );
+
+      return names.length === 0 ? NO_TOOL_EFFECTS : { activation: { kind: "search_fold", names } };
+    },
   }),
   liveTool({
     integration: "system",
@@ -197,6 +209,8 @@ export const systemTools: readonly RegisteredTool[] = [
         throw error;
       }
     },
+    effects: (output) =>
+      output.ok ? { activation: { kind: "load", name: output.name } } : NO_TOOL_EFFECTS,
   }),
   liveTool({
     integration: "system",
@@ -650,6 +664,7 @@ export const systemTools: readonly RegisteredTool[] = [
     availability: { requiresLiveChat: true },
     inputSchema: createArtifactInput,
     execute: async (input, ctx) => await createArtifact(artifactWriteContext(ctx), input),
+    effects: (output) => ({ artifactId: output.artifactId }),
   }),
   liveTool({
     integration: "system",
@@ -661,6 +676,7 @@ export const systemTools: readonly RegisteredTool[] = [
     availability: { requiresLiveChat: true },
     inputSchema: appendArtifactPageInput,
     execute: async (input, ctx) => await appendArtifactPage(artifactWriteContext(ctx), input),
+    effects: (output) => (output.ok ? { artifactId: output.artifactId } : NO_TOOL_EFFECTS),
   }),
   liveTool({
     integration: "system",
@@ -673,6 +689,7 @@ export const systemTools: readonly RegisteredTool[] = [
     availability: { requiresLiveChat: true },
     inputSchema: appendArtifactSectionInput,
     execute: async (input, ctx) => await appendArtifactSection(artifactWriteContext(ctx), input),
+    effects: (output) => (output.ok ? { artifactId: output.artifactId } : NO_TOOL_EFFECTS),
   }),
   liveTool({
     integration: "system",
@@ -685,5 +702,6 @@ export const systemTools: readonly RegisteredTool[] = [
     availability: { requiresLiveChat: true },
     inputSchema: updateArtifactInput,
     execute: async (input, ctx) => await updateArtifact(artifactWriteContext(ctx), input),
+    effects: (output) => (output.ok ? { artifactId: output.artifactId } : NO_TOOL_EFFECTS),
   }),
 ];

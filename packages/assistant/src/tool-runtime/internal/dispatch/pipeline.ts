@@ -85,10 +85,14 @@ import { toolExecuteContext } from "../../context";
 import { toolCallWouldGate, toolRequiresApproval } from "../../approval-rule";
 import {
   getTool,
+  NO_TOOL_EFFECTS,
   resolveToolAvailability,
+  toolEffectsSchema,
   type BoundToolCall,
   type RegisteredTool,
+  type ToolEffects,
   type ToolExecuteContext,
+  type ToolExecution,
 } from "../registry";
 import { readIntegrationAvailability } from "@alfred/assistant/connections";
 import { settings } from "@alfred/assistant/settings";
@@ -917,6 +921,7 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
         kind: "executed",
         stagingId: row.id,
         toolResult: row.executeResult,
+        effects: readPersistedToolEffects(row),
         editedByUser: row.decidedInput !== null,
         sanitized: row.executeSanitized,
         ...(row.decidedInput !== null ? { executedInput: row.decidedInput } : {}),
@@ -1214,14 +1219,30 @@ function actionTokens(action: string): string[] {
 }
 
 /**
+ * The effects the live call committed with its result. A row from before the column reads NULL.
+ * A row that does not parse loses only its effects: the replay still returns the result.
+ */
+function readPersistedToolEffects(row: Pick<StagingRow, "id" | "executeEffects">): ToolEffects {
+  if (row.executeEffects === null) return NO_TOOL_EFFECTS;
+  const parsed = toolEffectsSchema.safeParse(row.executeEffects);
+
+  if (parsed.success) return parsed.data;
+  logger.warn(
+    { event: "tool_effects_unparseable", stagingId: row.id, issues: parsed.error.issues },
+    "Stored tool effects do not parse; replaying without them",
+  );
+
+  return NO_TOOL_EFFECTS;
+}
+
+/**
  * Run a tool inside a `tool:<name>` Langfuse span. I/O is recorded only when
  * `LANGFUSE_CAPTURE_IO` is on. Errors close the span and rethrow.
  */
 async function executeToolWithSpan(
   call: BoundToolCall,
   ctx: ToolExecuteContext,
-  // oxlint-disable-next-line anti-slop/no-unknown-returns -- a tool's `execute` result is free-form JSON; the callers sanitize it into a `JsonValue`.
-): Promise<unknown> {
+): Promise<ToolExecution> {
   const { tool } = call;
 
   const span = toolSpanStarter({
@@ -1237,21 +1258,22 @@ async function executeToolWithSpan(
   });
 
   try {
-    const result = await call.execute(ctx);
-    // ADR-0074: record passthrough truncation in span metadata, which is kept even with I/O capture off.
-    const thermometer = passthroughTruncationTelemetry(tool.name, ctx.runId, result);
+    const execution = await call.execute(ctx);
+    const truncation = execution.spanFacts.passthroughTruncation;
 
-    if (thermometer) {
+    // ADR-0074: record passthrough truncation in span metadata, which is kept even with I/O capture off.
+    if (truncation) {
+      const thermometer = passthroughTruncationTelemetry(tool.name, ctx.runId, truncation);
       logger.info(
         { event: "passthrough_truncation", ...thermometer },
         "Passthrough result truncated",
       );
-      span.success(result, { thermometer: toJsonValue(thermometer) });
+      span.success(execution.output, { thermometer: toJsonValue(thermometer) });
     } else {
-      span.success(result);
+      span.success(execution.output);
     }
 
-    return result;
+    return execution;
   } catch (err) {
     span.error(safeErrorDiagnostic(err));
     throw err;
@@ -1365,6 +1387,7 @@ async function guardPassthroughBudget(
     outcome: "succeeded",
     result: persistedEnvelope,
     sanitized: false,
+    effects: NO_TOOL_EFFECTS,
     executedAt: new Date(),
   });
 
@@ -1372,6 +1395,7 @@ async function guardPassthroughBudget(
     kind: "executed",
     stagingId: row.id,
     toolResult: persistedEnvelope,
+    effects: NO_TOOL_EFFECTS,
     editedByUser: false,
   };
 }
@@ -1419,29 +1443,23 @@ async function executeAndCommit(
     };
   }
 
-  let result: unknown;
-  let error: PublicAppError | undefined;
+  let execution: ToolExecution;
 
   try {
     // The MCP broker mints its ledger row 1:1 with this staging row.
-    result = await executeToolWithSpan(call, { ...ctx, stagingId: row.id });
+    execution = await executeToolWithSpan(call, { ...ctx, stagingId: row.id });
   } catch (err) {
     // ADR-0070 §1.3: map to a public error, so raw exception text never persists.
-    error = toPublicAppError(err);
+    const error = toPublicAppError(err);
     logger.error(
       { err, event: "tool_execution_failed", toolName: call.tool.name, runId: ctx.runId },
       error.message,
     );
-  }
-
-  const now = new Date();
-
-  if (error) {
     await commitAndPoke(row, ctx, {
       status: "failed",
       outcome: "failed",
       error,
-      executedAt: now,
+      executedAt: new Date(),
     });
 
     return {
@@ -1452,8 +1470,10 @@ async function executeAndCommit(
     };
   }
 
+  const now = new Date();
+
   // ADR-0070 §1.1: sanitize before the value reaches the row or the transcript.
-  const sanitizedResult = sanitizeToolResult(result);
+  const sanitizedResult = sanitizeToolResult(execution.output);
   const persistedResult = toJsonValue(sanitizedResult.value);
   const didSanitize = sanitizedResult.removed > 0 || sanitizedResult.collisions > 0;
 
@@ -1472,6 +1492,7 @@ async function executeAndCommit(
     outcome,
     result: persistedResult,
     sanitized: didSanitize,
+    effects: execution.effects,
     executedAt: now,
   });
 
@@ -1479,6 +1500,7 @@ async function executeAndCommit(
     kind: "executed",
     stagingId: row.id,
     toolResult: persistedResult,
+    effects: execution.effects,
     editedByUser: opts.editedByUser,
     sanitized: didSanitize,
     ...(opts.executedInput !== undefined ? { executedInput: opts.executedInput } : {}),
@@ -1492,9 +1514,9 @@ async function executeFastPath(
   const { tool } = call;
 
   try {
-    const result = await executeToolWithSpan(call, ctx);
+    const execution = await executeToolWithSpan(call, ctx);
     // ADR-0070 §1.1: the fast path result also reaches the transcript.
-    const sanitized = sanitizeToolResult(result);
+    const sanitized = sanitizeToolResult(execution.output);
     const jsonResult = toJsonValue(sanitized.value);
     const didSanitize = sanitized.removed > 0 || sanitized.collisions > 0;
 
@@ -1510,6 +1532,7 @@ async function executeFastPath(
       kind: "executed",
       stagingId: null,
       toolResult: jsonResult,
+      effects: execution.effects,
       editedByUser: false,
       sanitized: didSanitize,
     };

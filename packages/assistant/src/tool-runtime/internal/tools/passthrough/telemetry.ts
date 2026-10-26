@@ -4,12 +4,12 @@
  */
 
 import {
-  enumGuard,
   integrationFromToolName,
-  isRecord,
   isToolName,
+  type PassthroughResult,
   type PassthroughTruncation,
 } from "@alfred/contracts";
+import type { ToolSpanFacts } from "../../registry";
 
 export interface PassthroughTruncationTelemetry {
   handleEligible: true;
@@ -28,48 +28,22 @@ export interface PassthroughTruncationTelemetry {
   causes: PassthroughTruncation["causes"];
 }
 
-const TRUNCATION_CAUSE_KINDS = ["string_chars", "array_items", "body_bytes"] as const;
+/** Span facts for a passthrough tool: the truncation of an `http` outcome, if any. */
+export function passthroughSpanFacts(output: PassthroughResult): ToolSpanFacts {
+  if (output.outcome !== "http" || output.truncation === undefined) return {};
 
-const isTruncationCauseKind = enumGuard(TRUNCATION_CAUSE_KINDS);
-
-function isFiniteNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value);
+  return {
+    passthroughTruncation: { truncation: output.truncation, succeeded: output.succeeded },
+  };
 }
 
-function readCauses(value: unknown): PassthroughTruncation["causes"] {
-  if (!Array.isArray(value)) return [];
-  const causes: PassthroughTruncation["causes"] = [];
-
-  for (const entry of value) {
-    if (!isRecord(entry)) continue;
-    const { kind, droppedApprox } = entry;
-
-    if (!isTruncationCauseKind(kind)) continue;
-
-    if (!isFiniteNumber(droppedApprox)) continue;
-    causes.push({ kind, droppedApprox });
-  }
-
-  return causes;
-}
-
-/** `null` unless the result is a truncated passthrough `http` outcome. Reads only through guards. */
 export function passthroughTruncationTelemetry(
   toolName: string,
   runId: string,
-  result: unknown,
-): PassthroughTruncationTelemetry | null {
-  if (!isRecord(result) || result.outcome !== "http") return null;
-  const { truncation, succeeded } = result;
-
-  if (!isRecord(truncation) || truncation.handleEligible !== true) return null;
-
-  const causes = readCauses(truncation.causes);
-  const returnedBytes = isFiniteNumber(truncation.returnedBytes) ? truncation.returnedBytes : 0;
-
-  const originalBytesApprox = isFiniteNumber(truncation.originalBytesApprox)
-    ? truncation.originalBytesApprox
-    : 0;
+  facts: NonNullable<ToolSpanFacts["passthroughTruncation"]>,
+): PassthroughTruncationTelemetry {
+  const { truncation, succeeded } = facts;
+  const { causes, returnedBytes, originalBytesApprox } = truncation;
 
   const droppedByKind = (target: string): number =>
     causes.reduce((sum, cause) => (cause.kind === target ? sum + cause.droppedApprox : sum), 0);
@@ -79,7 +53,7 @@ export function passthroughTruncationTelemetry(
     integration: integrationFromToolNameSafe(toolName),
     toolName,
     runId,
-    succeeded: succeeded === true,
+    succeeded,
     returnedBytes,
     originalBytesApprox,
     droppedBytesApprox: Math.max(0, originalBytesApprox - returnedBytes),

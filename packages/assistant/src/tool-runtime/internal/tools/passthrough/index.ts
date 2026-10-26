@@ -25,4 +25,4 @@ export {
   PASSTHROUGH_PER_RUN_CEILING,
 } from "./budget";
 
-export { passthroughTruncationTelemetry } from "./telemetry";
+export { passthroughSpanFacts, passthroughTruncationTelemetry } from "./telemetry";

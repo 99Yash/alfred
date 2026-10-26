@@ -208,6 +208,7 @@ describe("runtime adapter lifecycle", () => {
             kind: "executed",
             stagingId: null,
             toolResult: null,
+            effects: {},
             editedByUser: false,
           }),
         scratchpad: () => ({

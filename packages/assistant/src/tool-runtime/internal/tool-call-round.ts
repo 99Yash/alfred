@@ -1,4 +1,4 @@
-import { getPath, getStringPath, isRecord } from "@alfred/contracts";
+import { isRecord } from "@alfred/contracts";
 import type { AgentTranscriptMessage, ToolName } from "@alfred/contracts";
 
 import type {
@@ -8,6 +8,7 @@ import type {
   ToolSurfaceSource,
 } from "../index";
 import type { ToolCallDispatchResult, ToolCallRoundAdapter } from "./adapter";
+import type { ToolEffects } from "./registry";
 import { completedToolCall, toolResultMessage } from "./result-routing";
 import {
   recordRoundToolActivation,
@@ -101,28 +102,24 @@ export async function runToolCallRound<Call extends ProposedToolCall>(
 
       if (result.kind === "inactive_tool") reissue = true;
 
-      const activation = SURFACE_ACTIVATIONS.get(call.toolName);
       let routed = result;
 
-      if (activation !== undefined && result.kind === "executed") {
+      if (result.kind === "executed") {
         const before = activeNames;
-        const name = activation.activate(result.toolResult, input.run);
+        const activation = surfaceActivation(result.effects.activation, input.run);
 
-        activeNames = foldActivation(activeNames, name, restoreSurface);
+        activeNames = foldActivation(activeNames, activation?.name, restoreSurface);
 
         // `restoreSurface` drops a name it cannot resolve, so mark only a name that is active now.
-        if (name !== undefined && activation.loadedNote !== undefined) {
-          const loaded = activeNames.find((active) => active === name);
+        if (activation?.loadSource === "search_fold" && isRecord(result.toolResult)) {
+          const loaded = activeNames.find((active) => active === activation.name);
 
-          if (loaded !== undefined && isRecord(result.toolResult)) {
-            routed = {
-              ...result,
-              toolResult: { ...result.toolResult, ...activation.loadedNote(loaded) },
-            };
+          if (loaded !== undefined) {
+            routed = { ...result, toolResult: { ...result.toolResult, ...loadedNote(loaded) } };
           }
         }
 
-        if (activation.loadSource !== null) {
+        if (activation?.loadSource) {
           for (const active of activeNames) {
             if (!before.includes(active)) {
               recordRoundToolActivation(input.run, active, activation.loadSource);
@@ -201,9 +198,6 @@ async function dispatchGatedConcurrent<Call extends ProposedToolCall>(
   return results;
 }
 
-/** Reads a tool name to activate from a result. `restoreSurface` validates it. */
-type SurfaceActivator = (result: unknown, run: ToolCallRun) => string | undefined;
-
 /** The fields the round adds to a result whose activation folded a tool in. */
 interface LoadedNote {
   loaded: ToolName;
@@ -211,75 +205,52 @@ interface LoadedNote {
 }
 
 /**
- * `loadSource` is `null` when the tool's handler records its own load span.
- * `loadedNote` names the folded tool on the result. Without it, the model cannot
- * tell which candidate is active and loads it again.
+ * Names the folded tool on a search result. Without it, the model cannot tell which candidate
+ * is active and loads it again.
  */
-interface SurfaceActivation {
-  activate: SurfaceActivator;
-  loadSource: RoundToolLoadSource | null;
-  loadedNote?: (name: ToolName) => LoadedNote;
+function loadedNote(name: ToolName): LoadedNote {
+  return {
+    loaded: name,
+    message: `${name} is loaded. Call it directly on your next turn; do not load it.`,
+  };
 }
 
 /**
- * The tools whose result changes the next turn's surface. Search folds its best
- * runnable curated hit in, which saves the model a load round-trip.
- * Surface membership is not an authority boundary: dispatch still gates each call.
+ * The tool an activation folds into the next turn's surface. A search fold saves the model a
+ * load round-trip. `loadSource` is `null` for a load: its handler records its own `model_load`
+ * span. Surface membership is not an authority boundary: dispatch still gates each call.
  */
-const SURFACE_ACTIVATIONS: ReadonlyMap<string, SurfaceActivation> = new Map([
-  [
-    "system.load_tool",
-    {
-      // The `system.load_tool` handler records its own `model_load` span.
-      loadSource: null,
-      activate: (result) =>
-        isRecord(result) && result.ok === true ? getStringPath(result, "name") : undefined,
-    },
-  ],
-  [
-    "system.search_tools",
-    {
-      loadSource: "search_fold",
-      loadedNote: (name) => ({
-        loaded: name,
-        message: `${name} is loaded. Call it directly on your next turn; do not load it.`,
-      }),
-      activate: (result, run) => {
-        const candidates = getPath(result, "candidates");
+function surfaceActivation(
+  activation: ToolEffects["activation"],
+  run: ToolCallRun,
+): { name: ToolName; loadSource: RoundToolLoadSource | null } | undefined {
+  switch (activation?.kind) {
+    case undefined:
+      return undefined;
+    case "load":
+      return { name: activation.name, loadSource: null };
+    case "search_fold": {
+      // An absent envelope means unrestricted.
+      const name = activation.names.find(
+        (candidate) =>
+          run.allowedTools === undefined ||
+          run.allowedTools.some((allowed) => allowed === candidate),
+      );
 
-        if (!Array.isArray(candidates)) return undefined;
+      return name === undefined ? undefined : { name, loadSource: "search_fold" };
+    }
 
-        for (const candidate of candidates) {
-          if (!isRecord(candidate)) continue;
+    default: {
+      const unhandled: never = activation;
 
-          const name = getStringPath(candidate, "name");
-
-          // Test `name`, not `ref`: the curated `mcp.call` entry has no ref.
-          if (name === undefined || name === "mcp.call") continue;
-
-          // Search also ranks unavailable matches, so skip them.
-          if (getStringPath(candidate, "availability") !== "available") continue;
-
-          // An absent envelope means unrestricted.
-          if (
-            run.allowedTools !== undefined &&
-            !run.allowedTools.some((allowed) => allowed === name)
-          ) {
-            continue;
-          }
-
-          return name;
-        }
-
-        return undefined;
-      },
-    },
-  ],
-]);
+      throw new Error(`[tool-call-round] unhandled activation '${JSON.stringify(unhandled)}'`);
+    }
+  }
+}
 
 function foldActivation(
   activeNames: readonly ToolName[],
-  name: string | undefined,
+  name: ToolName | undefined,
   restoreSurface: RestoreSurface,
 ): ToolName[] {
   if (name === undefined) return [...activeNames];

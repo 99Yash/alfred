@@ -9,6 +9,8 @@ import type {
   IanaTimezone,
   IntegrationAvailabilitySnapshot,
   IntegrationSlug,
+  PassthroughResult,
+  PassthroughTruncation,
   RiskTierCounts,
   ToolName,
   ToolRunContext,
@@ -26,6 +28,7 @@ import {
   isLoadableIntegrationSlug,
   isSupportedPassthroughSlug,
   joinToolInput,
+  toolNameSchema,
 } from "@alfred/contracts";
 // Type-only: the values pull `@alfred/db` into every tool declaration. `../context` binds them.
 import type { Integrations } from "@alfred/integrations";
@@ -37,6 +40,7 @@ import {
   questionToolInput,
 } from "../question-contract";
 import { deriveToolDiscovery, type ResolvedDiscovery } from "./metadata-defaults";
+import { passthroughSpanFacts } from "./tools/passthrough/telemetry";
 
 export interface ToolDiscoveryMetadata {
   /** Defaults to the humanized action slug. */
@@ -121,16 +125,54 @@ export type ToolExecuteContextFields = Omit<ToolExecuteContext, "integrations" |
 /** The context that a `requiresLiveChat: true` tool's `execute` receives. */
 export type LiveChatToolExecuteContext = ToolExecuteContext & { chat: ChatTurnAddress };
 
+/**
+ * The typed side data a call hands back beside its model-facing output. Dispatch persists it with
+ * the result in one write, so a replay returns what the live call did. Nothing reads an effect
+ * from the output.
+ */
+export const toolEffectsSchema = z.object({
+  /** A tool the round folds into the next turn's surface. */
+  activation: z
+    .discriminatedUnion("kind", [
+      z.object({ kind: z.literal("load"), name: toolNameSchema }),
+      // Ranked, available, non-`mcp.call` hits. The round applies `run.allowedTools`.
+      z.object({ kind: z.literal("search_fold"), names: z.array(toolNameSchema) }),
+    ])
+    .optional(),
+  /** The artifact an `artifact_mutation` call wrote. */
+  artifactId: z.string().min(1).optional(),
+});
+
+export type ToolEffects = Readonly<z.infer<typeof toolEffectsSchema>>;
+
+export const NO_TOOL_EFFECTS: ToolEffects = Object.freeze({});
+
+/** Live-only facts for the call's span. Never persisted, never replayed. */
+export interface ToolSpanFacts {
+  passthroughTruncation?: { truncation: PassthroughTruncation; succeeded: boolean };
+}
+
+/** What a bound call returns. `output` is free-form; dispatch sanitizes it into a `JsonValue`. */
+export interface ToolExecution {
+  output: unknown;
+  effects: ToolEffects;
+  spanFacts: ToolSpanFacts;
+}
+
 type ExecuteContextFor<L extends boolean> = [L] extends [true]
   ? LiveChatToolExecuteContext
   : ToolExecuteContext;
 
-/** `L` is the literal `requiresLiveChat` flag, so a live-chat tool's `execute` gets `ctx.chat`. */
-export interface LiveToolArgs<
+/**
+ * The shared tool declaration: every field whose meaning and type are the same
+ * for a passthrough tool and any other tool. The two `liveTool` arms extend it
+ * and declare only `availability`, `execute`, and `effects` themselves. It takes
+ * no `L`: no shared field uses the live-chat literal.
+ */
+export interface ToolArgsCommon<
   I extends IntegrationSlug,
   A extends ActionSlug<I> & string,
   S extends z.ZodType,
-  L extends boolean = false,
 > {
   integration: I;
   action: A;
@@ -160,7 +202,6 @@ export interface LiveToolArgs<
   policyGateWaiver?: string;
   description: string;
   discovery?: ToolDiscoveryMetadata;
-  availability?: ToolAvailabilityMetadata & { requiresLiveChat?: L };
   inputSchema: S;
   /**
    * The narrower schema the model sees, for a field only the runtime writes
@@ -173,14 +214,63 @@ export interface LiveToolArgs<
    * Must be side-effect free and must not throw. The rule's owner supplies the text.
    */
   refuseInput?: (input: z.infer<S>, ctx: ToolExecuteContext) => string | null;
-  /** Receives parsed input. A throw is recorded by the dispatcher. */
-  // oxlint-disable-next-line anti-slop/no-unknown-returns -- a tool's `execute` result is free-form JSON; dispatch sanitizes it into a `JsonValue`.
-  execute: (input: z.infer<S>, ctx: ExecuteContextFor<L>) => Promise<unknown>;
   /**
    * Scrub secrets before the input reaches a trace or a staging row (#293).
    * Must be pure and keep the shape. The hash and `execute` see the raw input.
    */
   redactInput?: (input: z.infer<S>) => z.infer<S>;
+}
+
+/**
+ * `L` is the literal `requiresLiveChat` flag, so a live-chat tool's `execute` gets `ctx.chat`.
+ * `O` is the output `execute` returns, so `effects` reads it typed. Declare it
+ * after `execute`: TypeScript infers `O` from the first of them.
+ *
+ * A passthrough tool cannot use this interface: `passthrough` is `never` here, so
+ * `availability: { passthrough: true }` is a compile error. Declare it with
+ * {@link PassthroughToolArgs} instead, whose `execute` must return the
+ * `runRestPassthrough` envelope and whose span facts `bind()` derives.
+ */
+export interface LiveToolArgs<
+  I extends IntegrationSlug,
+  A extends ActionSlug<I> & string,
+  S extends z.ZodType,
+  L extends boolean = false,
+  O = unknown,
+> extends ToolArgsCommon<I, A, S> {
+  availability?: ToolAvailabilityMetadata & { requiresLiveChat?: L; passthrough?: never };
+  /** Receives parsed input. A throw is recorded by the dispatcher. */
+  execute: (input: z.infer<S>, ctx: ExecuteContextFor<L>) => Promise<O>;
+  /**
+   * The side data a consumer acts on (see {@link ToolEffects}). Pure. Runs once on the live
+   * output; a replay reads the persisted copy.
+   */
+  effects?: (output: O) => ToolEffects;
+}
+
+/**
+ * The args for a read-only passthrough tool (ADR-0074). Extends
+ * {@link ToolArgsCommon} with the three fields that differ:
+ * `availability.passthrough` is `true`, so `execute` must return the
+ * `runRestPassthrough` envelope and `bind()` derives the truncation span facts
+ * from it. There is no per-tool hook to forget. A shared base by `extends`
+ * keeps the `liveTool` overload check relating `L`; an `Omit` of the args
+ * would break it (TS2394).
+ */
+export interface PassthroughToolArgs<
+  I extends IntegrationSlug,
+  A extends ActionSlug<I> & string,
+  S extends z.ZodType,
+  L extends boolean = false,
+> extends ToolArgsCommon<I, A, S> {
+  availability: ToolAvailabilityMetadata & { requiresLiveChat?: L; passthrough: true };
+  /** Receives parsed input. A throw is recorded by the dispatcher. */
+  execute: (input: z.infer<S>, ctx: ExecuteContextFor<L>) => Promise<PassthroughResult>;
+  /**
+   * The side data a consumer acts on (see {@link ToolEffects}). Pure. Runs once on the live
+   * output; a replay reads the persisted copy.
+   */
+  effects?: (output: PassthroughResult) => ToolEffects;
 }
 
 /**
@@ -203,8 +293,7 @@ export interface BoundToolCall {
   // oxlint-disable-next-line anti-slop/no-unknown-returns -- the registry erases each tool's input type; the redacted input goes to the trace and the staging row as received.
   redactedInput: () => unknown;
   /** See {@link LiveToolArgs.execute}. A throw is recorded by the dispatcher. */
-  // oxlint-disable-next-line anti-slop/no-unknown-returns -- a tool's `execute` result is free-form JSON; dispatch sanitizes it into a `JsonValue`.
-  execute: (ctx: ToolExecuteContext) => Promise<unknown>;
+  execute: (ctx: ToolExecuteContext) => Promise<ToolExecution>;
 }
 
 /** The result of {@link RegisteredTool.bind}: a bound call, or the reason the input did not parse. */
@@ -417,19 +506,43 @@ export function evaluateToolCatalog(
   return out;
 }
 
+/**
+ * Whether these args declare the passthrough tier. Narrowing through
+ * `availability?.passthrough === true` stops at `availability`, so the union of the two
+ * `liveTool` arms needs this predicate to reach the passthrough arm.
+ */
+function isPassthroughToolArgs<
+  I extends IntegrationSlug,
+  A extends ActionSlug<I> & string,
+  S extends z.ZodType,
+  O,
+>(
+  args: LiveToolArgs<I, A, S, boolean, O> | PassthroughToolArgs<I, A, S, boolean>,
+): args is PassthroughToolArgs<I, A, S, boolean> {
+  return args.availability?.passthrough === true;
+}
+
 /** Build a registry entry. Call `registerTool` at boot to register it. */
 export function liveTool<
   I extends IntegrationSlug,
   A extends ActionSlug<I> & string,
   S extends z.ZodType,
   L extends boolean = false,
->(args: LiveToolArgs<I, A, S, L>): RegisteredTool;
+>(args: PassthroughToolArgs<I, A, S, L>): RegisteredTool;
+export function liveTool<
+  I extends IntegrationSlug,
+  A extends ActionSlug<I> & string,
+  S extends z.ZodType,
+  L extends boolean = false,
+  O = unknown,
+>(args: LiveToolArgs<I, A, S, L, O>): RegisteredTool;
 // `L = boolean` resolves `execute` to the plain context, so the body needs no cast.
 export function liveTool<
   I extends IntegrationSlug,
   A extends ActionSlug<I> & string,
   S extends z.ZodType,
->(args: LiveToolArgs<I, A, S, boolean>): RegisteredTool {
+  O,
+>(args: LiveToolArgs<I, A, S, boolean, O> | PassthroughToolArgs<I, A, S, boolean>): RegisteredTool {
   const name = buildToolName(args.integration, args.action);
   const { redactInput, resolveRiskTier, refuseInput } = args;
 
@@ -463,6 +576,30 @@ export function liveTool<
 
       const input = parsed.data;
 
+      // Effects and span facts come from the raw typed output, one time, before dispatch
+      // sanitizes it. The predicate narrows `args` to the passthrough arm, so `output` is
+      // the `runRestPassthrough` envelope and the ADR-0074 truncation facts derive here
+      // with no per-tool hook.
+      const runExecution = async (ctx: ToolExecuteContext): Promise<ToolExecution> => {
+        if (isPassthroughToolArgs(args)) {
+          const output = await args.execute(input, ctx);
+
+          return {
+            output,
+            effects: args.effects?.(output) ?? NO_TOOL_EFFECTS,
+            spanFacts: passthroughSpanFacts(output),
+          };
+        }
+
+        const output = await args.execute(input, ctx);
+
+        return {
+          output,
+          effects: args.effects?.(output) ?? NO_TOOL_EFFECTS,
+          spanFacts: {},
+        };
+      };
+
       return {
         success: true,
         call: {
@@ -472,8 +609,10 @@ export function liveTool<
           declaredRiskTier: (ctx) =>
             resolveRiskTier ? resolveRiskTier(input, ctx) : Promise.resolve(args.riskTier),
           redactedInput: () => (redactInput ? redactInput(input) : input),
-          execute: (ctx) => {
-            if (args.availability?.requiresLiveChat !== true) return args.execute(input, ctx);
+          execute: async (ctx) => {
+            if (args.availability?.requiresLiveChat !== true) {
+              return runExecution(ctx);
+            }
 
             const { chat } = ctx;
 
@@ -481,7 +620,7 @@ export function liveTool<
             // sets `interaction` and `chat` together. A direct call or a builder that splits them gets here.
             if (!chat) throw new Error(`[tools] '${name}' requires a live chat turn`);
 
-            return args.execute(input, { ...ctx, chat });
+            return runExecution({ ...ctx, chat });
           },
         },
       };

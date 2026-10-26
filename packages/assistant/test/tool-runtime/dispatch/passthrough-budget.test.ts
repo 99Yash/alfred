@@ -134,7 +134,7 @@ describe("passthrough per-run ceiling (DB-backed)", { skip: SKIP }, () => {
         execute: async () => {
           executeCount += 1;
 
-          return { outcome: "http", status: 200, succeeded: true, body: [], call: executeCount };
+          return { outcome: "http", status: 200, succeeded: true, body: [] };
         },
       }),
     );

@@ -348,6 +348,7 @@ export function runStagingStoreContract(
         outcome: "succeeded",
         result: { ok: true },
         sanitized: true,
+        effects: {},
         executedAt,
       });
 
@@ -375,6 +376,7 @@ export function runStagingStoreContract(
         outcome: "succeeded",
         result: undefined,
         sanitized: false,
+        effects: {},
         executedAt: new Date(),
       });
 
@@ -394,6 +396,7 @@ export function runStagingStoreContract(
           outcome: "succeeded",
           result: { ok: true },
           sanitized: false,
+          effects: {},
           executedAt: new Date(),
         }),
         true,
@@ -404,6 +407,7 @@ export function runStagingStoreContract(
           outcome: "unknown",
           result: { status: "unknown" },
           sanitized: false,
+          effects: {},
           executedAt: new Date(),
         }),
         false,
@@ -517,6 +521,7 @@ export function runStagingStoreContract(
         outcome: "unknown",
         result: { status: "unknown", retry: "blocked", message: "may have landed" },
         sanitized: false,
+        effects: {},
         executedAt: new Date(),
       });
 
@@ -544,6 +549,7 @@ export function runStagingStoreContract(
         outcome: "unknown",
         result: null,
         sanitized: false,
+        effects: {},
         executedAt: new Date(),
       });
 

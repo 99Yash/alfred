@@ -1,4 +1,5 @@
 import {
+  NO_TOOL_EFFECTS,
   registerSystemToolAgentAdapter,
   type AwaitSubAgentDispatchResult,
   type JoinChildRunRequest,
@@ -18,6 +19,7 @@ async function resolveAwaitSubAgent(
       kind: "executed",
       stagingId: null,
       toolResult: join.outcome,
+      effects: NO_TOOL_EFFECTS,
       editedByUser: false,
     };
   }

@@ -9,7 +9,6 @@ import {
 import { composeAgentInstructions } from "@alfred/ai/voice";
 import { ARTIFACT_DESIGN_PROMPT } from "@alfred/artifacts-design";
 import {
-  getStringPath,
   isNonEmptyString,
   parseIanaTimezone,
   type AgentTranscriptMessage,
@@ -850,13 +849,8 @@ const dispatchToolsStep: Step<ChatRunState> = {
           } = outcome;
 
           // A live artifact stream is keyed by toolCallId; this lets it adopt the synced row.
-          const artifactId = (() => {
-            if (!mutatesArtifact || completion.execution !== "completed") return undefined;
-
-            const id = getStringPath(completion.result, "artifactId");
-
-            return isNonEmptyString(id) ? id : undefined;
-          })();
+          // Only an executed artifact tool declares it, so no lane check is needed.
+          const { artifactId } = completion.effects;
 
           state.toolCallsLog.push({
             toolCallId: call.toolCallId,
