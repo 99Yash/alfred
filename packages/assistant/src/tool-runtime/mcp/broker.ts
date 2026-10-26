@@ -6,7 +6,6 @@
  */
 
 import {
-  isBuiltInObjectStateProvider,
   mcpCallInput,
   mcpHealthMappingDefinitionSchema,
   type McpCallInput,
@@ -331,11 +330,7 @@ async function readHealthMapping(input: McpHealthReadInput) {
 
   const definition = mcpHealthMappingDefinitionSchema.safeParse(row.definition);
 
-  if (!definition.success || isBuiltInObjectStateProvider(definition.data.identityProvider)) {
-    return null;
-  }
-
-  return definition.data;
+  return definition.success ? definition.data : null;
 }
 
 /** Reserve a health read in the same invocation ledger as every other MCP call. */

@@ -7,7 +7,7 @@ import { z } from "zod";
 import { enumGuard } from "./guards";
 import type { CatalogSlug } from "./integrations";
 import { LOOP_ENTITY_PROVIDERS } from "./loop-key";
-import { OBJECT_STATE_CATEGORIES } from "./integration-objects";
+import { OBJECT_STATE_CATEGORIES, isBuiltInObjectStateProvider } from "./integration-objects";
 import { typedKeys } from "./records";
 import { TOOL_RISK_TIERS } from "./tools";
 import { jsonObjectSchema, jsonValueSchema } from "./user-model";
@@ -725,17 +725,23 @@ const mcpHealthStateMappingSchema = z
   .strict();
 
 /**
+ * Loop providers an MCP health mapping may name. Not `issue`: that is the fallback for any sender,
+ * so a human email could trigger the fold. Not a built-in object-state provider: its own reader
+ * stays authoritative (ADR-0062).
+ */
+const MCP_HEALTH_IDENTITY_PROVIDERS = LOOP_ENTITY_PROVIDERS.filter(
+  (provider) => provider !== "issue" && !isBuiltInObjectStateProvider(provider),
+);
+
+/**
  * `itemsPath` finds an array; field paths read from each item.
  * `stateMappings` match tokens exactly and case-sensitively. An unmapped token changes nothing.
  */
 export const mcpHealthMappingDefinitionSchema = z
   .object({
     itemsPath: mcpHealthMappingPathSchema,
-    /**
-     * The loop-key provider this mapping answers for.
-     * Not `issue`: that is the fallback for any sender, so a human email could trigger the fold.
-     */
-    identityProvider: z.enum(LOOP_ENTITY_PROVIDERS).exclude(["issue"]),
+    /** The loop-key provider this mapping answers for. */
+    identityProvider: z.enum(MCP_HEALTH_IDENTITY_PROVIDERS),
     fields: z
       .object({
         identity: mcpHealthMappingFieldPathSchema,
