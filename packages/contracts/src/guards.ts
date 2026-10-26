@@ -48,6 +48,16 @@ export function toStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
 }
 
+/** The value if it is a non-empty string, else `undefined`. Unlike `getStringPath`, `""` reads as absent. */
+export function toNonEmptyString(value: unknown): string | undefined {
+  return isNonEmptyString(value) ? value : undefined;
+}
+
+/** The value if it is a finite number, else `undefined`. `NaN` and `Infinity` read as absent. */
+export function toFiniteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
 /**
  * Read a nested key through plain objects. `undefined` if a link is missing. Never throws.
  * Narrow the `unknown` result at the leaf.

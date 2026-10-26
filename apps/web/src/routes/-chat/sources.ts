@@ -1,5 +1,9 @@
-import { getStringPath, isNonEmptyString } from "@alfred/contracts";
-import { asRecord, parseJsonRecord } from "~/lib/json-record";
+import {
+  getStringPath,
+  isNonEmptyString,
+  jsonObjectSchema,
+  parseJsonWith,
+} from "@alfred/contracts";
 import { domainOf } from "~/lib/favicon";
 import type { ToolCallView } from "./tool-call-presentation";
 
@@ -28,11 +32,10 @@ export function toSource(citation: unknown): Source | null {
     return { label: domain, faviconDomain: domain, href: citation };
   }
 
-  const record = asRecord(citation);
-  const href = getStringPath(record, "url");
+  const href = getStringPath(citation, "url");
 
   if (!href) return null;
-  const title = getStringPath(record, "title")?.trim() ?? "";
+  const title = getStringPath(citation, "title")?.trim() ?? "";
   const hostFallback = domainOf(href);
 
   return {
@@ -48,7 +51,7 @@ export function collectSources(tools: ToolCallView[]): Source[] {
 
   for (const tool of tools) {
     if (tool.status !== "succeeded") continue;
-    const result = parseJsonRecord(tool.resultPreview);
+    const result = parseJsonWith(tool.resultPreview, jsonObjectSchema);
     const citations = result?.citations;
 
     if (!Array.isArray(citations)) continue;

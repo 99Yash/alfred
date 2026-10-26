@@ -6,11 +6,13 @@ import {
   type ToolName,
   toolCategoryOf,
   toolLabel,
+  jsonObjectSchema,
+  parseJsonWith,
+  toNonEmptyString,
 } from "@alfred/contracts";
 import { Sparkles, Wrench, type LucideIcon } from "lucide-react";
 import { type IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { getIntegrationPage } from "~/lib/integrations/integrations";
-import { asString, parseJsonRecord } from "~/lib/json-record";
 import { brandlessToolIcon } from "./animated-tool-icons";
 import { MCP_CALL_TOOL, type McpServerLookup } from "./mcp-server";
 
@@ -72,9 +74,9 @@ function humanizeTool(toolName: string): string {
 function mcpCallTarget(
   argsPreview: string | undefined,
 ): { connectionId: string; remoteName: string } | undefined {
-  const args = parseJsonRecord(argsPreview);
-  const connectionId = asString(args?.connectionId);
-  const remoteName = asString(args?.remoteName);
+  const args = parseJsonWith(argsPreview, jsonObjectSchema);
+  const connectionId = toNonEmptyString(args?.connectionId);
+  const remoteName = toNonEmptyString(args?.remoteName);
 
   return connectionId && remoteName ? { connectionId, remoteName } : undefined;
 }
@@ -132,7 +134,7 @@ export function toolCategory(toolName: string): ToolCategory {
  * `mcpServers` names the server behind an `mcp.call`. Without it the row still names the remote tool.
  */
 export function presentTool(tool: ToolCallView, mcpServers?: McpServerLookup): ToolPresentation {
-  const args = parseJsonRecord(tool.argsPreview);
+  const args = parseJsonWith(tool.argsPreview, jsonObjectSchema);
 
   const slug = tool.toolName.includes(".")
     ? tool.toolName.slice(0, tool.toolName.indexOf("."))
@@ -148,7 +150,7 @@ export function presentTool(tool: ToolCallView, mcpServers?: McpServerLookup): T
       running: "Delegating a sub-task",
       done: "Delegated a sub-task",
       failed: "Couldn't delegate a sub-task",
-      detail: asString(args?.brief),
+      detail: toNonEmptyString(args?.brief),
     };
   }
 

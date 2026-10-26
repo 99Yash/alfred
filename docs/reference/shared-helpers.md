@@ -58,6 +58,7 @@ it. Policy and every blind spot live in `knip.json`.
 | read a stored Gmail `documents.raw` | `parseStoredGmailMessage(raw)` one time, then read the typed message | `@alfred/integrations/google` | `getPath(raw, "payload", "headers")` |
 | read a nested field off `unknown`/parsed JSON                                                 | `getPath` / `getStringPath` / `getIdPath` (string-or-integer id to one string)                                                                                                                                                                                                                                                                                     | `@alfred/contracts`           | chained `?.` with casts                                                                                                                                                     |
 | check a value is a present, non-empty string                                                  | `isNonEmptyString(x)`                                                                                                                                                                                                                                                                                              | `@alfred/contracts`           | `typeof x === "string" && x.length`                                                                                                                                         |
+| read an optional field as a non-empty string or a finite number (`""`, `NaN`, `Infinity` read as absent) | `toNonEmptyString(x)` / `toFiniteNumber(x)` | `@alfred/contracts` | `isNonEmptyString(x) ? x : undefined`, or `getStringPath` where `""` must fall through a `??` chain |
 | turn a caught error into a display string                                                     | `toMessage(err)`                                                                                                                                                                                                                                                                                                   | `@alfred/contracts`           | `String(err)` / `err.message`                                                                                                                                               |
 | redact secrets from an error/body before logging                                              | `redactSecrets` / `summarizeBody`                                                                                                                                                                                                                                                                                  | `@alfred/contracts`           | ad-hoc regex                                                                                                                                                                |
 | fail a request with an HTTP status                                                            | `Errors.NotFoundError(msg)` and its 11 siblings                                                                                                                                                                                                                                                                    | `@alfred/contracts`           | `new ApiError(...)` or a new `extends ApiError` subclass — **the drift check bans both**                                                                                    |
@@ -106,6 +107,7 @@ Validate external / persisted / protocol data instead of asserting it.
   gate catches a hand-written `Object.hasOwn(TABLE, x)` body over a SCREAMING_CASE table only, so
   a lowercase table (`eventPayloadSchemas`, `serverMutators`) and the `x in TABLE` form are
   review-only.
+- `toNonEmptyString` (unknown → non-empty string or `undefined`; `""` reads as absent, unlike `getStringPath`), `toFiniteNumber` (unknown → finite number or `undefined`)
 - `flattenJson` (`src/flatten-json.ts`): bounded scalar leaves with paths from unknown JSON; used by inbound receipt descriptions.
 - `getPath`, `getStringPath`, `getIdPath` (safe nested read; `getIdPath` collapses a string or integer provider id to one string)
 - `getStringField(value, key)` — one string property of an error or SDK
@@ -237,7 +239,7 @@ provider we called; `ApiError` is the _outbound_ failure we answer a client with
 
 ### JSON — `@alfred/contracts` (`src/json.ts`)
 
-- `safeJsonParse`, `parseJsonWith` (overloaded: with/without fallback), `toJsonValue`
+- `safeJsonParse`, `parseJsonWith` (overloaded: with/without fallback; an `undefined` input returns the fallback, so an optional preview string needs no guard), `toJsonValue`
 - `parseJsonText`: `JSON.parse` typed as `JsonValue`; it throws on malformed input, for a caller whose malformed branch differs from `null`
 
 ### Sanitize — `@alfred/contracts` (`src/sanitize.ts`)
@@ -369,8 +371,7 @@ a `LocalDateKey`. Before the brands, `localStartOfDay(timezone, key)` compiled.
 ### Web-local — `apps/web/src/lib/`
 
 - `cn` (`utils.ts`), `capitalize`/`lowerFirst`/`formatRelative` (`strings.ts`),
-  `formatCost`/`formatTokens` (`usage-format.ts`), `asRecord`/`parseJsonRecord`
-  (`json-record.ts` — prefer the contracts guards for anything reusable)
+  `formatCost`/`formatTokens` (`usage-format.ts`)
 
 ## Where new helpers go (colocation rule)
 

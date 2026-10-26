@@ -1,6 +1,6 @@
+import { jsonObjectSchema } from "@alfred/contracts";
 import { Check, Loader2, X } from "lucide-react";
 import { AppButton } from "~/components/ui/v2";
-import { asRecord } from "~/lib/json-record";
 import { cn } from "~/lib/utils";
 import { parseAskUserInput, unansweredCount, type QuestionStaging } from "./ask-user";
 import { AskUserQuestionPanel } from "./question-panel";
@@ -38,7 +38,8 @@ export function QuestionSheet({
 }) {
   // Read the draft. Every control writes a schema-valid value, so a refused
   // draft cannot come from this card; fall back to the staged pair.
-  const draftRaw = asRecord(draftInput);
+  const draft = jsonObjectSchema.safeParse(draftInput);
+  const draftRaw = draft.success ? draft.data : null;
   const draftInputParsed = draftRaw ? parseAskUserInput(draftRaw) : null;
   const input = draftInputParsed ?? question.input;
   const raw = draftRaw && draftInputParsed ? draftRaw : question.raw;
