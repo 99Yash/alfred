@@ -13,14 +13,11 @@ import {
   getPath,
   getStringPath,
   jsonValueSchema,
-  MCP_HEALTH_MAPPING_OBJECT_TITLE_MAX,
-  MCP_HEALTH_MAPPING_OBJECT_URL_MAX,
   MCP_HEALTH_MAPPING_RESULT_ITEM_MAX,
   MCP_HEALTH_MAPPING_TOKEN_MAX,
   type LoopEntityProvider,
   type LoopEntityRef,
   type McpHealthMappingDefinition,
-  type StateCategory,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import {
@@ -37,7 +34,7 @@ import {
   MCP_APPROVED_HEALTH_KEY_KIND,
   MCP_APPROVED_HEALTH_KIND,
   objectStateStore,
-  type ApprovedMcpHealthExternalId,
+  type ApprovedMcpHealthEvent,
   type CandidateKey,
   type ObjectState,
 } from "@alfred/assistant/connections";
@@ -90,12 +87,10 @@ const MAX_APPROVED_LOOP_KEY_LENGTH = 512;
 
 const MAX_APPROVED_IDENTITY_LENGTH = 512;
 
-interface ParsedHealthItem {
-  identity: string;
-  state: StateCategory;
-  title: string | null;
-  url: string | null;
-}
+type ParsedHealthItem = { identity: string } & Pick<
+  ApprovedMcpHealthEvent["payload"],
+  "state" | "title" | "url"
+>;
 
 interface MappingRead {
   connectionId: string;
@@ -159,13 +154,9 @@ async function listCurrentMappings(userId: string): Promise<readonly CurrentMcpH
   return mappings;
 }
 
-async function foldAndRead(input: {
-  userId: string;
-  externalId: ApprovedMcpHealthExternalId;
-  state: StateCategory;
-  title: string | null;
-  url: string | null;
-}): Promise<ObjectState | null> {
+async function foldAndRead(
+  input: { userId: string } & ApprovedMcpHealthEvent["payload"],
+): Promise<ObjectState | null> {
   const { userId, ...payload } = input;
 
   await objectStateStore.applyEvent({
@@ -191,25 +182,23 @@ function pathKeys(path: string): string[] {
   return path.length === 0 ? [] : path.split(".");
 }
 
-function optionalString(value: unknown, schema: z.ZodType<string>): string | null {
+function optionalParse<S extends z.ZodType>(value: unknown, schema: S): z.output<S> | null {
   const parsed = schema.safeParse(value);
 
   return parsed.success ? parsed.data : null;
 }
 
+/** Exact byte match: no trim. */
 function getBoundedString(
   value: unknown,
   path: readonly string[],
   maxLength: number,
-  options: { trim?: boolean } = {},
 ): string | null {
   const result = getStringPath(value, ...path);
 
   if (result === undefined) return null;
 
-  const bounded = options.trim === false ? result : result.trim();
-
-  return bounded.length > 0 && bounded.length <= maxLength ? bounded : null;
+  return result.length > 0 && result.length <= maxLength ? result : null;
 }
 
 function parseItems(
@@ -233,30 +222,20 @@ function parseItems(
 
   for (const rawItem of rawItems) {
     // Exact byte match: do not trim.
-    const identity = getBoundedString(rawItem, identityPath, MAX_APPROVED_IDENTITY_LENGTH, {
-      trim: false,
-    });
+    const identity = getBoundedString(rawItem, identityPath, MAX_APPROVED_IDENTITY_LENGTH);
 
-    const token = getBoundedString(rawItem, statePath, MCP_HEALTH_MAPPING_TOKEN_MAX, {
-      trim: false,
-    });
+    const token = getBoundedString(rawItem, statePath, MCP_HEALTH_MAPPING_TOKEN_MAX);
 
     const state = token === null ? undefined : stateByToken.get(token);
 
     if (!identity || !state) continue;
 
     const title = definition.fields.title
-      ? optionalString(
-          getBoundedString(rawItem, titlePath, MCP_HEALTH_MAPPING_OBJECT_TITLE_MAX),
-          mcpHealthObjectTitleSchema,
-        )
+      ? optionalParse(getPath(rawItem, ...titlePath), mcpHealthObjectTitleSchema)
       : null;
 
     const url = definition.fields.url
-      ? optionalString(
-          getBoundedString(rawItem, urlPath, MCP_HEALTH_MAPPING_OBJECT_URL_MAX),
-          mcpHealthObjectUrlSchema,
-        )
+      ? optionalParse(getPath(rawItem, ...urlPath), mcpHealthObjectUrlSchema)
       : null;
 
     parsed.push({ identity, state, title, url });

@@ -62,7 +62,7 @@ export {
   reconcileEvidence,
   selectPrimaryReconciledObject,
   receiptDeliveryInstant,
-  type ApprovedMcpHealthExternalId,
+  type ApprovedMcpHealthEvent,
   type CandidateKey,
   type ClosureReading,
   type DeliveryInstant,

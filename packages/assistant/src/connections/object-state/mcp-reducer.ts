@@ -1,4 +1,4 @@
-import type { ObjectStateEvent } from "./events";
+import type { ApprovedMcpHealthEvent } from "./events";
 import type { ObjectStateDelta } from "./store";
 
 /** One object kind for every approved MCP connection. */
@@ -9,11 +9,10 @@ export const MCP_APPROVED_HEALTH_KEY_KIND = "approved_loop_key";
 
 /**
  * Reducer for owner-reviewed MCP health reads. The caller already mapped the remote token to a
- * canonical state and parsed the title and the URL. The branded id proves the identity check ran.
+ * canonical state. The branded id, title and url show that the identity check and the contracts
+ * parse ran.
  */
-export function reduceMcpEvent({
-  payload,
-}: Extract<ObjectStateEvent, { provider: "mcp" }>): ObjectStateDelta[] {
+export function reduceMcpEvent({ payload }: ApprovedMcpHealthEvent): ObjectStateDelta[] {
   return [
     {
       kind: MCP_APPROVED_HEALTH_KIND,

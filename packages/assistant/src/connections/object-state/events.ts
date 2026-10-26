@@ -2,6 +2,8 @@ import {
   type DeploymentStatus,
   type InboundEventSource,
   isEventTypeForSource,
+  type McpHealthObjectTitle,
+  type McpHealthObjectUrl,
   type StateCategory,
 } from "@alfred/contracts";
 import { type GithubPayload, parseGithubEvent } from "../ingress/receipt-schemas";
@@ -98,8 +100,8 @@ export type ObjectStateEvent =
       payload: {
         externalId: ApprovedMcpHealthExternalId;
         state: StateCategory;
-        title: string | null;
-        url: string | null;
+        title: McpHealthObjectTitle | null;
+        url: McpHealthObjectUrl | null;
       };
     };
 
@@ -113,6 +115,9 @@ export type RailwayPullEvent = Extract<VerifiedPullEvent, { provider: "railway" 
 
 /** The Vercel member of the pull union. The Vercel provider is generic over this, never the union. */
 export type VercelPullEvent = Extract<VerifiedPullEvent, { provider: "vercel" }>;
+
+/** The MCP health member. The health producer and the reducer take this, never the union. */
+export type ApprovedMcpHealthEvent = Extract<ObjectStateEvent, { provider: "mcp" }>;
 
 /**
  * The one door from a stored receipt body to the fold. `null`: the type folds nothing, or the body
