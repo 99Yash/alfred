@@ -1,7 +1,7 @@
 import { db } from "@alfred/db";
-import { agentRuns } from "@alfred/db/schemas";
+import { agentRuns, type AgentRun } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
-import { resolveWorkflowForRun } from "./resolve-workflow";
+import { workflowForRun } from "./resolve-workflow";
 import { logger } from "@alfred/logging";
 
 /** No `completed` case: a run completes inside a step body, which owns that closure. */
@@ -51,20 +51,15 @@ export type WorkflowClosure<S> =
 // leave a client artifact mid-flight. A separate module because both `executor` and `service` drive
 // it.
 
-export interface TerminalClosureRun {
-  id: string;
-  userId: string;
-  workflowSlug: string;
-  state: unknown;
-}
+export type TerminalClosureRun = Pick<
+  AgentRun,
+  "id" | "userId" | "workflowSlug" | "workflowRevisionId" | "state"
+>;
 
 /** Best-effort: the terminal write already landed, so every fault is logged and swallowed. */
 async function driveClosure(run: TerminalClosureRun, outcome: TerminalOutcome): Promise<void> {
   try {
-    const { workflow } = await resolveWorkflowForRun({
-      userId: run.userId,
-      workflowSlug: run.workflowSlug,
-    });
+    const workflow = workflowForRun(run);
 
     // Before parsing, so drifted state cannot fail a workflow that owes nothing.
     if (workflow.closure.kind === "none") return;
@@ -98,6 +93,7 @@ export async function finalizeCancelledRun(runId: string, reason: string): Promi
         id: agentRuns.id,
         userId: agentRuns.userId,
         workflowSlug: agentRuns.workflowSlug,
+        workflowRevisionId: agentRuns.workflowRevisionId,
         state: agentRuns.state,
       })
       .from(agentRuns)
