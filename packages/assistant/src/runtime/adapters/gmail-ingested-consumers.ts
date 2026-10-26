@@ -4,7 +4,6 @@ import { db } from "@alfred/db";
 import { documents, emailTriage } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
 import {
-  gmailDocumentsIngestedPayloadSchema,
   publishDomainEvent,
   publishEvent,
   TriggerConsumerBootError,
@@ -400,14 +399,14 @@ async function embedDocuments(documentIds: readonly string[]): Promise<void> {
   });
 }
 
-function parseDocumentsIngested(
+function documentsIngested(
   event: DomainEvent,
 ): { userId: string; payload: GmailDocumentsIngestedPayload } | null {
   if (event.source !== "gmail" || event.type !== "documents_ingested") return null;
 
   return {
     userId: event.userId,
-    payload: gmailDocumentsIngestedPayloadSchema.parse(event.payload ?? {}),
+    payload: event.payload,
   };
 }
 
@@ -418,7 +417,7 @@ export function gmailIngestedTriggerConsumers(): TriggerConsumer[] {
       name: "gmail-corpus-index",
       mode: "best-effort",
       accept: async (event) => {
-        const parsed = parseDocumentsIngested(event);
+        const parsed = documentsIngested(event);
 
         if (!parsed || !parsed.payload.unembeddedDocumentIds.length) return;
         await embedDocuments(parsed.payload.unembeddedDocumentIds);
@@ -428,7 +427,7 @@ export function gmailIngestedTriggerConsumers(): TriggerConsumer[] {
       name: "gmail-user-model-capture",
       mode: "best-effort",
       accept: async (event) => {
-        const parsed = parseDocumentsIngested(event);
+        const parsed = documentsIngested(event);
 
         if (!parsed || !parsed.payload.insertedDocumentIds.length) return;
         await captureGmailObservations({
@@ -441,7 +440,7 @@ export function gmailIngestedTriggerConsumers(): TriggerConsumer[] {
       name: "gmail-inbox-rail",
       mode: "best-effort",
       accept: async (event) => {
-        const parsed = parseDocumentsIngested(event);
+        const parsed = documentsIngested(event);
 
         if (!parsed || !parsed.payload.insertedDocumentIds.length) return;
         await publishInboxUpdate(parsed.userId, parsed.payload.insertedDocumentIds.length);
@@ -451,7 +450,7 @@ export function gmailIngestedTriggerConsumers(): TriggerConsumer[] {
       name: "gmail-triage-postinsert",
       mode: "best-effort",
       accept: async (event) => {
-        const parsed = parseDocumentsIngested(event);
+        const parsed = documentsIngested(event);
 
         if (!parsed) return;
         const { userId, payload } = parsed;

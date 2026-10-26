@@ -4,7 +4,6 @@ import { startRun } from "@alfred/assistant/execution";
 import { senderSuppressions } from "@alfred/assistant/knowledge";
 import { settings } from "@alfred/assistant/settings";
 import {
-  emailTriageClassifiedPayloadSchema,
   type DomainEvent,
   type EmailTriageClassifiedPayload,
   type TriggerConsumer,
@@ -77,7 +76,7 @@ async function readStandingInstruction(
 
 export async function acceptEmailTriageClassified(event: DomainEvent): Promise<void> {
   if (event.source !== "email-triage" || event.type !== "classified") return;
-  const payload = emailTriageClassifiedPayloadSchema.parse(event.payload);
+  const { payload } = event;
 
   const flags = await settings({ userId: event.userId }).flags();
 
