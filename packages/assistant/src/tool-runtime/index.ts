@@ -11,6 +11,7 @@ import {
   type IntegrationAvailabilitySnapshot,
   type PersistedWorkflowReadinessProblem,
   type ScratchEntry,
+  type SpawnSubAgentInput,
   type StandingInstructionDroppedInput,
   type StandingInstructionOverlap,
   type StandingInstructionScopeNarrowing,
@@ -28,11 +29,8 @@ import { bootPort } from "./boot-port";
 import type { ToolCallRoundAdapter } from "./internal/adapter";
 import type { ChatTurnAddress } from "./internal/registry";
 import { runToolCallRound } from "./internal/tool-call-round";
-import type { SpawnSubAgentInput } from "./sub-agent-contract";
 
 export { withdrawToolCallApproval } from "./approval-lifecycle";
-
-export { joinChildRunId, joinToolInput } from "./join-contract";
 
 export { questionToolInput, QUESTION_TOOL_PROBE_INPUT } from "./question-contract";
 
@@ -52,13 +50,6 @@ export {
   type ToolExecuteContext,
   type ToolExecuteContextFields,
 } from "./internal/registry";
-
-export {
-  awaitSubAgentInputSchema,
-  spawnSubAgentInputSchema,
-  subAgentIdSchema,
-  type SpawnSubAgentInput,
-} from "./sub-agent-contract";
 
 export { bootPort, type BootPort } from "./boot-port";
 
@@ -191,6 +182,8 @@ export interface CompletedToolCall<Call extends ProposedToolCall = ProposedToolC
    * so a card that names the operation reads this first.
    */
   executedInput?: unknown;
+  /** Set only by the join arm: the child run it resolved. */
+  joinedChildRunId?: string | undefined;
 }
 
 export type ToolCallRoundOutcome<Call extends ProposedToolCall = ProposedToolCall> =

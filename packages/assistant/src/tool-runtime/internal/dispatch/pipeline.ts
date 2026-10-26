@@ -24,6 +24,7 @@ import {
   isToolName,
   isToolRiskTier,
   isUnknownEffectEnvelope,
+  joinToolInput,
   jsonValueSchema,
   sanitizeErrorMessage,
   sanitizeToolResult,
@@ -54,7 +55,6 @@ import { STAGING_ARM, type GatedArmPolicy } from "./staging-arm";
 import type { RejectedToolResult, UnansweredQuestionsToolResult } from "../adapter";
 import {
   callerLabel,
-  joinToolInput,
   questionToolInput,
   registerToolCallRoundAdapter,
   type ToolCallDispatchArgs,
@@ -1287,7 +1287,7 @@ async function resolveAwaitSubAgentWithSpan(
 
     span.success(awaitSubAgentSpanOutput(result));
 
-    return result;
+    return result.kind === "executed" ? { ...result, joinedChildRunId: childRunId } : result;
   } catch (err) {
     span.error(safeErrorDiagnostic(err));
     logger.error(

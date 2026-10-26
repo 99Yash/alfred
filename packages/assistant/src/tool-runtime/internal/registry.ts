@@ -25,12 +25,12 @@ import {
   integrationFromToolName,
   isLoadableIntegrationSlug,
   isSupportedPassthroughSlug,
+  joinToolInput,
 } from "@alfred/contracts";
 // Type-only: the values pull `@alfred/db` into every tool declaration. `../context` binds them.
 import type { Integrations } from "@alfred/integrations";
 import type { Corpus } from "@alfred/corpus";
 import { z } from "zod";
-import { joinToolInput } from "../join-contract";
 import {
   QUESTION_TOOL_MODEL_PROBE_INPUT,
   QUESTION_TOOL_PROBE_INPUT,

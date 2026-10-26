@@ -3,7 +3,7 @@ import { afterEach, beforeEach, test } from "node:test";
 
 import { z } from "zod";
 
-import { awaitSubAgentInputSchema, joinToolInput } from "@alfred/assistant/tool-runtime";
+import { awaitSubAgentInput, joinToolInput } from "@alfred/contracts";
 import { liveTool, registerTool } from "@alfred/assistant/tool-runtime";
 import { resetToolFixtures } from "@alfred/assistant/tool-runtime/test-support";
 
@@ -18,12 +18,9 @@ test("the join contract accepts a child id and rejects an empty one", () => {
 });
 
 test("the agent await schema derives from the join contract and stays strict", () => {
-  assert.equal(awaitSubAgentInputSchema.safeParse({ childRunId: "run_1" }).success, true);
+  assert.equal(awaitSubAgentInput.safeParse({ childRunId: "run_1" }).success, true);
   // `.strict()`: the floor rejects an extra key.
-  assert.equal(
-    awaitSubAgentInputSchema.safeParse({ childRunId: "run_1", extra: true }).success,
-    false,
-  );
+  assert.equal(awaitSubAgentInput.safeParse({ childRunId: "run_1", extra: true }).success, false);
 });
 
 test("registration rejects a join tool whose input does not accept the child id", () => {

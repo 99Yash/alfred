@@ -1,4 +1,4 @@
-import { isTerminalStatus } from "@alfred/contracts";
+import { isTerminalStatus, type SpawnSubAgentInput } from "@alfred/contracts";
 import { AppError } from "@alfred/contracts/app-errors";
 import { db } from "@alfred/db";
 import { agentRuns } from "@alfred/db/schemas";
@@ -8,7 +8,7 @@ import type { AgentDbExecutor } from "./registry";
 import { isUniqueViolation } from "@alfred/db/pg-errors";
 import { enqueueRun } from "./queue";
 import { AWAIT_SUB_AGENT_CEILING_MS } from "./sub-agent-join-wake-queue";
-import { type ChatTurnAddress, type SpawnSubAgentInput } from "@alfred/assistant/tool-runtime";
+import type { ChatTurnAddress } from "@alfred/assistant/tool-runtime";
 import {
   readSubAgentMetadata,
   SUB_AGENT_WORKFLOW_SLUG,

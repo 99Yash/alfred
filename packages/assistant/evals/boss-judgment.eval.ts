@@ -9,6 +9,8 @@ import {
   parseIanaTimezone,
   readUserContextInput,
   webSearchInput,
+  awaitSubAgentInput,
+  spawnSubAgentInput,
 } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import { type Tool, generateText, isStepCount, tool } from "ai";
@@ -16,7 +18,6 @@ import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
 import { z } from "zod";
 import { formatDateGrounding } from "@alfred/assistant/execution/grounding";
-import { awaitSubAgentInputSchema, spawnSubAgentInputSchema } from "@alfred/assistant/tool-runtime";
 import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
 import { buildSubAgentSystemPrompt } from "@alfred/assistant/execution/workflows/user-authored-brief";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
@@ -214,11 +215,11 @@ function toolSurface(): Record<string, Tool> {
     [SPAWN_SUB_AGENT_TOOL]: tool({
       description:
         "Spawn one focused sub-agent run for a multi-step investigation across memory, connected services, and the web.",
-      inputSchema: spawnSubAgentInputSchema,
+      inputSchema: spawnSubAgentInput,
     }),
     [AWAIT_SUB_AGENT_TOOL]: tool({
       description: "Wait for a spawned sub-agent to finish and read its real result.",
-      inputSchema: awaitSubAgentInputSchema,
+      inputSchema: awaitSubAgentInput,
     }),
     [GMAIL_SEARCH_TOOL]: tool({
       description:
@@ -413,7 +414,7 @@ async function runThinPersonResearchReplay(
       [SPAWN_SUB_AGENT_TOOL]: tool({
         description:
           "Spawn one focused sub-agent run for a multi-step investigation across memory, connected services, and the web.",
-        inputSchema: spawnSubAgentInputSchema,
+        inputSchema: spawnSubAgentInput,
         execute: async () => ({
           childRunId: "child_eval_sakshi",
           status: "running",
@@ -421,7 +422,7 @@ async function runThinPersonResearchReplay(
       }),
       [AWAIT_SUB_AGENT_TOOL]: tool({
         description: "Wait for a spawned sub-agent to finish and read its real result.",
-        inputSchema: awaitSubAgentInputSchema,
+        inputSchema: awaitSubAgentInput,
         execute: async () => ({
           status: "completed",
           output:
@@ -584,12 +585,12 @@ async function runPersonResearchDepth(
       [SPAWN_SUB_AGENT_TOOL]: tool({
         description:
           "Spawn one focused sub-agent run for a multi-step investigation across memory, connected services, and the web.",
-        inputSchema: spawnSubAgentInputSchema,
+        inputSchema: spawnSubAgentInput,
         execute: async () => ({ childRunId: "child_eval_priya", status: "running" }),
       }),
       [AWAIT_SUB_AGENT_TOOL]: tool({
         description: "Wait for a spawned sub-agent to finish and read its real result.",
-        inputSchema: awaitSubAgentInputSchema,
+        inputSchema: awaitSubAgentInput,
         execute: async () => ({
           status: "completed",
           output:

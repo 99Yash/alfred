@@ -1,7 +1,7 @@
 /**
  * Tool input schemas, plus result shapes that web or model code depends on.
  * The dispatcher parses with them and the web approval view derives its form
- * from them (`tool-fields.ts`). `system.spawn_sub_agent` stays server-side.
+ * from them (`tool-fields.ts`).
  *
  * Numbers use `z.coerce.number()`: models often send `pull_number: "305"`.
  * The JSON schema the model sees is still `{type:"integer"}`.
@@ -26,6 +26,7 @@ import {
 import { contextSearchRequestSchema } from "./context-search";
 import { githubSearchQueryIssues, sanitizeGithubSearchQuery } from "./github-search";
 import { enumGuard, isRecord, parseEmailAddress } from "./guards";
+import { LOADABLE_INTEGRATION_SLUGS } from "./integrations/slugs";
 import { safeJsonParse } from "./json";
 import { mcpCallInput, mcpToolInspectInputSchema, mcpToolSearchInputSchema } from "./mcp";
 import { restPassthroughRequestSchema } from "./passthrough";
@@ -1968,18 +1969,46 @@ export type AskUserResult = z.infer<typeof askUserResultSchema>;
 
 export type AskUserUnansweredResult = Extract<AskUserResult, { status: "unanswered" }>;
 
-/** By `ToolName`, so the web can find a schema without server code. `system.spawn_sub_agent` is absent on purpose. */
+export const subAgentIdSchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[A-Za-z0-9_-]+$/, "subId may only contain letters, numbers, underscores, and dashes");
+
+export const spawnSubAgentInput = coerceJsonArrayFields(
+  ["allowedIntegrations"],
+  z
+    .object({
+      subId: subAgentIdSchema,
+      brief: z.string().min(1).max(8_000),
+      allowedIntegrations: z.array(z.enum(LOADABLE_INTEGRATION_SLUGS)).default([]),
+    })
+    .strict(),
+);
+
+export type SpawnSubAgentInput = z.infer<typeof spawnSubAgentInput>;
+
+/** The join arm reads `childRunId` off a `staging: "join"` call, without the tool's `execute`. */
+export const joinToolInput = z.object({ childRunId: z.string().min(1) });
+
+/** Derived from `joinToolInput`, because the join arm reads the child id without `execute`. */
+export const awaitSubAgentInput = joinToolInput.strict();
+
+/** By `ToolName`, so the web can find a schema without server code. Every name has a row. */
 export const TOOL_INPUT_SCHEMAS = {
   "calendar.list_events": calendarListEventsInput,
   "calendar.create_event": calendarCreateEventInput,
   "calendar.update_event": calendarUpdateEventInput,
   "calendar.delete_event": calendarDeleteEventInput,
   "calendar.respond_to_event": calendarRespondToEventInput,
+  "calendar.request": restPassthroughInput,
   "docs.get_document": docsGetDocumentInput,
+  "docs.request": restPassthroughInput,
   "drive.search_files": driveSearchInput,
   "drive.get_file": driveGetFileInput,
   "drive.export_file": driveExportFileInput,
   "drive.download_file": driveDownloadFileInput,
+  "drive.request": restPassthroughInput,
   "github.search": githubSearchInput,
   "github.get_pull_request": githubGetPullRequestInput,
   "github.get_pull_requests": githubGetPullRequestsInput,
@@ -1996,16 +2025,20 @@ export const TOOL_INPUT_SCHEMAS = {
   "gmail.modify_thread": gmailModifyThreadInput,
   "gmail.modify_message": gmailModifyMessageInput,
   "gmail.create_draft": gmailSendDraftInput,
+  "gmail.request": restPassthroughInput,
   "sheets.create_spreadsheet": sheetsCreateInput,
   "sheets.get_values": sheetsGetValuesInput,
   "sheets.update_values": sheetsUpdateValuesInput,
   "sheets.append_values": sheetsAppendValuesInput,
   "sheets.batch_update": sheetsBatchUpdateInput,
   "sheets.add_sheet": sheetsAddSheetInput,
+  "sheets.request": restPassthroughInput,
   "slides.create_presentation": slidesCreateInput,
   "slides.get_presentation": slidesGetInput,
   "slides.batch_update": slidesBatchUpdateInput,
   "slides.add_slide": slidesAddSlideInput,
+  "slides.request": restPassthroughInput,
+  "sentry.request": restPassthroughInput,
   "contacts.search": contactsSearchInput,
   "contacts.list": contactsListInput,
   "contacts.get": contactsGetInput,
@@ -2035,7 +2068,9 @@ export const TOOL_INPUT_SCHEMAS = {
   "system.append_artifact_section": appendArtifactSectionInput,
   "system.update_artifact": updateArtifactInput,
   "system.ask_user": askUserInput,
+  "system.spawn_sub_agent": spawnSubAgentInput,
+  "system.await_sub_agent": awaitSubAgentInput,
   "mcp.call": mcpCallInput,
   "mcp.list_tools": mcpToolSearchInputSchema,
   "mcp.inspect_tool": mcpToolInspectInputSchema,
-} satisfies Partial<Record<ToolName, z.ZodType>>;
+} satisfies Record<ToolName, z.ZodType>;

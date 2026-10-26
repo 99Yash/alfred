@@ -1,8 +1,8 @@
-import { getPath } from "@alfred/contracts";
+import { getPath, subAgentIdSchema } from "@alfred/contracts";
 import { agentRuns } from "@alfred/db/schemas";
 import { sql } from "drizzle-orm";
 import { z } from "zod";
-import { chatTurnAddressSchema, subAgentIdSchema } from "@alfred/assistant/tool-runtime";
+import { chatTurnAddressSchema } from "@alfred/assistant/tool-runtime";
 
 /**
  * Every sub-agent runs this workflow; it starts from a bare brief. A leaf module, to avoid an
