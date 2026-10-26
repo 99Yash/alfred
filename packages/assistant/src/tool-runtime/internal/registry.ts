@@ -477,7 +477,8 @@ export function liveTool<
 
             const { chat } = ctx;
 
-            // Dispatch refuses first (requires_thread). Only a direct call outside a chat gets here.
+            // The dispatch gate keys on `interaction`, and the one live-chat builder (`chatToolRunIdentity`)
+            // sets `interaction` and `chat` together. A direct call or a builder that splits them gets here.
             if (!chat) throw new Error(`[tools] '${name}' requires a live chat turn`);
 
             return args.execute(input, { ...ctx, chat });
