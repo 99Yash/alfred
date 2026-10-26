@@ -126,7 +126,7 @@ export type ApprovedMcpHealthEvent = Extract<ObjectStateEvent, { provider: "mcp"
  * `string` narrows it first with `isEventTypeForSource`. `null`: the type folds nothing, or the
  * body is not an object. A generic `S` is tier 5: it compiles with any inbound type and folds
  * nothing at runtime, returning `null`. The switch in each source parser names every declared
- * type, so a new type does not compile until it is classified here.
+ * type, so a new type does not compile until that parser classifies it.
  */
 export function parseReceiptEvent<S extends InboundEventSource>(
   source: S,
@@ -174,7 +174,8 @@ function githubReceiptEvent(
     case "pull_request_review":
       return null;
     default: {
-      // A generic `S` can still land here at runtime with another source's type; fold nothing.
+      // `parseGithubEvent` returns `null` first for an undeclared type, so no path gets here.
+      // The binding keeps the switch exhaustive.
       const _exhaustive: never = event;
       void _exhaustive;
 
