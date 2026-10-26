@@ -15,6 +15,7 @@ import { extractSenderContext } from "@alfred/assistant/triage/sender-context";
 import {
   clamp01,
   collabActivityPartition,
+  parseGmailDocumentMetadata,
   toMessage,
   type CollabActivityKind,
 } from "@alfred/contracts";
@@ -228,11 +229,11 @@ async function main() {
           title: c.subject,
           content: `From: ${c.from}\nTo: yash.k@oliv.ai\nSubject: ${c.subject}\n\n${c.body}`,
           authoredAt: new Date("2026-06-11T09:51:48Z"),
-          metadata: {
+          metadata: parseGmailDocumentMetadata({
             from: c.from,
             to: "yash.k@oliv.ai",
             labelIds: ["UNREAD", "CATEGORY_UPDATES", "INBOX"],
-          },
+          }),
         },
         senderContext,
         runPass: runLivePass,

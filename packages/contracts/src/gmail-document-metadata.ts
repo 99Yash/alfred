@@ -1,72 +1,85 @@
 import { z } from "zod";
+import { attachmentContentReferenceSchema } from "./attachment-content-references";
 import { contentFormatSchema } from "./attachments";
-import { isRecord } from "./guards";
+import { documentPagesMixedSchema } from "./document-pages";
+import { PARSED_DOCUMENT_METADATA, parsePersistedMetadata } from "./persisted-metadata";
 
 const nullableStringField = z.string().nullable().optional();
 
-const labelIdsField = z.array(z.string()).optional();
-
-const isSentField = z.boolean().optional();
-
 const optionalIdentifierField = z.string().min(1).nullable().optional();
 
-const optionalFormatField = contentFormatSchema.optional();
+/**
+ * `documents.metadata` on a `gmail` (mail) row. Loose, so keys from a raw SQL merge or an older
+ * deploy survive. Strict for writers; the read parse drops a bad field on a legacy row.
+ */
+export const gmailDocumentMetadataSchema = z
+  .looseObject({
+    from: nullableStringField,
+    to: nullableStringField,
+    cc: nullableStringField,
+    snippet: nullableStringField,
+    labelIds: z.array(z.string()).optional(),
+    isSent: z.boolean().optional(),
+    /** Gmail's millisecond timestamp. Absent on legacy rows. */
+    internalDate: z.string().min(1).nullable().optional(),
+    historyId: z.string().min(1).nullable().optional(),
+    sizeEstimate: z.number().nullable().optional(),
+    /** Set by `setMediaPending` while the mail's attachments wait for extraction. */
+    mediaPending: z.boolean().optional(),
+  })
+  .brand(PARSED_DOCUMENT_METADATA);
+
+export type GmailDocumentMetadata = z.output<typeof gmailDocumentMetadataSchema>;
 
 /**
- * Gmail fields in `documents.metadata`. Loose, so other writers' keys survive.
- * The schema is strict for writers; the parser below drops a bad field on a legacy row.
+ * `documents.metadata` on a `gmail_attachment` row: the mail that first carried the content,
+ * page offsets (ADR-0091 D6), and the later carriers in `references`.
  */
-export const gmailDocumentMetadataSchema = z.looseObject({
-  from: nullableStringField,
-  to: nullableStringField,
-  cc: nullableStringField,
-  snippet: nullableStringField,
-  labelIds: labelIdsField,
-  isSent: isSentField,
-  /** Gmail's millisecond timestamp. Absent on legacy rows. */
-  internalDate: z.string().min(1).nullable().optional(),
-  /** The message that first carried a `gmail_attachment` row. */
-  messageId: optionalIdentifierField,
-  attachmentId: optionalIdentifierField,
-  threadId: optionalIdentifierField,
-  accountId: optionalIdentifierField,
-  filename: z.string().min(1).nullable().optional(),
-  mimeType: z.string().min(1).nullable().optional(),
-  format: optionalFormatField,
-});
+export const gmailAttachmentMetadataSchema = z
+  .looseObject({
+    messageId: optionalIdentifierField,
+    attachmentId: optionalIdentifierField,
+    threadId: optionalIdentifierField,
+    accountId: optionalIdentifierField,
+    filename: z.string().min(1).nullable().optional(),
+    mimeType: z.string().min(1).nullable().optional(),
+    format: contentFormatSchema.optional(),
+    size: z.number().optional(),
+    /** Offset pages; older rows can hold legacy `{page,text}` entries. */
+    pages: documentPagesMixedSchema.optional(),
+    /** Another arrival of the same content. A bad entry is dropped and the rest are kept. */
+    references: z
+      .array(z.unknown())
+      .transform((entries) =>
+        entries.flatMap((entry) => {
+          const parsed = attachmentContentReferenceSchema.safeParse(entry);
 
-export type GmailDocumentMetadata = z.infer<typeof gmailDocumentMetadataSchema>;
+          return parsed.success ? [parsed.data] : [];
+        }),
+      )
+      .optional(),
+  })
+  .brand(PARSED_DOCUMENT_METADATA);
 
-type GmailDocumentMetadataKey = keyof typeof gmailDocumentMetadataSchema.shape;
+export type GmailAttachmentMetadata = z.output<typeof gmailAttachmentMetadataSchema>;
 
-/** Parse persisted Gmail metadata into its canonical typed view. */
+/** Parse persisted mail metadata into its canonical typed view. */
 export function parseGmailDocumentMetadata(raw: unknown): GmailDocumentMetadata {
-  const candidate = isRecord(raw) ? { ...raw } : {};
-  repairPersistedField(candidate, "from", nullableStringField);
-  repairPersistedField(candidate, "to", nullableStringField);
-  repairPersistedField(candidate, "cc", nullableStringField);
-  repairPersistedField(candidate, "snippet", nullableStringField);
-  repairPersistedField(candidate, "labelIds", labelIdsField);
-  repairPersistedField(candidate, "isSent", isSentField);
-  repairPersistedField(candidate, "internalDate", z.string().min(1).nullable());
-  repairPersistedField(candidate, "messageId", optionalIdentifierField);
-  repairPersistedField(candidate, "attachmentId", optionalIdentifierField);
-  repairPersistedField(candidate, "threadId", optionalIdentifierField);
-  repairPersistedField(candidate, "accountId", optionalIdentifierField);
-  repairPersistedField(candidate, "filename", z.string().min(1).nullable().optional());
-  repairPersistedField(candidate, "mimeType", z.string().min(1).nullable().optional());
-  repairPersistedField(candidate, "format", optionalFormatField);
+  return parsePersistedMetadata(gmailDocumentMetadataSchema, raw);
+}
 
-  return gmailDocumentMetadataSchema.parse(candidate);
+/** Parse persisted attachment metadata into its canonical typed view. */
+export function parseGmailAttachmentMetadata(raw: unknown): GmailAttachmentMetadata {
+  return parsePersistedMetadata(gmailAttachmentMetadataSchema, raw);
 }
 
 const SENT_LABEL = "SENT";
 
 /** True when the metadata marks an authenticated sent message. */
-export function isSentGmailMetadata(metadata: unknown): boolean {
-  const parsed = parseGmailDocumentMetadata(metadata);
-
-  return parsed.isSent === true || parsed.labelIds?.some((label) => label === SENT_LABEL) === true;
+export function isSentGmailMetadata(metadata: GmailDocumentMetadata): boolean {
+  return (
+    metadata.isSent === true || metadata.labelIds?.some((label) => label === SENT_LABEL) === true
+  );
 }
 
 /**
@@ -77,25 +90,12 @@ export function isSentGmailMetadata(metadata: unknown): boolean {
 export function readGmailAttachmentFirstCarrier(row: {
   accountId: string | null;
   sourceThreadId: string | null;
-  metadata: unknown;
+  metadata: GmailAttachmentMetadata;
 }) {
-  const metadata = parseGmailDocumentMetadata(row.metadata);
-
   return {
-    messageId: metadata.messageId ?? null,
-    attachmentId: metadata.attachmentId ?? null,
-    accountId: metadata.accountId ?? row.accountId,
-    threadId: metadata.threadId ?? row.sourceThreadId,
+    messageId: row.metadata.messageId ?? null,
+    attachmentId: row.metadata.attachmentId ?? null,
+    accountId: row.metadata.accountId ?? row.accountId,
+    threadId: row.metadata.threadId ?? row.sourceThreadId,
   };
-}
-
-function repairPersistedField(
-  // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- a persisted metadata candidate is a staging copy of unknown JSON; repair deletes an invalid key before the schema parse.
-  candidate: Record<string, unknown>,
-  key: GmailDocumentMetadataKey,
-  schema: z.ZodType<unknown>,
-): void {
-  if (!(key in candidate)) return;
-
-  if (!schema.validate(candidate[key])) delete candidate[key];
 }

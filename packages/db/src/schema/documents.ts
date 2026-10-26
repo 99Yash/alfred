@@ -1,4 +1,8 @@
-import { DOCUMENT_SOURCES, type DocumentSource } from "@alfred/contracts";
+import {
+  DOCUMENT_SOURCES,
+  type DocumentMetadataInput,
+  type DocumentSource,
+} from "@alfred/contracts";
 import { sql } from "drizzle-orm";
 import {
   check,
@@ -36,7 +40,9 @@ export const documents = pgTable(
     url: text("url"),
     authoredAt: timestamp("authored_at", { withTimezone: true }),
     ingestedAt: timestamp("ingested_at", { withTimezone: true }).defaultNow().notNull(),
+    /** One arm per source; read it with `parseDocumentMetadata`, `$type` does not validate. */
     metadata: jsonb("metadata")
+      .$type<DocumentMetadataInput>()
       .notNull()
       .default(sql`'{}'::jsonb`),
     /** Embed failure count, for diagnostics. */

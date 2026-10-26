@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
+import { parseGmailDocumentMetadata } from "@alfred/contracts";
 import { isSentGmailMetadata, mayBeUnflaggedSentMail } from "@alfred/assistant/triage/sent-mail";
 
 /**
@@ -96,8 +97,8 @@ describe("mayBeUnflaggedSentMail", () => {
 
   test("the predicate is only consulted for stored-not-sent docs", () => {
     // `sentDocumentStatusAtClassifyTime` returns early for a stored SENT doc, so the gate never sees it.
-    assert.equal(isSentGmailMetadata({ labelIds: ["SENT"] }), true);
-    assert.equal(isSentGmailMetadata({ isSent: true }), true);
-    assert.equal(isSentGmailMetadata({ labelIds: ["INBOX"] }), false);
+    assert.equal(isSentGmailMetadata(parseGmailDocumentMetadata({ labelIds: ["SENT"] })), true);
+    assert.equal(isSentGmailMetadata(parseGmailDocumentMetadata({ isSent: true })), true);
+    assert.equal(isSentGmailMetadata(parseGmailDocumentMetadata({ labelIds: ["INBOX"] })), false);
   });
 });

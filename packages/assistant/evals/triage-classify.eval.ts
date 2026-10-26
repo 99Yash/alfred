@@ -1,6 +1,7 @@
 import path from "node:path";
 import {
   collabActivityPartition,
+  parseGmailDocumentMetadata,
   type AccountPersona,
   type CollabActivityKind,
   type SenderContext,
@@ -960,7 +961,10 @@ function buildArgs(c: Case): ClassifyEmailArgs {
       title: c.subject,
       content: c.body,
       authoredAt,
-      metadata: { from: c.from, snippet: c.snippet ?? c.body.slice(0, 160) },
+      metadata: parseGmailDocumentMetadata({
+        from: c.from,
+        snippet: c.snippet ?? c.body.slice(0, 160),
+      }),
     },
     senderContext: senderContextFor(c),
     observations,

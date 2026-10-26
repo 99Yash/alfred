@@ -5,6 +5,7 @@
  *   $ pnpm tsx --env-file=.env src/scripts/smokes/smoke-triage-upsell.ts
  */
 import { classifyEmail } from "@alfred/assistant/triage/classify";
+import { parseGmailDocumentMetadata } from "@alfred/contracts";
 import { extractSenderContext } from "@alfred/assistant/triage/sender-context";
 import type { Observations } from "@alfred/assistant/triage/observations";
 
@@ -145,7 +146,7 @@ async function main() {
         title: c.subject,
         content: `From: ${c.from}\nTo: ${c.to}\nSubject: ${c.subject}\n\n${c.body}`,
         authoredAt: new Date("2026-06-11T09:51:48Z"),
-        metadata: { from: c.from, to: c.to, labelIds: c.labelIds },
+        metadata: parseGmailDocumentMetadata({ from: c.from, to: c.to, labelIds: c.labelIds }),
       },
       senderContext,
       observations: baseObs({

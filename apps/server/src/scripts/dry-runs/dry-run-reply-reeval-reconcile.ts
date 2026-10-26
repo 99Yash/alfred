@@ -17,7 +17,7 @@ import {
   planGmailThreadReconcile,
   type ReconcileStoredGmailDoc,
 } from "@alfred/assistant/triage/gmail-reconcile";
-import { isSentGmailMetadata, toMessage } from "@alfred/contracts";
+import { isSentGmailMetadata, parseGmailDocumentMetadata, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, emailTriage, integrationCredentials } from "@alfred/db/schemas";
 import { gmailMailbox, type GmailMailbox } from "@alfred/integrations/google";
@@ -59,7 +59,7 @@ async function loadThreadDocs(userId: string, threadId: string): Promise<DocRow[
 
 function newestInbound(docs: DocRow[]): DocRow | null {
   // Docs are newest first, so the first non-sent doc wins, like the runtime query.
-  return docs.find((d) => !isSentGmailMetadata(d.metadata)) ?? null;
+  return docs.find((d) => !isSentGmailMetadata(parseGmailDocumentMetadata(d.metadata))) ?? null;
 }
 
 async function main() {
@@ -141,7 +141,7 @@ async function main() {
   for (const threadId of candidates282) {
     const tr = triagedByThread.get(threadId);
     const docs = await loadThreadDocs(userId, threadId);
-    const sent = docs.filter((d) => isSentGmailMetadata(d.metadata));
+    const sent = docs.filter((d) => isSentGmailMetadata(parseGmailDocumentMetadata(d.metadata)));
     const inbound = newestInbound(docs);
     console.log(`\nthread=${threadId}`);
     console.log(
@@ -162,7 +162,12 @@ async function main() {
     }
 
     const pointsAtSent = tr.documentId
-      ? Boolean(docs.find((d) => d.id === tr.documentId && isSentGmailMetadata(d.metadata)))
+      ? Boolean(
+          docs.find(
+            (d) =>
+              d.id === tr.documentId && isSentGmailMetadata(parseGmailDocumentMetadata(d.metadata)),
+          ),
+        )
       : false;
 
     console.log(
@@ -240,7 +245,12 @@ async function main() {
     const pointedIsDead = pointedDocId ? dead.some((d) => d.id === pointedDocId) : false;
 
     const pointedIsSent = pointedDocId
-      ? Boolean(docs.find((d) => d.id === pointedDocId && isSentGmailMetadata(d.metadata)))
+      ? Boolean(
+          docs.find(
+            (d) =>
+              d.id === pointedDocId && isSentGmailMetadata(parseGmailDocumentMetadata(d.metadata)),
+          ),
+        )
       : false;
 
     const plan = planGmailThreadReconcile({
@@ -291,7 +301,7 @@ function toStoredDoc(doc: DocRow): ReconcileStoredGmailDoc {
     sourceId: doc.sourceId,
     authoredAt: doc.authoredAt,
     ingestedAt: doc.ingestedAt,
-    isSent: isSentGmailMetadata(doc.metadata),
+    isSent: isSentGmailMetadata(parseGmailDocumentMetadata(doc.metadata)),
   };
 }
 

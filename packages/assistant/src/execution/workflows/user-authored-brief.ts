@@ -1,10 +1,10 @@
 import { route, resolveEffectiveInputWindowTokens, AlfredAgent } from "@alfred/ai";
 import {
   compactionThresholdTokens,
-  getStringPath,
   isInboundEventSource,
   isNonEmptyString,
   jsonObjectSchema,
+  parseDocumentMetadata,
   parseIanaTimezone,
   parseIntegrationMentions,
   isIntegrationSlug,
@@ -13,8 +13,7 @@ import {
   workflowRequiredCapabilitySchema,
   type AgentTranscriptMessage,
   type InboundEventSource,
-  type JsonObject,
-  type JsonValue,
+  type GmailDocumentMetadata,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
@@ -754,8 +753,8 @@ async function buildTriggerEventMessage(
     };
   }
 
-  const parsedMetadata = jsonObjectSchema.safeParse(doc.metadata);
-  const metadataSubset = pickTriggerMetadata(parsedMetadata.success ? parsedMetadata.data : {});
+  const typed = parseDocumentMetadata(doc);
+  const metadataSubset = typed.source === "gmail" ? pickTriggerMetadata(typed.metadata) : {};
 
   return {
     role: "user",
@@ -817,8 +816,6 @@ async function buildReceiptTriggerMessage(input: {
     };
   }
 
-  const summary = getStringPath(doc.metadata, "summary");
-
   return {
     role: "user",
     content: [
@@ -827,7 +824,7 @@ async function buildReceiptTriggerMessage(input: {
       doc.title ? xmlTag("title", doc.title) : "",
       doc.authoredAt ? xmlTag("authored_at", doc.authoredAt.toISOString()) : "",
       doc.url ? xmlTag("url", doc.url) : "",
-      summary ? xmlTag("summary", summary) : "",
+      doc.summary ? xmlTag("summary", doc.summary) : "",
       ...triggerEventExcerptTags(doc.content),
       "</trigger_event>",
     ]
@@ -842,25 +839,17 @@ function triggerEventExcerptTags(content: string): string[] {
   return [xmlTag("truncated", String(content.length > excerpt.length)), xmlTag("excerpt", excerpt)];
 }
 
-/** The Gmail trigger keys `<trigger_event>` keeps; others are dropped. */
-interface TriggerMetadata {
-  from?: JsonValue | undefined;
-  to?: JsonValue | undefined;
-  cc?: JsonValue | undefined;
-  labelIds?: JsonValue | undefined;
-  snippet?: JsonValue | undefined;
-  historyId?: JsonValue | undefined;
-  sizeEstimate?: JsonValue | undefined;
-}
-
-function pickTriggerMetadata(metadata: JsonObject): TriggerMetadata {
-  return (
-    ["from", "to", "cc", "labelIds", "snippet", "historyId", "sizeEstimate"] as const
-  ).reduce<TriggerMetadata>((out, key) => {
-    if (metadata[key] !== undefined) out[key] = metadata[key];
-
-    return out;
-  }, {});
+/** The Gmail trigger keys `<trigger_event>` keeps; others are dropped. `JSON.stringify` omits an absent key. */
+function pickTriggerMetadata({
+  from,
+  to,
+  cc,
+  labelIds,
+  snippet,
+  historyId,
+  sizeEstimate,
+}: GmailDocumentMetadata) {
+  return { from, to, cc, labelIds, snippet, historyId, sizeEstimate };
 }
 
 function xmlTag(name: string, value: string): string {

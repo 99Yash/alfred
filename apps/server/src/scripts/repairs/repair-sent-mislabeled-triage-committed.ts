@@ -19,7 +19,13 @@ import { warmPool } from "@alfred/db";
 import { gmailSentSql } from "@alfred/assistant/triage/sent-mail";
 import { loadTriageContext, withTriageThreadLock } from "@alfred/assistant/triage/store";
 import type { TriageCategory } from "@alfred/contracts";
-import { isHttpError, isSentGmailMetadata, isTriageCategory, toMessage } from "@alfred/contracts";
+import {
+  isHttpError,
+  isSentGmailMetadata,
+  parseGmailDocumentMetadata,
+  isTriageCategory,
+  toMessage,
+} from "@alfred/contracts";
 import { db } from "@alfred/db";
 import {
   documents,
@@ -88,7 +94,7 @@ async function loadThreadDocs(userId: string, threadId: string): Promise<DocRow[
 
 /** Newest non-sent doc, with the same nulls-last and id tie-break as the runtime. */
 function newestInbound(docs: DocRow[]): DocRow | null {
-  return docs.find((d) => !isSentGmailMetadata(d.metadata)) ?? null;
+  return docs.find((d) => !isSentGmailMetadata(parseGmailDocumentMetadata(d.metadata))) ?? null;
 }
 
 function newestLiveInbound(
@@ -100,7 +106,7 @@ function newestLiveInbound(
     docs.find(
       (d) =>
         liveSourceIds.has(d.sourceId) &&
-        !isSentGmailMetadata(d.metadata) &&
+        !isSentGmailMetadata(parseGmailDocumentMetadata(d.metadata)) &&
         (accountId === null || d.accountId === accountId),
     ) ?? null
   );

@@ -1,10 +1,6 @@
 import { EMBEDDING_DIMENSIONS } from "@alfred/ai";
 import { embed } from "@alfred/ai/embeddings";
-import {
-  parseAttachmentContentReferences,
-  getStringPath,
-  type AttachmentContentReference,
-} from "@alfred/contracts";
+import { parseDocumentMetadata, type AttachmentContentReference } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { formatVectorFloat32 } from "@alfred/db/helpers";
 import { chunks, documents, type Document } from "@alfred/db/schemas";
@@ -170,16 +166,16 @@ async function search(args: SearchArgs): Promise<SearchHit[]> {
       authoredAt: r.authoredAt,
     };
 
-    const kind = getStringPath(r.documentMetadata, "kind");
+    const typed = parseDocumentMetadata({ source: r.source, metadata: r.documentMetadata });
 
-    if (kind) hit.kind = kind;
+    if ((typed.source === "github" || typed.source === "sentry") && typed.metadata.kind) {
+      hit.kind = typed.metadata.kind;
+    }
 
     if (r.url) hit.url = r.url;
 
-    if (r.source === "gmail_attachment") {
-      const occurrences = parseAttachmentContentReferences(r.documentMetadata);
-
-      if (occurrences.length > 0) hit.occurrences = occurrences;
+    if (typed.source === "gmail_attachment" && typed.metadata.references?.length) {
+      hit.occurrences = typed.metadata.references;
     }
 
     return hit;

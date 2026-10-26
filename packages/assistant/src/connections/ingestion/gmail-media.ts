@@ -1,4 +1,5 @@
 import {
+  parseGmailAttachmentMetadata,
   readGmailAttachmentFirstCarrier,
   type AttachmentContentReference,
 } from "@alfred/contracts";
@@ -113,7 +114,10 @@ function firstCarrierStanding(
   row: StoredAttachmentRow,
   carrier: Carrier,
 ): "recorded" | "backfill" | "foreign" {
-  const first = readGmailAttachmentFirstCarrier(row);
+  const first = readGmailAttachmentFirstCarrier({
+    ...row,
+    metadata: parseGmailAttachmentMetadata(row.metadata),
+  });
 
   if (
     row.sourceId !== `${carrier.messageId}:${carrier.attachmentId}` ||

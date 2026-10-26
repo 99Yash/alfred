@@ -28,7 +28,8 @@ function gmailDoc(
   // Parse with the production adapter, as the seam does.
   return {
     source: "gmail",
-    metadata,
+    // The column is NOT NULL; only the adapter sees the null.
+    metadata: metadata ?? {},
     accountId,
     sender: gmailSenderAdapter.authorship(metadata),
   };

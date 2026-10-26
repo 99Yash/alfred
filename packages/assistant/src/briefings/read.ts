@@ -219,7 +219,7 @@ export async function listEmailsSinceWatermark(
   );
 
   return rows.map((r, i) => {
-    const meta = metas[i] ?? {};
+    const meta = metas[i];
     // Match on thread id or loop key: a tool can re-notify on a new thread.
     const loopKey = deriveLoopKey(r.subject, { sender: senders[i] ?? null });
     const surfacedByThread = r.sourceThreadId ? surfaced.threadIds.has(r.sourceThreadId) : false;
@@ -230,14 +230,14 @@ export async function listEmailsSinceWatermark(
       documentId: r.documentId,
       subject: r.subject,
       from: senders[i] ?? null,
-      snippet: meta.snippet ?? null,
+      snippet: meta?.snippet ?? null,
       triageCategory: r.triageCategory,
       triageRationale: r.triageRationale,
       authoredAt: r.authoredAt,
       ingestedAt: r.ingestedAt,
       receivedAtLocal:
         args.timezone && receiptInstant ? inZone(args.timezone).format(receiptInstant) : null,
-      unread: unreadFromLabels(meta.labelIds),
+      unread: unreadFromLabels(meta?.labelIds),
       threadId: r.sourceThreadId,
       previouslySurfaced: surfacedByThread || surfacedByLoop,
       attentionBand: toTriageCategory(r.triageCategory)

@@ -99,6 +99,7 @@ export const setPreferenceArgsSchema = userPreferenceInsertSchema
 - Drizzle owns the column presence, the nullability and the database defaults.
 - Refine scalar business rules at the boundary (`min`, `max`, formats).
 - Override a `jsonb` field with its contract-owned zod schema. `.$type<T>()` informs TypeScript but does not validate at runtime.
+- When one `jsonb` column holds a different shape per row kind, `$type` the union of the arms' `z.input` types and read through one parser keyed by the discriminator column. `documents.metadata` is the example: `$type<DocumentMetadataInput>()`, read with `parseDocumentMetadata({ source, metadata })`. Each arm brands its output, so an unparsed column value does not type-check where a parsed arm is required. Raw SQL `||` merges write the column with no parse, so a reader must parse.
 - Do not generate a wire DTO or a Replicache model from a table because the fields overlap. Those schemas reshape, redact, rename or serialize rows on purpose, and they stay contracts with explicit mappers.
 - A generated select schema describes a complete row. For a partial query projection, derive a matching `.pick(...)` or validate the owning DTO.
 

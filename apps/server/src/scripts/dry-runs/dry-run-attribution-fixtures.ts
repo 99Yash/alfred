@@ -1,4 +1,4 @@
-import { toMessage } from "@alfred/contracts";
+import { parseGmailDocumentMetadata, toMessage } from "@alfred/contracts";
 /**
  * Read-only fixtures for rule 16a (ii): an action assigned to a named third party
  * must not mint a todo for the user. A positive control checks a real ask still does.
@@ -81,7 +81,7 @@ async function main() {
         title: f.subject,
         content,
         authoredAt: null,
-        metadata: { from: f.from, to: f.to },
+        metadata: parseGmailDocumentMetadata({ from: f.from, to: f.to }),
       },
       senderContext: scResult.context,
       observations,
