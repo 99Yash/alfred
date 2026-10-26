@@ -149,7 +149,7 @@ function inboundEvent<const S extends InboundEventSource>(source: S) {
 /**
  * One member per declared in-process `(source, type)`. The `satisfies` fails to compile
  * when a declared type has no member, or a member names another `(source, type)`.
- * `message_received` keeps an optional payload: a manual trigger publishes none.
+ * `message_received` keeps an optional payload: existing tests call `acceptEvent` with none.
  */
 const IN_PROCESS_EVENT_SCHEMAS = {
   gmail: {

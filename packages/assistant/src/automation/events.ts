@@ -18,7 +18,8 @@ export interface AcceptEventResult {
 
 /** Event-trigger dispatcher (ADR-0047). Direct DB query and run creation; not the realtime outbox. */
 export async function acceptEvent(args: DomainEvent): Promise<AcceptEventResult> {
-  // The bus parsed `args` by its `(source, type)` member, so the payload reads are typed.
+  // `args` is the typed `DomainEvent`: the bus parsed it before fan-out, and the type is the
+  // contract for a direct caller. So the payload reads below are typed.
   const gmailPayload =
     args.source === "gmail" && args.type === "message_received" ? args.payload : undefined;
 

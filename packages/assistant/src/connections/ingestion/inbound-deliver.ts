@@ -7,7 +7,11 @@ import {
 import { db } from "@alfred/db";
 import { eventReceipts, integrationCredentials } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
-import { publishDomainEvent, type DomainEvent } from "@alfred/assistant/triggers";
+import {
+  publishDomainEvent,
+  type DomainEvent,
+  type InboundDomainEvent,
+} from "@alfred/assistant/triggers";
 import { logger } from "@alfred/logging";
 
 /**
@@ -51,7 +55,11 @@ export async function deliverInboundReceipt(receiptId: string): Promise<void> {
     throw new Error(`[ingress] receipt ${receiptId} has non-inbound provider '${source}'`);
   }
 
-  const payload = { receiptId, deliveryKey: receipt.providerDeliveryId };
+  const payload: InboundDomainEvent["payload"] = {
+    receiptId,
+    deliveryKey: receipt.providerDeliveryId,
+  };
+
   let event: DomainEvent;
 
   if (receipt.rawKind !== null) {
@@ -101,7 +109,7 @@ async function markProcessed(receiptId: string, status: "completed" | "failed"):
 }
 
 type InboundEventFields = Pick<DomainEvent, "userId" | "eventId" | "accountRef"> & {
-  payload: { receiptId: string; deliveryKey: string };
+  payload: InboundDomainEvent["payload"];
 };
 
 /**
