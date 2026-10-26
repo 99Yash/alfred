@@ -172,7 +172,7 @@ function canonicalKeyAndSource(rawKey: string, source: MemorySource) {
   };
 }
 
-/** `proposed` and `confirmed` rows for `(userId, key)` inside their validity window, newest first. */
+/** `proposed` and `confirmed` rows for `(userId, key)`, newest first. No `validFrom` upper bound: under the fact-key lock the reader's `now()` is its transaction start, so a bound would hide a row committed by the previous lock holder. */
 async function activeFactsForKey(
   tx: DbTransaction,
   userId: string,
@@ -186,7 +186,6 @@ async function activeFactsForKey(
         eq(userFacts.userId, userId),
         eq(userFacts.key, key),
         inArray(userFacts.status, ["proposed", "confirmed"]),
-        lte(userFacts.validFrom, sql`now()`),
         or(isNull(userFacts.validUntil), gt(userFacts.validUntil, sql`now()`)),
       ),
     )
@@ -458,7 +457,7 @@ export async function confirmFact({
     const { key, source } = canonicalKeyAndSource(candidate.key, candidate.source);
     await lockFactKey(tx, userId, key);
 
-    // Read again under the lock: a concurrent confirm or reject may have moved the row.
+    // Read again under the lock: a committed concurrent confirm or reject may have moved the row.
     const old = await readProposed();
 
     if (!old) return null;
