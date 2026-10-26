@@ -310,7 +310,16 @@ const NON_PERSON_DISPLAY_RE =
 /** A trailing `(…)` note (`Jane Doe (Acme)`, `Sam (she/her)`). */
 const TRAILING_PARENTHETICAL_RE = /\s*\([^()]*\)\s*$/;
 
-/** True when the display name has the shape of a person's name: two or more name tokens and no org word. */
+/** `Name | Org`, `Name from Org`, `Name at Org`, `Name @ Org`: a person who writes for an organization. */
+const AFFILIATION_SEPARATOR_RE = /\s*\|\s*|\s+(?:from|at|@)\s+/i;
+
+/**
+ * True when the display name has the shape of a person's name: two or more name tokens and no org word.
+ * An affiliated name (`Sharon Samuel | HappyFox`, `Jane Doe from acme.io`) also counts when the part before
+ * the first separator is a full name alone. The org part is not tested for name shape, but the org-word gate
+ * reads the whole name. A single first name before the separator (`Tom from quicker.chat`) is the
+ * newsletter and marketing form, so it does not count.
+ */
 export function isLikelyPersonDisplayName(displayName: string | null | undefined): boolean {
   if (!displayName) return false;
 
@@ -320,5 +329,14 @@ export function isLikelyPersonDisplayName(displayName: string | null | undefined
 
   if (!normalized || NON_PERSON_DISPLAY_RE.test(normalized)) return false;
 
-  return PERSON_DISPLAY_RE.test(normalized);
+  if (PERSON_DISPLAY_RE.test(normalized)) return true;
+
+  const separator = AFFILIATION_SEPARATOR_RE.exec(normalized);
+
+  if (!separator) return false;
+
+  const namePart = normalized.slice(0, separator.index);
+  const orgPart = normalized.slice(separator.index + separator[0].length);
+
+  return orgPart.trim() !== "" && PERSON_DISPLAY_RE.test(namePart.trim());
 }
