@@ -56,7 +56,7 @@ export function applySenderKindDemotionFloor(
 
   const reason = senderKind ? senderKindDemotionReason(context, senderKind) : null;
 
-  // Group envelope (#1187): exact `GROUP_LOCALS` only; support@/billing@ stay model-decided.
+  // Group envelope (#1187): an exact group word only; support@/billing@ stay model-decided.
   // Known cost: a staffed `sales@` that asks a question also loses the reply lane.
   if (
     (classification.category === "awaiting_reply" || classification.category === "follow_up") &&
