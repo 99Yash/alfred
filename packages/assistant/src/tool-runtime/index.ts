@@ -24,7 +24,7 @@ import {
   type WorkflowRequiredCapability,
 } from "@alfred/contracts";
 import type { z } from "zod";
-import { bootPort } from "./boot-port";
+import { bootPort } from "@alfred/assistant/boot-port";
 import type { ToolCallRoundAdapter } from "./internal/adapter";
 import type { ChatTurnAddress, ToolEffects } from "./internal/registry";
 import { runToolCallRound } from "./internal/tool-call-round";
@@ -51,8 +51,6 @@ export {
   type ToolExecuteContext,
   type ToolExecuteContextFields,
 } from "./internal/registry";
-
-export { bootPort, type BootPort } from "./boot-port";
 
 export { startToolLoadSpan, startToolSearchSpan } from "./internal/runtime-spans";
 

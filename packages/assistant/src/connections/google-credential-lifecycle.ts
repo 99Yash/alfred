@@ -4,6 +4,7 @@ import { gmailMailboxWritesEnabled } from "@alfred/env/server";
 import { getFreshAccessToken, stopGmailWatchWithAccessToken } from "@alfred/integrations/google";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
+import { bootPort } from "@alfred/assistant/boot-port";
 import { TriggerConsumerBootError } from "@alfred/assistant/triggers";
 import { logger } from "@alfred/logging";
 
@@ -86,30 +87,15 @@ export class GoogleCredentialNotFoundError extends Error {
   }
 }
 
-let googleCredentialLifecycleHandler: GoogleCredentialLifecycleHandler | undefined;
+const googleCredentialLifecycleHandlerPort = bootPort<GoogleCredentialLifecycleHandler>(
+  "Google credential lifecycle handler",
+  { missing: () => new NoGoogleCredentialLifecycleHandlerRegisteredError() },
+);
 
 export function registerGoogleCredentialLifecycleHandler(
   handler: GoogleCredentialLifecycleHandler,
 ): () => void {
-  if (googleCredentialLifecycleHandler) {
-    throw new Error("[integrations] a Google credential lifecycle handler is already registered");
-  }
-
-  googleCredentialLifecycleHandler = handler;
-
-  return () => {
-    if (googleCredentialLifecycleHandler === handler) {
-      googleCredentialLifecycleHandler = undefined;
-    }
-  };
-}
-
-function requireGoogleCredentialLifecycleHandler(): GoogleCredentialLifecycleHandler {
-  if (!googleCredentialLifecycleHandler) {
-    throw new NoGoogleCredentialLifecycleHandlerRegisteredError();
-  }
-
-  return googleCredentialLifecycleHandler;
+  return googleCredentialLifecycleHandlerPort.install(handler);
 }
 
 /** Commit a Google credential upsert and its affiliation lifecycle as one operation. */
@@ -118,7 +104,7 @@ export async function upsertGoogleCredentialConnection(
 ): Promise<GoogleCredentialUpsertResult> {
   const parsed = googleCredentialUpsertRequestSchema.parse(request);
 
-  const result = await requireGoogleCredentialLifecycleHandler().upsert({
+  const result = await googleCredentialLifecycleHandlerPort.read().upsert({
     ...parsed,
     changedAt: new Date(),
   });
@@ -163,7 +149,7 @@ const DEFAULT_DISCONNECT_DEPS: GoogleCredentialDisconnectDeps = {
   mailboxWritesEnabled: gmailMailboxWritesEnabled,
   getFreshAccessToken,
   async commitDisconnect(request) {
-    return requireGoogleCredentialLifecycleHandler().disconnect(request);
+    return googleCredentialLifecycleHandlerPort.read().disconnect(request);
   },
   stopWatch: stopGmailWatchWithAccessToken,
   now: () => new Date(),

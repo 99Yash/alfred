@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { bootPort } from "@alfred/assistant/tool-runtime/boot-port";
+import { bootPort } from "@alfred/assistant/boot-port";
 
 // A slot installed once at boot. The disposer clears only its own value.
 

@@ -10,10 +10,10 @@ import {
 const ready: WorkflowReadinessVerdict = { kind: "ready" };
 
 describe("workflow readiness port", () => {
-  test("throws a loud [agent] error when no check is registered", async () => {
+  test("throws a loud error when no check is registered", async () => {
     await assert.rejects(
       () => checkWorkflowReadiness({ runId: "run-1", userId: "user-1" }),
-      /\[agent\] no workflow readiness check is registered/,
+      /No workflow readiness check is registered/,
     );
   });
 
@@ -41,7 +41,7 @@ describe("workflow readiness port", () => {
     try {
       assert.throws(
         () => registerWorkflowReadinessCheck(async () => ready),
-        /\[agent\] a workflow readiness check is already registered/,
+        /A workflow readiness check is already registered/,
       );
     } finally {
       unregister();
@@ -55,7 +55,7 @@ describe("workflow readiness port", () => {
     // Once cleared, the call throws again.
     await assert.rejects(
       () => checkWorkflowReadiness({ runId: "run-3", userId: "user-3" }),
-      /no workflow readiness check is registered/,
+      /No workflow readiness check is registered/,
     );
 
     // A new registration does not collide.

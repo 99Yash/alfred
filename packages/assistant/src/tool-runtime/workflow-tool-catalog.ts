@@ -7,7 +7,7 @@ import type {
   ToolRunContext,
 } from "@alfred/contracts";
 
-import { bootPort } from "./boot-port";
+import { bootPort } from "@alfred/assistant/boot-port";
 
 /** The registry facts a workflow read needs, with the availability verdict bound in (ADR-0089). */
 export interface WorkflowToolFacts {

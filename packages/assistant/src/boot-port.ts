@@ -10,7 +10,12 @@ export interface BootPort<T> {
   read(): T;
 }
 
-export function bootPort<T>(label: string): BootPort<T> {
+export interface BootPortOptions {
+  /** Builds the error `read()` throws on an empty slot. */
+  missing?: () => Error;
+}
+
+export function bootPort<T>(label: string, options?: BootPortOptions): BootPort<T> {
   let current: T | undefined;
 
   return {
@@ -26,7 +31,9 @@ export function bootPort<T>(label: string): BootPort<T> {
       };
     },
     read(): T {
-      if (current === undefined) throw new Error(`No ${label} is registered`);
+      if (current === undefined) {
+        throw options?.missing?.() ?? new Error(`No ${label} is registered`);
+      }
 
       return current;
     },

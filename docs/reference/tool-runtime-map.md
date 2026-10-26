@@ -47,8 +47,8 @@ consumer per inbound source rather than one file per provider (#1090).
 ## The eleven seams
 
 Each seam is a `bootPort<T>` slot. The composition root installs one concrete
-value at boot, and a peer reads it. The `boot-port.ts` file defines the factory;
-it is not itself a seam.
+value at boot, and a peer reads it. The `src/boot-port.ts` file defines the
+factory (`@alfred/assistant/boot-port`); it is not itself a seam.
 
 | Seam interface                   | Surface   | Install → read                                                           |
 | -------------------------------- | --------- | ------------------------------------------------------------------------ |

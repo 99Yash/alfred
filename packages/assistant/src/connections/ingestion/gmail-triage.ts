@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { bootPort } from "@alfred/assistant/boot-port";
 import { TriggerConsumerBootError } from "@alfred/assistant/triggers";
 
 // Defensive process-local limits; normal Gmail identifiers and ingestion batches are far smaller.
@@ -77,19 +78,13 @@ export class NoGmailTriageHandlerRegisteredError extends TriggerConsumerBootErro
   }
 }
 
-let gmailTriageHandler: GmailTriageHandler | undefined;
+const gmailTriageHandlerPort = bootPort<GmailTriageHandler>("Gmail triage handler", {
+  missing: () => new NoGmailTriageHandlerRegisteredError(),
+});
 
 /** Register the triage adapter that runtime composition supplies. */
 export function registerGmailTriageHandler(handler: GmailTriageHandler): () => void {
-  if (gmailTriageHandler) {
-    throw new Error("[integrations] a Gmail triage handler is already registered");
-  }
-
-  gmailTriageHandler = handler;
-
-  return () => {
-    if (gmailTriageHandler === handler) gmailTriageHandler = undefined;
-  };
+  return gmailTriageHandlerPort.install(handler);
 }
 
 /** Run post-insert triage work without exposing its implementation to ingestion. */
@@ -98,10 +93,8 @@ export async function runGmailPostInsertTriage(
 ): Promise<GmailPostInsertTriageResult> {
   const parsedRequest = gmailPostInsertTriageRequestSchema.parse(request);
 
-  if (!gmailTriageHandler) throw new NoGmailTriageHandlerRegisteredError();
-
   return gmailPostInsertTriageResultSchema.parse(
-    await gmailTriageHandler.postInsert(parsedRequest),
+    await gmailTriageHandlerPort.read().postInsert(parsedRequest),
   );
 }
 
@@ -109,7 +102,7 @@ export async function runGmailPostInsertTriage(
 export async function runGmailTriageRelabel(request: unknown): Promise<GmailTriageRelabelResult> {
   const parsedRequest = gmailTriageRelabelRequestSchema.parse(request);
 
-  if (!gmailTriageHandler) throw new NoGmailTriageHandlerRegisteredError();
-
-  return gmailTriageRelabelResultSchema.parse(await gmailTriageHandler.relabel(parsedRequest));
+  return gmailTriageRelabelResultSchema.parse(
+    await gmailTriageHandlerPort.read().relabel(parsedRequest),
+  );
 }

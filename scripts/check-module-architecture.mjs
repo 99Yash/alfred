@@ -38,7 +38,7 @@ const RUNTIME_ADAPTER_MANIFEST = join(RUNTIME_ADAPTER_ROOT, "runtime-adapters.ts
 // the next move doing the same thing.
 const TOOL_RUNTIME_ROOT = join(ASSISTANT_SOURCE_ROOT, "tool-runtime");
 
-const BOOT_PORT_DEFINER = join(TOOL_RUNTIME_ROOT, "boot-port.ts");
+const BOOT_PORT_DEFINER = join(ASSISTANT_SOURCE_ROOT, "boot-port.ts");
 
 // A boot-seam call is `bootPort` followed by a generic or an argument list. The
 // character class covers both the `bootPort<Type>(` form and the bare `bootPort(`
