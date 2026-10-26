@@ -1,22 +1,49 @@
 import type { McpConnection } from "~/lib/integrations/mcp-connections";
 
-/** Status text for a connection that exists. A tile with no row writes its own copy. */
-export function mcpConnectionStatusText(
+/** The one-line amber alert. Present only for `failed`, or `connecting` after an error. */
+export interface McpConnectionAlert {
+  readonly text: string;
+  /** The stored diagnostic, shown on hover and to screen readers. */
+  readonly diagnostic: string | null;
+}
+
+/** What a connection that exists shows. A tile with no row writes its own copy. */
+export interface McpConnectionPresentation {
+  /** The full status line: the catalog status row and the start of the tile subtitle. */
+  readonly statusText: string;
+  /** Non-null exactly when the tile shows the amber badge, so the badge never shows alone. */
+  readonly alert: McpConnectionAlert | null;
+}
+
+export function mcpConnectionPresentation(
   connection: Pick<McpConnection, "status" | "lastError">,
-): string {
+): McpConnectionPresentation {
+  const { lastError } = connection;
+
   switch (connection.status) {
     case "ready":
-      return "Connected";
+      return { statusText: "Connected", alert: null };
     case "auth_required":
-      return connection.lastError ?? "Additional permissions require your consent.";
+      return {
+        statusText: lastError ?? "Additional permissions require your consent.",
+        alert: null,
+      };
     case "connecting":
-      return connection.lastError ? "Reconnecting…" : "Connecting…";
+      return lastError === null
+        ? { statusText: "Connecting…", alert: null }
+        : {
+            statusText: "Reconnecting…",
+            alert: { text: "Reconnecting…", diagnostic: lastError },
+          };
     case "disconnected":
-      return "Disconnected";
+      return { statusText: "Disconnected", alert: null };
     case "stale":
-      return "Refreshing the tool catalog…";
+      return { statusText: "Refreshing the tool catalog…", alert: null };
     case "failed":
-      return connection.lastError ?? "Connection failed";
+      return {
+        statusText: lastError ?? "Connection failed",
+        alert: { text: "Connection failed", diagnostic: lastError },
+      };
     default: {
       const _exhaustive: never = connection.status;
 
@@ -29,7 +56,7 @@ export function mcpConnectionStatusText(
 export function mcpConnectionSubtitle(
   connection: Pick<McpConnection, "status" | "lastError" | "toolCount">,
 ): string {
-  const status = mcpConnectionStatusText(connection);
+  const status = mcpConnectionPresentation(connection).statusText;
 
   if (connection.status !== "ready" || connection.toolCount === null) return status;
 

@@ -8,7 +8,7 @@ import { useMcpConnectionActions, type McpConnectionActions } from "./mcp-connec
 import { McpActionErrorText, McpConnectionMenu } from "./mcp-connection-menu";
 import { McpConnectionWarning } from "./mcp-connection-warning";
 import { McpTile } from "./mcp-tile";
-import { mcpConnectionSubtitle } from "./mcp-server-status";
+import { mcpConnectionPresentation, mcpConnectionSubtitle } from "./mcp-server-status";
 
 export interface McpConnectionCardViewProps {
   connection: McpConnection;
@@ -24,16 +24,14 @@ export interface McpConnectionCardViewProps {
 export function McpConnectionCardView({ connection, actions }: McpConnectionCardViewProps) {
   const needsConsent = connection.status === "auth_required";
 
-  const warning =
-    connection.status === "failed" ||
-    (connection.status === "connecting" && connection.lastError !== null);
+  const { alert } = mcpConnectionPresentation(connection);
 
   const busy = actions.pending !== null;
 
   const subtitle = actions.error ? (
     <McpActionErrorText error={actions.error} />
-  ) : warning ? (
-    <McpConnectionWarning connection={connection} />
+  ) : alert ? (
+    <McpConnectionWarning alert={alert} />
   ) : (
     mcpConnectionSubtitle(connection)
   );
@@ -45,7 +43,7 @@ export function McpConnectionCardView({ connection, actions }: McpConnectionCard
       }}
       label={connection.label}
       subtitle={subtitle}
-      warning={warning}
+      warning={alert !== null}
     >
       {needsConsent ? (
         <AppButton
