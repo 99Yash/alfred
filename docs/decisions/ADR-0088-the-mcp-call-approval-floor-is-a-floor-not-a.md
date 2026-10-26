@@ -27,3 +27,7 @@ The live-chat scheduling hint has no validated input or execution context. It th
 ## Amendment — 2026-10-23: a resolver that reads remote state
 
 `calendar.update_event` is the first `resolveRiskTier` user that reads remote state, not only the input. It reads the event from Google and returns `high` when the event has a guest other than the user. A failed read returns `high`, so the resolver stays fail-closed. The read has no side effect, so the hook contract holds.
+
+## Amendment — 2026-10-26: the bound call owns the clamp
+
+The clamp moved from the dispatcher into `BoundToolCall.effectiveRiskTier` in `tool-runtime/internal/registry.ts`. No member of `BoundToolCall` returns an unclamped tier. `effectiveRiskTier` returns the clamped tier. A second reader, for example an input-aware gate predictor, gets the clamp with no change to the reader. Dispatch still reads the tier at the gate. The fail-closed branch, the downgrade rule, and the three log events do not change.
