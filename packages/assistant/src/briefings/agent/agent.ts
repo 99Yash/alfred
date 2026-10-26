@@ -112,10 +112,35 @@ export async function runBriefingAgent(
       outputTokens: result.usage.outputTokens,
       totalTokens: result.usage.totalTokens,
     },
-    // The leg that served the last step. The route model always names its primary.
-    modelId: result.finalStep.response.modelId,
+    // The leg that wrote the briefing: the step that called `dump_briefing`.
+    // A trailing wrap-up step starts on the primary again, so `finalStep`
+    // would name a leg that did not produce the stored prose.
+    modelId: modelIdOfDumpStep(result.steps),
     steps: result.steps.length,
   };
+}
+
+/**
+ * The serving leg of the step that called `dump_briefing`. The caller already
+ * threw when no dump happened, so this is always found.
+ */
+function modelIdOfDumpStep(
+  steps: readonly {
+    toolCalls: readonly { toolName: string }[];
+    response: { modelId: string };
+  }[],
+): string {
+  for (let i = steps.length - 1; i >= 0; i--) {
+    const step = steps[i];
+
+    if (!step) continue;
+
+    if (step.toolCalls.some((call) => call.toolName === "dump_briefing")) {
+      return step.response.modelId;
+    }
+  }
+
+  throw new Error(`[briefing-agent] loop ended without dump_briefing call. steps=${steps.length}`);
 }
 
 /** The re-prompt text built from the guard's findings. One extra compose before the guard drops sentences. */

@@ -903,15 +903,17 @@ export async function classifyEmail(
   const collabVetoText = floorBodySignalText(args.document);
   const floorMatches = matchesExposedSecret(signalText);
 
-  // The base of `model_id` names the leg that served the first pass.
-  const { classification: firstPass, modelId: baseModelId } = await runPass({
+  // The base of `model_id` names the leg whose response the code stored.
+  const firstResult = await runPass({
     system: classifySystemPrompt(),
     prompt: userPrompt(args, null),
     pass: "first",
   });
 
+  const firstPass = firstResult.classification;
+
   const conflict = detectConflict(firstPass, args.observations, floorMatches, args.senderContext);
-  let working = firstPass;
+  let working = firstResult;
   let secondPass: TriageClassification | null = null;
   let secondPassFailure: { message: string } | null = null;
 
@@ -919,23 +921,25 @@ export async function classifyEmail(
     // A failed second pass keeps the first pass. Rethrowing would fall back to
     // `fyi` and bury a real urgent; escalating would flag every vendor auth echo.
     try {
-      ({ classification: secondPass } = await runPass({
+      const secondResult = await runPass({
         system: classifySystemPrompt(),
         prompt: userPrompt(args, conflict),
         pass: "second",
-      }));
-      working = secondPass;
+      });
+
+      secondPass = secondResult.classification;
+      working = secondResult;
     } catch (err) {
       secondPassFailure = { message: errorMessage(err) };
       secondPass = null;
-      working = firstPass;
+      working = firstResult;
     }
   }
 
   const meta = args.document.metadata;
   const { from, to, cc } = meta;
 
-  const floors = applyFloors(working, {
+  const floors = applyFloors(working.classification, {
     signalText,
     collabVetoText,
     senderKind: args.observations.senderKind,
@@ -953,8 +957,9 @@ export async function classifyEmail(
   const classification = floors.classification;
 
   // Pass tags, then floor tags in sequence order. Query with `LIKE '%+kindfloor%'`, never equality.
+  // The base names the leg whose classification the row stores.
   const model_id = [
-    baseModelId,
+    working.modelId,
     ...(secondPass ? ["+2pass"] : []),
     ...(secondPassFailure ? ["+2pass_failed"] : []),
     ...floors.modelIdTags,
