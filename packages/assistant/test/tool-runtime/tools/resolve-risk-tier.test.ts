@@ -5,7 +5,6 @@ import { parseIanaTimezone, type ToolRiskTier } from "@alfred/contracts";
 
 import { toolExecuteContext } from "@alfred/assistant/tool-runtime/context";
 import { liveTool, type BoundToolCall, type RegisteredTool } from "@alfred/assistant/tool-runtime";
-import { resolveEffectiveRiskTier } from "../../../src/tool-runtime/internal/dispatch";
 import { asContractViolation } from "../../support/contract-violation";
 
 /**
@@ -74,10 +73,11 @@ describe("liveTool resolveRiskTier wiring", () => {
 
         return "low";
       },
+      riskTierDowngradeReason: "reviewed test policy",
       execute: async () => ({ ok: true }),
     });
 
-    const tier = await bound(tool, { n: "3" }).declaredRiskTier(ctx);
+    const tier = await bound(tool, { n: "3" }).effectiveRiskTier(ctx);
     assert.equal(tier, "low");
     assert.deepEqual(seen, { n: 3 }, "the resolver receives the parsed (coerced) input");
   });
@@ -93,7 +93,7 @@ describe("liveTool resolveRiskTier wiring", () => {
       execute: async () => ({ ok: true }),
     });
 
-    assert.equal(await resolveEffectiveRiskTier(bound(tool, { n: 3 }), ctx), "high");
+    assert.equal(await bound(tool, { n: 3 }).effectiveRiskTier(ctx), "high");
   });
 
   test("allows a declared reviewed downgrade", async () => {
@@ -108,7 +108,7 @@ describe("liveTool resolveRiskTier wiring", () => {
       execute: async () => ({ ok: true }),
     });
 
-    assert.equal(await resolveEffectiveRiskTier(bound(tool, { n: 3 }), ctx), "low");
+    assert.equal(await bound(tool, { n: 3 }).effectiveRiskTier(ctx), "low");
   });
 
   test("an invalid resolver result fails closed to the static tier", async () => {
@@ -124,6 +124,6 @@ describe("liveTool resolveRiskTier wiring", () => {
       execute: async () => ({ ok: true }),
     });
 
-    assert.equal(await resolveEffectiveRiskTier(bound(tool, { n: 3 }), ctx), "high");
+    assert.equal(await bound(tool, { n: 3 }).effectiveRiskTier(ctx), "high");
   });
 });

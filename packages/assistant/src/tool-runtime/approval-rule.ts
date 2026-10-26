@@ -61,7 +61,7 @@ export function toolAlwaysWaitsForApproval(toolName: ToolName, policyMode: Polic
 
   if (arm.forcesApproval) return true;
 
-  // A declared downgrade can take the tier below `high`. Dispatch clamps an undeclared one.
+  // A declared downgrade can take the tier below `high`. The bound call clamps an undeclared one.
   const lowestTier = tool.riskTierDowngradeReason === undefined ? tool.riskTier : "no_risk";
 
   return toolRequiresApproval(policyMode, lowestTier);

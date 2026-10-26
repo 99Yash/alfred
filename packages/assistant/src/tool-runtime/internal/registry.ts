@@ -27,12 +27,14 @@ import {
   integrationFromToolName,
   isLoadableIntegrationSlug,
   isSupportedPassthroughSlug,
+  isToolRiskTier,
   joinToolInput,
   toolNameSchema,
 } from "@alfred/contracts";
 // Type-only: the values pull `@alfred/db` into every tool declaration. `../context` binds them.
 import type { Integrations } from "@alfred/integrations";
 import type { Corpus } from "@alfred/corpus";
+import { logger } from "@alfred/logging";
 import { z } from "zod";
 import {
   QUESTION_TOOL_MODEL_PROBE_INPUT,
@@ -180,7 +182,7 @@ export interface ToolArgsCommon<
   riskTier: ToolRiskTier;
   /**
    * The effective tier from validated input (ADR-0088). Must be side-effect free.
-   * Dispatch clamps a downgrade unless `riskTierDowngradeReason` is set.
+   * `BoundToolCall.effectiveRiskTier` clamps a downgrade unless `riskTierDowngradeReason` is set.
    */
   resolveRiskTier?: (input: z.infer<S>, ctx: ToolExecuteContext) => Promise<ToolRiskTier>;
   /** Permits a downgrade below `riskTier`. Requires `resolveRiskTier`. */
@@ -285,10 +287,11 @@ export interface BoundToolCall {
   /** See {@link LiveToolArgs.refuseInput}. `null` when the tool declares no refusal. */
   refusal: (ctx: ToolExecuteContext) => string | null;
   /**
-   * The tier that the tool declares for this input: `resolveRiskTier`, else the static tier.
-   * Dispatch clamps an undeclared downgrade (ADR-0088).
+   * The tier the gate applies to this call (ADR-0088). The static tier when the tool has no
+   * `resolveRiskTier`. A resolver result that is not a tier fails closed to the static tier.
+   * A downgrade below it is clamped unless the tool declares `riskTierDowngradeReason`.
    */
-  declaredRiskTier: (ctx: ToolExecuteContext) => Promise<ToolRiskTier>;
+  effectiveRiskTier: (ctx: ToolExecuteContext) => Promise<ToolRiskTier>;
   /** See {@link LiveToolArgs.redactInput}. The input itself when the tool declares no redactor. */
   // oxlint-disable-next-line anti-slop/no-unknown-returns -- the registry erases each tool's input type; the redacted input goes to the trace and the staging row as received.
   redactedInput: () => unknown;
@@ -522,6 +525,76 @@ function isPassthroughToolArgs<
   return args.availability?.passthrough === true;
 }
 
+const TOOL_RISK_RANK = {
+  no_risk: 0,
+  low: 1,
+  medium: 2,
+  high: 3,
+} as const satisfies Record<ToolRiskTier, number>;
+
+/**
+ * Clamp a `resolveRiskTier` result (ADR-0088). A downgrade needs a declared
+ * `riskTierDowngradeReason`; otherwise it is clamped to the static tier.
+ */
+function clampResolvedRiskTier(
+  tool: RegisteredTool,
+  resolved: unknown,
+  runId: string,
+): ToolRiskTier {
+  // The resolver type is `Promise<ToolRiskTier>`, but nothing enforces that at
+  // runtime, so a resolver can hand back a non-tier (ADR-0088). Fail closed to
+  // the static tier. This checks only the resolver result, so the input is
+  // still parsed one time.
+  if (!isToolRiskTier(resolved)) {
+    logger.warn(
+      {
+        event: "tool_risk_tier_invalid",
+        toolName: tool.name,
+        staticRiskTier: tool.riskTier,
+        resolvedRiskTier: resolved,
+        runId,
+      },
+      "Ignored invalid resolved tool risk tier",
+    );
+
+    return tool.riskTier;
+  }
+
+  const staticRank = TOOL_RISK_RANK[tool.riskTier];
+  const resolvedRank = TOOL_RISK_RANK[resolved];
+
+  if (resolvedRank >= staticRank) return resolved;
+
+  if (!tool.riskTierDowngradeReason) {
+    logger.warn(
+      {
+        event: "tool_risk_tier_downgrade_clamped",
+        toolName: tool.name,
+        staticRiskTier: tool.riskTier,
+        attemptedRiskTier: resolved,
+        runId,
+      },
+      "Clamped undeclared tool risk-tier downgrade",
+    );
+
+    return tool.riskTier;
+  }
+
+  logger.info(
+    {
+      event: "tool_risk_tier_downgrade",
+      toolName: tool.name,
+      staticRiskTier: tool.riskTier,
+      resolvedRiskTier: resolved,
+      reason: tool.riskTierDowngradeReason,
+      runId,
+    },
+    "Applied reviewed tool risk-tier downgrade",
+  );
+
+  return resolved;
+}
+
 /** Build a registry entry. Call `registerTool` at boot to register it. */
 export function liveTool<
   I extends IntegrationSlug,
@@ -606,8 +679,10 @@ export function liveTool<
           tool,
           input,
           refusal: (ctx) => refuseInput?.(input, ctx) ?? null,
-          declaredRiskTier: (ctx) =>
-            resolveRiskTier ? resolveRiskTier(input, ctx) : Promise.resolve(args.riskTier),
+          effectiveRiskTier: async (ctx) =>
+            resolveRiskTier
+              ? clampResolvedRiskTier(tool, await resolveRiskTier(input, ctx), ctx.runId)
+              : tool.riskTier,
           redactedInput: () => (redactInput ? redactInput(input) : input),
           execute: async (ctx) => {
             if (args.availability?.requiresLiveChat !== true) {

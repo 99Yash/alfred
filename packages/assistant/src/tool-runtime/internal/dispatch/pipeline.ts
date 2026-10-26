@@ -9,7 +9,6 @@ import type {
   IntegrationAvailabilitySnapshot,
   IntegrationSlug,
   ToolName,
-  ToolRiskTier,
 } from "@alfred/contracts";
 import {
   APPROVAL_EXPIRY_MS,
@@ -22,7 +21,6 @@ import {
   isIntegrationSlug,
   isTerminalStatus,
   isToolName,
-  isToolRiskTier,
   isUnknownEffectEnvelope,
   joinToolInput,
   jsonValueSchema,
@@ -105,13 +103,6 @@ type DispatchResult = ToolCallDispatchResult;
 const UNKNOWN_TOOL_TRACE_NAME = "<unknown>";
 
 const TOOLISH_NAME = /^[A-Za-z][A-Za-z0-9_.]*$/;
-
-const TOOL_RISK_RANK = {
-  no_risk: 0,
-  low: 1,
-  medium: 2,
-  high: 3,
-} as const satisfies Record<ToolRiskTier, number>;
 
 let dispatchRejectionRecorder: (args: DispatchRejectionInput) => void = recordDispatchRejection;
 
@@ -712,7 +703,7 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
   }
 
   // Some tools resolve their tier from input (Calendar invites go up, `mcp.call` can go down).
-  const riskTier = await resolveEffectiveRiskTier(call, ctx);
+  const riskTier = await call.effectiveRiskTier(ctx);
   const policyMode = await resolvePolicyMode(args.userId, toolName);
   const policyRequiresApproval = toolRequiresApproval(policyMode, riskTier);
 
@@ -956,74 +947,6 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
     }
   }
 };
-
-/**
- * Resolve input-dependent risk. A downgrade needs a declared
- * `riskTierDowngradeReason`; otherwise it is clamped (ADR-0088).
- */
-export async function resolveEffectiveRiskTier(
-  call: BoundToolCall,
-  ctx: ToolExecuteContext,
-): Promise<ToolRiskTier> {
-  const { tool } = call;
-
-  if (!tool.resolvesRiskTier) return tool.riskTier;
-
-  const resolved: unknown = await call.declaredRiskTier(ctx);
-
-  // The resolver type is `Promise<ToolRiskTier>`, but nothing enforces that at
-  // runtime, so a resolver can hand back a non-tier (ADR-0088). Fail closed to
-  // the static tier. This checks only the resolver result, so the input is
-  // still parsed one time.
-  if (!isToolRiskTier(resolved)) {
-    logger.warn(
-      {
-        event: "tool_risk_tier_invalid",
-        toolName: tool.name,
-        staticRiskTier: tool.riskTier,
-        resolvedRiskTier: resolved,
-        runId: ctx.runId,
-      },
-      "Ignored invalid resolved tool risk tier",
-    );
-
-    return tool.riskTier;
-  }
-
-  const staticRank = TOOL_RISK_RANK[tool.riskTier];
-  const resolvedRank = TOOL_RISK_RANK[resolved];
-
-  if (resolvedRank >= staticRank) return resolved;
-
-  if (!tool.riskTierDowngradeReason) {
-    logger.warn(
-      {
-        event: "tool_risk_tier_downgrade_clamped",
-        toolName: tool.name,
-        staticRiskTier: tool.riskTier,
-        attemptedRiskTier: resolved,
-        runId: ctx.runId,
-      },
-      "Clamped undeclared tool risk-tier downgrade",
-    );
-
-    return tool.riskTier;
-  }
-
-  logger.info(
-    {
-      event: "tool_risk_tier_downgrade",
-      toolName: tool.name,
-      staticRiskTier: tool.riskTier,
-      resolvedRiskTier: resolved,
-      reason: tool.riskTierDowngradeReason,
-      runId: ctx.runId,
-    },
-    "Applied reviewed tool risk-tier downgrade",
-  );
-
-  return resolved;
-}
 
 const dispatchToolCallRoundAdapter: DispatchToolCallRoundAdapter = {
   dispatch: dispatchToolCall,
