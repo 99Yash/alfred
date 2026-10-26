@@ -86,7 +86,7 @@ export function reduceGmailDocument(row: GmailDocumentForReduction): GmailReduct
     from: sender,
     to: parseAddressList(headerOrMetadata(headers, metadata, "to"), "to"),
     cc: parseAddressList(headerOrMetadata(headers, metadata, "cc"), "cc"),
-    bcc: parseAddressList(headerOrMetadata(headers, metadata, "bcc"), "bcc"),
+    bcc: parseAddressList(headers.get("bcc"), "bcc"),
     listId,
   });
 
@@ -196,11 +196,8 @@ function headersFromList(headers: unknown): HeaderLookup {
 function headerOrMetadata(
   headers: HeaderLookup,
   metadata: GmailDocumentMetadata,
-  name: "from" | "to" | "cc" | "bcc",
+  name: "from" | "to" | "cc",
 ): string | null {
-  // `bcc` is not a typed metadata field; no writer persists it.
-  if (name === "bcc") return headers.get(name) ?? getStringPath(metadata, name) ?? null;
-
   return headers.get(name) ?? normalizeHeader(metadata[name]);
 }
 
