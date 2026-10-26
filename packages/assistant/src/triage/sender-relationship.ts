@@ -4,11 +4,11 @@
  * the todo gate reads the typed `isColdContact`, because the model did not
  * reliably apply `cold_sender:` itself.
  */
-import { bucketSignificance, isNonBlankString, type SignificanceBand } from "@alfred/contracts";
+import { isNonBlankString, type SignificanceBand } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { userFacts } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
-import { findPersonMetadataByAddress } from "../knowledge";
+import type { SenderPersonRead } from "../knowledge";
 
 /** `unscored` (history, no score yet) is not `weak` (a real low score). */
 export type SenderSignificanceBucket = SignificanceBand | "unscored";
@@ -90,30 +90,34 @@ export const RELATIONSHIP_READ_FAILED: SenderRelationshipSignal = {
   isColdContact: false,
 };
 
-/** Best-effort. No history is cold; a failed read is not (#517 D2). */
+/**
+ * Best-effort. No history is cold; a failed read is not (#517 D2).
+ * Reads no entity: the caller passes the step's one sender read.
+ */
 export async function resolveSenderRelationship(args: {
   userId: string;
-  senderAddress: string | null;
+  sender: SenderPersonRead;
   isHumanSender: boolean;
 }): Promise<SenderRelationshipSignal> {
-  if (!args.isHumanSender || !args.senderAddress) return NON_HUMAN_RELATIONSHIP;
+  if (!args.isHumanSender) return NON_HUMAN_RELATIONSHIP;
 
-  let meta: Awaited<ReturnType<typeof findPersonMetadataByAddress>>;
-
-  try {
-    meta = await findPersonMetadataByAddress(args.userId, args.senderAddress);
-  } catch {
-    return RELATIONSHIP_READ_FAILED;
+  switch (args.sender.kind) {
+    case "no_address":
+      return NON_HUMAN_RELATIONSHIP;
+    case "read_failed":
+      return RELATIONSHIP_READ_FAILED;
+    case "none":
+      return NO_PRIOR_CONTACT;
+    case "found":
+      break;
   }
 
-  if (!meta) return NO_PRIOR_CONTACT;
-
+  const meta = args.sender.metadata;
   const stats = meta.correspondence ?? { inbound: 0, outbound: 0, coRecipient: 0 };
-  const significance = meta.significance;
+  // The step's one read already mapped the score; `null` is unscored, not weak.
+  const significance = args.sender.significance;
 
-  const bucket: SenderSignificanceBucket = significance
-    ? bucketSignificance(significance.score)
-    : "unscored";
+  const bucket: SenderSignificanceBucket = significance?.band ?? "unscored";
 
   const isColdContact = isColdContactFromSignals({
     inbound: stats.inbound,
@@ -125,7 +129,7 @@ export async function resolveSenderRelationship(args: {
 
   // Omitted until the row is scored.
   if (significance) {
-    parts.push(significance.components.sameOrg >= 1 ? "same-org" : "not same-org");
+    parts.push(significance.sameOrg ? "same-org" : "not same-org");
   }
 
   const role = await loadUserRole(args.userId);

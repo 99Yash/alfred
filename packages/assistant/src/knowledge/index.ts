@@ -128,9 +128,9 @@ export { valueSignature } from "./signature";
 export { isSingleValuedKey, isUninformativeRelationshipFact } from "./fact-policy";
 
 export {
-  getSenderSignificance,
   getSenderSignificanceBatch,
-  findPersonMetadataByAddress,
+  readSenderPerson,
+  type SenderPersonRead,
   type SenderSignificance,
 } from "./significance";
 
@@ -147,6 +147,7 @@ export {
   type RememberSenderSuppressionResult,
   type SenderSuppressionMatch,
   type SenderSuppressionOutcome,
+  type ReportedSenderSuppressions,
 } from "./standing-instructions";
 
 export { startMemoryWorker, stopMemoryWorker, closeMemoryQueue } from "./queue";

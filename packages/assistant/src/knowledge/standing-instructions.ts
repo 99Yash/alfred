@@ -73,6 +73,16 @@ interface SenderSuppressions<Outcome extends SenderSuppressionOutcome> {
 }
 
 /**
+ * A `"report"` load. The `onReadFailure: "report"` key rejects a `"throw"`
+ * load and a value without the key where the todo lane needs fail-closed
+ * reporting. A value that writes the key by hand still compiles. Review owns
+ * that case.
+ */
+export interface ReportedSenderSuppressions extends SenderSuppressions<SenderSuppressionOutcome> {
+  readonly onReadFailure: "report";
+}
+
+/**
  * Each consumer owns its read-failure policy, so the caller must state it:
  * - `"throw"`: the returned promise rejects with the read error. `match` never reports `read_failed`.
  * - `"report"`: the promise always resolves. On a failed read, every `match` returns `read_failed`.
@@ -84,19 +94,26 @@ export function senderSuppressions(args: {
 export function senderSuppressions(args: {
   userId: string;
   onReadFailure: "report";
-}): Promise<SenderSuppressions<SenderSuppressionOutcome>>;
+}): Promise<ReportedSenderSuppressions>;
 export async function senderSuppressions(args: {
   userId: string;
   onReadFailure: "throw" | "report";
-}): Promise<SenderSuppressions<SenderSuppressionOutcome>> {
+}): Promise<ReportedSenderSuppressions | SenderSuppressions<LoadedSenderSuppressionOutcome>> {
   if (args.onReadFailure === "throw") {
     return senderSuppressionsOf(await listActiveSuppressionInstructions(args.userId));
   }
 
   try {
-    return senderSuppressionsOf(await listActiveSuppressionInstructions(args.userId));
+    return {
+      ...senderSuppressionsOf(await listActiveSuppressionInstructions(args.userId)),
+      onReadFailure: "report" as const,
+    };
   } catch (error) {
-    return { isEmpty: false, match: () => ({ kind: "read_failed", error }) };
+    return {
+      isEmpty: false,
+      onReadFailure: "report" as const,
+      match: () => ({ kind: "read_failed", error }),
+    };
   }
 }
 

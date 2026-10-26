@@ -19,8 +19,9 @@ import {
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { entities, user } from "@alfred/db/schemas";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { logger } from "@alfred/logging";
+import { entityAliasMatch } from "./entity-graph";
 
 export interface SignificanceWeights {
   /** Frequency × recency, so a fresh cold blast does not score like a relationship. */
@@ -204,8 +205,8 @@ export async function runSignificancePass(
 
 // ─── Sender-significance read (ADR-0064 #210) ────────────────────────────────
 
-/** A `person` row's metadata by lowercased email alias, or `null`. Shared with triage's sender resolver. */
-export async function findPersonMetadataByAddress(
+/** A `person` row's metadata by lowercased email alias, or `null`. Only {@link readSenderPerson} reads it. */
+async function findPersonMetadataByAddress(
   userId: string,
   address: string,
 ): Promise<PersonEntityMetadata | null> {
@@ -217,14 +218,7 @@ export async function findPersonMetadataByAddress(
     .select({ metadata: entities.metadata })
     .from(entities)
     .where(
-      and(
-        eq(entities.userId, userId),
-        eq(entities.kind, "person"),
-        sql`EXISTS (
-          SELECT 1 FROM jsonb_array_elements_text(${entities.aliases}) AS alias
-          WHERE lower(alias) = ${target}
-        )`,
-      ),
+      and(eq(entities.userId, userId), eq(entities.kind, "person"), entityAliasMatch([target])),
     )
     .limit(1);
 
@@ -240,25 +234,9 @@ export interface SenderSignificance {
   sameOrg: boolean;
 }
 
-/**
- * Precomputed sender significance (ADR-0064). `null` when the sender has no row
- * or no score yet, so an unscored contact is not read as a low score. A DB error also gives `null`.
- */
-export async function getSenderSignificance(
-  userId: string,
-  address: string | null | undefined,
-): Promise<SenderSignificance | null> {
-  if (!address) return null;
-
-  let meta: PersonEntityMetadata | null;
-
-  try {
-    meta = await findPersonMetadataByAddress(userId, address);
-  } catch {
-    return null;
-  }
-
-  const significance = meta?.significance;
+/** `null` while the row has no score, so an unscored contact is not read as a low score. */
+function senderSignificanceOf(metadata: PersonEntityMetadata): SenderSignificance | null {
+  const significance = metadata.significance;
 
   if (!significance) return null;
 
@@ -269,7 +247,36 @@ export async function getSenderSignificance(
   };
 }
 
-/** Batched {@link getSenderSignificance}, keyed by lowercased address. Missing means neutral. A DB error gives an empty map. */
+/**
+ * The sender's `person` row, read one time per classify step. Triage derives the
+ * known-contact flag, the relationship line and the rail band (ADR-0064) from it.
+ * `no_address` is a missing or empty address; only a whitespace-only one reads as `none`.
+ */
+export type SenderPersonRead =
+  | { kind: "no_address" }
+  | { kind: "none" }
+  | { kind: "read_failed"; error: unknown }
+  | { kind: "found"; metadata: PersonEntityMetadata; significance: SenderSignificance | null };
+
+/** The sender's `person` row by alias. Never rejects: a failed read is `read_failed`. */
+export async function readSenderPerson(
+  userId: string,
+  address: string | null,
+): Promise<SenderPersonRead> {
+  if (!address) return { kind: "no_address" };
+
+  try {
+    const metadata = await findPersonMetadataByAddress(userId, address);
+
+    if (!metadata) return { kind: "none" };
+
+    return { kind: "found", metadata, significance: senderSignificanceOf(metadata) };
+  } catch (error) {
+    return { kind: "read_failed", error };
+  }
+}
+
+/** Sender significance for many addresses, keyed by lowercased address. Missing means neutral. A DB error gives an empty map. */
 export async function getSenderSignificanceBatch(
   userId: string,
   addresses: ReadonlyArray<string | null | undefined>,
@@ -294,14 +301,7 @@ export async function getSenderSignificanceBatch(
       .select({ metadata: entities.metadata, aliases: entities.aliases })
       .from(entities)
       .where(
-        and(
-          eq(entities.userId, userId),
-          eq(entities.kind, "person"),
-          sql`EXISTS (
-            SELECT 1 FROM jsonb_array_elements_text(${entities.aliases}) AS alias
-            WHERE ${inArray(sql`lower(alias)`, targetList)}
-          )`,
-        ),
+        and(eq(entities.userId, userId), eq(entities.kind, "person"), entityAliasMatch(targetList)),
       );
   } catch (err) {
     logger.warn({ err }, "[knowledge.significance] batch alias read failed");
@@ -310,16 +310,9 @@ export async function getSenderSignificanceBatch(
   }
 
   for (const row of rows) {
-    const meta = parsePersonEntityMetadata(row.metadata);
-    const significance = meta.significance;
+    const resolved = senderSignificanceOf(parsePersonEntityMetadata(row.metadata));
 
-    if (!significance) continue;
-
-    const resolved: SenderSignificance = {
-      score: significance.score,
-      band: bucketSignificance(significance.score),
-      sameOrg: significance.components.sameOrg >= 1,
-    };
+    if (!resolved) continue;
 
     // One entity can answer several requested addresses.
     const aliases = toStringArray(row.aliases);
