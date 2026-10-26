@@ -269,7 +269,7 @@ describe("proposeFact capture invariants (DB-backed, #330)", { skip: SKIP }, () 
 
     assert.equal(conflict?.status, "proposed");
 
-    const confirmedConflict = await confirmFact(conflict.id, userId);
+    const confirmedConflict = await confirmFact({ factId: conflict.id, userId });
     assert.equal(confirmedConflict?.status, "confirmed");
     assert.equal(confirmedConflict.supersedesId, truth.id);
 

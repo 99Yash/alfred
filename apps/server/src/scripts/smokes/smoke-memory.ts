@@ -92,7 +92,7 @@ async function main() {
   console.log(`[smoke] 2. auto-confirmed high-confidence fact ${autoConfirmed.id}`);
 
   // 3. confirmFact transitions proposed → confirmed
-  const confirmed = await confirmFact(proposed.id, userId);
+  const confirmed = await confirmFact({ factId: proposed.id, userId });
   assert(confirmed, "confirmFact returned null for a proposed row");
   assert(confirmed.status === "confirmed", `expected confirmed, got ${confirmed.status}`);
   assert(confirmed.rowVersion > proposed.rowVersion, "confirmFact should bump rowVersion");

@@ -6,7 +6,7 @@ import {
   type MemorySource,
 } from "@alfred/contracts";
 import { parseMemorySourceOrDefault } from "@alfred/assistant/settings";
-import { createExecuteRowSchema, db, rowsFromExecute } from "@alfred/db";
+import { createExecuteRowSchema, db, rowsFromExecute, type DbTransaction } from "@alfred/db";
 import {
   rejectedInferences,
   userFactInsertSchema,
@@ -78,10 +78,24 @@ export const proposeFactArgsSchema = userFactInsertSchema
 
 export type ProposeFactArgs = z.infer<typeof proposeFactArgsSchema>;
 
+const createFactArgsSchema = z.object({
+  /** A Replicache client mints it, so the optimistic row and the server row share one key. */
+  id: z.string().min(1),
+  userId: z.string().min(1),
+  key: z.string().min(1).max(200),
+  value: z.unknown(),
+  /** Defaults to `{ kind: 'user' }`. */
+  source: memorySourceSchema.optional(),
+});
+
+type CreateFactArgs = z.infer<typeof createFactArgsSchema>;
+
 const editFactArgsSchema = z.object({
   factId: z.string().min(1),
   userId: z.string().min(1),
   newValue: z.unknown(),
+  /** The id of the replacement row. A Replicache client mints it; absent, the server does. */
+  newFactId: z.string().min(1).optional(),
   /** Defaults to `{ kind: 'user' }`. */
   source: memorySourceSchema.optional(),
 });
@@ -130,6 +144,107 @@ function rowToFact(r: UserFact): FactRow {
   };
 }
 
+// --- shared write steps ---
+
+/**
+ * A caller that already holds a transaction passes it as `exec` (a Replicache push passes its
+ * savepoint `tx`). The write then commits or rolls back with it, and the caller pokes.
+ */
+type FactExec = { exec?: DbTransaction };
+
+/** Serialize writes per `(userId, canonical key)`, or two writers can both add a confirmed single-valued row. */
+async function lockFactKey(tx: DbTransaction, userId: string, key: string): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`${userId}:${key}`}, 0))`);
+}
+
+/** The canonical key. An alias moves into `source.meta.originalKey`; an unknown key stays as is. */
+function canonicalKeyAndSource(rawKey: string, source: MemorySource) {
+  const canon = canonicalizeFactKey(rawKey);
+
+  if (!canon.ok) return { known: false, key: rawKey, source };
+
+  return {
+    known: true,
+    key: canon.key,
+    source: canon.wasAlias
+      ? { ...source, meta: { ...source.meta, originalKey: canon.originalKey } }
+      : source,
+  };
+}
+
+/** `proposed` and `confirmed` rows for `(userId, key)` inside their validity window, newest first. */
+async function activeFactsForKey(
+  tx: DbTransaction,
+  userId: string,
+  key: string,
+): Promise<UserFact[]> {
+  return tx
+    .select()
+    .from(userFacts)
+    .where(
+      and(
+        eq(userFacts.userId, userId),
+        eq(userFacts.key, key),
+        inArray(userFacts.status, ["proposed", "confirmed"]),
+        lte(userFacts.validFrom, sql`now()`),
+        or(isNull(userFacts.validUntil), gt(userFacts.validUntil, sql`now()`)),
+      ),
+    )
+    .orderBy(desc(userFacts.validFrom))
+    .limit(50);
+}
+
+/** The confirmed rows of a single-valued key that hold a value other than `sig`. */
+function confirmedConflicts(
+  active: readonly UserFact[],
+  key: string,
+  sig: string,
+  excludeId?: string,
+): UserFact[] {
+  if (!isSingleValuedKey(key)) return [];
+
+  return active.filter(
+    (row) =>
+      row.id !== excludeId && row.status === "confirmed" && valueSignature(row.value) !== sig,
+  );
+}
+
+async function supersedeFacts(
+  tx: DbTransaction,
+  userId: string,
+  ids: readonly string[],
+  at: Date,
+): Promise<void> {
+  if (ids.length === 0) return;
+
+  await tx
+    .update(userFacts)
+    .set({
+      status: "superseded",
+      validUntil: at,
+      rowVersion: sql`${userFacts.rowVersion} + 1`,
+    })
+    .where(and(eq(userFacts.userId, userId), inArray(userFacts.id, [...ids])));
+}
+
+/**
+ * Run `body` on `exec` when the caller holds a transaction. Otherwise open one, and poke
+ * Replicache after it commits, so the client pull sees the row. `null` means no write to show.
+ */
+async function inFactTransaction<T>(
+  exec: DbTransaction | undefined,
+  userId: string,
+  body: (tx: DbTransaction) => Promise<T | null>,
+): Promise<T | null> {
+  if (exec) return body(exec);
+
+  const result = await db().transaction(body);
+
+  if (result !== null) emitReplicachePokes([userId]);
+
+  return result;
+}
+
 // --- propose ---
 
 /**
@@ -151,9 +266,9 @@ export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null
   const isDocument = parsed.source.kind === "document";
 
   // (0) Canonicalize before any dedup or conflict check.
-  const canon = canonicalizeFactKey(parsed.key);
+  const { known, key, source } = canonicalKeyAndSource(parsed.key, parsed.source);
 
-  if (!canon.ok) {
+  if (!known) {
     // Unknown key: reject from documents; keep from trusted sources with a drift trace.
     if (isDocument) return null;
     logger.warn(
@@ -162,18 +277,11 @@ export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null
     );
   }
 
-  const key = canon.ok ? canon.key : parsed.key;
-
-  const source: MemorySource =
-    canon.ok && canon.wasAlias
-      ? { ...parsed.source, meta: { ...parsed.source.meta, originalKey: canon.originalKey } }
-      : parsed.source;
-
   // (0a) Relationship junk, from any source.
-  if (canon.ok && isUninformativeRelationshipFact(key, parsed.value)) return null;
+  if (known && isUninformativeRelationshipFact(key, parsed.value)) return null;
 
   // (1) Document write policy.
-  if (isDocument && canon.ok) {
+  if (isDocument && known) {
     if (classifyDocumentFactKey(key) === "not_writable") return null;
 
     if (!validateFactValueForKey(key, parsed.value).ok) return null;
@@ -186,11 +294,8 @@ export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null
 
   const userDriven = parsed.source.kind === "user";
 
-  const fact = await db().transaction(async (tx) => {
-    // Serialize per `(userId, key)`, or two workers can both insert a confirmed single-valued row.
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${`${parsed.userId}:${key}`}, 0))`,
-    );
+  return inFactTransaction(undefined, parsed.userId, async (tx) => {
+    await lockFactKey(tx, parsed.userId, key);
 
     // (2) Already rejected.
     const [rejectedHit] = await tx
@@ -208,54 +313,23 @@ export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null
     if (rejectedHit) return null;
 
     // (3) Active duplicate.
-    const active = (
-      await tx
-        .select()
-        .from(userFacts)
-        .where(
-          and(
-            eq(userFacts.userId, parsed.userId),
-            eq(userFacts.key, key),
-            or(eq(userFacts.status, "confirmed"), eq(userFacts.status, "proposed")),
-            lte(userFacts.validFrom, sql`now()`),
-            or(isNull(userFacts.validUntil), gt(userFacts.validUntil, sql`now()`)),
-          ),
-        )
-        .orderBy(desc(userFacts.validFrom))
-        .limit(50)
-    ).map(rowToFact);
+    const active = await activeFactsForKey(tx, parsed.userId, key);
 
     if (active.some((r) => valueSignature(r.value) === sig)) return null;
 
     // (4) Single-valued conflict with a confirmed value.
-    let conflictRows: FactRow[] = [];
-
-    if (isSingleValuedKey(key)) {
-      const confirmed = active.filter((r) => r.status === "confirmed");
-      conflictRows = confirmed.filter((r) => valueSignature(r.value) !== sig);
-    }
-
+    const conflictRows = confirmedConflicts(active, key, sig);
     const heldByConflict = conflictRows.length > 0 && !userDriven;
     const status: FactStatus = heldByConflict ? "proposed" : confidenceStatus;
 
     // Retire the prior confirmed value and link the chain via `supersedes_id`.
-    if (conflictRows.length > 0 && userDriven) {
-      await tx
-        .update(userFacts)
-        .set({
-          status: "superseded",
-          validUntil: parsed.validFrom ?? new Date(),
-          rowVersion: sql`${userFacts.rowVersion} + 1`,
-        })
-        .where(
-          and(
-            eq(userFacts.userId, parsed.userId),
-            inArray(
-              userFacts.id,
-              conflictRows.map((r) => r.id),
-            ),
-          ),
-        );
+    if (userDriven) {
+      await supersedeFacts(
+        tx,
+        parsed.userId,
+        conflictRows.map((r) => r.id),
+        parsed.validFrom ?? new Date(),
+      );
     }
 
     const [row] = await tx
@@ -292,12 +366,6 @@ export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null
 
     return inserted;
   });
-
-  // Poke after commit so the client pull sees the row.
-  if (!fact) return null;
-  emitReplicachePokes([parsed.userId]);
-
-  return fact;
 }
 
 /** One-line preview for toasts, at most 280 chars. */
@@ -307,93 +375,115 @@ function previewValue(value: unknown): string {
   return s.length > 280 ? s.slice(0, 277) + "…" : s;
 }
 
+// --- create (user-driven) ---
+
+/**
+ * A user's own fact: `confirmed` at confidence 1. It supersedes the prior confirmed value of a
+ * single-valued key. `null` when an active row already holds the value, or `id` exists.
+ */
+export async function createFact(args: CreateFactArgs & FactExec): Promise<FactRow | null> {
+  const parsed = createFactArgsSchema.parse(args);
+  const { key, source } = canonicalKeyAndSource(parsed.key, parsed.source ?? { kind: "user" });
+  const sig = valueSignature(parsed.value);
+
+  return inFactTransaction(args.exec, parsed.userId, async (tx) => {
+    await lockFactKey(tx, parsed.userId, key);
+    const active = await activeFactsForKey(tx, parsed.userId, key);
+
+    if (active.some((r) => valueSignature(r.value) === sig)) return null;
+
+    const now = new Date();
+    const conflicts = confirmedConflicts(active, key, sig);
+
+    await supersedeFacts(
+      tx,
+      parsed.userId,
+      conflicts.map((r) => r.id),
+      now,
+    );
+
+    const [row] = await tx
+      .insert(userFacts)
+      .values({
+        id: parsed.id,
+        userId: parsed.userId,
+        key,
+        value: parsed.value,
+        confidence: 1,
+        status: "confirmed",
+        source,
+        validFrom: now,
+        validUntil: null,
+        supersedesId: conflicts[0]?.id ?? null,
+      })
+      .onConflictDoNothing()
+      .returning();
+
+    return row ? rowToFact(row) : null;
+  });
+}
+
 // --- confirm ---
 
-/** Move a `proposed` row to `confirmed`. No-op if already confirmed. */
-export async function confirmFact(factId: string, userId: string): Promise<FactRow | null> {
-  const fact = await db().transaction(async (tx) => {
-    const [candidate] = await tx
-      .select()
-      .from(userFacts)
-      .where(
-        and(
-          eq(userFacts.id, factId),
-          eq(userFacts.userId, userId),
-          eq(userFacts.status, "proposed"),
-        ),
-      )
-      .limit(1);
+/**
+ * Move a `proposed` row to `confirmed`. A repeat is a no-op. An alias key moves to its canonical
+ * form, and the prior confirmed value of a single-valued key is superseded.
+ */
+export async function confirmFact({
+  factId,
+  userId,
+  exec,
+}: { factId: string; userId: string } & FactExec): Promise<FactRow | null> {
+  return inFactTransaction(exec, userId, async (tx) => {
+    const readProposed = async (): Promise<UserFact | undefined> => {
+      const [row] = await tx
+        .select()
+        .from(userFacts)
+        .where(
+          and(
+            eq(userFacts.id, factId),
+            eq(userFacts.userId, userId),
+            eq(userFacts.status, "proposed"),
+          ),
+        )
+        .limit(1);
+
+      return row;
+    };
+
+    const candidate = await readProposed();
 
     if (!candidate) return null;
 
-    // Lock the canonical key, as `proposeFact` does, so an alias-keyed row shares its lock.
-    const canon = canonicalizeFactKey(candidate.key);
-    const key = canon.ok ? canon.key : candidate.key;
+    const { key, source } = canonicalKeyAndSource(candidate.key, candidate.source);
+    await lockFactKey(tx, userId, key);
 
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`${userId}:${key}`}, 0))`);
-
-    const [old] = await tx
-      .select()
-      .from(userFacts)
-      .where(
-        and(
-          eq(userFacts.id, factId),
-          eq(userFacts.userId, userId),
-          eq(userFacts.status, "proposed"),
-        ),
-      )
-      .limit(1);
+    // Read again under the lock: a concurrent confirm or reject may have moved the row.
+    const old = await readProposed();
 
     if (!old) return null;
 
-    const oldSig = valueSignature(old.value);
-    let conflictRows: FactRow[] = [];
+    const conflicts = confirmedConflicts(
+      await activeFactsForKey(tx, userId, key),
+      key,
+      valueSignature(old.value),
+      old.id,
+    );
 
-    if (isSingleValuedKey(key)) {
-      conflictRows = (
-        await tx
-          .select()
-          .from(userFacts)
-          .where(
-            and(
-              eq(userFacts.userId, userId),
-              eq(userFacts.key, key),
-              eq(userFacts.status, "confirmed"),
-              lte(userFacts.validFrom, sql`now()`),
-              or(isNull(userFacts.validUntil), gt(userFacts.validUntil, sql`now()`)),
-            ),
-          )
-          .orderBy(desc(userFacts.validFrom))
-          .limit(50)
-      )
-        .map(rowToFact)
-        .filter((r) => valueSignature(r.value) !== oldSig);
-    }
-
-    if (conflictRows.length > 0) {
-      await tx
-        .update(userFacts)
-        .set({
-          status: "superseded",
-          validUntil: new Date(),
-          rowVersion: sql`${userFacts.rowVersion} + 1`,
-        })
-        .where(
-          and(
-            eq(userFacts.userId, userId),
-            inArray(
-              userFacts.id,
-              conflictRows.map((r) => r.id),
-            ),
-          ),
-        );
-    }
+    await supersedeFacts(
+      tx,
+      userId,
+      conflicts.map((r) => r.id),
+      new Date(),
+    );
 
     const [row] = await tx
       .update(userFacts)
       .set({
+        key,
+        source,
         status: "confirmed",
-        supersedesId: conflictRows[0]?.id ?? old.supersedesId,
+        supersedesId: conflicts[0]?.id ?? old.supersedesId,
         rowVersion: sql`${userFacts.rowVersion} + 1`,
       })
       .where(
@@ -405,23 +495,17 @@ export async function confirmFact(factId: string, userId: string): Promise<FactR
       )
       .returning();
 
-    if (!row) return null;
-
-    return rowToFact(row);
+    return row ? rowToFact(row) : null;
   });
-
-  if (fact) emitReplicachePokes([userId]);
-
-  return fact;
 }
 
 // --- reject ---
 
 /** Mark `rejected` and record the signature, so extraction does not propose it again. Idempotent. */
-export async function rejectFact(args: RejectFactArgs): Promise<FactRow | null> {
+export async function rejectFact(args: RejectFactArgs & FactExec): Promise<FactRow | null> {
   const parsed = rejectFactArgsSchema.parse(args);
 
-  const fact = await db().transaction(async (tx) => {
+  return inFactTransaction(args.exec, parsed.userId, async (tx) => {
     const [old] = await tx
       .select()
       .from(userFacts)
@@ -453,21 +537,18 @@ export async function rejectFact(args: RejectFactArgs): Promise<FactRow | null> 
 
     return rowToFact(requireRow(row, "rejectFact.update"));
   });
-
-  if (fact) emitReplicachePokes([parsed.userId]);
-
-  return fact;
 }
 
 // --- edit (user-driven supersession) ---
 
-/** A user edit: the old row becomes `edited`; a new confirmed row at confidence 1.0 supersedes it. */
-export async function editFact(args: EditFactArgs): Promise<FactRow | null> {
+/**
+ * A user edit: the old row becomes `edited`; a new confirmed row at confidence 1.0 supersedes
+ * it, and the prior confirmed value of a single-valued key. `null` when `newFactId` exists.
+ */
+export async function editFact(args: EditFactArgs & FactExec): Promise<FactRow | null> {
   const parsed = editFactArgsSchema.parse(args);
-  const source: MemorySource = parsed.source ?? { kind: "user" };
-  const now = new Date();
 
-  const fact = await db().transaction(async (tx) => {
+  return inFactTransaction(args.exec, parsed.userId, async (tx) => {
     const [old] = await tx
       .select()
       .from(userFacts)
@@ -475,6 +556,24 @@ export async function editFact(args: EditFactArgs): Promise<FactRow | null> {
       .limit(1);
 
     if (!old) return null;
+
+    const { key, source } = canonicalKeyAndSource(old.key, parsed.source ?? { kind: "user" });
+    await lockFactKey(tx, parsed.userId, key);
+    const now = new Date();
+
+    const conflicts = confirmedConflicts(
+      await activeFactsForKey(tx, parsed.userId, key),
+      key,
+      valueSignature(parsed.newValue),
+      old.id,
+    );
+
+    await supersedeFacts(
+      tx,
+      parsed.userId,
+      conflicts.map((r) => r.id),
+      now,
+    );
 
     await tx
       .update(userFacts)
@@ -488,24 +587,22 @@ export async function editFact(args: EditFactArgs): Promise<FactRow | null> {
     const [row] = await tx
       .insert(userFacts)
       .values({
+        id: parsed.newFactId,
         userId: parsed.userId,
-        key: old.key,
+        key,
         value: parsed.newValue,
         confidence: 1,
         status: "confirmed",
         source,
         validFrom: now,
         validUntil: null,
-        supersedesId: old.id,
+        supersedesId: conflicts[0]?.id ?? old.id,
       })
+      .onConflictDoNothing()
       .returning();
 
-    return rowToFact(requireRow(row, "editFact.insert"));
+    return row ? rowToFact(row) : null;
   });
-
-  if (fact) emitReplicachePokes([parsed.userId]);
-
-  return fact;
 }
 
 // --- supersede (system-driven) ---
