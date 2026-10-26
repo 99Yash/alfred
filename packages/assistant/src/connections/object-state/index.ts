@@ -31,7 +31,6 @@ export {
   type VercelPullEvent,
   type VerifiedPullEvent,
   type VerifiedPullReading,
-  type VerifiedPullStatus,
 } from "./events";
 
 export { MCP_APPROVED_HEALTH_KEY_KIND, MCP_APPROVED_HEALTH_KIND } from "./mcp-reducer";

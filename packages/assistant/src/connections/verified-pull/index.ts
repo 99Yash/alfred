@@ -10,7 +10,6 @@ export {
   type VerifiedPullProvider,
   type VerifiedPullReading,
   type VerifiedPullResult,
-  type VerifiedPullStatus,
   type VerifiedPullTriggerItem,
 } from "./driver";
 

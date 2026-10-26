@@ -3,7 +3,7 @@ import {
   isVercelDeploymentDeletion,
   parseGitBranchRef,
   vercelDeploymentOutcome,
-  type VercelDeploymentOutcome,
+  type DeploymentStatus,
 } from "@alfred/contracts";
 import type { InboundDescription } from "./descriptor";
 import { describeInboundJson } from "./description";
@@ -13,7 +13,7 @@ const DISPATCH_STATUS_BY_OUTCOME = {
   success: "succeeded",
   failure: "failed",
   pending: "open",
-} as const satisfies Record<VercelDeploymentOutcome, InboundDescription["status"]>;
+} as const satisfies Record<DeploymentStatus, InboundDescription["status"]>;
 
 function describeGithubActivity(
   event: GithubEvent,

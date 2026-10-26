@@ -291,9 +291,26 @@ export function canonicalizeVercelTargetId(input: {
   return `${base}#${environment}`;
 }
 
-const VERCEL_DEPLOYMENT_OUTCOMES = ["success", "failure", "pending"] as const;
+const DEPLOYMENT_STATUSES = ["success", "failure", "pending"] as const;
 
-export type VercelDeploymentOutcome = (typeof VERCEL_DEPLOYMENT_OUTCOMES)[number];
+/** A deployment's verdict, from a Vercel dispatch or a verified Railway/Vercel pull. */
+export type DeploymentStatus = (typeof DEPLOYMENT_STATUSES)[number];
+
+/** Narrows a stored `nativeState` value to a declared deployment status. */
+export const isDeploymentStatus = enumGuard(DEPLOYMENT_STATUSES);
+
+const DEPLOYMENT_STATE_CATEGORIES = {
+  success: "resolved",
+  failure: "failed",
+  pending: "active",
+} as const satisfies Record<DeploymentStatus, StateCategory>;
+
+/** Railway and Vercel `normalize`: both deployment kinds, one token table. */
+function normalizeDeploymentStatus(kind: string, nativeState: string): StateCategory | null {
+  if (kind !== "deployment_attempt" && kind !== "deployment_target") return null;
+
+  return isDeploymentStatus(nativeState) ? DEPLOYMENT_STATE_CATEGORIES[nativeState] : null;
+}
 
 /**
  * Vercel dispatch action to outcome. Any other action, from any dispatcher, means nothing.
@@ -302,7 +319,7 @@ export type VercelDeploymentOutcome = (typeof VERCEL_DEPLOYMENT_OUTCOMES)[number
  * end, so none is a verdict on the target. An `error` that is not a deletion stays `failure`:
  * Vercel types `error` with one optional detail, so without it the deployment itself errored.
  */
-const VERCEL_DISPATCH_ACTION_OUTCOMES: ReadonlyMap<string, VercelDeploymentOutcome> = new Map([
+const VERCEL_DISPATCH_ACTION_OUTCOMES: ReadonlyMap<string, DeploymentStatus> = new Map([
   ["vercel.deployment.error", "failure"],
   ["vercel.deployment.failed", "failure"],
   ["vercel.deployment.success", "success"],
@@ -331,7 +348,7 @@ export function isVercelDeploymentDeletion(
 export function vercelDeploymentOutcome(
   action: string | null | undefined,
   detail: string | undefined,
-): VercelDeploymentOutcome | null {
+): DeploymentStatus | null {
   if (!action || isVercelDeploymentDeletion(action, detail)) return null;
 
   return VERCEL_DISPATCH_ACTION_OUTCOMES.get(action) ?? null;
@@ -480,22 +497,7 @@ export const INTEGRATION_OBJECT_DEFS = {
       },
     },
     prefixableKeys: {},
-    normalize(kind, nativeState) {
-      if (kind === "deployment_attempt" || kind === "deployment_target") {
-        switch (nativeState) {
-          case "success":
-            return "resolved";
-          case "failure":
-            return "failed";
-          case "pending":
-            return "active";
-          default:
-            return null;
-        }
-      }
-
-      return null;
-    },
+    normalize: normalizeDeploymentStatus,
   },
   /**
    * Vercel deployments, relayed as GitHub `repository_dispatch` (#1167). GitHub is
@@ -526,22 +528,7 @@ export const INTEGRATION_OBJECT_DEFS = {
       },
     },
     prefixableKeys: {},
-    normalize(kind, nativeState) {
-      if (kind === "deployment_attempt" || kind === "deployment_target") {
-        switch (nativeState) {
-          case "success":
-            return "resolved";
-          case "failure":
-            return "failed";
-          case "pending":
-            return "active";
-          default:
-            return null;
-        }
-      }
-
-      return null;
-    },
+    normalize: normalizeDeploymentStatus,
   },
   /**
    * Owner-reviewed MCP connections (#1196). One generic kind: a new MCP service adds
