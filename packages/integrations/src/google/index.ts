@@ -160,10 +160,10 @@ export type { ContactSummary } from "./contacts";
 export {
   findCredentialByEmail,
   findExpiringGmailWatches,
-  gmailWatchStateSchema,
   getGmailWatchState,
   readGmailWatchState,
   stopGmailWatchWithAccessToken,
   uninstallGmailWatch,
-  type GmailWatchState,
 } from "./watch";
+
+export { parseGoogleCredentialMetadata, type GmailWatchState } from "./credential-metadata";

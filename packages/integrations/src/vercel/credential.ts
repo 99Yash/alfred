@@ -1,4 +1,5 @@
-import { getStringPath } from "@alfred/contracts";
+import { parsePersistedMetadata } from "@alfred/contracts";
+import { z } from "zod";
 
 import type { VercelTokenResult } from "./oauth";
 
@@ -8,16 +9,21 @@ import type { VercelTokenResult } from "./oauth";
  * answers in personal scope with a 200 and an empty list.
  */
 
-/** Named keys, so writer and reader cannot drift. */
-export type VercelCredentialMetadata = {
-  installation_id: string | null;
-  configuration_id: string | null;
+/** One schema for the writer and the reader, so the keys cannot drift. */
+const vercelCredentialMetadataSchema = z.object({
+  installation_id: z.string().nullable(),
+  configuration_id: z.string().nullable(),
   /** Not `teamId`, which is the query-param form. */
-  team_id: string | null;
-  user_id: string | null;
-};
+  team_id: z.string().min(1).nullable(),
+  user_id: z.string().nullable(),
+});
 
-const TEAM_ID_KEY = "team_id" satisfies keyof VercelCredentialMetadata;
+type VercelCredentialMetadata = z.input<typeof vercelCredentialMetadataSchema>;
+
+/** Older rows can lack any key, so the read arm makes each one optional. */
+const storedVercelCredentialMetadataSchema = vercelCredentialMetadataSchema
+  .partial()
+  .brand<"ParsedVercelCredentialMetadata">();
 
 export function vercelCredentialMetadata(args: {
   tokens: VercelTokenResult;
@@ -36,5 +42,5 @@ export function vercelCredentialMetadata(args: {
  * Takes `unknown`: older rows can hold any shape.
  */
 export function readVercelTeamId(metadata: unknown): string | null {
-  return getStringPath(metadata, TEAM_ID_KEY) || null;
+  return parsePersistedMetadata(storedVercelCredentialMetadataSchema, metadata).team_id ?? null;
 }

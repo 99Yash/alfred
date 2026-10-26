@@ -32,6 +32,8 @@ export * from "./gmail-document-metadata";
 
 export * from "./gmail-ingestion-state";
 
+export * from "./persisted-metadata";
+
 export * from "./document-metadata";
 
 export * from "./gmail-document-content";
