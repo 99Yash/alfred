@@ -2,7 +2,6 @@ import {
   CREDENTIAL_PROVIDERS,
   type AccountPersona,
   type CredentialProvider,
-  type GmailIngestionStateInput,
   type JsonObject,
 } from "@alfred/contracts";
 import { getTableColumns, isNull, sql } from "drizzle-orm";
@@ -92,9 +91,8 @@ export const ingestionState = pgTable(
       .references(() => user.id, { onDelete: "cascade" }),
     provider: text("provider").notNull(),
     stream: text("stream").notNull().default("messages"),
-    /** Gmail `messages` shape; read it with `parseGmailIngestionState`, `$type` does not validate. */
+    /** Gmail `messages` shape; read it with `parseGmailIngestionState`. No `$type`: a raw SQL `jsonb_set` writer merges keys, so only the parse proves the shape. */
     state: jsonb("state")
-      .$type<GmailIngestionStateInput>()
       .notNull()
       .default(sql`'{}'::jsonb`),
     lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),

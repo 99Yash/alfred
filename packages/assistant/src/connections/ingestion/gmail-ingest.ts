@@ -5,6 +5,7 @@ import {
   parseGmailDocumentMetadata,
   parseGmailIngestionState,
   mapConcurrent,
+  type GmailIngestionStateInput,
 } from "@alfred/contracts";
 import { indexDocument } from "@alfred/corpus";
 import { db } from "@alfred/db";
@@ -519,7 +520,7 @@ async function upsertIngestionState(args: UpsertIngestionStateArgs): Promise<voi
       state: {
         historyId: args.historyId,
         ...(args.coverageGap ? { coverageGap: true } : {}),
-      },
+      } satisfies GmailIngestionStateInput,
       lastSyncAt: now,
       lastWebhookSyncAt: args.webhookSyncCompleted ? now : null,
       lastFullSyncAt: args.fullSync ? now : null,
@@ -613,7 +614,7 @@ export async function seedGmailHistoryCursorIfAbsent(args: {
       userId: credRow.userId,
       provider: "google",
       stream: "messages",
-      state: { historyId: args.historyId },
+      state: { historyId: args.historyId } satisfies GmailIngestionStateInput,
       lastSyncAt: null,
       lastFullSyncAt: null,
     })
