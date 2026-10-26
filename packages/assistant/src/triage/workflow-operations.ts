@@ -16,9 +16,8 @@ import {
   readSenderPerson,
   readUserContextLine,
   senderSuppressions,
+  type ReportedSenderSuppressions,
   type SenderPersonRead,
-  type SenderSuppressionOutcome,
-  type SenderSuppressions,
 } from "../knowledge";
 import {
   resolvePaymentTodoFromReceipt,
@@ -242,7 +241,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
   let todo: TriageTodoDecision;
   const reusedExistingRow = Boolean(existing && existing.runId === ctx.runId);
 
-  const decideTodo = (suppressions: SenderSuppressions<SenderSuppressionOutcome>) =>
+  const decideTodo = (suppressions: ReportedSenderSuppressions) =>
     decideTriageTodo({
       userId: ctx.userId,
       settings: userSettings,
@@ -986,7 +985,7 @@ export interface GatheredObservations {
   /** For the rail band (ADR-0064). Not a classifier input. */
   sender: SenderPersonRead;
   /** One `"report"` load. The todo lane matches against it too. */
-  suppressions: SenderSuppressions<SenderSuppressionOutcome>;
+  suppressions: ReportedSenderSuppressions;
 }
 
 /**

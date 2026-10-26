@@ -1,8 +1,8 @@
 import type { UserSettings } from "@alfred/assistant/settings";
 import type {
+  ReportedSenderSuppressions,
   SenderSuppressionMatch,
   SenderSuppressionOutcome,
-  SenderSuppressions,
 } from "../knowledge";
 import {
   resolveTodoSuggestion,
@@ -71,7 +71,7 @@ export async function decideTriageTodo(args: {
   isColdContact: boolean;
   actionItemsEnabled: boolean;
   /** The step's one `"report"` load, so the todo lane and the category lane agree. */
-  suppressions: SenderSuppressions<SenderSuppressionOutcome>;
+  suppressions: ReportedSenderSuppressions;
 }): Promise<TriageTodoDecision> {
   const { document, classification } = args;
 

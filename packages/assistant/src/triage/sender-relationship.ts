@@ -4,7 +4,7 @@
  * the todo gate reads the typed `isColdContact`, because the model did not
  * reliably apply `cold_sender:` itself.
  */
-import { bucketSignificance, isNonBlankString, type SignificanceBand } from "@alfred/contracts";
+import { isNonBlankString, type SignificanceBand } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { userFacts } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
@@ -114,11 +114,10 @@ export async function resolveSenderRelationship(args: {
 
   const meta = args.sender.metadata;
   const stats = meta.correspondence ?? { inbound: 0, outbound: 0, coRecipient: 0 };
-  const significance = meta.significance;
+  // The step's one read already mapped the score; `null` is unscored, not weak.
+  const significance = args.sender.significance;
 
-  const bucket: SenderSignificanceBucket = significance
-    ? bucketSignificance(significance.score)
-    : "unscored";
+  const bucket: SenderSignificanceBucket = significance?.band ?? "unscored";
 
   const isColdContact = isColdContactFromSignals({
     inbound: stats.inbound,
@@ -130,7 +129,7 @@ export async function resolveSenderRelationship(args: {
 
   // Omitted until the row is scored.
   if (significance) {
-    parts.push(significance.components.sameOrg >= 1 ? "same-org" : "not same-org");
+    parts.push(significance.sameOrg ? "same-org" : "not same-org");
   }
 
   const role = await loadUserRole(args.userId);

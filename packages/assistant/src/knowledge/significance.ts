@@ -250,7 +250,7 @@ function senderSignificanceOf(metadata: PersonEntityMetadata): SenderSignificanc
 /**
  * The sender's `person` row, read one time per classify step. Triage derives the
  * known-contact flag, the relationship line and the rail band (ADR-0064) from it.
- * `no_address` is a missing address; a blank one reads as `none`.
+ * `no_address` is a missing or empty address; only a whitespace-only one reads as `none`.
  */
 export type SenderPersonRead =
   | { kind: "no_address" }

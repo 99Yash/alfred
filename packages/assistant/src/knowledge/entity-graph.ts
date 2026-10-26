@@ -333,7 +333,7 @@ async function resolveKindForUpdate(
 }
 
 /**
- * `EXISTS` over `entities.aliases`, case-insensitive. The one alias-match query.
+ * `EXISTS` over `entities.aliases`, case-insensitive. The one exact alias match.
  * Callers pass lowercased addresses and add their own kind filter.
  */
 export function entityAliasMatch(normalizedAddresses: readonly string[]): SQL {
@@ -343,7 +343,7 @@ export function entityAliasMatch(normalizedAddresses: readonly string[]): SQL {
   )`;
 }
 
-/** The predicate every contact read shares. */
+/** The predicate the stored-contact preview reads share. */
 function storedContactMatch(userId: string, normalizedAddresses: readonly string[]) {
   return and(
     eq(entities.userId, userId),
