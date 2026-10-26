@@ -3,12 +3,12 @@ import {
   isBlockedRunCode,
   isRunDeferReason,
   type EffectReceipt,
-  type RunStatus,
   type WorkflowRunHistoryRow,
   type WorkflowRunHistoryOutcome,
   type WorkflowRunHistoryTrigger,
 } from "@alfred/contracts";
 import { formatTimestamp, shortId, triggerLabel } from "~/components/approvals/format";
+import { RUN_STATUS_DISPLAY } from "~/lib/run-status";
 import type { WorkflowIconTone } from "./workflow-icon";
 
 export interface RunHeadline {
@@ -16,30 +16,6 @@ export interface RunHeadline {
   detail: string | null;
   tone: WorkflowIconTone;
 }
-
-const STATUS_TITLE = {
-  pending: "Queued",
-  runnable: "Queued",
-  running: "Running",
-  waiting: "Waiting for approval",
-  deferred: "Deferred",
-  blocked: "Blocked",
-  completed: "Completed",
-  failed: "Failed",
-  cancelled: "Cancelled",
-} satisfies Record<RunStatus, string>;
-
-const STATUS_TONE = {
-  pending: "muted",
-  runnable: "muted",
-  running: "purple",
-  waiting: "amber",
-  deferred: "amber",
-  blocked: "amber",
-  completed: "green",
-  failed: "red",
-  cancelled: "muted",
-} satisfies Record<RunStatus, WorkflowIconTone>;
 
 function outcomeHeadline(
   outcome: WorkflowRunHistoryOutcome,
@@ -98,7 +74,9 @@ function outcomeHeadline(
 export function runHeadline(row: WorkflowRunHistoryRow): RunHeadline {
   if (row.outcome) return outcomeHeadline(row.outcome, row.effects);
 
-  return { title: STATUS_TITLE[row.status], detail: null, tone: STATUS_TONE[row.status] };
+  const { label, tone } = RUN_STATUS_DISPLAY[row.status];
+
+  return { title: label, detail: null, tone };
 }
 
 /** The schedule instant, the event id, or the signal. */
