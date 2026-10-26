@@ -99,8 +99,8 @@ Validate external / persisted / protocol data instead of asserting it.
 - `toRecord` (unknown → `Record` or `{}`), `toStringArray` (element-checked)
 - `enumGuard(TUPLE)` / `keyGuard(TABLE)` — build an `is*` guard once from its source of truth.
   `enumGuard` takes an `as const` tuple and narrows to `typeof TUPLE[number]`. `keyGuard` takes a
-  **closed** table literal and narrows to its own string keys (`keyGuard(FACT_ONTOLOGY)` →
-  `FactKey`). It reads with `Object.hasOwn`, so `"toString"` and `"__proto__"` are not keys. The
+  **closed** table literal and narrows to `` `${Exclude<keyof T, symbol>}` `` (its own string keys;
+  `keyGuard(FACT_ONTOLOGY)` → `FactKey`). It reads with `Object.hasOwn`, so `"toString"` and `"__proto__"` are not keys. The
   precondition is the one `typedKeys` has: the runtime keys are exactly the declared keys. Bind
   the result to a `const` after the table; a `const` is not hoisted. The `hand-rolled-key-guard`
   gate catches a hand-written `Object.hasOwn(TABLE, x)` body over a SCREAMING_CASE table only, so
