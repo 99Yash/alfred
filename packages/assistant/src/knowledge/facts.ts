@@ -172,7 +172,7 @@ function canonicalKeyAndSource(rawKey: string, source: MemorySource) {
   };
 }
 
-/** `proposed` and `confirmed` rows for `(userId, key)`, newest first. No `validFrom` upper bound: under the fact-key lock the reader's `now()` is its transaction start, so a bound would hide a row committed by the previous lock holder. */
+/** `proposed` and `confirmed` rows for `(userId, key)`, `confirmed` first, then newest first. No `validFrom` upper bound: under the fact-key lock the reader's `now()` is its transaction start, so a bound would hide a row committed by the previous lock holder. `confirmed` sorts first so the 50-row cap cannot drop the confirmed row of a single-valued key behind newer proposals. */
 async function activeFactsForKey(
   tx: DbTransaction,
   userId: string,
@@ -189,7 +189,7 @@ async function activeFactsForKey(
         or(isNull(userFacts.validUntil), gt(userFacts.validUntil, sql`now()`)),
       ),
     )
-    .orderBy(desc(userFacts.validFrom))
+    .orderBy(asc(userFacts.status), desc(userFacts.validFrom))
     .limit(50);
 }
 
