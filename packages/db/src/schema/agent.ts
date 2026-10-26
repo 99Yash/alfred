@@ -10,6 +10,7 @@ import {
   type EventSource,
   type EventType,
   type RunStatus,
+  type WakeCondition,
   type WorkflowRunOutcome,
 } from "@alfred/contracts";
 import { sql, type SQL, type SQLWrapper } from "drizzle-orm";
@@ -228,7 +229,8 @@ export const agentRuns = pgTable(
     attempt: integer("attempt").notNull().default(0),
     /** Cancel fence. A cancel bumps it; a step commit or dispatch with an older value is refused. */
     cancellationGeneration: integer("cancellation_generation").notNull().default(0),
-    wakeCondition: jsonb("wake_condition"),
+    /** Readers still parse it with `wakeConditionSchema`; `$type` checks only Drizzle writes. */
+    wakeCondition: jsonb("wake_condition").$type<WakeCondition>(),
     error: jsonb("error").$type<AgentError>(),
     /** Written with the terminal status. Reads still parse it with `workflowRunOutcomeSchema`. */
     outcome: jsonb("outcome").$type<WorkflowRunOutcome>(),

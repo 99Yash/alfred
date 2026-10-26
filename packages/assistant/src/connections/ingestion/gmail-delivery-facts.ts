@@ -1,7 +1,6 @@
 import {
   eventDeliveryAccounts,
-  getPath,
-  getStringPath,
+  parseGmailIngestionState,
   type ConnectedAccount,
   type LoadableIntegrationSlug,
   type ProviderAvailability,
@@ -108,16 +107,20 @@ export async function readGmailDeliveryFacts(
   );
 
   return new Map(
-    cursors.map((row): [string, GmailDeliveryFacts] => [
-      row.credentialId,
-      {
-        cursorReady: Boolean(getStringPath(row.state, "historyId")),
-        coverageGap: getPath(row.state, "coverageGap") === true,
-        lastSyncAt: row.lastSyncAt,
-        lastWebhookSyncAt: row.lastWebhookSyncAt,
-        lastFallbackInsertAt: row.lastFallbackInsertAt,
-        lastPushDeliveredAt: pushByCredential.get(row.credentialId) ?? null,
-      },
-    ]),
+    cursors.map((row): [string, GmailDeliveryFacts] => {
+      const state = parseGmailIngestionState(row.state);
+
+      return [
+        row.credentialId,
+        {
+          cursorReady: Boolean(state.historyId),
+          coverageGap: state.coverageGap === true,
+          lastSyncAt: row.lastSyncAt,
+          lastWebhookSyncAt: row.lastWebhookSyncAt,
+          lastFallbackInsertAt: row.lastFallbackInsertAt,
+          lastPushDeliveredAt: pushByCredential.get(row.credentialId) ?? null,
+        },
+      ];
+    }),
   );
 }

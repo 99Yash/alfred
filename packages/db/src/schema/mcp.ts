@@ -3,6 +3,7 @@ import type {
   McpConnectionStatus,
   McpEffectClass,
   McpEffectOutcome,
+  McpHealthMappingDefinition,
   McpResultProvenance,
   McpRetryContract,
   McpRetryDisposition,
@@ -301,7 +302,8 @@ export const mcpToolPolicy = pgTable(
 
 /**
  * Owner-reviewed mapping from a read-only MCP result to object state (#1196).
- * `definition` stays `unknown`; readers parse it with `mcpHealthMappingDefinitionSchema`.
+ * Readers still parse `definition` with `mcpHealthMappingDefinitionSchema`; `$type` checks only
+ * Drizzle writes.
  * When the descriptor changes, the hash stops matching and the mapping goes inert.
  */
 export const mcpHealthMapping = pgTable(
@@ -320,7 +322,7 @@ export const mcpHealthMapping = pgTable(
     /** Derived by the server from the descriptor the owner inspected. */
     descriptorHash: text("descriptor_hash").notNull(),
     mappingRevision: integer("mapping_revision").notNull().default(1),
-    definition: jsonb("definition").notNull(),
+    definition: jsonb("definition").$type<McpHealthMappingDefinition>().notNull(),
     reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
     reviewedNote: text("reviewed_note"),
     ...lifecycle_dates,

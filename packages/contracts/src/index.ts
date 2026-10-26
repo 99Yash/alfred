@@ -30,6 +30,8 @@ export * from "./document-ask";
 
 export * from "./gmail-document-metadata";
 
+export * from "./gmail-ingestion-state";
+
 export * from "./document-metadata";
 
 export * from "./gmail-document-content";
