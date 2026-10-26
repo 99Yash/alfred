@@ -10,7 +10,7 @@ import { and, eq } from "drizzle-orm";
 import { receiptDeliveryInstant } from "./delivery-instant";
 import { parseReceiptEvent } from "./events";
 import { objectStateStore } from "./store";
-import { inboundDeliveryPayloadSchema, type TriggerConsumer } from "@alfred/assistant/triggers";
+import { isInboundDomainEvent, type TriggerConsumer } from "@alfred/assistant/triggers";
 
 /**
  * The object-state fold: one trigger consumer per inbound source (ADR-0047, ADR-0062, ADR-0097).
@@ -29,11 +29,13 @@ function objectStateFoldConsumer<S extends InboundEventSource>(source: S): Trigg
     name: `${source}-activity-fold`,
     mode: "propagate",
     async accept(event) {
-      if (event.source !== source || isRawEventType(event.type)) return;
+      if (!isInboundDomainEvent(event) || event.source !== source || isRawEventType(event.type)) {
+        return;
+      }
 
       // `domainEventSchema` already refuses a type of another source; this only narrows.
       if (!isEventTypeForSource(source, event.type)) return;
-      const { receiptId } = inboundDeliveryPayloadSchema.parse(event.payload ?? {});
+      const { receiptId } = event.payload;
 
       const [receipt] = await db()
         .select({

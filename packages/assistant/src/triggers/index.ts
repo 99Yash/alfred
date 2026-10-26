@@ -2,18 +2,16 @@ import { db, type DbTransaction } from "@alfred/db";
 import { eventsOutbox } from "@alfred/db/schemas";
 import {
   EFFECTIVE_AUTHOR,
-  isEventSource,
-  isEventType,
-  isEventTypeForSource,
+  EVENT_TYPES_BY_SOURCE,
+  INBOUND_EVENT_SOURCES,
   isInboundEventSource,
-  isRawEventType,
   jsonObjectSchema,
+  RAW_EVENT_TYPE,
   rawEventKindSchema,
-  rawEventTriggerIssue,
   replyDraftTriageSnapshotSchema,
-  type EventSource,
-  type EventType,
-  type RawReceiptType,
+  type EventTypeForSource,
+  type InboundEventSource,
+  type InProcessEventSource,
   eventPayloadSchemas,
   type EventKind,
   type EventPayload,
@@ -35,7 +33,7 @@ const domainEventIdentityShape = {
 
 export const GMAIL_MESSAGE_EVENT_REASONS = ["webhook", "manual", "ingest", "reply"] as const;
 
-export const gmailMessagePayloadSchema = z
+const gmailMessagePayloadSchema = z
   .object({
     documentId: z.string().min(1).max(200).optional(),
     reason: z.enum(GMAIL_MESSAGE_EVENT_REASONS).optional(),
@@ -51,7 +49,7 @@ export type GmailMessageEventReason = NonNullable<
  * Published by triage `classify` once it owns the thread row (ADR-0098).
  * Carries the facts a downstream gate needs without re-reading the row. No body text.
  */
-export const emailTriageClassifiedPayloadSchema = z
+const emailTriageClassifiedPayloadSchema = z
   .object({
     triage: replyDraftTriageSnapshotSchema,
     /** So a consumer can trace under the same run. */
@@ -96,7 +94,7 @@ const ingestedIdListSchema = z.array(z.string().min(1).max(500)).max(10_000);
  * Published by `queue.ts` after a Gmail insert job. Each consumer owns its own policy.
  * `unembeddedDocumentIds` is empty on paths that embed inline, so nothing embeds twice.
  */
-export const gmailDocumentsIngestedPayloadSchema = z
+const gmailDocumentsIngestedPayloadSchema = z
   .object({
     credentialId: z.string().min(1).max(500),
     jobKind: z.enum(GMAIL_INSERT_JOB_KINDS),
@@ -113,94 +111,121 @@ export const gmailDocumentsIngestedPayloadSchema = z
 export type GmailDocumentsIngestedPayload = z.infer<typeof gmailDocumentsIngestedPayloadSchema>;
 
 /** Every inbound webhook publishes a pointer to its `event_receipts` row, never the body (ADR-0097). */
-export const inboundDeliveryPayloadSchema = z
+const inboundDeliveryPayloadSchema = z
   .object({
     receiptId: z.string().min(1).max(200),
     deliveryKey: z.string().min(1).max(500),
   })
   .strict();
 
-export type InboundDeliveryPayload = z.infer<typeof inboundDeliveryPayloadSchema>;
+/** One in-process `(source, type)` and its payload rule. Strict, so `rawKind` is refused. */
+function inProcessEvent<
+  const S extends InProcessEventSource,
+  const T extends EventTypeForSource<S>,
+  P extends z.ZodType,
+>(source: S, type: T, payload: P) {
+  return z
+    .object({
+      ...domainEventIdentityShape,
+      source: z.literal(source),
+      type: z.literal(type),
+      payload,
+    })
+    .strict();
+}
 
-/**
- * Payload rule per `source`/`type`. Gmail picks by `type`. Other in-process sources are
- * listed one by one; the `never` check makes a new source fail to compile until it has a rule.
- */
-function payloadSchemaFor(source: EventSource, type: EventType): z.ZodType<unknown> {
-  if (isInboundEventSource(source)) return inboundDeliveryPayloadSchema;
-
-  switch (source) {
-    case "gmail":
-      return type === "documents_ingested"
-        ? gmailDocumentsIngestedPayloadSchema
-        : gmailMessagePayloadSchema;
-    case "email-triage":
-      return type === "classified" ? emailTriageClassifiedPayloadSchema : jsonObjectSchema;
-    case "google.oauth.callback":
-    case "learn-skill":
-      return jsonObjectSchema;
-    default: {
-      const _exhaustive: never = source;
-
-      return _exhaustive;
-    }
-  }
+/** Every declared type of one inbound source, with the receipt pointer (ADR-0097). */
+function inboundEvent<const S extends InboundEventSource>(source: S) {
+  return z
+    .object({
+      ...domainEventIdentityShape,
+      source: z.literal(source),
+      type: z.enum(EVENT_TYPES_BY_SOURCE[source]),
+      payload: inboundDeliveryPayloadSchema,
+    })
+    .strict();
 }
 
 /**
- * The source/type taxonomy lives in `@alfred/contracts`; this adds only the payload rule.
- * A raw event (#990) is `type: "raw"` plus `rawKind`, from `ingress.deliver` only.
- * `raw` equals no declared type, so `source`/`type` matches are unaffected.
+ * One member per declared in-process `(source, type)`. The `satisfies` fails to compile
+ * when a declared type has no member, or a member names another `(source, type)`.
+ * `message_received` keeps an optional payload: a manual trigger publishes none.
  */
-export const domainEventSchema = z
+const IN_PROCESS_EVENT_SCHEMAS = {
+  gmail: {
+    message_received: inProcessEvent(
+      "gmail",
+      "message_received",
+      gmailMessagePayloadSchema.optional(),
+    ),
+    documents_ingested: inProcessEvent(
+      "gmail",
+      "documents_ingested",
+      gmailDocumentsIngestedPayloadSchema,
+    ),
+  },
+  "email-triage": {
+    classified: inProcessEvent("email-triage", "classified", emailTriageClassifiedPayloadSchema),
+    reply_worthy: inProcessEvent("email-triage", "reply_worthy", jsonObjectSchema.optional()),
+  },
+  "google.oauth.callback": {
+    completed: inProcessEvent("google.oauth.callback", "completed", jsonObjectSchema.optional()),
+  },
+  "learn-skill": {
+    completed: inProcessEvent("learn-skill", "completed", jsonObjectSchema.optional()),
+  },
+} satisfies {
+  [S in InProcessEventSource]: {
+    [T in EventTypeForSource<S>]: z.ZodType<{ source: S; type: T }>;
+  };
+};
+
+/** One member per inbound source. The `satisfies` fails to compile when a source has none. */
+const INBOUND_EVENT_SCHEMAS = {
+  github: inboundEvent("github"),
+  sentry: inboundEvent("sentry"),
+} satisfies {
+  [S in InboundEventSource]: z.ZodType<{ source: S; type: EventTypeForSource<S> }>;
+};
+
+/**
+ * A raw delivery (#990): an inbound source, `type: "raw"`, and the provider kind in `rawKind`.
+ * Only this member has `rawKind`, and no in-process member accepts `raw`.
+ */
+const rawInboundEventSchema = z
   .object({
     ...domainEventIdentityShape,
-    source: z.custom<EventSource>(isEventSource, "Unknown event source"),
-    type: z.custom<EventType | RawReceiptType>(
-      (value) => isEventType(value) || isRawEventType(value),
-      "Unknown event type",
-    ),
-    /** Present exactly when `type` is `raw`. */
-    rawKind: rawEventKindSchema.optional(),
-    payload: jsonObjectSchema.optional(),
+    source: z.enum(INBOUND_EVENT_SOURCES),
+    type: z.literal(RAW_EVENT_TYPE),
+    rawKind: rawEventKindSchema,
+    payload: inboundDeliveryPayloadSchema,
   })
-  .strict()
-  .superRefine((event, context) => {
-    // Shared raw pairing rule (#990).
-    const tierIssue = rawEventTriggerIssue(event);
+  .strict();
 
-    if (tierIssue) {
-      context.addIssue({ code: "custom", message: tierIssue.message, path: [tierIssue.path] });
-    } else if (!isRawEventType(event.type) && !isEventTypeForSource(event.source, event.type)) {
-      // `isEventTypeForSource` over the whole source union admits every EventType, so its false
-      // branch types `event.type` as `never`; at runtime it is a type from another source.
-      context.addIssue({
-        code: "custom",
-        message: `Event type '${String(event.type)}' is invalid for source '${event.source}'`,
-        path: ["type"],
-      });
-    }
+/**
+ * The source/type taxonomy lives in `@alfred/contracts`; this adds the payload rule per
+ * `(source, type)`. A new leaf in the tables above must also be listed here.
+ */
+export const domainEventSchema = z.union([
+  IN_PROCESS_EVENT_SCHEMAS.gmail.message_received,
+  IN_PROCESS_EVENT_SCHEMAS.gmail.documents_ingested,
+  IN_PROCESS_EVENT_SCHEMAS["email-triage"].classified,
+  IN_PROCESS_EVENT_SCHEMAS["email-triage"].reply_worthy,
+  IN_PROCESS_EVENT_SCHEMAS["google.oauth.callback"].completed,
+  IN_PROCESS_EVENT_SCHEMAS["learn-skill"].completed,
+  INBOUND_EVENT_SCHEMAS.github,
+  INBOUND_EVENT_SCHEMAS.sentry,
+  rawInboundEventSchema,
+]);
 
-    if (event.payload === undefined) return;
+export type DomainEvent = z.output<typeof domainEventSchema>;
 
-    const schema = isRawEventType(event.type)
-      ? inboundDeliveryPayloadSchema
-      : payloadSchemaFor(event.source, event.type);
+/** An event from an inbound webhook, typed or raw. Its payload is the receipt pointer. */
+export type InboundDomainEvent = Extract<DomainEvent, { source: InboundEventSource }>;
 
-    const parsedPayload = schema.safeParse(event.payload);
-
-    if (parsedPayload.success) return;
-
-    for (const issue of parsedPayload.error.issues) {
-      context.addIssue({
-        code: "custom",
-        message: issue.message,
-        path: ["payload", ...issue.path],
-      });
-    }
-  });
-
-export type DomainEvent = z.infer<typeof domainEventSchema>;
+export function isInboundDomainEvent(event: DomainEvent): event is InboundDomainEvent {
+  return isInboundEventSource(event.source);
+}
 
 export interface PublishedEvent {
   acceptedConsumers: number;

@@ -4,7 +4,6 @@ import { db } from "@alfred/db";
 import { documents, emailTriage } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
 import {
-  gmailDocumentsIngestedPayloadSchema,
   publishDomainEvent,
   publishEvent,
   TriggerConsumerBootError,
@@ -407,7 +406,7 @@ function parseDocumentsIngested(
 
   return {
     userId: event.userId,
-    payload: gmailDocumentsIngestedPayloadSchema.parse(event.payload ?? {}),
+    payload: event.payload,
   };
 }
 

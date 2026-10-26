@@ -1,4 +1,9 @@
-import { isInboundEventSource, parseEventTypeName, RAW_EVENT_TYPE } from "@alfred/contracts";
+import {
+  type InboundEventSource,
+  isInboundEventSource,
+  parseEventTypeName,
+  RAW_EVENT_TYPE,
+} from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { eventReceipts, integrationCredentials } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
@@ -60,23 +65,21 @@ export async function deliverInboundReceipt(receiptId: string): Promise<void> {
       payload,
     };
   } else {
-    const type = parseEventTypeName(source, receipt.eventType);
+    const typed = typedInboundEvent(source, receipt.eventType, {
+      userId: receipt.userId,
+      eventId: receipt.providerDeliveryId,
+      accountRef: row.accountRef,
+      payload,
+    });
 
-    if (!type) {
+    if (!typed) {
       await markProcessed(receiptId, "failed");
       logger.error(`[ingress] receipt ${receiptId} has unknown event type '${receipt.eventType}'`);
 
       return;
     }
 
-    event = {
-      userId: receipt.userId,
-      source,
-      type,
-      eventId: receipt.providerDeliveryId,
-      accountRef: row.accountRef,
-      payload,
-    };
+    event = typed;
   }
 
   try {
@@ -95,4 +98,33 @@ async function markProcessed(receiptId: string, status: "completed" | "failed"):
     .update(eventReceipts)
     .set({ processingStatus: status, processedAt: new Date(), updatedAt: new Date() })
     .where(eq(eventReceipts.id, receiptId));
+}
+
+type InboundEventFields = Pick<DomainEvent, "userId" | "eventId" | "accountRef"> & {
+  payload: { receiptId: string; deliveryKey: string };
+};
+
+/**
+ * The typed event of one receipt, or null when its stored type is not declared. One case per
+ * source, because the compiler correlates `type` with `source` only for a literal source.
+ * A new inbound source fails to compile here until it has a case.
+ */
+function typedInboundEvent(
+  source: InboundEventSource,
+  eventTypeName: string,
+  fields: InboundEventFields,
+): DomainEvent | null {
+  switch (source) {
+    case "github": {
+      const type = parseEventTypeName(source, eventTypeName);
+
+      return type ? { ...fields, source, type } : null;
+    }
+
+    case "sentry": {
+      const type = parseEventTypeName(source, eventTypeName);
+
+      return type ? { ...fields, source, type } : null;
+    }
+  }
 }

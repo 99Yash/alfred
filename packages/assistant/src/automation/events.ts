@@ -1,16 +1,11 @@
-import { isInboundEventSource } from "@alfred/contracts";
+import { RAW_EVENT_TYPE } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { isDuplicateRunIndex, workflows } from "@alfred/db/schemas";
 import { and, eq, or, sql } from "drizzle-orm";
 import { uniqueViolationConstraint } from "@alfred/db/pg-errors";
 import { startRun } from "@alfred/assistant/execution";
 
-import {
-  domainEventSchema,
-  gmailMessagePayloadSchema,
-  inboundDeliveryPayloadSchema,
-  type DomainEvent,
-} from "@alfred/assistant/triggers";
+import { isInboundDomainEvent, type DomainEvent } from "@alfred/assistant/triggers";
 import { logger } from "@alfred/logging";
 
 export interface AcceptEventResult {
@@ -22,16 +17,10 @@ export interface AcceptEventResult {
 }
 
 /** Event-trigger dispatcher (ADR-0047). Direct DB query and run creation; not the realtime outbox. */
-export async function acceptEvent(input: DomainEvent): Promise<AcceptEventResult> {
-  // Validate here too, so a direct caller cannot skip the contract.
-  const args = domainEventSchema.parse(input);
-
-  // Only `message_received` has a message payload. Parsing `documents_ingested` with it
-  // would throw and fail the ingestion job.
+export async function acceptEvent(args: DomainEvent): Promise<AcceptEventResult> {
+  // The bus parsed `args` by its `(source, type)` member, so the payload reads are typed.
   const gmailPayload =
-    args.source === "gmail" && args.type === "message_received"
-      ? gmailMessagePayloadSchema.parse(args.payload ?? {})
-      : undefined;
+    args.source === "gmail" && args.type === "message_received" ? args.payload : undefined;
 
   const reason = gmailPayload?.reason;
   const documentId = gmailPayload?.documentId;
@@ -39,9 +28,8 @@ export async function acceptEvent(input: DomainEvent): Promise<AcceptEventResult
   const force = gmailPayload?.force;
 
   // Inbound events carry a receipt pointer, not the body (ADR-0097). The run keeps it (#990).
-  const receiptId = isInboundEventSource(args.source)
-    ? inboundDeliveryPayloadSchema.parse(args.payload ?? {}).receiptId
-    : undefined;
+  const receiptId = isInboundDomainEvent(args) ? args.payload.receiptId : undefined;
+  const rawKind = args.type === RAW_EVENT_TYPE ? args.rawKind : undefined;
 
   const rows = await db()
     .select({
@@ -63,7 +51,7 @@ export async function acceptEvent(input: DomainEvent): Promise<AcceptEventResult
             sql`${workflows.trigger}->>'source' = ${args.source}`,
             sql`${workflows.trigger}->>'type' = ${args.type}`,
             // Typed triggers and events both have no rawKind, so '' equals '' (#990).
-            sql`coalesce(${workflows.trigger}->>'rawKind', '') = ${args.rawKind ?? ""}`,
+            sql`coalesce(${workflows.trigger}->>'rawKind', '') = ${rawKind ?? ""}`,
             or(
               sql`${workflows.trigger}->>'accountRef' IS NULL`,
               args.accountRef
@@ -123,13 +111,13 @@ export async function acceptEvent(input: DomainEvent): Promise<AcceptEventResult
               force,
               source: args.source,
               type: args.type,
-              rawKind: args.rawKind,
+              rawKind,
               accountRef: args.accountRef,
             },
             metadata: {
               source: args.source,
               type: args.type,
-              ...(args.rawKind !== undefined ? { rawKind: args.rawKind } : {}),
+              ...(rawKind !== undefined ? { rawKind } : {}),
               eventId: args.eventId,
               ...(documentId !== undefined ? { documentId } : {}),
               ...(receiptId !== undefined ? { receiptId } : {}),
@@ -139,7 +127,7 @@ export async function acceptEvent(input: DomainEvent): Promise<AcceptEventResult
               kind: "event",
               source: args.source,
               type: args.type,
-              rawKind: args.rawKind,
+              rawKind,
               eventId: args.eventId,
               payload: { documentId, receiptId, reason, accountRef: args.accountRef },
             },

@@ -392,8 +392,8 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
   // ADR-0098: consumers decide from this snapshot, so triage imports none of them.
   // Best-effort: a failure is logged, not thrown.
   if (written) {
-    // `satisfies`, not an annotation: `note` is normalized to `string | null`
-    // because the payload must also be a `JsonObject`.
+    // `satisfies`, not an annotation: the snapshot schema stores `note` as `string | null`,
+    // so an absent note is normalized to `null`.
     const todoDecision = classification.todoDecision;
 
     const payload = {
