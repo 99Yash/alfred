@@ -31,6 +31,7 @@ import {
   joinToolInput,
   toolNameSchema,
 } from "@alfred/contracts";
+import type { RedactedToolInput } from "@alfred/ai";
 // Type-only: the values pull `@alfred/db` into every tool declaration. `../context` binds them.
 import type { Integrations } from "@alfred/integrations";
 import type { Corpus } from "@alfred/corpus";
@@ -294,9 +295,11 @@ export interface BoundToolCall {
    * time for each decision.
    */
   effectiveRiskTier: (ctx: ToolExecuteContext) => Promise<ToolRiskTier>;
-  /** See {@link LiveToolArgs.redactInput}. The input itself when the tool declares no redactor. */
-  // oxlint-disable-next-line anti-slop/no-unknown-returns -- the registry erases each tool's input type; the redacted input goes to the trace and the staging row as received.
-  redactedInput: () => unknown;
+  /**
+   * See {@link LiveToolArgs.redactInput}. The input itself when the tool declares no redactor.
+   * The only value a trace sink or a staging row takes.
+   */
+  redactedInput: () => RedactedToolInput;
   /** See {@link LiveToolArgs.execute}. A throw is recorded by the dispatcher. */
   execute: (ctx: ToolExecuteContext) => Promise<ToolExecution>;
 }
@@ -597,6 +600,13 @@ function clampResolvedRiskTier(
   return resolved;
 }
 
+/** The brand's only mint. `bind` calls it on the redactor's output, or on the input when there is none. */
+function markRedacted(value: unknown): RedactedToolInput {
+  // SAFETY: the only caller passes the tool's redactor output, or the input of a tool with no redactor.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the brand's only mint, over redacted input
+  return value as RedactedToolInput;
+}
+
 /** Build a registry entry. Call `registerTool` at boot to register it. */
 export function liveTool<
   I extends IntegrationSlug,
@@ -685,7 +695,7 @@ export function liveTool<
             resolveRiskTier
               ? clampResolvedRiskTier(tool, await resolveRiskTier(input, ctx), ctx.runId)
               : tool.riskTier,
-          redactedInput: () => (redactInput ? redactInput(input) : input),
+          redactedInput: () => markRedacted(redactInput ? redactInput(input) : input),
           execute: async (ctx) => {
             if (args.availability?.requiresLiveChat !== true) {
               return runExecution(ctx);

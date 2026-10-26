@@ -3,7 +3,7 @@ import { after, afterEach, describe, test } from "node:test";
 
 import { closeConnections } from "@alfred/db";
 import { parseIanaTimezone } from "@alfred/contracts";
-import type { DispatchRejectionInput } from "@alfred/ai";
+import type { DispatchRejectionInput, RedactedToolInput } from "@alfred/ai";
 import { z } from "zod";
 
 import {
@@ -15,7 +15,6 @@ import {
   clearToolRegistryForTests,
   liveTool,
   registerTool,
-  type BoundToolCall,
   type RegisteredTool,
   type ToolCallDispatchArgs,
 } from "@alfred/assistant/tool-runtime";
@@ -48,11 +47,11 @@ const redactingTool: RegisteredTool = liveTool({
   redactInput: (input) => ({ url: input.url.replace(/token=[^&#]*/i, "token=[REDACTED]") }),
 });
 
-function boundRedactingCall(input: unknown): BoundToolCall {
+function boundRedactedInput(input: unknown): RedactedToolInput {
   const binding = redactingTool.bind(input);
   assert.ok(binding.success, "the fixture input must parse");
 
-  return binding.call;
+  return binding.call.redactedInput();
 }
 
 afterEach(() => {
@@ -92,7 +91,7 @@ describe("buildDispatchRejectionTraceInput", () => {
     const trace = buildDispatchRejectionTraceInput({
       dispatch: baseDispatch,
       toolName: "system.fetch_url",
-      call: boundRedactingCall({ url: "https://example.com/?token=secret&page=2" }),
+      input: boundRedactedInput({ url: "https://example.com/?token=secret&page=2" }),
       outcome: "rejected",
       reason: "rejected by user",
       startedAt,
@@ -109,7 +108,7 @@ describe("buildDispatchRejectionTraceInput", () => {
         input: { url: "https://example.com/?token=latest-dispatch" },
       },
       toolName: "system.fetch_url",
-      call: boundRedactingCall({ url: "https://example.com/?token=stored-row" }),
+      input: boundRedactedInput({ url: "https://example.com/?token=stored-row" }),
       outcome: "rejected",
       reason: "rejected by user",
       startedAt,
