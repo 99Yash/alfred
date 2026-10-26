@@ -135,6 +135,7 @@ interface ToolCallRunBase {
    */
   approvalThreadId?: string | undefined;
   scratchpadRunId?: string | undefined;
+  /** The run's snapshot, not a live read. Every dispatch carries its own run's zone. */
   timezone: IanaTimezone;
   allowedIntegrations?: readonly string[] | undefined;
   allowedTools?: readonly ToolName[] | undefined;
