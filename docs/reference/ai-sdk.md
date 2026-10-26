@@ -8,7 +8,7 @@ that do not compile.
 What follows is only the part that is Alfred's own convention, which no other
 source states.
 
-Model selection: `route(name)` from `@alfred/ai`. Named routes include `boss`, `subAgent`, `cheap`, `webSearch`, `compactor`, `compactorFallback`, `standard`, and `deep`; call `.model()` and `.providerOptions()` on the returned handle. Do not call AI SDK provider functions directly from route handlers, and do not hardcode string model IDs in type positions — `LanguageModel` is a union.
+Model selection: `route(name)` from `@alfred/ai`. Named routes include `boss`, `subAgent`, `cheap`, `webSearch`, `compactor`, `compactorFallback`, `standard`, and `deep`; call `.model()` on the returned handle. The route's reasoning and provider options are installed on that model, so do not pass them again. A stored model id comes from `result.finalStep.response.modelId`, which names the leg that served the call; the route model's own `modelId` always names the primary. Do not call AI SDK provider functions directly from route handlers, and do not hardcode string model IDs in type positions — `LanguageModel` is a union.
 
 Metering is not optional. Go through the `metered*` wrappers in `@alfred/ai` (`meteredGenerateText`, `meteredGenerateObject`, `meteredStreamText`) rather than the bare SDK calls, so every request lands in the cost rollups.
 

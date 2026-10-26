@@ -18,13 +18,11 @@ const MODEL_IDS = ["gpt-5.6-sol", "gpt-5.6-luna", "gpt-6-luna"] as const;
 async function smokeModel(modelId: (typeof MODEL_IDS)[number]): Promise<void> {
   const modelRoute = probeRoute(openAiLeg(modelId), "medium");
   const model = modelRoute.model();
-  const providerOptions = modelRoute.providerOptions();
   const attribution = { requestMeta: { smoke: "gpt-5.6", surface: modelId } } as const;
 
   const text = await meteredGenerateText(
     {
       model,
-      providerOptions,
       prompt: "Reply with exactly: text-ok",
       maxOutputTokens: 32,
     },
@@ -38,7 +36,6 @@ async function smokeModel(modelId: (typeof MODEL_IDS)[number]): Promise<void> {
   const stream = meteredStreamText(
     {
       model,
-      providerOptions,
       prompt: "Reply with exactly: stream-ok",
       maxOutputTokens: 32,
     },
@@ -58,7 +55,6 @@ async function smokeModel(modelId: (typeof MODEL_IDS)[number]): Promise<void> {
   const toolResult = await meteredGenerateText(
     {
       model,
-      providerOptions,
       prompt: "Call the lookup tool once with query 'alfred'. Do not answer in prose.",
       tools: {
         "smoke.lookup": tool({
@@ -80,7 +76,6 @@ async function smokeModel(modelId: (typeof MODEL_IDS)[number]): Promise<void> {
   const objectResult = await meteredGenerateObject(
     {
       model,
-      providerOptions,
       prompt: "Return status ok and model equal to the model identifier in this prompt: " + modelId,
       schema: z.object({ status: z.literal("ok"), model: z.literal(modelId) }),
       schemaName: "openai_model_smoke",
@@ -96,7 +91,6 @@ async function smokeModel(modelId: (typeof MODEL_IDS)[number]): Promise<void> {
   const firstTurn = await meteredGenerateText(
     {
       model,
-      providerOptions,
       prompt: "Remember the nonce cedar-47. Reply only: remembered",
       maxOutputTokens: 32,
     },
@@ -106,7 +100,6 @@ async function smokeModel(modelId: (typeof MODEL_IDS)[number]): Promise<void> {
   const replay = await meteredGenerateText(
     {
       model,
-      providerOptions,
       messages: [
         { role: "user", content: "Remember the nonce cedar-47. Reply only: remembered" },
         ...firstTurn.responseMessages,

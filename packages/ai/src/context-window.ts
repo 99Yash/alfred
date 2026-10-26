@@ -1,5 +1,4 @@
-import type { LanguageModel } from "ai";
-import { resolveModelContextWindow } from "./metering/prices";
+import type { ModelRouteHandle } from "./provider";
 
 export interface ContextWindowBudget {
   contextWindowTokens: number;
@@ -33,18 +32,18 @@ export function requestFitsContextWindow(
   return inputTokens <= effectiveInputWindowTokens(budget);
 }
 
-/** The smallest input window among the models a path may call. */
+/** The smallest input window over every leg of every route a path may call. */
 export async function resolveEffectiveInputWindowTokens({
-  models,
+  routes,
   outputReserveTokens = 0,
   fixedInputOverheadTokens = 0,
 }: {
-  models: readonly LanguageModel[];
+  routes: readonly ModelRouteHandle[];
   outputReserveTokens?: number;
   fixedInputOverheadTokens?: number;
 }): Promise<number> {
-  if (models.length === 0) throw new Error("at least one model is required");
-  const windows = await Promise.all(models.map((model) => resolveModelContextWindow(model)));
+  if (routes.length === 0) throw new Error("at least one route is required");
+  const windows = await Promise.all(routes.map((handle) => handle.inputWindowTokens()));
 
   return effectiveInputWindowTokens({
     contextWindowTokens: Math.min(...windows),

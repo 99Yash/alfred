@@ -41,7 +41,6 @@ export async function composeReply(args: {
   const composed = await meteredGenerateObject<z.infer<typeof replyBodySchema>>(
     {
       model: model.model(),
-      providerOptions: model.providerOptions(),
       schema: replyBodySchema,
       schemaName: "gmail_reply_body",
       instructions: `Write a short plain-text email reply for the user to review.
@@ -73,7 +72,6 @@ return an empty body. No placeholders or explanations outside the reply.`,
   const review = await meteredGenerateObject<z.infer<typeof reviewSchema>>(
     {
       model: model.model(),
-      providerOptions: model.providerOptions(),
       schema: reviewSchema,
       schemaName: "gmail_reply_grounding",
       instructions: `Audit every factual assertion and commitment in the reply.

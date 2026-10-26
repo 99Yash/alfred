@@ -23,7 +23,6 @@ import { INTEGRATION_SLUGS } from "@alfred/contracts";
 
 // Real `route()` handles, so provider options and reasoning settings match prod.
 // The map keys are labels only; each route resolves to whatever model it uses today.
-type ChatProviderOptions = ReturnType<ModelRouteHandle["providerOptions"]>;
 
 const MODELS = new Map<string, () => ModelRouteHandle>([
   ["haiku", () => route("standard")],
@@ -84,11 +83,7 @@ interface Sample {
 const isContent = (t: string) =>
   /delta|tool-call|tool-input|^text|^reasoning/.test(t) && !t.startsWith("start");
 
-async function once(
-  model: LanguageModel,
-  tools: ToolSet | undefined,
-  thinking?: ChatProviderOptions,
-): Promise<Sample> {
+async function once(model: LanguageModel, tools: ToolSet | undefined): Promise<Sample> {
   const t0 = performance.now();
   let ttft: number | null = null;
   let firstText: number | null = null;
@@ -102,11 +97,8 @@ async function once(
     ...(tools ? { tools } : {}),
     maxOutputTokens: MAX_OUT,
     temperature: 0,
-    // Like prod: the route's reasoning options plus prompt caching.
-    providerOptions: {
-      ...thinking,
-      anthropic: { ...thinking?.anthropic, cacheControl: { type: "ephemeral" } },
-    },
+    // Like prod: prompt caching. The route's reasoning options are already on the model.
+    providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } },
   });
 
   for await (const part of res.stream) {
@@ -147,12 +139,11 @@ async function condition(
   label: string,
   model: LanguageModel,
   tools: ToolSet | undefined,
-  thinking?: ChatProviderOptions,
 ): Promise<void> {
-  await once(model, tools, thinking).catch(() => null); // warm the prompt cache
+  await once(model, tools).catch(() => null); // warm the prompt cache
   const samples: Sample[] = [];
 
-  for (let i = 0; i < RUNS; i++) samples.push(await once(model, tools, thinking));
+  for (let i = 0; i < RUNS; i++) samples.push(await once(model, tools));
 
   const med = (pick: (s: Sample) => number | null) =>
     median(samples.map(pick).filter((n): n is number => n != null));
@@ -195,13 +186,8 @@ async function main(): Promise<void> {
 
     if (!make) continue;
     const modelRoute = make();
-    await condition(`${m} · no tools`, modelRoute.model(), undefined, modelRoute.providerOptions());
-    await condition(
-      `${m} · ${count} tools (prod-like)`,
-      modelRoute.model(),
-      tools,
-      modelRoute.providerOptions(),
-    );
+    await condition(`${m} · no tools`, modelRoute.model(), undefined);
+    await condition(`${m} · ${count} tools (prod-like)`, modelRoute.model(), tools);
   }
 
   console.log(

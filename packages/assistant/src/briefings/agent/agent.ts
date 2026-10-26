@@ -1,10 +1,4 @@
-import {
-  route,
-  identifyLanguageModel,
-  meteredGenerateText,
-  isStepCount,
-  type ModelMessage,
-} from "@alfred/ai";
+import { route, meteredGenerateText, isStepCount, type ModelMessage } from "@alfred/ai";
 import type { BriefingClosedLoop, BriefingLoopRelevance, IanaTimezone } from "@alfred/contracts";
 import type { LocalDateKey } from "@alfred/assistant/time";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
@@ -81,11 +75,9 @@ export async function runBriefingAgent(
     },
   ];
 
-  const model = route("boss").model();
-
   const result = await meteredGenerateText(
     {
-      model,
+      model: route("boss").model(),
       instructions: system,
       messages: seed,
       tools: bag.tools,
@@ -120,7 +112,8 @@ export async function runBriefingAgent(
       outputTokens: result.usage.outputTokens,
       totalTokens: result.usage.totalTokens,
     },
-    modelId: identifyLanguageModel(model).modelId,
+    // The leg that served the last step. The route model always names its primary.
+    modelId: result.finalStep.response.modelId,
     steps: result.steps.length,
   };
 }

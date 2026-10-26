@@ -247,7 +247,6 @@ async function runSourceChoice(input: string): Promise<TaskOutput> {
     instructions: SYSTEM,
     prompt: input,
     timeout: { totalMs: EVAL_TIMEOUT_MS },
-    providerOptions: modelRoute.providerOptions(),
     tools: toolSurface(),
   });
 
@@ -336,7 +335,6 @@ async function runThinPersonResearchReplay(
       { role: "user", content: userMessage },
     ],
     timeout: { totalMs: EVAL_TIMEOUT_MS },
-    providerOptions: modelRoute.providerOptions(),
     stopWhen: isStepCount(5),
     tools: {
       [READ_CONTEXT_TOOL]: tool({
@@ -543,7 +541,6 @@ async function runPersonResearchDepth(
       { role: "user", content: userMessage },
     ],
     timeout: { totalMs: EVAL_TIMEOUT_MS },
-    providerOptions: modelRoute.providerOptions(),
     stopWhen: isStepCount(6),
     tools: {
       [READ_CONTEXT_TOOL]: tool({

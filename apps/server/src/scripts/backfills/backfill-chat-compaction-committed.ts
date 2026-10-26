@@ -38,7 +38,7 @@ async function main(): Promise<void> {
   await warmPool();
 
   const effectiveWindow = await resolveEffectiveInputWindowTokens({
-    models: [route("standard").model(), route("compactor").model()],
+    routes: [route("standard"), route("compactor")],
     outputReserveTokens: CHAT_MAX_OUTPUT_TOKENS,
   });
 

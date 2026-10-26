@@ -1,6 +1,5 @@
 import {
   route,
-  identifyLanguageModel,
   meteredGenerateObject,
   type LanguageModel,
   type MeteredGenerateObjectArgs,
@@ -95,6 +94,11 @@ export type RunPass = (input: {
   prompt: string;
   pass: "first" | "second";
 }) => Promise<TriageClassification>;
+
+/** A pass plus the model id that served it. An injected pass serves as `injected`. */
+type ServedPass = (
+  input: Parameters<RunPass>[0],
+) => Promise<{ classification: TriageClassification; modelId: string }>;
 
 export interface ClassifyEmailArgs {
   /** Metering only; never sent to the model. */
@@ -889,16 +893,18 @@ function classifySystemPrompt(): string {
 export async function classifyEmail(
   args: ClassifyEmailArgs,
 ): Promise<{ classification: TriageClassification; model: string; audit: ClassifyAudit }> {
-  const useInjected = Boolean(args.runPass);
-  const model = useInjected ? null : route("cheap").model();
-  const baseModelId = model ? identifyLanguageModel(model).modelId : "injected";
-  const runPass: RunPass = args.runPass ?? defaultRunPass(model, args);
+  const injected = args.runPass;
+
+  const runPass: ServedPass = injected
+    ? async (input) => ({ classification: await injected(input), modelId: "injected" })
+    : defaultRunPass(route("cheap").model(), args);
 
   const signalText = floorSignalText(args.document);
   const collabVetoText = floorBodySignalText(args.document);
   const floorMatches = matchesExposedSecret(signalText);
 
-  const firstPass = await runPass({
+  // The base of `model_id` names the leg that served the first pass.
+  const { classification: firstPass, modelId: baseModelId } = await runPass({
     system: classifySystemPrompt(),
     prompt: userPrompt(args, null),
     pass: "first",
@@ -913,11 +919,11 @@ export async function classifyEmail(
     // A failed second pass keeps the first pass. Rethrowing would fall back to
     // `fyi` and bury a real urgent; escalating would flag every vendor auth echo.
     try {
-      secondPass = await runPass({
+      ({ classification: secondPass } = await runPass({
         system: classifySystemPrompt(),
         prompt: userPrompt(args, conflict),
         pass: "second",
-      });
+      }));
       working = secondPass;
     } catch (err) {
       secondPassFailure = { message: errorMessage(err) };
@@ -1002,12 +1008,11 @@ export function classifyCallOptions(input: {
  * the first wins. The hedge fires per pass, so a conflict can draw four times;
  * {@link hedgeCeilingFor} caps it.
  */
-function defaultRunPass(model: LanguageModel | null, args: ClassifyEmailArgs): RunPass {
+function defaultRunPass(model: LanguageModel, args: ClassifyEmailArgs): ServedPass {
   const name = (pass: "first" | "second") =>
     pass === "second" ? "triage.classify.second_pass" : "triage.classify";
 
   return async ({ system, prompt, pass }) => {
-    if (!model) throw new Error("[triage] classifyEmail: no cheap model and no runPass injected");
     const delayMs = args.hedgeDelayMs ?? serverEnv().TRIAGE_CLASSIFY_HEDGE_MS;
 
     const result = await runHedged({
@@ -1043,9 +1048,11 @@ function defaultRunPass(model: LanguageModel | null, args: ClassifyEmailArgs): R
         ),
     });
 
-    const object = result.output;
-
-    return normalizeClassifierOutput(object);
+    return {
+      classification: normalizeClassifierOutput(result.output),
+      // The hedge winner's served leg. The route model always names its primary.
+      modelId: result.finalStep.response.modelId,
+    };
   };
 }
 

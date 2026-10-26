@@ -109,7 +109,7 @@ export async function scheduleConversationCompactionIfNeeded(args: {
   if (!advanced) return "deduplicated";
 
   const effectiveInputWindowTokens = await resolveEffectiveInputWindowTokens({
-    models: [route(args.tier).model(), route("compactor").model()],
+    routes: [route(args.tier), route("compactor")],
     outputReserveTokens: CHAT_MAX_OUTPUT_TOKENS,
   });
 

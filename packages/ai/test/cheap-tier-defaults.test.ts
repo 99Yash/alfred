@@ -1,13 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { route } from "../src/provider";
+import { route, routeEffort } from "../src/provider";
 
-/** The cheap route must never buy a reasoning budget: generic `none`, no provider-option exception. */
+/** The cheap route must never buy a reasoning budget: generic `none`. */
 describe("cheap model route", () => {
   test("selects disabled reasoning for the whole same-provider chain", () => {
-    assert.equal(route("cheap").reasoning(), "none");
-    assert.deepEqual(route("cheap").providerOptions(), {});
+    assert.equal(routeEffort("cheap"), "none");
   });
 
   test("returns one memoized, attribution-preserving model handle", () => {

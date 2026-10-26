@@ -22,6 +22,7 @@ import {
   type RouteReasoning,
 } from "./provider-adapter";
 import { isGatewayMintedError } from "./gateway";
+import { resolveContextWindowById } from "./metering/prices";
 import { identifyLanguageModel } from "./models";
 
 export type { ChatModelTier };
@@ -91,24 +92,37 @@ const MODEL_ROUTES = {
 export type ModelRouteName = keyof typeof MODEL_ROUTES;
 
 export interface ModelRouteHandle {
+  /** Route options are installed on the model. Do not pass them again. */
   model(): LanguageModelV4;
-  /** Only the exceptions. The generic reasoning is already on the model. */
-  providerOptions(): SharedV4ProviderOptions;
-  reasoning(): RouteReasoning;
+  /** The smallest input window over every leg, in fallback order. A facade reports only its primary. */
+  inputWindowTokens(): Promise<number>;
 }
 
 function createRouteHandle(definition: ModelRoute): ModelRouteHandle {
-  const providerOptions: SharedV4ProviderOptions = definition.providerOptions ?? {};
+  let legs: readonly RouteLeg[] | undefined;
   let model: LanguageModelV4 | undefined;
+
+  // The window and the model read the same built legs.
+  const builtLegs = () => (legs ??= definition.legs.map((makeLeg) => makeLeg()));
 
   return {
     model: () =>
-      (model ??= createProviderRouteModel(definition.legs, withFallback, {
-        reasoning: definition.reasoning,
-        ...(definition.providerOptions ? { providerOptions: definition.providerOptions } : {}),
-      })),
-    providerOptions: () => providerOptions,
-    reasoning: () => definition.reasoning,
+      (model ??= createProviderRouteModel(
+        builtLegs().map((leg) => () => leg),
+        withFallback,
+        {
+          reasoning: definition.reasoning,
+          ...(definition.providerOptions ? { providerOptions: definition.providerOptions } : {}),
+        },
+      )),
+    // Not memoized: a failed price read must not stick for the life of the process.
+    inputWindowTokens: async () => {
+      const windows = await Promise.all(
+        builtLegs().map((leg) => resolveContextWindowById(leg.provider, leg.modelId)),
+      );
+
+      return Math.min(...windows);
+    },
   };
 }
 
@@ -133,8 +147,7 @@ export function probeRoute(leg: RouteLeg, reasoning: RouteReasoning): ModelRoute
 
 /** The route's effort as a displayable level. Throws on `provider-default`, which is not a level. */
 export function routeEffort(name: ModelRouteName): ChatEffort {
-  const reasoning = route(name).reasoning();
-  const parsed = chatEffortSchema.safeParse(reasoning);
+  const parsed = chatEffortSchema.safeParse(MODEL_ROUTES[name].reasoning);
 
   if (!parsed.success) throw new Error(`route "${name}" selects a non-level reasoning effort`);
 
@@ -274,7 +287,7 @@ export function isCapacityError(err: unknown): boolean {
  * in an instance field, so concurrent calls on one memoized route sent retries to the wrong leg.
  *
  * `provider` and `modelId` always name the primary. Use `providerForServedModel` with
- * `result.response.modelId` to learn which leg answered.
+ * `result.finalStep.response.modelId` to learn which leg answered.
  */
 export function withFallback(primary: LanguageModelV4, fallback: LanguageModelV4): LanguageModelV4 {
   // Raw `error`, not `.not()`: `.not()` of an error condition also matches successful results.
