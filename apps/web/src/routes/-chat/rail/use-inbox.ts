@@ -127,6 +127,8 @@ export interface InboxMessage {
   authoredAtRelative: string;
   unread: boolean;
   attachments: ReadonlyArray<InboxAttachment>;
+  initial: string;
+  tone: AppTint;
 }
 
 type InboxDetailData = EdenData<ReturnType<typeof client.api.me.inbox>["get"]>;
@@ -174,6 +176,8 @@ export function useInboxDetail(documentId: string | null) {
               authoredAtRelative: formatRelativeShort(m.authoredAt),
               unread: m.unread,
               attachments,
+              initial: initialFor(display),
+              tone: toneFor(display),
             };
           })
         : [];
