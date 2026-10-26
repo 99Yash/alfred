@@ -2,6 +2,7 @@ import type { SyncedActionStaging } from "@alfred/sync";
 import { ApprovalCard } from "./approval-card";
 import { asQuestionStaging } from "./ask-user";
 import { QuestionApprovalCard } from "./question-approval-card";
+import type { DecisionOutcome } from "./decide-approval";
 import type { RecordedDecision } from "./use-approval-decision";
 
 /**
@@ -14,7 +15,7 @@ export function StagedApprovalCard({
 }: {
   staging: SyncedActionStaging;
   /** Throws with a message on failure. */
-  onDecide: (decision: RecordedDecision) => Promise<void>;
+  onDecide: (decision: RecordedDecision) => Promise<DecisionOutcome>;
 }) {
   // An input that does not parse gets the write card, as in the chat tray.
   const question = asQuestionStaging(staging);

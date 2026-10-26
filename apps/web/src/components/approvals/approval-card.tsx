@@ -8,6 +8,7 @@ import { formatTimestamp, shortId, triggerLabel } from "./format";
 import { ApprovalInputEditor } from "./input-editor";
 import { RiskPill } from "./risk-pill";
 import { ToolIcon } from "./tool-icon";
+import type { DecisionOutcome } from "./decide-approval";
 import { useApprovalDecision, type WriteDecision } from "./use-approval-decision";
 
 export type { WriteDecision } from "./use-approval-decision";
@@ -33,7 +34,7 @@ export function ApprovalCard({
 }: {
   staging: SyncedActionStaging;
   /** Throws with a message on failure. */
-  onDecide: (decision: WriteDecision) => Promise<void>;
+  onDecide: (decision: WriteDecision) => Promise<DecisionOutcome>;
 }) {
   const {
     draftInput,
@@ -52,8 +53,11 @@ export function ApprovalCard({
     run,
   } = useApprovalDecision(staging);
 
-  // On success Replicache removes the card, so `busy` needs no cleanup.
-  const decide = (decision: WriteDecision) => run(() => onDecide(decision));
+  // Replicache removes a decided card; a restaged one re-seeds with its new input. Either way `busy` needs no cleanup.
+  const decide = (decision: WriteDecision) =>
+    run(async () => {
+      await onDecide(decision);
+    });
 
   return (
     <AppCard className="space-y-4">

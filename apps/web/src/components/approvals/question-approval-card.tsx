@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import type { DecisionOutcome } from "./decide-approval";
 import { useApprovalDecision, type QuestionDecision } from "./use-approval-decision";
 import { Workflow } from "lucide-react";
 import { AppCard } from "~/components/ui/v2";
@@ -19,15 +20,19 @@ export function QuestionApprovalCard({
 }: {
   question: QuestionStaging;
   /** Throws with a message on failure. */
-  onDecide: (decision: QuestionDecision) => Promise<void>;
+  onDecide: (decision: QuestionDecision) => Promise<DecisionOutcome>;
 }) {
   const staging = question.staging;
 
   const { draftInput, setDraftInput, busy, decided, error, approveDecision, run } =
     useApprovalDecision(staging);
 
-  // On success Replicache removes the card, so `busy` needs no cleanup.
-  const decide = (decision: QuestionDecision) => void run(() => onDecide(decision));
+  // Replicache removes a decided card; a restaged one re-seeds with its new input. Either way `busy` needs no cleanup.
+  const decide = (decision: QuestionDecision) =>
+    void run(async () => {
+      await onDecide(decision);
+    });
+
   const count = question.input.questions.length;
 
   return (
