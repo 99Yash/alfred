@@ -1,5 +1,4 @@
 import {
-  getPath,
   getStringPath,
   gmailEmailMessagePayloadSchema,
   observationInsertSchema,
@@ -16,6 +15,7 @@ import {
   type ObservationParticipantRole,
 } from "@alfred/contracts";
 import { sha256Canonical, sha256Hex } from "@alfred/db/hash";
+import { parseStoredGmailMessage, type GmailMessage } from "@alfred/integrations/google";
 import type { GmailPayloadSignals } from "./entity-kind-classifier";
 
 const GMAIL_REDUCER_VERSION = 1;
@@ -60,10 +60,12 @@ interface HeaderLookup {
 
 export function reduceGmailDocument(row: GmailDocumentForReduction): GmailReductionResult {
   const issues: GmailReductionIssue[] = [];
-  const headers = headersFromRaw(row.raw);
+  // One parse of `documents.raw`; a row that is not a Gmail message falls back to metadata.
+  const message = parseStoredGmailMessage(row.raw);
+  const headers = headersFromList(message?.payload?.headers);
   const metadata = parseGmailDocumentMetadata(row.metadata);
 
-  const occurredAt = row.authoredAt ?? internalDateFromRaw(row.raw);
+  const occurredAt = row.authoredAt ?? internalDateFromMessage(message);
 
   if (!occurredAt) {
     return skip(row.id, "missing_occurred_at", "Gmail document has no authoredAt/internalDate");
@@ -76,7 +78,7 @@ export function reduceGmailDocument(row: GmailDocumentForReduction): GmailReduct
     return skip(row.id, "missing_sender", "Gmail document has no parseable From header");
   }
 
-  const isSent = isSentMessage(row.raw, metadata);
+  const isSent = isSentMessage(message, metadata);
   const subject = firstNonEmpty(headers.get("subject"), row.title);
   const listId = normalizeHeader(headers.get("list-id"));
 
@@ -159,10 +161,6 @@ function skip(documentId: string, code: string, message: string): GmailReduction
   };
 }
 
-function headersFromRaw(raw: unknown): HeaderLookup {
-  return headersFromList(getPath(raw, "payload", "headers"));
-}
-
 /** List/bulk signals from a raw `payload.headers` array, so a scan never loads bodies (#1198). */
 export function gmailPayloadSignalsFromHeaders(headers: unknown): GmailPayloadSignals {
   const lookup = headersFromList(headers);
@@ -222,8 +220,8 @@ function firstNonEmpty(...values: readonly (string | null | undefined)[]): strin
   return null;
 }
 
-function internalDateFromRaw(raw: unknown): Date | null {
-  const value = getStringPath(raw, "internalDate");
+function internalDateFromMessage(message: GmailMessage | null): Date | null {
+  const value = message?.internalDate;
 
   if (value === undefined) return null;
   const ms = Number(value);
@@ -234,11 +232,10 @@ function internalDateFromRaw(raw: unknown): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-function isSentMessage(raw: unknown, metadata: GmailDocumentMetadata): boolean {
+function isSentMessage(message: GmailMessage | null, metadata: GmailDocumentMetadata): boolean {
   if (metadata.isSent === true) return true;
-  const rawLabelIds = getPath(raw, "labelIds");
 
-  if (Array.isArray(rawLabelIds) && rawLabelIds.some((label) => label === SENT_LABEL)) return true;
+  if (message?.labelIds?.some((label) => label === SENT_LABEL) === true) return true;
 
   return metadata.labelIds?.some((label) => label === SENT_LABEL) === true;
 }
