@@ -648,8 +648,8 @@ export const RULES = [
     // `/railway\.(app|com)/i.test(from)`. A substring test on the raw header
     // also matches the display name and a look-alike host (`railway.app.evil.io`,
     // `"Railway" <x@evil.io>`); the Railway matcher shipped that way until #1360.
-    // `raw-email-normalize` only sees the `.match(/<(?` header split, so it
-    // missed this spelling.
+    // `raw-email-normalize` covers the `.match(` header-split spellings, so it
+    // misses this `.test(` spelling.
     //
     // The argument is an identifier (or a property chain ending in one) named
     // `from`, `fromHeader`/`fromAddress`/`fromEmail`, `sender…` or `…Sender…`.
@@ -661,7 +661,7 @@ export const RULES = [
     // (`/^alfred/i.test(sender)`) is a fair use too.
     re: /\/[dgimsuvy]*\.test\(\s*(?:\w+\??\.)*(?:from|from(?:Header|Address|Addr|Email)|sender\w*|\w+(?:Sender\w*|FromHeader|FromAddress|FromAddr|FromEmail))\b/,
     severity: "hint",
-    fix: "Read the sender's domain with emailDomain(parseEmailAddress(from)) from @alfred/contracts, then compare it with isDomainOrSubdomain(domain, base). A regex over the raw header also matches the display name and a look-alike host.",
+    fix: "Read the sender's domain with parseMailbox(from)?.domain from @alfred/contracts, then compare it with isDomainOrSubdomain(domain, base). A regex over the raw header also matches the display name and a look-alike host.",
   },
   {
     id: "hand-rolled-domain-match",

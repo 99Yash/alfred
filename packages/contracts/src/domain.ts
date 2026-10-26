@@ -24,8 +24,10 @@ function isValidEmailLocalPart(localPart: string): boolean {
   for (const ch of localPart) {
     const code = ch.charCodeAt(0);
 
-    if (code <= 0x1f || code === 0x7f || ch === "@" || ch === "<" || ch === ">" || /\s/u.test(ch))
-      return false;
+    // No `<`/`>` clause: `splitEmail` rejects brackets at the whole-string
+    // level, so the local-part rule agrees character for character with
+    // `IDENTITY_VALUE_FORMATS.email`.
+    if (code <= 0x1f || code === 0x7f || ch === "@" || /\s/u.test(ch)) return false;
   }
 
   return true;
@@ -82,7 +84,7 @@ const emailAddressSchema = z.string().trim().toLowerCase().pipe(z.email());
 
 /** One mailbox from a `From:`-style header: `Name <addr>`, `<addr>`, or `addr`. */
 export interface Mailbox {
-  /** Outer quotes stripped, backslash escapes removed, trimmed. Null when empty. */
+  /** Outer quotes stripped, backslash escapes removed inside a quoted name, trimmed. Null when empty. */
   readonly displayName: string | null;
   /** The `splitEmail` form: trimmed, lowercased, trailing dot dropped. */
   readonly address: string;
@@ -94,11 +96,25 @@ const ANCHORED_ANGLE_RE = /^(.*?)<([^>]+)>\s*$/;
 
 const ANY_ANGLE_RE = /^(.*?)<([^>]+)>/;
 
+/** True when the value opens with `"` and closes with an unescaped `"` at the end. */
+function closesWithUnescapedQuote(trimmed: string): boolean {
+  if (trimmed.length < 2 || !trimmed.endsWith('"')) return false;
+
+  let backslashes = 0;
+
+  for (let i = trimmed.length - 2; i >= 0 && trimmed[i] === "\\"; i--) backslashes++;
+
+  return backslashes % 2 === 0;
+}
+
 function cleanDisplayName(raw: string): string | null {
   const trimmed = raw.trim();
   // A quoted-pair (`\"`) is syntax inside a quoted string only. An unquoted
-  // backslash (`ACME\Support`) is data and stays.
-  const quoted = trimmed.startsWith('"');
+  // backslash (`ACME\Support`) is data and stays. The name counts as quoted
+  // only when it opens with a quote and closes with an unescaped one at the
+  // end; a quoted prefix with an unquoted tail (`"A\B" C\D`) keeps its
+  // backslashes, so the unescape below never touches the tail.
+  const quoted = trimmed.startsWith('"') && closesWithUnescapedQuote(trimmed);
   let name = trimmed.replace(/^"+/, "");
 
   // Drop closing quotes, but keep an escaped one. A quote is escaped iff an
