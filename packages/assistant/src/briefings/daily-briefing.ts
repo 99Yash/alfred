@@ -2,6 +2,7 @@ import {
   briefingClosedLoopSchema,
   briefingLoopRelevanceSchema,
   DAILY_BRIEFING_WORKFLOW_SLUG,
+  ianaTimezoneSchema,
 } from "@alfred/contracts";
 import { z } from "zod";
 import { type Workflow } from "@alfred/assistant/execution";
@@ -17,7 +18,7 @@ const stateSchema = z.object({
   reason: z.enum(["cron", "manual", "forced"]),
   dryRun: z.boolean().default(false),
   briefingDate: z.string().optional(),
-  timezone: z.string().optional(),
+  timezone: ianaTimezoneSchema.optional(),
   recipientName: z.string().nullable().optional(),
   sinceIngestedAt: z.string().nullable().optional(),
   untilIngestedAt: z.string().optional(),

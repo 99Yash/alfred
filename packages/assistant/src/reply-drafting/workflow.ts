@@ -6,6 +6,7 @@ import {
   replyDraftStyleSelectionSchema,
   replyDraftTriageSnapshotSchema,
   toMessage,
+  type IanaTimezone,
   type ReplyDraftProvenance,
   type ReplyDraftResult,
   type ReplyDraftTriageSnapshot,
@@ -379,11 +380,12 @@ async function runStage(ctx: StepContext<State>): Promise<StepResult<State>> {
 /**
  * The tool-run identity of one reply-drafting run. It allows exactly one tool on the one mailbox
  * that `gather` checked. No integration is in the run envelope, and dispatch reads the absent list
- * and the empty list as the same empty set.
+ * and the empty list as the same empty set. The zone is the one `gather` froze for the composer.
  */
 function replyToolRunIdentity(
   ctx: Pick<StepContext<State>, "userId" | "runId">,
   accountRef: string,
+  timezone: IanaTimezone,
 ): ToolRunIdentity {
   return {
     userId: ctx.userId,
@@ -391,6 +393,7 @@ function replyToolRunIdentity(
     workflow: REPLY_DRAFTING_WORKFLOW_SLUG,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
+    timezone,
     allowedIntegrations: [],
     allowedTools: ["gmail.send_draft"],
     requiredCapabilities: [{ tool: "gmail.send_draft", accountRef }],
@@ -398,9 +401,9 @@ function replyToolRunIdentity(
 }
 
 async function dispatchReply(ctx: StepContext<State>): Promise<StepResult<State>> {
-  const { prepared, mailbox } = ctx.state;
+  const { prepared, mailbox, gather } = ctx.state;
 
-  if (!prepared || !mailbox)
+  if (!prepared || !mailbox || !gather)
     throw new Error("[reply-drafting] stage entered without verified input");
 
   if (!ctx.state.result) {
@@ -431,7 +434,9 @@ async function dispatchReply(ctx: StepContext<State>): Promise<StepResult<State>
     }
   }
 
-  const round = await toolRuntimeForRun(replyToolRunIdentity(ctx, mailbox.accountId)).dispatch({
+  const round = await toolRuntimeForRun(
+    replyToolRunIdentity(ctx, mailbox.accountId, gather.timezone),
+  ).dispatch({
     stepId: "stage",
     fence: ctx.fence,
     calls: [

@@ -6,6 +6,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { settings } from "@alfred/assistant/settings";
 import { activateWorkflow, createWorkflowDraft } from "@alfred/assistant/automation";
 import { dispatchToolCall } from "@alfred/assistant/tool-runtime/dispatch";
 import { scratchpad, startRun, closeAgentQueue } from "@alfred/assistant/execution";
@@ -116,6 +117,7 @@ async function main(): Promise<void> {
   registerReplicachePokeAdapter();
 
   const userId = await findOrCreateSmokeUser();
+  const timezone = await settings({ userId }).timezone();
   await resetSmokeRows(userId);
   await createSmokeWorkflow(userId);
 
@@ -141,6 +143,7 @@ async function main(): Promise<void> {
       allowedIntegrations: ["gmail"],
     },
     userId,
+    timezone,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
     fence: { generation: 0 },
@@ -198,6 +201,7 @@ async function main(): Promise<void> {
       allowedIntegrations: ["gmail"],
     },
     userId,
+    timezone,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
     fence: { generation: 0 },
@@ -235,6 +239,7 @@ async function main(): Promise<void> {
     activeTools: ["system.spawn_sub_agent"],
     input: { subId: "subB", brief: "Nested spawn should be rejected.", allowedIntegrations: [] },
     userId,
+    timezone,
     caller: { subId: "subA" },
     runContext: { caller: "sub_agent", interaction: "background" },
     fence: { generation: 0 },
@@ -259,6 +264,7 @@ async function main(): Promise<void> {
     activeTools: ["system.write_scratch"],
     input: { key: "scratch.subA.findings", value: { threads: 3 } },
     userId,
+    timezone,
     caller: { subId: "subA" },
     runContext: { caller: "sub_agent", interaction: "background" },
     fence: { generation: 0 },

@@ -10,7 +10,7 @@ import {
 } from "@alfred/ai";
 import { composeAgentInstructions } from "@alfred/ai/voice";
 import { ARTIFACT_DESIGN_PROMPT } from "@alfred/artifacts-design";
-import { parseIanaTimezone, type ToolRunContext } from "@alfred/contracts";
+import type { ToolRunContext } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { CHAT_TURN_WORKFLOW_SLUG, chatMessages } from "@alfred/db/schemas";
 import { and, asc, eq } from "drizzle-orm";
@@ -99,6 +99,11 @@ function chatToolRunIdentity(
   ctx: Pick<StepContext<ChatRunState>, "userId" | "runId">,
   state: ChatRunState,
 ): ToolRunIdentity {
+  // The turn step snapshots the zone before it builds an identity or stages a tool call.
+  if (state.timezone === undefined) {
+    throw new Error("[chat-turn] tool identity built before the timezone snapshot");
+  }
+
   return {
     userId: ctx.userId,
     runId: ctx.runId,
@@ -108,7 +113,7 @@ function chatToolRunIdentity(
     chat: { threadId: state.threadId, messageId: state.messageId },
     approvalThreadId: state.threadId,
     scratchpadRunId: ctx.runId,
-    timezone: state.timezone ? parseIanaTimezone(state.timezone) : undefined,
+    timezone: state.timezone,
     allowedIntegrations: state.allowedIntegrations,
   };
 }
@@ -335,11 +340,7 @@ const chatTurnStep: Step<ChatRunState> = {
         });
       }
 
-      if (state.timezone === undefined) {
-        state.timezone = await settings({ userId: ctx.userId }).timezone();
-      }
-
-      const timezone = parseIanaTimezone(state.timezone);
+      const timezone = (state.timezone ??= await settings({ userId: ctx.userId }).timezone());
       const availability = await readIntegrationAvailability(ctx.userId);
 
       const tools = toolRuntimeForRun(chatToolRunIdentity(ctx, state), availability);

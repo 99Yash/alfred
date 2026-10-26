@@ -93,7 +93,6 @@ import {
   type ToolExecution,
 } from "../registry";
 import { readIntegrationAvailability } from "@alfred/assistant/connections";
-import { settings } from "@alfred/assistant/settings";
 
 type DispatchToolCallRoundAdapter = Parameters<typeof registerToolCallRoundAdapter>[0];
 
@@ -512,7 +511,7 @@ const validateInputStage: DispatchStage<ResolvedDispatch, ValidatedDispatch> = a
     stepId: args.stepId,
     toolCallId: args.toolCallId,
     userId: args.userId,
-    timezone: args.timezone ?? (await settings({ userId: args.userId }).timezone()),
+    timezone: args.timezone,
     caller,
     runContext: args.runContext,
     activeTools: args.activeTools,

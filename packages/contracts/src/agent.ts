@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { integrationSlugSchema, isIanaTimezone } from "./briefing";
+import { ianaTimezoneSchema, integrationSlugSchema } from "./briefing";
 import {
   AUTHORABLE_EVENT_SOURCES,
   authorableEventTriggerIssue,
@@ -165,7 +165,7 @@ export const agentRunTriggerKindSchema = z.enum(
 export const cronWorkflowTriggerSchema = z.object({
   kind: z.literal("cron"),
   schedule: z.string(),
-  timezone: z.string().optional(),
+  timezone: ianaTimezoneSchema.optional(),
 });
 
 export const eventWorkflowTriggerSchema = z.object({
@@ -443,7 +443,7 @@ export const authorableWorkflowTriggerSchema = z.discriminatedUnion("kind", [
       .string()
       .trim()
       .refine((value) => value.split(/\s+/).length === 5, "Expected a five-field cron expression"),
-    timezone: z.string().refine(isIanaTimezone, "Expected an IANA timezone identifier"),
+    timezone: ianaTimezoneSchema,
   }),
   authorableEventTriggerSchema,
   manualWorkflowTriggerSchema,
@@ -489,7 +489,7 @@ export type AuthorWorkflowInput = z.infer<typeof authorWorkflowInputSchema>;
 export const workflowSchedulePreviewSchema = z
   .object({
     summary: z.string().min(1).max(200),
-    timezone: z.string().refine(isIanaTimezone, "Expected an IANA timezone identifier"),
+    timezone: ianaTimezoneSchema,
     previewedAt: z.iso.datetime(),
     nextRunAt: z.string().optional(),
   })

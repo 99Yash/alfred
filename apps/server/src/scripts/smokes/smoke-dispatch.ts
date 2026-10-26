@@ -8,6 +8,7 @@
  * after a reject, and idempotent `cancelRun`.
  */
 
+import { settings } from "@alfred/assistant/settings";
 import { cancelRun } from "@alfred/assistant/execution";
 // No enqueue: this smoke resumes the run itself, through `dispatchToolCall`.
 import { signalRun } from "@alfred/assistant/execution/service";
@@ -151,6 +152,7 @@ async function main(): Promise<void> {
   stubs.registerStubs();
 
   const userId = await findOrCreateSmokeUser();
+  const timezone = await settings({ userId }).timezone();
   await ensureDefaultActionPolicyForUser(userId);
 
   // 1. Autonomy path
@@ -165,6 +167,7 @@ async function main(): Promise<void> {
     activeTools: ["gmail.search"],
     input: { q: "in:inbox newer_than:1d" },
     userId,
+    timezone,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
     fence: { generation: 0 },
@@ -200,6 +203,7 @@ async function main(): Promise<void> {
     activeTools: ["gmail.search"],
     input: { q: "in:inbox newer_than:1d" },
     userId,
+    timezone,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
     fence: { generation: 0 },
@@ -220,6 +224,7 @@ async function main(): Promise<void> {
     activeTools: [],
     input: { q: "in:inbox" },
     userId,
+    timezone,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
     fence: { generation: 0 },
@@ -250,6 +255,7 @@ async function main(): Promise<void> {
     activeTools: ["gmail.send_draft"],
     input: { to: ["yash@example.com"], subject: "phase 3 smoke", bodyText: "hi" },
     userId,
+    timezone,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
     fence: { generation: 0 },
@@ -284,6 +290,7 @@ async function main(): Promise<void> {
     activeTools: ["gmail.send_draft"],
     input: { to: ["yash@example.com"], subject: "phase 3 smoke", bodyText: "hi" },
     userId,
+    timezone,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
     fence: { generation: 0 },
@@ -343,6 +350,7 @@ async function main(): Promise<void> {
       bodyText: "should not run",
     },
     userId,
+    timezone,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
     fence: { generation: 0 },
@@ -376,6 +384,7 @@ async function main(): Promise<void> {
     activeTools: ["gmail.send_draft"],
     input: { to: ["someone@example.com"], subject: "do not send", bodyText: "no" },
     userId,
+    timezone,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
     fence: { generation: 0 },
@@ -404,6 +413,7 @@ async function main(): Promise<void> {
     activeTools: ["gmail.send_draft"],
     input: { to: ["someone@example.com"], subject: "do not send", bodyText: "no" },
     userId,
+    timezone,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
     fence: { generation: 0 },

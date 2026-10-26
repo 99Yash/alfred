@@ -14,7 +14,7 @@ import { requireRow } from "@alfred/db/helpers";
 import { agentRuns, user as userTable, workflows } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "~/builtins";
-import { agentRunTriggerSchema, toMessage } from "@alfred/contracts";
+import { agentRunTriggerSchema, parseIanaTimezone, toMessage } from "@alfred/contracts";
 
 // A registered slug, so `requireWorkflow` resolves. No worker runs the run.
 const TEST_SLUG = "echo-with-approval";
@@ -70,7 +70,7 @@ async function main() {
       slug: TEST_SLUG,
       name: "Smoke: workflows.tick",
       description: null,
-      trigger: { kind: "cron", schedule: fakeSchedule, timezone: "UTC" },
+      trigger: { kind: "cron", schedule: fakeSchedule, timezone: parseIanaTimezone("UTC") },
       brief: "no-op smoke run",
       steps: null,
       allowedIntegrations: [],

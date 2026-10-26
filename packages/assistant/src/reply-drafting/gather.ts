@@ -1,5 +1,6 @@
 import {
   extractGmailDocumentBody,
+  ianaTimezoneSchema,
   parseGmailDocumentMetadata,
   replyDraftGatheredObjectSchema,
   replyDraftStyleSelectionSchema,
@@ -28,7 +29,7 @@ export const replyGatherSchema = z.object({
   audience: z.literal("generic"),
   relationship: z.string(),
   now: z.string(),
-  timezone: z.string(),
+  timezone: ianaTimezoneSchema,
   localDate: z.string(),
   style: replyDraftStyleSelectionSchema,
   styleInstructions: z.string().nullable(),

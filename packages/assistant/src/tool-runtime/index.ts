@@ -135,7 +135,7 @@ interface ToolCallRunBase {
    */
   approvalThreadId?: string | undefined;
   scratchpadRunId?: string | undefined;
-  timezone?: IanaTimezone | undefined;
+  timezone: IanaTimezone;
   allowedIntegrations?: readonly string[] | undefined;
   allowedTools?: readonly ToolName[] | undefined;
   requiredCapabilities?: readonly WorkflowRequiredCapability[] | undefined;

@@ -1,6 +1,6 @@
 import {
   authorableEventTriggerSchema,
-  isIanaTimezone,
+  ianaTimezoneSchema,
   LOADABLE_INTEGRATION_SLUGS,
 } from "@alfred/contracts";
 import type { WriteTransaction } from "replicache";
@@ -101,7 +101,7 @@ export const authorableWorkflowTriggerSchema = z
     z.object({
       kind: z.literal("cron"),
       schedule: z.string().min(1).max(120),
-      timezone: z.string().max(64).optional(),
+      timezone: ianaTimezoneSchema.optional(),
     }),
     authorableEventTriggerSchema,
     z.object({ kind: z.literal("manual") }),
@@ -114,14 +114,6 @@ export const authorableWorkflowTriggerSchema = z
         code: "custom",
         message: "Use a valid 5-field cron expression",
         path: ["schedule"],
-      });
-    }
-
-    if (trigger.timezone && !isIanaTimezone(trigger.timezone)) {
-      ctx.addIssue({
-        code: "custom",
-        message: `'${trigger.timezone}' is not a valid IANA timezone`,
-        path: ["timezone"],
       });
     }
   });

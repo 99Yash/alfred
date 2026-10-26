@@ -4,6 +4,7 @@ import {
   artifactFormatSchema,
   chatConnectNudgeSchema,
   chatModelTierSchema,
+  ianaTimezoneSchema,
 } from "@alfred/contracts";
 import { sha256Hex } from "@alfred/db/hash";
 import type { ChatMessageToolCall } from "@alfred/db/schemas";
@@ -85,8 +86,9 @@ export const chatRunStateSchema = z
     artifactMediumStale: z.literal(true).optional(),
     // The PDF guide enters the transcript once per run.
     pdfDesignGuideAdmitted: z.literal(true).optional(),
-    // Snapshotted on the first turn. A plain string; parse with `parseIanaTimezone`.
-    timezone: z.string().optional(),
+    // Snapshotted on the first turn. The terminal closure parses this state, so a bad stored
+    // zone reads as absent there instead of skipping the failed-message finalize.
+    timezone: ianaTimezoneSchema.optional().catch(undefined),
     pendingToolCalls: z.array(pendingToolCallSchema),
     // The current segment only. At turn end this is the final answer.
     assistantText: z.string().default(""),

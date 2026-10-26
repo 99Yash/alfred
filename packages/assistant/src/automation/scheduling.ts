@@ -24,13 +24,12 @@ export function validateCronTrigger(
 ): { ok: true } | { ok: false; message: string } {
   if (trigger.kind !== "cron") return { ok: true };
 
+  // The type says branded, but a stored `$type` row reaches here unparsed, so the guard stays.
   if (trigger.timezone && !isIanaTimezone(trigger.timezone)) {
-    return { ok: false, message: `invalid timezone '${trigger.timezone}'` };
+    return { ok: false, message: `invalid timezone '${String(trigger.timezone)}'` };
   }
 
-  const timezone = trigger.timezone
-    ? parseIanaTimezone(trigger.timezone)
-    : (opts.timezone ?? DEFAULT_WORKFLOW_TIMEZONE);
+  const timezone = trigger.timezone || (opts.timezone ?? DEFAULT_WORKFLOW_TIMEZONE);
 
   try {
     CronExpressionParser.parse(trigger.schedule, {
@@ -53,7 +52,7 @@ export async function resolveWorkflowTimezone(
   trigger: WorkflowTrigger,
 ): Promise<IanaTimezone> {
   if (trigger.kind === "cron" && trigger.timezone && isIanaTimezone(trigger.timezone)) {
-    return parseIanaTimezone(trigger.timezone);
+    return trigger.timezone;
   }
 
   return settings({ userId }).timezone();

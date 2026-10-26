@@ -72,7 +72,9 @@ export function isIanaTimezone(value: unknown): value is IanaTimezone {
   return isSupportedTimezone(value);
 }
 
-export const ianaTimezoneSchema = z
+// Annotated so the output keeps the `IanaTimezone` name. The bare `refine` output is an intersection
+// that names the private brand symbol, and a package that emits declarations cannot name it.
+export const ianaTimezoneSchema: z.ZodType<IanaTimezone, string> = z
   .string()
   .refine(isIanaTimezone, { message: "Expected an IANA timezone identifier" });
 

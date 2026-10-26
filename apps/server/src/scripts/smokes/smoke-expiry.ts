@@ -23,6 +23,7 @@ import {
   removeApprovalNotificationJob,
 } from "@alfred/assistant/tool-runtime";
 
+import { settings } from "@alfred/assistant/settings";
 import { dispatchToolCall } from "@alfred/assistant/tool-runtime/dispatch";
 import { stubIntegrationHealthForTests } from "@alfred/assistant/tool-runtime/test-support";
 import { stagedAction } from "@alfred/assistant/execution";
@@ -173,6 +174,7 @@ async function stageGatedDraft(userId: string, runId: string, toolCallId: string
     activeTools: ["gmail.send_draft"],
     input: DRAFT_INPUT,
     userId,
+    timezone: await settings({ userId }).timezone(),
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
     fence: { generation: 0 },
@@ -210,6 +212,7 @@ async function main(): Promise<void> {
   ]);
 
   const userId = await findOrCreateSmokeUser();
+  const timezone = await settings({ userId }).timezone();
   await ensureDefaultActionPolicyForUser(userId);
   await setGated(userId);
 
@@ -300,6 +303,7 @@ async function main(): Promise<void> {
     activeTools: ["gmail.send_draft"],
     input: DRAFT_INPUT,
     userId,
+    timezone,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
     fence: { generation: 0 },

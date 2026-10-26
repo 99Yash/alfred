@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 
-import { hashToolInput, hashToolRequest, isRecord } from "@alfred/contracts";
+import { hashToolInput, hashToolRequest, isRecord, parseIanaTimezone } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import {
   actionStagings,
@@ -52,6 +52,8 @@ import { closeRedis } from "@alfred/db/redis";
 import { dbBackedSkip } from "../../support/db-backed";
 import { awaitGate } from "../../support/gate-timeout";
 import { asTestDouble } from "../../support/test-double";
+
+const UTC = parseIanaTimezone("UTC");
 
 /**
  * DB-backed tests for the dispatch-to-MCP seam. `mcp.call` is `high` tier, so it
@@ -284,6 +286,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
         arguments: { title: "hi" },
       },
       userId,
+      timezone: UTC,
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
       fence: { generation: 0 },
@@ -340,6 +343,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
         arguments: { q: "is:open" },
       },
       userId,
+      timezone: UTC,
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
       fence: { generation: 0 },
@@ -383,6 +387,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
         arguments: { title: "hi" },
       },
       userId,
+      timezone: UTC,
       caller: "boss" as const,
       runContext: { caller: "boss", interaction: "background" } as const,
       fence: { generation: 0 } as const,
@@ -524,6 +529,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       activeTools: ["mcp.call"],
       input,
       userId,
+      timezone: UTC,
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
       fence: { generation: 0 },
@@ -665,6 +671,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       activeTools: ["mcp.call" as const],
       input,
       userId,
+      timezone: UTC,
       caller: "boss" as const,
       runContext: { caller: "boss", interaction: "background" } as const,
       fence: { generation: 0 } as const,
@@ -768,6 +775,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       activeTools: ["mcp.list_tools"],
       input: {},
       userId,
+      timezone: UTC,
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
       fence: { generation: 0 },

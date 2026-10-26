@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, beforeEach, describe, test } from "node:test";
 
-import { isRecord, restPassthroughInput } from "@alfred/contracts";
+import { isRecord, restPassthroughInput, parseIanaTimezone } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { unsealedTestSecret } from "../../support/unsealed-secret";
 import {
@@ -20,6 +20,8 @@ import { dispatchToolCall } from "../../../src/tool-runtime/dispatch";
 import { PASSTHROUGH_PER_RUN_CEILING } from "../../../src/tool-runtime/internal/tools/passthrough";
 import { clearToolRegistryForTests, liveTool, registerTool } from "@alfred/assistant/tool-runtime";
 import { dbBackedSkip } from "../../support/db-backed";
+
+const UTC = parseIanaTimezone("UTC");
 
 /**
  * DB-backed test of the per-run passthrough ceiling (ADR-0074). Pagination looks like
@@ -113,6 +115,7 @@ function dispatchGithubRequest(userId: string, runId: string, page: number) {
     activeTools: ["github.request"],
     input: { method: "GET", path: `/repos/x/y/commits?page=${page}` },
     userId,
+    timezone: UTC,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
     fence: { generation: 0 },

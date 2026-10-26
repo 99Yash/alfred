@@ -31,6 +31,7 @@ const baseDispatch: ToolCallDispatchArgs = {
   toolName: "system.fetch_url",
   input: { url: "https://example.com/?token=from-dispatch" },
   userId: "user_1",
+  timezone: UTC,
   caller: "boss",
   runContext: { caller: "boss", interaction: "background" },
   activeTools: ["system.fetch_url"],
