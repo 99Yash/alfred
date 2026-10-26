@@ -11,7 +11,7 @@ import {
 } from "@alfred/assistant/knowledge";
 import {
   CHAT_MEMORY_CAPTURE_WORKFLOW_SLUG,
-  readChatMemoryCaptureRunMetadata,
+  chatMemoryCaptureRunMetadataSchema,
 } from "./idle-capture-queue";
 
 /**
@@ -46,7 +46,12 @@ const inputSchema = z.object({
   manualPropositions: z.array(chatPropositionSchema).optional(),
 });
 
-export const chatMemoryCaptureWorkflow: Workflow<State> = {
+export const chatMemoryCaptureWorkflow: Workflow<
+  State,
+  string,
+  z.output<typeof chatMemoryCaptureRunMetadataSchema>,
+  z.output<typeof inputSchema>
+> = {
   slug: CHAT_MEMORY_CAPTURE_WORKFLOW_SLUG,
   name: "Chat memory capture",
   description:
@@ -56,20 +61,10 @@ export const chatMemoryCaptureWorkflow: Workflow<State> = {
   initialStep: "load-transcript",
   stateSchema,
   closure: { kind: "none" },
+  metadataSchema: chatMemoryCaptureRunMetadataSchema,
+  inputSchema,
 
-  initialState(input) {
-    const { threadId, captureAfterMessageId } = readChatMemoryCaptureRunMetadata(input.metadata);
-
-    if (!threadId) {
-      throw new Error("chat-memory-capture workflow requires metadata.threadId");
-    }
-
-    if (!captureAfterMessageId) {
-      throw new Error("chat-memory-capture workflow requires metadata.captureAfterMessageId");
-    }
-
-    const parsed = inputSchema.parse(input.input ?? {});
-
+  initialState({ metadata: { threadId, captureAfterMessageId }, input: parsed }) {
     return {
       mode: parsed.mode,
       threadId,
@@ -84,12 +79,8 @@ export const chatMemoryCaptureWorkflow: Workflow<State> = {
   },
 
   // One capture per arming assistant message; a later turn still gets its own.
-  dedupKey(input) {
-    const { threadId, captureAfterMessageId } = readChatMemoryCaptureRunMetadata(input.metadata);
-
-    return threadId && captureAfterMessageId
-      ? `chat-memory:${threadId}:${captureAfterMessageId}`
-      : null;
+  dedupKey({ metadata: { threadId, captureAfterMessageId } }) {
+    return `chat-memory:${threadId}:${captureAfterMessageId}`;
   },
 
   steps: {

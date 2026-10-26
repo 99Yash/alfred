@@ -1,6 +1,6 @@
 import { TRIAGE_WORKFLOW_SLUG } from "@alfred/contracts";
 import { type Workflow } from "@alfred/assistant/execution";
-import { triageWorkflowInputSchema } from "./workflow-input";
+import { triageWorkflowInputSchema, type TriageWorkflowInput } from "./workflow-input";
 import {
   EMAIL_TRIAGE_INITIAL_STEP,
   emailTriageStateSchema,
@@ -9,7 +9,12 @@ import {
   type EmailTriageStepName,
 } from "./workflow-operations";
 
-export const emailTriageWorkflow: Workflow<EmailTriageOperationState, EmailTriageStepName> = {
+export const emailTriageWorkflow: Workflow<
+  EmailTriageOperationState,
+  EmailTriageStepName,
+  unknown,
+  TriageWorkflowInput
+> = {
   slug: TRIAGE_WORKFLOW_SLUG,
   name: "Email triage",
   description:
@@ -18,10 +23,9 @@ export const emailTriageWorkflow: Workflow<EmailTriageOperationState, EmailTriag
   initialStep: EMAIL_TRIAGE_INITIAL_STEP,
   // The step bodies read `z.infer` of this same schema (#1180).
   stateSchema: emailTriageStateSchema,
+  inputSchema: triageWorkflowInputSchema,
   closure: { kind: "none" },
-  initialState(input) {
-    const parsed = triageWorkflowInputSchema.parse(input.input ?? {});
-
+  initialState({ input: parsed }) {
     return {
       documentId: parsed.documentId,
       reason: parsed.reason,

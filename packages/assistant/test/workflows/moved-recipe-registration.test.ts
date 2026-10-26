@@ -23,8 +23,15 @@ import type { Workflow, WorkflowInput } from "@alfred/assistant/execution";
  * or drops the `agent_runs_dedup_key_idx` singleton guard (ADR-0027, ADR-0047).
  */
 describe("moved product recipes keep their identity at their owning module seam", () => {
-  // `dedupKey` ignores the trigger, but `WorkflowInput` requires one.
-  const sampleTrigger: WorkflowInput["trigger"] = { kind: "manual" };
+  // `dedupKey` ignores the trigger, but `WorkflowInput` requires one. `createRun` parses
+  // `metadata` and `input` before a hook runs, so a sample for a recipe that declares a
+  // schema must hold that schema's output. The empty `{}` values are not parsed.
+  const sampleBase: WorkflowInput = {
+    userId: "u1",
+    trigger: { kind: "manual" },
+    metadata: {},
+    input: {},
+  };
 
   const cases: ReadonlyArray<{
     name: string;
@@ -34,7 +41,7 @@ describe("moved product recipes keep their identity at their owning module seam"
     steps: readonly string[];
     resumeOnly?: boolean;
     trigger: WorkflowTrigger;
-    /** `null` means no `dedupKey`. Inputs must parse: some recipes `schema.parse` them. */
+    /** `null` means no `dedupKey`. Inputs must match the recipe's `metadataSchema`/`inputSchema`. */
     dedup: null | ReadonlyArray<{ input: WorkflowInput; expected: string | null }>;
   }> = [
     // `slug` is the persisted literal, not the recipe's constant, so a renamed constant goes red.
@@ -82,17 +89,15 @@ describe("moved product recipes keep their identity at their owning module seam"
       initialStep: "load-transcript",
       steps: ["load-transcript", "extract", "finalize"],
       trigger: { kind: "manual" },
-      // Keyed off `metadata`. A run without thread and message has no guard.
+      // Keyed off `metadata`; `createRun` refuses a run without thread and message.
       dedup: [
         {
           input: {
-            userId: "u1",
-            trigger: sampleTrigger,
-            metadata: { threadId: "t1", captureAfterMessageId: "m1" },
+            ...sampleBase,
+            metadata: { threadId: "t1", captureAfterMessageId: "m1", reason: "idle-debounce" },
           },
           expected: "chat-memory:t1:m1",
         },
-        { input: { userId: "u1", trigger: sampleTrigger }, expected: null },
       ],
     },
     {
@@ -102,10 +107,10 @@ describe("moved product recipes keep their identity at their owning module seam"
       initialStep: "gather-context",
       steps: ["gather-context", "compose", "persist-revision", "notify"],
       trigger: { kind: "event", source: "learn-skill", type: "completed" },
-      // Per-skill singleton; `schema.parse` requires `skillId`.
+      // Per-skill singleton; the input schema requires `skillId`.
       dedup: [
         {
-          input: { userId: "u1", trigger: sampleTrigger, input: { skillId: "skill_1" } },
+          input: { ...sampleBase, input: { skillId: "skill_1" } },
           expected: "skill-doc:skill_1",
         },
       ],
@@ -117,14 +122,10 @@ describe("moved product recipes keep their identity at their owning module seam"
       initialStep: "gather",
       steps: ["gather", "distill", "persist"],
       trigger: { kind: "manual" },
-      // Per-skill singleton; `schema.parse` requires both `skillId` and `prompt`.
+      // Per-skill singleton; the input schema requires both `skillId` and `prompt`.
       dedup: [
         {
-          input: {
-            userId: "u1",
-            trigger: sampleTrigger,
-            input: { skillId: "skill_1", prompt: "p" },
-          },
+          input: { ...sampleBase, input: { skillId: "skill_1", prompt: "p" } },
           expected: "learn-skill:skill_1",
         },
       ],
@@ -144,7 +145,7 @@ describe("moved product recipes keep their identity at their owning module seam"
       ],
       trigger: { kind: "event", source: "google.oauth.callback", type: "completed" },
       // One run per user: a constant key.
-      dedup: [{ input: { userId: "u1", trigger: sampleTrigger }, expected: "cold-start" }],
+      dedup: [{ input: sampleBase, expected: "cold-start" }],
     },
   ];
 

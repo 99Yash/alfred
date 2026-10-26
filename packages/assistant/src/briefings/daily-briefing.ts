@@ -39,7 +39,12 @@ const stateSchema = z.object({
 
 type State = z.infer<typeof stateSchema>;
 
-export const dailyBriefingWorkflow: Workflow<State> = {
+export const dailyBriefingWorkflow: Workflow<
+  State,
+  string,
+  unknown,
+  z.output<typeof dailyBriefingWorkflowInputSchema>
+> = {
   slug: DAILY_BRIEFING_WORKFLOW_SLUG,
   name: "Daily briefing (LLM-composed)",
   description:
@@ -47,10 +52,9 @@ export const dailyBriefingWorkflow: Workflow<State> = {
   trigger: { kind: "cron", schedule: "0 * * * *" },
   initialStep: "gather",
   stateSchema,
+  inputSchema: dailyBriefingWorkflowInputSchema,
   closure: { kind: "none" },
-  initialState(input) {
-    const parsed = dailyBriefingWorkflowInputSchema.parse(input.input ?? {});
-
+  initialState({ input: parsed }) {
     return {
       slot: parsed.slot,
       reason: parsed.reason,

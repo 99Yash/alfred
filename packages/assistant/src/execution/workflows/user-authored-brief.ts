@@ -53,11 +53,7 @@ import {
   toolSurfaceStateFields,
   type ToolRunIdentity,
 } from "../tool-surface";
-import {
-  readSubAgentMetadata,
-  subAgentMetadataSchema,
-  SUB_AGENT_WORKFLOW_SLUG,
-} from "../sub-agent-metadata";
+import { subAgentMetadataSchema, SUB_AGENT_WORKFLOW_SLUG } from "../sub-agent-metadata";
 import { isTerminalStatus } from "@alfred/contracts";
 import type { Step, StepContext, Workflow, WorkflowInput } from "../registry";
 import { getRun } from "../run-summary";
@@ -538,6 +534,22 @@ const compactTranscriptStep: Step<BriefRunState> = {
   },
 };
 
+/**
+ * The authoring constraints are derived from the revision contract, so a new authoring constraint
+ * also binds execution. Every key is optional: sub-agent runs carry only `allowedIntegrations` and
+ * `subAgent`, and legacy runs carry none. A malformed `subAgent` refuses the run.
+ */
+const briefRunMetadataSchema = workflowRevisionDefinitionSchema
+  .pick({
+    allowedIntegrations: true,
+    allowedTools: true,
+    requiredCapabilities: true,
+  })
+  .partial()
+  .extend({ subAgent: subAgentMetadataSchema.optional() });
+
+type BriefRunMetadata = z.output<typeof briefRunMetadataSchema>;
+
 async function resolvePressureThresholdTokens(isSubAgent: boolean): Promise<number> {
   const effectiveWindow = await resolveEffectiveInputWindowTokens({
     routes: isSubAgent ? [route("subAgent")] : [route("boss"), route("compactor")],
@@ -546,18 +558,17 @@ async function resolvePressureThresholdTokens(isSubAgent: boolean): Promise<numb
   return compactionThresholdTokens(effectiveWindow);
 }
 
-export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
+export const userAuthoredBriefWorkflow: Workflow<BriefRunState, string, BriefRunMetadata> = {
   slug: USER_AUTHORED_BRIEF_WORKFLOW_SLUG,
   name: "User-authored brief",
   trigger: { kind: "manual" },
   initialStep: CHECK_READINESS_STEP_ID,
   closure: { kind: "none" },
+  metadataSchema: briefRunMetadataSchema,
   initialState(input) {
     if (!input.brief) throw new Error("user-authored brief workflow requires a brief");
-    const authoredMetadata = readBriefAuthoredMetadata(input.metadata);
-    const allowedIntegrations = authoredMetadata.allowedIntegrations ?? [];
-    const allowedTools = authoredMetadata.allowedTools;
-    const requiredCapabilities = authoredMetadata.requiredCapabilities;
+    const { allowedTools, requiredCapabilities, subAgent } = input.metadata;
+    const allowedIntegrations = input.metadata.allowedIntegrations ?? [];
 
     const eventSeed =
       input.trigger.kind === "event" &&
@@ -581,7 +592,7 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
       ...(allowedTools ? { allowedTools } : {}),
       ...(requiredCapabilities ? { requiredCapabilities } : {}),
       pendingToolCalls: [],
-      subAgent: readSubAgentMetadata(input.metadata),
+      subAgent: subAgent ?? null,
       inFlightTailStart: 0,
       turnCount: 0,
       lastInputTokens: 0,
@@ -638,10 +649,8 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
   stateSchema: briefRunStateSchema,
   // One child per (parentRunId, parentToolCallId) (#375). The spawn runs in the step body, not
   // through `stageAction`, so a double-run step could otherwise spawn two paid children.
-  dedupKey(input) {
-    const sub = readSubAgentMetadata(input.metadata);
-
-    return sub ? `sub:${sub.parentRunId}:${sub.parentToolCallId}` : null;
+  dedupKey({ metadata: { subAgent } }) {
+    return subAgent ? `sub:${subAgent.parentRunId}:${subAgent.parentToolCallId}` : null;
   },
 };
 
@@ -666,25 +675,9 @@ function integrationAllowed(slug: string, allowedIntegrations: readonly string[]
   return allowedIntegrations.length === 0 || allowedIntegrations.includes(slug);
 }
 
-/**
- * Derived from the revision contract, so a new authoring constraint also binds execution.
- * Optional: sub-agent runs carry only `allowedIntegrations`, and legacy runs carry none.
- */
-const briefAuthoredMetadataSchema = workflowRevisionDefinitionSchema
-  .pick({
-    allowedIntegrations: true,
-    allowedTools: true,
-    requiredCapabilities: true,
-  })
-  .partial();
-
-type BriefAuthoredMetadata = z.infer<typeof briefAuthoredMetadataSchema>;
-
-function readBriefAuthoredMetadata(metadata: unknown): BriefAuthoredMetadata {
-  return briefAuthoredMetadataSchema.parse(metadata ?? {});
-}
-
-async function buildTriggerEventMessage(input: WorkflowInput): Promise<TranscriptMessage | null> {
+async function buildTriggerEventMessage(
+  input: Pick<WorkflowInput, "userId" | "trigger">,
+): Promise<TranscriptMessage | null> {
   const trigger = input.trigger;
 
   if (trigger.kind !== "event") return null;

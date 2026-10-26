@@ -476,7 +476,12 @@ async function dispatchReply(ctx: StepContext<State>): Promise<StepResult<State>
   return { ...finish(ctx, ctx.state, result), transcript: round.transcript };
 }
 
-export const replyDraftingWorkflow: Workflow<State> = {
+export const replyDraftingWorkflow: Workflow<
+  State,
+  string,
+  unknown,
+  z.output<typeof replyDraftingWorkflowInputSchema>
+> = {
   slug: REPLY_DRAFTING_WORKFLOW_SLUG,
   name: "Reply drafting",
   description:
@@ -484,10 +489,9 @@ export const replyDraftingWorkflow: Workflow<State> = {
   trigger: { kind: "event", source: "email-triage", type: "reply_worthy" },
   initialStep: "gate",
   stateSchema,
+  inputSchema: replyDraftingWorkflowInputSchema,
   closure: { kind: "none" },
-  initialState(input) {
-    const parsed = replyDraftingWorkflowInputSchema.parse(input.input ?? {});
-
+  initialState({ input: parsed }) {
     return {
       documentId: parsed.documentId,
       sourceThreadId: parsed.sourceThreadId,
