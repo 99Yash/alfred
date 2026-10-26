@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { parseIanaTimezone } from "@alfred/contracts";
 import { before, describe, test } from "node:test";
 
 import type { RuntimeSpanEndArgs, RuntimeSpanInput } from "@alfred/ai";
@@ -11,6 +12,8 @@ import {
 } from "@alfred/assistant/execution/runtime-spans";
 import { systemToolKernel, toolRuntimeForRun } from "@alfred/assistant/execution/tool-surface";
 import { registerBuiltinTools } from "../../src/tool-runtime/builtin-tools";
+
+const UTC = parseIanaTimezone("UTC");
 
 interface CapturedSpans {
   opened: RuntimeSpanInput[];
@@ -146,6 +149,7 @@ describe("runtime.tool_surface", () => {
       returnedToolNames = Object.keys(
         toolRuntimeForRun({
           userId: "user_1",
+          timezone: UTC,
           runId: "run_real_surface",
           workflow: "__chat-turn__",
           caller: "boss",

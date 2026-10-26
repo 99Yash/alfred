@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { isToolName, type ToolName } from "@alfred/contracts";
+import { isToolName, type ToolName, parseIanaTimezone } from "@alfred/contracts";
 import {
   executeToolCallRound,
   registerToolCallRoundAdapter,
@@ -13,6 +13,8 @@ import {
 } from "@alfred/assistant/tool-runtime";
 import { _setToolRuntimeSpanStarterForTests } from "../../src/tool-runtime/internal/runtime-spans";
 
+const UTC = parseIanaTimezone("UTC");
+
 type ToolCallRoundAdapter = Parameters<typeof registerToolCallRoundAdapter>[0];
 
 type ToolCallDispatchResult = Awaited<ReturnType<ToolCallRoundAdapter["dispatch"]>>;
@@ -21,6 +23,7 @@ const backgroundRun: ToolCallRun = {
   runId: "run_test",
   stepId: "dispatch-tools",
   userId: "user_test",
+  timezone: UTC,
   workflow: "test-workflow",
   caller: "boss",
   runContext: { caller: "boss", interaction: "background" },

@@ -23,6 +23,7 @@ import {
   removeApprovalNotificationJob,
 } from "@alfred/assistant/tool-runtime";
 
+import { settings } from "@alfred/assistant/settings";
 import { dispatchToolCall } from "@alfred/assistant/tool-runtime/dispatch";
 import { stubIntegrationHealthForTests } from "@alfred/assistant/tool-runtime/test-support";
 import { stagedAction } from "@alfred/assistant/execution";
@@ -33,7 +34,7 @@ import {
   bustPolicyCache,
   ensureDefaultActionPolicyForUser,
 } from "@alfred/assistant/action-policies";
-import { APPROVAL_EXPIRY_MS } from "@alfred/contracts";
+import { APPROVAL_EXPIRY_MS, type IanaTimezone } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import {
   actionStagings,
@@ -164,7 +165,12 @@ const sendDraftInput = z
 
 const DRAFT_INPUT = { to: ["yash@example.com"], subject: "expiry smoke", bodyText: "hi" };
 
-async function stageGatedDraft(userId: string, runId: string, toolCallId: string): Promise<string> {
+async function stageGatedDraft(
+  userId: string,
+  runId: string,
+  toolCallId: string,
+  timezone: IanaTimezone,
+): Promise<string> {
   const staged = await dispatchToolCall({
     runId,
     stepId: "turn-1",
@@ -173,6 +179,7 @@ async function stageGatedDraft(userId: string, runId: string, toolCallId: string
     activeTools: ["gmail.send_draft"],
     input: DRAFT_INPUT,
     userId,
+    timezone,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
     fence: { generation: 0 },
@@ -210,6 +217,7 @@ async function main(): Promise<void> {
   ]);
 
   const userId = await findOrCreateSmokeUser();
+  const timezone = await settings({ userId }).timezone();
   await ensureDefaultActionPolicyForUser(userId);
   await setGated(userId);
 
@@ -217,7 +225,7 @@ async function main(): Promise<void> {
 
   // 1. Staging sets expires_at + queues an expiry job
   const runId1 = await createSmokeRun(userId, "expire-turn");
-  const stagedId = await stageGatedDraft(userId, runId1, "tc_expire_1");
+  const stagedId = await stageGatedDraft(userId, runId1, "tc_expire_1", timezone);
 
   const stagedRow = (
     await db().select().from(actionStagings).where(eq(actionStagings.id, stagedId))
@@ -300,6 +308,7 @@ async function main(): Promise<void> {
     activeTools: ["gmail.send_draft"],
     input: DRAFT_INPUT,
     userId,
+    timezone,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
     fence: { generation: 0 },
@@ -327,7 +336,7 @@ async function main(): Promise<void> {
 
   // 3. Human decision wins over expiry
   const runId2 = await createSmokeRun(userId, "decided-turn");
-  const decidedId = await stageGatedDraft(userId, runId2, "tc_expire_2");
+  const decidedId = await stageGatedDraft(userId, runId2, "tc_expire_2", timezone);
   await db()
     .update(actionStagings)
     .set({ status: "approved", decidedAt: new Date() })
@@ -350,7 +359,7 @@ async function main(): Promise<void> {
 
   // 4. removeApprovalExpiryJob dequeues the fallback timer
   const runId3 = await createSmokeRun(userId, "cancel-job-turn");
-  const cancelId = await stageGatedDraft(userId, runId3, "tc_expire_3");
+  const cancelId = await stageGatedDraft(userId, runId3, "tc_expire_3", timezone);
   assert(
     await queue.getJob(approvalExpiryJobId(cancelId)),
     "expiry job should be queued after staging",

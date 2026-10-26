@@ -1,6 +1,6 @@
 import {
   briefingGatherSchema,
-  parseIanaTimezone,
+  ianaTimezoneSchema,
   resolveBriefingReferences,
   type BriefingGather,
   type IanaTimezone,
@@ -59,14 +59,14 @@ const initialStateSchema = z.object({
 const alreadySentStateSchema = initialStateSchema.extend({
   phase: z.literal("already_sent"),
   briefingDate: z.string(),
-  timezone: z.string(),
+  timezone: ianaTimezoneSchema,
   briefingId: z.string(),
 });
 
 const gatheredStateSchema = initialStateSchema.extend({
   phase: z.literal("gathered"),
   briefingDate: z.string(),
-  timezone: z.string(),
+  timezone: ianaTimezoneSchema,
   briefingId: z.string(),
   /** Step handoff copy; `briefings.gather` holds the canonical one. */
   gather: briefingGatherSchema,
@@ -218,7 +218,6 @@ export const morningBriefingWorkflow: Workflow<State> = {
       id: "compose",
       async run(ctx) {
         const state = requireGatheredState(ctx.state);
-        const timezone = parseIanaTimezone(state.timezone);
         const briefingDate = parseLocalDateKey(state.briefingDate);
         await markBriefingComposing(state.briefingId);
 
@@ -229,7 +228,7 @@ export const morningBriefingWorkflow: Workflow<State> = {
             userId: ctx.userId,
             briefingDate,
             slot: state.slot,
-            timezone,
+            timezone: state.timezone,
             gather: state.gather,
             runId: ctx.runId,
             stepId: "compose",
@@ -247,7 +246,12 @@ export const morningBriefingWorkflow: Workflow<State> = {
           throw err;
         }
 
-        const subject = subjectLine(composed.fullBriefing.headline, state.briefingDate, timezone);
+        const subject = subjectLine(
+          composed.fullBriefing.headline,
+          state.briefingDate,
+          state.timezone,
+        );
+
         await ctx.log(
           `compose: subject="${subject}" model=${composed.modelId} fallback=${composed.composeFallback}`,
         );

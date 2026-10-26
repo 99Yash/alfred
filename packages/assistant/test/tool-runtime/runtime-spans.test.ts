@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { parseIanaTimezone } from "@alfred/contracts";
 import { describe, test } from "node:test";
 
 import type { RuntimeSpanEndArgs, RuntimeSpanInput } from "@alfred/ai";
@@ -17,6 +18,8 @@ import {
   startToolSearchSpan,
 } from "../../src/tool-runtime/internal/runtime-spans";
 import { asTestDouble } from "../support/test-double";
+
+const UTC = parseIanaTimezone("UTC");
 
 // The batch summary reads only `.kind`.
 const result = (kind: ToolCallDispatchResult["kind"]): ToolCallDispatchResult =>
@@ -50,6 +53,7 @@ const bossRun: ToolCallRun = {
   runId: "run_batch",
   stepId: "dispatch-tools",
   userId: "user_test",
+  timezone: UTC,
   workflow: "__chat-turn__",
   caller: "boss",
   runContext: { caller: "boss", interaction: "background" },

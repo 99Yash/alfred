@@ -73,7 +73,8 @@ export function buildTrigger(trigger: TriggerDraft): WorkflowUpdateArgs["trigger
     return {
       kind: "cron",
       schedule: trigger.cronSchedule.trim(),
-      ...(timezone ? { timezone } : {}),
+      // `triggerIssues` blocks save on a bad zone, so this guard only narrows the type.
+      ...(isIanaTimezone(timezone) ? { timezone } : {}),
     };
   }
 

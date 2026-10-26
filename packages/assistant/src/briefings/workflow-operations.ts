@@ -20,10 +20,10 @@ import { send } from "@alfred/assistant/delivery";
 import { emailLogoUrl } from "@alfred/assistant/settings";
 import type { StepContext, StepResult } from "@alfred/assistant/execution";
 import {
-  parseIanaTimezone,
   type BriefingClosedLoop,
   type BriefingGather,
   type BriefingLoopRelevance,
+  type IanaTimezone,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
@@ -58,7 +58,7 @@ export interface DailyBriefingOperationState {
   reason: "cron" | "manual" | "forced";
   dryRun: boolean;
   briefingDate?: string;
-  timezone?: string;
+  timezone?: IanaTimezone;
   recipientName?: string | null;
   sinceIngestedAt?: string | null;
   untilIngestedAt?: string;
@@ -227,15 +227,14 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
 export async function runDailyBriefingCompose<State extends DailyBriefingOperationState>(
   ctx: StepContext<State>,
 ): Promise<StepResult<State>> {
-  const { briefingId, untilIngestedAt } = ctx.state;
+  const { briefingId, untilIngestedAt, timezone } = ctx.state;
 
-  if (!briefingId || !untilIngestedAt || !ctx.state.briefingDate || !ctx.state.timezone) {
+  if (!briefingId || !untilIngestedAt || !ctx.state.briefingDate || !timezone) {
     throw new Error("[daily-briefing] compose entered without gather output");
   }
 
-  // Persisted state is plain strings; parse the day key and zone here.
+  // Persisted state stores the day key as a plain string; parse it here.
   const briefingDate = parseLocalDateKey(ctx.state.briefingDate);
-  const timezone = parseIanaTimezone(ctx.state.timezone);
 
   // A quiet cron morning suppresses before the agent runs, so it costs no LLM call.
   if (ctx.state.slot === "morning" && ctx.state.reason === "cron" && ctx.state.quietDay) {

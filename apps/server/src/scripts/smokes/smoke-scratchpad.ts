@@ -16,6 +16,7 @@ import {
   snapshotScratchToPostgres,
 } from "@alfred/assistant/execution";
 
+import { settings } from "@alfred/assistant/settings";
 import { dispatchToolCall } from "@alfred/assistant/tool-runtime/dispatch";
 import type { RuntimeSpanEndArgs, RuntimeSpanInput } from "@alfred/ai";
 import { closeConnections, warmPool } from "@alfred/db";
@@ -109,6 +110,7 @@ async function main(): Promise<void> {
   });
 
   const userId = await findOrCreateSmokeUser();
+  const timezone = await settings({ userId }).timezone();
   const runId = await createSmokeRun(userId);
   console.log(`[smoke-scratchpad] user=${userId} run=${runId}`);
 
@@ -163,6 +165,7 @@ async function main(): Promise<void> {
     activeTools: ["system.write_scratch"],
     input: { key: "shared.dispatch", value: { ok: true } },
     userId,
+    timezone,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
     fence: { generation: 0 },
@@ -192,6 +195,7 @@ async function main(): Promise<void> {
     activeTools: ["system.write_scratch"],
     input: { key: "scratch.subA.dispatch", value: "sub-owned" },
     userId,
+    timezone,
     caller: { subId: "subA" },
     runContext: { caller: "sub_agent", interaction: "background" },
     fence: { generation: 0 },
@@ -215,6 +219,7 @@ async function main(): Promise<void> {
     activeTools: ["system.write_scratch"],
     input: { key: "shared.blocked", value: "no" },
     userId,
+    timezone,
     caller: { subId: "subA" },
     runContext: { caller: "sub_agent", interaction: "background" },
     fence: { generation: 0 },
@@ -234,6 +239,7 @@ async function main(): Promise<void> {
     activeTools: ["system.write_scratch"],
     input: { key: "scratch.subA.blocked", value: "no" },
     userId,
+    timezone,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
     fence: { generation: 0 },
@@ -253,6 +259,7 @@ async function main(): Promise<void> {
     activeTools: ["system.read_scratch"],
     input: { key: "scratch.subB.findings" },
     userId,
+    timezone,
     caller: { subId: "subA" },
     runContext: { caller: "sub_agent", interaction: "background" },
     fence: { generation: 0 },
@@ -272,6 +279,7 @@ async function main(): Promise<void> {
     activeTools: ["system.promote"],
     input: { fromKey: "scratch.subA.dispatch", toKey: "shared.dispatch_promoted" },
     userId,
+    timezone,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
     fence: { generation: 0 },

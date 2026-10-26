@@ -10,8 +10,8 @@ import {
   isInboundEventSource,
   isNonEmptyString,
   jsonObjectSchema,
+  ianaTimezoneSchema,
   parseDocumentMetadata,
-  parseIanaTimezone,
   parseIntegrationMentions,
   isIntegrationSlug,
   isToolName,
@@ -76,7 +76,7 @@ const briefRunStateSchema = z
     connectedSummary: z.string().optional(),
     selfIdentity: z.string().optional(),
     // Snapshotted so tool windows match the date grounding the boss saw.
-    timezone: z.string().optional(),
+    timezone: ianaTimezoneSchema.optional(),
     // Undefined only on legacy sub-agent runs.
     allowedTools: z.array(z.string()).optional(),
     requiredCapabilities: z.array(workflowRequiredCapabilitySchema).optional(),
@@ -106,6 +106,11 @@ function briefToolRunIdentity(
   ctx: Pick<StepContext<BriefRunState>, "userId" | "runId">,
   state: BriefRunState,
 ): ToolRunIdentity {
+  // The boss-turn step snapshots the zone before it builds an identity or stages a tool call.
+  if (state.timezone === undefined) {
+    throw new Error("[user-authored-brief] tool identity built before the timezone snapshot");
+  }
+
   const run = {
     userId: ctx.userId,
     runId: ctx.runId,
@@ -113,7 +118,7 @@ function briefToolRunIdentity(
     scratchpadRunId: state.subAgent?.parentRunId ?? ctx.runId,
     // A sub-agent of a chat turn follows that thread's full-autonomy flag.
     approvalThreadId: state.subAgent?.chat?.threadId,
-    timezone: state.timezone ? parseIanaTimezone(state.timezone) : undefined,
+    timezone: state.timezone,
     allowedIntegrations: state.allowedIntegrations,
     allowedTools: state.allowedTools?.filter(isToolName),
     requiredCapabilities: state.requiredCapabilities,
@@ -230,11 +235,9 @@ const bossTurnStep: Step<BriefRunState> = {
     const transcript = [...ctx.transcript];
     const subAgent = state.subAgent;
 
-    if (state.timezone === undefined) {
-      state.timezone = await settings({ userId: ctx.userId }).timezone();
-    }
+    state.timezone ??= await settings({ userId: ctx.userId }).timezone();
 
-    const grounding = formatDateGrounding(parseIanaTimezone(state.timezone));
+    const grounding = formatDateGrounding(state.timezone);
     const availability = await readIntegrationAvailability(ctx.userId);
     const tools = toolRuntimeForRun(briefToolRunIdentity(ctx, state), availability);
     state.connectedSummary ??= await tools.connectedSummary();

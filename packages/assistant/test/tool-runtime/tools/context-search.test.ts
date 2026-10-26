@@ -52,6 +52,7 @@ const ROUND_RUN: ToolCallRun = {
   runId: "run_1",
   stepId: "dispatch-tools",
   userId: "user_1",
+  timezone: parseIanaTimezone("UTC"),
   workflow: "test-workflow",
   caller: "boss",
   runContext: { caller: "boss", interaction: "live_chat" },

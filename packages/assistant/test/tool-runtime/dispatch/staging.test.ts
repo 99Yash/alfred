@@ -7,7 +7,7 @@ import { closeConnections, db } from "@alfred/db";
 import { actionStagings, agentRuns, user } from "@alfred/db/schemas";
 import { and, eq, inArray, like, sql } from "drizzle-orm";
 import { z } from "zod";
-import { getStringPath, toJsonValue } from "@alfred/contracts";
+import { getStringPath, toJsonValue, parseIanaTimezone } from "@alfred/contracts";
 
 import { dispatchToolCall } from "../../../src/tool-runtime/dispatch";
 import { clearToolRegistryForTests, liveTool, registerTool } from "@alfred/assistant/tool-runtime";
@@ -15,6 +15,8 @@ import { postgresStagingStore } from "../../../src/tool-runtime/internal/dispatc
 import { closeRedis } from "@alfred/db/redis";
 import { runStagingStoreContract, type StagingStoreHarness } from "./staging-store-contract";
 import { dbBackedSkip } from "../../support/db-backed";
+
+const UTC = parseIanaTimezone("UTC");
 
 /**
  * DB-backed tests for what the in-memory store cannot prove: idempotent
@@ -156,6 +158,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       activeTools: ["system.load_tool" as const],
       input: { slug: "github" },
       userId,
+      timezone: UTC,
       caller: "boss" as const,
       runContext: { caller: "boss", interaction: "background" } as const,
       fence: { generation: 0 } as const,
@@ -197,6 +200,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       activeTools: ["system.load_tool" as const],
       input: { slug: "poison" },
       userId,
+      timezone: UTC,
       caller: "boss" as const,
       runContext: { caller: "boss", interaction: "background" } as const,
       fence: { generation: 0 } as const,
@@ -234,6 +238,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       activeTools: ["system.load_tool"],
       input: { slug: "sql-leak" },
       userId,
+      timezone: UTC,
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
       fence: { generation: 0 },
@@ -291,6 +296,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       input: { slug: "github" },
       activeTools: ["system.load_tool"],
       userId,
+      timezone: UTC,
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
       fence: { generation: 0 },
@@ -324,6 +330,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       activeTools: ["system.fetch_url"],
       input: { url: rawUrl },
       userId,
+      timezone: UTC,
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
       fence: { generation: 0 },
@@ -367,6 +374,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       activeTools: ["system.load_tool"],
       input: { slug: "calendar" },
       userId,
+      timezone: UTC,
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
       fence: { generation: 0 },
@@ -385,6 +393,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       activeTools: ["system.load_tool"],
       input: { slug: "github" },
       userId,
+      timezone: UTC,
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
       fence: { generation: 0 },
@@ -399,6 +408,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
         activeTools: ["system.spawn_sub_agent"],
         input: {},
         userId,
+        timezone: UTC,
         caller: "boss",
         runContext: { caller: "boss", interaction: "background" },
         fence: { generation: 0 },
