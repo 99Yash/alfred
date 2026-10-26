@@ -287,9 +287,11 @@ export interface BoundToolCall {
   /** See {@link LiveToolArgs.refuseInput}. `null` when the tool declares no refusal. */
   refusal: (ctx: ToolExecuteContext) => string | null;
   /**
-   * The tier the gate applies to this call (ADR-0088). The static tier when the tool has no
+   * Resolves the tier for this call (ADR-0088). The static tier when the tool has no
    * `resolveRiskTier`. A resolver result that is not a tier fails closed to the static tier.
-   * A downgrade below it is clamped unless the tool declares `riskTierDowngradeReason`.
+   * A downgrade below it is clamped unless the tool declares `riskTierDowngradeReason`. Each
+   * read runs `resolveRiskTier` again, and a resolver can read remote state, so read it one
+   * time for each decision.
    */
   effectiveRiskTier: (ctx: ToolExecuteContext) => Promise<ToolRiskTier>;
   /** See {@link LiveToolArgs.redactInput}. The input itself when the tool declares no redactor. */

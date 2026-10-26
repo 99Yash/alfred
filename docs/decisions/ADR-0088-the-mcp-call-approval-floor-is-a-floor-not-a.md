@@ -30,4 +30,4 @@ The live-chat scheduling hint has no validated input or execution context. It th
 
 ## Amendment — 2026-10-26: the bound call owns the clamp
 
-The clamp moved from the dispatcher into `BoundToolCall.effectiveRiskTier` in `tool-runtime/internal/registry.ts`. No member of `BoundToolCall` returns an unclamped tier: `effectiveRiskTier` returns the clamped tier, so a second reader, for example an input-aware gate predictor, gets the clamp with no change to the reader. Dispatch still reads the tier at the gate. The fail-closed branch, the downgrade rule, and the three log events do not change.
+The clamp moved from the dispatcher into `BoundToolCall.effectiveRiskTier` in `tool-runtime/internal/registry.ts`. No member of `BoundToolCall` returns an unclamped tier. `effectiveRiskTier` returns the clamped tier. A second reader, for example an input-aware gate predictor, gets the clamp with no change to the reader. Dispatch still reads the tier at the gate. The fail-closed branch, the downgrade rule, and the three log events do not change.
