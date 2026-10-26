@@ -31,6 +31,7 @@ import {
   disconnectGoogleCredentialConnection,
   GoogleCredentialNotFoundError,
   oauthHandshake,
+  ownsGoogleCredential,
   publishGoogleCallbackCompleted,
   upsertGoogleCredentialConnection,
 } from "@alfred/assistant/connections";
@@ -53,12 +54,9 @@ async function bestEffort(label: string, fn: () => Promise<void>): Promise<void>
 
 /** 404, not 403, so the response never confirms another user's id exists. */
 async function assertCredentialOwned(id: string, userId: string): Promise<void> {
-  const owner = await db()
-    .select({ id: integrationCredentials.id })
-    .from(integrationCredentials)
-    .where(and(eq(integrationCredentials.id, id), eq(integrationCredentials.userId, userId)));
-
-  if (!owner[0]) throw Errors.NotFoundError("Credential not found");
+  if (!(await ownsGoogleCredential({ userId, credentialId: id }))) {
+    throw Errors.NotFoundError("Credential not found");
+  }
 }
 
 const PROVIDER = "google" satisfies CredentialProvider;

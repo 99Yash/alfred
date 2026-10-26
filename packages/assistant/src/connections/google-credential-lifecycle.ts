@@ -138,22 +138,28 @@ interface GoogleCredentialDisconnectDeps {
   warn(label: string, error: unknown): void;
 }
 
-const DEFAULT_DISCONNECT_DEPS: GoogleCredentialDisconnectDeps = {
-  async loadOwnedCredential(request) {
-    const [row] = await db()
-      .select({ id: integrationCredentials.id })
-      .from(integrationCredentials)
-      .where(
-        and(
-          eq(integrationCredentials.id, request.credentialId),
-          eq(integrationCredentials.userId, request.userId),
-          eq(integrationCredentials.provider, "google"),
-        ),
-      )
-      .limit(1);
+/** The Google credential row exists and belongs to the user. Any other provider is "not owned". */
+export async function ownsGoogleCredential(request: {
+  userId: string;
+  credentialId: string;
+}): Promise<boolean> {
+  const [row] = await db()
+    .select({ id: integrationCredentials.id })
+    .from(integrationCredentials)
+    .where(
+      and(
+        eq(integrationCredentials.id, request.credentialId),
+        eq(integrationCredentials.userId, request.userId),
+        eq(integrationCredentials.provider, "google"),
+      ),
+    )
+    .limit(1);
 
-    return Boolean(row);
-  },
+  return Boolean(row);
+}
+
+const DEFAULT_DISCONNECT_DEPS: GoogleCredentialDisconnectDeps = {
+  loadOwnedCredential: ownsGoogleCredential,
   mailboxWritesEnabled: gmailMailboxWritesEnabled,
   getFreshAccessToken,
   async commitDisconnect(request) {
