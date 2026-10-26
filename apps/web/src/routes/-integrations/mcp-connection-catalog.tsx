@@ -11,7 +11,7 @@ import {
   type McpConnectionTool,
   type McpConnectionToolInspection,
 } from "./helpers";
-import { mcpConnectionStatusText } from "./mcp-server-status";
+import { mcpConnectionPresentation } from "./mcp-server-status";
 import { McpHealthMappingReview } from "./mcp-health-mapping";
 import { McpToolPolicyReview } from "./mcp-tool-policy";
 
@@ -128,7 +128,10 @@ export function McpCatalogView({
   const statusLine =
     connectionStatus === "ready" ? null : (
       <p className="text-xs text-app-amber-4" role="status">
-        {mcpConnectionStatusText({ status: connectionStatus, lastError: connectionLastError })}
+        {
+          mcpConnectionPresentation({ status: connectionStatus, lastError: connectionLastError })
+            .statusText
+        }
       </p>
     );
 

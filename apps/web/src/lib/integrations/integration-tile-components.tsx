@@ -1,6 +1,6 @@
 /**
  * Full-bleed 50x50 app-icon tiles from dimension's brand SVGs, with background and gloss.
- * For the bare logo glyph, use `BRAND_SVGS` in integration-icons.tsx.
+ * For the bare logo glyph, see `BRAND_ART` in integration-icons.tsx.
  * `{...props}` is spread last, so a caller's width and height win.
  */
 import * as React from "react";

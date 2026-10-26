@@ -1,25 +1,32 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { mcpConnectionStatusText } from "../src/routes/-integrations/mcp-server-status";
+import { mcpConnectionPresentation } from "../src/routes/-integrations/mcp-server-status";
 
 describe("MCP connection status presentation", () => {
   test("renders every durable connection state", () => {
-    assert.equal(mcpConnectionStatusText({ status: "ready", lastError: null }), "Connected");
-    assert.equal(mcpConnectionStatusText({ status: "connecting", lastError: null }), "Connecting…");
     assert.equal(
-      mcpConnectionStatusText({ status: "disconnected", lastError: null }),
+      mcpConnectionPresentation({ status: "ready", lastError: null }).statusText,
+      "Connected",
+    );
+    assert.equal(
+      mcpConnectionPresentation({ status: "connecting", lastError: null }).statusText,
+      "Connecting…",
+    );
+    assert.equal(
+      mcpConnectionPresentation({ status: "disconnected", lastError: null }).statusText,
       "Disconnected",
     );
     assert.equal(
-      mcpConnectionStatusText({ status: "stale", lastError: null }),
+      mcpConnectionPresentation({ status: "stale", lastError: null }).statusText,
       "Refreshing the tool catalog…",
     );
     assert.equal(
-      mcpConnectionStatusText({ status: "auth_required", lastError: "Grant repo access" }),
+      mcpConnectionPresentation({ status: "auth_required", lastError: "Grant repo access" })
+        .statusText,
       "Grant repo access",
     );
     assert.equal(
-      mcpConnectionStatusText({ status: "failed", lastError: "Server unavailable" }),
+      mcpConnectionPresentation({ status: "failed", lastError: "Server unavailable" }).statusText,
       "Server unavailable",
     );
   });

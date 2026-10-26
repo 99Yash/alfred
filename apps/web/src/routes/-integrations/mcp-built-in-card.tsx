@@ -8,7 +8,7 @@ import { mcpAuthorizeUrl, mcpBuiltInConnectUrl } from "./helpers";
 import { type McpConnection } from "~/lib/integrations/mcp-connections";
 import { useMcpConnectionActions, type McpConnectionActions } from "./mcp-connection-actions";
 import { McpActionErrorText, McpConnectionMenu } from "./mcp-connection-menu";
-import { mcpConnectionSubtitle } from "./mcp-server-status";
+import { mcpConnectionPresentation, mcpConnectionSubtitle } from "./mcp-server-status";
 import { McpConnectionWarning } from "./mcp-connection-warning";
 import { McpTile } from "./mcp-tile";
 
@@ -20,14 +20,6 @@ type BuiltInState =
   | { readonly kind: "connecting"; readonly connection: McpConnection }
   | { readonly kind: "needs_consent"; readonly connection: McpConnection }
   | { readonly kind: "connected"; readonly connection: McpConnection };
-
-/** One predicate, so the amber badge never shows without its message. */
-function isWarningConnection(connection: McpConnection): boolean {
-  return (
-    connection.status === "failed" ||
-    (connection.status === "connecting" && connection.lastError !== null)
-  );
-}
 
 function builtInState(input: {
   connection: McpConnection | undefined;
@@ -108,22 +100,23 @@ function McpBuiltInCardView({
 
   const stateConnection = "connection" in state ? state.connection : undefined;
 
-  const warning = stateConnection !== undefined && isWarningConnection(stateConnection);
+  const alert =
+    stateConnection === undefined ? null : mcpConnectionPresentation(stateConnection).alert;
 
   const subtitle = actions?.error ? (
     <McpActionErrorText error={actions.error} />
   ) : state.kind === "loading" ? (
     "Loading connection…"
   ) : state.kind === "read_error" ? (
-    stateConnection && isWarningConnection(stateConnection) ? (
-      <McpConnectionWarning connection={stateConnection} />
+    alert ? (
+      <McpConnectionWarning alert={alert} />
     ) : (
       "Could not load connection status."
     )
   ) : state.kind === "absent" ? (
     entry.blurb
-  ) : isWarningConnection(state.connection) ? (
-    <McpConnectionWarning connection={state.connection} />
+  ) : alert ? (
+    <McpConnectionWarning alert={alert} />
   ) : (
     mcpConnectionSubtitle(state.connection)
   );
@@ -137,7 +130,7 @@ function McpBuiltInCardView({
       }}
       label={stateConnection?.label ?? entry.label}
       subtitle={subtitle}
-      warning={warning}
+      warning={alert !== null}
     >
       <AppButton
         size="sm"
