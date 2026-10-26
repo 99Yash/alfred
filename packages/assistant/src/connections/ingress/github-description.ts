@@ -1,62 +1,13 @@
 import {
   collapseWhitespace,
-  isEventTypeForSource,
   isVercelDeploymentDeletion,
   parseGitBranchRef,
   vercelDeploymentOutcome,
-  type EventTypeForSource,
   type VercelDeploymentOutcome,
 } from "@alfred/contracts";
-import { z } from "zod";
 import type { InboundDescription } from "./descriptor";
 import { describeInboundJson } from "./description";
-
-/** All optional, so a partial delivery still gets a generic line. */
-const githubWebhookPayloadSchema = z.object({
-  action: z.string().optional(),
-  ref: z.string().optional(),
-  commits: z.array(z.unknown()).optional(),
-  compare: z.string().optional(),
-  pull_request: z
-    .object({
-      number: z.number().optional(),
-      title: z.string().optional(),
-      html_url: z.string().optional(),
-      merged: z.boolean().optional(),
-    })
-    .optional(),
-  issue: z
-    .object({
-      number: z.number().optional(),
-      title: z.string().optional(),
-      html_url: z.string().optional(),
-    })
-    .optional(),
-  repository: z
-    .object({ full_name: z.string().optional(), html_url: z.string().optional() })
-    .optional(),
-  review: z.object({ state: z.string().optional(), html_url: z.string().optional() }).optional(),
-  check_suite: z
-    .object({
-      conclusion: z.string().optional(),
-      head_branch: z.string().optional(),
-      status: z.string().optional(),
-    })
-    .optional(),
-  /** `repository_dispatch` body. Only Vercel's is read (#1167). */
-  client_payload: z
-    .object({
-      url: z.string().optional(),
-      environment: z.string().optional(),
-      git: z.object({ ref: z.string().optional() }).optional(),
-      project: z.object({ name: z.string().optional() }).optional(),
-      // Kept, not stripped: `vercelDeploymentOutcome` reads the deletion detail from it.
-      state: z.object({ detail: z.string().optional() }).optional(),
-    })
-    .optional(),
-});
-
-type GithubWebhookPayload = z.infer<typeof githubWebhookPayloadSchema>;
+import { type GithubEvent, parseGithubEvent } from "./receipt-schemas";
 
 const DISPATCH_STATUS_BY_OUTCOME = {
   success: "succeeded",
@@ -65,64 +16,65 @@ const DISPATCH_STATUS_BY_OUTCOME = {
 } as const satisfies Record<VercelDeploymentOutcome, InboundDescription["status"]>;
 
 function describeGithubActivity(
-  eventType: EventTypeForSource<"github">,
-  action: string | null,
-  repo: string | null,
-  payload: GithubWebhookPayload,
+  event: GithubEvent,
 ): Pick<InboundDescription, "title" | "status" | "url"> {
+  const action = event.payload.action ?? null;
+  const repo = event.payload.repository?.full_name;
   const where = repo ? ` in ${repo}` : "";
 
-  switch (eventType) {
+  switch (event.eventType) {
     case "pull_request": {
-      const pr = payload.pull_request ?? {};
-      const verb = action === "closed" ? (pr.merged ? "merged" : "closed") : (action ?? "updated");
-      const title = `PR #${pr.number ?? "?"} ${verb}${where}${pr.title ? `: ${pr.title}` : ""}`;
+      const pr = event.payload.pull_request;
+      const verb = action === "closed" ? (pr?.merged ? "merged" : "closed") : (action ?? "updated");
+      const title = `PR #${pr?.number ?? "?"} ${verb}${where}${pr?.title ? `: ${pr.title}` : ""}`;
 
-      return { title, status: action === "closed" ? "resolved" : "open", url: pr.html_url };
+      return { title, status: action === "closed" ? "resolved" : "open", url: pr?.html_url };
     }
 
     case "issues": {
-      const issue = payload.issue ?? {};
-      const title = `Issue #${issue.number ?? "?"} ${action ?? "updated"}${where}${issue.title ? `: ${issue.title}` : ""}`;
+      const issue = event.payload.issue;
+      const title = `Issue #${issue?.number ?? "?"} ${action ?? "updated"}${where}${issue?.title ? `: ${issue.title}` : ""}`;
 
-      return { title, status: action === "closed" ? "resolved" : "open", url: issue.html_url };
+      return { title, status: action === "closed" ? "resolved" : "open", url: issue?.html_url };
     }
 
     case "push": {
-      const count = Array.isArray(payload.commits) ? payload.commits.length : 0;
-      const branch = (payload.ref ?? "").replace("refs/heads/", "");
+      const count = event.payload.commits?.length ?? 0;
+      const branch = (event.payload.ref ?? "").replace("refs/heads/", "");
       const title = `${count} commit${count === 1 ? "" : "s"} pushed${branch ? ` to ${branch}` : ""}${where}`;
 
-      return { title, url: payload.compare };
+      return { title, url: event.payload.compare };
     }
 
     case "pull_request_review": {
-      const pr = payload.pull_request ?? {};
-      const title = `PR #${pr.number ?? "?"} ${payload.review?.state ?? "reviewed"}${where}`;
+      const pr = event.payload.pull_request;
+      const review = event.payload.review;
+      const title = `PR #${pr?.number ?? "?"} ${review?.state ?? "reviewed"}${where}`;
 
-      return { title, status: "open", url: payload.review?.html_url ?? pr.html_url };
+      return { title, status: "open", url: review?.html_url ?? pr?.html_url };
     }
 
     case "check_suite": {
-      const suite = payload.check_suite ?? {};
-      const outcome = suite.conclusion ?? suite.status ?? action ?? "updated";
-      const branch = suite.head_branch ? ` on ${suite.head_branch}` : "";
+      const suite = event.payload.check_suite;
+      const outcome = suite?.conclusion ?? suite?.status ?? action ?? "updated";
+      const branch = suite?.head_branch ? ` on ${suite.head_branch}` : "";
       const title = `Check suite ${outcome}${branch}${where}`;
 
       return { title, status: action === "completed" ? "resolved" : "open", url: undefined };
     }
 
     case "repository_dispatch": {
+      const deployment = event.payload.client_payload ?? {};
+      const detail = deployment.state?.detail;
       // Same table the reducer uses. An unknown action stays `open`, never green.
-      const outcome = vercelDeploymentOutcome(action, payload);
+      const outcome = vercelDeploymentOutcome(action, detail);
       // A deletion is retention, not a verdict, so it gets a line but no status.
-      const deleted = isVercelDeploymentDeletion(action, payload);
+      const deleted = isVercelDeploymentDeletion(action, detail);
 
       if (!outcome && !deleted) {
         return { title: `Repository dispatch${where}`, status: "open", url: undefined };
       }
 
-      const deployment = payload.client_payload ?? {};
       // Display only: `ready` or `promoted` is finer than `success`.
       const said = deleted ? "deleted" : (action ?? "").replace(/^vercel\.deployment\./, "");
       // The deployment's branch: a dispatch's top-level `ref` is always the default branch.
@@ -139,7 +91,7 @@ function describeGithubActivity(
     }
 
     default: {
-      const exhaustive: never = eventType;
+      const exhaustive: never = event;
 
       return exhaustive;
     }
@@ -149,16 +101,11 @@ function describeGithubActivity(
 export function describeGithubReceipt(kind: string, raw: unknown): InboundDescription {
   const fallback = describeInboundJson("github", kind, raw);
 
-  if (!isEventTypeForSource("github", kind)) return fallback;
-  const parsed = githubWebhookPayloadSchema.safeParse(raw);
-  const payload = parsed.success ? parsed.data : {};
+  // A pruned body is NULL. It still gets the event line, read from an empty body.
+  const event = parseGithubEvent(kind, raw ?? {});
 
-  const activity = describeGithubActivity(
-    kind,
-    payload.action ?? null,
-    payload.repository?.full_name ?? null,
-    payload,
-  );
+  if (!event) return fallback;
+  const activity = describeGithubActivity(event);
 
   return {
     ...fallback,

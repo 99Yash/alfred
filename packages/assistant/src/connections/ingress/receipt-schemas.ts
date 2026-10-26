@@ -1,0 +1,161 @@
+import { type EventTypeForSource, getIdPath, isEventTypeForSource } from "@alfred/contracts";
+import { z } from "zod";
+
+/**
+ * One schema per declared GitHub and Sentry event type (ADR-0097 item 2). The fold, the descriptor
+ * and the briefing read a stored body through these, never through path reads.
+ *
+ * Lenient on purpose: every leaf and every nested object drops to `undefined` when its type is
+ * wrong, as a path read does, so one bad field never drops the whole delivery. Only a body that is
+ * not an object fails. A stricter schema would stop a verified state from folding (ADR-0062).
+ */
+
+function lenient<T extends z.ZodType>(schema: T) {
+  return schema.optional().catch(undefined);
+}
+
+const text = lenient(z.string());
+
+/** The `getIdPath` rule: a non-empty string, or a safe integer as text. A missing key is `undefined`. */
+const providerId = z
+  .unknown()
+  .transform((value) => getIdPath(value) ?? undefined)
+  .optional();
+
+/** A provider timestamp. Text that is not a date gives `undefined`, so the store uses receipt time. */
+const providerTime = lenient(z.string().pipe(z.coerce.date()));
+
+const repositorySchema = lenient(z.object({ full_name: text, html_url: text }));
+
+const pullRequestSchema = lenient(
+  z.object({
+    id: providerId,
+    number: providerId,
+    title: text,
+    html_url: text,
+    merged: lenient(z.boolean()),
+    head: lenient(z.object({ sha: text, ref: text })),
+  }),
+);
+
+const GITHUB_EVENT_SCHEMAS = {
+  pull_request: z.object({
+    action: text,
+    pull_request: pullRequestSchema,
+    repository: repositorySchema,
+  }),
+  check_suite: z.object({
+    action: text,
+    check_suite: lenient(
+      z.object({
+        id: providerId,
+        conclusion: text,
+        status: text,
+        head_sha: text,
+        head_branch: text,
+        updated_at: providerTime,
+      }),
+    ),
+    repository: repositorySchema,
+  }),
+  /** Only Vercel's dispatch is read (#1167). Vercel writes `client_payload`. */
+  repository_dispatch: z.object({
+    action: text,
+    client_payload: lenient(
+      z.object({
+        id: text,
+        url: text,
+        environment: text,
+        git: lenient(z.object({ ref: text })),
+        project: lenient(z.object({ name: text })),
+        // The deletion detail: `isVercelDeploymentDeletion` reads it.
+        state: lenient(z.object({ detail: text })),
+      }),
+    ),
+    repository: repositorySchema,
+  }),
+  push: z.object({
+    action: text,
+    ref: text,
+    commits: lenient(z.array(z.unknown())),
+    compare: text,
+    repository: repositorySchema,
+  }),
+  issues: z.object({
+    action: text,
+    issue: lenient(z.object({ number: lenient(z.number()), title: text, html_url: text })),
+    repository: repositorySchema,
+  }),
+  pull_request_review: z.object({
+    action: text,
+    pull_request: pullRequestSchema,
+    review: lenient(z.object({ state: text, html_url: text })),
+    repository: repositorySchema,
+  }),
+} satisfies { [T in EventTypeForSource<"github">]: z.ZodType };
+
+type GithubEventType = EventTypeForSource<"github">;
+
+type GithubPayloads = {
+  [T in GithubEventType]: z.output<(typeof GITHUB_EVENT_SCHEMAS)[T]>;
+};
+
+export type GithubPayload<T extends GithubEventType> = GithubPayloads[T];
+
+export type GithubEvent = {
+  [T in GithubEventType]: { eventType: T; payload: GithubPayloads[T] };
+}[GithubEventType];
+
+function githubEvent<T extends GithubEventType>(
+  eventType: T,
+  schema: z.ZodType<GithubPayloads[T]>,
+  raw: unknown,
+): { eventType: T; payload: GithubPayloads[T] } | null {
+  const parsed = schema.safeParse(raw);
+
+  return parsed.success ? { eventType, payload: parsed.data } : null;
+}
+
+/** A stored GitHub body, typed by its event. `null` for an undeclared type or a non-object body. */
+export function parseGithubEvent(eventType: string, raw: unknown): GithubEvent | null {
+  if (!isEventTypeForSource("github", eventType)) return null;
+
+  switch (eventType) {
+    case "pull_request":
+      return githubEvent(eventType, GITHUB_EVENT_SCHEMAS.pull_request, raw);
+    case "check_suite":
+      return githubEvent(eventType, GITHUB_EVENT_SCHEMAS.check_suite, raw);
+    case "repository_dispatch":
+      return githubEvent(eventType, GITHUB_EVENT_SCHEMAS.repository_dispatch, raw);
+    case "push":
+      return githubEvent(eventType, GITHUB_EVENT_SCHEMAS.push, raw);
+    case "issues":
+      return githubEvent(eventType, GITHUB_EVENT_SCHEMAS.issues, raw);
+    case "pull_request_review":
+      return githubEvent(eventType, GITHUB_EVENT_SCHEMAS.pull_request_review, raw);
+    default: {
+      const _exhaustive: never = eventType;
+
+      return _exhaustive;
+    }
+  }
+}
+
+/** The issue part of a Sentry issue webhook. The same id rule as `ingress/sentry.ts` dedup. */
+export const sentryIssueEventSchema = z.object({
+  data: lenient(
+    z.object({
+      issue: lenient(
+        z.object({
+          id: providerId,
+          shortId: text,
+          title: text,
+          permalink: text,
+          project: lenient(z.object({ slug: text })),
+        }),
+      ),
+    }),
+  ),
+});
+
+export type SentryIssuePayload = z.output<typeof sentryIssueEventSchema>;

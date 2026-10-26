@@ -11,13 +11,17 @@
  *   # commit:
  *   node dist/scripts/backfills/backfill-object-state-github-committed.js --commit
  */
-import { objectStateStore, receiptDeliveryInstant } from "@alfred/assistant/connections";
+import {
+  objectStateStore,
+  parseReceiptEvent,
+  receiptDeliveryInstant,
+} from "@alfred/assistant/connections";
 import { warmPool } from "@alfred/db";
 import { closeScriptResources } from "../script-runtime";
 import { db } from "@alfred/db";
 import { typedEventReceipts, integrationObjects } from "@alfred/db/schemas";
 import { and, asc, eq } from "drizzle-orm";
-import { eventTypeName, getStringPath, jsonObjectSchema, toMessage } from "@alfred/contracts";
+import { eventTypeName, toMessage } from "@alfred/contracts";
 
 const COMMIT = process.argv.includes("--commit");
 
@@ -44,18 +48,11 @@ async function main() {
 
   // A body that is not a JSON object cannot be folded or counted.
   const deliveries = rows.flatMap((row) => {
-    const stored = jsonObjectSchema.safeParse(row.payload);
+    const event = parseReceiptEvent("github", "pull_request", row.payload);
 
-    if (!stored.success) return [];
+    if (event?.eventType !== "pull_request") return [];
 
-    return [
-      {
-        userId: row.userId,
-        payload: stored.data,
-        action: getStringPath(stored.data, "action") ?? null,
-        deliveredAt: row.deliveredAt,
-      },
-    ];
+    return [{ userId: row.userId, event, deliveredAt: row.deliveredAt }];
   });
 
   console.log(`  ${deliveries.length} pull_request deliveries to replay`);
@@ -63,8 +60,12 @@ async function main() {
   if (!COMMIT) {
     const byAction = new Map<string, number>();
 
-    for (const r of deliveries)
-      byAction.set(r.action ?? "(none)", (byAction.get(r.action ?? "(none)") ?? 0) + 1);
+    for (const r of deliveries) {
+      const action = r.event.payload.action ?? "(none)";
+
+      byAction.set(action, (byAction.get(action) ?? 0) + 1);
+    }
+
     console.log("  DRY — action breakdown:");
 
     for (const [action, count] of byAction) console.log(`    ${action}: ${count}`);
@@ -78,10 +79,7 @@ async function main() {
   for (const r of deliveries) {
     await objectStateStore.applyEvent({
       userId: r.userId,
-      provider: "github",
-      eventType: "pull_request",
-      action: r.action,
-      payload: r.payload,
+      event: r.event,
       deliveredAt: r.deliveredAt,
     });
     applied += 1;

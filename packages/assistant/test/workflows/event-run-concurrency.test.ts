@@ -327,9 +327,9 @@ describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
 
     const [a, b] = await Promise.all([dispatch(), dispatch()]);
 
-    // All nine consumers accept the event; eight no-op. The run count is the guard.
-    assert.deepEqual(a, { acceptedConsumers: 9 });
-    assert.deepEqual(b, { acceptedConsumers: 9 });
+    // All eight consumers accept the event; seven no-op. The run count is the guard.
+    assert.deepEqual(a, { acceptedConsumers: 8 });
+    assert.deepEqual(b, { acceptedConsumers: 8 });
     assert.equal(await countActiveEventRuns(userId, eventId), 1);
   });
 
@@ -351,8 +351,8 @@ describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
 
     // `sentry-activity-fold` returns on `isRawEventType`, so a raw kind reaches no reducer.
     const [a, b] = await Promise.all([dispatch(), dispatch()]);
-    assert.deepEqual(a, { acceptedConsumers: 9 });
-    assert.deepEqual(b, { acceptedConsumers: 9 });
+    assert.deepEqual(a, { acceptedConsumers: 8 });
+    assert.deepEqual(b, { acceptedConsumers: 8 });
     assert.equal(await countActiveEventRuns(userId, eventId, RAW_WORKFLOW_SLUG), 1);
 
     const otherKind = await acceptEvent({

@@ -1,62 +1,27 @@
-import {
-  getStringPath,
-  type InboundEventSource,
-  isRawEventType,
-  jsonObjectSchema,
-  OBJECT_STATE_PROVIDERS,
-  type ObjectStateProvider,
-} from "@alfred/contracts";
+import { INBOUND_EVENT_SOURCES, type InboundEventSource, isRawEventType } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { typedEventReceipts } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
 import { receiptDeliveryInstant } from "./delivery-instant";
+import { parseReceiptEvent } from "./events";
 import { objectStateStore } from "./store";
 import { inboundDeliveryPayloadSchema, type TriggerConsumer } from "@alfred/assistant/triggers";
 
 /**
- * The object-state fold: one trigger consumer per provider (ADR-0047, ADR-0062, ADR-0097). Reads
- * the receipt back by id and runs the provider reducer over its body. `propagate`: a fold failure
- * fails `ingress.deliver` and the queue retries. Reducers are idempotent, so a retry cannot regress
- * state. Raw events have no reducer and return early.
+ * The object-state fold: one trigger consumer per inbound source (ADR-0047, ADR-0062, ADR-0097).
+ * Reads the receipt back by id, parses it once into its provider's event, and runs that reducer.
+ * Vercel deploys arrive as GitHub `repository_dispatch`, so the GitHub consumer folds them too.
+ * `propagate`: a fold failure fails `ingress.deliver` and the queue retries. Reducers are
+ * idempotent, so a retry cannot regress state. Raw events have no reducer and return early.
  */
-
-/**
- * Inbound source per object-state provider. Two slug spaces (ADR-0097 item 5) that mostly spell the
- * same. `null` means no inbound source. A provider without a row is a type error.
- */
-const FOLD_SOURCES = {
-  github: "github",
-  sentry: "sentry",
-  // Pull-only: `connections/verified-pull` calls the store with a minted receipt.
-  railway: null,
-  // Vercel deploys arrive as GitHub `repository_dispatch`. Both consumers read each GitHub receipt,
-  // and each reducer returns `[]` for types it does not own.
-  vercel: "github",
-  // Pull-only and descriptor-reviewed; no inbound source may feed it.
-  mcp: null,
-} as const satisfies Record<ObjectStateProvider, InboundEventSource | null>;
-
-/** One fold consumer per provider that has an inbound source. */
 export function objectStateFoldConsumers(): TriggerConsumer[] {
-  const consumers: TriggerConsumer[] = [];
-
-  for (const provider of OBJECT_STATE_PROVIDERS) {
-    const source: InboundEventSource | null = FOLD_SOURCES[provider];
-
-    if (source === null) continue;
-    consumers.push(objectStateFoldConsumer(provider, source));
-  }
-
-  return consumers;
+  return INBOUND_EVENT_SOURCES.map((source) => objectStateFoldConsumer(source));
 }
 
-function objectStateFoldConsumer(
-  provider: ObjectStateProvider,
-  source: InboundEventSource,
-): TriggerConsumer {
+function objectStateFoldConsumer(source: InboundEventSource): TriggerConsumer {
   return {
     // Docs cite `github-activity-fold`, so the name pattern stays.
-    name: `${provider}-activity-fold`,
+    name: `${source}-activity-fold`,
     mode: "propagate",
     async accept(event) {
       if (event.source !== source || isRawEventType(event.type)) return;
@@ -75,18 +40,14 @@ function objectStateFoldConsumer(
         .limit(1);
 
       if (!receipt) return;
-      // A NULL or foreign shape cannot fold, and a retry would not change it.
-      const stored = jsonObjectSchema.safeParse(receipt.payload);
+      // A type that folds nothing, or a body that is not an object. A retry would not change it.
+      const parsed = parseReceiptEvent(source, event.type, receipt.payload);
 
-      if (!stored.success) return;
-      const payload = stored.data;
+      if (!parsed) return;
 
       await objectStateStore.applyEvent({
         userId: event.userId,
-        provider,
-        eventType: event.type,
-        action: getStringPath(payload, "action") ?? null,
-        payload,
+        event: parsed,
         deliveredAt: receipt.deliveredAt,
       });
     },

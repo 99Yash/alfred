@@ -29,7 +29,7 @@ import {
   weatherFallbackFor,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { INBOUND_SOURCES } from "@alfred/assistant/connections/ingress";
+import { INBOUND_SOURCES, parseGithubEvent } from "@alfred/assistant/connections/ingress";
 import {
   documents,
   emailTriage,
@@ -718,8 +718,12 @@ async function gatherIntegrationActivity(args: {
 
     if (!eventType) return [];
 
-    if (eventType === "repository_dispatch") {
-      const deploymentId = getStringPath(row.payload, "client_payload", "id");
+    // `null` only for a body that is not an object. A NULL (pruned) body reads as `{}`, so it
+    // still gets the event line; only an array or scalar body gets the generic line.
+    const event = parseGithubEvent(eventType, row.payload);
+
+    if (event?.eventType === "repository_dispatch") {
+      const deploymentId = event.payload.client_payload?.id;
 
       if (deploymentId) {
         if (seenDeployments.has(deploymentId)) return [];
@@ -728,8 +732,8 @@ async function gatherIntegrationActivity(args: {
       }
     }
 
-    const action = getStringPath(row.payload, "action");
-    const repo = getStringPath(row.payload, "repository", "full_name");
+    const action = event?.payload.action;
+    const repo = event?.payload.repository?.full_name;
     const { title, status, url } = INBOUND_SOURCES.github.describe(eventType, row.payload);
 
     return [

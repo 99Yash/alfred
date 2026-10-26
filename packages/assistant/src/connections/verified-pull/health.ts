@@ -37,6 +37,7 @@ import {
   MCP_APPROVED_HEALTH_KEY_KIND,
   MCP_APPROVED_HEALTH_KIND,
   objectStateStore,
+  type ApprovedMcpHealthExternalId,
   type CandidateKey,
   type ObjectState,
 } from "@alfred/assistant/connections";
@@ -160,35 +161,23 @@ async function listCurrentMappings(userId: string): Promise<readonly CurrentMcpH
 
 async function foldAndRead(input: {
   userId: string;
-  connectionId: string;
-  loopKey: string;
+  externalId: ApprovedMcpHealthExternalId;
   state: StateCategory;
   title: string | null;
   url: string | null;
 }): Promise<ObjectState | null> {
-  const externalId = approvedMcpHealthExternalId(input);
-
-  if (!externalId) return null;
+  const { userId, ...payload } = input;
 
   await objectStateStore.applyEvent({
-    userId: input.userId,
-    provider: "mcp",
-    eventType: MCP_APPROVED_HEALTH_EVENT_TYPE,
-    action: null,
-    payload: {
-      connectionId: input.connectionId,
-      loopKey: input.loopKey,
-      state: input.state,
-      title: input.title,
-      url: input.url,
-    },
+    userId,
+    event: { provider: "mcp", eventType: MCP_APPROVED_HEALTH_EVENT_TYPE, payload },
     deliveredAt: deliveryInstantNow(),
   });
 
-  return objectStateStore.getByIdentity(input.userId, {
+  return objectStateStore.getByIdentity(userId, {
     provider: "mcp",
     kind: MCP_APPROVED_HEALTH_KIND,
-    externalId,
+    externalId: input.externalId,
   });
 }
 
@@ -415,8 +404,7 @@ async function verifyLoop(args: {
   try {
     state = await foldAndRead({
       userId: args.userId,
-      connectionId: match.connectionId,
-      loopKey: loopRef.key,
+      externalId,
       state: match.item.state,
       title: match.item.title,
       url: match.item.url,

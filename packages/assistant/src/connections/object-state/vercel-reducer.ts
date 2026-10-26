@@ -1,62 +1,59 @@
 import {
   canonicalizeVercelTargetId,
-  enumGuard,
-  getStringPath,
-  isRecord,
   parseGitBranchRef,
-  VERCEL_DEPLOYMENT_OUTCOMES,
   vercelDeploymentOutcome,
-  type EventTypeForSource,
 } from "@alfred/contracts";
+import type { ObjectStateEvent } from "./events";
 import type { ObjectStateDelta } from "./store";
+
+type VercelFoldEvent = Extract<ObjectStateEvent, { provider: "vercel" }>;
+
+type DispatchPayload = Extract<VercelFoldEvent, { eventType: "repository_dispatch" }>["payload"];
+
+type PullPayload = Extract<VercelFoldEvent, { eventType: "deployment_status" }>["payload"];
 
 /**
  * Vercel reducer (#1167). Pure. Folds a verified push, or a verified pull (#1193), into an attempt
  * delta plus a target delta (`owner/repo#branch#environment`), which closes by succession. The push
  * is a GitHub `repository_dispatch`: Vercel writes `client_payload`, and only
- * `repository.full_name` comes from GitHub's envelope. A bare type check, not the exhaustive switch
- * `reduceGithubEvent` uses: this file folds one GitHub type. Action and detail meaning live in
+ * `repository.full_name` comes from GitHub's envelope. Action and detail meaning live in
  * `vercelDeploymentOutcome`, shared with the briefing line. Unproven input folds nothing
  * (ADR-0048-D).
  */
-const VERCEL_DISPATCH_EVENT_TYPE: EventTypeForSource<"github"> = "repository_dispatch";
+export function reduceVercelEvent(event: VercelFoldEvent): ObjectStateDelta[] {
+  switch (event.eventType) {
+    case "repository_dispatch":
+      return reduceVercelDispatch(event.payload);
+    case "deployment_status":
+      return reduceVercelPull(event.payload);
+    default: {
+      const _exhaustive: never = event;
 
-/** Synthetic verified-pull type (#1193). Only `mintVercelPullReceipt` mints it. */
-export const VERCEL_PULL_EVENT_TYPE = "deployment_status" as const;
+      return _exhaustive;
+    }
+  }
+}
 
-export function reduceVercelEvent(
-  eventType: string,
-  action: string | null,
-  payload: unknown,
-): ObjectStateDelta[] {
-  if (eventType === VERCEL_PULL_EVENT_TYPE) return reduceVercelPull(payload);
-
-  if (eventType !== VERCEL_DISPATCH_EVENT_TYPE) return [];
-
-  if (!isRecord(payload)) return [];
-
-  // Re-validate the token: the reducer trusts no caller, not even ingress. A deletion folds nothing.
-  const token = vercelDeploymentOutcome(action, payload);
+function reduceVercelDispatch(payload: DispatchPayload): ObjectStateDelta[] {
+  const clientPayload = payload.client_payload;
+  // A deletion folds nothing.
+  const token = vercelDeploymentOutcome(payload.action, clientPayload?.state?.detail);
 
   if (!token) return [];
 
-  const clientPayload = isRecord(payload.client_payload) ? payload.client_payload : null;
-
-  if (!clientPayload) return [];
-
-  const deploymentId = getStringPath(clientPayload, "id");
+  const deploymentId = clientPayload?.id;
 
   if (!deploymentId) return [];
 
-  const repoFullName = getStringPath(payload, "repository", "full_name");
+  const repoFullName = payload.repository?.full_name;
   // The deployment's branch, not top-level `branch`: `repository_dispatch` always reports the
   // default branch, so every preview would fold into one target.
-  const gitRef = getStringPath(clientPayload, "git", "ref");
+  const gitRef = clientPayload.git?.ref;
   // Arrives as `main`, `refs/heads/main`, or a tag or pull ref. A non-branch ref names no target.
   const branch = gitRef ? parseGitBranchRef(gitRef) : null;
-  const environment = getStringPath(clientPayload, "environment");
-  const url = getStringPath(clientPayload, "url");
-  const projectName = getStringPath(clientPayload, "project", "name");
+  const environment = clientPayload.environment;
+  const url = clientPayload.url;
+  const projectName = clientPayload.project?.name;
 
   const attempt: ObjectStateDelta = {
     kind: "deployment_attempt",
@@ -105,36 +102,20 @@ export function reduceVercelEvent(
   return [attempt, targetDelta];
 }
 
-const isVercelDeploymentOutcome = enumGuard(VERCEL_DEPLOYMENT_OUTCOMES);
-
 /**
  * Fold a verified pull (#1193) into the same attempt and target identities as the dispatch, so push
  * and pull share one target row. A pull carries the provider time; a dispatch does not.
- * Re-validates the token and re-derives the target id: no caller is trusted, not even the mint.
+ * Re-derives the target id: the canonical form is a runtime fact, not a type.
  */
-function reduceVercelPull(payload: unknown): ObjectStateDelta[] {
-  if (!isRecord(payload)) return [];
-
-  const target = isRecord(payload.target) ? payload.target : null;
-  const deployment = isRecord(payload.deployment) ? payload.deployment : null;
-
-  if (!target || !deployment) return [];
-
-  const token = getStringPath(deployment, "status");
-
-  if (!isVercelDeploymentOutcome(token)) return [];
-
-  const deploymentId = getStringPath(deployment, "id");
+function reduceVercelPull({ target, reading }: PullPayload): ObjectStateDelta[] {
+  const token = reading.status;
+  const deploymentId = reading.attemptId;
 
   if (!deploymentId) return [];
 
-  const repoFullName = getStringPath(target, "repoFullName");
-  const branch = getStringPath(target, "branch");
-  const environment = getStringPath(target, "environment");
-  const url = getStringPath(deployment, "url");
-  const createdAt = getStringPath(deployment, "createdAt");
-  const eventTime = createdAt ? new Date(createdAt) : null;
-  const providerEventTime = eventTime && !Number.isNaN(eventTime.getTime()) ? eventTime : null;
+  const { repoFullName, branch, environment } = target;
+  const url = reading.url;
+  const providerEventTime = reading.providerEventTime;
 
   const attempt: ObjectStateDelta = {
     kind: "deployment_attempt",
