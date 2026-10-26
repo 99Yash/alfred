@@ -29,6 +29,8 @@ const toolsRuntimeAdapter: ToolRuntimeAdapter = {
       case "exact":
         return registeredToolNames(source.names);
       case "legacy":
+        // Legacy surfaces never stored system tools as integration tools;
+        // `namesForIntegrations` includes them on purpose.
         return uniqueToolNames([
           ...requiredToolKernelNames(),
           ...integrationToolNames(

@@ -47,7 +47,6 @@ type AvailabilityTag =
 export type ToolSearchCandidate =
   | (ToolCandidateBase & {
       /** A curated catalog hit, including `mcp.call` itself. */
-      name: ToolName;
       ref?: never;
     } & AvailabilityTag)
   | (ToolCandidateBase & {
