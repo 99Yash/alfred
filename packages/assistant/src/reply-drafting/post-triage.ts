@@ -1,4 +1,4 @@
-import { type ReplyDraftProvenance } from "@alfred/contracts";
+import { type ReplyDraftProvenance, REPLY_DRAFTING_WORKFLOW_SLUG } from "@alfred/contracts";
 import { isUniqueViolation } from "@alfred/db/pg-errors";
 import { startRun } from "@alfred/assistant/execution";
 import { senderSuppressions } from "@alfred/assistant/knowledge";
@@ -10,7 +10,7 @@ import {
   type TriggerConsumer,
 } from "@alfred/assistant/triggers";
 import { recordReplyDraftDecision } from "./decision";
-import { REPLY_DRAFTING_WORKFLOW_SLUG, type ReplyDraftingWorkflowInput } from "./workflow-input";
+import type { ReplyDraftingWorkflowInput } from "./workflow-input";
 import {
   decideReplyWorthiness,
   noDraftResult,

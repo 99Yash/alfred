@@ -8,8 +8,9 @@
  * Pre-req: a server process running (`pnpm dev`) and a connected Google account
  * with at least one ingested email (run smoke-google.ts first if needed).
  */
+import { TRIAGE_WORKFLOW_SLUG } from "@alfred/contracts";
 import { randomUUID } from "node:crypto";
-import { getTriage, TRIAGE_WORKFLOW_SLUG } from "@alfred/assistant/triage";
+import { getTriage } from "@alfred/assistant/triage";
 import { startRun, closeAgentQueue } from "@alfred/assistant/execution";
 import { warmPool } from "@alfred/db";
 import { db } from "@alfred/db";

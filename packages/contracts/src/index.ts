@@ -154,6 +154,8 @@ export * from "./mcp";
 
 export * from "./workflow-run";
 
+export * from "./builtin-workflows";
+
 export * from "./iso-date-time";
 
 export * from "./shared-thread";

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 
-import { getPath, type AgentRunTrigger } from "@alfred/contracts";
+import { getPath, type AgentRunTrigger, COLD_START_WORKFLOW_SLUG } from "@alfred/contracts";
 import { closeConnections, db, rowsFromExecute } from "@alfred/db";
 import {
   EVENT_ACTIVE_RUN_INDEX,
@@ -28,7 +28,6 @@ import {
 import { publishDomainEvent } from "@alfred/assistant/triggers";
 import { acceptEvent } from "@alfred/assistant/automation";
 import { publishGoogleCallbackCompleted } from "@alfred/assistant/connections";
-import { COLD_START_WORKFLOW_SLUG } from "@alfred/assistant/knowledge/cold-start";
 import { uniqueViolationConstraint } from "@alfred/db/pg-errors";
 import { closeRedis } from "@alfred/db/redis";
 import { dbBackedSkip } from "../support/db-backed";

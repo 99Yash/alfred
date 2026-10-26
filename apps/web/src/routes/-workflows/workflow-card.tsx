@@ -2,9 +2,6 @@ import { Link } from "@tanstack/react-router";
 import { Clock3, type LucideIcon } from "lucide-react";
 import type { WorkflowDefinition } from "./workflows-utils";
 import { cn } from "~/lib/utils";
-import { BriefingHero } from "./briefing-hero";
-import { TriageHero } from "./triage-hero";
-import { ResearchHero } from "./research-hero";
 
 const TINT = {
   violet: {
@@ -33,6 +30,7 @@ const TINT = {
 export function WorkflowCard({ workflow, index }: { workflow: WorkflowDefinition; index: number }) {
   const Icon: LucideIcon = workflow.icon;
   const tint = TINT[workflow.tint];
+  const Hero = workflow.hero;
 
   return (
     <Link
@@ -54,9 +52,7 @@ export function WorkflowCard({ workflow, index }: { workflow: WorkflowDefinition
           "[mask:linear-gradient(to_bottom,black_70%,transparent_100%)]",
         )}
       >
-        {workflow.id === "morning-briefing" && <BriefingHero accent={tint.accent} />}
-        {workflow.id === "email-triage" && <TriageHero accent={tint.accent} />}
-        {workflow.id === "cold-start-research" && <ResearchHero accent={tint.accent} />}
+        {Hero && <Hero accent={tint.accent} />}
       </div>
 
       <div className="relative -mt-5 flex flex-1 flex-col p-5">

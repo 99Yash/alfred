@@ -27,11 +27,7 @@ export {
 
 export type { ColdStartProposal } from "./extract";
 
-export {
-  COLD_START_DEDUP_KEY,
-  COLD_START_WORKFLOW_SLUG,
-  coldStartWorkflowInputSchema,
-} from "./workflow-input";
+export { COLD_START_DEDUP_KEY, coldStartWorkflowInputSchema } from "./workflow-input";
 
 export type { ColdStartWorkflowInput } from "./workflow-input";
 

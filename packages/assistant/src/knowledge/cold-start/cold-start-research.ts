@@ -1,3 +1,4 @@
+import { COLD_START_WORKFLOW_SLUG } from "@alfred/contracts";
 import { z } from "zod";
 import { type Workflow } from "@alfred/assistant/execution";
 import { writeMemoryChunk } from "../chunks";
@@ -7,11 +8,7 @@ import { extractColdStartFacts, type ColdStartProposal } from "./extract";
 import { resolveIdentity, type IdentityAnchor } from "./seed";
 import { collectColdStartSignals, type ColdStartSignals } from "./signals";
 import { synthesizeColdStart, type ResearchResult } from "./synthesis";
-import {
-  COLD_START_DEDUP_KEY,
-  COLD_START_WORKFLOW_SLUG,
-  coldStartWorkflowInputSchema,
-} from "./workflow-input";
+import { COLD_START_DEDUP_KEY, coldStartWorkflowInputSchema } from "./workflow-input";
 
 /**
  * Cold-start research workflow (ADR-0011, ADR-0022): signals, seed, aspects,

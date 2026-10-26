@@ -18,13 +18,10 @@
  *   - The Cloudflare AI Gateway vars set.
  *   - User row with a deliverable email (only when sending).
  */
+import { DAILY_BRIEFING_WORKFLOW_SLUG } from "@alfred/contracts";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
-import {
-  DAILY_BRIEFING_WORKFLOW_SLUG,
-  resolveBriefingPreferences,
-  closeBriefingQueue,
-} from "@alfred/assistant/briefings";
+import { resolveBriefingPreferences, closeBriefingQueue } from "@alfred/assistant/briefings";
 import { settings } from "@alfred/assistant/settings";
 import { inZone } from "@alfred/assistant/time";
 import { startRun, closeAgentQueue } from "@alfred/assistant/execution";

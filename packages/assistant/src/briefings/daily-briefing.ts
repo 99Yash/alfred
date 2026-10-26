@@ -1,7 +1,11 @@
-import { briefingClosedLoopSchema, briefingLoopRelevanceSchema } from "@alfred/contracts";
+import {
+  briefingClosedLoopSchema,
+  briefingLoopRelevanceSchema,
+  DAILY_BRIEFING_WORKFLOW_SLUG,
+} from "@alfred/contracts";
 import { z } from "zod";
 import { type Workflow } from "@alfred/assistant/execution";
-import { DAILY_BRIEFING_WORKFLOW_SLUG, dailyBriefingWorkflowInputSchema } from "./workflow-input";
+import { dailyBriefingWorkflowInputSchema } from "./workflow-input";
 import {
   runDailyBriefingCompose,
   runDailyBriefingGather,

@@ -13,7 +13,6 @@
  *   COLD_START_EMAILS="a@x.com,b@y.com" node dist/scripts/ops/trigger-cold-start-committed.js --commit
  */
 import { randomUUID } from "node:crypto";
-import { COLD_START_WORKFLOW_SLUG } from "@alfred/assistant/knowledge";
 import { startRun, closeAgentQueue } from "@alfred/assistant/execution";
 import { registerReplicachePokeAdapter } from "@alfred/assistant/realtime";
 import { warmPool } from "@alfred/db";
@@ -21,7 +20,7 @@ import { db } from "@alfred/db";
 import { agentRuns, user as userTable } from "@alfred/db/schemas";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "~/builtins";
-import { toMessage } from "@alfred/contracts";
+import { toMessage, COLD_START_WORKFLOW_SLUG } from "@alfred/contracts";
 import { closeScriptResources } from "../script-runtime";
 
 /** Override with comma-separated `COLD_START_EMAILS`. */
