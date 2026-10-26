@@ -5,7 +5,8 @@
  * Normal-call transitions live in `broker.ts`; successor reservation in `recovery.ts`.
  */
 
-import { db } from "@alfred/db";
+import type { ExternalToolRef } from "@alfred/contracts";
+import { db, type DbTransaction } from "@alfred/db";
 import { requireRow, runAtomic, type DbRunner } from "@alfred/db/helpers";
 import {
   actionStagings,
@@ -183,6 +184,65 @@ export async function resolveMcpToolIdentity(
     readOnlyResource: builtInReadOnlyResource(row.endpointUrl),
     readOnly: row.readOnly === true,
   };
+}
+
+/** Why an owner review cannot bind. Assignable to every review store's result union. */
+export type McpReviewUnresolvedState =
+  | { status: "connection_missing" }
+  | { status: "catalog_stale" }
+  | { status: "not_found" };
+
+/** The identity a review binds to, or the reason it cannot bind. */
+export type McpReviewTarget = ResolvedMcpToolIdentity | McpReviewUnresolvedState;
+
+function reviewStateFromReason(reason: McpToolIdentityUnresolvedReason): McpReviewUnresolvedState {
+  switch (reason) {
+    case "connection_missing":
+      return { status: "connection_missing" };
+    case "revision_stale":
+      return { status: "catalog_stale" };
+    case "descriptor_missing":
+      return { status: "not_found" };
+  }
+}
+
+/** Read path of the review stores: resolve `ref` for `userId`. No lock. */
+export async function resolveMcpReviewTarget(
+  input: { userId: string; ref: ExternalToolRef },
+  runner: DbRunner = db(),
+): Promise<McpReviewTarget> {
+  const identity = await resolveMcpToolIdentity(
+    {
+      userId: input.userId,
+      connectionId: input.ref.connectionId,
+      remoteName: input.ref.remoteName,
+      catalogRevision: input.ref.catalogRevision,
+    },
+    runner,
+  );
+
+  return identity.status === "unresolved" ? reviewStateFromReason(identity.reason) : identity;
+}
+
+/**
+ * Write path of the review stores: lock the owned connection row, then resolve in the same transaction.
+ * Catalog publication updates that row, so the descriptor hash cannot move before the write.
+ */
+export async function lockMcpReviewTarget(
+  tx: DbTransaction,
+  input: { userId: string; ref: ExternalToolRef },
+): Promise<McpReviewTarget> {
+  const [owned] = await tx
+    .select({ id: mcpConnections.id })
+    .from(mcpConnections)
+    .where(
+      and(eq(mcpConnections.id, input.ref.connectionId), eq(mcpConnections.userId, input.userId)),
+    )
+    .for("update");
+
+  if (owned === undefined) return { status: "connection_missing" };
+
+  return resolveMcpReviewTarget(input, tx);
 }
 
 /** Upsert a review. The descriptor hash is in the key, so drift misses and falls back to `high`. */
