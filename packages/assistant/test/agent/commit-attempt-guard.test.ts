@@ -102,6 +102,7 @@ function runRow(userId: string, runId: string, attempt: number) {
     id: runId,
     userId,
     workflowSlug: "chat",
+    workflowRevisionId: null,
     status: "running" as const,
     state: {},
     transcript: [],

@@ -2,6 +2,7 @@ import { db } from "@alfred/db";
 import {
   workflowRevisions,
   workflows,
+  type AgentRun,
   type Workflow as WorkflowRow,
   type WorkflowRevision,
 } from "@alfred/db/schemas";
@@ -14,6 +15,35 @@ type UserAuthoredWorkflowRow = Pick<WorkflowRow, "isBuiltin"> &
     WorkflowRevision,
     "brief" | "allowedIntegrations" | "allowedTools" | "requiredCapabilities" | "approvedAt"
   > & { workflowId: string; revisionId: string };
+
+function builtinCannotPinRevision(workflowSlug: string): Error {
+  return new Error(`[agent] builtin workflow slug=${workflowSlug} cannot pin a database revision`);
+}
+
+/**
+ * DB-free. A run row's pinned revision is the authored mark; a builtin or chat run pins none.
+ * `createRun` checked the `workflows` row, and the revision FK keeps it while the run exists, so
+ * only a registry miss with no pinned revision (a deleted builtin) is left to fail loud.
+ */
+export function workflowForRun(
+  run: Pick<AgentRun, "workflowSlug" | "workflowRevisionId">,
+): Workflow<unknown> {
+  const registered = getWorkflow(run.workflowSlug);
+
+  if (registered) {
+    if (run.workflowRevisionId) throw builtinCannotPinRevision(run.workflowSlug);
+
+    return registered;
+  }
+
+  if (!run.workflowRevisionId) {
+    throw new Error(
+      `[agent] no workflow registered for slug=${run.workflowSlug}; deploy mismatch?`,
+    );
+  }
+
+  return userAuthoredBriefWorkflow;
+}
 
 export interface ResolvedWorkflowForRun {
   workflow: Workflow<unknown>;
@@ -36,11 +66,7 @@ export async function resolveWorkflowForRun(args: {
   const registered = getWorkflow(args.workflowSlug);
 
   if (registered) {
-    if (args.workflowRevisionId) {
-      throw new Error(
-        `[agent] builtin workflow slug=${args.workflowSlug} cannot pin a database revision`,
-      );
-    }
+    if (args.workflowRevisionId) throw builtinCannotPinRevision(args.workflowSlug);
 
     return { workflow: registered, workflowSlug: registered.slug };
   }

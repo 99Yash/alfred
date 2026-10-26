@@ -25,7 +25,7 @@ import { z } from "zod";
 import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 import { publishEvent } from "@alfred/assistant/triggers";
 import { normalizeDecisionTraceKey, type DecisionTraceBase } from "./decision-traces";
-import { resolveWorkflowForRun } from "./resolve-workflow";
+import { workflowForRun } from "./resolve-workflow";
 import { rejectLateCancelledRunStagings, resolveStaleAfterMs } from "./service";
 import { finalizeFailedRun } from "./terminal-closure";
 import { deriveRunOutcome, pokeWorkflowOwner, recordWorkflowLastRun } from "./run-outcome";
@@ -228,6 +228,7 @@ type RunRow = Pick<
   | "id"
   | "userId"
   | "workflowSlug"
+  | "workflowRevisionId"
   | "status"
   | "state"
   | "transcript"
@@ -281,12 +282,7 @@ export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise
   let step: Step<unknown>;
 
   try {
-    workflow = (
-      await resolveWorkflowForRun({
-        userId: run.userId,
-        workflowSlug: run.workflowSlug,
-      })
-    ).workflow;
+    workflow = workflowForRun(run);
     step = requireStep(workflow, stepId);
   } catch (err) {
     const error = toMessage(err);
@@ -400,6 +396,7 @@ const leaseRowSchema = createExecuteRowSchema(agentRuns, { status: runStatusSche
     id: true,
     userId: true,
     workflowSlug: true,
+    workflowRevisionId: true,
     status: true,
     state: true,
     transcript: true,
@@ -418,7 +415,8 @@ const reclaimCountRowSchema = z.object({ reclaims: z.number() });
 export async function leaseRun(runId: string): Promise<LeaseResult> {
   return await db().transaction(async (tx) => {
     const result = await tx.execute(sql`
-      SELECT id, user_id AS "userId", workflow_slug AS "workflowSlug", status,
+      SELECT id, user_id AS "userId", workflow_slug AS "workflowSlug",
+             workflow_revision_id AS "workflowRevisionId", status,
              state, transcript, current_step AS "currentStep", attempt, metadata,
              cancellation_generation AS "cancellationGeneration",
              deferred_until AS "deferredUntil",
