@@ -8,12 +8,11 @@ import type { AgentDbExecutor } from "./registry";
 import { isUniqueViolation } from "@alfred/db/pg-errors";
 import { enqueueRun } from "./queue";
 import { AWAIT_SUB_AGENT_CEILING_MS } from "./sub-agent-join-wake-queue";
-import { type SpawnSubAgentInput } from "@alfred/assistant/tool-runtime";
+import { type ChatTurnAddress, type SpawnSubAgentInput } from "@alfred/assistant/tool-runtime";
 import {
   readSubAgentMetadata,
   SUB_AGENT_WORKFLOW_SLUG,
   subAgentParentRunIdMatches,
-  type SubAgentChatOrigin,
 } from "./sub-agent-metadata";
 
 export interface ChildRunOutcome {
@@ -116,7 +115,7 @@ export async function spawnSubAgent(
     userId: string;
     parentToolCallId: string;
     /** The parent's chat turn, if any; the child streams its tool cards there. */
-    chat?: SubAgentChatOrigin | undefined;
+    chat?: ChatTurnAddress | undefined;
   },
 ): Promise<{
   ok: true;

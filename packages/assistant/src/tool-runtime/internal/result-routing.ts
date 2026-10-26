@@ -79,7 +79,6 @@ const INCOMPLETE_ACTION_STATUSES = new Set([
   "invalid",
   "invalid_input",
   "needs_clarification",
-  "no_thread",
   "not_allowed",
   "not_found",
   "page_limit",

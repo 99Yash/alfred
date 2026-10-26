@@ -523,8 +523,7 @@ const validateInputStage: DispatchStage<ResolvedDispatch, ValidatedDispatch> = a
     caller,
     runContext: args.runContext,
     activeTools: args.activeTools,
-    threadId: args.threadId,
-    messageId: args.messageId,
+    chat: args.chat,
     allowedIntegrations: args.allowedIntegrations,
     accountRef: workflowCapabilities[0]?.accountRef,
   });

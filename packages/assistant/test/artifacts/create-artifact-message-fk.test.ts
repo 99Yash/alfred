@@ -77,10 +77,6 @@ describe("createArtifact message_id FK ordering", { skip: SKIP }, () => {
       { title: "Resume — Yash Gourav Kar", kind: "pages", format: "pdf" },
     );
 
-    if (!result.ok) {
-      throw new Error(`expected create to succeed, got ${JSON.stringify(result)}`);
-    }
-
     assert.equal(result.kind, "pages");
     assert.equal(result.format, "pdf");
 

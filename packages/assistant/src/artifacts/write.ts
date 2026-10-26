@@ -33,15 +33,13 @@ export interface ArtifactWriteContext {
   runId: string;
 }
 
-export type CreateArtifactResult =
-  | {
-      ok: true;
-      artifactId: string;
-      title: string;
-      kind: ArtifactKind;
-      format: ArtifactFormat | null;
-    }
-  | { ok: false; status: "no_thread"; reason: string };
+export interface CreateArtifactResult {
+  ok: true;
+  artifactId: string;
+  title: string;
+  kind: ArtifactKind;
+  format: ArtifactFormat | null;
+}
 
 export type AppendArtifactPageResult =
   | { ok: true; artifactId: string; pageCount: number }

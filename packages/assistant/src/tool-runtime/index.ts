@@ -26,6 +26,7 @@ import {
 import type { z } from "zod";
 import { bootPort } from "./boot-port";
 import type { ToolCallRoundAdapter } from "./internal/adapter";
+import type { ChatTurnAddress } from "./internal/registry";
 import { runToolCallRound } from "./internal/tool-call-round";
 import type { SpawnSubAgentInput } from "./sub-agent-contract";
 
@@ -38,12 +39,15 @@ export { questionToolInput, QUESTION_TOOL_PROBE_INPUT } from "./question-contrac
 // The registry map stays private to `internal/registry.ts`. `builtin-tools.ts`
 // makes every production registration; `registerTool` is the fixture door.
 export {
+  chatTurnAddressSchema,
   liveTool,
   registerTool,
   registerTools,
   clearToolRegistryForTests,
   riskTierCountsForIntegration,
   type BoundToolCall,
+  type ChatTurnAddress,
+  type LiveChatToolExecuteContext,
   type RegisteredTool,
   type ToolExecuteContext,
   type ToolExecuteContextFields,
@@ -133,13 +137,13 @@ interface ToolCallRunBase {
   workflow: string;
   /** Dispatch refuses an effect once the run's fence moves past this value. */
   fence: CancellationFence;
-  threadId?: string | undefined;
+  /** Set only for a live chat turn. */
+  chat?: ChatTurnAddress | undefined;
   /**
    * The chat thread whose full-autonomy flag the approval gate reads (ADR-0069 amendment).
    * A chat turn and its sub-agents set it. A background run never does, so it keeps every floor.
    */
   approvalThreadId?: string | undefined;
-  messageId?: string | undefined;
   scratchpadRunId?: string | undefined;
   timezone?: IanaTimezone | undefined;
   allowedIntegrations?: readonly string[] | undefined;
@@ -265,7 +269,7 @@ export type SpawnSubAgentRequest = SpawnSubAgentInput & {
   userId: string;
   parentToolCallId: string;
   /** The parent's chat turn. The child streams its trail there. */
-  chat?: { threadId: string; messageId: string } | undefined;
+  chat?: ChatTurnAddress | undefined;
 };
 
 export interface JoinChildRunRequest {

@@ -35,7 +35,11 @@ import {
   updateArtifact,
   type ArtifactWriteContext,
 } from "@alfred/assistant/artifacts";
-import type { SystemToolScratchpad, ToolExecuteContext } from "@alfred/assistant/tool-runtime";
+import type {
+  LiveChatToolExecuteContext,
+  SystemToolScratchpad,
+  ToolExecuteContext,
+} from "@alfred/assistant/tool-runtime";
 import {
   activateWorkflow,
   authorWorkflow,
@@ -71,33 +75,9 @@ function callerScratchpad(ctx: ToolExecuteContext): SystemToolScratchpad {
   return scratchpad({ runId: ctx.scratchpadRunId, writer: ctx.caller });
 }
 
-/**
- * Artifact provenance from the call context, or a refusal outside a chat turn (ADR-0075).
- * The message row does not exist yet, so the turn links it on finalize.
- */
-function resolveArtifactContext(
-  ctx: ToolExecuteContext,
-): { ok: true; ctx: ArtifactWriteContext } | { ok: false; result: unknown } {
-  if (!ctx.threadId || !ctx.messageId) {
-    return {
-      ok: false,
-      result: {
-        ok: false,
-        status: "no_thread",
-        reason:
-          "Artifacts can only be authored inside a chat conversation; this run has no chat thread.",
-      },
-    };
-  }
-
-  return {
-    ok: true,
-    ctx: {
-      userId: ctx.userId,
-      threadId: ctx.threadId,
-      runId: ctx.runId,
-    },
-  };
+/** Artifact provenance from the chat turn. The message row does not exist yet, so the turn links it on finalize. */
+function artifactWriteContext(ctx: LiveChatToolExecuteContext): ArtifactWriteContext {
+  return { userId: ctx.userId, threadId: ctx.chat.threadId, runId: ctx.runId };
 }
 
 /** The instant plus the user's wall clock, for `system.current_time`. */
@@ -317,18 +297,8 @@ export const systemTools: readonly RegisteredTool[] = [
     // Kernel: the chat prompt names it, so a lazy load would cost a cache bust.
     availability: { surface: "kernel", requiresLiveChat: true },
     inputSchema: readChatHistoryInput,
-    execute: async (input, ctx) => {
-      // Dispatch refuses first; this guards a direct `execute`.
-      if (!ctx.threadId) {
-        return {
-          ok: false,
-          status: "no_thread",
-          reason: "Conversation history is available only inside the current chat thread.",
-        };
-      }
-
-      return readChatHistory({ userId: ctx.userId, threadId: ctx.threadId, input });
-    },
+    execute: async (input, ctx) =>
+      readChatHistory({ userId: ctx.userId, threadId: ctx.chat.threadId, input }),
   }),
   liveTool({
     integration: "system",
@@ -362,10 +332,8 @@ export const systemTools: readonly RegisteredTool[] = [
         subId: input.subId,
         brief: input.brief,
         allowedIntegrations: requestedAllowed.length > 0 ? requestedAllowed : [...workflowAllowed],
-        // Only a chat parent has these. The child streams its trail into that turn.
-        ...(ctx.threadId && ctx.messageId
-          ? { chat: { threadId: ctx.threadId, messageId: ctx.messageId } }
-          : {}),
+        // Only a chat parent has one. The child streams its trail into that turn.
+        chat: ctx.chat,
       });
     },
   }),
@@ -681,13 +649,7 @@ export const systemTools: readonly RegisteredTool[] = [
       "Produce a rich artifact the user reads in a side panel: a written `document` (markdown) or a deck/PDF of `pages` (HTML). Use this when the user asks you to write, draft, or build something substantial, instead of dumping it all into the chat reply. Pick the medium by how the deliverable is meant to be consumed, not by which looks more impressive: if it is read as prose — a brief, an overview, a primer, a report, notes, an explainer, a write-up — author a `document`. Reserve `pages` for deliverables that are inherently presentational or visually laid out — a slide deck or presentation to show, a pitch, a designed one-pager, a résumé, a printable PDF. When the ask is ambiguous, default to `document`: it is the right home for reading material and far cheaper to produce, so only reach for `pages` when the user actually signals slides, a deck, a presentation, or a designed/printable page. Opens the artifact; for a `document` author the opening section here (≤~1,800 words) and continue with append_artifact_section — do not attempt the whole document in one call; for `pages` follow with append_artifact_page per page. Each page is body-level HTML authored against the Alfred house shell: write only the page body, not a full standalone document. This is in-app content, not a downloadable file.",
     availability: { requiresLiveChat: true },
     inputSchema: createArtifactInput,
-    execute: async (input, ctx) => {
-      const resolved = resolveArtifactContext(ctx);
-
-      if (!resolved.ok) return resolved.result;
-
-      return await createArtifact(resolved.ctx, input);
-    },
+    execute: async (input, ctx) => await createArtifact(artifactWriteContext(ctx), input),
   }),
   liveTool({
     integration: "system",
@@ -698,13 +660,7 @@ export const systemTools: readonly RegisteredTool[] = [
       "Append one page to a `pages` artifact created with create_artifact. Call once per page, in order. Write body-level HTML only: never emit <html>, <head>, <body>, <!doctype>, <script>, external <link>/CDN tags, page width/height, page margins, or a body background. The Alfred house shell supplies page geometry, white surface, typography, tokens, and classes at render time. Preferred classes: art-stack, art-row, art-grid-2, art-split, art-center, art-between, art-fill, art-grow, art-wrap; art-display, art-title, art-headline, art-subhead, art-body, art-caption, art-eyebrow; art-card, art-panel, art-badge, art-rule, art-accent-mark, art-dot, art-list, art-stat-value, art-stat-label, art-bar-track, art-bar-fill. For a `pdf` document (resume, report, one-pager) use the denser document vocabulary instead of the big slide type: the first content wrapper must be art-doc, then compose with art-doc-name, art-doc-role, art-doc-section, art-doc-heading, art-doc-body, art-doc-meta, art-doc-header, art-doc-contact, art-doc-lede, art-doc-entry, art-doc-cols, art-doc-chips, and art-doc-rule. PDF pages that override --art-* tokens or declare custom font, font-family, or font-size values are rejected. Keep everything inside the fixed page box; there is no scrolling. Use one idea per page, split crowded content, keep code blocks short, and use a small inline <style> only for one-off geometry (reference the design tokens, never hardcode colors). Pages appear in the sidebar as you add them.",
     availability: { requiresLiveChat: true },
     inputSchema: appendArtifactPageInput,
-    execute: async (input, ctx) => {
-      const resolved = resolveArtifactContext(ctx);
-
-      if (!resolved.ok) return resolved.result;
-
-      return await appendArtifactPage(resolved.ctx, input);
-    },
+    execute: async (input, ctx) => await appendArtifactPage(artifactWriteContext(ctx), input),
   }),
   liveTool({
     integration: "system",
@@ -716,13 +672,7 @@ export const systemTools: readonly RegisteredTool[] = [
       "Append one section of markdown to a `document` created with create_artifact. Call once per section, in order — do not attempt the whole document in one call; each section renders in the sidebar as you add it. Write your own `##` headings and keep each section self-contained (close every code fence, finish every list/table) since the sidebar re-renders the accumulated document as each section arrives. Also use this to extend a document from an earlier turn.",
     availability: { requiresLiveChat: true },
     inputSchema: appendArtifactSectionInput,
-    execute: async (input, ctx) => {
-      const resolved = resolveArtifactContext(ctx);
-
-      if (!resolved.ok) return resolved.result;
-
-      return await appendArtifactSection(resolved.ctx, input);
-    },
+    execute: async (input, ctx) => await appendArtifactSection(artifactWriteContext(ctx), input),
   }),
   liveTool({
     integration: "system",
@@ -734,12 +684,6 @@ export const systemTools: readonly RegisteredTool[] = [
       "Revise an existing artifact: rename it, make targeted text edits, replace a document's markdown, or replace a deck's full page list. Use this when the user asks to change content you already produced this conversation. To add a section or page at the end, use append_artifact_section or append_artifact_page instead. For a targeted change, send `edits`: exact oldString/newString pairs that save together, so you resend only what changes. Replace the full markdown or pages only for a broad rewrite. For cross-turn content replacement, work only from a reference with contentComplete=true and copy its baseContentHash; never replace content from a partial reference. Rename-only edits and `edits` need no hash.",
     availability: { requiresLiveChat: true },
     inputSchema: updateArtifactInput,
-    execute: async (input, ctx) => {
-      const resolved = resolveArtifactContext(ctx);
-
-      if (!resolved.ok) return resolved.result;
-
-      return await updateArtifact(resolved.ctx, input);
-    },
+    execute: async (input, ctx) => await updateArtifact(artifactWriteContext(ctx), input),
   }),
 ];
