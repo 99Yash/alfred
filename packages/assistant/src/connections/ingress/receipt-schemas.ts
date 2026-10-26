@@ -18,13 +18,16 @@ export function lenient<T extends z.ZodType>(schema: T) {
 export const text = lenient(z.string());
 
 /**
- * A leaf on the Sentry dedup id path (`sentryIssueEventSchema` root, `data`, `issue`
- * shapes). Every leaf there must stay lenient: a strict leaf makes `sentryIssueId`
- * return `undefined`, the delivery drops as `no-dedup-key` with no receipt row, and the
- * loss cannot be recovered. A `satisfies Record<string, LenientLeaf>` on each of those
- * three shapes makes a strict leaf fail `check-types`.
+ * A field of a shape on the Sentry dedup id path (the root, `data`, and `issue` shapes of
+ * `sentryIssueEventSchema` in `ingress/sentry.ts`). Each field there is a `.catch`-wrapped
+ * optional or `providerId`; a `satisfies Record<string, LenientField>` on each shape enforces
+ * that much at `check-types`. Residue (tier 5, review only): the guard cannot see a
+ * `.refine`/`.superRefine`/`.check` added after the `.catch`, a `providerId` transform that
+ * reports an issue or throws (or an async refinement, which makes `safeParse` throw), or strict
+ * object mode (`strictObject`, `.strict()`, `.extend(...)` with a strict field, or an
+ * object-level refine) on those shapes. Each still nulls the dedup read in `ingress/sentry.ts`.
  */
-export type LenientLeaf = z.ZodCatch<z.ZodOptional<z.ZodType>> | typeof providerId;
+export type LenientField = z.ZodCatch<z.ZodOptional<z.ZodType>> | typeof providerId;
 
 /** The `getIdPath` rule: a non-empty string, or a safe integer as text. A missing key is `undefined`. */
 export const providerId = z

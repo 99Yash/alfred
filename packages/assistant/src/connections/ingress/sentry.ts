@@ -9,7 +9,7 @@ import type { InboundProjection, InboundSourceDescriptor, InboundSyntheticKey } 
 import { describeInboundJson } from "./description";
 import { logger } from "@alfred/logging";
 import { z } from "zod";
-import { lenient, type LenientLeaf, providerId, text } from "./receipt-schemas";
+import { lenient, type LenientField, providerId, text } from "./receipt-schemas";
 
 /**
  * Sentry internal-integration webhooks (ADR-0097, #563).
@@ -19,7 +19,12 @@ import { lenient, type LenientLeaf, providerId, text } from "./receipt-schemas";
  * Known gap: nothing consumes `installation.deleted`, so health stays green after an uninstall.
  */
 
-/** The issue part of a Sentry issue webhook. Dedup and the object-state fold both read it. */
+/**
+ * The issue part of a Sentry issue webhook. Dedup and the object-state fold both read it.
+ * Every leaf on the id path stays lenient: a strict leaf makes `sentryIssueId` return
+ * `undefined`, the delivery drops as `no-dedup-key` with no receipt row, and the loss cannot
+ * be recovered.
+ */
 export const sentryIssueEventSchema = z.object({
   data: lenient(
     z.object({
@@ -30,11 +35,11 @@ export const sentryIssueEventSchema = z.object({
           title: text,
           permalink: text,
           project: lenient(z.object({ slug: text })),
-        } satisfies Record<string, LenientLeaf>),
+        } satisfies Record<string, LenientField>),
       ),
-    } satisfies Record<string, LenientLeaf>),
+    } satisfies Record<string, LenientField>),
   ),
-} satisfies Record<string, LenientLeaf>);
+} satisfies Record<string, LenientField>);
 
 export type SentryIssuePayload = z.output<typeof sentryIssueEventSchema>;
 
