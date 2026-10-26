@@ -11,7 +11,11 @@ export interface McpConnectionAlert {
 export interface McpConnectionPresentation {
   /** The full status line: the catalog status row and the start of the tile subtitle. */
   readonly statusText: string;
-  /** Non-null exactly when the tile shows the amber badge, so the badge never shows alone. */
+  /**
+   * Non-null exactly when the tile shows the amber badge. The one-line alert
+   * renders only when no action error (and, on the built-in card, no loading
+   * state) takes the subtitle instead.
+   */
   readonly alert: McpConnectionAlert | null;
 }
 
@@ -47,7 +51,7 @@ export function mcpConnectionPresentation(
     default: {
       const _exhaustive: never = connection.status;
 
-      return _exhaustive;
+      return { statusText: _exhaustive, alert: null };
     }
   }
 }
