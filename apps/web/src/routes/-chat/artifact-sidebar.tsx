@@ -1,9 +1,4 @@
-import type {
-  ArtifactFormat,
-  ArtifactPage,
-  ExternalFileContent,
-  ExternalFileSource,
-} from "@alfred/contracts";
+import type { ArtifactFormat, ArtifactPage, ExternalFileContent } from "@alfred/contracts";
 import type { SyncedArtifact } from "@alfred/sync";
 import {
   AlertTriangle,
@@ -12,7 +7,6 @@ import {
   Download,
   ExternalLink,
   FileText,
-  Layers,
   Loader2,
   Maximize2,
   Pencil,
@@ -35,6 +29,11 @@ import { ArtifactPagesBody } from "~/components/artifacts/artifact-pages-body";
 import { ArtifactPresentOverlay } from "~/components/artifacts/artifact-present-overlay";
 import { useArtifactPageIndex } from "~/components/artifacts/use-artifact-pages";
 import { MarkdownRenderer } from "~/components/markdown-renderer";
+import {
+  ARTIFACT_KIND_ICON,
+  artifactTypeLabel,
+  EXTERNAL_FILE_SOURCE_LABEL,
+} from "~/lib/artifacts/artifact-type";
 import { printArtifactPages } from "~/lib/artifacts/export-artifact";
 import { easeShownChars } from "~/lib/chat/chat-stream-state";
 import type { LiveArtifactStream } from "~/lib/chat/use-artifact-stream";
@@ -43,11 +42,6 @@ import { cn } from "~/lib/utils";
 import type { ChatSidePanelMode } from "~/routes/-chat/rail/models";
 import { CHAT_PANEL, CHAT_SWAP, usePrefersReducedMotion, type LiveTransition } from "./motion";
 import { healStreamingMarkdown } from "./streaming-markdown";
-
-/** A new source fails to compile here until it has a label. */
-const EXTERNAL_FILE_SOURCE_LABEL = {
-  drive: "Google Drive",
-} satisfies Record<ExternalFileSource, string>;
 
 /**
  * Artifact sidebar (ADR-0075 Phase 3): a `document` as markdown, `pages` as scaled iframes.
@@ -314,6 +308,8 @@ function ArtifactHeader({
   onClose: () => void;
 }) {
   const isPages = artifact?.kind === "pages";
+  // No synced row yet (a live document): the document icon.
+  const KindIcon = ARTIFACT_KIND_ICON[artifact?.kind ?? "document"];
   const pagesContent = artifact?.content?.kind === "pages" ? artifact.content.pages : null;
   const pageCount = pagesContent?.length;
   const externalFile = artifact?.content?.kind === "external_file" ? artifact.content : null;
@@ -321,7 +317,7 @@ function ArtifactHeader({
   return (
     <header className="flex h-[60px] shrink-0 items-center gap-2 border-b border-app-bg-3/50 px-3">
       <span className="grid size-8 shrink-0 place-items-center rounded-control bg-app-bg-a2 text-app-fg-3">
-        {isPages ? <Layers size={16} /> : <FileText size={16} />}
+        <KindIcon size={16} />
       </span>
       <div className="min-w-0 flex-1">
         <h2 className="truncate text-sm font-medium text-app-fg-4">{title}</h2>
@@ -403,13 +399,6 @@ function ArtifactSubline({
     return <span>{mimeType ? `${sourceLabel} · ${mimeType}` : sourceLabel}</span>;
   }
 
-  const kindLabel =
-    artifact.kind === "pages"
-      ? artifact.format === "slides"
-        ? "Slides"
-        : "PDF document"
-      : "Document";
-
   if (artifact.status === "generating") {
     return (
       <>
@@ -433,7 +422,7 @@ function ArtifactSubline({
 
   return (
     <span>
-      {kindLabel}
+      {artifactTypeLabel(artifact)}
       {pageCount !== undefined ? ` · ${pageCount} ${pageCount === 1 ? "page" : "pages"}` : ""}
     </span>
   );

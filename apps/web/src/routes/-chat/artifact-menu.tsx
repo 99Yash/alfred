@@ -1,8 +1,9 @@
 import type { SyncedArtifact } from "@alfred/sync";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
-import { Check, FileText, Files, Layers, Loader2 } from "lucide-react";
+import { Check, Files, Loader2 } from "lucide-react";
 import { use, useId, useState } from "react";
 import { AppThemeContext } from "~/components/ui/v2/theme";
+import { ARTIFACT_KIND_ICON, artifactTypeLabel } from "~/lib/artifacts/artifact-type";
 import { cn } from "~/lib/utils";
 import { IconButton } from "./rail/icon-button";
 import { Tip } from "./tip";
@@ -12,7 +13,9 @@ import { Tip } from "./tip";
 function artifactIcon(artifact: SyncedArtifact, size: number) {
   if (artifact.status === "generating") return <Loader2 size={size} className="animate-spin" />;
 
-  return artifact.kind === "pages" ? <Layers size={size} /> : <FileText size={size} />;
+  const KindIcon = ARTIFACT_KIND_ICON[artifact.kind];
+
+  return <KindIcon size={size} />;
 }
 
 function artifactSubtitle(artifact: SyncedArtifact): string {
@@ -20,9 +23,7 @@ function artifactSubtitle(artifact: SyncedArtifact): string {
 
   if (artifact.status === "error") return "Failed to generate";
 
-  if (artifact.kind === "pages") return artifact.format === "slides" ? "Slides" : "PDF document";
-
-  return "Document";
+  return artifactTypeLabel(artifact);
 }
 
 export function ArtifactMenu({
