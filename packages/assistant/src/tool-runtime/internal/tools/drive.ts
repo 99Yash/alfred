@@ -39,7 +39,9 @@ async function maybeSurfaceUnreadableDriveFile(
   args: { credentialId: string; fileId: string },
 ): Promise<RenderedInSidebarResult | null> {
   // Artifacts are thread-owned, so a non-chat run has no sidebar.
-  if (!ctx.threadId) return null;
+  const { chat } = ctx;
+
+  if (!chat) return null;
 
   // Succeeds only with real access, so a permission 403 stays a 403.
   let file;
@@ -56,7 +58,7 @@ async function maybeSurfaceUnreadableDriveFile(
   const fileName = file.name ?? "file";
 
   const { artifactId } = await surfaceExternalFileArtifact(
-    { userId: ctx.userId, threadId: ctx.threadId, runId: ctx.runId },
+    { userId: ctx.userId, threadId: chat.threadId, runId: ctx.runId },
     {
       source: "drive",
       fileId: args.fileId,

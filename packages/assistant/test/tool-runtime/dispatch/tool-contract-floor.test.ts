@@ -140,7 +140,7 @@ describe("the declared tool contract is enforced at the dispatch floor", () => {
       input: {},
       activeTools: ["system.read_chat_history"],
       caller: "boss" as const,
-      threadId: "thr_1",
+      chat: { threadId: "thr_1", messageId: "msg_1" },
       runContext: { caller: "boss", interaction: "live_chat" },
     });
 

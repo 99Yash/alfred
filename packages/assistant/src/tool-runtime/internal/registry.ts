@@ -76,6 +76,13 @@ interface ToolAvailabilityMetadata {
  */
 export type ToolStagingPolicy = "staged" | "fast_path" | "join" | "question";
 
+/** One live chat turn: its thread, and the assistant message the turn streams into (ADR-0073). */
+export const chatTurnAddressSchema = z
+  .object({ threadId: z.string().min(1), messageId: z.string().min(1) })
+  .strict();
+
+export type ChatTurnAddress = z.infer<typeof chatTurnAddressSchema>;
+
 export interface ToolExecuteContext {
   runId: string;
   /** Sub-agent calls use the parent run's scratchpad. */
@@ -101,9 +108,8 @@ export interface ToolExecuteContext {
   runContext: ToolRunContext;
   /** The run's tool surface when dispatch ran this call. */
   activeTools: readonly ToolName[];
-  /** Set only for chat dispatch. Artifact tools (ADR-0075) refuse without them. */
-  threadId?: string | undefined;
-  messageId?: string | undefined;
+  /** Set only for live-chat dispatch. A `requiresLiveChat` tool always receives it. */
+  chat?: ChatTurnAddress | undefined;
   /** Empty or undefined means unrestricted. */
   allowedIntegrations?: readonly string[] | undefined;
   // TODO(#286): no abort signal yet, so a network tool outlives a stopped turn until its own timeout.
@@ -112,10 +118,19 @@ export interface ToolExecuteContext {
 /** The context minus the binds that `toolExecuteContext` in `../context` derives. */
 export type ToolExecuteContextFields = Omit<ToolExecuteContext, "integrations" | "corpus">;
 
+/** The context that a `requiresLiveChat: true` tool's `execute` receives. */
+export type LiveChatToolExecuteContext = ToolExecuteContext & { chat: ChatTurnAddress };
+
+type ExecuteContextFor<L extends boolean> = [L] extends [true]
+  ? LiveChatToolExecuteContext
+  : ToolExecuteContext;
+
+/** `L` is the literal `requiresLiveChat` flag, so a live-chat tool's `execute` gets `ctx.chat`. */
 export interface LiveToolArgs<
   I extends IntegrationSlug,
   A extends ActionSlug<I> & string,
   S extends z.ZodType,
+  L extends boolean = false,
 > {
   integration: I;
   action: A;
@@ -145,7 +160,7 @@ export interface LiveToolArgs<
   policyGateWaiver?: string;
   description: string;
   discovery?: ToolDiscoveryMetadata;
-  availability?: ToolAvailabilityMetadata;
+  availability?: ToolAvailabilityMetadata & { requiresLiveChat?: L };
   inputSchema: S;
   /**
    * The narrower schema the model sees, for a field only the runtime writes
@@ -160,7 +175,7 @@ export interface LiveToolArgs<
   refuseInput?: (input: z.infer<S>, ctx: ToolExecuteContext) => string | null;
   /** Receives parsed input. A throw is recorded by the dispatcher. */
   // oxlint-disable-next-line anti-slop/no-unknown-returns -- a tool's `execute` result is free-form JSON; dispatch sanitizes it into a `JsonValue`.
-  execute: (input: z.infer<S>, ctx: ToolExecuteContext) => Promise<unknown>;
+  execute: (input: z.infer<S>, ctx: ExecuteContextFor<L>) => Promise<unknown>;
   /**
    * Scrub secrets before the input reaches a trace or a staging row (#293).
    * Must be pure and keep the shape. The hash and `execute` see the raw input.
@@ -407,7 +422,14 @@ export function liveTool<
   I extends IntegrationSlug,
   A extends ActionSlug<I> & string,
   S extends z.ZodType,
->(args: LiveToolArgs<I, A, S>): RegisteredTool {
+  L extends boolean = false,
+>(args: LiveToolArgs<I, A, S, L>): RegisteredTool;
+// `L = boolean` resolves `execute` to the plain context, so the body needs no cast.
+export function liveTool<
+  I extends IntegrationSlug,
+  A extends ActionSlug<I> & string,
+  S extends z.ZodType,
+>(args: LiveToolArgs<I, A, S, boolean>): RegisteredTool {
   const name = buildToolName(args.integration, args.action);
   const { redactInput, resolveRiskTier, refuseInput } = args;
 
@@ -450,7 +472,17 @@ export function liveTool<
           declaredRiskTier: (ctx) =>
             resolveRiskTier ? resolveRiskTier(input, ctx) : Promise.resolve(args.riskTier),
           redactedInput: () => (redactInput ? redactInput(input) : input),
-          execute: (ctx) => args.execute(input, ctx),
+          execute: (ctx) => {
+            if (args.availability?.requiresLiveChat !== true) return args.execute(input, ctx);
+
+            const { chat } = ctx;
+
+            // The dispatch gate keys on `interaction`, and the one live-chat builder (`chatToolRunIdentity`)
+            // sets `interaction` and `chat` together. A direct call or a builder that splits them gets here.
+            if (!chat) throw new Error(`[tools] '${name}' requires a live chat turn`);
+
+            return args.execute(input, { ...ctx, chat });
+          },
         },
       };
     },

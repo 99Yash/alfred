@@ -526,7 +526,6 @@ function context(userId: string, runId: string) {
     caller: "boss",
     runContext: { caller: "boss", interaction: "live_chat" },
     activeTools: [],
-    threadId: "thread-1",
-    messageId: "message-1",
+    chat: { threadId: "thread-1", messageId: "message-1" },
   });
 }
