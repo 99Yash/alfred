@@ -401,7 +401,7 @@ export function isQuietMorning(args: {
     : args.emailCount === 0;
 }
 
-/** Counts for the suppression gate. The raw `email` count is only the fallback for `demandingEmailCount` (#259). */
+/** Counts for the send gates. The daily workflow reads `email` only as the fallback for `demandingEmailCount` (#259); legacy `decideSend` reads it as a send signal. */
 export interface GatheredCounts {
   email: number;
   activity: number;
