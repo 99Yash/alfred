@@ -424,7 +424,7 @@ describe("cross-connection MCP discovery (DB-backed, offline)", { skip: SKIP }, 
 
     assert.equal(page.hasMore, false);
     assert.deepEqual(page.rows[0]?.summaries, [
-      { name: "bare", title: null, description: null },
+      { name: "bare", title: undefined, description: undefined },
       { name: "described", title: "Described", description: "Has prose" },
     ]);
   });

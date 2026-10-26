@@ -2,7 +2,6 @@
 
 import {
   Errors,
-  getStringPath,
   isApiError,
   jsonObjectSchema,
   MCP_LIST_TOOLS_DEFAULT_LIMIT,
@@ -135,22 +134,18 @@ function encodeCursor(
 }
 
 /** Turn one stored summary into bounded text. */
-function toSummary(descriptor: unknown): Summary | undefined {
-  const parsed = jsonObjectSchema.safeParse(descriptor);
+function toSummary(
+  stored: OwnedCurrentCatalogSliceRow["summaries"][number] | undefined,
+): Summary | undefined {
+  if (!stored) return undefined;
+  const { title } = stored;
 
-  if (!parsed.success) return undefined;
-  const remoteName = getStringPath(parsed.data, "name");
-
-  if (!remoteName) return undefined;
-  const title = getStringPath(parsed.data, "title");
-  const rawDescription = getStringPath(parsed.data, "description");
-
-  const description = rawDescription
-    ? summarizeBody(rawDescription, MAX_SUMMARY_DESCRIPTION_CHARS)
+  const description = stored.description
+    ? summarizeBody(stored.description, MAX_SUMMARY_DESCRIPTION_CHARS)
     : undefined;
 
   return {
-    remoteName,
+    remoteName: stored.name,
     ...(title ? { title } : {}),
     ...(description ? { description } : {}),
   };

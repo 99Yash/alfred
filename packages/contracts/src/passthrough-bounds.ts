@@ -170,13 +170,16 @@ function capBytes(value: unknown, budget: number): ByteCapResult {
   return { value: pruned, dropped: Math.max(0, before - after) };
 }
 
-export interface BoundedPassthroughBody {
-  value: unknown;
-  truncation?: PassthroughTruncation;
-}
+/**
+ * An untouched body keeps its type. A body that any bound changed is `unknown`
+ * and carries `truncation`, so a typed read must check `truncation` first.
+ */
+export type BoundedPassthroughBody<T = unknown> =
+  | { value: T; truncation?: undefined }
+  | { value: unknown; truncation: PassthroughTruncation };
 
 /** Safe to run with the dispatch-boundary sanitize pass too. */
-export function boundPassthroughBody(input: unknown): BoundedPassthroughBody {
+export function boundPassthroughBody<T>(input: T): BoundedPassthroughBody<T> {
   const originalBytesApprox = approxBytes(input);
   const causes: PassthroughTruncation["causes"] = [];
 
@@ -200,8 +203,14 @@ export function boundPassthroughBody(input: unknown): BoundedPassthroughBody {
     causes.push({ kind: "body_bytes", droppedApprox: byteCapped.dropped });
   }
 
+  // Each bound returns its input by reference when it changes nothing, so the
+  // same reference proves the sanitized value (and its type) came through whole.
+  if (causes.length === 0 && byteCapped.value === sanitized) {
+    return { value: sanitized };
+  }
+
   if (causes.length === 0) {
-    return { value: byteCapped.value };
+    causes.push({ kind: "body_bytes", droppedApprox: 0 });
   }
 
   return {

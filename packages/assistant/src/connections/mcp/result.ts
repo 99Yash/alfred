@@ -1,18 +1,18 @@
-import { getPath, getStringPath, safeJsonParse } from "@alfred/contracts";
+import { safeJsonParse } from "@alfred/contracts";
 import type { z } from "zod";
+import type { McpProtocolCallResult } from "./protocol";
 
 /**
  * Parse one MCP tool result. `structuredContent` always wins, even if malformed.
  * Without it, the result must be exactly one `text` block. Never blend the two.
  */
 export function parseMcpToolResult<Schema extends z.ZodType>(
-  result: unknown,
+  result: McpProtocolCallResult,
   schema: Schema,
 ): z.infer<Schema> | null {
-  const structured = getPath(result, "structuredContent");
-  const content = getPath(result, "content");
-  const block: unknown = Array.isArray(content) && content.length === 1 ? content[0] : undefined;
-  const text = getStringPath(block, "type") === "text" ? getStringPath(block, "text") : undefined;
+  const structured = result.structuredContent;
+  const block = result.content.length === 1 ? result.content[0] : undefined;
+  const text = block?.type === "text" ? block.text : undefined;
 
   const payload =
     structured !== undefined ? structured : text === undefined ? undefined : safeJsonParse(text);

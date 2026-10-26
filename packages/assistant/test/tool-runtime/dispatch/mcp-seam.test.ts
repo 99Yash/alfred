@@ -65,15 +65,11 @@ const ID_PREFIX = "test-mcpseam-";
 
 const createdUserIds: string[] = [];
 
-interface BrokerStubResult {
-  ok: boolean;
-}
-
 /** Records what the seam handed it and returns `completed`. */
 class CapturingBroker {
   lastInput: McpBrokerCallInput | null = null;
   calls = 0;
-  result: BrokerStubResult = { ok: true };
+  result: McpProtocolCallResult = { content: [], structuredContent: { ok: true } };
 
   async callTool(input: McpBrokerCallInput): Promise<McpBrokerOutcome> {
     this.calls += 1;
@@ -417,7 +413,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
 
     assert.deepEqual(executed.toolResult, {
       status: "completed",
-      result: { ok: true },
+      result: { content: [], structuredContent: { ok: true } },
     });
   });
 
