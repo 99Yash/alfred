@@ -1,4 +1,4 @@
-import { eventTriggerPhrase } from "@alfred/contracts";
+import { eventTriggerPhrase, integrationDisplayName } from "@alfred/contracts";
 import type { SyncedWorkflow } from "@alfred/sync";
 import { lowerFirst } from "~/lib/strings";
 import {
@@ -58,13 +58,6 @@ function presentationFor(w: SyncedWorkflow) {
     w.trigger.kind === "cron" ? CalendarClock : w.trigger.kind === "event" ? Zap : WorkflowIcon;
 
   return { icon, tint };
-}
-
-function titleCase(slug: string): string {
-  return slug
-    .replace(/[._-]+/g, " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase())
-    .trim();
 }
 
 function describeCron(schedule: string, timezone?: string): string {
@@ -146,6 +139,7 @@ export function syncedWorkflowToView(w: SyncedWorkflow): WorkflowDefinition {
     status: w.status === "active" ? "active" : "draft",
     prompt: w.brief ?? "",
     trigger: { type: t.type, summary: t.summary },
-    integrations: w.allowedIntegrations.length > 0 ? w.allowedIntegrations.map(titleCase) : ["—"],
+    integrations:
+      w.allowedIntegrations.length > 0 ? w.allowedIntegrations.map(integrationDisplayName) : ["—"],
   };
 }
