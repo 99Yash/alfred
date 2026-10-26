@@ -1,12 +1,18 @@
 import * as Accordion from "@radix-ui/react-accordion";
-import { AWAIT_SUB_AGENT_TOOL, isQuestionApproval, SPAWN_SUB_AGENT_TOOL } from "@alfred/contracts";
+import {
+  AWAIT_SUB_AGENT_TOOL,
+  isQuestionApproval,
+  SPAWN_SUB_AGENT_TOOL,
+  jsonObjectSchema,
+  parseJsonWith,
+  toNonEmptyString,
+} from "@alfred/contracts";
 import type { SyncedChatNarration } from "@alfred/sync";
 import { ChevronRight } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
 import { askUserSummary, type AskUserSummary } from "~/components/approvals/ask-user";
 import { QuestionAnswersCard } from "~/components/approvals/question-answers-card";
 import type { SubAgentTrail } from "~/lib/chat/chat-stream-state";
-import { asString, parseJsonRecord } from "~/lib/json-record";
 import { cn } from "~/lib/utils";
 import { ChatProse } from "./chat-prose";
 import { CollapseItem, CollapseList } from "./collapse-list";
@@ -86,7 +92,10 @@ export function ToolCallGroup({
     const [tool] = item;
 
     if (item.length !== 1 || tool?.toolName !== AWAIT_SUB_AGENT_TOOL) return false;
-    const childRunId = asString(parseJsonRecord(tool.argsPreview)?.childRunId);
+
+    const childRunId = toNonEmptyString(
+      parseJsonWith(tool.argsPreview, jsonObjectSchema)?.childRunId,
+    );
 
     return childRunId !== undefined && subAgents.some((s) => s.childRunId === childRunId);
   };

@@ -27,14 +27,18 @@ export function safeJsonParse(raw: string): JsonValue {
   }
 }
 
-/** Parse and validate. Returns `fallback` (default `null`) on bad JSON or a schema miss. Never throws. */
-export function parseJsonWith<T>(raw: string, schema: z.ZodType<T>): T | null;
-export function parseJsonWith<T>(raw: string, schema: z.ZodType<T>, fallback: T): T;
+/**
+ * Parse and validate. Returns `fallback` (default `null`) on `undefined`, bad JSON, or a schema
+ * miss. Never throws.
+ */
+export function parseJsonWith<T>(raw: string | undefined, schema: z.ZodType<T>): T | null;
+export function parseJsonWith<T>(raw: string | undefined, schema: z.ZodType<T>, fallback: T): T;
 export function parseJsonWith<T>(
-  raw: string,
+  raw: string | undefined,
   schema: z.ZodType<T>,
   fallback: T | null = null,
 ): T | null {
+  if (raw === undefined) return fallback;
   const result = schema.safeParse(safeJsonParse(raw));
 
   return result.success ? result.data : fallback;

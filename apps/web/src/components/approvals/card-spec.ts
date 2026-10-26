@@ -12,8 +12,8 @@ import {
   mcpRemoteToolPhrase,
   type ToolName,
   type ToolRiskTier,
+  jsonObjectSchema,
 } from "@alfred/contracts";
-import { asRecord } from "~/lib/json-record";
 import { capitalize } from "~/lib/strings";
 
 const RESPONSE_VERBS = {
@@ -97,10 +97,10 @@ const TITLE_OVERRIDES = new Map<ToolName, (input: JsonObject) => string>([
 
 /** The input-aware override, else the humanized tool name. */
 export function cardTitle(toolName: ToolName, input: unknown): string {
-  const record = asRecord(input);
+  const parsed = jsonObjectSchema.safeParse(input);
   const override = TITLE_OVERRIDES.get(toolName);
 
-  if (override && record) return override(record);
+  if (override && parsed.success) return override(parsed.data);
 
   return capitalize(humanizeToolName(toolName));
 }

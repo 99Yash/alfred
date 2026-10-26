@@ -3,7 +3,12 @@ import {
   githubSearchResultSchema,
   GOOGLE_WORKSPACE_MIME_PREFIX,
   INTEGRATIONS,
+  getPath,
   isToolName,
+  jsonObjectSchema,
+  parseJsonWith,
+  toFiniteNumber,
+  toNonEmptyString,
   type DocumentSource,
   type JsonObject,
   type ToolName,
@@ -13,7 +18,6 @@ import { domainOf } from "~/lib/favicon";
 import type { IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { getIntegrationPage } from "~/lib/integrations/integrations";
 import { formatRelative } from "~/lib/strings";
-import { asRecord, asNumber, asString, parseJsonRecord } from "~/lib/json-record";
 import { brandlessToolIcon } from "./animated-tool-icons";
 import { toSource, type Source } from "./sources";
 import type { ToolCallView } from "./tool-call-presentation";
@@ -46,22 +50,22 @@ export type BrowsingView = FetchUrlView | WebSearchView;
  * `null` for a non-browsing tool.
  */
 export function presentBrowsing(tool: ToolCallView): BrowsingView | null {
-  const args = parseJsonRecord(tool.argsPreview);
-  const result = parseJsonRecord(tool.resultPreview);
+  const args = parseJsonWith(tool.argsPreview, jsonObjectSchema);
+  const result = parseJsonWith(tool.resultPreview, jsonObjectSchema);
 
   if (tool.toolName === FETCH_URL_TOOL) {
     // Only `url` exists while the fetch is in flight.
-    const finalUrl = asString(result?.finalUrl);
-    const requested = asString(result?.url) ?? asString(args?.url);
+    const finalUrl = toNonEmptyString(result?.finalUrl);
+    const requested = toNonEmptyString(result?.url) ?? toNonEmptyString(args?.url);
     const href = finalUrl ?? requested;
 
     if (!href) return null;
-    const text = asString(result?.text);
+    const text = toNonEmptyString(result?.text);
 
     return {
       kind: "fetch_url",
       domain: domainOf(href),
-      title: asString(result?.title),
+      title: toNonEmptyString(result?.title),
       href,
       excerpt: text ? collapseWhitespace(text).slice(0, 400) : undefined,
     };
@@ -144,7 +148,7 @@ export interface EntityView {
 
 /** "3d ago" for a real ISO string; anything else gives no meta. */
 function ago(value: unknown): string | undefined {
-  const iso = asString(value);
+  const iso = toNonEmptyString(value);
 
   return iso ? formatRelative(iso) : undefined;
 }
@@ -189,7 +193,7 @@ function clock12({ hour, minute }: WallClock): string {
 
 function githubStateBadge(item: JsonObject): EvidenceBadge | undefined {
   if (item.draft === true) return { label: "Draft", tone: "neutral" };
-  const state = asString(item.state);
+  const state = toNonEmptyString(item.state);
 
   if (state === "open") return { label: "Open", tone: "green" };
 
@@ -257,11 +261,13 @@ const SEARCH_TOOLS = new Set<ToolName>([
  */
 export function searchQueryOf(tool: ToolCallView): string | undefined {
   if (!isToolName(tool.toolName) || !SEARCH_TOOLS.has(tool.toolName)) return undefined;
-  const args = parseJsonRecord(tool.argsPreview);
-  const result = parseJsonRecord(tool.resultPreview);
+  const args = parseJsonWith(tool.argsPreview, jsonObjectSchema);
+  const result = parseJsonWith(tool.resultPreview, jsonObjectSchema);
 
   // Gmail names it `q`.
-  return asString(args?.query) ?? asString(args?.q) ?? asString(result?.query);
+  return (
+    toNonEmptyString(args?.query) ?? toNonEmptyString(args?.q) ?? toNonEmptyString(result?.query)
+  );
 }
 
 function brandOfToolName(name: string | undefined): IntegrationBrand | undefined {
@@ -309,18 +315,18 @@ const LIST_SPECS = new Map<ToolName, ListSpec>([
     {
       arrayKey: "hits",
       row: (item) => {
-        const title = asString(item.title);
+        const title = toNonEmptyString(item.title);
 
         if (!title) return null;
-        const page = asNumber(item.page);
+        const page = toFiniteNumber(item.page);
 
         return {
-          key: asString(item.chunkId) ?? asString(item.documentId) ?? title,
+          key: toNonEmptyString(item.chunkId) ?? toNonEmptyString(item.documentId) ?? title,
           title,
-          href: asString(item.url),
+          href: toNonEmptyString(item.url),
           // The page number is proved by the extractor and never invented by the model (ADR-0091).
           meta: joinMeta(page ? `page ${page}` : undefined, ago(item.authoredAt)),
-          brand: brandOfDocumentSource(asString(item.source)),
+          brand: brandOfDocumentSource(toNonEmptyString(item.source)),
         };
       },
     },
@@ -330,14 +336,14 @@ const LIST_SPECS = new Map<ToolName, ListSpec>([
     {
       arrayKey: "candidates",
       row: (item) => {
-        const name = asString(item.name);
+        const name = toNonEmptyString(item.name);
 
         if (!name) return null;
-        const unavailable = asString(item.unavailableReason);
+        const unavailable = toNonEmptyString(item.unavailableReason);
 
         return {
           key: name,
-          title: asString(item.title) ?? name,
+          title: toNonEmptyString(item.title) ?? name,
           meta: name,
           brand: brandOfToolName(name),
           // A `system.*` tool has no service, so use its trail icon.
@@ -353,17 +359,17 @@ const LIST_SPECS = new Map<ToolName, ListSpec>([
     {
       arrayKey: "messages",
       faviconDomain: INTEGRATIONS.gmail.domain,
-      hasMore: (result) => asString(result.nextPageToken) !== undefined,
+      hasMore: (result) => toNonEmptyString(result.nextPageToken) !== undefined,
       row: (item) => {
-        const subject = asString(item.subject);
-        const from = asString(item.from);
+        const subject = toNonEmptyString(item.subject);
+        const from = toNonEmptyString(item.from);
 
         if (!subject && !from) return null;
 
         return {
-          key: asString(item.messageId) ?? subject ?? from ?? "message",
+          key: toNonEmptyString(item.messageId) ?? subject ?? from ?? "message",
           title: subject ?? "(no subject)",
-          href: asString(item.url),
+          href: toNonEmptyString(item.url),
           meta: joinMeta(from, ago(item.authoredAt)),
         };
       },
@@ -383,17 +389,17 @@ const LIST_SPECS = new Map<ToolName, ListSpec>([
         return parsed.data.totalCount > shown ? parsed.data.totalCount - shown : undefined;
       },
       row: (item) => {
-        const title = asString(item.title);
+        const title = toNonEmptyString(item.title);
 
         if (!title) return null;
-        const number = asNumber(item.number);
-        const url = asString(item.url);
+        const number = toFiniteNumber(item.number);
+        const url = toNonEmptyString(item.url);
 
         return {
           key: url ?? String(number ?? title),
           title: number ? `#${number} ${title}` : title,
           href: url,
-          meta: asString(item.repository),
+          meta: toNonEmptyString(item.repository),
           badge: githubStateBadge(item),
         };
       },
@@ -405,13 +411,13 @@ const LIST_SPECS = new Map<ToolName, ListSpec>([
       arrayKey: "items",
       faviconDomain: INTEGRATIONS.github.domain,
       row: (item) => {
-        const title = asString(item.title);
+        const title = toNonEmptyString(item.title);
 
         if (!title) return null;
-        const number = asNumber(item.number);
-        const url = asString(item.url);
-        const additions = asNumber(item.additions);
-        const deletions = asNumber(item.deletions);
+        const number = toFiniteNumber(item.number);
+        const url = toNonEmptyString(item.url);
+        const additions = toFiniteNumber(item.additions);
+        const deletions = toFiniteNumber(item.deletions);
 
         const diff =
           additions !== undefined || deletions !== undefined
@@ -422,7 +428,7 @@ const LIST_SPECS = new Map<ToolName, ListSpec>([
           key: url ?? String(number ?? title),
           title: number ? `#${number} ${title}` : title,
           href: url,
-          meta: joinMeta(asString(item.repository), diff),
+          meta: joinMeta(toNonEmptyString(item.repository), diff),
           badge: githubStateBadge(item),
         };
       },
@@ -434,19 +440,19 @@ const LIST_SPECS = new Map<ToolName, ListSpec>([
       arrayKey: "events",
       faviconDomain: INTEGRATIONS.calendar.domain,
       row: (item) => {
-        const title = asString(item.title);
+        const title = toNonEmptyString(item.title);
 
         if (!title) return null;
-        const start = asString(item.start);
+        const start = toNonEmptyString(item.start);
         // Google sends an absent location as the string "null".
-        const location = asString(item.location);
+        const location = toNonEmptyString(item.location);
 
         return {
-          key: asString(item.id) ?? title,
+          key: toNonEmptyString(item.id) ?? title,
           title,
-          href: asString(item.htmlLink) ?? asString(item.hangoutLink),
+          href: toNonEmptyString(item.htmlLink) ?? toNonEmptyString(item.hangoutLink),
           meta: joinMeta(
-            start ? formatEventWindow(start, asString(item.end)) : undefined,
+            start ? formatEventWindow(start, toNonEmptyString(item.end)) : undefined,
             location && location !== "null" ? location : undefined,
           ),
         };
@@ -459,15 +465,15 @@ const LIST_SPECS = new Map<ToolName, ListSpec>([
       arrayKey: "files",
       faviconDomain: INTEGRATIONS.drive.domain,
       row: (item) => {
-        const name = asString(item.name);
+        const name = toNonEmptyString(item.name);
 
         if (!name) return null;
 
         return {
-          key: asString(item.id) ?? name,
+          key: toNonEmptyString(item.id) ?? name,
           title: name,
-          href: asString(item.webViewLink),
-          meta: joinMeta(driveKind(asString(item.mimeType)), ago(item.modifiedTime)),
+          href: toNonEmptyString(item.webViewLink),
+          meta: joinMeta(driveKind(toNonEmptyString(item.mimeType)), ago(item.modifiedTime)),
         };
       },
     },
@@ -475,32 +481,32 @@ const LIST_SPECS = new Map<ToolName, ListSpec>([
 ]);
 
 function githubEntity(result: JsonObject): EntityView | null {
-  const title = asString(result.title);
+  const title = toNonEmptyString(result.title);
 
   if (!title) return null;
-  const number = asNumber(result.number);
+  const number = toFiniteNumber(result.number);
   const facts: EntityFact[] = [];
-  const repo = asString(result.repository);
+  const repo = toNonEmptyString(result.repository);
 
   if (repo) facts.push({ label: "Repo", value: repo });
-  const author = asString(result.author);
+  const author = toNonEmptyString(result.author);
 
   if (author) facts.push({ label: "Author", value: author });
-  const additions = asNumber(result.additions);
-  const deletions = asNumber(result.deletions);
+  const additions = toFiniteNumber(result.additions);
+  const deletions = toFiniteNumber(result.deletions);
 
   if (additions !== undefined || deletions !== undefined) {
     facts.push({ label: "Diff", value: `+${additions ?? 0} −${deletions ?? 0}` });
   }
 
-  const commits = asNumber(result.commits);
+  const commits = toFiniteNumber(result.commits);
 
   if (commits !== undefined) facts.push({ label: "Commits", value: String(commits) });
-  const changedFiles = asNumber(result.changedFiles);
+  const changedFiles = toFiniteNumber(result.changedFiles);
 
   if (changedFiles !== undefined) facts.push({ label: "Files", value: String(changedFiles) });
   // PR previews have no comment count or body.
-  const comments = asNumber(result.comments);
+  const comments = toFiniteNumber(result.comments);
 
   if (comments !== undefined) facts.push({ label: "Comments", value: String(comments) });
 
@@ -508,10 +514,10 @@ function githubEntity(result: JsonObject): EntityView | null {
     kind: "entity",
     faviconDomain: INTEGRATIONS.github.domain,
     title: number ? `#${number} ${title}` : title,
-    href: asString(result.url),
+    href: toNonEmptyString(result.url),
     badge: githubStateBadge(result),
     facts,
-    excerpt: snippetOf(asString(result.body)),
+    excerpt: snippetOf(toNonEmptyString(result.body)),
   };
 }
 
@@ -521,11 +527,13 @@ const ENTITY_BUILDERS = new Map<ToolName, (result: JsonObject) => EntityView | n
   [
     "gmail.read_message",
     (result) => {
-      const subject = asString(result.subject);
+      const subject = toNonEmptyString(result.subject);
+
       // Newer reads put `from`/`to`/`snippet` at the top level; older ones under `metadata`.
-      const metadata = asRecord(result.metadata);
-      const from = asString(result.from) ?? (metadata ? asString(metadata.from) : undefined);
-      const to = asString(result.to) ?? (metadata ? asString(metadata.to) : undefined);
+      const from =
+        toNonEmptyString(result.from) ?? toNonEmptyString(getPath(result, "metadata", "from"));
+
+      const to = toNonEmptyString(result.to) ?? toNonEmptyString(getPath(result, "metadata", "to"));
 
       if (!subject && !from) return null;
       const facts: EntityFact[] = [];
@@ -536,16 +544,16 @@ const ENTITY_BUILDERS = new Map<ToolName, (result: JsonObject) => EntityView | n
       const date = ago(result.authoredAt);
 
       if (date) facts.push({ label: "Date", value: date });
-      const snippet = metadata ? asString(metadata.snippet) : undefined;
+      const snippet = toNonEmptyString(getPath(result, "metadata", "snippet"));
 
       return {
         kind: "entity",
         faviconDomain: INTEGRATIONS.gmail.domain,
         title: subject ?? "(no subject)",
         // Often null for Gmail reads.
-        href: asString(result.url),
+        href: toNonEmptyString(result.url),
         facts,
-        excerpt: snippet ?? emailBody(asString(result.content)),
+        excerpt: snippet ?? emailBody(toNonEmptyString(result.content)),
       };
     },
   ],
@@ -553,7 +561,7 @@ const ENTITY_BUILDERS = new Map<ToolName, (result: JsonObject) => EntityView | n
 
 /** A record list or entity for a read tool. `null` keeps the JSON dump. */
 export function presentEvidence(tool: ToolCallView): RecordListView | EntityView | null {
-  const result = parseJsonRecord(tool.resultPreview);
+  const result = parseJsonWith(tool.resultPreview, jsonObjectSchema);
 
   if (!result || !isToolName(tool.toolName)) return null;
 
@@ -566,10 +574,10 @@ export function presentEvidence(tool: ToolCallView): RecordListView | EntityView
     const rows: EvidenceRow[] = [];
 
     for (const entry of raw) {
-      const record = asRecord(entry);
+      const record = jsonObjectSchema.safeParse(entry);
 
-      if (!record) continue;
-      const row = listSpec.row(record);
+      if (!record.success) continue;
+      const row = listSpec.row(record.data);
 
       if (row) rows.push(row);
     }

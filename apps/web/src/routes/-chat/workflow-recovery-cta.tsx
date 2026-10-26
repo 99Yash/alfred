@@ -1,8 +1,11 @@
-import { workflowRecoveryNavigationSchema } from "@alfred/contracts";
+import {
+  workflowRecoveryNavigationSchema,
+  jsonObjectSchema,
+  parseJsonWith,
+} from "@alfred/contracts";
 import { ArrowRight } from "lucide-react";
 
 import { API_URL } from "~/lib/eden";
-import { parseJsonRecord } from "~/lib/json-record";
 import type { ToolCallView } from "./tool-call-presentation";
 
 /** Executable recovery returned by system.author_workflow or system.recover_workflow. */
@@ -18,7 +21,7 @@ export function WorkflowRecoveryCta({ tools }: { tools: readonly ToolCallView[] 
       continue;
     }
 
-    const result = parseJsonRecord(tool.resultPreview);
+    const result = parseJsonWith(tool.resultPreview, jsonObjectSchema);
     const recovery = workflowRecoveryNavigationSchema.safeParse(result?.recovery);
 
     if (!recovery.success) continue;

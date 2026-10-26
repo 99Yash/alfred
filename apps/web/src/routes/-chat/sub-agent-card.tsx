@@ -1,8 +1,8 @@
+import { jsonObjectSchema, parseJsonWith, toNonEmptyString } from "@alfred/contracts";
 import * as Accordion from "@radix-ui/react-accordion";
 import { ChevronRight } from "lucide-react";
 import { useId, useState } from "react";
 import type { SubAgentTrail } from "~/lib/chat/chat-stream-state";
-import { asString, parseJsonRecord } from "~/lib/json-record";
 import { cn } from "~/lib/utils";
 import { brandlessToolIcon, RunningToolIcon } from "./animated-tool-icons";
 import { Elapsed } from "./elapsed";
@@ -37,7 +37,7 @@ export function SubAgentCard({ tool, trail }: { tool: ToolCallView; trail: SubAg
   const steps = visibleTools(trail.tools);
   const mcpServers = useMcpServerLookup(hasMcpCall(steps));
   const spawn = presentTool(tool);
-  const brief = asString(parseJsonRecord(tool.argsPreview)?.brief);
+  const brief = toNonEmptyString(parseJsonWith(tool.argsPreview, jsonObjectSchema)?.brief);
   // `cancelled` also means the child did not finish.
   const failed = trail.outcome === "failed" || trail.outcome === "cancelled";
 

@@ -1,10 +1,14 @@
-import { getStringPath } from "@alfred/contracts";
+import {
+  getStringPath,
+  jsonObjectSchema,
+  parseJsonWith,
+  toNonEmptyString,
+} from "@alfred/contracts";
 import * as Accordion from "@radix-ui/react-accordion";
 import { ChevronRight, ExternalLink, Scissors, Search, X } from "lucide-react";
 import { AnimatePresence, m } from "motion/react";
 import { useId } from "react";
 import { IntegrationGlyph, IntegrationIcon } from "~/lib/integrations/integration-icons";
-import { asString, parseJsonRecord } from "~/lib/json-record";
 import { cn } from "~/lib/utils";
 import { brandlessToolIcon, RunningToolIcon } from "./animated-tool-icons";
 import {
@@ -32,7 +36,7 @@ const MAX_STAGGERED_ROWS = 6;
 
 /** Re-indent minified JSON results. Null for anything that is not a parseable object. */
 function prettyJson(text: string): string | null {
-  const record = parseJsonRecord(text);
+  const record = parseJsonWith(text, jsonObjectSchema);
 
   return record ? JSON.stringify(record, null, 2) : null;
 }
@@ -58,14 +62,14 @@ function recordCount(resolved: ResolvedCall[]): number | undefined {
 }
 
 function failureReason(resultPreview: string | undefined): string | undefined {
-  const parsed = parseJsonRecord(resultPreview);
+  const parsed = parseJsonWith(resultPreview, jsonObjectSchema);
 
   if (!parsed) return resultPreview;
   const message = getStringPath(parsed, "error", "message");
 
   if (message) return message;
 
-  return asString(parsed.message) ?? asString(parsed.error) ?? resultPreview;
+  return toNonEmptyString(parsed.message) ?? toNonEmptyString(parsed.error) ?? resultPreview;
 }
 
 /**

@@ -8,9 +8,9 @@ import {
   type AskUserQuestion,
   type AskUserUnansweredResult,
   type JsonObject,
+  jsonObjectSchema,
 } from "@alfred/contracts";
 import type { SyncedActionStaging } from "@alfred/sync";
-import { asRecord } from "~/lib/json-record";
 
 /**
  * Readers for the `system.ask_user` approval (ADR-0099). Its staged input and
@@ -49,9 +49,10 @@ export interface QuestionStaging {
  */
 export function asQuestionStaging(staging: SyncedActionStaging): QuestionStaging | null {
   if (!isQuestionApproval(staging.toolName)) return null;
-  const raw = asRecord(staging.proposedInput);
+  const parsed = jsonObjectSchema.safeParse(staging.proposedInput);
 
-  if (!raw) return null;
+  if (!parsed.success) return null;
+  const raw = parsed.data;
   const input = parseAskUserInput(raw);
 
   return input ? { staging, input, raw } : null;

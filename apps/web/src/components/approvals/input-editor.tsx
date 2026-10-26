@@ -6,11 +6,11 @@ import {
   type FieldSpec,
   type JsonObject,
   type ToolName,
+  jsonObjectSchema,
 } from "@alfred/contracts";
 import { useState } from "react";
 import type { z } from "zod";
 import { AppDateTimePicker, AppInput, AppSelect, AppSwitch, AppTextarea } from "~/components/ui/v2";
-import { asRecord } from "~/lib/json-record";
 import { formatJson, formatTimestamp, parseJson } from "./format";
 
 type FieldControlSpec = Exclude<FieldSpec, { kind: "boolean" }>;
@@ -34,13 +34,14 @@ export function ApprovalInputEditor({
   disabled?: boolean | undefined;
   idPrefix: string;
 }) {
-  const record = asRecord(value);
+  const parsed = jsonObjectSchema.safeParse(value);
   const fieldSpecs = toolInputFields(toolName);
 
-  if (!record || !fieldSpecs) {
+  if (!parsed.success || !fieldSpecs) {
     return <JsonFallbackEditor value={value} onChange={onChange} disabled={disabled} />;
   }
 
+  const record = parsed.data;
   const fields = editorFieldsForTool(toolName, fieldSpecs, record);
 
   return (
@@ -70,16 +71,18 @@ export function ApprovalInputEditor({
  * field, no controls. Empty fields are left out. Input with no field specs shows as JSON.
  */
 export function ApprovalInputFacts({ toolName, value }: { toolName: ToolName; value: unknown }) {
-  const record = asRecord(value);
+  const parsed = jsonObjectSchema.safeParse(value);
   const fieldSpecs = toolInputFields(toolName);
 
-  if (!record || !fieldSpecs) {
+  if (!parsed.success || !fieldSpecs) {
     return (
       <pre className="overflow-x-auto rounded-surface bg-app-bg-2/60 p-3 font-mono text-[12px] leading-5 whitespace-pre-wrap text-app-fg-3">
         {formatJson(value)}
       </pre>
     );
   }
+
+  const record = parsed.data;
 
   const facts = editorFieldsForTool(toolName, fieldSpecs, record).flatMap((field) => {
     const text = factText(field, record);
