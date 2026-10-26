@@ -22,6 +22,7 @@ import {
   INTEGRATIONS,
   isNotificationSender,
   isRecord,
+  mailboxLabel,
   OBJECT_STATE_PROVIDERS,
   parseEventTypeName,
   parseGmailDocumentMetadata,
@@ -75,7 +76,6 @@ import {
   type LiveNativeStateReader,
 } from "./relevance";
 import { scorePriorityEmailDemand } from "./read";
-import { shortenFrom } from "./sender";
 import { logger } from "@alfred/logging";
 
 /**
@@ -585,7 +585,7 @@ export async function gatherBriefingWithSuppressionAudit(
       documentId: item.documentId,
       threadId: threadIdFromGmailUrl(item.threadUrl),
       subject: item.subject?.trim() || "(no subject)",
-      sender: shortenFrom(item.from) ?? "Unknown sender",
+      sender: mailboxLabel(item.from) ?? "Unknown sender",
       snippet: item.snippet ?? item.rationale ?? "",
     }));
   }

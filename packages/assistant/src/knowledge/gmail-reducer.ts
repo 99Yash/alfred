@@ -1,11 +1,12 @@
 import {
-  canonicalizeIdentityValue,
   getPath,
   getStringPath,
   gmailEmailMessagePayloadSchema,
-  identityRefSchema,
   observationInsertSchema,
+  parseEmailIdentity,
   parseGmailDocumentMetadata,
+  parseMailbox,
+  splitAddressList,
   type GmailDocumentMetadata,
   type GmailEmailMessagePayload,
   type IdentityRef,
@@ -265,77 +266,16 @@ function parseAddressList(raw: string | null, role: ParsedAddressList["role"]): 
 
 function parseSingleAddress(raw: string | null): ParsedAddress | null {
   const normalized = normalizeHeader(raw);
+  const mailbox = parseMailbox(normalized);
+  const value = parseEmailIdentity(mailbox?.address);
 
-  if (!normalized) return null;
-
-  const angle = /^(.*?)<([^>]+)>\s*$/.exec(normalized);
-  const addressRaw = (angle?.[2] ?? normalized).trim();
-  const displayNameRaw = angle?.[1]?.trim();
-  const displayName = displayNameRaw ? stripOuterQuotes(displayNameRaw) : undefined;
-  const value = canonicalizeIdentityValue("email", addressRaw);
-  const identity = identityRefSchema.safeParse({ kind: "email", value });
-
-  if (!identity.success) return null;
+  if (!normalized || !mailbox || !value) return null;
 
   return {
-    identity: identity.data,
-    ...(displayName ? { displayName } : {}),
+    identity: { kind: "email", value },
+    ...(mailbox.displayName ? { displayName: mailbox.displayName } : {}),
     raw: normalized,
   };
-}
-
-function stripOuterQuotes(value: string): string {
-  const stripped = value.replace(/^"+|"+$/g, "").trim();
-
-  return stripped || value;
-}
-
-function splitAddressList(raw: string): string[] {
-  const parts: string[] = [];
-  let current = "";
-  let inQuote = false;
-  let angleDepth = 0;
-  let escaped = false;
-
-  for (const char of raw) {
-    if (escaped) {
-      current += char;
-      escaped = false;
-      continue;
-    }
-
-    if (char === "\\") {
-      current += char;
-      escaped = true;
-      continue;
-    }
-
-    if (char === '"') {
-      inQuote = !inQuote;
-      current += char;
-      continue;
-    }
-
-    if (!inQuote && char === "<") angleDepth++;
-
-    if (!inQuote && char === ">" && angleDepth > 0) angleDepth--;
-
-    if (!inQuote && angleDepth === 0 && char === ",") {
-      const trimmed = current.trim();
-
-      if (trimmed) parts.push(trimmed);
-      current = "";
-      continue;
-    }
-
-    current += char;
-  }
-
-  const trimmed = current.trim();
-
-  if (trimmed) parts.push(trimmed);
-
-  return parts;
 }
 
 interface BuiltParticipants {

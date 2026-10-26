@@ -9,7 +9,7 @@
  * deleted once the shadow-projection probe shows coverage (ADR-0092 D5).
  */
 
-import { parseEmailAddress } from "./guards";
+import { parseMailbox } from "./domain";
 import { INTEGRATION_DISPLAY_NAMES, isIntegrationSlug, type IntegrationSlug } from "./integrations";
 
 const GITHUB_REPO_RE = /\[([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)\]/;
@@ -210,9 +210,9 @@ function issueLoopEntityRef(
 export function trackerSenderKey(sender: string | null | undefined): TrackerSenderKey | null {
   if (!sender) return null;
   const parts = [sender];
-  const address = parseEmailAddress(sender);
+  const mailbox = parseMailbox(sender);
 
-  if (address) parts.push(address, address.split("@")[1] ?? "");
+  if (mailbox) parts.push(mailbox.address, mailbox.domain);
   const haystack = parts.join(" ");
 
   return TRACKER_SENDER_PATTERNS.find((pattern) => pattern.re.test(haystack))?.key ?? null;

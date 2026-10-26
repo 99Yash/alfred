@@ -6,8 +6,10 @@
 
 import {
   hasServiceWordSuffix,
+  parseMailbox,
   type BotSlug,
   type EffectiveAuthor,
+  type Mailbox,
   type SenderContext,
   type SenderKind,
 } from "@alfred/contracts";
@@ -32,7 +34,7 @@ export interface SenderContextResult {
 }
 
 export function extractSenderContext(args: ExtractSenderContextArgs): SenderContextResult {
-  const parsed = parseFromHeader(args.fromHeader);
+  const parsed = parseMailbox(args.fromHeader);
   const senderAddress = parsed?.address ?? null;
   const senderDomain = parsed?.domain ?? null;
   const fromKind = classifyFromKind(parsed);
@@ -66,52 +68,6 @@ export function extractSenderContext(args: ExtractSenderContextArgs): SenderCont
   };
 
   return { context, parserHit, senderAddress, senderDomain };
-}
-
-// ---------------------------------------------------------------------------
-// From-header parsing
-// ---------------------------------------------------------------------------
-
-interface ParsedFrom {
-  displayName: string | null;
-  address: string;
-  localPart: string;
-  domain: string;
-}
-
-const ANGLE_ADDR_RE = /^(.*?)<([^>]+)>\s*$/;
-
-function parseFromHeader(raw: string | null): ParsedFrom | null {
-  if (!raw) return null;
-  const trimmed = raw.trim();
-
-  if (!trimmed) return null;
-
-  let displayName: string | null = null;
-  let addressRaw: string;
-  const angle = trimmed.match(ANGLE_ADDR_RE);
-
-  if (angle && angle[2] !== undefined) {
-    const namePart = (angle[1] ?? "")
-      .trim()
-      .replace(/^"+|"+$/g, "")
-      .trim();
-
-    displayName = namePart || null;
-    addressRaw = angle[2].trim();
-  } else {
-    addressRaw = trimmed;
-  }
-
-  const at = addressRaw.lastIndexOf("@");
-
-  if (at < 1 || at === addressRaw.length - 1) return null;
-  const localPart = addressRaw.slice(0, at).toLowerCase();
-  const domain = addressRaw.slice(at + 1).toLowerCase();
-
-  if (!localPart || !domain || domain.indexOf(".") === -1) return null;
-
-  return { displayName, address: `${localPart}@${domain}`, localPart, domain };
 }
 
 // ---------------------------------------------------------------------------
@@ -233,7 +189,7 @@ const FIRST_LAST_LOCAL_RE = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+$/i;
 const ORG_DISPLAY_TOKEN_RE =
   /\b(inc|incorporated|ltd|limited|llc|llp|gmbh|plc|corp|corporation|company|co|team|notifications?|depository|registrar|bank|services?|support|billing|payroll|careers?|jobs|sales|marketing|newsletter|news|alerts?)\b/i;
 
-function classifyFromKind(parsed: ParsedFrom | null): SenderKind {
+function classifyFromKind(parsed: Mailbox | null): SenderKind {
   if (!parsed) return "unknown";
   const { localPart, domain, displayName } = parsed;
 
@@ -335,7 +291,7 @@ const GITHUB_BOLD_RE = /\*\*([^*\n]{1,80})\*\*/;
 
 const GITHUB_BOT_SUFFIX_RE = /^(.+?)\s*\[bot\]\s*$/i;
 
-function githubDisplayNameBot(parsed: ParsedFrom): BodyActor | undefined {
+function githubDisplayNameBot(parsed: Mailbox): BodyActor | undefined {
   if (!isGithubDomain(parsed.domain) || !parsed.displayName) return undefined;
   const handle = parsed.displayName.match(GITHUB_BOT_SUFFIX_RE)?.[1]?.trim().toLowerCase();
 
@@ -365,8 +321,6 @@ const ICAL_ORGANIZER_RE = /ORGANIZER(?:;[^:\n]*?CN="?([^";:\n]+)"?)?[^:\n]*:mail
 
 const PLAIN_ORGANIZER_RE = /^\s*organizer:\s*(.+)$/im;
 
-const ANGLE_NAME_RE = /^(.+?)\s*<([^>]+)>\s*$/;
-
 function parseCalendarBodyActor(body: string): BodyActor | undefined {
   const ical = body.match(ICAL_ORGANIZER_RE);
 
@@ -385,18 +339,14 @@ function parseCalendarBodyActor(body: string): BodyActor | undefined {
   const plainRaw = plain?.[1]?.trim();
 
   if (plainRaw) {
-    const angle = plainRaw.match(ANGLE_NAME_RE);
-    const angleEmail = angle?.[2];
+    const mailbox = parseMailbox(plainRaw);
 
-    if (angleEmail) {
-      const name = (angle[1] ?? "")
-        .trim()
-        .replace(/^"+|"+$/g, "")
-        .trim();
-
-      const handle = angleEmail.trim().toLowerCase();
-
-      return { kind: "person", name: name || handle, handle };
+    if (mailbox) {
+      return {
+        kind: "person",
+        name: mailbox.displayName ?? mailbox.address,
+        handle: mailbox.address,
+      };
     }
 
     return { kind: "person", name: plainRaw, handle: plainRaw.toLowerCase() };

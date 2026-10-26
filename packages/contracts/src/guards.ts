@@ -3,7 +3,7 @@
  * `typeof x === "object"` is also true for arrays and `null`, so do not cast after it.
  */
 
-import { extractEmailAddress } from "./domain";
+import { parseMailbox } from "./domain";
 
 /**
  * True only for plain objects: not `null`, arrays, Date, Map, or class instances.
@@ -112,7 +112,7 @@ export function enumGuard<const T extends readonly string[]>(
  * A change here moves what they drop.
  */
 export function parseEmailAddress(value: string | null | undefined): string | null {
-  return extractEmailAddress(value);
+  return parseMailbox(value)?.address ?? null;
 }
 
 /**

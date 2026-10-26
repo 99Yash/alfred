@@ -23,8 +23,7 @@ import { warmPool } from "@alfred/db";
 import { closeScriptResources } from "../script-runtime";
 import {
   USER_MODEL_PROJECTION_NAME,
-  canonicalizeIdentityValue,
-  identityRefSchema,
+  parseEmailIdentity,
   toMessage,
   type ProjectionSourceHighWatermark,
 } from "@alfred/contracts";
@@ -142,7 +141,7 @@ async function resolveTargets(emails: readonly string[]): Promise<TargetUser[]> 
   }
 
   for (const credential of credentials) {
-    const email = canonicalEmail(credential.accountLabel);
+    const email = parseEmailIdentity(credential.accountLabel);
 
     if (!email) continue;
     const values = accountEmailsByUser.get(credential.userId);
@@ -308,18 +307,10 @@ async function validateDeterminism(args: {
 
 function canonicalEmailList(values: readonly string[]): string[] {
   return values.flatMap((value) => {
-    const email = canonicalEmail(value);
+    const email = parseEmailIdentity(value);
 
     return email ? [email] : [];
   });
-}
-
-function canonicalEmail(value: string | null): string | null {
-  if (!value) return null;
-  const canonical = canonicalizeIdentityValue("email", value);
-  const parsed = identityRefSchema.safeParse({ kind: "email", value: canonical });
-
-  return parsed.success ? parsed.data.value : null;
 }
 
 async function processTarget(target: TargetUser, projectionVersion: number): Promise<void> {

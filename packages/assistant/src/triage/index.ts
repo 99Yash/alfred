@@ -100,7 +100,7 @@ export type {
 
 export { gmailSentSql, notSentGmailDocumentWhere } from "./sent-mail";
 
-// The parser port knowledge depends on (ADR-0089). `splitAddressList` stays internal.
+// The parser port knowledge depends on (ADR-0089).
 export { gmailSenderAdapter } from "./gmail-sender-adapter";
 
 export { assembleObservations, extractGmailSignals, extractContentFlags } from "./observations";

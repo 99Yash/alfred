@@ -3,7 +3,8 @@ import {
   INBOX_DEFAULT_LIMIT,
   isDomainOrSubdomain,
   isTriageCategory,
-  parseEmailAddress,
+  mailboxLabel,
+  parseMailbox,
   type TriageCategory,
 } from "@alfred/contracts";
 import type { InfiniteData } from "@tanstack/react-query";
@@ -149,9 +150,7 @@ export function useInboxDetail(documentId: string | null) {
 
       const messages: InboxMessage[] = Array.isArray(data.messages)
         ? data.messages.map((m) => {
-            const rawSender = m.sender ?? "";
-            const display = parseSenderDisplay(rawSender);
-            const email = parseSenderEmail(rawSender);
+            const sender = senderView(m.sender);
 
             const attachments: InboxAttachment[] = m.attachments.map((a) => ({
               partId: a.partId ?? null,
@@ -164,8 +163,8 @@ export function useInboxDetail(documentId: string | null) {
             return {
               documentId: m.documentId,
               sender: m.sender,
-              senderDisplay: display || "Unknown sender",
-              senderEmail: email,
+              senderDisplay: sender.label,
+              senderEmail: sender.email,
               to: m.to,
               cc: m.cc,
               subject: m.subject,
@@ -176,8 +175,8 @@ export function useInboxDetail(documentId: string | null) {
               authoredAtRelative: formatRelativeShort(m.authoredAt),
               unread: m.unread,
               attachments,
-              initial: initialFor(display),
-              tone: toneFor(display),
+              initial: sender.initial,
+              tone: sender.tone,
             };
           })
         : [];
@@ -195,47 +194,47 @@ export function useInboxDetail(documentId: string | null) {
   });
 }
 
-function parseSenderDisplay(raw: string): string {
-  if (!raw) return "";
-  const before = raw.split("<")[0]?.trim() ?? "";
-  const unquoted = before.replace(/^"|"$/g, "").trim();
-
-  if (unquoted) return unquoted;
-  const addr = raw.match(/<([^>]+)>/)?.[1] ?? raw;
-
-  return addr.split("@")[0] ?? raw;
+interface SenderView {
+  label: string;
+  email: string | null;
+  domain: string;
+  initial: string;
+  tone: AppTint;
 }
 
-function parseSenderEmail(raw: string): string | null {
-  if (!raw) return null;
-  const angle = raw.match(/<([^>]+)>/)?.[1];
+/** One parse of a `From:` value, so the list and the thread show one label and one tint. */
+function senderView(raw: string | null | undefined): SenderView {
+  const mailbox = parseMailbox(raw);
+  const name = mailboxLabel(raw) ?? "";
 
-  if (angle) return angle.trim();
-
-  if (raw.includes("@")) return raw.trim();
-
-  return null;
+  return {
+    label: name || "Unknown sender",
+    email: mailbox?.address ?? null,
+    domain: mailbox?.domain ?? "",
+    initial: initialFor(name),
+    tone: toneFor(name),
+  };
 }
 
 type InboxResponseItem = EdenData<typeof client.api.me.inbox.get>["items"][number];
 
 function toInboxItem(row: InboxResponseItem): RailInboxItem {
-  const display = senderDisplay(row.sender);
-  const domain = senderDomain(row.sender);
+  const sender = senderView(row.sender);
+  const domain = sender.domain;
   const brand = brandFor(domain);
 
   return {
     id: row.documentId,
     threadId: row.threadId,
-    sender: display || "Unknown sender",
-    senderAddress: parseEmailAddress(row.sender),
+    sender: sender.label,
+    senderAddress: sender.email,
     subject: row.subject ?? "(no subject)",
     preview: cleanPreview(row.snippet) || " ",
     time: formatRelativeShort(row.authoredAt),
     authoredAtMs: row.authoredAt ? new Date(row.authoredAt).getTime() : null,
     unread: row.unread,
-    initial: initialFor(display),
-    tone: toneFor(display),
+    initial: sender.initial,
+    tone: sender.tone,
     category: isTriageCategory(row.category) ? row.category : null,
     senderBrand: brand,
     senderDomain: brand === null && !isPersonalDomain(domain) && domain ? domain : null,
@@ -259,31 +258,6 @@ function isPersonalDomain(domain: string): boolean {
   if (!domain) return false;
 
   return PERSONAL_MAIL_DOMAINS.has(domain);
-}
-
-function senderDisplay(raw: string | null): string {
-  if (!raw) return "";
-  const trimmed = raw.trim();
-  const beforeBracket = trimmed.split("<")[0]?.trim() ?? "";
-  const unquoted = beforeBracket.replace(/^"|"$/g, "").trim();
-
-  if (unquoted) return unquoted;
-  const addr = trimmed.match(/<([^>]+)>/)?.[1] ?? trimmed;
-
-  return addr.split("@")[0] ?? trimmed;
-}
-
-function senderDomain(raw: string | null): string {
-  if (!raw) return "";
-  const addr = raw.match(/<([^>]+)>/)?.[1] ?? raw;
-  const at = addr.lastIndexOf("@");
-
-  if (at < 0) return "";
-
-  return addr
-    .slice(at + 1)
-    .trim()
-    .toLowerCase();
 }
 
 function brandFor(domain: string): IntegrationBrand | null {

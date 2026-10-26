@@ -624,9 +624,23 @@ export const RULES = [
   },
   {
     id: "raw-email-normalize",
-    re: /\.match\(\s*\/<\s*\(\?/,
+    // A `Name <addr>` header split: `.match(/<(?…` or the `<([^>]+)>` capture.
+    // Seven copies of the second spelling read one `From:` header seven ways
+    // until `parseMailbox`. `hint`, because a body scan for an address
+    // (`<([^>]+@noreply.github.com)>`) or an organizer line is a fair use.
+    re: /\.match\(\s*\/<\s*\(\?|<\(\[\^>\]\+\)>/,
     severity: "hint",
-    fix: "Use parseEmailAddress(value) from @alfred/contracts to pull an address out of a `Name <addr>` header and normalize it. It is also the single source of self-mail matching.",
+    owners: ["packages/contracts/src/domain.ts"],
+    fix: "Use parseMailbox(value) from @alfred/contracts for the name, address, local part and domain of a `Name <addr>` header, or parseEmailAddress(value) for the address alone (the single source of self-mail matching). mailboxLabel(value) is the display label; splitAddressList(value) splits a To/Cc list.",
+  },
+  {
+    id: "email-domain-split",
+    // `address.split("@")[1]` takes the text after the FIRST `@`, so
+    // `a@b@x.com` gives `b`. `parseMailbox` and `splitEmail` share one split
+    // body (a single `@`, `normalizeDomain`), so the domain has one home.
+    re: /\.split\(\s*["'`]@["'`]\s*\)\s*\[\s*1\s*\]/,
+    severity: "gate",
+    fix: "Use parseMailbox(value)?.domain from @alfred/contracts. A split on the first `@` reads the wrong domain when the local part holds one.",
   },
   {
     id: "sender-regex-test",
@@ -634,8 +648,8 @@ export const RULES = [
     // `/railway\.(app|com)/i.test(from)`. A substring test on the raw header
     // also matches the display name and a look-alike host (`railway.app.evil.io`,
     // `"Railway" <x@evil.io>`); the Railway matcher shipped that way until #1360.
-    // `raw-email-normalize` only sees the `.match(/<(?` header split, so it
-    // missed this spelling.
+    // `raw-email-normalize` covers the `.match(` header-split spellings, so it
+    // misses this `.test(` spelling.
     //
     // The argument is an identifier (or a property chain ending in one) named
     // `from`, `fromHeader`/`fromAddress`/`fromEmail`, `sender…` or `…Sender…`.
@@ -647,7 +661,7 @@ export const RULES = [
     // (`/^alfred/i.test(sender)`) is a fair use too.
     re: /\/[dgimsuvy]*\.test\(\s*(?:\w+\??\.)*(?:from|from(?:Header|Address|Addr|Email)|sender\w*|\w+(?:Sender\w*|FromHeader|FromAddress|FromAddr|FromEmail))\b/,
     severity: "hint",
-    fix: "Read the sender's domain with emailDomain(parseEmailAddress(from)) from @alfred/contracts, then compare it with isDomainOrSubdomain(domain, base). A regex over the raw header also matches the display name and a look-alike host.",
+    fix: "Read the sender's domain with parseMailbox(from)?.domain from @alfred/contracts, then compare it with isDomainOrSubdomain(domain, base). A regex over the raw header also matches the display name and a look-alike host.",
   },
   {
     id: "hand-rolled-domain-match",

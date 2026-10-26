@@ -115,10 +115,11 @@ describe("[campaign-04 seam] authoredByGmail — From-header normalization via e
     assert.equal(r.reason, "missing_author_identity");
   });
 
-  test("QUIRK: a dot-less domain (e.g. 'user@localhost') is unparseable → missing_author_identity", () => {
+  test("a dot-less domain (e.g. 'user@localhost') parses, and is not self → identity_mismatch", () => {
+    // parseMailbox has no dot rule (D5; see PR #1532 for the behavior table).
     const r = authoredByUser(gmailDoc({ from: "user@localhost" }, "acc_work"), self);
     assert.equal(r.authoredByUser, false);
-    assert.equal(r.reason, "missing_author_identity");
+    assert.equal(r.reason, "identity_mismatch");
   });
 });
 
