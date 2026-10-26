@@ -3,12 +3,8 @@ import {
   isEventTypeForSource,
   type StateCategory,
 } from "@alfred/contracts";
-import {
-  type GithubPayload,
-  parseGithubEvent,
-  type SentryIssuePayload,
-  sentryIssueEventSchema,
-} from "../ingress/receipt-schemas";
+import { type GithubPayload, parseGithubEvent } from "../ingress/receipt-schemas";
+import { type SentryIssuePayload, sentryIssueEventSchema } from "../ingress/sentry";
 
 /**
  * The fold input (ADR-0062): one member per (provider, event type), each with a typed payload. A

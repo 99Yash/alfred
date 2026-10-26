@@ -8,6 +8,8 @@ import {
 import type { InboundProjection, InboundSourceDescriptor, InboundSyntheticKey } from "./descriptor";
 import { describeInboundJson } from "./description";
 import { logger } from "@alfred/logging";
+import { z } from "zod";
+import { lenient, providerId, text } from "./receipt-schemas";
 
 /**
  * Sentry internal-integration webhooks (ADR-0097, #563).
@@ -16,6 +18,32 @@ import { logger } from "@alfred/logging";
  * `Request-ID` changes on each retry, so the dedup key is synthetic.
  * Known gap: nothing consumes `installation.deleted`, so health stays green after an uninstall.
  */
+
+/** The issue part of a Sentry issue webhook. Dedup and the object-state fold both read it. */
+export const sentryIssueEventSchema = z.object({
+  data: lenient(
+    z.object({
+      issue: lenient(
+        z.object({
+          id: providerId,
+          shortId: text,
+          title: text,
+          permalink: text,
+          project: lenient(z.object({ slug: text })),
+        }),
+      ),
+    }),
+  ),
+});
+
+export type SentryIssuePayload = z.output<typeof sentryIssueEventSchema>;
+
+/** The issue id by `sentryIssueEventSchema`, or `undefined`. */
+function sentryIssueId(payload: JsonObject): string | undefined {
+  const parsed = sentryIssueEventSchema.safeParse(payload);
+
+  return parsed.success ? parsed.data.data?.issue?.id : undefined;
+}
 
 /**
  * `<type>:<identity>`, or `null`. The identity sits at a different path per type.
@@ -40,7 +68,7 @@ const sentryDeliveryKey: InboundSyntheticKey<"sentry"> = ({ payload, type, paylo
     }
 
     case "issue_created": {
-      const issueId = getIdPath(payload, "data", "issue", "id");
+      const issueId = sentryIssueId(payload);
 
       return issueId ? `${type}:${issueId}` : null;
     }
@@ -52,7 +80,7 @@ const sentryDeliveryKey: InboundSyntheticKey<"sentry"> = ({ payload, type, paylo
       // A transition can repeat on one issue (resolve, regress, resolve), and there
       // is no per-transition id. A retry re-sends the same body, so the digest
       // separates transitions. Rare cost: a retry whose issue changed is a duplicate.
-      const issueId = getIdPath(payload, "data", "issue", "id");
+      const issueId = sentryIssueId(payload);
 
       return issueId ? `${type}:${issueId}:${payloadHash.slice(0, 16)}` : null;
     }

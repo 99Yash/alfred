@@ -2,22 +2,23 @@ import { type EventTypeForSource, getIdPath, isEventTypeForSource } from "@alfre
 import { z } from "zod";
 
 /**
- * One schema per declared GitHub and Sentry event type (ADR-0097 item 2). The fold, the descriptor
- * and the briefing read a stored body through these, never through path reads.
+ * One schema per declared GitHub event type (ADR-0097 item 2). The fold, the descriptor and the
+ * briefing read a stored body through these, never through path reads. The Sentry schema lives with
+ * its descriptor in `ingress/sentry.ts` and uses the primitives below.
  *
  * Lenient on purpose: every leaf and every nested object drops to `undefined` when its type is
  * wrong, as a path read does, so one bad field never drops the whole delivery. Only a body that is
  * not an object fails. A stricter schema would stop a verified state from folding (ADR-0062).
  */
 
-function lenient<T extends z.ZodType>(schema: T) {
+export function lenient<T extends z.ZodType>(schema: T) {
   return schema.optional().catch(undefined);
 }
 
-const text = lenient(z.string());
+export const text = lenient(z.string());
 
 /** The `getIdPath` rule: a non-empty string, or a safe integer as text. A missing key is `undefined`. */
-const providerId = z
+export const providerId = z
   .unknown()
   .transform((value) => getIdPath(value) ?? undefined)
   .optional();
@@ -140,22 +141,3 @@ export function parseGithubEvent(eventType: string, raw: unknown): GithubEvent |
     }
   }
 }
-
-/** The issue part of a Sentry issue webhook. The same id rule as `ingress/sentry.ts` dedup. */
-export const sentryIssueEventSchema = z.object({
-  data: lenient(
-    z.object({
-      issue: lenient(
-        z.object({
-          id: providerId,
-          shortId: text,
-          title: text,
-          permalink: text,
-          project: lenient(z.object({ slug: text })),
-        }),
-      ),
-    }),
-  ),
-});
-
-export type SentryIssuePayload = z.output<typeof sentryIssueEventSchema>;
