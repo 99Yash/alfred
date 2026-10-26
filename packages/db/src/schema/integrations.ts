@@ -91,6 +91,7 @@ export const ingestionState = pgTable(
       .references(() => user.id, { onDelete: "cascade" }),
     provider: text("provider").notNull(),
     stream: text("stream").notNull().default("messages"),
+    /** Gmail `messages` shape; read it with `parseGmailIngestionState`. No `$type`: a raw SQL `jsonb_set` writer merges keys, so only the parse proves the shape. */
     state: jsonb("state")
       .notNull()
       .default(sql`'{}'::jsonb`),

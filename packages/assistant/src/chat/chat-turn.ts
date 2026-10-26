@@ -9,7 +9,6 @@ import {
 import { composeAgentInstructions } from "@alfred/ai/voice";
 import { ARTIFACT_DESIGN_PROMPT } from "@alfred/artifacts-design";
 import {
-  isNonEmptyString,
   parseIanaTimezone,
   type AgentTranscriptMessage,
   type ToolRunContext,
@@ -82,6 +81,7 @@ import {
   type ChatRunState,
   type PendingToolCall,
 } from "./chat-turn-state";
+import { readChatTurnRunMetadata } from "./chat-turn-run-metadata";
 import { crossFinalizeBoundary } from "./finalize-guards";
 import { carryForwardThreadTools } from "./thread-tool-carryover";
 import { isChatStopRequested } from "./stop-signal";
@@ -914,35 +914,17 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
   trigger: { kind: "manual" },
   initialStep: "chat-turn",
   initialState(input) {
-    const metadata = input.metadata ?? {};
-    const threadIdValue = metadata["threadId"];
-    const threadId = isNonEmptyString(threadIdValue) ? threadIdValue : null;
+    const metadata = readChatTurnRunMetadata(input.metadata);
+    const threadId = metadata.threadId;
 
     if (!threadId) throw new Error("chat-turn workflow requires metadata.threadId");
 
-    const assistantMessageIdValue = metadata["assistantMessageId"];
-    const startIdValue = metadata["startId"];
-    const kickIdValue = metadata["kickId"];
+    const messageId =
+      metadata.assistantMessageId ?? `msg_${Math.abs(hashString(`${threadId}:${input.userId}:`))}`;
 
-    const messageId = isNonEmptyString(assistantMessageIdValue)
-      ? assistantMessageIdValue
-      : // `kickId` is the old name of `startId`; old runs still carry it.
-        `msg_${Math.abs(hashString(`${threadId}:${input.userId}:${isNonEmptyString(startIdValue) ? startIdValue : isNonEmptyString(kickIdValue) ? kickIdValue : ""}`))}`;
-
-    const tier: ChatModelTier = metadata.tier === "deep" ? "deep" : "standard";
-
-    const allowedIntegrations = Array.isArray(metadata.allowedIntegrations)
-      ? metadata.allowedIntegrations.filter((v): v is string => typeof v === "string")
-      : [];
-
-    const userMessageIdValue = metadata["userMessageId"];
-    const userMessageId = isNonEmptyString(userMessageIdValue) ? userMessageIdValue : undefined;
-
-    const artifactTargetIdValue = metadata["artifactTargetId"];
-
-    const artifactTargetId = isNonEmptyString(artifactTargetIdValue)
-      ? artifactTargetIdValue
-      : undefined;
+    const tier: ChatModelTier = metadata.tier ?? "standard";
+    const userMessageId = metadata.userMessageId;
+    const artifactTargetId = metadata.artifactTargetId;
 
     return {
       threadId,
@@ -953,7 +935,8 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
       activeTools: systemToolKernel(),
       preloadedTools: [],
       preloadApplied: false,
-      allowedIntegrations,
+      // Admission never scopes a chat turn; only a sub-agent run carries a list.
+      allowedIntegrations: [],
       pendingToolCalls: [],
       assistantText: "",
       narration: [],
@@ -981,9 +964,7 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
     };
   },
   async initialTranscript(input, context) {
-    const metadata = input.metadata ?? {};
-    const threadIdValue = metadata["threadId"];
-    const threadId = isNonEmptyString(threadIdValue) ? threadIdValue : null;
+    const threadId = readChatTurnRunMetadata(input.metadata).threadId;
 
     if (!threadId) throw new Error("chat-turn workflow requires metadata.threadId");
     const ex = context?.db ?? db();
@@ -1029,9 +1010,9 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
   // A double submit of one user message hits the unique index, not a second run.
   // Failed and cancelled runs leave the index, so a failed turn stays retryable.
   dedupKey(input) {
-    const id = input.metadata?.userMessageId;
+    const id = readChatTurnRunMetadata(input.metadata).userMessageId;
 
-    return isNonEmptyString(id) ? `chat:${id}` : null;
+    return id ? `chat:${id}` : null;
   },
   steps: {
     "chat-turn": chatTurnStep,

@@ -1,4 +1,4 @@
-import { chatPropositionSchema, isNonEmptyString, toMessage } from "@alfred/contracts";
+import { chatPropositionSchema, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { chatMessages, chatThreads } from "@alfred/db/schemas";
 import { and, asc, eq, lt, lte, or } from "drizzle-orm";
@@ -9,7 +9,10 @@ import {
   extractPropositionsFromThread,
   type ThreadTurn,
 } from "@alfred/assistant/knowledge";
-import { CHAT_MEMORY_CAPTURE_WORKFLOW_SLUG } from "./idle-capture-queue";
+import {
+  CHAT_MEMORY_CAPTURE_WORKFLOW_SLUG,
+  readChatMemoryCaptureRunMetadata,
+} from "./idle-capture-queue";
 
 /**
  * Extract tagged propositions from an idle chat thread (#398, D6/D9).
@@ -55,19 +58,16 @@ export const chatMemoryCaptureWorkflow: Workflow<State> = {
   closure: { kind: "none" },
 
   initialState(input) {
-    const metadata = input.metadata ?? {};
+    const { threadId, captureAfterMessageId } = readChatMemoryCaptureRunMetadata(input.metadata);
 
-    if (!isNonEmptyString(metadata.threadId)) {
+    if (!threadId) {
       throw new Error("chat-memory-capture workflow requires metadata.threadId");
     }
 
-    const threadId = metadata.threadId;
-
-    if (!isNonEmptyString(metadata.captureAfterMessageId)) {
+    if (!captureAfterMessageId) {
       throw new Error("chat-memory-capture workflow requires metadata.captureAfterMessageId");
     }
 
-    const captureAfterMessageId = metadata.captureAfterMessageId;
     const parsed = inputSchema.parse(input.input ?? {});
 
     return {
@@ -85,10 +85,9 @@ export const chatMemoryCaptureWorkflow: Workflow<State> = {
 
   // One capture per arming assistant message; a later turn still gets its own.
   dedupKey(input) {
-    const threadId = input.metadata?.threadId;
-    const captureAfterMessageId = input.metadata?.captureAfterMessageId;
+    const { threadId, captureAfterMessageId } = readChatMemoryCaptureRunMetadata(input.metadata);
 
-    return isNonEmptyString(threadId) && isNonEmptyString(captureAfterMessageId)
+    return threadId && captureAfterMessageId
       ? `chat-memory:${threadId}:${captureAfterMessageId}`
       : null;
   },

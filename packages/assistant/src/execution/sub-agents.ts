@@ -11,6 +11,7 @@ import { AWAIT_SUB_AGENT_CEILING_MS } from "./sub-agent-join-wake-queue";
 import type { ChatTurnAddress } from "@alfred/assistant/tool-runtime";
 import {
   readSubAgentMetadata,
+  type SubAgentMetadata,
   SUB_AGENT_WORKFLOW_SLUG,
   subAgentParentRunIdMatches,
 } from "./sub-agent-metadata";
@@ -170,7 +171,7 @@ export async function spawnSubAgent(
           subId: args.subId,
           parentToolCallId: args.parentToolCallId,
           ...(args.chat ? { chat: args.chat } : {}),
-        },
+        } satisfies SubAgentMetadata,
       };
 
       const created = await createRun(

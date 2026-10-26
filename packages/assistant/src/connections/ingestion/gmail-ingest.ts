@@ -1,11 +1,11 @@
 import {
   buildGmailDocumentContent,
   gmailDocumentMetadataSchema,
-  getPath,
-  getStringPath,
   isSentGmailMetadata,
   parseGmailDocumentMetadata,
+  parseGmailIngestionState,
   mapConcurrent,
+  type GmailIngestionStateInput,
 } from "@alfred/contracts";
 import { indexDocument } from "@alfred/corpus";
 import { db } from "@alfred/db";
@@ -520,7 +520,7 @@ async function upsertIngestionState(args: UpsertIngestionStateArgs): Promise<voi
       state: {
         historyId: args.historyId,
         ...(args.coverageGap ? { coverageGap: true } : {}),
-      },
+      } satisfies GmailIngestionStateInput,
       lastSyncAt: now,
       lastWebhookSyncAt: args.webhookSyncCompleted ? now : null,
       lastFullSyncAt: args.fullSync ? now : null,
@@ -614,7 +614,7 @@ export async function seedGmailHistoryCursorIfAbsent(args: {
       userId: credRow.userId,
       provider: "google",
       stream: "messages",
-      state: { historyId: args.historyId },
+      state: { historyId: args.historyId } satisfies GmailIngestionStateInput,
       lastSyncAt: null,
       lastFullSyncAt: null,
     })
@@ -1218,7 +1218,7 @@ async function loadHistoryCursor(credentialId: string): Promise<string | null> {
       and(eq(ingestionState.credentialId, credentialId), eq(ingestionState.stream, "messages")),
     );
 
-  return getStringPath(rows[0]?.state, "historyId") ?? null;
+  return parseGmailIngestionState(rows[0]?.state).historyId ?? null;
 }
 
 /** History cursor and coverage-gap flag for a credential. */
@@ -1232,12 +1232,9 @@ async function loadIngestionState(
       and(eq(ingestionState.credentialId, credentialId), eq(ingestionState.stream, "messages")),
     );
 
-  const state = rows[0]?.state;
+  const state = parseGmailIngestionState(rows[0]?.state);
 
-  return {
-    historyId: getStringPath(state, "historyId") ?? null,
-    coverageGap: getPath(state, "coverageGap") === true,
-  };
+  return { historyId: state.historyId ?? null, coverageGap: state.coverageGap === true };
 }
 
 /** Highest pushed historyId from receipts; they land even when BullMQ dedups the job (#560b). */

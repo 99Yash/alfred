@@ -1,10 +1,7 @@
 import { logger } from "@alfred/logging";
 import {
-  getPath,
-  getStringPath,
   hasEveryKey,
   isHttpError,
-  toStringArray,
   TRIAGE_CATEGORIES,
   typedEntries,
   type TriageCategory,
@@ -12,6 +9,10 @@ import {
 import { db } from "@alfred/db";
 import { integrationCredentials } from "@alfred/db/schemas";
 import { eq, sql } from "drizzle-orm";
+import {
+  parseGoogleCredentialMetadata,
+  type GoogleCredentialMetadataInput,
+} from "./credential-metadata";
 import { gmailMailbox, type GmailMailbox } from "./mailbox";
 
 /**
@@ -125,19 +126,21 @@ async function loadCachedLabels(credentialId: string): Promise<AlfredLabelMap | 
     .from(integrationCredentials)
     .where(eq(integrationCredentials.id, credentialId));
 
-  const meta: unknown = rows[0]?.metadata;
+  const cache = parseGoogleCredentialMetadata(rows[0]?.metadata).alfredLabels;
+
+  if (!cache) return null;
   // A missing category (added since the cache was written) forces a refresh.
   const byCategory: Partial<Record<TriageCategory, string>> = {};
 
   for (const cat of TRIAGE_CATEGORIES) {
-    const id = getStringPath(meta, "alfredLabels", "byCategory", cat);
+    const id = cache.byCategory[cat];
 
     if (id) byCategory[cat] = id;
   }
 
   if (!hasEveryKey(byCategory, TRIAGE_CATEGORIES)) return null;
 
-  const allIds = toStringArray(getPath(meta, "alfredLabels", "allIds"));
+  const allIds = cache.allIds ?? [];
 
   return {
     byCategory,
@@ -151,7 +154,7 @@ async function persistCachedLabels(credentialId: string, map: AlfredLabelMap): P
     byCategory: map.byCategory,
     allIds: map.allIds,
     cachedAt: new Date().toISOString(),
-  });
+  } satisfies GoogleCredentialMetadataInput["alfredLabels"]);
 
   await db()
     .update(integrationCredentials)
@@ -314,9 +317,7 @@ async function loadCachedSelfLabel(credentialId: string): Promise<string | null>
     .from(integrationCredentials)
     .where(eq(integrationCredentials.id, credentialId));
 
-  const meta: unknown = rows[0]?.metadata;
-
-  return getStringPath(meta, "alfredSelfLabel", "id") ?? null;
+  return parseGoogleCredentialMetadata(rows[0]?.metadata).alfredSelfLabel?.id ?? null;
 }
 
 async function persistCachedSelfLabel(credentialId: string, id: string): Promise<void> {
@@ -324,7 +325,7 @@ async function persistCachedSelfLabel(credentialId: string, id: string): Promise
     id,
     name: ALFRED_SELF_LABEL_NAME,
     cachedAt: new Date().toISOString(),
-  });
+  } satisfies GoogleCredentialMetadataInput["alfredSelfLabel"]);
 
   await db()
     .update(integrationCredentials)

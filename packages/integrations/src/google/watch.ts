@@ -2,7 +2,7 @@ import { logger } from "@alfred/logging";
 import { db } from "@alfred/db";
 import { integrationCredentials } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
-import { z } from "zod";
+import { parseGoogleCredentialMetadata, type GmailWatchState } from "./credential-metadata";
 import { getFreshAccessToken } from "./credentials";
 import { gmailMailboxFor, type GmailMailbox } from "./mailbox";
 import { withDefaults } from "@alfred/contracts";
@@ -14,27 +14,8 @@ import { gmailMailboxWritesEnabled } from "@alfred/env/server";
  * owned by the ingestion consumer.
  */
 
-export const gmailWatchStateSchema = z.object({
-  topic: z.string().min(1),
-  expiresAt: z.iso.datetime(),
-  /** The `historyId` from the watch call. The cold-start cursor. */
-  baselineHistoryId: z.string().min(1),
-  /** A renewal must not reset this: push health reads it. */
-  installedAt: z.iso.datetime(),
-  /** Absent on older rows. */
-  renewedAt: z.iso.datetime().optional(),
-});
-
-export type GmailWatchState = z.infer<typeof gmailWatchStateSchema>;
-
-const credentialWatchMetadataSchema = z.object({
-  watch: gmailWatchStateSchema.optional(),
-});
-
 export function readGmailWatchState(metadata: unknown): GmailWatchState | null {
-  const parsed = credentialWatchMetadataSchema.safeParse(metadata);
-
-  return parsed.success && parsed.data.watch ? parsed.data.watch : null;
+  return parseGoogleCredentialMetadata(metadata).watch ?? null;
 }
 
 interface GmailWatchDeps {

@@ -14,7 +14,6 @@ import {
   classifyConnectedAccount,
   identityValueMatchesKind,
   isNonEmptyString,
-  isRecord,
   type DomainClass,
   type ObservationInsertInput,
   type UserOrgAffiliationPayload,
@@ -24,6 +23,7 @@ import { integrationCredentials, observationFamilyHeads } from "@alfred/db/schem
 import { sha256Canonical } from "@alfred/db/hash";
 import { and, eq } from "drizzle-orm";
 import { uniqueViolationConstraint } from "@alfred/db/pg-errors";
+import { parseGoogleCredentialMetadata } from "@alfred/integrations/google";
 import { insertObservation } from "./observations";
 import { type DbTransaction } from "@alfred/db";
 
@@ -83,13 +83,6 @@ export async function retryOnObservationChainConflict<T>(fn: () => Promise<T>): 
   }
 }
 
-function hostedDomainFromMetadata(metadata: unknown): string | null {
-  if (!isRecord(metadata)) return null;
-  const hd = metadata["googleHostedDomain"];
-
-  return isNonEmptyString(hd) ? hd : null;
-}
-
 function payloadsMatchForCurrentAffiliation(
   a: UserOrgAffiliationPayload,
   b: UserOrgAffiliationPayload,
@@ -126,7 +119,7 @@ export function buildOrgAffiliationObservationInput(
   // The email regex already validated this domain.
   const accountEmailDomain = accountEmail.slice(accountEmail.indexOf("@") + 1);
 
-  const rawHostedDomain = hostedDomainFromMetadata(cred.metadata);
+  const rawHostedDomain = parseGoogleCredentialMetadata(cred.metadata).googleHostedDomain;
 
   const hostedDomain = rawHostedDomain
     ? canonicalizeIdentityValue("domain", rawHostedDomain)
