@@ -410,7 +410,7 @@ function finalizeLoopRelevanceVerdicts(args: {
 }
 
 /**
- * One parse per distinct object, in loop order. The first {@link MAX_RELEVANCE_OBJECTS}
+ * One parse per readable distinct object, in loop order. The first {@link MAX_RELEVANCE_OBJECTS}
  * readable objects are admitted across providers; the rest are readable but not read.
  */
 function planLiveReads(objects: readonly ObjectState[]): LiveReadPlan {
