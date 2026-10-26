@@ -29,7 +29,7 @@ import {
 } from "../../../src/tool-runtime/internal/dispatch";
 import { toolCallWouldGate } from "../../../src/tool-runtime/approval-rule";
 import { _setStagingStoreForTests } from "../../../src/tool-runtime/internal/dispatch/staging-store";
-import { DEFAULT_APPROVAL_NOTIFY_DELAY_MS } from "@alfred/assistant/action-policies";
+import { defaultActionPolicy } from "@alfred/assistant/action-policies";
 import {
   _primePolicyCacheForTests,
   clearPolicyCacheForTests,
@@ -243,13 +243,11 @@ function installMachineFixture(): void {
   registerDoubles();
   clearPolicyCacheForTests();
   _primePolicyCacheForTests({
-    userId: USER_ID,
-    defaultMode: "gated",
+    ...defaultActionPolicy(USER_ID),
     integrationRules: {
       system: { mode: "autonomy" },
       calendar: { mode: "autonomy" },
     },
-    approvalNotifyDelayMs: DEFAULT_APPROVAL_NOTIFY_DELAY_MS,
   });
 }
 
@@ -645,10 +643,8 @@ describe("dispatch staging machine (DB-free)", () => {
     });
     clearPolicyCacheForTests();
     _primePolicyCacheForTests({
-      userId: USER_ID,
-      defaultMode: "gated",
+      ...defaultActionPolicy(USER_ID),
       integrationRules: { calendar: { mode: "gated" } },
-      approvalNotifyDelayMs: DEFAULT_APPROVAL_NOTIFY_DELAY_MS,
     });
 
     const result = await dispatchToolCall(

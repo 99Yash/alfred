@@ -10,14 +10,13 @@
  * Test cache helpers are on the `test-support` subpath, not here.
  */
 
-import type { IntegrationRules } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { userActionPolicies } from "@alfred/db/schemas";
 import { sql } from "drizzle-orm";
-import { DEFAULT_APPROVAL_NOTIFY_DELAY_MS } from "./resolve";
+import { defaultActionPolicy } from "./resolve";
 
 export {
-  DEFAULT_APPROVAL_NOTIFY_DELAY_MS,
+  defaultActionPolicy,
   getResolvedPolicy,
   resolvePolicyMode,
   resolveApprovalNotifyDelayMs,
@@ -28,19 +27,10 @@ export {
   type ResolvedPolicy,
 } from "./resolve";
 
-const DEFAULT_INTEGRATION_RULES = {
-  system: { mode: "autonomy" },
-} satisfies IntegrationRules;
-
 export async function ensureDefaultActionPolicyForUser(userId: string): Promise<void> {
   await db()
     .insert(userActionPolicies)
-    .values({
-      userId,
-      defaultMode: "gated",
-      integrationRules: DEFAULT_INTEGRATION_RULES,
-      approvalNotifyDelayMs: DEFAULT_APPROVAL_NOTIFY_DELAY_MS,
-    })
+    .values(defaultActionPolicy(userId))
     .onConflictDoUpdate({
       target: userActionPolicies.userId,
       set: {

@@ -2,10 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 
 import type { ResolvedPolicy } from "@alfred/assistant/action-policies";
-import {
-  DEFAULT_APPROVAL_NOTIFY_DELAY_MS,
-  resolvePolicyMode,
-} from "@alfred/assistant/action-policies";
+import { defaultActionPolicy, resolvePolicyMode } from "@alfred/assistant/action-policies";
 import {
   _primePolicyCacheForTests,
   clearPolicyCacheForTests,
@@ -73,12 +70,7 @@ describe("toolRequiresApproval", () => {
 const MIRROR_USER_ID = "test-would-gate-mirror-user";
 
 function policy(defaultMode: ResolvedPolicy["defaultMode"]): ResolvedPolicy {
-  return {
-    userId: MIRROR_USER_ID,
-    defaultMode,
-    integrationRules: {},
-    approvalNotifyDelayMs: DEFAULT_APPROVAL_NOTIFY_DELAY_MS,
-  };
+  return { ...defaultActionPolicy(MIRROR_USER_ID), defaultMode, integrationRules: {} };
 }
 
 /**

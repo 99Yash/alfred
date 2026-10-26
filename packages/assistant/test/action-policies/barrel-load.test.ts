@@ -7,8 +7,8 @@ import test, { mock } from "node:test";
  */
 
 const BARREL_EXPORTS = [
-  "DEFAULT_APPROVAL_NOTIFY_DELAY_MS",
   "bustPolicyCache",
+  "defaultActionPolicy",
   "ensureDefaultActionPolicyForUser",
   "getResolvedPolicy",
   "publishPolicyBust",
@@ -83,14 +83,8 @@ test("action-policies barrel loads with no database and no redis configured", as
   }
 
   assert.deepEqual(Object.keys(ns).sort(), BARREL_EXPORTS);
-  assert.equal(
-    typeof ns["DEFAULT_APPROVAL_NOTIFY_DELAY_MS"],
-    "number",
-    "DEFAULT_APPROVAL_NOTIFY_DELAY_MS should be a number",
-  );
 
   for (const [name, value] of Object.entries(ns)) {
-    if (name === "DEFAULT_APPROVAL_NOTIFY_DELAY_MS") continue;
     assert.equal(typeof value, "function", `${name} should be a function`);
   }
 });
