@@ -31,6 +31,7 @@ export {
 } from "./langfuse";
 
 export type {
+  RedactedToolInput,
   ToolSpanInput,
   ToolSpanCloser,
   DispatchRejectionInput,

@@ -40,6 +40,7 @@ import {
   startToolSpan,
   type DispatchRejectionInput,
   type DispatchRejectionOutcome,
+  type RedactedToolInput,
   type ToolSpanCloser,
   type ToolSpanInput,
 } from "@alfred/ai";
@@ -152,8 +153,7 @@ function safeUnknownToolCandidate(toolName: string): string | undefined {
   return summarizeBody(sanitizeErrorMessage(trimmed), 120);
 }
 
-// oxlint-disable-next-line anti-slop/no-unknown-returns -- a tool's redacted input is free-form at the registry seam; it goes to the trace as received.
-function redactTraceInput(call: BoundToolCall): unknown {
+function redactTraceInput(call: BoundToolCall): RedactedToolInput | undefined {
   try {
     return call.redactedInput();
   } catch (err) {
@@ -200,12 +200,11 @@ export function buildDispatchRejectionTraceInput(args: {
   toolName?: string | undefined;
   /** Sanitized, bounded name the model asked for, for unknown tools. */
   candidateToolName?: string | undefined;
-  /** The rejected call. Only its redacted input reaches the trace; an unparsed input never does. */
-  call?: BoundToolCall | undefined;
+  /** The rejected call's redacted input. An unparsed input has none. */
+  input?: RedactedToolInput | undefined;
   startedAt?: Date;
 }): DispatchRejectionInput {
   const toolName = args.toolName ?? args.dispatch.toolName;
-  const input = args.call ? redactTraceInput(args.call) : undefined;
 
   return {
     runId: args.dispatch.runId,
@@ -219,7 +218,7 @@ export function buildDispatchRejectionTraceInput(args: {
     reason: args.reason,
     signature: rejectionSignature(toolName, args.outcome, args.issues, args.candidateToolName),
     detail: args.issues,
-    input,
+    input: args.input,
     startedAt: args.startedAt ?? new Date(),
   };
 }
@@ -232,7 +231,7 @@ function recordRejection(args: {
   issues?: readonly RejectionIssue[] | undefined;
   toolName?: string | undefined;
   candidateToolName?: string | undefined;
-  call?: BoundToolCall | undefined;
+  input?: RedactedToolInput | undefined;
 }): void {
   dispatchRejectionRecorder(buildDispatchRejectionTraceInput(args));
 }
@@ -531,7 +530,7 @@ const validateInputStage: DispatchStage<ResolvedDispatch, ValidatedDispatch> = a
       outcome: "invalid_input",
       reason: refusal,
       toolName,
-      call,
+      input: redactTraceInput(call),
     });
 
     return {
@@ -566,7 +565,7 @@ const validateInputStage: DispatchStage<ResolvedDispatch, ValidatedDispatch> = a
           outcome: "invalid_input",
           reason: message,
           toolName,
-          call,
+          input: redactTraceInput(call),
         });
 
         return {
@@ -649,7 +648,7 @@ const suppressRepeatedStage: DispatchStage<ValidatedDispatch, SuppressedDispatch
   if (priorReject) {
     return settleWithoutExecution(arm, {
       dispatch: args,
-      call,
+      traceInput: redactTraceInput(call),
       toolName,
       stagingId: null,
       input,
@@ -897,7 +896,7 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
     case "expired":
       return settleWithoutExecution(arm, {
         dispatch: args,
-        call: storedCall(tool, row.proposedInput),
+        traceInput: storedTraceInput(tool, row.proposedInput),
         toolName,
         stagingId: row.id,
         input: row.proposedInput,
@@ -936,7 +935,7 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
         outcome: "failed",
         reason: diagnostic,
         toolName,
-        call: storedCall(tool, row.proposedInput),
+        input: storedTraceInput(tool, row.proposedInput),
       });
 
       return {
@@ -1522,7 +1521,7 @@ function settleWithoutExecution(
   args: {
     dispatch: ToolCallDispatchArgs;
     /** The trace's input. `undefined` when a stored input no longer parses. */
-    call: BoundToolCall | undefined;
+    traceInput: RedactedToolInput | undefined;
     toolName: ToolName;
     stagingId: string | null;
     /** The input that the user rejected, as it was proposed. */
@@ -1539,7 +1538,7 @@ function settleWithoutExecution(
     outcome: "rejected",
     reason,
     toolName: args.toolName,
-    call: args.call,
+    input: args.traceInput,
   });
 
   if (arm.settled === "unanswered") {
@@ -1599,8 +1598,8 @@ function synthesizeUnansweredQuestions(args: {
  * Bind a stored `proposed_input` for the trace only. A row written before a schema change may no
  * longer parse; then the trace keeps no input, because only a parsed input has a redaction path.
  */
-function storedCall(tool: RegisteredTool, stored: unknown): BoundToolCall | undefined {
+function storedTraceInput(tool: RegisteredTool, stored: unknown): RedactedToolInput | undefined {
   const binding = tool.bind(stored);
 
-  return binding.success ? binding.call : undefined;
+  return binding.success ? redactTraceInput(binding.call) : undefined;
 }

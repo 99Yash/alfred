@@ -29,7 +29,15 @@ import {
   startToolSpan,
   traceTags,
 } from "../src/metering/langfuse";
+import type { RedactedToolInput } from "../src/metering/langfuse";
 import type { MeteredMeta } from "../src/metering/metered";
+
+/** These payload builders only pass `input` through, so a fixture stands in for redacted input. */
+function redactedFixture(value: unknown): RedactedToolInput {
+  // SAFETY: test fixtures hold no secrets; production mints only in `BoundToolCall.redactedInput`.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a test fixture, not a second production mint
+  return value as RedactedToolInput;
+}
 
 /**
  * Langfuse payloads regress silently. Tests the pure builders, then real span emission end to end.
@@ -240,7 +248,7 @@ describe("buildDispatchRejectionSpanPayload", () => {
     caller: "boss",
     stepId: "dispatch-tools",
     detail: [{ code: "invalid_type", path: ["values"] }],
-    input: { values: "[[1]]" },
+    input: redactedFixture({ values: "[[1]]" }),
     startedAt,
   };
 
@@ -272,7 +280,7 @@ describe("buildDispatchRejectionSpanPayload", () => {
     const payload = buildDispatchRejectionSpanPayload(
       {
         ...base,
-        input: { url: "https://example.com/?token=[REDACTED]" },
+        input: redactedFixture({ url: "https://example.com/?token=[REDACTED]" }),
       },
       true,
     );
