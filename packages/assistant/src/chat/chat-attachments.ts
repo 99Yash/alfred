@@ -1,10 +1,10 @@
+import { isPassThrough, MAX_MODEL_ATTACHMENT_BYTES_PER_TURN } from "@alfred/contracts";
 import {
-  isPassThrough,
-  MAX_MODEL_ATTACHMENT_BYTES_PER_TURN,
   STORED_ATTACHMENT_IMAGE_PART,
   type StoredAttachmentImagePart,
-} from "@alfred/contracts";
-import type { StoredUserMessage, TranscriptMessage } from "@alfred/ai";
+  type StoredUserMessage,
+  type TranscriptMessage,
+} from "@alfred/ai";
 import type { ModelMessage, TextPart, UserContent } from "ai";
 import { db } from "@alfred/db";
 import { chatAttachments, chatMessages } from "@alfred/db/schemas";
