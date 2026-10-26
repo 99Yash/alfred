@@ -6,7 +6,6 @@
 
 import {
   deriveLoopEntityRef,
-  isBuiltInObjectStateProvider,
   mcpHealthMappingDefinitionSchema,
   mcpHealthObjectTitleSchema,
   mcpHealthObjectUrlSchema,
@@ -15,7 +14,6 @@ import {
   jsonValueSchema,
   MCP_HEALTH_MAPPING_RESULT_ITEM_MAX,
   MCP_HEALTH_MAPPING_TOKEN_MAX,
-  type LoopEntityProvider,
   type LoopEntityRef,
   type McpHealthMappingDefinition,
 } from "@alfred/contracts";
@@ -94,7 +92,7 @@ type ParsedHealthItem = { identity: string } & Pick<
 
 interface MappingRead {
   connectionId: string;
-  identityProvider: LoopEntityProvider;
+  identityProvider: McpHealthMappingDefinition["identityProvider"];
   items: ParsedHealthItem[];
 }
 
@@ -146,7 +144,7 @@ async function listCurrentMappings(userId: string): Promise<readonly CurrentMcpH
   for (const row of rows) {
     const parsed = mcpHealthMappingDefinitionSchema.safeParse(row.definition);
 
-    if (!parsed.success || isBuiltInObjectStateProvider(parsed.data.identityProvider)) continue;
+    if (!parsed.success) continue;
 
     mappings.push({ ...row, definition: parsed.data });
   }
@@ -275,17 +273,16 @@ async function readMapping(
     : null;
 }
 
-/** Exact match within the mapping's provider. Built-in providers keep their own readers. */
+/**
+ * Exact match within the mapping's provider.
+ * Built-in providers keep their own readers; the mapping schema refuses them.
+ */
 function exactIdentityMatch(
   loopRef: LoopEntityRef,
   outputIdentity: string,
-  identityProvider: LoopEntityProvider,
+  identityProvider: McpHealthMappingDefinition["identityProvider"],
 ): boolean {
-  return (
-    !isBuiltInObjectStateProvider(loopRef.provider) &&
-    loopRef.provider === identityProvider &&
-    outputIdentity === loopRef.key
-  );
+  return loopRef.provider === identityProvider && outputIdentity === loopRef.key;
 }
 
 function loopReference(loop: ApprovedMcpHealthLoop): LoopEntityRef | null {

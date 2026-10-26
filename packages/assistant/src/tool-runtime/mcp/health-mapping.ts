@@ -5,7 +5,6 @@
  */
 
 import {
-  isBuiltInObjectStateProvider,
   mcpHealthMappingDefinitionSchema,
   mcpHealthMappingSchema,
   type ExternalToolRef,
@@ -35,13 +34,7 @@ export type McpHealthMappingResolution =
 export type McpHealthMappingReviewState = Extract<
   McpHealthMappingResolution,
   {
-    status:
-      | "reviewed"
-      | "invalid"
-      | "catalog_stale"
-      | "not_found"
-      | "not_read_only"
-      | "connection_missing";
+    status: "reviewed" | "catalog_stale" | "not_found" | "not_read_only" | "connection_missing";
   }
 >;
 
@@ -93,9 +86,7 @@ async function readLatestPairMapping(
 function mappingFromRow(row: McpHealthMappingRow): McpHealthMapping | null {
   const definition = mcpHealthMappingDefinitionSchema.safeParse(row.definition);
 
-  if (!definition.success || isBuiltInObjectStateProvider(definition.data.identityProvider)) {
-    return null;
-  }
+  if (!definition.success) return null;
 
   const mapping = mcpHealthMappingSchema.safeParse({
     definition: definition.data,
@@ -162,13 +153,8 @@ export async function reviewMcpHealthMapping(
     if (identity.status !== "resolved") return identity;
 
     // The published descriptor decides read-only, not the owner's checkbox.
-    // Built-in providers own their object state, so no MCP mapping for them.
     if (!isReadOnlyMcpToolIdentity(identity)) {
       return { status: "not_read_only" };
-    }
-
-    if (isBuiltInObjectStateProvider(definition.identityProvider)) {
-      return { status: "invalid" };
     }
 
     const previous = await readExactMapping(
