@@ -1,22 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import type { ToolName } from "@alfred/contracts";
 import { TOOL_INPUT_SCHEMAS } from "@alfred/contracts/tool-schemas";
 import { z } from "zod";
-import { spawnSubAgentInputSchema } from "@alfred/assistant/tool-runtime";
 
 /**
  * Cheap models send an array argument as a JSON string (`values: "[[\"a\"]]"`).
  * Every top-level array field on every tool must accept that form via `coerceJsonArrayFields`.
  * A new array field without a fixture fails the coverage test.
  */
-
-const MODEL_FACING_TOOL_INPUT_SCHEMAS = {
-  ...TOOL_INPUT_SCHEMAS,
-  // Server-only schema, but the model still sees it.
-  "system.spawn_sub_agent": spawnSubAgentInputSchema,
-} satisfies Partial<Record<ToolName, z.ZodType>>;
 
 /** One valid `base` input per tool with array fields; each listed field is retried as a JSON string. */
 interface ArrayCoercionFixture {
@@ -272,7 +264,7 @@ describe("tool-schema array-field coercion (cross-integration)", () => {
   test("every array-typed tool field is covered by a fixture", () => {
     const uncovered: string[] = [];
 
-    for (const [name, schema] of Object.entries(MODEL_FACING_TOOL_INPUT_SCHEMAS)) {
+    for (const [name, schema] of Object.entries(TOOL_INPUT_SCHEMAS)) {
       for (const field of discoverArrayFields(schema as z.ZodType)) {
         if (!fixturesFor(name).some((fixture) => fixture.arrayFields.includes(field))) {
           uncovered.push(`${name}.${field}`);
@@ -289,7 +281,7 @@ describe("tool-schema array-field coercion (cross-integration)", () => {
 
   for (const name of Object.keys(FIXTURES)) {
     const fixtures = fixturesFor(name);
-    const schema = Object.entries(MODEL_FACING_TOOL_INPUT_SCHEMAS).find(([n]) => n === name)?.[1];
+    const schema = Object.entries(TOOL_INPUT_SCHEMAS).find(([n]) => n === name)?.[1];
 
     test(`${name}: base fixtures parse and list the right array fields`, () => {
       assert.ok(schema, `${name} is missing from TOOL_INPUT_SCHEMAS`);

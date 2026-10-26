@@ -9,7 +9,6 @@ import {
 import { composeAgentInstructions } from "@alfred/ai/voice";
 import { ARTIFACT_DESIGN_PROMPT } from "@alfred/artifacts-design";
 import {
-  AWAIT_SUB_AGENT_TOOL,
   getStringPath,
   isNonEmptyString,
   parseIanaTimezone,
@@ -24,11 +23,7 @@ import { logger } from "@alfred/logging";
 import { buildThreadArtifactsContext } from "@alfred/assistant/artifacts";
 import { readIntegrationAvailability } from "@alfred/assistant/connections";
 import { selfIdentityGrounding, settings } from "@alfred/assistant/settings";
-import {
-  artifactStreamMode,
-  joinChildRunId,
-  toolExecutionLane,
-} from "@alfred/assistant/tool-runtime";
+import { artifactStreamMode, toolExecutionLane } from "@alfred/assistant/tool-runtime";
 import {
   appendModelResponseMessages,
   toModelMessages,
@@ -880,12 +875,10 @@ const dispatchToolsStep: Step<ChatRunState> = {
           });
 
           // The boss already saw this child's outcome, so the finalize guard must not fold it again (ADR-0073).
-          if (call.toolName === AWAIT_SUB_AGENT_TOOL && completion.execution === "completed") {
-            const childRunId = joinChildRunId(call.input);
+          const { joinedChildRunId } = completion;
 
-            if (childRunId && !state.foldedChildRunIds.includes(childRunId)) {
-              state.foldedChildRunIds = [...state.foldedChildRunIds, childRunId];
-            }
+          if (joinedChildRunId && !state.foldedChildRunIds.includes(joinedChildRunId)) {
+            state.foldedChildRunIds = [...state.foldedChildRunIds, joinedChildRunId];
           }
 
           await publishEvent({

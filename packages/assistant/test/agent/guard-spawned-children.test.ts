@@ -11,7 +11,6 @@ import {
   type GuardSpawnedChildrenDeps,
 } from "@alfred/assistant/chat/finalize-guards";
 import type { ChatRunState } from "@alfred/assistant/chat/chat-turn-state";
-import { joinChildRunId } from "@alfred/assistant/tool-runtime";
 import { openChatTurnRetries } from "@alfred/assistant/execution/workflows/turn-budgets";
 import type { StepContext } from "@alfred/assistant/execution";
 
@@ -406,15 +405,6 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
     const result = await guardSpawnedChildren(baseCtx(state), state, [], rec.deps);
     assert.equal(result, null, "the awaited child is already accounted for → finalize normally");
     assert.equal(rec.published.length, 0, "no segment churn for a correctly-awaited child");
-  });
-
-  test("joinChildRunId extracts the childRunId from a well-formed await input", () => {
-    assert.equal(joinChildRunId({ childRunId: "run_child" }), "run_child");
-    assert.equal(joinChildRunId({ childRunId: "" }), null);
-    assert.equal(joinChildRunId({ childRunId: 42 }), null);
-    assert.equal(joinChildRunId({}), null);
-    assert.equal(joinChildRunId(null), null);
-    assert.equal(joinChildRunId("run_child"), null);
   });
 
   test("the live segment transition: a zero-length delta closes the premature answer", async () => {

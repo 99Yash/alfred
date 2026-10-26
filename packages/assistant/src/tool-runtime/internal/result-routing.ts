@@ -156,6 +156,7 @@ export function completedToolCall<Call extends ProposedToolCall>(
     connectNudge: connectNudgeFromDispatch(result),
     executedInput:
       result.kind === "executed" || result.kind === "failed" ? result.executedInput : undefined,
+    joinedChildRunId: result.kind === "executed" ? result.joinedChildRunId : undefined,
   };
 }
 

@@ -24,6 +24,7 @@ import {
   isToolName,
   isToolRiskTier,
   isUnknownEffectEnvelope,
+  joinToolInput,
   jsonValueSchema,
   sanitizeErrorMessage,
   sanitizeToolResult,
@@ -54,7 +55,6 @@ import { STAGING_ARM, type GatedArmPolicy } from "./staging-arm";
 import type { RejectedToolResult, UnansweredQuestionsToolResult } from "../adapter";
 import {
   callerLabel,
-  joinToolInput,
   questionToolInput,
   registerToolCallRoundAdapter,
   type ToolCallDispatchArgs,
@@ -1261,7 +1261,7 @@ async function executeToolWithSpan(
 async function resolveAwaitSubAgentWithSpan(
   call: BoundToolCall,
   ctx: ToolExecuteContext,
-): Promise<DispatchResult> {
+): Promise<JoinedDispatchResult | ParkedDispatchResult> {
   const { tool } = call;
   // `registerTool` probes that a join tool's parsed input carries this contract. Parse before
   // the span opens, so a bad input cannot leave a span open.
@@ -1287,7 +1287,7 @@ async function resolveAwaitSubAgentWithSpan(
 
     span.success(awaitSubAgentSpanOutput(result));
 
-    return result;
+    return result.kind === "executed" ? { ...result, joinedChildRunId: childRunId } : result;
   } catch (err) {
     span.error(safeErrorDiagnostic(err));
     logger.error(
@@ -1299,6 +1299,14 @@ async function resolveAwaitSubAgentWithSpan(
 }
 
 type ParkedDispatchResult = Extract<DispatchResult, { kind: "parked" }>;
+
+/**
+ * The join arm's `executed` result. The field is required here (tier 1): the only
+ * producer cannot return a bare `executed` result, so chat-turn never misses the fold.
+ */
+type JoinedDispatchResult = Extract<DispatchResult, { kind: "executed" }> & {
+  joinedChildRunId: string;
+};
 
 type FailedDispatchResult = Extract<DispatchResult, { kind: "failed" }>;
 

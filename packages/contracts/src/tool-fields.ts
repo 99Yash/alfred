@@ -297,12 +297,10 @@ function deriveFields(schema: z.ZodType): FieldSpec[] | null {
 
 const FIELD_CACHE = new Map<ToolName, FieldSpec[] | null>();
 
-/** `null` when the tool has no schema or no fields. Callers then show raw JSON. Memoized. */
+/** `null` when the schema has no fields. Callers then show raw JSON. Memoized. */
 export function toolInputFields(toolName: ToolName): FieldSpec[] | null {
   if (FIELD_CACHE.has(toolName)) return FIELD_CACHE.get(toolName) ?? null;
-  // SAFETY: keyed by ToolName with one entry absent on purpose; the cast only widens the values.
-  const schema = (TOOL_INPUT_SCHEMAS as Partial<Record<ToolName, z.ZodType>>)[toolName];
-  const fields = schema ? deriveFields(schema) : null;
+  const fields = deriveFields(TOOL_INPUT_SCHEMAS[toolName]);
   FIELD_CACHE.set(toolName, fields);
 
   return fields;

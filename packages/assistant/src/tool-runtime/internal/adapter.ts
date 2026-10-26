@@ -68,6 +68,8 @@ export type ToolCallDispatchResult =
       sanitized?: boolean;
       /** Set only after an approval edit: the input that ran, not the model's proposal. */
       executedInput?: unknown;
+      /** Set only by the join arm: the child run it resolved. */
+      joinedChildRunId?: string;
     }
   | {
       kind: "failed";

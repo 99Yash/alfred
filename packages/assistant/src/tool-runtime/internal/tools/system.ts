@@ -26,6 +26,8 @@ import {
   updateArtifactInput,
   webSearchInput,
   writeScratchInput,
+  awaitSubAgentInput,
+  spawnSubAgentInput,
 } from "@alfred/contracts";
 import type { AskUserResult, IanaTimezone } from "@alfred/contracts";
 import {
@@ -43,7 +45,6 @@ import type {
 import {
   activateWorkflow,
   authorWorkflow,
-  awaitSubAgentInputSchema,
   callerLabel,
   editInstruction,
   forgetInstruction,
@@ -56,7 +57,6 @@ import {
   resolveTodo,
   scratchpad,
   spawnSubAgent,
-  spawnSubAgentInputSchema,
   startToolLoadSpan,
   startToolSearchSpan,
   suggestTodo,
@@ -308,7 +308,7 @@ export const systemTools: readonly RegisteredTool[] = [
       "Spawn one focused sub-agent run with an isolated brief. Reserve it for a subtask that needs its own multi-step investigation across several sources (memory + the user's accounts + the web, or a long open-ended research question). It costs a second model run and a join, and its tool calls are no more parallel than yours. Do NOT spawn one for a bounded lookup chain you can run directly — one search plus a batch or a few fetches from a single integration (a daily GitHub summary, today's calendar, one person's recent mail) is a direct call, not a delegation.",
     // Kernel: the boss prompt names it.
     availability: { surface: "kernel", callers: ["boss"] },
-    inputSchema: spawnSubAgentInputSchema,
+    inputSchema: spawnSubAgentInput,
     execute: async (input, ctx) => {
       const workflowAllowed = (ctx.allowedIntegrations ?? []).filter(isLoadableIntegrationSlug);
       const requestedAllowed = input.allowedIntegrations;
@@ -347,7 +347,7 @@ export const systemTools: readonly RegisteredTool[] = [
     availability: { surface: "kernel", callers: ["boss"] },
     // ADR-0073: dispatch parks the parent on a running child. `execute` is the non-blocking fallback.
     staging: "join",
-    inputSchema: awaitSubAgentInputSchema,
+    inputSchema: awaitSubAgentInput,
     execute: async (input, ctx) => {
       return await readChildRunOutcome({
         parentRunId: ctx.runId,
