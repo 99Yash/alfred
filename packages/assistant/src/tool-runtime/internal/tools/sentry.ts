@@ -1,7 +1,7 @@
 /** Sentry tools: only the read-only passthrough so far. */
 
 import { restPassthroughInput } from "@alfred/contracts";
-import { passthroughSpanFacts, runRestPassthrough } from "./passthrough";
+import { runRestPassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
 
 export const sentryTools: readonly RegisteredTool[] = [
@@ -21,6 +21,5 @@ export const sentryTools: readonly RegisteredTool[] = [
     },
     inputSchema: restPassthroughInput,
     execute: async (input, ctx) => runRestPassthrough(ctx.integrations.sentry.passthrough, input),
-    spanFacts: passthroughSpanFacts,
   }),
 ];

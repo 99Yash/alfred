@@ -7,7 +7,7 @@ import {
   slidesCreateInput,
   slidesGetInput,
 } from "@alfred/contracts";
-import { passthroughSpanFacts, runRestPassthrough } from "./passthrough";
+import { runRestPassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
 
 export const slidesTools: readonly RegisteredTool[] = [
@@ -94,6 +94,5 @@ export const slidesTools: readonly RegisteredTool[] = [
 
       return runRestPassthrough(ctx.integrations.google.slides.passthrough(credentialId), input);
     },
-    spanFacts: passthroughSpanFacts,
   }),
 ];

@@ -21,7 +21,7 @@ import {
 } from "@alfred/contracts/app-errors";
 import { logger } from "@alfred/logging";
 import { addDays, inZone } from "@alfred/assistant/time";
-import { passthroughSpanFacts, runRestPassthrough } from "./passthrough";
+import { runRestPassthrough } from "./passthrough";
 import {
   liveTool,
   type RegisteredTool,
@@ -609,6 +609,5 @@ export const calendarTools: readonly RegisteredTool[] = [
 
       return runRestPassthrough(ctx.integrations.google.calendar.passthrough(credential.id), input);
     },
-    spanFacts: passthroughSpanFacts,
   }),
 ];

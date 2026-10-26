@@ -19,7 +19,6 @@ import {
   actionStagingStatusSchema,
   cancellationFenceSchema,
   effectOutcomeSchema,
-  isRecord,
   jsonValueSchema,
   toJsonValue,
 } from "@alfred/contracts";
@@ -200,9 +199,7 @@ export function outcomeForInsert(values: StagingInsertValues): EffectOutcome {
 
 /** No effects store as NULL, the same as a row from before the column. */
 export function effectsColumn(effects: ToolEffects): JsonValue | null {
-  const value = toJsonValue(effects);
-
-  return isRecord(value) && Object.keys(value).length === 0 ? null : value;
+  return Object.keys(effects).length === 0 ? null : toJsonValue(effects);
 }
 
 function commitColumns(commit: StagingCommit) {

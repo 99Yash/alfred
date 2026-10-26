@@ -9,6 +9,7 @@ import type {
   IanaTimezone,
   IntegrationAvailabilitySnapshot,
   IntegrationSlug,
+  PassthroughResult,
   PassthroughTruncation,
   RiskTierCounts,
   ToolName,
@@ -39,6 +40,7 @@ import {
   questionToolInput,
 } from "../question-contract";
 import { deriveToolDiscovery, type ResolvedDiscovery } from "./metadata-defaults";
+import { passthroughSpanFacts } from "./tools/passthrough/telemetry";
 
 export interface ToolDiscoveryMetadata {
   /** Defaults to the humanized action slug. */
@@ -143,7 +145,7 @@ export const toolEffectsSchema = z.object({
 
 export type ToolEffects = z.infer<typeof toolEffectsSchema>;
 
-export const NO_TOOL_EFFECTS: ToolEffects = {};
+export const NO_TOOL_EFFECTS: Readonly<ToolEffects> = Object.freeze({});
 
 /** Live-only facts for the call's span. Never persisted, never replayed. */
 export interface ToolSpanFacts {
@@ -163,8 +165,13 @@ type ExecuteContextFor<L extends boolean> = [L] extends [true]
 
 /**
  * `L` is the literal `requiresLiveChat` flag, so a live-chat tool's `execute` gets `ctx.chat`.
- * `O` is the output `execute` returns, so `effects` and `spanFacts` read it typed. Declare them
+ * `O` is the output `execute` returns, so `effects` reads it typed. Declare it
  * after `execute`: TypeScript infers `O` from the first of them.
+ *
+ * A passthrough tool cannot use this interface: `passthrough` is `never` here, so
+ * `availability: { passthrough: true }` is a compile error. Declare it with
+ * {@link PassthroughToolArgs} instead, whose `execute` must return the
+ * `runRestPassthrough` envelope and whose span facts `bind()` derives.
  */
 export interface LiveToolArgs<
   I extends IntegrationSlug,
@@ -201,7 +208,7 @@ export interface LiveToolArgs<
   policyGateWaiver?: string;
   description: string;
   discovery?: ToolDiscoveryMetadata;
-  availability?: ToolAvailabilityMetadata & { requiresLiveChat?: L };
+  availability?: ToolAvailabilityMetadata & { requiresLiveChat?: L; passthrough?: never };
   inputSchema: S;
   /**
    * The narrower schema the model sees, for a field only the runtime writes
@@ -221,8 +228,74 @@ export interface LiveToolArgs<
    * output; a replay reads the persisted copy.
    */
   effects?: (output: O) => ToolEffects;
-  /** Live-only span metadata. Pure. Required on a passthrough tool. */
-  spanFacts?: (output: O) => ToolSpanFacts;
+  /**
+   * Scrub secrets before the input reaches a trace or a staging row (#293).
+   * Must be pure and keep the shape. The hash and `execute` see the raw input.
+   */
+  redactInput?: (input: z.infer<S>) => z.infer<S>;
+}
+
+/**
+ * The args for a read-only passthrough tool (ADR-0074). Mirrors {@link LiveToolArgs} field
+ * for field, except `availability.passthrough` is `true`, so `execute` must return the
+ * `runRestPassthrough` envelope and `bind()` derives the truncation span facts from it —
+ * there is no per-tool hook to forget. Written out rather than `Omit` so the `liveTool`
+ * overload check still relates `L`.
+ */
+export interface PassthroughToolArgs<
+  I extends IntegrationSlug,
+  A extends ActionSlug<I> & string,
+  S extends z.ZodType,
+  L extends boolean = false,
+> {
+  integration: I;
+  action: A;
+  /** `high` always confirms (ADR-0069). Lower tiers are UX hints. */
+  riskTier: ToolRiskTier;
+  /**
+   * The effective tier from validated input (ADR-0088). Must be side-effect free.
+   * Dispatch clamps a downgrade unless `riskTierDowngradeReason` is set.
+   */
+  resolveRiskTier?: (input: z.infer<S>, ctx: ToolExecuteContext) => Promise<ToolRiskTier>;
+  /** Permits a downgrade below `riskTier`. Requires `resolveRiskTier`. */
+  riskTierDowngradeReason?: string;
+  /** Defaults to `"staged"`. */
+  staging?: ToolStagingPolicy;
+  /** Calls in the same live-chat lane execute in model order. */
+  executionLane?: "artifact_mutation";
+  /**
+   * How the streamed `markdown` input of an `artifact_mutation` tool lands while the model
+   * writes it: `replace` is the whole body, `append` a new section. Absent: no live stream.
+   */
+  artifactStream?: "replace" | "append";
+  /**
+   * Required for `fast_path` on a non-`system` tool, illegal otherwise.
+   * Only `system` resolves to autonomy; every other integration defaults to `gated`,
+   * so a fast path there skips a real approval at every risk tier.
+   */
+  policyGateWaiver?: string;
+  description: string;
+  discovery?: ToolDiscoveryMetadata;
+  availability: ToolAvailabilityMetadata & { requiresLiveChat?: L; passthrough: true };
+  inputSchema: S;
+  /**
+   * The narrower schema the model sees, for a field only the runtime writes
+   * (`answers` on `system.ask_user`, ADR-0099). Must be a subset of `inputSchema`.
+   */
+  modelInputSchema?: z.ZodType;
+  /**
+   * A refusal that depends on who calls, which the schema cannot express. Dispatch runs it on
+   * parsed input before any staging or execute, and returns a non-null text as `invalid_input`.
+   * Must be side-effect free and must not throw. The rule's owner supplies the text.
+   */
+  refuseInput?: (input: z.infer<S>, ctx: ToolExecuteContext) => string | null;
+  /** Receives parsed input. A throw is recorded by the dispatcher. */
+  execute: (input: z.infer<S>, ctx: ExecuteContextFor<L>) => Promise<PassthroughResult>;
+  /**
+   * The side data a consumer acts on (see {@link ToolEffects}). Pure. Runs once on the live
+   * output; a replay reads the persisted copy.
+   */
+  effects?: (output: PassthroughResult) => ToolEffects;
   /**
    * Scrub secrets before the input reaches a trace or a staging row (#293).
    * Must be pure and keep the shape. The hash and `execute` see the raw input.
@@ -275,8 +348,6 @@ export interface RegisteredTool {
   artifactStream?: "replace" | "append" | undefined;
   /** See {@link LiveToolArgs.policyGateWaiver}. */
   policyGateWaiver?: string | undefined;
-  /** Whether the tool declares {@link LiveToolArgs.spanFacts}. A passthrough tool must. */
-  hasSpanFacts: boolean;
   description: string;
   discovery: ResolvedDiscovery;
   availability?: ToolAvailabilityMetadata | undefined;
@@ -465,7 +536,29 @@ export function evaluateToolCatalog(
   return out;
 }
 
+/**
+ * Whether these args declare the passthrough tier. Narrowing through
+ * `availability?.passthrough === true` stops at `availability`, so the union of the two
+ * `liveTool` arms needs this predicate to reach the passthrough arm.
+ */
+function isPassthroughToolArgs<
+  I extends IntegrationSlug,
+  A extends ActionSlug<I> & string,
+  S extends z.ZodType,
+  O,
+>(
+  args: LiveToolArgs<I, A, S, boolean, O> | PassthroughToolArgs<I, A, S, boolean>,
+): args is PassthroughToolArgs<I, A, S, boolean> {
+  return args.availability?.passthrough === true;
+}
+
 /** Build a registry entry. Call `registerTool` at boot to register it. */
+export function liveTool<
+  I extends IntegrationSlug,
+  A extends ActionSlug<I> & string,
+  S extends z.ZodType,
+  L extends boolean = false,
+>(args: PassthroughToolArgs<I, A, S, L>): RegisteredTool;
 export function liveTool<
   I extends IntegrationSlug,
   A extends ActionSlug<I> & string,
@@ -479,16 +572,9 @@ export function liveTool<
   A extends ActionSlug<I> & string,
   S extends z.ZodType,
   O,
->(args: LiveToolArgs<I, A, S, boolean, O>): RegisteredTool {
+>(args: LiveToolArgs<I, A, S, boolean, O> | PassthroughToolArgs<I, A, S, boolean>): RegisteredTool {
   const name = buildToolName(args.integration, args.action);
-  const { redactInput, resolveRiskTier, refuseInput, effects, spanFacts } = args;
-
-  // Effects come from the raw typed output, one time, before dispatch sanitizes it.
-  const execution = (output: O): ToolExecution => ({
-    output,
-    effects: effects?.(output) ?? NO_TOOL_EFFECTS,
-    spanFacts: spanFacts?.(output) ?? {},
-  });
+  const { redactInput, resolveRiskTier, refuseInput } = args;
 
   const tool: RegisteredTool = {
     name,
@@ -501,7 +587,6 @@ export function liveTool<
     executionLane: args.executionLane,
     artifactStream: args.artifactStream,
     policyGateWaiver: args.policyGateWaiver,
-    hasSpanFacts: spanFacts !== undefined,
     description: args.description,
     discovery: deriveToolDiscovery({
       integration: args.integration,
@@ -521,6 +606,30 @@ export function liveTool<
 
       const input = parsed.data;
 
+      // Effects and span facts come from the raw typed output, one time, before dispatch
+      // sanitizes it. The predicate narrows `args` to the passthrough arm, so `output` is
+      // the `runRestPassthrough` envelope and the ADR-0074 truncation facts derive here
+      // with no per-tool hook.
+      const runExecution = async (ctx: ToolExecuteContext): Promise<ToolExecution> => {
+        if (isPassthroughToolArgs(args)) {
+          const output = await args.execute(input, ctx);
+
+          return {
+            output,
+            effects: args.effects?.(output) ?? NO_TOOL_EFFECTS,
+            spanFacts: passthroughSpanFacts(output),
+          };
+        }
+
+        const output = await args.execute(input, ctx);
+
+        return {
+          output,
+          effects: args.effects?.(output) ?? NO_TOOL_EFFECTS,
+          spanFacts: {},
+        };
+      };
+
       return {
         success: true,
         call: {
@@ -532,7 +641,7 @@ export function liveTool<
           redactedInput: () => (redactInput ? redactInput(input) : input),
           execute: async (ctx) => {
             if (args.availability?.requiresLiveChat !== true) {
-              return execution(await args.execute(input, ctx));
+              return runExecution(ctx);
             }
 
             const { chat } = ctx;
@@ -541,7 +650,7 @@ export function liveTool<
             // sets `interaction` and `chat` together. A direct call or a builder that splits them gets here.
             if (!chat) throw new Error(`[tools] '${name}' requires a live chat turn`);
 
-            return execution(await args.execute(input, { ...ctx, chat }));
+            return runExecution({ ...ctx, chat });
           },
         },
       };
@@ -581,11 +690,6 @@ export function registerTool(tool: RegisteredTool): void {
     throw new Error(
       `[tools] '${tool.name}' declares artifactStream without executionLane='artifact_mutation'`,
     );
-  }
-
-  // ADR-0074 truncation telemetry reads the typed span facts, so a passthrough tool must declare them.
-  if (tool.availability?.passthrough === true && !tool.hasSpanFacts) {
-    throw new Error(`[tools] '${tool.name}' declares availability.passthrough without spanFacts`);
   }
 
   if (tool.riskTierDowngradeReason !== undefined) {

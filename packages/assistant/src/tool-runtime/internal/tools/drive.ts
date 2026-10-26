@@ -10,7 +10,7 @@ import {
   restPassthroughInput,
 } from "@alfred/contracts";
 import { surfaceExternalFileArtifact } from "@alfred/assistant/artifacts";
-import { passthroughSpanFacts, runRestPassthrough } from "./passthrough";
+import { runRestPassthrough } from "./passthrough";
 import {
   liveTool,
   type RegisteredTool,
@@ -183,6 +183,5 @@ export const driveTools: readonly RegisteredTool[] = [
 
       return runRestPassthrough(ctx.integrations.google.drive.passthrough(credentialId), input);
     },
-    spanFacts: passthroughSpanFacts,
   }),
 ];

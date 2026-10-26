@@ -140,16 +140,16 @@ export const systemTools: readonly RegisteredTool[] = [
     },
     // The round folds the best hit the run may call. Test `name`, not `ref`: the curated
     // `mcp.call` entry has no ref. Search also ranks unavailable matches, so skip them.
-    effects: (output) => ({
-      activation: {
-        kind: "search_fold",
-        names: output.candidates.flatMap((candidate) =>
-          candidate.availability === "available" && candidate.name !== "mcp.call"
-            ? [candidate.name]
-            : [],
-        ),
-      },
-    }),
+    // An empty fold stores NULL, the same as a row from before the effects column.
+    effects: (output) => {
+      const names = output.candidates.flatMap((candidate) =>
+        candidate.availability === "available" && candidate.name !== "mcp.call"
+          ? [candidate.name]
+          : [],
+      );
+
+      return names.length === 0 ? NO_TOOL_EFFECTS : { activation: { kind: "search_fold", names } };
+    },
   }),
   liveTool({
     integration: "system",

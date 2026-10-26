@@ -17,7 +17,7 @@ const vercelRequest = liveTool({
   description: "Raw read-only Vercel request.",
   availability: { passthrough: true },
   inputSchema: z.object({ document: z.string() }),
-  execute: async () => ({}),
+  execute: async () => ({ outcome: "rejected", reason: "method_not_read", message: "test double" }),
 });
 
 const ctx = { caller: "boss", interaction: "live_chat" } as const;

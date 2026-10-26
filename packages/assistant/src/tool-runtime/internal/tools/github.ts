@@ -14,7 +14,7 @@ import {
 import type { IanaTimezone } from "@alfred/contracts";
 import type { z } from "zod";
 import { addDays, inZone } from "@alfred/assistant/time";
-import { passthroughSpanFacts, runRestPassthrough } from "./passthrough";
+import { runRestPassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
 import { AppError } from "@alfred/contracts/app-errors";
 
@@ -242,7 +242,6 @@ export const githubTools: readonly RegisteredTool[] = [
     },
     inputSchema: restPassthroughInput,
     execute: async (input, ctx) => runRestPassthrough(ctx.integrations.github.passthrough, input),
-    spanFacts: passthroughSpanFacts,
   }),
 ];
 
