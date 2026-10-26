@@ -315,10 +315,12 @@ const AFFILIATION_SEPARATOR_RE = /\s*\|\s*|\s+(?:from|at|@)\s+/i;
 
 /**
  * True when the display name has the shape of a person's name: two or more name tokens and no org word.
- * An affiliated name (`Sharon Samuel | HappyFox`, `Jane Doe from acme.io`) also counts when the part before
- * the first separator is a full name alone. The org part is not tested for name shape, but the org-word gate
- * reads the whole name. A single first name before the separator (`Tom from quicker.chat`) is the
- * newsletter and marketing form, so it does not count.
+ * An affiliated name (`Sharon Samuel | HappyFox`, `Jane Doe from acme.io`) also counts when the first
+ * separator splits a non-empty org part from a name part that is a full name alone. The org part is not
+ * tested for name shape, but the org-word gate reads the whole name after the trailing `(…)` note is
+ * removed. A one-token name with a word separator and a letters-only org (`Tom from Acme`) still passes
+ * as a whole name, as on `main`; only an org part with a dot, digit, or symbol keeps the one-token form
+ * out (`Tom from quicker.chat`).
  */
 export function isLikelyPersonDisplayName(displayName: string | null | undefined): boolean {
   if (!displayName) return false;
@@ -338,5 +340,5 @@ export function isLikelyPersonDisplayName(displayName: string | null | undefined
   const namePart = normalized.slice(0, separator.index);
   const orgPart = normalized.slice(separator.index + separator[0].length);
 
-  return orgPart.trim() !== "" && PERSON_DISPLAY_RE.test(namePart.trim());
+  return orgPart !== "" && PERSON_DISPLAY_RE.test(namePart);
 }
