@@ -6,6 +6,7 @@ import {
   type ChatModelTier,
 } from "@alfred/contracts";
 import { toast } from "~/lib/toast";
+import { safeRandomId } from "./safe-random-id";
 
 /** A message that waits for the in-flight turn, then starts its own. In memory only. */
 export interface QueuedMessage {
@@ -43,14 +44,6 @@ function withThread(prev: Queues, key: string, next: ThreadQueue): Queues {
 
 function queueKey(threadId: string | undefined): string {
   return threadId ?? "__new__";
-}
-
-function safeRandomId(): string {
-  // lib.dom types `randomUUID` as always present; browsers expose it only in secure contexts.
-  if (typeof crypto === "undefined" || !("randomUUID" in crypto))
-    return `q_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-
-  return crypto.randomUUID();
 }
 
 /** `remove`: the turn started, or the entry was stale (`empty`). `keep`: it waits for a later flush. */
@@ -138,7 +131,7 @@ export function useChatQueue(threadId: string | undefined): ChatQueue {
         return null;
       }
 
-      const id = safeRandomId();
+      const id = safeRandomId("q");
 
       const queued: QueuedMessage = {
         id,

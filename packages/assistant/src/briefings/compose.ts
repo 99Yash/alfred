@@ -5,6 +5,7 @@ import {
   type BriefingComposerOutput,
   type BriefingGather,
   type BriefingSlot,
+  escapeHtml,
   summarizeBody,
   toMessage,
   type FullBriefing,
@@ -24,7 +25,7 @@ import {
   EMAIL_P_STYLE as P_STYLE,
   EMAIL_WRAPPER_STYLE as WRAPPER_STYLE,
 } from "./email-styles";
-import { buildBriefingSourcePanels, escapeHtml } from "./references";
+import { buildBriefingSourcePanels } from "./references";
 
 /**
  * Composers for the legacy `morning-briefing` workflow: `composeBriefing` (boss model,

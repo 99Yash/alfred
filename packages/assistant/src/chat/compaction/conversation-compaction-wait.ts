@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from "node:timers/promises";
 import { loadChatThreadContext, type LoadedChatThreadContext } from "./chat-context-store";
 
 const FOREGROUND_COMPACTION_WAIT_MS = 500;
@@ -22,7 +23,7 @@ export async function waitForActiveConversationCompaction(
 ): Promise<LoadedChatThreadContext | null> {
   const loadContext = dependencies.loadContext ?? loadChatThreadContext;
   const now = dependencies.now ?? Date.now;
-  const sleep = dependencies.sleep ?? sleepMs;
+  const wait = dependencies.sleep ?? ((ms: number) => sleep(ms));
   const initial = await loadContext(userId, threadId);
 
   if (!isCompactionActive(initial)) return null;
@@ -31,7 +32,7 @@ export async function waitForActiveConversationCompaction(
   const deadline = now() + FOREGROUND_COMPACTION_WAIT_MS;
 
   while (now() < deadline) {
-    await sleep(Math.min(FOREGROUND_COMPACTION_POLL_MS, deadline - now()));
+    await wait(Math.min(FOREGROUND_COMPACTION_POLL_MS, deadline - now()));
     const current = await loadContext(userId, threadId);
 
     if (
@@ -58,8 +59,4 @@ export function isCompactionActive(
   const failedAt = context.compactionFailedAt?.getTime() ?? -Infinity;
 
   return requestedAt > completedAt && requestedAt > failedAt;
-}
-
-function sleepMs(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

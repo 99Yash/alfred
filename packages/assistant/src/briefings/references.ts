@@ -4,6 +4,7 @@ import {
   type BriefingSegment,
   type BriefingSourcePanel,
   type BriefingSourcePanelItem,
+  escapeHtml,
   gmailThreadUrl,
   parseBriefingReference,
 } from "@alfred/contracts";
@@ -229,13 +230,4 @@ function renderSegmentsHtml(segments: BriefingSegment[]): string {
       return `<a href="${escapeHtml(segment.href)}" style="${EMAIL_LINK_STYLE}">${label}</a>`;
     })
     .join("");
-}
-
-export function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
 }

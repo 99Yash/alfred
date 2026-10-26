@@ -1,5 +1,6 @@
 import {
   collapseWhitespace,
+  decodeHtmlEntities,
   INBOX_DEFAULT_LIMIT,
   isDomainOrSubdomain,
   isFreeMail,
@@ -279,15 +280,7 @@ function toneFor(name: string): AppTint {
 function cleanPreview(snippet: string | null): string {
   if (!snippet) return "";
 
-  return collapseWhitespace(
-    snippet
-      .replace(/&nbsp;/g, " ")
-      .replace(/&amp;/g, "&")
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'")
-      .replace(/&lt;/g, "<")
-      .replace(/&gt;/g, ">"),
-  );
+  return collapseWhitespace(decodeHtmlEntities(snippet));
 }
 
 const MINUTE = 60 * 1000;

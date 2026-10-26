@@ -172,3 +172,5 @@ export * from "./iso-date-time";
 export * from "./shared-thread";
 
 export * from "./text";
+
+export * from "./html-entities";

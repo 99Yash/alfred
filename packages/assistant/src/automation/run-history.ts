@@ -19,6 +19,11 @@ import {
   effectReceiptColumns,
   toEffectReceipt,
 } from "@alfred/assistant/execution";
+import {
+  deliveryInstantOf,
+  deliveryInstantSchema,
+  type DeliveryInstant,
+} from "@alfred/assistant/connections";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { workflowRecoveryNavigation } from "./recovery-navigation";
 
@@ -47,18 +52,13 @@ export class InvalidRunHistoryCursorError extends Error {
 }
 
 /**
- * `created_at` stays as text with microseconds, never a `Date`: a `Date` drops to
+ * `created_at` stays a microsecond instant, never a `Date`: a `Date` drops to
  * milliseconds, and one triage batch creates many runs in the same millisecond.
  */
 interface HistoryCursor {
-  /** Exactly as `createdAtMicros` renders it. */
-  createdAt: string;
+  createdAt: DeliveryInstant;
   id: string;
 }
-
-const MICROSECOND_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
-
-const createdAtMicros = sql<string>`to_char(${agentRuns.createdAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
 
 function encodeCursor(cursor: HistoryCursor): string {
   return Buffer.from(`${cursor.createdAt}|${cursor.id}`, "utf8").toString("base64url");
@@ -69,14 +69,12 @@ function decodeCursor(raw: string): HistoryCursor {
   const separator = decoded.indexOf("|");
 
   if (separator <= 0) throw new InvalidRunHistoryCursorError();
-  const createdAt = decoded.slice(0, separator);
+  const createdAt = deliveryInstantSchema.safeParse(decoded.slice(0, separator));
   const id = decoded.slice(separator + 1);
 
-  if (!MICROSECOND_INSTANT.test(createdAt) || id.length === 0) {
-    throw new InvalidRunHistoryCursorError();
-  }
+  if (!createdAt.success || id.length === 0) throw new InvalidRunHistoryCursorError();
 
-  return { createdAt, id };
+  return { createdAt: createdAt.data, id };
 }
 
 /**
@@ -111,7 +109,7 @@ export async function listWorkflowRunHistory(
       replayOfRunId: agentRuns.replayOfRunId,
       workflowRevisionId: agentRuns.workflowRevisionId,
       createdAt: agentRuns.createdAt,
-      createdAtMicros,
+      createdAtInstant: deliveryInstantOf(agentRuns.createdAt),
       startedAt: agentRuns.startedAt,
       endedAt: agentRuns.endedAt,
       output: agentRuns.output,
@@ -144,7 +142,10 @@ export async function listWorkflowRunHistory(
 
   const nextCursor =
     runs.length > pageSize && last
-      ? encodeCursor({ createdAt: last.createdAtMicros, id: last.id })
+      ? encodeCursor({
+          createdAt: deliveryInstantSchema.parse(last.createdAtInstant),
+          id: last.id,
+        })
       : null;
 
   const effectsByRun = await readEffectsByRun(page.map((run) => run.id));

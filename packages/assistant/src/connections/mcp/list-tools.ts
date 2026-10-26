@@ -2,7 +2,6 @@
 
 import {
   Errors,
-  isApiError,
   jsonObjectSchema,
   MCP_LIST_TOOLS_DEFAULT_LIMIT,
   MCP_LIST_TOOLS_MAX_LIMIT,
@@ -10,6 +9,7 @@ import {
   mcpToolDiscoveryPageSchema,
   mcpToolInspectionResultSchema,
   mcpToolSearchInputSchema,
+  parseJsonWith,
   parseMcpListToolsOperation,
   summarizeBody,
   type ExternalToolRef,
@@ -99,18 +99,16 @@ function decodeCursor(
 ): DiscoveryCursor | null {
   if (!encoded) return null;
 
-  try {
-    const decoded: unknown = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
-    const cursor = discoveryCursorSchema.parse(decoded);
+  const cursor = parseJsonWith(
+    Buffer.from(encoded, "base64url").toString("utf8"),
+    discoveryCursorSchema,
+  );
 
-    if (cursor.filterHash !== expectedFilterHash) cursorError("filters changed");
+  if (!cursor) return cursorError("malformed value");
 
-    return cursor;
-  } catch (error) {
-    if (isApiError(error, "BAD_REQUEST")) throw error;
+  if (cursor.filterHash !== expectedFilterHash) cursorError("filters changed");
 
-    return cursorError("malformed value");
-  }
+  return cursor;
 }
 
 function encodeCursor(

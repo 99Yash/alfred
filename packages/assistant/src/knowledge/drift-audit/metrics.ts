@@ -1,4 +1,4 @@
-import { parseEmailAddress, toMessage } from "@alfred/contracts";
+import { escapeHtml, parseEmailAddress, toMessage } from "@alfred/contracts";
 import type { IanaTimezone, JsonObject, TriageCategory } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, driftMetrics, emailTriage, todos } from "@alfred/db/schemas";
@@ -321,27 +321,8 @@ function composeHealthAlertEmail(result: MetricResult): HealthAlertEmail {
   const html =
     `<p><strong>${escapeHtml(result.metric)}</strong> breached.</p>` +
     `<p>${escapeHtml(result.summary)}</p>` +
-    `<pre>threshold: ${escapeHtml(result.threshold)}\n` +
-    `value: ${escapeHtml(result.value)}\n\n${htmlDetailLines}</pre>`;
+    `<pre>threshold: ${escapeHtml(String(result.threshold))}\n` +
+    `value: ${escapeHtml(String(result.value))}\n\n${htmlDetailLines}</pre>`;
 
   return { subject, html, text };
-}
-
-function escapeHtml(value: unknown): string {
-  return String(value).replace(/[&<>"']/g, (char) => {
-    switch (char) {
-      case "&":
-        return "&amp;";
-      case "<":
-        return "&lt;";
-      case ">":
-        return "&gt;";
-      case '"':
-        return "&quot;";
-      case "'":
-        return "&#39;";
-      default:
-        return char;
-    }
-  });
 }

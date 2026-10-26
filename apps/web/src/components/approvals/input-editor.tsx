@@ -1,4 +1,5 @@
 import {
+  assertNever,
   type calendarListEventsInput,
   fieldValue,
   toolInputFields,
@@ -359,7 +360,7 @@ function FieldControl({
         />
       );
     default:
-      return assertNever(field);
+      return assertNever(field, "field kind");
   }
 }
 
@@ -464,8 +465,4 @@ function emptyToUndefined(value: string, optional: boolean): string | undefined 
   if (value.trim().length === 0 && optional) return undefined;
 
   return value;
-}
-
-function assertNever(value: never): never {
-  throw new Error(`Unhandled field kind: ${JSON.stringify(value)}`);
 }

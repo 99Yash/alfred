@@ -9,6 +9,7 @@ import {
   USAGE_ACTIVITY_MAX_PAGE_SIZE,
   encodeInboxCursor,
   Errors,
+  decodeHtmlEntities,
   extractGmailDocumentBody,
   INTEGRATIONS,
   isUsageRunCategory,
@@ -203,16 +204,12 @@ function normalizeBodyForReader(
   body = body.replace(/<script[\s\S]*?<\/script>/gi, "");
 
   if (HTML_TAG_RE.test(body)) {
-    body = body
-      .replace(/<br\s*\/?>/gi, "\n")
-      .replace(/<\/(p|div|li|tr|h[1-6])\s*>/gi, "\n")
-      .replace(/<[^>]+>/g, "")
-      .replace(/&nbsp;/g, " ")
-      .replace(/&amp;/g, "&")
-      .replace(/&lt;/g, "<")
-      .replace(/&gt;/g, ">")
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'");
+    body = decodeHtmlEntities(
+      body
+        .replace(/<br\s*\/?>/gi, "\n")
+        .replace(/<\/(p|div|li|tr|h[1-6])\s*>/gi, "\n")
+        .replace(/<[^>]+>/g, ""),
+    );
   }
 
   // Drop trailing spaces, then keep at most one blank line.
