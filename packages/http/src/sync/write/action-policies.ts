@@ -1,5 +1,5 @@
-import { DEFAULT_APPROVAL_NOTIFY_DELAY_MS } from "@alfred/assistant/action-policies";
-import { withToolOverride, type IntegrationRules } from "@alfred/contracts";
+import { defaultActionPolicy } from "@alfred/assistant/action-policies";
+import { withToolOverride } from "@alfred/contracts";
 import { userActionPolicies } from "@alfred/db/schemas";
 import type {
   PolicySetDefaultModeArgs,
@@ -9,31 +9,18 @@ import type {
 import { eq, sql } from "drizzle-orm";
 import type { DbTransaction } from "@alfred/db";
 
-/**
- * Rules for a user with no row yet. Must match `ensureDefaultActionPolicyForUser`.
- * `system` is a backstop: `resolvePolicyMode` never gates `system.*` (ADR-0040).
- */
-const DEFAULT_INTEGRATION_RULES: IntegrationRules = {
-  system: { mode: "autonomy" },
-};
-
 export async function policySetIntegrationMode(
   tx: DbTransaction,
   args: PolicySetIntegrationModeArgs,
   userId: string,
 ): Promise<void> {
-  const insertedRules: IntegrationRules = {
-    ...DEFAULT_INTEGRATION_RULES,
-    [args.slug]: { mode: args.mode },
-  };
+  const base = defaultActionPolicy(userId);
 
   await tx
     .insert(userActionPolicies)
     .values({
-      userId,
-      defaultMode: "gated",
-      integrationRules: insertedRules,
-      approvalNotifyDelayMs: DEFAULT_APPROVAL_NOTIFY_DELAY_MS,
+      ...base,
+      integrationRules: { ...base.integrationRules, [args.slug]: { mode: args.mode } },
     })
     .onConflictDoUpdate({
       target: userActionPolicies.userId,
@@ -73,10 +60,12 @@ export async function policySetToolMode(
     .for("update")
     .limit(1);
 
-  const defaultMode = row?.defaultMode ?? "gated";
+  const base = defaultActionPolicy(userId);
+
+  const defaultMode = row?.defaultMode ?? base.defaultMode;
 
   const integrationRules = withToolOverride(
-    row?.integrationRules ?? DEFAULT_INTEGRATION_RULES,
+    row?.integrationRules ?? base.integrationRules,
     args.toolName,
     args.mode,
     defaultMode,
@@ -84,12 +73,8 @@ export async function policySetToolMode(
 
   await tx
     .insert(userActionPolicies)
-    .values({
-      userId,
-      defaultMode,
-      integrationRules,
-      approvalNotifyDelayMs: DEFAULT_APPROVAL_NOTIFY_DELAY_MS,
-    })
+    // The computed values go last, so the defaults never overwrite them.
+    .values({ ...base, defaultMode, integrationRules })
     .onConflictDoUpdate({
       target: userActionPolicies.userId,
       set: {
@@ -107,12 +92,7 @@ export async function policySetDefaultMode(
 ): Promise<void> {
   await tx
     .insert(userActionPolicies)
-    .values({
-      userId,
-      defaultMode: args.mode,
-      integrationRules: DEFAULT_INTEGRATION_RULES,
-      approvalNotifyDelayMs: DEFAULT_APPROVAL_NOTIFY_DELAY_MS,
-    })
+    .values({ ...defaultActionPolicy(userId), defaultMode: args.mode })
     .onConflictDoUpdate({
       target: userActionPolicies.userId,
       set: {

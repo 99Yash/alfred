@@ -6,23 +6,36 @@
  * It holds a Promise, so a burst of reads for one user makes one DB read.
  */
 
-import type { IntegrationRules, PolicyMode, ToolName } from "@alfred/contracts";
+import type { PolicyMode, ToolName } from "@alfred/contracts";
 import { integrationFromToolName, resolveToolMode } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { userActionPolicies } from "@alfred/db/schemas";
+import { userActionPolicies, type UserActionPolicy } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
 import type IORedis from "ioredis";
 import { createRedisConnection, type BoundedRedis } from "@alfred/db/redis";
 import { logger } from "@alfred/logging";
 
-/** Wait before the fallback approval email. Here so `index.ts` can import it without a cycle. */
-export const DEFAULT_APPROVAL_NOTIFY_DELAY_MS = 5 * 60 * 1000;
+/** The four policy columns the resolver reads. */
+export type ResolvedPolicy = Pick<
+  UserActionPolicy,
+  "userId" | "defaultMode" | "integrationRules" | "approvalNotifyDelayMs"
+>;
 
-export interface ResolvedPolicy {
-  userId: string;
-  defaultMode: PolicyMode;
-  integrationRules: IntegrationRules;
-  approvalNotifyDelayMs: number;
+/**
+ * The policy a user has before they change anything: `gated` (ADR-0034) and the `system`
+ * autonomy seed (ADR-0040). The signup hook, the no-row read, and every sync mutator insert
+ * take it from here. Here, not in `index.ts`, so the barrel imports it without a cycle.
+ * It returns fresh objects, so a cached fallback never shares an object with an insert.
+ */
+export function defaultActionPolicy(userId: string): ResolvedPolicy {
+  return {
+    userId,
+    defaultMode: "gated",
+    // `system` is a backstop: `resolvePolicyMode` never gates `system.*`.
+    integrationRules: { system: { mode: "autonomy" } },
+    // Wait before the fallback approval email.
+    approvalNotifyDelayMs: 5 * 60 * 1000,
+  };
 }
 
 const POLICY_BUST_CHANNEL_PREFIX = "policy-bust:u:";
@@ -60,12 +73,7 @@ async function loadPolicy(userId: string): Promise<ResolvedPolicy> {
 
   // No row: a legacy user or a race with signup. Return the defaults the hook writes.
   // Do not write a row here; that would race the hook.
-  return {
-    userId,
-    defaultMode: "gated",
-    integrationRules: { system: { mode: "autonomy" } },
-    approvalNotifyDelayMs: DEFAULT_APPROVAL_NOTIFY_DELAY_MS,
-  };
+  return defaultActionPolicy(userId);
 }
 
 export async function getResolvedPolicy(userId: string): Promise<ResolvedPolicy> {

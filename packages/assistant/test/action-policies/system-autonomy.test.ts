@@ -7,10 +7,7 @@ import assert from "node:assert/strict";
 import { afterEach, describe, test } from "node:test";
 
 import type { ResolvedPolicy } from "@alfred/assistant/action-policies";
-import {
-  resolvePolicyMode,
-  DEFAULT_APPROVAL_NOTIFY_DELAY_MS,
-} from "@alfred/assistant/action-policies";
+import { defaultActionPolicy, resolvePolicyMode } from "@alfred/assistant/action-policies";
 import {
   _primePolicyCacheForTests,
   clearPolicyCacheForTests,
@@ -23,7 +20,7 @@ const USER_ID = "usr_system_autonomy";
 
 /** Gated at every level the policy editor offers. */
 const HOSTILE_POLICY: ResolvedPolicy = {
-  userId: USER_ID,
+  ...defaultActionPolicy(USER_ID),
   defaultMode: "gated",
   integrationRules: {
     system: {
@@ -31,7 +28,6 @@ const HOSTILE_POLICY: ResolvedPolicy = {
       toolOverrides: { "system.read_user_context": "gated" },
     },
   },
-  approvalNotifyDelayMs: DEFAULT_APPROVAL_NOTIFY_DELAY_MS,
 };
 
 describe("resolvePolicyMode — the system.* autonomy rule", () => {
