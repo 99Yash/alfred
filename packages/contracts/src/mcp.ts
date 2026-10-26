@@ -669,9 +669,8 @@ export const mcpHealthObjectTitleSchema = z
   .string()
   .trim()
   .min(1)
-  .max(MCP_HEALTH_MAPPING_OBJECT_TITLE_MAX)
   .refine((value) => value.length <= MCP_HEALTH_MAPPING_OBJECT_TITLE_MAX, {
-    message: `Object title must be at most ${MCP_HEALTH_MAPPING_OBJECT_TITLE_MAX} characters`,
+    message: `Object title must be at most ${MCP_HEALTH_MAPPING_OBJECT_TITLE_MAX} UTF-16 code units`,
   })
   .brand<"McpHealthObjectTitle">();
 
@@ -684,15 +683,10 @@ export type McpHealthObjectTitle = z.output<typeof mcpHealthObjectTitleSchema>;
 export const mcpHealthObjectUrlSchema = z
   .string()
   .trim()
-  .pipe(
-    z
-      .url()
-      .max(MCP_HEALTH_MAPPING_OBJECT_URL_MAX)
-      .refine((value) => value.startsWith("https://"), "Object URL must use HTTPS"),
-  )
   .refine((value) => value.length <= MCP_HEALTH_MAPPING_OBJECT_URL_MAX, {
-    message: `Object URL must be at most ${MCP_HEALTH_MAPPING_OBJECT_URL_MAX} characters`,
+    message: `Object URL must be at most ${MCP_HEALTH_MAPPING_OBJECT_URL_MAX} UTF-16 code units`,
   })
+  .pipe(z.url().refine((value) => value.startsWith("https://"), "Object URL must use HTTPS"))
   .brand<"McpHealthObjectUrl">();
 
 export type McpHealthObjectUrl = z.output<typeof mcpHealthObjectUrlSchema>;
