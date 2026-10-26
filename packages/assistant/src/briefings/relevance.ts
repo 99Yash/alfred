@@ -1,11 +1,13 @@
 import {
   BRIEFING_LOOP_RELEVANCE_OBJECT_TITLE_MAX,
   briefingLoopRelevanceSchema,
+  canonicalizeRailwayTargetId,
   getObjectDef,
   type INTEGRATION_OBJECT_DEFS,
   isBuiltInObjectStateProvider,
   parseGithubPullRequestUrl,
   sanitizeErrorMessage,
+  typedKeys,
   type BriefingLoopRelevance,
   type LoopRelevanceSource,
   type LoopRelevanceVerdict,
@@ -22,6 +24,7 @@ import {
 import {
   railwayTargetFromId,
   readRailwayDeploymentStatus,
+  type RailwayPullTarget,
 } from "@alfred/assistant/connections/verified-pull";
 import { logger } from "@alfred/logging";
 
@@ -52,67 +55,79 @@ export interface ApprovedLoopState {
 /** One object's read, before fan-out to its loops. */
 type ObjectVerdict = Omit<BriefingLoopRelevance, "documentId">;
 
-export type LiveNativeStateReader = (userId: string, externalId: string) => Promise<string>;
+/** Reads the live native state of one object. It holds the parsed target, so it takes only the user. */
+export type LiveNativeStateReader = (userId: string) => Promise<string>;
 
-interface LiveStateReaderRegistration {
-  readonly source: Exclude<LoopRelevanceSource, "none">;
-  readonly accepts: (state: ObjectState) => boolean;
+/** The parsed target each live reader reads. Each key is a `LoopRelevanceSource`. */
+interface LiveTargetBySource {
+  live_github_read: { owner: string; repo: string; number: number };
+  /** The Sentry issue id. */
+  live_sentry_read: string;
+  live_railway_read: RailwayPullTarget;
+}
+
+type LiveReadSource = keyof LiveTargetBySource;
+
+/** An object and its target, parsed one time. */
+interface LiveRead<S extends LiveReadSource> {
+  readonly state: ObjectState;
+  readonly target: LiveTargetBySource[S];
+}
+
+interface LiveStateReader<S extends LiveReadSource> {
+  /** The one parse of the object. `null`: this reader cannot read it. */
+  readonly toTarget: (state: ObjectState) => LiveTargetBySource[S] | null;
   readonly readTargets: (
     userId: string,
-    targets: readonly ObjectState[],
+    reads: readonly LiveRead<S>[],
     verdictByObject: Map<string, ObjectVerdict>,
-    source: Exclude<LoopRelevanceSource, "none">,
+    source: S,
   ) => Promise<void>;
-  readonly readNativeState?: LiveNativeStateReader;
+  readonly readNativeState?: (userId: string, target: LiveTargetBySource[S]) => Promise<string>;
+}
+
+type LiveStateReaderBySource = [Exclude<LiveReadSource, LiveReadSourceByKindValue>] extends [never]
+  ? { readonly [S in LiveReadSource]: LiveStateReader<S> }
+  : { readonly [S in LiveReadSource]: LiveStateReader<S> } & {
+      /** Present only when a live-read source owns no kind cell. Never set it by hand. */
+      readonly missingKindCellFor: Exclude<LiveReadSource, LiveReadSourceByKindValue>;
+    };
+
+type LiveReadsBySource = { readonly [S in LiveReadSource]: LiveRead<S>[] };
+
+/** One pass over the loop objects. */
+interface LiveReadPlan {
+  /** The admitted reads, at most {@link MAX_RELEVANCE_OBJECTS} distinct objects in all. */
+  readonly reads: LiveReadsBySource;
+  /** Every object that a reader can read, admitted or not. */
+  readonly readableRefs: ReadonlySet<string>;
 }
 
 type RegisteredObjectKinds<Provider extends ObjectStateProvider> =
   keyof (typeof INTEGRATION_OBJECT_DEFS)[Provider]["kinds"];
 
-type LiveStateReaderTable = {
+type LiveReadSourceTable = {
   readonly [Provider in ObjectStateProvider]: {
-    readonly [Kind in RegisteredObjectKinds<Provider>]: LiveStateReaderRegistration | null;
+    readonly [Kind in RegisteredObjectKinds<Provider>]: LiveReadSource | null;
   };
 };
 
 /**
- * Live readers per object kind. Typed from `INTEGRATION_OBJECT_DEFS`, so a new kind
+ * The live reader per object kind. Typed from `INTEGRATION_OBJECT_DEFS`, so a new kind
  * fails to compile until it is listed here. Unread kinds are an explicit `null`.
  */
-const LIVE_STATE_READERS = {
+const LIVE_READ_SOURCE_BY_KIND = {
   github: {
-    pull_request: {
-      source: "live_github_read",
-      accepts: (state) => parseGithubPullRequestUrl(state.url ?? "") !== null,
-      readTargets: readGithubTargets,
-    },
+    pull_request: "live_github_read",
     ci_attempt: null,
     ci_target: null,
   },
   sentry: {
-    issue: {
-      source: "live_sentry_read",
-      accepts: () => true,
-      readTargets: readSentryTargets,
-      readNativeState: async (userId, issueId) =>
-        (await readLiveSentryIssue({ userId, issueId })).nativeState,
-    },
+    issue: "live_sentry_read",
   },
   railway: {
     deployment_attempt: null,
-    deployment_target: {
-      source: "live_railway_read",
-      accepts: (state) => railwayTargetFromId(state.externalId) !== null,
-      readTargets: readRailwayTargets,
-      readNativeState: async (userId, targetId) => {
-        const target = railwayTargetFromId(targetId);
-        const reading = target ? await readRailwayDeploymentStatus(userId, target) : null;
-
-        if (!reading) throw new Error(`Railway live read proved nothing target=${targetId}`);
-
-        return reading.status;
-      },
-    },
+    deployment_target: "live_railway_read",
   },
   vercel: {
     deployment_attempt: null,
@@ -122,15 +137,61 @@ const LIVE_STATE_READERS = {
     // MCP health arrives already folded per connection; this table holds fixed readers only.
     connection_health: null,
   },
-} as const satisfies LiveStateReaderTable;
+} as const satisfies LiveReadSourceTable;
 
-function liveStateReaderRegistration(state: ObjectState): LiveStateReaderRegistration | null {
-  const registrations = LIVE_STATE_READERS[state.provider];
+/**
+ * Every live-read source must own at least one kind cell above, or its reader
+ * never runs. `LiveStateReaderBySource` resolves against this union, so a
+ * reader with no kind cell fails to compile.
+ */
+type LiveReadSourceByKindValue = {
+  [Provider in ObjectStateProvider]: (typeof LIVE_READ_SOURCE_BY_KIND)[Provider][keyof (typeof LIVE_READ_SOURCE_BY_KIND)[Provider]];
+}[ObjectStateProvider];
 
-  for (const [kind, registration] of Object.entries<LiveStateReaderRegistration | null>(
-    registrations,
+const LIVE_STATE_READERS: LiveStateReaderBySource = {
+  live_github_read: {
+    toTarget: (state) => {
+      const parsed = parseGithubPullRequestUrl(state.url ?? "");
+
+      if (!parsed) return null;
+
+      const slash = parsed.repoFullName.indexOf("/");
+
+      return {
+        owner: parsed.repoFullName.slice(0, slash),
+        repo: parsed.repoFullName.slice(slash + 1),
+        number: parsed.number,
+      };
+    },
+    readTargets: readGithubTargets,
+  },
+  live_sentry_read: {
+    toTarget: (state) => state.externalId,
+    readTargets: readSentryTargets,
+    readNativeState: async (userId, issueId) =>
+      (await readLiveSentryIssue({ userId, issueId })).nativeState,
+  },
+  live_railway_read: {
+    toTarget: (state) => railwayTargetFromId(state.externalId),
+    readTargets: readRailwayTargets,
+    readNativeState: async (userId, target) => {
+      const reading = await readRailwayDeploymentStatus(userId, target);
+
+      if (!reading)
+        throw new Error(
+          `Railway live read proved nothing target=${canonicalizeRailwayTargetId(target)}`,
+        );
+
+      return reading.status;
+    },
+  },
+};
+
+function liveReadSource(state: ObjectState): LiveReadSource | null {
+  for (const [kind, source] of Object.entries<LiveReadSource | null>(
+    LIVE_READ_SOURCE_BY_KIND[state.provider],
   )) {
-    if (kind === state.kind && registration?.accepts(state)) return registration;
+    if (kind === state.kind) return source;
   }
 
   return null;
@@ -138,7 +199,23 @@ function liveStateReaderRegistration(state: ObjectState): LiveStateReaderRegistr
 
 /** The relevance reader, reused for a closure live confirmation. */
 export function liveNativeStateReader(state: ObjectState): LiveNativeStateReader | null {
-  return liveStateReaderRegistration(state)?.readNativeState ?? null;
+  const source = liveReadSource(state);
+
+  return source ? bindNativeStateReader(source, state) : null;
+}
+
+function bindNativeStateReader<S extends LiveReadSource>(
+  source: S,
+  state: ObjectState,
+): LiveNativeStateReader | null {
+  const reader = LIVE_STATE_READERS[source];
+  const read = reader.readNativeState;
+
+  if (!read) return null;
+
+  const target = reader.toTarget(state);
+
+  return target === null ? null : (userId) => read(userId, target);
 }
 
 const VERDICT_BY_STATE_CATEGORY = {
@@ -234,28 +311,18 @@ async function assessLoopRelevanceInner(args: {
 
   const objects = [...objectByLoop.values()].filter((state) => state !== null);
   const verdictByObject = new Map<string, ObjectVerdict>();
-  const targetsByReader = new Map<LiveStateReaderRegistration, ObjectState[]>();
-
-  for (const state of selectRelevanceReadTargets(objects)) {
-    const reader = liveStateReaderRegistration(state);
-
-    // Selection used the same registration, so this is never null here.
-    if (!reader) continue;
-
-    const targets = targetsByReader.get(reader) ?? [];
-    targets.push(state);
-    targetsByReader.set(reader, targets);
-  }
+  const plan = planLiveReads(objects);
 
   await Promise.all(
-    [...targetsByReader].map(([reader, targets]) =>
-      reader.readTargets(args.userId, targets, verdictByObject, reader.source),
+    typedKeys(LIVE_STATE_READERS).map((source) =>
+      runLiveReads(args.userId, source, plan.reads, verdictByObject),
     ),
   );
 
   return finalizeLoopRelevanceVerdicts({
     loops: args.loops,
     objectByLoop,
+    readableRefs: plan.readableRefs,
     verdictByObject,
     approvedStates: args.approvedStates,
     unverifiedDetails: args.unverifiedDetails,
@@ -269,6 +336,7 @@ async function assessLoopRelevanceInner(args: {
 function finalizeLoopRelevanceVerdicts(args: {
   loops: readonly RelevanceLoop[];
   objectByLoop: ReadonlyMap<string, ObjectState | null>;
+  readableRefs: ReadonlySet<string>;
   verdictByObject: ReadonlyMap<string, ObjectVerdict>;
   approvedStates?: ReadonlyMap<string, ApprovedLoopState> | undefined;
   unverifiedDetails?: ReadonlyMap<string, string> | undefined;
@@ -286,7 +354,7 @@ function finalizeLoopRelevanceVerdicts(args: {
         return toVerdict(loop.documentId, verdict);
       }
 
-      if (!liveStateReaderRegistration(state)) {
+      if (!args.readableRefs.has(ref)) {
         return toVerdict(
           loop.documentId,
           unverified(state, "No live reader for this loop's object kind; loop stays live."),
@@ -327,7 +395,7 @@ function finalizeLoopRelevanceVerdicts(args: {
       return toVerdict(loop.documentId, verdict);
     }
 
-    if (!liveStateReaderRegistration(state)) {
+    if (!args.readableRefs.has(ref)) {
       return toVerdict(
         loop.documentId,
         unverified(state, "No live reader for this loop's object kind; loop stays live."),
@@ -341,19 +409,61 @@ function finalizeLoopRelevanceVerdicts(args: {
   });
 }
 
-/** The first distinct readable objects, capped across providers. */
-function selectRelevanceReadTargets(objects: readonly ObjectState[]): readonly ObjectState[] {
-  const distinct = new Map<string, ObjectState>();
+/**
+ * One parse per readable distinct object, in loop order. The first {@link MAX_RELEVANCE_OBJECTS}
+ * readable objects are admitted across providers; the rest are readable but not read.
+ */
+function planLiveReads(objects: readonly ObjectState[]): LiveReadPlan {
+  const reads: LiveReadsBySource = {
+    live_github_read: [],
+    live_sentry_read: [],
+    live_railway_read: [],
+  };
+
+  const readableRefs = new Set<string>();
 
   for (const state of objects) {
-    if (!liveStateReaderRegistration(state)) continue;
-
     const ref = objectRef(state);
 
-    if (!distinct.has(ref)) distinct.set(ref, state);
+    if (readableRefs.has(ref)) continue;
+
+    const source = liveReadSource(state);
+
+    if (!source) continue;
+
+    const admit = readableRefs.size < MAX_RELEVANCE_OBJECTS;
+
+    // An unparsable occurrence leaves the ref open, so a later one can still read it.
+    if (addLiveRead(reads, source, state, admit)) readableRefs.add(ref);
   }
 
-  return [...distinct.values()].slice(0, MAX_RELEVANCE_OBJECTS);
+  return { reads, readableRefs };
+}
+
+/** False when the source's reader cannot read the object. */
+function addLiveRead<S extends LiveReadSource>(
+  reads: LiveReadsBySource,
+  source: S,
+  state: ObjectState,
+  admit: boolean,
+): boolean {
+  const target = LIVE_STATE_READERS[source].toTarget(state);
+
+  if (target === null) return false;
+
+  if (admit) reads[source].push({ state, target });
+
+  return true;
+}
+
+/** Each source's reads go to that source's reader only. */
+function runLiveReads<S extends LiveReadSource>(
+  userId: string,
+  source: S,
+  reads: LiveReadsBySource,
+  verdictByObject: Map<string, ObjectVerdict>,
+): Promise<void> {
+  return LIVE_STATE_READERS[source].readTargets(userId, reads[source], verdictByObject, source);
 }
 
 function objectRef(state: ObjectState): string {
@@ -362,23 +472,23 @@ function objectRef(state: ObjectState): string {
 
 async function readSentryTargets(
   userId: string,
-  targets: readonly ObjectState[],
+  reads: readonly LiveRead<"live_sentry_read">[],
   verdictByObject: Map<string, ObjectVerdict>,
-  source: Exclude<LoopRelevanceSource, "none">,
+  source: "live_sentry_read",
 ): Promise<void> {
   await Promise.all(
-    targets.map(async (state) => {
+    reads.map(async ({ state, target: issueId }) => {
       const ref = objectRef(state);
 
       try {
-        const live = await readLiveSentryIssue({ userId, issueId: state.externalId });
+        const live = await readLiveSentryIssue({ userId, issueId });
 
         verdictByObject.set(
           ref,
           verdictFromNativeState({
             state,
             nativeState: live.nativeState,
-            detail: `Sentry live read reports issue ${state.externalId} as ${live.nativeState}.`,
+            detail: `Sentry live read reports issue ${issueId} as ${live.nativeState}.`,
             source,
           }),
         );
@@ -395,16 +505,15 @@ async function readSentryTargets(
 
 async function readRailwayTargets(
   userId: string,
-  targets: readonly ObjectState[],
+  reads: readonly LiveRead<"live_railway_read">[],
   verdictByObject: Map<string, ObjectVerdict>,
-  source: Exclude<LoopRelevanceSource, "none">,
+  source: "live_railway_read",
 ): Promise<void> {
   await Promise.all(
-    targets.map(async (state) => {
+    reads.map(async ({ state, target }) => {
       const ref = objectRef(state);
-      const target = railwayTargetFromId(state.externalId);
       // Never throws: a fault, a missing connection or an unknown status is `null`.
-      const reading = target ? await readRailwayDeploymentStatus(userId, target) : null;
+      const reading = await readRailwayDeploymentStatus(userId, target);
 
       if (!reading) {
         logger.warn(`[briefing.relevance] railway live read proved nothing object=${ref}`);
@@ -431,40 +540,24 @@ async function readRailwayTargets(
 
 async function readGithubTargets(
   userId: string,
-  targets: readonly ObjectState[],
+  reads: readonly LiveRead<"live_github_read">[],
   verdictByObject: Map<string, ObjectVerdict>,
-  source: Exclude<LoopRelevanceSource, "none">,
+  source: "live_github_read",
 ): Promise<void> {
-  if (targets.length === 0) return;
-
-  const coords = new Map<string, { owner: string; repo: string; number: number }>();
-
-  for (const state of targets) {
-    const parsed = parseGithubPullRequestUrl(state.url ?? "");
-
-    // `LIVE_STATE_READERS` already admitted this URL; this guard only narrows the type.
-    if (parsed) {
-      const slash = parsed.repoFullName.indexOf("/");
-      coords.set(objectRef(state), {
-        owner: parsed.repoFullName.slice(0, slash),
-        repo: parsed.repoFullName.slice(slash + 1),
-        number: parsed.number,
-      });
-    }
-  }
+  if (reads.length === 0) return;
 
   let batch: Awaited<ReturnType<ReturnType<typeof githubClientForUser>["getPullRequests"]>>;
 
   try {
     // One batch call, one attempt. Per-item faults land in `failed`; a total fault
     // makes every target unverified.
-    batch = await githubClientForUser({ userId, retry: "none" }).getPullRequests([
-      ...coords.values(),
-    ]);
+    batch = await githubClientForUser({ userId, retry: "none" }).getPullRequests(
+      reads.map((read) => read.target),
+    );
   } catch (err) {
     logger.warn({ err }, "[briefing.relevance] github live read failed");
 
-    for (const state of targets) {
+    for (const { state } of reads) {
       verdictByObject.set(
         objectRef(state),
         unverified(state, "GitHub live read failed; loop stays live.", source),
@@ -478,18 +571,8 @@ async function readGithubTargets(
     batch.failed.map((item) => `${item.owner}/${item.repo}#${item.number}`),
   );
 
-  for (const state of targets) {
+  for (const { state, target: coord } of reads) {
     const ref = objectRef(state);
-    const coord = coords.get(ref);
-
-    if (!coord) {
-      verdictByObject.set(
-        ref,
-        unverified(state, "GitHub live read failed; loop stays live.", source),
-      );
-      continue;
-    }
-
     const repoFullName = `${coord.owner}/${coord.repo}`;
     const providerRef = `${repoFullName}#${coord.number}`;
 
