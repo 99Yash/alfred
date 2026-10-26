@@ -1,4 +1,4 @@
-import { isTerminalStatus, runStatusSchema } from "@alfred/contracts";
+import { isTerminalStatus } from "@alfred/contracts";
 import { AppError } from "@alfred/contracts/app-errors";
 import { db } from "@alfred/db";
 import { agentRuns } from "@alfred/db/schemas";
@@ -155,7 +155,7 @@ export async function spawnSubAgent(
         throw new Error("[sub-agents] sub-agents cannot spawn nested sub-agents");
       }
 
-      if (isTerminalStatus(runStatusSchema.parse(parent.status))) {
+      if (isTerminalStatus(parent.status)) {
         throw new AppError("run_cancelled");
       }
 

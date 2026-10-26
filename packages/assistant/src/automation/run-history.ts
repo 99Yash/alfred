@@ -1,5 +1,4 @@
 import {
-  runStatusSchema,
   WRITE_RISK_TIERS,
   workflowReadinessOutputSchema,
   workflowRunHistoryTriggerSchema,
@@ -151,7 +150,7 @@ export async function listWorkflowRunHistory(
   const effectsByRun = await readEffectsByRun(page.map((run) => run.id));
 
   const items: WorkflowRunHistoryRow[] = page.map((run) => {
-    const status = runStatusSchema.parse(run.status);
+    const { status } = run;
     const outcomeParsed = workflowRunOutcomeSchema.safeParse(run.outcome);
     const outcome = outcomeParsed.success ? outcomeParsed.data : null;
     const wireOutcome = outcome ? toHistoryOutcome(outcome) : null;

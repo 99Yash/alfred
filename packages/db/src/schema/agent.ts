@@ -1,16 +1,21 @@
 import type { AgentTranscriptMessage } from "@alfred/contracts";
 import {
+  RUN_STATUSES,
   TERMINAL_RUN_STATUSES,
   agentRunTriggerSchema,
+  agentStepStatusSchema,
   enumGuard,
   type AgentRunTrigger,
+  type AgentStepStatus,
   type EventSource,
   type EventType,
+  type RunStatus,
   type WorkflowRunOutcome,
 } from "@alfred/contracts";
 import { sql, type SQL, type SQLWrapper } from "drizzle-orm";
 import {
   bigserial,
+  check,
   foreignKey,
   index,
   integer,
@@ -21,7 +26,7 @@ import {
   uniqueIndex,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
-import { createId, lifecycle_dates } from "../helpers";
+import { createId, inList, lifecycle_dates } from "../helpers";
 import { user } from "./auth";
 import { workflowRevisions } from "./workflows";
 
@@ -211,7 +216,7 @@ export const agentRuns = pgTable(
     /** Pinned revision, so a user edit cannot change a run mid-flight. Null for built-ins and chat turns. */
     workflowRevisionId: text("workflow_revision_id"),
     brief: text("brief"),
-    status: text("status").notNull().default("pending"),
+    status: text("status").$type<RunStatus>().notNull().default("pending"),
     state: jsonb("state")
       .notNull()
       .default(sql`'{}'::jsonb`),
@@ -245,6 +250,7 @@ export const agentRuns = pgTable(
     ...lifecycle_dates,
   },
   (t) => [
+    check("agent_runs_status_valid", sql`${t.status} IN (${inList(RUN_STATUSES)})`),
     foreignKey({
       name: "agent_runs_workflow_revision_owner_fk",
       columns: [t.workflowRevisionId, t.userId],
@@ -316,7 +322,7 @@ export const agentSteps = pgTable(
       .references(() => agentRuns.id, { onDelete: "cascade" }),
     stepId: text("step_id").notNull(),
     attempt: integer("attempt").notNull(),
-    status: text("status").notNull().default("running"),
+    status: text("status").$type<AgentStepStatus>().notNull().default("running"),
     input: jsonb("input"),
     output: jsonb("output"),
     error: jsonb("error").$type<AgentError>(),
@@ -324,6 +330,10 @@ export const agentSteps = pgTable(
     endedAt: timestamp("ended_at", { withTimezone: true }),
   },
   (t) => [
+    check(
+      "agent_steps_status_valid",
+      sql`${t.status} IN (${inList(agentStepStatusSchema.options)})`,
+    ),
     uniqueIndex("agent_steps_idempotency_idx").on(t.runId, t.stepId, t.attempt),
     index("agent_steps_run_idx").on(t.runId, t.id),
   ],

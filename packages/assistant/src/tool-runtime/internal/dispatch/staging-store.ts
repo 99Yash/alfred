@@ -20,7 +20,6 @@ import {
   cancellationFenceSchema,
   effectOutcomeSchema,
   jsonValueSchema,
-  runStatusSchema,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import {
@@ -267,9 +266,7 @@ export const postgresStagingStore: StagingStore = {
       .where(eq(agentRuns.id, runId))
       .limit(1);
 
-    const parsed = runStatusSchema.safeParse(rows[0]?.status);
-
-    return parsed.success ? parsed.data : null;
+    return rows[0]?.status ?? null;
   },
 
   async readCancellationFence(runId) {

@@ -1,7 +1,6 @@
 import {
   applyChatDelta,
   createChatDeltaLog,
-  runStatusSchema,
   sanitizeToolResult,
   type ChatErrorKind,
   type ChatMessageUsage,
@@ -498,9 +497,7 @@ async function runWasCancelled(runId: string): Promise<boolean> {
     .where(eq(agentRuns.id, runId))
     .limit(1);
 
-  const status = runStatusSchema.safeParse(rows[0]?.status);
-
-  return status.success && status.data === "cancelled";
+  return rows[0]?.status === "cancelled";
 }
 
 /** The stored status of an assistant message, or `undefined` when no row exists. */

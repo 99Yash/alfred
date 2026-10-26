@@ -7,7 +7,6 @@ import {
   sanitizeErrorMessage,
   sanitizeToolResult,
   toMessage,
-  type RunStatus,
   type WakeCondition,
 } from "@alfred/contracts";
 import { createExecuteRowSchema, db, rowsFromExecute, type DbTransaction } from "@alfred/db";
@@ -127,10 +126,8 @@ async function guardRunOwnership(
 
   // Cancel bumps the generation (#559b); a step started under an older one must not commit.
   if (row.cancellationGeneration !== expectedGeneration) return "terminal";
-  const status = runStatusSchema.safeParse(row.status);
 
-  // An unknown status counts as terminal, so the worker skips instead of retrying forever.
-  return !status.success || isTerminalStatus(status.data) ? "terminal" : null;
+  return isTerminalStatus(row.status) ? "terminal" : null;
 }
 
 /**
@@ -225,25 +222,20 @@ interface LeaseQueueInfo {
   reclaimed: boolean;
 }
 
-type RunRow = Omit<
-  Pick<
-    AgentRun,
-    | "id"
-    | "userId"
-    | "workflowSlug"
-    | "status"
-    | "state"
-    | "transcript"
-    | "currentStep"
-    | "attempt"
-    | "cancellationGeneration"
-    | "metadata"
-    | "deferredUntil"
-  >,
-  "status"
-> & {
-  status: RunStatus;
-};
+type RunRow = Pick<
+  AgentRun,
+  | "id"
+  | "userId"
+  | "workflowSlug"
+  | "status"
+  | "state"
+  | "transcript"
+  | "currentStep"
+  | "attempt"
+  | "cancellationGeneration"
+  | "metadata"
+  | "deferredUntil"
+>;
 
 export interface RunOnceOptions {
   /** Runs just before the step body, so the worker heartbeats only its own attempt. */
@@ -402,7 +394,7 @@ export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise
 }
 
 /** The `leaseRun` row. `deferred_until` arrives as text and parses to `Date`; `staleMs` is `numeric` text. */
-const leaseRowSchema = createExecuteRowSchema(agentRuns)
+const leaseRowSchema = createExecuteRowSchema(agentRuns, { status: runStatusSchema })
   .pick({
     id: true,
     userId: true,
@@ -439,7 +431,7 @@ export async function leaseRun(runId: string): Promise<LeaseResult> {
 
     if (!row) return { kind: "none" };
 
-    const status = runStatusSchema.parse(row.status);
+    const { status } = row;
 
     if (isTerminalStatus(status)) return { kind: "none" };
 
