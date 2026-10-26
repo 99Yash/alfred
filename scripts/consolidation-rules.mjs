@@ -698,14 +698,15 @@ export const RULES = [
   },
   {
     id: "hand-rolled-no-reply-regex",
-    // A `no[-_.]?reply` / `no[-_]?reply` alternation inside a regex literal.
-    // `hint`, not `gate`: two SERVICE_LOCAL_PREFIX_RE declarations legitimately
-    // hold this literal, and a whole-file exemption on them would blind the
-    // rule exactly where the next copy would be written.
-    re: /no\[[-_.]+\]\??reply/,
-    severity: "hint",
-    owners: ["packages/contracts/src/identity-affiliation.ts"],
-    fix: "hasServiceWordSuffix(localPart) from @alfred/contracts owns the SUFFIX half of the no-reply family (`messages-noreply`, `nse_alerts`, `store-news`) and carries the prod measurement behind it. Reach for it before re-spelling the alternation. A PREFIX test (`^noreply-…`) is a different question and stays in its owning module.",
+    // A sender-word list outside the one table: a `no[-_.]?reply` alternation
+    // inside a regex literal, or a `Set`/`Map`/array literal that opens with a
+    // no-reply word. Five readers once kept five drifted copies of these words.
+    // Chain scope, because a formatter puts each `Set` member on its own line.
+    re: /no\[[-_.]+\]\??reply|(?:new\s+(?:Set|Map)(?:<[^>]*>)?\(|=)\s*\[\s*["'](?:no[-_]?reply|donotreply|do[-_]not[-_]reply)["']/,
+    scope: "chain",
+    severity: "gate",
+    owners: ["packages/contracts/src/sender-class.ts"],
+    fix: "Call classifyLocalPart(localPart) from @alfred/contracts. It returns the sender class (automated, role, group, none) and how the word matched (whole, edge, token). Map that result to your output through a total `satisfies Record<MatchedSenderClass, Record<LocalPartMatch, …>>` table. Add a new word to SENDER_WORDS in sender-class.ts, not to a local list.",
   },
   {
     id: "bullmq-job-timestamp",

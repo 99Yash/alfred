@@ -106,6 +106,26 @@ const GMAIL_SIBLING_FILE = "packages/integrations/src/google/client.ts";
  */
 const CASES = [
   {
+    name: "hand-rolled-no-reply-regex — a local no-reply prefix regex",
+    caught: true,
+    rule: "hand-rolled-no-reply-regex",
+    code: `const PREFIX_RE = /^(no[-_.]?reply|alerts?)/;`,
+  },
+  {
+    name: "hand-rolled-no-reply-regex — a local no-reply word Set, one member per line",
+    caught: true,
+    rule: "hand-rolled-no-reply-regex",
+    code: `const STRONG = new Set<string>([
+  "noreply",
+  "no-reply",
+]);`,
+  },
+  {
+    name: "hand-rolled-no-reply-regex — a no-reply address is not a word list",
+    caught: false,
+    code: `const from = "GitHub <noreply@github.com>";`,
+  },
+  {
     name: "receipt read must select the typed view, including across line breaks",
     caught: true,
     rule: "unfiltered-event-receipt-read",

@@ -2,6 +2,7 @@ import {
   collapseWhitespace,
   INBOX_DEFAULT_LIMIT,
   isDomainOrSubdomain,
+  isFreeMail,
   isTriageCategory,
   mailboxLabel,
   parseMailbox,
@@ -237,27 +238,8 @@ function toInboxItem(row: InboxResponseItem): RailInboxItem {
     tone: sender.tone,
     category: isTriageCategory(row.category) ? row.category : null,
     senderBrand: brand,
-    senderDomain: brand === null && !isPersonalDomain(domain) && domain ? domain : null,
+    senderDomain: brand === null && !isFreeMail(domain) && domain ? domain : null,
   };
-}
-
-const PERSONAL_MAIL_DOMAINS = new Set([
-  "gmail.com",
-  "googlemail.com",
-  "outlook.com",
-  "hotmail.com",
-  "live.com",
-  "yahoo.com",
-  "icloud.com",
-  "me.com",
-  "proton.me",
-  "protonmail.com",
-]);
-
-function isPersonalDomain(domain: string): boolean {
-  if (!domain) return false;
-
-  return PERSONAL_MAIL_DOMAINS.has(domain);
 }
 
 function brandFor(domain: string): IntegrationBrand | null {

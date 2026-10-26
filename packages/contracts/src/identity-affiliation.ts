@@ -7,6 +7,14 @@ import { z } from "zod";
 import { isValidDomain, normalizeDomain, splitEmail } from "./domain";
 import { enumGuard } from "./guards";
 import { recordFromKeys } from "./records";
+import {
+  classifyDomainFirstLabel,
+  classifyLocalPart,
+  type DomainFirstLabelClass,
+  type LocalPartMatch,
+  type MatchedSenderClass,
+  type SenderWord,
+} from "./sender-class";
 import { type FactKey } from "./user-model";
 
 // Domain classifier (ADR-0080 §4b)
@@ -86,84 +94,26 @@ const SHARED_HOSTING_SUFFIXES: readonly string[] = [
   "notion.site",
 ];
 
-/** Role or service local parts. Matched on the whole local part and on each `.`/`_`/`-` token. */
-const ROLE_SERVICE_LOCAL_PARTS: ReadonlySet<string> = new Set([
-  "noreply",
-  "no-reply",
-  "no_reply",
-  "donotreply",
-  "do-not-reply",
-  "do_not_reply",
-  "reply",
-  "mailer",
-  "mailer-daemon",
-  "postmaster",
-  "bounce",
-  "bounces",
-  "notification",
-  "notifications",
-  "notify",
-  "alert",
-  "alerts",
-  "support",
-  "help",
-  "helpdesk",
-  "service",
-  "services",
-  "info",
-  "contact",
-  "hello",
-  "admin",
-  "administrator",
-  "root",
-  "webmaster",
-  "billing",
-  "invoices",
-  "accounts",
-  "sales",
-  "marketing",
-  "team",
-  "newsletter",
-  "news",
-  "updates",
-  "security",
-  "abuse",
-]);
-
 /**
- * A service word as the last separated token (`messages-noreply`, `nse_alerts`, `x.update`).
- * Without this, a joined local part parsed as a first.last person name (#1097, #1100).
- * A separator is required, so a staffed bare `news@` mailbox is not forced to a service.
+ * A machine or role word anywhere in the local part is not employment at the domain.
+ * A group word alone is not either, but only the shared-mailbox words below count (D5):
+ * `eng.priya@` is a person.
  */
-const SERVICE_WORD_SUFFIX_RE =
-  /[-_.](?:no[-_]?reply|donotreply|do[-_]not[-_]reply|alerts?|notifications?|newsletters?|news|updates?)$/i;
+const LOCAL_CLASS_IS_ROLE_ACCOUNT = {
+  automated: { whole: true, edge: true, token: true },
+  role: { whole: true, edge: true, token: true },
+  group: { whole: false, edge: false, token: false },
+} satisfies Record<MatchedSenderClass, Record<LocalPartMatch, boolean>>;
 
-/**
- * True when the last separated token of a local part is a service word.
- * Kept out of `isRoleServiceLocalPart`: adding `news` there would change affiliation grounding.
- */
-export function hasServiceWordSuffix(localPart: string): boolean {
-  return SERVICE_WORD_SUFFIX_RE.test(localPart);
-}
+/** Group words that name a shared mailbox as any token (`team@`, `team-alpha@`, `sales+lead@`, `eng.team@`). Other group words do not (D5): `eng.priya@` is a person. */
+const SHARED_GROUP_MAILBOX_WORDS: ReadonlySet<SenderWord> = new Set(["team", "sales"]);
 
-/** First domain labels that mark mail infrastructure, e.g. `bounce.acme.com`. */
-const SERVICE_DOMAIN_LABELS: ReadonlySet<string> = new Set([
-  "noreply",
-  "no-reply",
-  "bounce",
-  "bounces",
-  "mailer",
-  "mail",
-  "email",
-  "smtp",
-  "mta",
-  "notifications",
-  "notification",
-  "notify",
-  "send",
-  "sendgrid",
-  "mailgun",
-]);
+/** A mail host (`bounce.acme.com`) or a no-reply host is not an employer domain. */
+const FIRST_LABEL_IS_SERVICE = {
+  automated: true,
+  infrastructure: true,
+  none: false,
+} satisfies Record<DomainFirstLabelClass, boolean>;
 
 const EDU_TLDS: readonly string[] = [".edu"];
 
@@ -181,20 +131,19 @@ function hasParentSuffix(domain: string, suffix: string): boolean {
   return domain.endsWith(`.${suffix}`);
 }
 
+/** `support+ticket@` matches on its `support` token; the `+tag` is not stripped (D6). */
 function isRoleServiceLocalPart(localPart: string): boolean {
-  if (ROLE_SERVICE_LOCAL_PARTS.has(localPart)) return true;
-  // A `+`-tagged role address (`support+ticket@`) keeps its base local part.
-  const base = localPart.split("+", 1)[0] ?? localPart;
+  const classified = classifyLocalPart(localPart);
 
-  if (ROLE_SERVICE_LOCAL_PARTS.has(base)) return true;
+  if (classified.senderClass === "none") return false;
 
-  return base.split(/[._-]/).some((token) => ROLE_SERVICE_LOCAL_PARTS.has(token));
+  if (LOCAL_CLASS_IS_ROLE_ACCOUNT[classified.senderClass][classified.match]) return true;
+
+  return classified.words.some((word) => SHARED_GROUP_MAILBOX_WORDS.has(word));
 }
 
-function isServiceDomain(domain: string): boolean {
-  const firstLabel = domain.split(".", 1)[0] ?? domain;
-
-  return SERVICE_DOMAIN_LABELS.has(firstLabel);
+function isMailServiceHost(domain: string): boolean {
+  return FIRST_LABEL_IS_SERVICE[classifyDomainFirstLabel(domain)];
 }
 
 function isAmbiguousDomain(domain: string): boolean {
@@ -249,7 +198,7 @@ export function classifyConnectedAccount(input: ConnectedAccountInput): DomainCl
 
   if (isFreeMailDomain(domain)) return "consumer_email";
 
-  if (isServiceDomain(domain)) return "service_or_role_account";
+  if (isMailServiceHost(domain)) return "service_or_role_account";
 
   if (isAmbiguousDomain(domain)) return "ambiguous_domain";
 
@@ -264,7 +213,7 @@ export function classifyBareDomain(input: BareDomainInput): DomainClass | null {
 
   if (isFreeMailDomain(domain)) return "consumer_email";
 
-  if (isServiceDomain(domain)) return "service_or_role_account";
+  if (isMailServiceHost(domain)) return "service_or_role_account";
 
   if (isAmbiguousDomain(domain)) return "ambiguous_domain";
 
