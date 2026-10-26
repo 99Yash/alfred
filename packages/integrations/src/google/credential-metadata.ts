@@ -45,7 +45,7 @@ const googleCredentialMetadataSchema = z
 
 export type GoogleCredentialMetadataInput = z.input<typeof googleCredentialMetadataSchema>;
 
-export type GoogleCredentialMetadata = z.output<typeof googleCredentialMetadataSchema>;
+type GoogleCredentialMetadata = z.output<typeof googleCredentialMetadataSchema>;
 
 /** Parse a stored Google credential's metadata into its canonical typed view. */
 export function parseGoogleCredentialMetadata(raw: unknown): GoogleCredentialMetadata {

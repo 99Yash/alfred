@@ -21,7 +21,7 @@ const storedChatTurnRunMetadataSchema = chatTurnRunMetadataSchema
   .partial()
   .brand<"ParsedChatTurnRunMetadata">();
 
-export type StoredChatTurnRunMetadata = z.output<typeof storedChatTurnRunMetadataSchema>;
+type StoredChatTurnRunMetadata = z.output<typeof storedChatTurnRunMetadataSchema>;
 
 export function readChatTurnRunMetadata(metadata: unknown): StoredChatTurnRunMetadata {
   return parsePersistedMetadata(storedChatTurnRunMetadataSchema, metadata);
