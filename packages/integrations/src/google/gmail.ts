@@ -1,5 +1,5 @@
 import { logger } from "@alfred/logging";
-import { toMessage } from "@alfred/contracts";
+import { decodeHtmlEntities, toMessage } from "@alfred/contracts";
 import { z } from "zod";
 import type { RetryPolicy } from "../shared/retry";
 import { uncheckedResponse } from "../shared/authed-json";
@@ -732,16 +732,12 @@ function decodeBase64Url(data: string): string {
 
 /** Naive tag strip. Good enough for ingestion. */
 function stripHtml(html: string): string {
-  return html
+  const text = html
     .replace(/<style[\s\S]*?<\/style>/gi, "")
     .replace(/<script[\s\S]*?<\/script>/gi, "")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
+    .replace(/<[^>]+>/g, "");
+
+  return decodeHtmlEntities(text)
     .replace(/\s+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();

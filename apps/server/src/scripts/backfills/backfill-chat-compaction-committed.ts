@@ -9,6 +9,7 @@
  *   node dist/scripts/backfills/backfill-chat-compaction-committed.js --user-id=user_123
  *   node dist/scripts/backfills/backfill-chat-compaction-committed.js --user-id=user_123 --commit
  */
+import { setTimeout as sleep } from "node:timers/promises";
 import {
   backgroundCompactionThresholdTokens,
   CHAT_MAX_OUTPUT_TOKENS,
@@ -131,10 +132,6 @@ function integerFlag(name: string, fallback: number, min: number, max: number): 
   }
 
   return value;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 try {

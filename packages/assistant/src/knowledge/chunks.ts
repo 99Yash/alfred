@@ -1,5 +1,4 @@
-import { EMBEDDING_DIMENSIONS } from "@alfred/ai";
-import { embed } from "@alfred/ai/embeddings";
+import { assertEmbeddingDimensions, embed } from "@alfred/ai/embeddings";
 import { db } from "@alfred/db";
 import { sha256Hex } from "@alfred/db/hash";
 import { buildEmbedFailureSet, EMBED_SUCCESS_RESET, formatVectorFloat32 } from "@alfred/db/helpers";
@@ -107,9 +106,7 @@ export async function embedMemoryChunk(
   userId: string,
   embedding: number[],
 ): Promise<void> {
-  if (embedding.length !== 1024) {
-    throw new Error(`[memory] expected 1024-dim embedding, got ${embedding.length}`);
-  }
+  assertEmbeddingDimensions(embedding, "memory");
 
   await db()
     .update(memoryChunks)
@@ -207,7 +204,7 @@ export async function recallMemory(args: RecallMemoryArgs): Promise<RecallMemory
       idempotencyKey: `memory-recall:${args.userId}:${sha256Hex(args.query)}`,
     }));
 
-  assertQueryEmbedding(queryVec);
+  assertEmbeddingDimensions(queryVec, "memory.recall");
   const vectorLiteral = formatVectorFloat32(queryVec);
   // A wide pool from the approximate halfvec index, then a full-precision rerank.
   const candidateLimit = Math.max(limit * 5, 50);
@@ -259,10 +256,4 @@ export async function recallMemory(args: RecallMemoryArgs): Promise<RecallMemory
     similarity: 1 - Number(r.distance),
     source: parseMemorySourceOrDefault(r.source, { kind: "agent" }, `memory_chunks:${r.chunkId}`),
   }));
-}
-
-function assertQueryEmbedding(v: number[]): void {
-  if (v.length !== EMBEDDING_DIMENSIONS) {
-    throw new Error(`[memory.recall] expected ${EMBEDDING_DIMENSIONS}-dim query embedding`);
-  }
 }

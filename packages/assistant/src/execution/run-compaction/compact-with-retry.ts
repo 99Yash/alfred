@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from "node:timers/promises";
 import { toMessage } from "@alfred/contracts";
 import type { CompactTranscriptResult } from "./compactor";
 
@@ -33,7 +34,7 @@ export async function compactWithRetry(
       if (isCompactorInputTooLarge(error) || aborted()) throw error;
       const delayMs = options.delayBeforeRetryMs?.(attempt) ?? 0;
 
-      if (attempt < COMPACTOR_RETRY_ATTEMPTS && delayMs > 0) await sleepMs(delayMs);
+      if (attempt < COMPACTOR_RETRY_ATTEMPTS && delayMs > 0) await sleep(delayMs);
     }
   }
 
@@ -43,8 +44,4 @@ export async function compactWithRetry(
 /** Not retryable: the input does not shrink between attempts. */
 function isCompactorInputTooLarge(error: unknown): boolean {
   return toMessage(error) === "compactor_input_too_large";
-}
-
-function sleepMs(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

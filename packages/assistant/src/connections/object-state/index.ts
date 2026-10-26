@@ -1,6 +1,7 @@
 export {
   deliveryInstantNow,
   deliveryInstantOf,
+  deliveryInstantSchema,
   receiptDeliveryInstant,
   type DeliveryInstant,
 } from "./delivery-instant";

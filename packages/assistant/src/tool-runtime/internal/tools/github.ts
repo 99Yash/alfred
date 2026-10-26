@@ -1,6 +1,7 @@
 /** Read-only GitHub tools over the App installation (ADR-0052). */
 
 import {
+  assertNever,
   GITHUB_SEARCH_WINDOWS,
   githubGetIssueInput,
   githubGetPullRequestInput,
@@ -54,7 +55,7 @@ export function buildGithubSearchQuery(
     case "both":
       break;
     default:
-      assertNever(type);
+      assertNever(type, "github search enum");
   }
 
   if (input.author) parts.push(`author:${input.author}`);
@@ -73,7 +74,7 @@ export function buildGithubSearchQuery(
     case "all":
       break;
     default:
-      assertNever(state);
+      assertNever(state, "github search enum");
   }
 
   // Several windows form one OR group. GitHub ANDs top-level tokens, so
@@ -244,7 +245,3 @@ export const githubTools: readonly RegisteredTool[] = [
     execute: async (input, ctx) => runRestPassthrough(ctx.integrations.github.passthrough, input),
   }),
 ];
-
-function assertNever(value: never): never {
-  throw new Error(`Unhandled github search enum: ${String(value)}`);
-}

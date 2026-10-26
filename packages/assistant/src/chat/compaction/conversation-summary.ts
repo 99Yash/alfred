@@ -1,3 +1,4 @@
+import { assertNever } from "@alfred/contracts";
 import { z } from "zod";
 
 const boundedText = z.string().trim().min(1).max(8_000);
@@ -115,12 +116,8 @@ function eligibleIdsForSource(
     case "attachment":
       return eligible.attachmentIds;
     default:
-      return assertNever(source.kind);
+      return assertNever(source.kind, "conversation summary source kind");
   }
-}
-
-function assertNever(value: never): never {
-  throw new Error(`Unexpected conversation summary source kind: ${String(value)}`);
 }
 
 export function conversationSummarySources(

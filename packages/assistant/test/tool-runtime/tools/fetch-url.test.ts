@@ -3,10 +3,9 @@ import { EventEmitter } from "node:events";
 import { readFile } from "node:fs/promises";
 import { describe, test } from "node:test";
 import { brotliCompressSync, deflateSync, gzipSync } from "node:zlib";
-import { FETCH_URL_MAX_TEXT_CHARS } from "@alfred/contracts";
+import { decodeHtmlEntities, FETCH_URL_MAX_TEXT_CHARS } from "@alfred/contracts";
 import { REALTIME_PDF_EXTRACTION_LIMITS } from "@alfred/extraction";
 import {
-  decodeEntities,
   decodeResponseBody,
   FetchError,
   htmlToText,
@@ -24,17 +23,17 @@ import {
  * path.
  */
 
-describe("decodeEntities", () => {
+describe("decodeHtmlEntities", () => {
   test("named + numeric + hex entities", () => {
-    assert.equal(decodeEntities("Tom &amp; Jerry"), "Tom & Jerry");
-    assert.equal(decodeEntities("a &lt; b &gt; c"), "a < b > c");
-    assert.equal(decodeEntities("&#39;quoted&#39;"), "'quoted'");
-    assert.equal(decodeEntities("&#x2014;"), "—");
-    assert.equal(decodeEntities("caf&eacute;".replace("eacute", "#233")), "café");
+    assert.equal(decodeHtmlEntities("Tom &amp; Jerry"), "Tom & Jerry");
+    assert.equal(decodeHtmlEntities("a &lt; b &gt; c"), "a < b > c");
+    assert.equal(decodeHtmlEntities("&#39;quoted&#39;"), "'quoted'");
+    assert.equal(decodeHtmlEntities("&#x2014;"), "—");
+    assert.equal(decodeHtmlEntities("caf&eacute;".replace("eacute", "#233")), "café");
   });
 
   test("leaves unknown entities untouched rather than mangling", () => {
-    assert.equal(decodeEntities("&notareal;"), "&notareal;");
+    assert.equal(decodeHtmlEntities("&notareal;"), "&notareal;");
   });
 });
 

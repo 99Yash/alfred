@@ -7,6 +7,7 @@
  * To fix, classify the caller abort first, as `compact-with-retry.ts` does.
  */
 
+import { setTimeout as sleep } from "node:timers/promises";
 import { withDefaults } from "@alfred/contracts";
 
 export interface RetryPolicy {
@@ -40,10 +41,6 @@ export function isRetrySafeMethod(method: string | undefined): boolean {
   const normalized = (method ?? "GET").toUpperCase();
 
   return normalized === "GET" || normalized === "HEAD" || normalized === "OPTIONS";
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**

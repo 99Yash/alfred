@@ -1,6 +1,7 @@
 /** Shared error helpers: error text, safe upstream bodies, and a structured `HttpError`. */
 
 import { isIndexable } from "./guards";
+import { toDisplayText } from "./text";
 
 /** Max chars of an upstream error body to keep. */
 export const MAX_ERROR_BODY_CHARS = 500;
@@ -8,6 +9,14 @@ export const MAX_ERROR_BODY_CHARS = 500;
 /** Get a message string from any thrown value. */
 export function toMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * Close an exhaustive `switch`: the `never` parameter fails to compile when a union member is
+ * unhandled, and the throw covers a value that escaped the types at runtime.
+ */
+export function assertNever(value: never, what: string): never {
+  throw new Error(`Unhandled ${what}: ${toDisplayText(value)}`);
 }
 
 /** Cause links to follow, head included. The deepest real chain is SDK error, fetch failed, errno. */

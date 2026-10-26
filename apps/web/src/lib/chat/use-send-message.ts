@@ -9,6 +9,7 @@ import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { authClient } from "~/lib/auth/auth-client";
 import { clearPendingTurn, setPendingTurn } from "./pending-turn";
+import { safeRandomId } from "./safe-random-id";
 import { useReplicache } from "~/lib/replicache/context";
 import { toast } from "~/lib/toast";
 import { attachChatAssistantTiming, markChatSubmit, markChatTimingByUser } from "./timing";
@@ -36,14 +37,6 @@ export type SendMessage = (
 
 /** The start acks fast; without a bound, a wedged connection waits minutes with no toast. */
 const TURN_START_TIMEOUT_MS = 30_000;
-
-function safeRandomId(): string {
-  // lib.dom types `randomUUID` as always present; browsers expose it only in secure contexts.
-  if (typeof crypto === "undefined" || !("randomUUID" in crypto))
-    return `id_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-
-  return crypto.randomUUID();
-}
 
 /**
  * Upload files, show the message as a pending turn, start the turn over
@@ -89,8 +82,8 @@ export function useSendMessage(options: SendMessageOptions = {}): SendMessage {
         return { ok: false, reason: "empty" } satisfies SendResult;
 
       const isNew = !threadId;
-      const tid = threadId ?? safeRandomId();
-      const userMessageId = safeRandomId();
+      const tid = threadId ?? safeRandomId("id");
+      const userMessageId = safeRandomId("id");
       const now = new Date().toISOString();
       markChatSubmit({ threadId: tid, userMessageId, contentChars: content.length });
 
@@ -105,7 +98,7 @@ export function useSendMessage(options: SendMessageOptions = {}): SendMessage {
               return await uploadAttachment({
                 threadId: tid,
                 messageId: userMessageId,
-                id: safeRandomId(),
+                id: safeRandomId("id"),
                 file,
               });
             } catch (err) {

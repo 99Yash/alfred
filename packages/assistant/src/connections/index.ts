@@ -51,6 +51,7 @@ export {
   approvedMcpHealthExternalId,
   deliveryInstantNow,
   deliveryInstantOf,
+  deliveryInstantSchema,
   firstClosingObject,
   MCP_APPROVED_HEALTH_EVENT_TYPE,
   MCP_APPROVED_HEALTH_KEY_KIND,

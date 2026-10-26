@@ -23,6 +23,15 @@ const VOYAGE_API_BASE = "https://api.voyageai.com/v1/embeddings";
 
 const VOYAGE_DEFAULT_MODEL = "voyage-3.5";
 
+/** Throw unless `vector` has the stored embedding width. `context` prefixes the message. */
+export function assertEmbeddingDimensions(vector: readonly number[], context: string): void {
+  if (vector.length !== EMBEDDING_DIMENSIONS) {
+    throw new Error(
+      `[${context}] expected ${EMBEDDING_DIMENSIONS}-dim embedding, got ${vector.length}`,
+    );
+  }
+}
+
 /** Voyage encodes indexed text and search queries differently. It matters for retrieval quality. */
 export type EmbeddingInputType = "document" | "query";
 

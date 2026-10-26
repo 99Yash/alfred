@@ -1,4 +1,4 @@
-import type { ArtifactFormat } from "@alfred/contracts";
+import { escapeHtml, type ArtifactFormat } from "@alfred/contracts";
 import { FONT_FACE_CSS } from "./fonts";
 import { cssVariables, cssVariablesDark, font, pageGeometry, spacing, type } from "./tokens";
 
@@ -421,15 +421,6 @@ ${bodyHtml}
 </div>
 </body>
 </html>`;
-}
-
-/** Escape a title for `<title>`. */
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }
 
 /** Print overrides: one artifact page per sheet at 1:1, no margins, and the body may overflow. */

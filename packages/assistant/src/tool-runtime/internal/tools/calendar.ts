@@ -1,4 +1,5 @@
 import {
+  assertNever,
   GOOGLE_SCOPE,
   calendarCreateEventSendsInvitations,
   calendarCreateEventInput,
@@ -184,12 +185,8 @@ function partOfDayHours(part: NonNullable<CalendarListEventsInput["partOfDay"]>)
     case "full_day":
       return [0, 24];
     default:
-      return assertNever(part);
+      return assertNever(part, "calendar partOfDay");
   }
-}
-
-function assertNever(value: never): never {
-  throw new Error(`Unhandled calendar partOfDay: ${String(value)}`);
 }
 
 /** The title that list_events shows. A write compares `eventTitle` with it. */

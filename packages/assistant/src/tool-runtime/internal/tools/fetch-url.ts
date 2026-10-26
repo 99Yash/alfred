@@ -13,6 +13,7 @@ import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 import {
   FETCH_URL_MAX_TEXT_CHARS,
   collapseWhitespace,
+  decodeHtmlEntities,
   getPath,
   isNonEmptyString,
   isPdfContentType,
@@ -103,61 +104,6 @@ export interface FetchUrlArgs {
 
 /* ── HTML → text ──────────────────────────────────────────────────────── */
 
-const NAMED_ENTITIES = {
-  amp: "&",
-  lt: "<",
-  gt: ">",
-  quot: '"',
-  apos: "'",
-  nbsp: " ",
-  copy: "©",
-  reg: "®",
-  trade: "™",
-  hellip: "…",
-  mdash: "—",
-  ndash: "–",
-  lsquo: "‘",
-  rsquo: "’",
-  ldquo: "“",
-  rdquo: "”",
-  middot: "·",
-  bull: "•",
-} satisfies Record<string, string>;
-
-/** Decode the HTML entities a text reader actually encounters. */
-export function decodeEntities(input: string): string {
-  return input.replace(/&(#x?[0-9a-f]+|[a-z][a-z0-9]*);/gi, (whole, body: string) => {
-    if (body[0] === "#") {
-      const codePoint =
-        body[1] === "x" || body[1] === "X"
-          ? Number.parseInt(body.slice(2), 16)
-          : Number.parseInt(body.slice(1), 10);
-
-      // Reject surrogates: `&#xD800;` would decode to invalid UTF-16.
-      if (
-        Number.isFinite(codePoint) &&
-        codePoint > 0 &&
-        codePoint <= 0x10ffff &&
-        !(codePoint >= 0xd800 && codePoint <= 0xdfff)
-      ) {
-        try {
-          return String.fromCodePoint(codePoint);
-        } catch {
-          return whole;
-        }
-      }
-
-      return whole;
-    }
-
-    const named = Object.entries(NAMED_ENTITIES).find(
-      ([entity]) => entity === body.toLowerCase(),
-    )?.[1];
-
-    return named ?? whole;
-  });
-}
-
 /** Strip HTML to readable text. A regex transform, not a parser. */
 export function htmlToText(html: string): string {
   let s = html;
@@ -183,7 +129,7 @@ export function htmlToText(html: string): string {
 
   s = s.replace(/<[^>]+>/g, " ");
 
-  s = decodeEntities(s);
+  s = decodeHtmlEntities(s);
   s = s.replace(CONTROL_BYTES, ""); // drop control noise (boundary sanitizer also runs)
   s = s.replace(/[^\S\n]+/g, " "); // collapse runs of spaces/tabs, keep newlines
   s = s.replace(/ *\n */g, "\n"); // trim each line
@@ -198,7 +144,7 @@ function extractTitle(html: string): string | undefined {
 
   if (!m?.[1]) return undefined;
   // Quirk: folding before the decode leaves an entity newline (`&#10;`) mid-title.
-  const title = decodeEntities(collapseWhitespace(m[1])).trim();
+  const title = decodeHtmlEntities(collapseWhitespace(m[1])).trim();
 
   return title.length > 0 ? title.slice(0, 500) : undefined;
 }

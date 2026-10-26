@@ -1,5 +1,4 @@
-import { EMBEDDING_DIMENSIONS } from "@alfred/ai";
-import { embed } from "@alfred/ai/embeddings";
+import { assertEmbeddingDimensions, embed } from "@alfred/ai/embeddings";
 import { parseDocumentMetadata, type AttachmentContentReference } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { formatVectorFloat32 } from "@alfred/db/helpers";
@@ -85,7 +84,7 @@ async function search(args: SearchArgs): Promise<SearchHit[]> {
       idempotencyKey: `search:${args.userId}:${hashQuery(args.query)}`,
     }));
 
-  assertQueryEmbedding(queryVec);
+  assertEmbeddingDimensions(queryVec, "semantic-search");
   // pgvector stores float32, so send float32 text like the DB adapter does.
   const vectorLiteral = formatVectorFloat32(queryVec);
   // Take a wider pool from the approximate halfvec index, then rerank at full precision.
@@ -189,10 +188,4 @@ function hashQuery(q: string): string {
   for (let i = 0; i < q.length; i++) h = ((h << 5) - h + q.charCodeAt(i)) | 0;
 
   return Math.abs(h).toString(36);
-}
-
-function assertQueryEmbedding(v: number[]): void {
-  if (v.length !== EMBEDDING_DIMENSIONS) {
-    throw new Error(`[semantic-search] expected ${EMBEDDING_DIMENSIONS}-dim query embedding`);
-  }
 }
