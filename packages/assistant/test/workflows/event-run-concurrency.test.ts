@@ -10,6 +10,7 @@ import {
   agentRuns,
   user,
   workflows,
+  type AgentRun,
 } from "@alfred/db/schemas";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { coldStartResearchWorkflow } from "@alfred/assistant/knowledge";
@@ -184,7 +185,7 @@ async function insertEventRun(args: {
   userId: string;
   eventId: string;
   reason?: string | undefined;
-  status?: string;
+  status?: AgentRun["status"];
   /** The pre-ADR-0047 shape without `source`/`type`, which the contract still accepts (D6). */
   omitSourceAndType?: boolean;
 }): Promise<string> {

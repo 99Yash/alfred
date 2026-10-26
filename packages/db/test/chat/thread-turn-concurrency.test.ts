@@ -4,7 +4,13 @@ import { after, describe, test } from "node:test";
 
 import { getPath } from "@alfred/contracts";
 import { closeConnections, db, rowsFromExecute } from "@alfred/db";
-import { CHAT_THREAD_ACTIVE_RUN_INDEX, agentRuns, chatThreads, user } from "@alfred/db/schemas";
+import {
+  CHAT_THREAD_ACTIVE_RUN_INDEX,
+  agentRuns,
+  chatThreads,
+  user,
+  type AgentRun,
+} from "@alfred/db/schemas";
 import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { closeRedis } from "@alfred/db/redis";
@@ -45,7 +51,7 @@ async function insertChatTurnRun(args: {
   userId: string;
   threadId: string;
   userMessageId: string;
-  status?: string;
+  status?: AgentRun["status"];
 }): Promise<string> {
   const runId = `run_${randomUUID().slice(0, 12)}`;
   await db()

@@ -1,0 +1,2 @@
+ALTER TABLE "agent_runs" ADD CONSTRAINT "agent_runs_status_valid" CHECK ("agent_runs"."status" IN ('blocked', 'cancelled', 'completed', 'deferred', 'failed', 'pending', 'runnable', 'running', 'waiting'));--> statement-breakpoint
+ALTER TABLE "agent_steps" ADD CONSTRAINT "agent_steps_status_valid" CHECK ("agent_steps"."status" IN ('blocked', 'completed', 'deferred', 'failed', 'interrupted', 'running'));

@@ -489,7 +489,7 @@ async function signalRunInTx(tx: AgentTx, args: SignalArgs): Promise<SignalOutco
   const row = rows[0];
 
   if (!row) return "not_found";
-  const status = runStatusSchema.parse(row.status);
+  const { status } = row;
 
   if (status !== "waiting") {
     return isTerminalStatus(status) ? "already_terminal" : "not_waiting";
@@ -702,9 +702,8 @@ export async function rejectLateCancelledRunStagings(
       .limit(1);
 
     const run = runRows[0];
-    const status = runStatusSchema.safeParse(run?.status);
 
-    if (!run || !status.success || status.data !== "cancelled") return [];
+    if (!run || run.status !== "cancelled") return [];
 
     const now = new Date();
 
@@ -780,9 +779,8 @@ export async function cancelRunInTx(
   const row = rows[0];
 
   if (!row) return { outcome: "not_found", afterCommit: noCancelObligations };
-  const status = runStatusSchema.parse(row.status);
 
-  if (isTerminalStatus(status)) {
+  if (isTerminalStatus(row.status)) {
     return { outcome: "already_terminal", afterCommit: noCancelObligations };
   }
 
@@ -938,7 +936,7 @@ const resumeSweepCandidateSchema = z.object({
   id: z.string(),
   workflowSlug: z.string(),
   currentStep: z.string(),
-  status: z.string(),
+  status: runStatusSchema,
   staleMs: z.coerce.number().nullable(),
 });
 

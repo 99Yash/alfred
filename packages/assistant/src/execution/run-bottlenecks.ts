@@ -13,6 +13,7 @@ import {
   agentSteps,
   apiCallLog,
   type AgentError,
+  type AgentStep,
 } from "@alfred/db/schemas";
 import { isParkedAgentStepStatus, isQuestionApproval } from "@alfred/contracts";
 import { asc, eq } from "drizzle-orm";
@@ -29,13 +30,9 @@ export interface RunBottleneckApiCall {
   costUsd: string | number | null;
 }
 
-export interface RunBottleneckStep {
-  stepId: string;
-  status: string;
-  startedAt: Date;
-  endedAt: Date | null;
+export type RunBottleneckStep = Pick<AgentStep, "stepId" | "status" | "startedAt" | "endedAt"> & {
   errorReason: string | null;
-}
+};
 
 export interface RunBottleneckStaging {
   toolName: string;

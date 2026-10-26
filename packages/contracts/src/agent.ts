@@ -89,10 +89,8 @@ export const AGENT_STEP_PROGRESS_STATUSES = Object.freeze(
 );
 
 /** A committed step whose following wall-clock gap is intentional wait time. */
-export function isParkedAgentStepStatus(status: string): boolean {
-  const parsed = agentStepStatusSchema.safeParse(status);
-
-  return parsed.success && AGENT_STEP_STATUS_KIND[parsed.data] === "parked_progress";
+export function isParkedAgentStepStatus(status: AgentStepStatus): boolean {
+  return AGENT_STEP_STATUS_KIND[status] === "parked_progress";
 }
 
 /**
