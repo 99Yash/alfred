@@ -86,7 +86,12 @@ interface LiveStateReader<S extends LiveReadSource> {
   readonly readNativeState?: (userId: string, target: LiveTargetBySource[S]) => Promise<string>;
 }
 
-type LiveStateReaderBySource = { readonly [S in LiveReadSource]: LiveStateReader<S> };
+type LiveStateReaderBySource = [Exclude<LiveReadSource, LiveReadSourceByKindValue>] extends [never]
+  ? { readonly [S in LiveReadSource]: LiveStateReader<S> }
+  : { readonly [S in LiveReadSource]: LiveStateReader<S> } & {
+      /** Present only when a live-read source owns no kind cell. Never set it by hand. */
+      readonly missingKindCellFor: Exclude<LiveReadSource, LiveReadSourceByKindValue>;
+    };
 
 type LiveReadsBySource = { readonly [S in LiveReadSource]: LiveRead<S>[] };
 
@@ -133,6 +138,15 @@ const LIVE_READ_SOURCE_BY_KIND = {
     connection_health: null,
   },
 } as const satisfies LiveReadSourceTable;
+
+/**
+ * Every live-read source must own at least one kind cell above, or its reader
+ * never runs. `LiveStateReaderBySource` resolves against this union, so a
+ * reader with no kind cell fails to compile.
+ */
+type LiveReadSourceByKindValue = {
+  [Provider in ObjectStateProvider]: (typeof LIVE_READ_SOURCE_BY_KIND)[Provider][keyof (typeof LIVE_READ_SOURCE_BY_KIND)[Provider]];
+}[ObjectStateProvider];
 
 const LIVE_STATE_READERS: LiveStateReaderBySource = {
   live_github_read: {
