@@ -17,6 +17,15 @@ export function lenient<T extends z.ZodType>(schema: T) {
 
 export const text = lenient(z.string());
 
+/**
+ * A leaf on the Sentry dedup id path (`sentryIssueEventSchema` root, `data`, `issue`
+ * shapes). Every leaf there must stay lenient: a strict leaf makes `sentryIssueId`
+ * return `undefined`, the delivery drops as `no-dedup-key` with no receipt row, and the
+ * loss cannot be recovered. A `satisfies Record<string, LenientLeaf>` on each of those
+ * three shapes makes a strict leaf fail `check-types`.
+ */
+export type LenientLeaf = z.ZodCatch<z.ZodOptional<z.ZodType>> | typeof providerId;
+
 /** The `getIdPath` rule: a non-empty string, or a safe integer as text. A missing key is `undefined`. */
 export const providerId = z
   .unknown()

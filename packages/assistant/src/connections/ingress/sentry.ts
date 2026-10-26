@@ -9,7 +9,7 @@ import type { InboundProjection, InboundSourceDescriptor, InboundSyntheticKey } 
 import { describeInboundJson } from "./description";
 import { logger } from "@alfred/logging";
 import { z } from "zod";
-import { lenient, providerId, text } from "./receipt-schemas";
+import { lenient, type LenientLeaf, providerId, text } from "./receipt-schemas";
 
 /**
  * Sentry internal-integration webhooks (ADR-0097, #563).
@@ -30,11 +30,11 @@ export const sentryIssueEventSchema = z.object({
           title: text,
           permalink: text,
           project: lenient(z.object({ slug: text })),
-        }),
+        } satisfies Record<string, LenientLeaf>),
       ),
-    }),
+    } satisfies Record<string, LenientLeaf>),
   ),
-});
+} satisfies Record<string, LenientLeaf>);
 
 export type SentryIssuePayload = z.output<typeof sentryIssueEventSchema>;
 
