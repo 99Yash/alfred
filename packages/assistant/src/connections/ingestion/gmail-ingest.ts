@@ -704,7 +704,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
   const startedAt = new Date();
   const cred = await loadCredentialOrThrow(args.credentialId);
   const mailbox = gmailMailbox({ credentialId: args.credentialId });
-  const cursorBefore = await loadHistoryCursor(args.credentialId);
+  const { historyId: cursorBefore } = await loadIngestionState(args.credentialId);
 
   if (!cursorBefore) {
     // No cursor yet. Recent ingest also seeds it.
@@ -1208,17 +1208,6 @@ function collectAddedMessageIds(entry: GmailHistoryEntry): string[] {
   for (const m of entry.messages ?? []) out.push(m.id);
 
   return out;
-}
-
-async function loadHistoryCursor(credentialId: string): Promise<string | null> {
-  const rows = await db()
-    .select({ state: ingestionState.state })
-    .from(ingestionState)
-    .where(
-      and(eq(ingestionState.credentialId, credentialId), eq(ingestionState.stream, "messages")),
-    );
-
-  return parseGmailIngestionState(rows[0]?.state).historyId ?? null;
 }
 
 /** History cursor and coverage-gap flag for a credential. */
