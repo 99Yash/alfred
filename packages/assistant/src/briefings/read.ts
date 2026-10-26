@@ -401,6 +401,21 @@ export function isQuietMorning(args: {
     : args.emailCount === 0;
 }
 
+/** Counts for the send gates. The daily workflow reads `email` only as the fallback for `demandingEmailCount` (#259); legacy `decideSend` reads it as a send signal. */
+export interface GatheredCounts {
+  email: number;
+  activity: number;
+  meetings: number;
+}
+
+export function gatherCounts(gather: BriefingGather): GatheredCounts {
+  return {
+    email: Object.values(gather.email.categories).reduce((sum, items) => sum + items.length, 0),
+    activity: gather.integration_activity.items.length,
+    meetings: gather.calendar?.events.length ?? 0,
+  };
+}
+
 export interface SurfacedKeys {
   threadIds: Set<string>;
   /** {@link deriveLoopKey} of each item's persisted `subject`. Catches a re-notify on a new thread. */
