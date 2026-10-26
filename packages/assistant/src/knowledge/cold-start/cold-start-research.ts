@@ -74,7 +74,12 @@ const stateSchema = z.object({
 
 type State = z.infer<typeof stateSchema>;
 
-export const coldStartResearchWorkflow: Workflow<State> = {
+export const coldStartResearchWorkflow: Workflow<
+  State,
+  string,
+  unknown,
+  z.output<typeof coldStartWorkflowInputSchema>
+> = {
   slug: COLD_START_WORKFLOW_SLUG,
   name: "Cold-start research",
   description:
@@ -82,11 +87,10 @@ export const coldStartResearchWorkflow: Workflow<State> = {
   trigger: { kind: "event", source: "google.oauth.callback", type: "completed" },
   initialStep: "gather-signals",
   stateSchema,
+  inputSchema: coldStartWorkflowInputSchema,
   closure: { kind: "none" },
 
-  initialState(input) {
-    const parsed = coldStartWorkflowInputSchema.parse(input.input ?? {});
-
+  initialState({ input: parsed }) {
     return { reason: parsed.reason };
   },
 

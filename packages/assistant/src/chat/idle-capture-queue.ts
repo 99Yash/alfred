@@ -1,5 +1,5 @@
 import { chatMemoryCaptureEnabled } from "@alfred/env/server";
-import { parsePersistedMetadata, toMessage } from "@alfred/contracts";
+import { toMessage } from "@alfred/contracts";
 import { Queue, Worker, type Job } from "bullmq";
 import { z } from "zod";
 import { createRedisConnection, isQueueEnabled } from "@alfred/db/redis";
@@ -18,7 +18,7 @@ export const CHAT_MEMORY_QUEUE_NAME = "chat-memory";
 export const CHAT_MEMORY_CAPTURE_WORKFLOW_SLUG = "__chat-memory-capture__";
 
 /** `agent_runs.metadata` on a memory-capture run. The worker below is the only writer. */
-const chatMemoryCaptureRunMetadataSchema = z.looseObject({
+export const chatMemoryCaptureRunMetadataSchema = z.looseObject({
   threadId: z.string().min(1),
   /** The assistant message that armed the capture; the dedup key carries it. */
   captureAfterMessageId: z.string().min(1),
@@ -26,15 +26,6 @@ const chatMemoryCaptureRunMetadataSchema = z.looseObject({
 });
 
 type ChatMemoryCaptureRunMetadataInput = z.input<typeof chatMemoryCaptureRunMetadataSchema>;
-
-const storedChatMemoryCaptureRunMetadataSchema = chatMemoryCaptureRunMetadataSchema
-  .partial()
-  .brand<"ParsedChatMemoryCaptureRunMetadata">();
-
-/** Lenient per key: a bad or missing field reads as absent and the workflow refuses the run. */
-export function readChatMemoryCaptureRunMetadata(metadata: unknown) {
-  return parsePersistedMetadata(storedChatMemoryCaptureRunMetadataSchema, metadata);
-}
 
 /** Provisional; D9 asks for 10 to 15 minutes. */
 export const CHAT_MEMORY_IDLE_MS = 12 * 60_000;

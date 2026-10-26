@@ -1,5 +1,5 @@
 import { toStoredTranscript } from "@alfred/ai";
-import { toJsonValue } from "@alfred/contracts";
+import { toJsonValue, type JsonObject } from "@alfred/contracts";
 import { db, rowsFromExecute, type DbTransaction } from "@alfred/db";
 import { runAtomic } from "@alfred/db/helpers";
 import {
@@ -88,10 +88,15 @@ type ManualOccurrenceRequest = Omit<ManualOccurrence, "workflowId">;
 
 type ReplayOccurrence = Extract<WorkflowOccurrenceIdentity, { kind: "replay" }>;
 
-type CreateRunBase = Omit<WorkflowInput, "trigger"> & {
+interface CreateRunBase {
   userId: string;
   workflowSlug: string;
-};
+  brief?: string | undefined;
+  /** Parsed by the workflow's `inputSchema` when it declares one; never persisted. */
+  input?: unknown;
+  /** Parsed by the workflow's `metadataSchema` when it declares one; stored as written. */
+  metadata?: JsonObject | undefined;
+}
 
 export type CreateRunArgs = CreateRunBase &
   (
@@ -188,12 +193,14 @@ export async function createRun(
     };
   }
 
-  const workflowInput = {
+  // One parse per run: every hook reads the parsed value, and the stored row keeps the merged
+  // object, so event breadcrumbs outside the schema survive.
+  const workflowInput: WorkflowInput = {
     userId: args.userId,
     trigger,
     brief,
-    input: args.input,
-    metadata,
+    input: workflow.inputSchema ? workflow.inputSchema.parse(args.input ?? {}) : args.input,
+    metadata: workflow.metadataSchema ? workflow.metadataSchema.parse(metadata) : metadata,
   };
 
   const initialState = workflow.initialState(workflowInput);

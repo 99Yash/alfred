@@ -63,7 +63,12 @@ const stateSchema = z.object({
 
 type State = z.infer<typeof stateSchema>;
 
-export const skillDocumentationWorkflow: Workflow<State> = {
+export const skillDocumentationWorkflow: Workflow<
+  State,
+  string,
+  unknown,
+  z.output<typeof skillDocumentationInputSchema>
+> = {
   slug: SKILL_DOCUMENTATION_WORKFLOW_SLUG,
   name: "Skill documentation",
   description:
@@ -72,10 +77,9 @@ export const skillDocumentationWorkflow: Workflow<State> = {
   trigger: { kind: "event", source: "learn-skill", type: "completed" },
   initialStep: "gather-context",
   stateSchema,
+  inputSchema: skillDocumentationInputSchema,
 
-  initialState(input) {
-    const parsed = skillDocumentationInputSchema.parse(input.input ?? {});
-
+  initialState({ input: parsed }) {
     return {
       skillId: parsed.skillId,
       triggeringLearnRunId: parsed.triggeringLearnRunId,
@@ -83,11 +87,7 @@ export const skillDocumentationWorkflow: Workflow<State> = {
   },
 
   // One doc run per skill; the survivor re-reads the latest v1.
-  dedupKey: ({ input }) => {
-    const parsed = skillDocumentationInputSchema.parse(input ?? {});
-
-    return skillDocumentationDedupKey(parsed.skillId);
-  },
+  dedupKey: ({ input }) => skillDocumentationDedupKey(input.skillId),
 
   // Each branch records its own status, so a cancel is not recorded as a failure.
   closure: {

@@ -1,7 +1,6 @@
 import type {
   AgentRunTrigger,
   CancellationFence,
-  JsonObject,
   RunDeferReason,
   WakeCondition,
   WorkflowTrigger,
@@ -101,12 +100,15 @@ export interface Step<S, N extends string = string> {
   run(ctx: StepContext<S>): Promise<StepResult<S, N>>;
 }
 
-export interface WorkflowInput {
+/** What the three start hooks receive. `createRun` builds it one time per run. */
+export interface WorkflowInput<M = unknown, I = unknown> {
   userId: string;
   trigger: AgentRunTrigger;
   brief?: string | undefined;
-  input?: unknown;
-  metadata?: JsonObject | undefined;
+  /** The `metadataSchema` output when the workflow declares one; else the caller's object. */
+  metadata: M;
+  /** The `inputSchema` output when the workflow declares one; else the caller's value. */
+  input: I;
 }
 
 export type AgentDbExecutor = DbRoot | DbTransaction;
@@ -115,15 +117,11 @@ interface WorkflowInitContext {
   db: AgentDbExecutor;
 }
 
-interface DedupKeyArgs extends WorkflowInput {
-  userId: string;
-}
-
 /**
  * A registered workflow definition. `steps` is keyed by `N`, so `initialStep` and every `nextStep`
  * are type-checked.
  */
-export interface Workflow<S = unknown, N extends string = string> {
+interface WorkflowDefinition<S, N extends string, M, I> {
   /** Stable across deploys; a resumed run looks the workflow up by it. */
   slug: string;
   /** Registered only so existing runs can finish; it cannot start new runs and is not seeded. */
@@ -135,9 +133,9 @@ export interface Workflow<S = unknown, N extends string = string> {
   /** An empty array means no limit beyond the user's connected integrations. */
   allowedIntegrations?: string[];
   /** Throw to refuse the run. */
-  initialState(input: WorkflowInput): S;
+  initialState(input: WorkflowInput<M, I>): S;
   initialTranscript?(
-    input: WorkflowInput,
+    input: WorkflowInput<M, I>,
     context?: WorkflowInitContext,
   ): MaybePromise<TranscriptMessage[]>;
   initialStep: N;
@@ -155,13 +153,29 @@ export interface Workflow<S = unknown, N extends string = string> {
    * At most one live run per (user, key). Failed and cancelled runs do not count,
    * so an outage is not a permanent lockout. The workflow owns the key, not the caller.
    */
-  dedupKey?(args: DedupKeyArgs): string | null;
+  dedupKey?(input: WorkflowInput<M, I>): string | null;
 }
+
+/**
+ * `createRun` parses the caller's `metadata` and `input` one time, before any hook runs, and a
+ * failed parse inserts no run. A schema is required as soon as the hooks name a type for its value.
+ */
+type WorkflowSchemas<M, I> = ([unknown] extends [M]
+  ? { metadataSchema?: z.ZodType<M> }
+  : { metadataSchema: z.ZodType<M> }) &
+  ([unknown] extends [I] ? { inputSchema?: z.ZodType<I> } : { inputSchema: z.ZodType<I> });
+
+export type Workflow<
+  S = unknown,
+  N extends string = string,
+  M = unknown,
+  I = unknown,
+> = WorkflowDefinition<S, N, M, I> & WorkflowSchemas<M, I>;
 
 /** Built-ins register at server boot. */
 const registry = new Map<string, Workflow<unknown>>();
 
-export function registerRecipe<S>(workflow: Workflow<S>): void {
+export function registerRecipe<S, N extends string, M, I>(workflow: Workflow<S, N, M, I>): void {
   if (registry.has(workflow.slug)) {
     throw new Error(`[agent] workflow already registered: ${workflow.slug}`);
   }

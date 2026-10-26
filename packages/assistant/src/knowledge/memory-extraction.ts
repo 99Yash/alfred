@@ -31,7 +31,9 @@ const inputSchema = z.object({
  * Build the daily memory-extraction recipe with an injected Gmail sender parser
  * (ADR-0089), so memory never imports triage's parsers. Recipe identity does not depend on `sender`.
  */
-export function buildMemoryExtractionWorkflow(sender: GmailSenderParser): Workflow<State> {
+export function buildMemoryExtractionWorkflow(
+  sender: GmailSenderParser,
+): Workflow<State, string, unknown, z.output<typeof inputSchema>> {
   return {
     slug: "memory-extraction",
     name: "Memory extraction",
@@ -40,10 +42,9 @@ export function buildMemoryExtractionWorkflow(sender: GmailSenderParser): Workfl
     trigger: { kind: "cron", schedule: "0 3 * * *" },
     initialStep: "pick-documents",
     stateSchema,
+    inputSchema,
     closure: { kind: "none" },
-    initialState(input) {
-      const parsed = inputSchema.parse(input.input ?? {});
-
+    initialState({ input: parsed }) {
       return {
         mode: parsed.mode,
         manualProposals: parsed.manualProposals,

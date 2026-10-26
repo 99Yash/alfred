@@ -86,7 +86,12 @@ const stateSchema = z.discriminatedUnion("phase", [
 
 type State = z.infer<typeof stateSchema>;
 
-export const morningBriefingWorkflow: Workflow<State> = {
+export const morningBriefingWorkflow: Workflow<
+  State,
+  string,
+  unknown,
+  z.output<typeof legacyMorningBriefingWorkflowInputSchema>
+> = {
   slug: LEGACY_MORNING_BRIEFING_WORKFLOW_SLUG,
   resumeOnly: true,
   name: "Legacy morning briefing",
@@ -96,11 +101,10 @@ export const morningBriefingWorkflow: Workflow<State> = {
   trigger: { kind: "cron", schedule: "0 * * * *" },
   initialStep: "gather",
   stateSchema,
+  inputSchema: legacyMorningBriefingWorkflowInputSchema,
   closure: { kind: "none" },
 
-  initialState(input) {
-    const parsed = legacyMorningBriefingWorkflowInputSchema.parse(input.input ?? {});
-
+  initialState({ input: parsed }) {
     return {
       phase: "initial",
       slot: parsed.slot,

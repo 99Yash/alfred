@@ -5,7 +5,6 @@ import {
   isCapacityError,
   route,
   toModelMessages,
-  type ChatModelTier,
   type TranscriptMessage,
 } from "@alfred/ai";
 import { composeAgentInstructions } from "@alfred/ai/voice";
@@ -77,7 +76,7 @@ import {
   type ChatRunState,
   type PendingToolCall,
 } from "./chat-turn-state";
-import { readChatTurnRunMetadata } from "./chat-turn-run-metadata";
+import { chatTurnRunMetadataSchema, type ChatTurnRunMetadata } from "./chat-turn-run-metadata";
 import { crossFinalizeBoundary } from "./finalize-guards";
 import { carryForwardThreadTools } from "./thread-tool-carryover";
 import { isChatStopRequested } from "./stop-signal";
@@ -905,30 +904,19 @@ const dispatchToolsStep: Step<ChatRunState> = {
   },
 };
 
-export const chatTurnWorkflow: Workflow<ChatRunState> = {
+export const chatTurnWorkflow: Workflow<ChatRunState, string, ChatTurnRunMetadata> = {
   slug: CHAT_TURN_WORKFLOW_SLUG,
   name: "Chat turn",
   trigger: { kind: "manual" },
   initialStep: "chat-turn",
-  initialState(input) {
-    const metadata = readChatTurnRunMetadata(input.metadata);
-    const threadId = metadata.threadId;
-
-    if (!threadId) throw new Error("chat-turn workflow requires metadata.threadId");
-
-    const messageId =
-      metadata.assistantMessageId ?? `msg_${Math.abs(hashString(`${threadId}:${input.userId}:`))}`;
-
-    const tier: ChatModelTier = metadata.tier ?? "standard";
-    const userMessageId = metadata.userMessageId;
-    const artifactTargetId = metadata.artifactTargetId;
-
+  metadataSchema: chatTurnRunMetadataSchema,
+  initialState({ metadata }) {
     return {
-      threadId,
-      messageId,
-      userMessageId,
-      artifactTargetId,
-      tier,
+      threadId: metadata.threadId,
+      messageId: metadata.assistantMessageId,
+      userMessageId: metadata.userMessageId,
+      artifactTargetId: metadata.artifactTargetId,
+      tier: metadata.tier,
       activeTools: systemToolKernel(),
       preloadedTools: [],
       preloadApplied: false,
@@ -961,9 +949,7 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
     };
   },
   async initialTranscript(input, context) {
-    const threadId = readChatTurnRunMetadata(input.metadata).threadId;
-
-    if (!threadId) throw new Error("chat-turn workflow requires metadata.threadId");
+    const { threadId } = input.metadata;
     const ex = context?.db ?? db();
 
     const rows = await ex
@@ -1007,10 +993,8 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
   },
   // A double submit of one user message hits the unique index, not a second run.
   // Failed and cancelled runs leave the index, so a failed turn stays retryable.
-  dedupKey(input) {
-    const id = readChatTurnRunMetadata(input.metadata).userMessageId;
-
-    return id ? `chat:${id}` : null;
+  dedupKey({ metadata }) {
+    return `chat:${metadata.userMessageId}`;
   },
   steps: {
     "chat-turn": chatTurnStep,
@@ -1084,14 +1068,3 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
     },
   },
 };
-
-/** Deterministic 32-bit hash for a fallback assistant message id. */
-function hashString(s: string): number {
-  let h = 0;
-
-  for (let i = 0; i < s.length; i++) {
-    h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
-  }
-
-  return h;
-}

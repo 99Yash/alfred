@@ -70,7 +70,12 @@ const stateSchema = z.object({
 
 type State = z.infer<typeof stateSchema>;
 
-export const learnSkillWorkflow: Workflow<State> = {
+export const learnSkillWorkflow: Workflow<
+  State,
+  string,
+  unknown,
+  z.output<typeof learnSkillWorkflowInputSchema>
+> = {
   slug: LEARN_SKILL_WORKFLOW_SLUG,
   name: "Learn skill",
   description:
@@ -79,10 +84,9 @@ export const learnSkillWorkflow: Workflow<State> = {
   trigger: { kind: "manual" },
   initialStep: "gather",
   stateSchema,
+  inputSchema: learnSkillWorkflowInputSchema,
 
-  initialState(input) {
-    const parsed = learnSkillWorkflowInputSchema.parse(input.input ?? {});
-
+  initialState({ input: parsed }) {
     return {
       skillId: parsed.skillId,
       prompt: parsed.prompt,
@@ -91,11 +95,7 @@ export const learnSkillWorkflow: Workflow<State> = {
   },
 
   // One run per skill; different skills run in parallel.
-  dedupKey: ({ input }) => {
-    const parsed = learnSkillWorkflowInputSchema.parse(input ?? {});
-
-    return learnSkillDedupKey(parsed.skillId);
-  },
+  dedupKey: ({ input }) => learnSkillDedupKey(input.skillId),
 
   // The UI reads `skill_runs.status`, so close it on any terminal path or the card
   // stays "in progress". Each branch records its own status.
