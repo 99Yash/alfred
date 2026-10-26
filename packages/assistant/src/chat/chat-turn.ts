@@ -4,15 +4,13 @@ import {
   DEFAULT_TURN_STREAM_TIMEOUT,
   isCapacityError,
   route,
+  toModelMessages,
   type ChatModelTier,
+  type TranscriptMessage,
 } from "@alfred/ai";
 import { composeAgentInstructions } from "@alfred/ai/voice";
 import { ARTIFACT_DESIGN_PROMPT } from "@alfred/artifacts-design";
-import {
-  parseIanaTimezone,
-  type AgentTranscriptMessage,
-  type ToolRunContext,
-} from "@alfred/contracts";
+import { parseIanaTimezone, type ToolRunContext } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { CHAT_TURN_WORKFLOW_SLUG, chatMessages } from "@alfred/db/schemas";
 import { and, asc, eq } from "drizzle-orm";
@@ -28,8 +26,6 @@ import {
 } from "@alfred/assistant/tool-runtime";
 import {
   appendModelResponseMessages,
-  toModelMessages,
-  toTranscriptMessages,
   appendSystemNote,
   CAPACITY_RETRY_DELAYS_MS,
   CAPACITY_RETRY_JITTER_MS,
@@ -295,7 +291,7 @@ const chatTurnStep: Step<ChatRunState> = {
     let retries: ChatTurnRetries | undefined;
 
     // Step-scoped so the catch can end a stopped backoff on it.
-    let transcript: AgentTranscriptMessage[] = ctx.transcript;
+    let transcript: TranscriptMessage[] = ctx.transcript;
 
     try {
       // At the cap the model answers once more with no tools, instead of failing.
@@ -433,8 +429,8 @@ const chatTurnStep: Step<ChatRunState> = {
       // Compaction makes billable calls, so Stop covers the guard too. A Stop here
       // finalizes as stopped, not as a fault. The ephemeral reference stays out of
       // the stored transcript, so it cannot repeat on each tool-loop turn.
-      let continuationTranscript: AgentTranscriptMessage[] = transcript;
-      let guardedModelTranscript: AgentTranscriptMessage[] = hydratedTranscript;
+      let continuationTranscript: TranscriptMessage[] = transcript;
+      let guardedModelTranscript: TranscriptMessage[] = hydratedTranscript;
       const disposeStopPoll = stop.startPolling();
 
       try {
@@ -553,7 +549,7 @@ const chatTurnStep: Step<ChatRunState> = {
                 {
                   role: "assistant",
                   content: stoppedText,
-                } satisfies AgentTranscriptMessage,
+                } satisfies TranscriptMessage,
               ]
             : continuationTranscript;
 
@@ -631,7 +627,7 @@ const chatTurnStep: Step<ChatRunState> = {
       // Append to the guarded transcript. The pre-guard one would bring back the compacted overflow.
       const nextTranscript = appendModelResponseMessages(
         continuationTranscript,
-        toTranscriptMessages(response.messages),
+        response.messages,
         stepCallIds,
       );
 
@@ -992,9 +988,7 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
       ex,
     );
 
-    const out: AgentTranscriptMessage[] = assembled.summaryMessage
-      ? [assembled.summaryMessage]
-      : [];
+    const out: TranscriptMessage[] = assembled.summaryMessage ? [assembled.summaryMessage] : [];
 
     for (const r of verbatimRows) {
       const atts = attachmentsByMessage.get(r.id) ?? [];
@@ -1002,7 +996,10 @@ export const chatTurnWorkflow: Workflow<ChatRunState> = {
 
       // Check the produced content, not `atts`: an attachment can degrade to no parts.
       if (content.length === 0) continue;
-      out.push({ role: r.role, content } satisfies AgentTranscriptMessage);
+      // Attachments belong to user messages, so an assistant row keeps its text.
+      out.push(
+        r.role === "user" ? { role: "user", content } : { role: "assistant", content: r.content },
+      );
     }
 
     return out;

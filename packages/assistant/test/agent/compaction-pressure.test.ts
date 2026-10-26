@@ -1,7 +1,6 @@
+import type { TranscriptMessage } from "@alfred/ai";
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-
-import type { AgentTranscriptMessage } from "@alfred/contracts";
 
 import {
   estimateNextTurnInputTokens,
@@ -15,7 +14,7 @@ describe("authored-brief compaction pressure (#369)", () => {
   const pressureThresholdTokens = 100;
 
   test("next-turn estimate includes prior billed overhead and the complete in-flight tail", () => {
-    const inFlightTail: AgentTranscriptMessage[] = [
+    const inFlightTail: TranscriptMessage[] = [
       { role: "assistant", content: "calling a tool" },
       {
         role: "tool",

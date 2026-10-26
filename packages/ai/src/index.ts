@@ -20,6 +20,8 @@ export * from "./context-window";
 
 export * from "./token-estimate";
 
+export * from "./transcript";
+
 export * from "./constants";
 
 export * from "./metering/index";

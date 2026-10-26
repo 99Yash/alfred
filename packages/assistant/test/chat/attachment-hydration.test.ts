@@ -1,12 +1,8 @@
+import type { StoredUserMessage } from "@alfred/ai";
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import {
-  getPath,
-  getStringPath,
-  MAX_MODEL_ATTACHMENT_BYTES_PER_TURN,
-  type AgentTranscriptMessage,
-} from "@alfred/contracts";
+import { getPath, getStringPath, MAX_MODEL_ATTACHMENT_BYTES_PER_TURN } from "@alfred/contracts";
 
 import {
   buildStoredContentParts,
@@ -47,7 +43,7 @@ function storedImage(storageKey: string, byteSize?: number): StoredImageRecord {
   };
 }
 
-function userMessage(content: unknown): AgentTranscriptMessage {
+function userMessage(content: StoredUserMessage["content"]): StoredUserMessage {
   return { role: "user", content };
 }
 

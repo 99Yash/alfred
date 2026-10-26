@@ -1,5 +1,6 @@
+import type { TranscriptMessage } from "@alfred/ai";
 import { isRecord } from "@alfred/contracts";
-import type { AgentTranscriptMessage, ToolName } from "@alfred/contracts";
+import type { ToolName } from "@alfred/contracts";
 
 import type {
   ProposedToolCall,
@@ -21,7 +22,7 @@ type RestoreSurface = (source: ToolSurfaceSource) => ToolName[];
 export async function runToolCallRound<Call extends ProposedToolCall>(
   input: {
     calls: readonly Call[];
-    transcript: readonly AgentTranscriptMessage[];
+    transcript: readonly TranscriptMessage[];
     run: ToolCallRun;
     activeNames: readonly ToolName[];
     onCallStarted?:

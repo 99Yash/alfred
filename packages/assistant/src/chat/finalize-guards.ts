@@ -1,10 +1,10 @@
+import type { TranscriptMessage } from "@alfred/ai";
 import {
   INTEGRATION_SLUGS,
   isActionTool,
   SPAWN_SUB_AGENT_TOOL,
   toDisplayText,
   withDefaults,
-  type AgentTranscriptMessage,
 } from "@alfred/contracts";
 import { publishEvent } from "@alfred/assistant/triggers";
 import { db } from "@alfred/db";
@@ -122,7 +122,7 @@ const defaultGuardSpawnedChildrenDeps: GuardSpawnedChildrenDeps = {
 export async function guardSpawnedChildren(
   ctx: StepContext<ChatRunState>,
   state: ChatRunState,
-  transcript: AgentTranscriptMessage[],
+  transcript: TranscriptMessage[],
   deps: GuardSpawnedChildrenDeps = defaultGuardSpawnedChildrenDeps,
 ): Promise<StepResult<ChatRunState> | null> {
   const spawnedThisTurn = state.toolCallsLog.some(
@@ -165,7 +165,7 @@ export async function guardSpawnedChildren(
       ? transcript.slice(0, -1)
       : transcript;
 
-  const nextTranscript = foldNotes.reduce<AgentTranscriptMessage[]>(
+  const nextTranscript = foldNotes.reduce<TranscriptMessage[]>(
     (acc, note) => appendSystemNote(acc, note),
     [...baseTranscript],
   );
@@ -209,7 +209,7 @@ function nonExecutionRecoveredByLaterSuccess(
 export async function guardUnreportedToolFailures(
   ctx: StepContext<ChatRunState>,
   state: ChatRunState,
-  transcript: AgentTranscriptMessage[],
+  transcript: TranscriptMessage[],
   deps: Partial<GuardUnreportedToolFailuresDeps> = {},
 ): Promise<StepResult<ChatRunState> | null> {
   const guardDeps = withDefaults(defaultGuardUnreportedToolFailuresDeps, deps);
@@ -251,7 +251,7 @@ export async function guardUnreportedToolFailures(
 export async function guardFalseProvenance(
   ctx: StepContext<ChatRunState>,
   state: ChatRunState,
-  transcript: AgentTranscriptMessage[],
+  transcript: TranscriptMessage[],
 ): Promise<StepResult<ChatRunState> | null> {
   // No latch: a repeated false claim must trip it again. The turn cap bounds the loop.
   const reply = state.assistantText;
@@ -352,7 +352,7 @@ interface FinalizeGuard {
   readonly run: (
     ctx: StepContext<ChatRunState>,
     state: ChatRunState,
-    transcript: AgentTranscriptMessage[],
+    transcript: TranscriptMessage[],
   ) => Promise<StepResult<ChatRunState> | null>;
 }
 
@@ -388,7 +388,7 @@ export interface FinalizeBoundaryDeps {
 export async function crossFinalizeBoundary(
   ctx: StepContext<ChatRunState>,
   state: ChatRunState,
-  transcript: AgentTranscriptMessage[],
+  transcript: TranscriptMessage[],
   deps: FinalizeBoundaryDeps,
 ): Promise<StepResult<ChatRunState> | null> {
   // The model answered instead of reissuing (#407), so release the real reply.

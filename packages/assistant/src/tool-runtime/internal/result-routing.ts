@@ -1,10 +1,10 @@
+import type { TranscriptMessage } from "@alfred/ai";
 import {
   boundToolResult,
   getStringPath,
   isActionTool,
   isRecord,
   toJsonValue,
-  type AgentTranscriptMessage,
   type ChatConnectNudge,
   type ToolUnavailabilityCode,
 } from "@alfred/contracts";
@@ -12,6 +12,7 @@ import {
 import type { CompletedToolCall, ProposedToolCall } from "../index";
 import type { ToolCallDispatchResult } from "./adapter";
 import { NO_TOOL_EFFECTS } from "./registry";
+import type { ToolResultPart } from "ai";
 
 export type TerminalToolCallDispatchResult = Exclude<
   ToolCallDispatchResult,
@@ -21,7 +22,7 @@ export type TerminalToolCallDispatchResult = Exclude<
 export function toolResultMessage(
   call: ProposedToolCall,
   result: TerminalToolCallDispatchResult,
-): AgentTranscriptMessage {
+): TranscriptMessage {
   return {
     role: "tool",
     content: [
@@ -37,7 +38,7 @@ export function toolResultMessage(
 
 function dispatchResultToToolOutput(
   result: TerminalToolCallDispatchResult,
-): { type: "json"; value: unknown } | { type: "error-json"; value: unknown } {
+): Extract<ToolResultPart["output"], { type: "json" | "error-json" }> {
   switch (result.kind) {
     case "executed":
       return {

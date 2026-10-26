@@ -7,7 +7,7 @@ import {
   documentTemplates,
   pdfArtifactHtmlViolations,
 } from "@alfred/artifacts-design";
-import { updateArtifactInput, type AgentTranscriptMessage } from "@alfred/contracts";
+import { toDisplayText, updateArtifactInput, type AgentTranscriptMessage } from "@alfred/contracts";
 import { z } from "zod";
 import { formatRuntimeTimeGrounding } from "@alfred/assistant/execution/grounding";
 import { guardTurnContext, withEphemeralReference } from "@alfred/assistant/chat/compaction/index";
@@ -144,7 +144,7 @@ test("resume prompt uses placeholders and explicitly forbids invented facts", ()
   assert.match(resume.html, /\[Full name\]/);
   assert.doesNotMatch(resume.html, /Jordan Rivera|Northwind|1\.2k stars/);
   const guide = admitPdfDesignGuide({ artifactDesignMedium: "pdf" });
-  assert.match(String(guide?.content), /Never invent a missing name, link, employer/);
+  assert.match(toDisplayText(guide?.content), /Never invent a missing name, link, employer/);
   assert.doesNotMatch(ARTIFACT_DESIGN_PROMPT, /\[Full name\]/);
 });
 
@@ -180,7 +180,7 @@ test("the PDF guide enters the transcript once when the selected medium becomes 
   });
 
   assert.equal(guarded.modelTranscript[1]?.role, "user");
-  assert.match(String(guarded.modelTranscript[1]?.content), /\[Full name\]/);
+  assert.match(toDisplayText(guarded.modelTranscript[1]?.content), /\[Full name\]/);
   assert.deepEqual(guarded.continuationTranscript, guarded.modelTranscript);
   assert.equal(guarded.continuationTranscript.length, 2);
   assert.deepEqual(transcript, [{ role: "user", content: "Make a PDF resume." }]);
@@ -219,7 +219,7 @@ test("chat's prod system prompt states no date — the runtime line is the singl
   );
 
   assert.equal(reference.role, "assistant");
-  assert.match(String(reference.content), /Current date and time: Tuesday, 14 July 2026/);
+  assert.match(toDisplayText(reference.content), /Current date and time: Tuesday, 14 July 2026/);
 });
 
 test("chat persists system stability across short-lived AlfredAgent instances", () => {
@@ -279,7 +279,7 @@ test("every documented PDF class exists in the render shell", () => {
   ] as const;
 
   for (const className of documentedClasses) {
-    assert.match(String(guide?.content), new RegExp(`\\b${className}\\b`));
+    assert.match(toDisplayText(guide?.content), new RegExp(`\\b${className}\\b`));
     assert.match(html, new RegExp(`\\.${className}(?:[\\s.{:#>]|$)`));
   }
 });

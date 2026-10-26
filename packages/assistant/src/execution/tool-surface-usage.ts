@@ -7,13 +7,8 @@
 import { db } from "@alfred/db";
 import { agentRuns } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
-import {
-  getStringPath,
-  isRecord,
-  isToolName,
-  type AgentTranscriptMessage,
-  type ToolName,
-} from "@alfred/contracts";
+import { isRecord, isToolName, type ToolName } from "@alfred/contracts";
+import { parseStoredTranscript, type TranscriptMessage } from "@alfred/ai";
 
 import { uniqueToolNames } from "@alfred/assistant/tool-runtime";
 import { migrateRecordedToolNames, systemToolKernel } from "./tool-surface";
@@ -56,7 +51,7 @@ export function summarizeToolSurfaceUsage(args: {
  * form.
  */
 export function invokedToolNamesFromTranscript(
-  transcript: readonly AgentTranscriptMessage[],
+  transcript: readonly TranscriptMessage[],
 ): Set<ToolName> {
   const names = new Set<ToolName>();
 
@@ -64,10 +59,7 @@ export function invokedToolNamesFromTranscript(
     if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
 
     for (const part of message.content) {
-      if (!isRecord(part) || part.type !== "tool-call") continue;
-      const toolName = getStringPath(part, "toolName");
-
-      if (toolName !== undefined && isToolName(toolName)) names.add(toolName);
+      if (part.type === "tool-call" && isToolName(part.toolName)) names.add(part.toolName);
     }
   }
 
@@ -105,6 +97,6 @@ export async function getRunToolSurfaceUsage(runId: string): Promise<ToolSurface
     activeTools: toolNamesFromState(run.state, "activeTools"),
     preloadedTools: toolNamesFromState(run.state, "preloadedTools"),
     kernelTools: new Set(systemToolKernel()),
-    invokedTools: invokedToolNamesFromTranscript(run.transcript),
+    invokedTools: invokedToolNamesFromTranscript(parseStoredTranscript(run.transcript)),
   });
 }

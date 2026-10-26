@@ -1,4 +1,5 @@
-import type { AgentTranscriptMessage, ChatModelTier } from "@alfred/contracts";
+import type { TranscriptMessage } from "@alfred/ai";
+import type { ChatModelTier } from "@alfred/contracts";
 import type { StepResult } from "../registry";
 
 /** Every bound on how much work one agent turn loop may do. */
@@ -80,7 +81,7 @@ interface PlannedTurnRetry<S> {
 function planTurnRetry<S>(
   budget: TurnRetryBudget<S>,
   state: S,
-  preTurnTranscript: AgentTranscriptMessage[],
+  preTurnTranscript: TranscriptMessage[],
 ): PlannedTurnRetry<S> | null {
   const spent = budget.read(state);
 
@@ -134,7 +135,7 @@ const CAPACITY_MAX_RETRIES = 3;
  * Call it before the response is appended; the failure sites then cannot pass a poisoned
  * transcript.
  */
-export function openChatTurnRetries(preTurnTranscript: AgentTranscriptMessage[]): ChatTurnRetries {
+export function openChatTurnRetries(preTurnTranscript: TranscriptMessage[]): ChatTurnRetries {
   return {
     afterEmptyCompletion: (state) =>
       planTurnRetry(
@@ -179,9 +180,7 @@ export interface BriefTurnRetries {
 }
 
 /** Like {@link openChatTurnRetries}: call it before `agent.turn`. */
-export function openBriefTurnRetries(
-  preTurnTranscript: AgentTranscriptMessage[],
-): BriefTurnRetries {
+export function openBriefTurnRetries(preTurnTranscript: TranscriptMessage[]): BriefTurnRetries {
   return {
     afterEmptyCompletion: (state) =>
       planTurnRetry(

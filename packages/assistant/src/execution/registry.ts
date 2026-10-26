@@ -1,12 +1,12 @@
 import type {
   AgentRunTrigger,
-  AgentTranscriptMessage,
   CancellationFence,
   JsonObject,
   RunDeferReason,
   WakeCondition,
   WorkflowTrigger,
 } from "@alfred/contracts";
+import type { TranscriptMessage } from "@alfred/ai";
 import type { DbRoot, DbTransaction } from "@alfred/db";
 import type { z } from "zod";
 import type { DecisionTraceFor, DecisionTraceKind, DecisionTraceOptions } from "./decision-traces";
@@ -30,16 +30,16 @@ export interface StagedAction {
  * `N` is the workflow's step names; it defaults to `string`.
  */
 export type StepResult<S, N extends string = string> =
-  | { kind: "next"; state: S; nextStep: N; transcript?: AgentTranscriptMessage[] }
+  | { kind: "next"; state: S; nextStep: N; transcript?: TranscriptMessage[] }
   | {
       kind: "done";
       state: S;
       output?: unknown;
       /** One safe sentence for the run's history row (#561). */
       summary?: string;
-      transcript?: AgentTranscriptMessage[];
+      transcript?: TranscriptMessage[];
     }
-  | { kind: "blocked"; state: S; output: unknown; transcript?: AgentTranscriptMessage[] }
+  | { kind: "blocked"; state: S; output: unknown; transcript?: TranscriptMessage[] }
   | {
       kind: "defer";
       state: S;
@@ -47,9 +47,9 @@ export type StepResult<S, N extends string = string> =
       output?: unknown;
       /** Defaults to `retry_scheduled`. */
       reason?: RunDeferReason;
-      transcript?: AgentTranscriptMessage[];
+      transcript?: TranscriptMessage[];
     }
-  | { kind: "interrupt"; state: S; wake: WakeCondition; transcript?: AgentTranscriptMessage[] };
+  | { kind: "interrupt"; state: S; wake: WakeCondition; transcript?: TranscriptMessage[] };
 
 /** A step changes the run only through its return value. */
 export interface StepContext<S> {
@@ -64,7 +64,7 @@ export interface StepContext<S> {
    */
   fence: CancellationFence;
   state: S;
-  transcript: AgentTranscriptMessage[];
+  transcript: TranscriptMessage[];
   /**
    * Commit an outbound effect with this step's result.
    * A re-run is a no-op because `idempotencyKey` is unique on `pending_actions`.
@@ -139,7 +139,7 @@ export interface Workflow<S = unknown, N extends string = string> {
   initialTranscript?(
     input: WorkflowInput,
     context?: WorkflowInitContext,
-  ): MaybePromise<AgentTranscriptMessage[]>;
+  ): MaybePromise<TranscriptMessage[]>;
   initialStep: N;
   steps: { [K in N]: Step<S, N> & { id: K } };
   /** Validates and migrates persisted state before terminal hooks. */

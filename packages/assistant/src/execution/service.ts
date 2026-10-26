@@ -1,3 +1,4 @@
+import { toStoredTranscript } from "@alfred/ai";
 import { toJsonValue } from "@alfred/contracts";
 import { db, rowsFromExecute, type DbTransaction } from "@alfred/db";
 import { runAtomic } from "@alfred/db/helpers";
@@ -220,7 +221,7 @@ export async function createRun(
     workflowRevisionId: resolved.userAuthoredRow?.revisionId ?? null,
     brief,
     state: initialState ?? {},
-    transcript,
+    transcript: toStoredTranscript(transcript),
     currentStep: workflow.initialStep,
     metadata,
     trigger,

@@ -1,10 +1,9 @@
-import type { ToolSet } from "@alfred/ai";
+import type { ToolSet, TranscriptMessage } from "@alfred/ai";
 import {
   type activateWorkflowInput,
   type authorWorkflowInput,
   type readChatHistoryInput,
   type ActivateWorkflowInput,
-  type AgentTranscriptMessage,
   type CancellationFence,
   type ChatConnectNudge,
   type IanaTimezone,
@@ -199,7 +198,7 @@ export type ToolCallRoundOutcome<Call extends ProposedToolCall = ProposedToolCal
   | { kind: "waiting"; wake: WakeCondition; activeNames: ToolName[] }
   | {
       kind: "completed";
-      transcript: AgentTranscriptMessage[];
+      transcript: TranscriptMessage[];
       calls: CompletedToolCall<Call>[];
       activeNames: ToolName[];
       reissue: boolean;
@@ -228,7 +227,7 @@ export interface ToolRuntimeAdapter {
   }): Map<string, ToolName[]>;
   selectPreload(input: {
     userId: string;
-    transcript: readonly { role: string; content: unknown }[];
+    transcript: readonly TranscriptMessage[];
     allowedIntegrations: readonly string[];
     activeNames: readonly ToolName[];
     context: ToolRunContext;
@@ -1095,7 +1094,7 @@ export function availableToolNamesByIntegration(input: {
 
 export function selectToolPreload(input: {
   userId: string;
-  transcript: readonly { role: string; content: unknown }[];
+  transcript: readonly TranscriptMessage[];
   allowedIntegrations: readonly string[];
   activeNames: readonly ToolName[];
   context: ToolRunContext;
@@ -1107,7 +1106,7 @@ export function selectToolPreload(input: {
 /** Run one tool round, or return its durable wait. */
 export function executeToolCallRound<Call extends ProposedToolCall>(input: {
   calls: readonly Call[];
-  transcript: readonly AgentTranscriptMessage[];
+  transcript: readonly TranscriptMessage[];
   run: ToolCallRun;
   activeNames: readonly ToolName[];
   onCallStarted?:

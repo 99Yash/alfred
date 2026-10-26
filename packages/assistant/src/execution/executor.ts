@@ -11,6 +11,7 @@ import {
 } from "@alfred/contracts";
 import { createExecuteRowSchema, db, rowsFromExecute, type DbTransaction } from "@alfred/db";
 import { logger } from "@alfred/logging";
+import { parseStoredTranscript, toStoredTranscript } from "@alfred/ai";
 import {
   agentDecisionTraces,
   agentRuns,
@@ -321,14 +322,13 @@ export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise
   const traces: DecisionTraceBase[] = [];
   const seenTraceKeys = new Set<string>();
 
-  const ctx: StepContext<unknown> = {
+  const ctx: Omit<StepContext<unknown>, "transcript"> = {
     runId: run.id,
     userId: run.userId,
     idempotencyKey,
     attempt,
     fence: { generation: run.cancellationGeneration },
     state: run.state,
-    transcript: run.transcript,
     stageAction(action) {
       staged.push(action);
     },
@@ -378,7 +378,8 @@ export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise
   let result: StepResult<unknown>;
 
   try {
-    result = await step.run(ctx);
+    // Parsed here, not in `leaseRun`: a bad row then fails the run instead of throwing on each lease.
+    result = await step.run({ ...ctx, transcript: parseStoredTranscript(run.transcript) });
   } catch (err) {
     const error = toMessage(err);
     const outcome = await commitStepFailure(run, stepId, attempt, error);
@@ -657,7 +658,9 @@ export async function commitStepSuccess(
   const cleanState = sanitizeToolResult(result.state).value;
 
   const cleanTranscript =
-    result.transcript === undefined ? undefined : sanitizeToolResult(result.transcript).value;
+    result.transcript === undefined
+      ? undefined
+      : sanitizeToolResult(toStoredTranscript(result.transcript)).value;
 
   const cleanOutput =
     result.kind === "done" || result.kind === "blocked" || result.kind === "defer"

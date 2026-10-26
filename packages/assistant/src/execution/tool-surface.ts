@@ -3,7 +3,7 @@ import {
   type ToolName,
   type ToolRunContext,
 } from "@alfred/contracts";
-import type { ToolSet } from "@alfred/ai";
+import type { ToolSet, TranscriptMessage } from "@alfred/ai";
 import { z } from "zod";
 import {
   callerLabel,
@@ -161,7 +161,7 @@ async function applyPromptToolPreload(args: {
   workflow: string;
   /** `boss` or `sub:<id>`; not the availability caller kind. */
   spanCaller: string;
-  transcript: readonly { role: string; content: unknown }[];
+  transcript: readonly TranscriptMessage[];
   context: ToolRunContext;
   availability: IntegrationAvailabilitySnapshot;
 }): Promise<void> {
@@ -236,7 +236,7 @@ export interface ToolTurnTools extends ToolRunTools {
       preloadedTools: ToolName[];
       preloadApplied: boolean;
     },
-    transcript: readonly { role: string; content: unknown }[],
+    transcript: readonly TranscriptMessage[],
   ): Promise<void>;
   /**
    * The connected-integration grounding line for the system prompt (ADR-0053). Curated lines come

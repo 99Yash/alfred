@@ -1,9 +1,11 @@
 import {
   isPassThrough,
-  isRecord,
   MAX_MODEL_ATTACHMENT_BYTES_PER_TURN,
-  type AgentTranscriptMessage,
+  STORED_ATTACHMENT_IMAGE_PART,
+  type StoredAttachmentImagePart,
 } from "@alfred/contracts";
+import type { StoredUserMessage, TranscriptMessage } from "@alfred/ai";
+import type { ModelMessage, TextPart, UserContent } from "ai";
 import { db } from "@alfred/db";
 import { chatAttachments, chatMessages } from "@alfred/db/schemas";
 import { and, asc, eq, inArray, like, or, sql } from "drizzle-orm";
@@ -27,18 +29,6 @@ export interface ReadyAttachment {
   degradedImageKeys: string[];
 }
 
-const CHAT_ATTACHMENT_IMAGE_PART = "chat_attachment_image";
-
-interface StoredChatAttachmentImagePart {
-  type: typeof CHAT_ATTACHMENT_IMAGE_PART;
-  storageKey: string;
-  attachmentId?: string;
-  mediaType?: string;
-  byteSize?: number;
-}
-
-type StoredChatContentPart = { type: "text"; text: string } | StoredChatAttachmentImagePart;
-
 export interface AttachmentHydrationBudget {
   usedEncodedBytes: number;
   skippedImages: number;
@@ -60,28 +50,14 @@ function storedAttachmentImagePart(
   mediaType?: string,
   attachmentId?: string,
   byteSize?: number,
-): StoredChatAttachmentImagePart {
+): StoredAttachmentImagePart {
   return {
-    type: CHAT_ATTACHMENT_IMAGE_PART,
+    type: STORED_ATTACHMENT_IMAGE_PART,
     storageKey,
     ...(attachmentId ? { attachmentId } : {}),
     ...(mediaType ? { mediaType } : {}),
     ...(byteSize !== undefined ? { byteSize } : {}),
   };
-}
-
-function isStoredAttachmentImagePart(value: unknown): value is StoredChatAttachmentImagePart {
-  return (
-    isRecord(value) &&
-    value.type === CHAT_ATTACHMENT_IMAGE_PART &&
-    typeof value.storageKey === "string" &&
-    (value.attachmentId === undefined || typeof value.attachmentId === "string") &&
-    (value.mediaType === undefined || typeof value.mediaType === "string") &&
-    (value.byteSize === undefined ||
-      (typeof value.byteSize === "number" &&
-        Number.isFinite(value.byteSize) &&
-        value.byteSize >= 0))
-  );
 }
 
 /** Load `ready` attachments by message id. Skipping `pending` keeps a slow degrade from blocking the turn. */
@@ -175,8 +151,8 @@ export async function threadImageAttachments(
 export function buildStoredContentParts(
   text: string,
   attachments: ReadyAttachment[],
-): StoredChatContentPart[] {
-  const parts: StoredChatContentPart[] = [];
+): (TextPart | StoredAttachmentImagePart)[] {
+  const parts: (TextPart | StoredAttachmentImagePart)[] = [];
 
   if (text.length > 0) parts.push({ type: "text", text });
 
@@ -210,7 +186,7 @@ class UnsupportedStoredImageError extends Error {
 }
 
 async function hydrateAttachmentImage(
-  part: StoredChatAttachmentImagePart,
+  part: StoredAttachmentImagePart,
   cache: Map<string, HydratedAttachmentImage>,
   readStoredObject: StoredObjectReader,
 ): Promise<HydratedAttachmentImage> {
@@ -234,17 +210,16 @@ async function hydrateAttachmentImage(
 }
 
 async function hydrateContentForModel(
-  content: unknown,
+  content: StoredUserMessage["content"],
   budget: AttachmentHydrationBudget,
   cache: Map<string, HydratedAttachmentImage>,
   readStoredObject: StoredObjectReader,
-  // oxlint-disable-next-line anti-slop/no-unknown-returns -- message content is unknown model input; only attachment parts change, and the rest passes through as received.
-): Promise<unknown> {
+): Promise<UserContent> {
   if (!Array.isArray(content)) return content;
-  const parts: unknown[] = [];
+  const parts: Exclude<UserContent, string> = [];
 
   for (const part of content) {
-    if (!isStoredAttachmentImagePart(part)) {
+    if (part.type !== STORED_ATTACHMENT_IMAGE_PART) {
       parts.push(part);
       continue;
     }
@@ -312,9 +287,9 @@ async function hydrateContentForModel(
  * Warns here about drops, so no caller can forget to.
  */
 export async function hydrateTranscriptForModel(
-  transcript: readonly AgentTranscriptMessage[],
+  transcript: readonly TranscriptMessage[],
   readStoredObject: StoredObjectReader = readObject,
-): Promise<{ transcript: AgentTranscriptMessage[]; budget: AttachmentHydrationBudget }> {
+): Promise<{ transcript: ModelMessage[]; budget: AttachmentHydrationBudget }> {
   const budget: AttachmentHydrationBudget = {
     usedEncodedBytes: 0,
     skippedImages: 0,
@@ -323,12 +298,18 @@ export async function hydrateTranscriptForModel(
   };
 
   const cache = new Map<string, HydratedAttachmentImage>();
-  const reversed: AgentTranscriptMessage[] = [];
+  const reversed: ModelMessage[] = [];
 
   for (let i = transcript.length - 1; i >= 0; i -= 1) {
     const message = transcript[i];
 
     if (!message) continue;
+
+    if (message.role !== "user") {
+      reversed.push(message);
+      continue;
+    }
+
     reversed.push({
       ...message,
       content: await hydrateContentForModel(message.content, budget, cache, readStoredObject),
