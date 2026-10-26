@@ -292,8 +292,11 @@ export function startLangfuseSpan(input: LangfuseSpanInput): LangfuseSpanCloser 
 declare const redactedToolInputBrand: unique symbol;
 
 /**
- * A tool input after its tool's `redactInput` ran (#293). Only `BoundToolCall.redactedInput`
- * mints it, so a trace sink cannot take the raw input.
+ * A tool input after its tool's `redactInput` ran (#293). Only
+ * `BoundToolCall.redactedInput` should mint it. A raw `unknown` or `JsonValue`
+ * input does not type-check at `ToolSpanInput` or `DispatchRejectionInput`.
+ * A cast, a type guard, a zod custom schema, or a merge into a redacted value
+ * still compiles, so review owns those.
  */
 export type RedactedToolInput = { readonly [redactedToolInputBrand]: true };
 
