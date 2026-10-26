@@ -5,6 +5,7 @@
  */
 import { z } from "zod";
 import { parseMailbox } from "./domain";
+import { classifyLocalPart } from "./sender-class";
 import type { TriageCategory } from "./triage";
 
 // ─── Significance bucketing (ADR-0059) ───
@@ -129,16 +130,14 @@ export function normalizeSubjectForRecurrence(subject: string): string {
 
 // ─── Bulk-sender detection (recurrence-decay gate) ───────────────────────────
 // The read paths lack the classifier's `SenderContext`, so guess from the address.
-// Err toward "human": a false match demotes a person. `team@`, `info@`, and
-// `support@` are often staffed, so they do not match.
-
-const BULK_LOCALPART_RE =
-  /(?:^|[._+-])(?:no-?reply|do-?not-?reply|donotreply|notifications?|notify|mailer-daemon|mailer|automated|auto-?confirm|bounces?|alerts?|postmaster)(?:[._+-]|$)/;
+// Err toward "human": a false match demotes a person. Only an `automated` word
+// matches, at any position. `team@`, `info@`, and `support@` are often staffed,
+// so a role or group word does not match.
 
 export function isLikelyBulkSender(from: string | null | undefined): boolean {
   const mailbox = parseMailbox(from);
 
-  return mailbox ? BULK_LOCALPART_RE.test(mailbox.localPart) : false;
+  return mailbox ? classifyLocalPart(mailbox.localPart).senderClass === "automated" : false;
 }
 
 // ─── Windowed item scoring (the cross-row recurrence pass) ───────────────────

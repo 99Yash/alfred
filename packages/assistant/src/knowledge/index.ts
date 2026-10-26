@@ -120,9 +120,6 @@ export {
 
 export { ENTITY_KINDS, entityKindSchema, type EntityKind } from "./entity-graph";
 
-// Shared by the triage parser and the sender-kind floor (#1187).
-export { isExactGroupLocal, isGroupLocal } from "./entity-kind-classifier";
-
 export { readUserContext, type UserContext } from "./user-context";
 
 // Cross-module helpers for replicache, triage, briefing, tools, and todos.

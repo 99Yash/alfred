@@ -63,6 +63,8 @@ export {
 
 export * from "./identity-affiliation";
 
+export * from "./sender-class";
+
 export * from "./person-entity-metadata";
 
 export * from "./tool-constants";

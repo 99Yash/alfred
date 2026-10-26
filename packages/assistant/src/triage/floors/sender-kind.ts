@@ -1,4 +1,5 @@
 import {
+  isExactGroupLocal,
   isOwnershipCollabActivity,
   isPassiveCollabActivity,
   isServiceEvidenceCode,
@@ -6,7 +7,6 @@ import {
   type CollabActivityKind,
   type ServiceEvidenceCode,
 } from "@alfred/contracts";
-import { isExactGroupLocal } from "../../knowledge";
 import type { TriageClassification } from "../classify";
 import type { Observations } from "../observations";
 import { canonicalizeEmailForMatch, recipientAddresses } from "../sender-context";

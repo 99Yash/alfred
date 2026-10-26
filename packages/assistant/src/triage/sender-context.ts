@@ -5,15 +5,19 @@
  */
 
 import {
-  hasServiceWordSuffix,
+  classifyLocalPart,
+  isFirstLastLocalPart,
+  isLikelyPersonDisplayName,
+  isServicePlatformDomain,
   parseMailbox,
   type BotSlug,
   type EffectiveAuthor,
+  type LocalPartMatch,
   type Mailbox,
+  type MatchedSenderClass,
   type SenderContext,
   type SenderKind,
 } from "@alfred/contracts";
-import { isExactGroupLocal } from "../knowledge";
 
 // ---------------------------------------------------------------------------
 // Public surface
@@ -112,111 +116,46 @@ export function canonicalizeEmailForMatch(raw: string | null | undefined): strin
 // fromKind classification
 // ---------------------------------------------------------------------------
 
-/** Always a service envelope. `info`/`support` go in the weak set: small companies staff them. */
-const STRONG_SERVICE_LOCAL = new Set<string>([
-  "noreply",
-  "no-reply",
-  "no_reply",
-  "donotreply",
-  "do-not-reply",
-  "do_not_reply",
-  "notifications",
-  "notification",
-  "alerts",
-  "alert",
-  "mailer-daemon",
-  "postmaster",
-  "bounces",
-  "bounce",
-]);
+/**
+ * The sender kind a local part alone decides, or `null` when it decides nothing.
+ * `service` is never rescued as a person, even behind a person-like display name.
+ * A role word alone is `unknown`: small companies staff `info@` and `support@`.
+ * A whole group word is `unknown` too, and it beats a display name (#1187).
+ * A token match decides nothing: `dev.patel@` is a person.
+ */
+const LOCAL_SENDER_KIND = {
+  automated: { whole: "service", edge: "service", token: null },
+  role: { whole: "unknown", edge: "service", token: null },
+  group: { whole: "unknown", edge: null, token: null },
+} satisfies Record<MatchedSenderClass, Record<LocalPartMatch, SenderKind | null>>;
 
-/** Maybe a service, maybe staffed. */
-const WEAK_SERVICE_LOCAL = new Set<string>([
-  "info",
-  // Not `team`: it lives in GROUP_LOCALS (#1187).
-  "hello",
-  "support",
-  "billing",
-  "security",
-  "updates",
-  "news",
-  "newsletter",
-  "events",
-  "event",
-  "marketing",
-  "account",
-  "accounts",
-  "contact",
-  "admin",
-]);
+function localSenderKind(localPart: string): SenderKind | null {
+  const classified = classifyLocalPart(localPart);
 
-/** Always a service envelope. Add only from observed mail. */
-const KNOWN_SERVICE_DOMAINS = new Set<string>([
-  "github.com",
-  "noreply.github.com",
-  "linear.app",
-  "sentry.io",
-  "stripe.com",
-  "stripe.email",
-  "google.com",
-  "accounts.google.com",
-  "vercel.com",
-  "vercel-app.com",
-  "datadog.com",
-  "datadoghq.com",
-  "slack.com",
-  "atlassian.net",
-  "notion.so",
-  "amazonses.com",
-  // The human is in the display name ("Vaibhav (via LinkedIn)"); the envelope is the platform's.
-  "linkedin.com",
-]);
-
-const SERVICE_LOCAL_PREFIX_RE =
-  /^(no[-_.]?reply|donotreply|do[-_]not[-_]reply|notification|notifications|alerts?|security[-_]|billing[-_]|account[-_]|calendar[-_])/;
-
-/** Never rescued as a person, even behind a person-like display name. */
-function isAutomatedEnvelopeLocal(localPart: string): boolean {
-  return (
-    STRONG_SERVICE_LOCAL.has(localPart) ||
-    SERVICE_LOCAL_PREFIX_RE.test(localPart) ||
-    hasServiceWordSuffix(localPart)
-  );
+  return classified.senderClass === "none"
+    ? null
+    : LOCAL_SENDER_KIND[classified.senderClass][classified.match];
 }
-
-const FIRST_LAST_LOCAL_RE = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+$/i;
-
-const ORG_DISPLAY_TOKEN_RE =
-  /\b(inc|incorporated|ltd|limited|llc|llp|gmbh|plc|corp|corporation|company|co|team|notifications?|depository|registrar|bank|services?|support|billing|payroll|careers?|jobs|sales|marketing|newsletter|news|alerts?)\b/i;
 
 function classifyFromKind(parsed: Mailbox | null): SenderKind {
   if (!parsed) return "unknown";
   const { localPart, domain, displayName } = parsed;
+  const localKind = localSenderKind(localPart);
 
-  if (isAutomatedEnvelopeLocal(localPart)) return "service";
+  if (localKind === "service") return "service";
 
-  if (KNOWN_SERVICE_DOMAINS.has(domain) || domain.endsWith(".linkedin.com")) return "service";
+  // The human is in the display name ("Vaibhav (via LinkedIn)"); the envelope is the platform's.
+  if (isServicePlatformDomain(domain)) return "service";
 
   // Ambiguous, so `unknown`. See `docs/reference/triage.md` (#1187).
-  if (WEAK_SERVICE_LOCAL.has(localPart)) return "unknown";
-
-  // An exact group local beats a display name. Exact only: `dev.patel@` is a person.
-  if (isExactGroupLocal(localPart)) return "unknown";
+  if (localKind) return localKind;
 
   // Same order as `classifyEntityKind`, so triage is not stricter than the set's owner.
   if (isLikelyPersonDisplayName(displayName)) return "person";
 
-  if (FIRST_LAST_LOCAL_RE.test(localPart)) return "person";
+  if (isFirstLastLocalPart(localPart)) return "person";
 
   return "unknown";
-}
-
-function isLikelyPersonDisplayName(displayName: string | null): boolean {
-  if (!displayName || !/\s/.test(displayName)) return false;
-
-  if (ORG_DISPLAY_TOKEN_RE.test(displayName)) return false;
-
-  return true;
 }
 
 /**
@@ -224,9 +163,9 @@ function isLikelyPersonDisplayName(displayName: string | null): boolean {
  * only; triage keeps the service verdict.
  */
 export function isHumanLikeSender(localPart: string, displayName: string | null): boolean {
-  if (isAutomatedEnvelopeLocal(localPart)) return false;
+  if (localSenderKind(localPart) === "service") return false;
 
-  return isLikelyPersonDisplayName(displayName) || FIRST_LAST_LOCAL_RE.test(localPart);
+  return isLikelyPersonDisplayName(displayName) || isFirstLastLocalPart(localPart);
 }
 
 // ---------------------------------------------------------------------------

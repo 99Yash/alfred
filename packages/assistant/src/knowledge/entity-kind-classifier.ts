@@ -1,11 +1,16 @@
 import {
   canonicalizeIdentityValue,
   classifyBareDomain,
+  classifyDomainFirstLabel,
+  classifyLocalPart,
   emailDomain,
   gmailEmailMessagePayloadSchema,
-  hasServiceWordSuffix,
   identityRefSchema,
   isDomainOrSubdomain,
+  isFirstLastLocalPart,
+  isGroupLocal,
+  isLikelyPersonDisplayName,
+  isServicePlatformDomain,
   integrationObjectKeySegment,
   INTEGRATION_OBJECT_KIND_SEGMENTS,
   isServiceEvidenceCode,
@@ -14,7 +19,10 @@ import {
   type EntityKindClassification,
   type EntityNodeKind,
   type IdentityRef,
+  type DomainFirstLabelClass,
   type ListEvidenceCode,
+  type LocalPartMatch,
+  type MatchedSenderClass,
   type ServiceEvidenceCode,
 } from "@alfred/contracts";
 import type { Observation } from "@alfred/db/schemas";
@@ -34,104 +42,26 @@ const BULK_PRECEDENCE_CODES: ReadonlyMap<string, ListEvidenceCode> = new Map([
   ["list", "gmail:precedence:list"],
 ]);
 
-const STRONG_SERVICE_LOCALS = new Set([
-  "noreply",
-  "no-reply",
-  "no_reply",
-  "donotreply",
-  "do-not-reply",
-  "do_not_reply",
-  "notifications",
-  "notification",
-  "alerts",
-  "alert",
-  "mailer-daemon",
-  "postmaster",
-  "bounces",
-  "bounce",
-]);
-
-const SERVICE_LOCALS = new Set([
-  "billing",
-  "security",
-  "account",
-  "accounts",
-  "updates",
-  "newsletter",
-  "news",
-  "marketing",
-  "support",
-  "help",
-  "admin",
-  "calendar-notification",
-]);
-
-const GROUP_LOCALS = new Set([
-  "all",
-  "everyone",
-  "team",
-  "engineering",
-  "eng",
-  "dev",
-  "developers",
-  "product",
-  "design",
-  "sales",
-  "ops",
-  "people",
-  "hr",
-  "finance",
-]);
-
-const SERVICE_DOMAIN_SUFFIXES = [
-  "github.com",
-  "linear.app",
-  "clickup.com",
-  "slack.com",
-  "stripe.com",
-  "stripe.email",
-  "sentry.io",
-  "vercel.com",
-  "vercel.app",
-  "railway.app",
-  "notion.so",
-  "atlassian.net",
-  "google.com",
-  "googlemail.com",
-  "amazonaws.com",
-  "amazonses.com",
-] as const;
+type LocalServiceEvidence = "localStrong" | "localRole";
 
 /**
- * Leftmost host labels that mean the same as a strong service local part:
- * `noreply.github.com` is `noreply@`. Listed, not derived from
- * {@link STRONG_SERVICE_LOCALS}: words like `bounce` or `alerts` are plausible
- * company hosts (`jane.doe@bounce.exchange`). Not `SERVICE_DOMAIN_LABELS` either:
- * it holds `mail`, and `jane@mail.company.com` is a person.
+ * The service evidence a local part writes. A role word alone writes the weak
+ * `localRole`; a role prefix (`billing-x`) writes `localStrong`, as before.
+ * A token match never writes evidence: `jane.alerts.fan` is not a machine.
  */
-const STRONG_SERVICE_DOMAIN_LABELS: ReadonlySet<string> = new Set([
-  "noreply",
-  "no-reply",
-  "no_reply",
-  "donotreply",
-  "do-not-reply",
-  "do_not_reply",
-  "newsletter",
-  "newsletters",
-]);
+const LOCAL_SERVICE_EVIDENCE = {
+  automated: { whole: "localStrong", edge: "localStrong", token: null },
+  role: { whole: "localRole", edge: "localStrong", token: null },
+  group: { whole: null, edge: null, token: null },
+} satisfies Record<MatchedSenderClass, Record<LocalPartMatch, LocalServiceEvidence | null>>;
 
-const SERVICE_LOCAL_PREFIX_RE =
-  /^(no[-_.]?reply|do[-_.]?not[-_.]?reply|notifications?|alerts?|billing[-_.]|security[-_.]|account[-_.]|calendar[-_.]|bounce[-_.])/i;
+function localServiceEvidence(localPart: string): LocalServiceEvidence | null {
+  const classified = classifyLocalPart(localPart);
 
-const GROUP_LOCAL_RE =
-  /(^|[-_.+])(all|team|engineering|eng|developers?|dev|product|design|sales|ops|people|hr|finance)([-_.+]|$)/i;
-
-const FIRST_LAST_LOCAL_RE = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+$/i;
-
-const PERSON_DISPLAY_RE = /^[\p{L}][\p{L}'-]+(?:\s+[\p{L}][\p{L}'-]+)+$/u;
-
-const NON_PERSON_DISPLAY_RE =
-  /\b(team|engineering|notifications?|alerts?|billing|support|newsletter|security|updates|digest|no[-\s]?reply|noreply|service|admin|marketing|sales|careers?|jobs)\b/i;
+  return classified.senderClass === "none"
+    ? null
+    : LOCAL_SERVICE_EVIDENCE[classified.senderClass][classified.match];
+}
 
 const LIST_DISPLAY_RE =
   /\b(team|engineering|developers?|all hands|newsletter|digest|mailing list|distribution list)\b/i;
@@ -207,7 +137,9 @@ export function classifyEntityKind(input: ClassifyEntityKindInput): EntityKindCl
     return classification("unknown", WEAK_CONFIDENCE, ["email:unparseable"]);
   }
 
-  if (isStrongServiceLocal(parsed.localPart)) {
+  const localEvidence = localServiceEvidence(parsed.localPart);
+
+  if (localEvidence === "localStrong") {
     return classification("service", STRONG_CONFIDENCE, [SERVICE_EVIDENCE_CODES.localStrong]);
   }
 
@@ -223,7 +155,7 @@ export function classifyEntityKind(input: ClassifyEntityKindInput): EntityKindCl
   const displayNames = normalizedDisplayNames(input.displayNames ?? [], input.observations ?? []);
   const personDisplay = displayNames.find(isLikelyPersonDisplayName);
 
-  if (personDisplay && !isServiceLocal(parsed.localPart)) {
+  if (personDisplay && !localEvidence) {
     return classification("person", PERSON_CONFIDENCE, ["display:person_like"]);
   }
 
@@ -235,15 +167,15 @@ export function classifyEntityKind(input: ClassifyEntityKindInput): EntityKindCl
     return classification("unknown", WEAK_CONFIDENCE, ["display:group_weak"], "group");
   }
 
-  if (FIRST_LAST_LOCAL_RE.test(parsed.localPart) && !isServiceLocal(parsed.localPart)) {
+  if (isFirstLastLocalPart(parsed.localPart) && !localEvidence) {
     return classification("person", PERSON_CONFIDENCE, ["email:local:person_like"]);
   }
 
-  if (isServiceLocal(parsed.localPart)) {
+  if (localEvidence === "localRole") {
     return classification("service", STRONG_CONFIDENCE, [SERVICE_EVIDENCE_CODES.localRole]);
   }
 
-  if (isServiceDomain(parsed.domain)) {
+  if (isServicePlatformDomain(parsed.domain)) {
     return classification("unknown", WEAK_CONFIDENCE, ["email:domain:service_weak"], "service");
   }
 
@@ -320,60 +252,28 @@ function normalizeDisplayName(value: string | undefined): string | null {
   return trimmed ? trimmed : null;
 }
 
-function isStrongServiceLocal(localPart: string): boolean {
-  return (
-    STRONG_SERVICE_LOCALS.has(localPart) ||
-    SERVICE_LOCAL_PREFIX_RE.test(localPart) ||
-    hasServiceWordSuffix(localPart)
-  );
-}
-
 /**
- * True when the leftmost label is a strong service word and is a subdomain
+ * True when the leftmost label is an automated word and is a subdomain
  * (`noreply.github.com`), not the apex (`noreply.com` can be a person's).
+ * An infrastructure label (`mail.`, `bounce.`) says nothing: `jane@mail.company.com` is a person.
  * With no public-suffix list, `newsletter.co.uk` still matches; that demotion is reversible.
  */
 function isStrongServiceDomain(domain: string): boolean {
-  const labels = domain.split(".");
-  const firstLabel = labels[0];
+  if (domain.split(".").length < 3) return false;
 
-  if (!firstLabel || labels.length < 3) return false;
-
-  return STRONG_SERVICE_DOMAIN_LABELS.has(firstLabel);
+  return DOMAIN_LABEL_IS_STRONG[classifyDomainFirstLabel(domain)];
 }
 
-function isServiceLocal(localPart: string): boolean {
-  return isStrongServiceLocal(localPart) || SERVICE_LOCALS.has(localPart);
-}
-
-/**
- * Group-word local part: an exact `GROUP_LOCALS` member or an infix token
- * (`engineering-team@`, `hr.priya@`). The classifier answers only a weak
- * `unknown` for it. The triage reply-lane bar uses {@link isExactGroupLocal}.
- */
-export function isGroupLocal(localPart: string): boolean {
-  return GROUP_LOCALS.has(localPart) || GROUP_LOCAL_RE.test(localPart);
-}
-
-/** Exact `GROUP_LOCALS` match only, no infix (#1187). Shared by the triage parser and the sender-kind floor. */
-export function isExactGroupLocal(localPart: string): boolean {
-  return GROUP_LOCALS.has(localPart);
-}
-
-function isServiceDomain(domain: string): boolean {
-  return SERVICE_DOMAIN_SUFFIXES.some((suffix) => isDomainOrSubdomain(domain, suffix));
-}
+const DOMAIN_LABEL_IS_STRONG = {
+  automated: true,
+  infrastructure: false,
+  none: false,
+} satisfies Record<DomainFirstLabelClass, boolean>;
 
 function hasAutoSubmittedServiceSignal(value: string | null | undefined): boolean {
   if (!value) return false;
 
   return value.trim().toLowerCase() !== "no";
-}
-
-function isLikelyPersonDisplayName(displayName: string): boolean {
-  if (NON_PERSON_DISPLAY_RE.test(displayName)) return false;
-
-  return PERSON_DISPLAY_RE.test(displayName);
 }
 
 function isLikelyGroupDisplayName(displayName: string): boolean {
@@ -425,7 +325,7 @@ function entityKindForNodeKind(kind: EntityNodeKind): NodeKindEntityKind {
  * True when `value` is the contact's own domain, or a parent or child of it
  * (`Amazon.in` from `order-update@amazon.in`). That duplicates the organization row.
  * Deny-only: names like `Jane Doe (she/her)` or `sarah.chen` pass. It avoids
- * `NON_PERSON_DISPLAY_RE`, which rejects real surnames like Jobs and Sales.
+ * `isLikelyPersonDisplayName`, which rejects real surnames like Jobs and Sales.
  */
 function restatesOwnDomain(value: string, domain: string): boolean {
   const candidate = value.trim().toLowerCase();
