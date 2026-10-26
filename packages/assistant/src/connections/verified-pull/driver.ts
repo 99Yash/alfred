@@ -1,7 +1,8 @@
-import type {
-  DeploymentStatus,
-  IntegrationActivityItem,
-  ObjectStateProvider,
+import {
+  isDeploymentStatus,
+  type DeploymentStatus,
+  type IntegrationActivityItem,
+  type ObjectStateProvider,
 } from "@alfred/contracts";
 import {
   deliveryInstantNow,
@@ -301,12 +302,8 @@ async function readTargetRow<E extends VerifiedPullEvent, Target, Session, Names
     externalId: targetId,
   });
 
-  const status =
-    row?.nativeState === "success" ||
-    row?.nativeState === "failure" ||
-    row?.nativeState === "pending"
-      ? row.nativeState
-      : null;
+  const nativeState = row?.nativeState;
+  const status = isDeploymentStatus(nativeState) ? nativeState : null;
 
   return { row, status };
 }
