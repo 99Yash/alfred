@@ -1,10 +1,4 @@
-import {
-  route,
-  identifyLanguageModel,
-  meteredGenerateText,
-  isStepCount,
-  type ModelMessage,
-} from "@alfred/ai";
+import { route, meteredGenerateText, isStepCount, type ModelMessage } from "@alfred/ai";
 import type { BriefingClosedLoop, BriefingLoopRelevance, IanaTimezone } from "@alfred/contracts";
 import type { LocalDateKey } from "@alfred/assistant/time";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
@@ -81,11 +75,9 @@ export async function runBriefingAgent(
     },
   ];
 
-  const model = route("boss").model();
-
   const result = await meteredGenerateText(
     {
-      model,
+      model: route("boss").model(),
       instructions: system,
       messages: seed,
       tools: bag.tools,
@@ -120,9 +112,37 @@ export async function runBriefingAgent(
       outputTokens: result.usage.outputTokens,
       totalTokens: result.usage.totalTokens,
     },
-    modelId: identifyLanguageModel(model).modelId,
+    // The leg that wrote the briefing: the step whose `dump_briefing` tool call actually ran.
+    // A trailing wrap-up step starts on the primary again, so `finalStep`
+    // would name a leg that did not produce the stored prose.
+    modelId: modelIdOfDumpStep(result.steps),
     steps: result.steps.length,
   };
+}
+
+/**
+ * The serving leg of the step whose `dump_briefing` tool call actually ran. A
+ * `tool-result` part exists only when `execute` returned, and a successful
+ * `execute` is the only writer of the stored briefing, so the last step with
+ * that result is the step that wrote it. `toolCalls` would also match a
+ * rejected or throwing call that wrote nothing. The caller already threw when
+ * no dump happened, so this is always found.
+ */
+function modelIdOfDumpStep(
+  steps: readonly {
+    toolResults: readonly { toolName: string }[];
+    response: { modelId: string };
+  }[],
+): string {
+  const step = steps.findLast((s) => s.toolResults.some((r) => r.toolName === "dump_briefing"));
+
+  if (!step) {
+    throw new Error(
+      `[briefing-agent] loop ended without dump_briefing call. steps=${steps.length}`,
+    );
+  }
+
+  return step.response.modelId;
 }
 
 /** The re-prompt text built from the guard's findings. One extra compose before the guard drops sentences. */

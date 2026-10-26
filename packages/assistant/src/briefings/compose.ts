@@ -1,4 +1,4 @@
-import { route, identifyLanguageModel, meteredGenerateObject } from "@alfred/ai";
+import { route, meteredGenerateObject } from "@alfred/ai";
 import {
   briefingComposerSchema,
   fullBriefingSchema,
@@ -117,12 +117,10 @@ function sanitizeFullBriefing(fb: FullBriefing): FullBriefing {
 }
 
 export async function composeBriefing(args: ComposeBriefingArgs): Promise<ComposedBriefing> {
-  const model = route("boss").model();
-
   try {
     const result = await meteredGenerateObject<BriefingComposerOutput>(
       {
-        model,
+        model: route("boss").model(),
         schema: briefingComposerSchema,
         schemaName: "briefing_composer",
         schemaDescription:
@@ -159,7 +157,8 @@ export async function composeBriefing(args: ComposeBriefingArgs): Promise<Compos
         sanitizeVoice(result.output.breakingSummary.trim()),
       ),
       fullBriefing: sanitizeFullBriefing(fullBriefing),
-      modelId: identifyLanguageModel(model).modelId,
+      // The leg that served the call. The route model always names its primary.
+      modelId: result.finalStep.response.modelId,
       composeFallback: false,
       inputTokens: result.usage.inputTokens,
       outputTokens: result.usage.outputTokens,

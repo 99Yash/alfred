@@ -533,10 +533,8 @@ const compactTranscriptStep: Step<BriefRunState> = {
 };
 
 async function resolvePressureThresholdTokens(isSubAgent: boolean): Promise<number> {
-  const agentModel = isSubAgent ? route("subAgent").model() : route("boss").model();
-
   const effectiveWindow = await resolveEffectiveInputWindowTokens({
-    models: isSubAgent ? [agentModel] : [agentModel, route("compactor").model()],
+    routes: isSubAgent ? [route("subAgent")] : [route("boss"), route("compactor")],
   });
 
   return compactionThresholdTokens(effectiveWindow);

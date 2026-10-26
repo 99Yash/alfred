@@ -152,7 +152,6 @@ async function runConversationSummaryModel(args: {
   const result = await meteredGenerateObject(
     {
       model: modelRoute.model(),
-      providerOptions: modelRoute.providerOptions(),
       schema: conversationSummarySchema,
       schemaName: "conversation_summary",
       schemaDescription: "A compact, source-attributed working summary of an Alfred chat thread.",

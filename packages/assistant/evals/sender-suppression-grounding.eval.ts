@@ -92,7 +92,6 @@ function runFirstCall(input: string) {
     instructions: SYSTEM,
     prompt: input,
     timeout: { totalMs: EVAL_TIMEOUT_MS },
-    providerOptions: modelRoute.providerOptions(),
     tools: {
       [SEARCH_TOOL]: tool({
         description:
@@ -212,7 +211,6 @@ async function runResolutionScenario(
     instructions: SYSTEM,
     prompt: input,
     timeout: { totalMs: EVAL_TIMEOUT_MS },
-    providerOptions: modelRoute.providerOptions(),
     stopWhen: isStepCount(4),
     tools: {
       [SEARCH_TOOL]: tool({

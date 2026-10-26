@@ -51,3 +51,10 @@ model capability registry. Provider-specific cache placement, tool-name
 encoding, internal-envelope removal, and foreign-tool filtering remain in the
 Alfred adapter only where the provider package does not already own them. See
 `docs/plans/provider-native-tool-loading-v1.md` for the corrected build shape.
+
+**Amendment (2026-10-26) — the installed defaults are the only path.** The route
+handle no longer has `.providerOptions()` or `.reasoning()`. Route construction
+already installs both on the model, and a caller that passed them again sent the
+same bytes. `routeEffort(name)` reads the route table. The handle adds
+`.inputWindowTokens()`, the smallest input window over every leg, because a
+composed model reports only its primary leg.

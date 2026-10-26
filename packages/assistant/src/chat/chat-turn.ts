@@ -514,8 +514,6 @@ const chatTurnStep: Step<ChatRunState> = {
         tools: () => sdkTools,
         model: chatModel,
         maxOutputTokens: CHAT_MAX_OUTPUT_TOKENS,
-        // Streams reasoning for the "Thinking…" accordion. `deep` raises the effort.
-        providerOptions: chatRoute.providerOptions(),
         // One Langfuse session per thread (#226).
         attribution: {
           kind: "llm",

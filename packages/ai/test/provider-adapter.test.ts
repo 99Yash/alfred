@@ -13,7 +13,7 @@ import {
   attachProviderTurnPolicy,
   createProviderRouteModel,
 } from "../src/provider-adapter";
-import { route, withFallback } from "../src/provider";
+import { route, routeEffort, withFallback } from "../src/provider";
 import { asModel } from "./support/mock-model";
 
 type GenResult = Awaited<ReturnType<MockLanguageModelV4["doGenerate"]>>;
@@ -405,22 +405,10 @@ describe("route legs", () => {
   });
 
   test("select the generic AI SDK reasoning ceiling", () => {
-    assert.equal(route("standard").reasoning(), "medium");
-    assert.equal(route("deep").reasoning(), "xhigh");
-    assert.equal(route("cheap").reasoning(), "none");
-    assert.equal(route("compactor").reasoning(), "none");
-  });
-
-  test("carry the provider-option exceptions the generic reasoning setting cannot express", () => {
-    // OpenAI `max` and Google thought summaries have no generic reasoning setting.
-    assert.deepEqual(route("deep").providerOptions(), {
-      google: { thinkingConfig: { includeThoughts: true } },
-      openai: { reasoningEffort: "max" },
-    });
-    assert.deepEqual(route("standard").providerOptions(), {
-      google: { thinkingConfig: { includeThoughts: true } },
-    });
-    assert.deepEqual(route("cheap").providerOptions(), {});
+    assert.equal(routeEffort("standard"), "medium");
+    assert.equal(routeEffort("deep"), "xhigh");
+    assert.equal(routeEffort("cheap"), "none");
+    assert.equal(routeEffort("compactor"), "none");
   });
 
   test("forward the route's provider-option exceptions to the serving leg", async () => {
