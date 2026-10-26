@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { isRecord } from "./guards";
 
 /**
  * Another arrival of the same attachment content under a different message.
@@ -18,22 +17,3 @@ export const attachmentContentReferenceSchema = z.object({
 });
 
 export type AttachmentContentReference = z.infer<typeof attachmentContentReferenceSchema>;
-
-/** Read `metadata.references`. Drops a bad entry and keeps the rest. */
-export function parseAttachmentContentReferences(
-  rawDocumentMetadata: unknown,
-): AttachmentContentReference[] {
-  if (!isRecord(rawDocumentMetadata)) return [];
-  const references = rawDocumentMetadata.references;
-
-  if (!Array.isArray(references)) return [];
-  const parsed: AttachmentContentReference[] = [];
-
-  for (const entry of references) {
-    const result = attachmentContentReferenceSchema.safeParse(entry);
-
-    if (result.success) parsed.push(result.data);
-  }
-
-  return parsed;
-}

@@ -16,7 +16,7 @@ import {
   type ContactAggregate,
 } from "./team-graph";
 import type { StepContext, StepResult } from "@alfred/assistant/execution";
-import { isRecord, toMessage, type GmailSenderParser, type JsonObject } from "@alfred/contracts";
+import { toMessage, type GmailSenderParser, type JsonObject } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, memoryExtractionStatus, user, userFacts } from "@alfred/db/schemas";
 import { and, desc, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
@@ -250,12 +250,7 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
         },
       });
 
-    if (
-      captureEnabled &&
-      !alreadyCaptured.has(doc.id) &&
-      doc.source === "gmail" &&
-      isRecord(doc.metadata)
-    ) {
+    if (captureEnabled && !alreadyCaptured.has(doc.id) && doc.source === "gmail") {
       accumulateDoc(
         captureContacts,
         sender.correspondents(doc.metadata),

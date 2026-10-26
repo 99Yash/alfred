@@ -10,7 +10,6 @@
  */
 import {
   isFreeMail,
-  isRecord,
   type GmailCorrespondentsObservation,
   type PersonToken,
   type CorrespondenceStats,
@@ -338,7 +337,6 @@ export async function aggregateCorrespondence(
   const contacts = new Map<string, ContactAggregate>();
 
   for (const row of rows) {
-    if (!isRecord(row.metadata)) continue;
     accumulateDoc(
       contacts,
       parse(row.metadata),

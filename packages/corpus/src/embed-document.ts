@@ -5,7 +5,7 @@ import { sha256Hex } from "@alfred/db/hash";
 import { buildEmbedFailureSet, EMBED_SUCCESS_RESET } from "@alfred/db/helpers";
 import { chunks, documents, type Document } from "@alfred/db/schemas";
 import { and, desc, eq, isNull, notExists, sql } from "drizzle-orm";
-import { isRecord, parseDocumentPages, parseDocumentPagesMixed } from "@alfred/contracts";
+import { parseDocumentMetadata } from "@alfred/contracts";
 import { chunkMetadata, extractPageFromMetadata } from "./chunk-metadata";
 import { chunkPages, chunkText, type Chunk, type PageInput } from "./chunker";
 import {
@@ -335,33 +335,20 @@ export async function findUnembeddedDocumentIds(opts: {
   return rows.map((r) => r.id);
 }
 
-/** Page texts from `documents.metadata.pages`, or null when the metadata has no valid pages. */
-function extractPageInputs(doc: Pick<Document, "content" | "metadata">): PageInput[] | null {
-  if (!isRecord(doc.metadata)) return null;
-  const rawPages = doc.metadata.pages;
+/** Page texts from an attachment's `metadata.pages`, or null when it has no valid pages. */
+function extractPageInputs(
+  doc: Pick<Document, "source" | "content" | "metadata">,
+): PageInput[] | null {
+  const typed = parseDocumentMetadata(doc);
 
-  if (!Array.isArray(rawPages) || rawPages.length === 0) return null;
+  if (typed.source !== "gmail_attachment") return null;
+  const pages = typed.metadata.pages;
 
-  // Offset pages are what current writers store.
-  const offsetPages = parseDocumentPages(rawPages);
-
-  if (offsetPages) {
-    const out: PageInput[] = [];
-
-    for (const entry of offsetPages) {
-      out.push({ page: entry.page, text: doc.content.slice(entry.start, entry.end) });
-    }
-
-    return out.length > 0 ? out : null;
-  }
-
-  // Older rows can mix {page, text} and {page, start, end}.
-  const mixedPages = parseDocumentPagesMixed(rawPages);
-
-  if (!mixedPages) return null;
+  if (!pages || pages.length === 0) return null;
   const out: PageInput[] = [];
 
-  for (const entry of mixedPages) {
+  // Current writers store offsets. Older rows can mix {page, text} and {page, start, end}.
+  for (const entry of pages) {
     if ("text" in entry) {
       out.push({ page: entry.page, text: entry.text });
     } else {

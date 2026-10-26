@@ -1,4 +1,11 @@
-import { parseEventTypeName, type IanaTimezone, type InboundEventSource } from "@alfred/contracts";
+import {
+  parseDocumentMetadata,
+  parseEventTypeName,
+  receiptDocumentMetadataSchema,
+  type IanaTimezone,
+  type InboundEventSource,
+  type ReceiptDocumentMetadata,
+} from "@alfred/contracts";
 import { db, type DbTransaction } from "@alfred/db";
 import { sha256Hex } from "@alfred/db/hash";
 import { documents, eventReceipts, type Document, type EventReceipt } from "@alfred/db/schemas";
@@ -30,10 +37,9 @@ export function receiptDocumentJoin(): SQL | undefined {
 }
 
 /** Display fields of a receipt's document. Never selects `raw`. */
-export type ReceiptDocument = Pick<
-  Document,
-  "title" | "content" | "url" | "authoredAt" | "metadata"
->;
+export type ReceiptDocument = Pick<Document, "title" | "content" | "url" | "authoredAt"> & {
+  summary: Exclude<ReceiptDocumentMetadata["summary"], undefined>;
+};
 
 /** The receipt's document, or `null`. */
 export async function readReceiptDocument(receipt: {
@@ -61,7 +67,13 @@ export async function readReceiptDocument(receipt: {
     )
     .limit(1);
 
-  return rows[0] ?? null;
+  const row = rows[0];
+
+  if (!row) return null;
+  const { metadata, ...display } = row;
+  const typed = parseDocumentMetadata({ source: receipt.provider, metadata });
+
+  return { ...display, summary: typed.metadata.summary ?? null };
 }
 
 declare const receiptProjectionBrand: unique symbol;
@@ -148,7 +160,7 @@ export async function writeReceiptDocument(
       url: description.url,
       authoredAt: identity.deliveredAt,
       ingestedAt: admittedAt,
-      metadata: { kind, summary: description.summary },
+      metadata: receiptDocumentMetadataSchema.parse({ kind, summary: description.summary }),
       ...(capped
         ? { embedFailedAt: admittedAt, lastEmbedError: INBOUND_DAILY_EMBED_CAP_REASON }
         : {}),

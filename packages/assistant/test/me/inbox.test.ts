@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
+import { parseGmailDocumentMetadata } from "@alfred/contracts";
 import { isSentGmailMetadata } from "@alfred/assistant/triage/sent-mail";
 
 describe("isSentGmailMetadata", () => {
@@ -19,7 +20,7 @@ describe("isSentGmailMetadata", () => {
 
   for (const [name, metadata, expected] of cases) {
     test(name, () => {
-      assert.equal(isSentGmailMetadata(metadata), expected);
+      assert.equal(isSentGmailMetadata(parseGmailDocumentMetadata(metadata)), expected);
     });
   }
 

@@ -1,14 +1,15 @@
 import {
   documentAskProposalSchema,
-  getPath,
   isSentGmailMetadata,
-  parseAttachmentContentReferences,
+  parseGmailAttachmentMetadata,
   parseGmailDocumentMetadata,
   readGmailAttachmentFirstCarrier,
   type ContentFormat,
   type DocumentAskKind,
   type DocumentAskProposal,
   type DocumentAskStatus,
+  type GmailAttachmentMetadata,
+  type GmailDocumentMetadata,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, type Document, type DocumentAskRow } from "@alfred/db/schemas";
@@ -130,6 +131,10 @@ type StoredAttachmentRow = Pick<
   "id" | "content" | "contentHash" | "title" | "accountId" | "sourceThreadId" | "metadata"
 >;
 
+type ParsedAttachmentRow = Omit<StoredAttachmentRow, "metadata"> & {
+  metadata: GmailAttachmentMetadata;
+};
+
 type CarrierEvidence = {
   carrier: PersistedGmailMessage;
   evidence: DocumentAskEvidence[];
@@ -152,9 +157,7 @@ function validDate(value: Date | null): value is Date {
 }
 
 /** Prefer Gmail's provider timestamp over the sender-controlled envelope date. */
-function trustedAuthoredAt(row: { authoredAt: Date | null; metadata: unknown }): Date | null {
-  const metadata = parseGmailDocumentMetadata(row.metadata);
-
+function trustedAuthoredAt(authoredAt: Date | null, metadata: GmailDocumentMetadata): Date | null {
   if (metadata.internalDate) {
     const milliseconds = Number(metadata.internalDate);
 
@@ -165,7 +168,7 @@ function trustedAuthoredAt(row: { authoredAt: Date | null; metadata: unknown }):
     }
   }
 
-  return validDate(row.authoredAt) ? row.authoredAt : null;
+  return validDate(authoredAt) ? authoredAt : null;
 }
 
 function toPersistedMessage(row: GmailMessageRow): PersistedGmailMessage | null {
@@ -178,13 +181,15 @@ function toPersistedMessage(row: GmailMessageRow): PersistedGmailMessage | null 
     return null;
   }
 
+  const metadata = parseGmailDocumentMetadata(row.metadata);
+
   return {
     accountId: row.accountId,
     messageId: row.sourceId,
     threadId: row.sourceThreadId,
-    authoredAt: trustedAuthoredAt(row),
-    isSent: isSentGmailMetadata(row.metadata),
-    mediaPending: getPath(row.metadata, "mediaPending") === true,
+    authoredAt: trustedAuthoredAt(row.authoredAt, metadata),
+    isSent: isSentGmailMetadata(metadata),
+    mediaPending: metadata.mediaPending === true,
   };
 }
 
@@ -246,10 +251,10 @@ async function readSentCarriers(
  * any new occurrence source here, or the row is never read and the ask stays active.
  */
 function attachmentOccurrences(
-  row: StoredAttachmentRow,
+  row: ParsedAttachmentRow,
   carrier: PersistedGmailMessage,
 ): DocumentAskOccurrence[] {
-  const metadata = parseGmailDocumentMetadata(row.metadata);
+  const { metadata } = row;
   const firstCarrier = readGmailAttachmentFirstCarrier(row);
   const occurrences: DocumentAskOccurrence[] = [];
 
@@ -266,7 +271,7 @@ function attachmentOccurrences(
     });
   }
 
-  for (const reference of parseAttachmentContentReferences(row.metadata)) {
+  for (const reference of metadata.references ?? []) {
     if (
       reference.messageId === carrier.messageId &&
       reference.attachmentId.length > 0 &&
@@ -287,17 +292,17 @@ function attachmentOccurrences(
 /**
  * Read the attachment rows that can have an occurrence on one of these carriers. The SQL filter is
  * a superset of `attachmentOccurrences`: both sides compare the raw JSON string, because
- * `parseGmailDocumentMetadata` and `parseAttachmentContentReferences` do not transform an id.
+ * `parseGmailAttachmentMetadata` does not transform an id.
  */
 async function readAttachmentRows(
   userId: string,
   carrierMessageIds: readonly string[],
-): Promise<StoredAttachmentRow[]> {
+): Promise<ParsedAttachmentRow[]> {
   if (carrierMessageIds.length === 0) return [];
 
   // Canonical rows are user-scoped because content dedup folds across linked
   // Gmail accounts. The exact occurrence check grants evidence authority.
-  return db()
+  const rows: StoredAttachmentRow[] = await db()
     .select({
       id: documents.id,
       content: documents.content,
@@ -321,17 +326,19 @@ async function readAttachmentRows(
         ),
       ),
     );
+
+  return rows.map((row) => ({ ...row, metadata: parseGmailAttachmentMetadata(row.metadata) }));
 }
 
 /** Positive evidence on one carrier, one entry per stored occurrence. */
 function carrierEvidence(
-  rows: readonly StoredAttachmentRow[],
+  rows: readonly ParsedAttachmentRow[],
   carrier: PersistedGmailMessage,
 ): DocumentAskEvidence[] {
   const unique = new Map<string, DocumentAskEvidence>();
 
   for (const row of rows) {
-    const metadata = parseGmailDocumentMetadata(row.metadata);
+    const { metadata } = row;
 
     for (const occurrence of attachmentOccurrences(row, carrier)) {
       const evidence = projectDocumentAskEvidence({

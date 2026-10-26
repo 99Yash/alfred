@@ -54,6 +54,7 @@ import {
   gmailTodoSources,
   isHttpError,
   isSentGmailMetadata,
+  parseGmailDocumentMetadata,
   senderContextSchema,
   triageCategorySchema,
   type AccountPersona,
@@ -904,7 +905,7 @@ async function sentDocumentStatusAtClassifyTime(
 
     const labelIds = message.labelIds ?? [];
 
-    return isSentGmailMetadata({ labelIds })
+    return isSentGmailMetadata(parseGmailDocumentMetadata({ labelIds }))
       ? { kind: "sent", source: "live", labelIds }
       : { kind: "not-sent" };
   } catch (err) {

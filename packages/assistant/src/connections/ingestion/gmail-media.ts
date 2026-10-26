@@ -1,4 +1,6 @@
 import {
+  gmailAttachmentMetadataSchema,
+  parseGmailAttachmentMetadata,
   readGmailAttachmentFirstCarrier,
   type AttachmentContentReference,
 } from "@alfred/contracts";
@@ -113,7 +115,10 @@ function firstCarrierStanding(
   row: StoredAttachmentRow,
   carrier: Carrier,
 ): "recorded" | "backfill" | "foreign" {
-  const first = readGmailAttachmentFirstCarrier(row);
+  const first = readGmailAttachmentFirstCarrier({
+    ...row,
+    metadata: parseGmailAttachmentMetadata(row.metadata),
+  });
 
   if (
     row.sourceId !== `${carrier.messageId}:${carrier.attachmentId}` ||
@@ -388,22 +393,26 @@ export async function ingestGmailMediaAttachments(
       continue;
     }
 
-    const metadata = {
-      filename: att.filename,
-      messageId: args.message.id,
-      attachmentId: att.attachmentId,
-      accountId: args.accountId,
-      threadId: args.message.threadId,
-      mimeType: att.mimeType,
-      size: att.size,
-      format: result.format,
-      // exactOptionalPropertyTypes: omit `pages` rather than set it undefined.
-      ...(pages ? { pages } : {}),
-    };
-
     let documentId: string | null = null;
 
     try {
+      // Parsed, not literal: every `min(1)` field is non-empty here (`filename` and
+      // `attachmentId` are guarded in `extractAttachments`, `mimeType` defaults to
+      // `application/octet-stream`, `messageId`/`threadId`/`accountId` are required
+      // strings). A throw counts as an error and skips this row, like a persist failure.
+      const metadata = gmailAttachmentMetadataSchema.parse({
+        filename: att.filename,
+        messageId: args.message.id,
+        attachmentId: att.attachmentId,
+        accountId: args.accountId,
+        threadId: args.message.threadId,
+        mimeType: att.mimeType,
+        size: att.size,
+        format: result.format,
+        // exactOptionalPropertyTypes: omit `pages` rather than set it undefined.
+        ...(pages ? { pages } : {}),
+      });
+
       // Untargeted, so either unique index (source id or content hash) can win the race.
       const inserted = await db()
         .insert(documents)

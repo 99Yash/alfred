@@ -4,6 +4,7 @@ import {
   getPath,
   getStringPath,
   isSentGmailMetadata,
+  parseGmailDocumentMetadata,
   mapConcurrent,
 } from "@alfred/contracts";
 import { indexDocument } from "@alfred/corpus";
@@ -1170,31 +1171,31 @@ async function partitionKnownGmailRefs(
       ),
     );
 
-  const known = new Map(existing.map((row) => [row.sourceId, row]));
+  const parsed = existing.map((row) => ({
+    ...row,
+    metadata: parseGmailDocumentMetadata(row.metadata),
+  }));
+
+  const known = new Map(parsed.map((row) => [row.sourceId, row]));
   const unknownRefs = refs.filter((r) => !known.has(r.id));
 
   const knownRefs = refs.flatMap((r) => {
     const row = known.get(r.id);
 
-    return row !== undefined && isMediaPending(row.metadata)
+    return row?.metadata.mediaPending === true
       ? [{ id: r.id, threadId: r.threadId, documentId: row.id }]
       : [];
   });
 
   const knownSentDocs: KnownSentGmailDoc[] = [];
 
-  for (const row of existing) {
+  for (const row of parsed) {
     if (isSentGmailMetadata(row.metadata)) {
       knownSentDocs.push({ documentId: row.id, threadId: row.sourceThreadId });
     }
   }
 
   return { unknownRefs, knownRefs, knownSentDocs };
-}
-
-/** True when the mail row's metadata has `mediaPending: true`. */
-function isMediaPending(metadata: unknown): boolean {
-  return getPath(metadata, "mediaPending") === true;
 }
 
 /** Added message ids from a history entry. The caller dedupes. */
