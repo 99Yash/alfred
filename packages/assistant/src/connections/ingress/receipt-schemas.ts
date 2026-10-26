@@ -18,14 +18,23 @@ export function lenient<T extends z.ZodType>(schema: T) {
 export const text = lenient(z.string());
 
 /**
- * A field of a shape on the Sentry dedup id path (the root, `data`, and `issue` shapes of
+ * A field of a shape on the Sentry id path (the root, `data`, and `issue` shapes of
  * `sentryIssueEventSchema` in `ingress/sentry.ts`). Each field there is a `.catch`-wrapped
- * optional or `providerId`; a `satisfies Record<string, LenientField>` on each shape enforces
- * that much at `check-types`. Residue (tier 5, review only): the guard cannot see a
- * `.refine`/`.superRefine`/`.check` added after the `.catch`, a `providerId` transform that
- * reports an issue or throws (or an async refinement, which makes `safeParse` throw), or strict
- * object mode (`strictObject`, `.strict()`, `.extend(...)` with a strict field, or an
- * object-level refine) on those shapes. Each still nulls the dedup read in `ingress/sentry.ts`.
+ * optional or `providerId`. A `satisfies Record<string, LenientField>` clause on each shape
+ * enforces that much at `check-types`. Tier 5 means review only: no gate checks the residue.
+ *
+ * The guard checks only the shape literal that carries the clause, and only the wrapper
+ * type. It does not check the work of a catch handler or a transform.
+ *
+ * Residue that makes the key null (the delivery drops as `no-dedup-key`, a 200, no receipt):
+ * a refine or check added after the `.catch`; a `providerId` transform that reports an issue;
+ * an object-level refine on a guarded shape; strict object mode (`strictObject`, `.strict()`);
+ * `.catchall(...)`; `.extend(...)` with a strict field (the added field sits outside the
+ * guarded literal); a hoisted `z.object` passed to `lenient` with no `satisfies` clause.
+ *
+ * Residue that throws (a 500, no receipt, the provider retries): a catch handler that throws;
+ * a transform that throws in any `lenient(...)` field (`.catch` does not catch a thrown
+ * error); an async refinement, which makes `safeParse` throw.
  */
 export type LenientField = z.ZodCatch<z.ZodOptional<z.ZodType>> | typeof providerId;
 
