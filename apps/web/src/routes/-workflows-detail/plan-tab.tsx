@@ -1,4 +1,5 @@
 import {
+  type IntegrationSlug,
   integrationDisplayName,
   LOADABLE_INTEGRATION_SLUGS,
   type LoadableIntegrationSlug,
@@ -23,7 +24,8 @@ interface Draft {
   name: string;
   brief: string;
   trigger: TriggerDraft;
-  allowed: LoadableIntegrationSlug[];
+  /** The full stored cap. Internal slugs (`system`, `mcp`) stay, and only loadable slugs get a checkbox. */
+  allowed: IntegrationSlug[];
 }
 
 function draftFromWorkflow(w: SyncedWorkflow): Draft {
@@ -31,14 +33,14 @@ function draftFromWorkflow(w: SyncedWorkflow): Draft {
     name: w.name,
     brief: w.brief ?? "",
     trigger: triggerDraftFromWorkflow(w.trigger),
-    allowed: w.allowedIntegrations.filter((s): s is LoadableIntegrationSlug =>
-      // SAFETY: widening the const tuple only types the `.includes` receiver.
-      (LOADABLE_INTEGRATION_SLUGS as readonly string[]).includes(s),
-    ),
+    allowed: [...w.allowedIntegrations],
   };
 }
 
-function sameAllowed(a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean {
+function sameAllowed(
+  a: ReadonlyArray<IntegrationSlug>,
+  b: ReadonlyArray<IntegrationSlug>,
+): boolean {
   if (a.length !== b.length) return false;
   const set = new Set(a);
 

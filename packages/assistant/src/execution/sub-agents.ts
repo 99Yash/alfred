@@ -1,4 +1,4 @@
-import { isTerminalStatus, type SpawnSubAgentInput } from "@alfred/contracts";
+import { isTerminalStatus } from "@alfred/contracts";
 import { AppError } from "@alfred/contracts/app-errors";
 import { db } from "@alfred/db";
 import { agentRuns } from "@alfred/db/schemas";
@@ -8,7 +8,7 @@ import type { AgentDbExecutor } from "./registry";
 import { isUniqueViolation } from "@alfred/db/pg-errors";
 import { enqueueRun } from "./queue";
 import { AWAIT_SUB_AGENT_CEILING_MS } from "./sub-agent-join-wake-queue";
-import type { ChatTurnAddress } from "@alfred/assistant/tool-runtime";
+import type { SpawnSubAgentRequest } from "@alfred/assistant/tool-runtime";
 import {
   readSubAgentMetadata,
   type SubAgentMetadata,
@@ -110,15 +110,7 @@ const existingSubAgentSelection = {
   status: agentRuns.status,
 } as const;
 
-export async function spawnSubAgent(
-  args: SpawnSubAgentInput & {
-    parentRunId: string;
-    userId: string;
-    parentToolCallId: string;
-    /** The parent's chat turn, if any; the child streams its tool cards there. */
-    chat?: ChatTurnAddress | undefined;
-  },
-): Promise<{
+export async function spawnSubAgent(args: SpawnSubAgentRequest): Promise<{
   ok: true;
   status: "spawned" | "already_spawned";
   parentRunId: string;

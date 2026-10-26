@@ -1,5 +1,6 @@
 import type { ToolSet, TranscriptMessage } from "@alfred/ai";
 import {
+  type IntegrationSlug,
   type activateWorkflowInput,
   type authorWorkflowInput,
   type readChatHistoryInput,
@@ -137,7 +138,7 @@ interface ToolCallRunBase {
   scratchpadRunId?: string | undefined;
   /** The run's snapshot, not a live read. Every dispatch carries its own run's zone. */
   timezone: IanaTimezone;
-  allowedIntegrations?: readonly string[] | undefined;
+  allowedIntegrations?: readonly IntegrationSlug[] | undefined;
   allowedTools?: readonly ToolName[] | undefined;
   requiredCapabilities?: readonly WorkflowRequiredCapability[] | undefined;
 }
@@ -221,13 +222,13 @@ export interface ToolRuntimeAdapter {
   namesForIntegrations(integrations: readonly string[]): ToolName[];
   availableToolNamesByIntegration(input: {
     availability: IntegrationAvailabilitySnapshot;
-    allowedIntegrations: readonly string[];
+    allowedIntegrations: readonly IntegrationSlug[];
     context: ToolRunContext;
   }): Map<string, ToolName[]>;
   selectPreload(input: {
     userId: string;
     transcript: readonly TranscriptMessage[];
-    allowedIntegrations: readonly string[];
+    allowedIntegrations: readonly IntegrationSlug[];
     activeNames: readonly ToolName[];
     context: ToolRunContext;
     availability: IntegrationAvailabilitySnapshot;
@@ -264,7 +265,9 @@ type AuthorWorkflowToolInput = z.infer<typeof authorWorkflowInput>;
 type ActivateWorkflowToolInput = z.infer<typeof activateWorkflowInput>;
 
 /** Everything `spawnSubAgent` needs beyond the tool input the model supplies. */
-export type SpawnSubAgentRequest = SpawnSubAgentInput & {
+export type SpawnSubAgentRequest = Omit<SpawnSubAgentInput, "allowedIntegrations"> & {
+  /** The child's cap. Internal slugs (`system`, `mcp`) carry over from the parent. */
+  allowedIntegrations: readonly IntegrationSlug[];
   parentRunId: string;
   userId: string;
   parentToolCallId: string;
@@ -1085,7 +1088,7 @@ export function toolNamesForIntegrations(integrations: readonly string[]): ToolN
 /** Executable tool names for a run, grouped by integration slug and sorted. */
 export function availableToolNamesByIntegration(input: {
   availability: IntegrationAvailabilitySnapshot;
-  allowedIntegrations: readonly string[];
+  allowedIntegrations: readonly IntegrationSlug[];
   context: ToolRunContext;
 }): Map<string, ToolName[]> {
   return requireToolRuntimeAdapter().availableToolNamesByIntegration(input);
@@ -1094,7 +1097,7 @@ export function availableToolNamesByIntegration(input: {
 export function selectToolPreload(input: {
   userId: string;
   transcript: readonly TranscriptMessage[];
-  allowedIntegrations: readonly string[];
+  allowedIntegrations: readonly IntegrationSlug[];
   activeNames: readonly ToolName[];
   context: ToolRunContext;
   availability: IntegrationAvailabilitySnapshot;

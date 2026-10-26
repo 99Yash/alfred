@@ -1,4 +1,4 @@
-import { integrationDisplayName, isIntegrationSlug } from "@alfred/contracts";
+import { integrationDisplayName } from "@alfred/contracts";
 import type { SyncedWorkflow } from "@alfred/sync";
 import { ShieldCheck } from "lucide-react";
 import { AppButton, AppCard } from "~/components/ui/v2";
@@ -17,7 +17,7 @@ export function ApprovalsTab({ workflow }: { workflow: SyncedWorkflow }) {
   const { rows, loading, error, retry } = useActionStagings();
   const { modeFor } = useActionPolicy();
   const pending = rows.filter((row) => row.workflowSlug === workflow.slug);
-  const integrations = workflow.allowedIntegrations.filter(isIntegrationSlug);
+  const integrations = workflow.allowedIntegrations;
 
   return (
     <div className="grid gap-4">

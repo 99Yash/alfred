@@ -1,5 +1,7 @@
 import {
   type IntegrationAvailabilitySnapshot,
+  type IntegrationSlug,
+  integrationSlugSchema,
   type ToolName,
   type ToolRunContext,
 } from "@alfred/contracts";
@@ -55,7 +57,7 @@ export const toolSurfaceStateFields = {
   // Legacy checkpoints only.
   activeIntegrations: z.array(z.string().min(1)).optional(),
   preloadApplied: z.boolean().default(false),
-  allowedIntegrations: z.array(z.string()),
+  allowedIntegrations: z.array(integrationSlugSchema),
 };
 
 interface ParsedToolSurfaceState {
@@ -155,7 +157,7 @@ async function applyPromptToolPreload(args: {
     preloadedTools: ToolName[];
     preloadApplied: boolean;
   };
-  allowedIntegrations: readonly string[];
+  allowedIntegrations: readonly IntegrationSlug[];
   userId: string;
   runId: string;
   workflow: string;
@@ -208,7 +210,7 @@ async function applyPromptToolPreload(args: {
  */
 export type ToolRunIdentity = Omit<ToolCallRun, "stepId" | "fence" | "caller" | "runContext"> &
   ToolCallActor & {
-    allowedIntegrations: readonly string[];
+    allowedIntegrations: readonly IntegrationSlug[];
   };
 
 type ToolCallRoundInput<Call extends ProposedToolCall> = Parameters<

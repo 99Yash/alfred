@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { before, describe, test } from "node:test";
 
-import type { IntegrationAvailabilitySnapshot, ToolRunContext } from "@alfred/contracts";
+import type {
+  IntegrationAvailabilitySnapshot,
+  IntegrationSlug,
+  ToolRunContext,
+} from "@alfred/contracts";
 
 import { workflowToolCatalog } from "@alfred/assistant/tool-runtime";
 import {
@@ -42,7 +46,7 @@ describe("workflow tool catalog", () => {
     const connected = registered.find((tool) => tool.availability?.credential !== undefined);
     assert.ok(local, "expected at least one system tool");
     assert.ok(connected, "expected at least one credential-gated tool");
-    const allowed = new Set<string>();
+    const allowed = new Set<IntegrationSlug>();
 
     for (const tool of [local, connected]) {
       const facts = catalog.get(tool.name);

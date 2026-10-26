@@ -1,4 +1,4 @@
-import { RAW_EVENT_TYPE } from "@alfred/contracts";
+import { isIntegrationSlug, RAW_EVENT_TYPE } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { isDuplicateRunIndex, workflows } from "@alfred/db/schemas";
 import { and, eq, or, sql } from "drizzle-orm";
@@ -76,7 +76,11 @@ export async function acceptEvent(args: DomainEvent): Promise<AcceptEventResult>
   await Promise.all(
     rows.map(async (row) => {
       try {
-        if (row.allowedIntegrations.length > 0 && !row.allowedIntegrations.includes(args.source)) {
+        // A source outside the registry (`email-triage`, `learn-skill`) is never inside a cap.
+        if (
+          row.allowedIntegrations.length > 0 &&
+          !(isIntegrationSlug(args.source) && row.allowedIntegrations.includes(args.source))
+        ) {
           result.skippedNotAllowed++;
           logger.warn(
             `[workflows:event] skipping workflow=${row.slug}: source=${args.source} outside allowed_integrations`,

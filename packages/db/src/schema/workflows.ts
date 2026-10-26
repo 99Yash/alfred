@@ -98,6 +98,7 @@ export const workflows = pgTable(
     /** Upper bound on the integrations a run may load (ADR-0026). Empty means no limit. */
     allowedIntegrations: text("allowed_integrations")
       .array()
+      .$type<IntegrationSlug[]>()
       .notNull()
       .default(sql`ARRAY[]::text[]`),
     /** Newest revision. Always null for built-ins. */
