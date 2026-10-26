@@ -118,7 +118,7 @@ export interface ToolExecuteContext {
   /** Set only for live-chat dispatch. A `requiresLiveChat` tool always receives it. */
   chat?: ChatTurnAddress | undefined;
   /** Empty or undefined means unrestricted. */
-  allowedIntegrations?: readonly string[] | undefined;
+  allowedIntegrations?: readonly IntegrationSlug[] | undefined;
   // TODO(#286): no abort signal yet, so a network tool outlives a stopped turn until its own timeout.
 }
 
@@ -338,7 +338,7 @@ export interface RegisteredTool {
 
 function evaluateRunContextGates(
   tool: RegisteredTool,
-  allowed: ReadonlySet<string>,
+  allowed: ReadonlySet<IntegrationSlug>,
   context: ToolRunContext,
 ): ToolAvailabilityResult {
   if (tool.integration !== "system" && allowed.size > 0 && !allowed.has(tool.integration)) {
@@ -454,7 +454,7 @@ function evaluateSnapshotGates(
 export function evaluateToolAvailability(
   snapshot: IntegrationAvailabilitySnapshot,
   tool: RegisteredTool,
-  allowed: ReadonlySet<string>,
+  allowed: ReadonlySet<IntegrationSlug>,
   context: ToolRunContext,
 ): ToolAvailabilityResult {
   const contextResult = evaluateRunContextGates(tool, allowed, context);
@@ -467,7 +467,7 @@ export function evaluateToolAvailability(
 /** Evaluate one tool and lazily read connection state only when it can matter. */
 export async function resolveToolAvailability(args: {
   tool: RegisteredTool;
-  allowed: ReadonlySet<string>;
+  allowed: ReadonlySet<IntegrationSlug>;
   context: ToolRunContext;
   loadSnapshot: () => Promise<IntegrationAvailabilitySnapshot>;
 }): Promise<ToolAvailabilityResult> {
@@ -483,7 +483,7 @@ export async function resolveToolAvailability(args: {
 export function availableToolNames(
   snapshot: IntegrationAvailabilitySnapshot,
   tools: readonly RegisteredTool[],
-  allowedIntegrations: readonly string[],
+  allowedIntegrations: readonly IntegrationSlug[],
   context: ToolRunContext,
 ): Set<RegisteredTool["name"]> {
   const allowed = new Set(allowedIntegrations);
@@ -501,7 +501,7 @@ export function availableToolNames(
 export function evaluateToolCatalog(
   snapshot: IntegrationAvailabilitySnapshot,
   tools: readonly RegisteredTool[],
-  allowedIntegrations: readonly string[],
+  allowedIntegrations: readonly IntegrationSlug[],
   context: ToolRunContext,
 ): Map<RegisteredTool["name"], ToolAvailabilityResult> {
   const allowed = new Set(allowedIntegrations);

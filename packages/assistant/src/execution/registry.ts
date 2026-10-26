@@ -1,4 +1,5 @@
 import type {
+  IntegrationSlug,
   AgentRunTrigger,
   CancellationFence,
   JsonObject,
@@ -133,7 +134,7 @@ export interface Workflow<S = unknown, N extends string = string> {
   /** Seeded into `workflows.trigger` for built-ins (ADR-0027). */
   trigger: WorkflowTrigger;
   /** An empty array means no limit beyond the user's connected integrations. */
-  allowedIntegrations?: string[];
+  allowedIntegrations?: IntegrationSlug[];
   /** Throw to refuse the run. */
   initialState(input: WorkflowInput): S;
   initialTranscript?(

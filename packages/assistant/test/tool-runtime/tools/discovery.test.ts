@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, test } from "node:test";
 
 import type {
   IntegrationAvailabilitySnapshot,
+  IntegrationSlug,
   LoadableIntegrationSlug,
   ProviderAvailability,
   ToolAvailabilityResult,
@@ -127,7 +128,7 @@ function provider(
 
 function access(
   available: readonly LoadableIntegrationSlug[],
-  allowedIntegrations: readonly string[] = [],
+  allowedIntegrations: readonly IntegrationSlug[] = [],
 ): ToolCatalogAccess {
   const availableSet: ReadonlySet<string> = new Set(available);
   const allowed = new Set(allowedIntegrations);

@@ -1,4 +1,5 @@
 import {
+  type IntegrationSlug,
   LIVE_PROVIDERS,
   type IntegrationAvailabilitySnapshot,
   type ToolName,
@@ -26,7 +27,7 @@ const NO_INTEGRATIONS_TEXT =
 export async function buildConnectedSummaryFromAvailability(
   userId: string,
   availability: IntegrationAvailabilitySnapshot,
-  allowedIntegrations: readonly string[],
+  allowedIntegrations: readonly IntegrationSlug[],
   context: ToolRunContext,
 ): Promise<string> {
   const availableByIntegration = availableToolNamesByIntegration({

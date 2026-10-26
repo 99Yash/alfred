@@ -17,7 +17,7 @@ export interface WorkflowToolFacts {
   /** `evaluateToolAvailability` bound to this tool. */
   evaluateAvailability(input: {
     availability: IntegrationAvailabilitySnapshot;
-    allowed: ReadonlySet<string>;
+    allowed: ReadonlySet<IntegrationSlug>;
     context: ToolRunContext;
   }): ToolAvailabilityResult;
 }

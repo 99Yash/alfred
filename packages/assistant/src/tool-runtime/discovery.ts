@@ -1,5 +1,6 @@
 import type { TranscriptMessage } from "@alfred/ai";
 import {
+  type IntegrationSlug,
   isToolName,
   isWriteRiskTier,
   MCP_LIST_TOOLS_MAX_LIMIT,
@@ -59,7 +60,7 @@ type RankedCandidate = ToolSearchCandidate & {
 };
 
 export interface ToolCatalogAccess {
-  allowedIntegrations: readonly string[];
+  allowedIntegrations: readonly IntegrationSlug[];
   /** From {@link evaluateToolCatalog}. A tool absent from the map is always hidden. */
   availability: ReadonlyMap<ToolName, ToolAvailabilityResult>;
 }
@@ -83,7 +84,7 @@ export async function searchAvailableTools(args: {
   userId: string;
   query: string;
   limit?: number | undefined;
-  allowedIntegrations: readonly string[];
+  allowedIntegrations: readonly IntegrationSlug[];
   context: ToolRunContext;
   availability?: IntegrationAvailabilitySnapshot | undefined;
 }): Promise<ToolSearchCandidate[]> {
@@ -192,7 +193,7 @@ function scoreMcpHit(hit: McpToolDiscoveryHit, queryWords: ReadonlySet<string>):
 export async function preloadToolsForPrompt(args: {
   userId: string;
   prompt: string;
-  allowedIntegrations: readonly string[];
+  allowedIntegrations: readonly IntegrationSlug[];
   activeTools: readonly ToolName[];
   limit?: number | undefined;
   context: ToolRunContext;
@@ -255,7 +256,7 @@ export function latestUserPrompt(transcript: readonly TranscriptMessage[]): stri
 export async function resolveExactToolLoad(args: {
   userId: string;
   name: string;
-  allowedIntegrations: readonly string[];
+  allowedIntegrations: readonly IntegrationSlug[];
   context: ToolRunContext;
   availability?: IntegrationAvailabilitySnapshot | undefined;
 }): Promise<

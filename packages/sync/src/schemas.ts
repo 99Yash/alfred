@@ -41,6 +41,7 @@ import {
 } from "@alfred/contracts";
 import {
   agentRunTriggerKindSchema,
+  integrationSlugSchema,
   isoDateTimeStringSchema,
   runStatusSchema,
   workflowTriggerSchema,
@@ -482,7 +483,7 @@ export const syncedWorkflowSchema = z.object({
   description: z.string().nullable(),
   trigger: workflowTriggerSchema,
   brief: z.string().nullable(),
-  allowedIntegrations: z.array(z.string()),
+  allowedIntegrations: z.array(integrationSlugSchema),
   currentRevisionId: z.string().nullable(),
   publishedRevisionId: z.string().nullable(),
   blocked: workflowBlockedSchema.nullable(),

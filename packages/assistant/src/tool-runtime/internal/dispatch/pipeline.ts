@@ -968,7 +968,7 @@ export function registerDispatchToolCallRoundAdapter(): void {
 
 export function undeclaredToolMessage(
   toolName: string,
-  allowedIntegrations: readonly string[] = [],
+  allowedIntegrations: readonly IntegrationSlug[] = [],
 ): string {
   const suggestion = integrationActionSuggestion(toolName, allowedIntegrations);
 
@@ -1006,7 +1006,7 @@ export function undeclaredToolMessage(
 
 function integrationActionSuggestion(
   input: string,
-  allowedIntegrations: readonly string[],
+  allowedIntegrations: readonly IntegrationSlug[],
 ): {
   integration: IntegrationSlug;
   toolName: ToolName | null;

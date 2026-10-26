@@ -1,4 +1,5 @@
 import {
+  type IntegrationSlug,
   type IntegrationAvailabilitySnapshot,
   type ToolName,
   type ToolRunContext,
@@ -25,7 +26,7 @@ export async function carryForwardThreadTools(args: {
   threadId: string;
   runId: string;
   activeTools: readonly ToolName[];
-  allowedIntegrations: readonly string[];
+  allowedIntegrations: readonly IntegrationSlug[];
   availability: IntegrationAvailabilitySnapshot;
   context: ToolRunContext;
 }): Promise<{ activeTools: ToolName[]; carried: ToolName[] }> {

@@ -1,7 +1,7 @@
 import {
   authorableEventTriggerSchema,
   ianaTimezoneSchema,
-  LOADABLE_INTEGRATION_SLUGS,
+  workflowRevisionDefinitionSchema,
 } from "@alfred/contracts";
 import type { WriteTransaction } from "replicache";
 import { z } from "zod";
@@ -128,7 +128,7 @@ export const workflowUpdateArgsSchema = z.object({
   name: z.string().min(1).max(200).optional(),
   description: z.string().max(2_000).nullable().optional(),
   brief: z.string().max(20_000).nullable().optional(),
-  allowedIntegrations: z.array(z.enum(LOADABLE_INTEGRATION_SLUGS)).max(32).optional(),
+  allowedIntegrations: workflowRevisionDefinitionSchema.shape.allowedIntegrations.optional(),
   status: workflowStatusSchema.optional(),
   trigger: authorableWorkflowTriggerSchema.optional(),
 });
