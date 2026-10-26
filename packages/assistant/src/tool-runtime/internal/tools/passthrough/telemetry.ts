@@ -9,7 +9,7 @@ import {
   type PassthroughResult,
   type PassthroughTruncation,
 } from "@alfred/contracts";
-import type { ToolSpanFacts } from "@alfred/assistant/tool-runtime";
+import type { ToolSpanFacts } from "../../registry";
 
 export interface PassthroughTruncationTelemetry {
   handleEligible: true;

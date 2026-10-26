@@ -199,7 +199,7 @@ export function outcomeForInsert(values: StagingInsertValues): EffectOutcome {
 
 /** No effects store as NULL, the same as a row from before the column. */
 export function effectsColumn(effects: ToolEffects): JsonValue | null {
-  return Object.keys(effects).length === 0 ? null : toJsonValue(effects);
+  return Object.values(effects).every((value) => value === undefined) ? null : toJsonValue(effects);
 }
 
 function commitColumns(commit: StagingCommit) {

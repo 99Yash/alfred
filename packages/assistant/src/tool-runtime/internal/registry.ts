@@ -143,9 +143,9 @@ export const toolEffectsSchema = z.object({
   artifactId: z.string().min(1).optional(),
 });
 
-export type ToolEffects = z.infer<typeof toolEffectsSchema>;
+export type ToolEffects = Readonly<z.infer<typeof toolEffectsSchema>>;
 
-export const NO_TOOL_EFFECTS: Readonly<ToolEffects> = Object.freeze({});
+export const NO_TOOL_EFFECTS: ToolEffects = Object.freeze({});
 
 /** Live-only facts for the call's span. Never persisted, never replayed. */
 export interface ToolSpanFacts {
@@ -164,6 +164,64 @@ type ExecuteContextFor<L extends boolean> = [L] extends [true]
   : ToolExecuteContext;
 
 /**
+ * The shared tool declaration: every field whose meaning and type are the same
+ * for a passthrough tool and any other tool. The two `liveTool` arms extend it
+ * and declare only `availability`, `execute`, and `effects` themselves. It takes
+ * no `L`: no shared field uses the live-chat literal.
+ */
+export interface ToolArgsCommon<
+  I extends IntegrationSlug,
+  A extends ActionSlug<I> & string,
+  S extends z.ZodType,
+> {
+  integration: I;
+  action: A;
+  /** `high` always confirms (ADR-0069). Lower tiers are UX hints. */
+  riskTier: ToolRiskTier;
+  /**
+   * The effective tier from validated input (ADR-0088). Must be side-effect free.
+   * Dispatch clamps a downgrade unless `riskTierDowngradeReason` is set.
+   */
+  resolveRiskTier?: (input: z.infer<S>, ctx: ToolExecuteContext) => Promise<ToolRiskTier>;
+  /** Permits a downgrade below `riskTier`. Requires `resolveRiskTier`. */
+  riskTierDowngradeReason?: string;
+  /** Defaults to `"staged"`. */
+  staging?: ToolStagingPolicy;
+  /** Calls in the same live-chat lane execute in model order. */
+  executionLane?: "artifact_mutation";
+  /**
+   * How the streamed `markdown` input of an `artifact_mutation` tool lands while the model
+   * writes it: `replace` is the whole body, `append` a new section. Absent: no live stream.
+   */
+  artifactStream?: "replace" | "append";
+  /**
+   * Required for `fast_path` on a non-`system` tool, illegal otherwise.
+   * Only `system` resolves to autonomy; every other integration defaults to `gated`,
+   * so a fast path there skips a real approval at every risk tier.
+   */
+  policyGateWaiver?: string;
+  description: string;
+  discovery?: ToolDiscoveryMetadata;
+  inputSchema: S;
+  /**
+   * The narrower schema the model sees, for a field only the runtime writes
+   * (`answers` on `system.ask_user`, ADR-0099). Must be a subset of `inputSchema`.
+   */
+  modelInputSchema?: z.ZodType;
+  /**
+   * A refusal that depends on who calls, which the schema cannot express. Dispatch runs it on
+   * parsed input before any staging or execute, and returns a non-null text as `invalid_input`.
+   * Must be side-effect free and must not throw. The rule's owner supplies the text.
+   */
+  refuseInput?: (input: z.infer<S>, ctx: ToolExecuteContext) => string | null;
+  /**
+   * Scrub secrets before the input reaches a trace or a staging row (#293).
+   * Must be pure and keep the shape. The hash and `execute` see the raw input.
+   */
+  redactInput?: (input: z.infer<S>) => z.infer<S>;
+}
+
+/**
  * `L` is the literal `requiresLiveChat` flag, so a live-chat tool's `execute` gets `ctx.chat`.
  * `O` is the output `execute` returns, so `effects` reads it typed. Declare it
  * after `execute`: TypeScript infers `O` from the first of them.
@@ -179,48 +237,8 @@ export interface LiveToolArgs<
   S extends z.ZodType,
   L extends boolean = false,
   O = unknown,
-> {
-  integration: I;
-  action: A;
-  /** `high` always confirms (ADR-0069). Lower tiers are UX hints. */
-  riskTier: ToolRiskTier;
-  /**
-   * The effective tier from validated input (ADR-0088). Must be side-effect free.
-   * Dispatch clamps a downgrade unless `riskTierDowngradeReason` is set.
-   */
-  resolveRiskTier?: (input: z.infer<S>, ctx: ToolExecuteContext) => Promise<ToolRiskTier>;
-  /** Permits a downgrade below `riskTier`. Requires `resolveRiskTier`. */
-  riskTierDowngradeReason?: string;
-  /** Defaults to `"staged"`. */
-  staging?: ToolStagingPolicy;
-  /** Calls in the same live-chat lane execute in model order. */
-  executionLane?: "artifact_mutation";
-  /**
-   * How the streamed `markdown` input of an `artifact_mutation` tool lands while the model
-   * writes it: `replace` is the whole body, `append` a new section. Absent: no live stream.
-   */
-  artifactStream?: "replace" | "append";
-  /**
-   * Required for `fast_path` on a non-`system` tool, illegal otherwise.
-   * Only `system` resolves to autonomy; every other integration defaults to `gated`,
-   * so a fast path there skips a real approval at every risk tier.
-   */
-  policyGateWaiver?: string;
-  description: string;
-  discovery?: ToolDiscoveryMetadata;
+> extends ToolArgsCommon<I, A, S> {
   availability?: ToolAvailabilityMetadata & { requiresLiveChat?: L; passthrough?: never };
-  inputSchema: S;
-  /**
-   * The narrower schema the model sees, for a field only the runtime writes
-   * (`answers` on `system.ask_user`, ADR-0099). Must be a subset of `inputSchema`.
-   */
-  modelInputSchema?: z.ZodType;
-  /**
-   * A refusal that depends on who calls, which the schema cannot express. Dispatch runs it on
-   * parsed input before any staging or execute, and returns a non-null text as `invalid_input`.
-   * Must be side-effect free and must not throw. The rule's owner supplies the text.
-   */
-  refuseInput?: (input: z.infer<S>, ctx: ToolExecuteContext) => string | null;
   /** Receives parsed input. A throw is recorded by the dispatcher. */
   execute: (input: z.infer<S>, ctx: ExecuteContextFor<L>) => Promise<O>;
   /**
@@ -228,67 +246,24 @@ export interface LiveToolArgs<
    * output; a replay reads the persisted copy.
    */
   effects?: (output: O) => ToolEffects;
-  /**
-   * Scrub secrets before the input reaches a trace or a staging row (#293).
-   * Must be pure and keep the shape. The hash and `execute` see the raw input.
-   */
-  redactInput?: (input: z.infer<S>) => z.infer<S>;
 }
 
 /**
- * The args for a read-only passthrough tool (ADR-0074). Mirrors {@link LiveToolArgs} field
- * for field, except `availability.passthrough` is `true`, so `execute` must return the
- * `runRestPassthrough` envelope and `bind()` derives the truncation span facts from it —
- * there is no per-tool hook to forget. Written out rather than `Omit` so the `liveTool`
- * overload check still relates `L`.
+ * The args for a read-only passthrough tool (ADR-0074). Extends
+ * {@link ToolArgsCommon} with the three fields that differ:
+ * `availability.passthrough` is `true`, so `execute` must return the
+ * `runRestPassthrough` envelope and `bind()` derives the truncation span facts
+ * from it. There is no per-tool hook to forget. A shared base by `extends`
+ * keeps the `liveTool` overload check relating `L`; an `Omit` of the args
+ * would break it (TS2394).
  */
 export interface PassthroughToolArgs<
   I extends IntegrationSlug,
   A extends ActionSlug<I> & string,
   S extends z.ZodType,
   L extends boolean = false,
-> {
-  integration: I;
-  action: A;
-  /** `high` always confirms (ADR-0069). Lower tiers are UX hints. */
-  riskTier: ToolRiskTier;
-  /**
-   * The effective tier from validated input (ADR-0088). Must be side-effect free.
-   * Dispatch clamps a downgrade unless `riskTierDowngradeReason` is set.
-   */
-  resolveRiskTier?: (input: z.infer<S>, ctx: ToolExecuteContext) => Promise<ToolRiskTier>;
-  /** Permits a downgrade below `riskTier`. Requires `resolveRiskTier`. */
-  riskTierDowngradeReason?: string;
-  /** Defaults to `"staged"`. */
-  staging?: ToolStagingPolicy;
-  /** Calls in the same live-chat lane execute in model order. */
-  executionLane?: "artifact_mutation";
-  /**
-   * How the streamed `markdown` input of an `artifact_mutation` tool lands while the model
-   * writes it: `replace` is the whole body, `append` a new section. Absent: no live stream.
-   */
-  artifactStream?: "replace" | "append";
-  /**
-   * Required for `fast_path` on a non-`system` tool, illegal otherwise.
-   * Only `system` resolves to autonomy; every other integration defaults to `gated`,
-   * so a fast path there skips a real approval at every risk tier.
-   */
-  policyGateWaiver?: string;
-  description: string;
-  discovery?: ToolDiscoveryMetadata;
+> extends ToolArgsCommon<I, A, S> {
   availability: ToolAvailabilityMetadata & { requiresLiveChat?: L; passthrough: true };
-  inputSchema: S;
-  /**
-   * The narrower schema the model sees, for a field only the runtime writes
-   * (`answers` on `system.ask_user`, ADR-0099). Must be a subset of `inputSchema`.
-   */
-  modelInputSchema?: z.ZodType;
-  /**
-   * A refusal that depends on who calls, which the schema cannot express. Dispatch runs it on
-   * parsed input before any staging or execute, and returns a non-null text as `invalid_input`.
-   * Must be side-effect free and must not throw. The rule's owner supplies the text.
-   */
-  refuseInput?: (input: z.infer<S>, ctx: ToolExecuteContext) => string | null;
   /** Receives parsed input. A throw is recorded by the dispatcher. */
   execute: (input: z.infer<S>, ctx: ExecuteContextFor<L>) => Promise<PassthroughResult>;
   /**
@@ -296,11 +271,6 @@ export interface PassthroughToolArgs<
    * output; a replay reads the persisted copy.
    */
   effects?: (output: PassthroughResult) => ToolEffects;
-  /**
-   * Scrub secrets before the input reaches a trace or a staging row (#293).
-   * Must be pure and keep the shape. The hash and `execute` see the raw input.
-   */
-  redactInput?: (input: z.infer<S>) => z.infer<S>;
 }
 
 /**

@@ -51,8 +51,6 @@ export {
   type ToolEffects,
   type ToolExecuteContext,
   type ToolExecuteContextFields,
-  type ToolExecution,
-  type ToolSpanFacts,
 } from "./internal/registry";
 
 export { bootPort, type BootPort } from "./boot-port";
