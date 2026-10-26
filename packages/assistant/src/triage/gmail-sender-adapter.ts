@@ -10,6 +10,7 @@
 import {
   isSentGmailMetadata,
   parseGmailDocumentMetadata,
+  parseEmailAddress,
   parseMailbox,
   splitAddressList,
   type GmailAuthorshipObservation,
@@ -53,9 +54,7 @@ export const gmailSenderAdapter: GmailSenderParser = {
     const isSent = isSentGmailMetadata(meta);
     const fromRaw = meta.from ?? null;
 
-    const fromEmail = fromRaw
-      ? extractSenderContext({ fromHeader: fromRaw, subject: null, body: "" }).senderAddress
-      : null;
+    const fromEmail = fromRaw ? parseEmailAddress(fromRaw) : null;
 
     return { isSent, fromEmail };
   },

@@ -636,10 +636,11 @@ export const RULES = [
   {
     id: "email-domain-split",
     // `address.split("@")[1]` takes the text after the FIRST `@`, so
-    // `a@b@x.com` gives `b`. `parseMailbox` splits at the last `@`.
+    // `a@b@x.com` gives `b`. `parseMailbox` and `splitEmail` share one split
+    // body (a single `@`, `normalizeDomain`), so the domain has one home.
     re: /\.split\(\s*["'`]@["'`]\s*\)\s*\[\s*1\s*\]/,
     severity: "gate",
-    fix: "Use parseMailbox(value)?.domain (or emailDomain(value) for a bare address) from @alfred/contracts. A split on the first `@` reads the wrong domain when the local part holds one.",
+    fix: "Use parseMailbox(value)?.domain from @alfred/contracts. A split on the first `@` reads the wrong domain when the local part holds one.",
   },
   {
     id: "sender-regex-test",

@@ -24,15 +24,24 @@ function isValidEmailLocalPart(localPart: string): boolean {
   for (const ch of localPart) {
     const code = ch.charCodeAt(0);
 
-    if (code <= 0x1f || code === 0x7f || ch === "@" || /\s/u.test(ch)) return false;
+    if (code <= 0x1f || code === 0x7f || ch === "@" || ch === "<" || ch === ">" || /\s/u.test(ch))
+      return false;
   }
 
   return true;
 }
 
-/** Lowercased; null if not an address. */
+/**
+ * Lowercased; null if not an address. The one split body: a single `@`, a
+ * checked local part, and a normalized domain. `parseMailbox` reads through
+ * this, so a header address and a bare address cannot split two ways.
+ */
 export function splitEmail(email: string): { localPart: string; domain: string } | null {
   const trimmed = email.trim().toLowerCase();
+
+  // The domain half has no char check below, so reject brackets here: without
+  // this `<<ada@x.com>>` would parse to the junk address `<ada@x.com`.
+  if (trimmed.includes("<") || trimmed.includes(">")) return null;
   const at = trimmed.indexOf("@");
 
   if (at <= 0 || at === trimmed.length - 1) return null;
@@ -75,7 +84,7 @@ const emailAddressSchema = z.string().trim().toLowerCase().pipe(z.email());
 export interface Mailbox {
   /** Outer quotes stripped, backslash escapes removed, trimmed. Null when empty. */
   readonly displayName: string | null;
-  /** Trimmed and lowercased: the same string `canonicalizeIdentityValue("email", …)` gives. */
+  /** The `splitEmail` form: trimmed, lowercased, trailing dot dropped. */
   readonly address: string;
   readonly localPart: string;
   readonly domain: string;
@@ -86,34 +95,49 @@ const ANCHORED_ANGLE_RE = /^(.*?)<([^>]+)>\s*$/;
 const ANY_ANGLE_RE = /^(.*?)<([^>]+)>/;
 
 function cleanDisplayName(raw: string): string | null {
-  let name = raw.trim().replace(/^"+/, "");
+  const trimmed = raw.trim();
+  // A quoted-pair (`\"`) is syntax inside a quoted string only. An unquoted
+  // backslash (`ACME\Support`) is data and stays.
+  const quoted = trimmed.startsWith('"');
+  let name = trimmed.replace(/^"+/, "");
 
-  // Drop closing quotes, but keep an escaped one (`"Ada \"AL\""`).
-  while (name.endsWith('"') && !name.endsWith('\\"')) name = name.slice(0, -1);
+  // Drop closing quotes, but keep an escaped one. A quote is escaped iff an
+  // odd run of backslashes precedes it, so `"Ada\\"` (escaped backslash)
+  // still closes.
+  while (name.endsWith('"')) {
+    let backslashes = 0;
 
-  return name.replace(/\\(.)/g, "$1").trim() || null;
+    for (let i = name.length - 2; i >= 0 && name[i] === "\\"; i--) backslashes++;
+
+    if (backslashes % 2 === 1) break;
+    name = name.slice(0, -1);
+  }
+
+  if (quoted) name = name.replace(/\\(.)/g, "$1");
+
+  return name.trim() || null;
 }
 
 /**
  * Loose: answers "what was written", not "is this mailable". Text after `>`
- * (`Ada <a@x.com> (via list)`) is dropped. The address splits at the last `@`;
- * both halves must be non-empty. Null when there is no `local@domain`.
+ * (`Ada <a@x.com> (via list)`) is dropped. The address reads through
+ * `splitEmail`: one `@`, a checked local part, a normalized domain. Null when
+ * there is no `local@domain`.
  */
 export function parseMailbox(raw: string | null | undefined): Mailbox | null {
   const trimmed = raw?.trim();
 
   if (!trimmed) return null;
   const angle = ANCHORED_ANGLE_RE.exec(trimmed) ?? ANY_ANGLE_RE.exec(trimmed);
-  const address = (angle?.[2] ?? trimmed).trim().toLowerCase();
-  const at = address.lastIndexOf("@");
+  const split = splitEmail(angle?.[2] ?? trimmed);
 
-  if (at < 1 || at === address.length - 1) return null;
+  if (!split) return null;
 
   return {
     displayName: angle ? cleanDisplayName(angle[1] ?? "") : null,
-    address,
-    localPart: address.slice(0, at),
-    domain: address.slice(at + 1),
+    address: `${split.localPart}@${split.domain}`,
+    localPart: split.localPart,
+    domain: split.domain,
   };
 }
 

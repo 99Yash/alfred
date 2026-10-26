@@ -321,8 +321,6 @@ const ICAL_ORGANIZER_RE = /ORGANIZER(?:;[^:\n]*?CN="?([^";:\n]+)"?)?[^:\n]*:mail
 
 const PLAIN_ORGANIZER_RE = /^\s*organizer:\s*(.+)$/im;
 
-const ANGLE_NAME_RE = /^(.+?)\s*<([^>]+)>\s*$/;
-
 function parseCalendarBodyActor(body: string): BodyActor | undefined {
   const ical = body.match(ICAL_ORGANIZER_RE);
 
@@ -341,18 +339,14 @@ function parseCalendarBodyActor(body: string): BodyActor | undefined {
   const plainRaw = plain?.[1]?.trim();
 
   if (plainRaw) {
-    const angle = plainRaw.match(ANGLE_NAME_RE);
-    const angleEmail = angle?.[2];
+    const mailbox = parseMailbox(plainRaw);
 
-    if (angleEmail) {
-      const name = (angle[1] ?? "")
-        .trim()
-        .replace(/^"+|"+$/g, "")
-        .trim();
-
-      const handle = angleEmail.trim().toLowerCase();
-
-      return { kind: "person", name: name || handle, handle };
+    if (mailbox) {
+      return {
+        kind: "person",
+        name: mailbox.displayName ?? mailbox.address,
+        handle: mailbox.address,
+      };
     }
 
     return { kind: "person", name: plainRaw, handle: plainRaw.toLowerCase() };

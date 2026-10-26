@@ -260,8 +260,10 @@ export const identityRefSchema = z
 export type IdentityRef = z.infer<typeof identityRefSchema>;
 
 /**
- * The email identity value: `canonicalizeIdentityValue("email", v)` when it passes
- * the email identity format, else null. Every email `ent_*` id is minted from this.
+ * The email identity value for reducer writes: `canonicalizeIdentityValue("email", v)`
+ * when it passes the email identity format, else null. Reducers mint new email
+ * `ent_*` ids through this (older direct `canonicalizeIdentityValue("email", …)`
+ * reads, such as the entity graph, predate it).
  */
 export function parseEmailIdentity(value: string | null | undefined): string | null {
   if (!value) return null;
