@@ -18,23 +18,26 @@ export function lenient<T extends z.ZodType>(schema: T) {
 export const text = lenient(z.string());
 
 /**
- * A field of a shape on the Sentry id path (the root, `data`, and `issue` shapes of
- * `sentryIssueEventSchema` in `ingress/sentry.ts`). Each field there is a `.catch`-wrapped
- * optional or `providerId`. A `satisfies Record<string, LenientField>` clause on each shape
- * enforces that much at `check-types`. Tier 5 means review only: no gate checks the residue.
+ * A field of a shape that must stay lenient on every leaf, such as the shapes on the Sentry id
+ * path in `ingress/sentry.ts`. Each such field is a `.catch`-wrapped optional or `providerId`. A
+ * `satisfies Record<string, LenientField>` clause on a shape enforces that rule at `check-types`.
+ * No gate checks the residue below. Only review finds it.
  *
- * The guard checks only the shape literal that carries the clause, and only the wrapper
- * type. It does not check the work of a catch handler or a transform.
+ * The guard checks only the shape literal that carries the clause, and only the wrapper type. It
+ * does not check what a callback does.
  *
- * Residue that makes the key null (the delivery drops as `no-dedup-key`, a 200, no receipt):
- * a refine or check added after the `.catch`; a `providerId` transform that reports an issue;
- * an object-level refine on a guarded shape; strict object mode (`strictObject`, `.strict()`);
- * `.catchall(...)`; `.extend(...)` with a strict field (the added field sits outside the
- * guarded literal); a hoisted `z.object` passed to `lenient` with no `satisfies` clause.
+ * These edits pass the guard and make a guarded field parse as `undefined`:
+ * - a refine or check after the `.catch`
+ * - a `providerId` transform that reports an issue
+ * - an object-level refine on a guarded shape
+ * - strict object mode (`strictObject`, `.strict()`)
+ * - `.catchall(...)` with a schema that rejects a sibling key
+ * - `.extend(...)` with a strict field (the added field sits outside the guarded literal)
+ * - a hoisted `z.object` passed to `lenient` with no `satisfies` clause
  *
- * Residue that throws (a 500, no receipt, the provider retries): a catch handler that throws;
- * a transform that throws in any `lenient(...)` field (`.catch` does not catch a thrown
- * error); an async refinement, which makes `safeParse` throw.
+ * These edits pass the guard and make `safeParse` throw. `.catch` does not catch a thrown error.
+ * - any callback that throws (a refine, check, transform, or catch handler), on any field
+ * - any async callback
  */
 export type LenientField = z.ZodCatch<z.ZodOptional<z.ZodType>> | typeof providerId;
 

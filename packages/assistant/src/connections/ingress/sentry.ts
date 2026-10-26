@@ -23,8 +23,9 @@ import { lenient, type LenientField, providerId, text } from "./receipt-schemas"
  * The issue part of a Sentry issue webhook. Dedup and the object-state fold both read it.
  * Keep each leaf on the id path lenient. A strict leaf makes `sentryIssueId` return
  * `undefined`. The delivery then drops as `no-dedup-key` with no receipt row. See
- * `LenientField` for the full residue list: some edits null the key, and some make
- * `safeParse` throw.
+ * `LenientField` for the residue list. An edit in its first group drops the delivery the
+ * same way. An edit in its second group makes `safeParse` throw: a 500 with no receipt row,
+ * so the delivery is lost unless Sentry sends it again.
  */
 export const sentryIssueEventSchema = z.object({
   data: lenient(
