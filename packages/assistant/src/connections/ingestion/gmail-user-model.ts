@@ -1,5 +1,6 @@
 import { gmailKindRefoldSkippedReasonSchema } from "@alfred/contracts";
 import { z } from "zod";
+import { bootPort } from "@alfred/assistant/boot-port";
 import { TriggerConsumerBootError } from "@alfred/assistant/triggers";
 
 // Defensive process-local limits; normal Gmail identifiers and ingestion batches are far smaller.
@@ -80,19 +81,13 @@ export class NoGmailUserModelHandlerRegisteredError extends TriggerConsumerBootE
   }
 }
 
-let gmailUserModelHandler: GmailUserModelHandler | undefined;
+const gmailUserModelHandlerPort = bootPort<GmailUserModelHandler>("Gmail user-model handler", {
+  missing: () => new NoGmailUserModelHandlerRegisteredError(),
+});
 
 /** Register the user-model adapter that runtime composition supplies. */
 export function registerGmailUserModelHandler(handler: GmailUserModelHandler): () => void {
-  if (gmailUserModelHandler) {
-    throw new Error("[integrations] a Gmail user-model handler is already registered");
-  }
-
-  gmailUserModelHandler = handler;
-
-  return () => {
-    if (gmailUserModelHandler === handler) gmailUserModelHandler = undefined;
-  };
+  return gmailUserModelHandlerPort.install(handler);
 }
 
 /** Capture post-insert Gmail observations without exposing user-model internals. */
@@ -101,10 +96,8 @@ export async function captureGmailObservations(
 ): Promise<GmailObservationCaptureResult> {
   const parsedRequest = gmailObservationCaptureRequestSchema.parse(request);
 
-  if (!gmailUserModelHandler) throw new NoGmailUserModelHandlerRegisteredError();
-
   return gmailObservationCaptureResultSchema.parse(
-    await gmailUserModelHandler.capture(parsedRequest),
+    await gmailUserModelHandlerPort.read().capture(parsedRequest),
   );
 }
 
@@ -112,9 +105,9 @@ export async function captureGmailObservations(
 export async function refoldGmailKindProjection(request: unknown): Promise<GmailKindRefoldResult> {
   const parsedRequest = gmailKindRefoldRequestSchema.parse(request);
 
-  if (!gmailUserModelHandler) throw new NoGmailUserModelHandlerRegisteredError();
-
-  return gmailKindRefoldResultSchema.parse(await gmailUserModelHandler.refold(parsedRequest));
+  return gmailKindRefoldResultSchema.parse(
+    await gmailUserModelHandlerPort.read().refold(parsedRequest),
+  );
 }
 
 /** Schedule refolds for active Gmail kind projections without exposing their storage. */
@@ -123,7 +116,7 @@ export async function scheduleGmailKindRefoldSweep(
 ): Promise<GmailKindRefoldSweepResult> {
   const parsedRequest = gmailKindRefoldSweepRequestSchema.parse(request);
 
-  if (!gmailUserModelHandler) throw new NoGmailUserModelHandlerRegisteredError();
-
-  return gmailKindRefoldSweepResultSchema.parse(await gmailUserModelHandler.sweep(parsedRequest));
+  return gmailKindRefoldSweepResultSchema.parse(
+    await gmailUserModelHandlerPort.read().sweep(parsedRequest),
+  );
 }

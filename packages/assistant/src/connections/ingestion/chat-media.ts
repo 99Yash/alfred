@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { bootPort } from "@alfred/assistant/boot-port";
 import { TriggerConsumerBootError } from "@alfred/assistant/triggers";
 
 const identifierSchema = z.string().min(1).max(500);
@@ -81,36 +82,24 @@ export class NoChatMediaHandlerRegisteredError extends TriggerConsumerBootError 
   }
 }
 
-let chatMediaHandler: ChatMediaHandler | undefined;
+const chatMediaHandlerPort = bootPort<ChatMediaHandler>("chat media handler", {
+  missing: () => new NoChatMediaHandlerRegisteredError(),
+});
 
 /** Register the chat adapter that runtime composition supplies. */
 export function registerChatMediaHandler(handler: ChatMediaHandler): () => void {
-  if (chatMediaHandler) {
-    throw new Error("[integrations] a chat media handler is already registered");
-  }
-
-  chatMediaHandler = handler;
-
-  return () => {
-    if (chatMediaHandler === handler) chatMediaHandler = undefined;
-  };
-}
-
-function handler(): ChatMediaHandler {
-  if (!chatMediaHandler) throw new NoChatMediaHandlerRegisteredError();
-
-  return chatMediaHandler;
+  return chatMediaHandlerPort.install(handler);
 }
 
 export async function claimChatMediaEnrichment(request: unknown): Promise<"claimed" | "existing"> {
   const parsed = attachmentRequestSchema.parse(request);
 
-  return claimResultSchema.parse(await handler().claimEnrichment(parsed));
+  return claimResultSchema.parse(await chatMediaHandlerPort.read().claimEnrichment(parsed));
 }
 
 export async function recordChatMediaEnqueueFailure(request: unknown): Promise<void> {
   const parsed = attachmentRequestSchema.parse(request);
-  await handler().recordEnqueueFailure(parsed);
+  await chatMediaHandlerPort.read().recordEnqueueFailure(parsed);
 }
 
 export async function enrichChatMedia(
@@ -118,7 +107,7 @@ export async function enrichChatMedia(
 ): Promise<z.infer<typeof enrichmentResultSchema>> {
   const parsed = enrichmentRequestSchema.parse(request);
 
-  return enrichmentResultSchema.parse(await handler().enrich(parsed));
+  return enrichmentResultSchema.parse(await chatMediaHandlerPort.read().enrich(parsed));
 }
 
 export async function cleanupChatMediaPrefix(
@@ -126,7 +115,7 @@ export async function cleanupChatMediaPrefix(
 ): Promise<ChatMediaPrefixCleanupResult> {
   const parsed = prefixCleanupRequestSchema.parse(request);
 
-  return prefixResultSchema.parse(await handler().cleanupPrefix(parsed));
+  return prefixResultSchema.parse(await chatMediaHandlerPort.read().cleanupPrefix(parsed));
 }
 
 export async function cleanupPendingChatMediaUploads(
@@ -134,5 +123,7 @@ export async function cleanupPendingChatMediaUploads(
 ): Promise<ChatMediaPendingUploadCleanupResult> {
   const parsed = pendingUploadCleanupRequestSchema.parse(request);
 
-  return pendingUploadResultSchema.parse(await handler().cleanupPendingUploads(parsed));
+  return pendingUploadResultSchema.parse(
+    await chatMediaHandlerPort.read().cleanupPendingUploads(parsed),
+  );
 }

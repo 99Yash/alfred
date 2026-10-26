@@ -47,8 +47,8 @@ consumer per inbound source rather than one file per provider (#1090).
 ## The eleven seams
 
 Each seam is a `bootPort<T>` slot. The composition root installs one concrete
-value at boot, and a peer reads it. The `boot-port.ts` file defines the factory;
-it is not itself a seam.
+value at boot, and a peer reads it. The `src/boot-port.ts` file defines the
+factory (`@alfred/assistant/boot-port`); it is not itself a seam.
 
 | Seam interface                   | Surface   | Install → read                                                           |
 | -------------------------------- | --------- | ------------------------------------------------------------------------ |
@@ -65,9 +65,11 @@ it is not itself a seam.
 | `WorkflowToolCatalogSource`      | workflows | `workflow-tool-catalog-source.ts` installs → `workflowToolCatalog` reads |
 
 The first ten seams live in `tool-runtime/index.ts`. The eleventh lives in
-`tool-runtime/workflow-tool-catalog.ts`. Each seam carries a fixed four-field
+`tool-runtime/workflow-tool-catalog.ts`. Each of the eleven seams carries a fixed four-field
 header (`Surface:`, `Owns/hides:`, `Why the seam:`, `Wiring:`), and
-`scripts/check-module-architecture.mjs` fails when a `bootPort` file lacks it.
+`scripts/check-module-architecture.mjs` fails when a `bootPort` file inside
+`tool-runtime/` lacks it. A `bootPort` slot outside `tool-runtime/` is not one of
+the eleven seams and carries no header check.
 
 ## Why the seams exist
 

@@ -2,6 +2,7 @@
   "name": "@alfred/assistant",
   "type": "module",
   "exports": {
+    "./boot-port": "./src/boot-port.ts",
     "./search-words": "./src/search-words.ts",
     "./time": "./src/time/index.ts",
     "./delivery": "./src/delivery/index.ts",

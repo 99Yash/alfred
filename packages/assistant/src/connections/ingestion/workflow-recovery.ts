@@ -1,5 +1,6 @@
 import { getStringPath } from "@alfred/contracts";
 import { z } from "zod";
+import { bootPort } from "@alfred/assistant/boot-port";
 import { logger } from "@alfred/logging";
 
 export const workflowRecoveryStateSchema = z
@@ -37,19 +38,11 @@ export type WorkflowRecoveryHandler = (
   request: WorkflowRecoveryRequest,
 ) => Promise<WorkflowRecoveryResult>;
 
-let recoveryHandler: WorkflowRecoveryHandler | undefined;
+const workflowRecoveryHandlerPort = bootPort<WorkflowRecoveryHandler>("workflow recovery handler");
 
 /** Register the workflow adapter that runtime composition supplies. */
 export function registerWorkflowRecoveryHandler(handler: WorkflowRecoveryHandler): () => void {
-  if (recoveryHandler) {
-    throw new Error("[integrations] a workflow recovery handler is already registered");
-  }
-
-  recoveryHandler = handler;
-
-  return () => {
-    if (recoveryHandler === handler) recoveryHandler = undefined;
-  };
+  return workflowRecoveryHandlerPort.install(handler);
 }
 
 /** Revalidate a workflow draft after a connection flow and pick its SPA redirect. */
@@ -57,11 +50,9 @@ export async function resolveWorkflowRecoveryTarget(request: unknown): Promise<s
   try {
     const parsedRequest = workflowRecoveryRequestSchema.parse(request);
 
-    if (!recoveryHandler) {
-      throw new Error("[integrations] no workflow recovery handler is registered");
-    }
-
-    const recovered = workflowRecoveryResultSchema.parse(await recoveryHandler(parsedRequest));
+    const recovered = workflowRecoveryResultSchema.parse(
+      await workflowRecoveryHandlerPort.read()(parsedRequest),
+    );
 
     if (recovered.status === "failure") {
       return `/workflows?workflow_recovery=${encodeURIComponent(recovered.failureKind)}`;

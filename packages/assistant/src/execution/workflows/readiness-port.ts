@@ -1,3 +1,5 @@
+import { bootPort } from "@alfred/assistant/boot-port";
+
 // The real check is wired at boot (`runtime/adapters/workflow-readiness.ts`),
 // so execution does not import `workflows` (ADR-0089).
 
@@ -12,18 +14,10 @@ export type WorkflowReadinessCheck = (args: {
   userId: string;
 }) => Promise<WorkflowReadinessVerdict>;
 
-let readinessCheck: WorkflowReadinessCheck | undefined;
+const workflowReadinessCheckPort = bootPort<WorkflowReadinessCheck>("workflow readiness check");
 
 export function registerWorkflowReadinessCheck(check: WorkflowReadinessCheck): () => void {
-  if (readinessCheck) {
-    throw new Error("[agent] a workflow readiness check is already registered");
-  }
-
-  readinessCheck = check;
-
-  return () => {
-    if (readinessCheck === check) readinessCheck = undefined;
-  };
+  return workflowReadinessCheckPort.install(check);
 }
 
 /**
@@ -33,9 +27,5 @@ export async function checkWorkflowReadiness(args: {
   runId: string;
   userId: string;
 }): Promise<WorkflowReadinessVerdict> {
-  if (!readinessCheck) {
-    throw new Error("[agent] no workflow readiness check is registered");
-  }
-
-  return readinessCheck(args);
+  return workflowReadinessCheckPort.read()(args);
 }
