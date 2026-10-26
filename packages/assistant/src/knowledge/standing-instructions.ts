@@ -66,17 +66,17 @@ export type SenderSuppressionOutcome =
 type LoadedSenderSuppressionOutcome = Exclude<SenderSuppressionOutcome, { kind: "read_failed" }>;
 
 /** A user's active sender suppressions, read once. `match` is pure, so one read serves a loop. */
-export interface SenderSuppressions<Outcome extends SenderSuppressionOutcome> {
+interface SenderSuppressions<Outcome extends SenderSuppressionOutcome> {
   /** No active suppression. A failed read is never empty, so `match` still reports it. */
   readonly isEmpty: boolean;
   match(sender: SuppressionSender, effect: SuppressionEffect): Outcome;
 }
 
 /**
- * A `"report"` load. The `onReadFailure` marker is nominal: only the
- * `"report"` branch of `senderSuppressions` produces it, so a `"throw"` load
- * (as `briefings/read.ts` uses) or an empty test double does not compile where
- * the todo lane needs fail-closed `read_failed` reporting.
+ * A `"report"` load. The `onReadFailure: "report"` key rejects a `"throw"`
+ * load and a value without the key where the todo lane needs fail-closed
+ * reporting. A value that writes the key by hand still compiles. Review owns
+ * that case.
  */
 export interface ReportedSenderSuppressions extends SenderSuppressions<SenderSuppressionOutcome> {
   readonly onReadFailure: "report";

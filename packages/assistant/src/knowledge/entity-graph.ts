@@ -343,7 +343,7 @@ export function entityAliasMatch(normalizedAddresses: readonly string[]): SQL {
   )`;
 }
 
-/** The predicate the stored-contact preview reads share. */
+/** The predicate the writer and the preview share: {@link upsertContactByAlias} and {@link previewContactKinds}. */
 function storedContactMatch(userId: string, normalizedAddresses: readonly string[]) {
   return and(
     eq(entities.userId, userId),
