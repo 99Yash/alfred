@@ -7,6 +7,7 @@
  */
 
 import { isDomainOrSubdomain } from "./domain";
+import { keyGuard } from "./guards";
 import { collapseWhitespace } from "./text";
 
 export const SENDER_CLASSES = ["automated", "role", "group", "none"] as const;
@@ -129,9 +130,7 @@ const TOKEN_CLASS_RANK = {
 /** Machine words are at most three tokens long (`do-not-reply`). */
 const MAX_GLUED_TOKENS = 3;
 
-function isSenderWord(value: string): value is SenderWord {
-  return Object.hasOwn(SENDER_WORDS, value);
-}
+const isSenderWord = keyGuard(SENDER_WORDS);
 
 function senderWord(value: string): SenderWord | null {
   return isSenderWord(value) ? value : null;
@@ -285,11 +284,7 @@ const DOMAIN_FIRST_LABELS = {
   mailgun: "infrastructure",
 } as const satisfies Record<string, Exclude<DomainFirstLabelClass, "none">>;
 
-type DomainFirstLabel = keyof typeof DOMAIN_FIRST_LABELS;
-
-function isDomainFirstLabel(value: string): value is DomainFirstLabel {
-  return Object.hasOwn(DOMAIN_FIRST_LABELS, value);
-}
+const isDomainFirstLabel = keyGuard(DOMAIN_FIRST_LABELS);
 
 /** The class of the leftmost label. The caller decides if an apex domain (`noreply.com`) counts. */
 export function classifyDomainFirstLabel(domain: string): DomainFirstLabelClass {

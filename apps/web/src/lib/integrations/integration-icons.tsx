@@ -1,4 +1,4 @@
-import { typedEntries, type IntegrationBrandKey } from "@alfred/contracts";
+import { keyGuard, typedEntries, type IntegrationBrandKey } from "@alfred/contracts";
 import { Check, Globe2, Users, type LucideIcon } from "lucide-react";
 import { useId } from "react";
 import {
@@ -174,10 +174,6 @@ const CHECK_SIZE_CLASS = {
   xs: "size-3 -bottom-0.5 -right-0.5",
 } as const;
 
-function hasTile(brand: IntegrationBrand): brand is IntegrationBrandKey {
-  return Object.prototype.hasOwnProperty.call(INTEGRATION_TILES, brand);
-}
-
 type TileComponent = React.FC<React.ComponentPropsWithoutRef<"svg">>;
 
 const INTEGRATION_TILES = {
@@ -197,6 +193,8 @@ const INTEGRATION_TILES = {
   slack: SlackTile,
   vercel: VercelTile,
 } satisfies Record<IntegrationBrandKey, TileComponent>;
+
+const hasTile = keyGuard(INTEGRATION_TILES);
 
 /**
  * A brand as a round full-bleed coin. For the bare logo next to text, use `IntegrationGlyph`.

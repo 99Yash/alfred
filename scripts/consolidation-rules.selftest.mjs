@@ -1611,6 +1611,30 @@ const LINE_CASES = [
     code: "    ? `${humanizeSlug(action)} in ${integrationDisplayName(integration)}`",
   },
   {
+    // `hand-rolled-key-guard` fences the membership body `keyGuard` owns.
+    name: "hand-rolled-key-guard — Object.hasOwn over a SCREAMING_CASE table",
+    caught: true,
+    rule: "hand-rolled-key-guard",
+    code: `  return Object.hasOwn(SENDER_WORDS, value);`,
+  },
+  {
+    name: "hand-rolled-key-guard — the prototype hasOwnProperty spelling of the same test",
+    caught: true,
+    rule: "hand-rolled-key-guard",
+    code: `  return Object.prototype.hasOwnProperty.call(FACT_ONTOLOGY, key);`,
+  },
+  {
+    name: "hand-rolled-key-guard — the guard built once with keyGuard is the intended form",
+    caught: false,
+    code: `export const isFactKey = keyGuard(FACT_ONTOLOGY);`,
+  },
+  {
+    // The documented residue, locked: a lowercase table name is outside the regex.
+    name: "hand-rolled-key-guard — a lowercase table name is outside the regex",
+    caught: false,
+    code: `  return Object.prototype.hasOwnProperty.call(serverMutators, name);`,
+  },
+  {
     // `as-string-array` — the unchecked element-type assertion.
     name: "as-string-array — an unknown value asserted to a string array",
     caught: true,

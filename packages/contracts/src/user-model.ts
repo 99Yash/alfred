@@ -6,6 +6,7 @@
  */
 
 import { z } from "zod";
+import { keyGuard } from "./guards";
 import { HOSTNAME } from "./hostname";
 import { classifyConnectedAccount, domainClassSchema } from "./identity-affiliation";
 import { pluckField, typedKeys } from "./records";
@@ -765,9 +766,7 @@ export function integrationObjectKeySegment(value: string): IntegrationObjectKin
   return isIntegrationObjectKindSegment(candidate) ? candidate : null;
 }
 
-function isIntegrationObjectKindSegment(value: string): value is IntegrationObjectKindSegment {
-  return Object.hasOwn(INTEGRATION_OBJECT_KIND_SEGMENTS, value);
-}
+const isIntegrationObjectKindSegment = keyGuard(INTEGRATION_OBJECT_KIND_SEGMENTS);
 
 export const ENTITY_KIND_RESEARCH_STATUS = [
   "not_needed",
@@ -1000,9 +999,7 @@ export const FACT_ONTOLOGY = {
 
 export type FactKey = keyof typeof FACT_ONTOLOGY;
 
-export function isFactKey(key: string): key is FactKey {
-  return Object.prototype.hasOwnProperty.call(FACT_ONTOLOGY, key);
-}
+export const isFactKey = keyGuard(FACT_ONTOLOGY);
 
 export const CANONICAL_FACT_KEYS: readonly FactKey[] = typedKeys(FACT_ONTOLOGY);
 
@@ -1032,9 +1029,7 @@ export const FACT_KEY_ALIASES = {
 
 export type FactKeyAlias = keyof typeof FACT_KEY_ALIASES;
 
-export function isFactKeyAlias(key: string): key is FactKeyAlias {
-  return Object.prototype.hasOwnProperty.call(FACT_KEY_ALIASES, key);
-}
+export const isFactKeyAlias = keyGuard(FACT_KEY_ALIASES);
 
 /** `wasAlias` is true when the key changed; `originalKey` keeps the input for provenance. */
 export type CanonicalizeFactKeyResult =

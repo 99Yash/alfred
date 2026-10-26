@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { approvalKindSchema } from "./agent";
 import { chatConnectNudgeSchema } from "./chat";
+import { keyGuard } from "./guards";
 import { typedKeys } from "./records";
 import { sanitizeErrorMessage } from "./sanitize";
 
@@ -257,8 +258,4 @@ export const eventFrameSchema = z.object({
 
 export type EventFrame = z.infer<typeof eventFrameSchema>;
 
-export function isKnownEventKind(value: unknown): value is EventKind {
-  return (
-    typeof value === "string" && Object.prototype.hasOwnProperty.call(eventPayloadSchemas, value)
-  );
-}
+export const isKnownEventKind = keyGuard(eventPayloadSchemas);
