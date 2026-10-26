@@ -9,7 +9,6 @@ import {
   createArtifactInput,
   editInstructionInput,
   forgetInstructionInput,
-  isLoadableIntegrationSlug,
   listInstructionsInput,
   loadToolInput,
   currentTimeInput,
@@ -324,7 +323,7 @@ export const systemTools: readonly RegisteredTool[] = [
     availability: { surface: "kernel", callers: ["boss"] },
     inputSchema: spawnSubAgentInput,
     execute: async (input, ctx) => {
-      const workflowAllowed = (ctx.allowedIntegrations ?? []).filter(isLoadableIntegrationSlug);
+      const workflowAllowed = ctx.allowedIntegrations ?? [];
       const requestedAllowed = input.allowedIntegrations;
 
       if (
