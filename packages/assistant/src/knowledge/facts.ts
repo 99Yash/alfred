@@ -326,9 +326,11 @@ export async function confirmFact(factId: string, userId: string): Promise<FactR
 
     if (!candidate) return null;
 
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${`${userId}:${candidate.key}`}, 0))`,
-    );
+    // Lock the canonical key, as `proposeFact` does, so an alias-keyed row shares its lock.
+    const canon = canonicalizeFactKey(candidate.key);
+    const key = canon.ok ? canon.key : candidate.key;
+
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`${userId}:${key}`}, 0))`);
 
     const [old] = await tx
       .select()
@@ -347,7 +349,7 @@ export async function confirmFact(factId: string, userId: string): Promise<FactR
     const oldSig = valueSignature(old.value);
     let conflictRows: FactRow[] = [];
 
-    if (isSingleValuedKey(old.key)) {
+    if (isSingleValuedKey(key)) {
       conflictRows = (
         await tx
           .select()
@@ -355,7 +357,7 @@ export async function confirmFact(factId: string, userId: string): Promise<FactR
           .where(
             and(
               eq(userFacts.userId, userId),
-              eq(userFacts.key, old.key),
+              eq(userFacts.key, key),
               eq(userFacts.status, "confirmed"),
               lte(userFacts.validFrom, sql`now()`),
               or(isNull(userFacts.validUntil), gt(userFacts.validUntil, sql`now()`)),
