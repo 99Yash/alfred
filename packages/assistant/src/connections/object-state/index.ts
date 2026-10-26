@@ -26,7 +26,7 @@ export {
   MCP_APPROVED_HEALTH_EVENT_TYPE,
   parseReceiptEvent,
   VERIFIED_PULL_EVENT_TYPE,
-  type ApprovedMcpHealthExternalId,
+  type ApprovedMcpHealthEvent,
   type RailwayPullEvent,
   type VercelPullEvent,
   type VerifiedPullEvent,
