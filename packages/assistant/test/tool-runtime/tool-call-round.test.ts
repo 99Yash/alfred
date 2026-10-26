@@ -108,6 +108,7 @@ describe("executeToolCallRound", () => {
         dispatch: () => Promise.reject(new Error("empty rounds do not dispatch")),
         wouldWaitForApproval: () => Promise.resolve(false),
         executionLane: () => null,
+        artifactStreamMode: () => null,
       },
       [],
       async () => {
@@ -140,6 +141,7 @@ describe("executeToolCallRound", () => {
         },
         wouldWaitForApproval: () => Promise.resolve(false),
         executionLane: () => null,
+        artifactStreamMode: () => null,
       },
       ["gmail.search"],
       async () => {
@@ -182,7 +184,9 @@ describe("executeToolCallRound", () => {
           return executed({ id: args.toolCallId });
         },
         wouldWaitForApproval: () => Promise.resolve(false),
-        executionLane: (name) => (name.startsWith("system.append_artifact") ? "artifact" : null),
+        executionLane: (name) =>
+          name.startsWith("system.append_artifact") ? "artifact_mutation" : null,
+        artifactStreamMode: () => null,
       },
       ["system.web_search", "system.append_artifact_section"],
       async () => {
@@ -228,6 +232,7 @@ describe("executeToolCallRound", () => {
         },
         wouldWaitForApproval: (_userId, name) => Promise.resolve(name.startsWith("gmail.")),
         executionLane: () => null,
+        artifactStreamMode: () => null,
       },
       ["system.await_sub_agent", "gmail.send_draft", "gmail.search"],
       async () => {
@@ -277,6 +282,7 @@ describe("executeToolCallRound", () => {
         },
         wouldWaitForApproval: () => Promise.resolve(false),
         executionLane: () => null,
+        artifactStreamMode: () => null,
       },
       ["system.load_tool", "gmail.search", "calendar.list_events"],
       async () => {
@@ -311,6 +317,7 @@ describe("executeToolCallRound", () => {
           ),
         wouldWaitForApproval: () => Promise.resolve(false),
         executionLane: () => null,
+        artifactStreamMode: () => null,
       },
       ["system.update_artifact", "gmail.search"],
       async () => {

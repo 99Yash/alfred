@@ -133,6 +133,11 @@ export interface LiveToolArgs<
   /** Calls in the same live-chat lane execute in model order. */
   executionLane?: "artifact_mutation";
   /**
+   * How the streamed `markdown` input of an `artifact_mutation` tool lands while the model
+   * writes it: `replace` is the whole body, `append` a new section. Absent: no live stream.
+   */
+  artifactStream?: "replace" | "append";
+  /**
    * Required for `fast_path` on a non-`system` tool, illegal otherwise.
    * Only `system` resolves to autonomy; every other integration defaults to `gated`,
    * so a fast path there skips a real approval at every risk tier.
@@ -205,6 +210,8 @@ export interface RegisteredTool {
   staging: ToolStagingPolicy;
   /** Shared-state lane that tool-runtime serializes during a live chat round. */
   executionLane?: "artifact_mutation" | undefined;
+  /** See {@link LiveToolArgs.artifactStream}. */
+  artifactStream?: "replace" | "append" | undefined;
   /** See {@link LiveToolArgs.policyGateWaiver}. */
   policyGateWaiver?: string | undefined;
   description: string;
@@ -413,6 +420,7 @@ export function liveTool<
     riskTierDowngradeReason: args.riskTierDowngradeReason,
     staging: args.staging ?? "staged",
     executionLane: args.executionLane,
+    artifactStream: args.artifactStream,
     policyGateWaiver: args.policyGateWaiver,
     description: args.description,
     discovery: deriveToolDiscovery({
@@ -475,6 +483,12 @@ export function registerTool(tool: RegisteredTool): void {
 
   if (tool.availability?.surface === "kernel" && tool.integration !== "system") {
     throw new Error(`[tools] only system tools may declare availability.surface='kernel'`);
+  }
+
+  if (tool.artifactStream !== undefined && tool.executionLane !== "artifact_mutation") {
+    throw new Error(
+      `[tools] '${tool.name}' declares artifactStream without executionLane='artifact_mutation'`,
+    );
   }
 
   if (tool.riskTierDowngradeReason !== undefined) {

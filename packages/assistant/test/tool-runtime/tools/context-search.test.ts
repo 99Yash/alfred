@@ -196,6 +196,7 @@ describe("system.search_context", () => {
       }),
       wouldWaitForApproval: () => Promise.resolve(false),
       executionLane: () => null,
+      artifactStreamMode: () => null,
     });
 
     try {

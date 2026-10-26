@@ -1029,6 +1029,11 @@ const dispatchToolCallRoundAdapter: DispatchToolCallRoundAdapter = {
 
     return getTool(toolName)?.executionLane ?? null;
   },
+  artifactStreamMode(toolName) {
+    if (!isToolName(toolName)) return null;
+
+    return getTool(toolName)?.artifactStream ?? null;
+  },
 };
 
 /** Install the dispatcher as the call-round adapter at boot. */

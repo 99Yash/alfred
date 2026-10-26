@@ -91,6 +91,15 @@ function stubStop(opts?: { stopAfter?: number }): TurnStopController {
   };
 }
 
+/** The `artifactStream` values the artifact tools declare in `tools/system.ts`. */
+function artifactStreamMode(toolName: string): "replace" | "append" | null {
+  if (toolName === "system.create_artifact" || toolName === "system.update_artifact") {
+    return "replace";
+  }
+
+  return toolName === "system.append_artifact_section" ? "append" : null;
+}
+
 const ctx = {
   userId: "user-1",
   runId: "run-1",
@@ -110,6 +119,7 @@ describe("streamModelTurn", () => {
       state,
       ctx,
       stopController: stubStop(),
+      artifactStreamMode,
       publish,
     });
 
@@ -135,6 +145,7 @@ describe("streamModelTurn", () => {
       state,
       ctx,
       stopController: stubStop(),
+      artifactStreamMode,
       publish,
     });
 
@@ -158,6 +169,7 @@ describe("streamModelTurn", () => {
       state: makeState({ activeTools: [toolName] }),
       ctx,
       stopController: stubStop(),
+      artifactStreamMode,
       publish,
     });
 
@@ -185,6 +197,7 @@ describe("streamModelTurn", () => {
       state: makeState({ activeTools: [] }),
       ctx,
       stopController: stubStop(),
+      artifactStreamMode,
       publish,
     });
     assert.equal(events.filter((e) => e.kind === "chat.tool").length, 0);
@@ -210,6 +223,7 @@ describe("streamModelTurn", () => {
       state: makeState(),
       ctx,
       stopController: stubStop(),
+      artifactStreamMode,
       publish,
     });
 
@@ -246,6 +260,7 @@ describe("streamModelTurn", () => {
       state: makeState(),
       ctx,
       stopController: stubStop(),
+      artifactStreamMode,
       publish,
     });
 
@@ -267,6 +282,7 @@ describe("streamModelTurn", () => {
       state: makeState(),
       ctx,
       stopController: stubStop(),
+      artifactStreamMode,
       publish,
     });
 
@@ -288,6 +304,7 @@ describe("streamModelTurn", () => {
       state,
       ctx,
       stopController: stubStop(),
+      artifactStreamMode,
       publish,
     });
 
@@ -313,6 +330,7 @@ describe("streamModelTurn", () => {
       state,
       ctx,
       stopController: stubStop({ stopAfter: 1 }),
+      artifactStreamMode,
       publish,
     });
 

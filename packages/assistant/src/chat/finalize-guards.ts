@@ -1,5 +1,6 @@
 import {
   INTEGRATION_SLUGS,
+  isActionTool,
   SPAWN_SUB_AGENT_TOOL,
   toDisplayText,
   withDefaults,
@@ -9,7 +10,6 @@ import { publishEvent } from "@alfred/assistant/triggers";
 import { db } from "@alfred/db";
 import { actionStagings, mcpInvocation } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
-import { isMutatingToolName } from "@alfred/assistant/tool-runtime";
 import {
   isTerminalChildStatus,
   joinChildRun,
@@ -185,7 +185,7 @@ export interface GuardUnreportedToolFailuresDeps {
 }
 
 const defaultGuardUnreportedToolFailuresDeps: GuardUnreportedToolFailuresDeps = {
-  isMutating: isMutatingToolName,
+  isMutating: isActionTool,
   publish: publishEvent,
 };
 

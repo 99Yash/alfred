@@ -17,24 +17,6 @@ const DELTA_FLUSH_MS = 180;
 
 const DELTA_FLUSH_CHARS = 100;
 
-/**
- * How a tool's streamed `markdown` lands: `replace` is the whole body, `append` a new section.
- * `append_artifact_page` is absent: pages already appear one page at a time.
- */
-type ArtifactStreamMode = "replace" | "append";
-
-function artifactStreamMode(toolName: string): ArtifactStreamMode | undefined {
-  switch (toolName) {
-    case "system.create_artifact":
-    case "system.update_artifact":
-      return "replace";
-    case "system.append_artifact_section":
-      return "append";
-    default:
-      return undefined;
-  }
-}
-
 function splitEventText(text: string): string[] {
   const chunks: string[] = [];
 
@@ -90,10 +72,15 @@ export async function streamModelTurn(args: {
     "userId" | "runId" | "attempt" | "state"
   >;
   stopController: TurnStopController;
+  /**
+   * How a tool's streamed `markdown` lands, from the tool record. `null` streams nothing:
+   * `append_artifact_page` already shows one page at a time.
+   */
+  artifactStreamMode: (toolName: string) => "replace" | "append" | null;
   /** Injected for tests. */
   publish?: typeof publishEvent;
 }): Promise<StreamedTurn> {
-  const { stream, state, ctx, stopController, publish = publishEvent } = args;
+  const { stream, state, ctx, stopController, artifactStreamMode, publish = publishEvent } = args;
 
   // Same transform as the `sanitizeVoice` on the saved row, so the stream matches the final bubble.
   const voiceSanitizer = createVoiceStreamSanitizer();
