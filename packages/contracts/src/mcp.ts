@@ -664,19 +664,22 @@ export const MCP_HEALTH_MAPPING_OBJECT_TITLE_MAX = 300;
 
 export const MCP_HEALTH_MAPPING_OBJECT_URL_MAX = 2_048;
 
-/** Branded, so a raw string does not compile in the title slot of the MCP health fold input. */
+/** Branded, so a raw string does not compile in the title slot of the MCP health fold input. The bound counts UTF-16 code units. */
 export const mcpHealthObjectTitleSchema = z
   .string()
   .trim()
   .min(1)
   .max(MCP_HEALTH_MAPPING_OBJECT_TITLE_MAX)
+  .refine((value) => value.length <= MCP_HEALTH_MAPPING_OBJECT_TITLE_MAX, {
+    message: `Object title must be at most ${MCP_HEALTH_MAPPING_OBJECT_TITLE_MAX} characters`,
+  })
   .brand<"McpHealthObjectTitle">();
 
 export type McpHealthObjectTitle = z.output<typeof mcpHealthObjectTitleSchema>;
 
 /**
- * HTTPS only. The bound applies to the trimmed value. Branded, so a raw string does not compile in
- * the url slot of the MCP health fold input.
+ * HTTPS only. The bound counts UTF-16 code units of the trimmed value. Branded, so a raw string
+ * does not compile in the url slot of the MCP health fold input.
  */
 export const mcpHealthObjectUrlSchema = z
   .string()
@@ -687,6 +690,9 @@ export const mcpHealthObjectUrlSchema = z
       .max(MCP_HEALTH_MAPPING_OBJECT_URL_MAX)
       .refine((value) => value.startsWith("https://"), "Object URL must use HTTPS"),
   )
+  .refine((value) => value.length <= MCP_HEALTH_MAPPING_OBJECT_URL_MAX, {
+    message: `Object URL must be at most ${MCP_HEALTH_MAPPING_OBJECT_URL_MAX} characters`,
+  })
   .brand<"McpHealthObjectUrl">();
 
 export type McpHealthObjectUrl = z.output<typeof mcpHealthObjectUrlSchema>;

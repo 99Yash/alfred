@@ -9,8 +9,8 @@ export const MCP_APPROVED_HEALTH_KEY_KIND = "approved_loop_key";
 
 /**
  * Reducer for owner-reviewed MCP health reads. The caller already mapped the remote token to a
- * canonical state. The branded id, title and url show that the identity check and the contracts
- * parse ran.
+ * canonical state. The branded id, title and url reject a raw string in the fold input;
+ * review owns the cast-free mints.
  */
 export function reduceMcpEvent({ payload }: ApprovedMcpHealthEvent): ObjectStateDelta[] {
   return [
