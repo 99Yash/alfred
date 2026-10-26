@@ -7,6 +7,17 @@ import { z } from "zod";
  * is lenient per key: a bad field reads as absent and the rest of the row survives.
  */
 
+/**
+ * The keys the OAuth exchange owns. A reconnect replaces exactly these and keeps every other key,
+ * because the watch and the label caches have their own writers.
+ */
+export const GOOGLE_EXCHANGE_METADATA_KEYS = ["token_type", "googleHostedDomain"] as const;
+
+/** What one OAuth exchange writes into `metadata`. An omitted key is removed on a reconnect. */
+export type GoogleExchangeMetadata = Partial<
+  Record<(typeof GOOGLE_EXCHANGE_METADATA_KEYS)[number], string>
+>;
+
 const gmailWatchStateSchema = z.object({
   topic: z.string().min(1),
   expiresAt: z.iso.datetime(),

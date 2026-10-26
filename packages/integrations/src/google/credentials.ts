@@ -1,10 +1,11 @@
-import type { AccountPersona, JsonObject } from "@alfred/contracts";
+import type { AccountPersona } from "@alfred/contracts";
 import { toStringArray } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { credentialVault } from "@alfred/db/credential-vault";
 import { integrationCredentials } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
+import { GOOGLE_EXCHANGE_METADATA_KEYS, type GoogleExchangeMetadata } from "./credential-metadata";
 import { GoogleReauthRequiredError, refreshAccessToken } from "./oauth";
 
 /**
@@ -28,12 +29,16 @@ export interface UpsertCredentialsArgs {
   refreshToken: string;
   expiresAt: Date;
   scopes: string[];
-  metadata?: JsonObject | undefined;
+  /** Replaces only the exchange-owned keys on a reconnect. */
+  metadata?: GoogleExchangeMetadata | undefined;
   /** Detected from `hd`. Omit to keep the column, so a user override survives a reconnect. */
   persona?: AccountPersona | null | undefined;
 }
 
-/** A reconnect of the same account updates the row in place. */
+/**
+ * A reconnect of the same account updates the row in place. The conflict target includes
+ * `accountId` (the Google `sub`), so a different Google account always gets its own row.
+ */
 export async function upsertCredential(
   args: UpsertCredentialsArgs,
   ex: DbExecutor = db(),
@@ -42,13 +47,20 @@ export async function upsertCredential(
   // Seal once: each `seal` draws a fresh DEK and nonces.
   const sealedAccessToken = vault.seal(args.accessToken);
   const sealedRefreshToken = vault.seal(args.refreshToken);
+  const exchangeMetadata = args.metadata ?? {};
+
+  const exchangeKeys = sql.join(
+    GOOGLE_EXCHANGE_METADATA_KEYS.map((key) => sql`${key}`),
+    sql`, `,
+  );
 
   const updateSet: PgUpdateSetSource<typeof integrationCredentials> = {
     accessToken: sealedAccessToken,
     refreshToken: sealedRefreshToken,
     expiresAt: args.expiresAt,
     scopes: args.scopes,
-    metadata: args.metadata ?? {},
+    // Same `sub`, so the same mailbox: keep the watch and label caches, replace the exchange keys.
+    metadata: sql`(${integrationCredentials.metadata} - ARRAY[${exchangeKeys}]::text[]) || ${JSON.stringify(exchangeMetadata)}::jsonb`,
     status: "active",
     accountLabel: args.accountLabel ?? null,
     lastRefreshedAt: new Date(),
@@ -71,7 +83,7 @@ export async function upsertCredential(
       refreshToken: sealedRefreshToken,
       expiresAt: args.expiresAt,
       scopes: args.scopes,
-      metadata: args.metadata ?? {},
+      metadata: exchangeMetadata,
       status: "active",
       persona: args.persona ?? null,
     })
