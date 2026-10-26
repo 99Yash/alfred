@@ -124,7 +124,7 @@ export const INTEGRATIONS = {
     credential: {
       shape: "google_oauth",
       features: ["briefing", "triage", "reply_draft"],
-      anyOfScopes: [GOOGLE_SCOPE.gmail.readonly],
+      anyOfScopes: [GOOGLE_SCOPE.gmail.readonly, GOOGLE_SCOPE.gmail.modify],
     },
     passthrough: { transport: "rest" },
     actions: [
