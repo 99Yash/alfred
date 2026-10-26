@@ -1,22 +1,5 @@
 import type { SyncedArtifact } from "@alfred/sync";
-
-export type ArtifactType = "document" | "pdf" | "slides";
-
-export function artifactType(artifact: SyncedArtifact): ArtifactType {
-  if (artifact.kind === "document") return "document";
-
-  return artifact.format === "slides" ? "slides" : "pdf";
-}
-
-export function artifactTypeLabel(artifact: SyncedArtifact): string {
-  const type = artifactType(artifact);
-
-  if (type === "slides") return "Slides";
-
-  if (type === "pdf") return "PDF document";
-
-  return "Document";
-}
+import { artifactType, artifactTypeLabel, type ArtifactType } from "~/lib/artifacts/artifact-type";
 
 export function artifactMatchesType(
   artifact: SyncedArtifact,

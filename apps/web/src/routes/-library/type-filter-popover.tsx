@@ -3,13 +3,11 @@ import { Check, ChevronDown, Filter } from "lucide-react";
 import { use } from "react";
 import { AppThemeContext } from "~/components/ui/v2/theme";
 import { cn } from "~/lib/utils";
-import type { ArtifactType } from "./helpers";
+import { ARTIFACT_TYPE_FILTER_OPTIONS, type ArtifactType } from "~/lib/artifacts/artifact-type";
 
 const TYPE_OPTIONS: ReadonlyArray<{ label: string; value: ArtifactType | "all" }> = [
   { label: "All types", value: "all" },
-  { label: "Documents", value: "document" },
-  { label: "Slides", value: "slides" },
-  { label: "PDF Documents", value: "pdf" },
+  ...ARTIFACT_TYPE_FILTER_OPTIONS,
 ];
 
 export function TypeFilterPopover({

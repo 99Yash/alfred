@@ -23,7 +23,8 @@ import { AppButton } from "~/components/ui/v2";
 import { printArtifactPages } from "~/lib/artifacts/export-artifact";
 import { useArtifact, useRecentArtifacts } from "~/lib/replicache/use-artifacts";
 import { cn } from "~/lib/utils";
-import { artifactTypeLabel, formatArtifactDate } from "./helpers";
+import { ARTIFACT_KIND_ICON, artifactTypeLabel } from "~/lib/artifacts/artifact-type";
+import { formatArtifactDate } from "./helpers";
 
 /**
  * Full-screen reader at `/library/$artifact`, using the chat sidebar's {@link ArtifactPagesBody}.
@@ -179,6 +180,7 @@ function ArtifactHeader({
   onClose: () => void;
 }) {
   const isPages = artifact.kind === "pages";
+  const KindIcon = ARTIFACT_KIND_ICON[artifact.kind];
   const canDownload = isPages && pages.length > 0 && artifact.status !== "generating";
 
   const onDownload = useCallback(() => {
@@ -193,7 +195,7 @@ function ArtifactHeader({
     <header className="flex min-h-[60px] shrink-0 items-center justify-between gap-4 px-4 shadow-[inset_0_-1px_0_rgba(0,0,0,0.06)] sm:px-6">
       <div className="flex min-w-0 items-center gap-3">
         <span className="grid size-8 shrink-0 place-items-center rounded-control bg-app-bg-a2 text-app-fg-3">
-          {isPages ? <Layers size={16} /> : <FileText size={16} />}
+          <KindIcon size={16} />
         </span>
         <div className="min-w-0">
           <p className="truncate text-sm font-medium text-app-fg-4">{artifact.title}</p>

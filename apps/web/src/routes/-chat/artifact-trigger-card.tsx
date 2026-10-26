@@ -1,12 +1,7 @@
-import type { ExternalFileSource } from "@alfred/contracts";
 import type { SyncedArtifact } from "@alfred/sync";
-import { ArrowRight, FileText, Layers, Loader2 } from "lucide-react";
+import { ArrowRight, Loader2 } from "lucide-react";
+import { ARTIFACT_KIND_ICON, artifactTypeLabel } from "~/lib/artifacts/artifact-type";
 import { cn } from "~/lib/utils";
-
-/** A new source fails to compile here until it has a label. */
-const EXTERNAL_FILE_SUBTITLE = {
-  drive: "Google Drive file",
-} satisfies Record<ExternalFileSource, string>;
 
 /** Card under the authoring message that opens the artifact in the sidebar (ADR-0075 Phase 3). */
 export function ArtifactTriggerCard({
@@ -18,23 +13,18 @@ export function ArtifactTriggerCard({
   active: boolean;
   onOpen: (artifactId: string) => void;
 }) {
-  const isPages = artifact.kind === "pages";
+  const KindIcon = ARTIFACT_KIND_ICON[artifact.kind];
   const externalFile = artifact.content?.kind === "external_file" ? artifact.content : null;
   // An external file is complete at mint; `generating` is only for the messageId backfill.
   const generating = artifact.status === "generating" && !externalFile;
   const pageCount = artifact.content?.kind === "pages" ? artifact.content.pages.length : undefined;
 
-  const subtitle = externalFile
-    ? EXTERNAL_FILE_SUBTITLE[externalFile.source]
-    : generating
-      ? pageCount !== undefined
-        ? `Generating · ${pageCount} ${pageCount === 1 ? "page" : "pages"}`
-        : "Generating…"
-      : isPages
-        ? artifact.format === "slides"
-          ? "Slides"
-          : "PDF document"
-        : "Document";
+  // An external file is never `generating` here, so it reads "Google Drive file".
+  const subtitle = generating
+    ? pageCount !== undefined
+      ? `Generating · ${pageCount} ${pageCount === 1 ? "page" : "pages"}`
+      : "Generating…"
+    : artifactTypeLabel(artifact);
 
   return (
     <button
@@ -50,13 +40,7 @@ export function ArtifactTriggerCard({
       )}
     >
       <span className="grid size-9 shrink-0 place-items-center rounded-control bg-app-bg-1 text-app-fg-3 shadow-[0_0_0_1px_rgba(0,0,0,0.04)]">
-        {generating ? (
-          <Loader2 size={16} className="animate-spin" />
-        ) : isPages ? (
-          <Layers size={16} />
-        ) : (
-          <FileText size={16} />
-        )}
+        {generating ? <Loader2 size={16} className="animate-spin" /> : <KindIcon size={16} />}
       </span>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium text-app-fg-4">{artifact.title}</p>

@@ -1,9 +1,17 @@
 import type { SyncedArtifact } from "@alfred/sync";
 import { Link } from "@tanstack/react-router";
-import { AlertTriangle, FileText, Loader2, Presentation, type LucideIcon } from "lucide-react";
+import {
+  AlertTriangle,
+  FileSpreadsheet,
+  FileText,
+  Loader2,
+  Presentation,
+  type LucideIcon,
+} from "lucide-react";
 import { ArtifactPageFrame } from "~/components/artifact-page-frame";
+import { artifactType, artifactTypeLabel, type ArtifactType } from "~/lib/artifacts/artifact-type";
 import { cn } from "~/lib/utils";
-import { artifactType, artifactTypeLabel, formatArtifactDate, type ArtifactType } from "./helpers";
+import { formatArtifactDate } from "./helpers";
 
 const TYPE_TINT = {
   document: {
@@ -18,6 +26,18 @@ const TYPE_TINT = {
     fg: "text-app-amber-4",
     ring: "ring-app-amber-2",
     icon: Presentation,
+  },
+  spreadsheet: {
+    bg: "bg-app-orange-1",
+    fg: "text-app-orange-4",
+    ring: "ring-app-orange-2",
+    icon: FileSpreadsheet,
+  },
+  external_file: {
+    bg: "bg-app-green-1",
+    fg: "text-app-green-4",
+    ring: "ring-app-green-2",
+    icon: FileText,
   },
 } satisfies Record<ArtifactType, { bg: string; fg: string; ring: string; icon: LucideIcon }>;
 

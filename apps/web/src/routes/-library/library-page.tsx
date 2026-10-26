@@ -4,7 +4,8 @@ import { AppButton, AppInput } from "~/components/ui/v2";
 import { useRecentArtifacts } from "~/lib/replicache/use-artifacts";
 import { cn } from "~/lib/utils";
 import { ArtifactCard } from "./artifact-card";
-import { artifactMatchesQuery, artifactMatchesType, type ArtifactType } from "./helpers";
+import type { ArtifactType } from "~/lib/artifacts/artifact-type";
+import { artifactMatchesQuery, artifactMatchesType } from "./helpers";
 import { LibraryEmpty } from "./library-empty";
 import { TypeFilterPopover } from "./type-filter-popover";
 
