@@ -8,12 +8,12 @@ import {
   jsonObjectSchema,
   mcpContentKindValues,
   toMessage,
-  type BoundedPassthroughBody,
   type ExternalToolRef,
   type JsonObject,
   type JsonValue,
   type McpContentKind,
   type McpResultProvenance,
+  type PassthroughTruncation,
 } from "@alfred/contracts";
 import { sha256Canonical } from "@alfred/db/hash";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -64,16 +64,19 @@ export interface McpCatalogSnapshot {
   cacheScope: CacheScope;
 }
 
-export interface McpCallEnvelope {
+interface McpCallEnvelopeFields {
   connectionId: string;
   toolName: string;
   catalogRevision: string;
   outcome: "completed" | "tool_error";
-  result: unknown;
-  truncation?: BoundedPassthroughBody["truncation"];
   /** Payload-free record of what the server returned. The broker stores it in the ledger. */
   provenance: McpResultProvenance;
 }
+
+/** A result the bounds left whole stays typed. A clipped result is `unknown` and carries `truncation`. */
+export type McpCallEnvelope =
+  | (McpCallEnvelopeFields & { result: McpProtocolCallResult; truncation?: undefined })
+  | (McpCallEnvelopeFields & { result: unknown; truncation: PassthroughTruncation });
 
 export interface McpPreparedToolCall {
   catalog: McpCatalogSnapshot;
@@ -761,19 +764,21 @@ export class McpRawClient {
 
     const bounded = boundPassthroughBody(result);
 
-    return {
+    const fields: McpCallEnvelopeFields = {
       connectionId: this.#options.connectionId,
       toolName: tool.name,
       catalogRevision: catalog.revision,
       outcome: isToolError ? "tool_error" : "completed",
-      result: bounded.value,
       provenance: resultProvenance(result, {
         isToolError,
         outputSchemaValidated,
-        truncated: Boolean(bounded.truncation),
+        truncated: bounded.truncation !== undefined,
       }),
-      ...(bounded.truncation ? { truncation: bounded.truncation } : {}),
     };
+
+    return bounded.truncation === undefined
+      ? { ...fields, result: bounded.value }
+      : { ...fields, result: bounded.value, truncation: bounded.truncation };
   }
 
   #requireGeneration(): McpClientGeneration {

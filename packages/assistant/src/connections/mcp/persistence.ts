@@ -313,11 +313,24 @@ export type OwnedCurrentCatalogRow = Pick<McpConnection, "instanceKey" | "label"
   descriptorCount: McpCatalogRevision["toolCount"];
 } & Pick<McpCatalogRevision, "revisionHash">;
 
+/**
+ * One stored descriptor summary. A malformed `title` or `description` is dropped, not fatal:
+ * the SQL projection gives JSON `null` for a missing key.
+ */
+const catalogSummarySchema = z.object({
+  name: z.string().min(1),
+  title: z.string().optional().catch(undefined),
+  description: z.string().optional().catch(undefined),
+});
+
+/** A malformed entry becomes `null`, not a gap, so index `i` stays descriptor `offset + i`. */
+const catalogSummarySliceSchema = z.array(catalogSummarySchema.nullable().catch(null));
+
 export type OwnedCurrentCatalogSliceRow = OwnedCurrentCatalogRow & {
   /** Absolute zero-based position of the first projected descriptor. */
   descriptorOffset: number;
   /** `{ name, title, description }` summaries projected in SQL, so full descriptors stay in the database. */
-  summaries: unknown[];
+  summaries: z.infer<typeof catalogSummarySliceSchema>;
 };
 
 export type OwnedCurrentCatalogDescriptorRow = OwnedCurrentCatalogRow & {
@@ -410,11 +423,13 @@ function toCatalogSliceRow(
   row: OwnedCurrentCatalogRow & { summaries: unknown },
   descriptorOffset: number,
 ): OwnedCurrentCatalogSliceRow {
-  if (!Array.isArray(row.summaries)) {
+  const summaries = catalogSummarySliceSchema.safeParse(row.summaries);
+
+  if (!summaries.success) {
     throw new Error("MCP catalog summary slice is not a JSON array");
   }
 
-  return { ...row, descriptorOffset, summaries: row.summaries };
+  return { ...row, descriptorOffset, summaries: summaries.data };
 }
 
 function ownedServerJoin(userId: string) {
@@ -489,7 +504,7 @@ export async function readOwnedCurrentCatalogDescriptor(
 
 /**
  * One `listOwnedCurrentCatalogSlices` row. `descriptorCount` is `integer`, so a number;
- * `toCatalogSliceRow` checks `summaries`; `ordinal` only orders the page and is dropped.
+ * `toCatalogSliceRow` parses `summaries`; `ordinal` only orders the page and is dropped.
  */
 const catalogSliceRowSchema = z.object({
   namespace: z.string(),
