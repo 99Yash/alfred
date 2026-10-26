@@ -11,6 +11,7 @@ import {
 
 import type { CompletedToolCall, ProposedToolCall } from "../index";
 import type { ToolCallDispatchResult } from "./adapter";
+import { NO_TOOL_EFFECTS } from "./registry";
 
 export type TerminalToolCallDispatchResult = Exclude<
   ToolCallDispatchResult,
@@ -157,6 +158,7 @@ export function completedToolCall<Call extends ProposedToolCall>(
     executedInput:
       result.kind === "executed" || result.kind === "failed" ? result.executedInput : undefined,
     joinedChildRunId: result.kind === "executed" ? result.joinedChildRunId : undefined,
+    effects: result.kind === "executed" ? result.effects : NO_TOOL_EFFECTS,
   };
 }
 

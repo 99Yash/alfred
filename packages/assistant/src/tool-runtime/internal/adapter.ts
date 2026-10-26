@@ -10,7 +10,7 @@ import type {
 
 import type { PublicAppError } from "@alfred/contracts/app-errors";
 import type { ToolCallDispatchArgs } from "../index";
-import type { RegisteredTool } from "./registry";
+import type { RegisteredTool, ToolEffects } from "./registry";
 
 export interface RejectedToolResult {
   status: "rejected_by_user";
@@ -64,6 +64,8 @@ export type ToolCallDispatchResult =
       kind: "executed";
       stagingId: string | null;
       toolResult: unknown;
+      /** Typed side data, live or replayed from the staging row. Never read from `toolResult`. */
+      effects: ToolEffects;
       editedByUser: boolean;
       sanitized?: boolean;
       /** Set only after an approval edit: the input that ran, not the model's proposal. */

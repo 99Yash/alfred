@@ -136,6 +136,7 @@ describe("passthrough per-run ceiling (DB-backed)", { skip: SKIP }, () => {
 
           return { outcome: "http", status: 200, succeeded: true, body: [], call: executeCount };
         },
+        spanFacts: () => ({}),
       }),
     );
     await db()

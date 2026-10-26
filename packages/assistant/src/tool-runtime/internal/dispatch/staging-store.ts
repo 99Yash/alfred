@@ -19,7 +19,9 @@ import {
   actionStagingStatusSchema,
   cancellationFenceSchema,
   effectOutcomeSchema,
+  isRecord,
   jsonValueSchema,
+  toJsonValue,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import {
@@ -32,6 +34,8 @@ import {
 import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 
 import type { PublicAppError } from "@alfred/contracts/app-errors";
+
+import type { ToolEffects } from "../registry";
 
 /** The columns the gate reads. A column absent here is one it cannot branch on. */
 export type StagingRow = Pick<
@@ -48,6 +52,7 @@ export type StagingRow = Pick<
   | "rejectReason"
   | "executeResult"
   | "executeSanitized"
+  | "executeEffects"
   | "executeError"
   | "notifyAfterAt"
   | "notifiedAt"
@@ -104,6 +109,8 @@ export type StagingCommit =
       outcome: "succeeded" | "unknown";
       result: JsonValue | undefined;
       sanitized: boolean;
+      /** Written with `result`, so a replay returns the effects of the live call. */
+      effects: ToolEffects;
       executedAt: Date;
     };
 
@@ -167,6 +174,7 @@ const STAGING_COLUMNS = {
   rejectReason: actionStagings.rejectReason,
   executeResult: actionStagings.executeResult,
   executeSanitized: actionStagings.executeSanitized,
+  executeEffects: actionStagings.executeEffects,
   executeError: actionStagings.executeError,
   notifyAfterAt: actionStagings.notifyAfterAt,
   notifiedAt: actionStagings.notifiedAt,
@@ -190,6 +198,13 @@ export function outcomeForInsert(values: StagingInsertValues): EffectOutcome {
   return values.requiresApproval ? "awaiting_approval" : "dispatching";
 }
 
+/** No effects store as NULL, the same as a row from before the column. */
+export function effectsColumn(effects: ToolEffects): JsonValue | null {
+  const value = toJsonValue(effects);
+
+  return isRecord(value) && Object.keys(value).length === 0 ? null : value;
+}
+
 function commitColumns(commit: StagingCommit) {
   switch (commit.status) {
     case "failed":
@@ -207,6 +222,7 @@ function commitColumns(commit: StagingCommit) {
         executeResult: commit.result === undefined ? null : commit.result,
         // A replay must repeat the "may be incomplete" notice (ADR-0070 §1.1).
         executeSanitized: commit.sanitized,
+        executeEffects: effectsColumn(commit.effects),
         executedAt: commit.executedAt,
       } as const;
     default: {

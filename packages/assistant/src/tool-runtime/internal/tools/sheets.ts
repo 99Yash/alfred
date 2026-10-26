@@ -9,7 +9,7 @@ import {
   sheetsGetValuesInput,
   sheetsUpdateValuesInput,
 } from "@alfred/contracts";
-import { runRestPassthrough } from "./passthrough";
+import { passthroughSpanFacts, runRestPassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
 
 export const sheetsTools: readonly RegisteredTool[] = [
@@ -133,5 +133,6 @@ export const sheetsTools: readonly RegisteredTool[] = [
 
       return runRestPassthrough(ctx.integrations.google.sheets.passthrough(credentialId), input);
     },
+    spanFacts: passthroughSpanFacts,
   }),
 ];

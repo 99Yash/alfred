@@ -1,7 +1,7 @@
 /** Google Docs tools. Read-only, though the grant is full `documents` (ADR-0043). */
 
 import { docsGetDocumentInput, restPassthroughInput } from "@alfred/contracts";
-import { runRestPassthrough } from "./passthrough";
+import { passthroughSpanFacts, runRestPassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
 
 export const docsTools: readonly RegisteredTool[] = [
@@ -41,5 +41,6 @@ export const docsTools: readonly RegisteredTool[] = [
 
       return runRestPassthrough(ctx.integrations.google.docs.passthrough(credentialId), input);
     },
+    spanFacts: passthroughSpanFacts,
   }),
 ];

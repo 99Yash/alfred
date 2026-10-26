@@ -27,7 +27,7 @@ import {
 import type { z } from "zod";
 import { bootPort } from "./boot-port";
 import type { ToolCallRoundAdapter } from "./internal/adapter";
-import type { ChatTurnAddress } from "./internal/registry";
+import type { ChatTurnAddress, ToolEffects } from "./internal/registry";
 import { runToolCallRound } from "./internal/tool-call-round";
 
 export { withdrawToolCallApproval } from "./approval-lifecycle";
@@ -43,12 +43,16 @@ export {
   registerTools,
   clearToolRegistryForTests,
   riskTierCountsForIntegration,
+  NO_TOOL_EFFECTS,
   type BoundToolCall,
   type ChatTurnAddress,
   type LiveChatToolExecuteContext,
   type RegisteredTool,
+  type ToolEffects,
   type ToolExecuteContext,
   type ToolExecuteContextFields,
+  type ToolExecution,
+  type ToolSpanFacts,
 } from "./internal/registry";
 
 export { bootPort, type BootPort } from "./boot-port";
@@ -184,6 +188,8 @@ export interface CompletedToolCall<Call extends ProposedToolCall = ProposedToolC
   executedInput?: unknown;
   /** Set only by the join arm: the child run it resolved. */
   joinedChildRunId?: string | undefined;
+  /** The executed call's effects. Empty for a call that did not execute. */
+  effects: ToolEffects;
 }
 
 export type ToolCallRoundOutcome<Call extends ProposedToolCall = ProposedToolCall> =
@@ -290,6 +296,7 @@ export type AwaitSubAgentDispatchResult =
       kind: "executed";
       stagingId: null;
       toolResult: unknown;
+      effects: ToolEffects;
       editedByUser: false;
     }
   | {

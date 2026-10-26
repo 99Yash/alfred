@@ -193,7 +193,7 @@ function registerDoubles(): void {
             executeCount += 1;
             lastExecutedInput = call.input;
 
-            return { ok: true };
+            return { output: { ok: true }, effects: {}, spanFacts: {} };
           },
         },
       };
@@ -806,6 +806,7 @@ describe("dispatch staging machine (DB-free)", () => {
         message: "ambiguous delivery",
       }),
       sanitized: false,
+      effects: {},
       executedAt: new Date(),
     });
 

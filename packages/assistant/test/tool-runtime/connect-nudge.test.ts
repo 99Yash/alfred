@@ -95,6 +95,7 @@ describe("toolEventOutcome → chat.tool payload fact", () => {
         kind: "executed",
         stagingId: null,
         toolResult: { ok: true },
+        effects: {},
         editedByUser: false,
       }),
     );

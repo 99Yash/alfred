@@ -192,6 +192,7 @@ describe("system.search_context", () => {
         kind: "executed",
         stagingId: null,
         toolResult: await executeTool(tool, input, toolExecuteContext(CONTEXT)),
+        effects: {},
         editedByUser: false,
       }),
       wouldWaitForApproval: () => Promise.resolve(false),

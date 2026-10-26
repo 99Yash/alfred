@@ -30,7 +30,7 @@ import {
   labelNameFor,
 } from "@alfred/integrations/google";
 import { and, eq, inArray } from "drizzle-orm";
-import { runRestPassthrough } from "./passthrough";
+import { passthroughSpanFacts, runRestPassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
 import { assertGmailRecipientsAllowed } from "./gmail-recipient-policy";
 
@@ -647,5 +647,6 @@ export const gmailTools: readonly RegisteredTool[] = [
 
       return runRestPassthrough(ctx.integrations.google.gmail.passthrough(credential.id), input);
     },
+    spanFacts: passthroughSpanFacts,
   }),
 ];

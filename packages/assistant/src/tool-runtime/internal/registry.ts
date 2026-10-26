@@ -9,6 +9,7 @@ import type {
   IanaTimezone,
   IntegrationAvailabilitySnapshot,
   IntegrationSlug,
+  PassthroughTruncation,
   RiskTierCounts,
   ToolName,
   ToolRunContext,
@@ -26,6 +27,7 @@ import {
   isLoadableIntegrationSlug,
   isSupportedPassthroughSlug,
   joinToolInput,
+  toolNameSchema,
 } from "@alfred/contracts";
 // Type-only: the values pull `@alfred/db` into every tool declaration. `../context` binds them.
 import type { Integrations } from "@alfred/integrations";
@@ -121,16 +123,55 @@ export type ToolExecuteContextFields = Omit<ToolExecuteContext, "integrations" |
 /** The context that a `requiresLiveChat: true` tool's `execute` receives. */
 export type LiveChatToolExecuteContext = ToolExecuteContext & { chat: ChatTurnAddress };
 
+/**
+ * The typed side data a call hands back beside its model-facing output. Dispatch persists it with
+ * the result in one write, so a replay returns what the live call did. Nothing reads an effect
+ * from the output.
+ */
+export const toolEffectsSchema = z.object({
+  /** A tool the round folds into the next turn's surface. */
+  activation: z
+    .discriminatedUnion("kind", [
+      z.object({ kind: z.literal("load"), name: toolNameSchema }),
+      // Ranked, available, non-`mcp.call` hits. The round applies `run.allowedTools`.
+      z.object({ kind: z.literal("search_fold"), names: z.array(toolNameSchema) }),
+    ])
+    .optional(),
+  /** The artifact an `artifact_mutation` call wrote. */
+  artifactId: z.string().min(1).optional(),
+});
+
+export type ToolEffects = z.infer<typeof toolEffectsSchema>;
+
+export const NO_TOOL_EFFECTS: ToolEffects = {};
+
+/** Live-only facts for the call's span. Never persisted, never replayed. */
+export interface ToolSpanFacts {
+  passthroughTruncation?: { truncation: PassthroughTruncation; succeeded: boolean };
+}
+
+/** What a bound call returns. `output` is free-form; dispatch sanitizes it into a `JsonValue`. */
+export interface ToolExecution {
+  output: unknown;
+  effects: ToolEffects;
+  spanFacts: ToolSpanFacts;
+}
+
 type ExecuteContextFor<L extends boolean> = [L] extends [true]
   ? LiveChatToolExecuteContext
   : ToolExecuteContext;
 
-/** `L` is the literal `requiresLiveChat` flag, so a live-chat tool's `execute` gets `ctx.chat`. */
+/**
+ * `L` is the literal `requiresLiveChat` flag, so a live-chat tool's `execute` gets `ctx.chat`.
+ * `O` is the output `execute` returns, so `effects` and `spanFacts` read it typed. Declare them
+ * after `execute`: TypeScript infers `O` from the first of them.
+ */
 export interface LiveToolArgs<
   I extends IntegrationSlug,
   A extends ActionSlug<I> & string,
   S extends z.ZodType,
   L extends boolean = false,
+  O = unknown,
 > {
   integration: I;
   action: A;
@@ -174,8 +215,14 @@ export interface LiveToolArgs<
    */
   refuseInput?: (input: z.infer<S>, ctx: ToolExecuteContext) => string | null;
   /** Receives parsed input. A throw is recorded by the dispatcher. */
-  // oxlint-disable-next-line anti-slop/no-unknown-returns -- a tool's `execute` result is free-form JSON; dispatch sanitizes it into a `JsonValue`.
-  execute: (input: z.infer<S>, ctx: ExecuteContextFor<L>) => Promise<unknown>;
+  execute: (input: z.infer<S>, ctx: ExecuteContextFor<L>) => Promise<O>;
+  /**
+   * The side data a consumer acts on (see {@link ToolEffects}). Pure. Runs once on the live
+   * output; a replay reads the persisted copy.
+   */
+  effects?: (output: O) => ToolEffects;
+  /** Live-only span metadata. Pure. Required on a passthrough tool. */
+  spanFacts?: (output: O) => ToolSpanFacts;
   /**
    * Scrub secrets before the input reaches a trace or a staging row (#293).
    * Must be pure and keep the shape. The hash and `execute` see the raw input.
@@ -203,8 +250,7 @@ export interface BoundToolCall {
   // oxlint-disable-next-line anti-slop/no-unknown-returns -- the registry erases each tool's input type; the redacted input goes to the trace and the staging row as received.
   redactedInput: () => unknown;
   /** See {@link LiveToolArgs.execute}. A throw is recorded by the dispatcher. */
-  // oxlint-disable-next-line anti-slop/no-unknown-returns -- a tool's `execute` result is free-form JSON; dispatch sanitizes it into a `JsonValue`.
-  execute: (ctx: ToolExecuteContext) => Promise<unknown>;
+  execute: (ctx: ToolExecuteContext) => Promise<ToolExecution>;
 }
 
 /** The result of {@link RegisteredTool.bind}: a bound call, or the reason the input did not parse. */
@@ -229,6 +275,8 @@ export interface RegisteredTool {
   artifactStream?: "replace" | "append" | undefined;
   /** See {@link LiveToolArgs.policyGateWaiver}. */
   policyGateWaiver?: string | undefined;
+  /** Whether the tool declares {@link LiveToolArgs.spanFacts}. A passthrough tool must. */
+  hasSpanFacts: boolean;
   description: string;
   discovery: ResolvedDiscovery;
   availability?: ToolAvailabilityMetadata | undefined;
@@ -423,15 +471,24 @@ export function liveTool<
   A extends ActionSlug<I> & string,
   S extends z.ZodType,
   L extends boolean = false,
->(args: LiveToolArgs<I, A, S, L>): RegisteredTool;
+  O = unknown,
+>(args: LiveToolArgs<I, A, S, L, O>): RegisteredTool;
 // `L = boolean` resolves `execute` to the plain context, so the body needs no cast.
 export function liveTool<
   I extends IntegrationSlug,
   A extends ActionSlug<I> & string,
   S extends z.ZodType,
->(args: LiveToolArgs<I, A, S, boolean>): RegisteredTool {
+  O,
+>(args: LiveToolArgs<I, A, S, boolean, O>): RegisteredTool {
   const name = buildToolName(args.integration, args.action);
-  const { redactInput, resolveRiskTier, refuseInput } = args;
+  const { redactInput, resolveRiskTier, refuseInput, effects, spanFacts } = args;
+
+  // Effects come from the raw typed output, one time, before dispatch sanitizes it.
+  const execution = (output: O): ToolExecution => ({
+    output,
+    effects: effects?.(output) ?? NO_TOOL_EFFECTS,
+    spanFacts: spanFacts?.(output) ?? {},
+  });
 
   const tool: RegisteredTool = {
     name,
@@ -444,6 +501,7 @@ export function liveTool<
     executionLane: args.executionLane,
     artifactStream: args.artifactStream,
     policyGateWaiver: args.policyGateWaiver,
+    hasSpanFacts: spanFacts !== undefined,
     description: args.description,
     discovery: deriveToolDiscovery({
       integration: args.integration,
@@ -472,8 +530,10 @@ export function liveTool<
           declaredRiskTier: (ctx) =>
             resolveRiskTier ? resolveRiskTier(input, ctx) : Promise.resolve(args.riskTier),
           redactedInput: () => (redactInput ? redactInput(input) : input),
-          execute: (ctx) => {
-            if (args.availability?.requiresLiveChat !== true) return args.execute(input, ctx);
+          execute: async (ctx) => {
+            if (args.availability?.requiresLiveChat !== true) {
+              return execution(await args.execute(input, ctx));
+            }
 
             const { chat } = ctx;
 
@@ -481,7 +541,7 @@ export function liveTool<
             // sets `interaction` and `chat` together. A direct call or a builder that splits them gets here.
             if (!chat) throw new Error(`[tools] '${name}' requires a live chat turn`);
 
-            return args.execute(input, { ...ctx, chat });
+            return execution(await args.execute(input, { ...ctx, chat }));
           },
         },
       };
@@ -521,6 +581,11 @@ export function registerTool(tool: RegisteredTool): void {
     throw new Error(
       `[tools] '${tool.name}' declares artifactStream without executionLane='artifact_mutation'`,
     );
+  }
+
+  // ADR-0074 truncation telemetry reads the typed span facts, so a passthrough tool must declare them.
+  if (tool.availability?.passthrough === true && !tool.hasSpanFacts) {
+    throw new Error(`[tools] '${tool.name}' declares availability.passthrough without spanFacts`);
   }
 
   if (tool.riskTierDowngradeReason !== undefined) {

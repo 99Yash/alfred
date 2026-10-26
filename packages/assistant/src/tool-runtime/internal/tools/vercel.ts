@@ -6,7 +6,7 @@ import {
   vercelListProjectsInput,
   vercelRedeployInput,
 } from "@alfred/contracts";
-import { runRestPassthrough } from "./passthrough";
+import { passthroughSpanFacts, runRestPassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
 
 export const vercelTools: readonly RegisteredTool[] = [
@@ -65,5 +65,6 @@ export const vercelTools: readonly RegisteredTool[] = [
     },
     inputSchema: restPassthroughInput,
     execute: async (input, ctx) => runRestPassthrough(ctx.integrations.vercel.passthrough, input),
+    spanFacts: passthroughSpanFacts,
   }),
 ];

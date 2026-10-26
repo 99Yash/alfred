@@ -15,6 +15,7 @@ import type { ActionStaging } from "@alfred/db/schemas";
 import {
   attemptKeyFor,
   effectKeyFor,
+  effectsColumn,
   outcomeForInsert,
   type StagingInsertValues,
   type StagingRow,
@@ -85,6 +86,7 @@ export function memoryStagingStore(): MemoryStagingStore {
       rejectReason: row.rejectReason,
       executeResult: row.executeResult,
       executeSanitized: row.executeSanitized,
+      executeEffects: row.executeEffects,
       executeError: row.executeError,
       notifyAfterAt: row.notifyAfterAt,
       notifiedAt: row.notifiedAt,
@@ -196,6 +198,7 @@ export function memoryStagingStore(): MemoryStagingStore {
         decidedAt: values.decidedAt ?? null,
         executeResult: values.executeResult ?? null,
         executeSanitized: values.executeSanitized ?? false,
+        executeEffects: values.executeEffects ?? null,
         executeError: values.executeError ?? null,
         executedAt: values.executedAt ?? null,
         notifyAfterAt: values.notifyAfterAt ?? null,
@@ -254,6 +257,7 @@ export function memoryStagingStore(): MemoryStagingStore {
           row.outcome = commit.outcome;
           row.executeResult = commit.result === undefined ? null : commit.result;
           row.executeSanitized = commit.sanitized;
+          row.executeEffects = effectsColumn(commit.effects);
           row.executedAt = commit.executedAt;
           break;
         default: {

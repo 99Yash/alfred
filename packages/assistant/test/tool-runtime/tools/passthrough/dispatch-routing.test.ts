@@ -26,6 +26,7 @@ describe("read-gate `rejected` is a VISIBLE, model-facing result", () => {
       reason: "method_not_read",
       message: "This request uses a write method. The general tier is read-only.",
     },
+    effects: {},
     editedByUser: false,
   };
 
@@ -69,7 +70,7 @@ describe("an executed result carries `editedByUser` to the model", () => {
   function executedValue(editedByUser: boolean): unknown {
     const message = toolResultMessage(
       { toolCallId: "call_1", toolName: REQUEST, input: {} },
-      { kind: "executed", stagingId: "s1", toolResult: { ok: true }, editedByUser },
+      { kind: "executed", stagingId: "s1", toolResult: { ok: true }, effects: {}, editedByUser },
     );
 
     assert.ok(Array.isArray(message.content), "expected tool-result content");
