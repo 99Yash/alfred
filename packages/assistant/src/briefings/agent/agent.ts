@@ -112,7 +112,7 @@ export async function runBriefingAgent(
       outputTokens: result.usage.outputTokens,
       totalTokens: result.usage.totalTokens,
     },
-    // The leg that wrote the briefing: the step that called `dump_briefing`.
+    // The leg that wrote the briefing: the step whose `dump_briefing` tool call actually ran.
     // A trailing wrap-up step starts on the primary again, so `finalStep`
     // would name a leg that did not produce the stored prose.
     modelId: modelIdOfDumpStep(result.steps),
@@ -121,26 +121,28 @@ export async function runBriefingAgent(
 }
 
 /**
- * The serving leg of the step that called `dump_briefing`. The caller already
- * threw when no dump happened, so this is always found.
+ * The serving leg of the step whose `dump_briefing` tool call actually ran. A
+ * `tool-result` part exists only when `execute` returned, and a successful
+ * `execute` is the only writer of the stored briefing, so the last step with
+ * that result is the step that wrote it. `toolCalls` would also match a
+ * rejected or throwing call that wrote nothing. The caller already threw when
+ * no dump happened, so this is always found.
  */
 function modelIdOfDumpStep(
   steps: readonly {
-    toolCalls: readonly { toolName: string }[];
+    toolResults: readonly { toolName: string }[];
     response: { modelId: string };
   }[],
 ): string {
-  for (let i = steps.length - 1; i >= 0; i--) {
-    const step = steps[i];
+  const step = steps.findLast((s) => s.toolResults.some((r) => r.toolName === "dump_briefing"));
 
-    if (!step) continue;
-
-    if (step.toolCalls.some((call) => call.toolName === "dump_briefing")) {
-      return step.response.modelId;
-    }
+  if (!step) {
+    throw new Error(
+      `[briefing-agent] loop ended without dump_briefing call. steps=${steps.length}`,
+    );
   }
 
-  throw new Error(`[briefing-agent] loop ended without dump_briefing call. steps=${steps.length}`);
+  return step.response.modelId;
 }
 
 /** The re-prompt text built from the guard's findings. One extra compose before the guard drops sentences. */

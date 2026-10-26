@@ -903,7 +903,6 @@ export async function classifyEmail(
   const collabVetoText = floorBodySignalText(args.document);
   const floorMatches = matchesExposedSecret(signalText);
 
-  // The base of `model_id` names the leg whose response the code stored.
   const firstResult = await runPass({
     system: classifySystemPrompt(),
     prompt: userPrompt(args, null),
@@ -932,7 +931,6 @@ export async function classifyEmail(
     } catch (err) {
       secondPassFailure = { message: errorMessage(err) };
       secondPass = null;
-      working = firstResult;
     }
   }
 
