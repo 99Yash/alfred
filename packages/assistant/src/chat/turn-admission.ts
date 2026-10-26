@@ -1,8 +1,6 @@
 import {
   Errors,
-  getPath,
   hasExtractedText,
-  isNonEmptyString,
   MAX_ATTACHMENT_BYTES_PER_MESSAGE,
   MAX_ATTACHMENTS_PER_MESSAGE,
   type TurnStartResponse,
@@ -37,6 +35,7 @@ import {
 import { releasePendingUploadBudget } from "./attachment-upload-quota";
 import { resolveAttachmentDegradation, schedulePendingUploadCleanup } from "./attachment-ingest";
 import { CHAT_TURN_WORKFLOW_SLUG } from "./chat-turn";
+import { readChatTurnRunMetadata, type ChatTurnRunMetadataInput } from "./chat-turn-run-metadata";
 import { requestChatStop } from "./stop-signal";
 import {
   attachmentRequestMatchesExistingRows,
@@ -86,23 +85,15 @@ async function findExistingChatTurnRun(
   const existing = active[0];
 
   if (!existing) return null;
-  const storedArtifactTargetId = getPath(existing.metadata, "artifactTargetId");
+  const stored = readChatTurnRunMetadata(existing.metadata);
 
-  const normalizedStoredTarget = isNonEmptyString(storedArtifactTargetId)
-    ? storedArtifactTargetId
-    : undefined;
-
-  if (normalizedStoredTarget !== artifactTargetId) {
+  if (stored.artifactTargetId !== artifactTargetId) {
     throw Errors.ConflictError("Message id already belongs to a different chat turn");
   }
 
-  const existingAssistantId = getPath(existing.metadata, "assistantMessageId");
-
   return {
     runId: existing.id,
-    assistantMessageId: isNonEmptyString(existingAssistantId)
-      ? existingAssistantId
-      : fallbackAssistantMessageId,
+    assistantMessageId: stored.assistantMessageId ?? fallbackAssistantMessageId,
   };
 }
 
@@ -131,10 +122,9 @@ async function findBlockingChatTurnRun(
   const existing = active[0];
 
   if (!existing) return null;
-  const runUserMessageId = getPath(existing.metadata, "userMessageId");
 
   // The same user message is a retry, not a busy thread.
-  if (runUserMessageId === userMessageId) return null;
+  if (readChatTurnRunMetadata(existing.metadata).userMessageId === userMessageId) return null;
 
   return existing.id;
 }
@@ -605,7 +595,7 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
           userMessageId: userMessageId,
           tier: tier ?? "standard",
           ...(artifactTargetId !== undefined ? { artifactTargetId } : {}),
-        },
+        } satisfies ChatTurnRunMetadataInput,
       });
 
       return { outcome: "started", runId, assistantMessageId };
