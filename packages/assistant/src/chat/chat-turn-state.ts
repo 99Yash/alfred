@@ -1,9 +1,9 @@
+import type { TranscriptMessage } from "@alfred/ai";
 import { ARTIFACT_DOCUMENT_DESIGN_PROMPT } from "@alfred/artifacts-design";
 import {
   artifactFormatSchema,
   chatConnectNudgeSchema,
   chatModelTierSchema,
-  type AgentTranscriptMessage,
 } from "@alfred/contracts";
 import { sha256Hex } from "@alfred/db/hash";
 import type { ChatMessageToolCall } from "@alfred/db/schemas";
@@ -160,7 +160,7 @@ export function assertStableChatSystem(
 /** Reserve one guide message; the context guard admits it after compaction. */
 export function admitPdfDesignGuide(
   state: Pick<ChatRunState, "artifactDesignMedium" | "pdfDesignGuideAdmitted">,
-): AgentTranscriptMessage | undefined {
+): TranscriptMessage | undefined {
   if (state.artifactDesignMedium !== "pdf" || state.pdfDesignGuideAdmitted) return;
   state.pdfDesignGuideAdmitted = true;
 
@@ -171,7 +171,7 @@ export function admitPdfDesignGuide(
 /** Build the only allowed chat interrupt and invalidate wake-sensitive state. */
 export function interruptChatRun(
   state: ChatRunState,
-  transcript: AgentTranscriptMessage[],
+  transcript: TranscriptMessage[],
   wake: Extract<StepResult<ChatRunState>, { kind: "interrupt" }>["wake"],
 ): Extract<StepResult<ChatRunState>, { kind: "interrupt" }> {
   // Keep the grounding anchor: `foldResumedPark` knows the park length and decides.

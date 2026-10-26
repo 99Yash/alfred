@@ -1,3 +1,4 @@
+import type { TranscriptMessage } from "@alfred/ai";
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
 
@@ -193,7 +194,7 @@ test("selects an exact available preload through the workflow allowlist", async 
     passthroughEnabled: new Map(),
   };
 
-  const transcript = [{ role: "user", content: "gmail.search" }];
+  const transcript: TranscriptMessage[] = [{ role: "user", content: "gmail.search" }];
 
   const allowed = await selectToolPreload({
     userId: "user_1",

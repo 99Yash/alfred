@@ -1,8 +1,8 @@
-import { asSchema, type ModelMessage, type ToolSet } from "ai";
+import { asSchema, type FilePart, type ToolSet } from "ai";
 
-import { parseJsonText, type AgentTranscriptMessage, type JsonValue } from "@alfred/contracts";
+import { parseJsonText, type JsonValue } from "@alfred/contracts";
 
-import { effectiveInputWindowTokens } from "@alfred/ai";
+import { effectiveInputWindowTokens, type TranscriptMessage } from "@alfred/ai";
 
 import { estimateSerializedTokens } from "@alfred/assistant/execution";
 import { CHAT_HYDRATED_IMAGE_TOKENS, CHAT_SYNC_COMPACTION_RATIO } from "./constants";
@@ -16,9 +16,6 @@ export interface ChatRequestTokenEstimate {
   outputReserveTokens: number;
   totalRequestTokens: number;
 }
-
-/** The estimate reads only the JSON text, so the stored view and the SDK view both work. */
-type EstimatedTranscript = readonly (AgentTranscriptMessage | ModelMessage)[];
 
 export interface ChatRequestPressure extends ChatRequestTokenEstimate {
   effectiveInputWindowTokens: number;
@@ -35,7 +32,7 @@ export async function estimateChatRequestTokens({
 }: {
   systemPrompt: string;
   tools: ToolSet;
-  transcript: EstimatedTranscript;
+  transcript: readonly TranscriptMessage[];
   outputReserveTokens: number;
 }): Promise<ChatRequestTokenEstimate> {
   if (!Number.isInteger(outputReserveTokens) || outputReserveTokens < 0) {
@@ -83,7 +80,7 @@ export async function estimateChatRequestTokens({
 export async function assessChatRequestPressure(args: {
   systemPrompt: string;
   tools: ToolSet;
-  transcript: EstimatedTranscript;
+  transcript: readonly TranscriptMessage[];
   contextWindowTokens: number;
   outputReserveTokens: number;
 }): Promise<ChatRequestPressure> {
@@ -109,32 +106,35 @@ interface NormalizedTranscript {
   hydratedImages: number;
 }
 
-function normalizeTranscript(messages: EstimatedTranscript): NormalizedTranscript {
+type TranscriptPart = Exclude<TranscriptMessage["content"], string>[number];
+
+/** The stored view and the SDK view both work: only the JSON text and the inlined images count. */
+function normalizeTranscript(messages: readonly TranscriptMessage[]): NormalizedTranscript {
   let hydratedImages = 0;
 
-  const normalized = parseJsonText(
-    JSON.stringify(messages, (_key, value: unknown) => {
-      if (!isHydratedFilePart(value)) return value;
-      hydratedImages += 1;
+  const redact = (part: TranscriptPart) => {
+    if (!isHydratedFilePart(part)) return part;
+    hydratedImages += 1;
 
-      return { type: "file", mediaType: value.mediaType, data: "[hydrated-image]" };
-    }),
-  );
+    return { type: "file", mediaType: part.mediaType, data: "[hydrated-image]" };
+  };
 
-  return { messages: normalized, hydratedImages };
+  const redacted = messages.map((message) => {
+    if (message.role === "user" && Array.isArray(message.content)) {
+      return { ...message, content: message.content.map(redact) };
+    }
+
+    if (message.role === "assistant" && Array.isArray(message.content)) {
+      return { ...message, content: message.content.map(redact) };
+    }
+
+    return message;
+  });
+
+  return { messages: parseJsonText(JSON.stringify(redacted)), hydratedImages };
 }
 
-function isHydratedFilePart(value: unknown): value is {
-  type: "file";
-  data: string;
-  mediaType?: string;
-} {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "type" in value &&
-    value.type === "file" &&
-    "data" in value &&
-    typeof value.data === "string"
-  );
+/** A file part whose bytes the chat turn inlined as base64 text. */
+function isHydratedFilePart(part: TranscriptPart): part is FilePart & { data: string } {
+  return part.type === "file" && typeof part.data === "string";
 }

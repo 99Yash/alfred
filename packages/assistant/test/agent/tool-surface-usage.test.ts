@@ -1,7 +1,8 @@
+import type { TranscriptMessage } from "@alfred/ai";
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import type { AgentTranscriptMessage, ToolName } from "@alfred/contracts";
+import type { ToolName } from "@alfred/contracts";
 
 import {
   invokedToolNamesFromTranscript,
@@ -68,12 +69,14 @@ describe("summarizeToolSurfaceUsage", () => {
 });
 
 describe("invokedToolNamesFromTranscript", () => {
-  function assistant(content: unknown): AgentTranscriptMessage {
+  function assistant(
+    content: Extract<TranscriptMessage, { role: "assistant" }>["content"],
+  ): TranscriptMessage {
     return { role: "assistant", content };
   }
 
   test("collects dotted tool names from assistant tool-call parts", () => {
-    const transcript: AgentTranscriptMessage[] = [
+    const transcript: TranscriptMessage[] = [
       { role: "user", content: "find my meetings" },
       assistant([
         { type: "text", text: "on it" },
@@ -81,7 +84,14 @@ describe("invokedToolNamesFromTranscript", () => {
       ]),
       {
         role: "tool",
-        content: [{ type: "tool-result", toolCallId: "c1", toolName: "calendar.list_events" }],
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "c1",
+            toolName: "calendar.list_events",
+            output: { type: "json", value: {} },
+          },
+        ],
       },
       assistant([
         { type: "tool-call", toolCallId: "c2", toolName: "gmail.search", input: {} },
@@ -94,9 +104,19 @@ describe("invokedToolNamesFromTranscript", () => {
   });
 
   test("ignores non-assistant messages, non-tool-call parts, and unregistered names", () => {
-    const transcript: AgentTranscriptMessage[] = [
+    const transcript: TranscriptMessage[] = [
       // a tool-result on a tool message must not count as an invocation
-      { role: "tool", content: [{ type: "tool-result", toolName: "gmail.search" }] },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "c8",
+            toolName: "gmail.search",
+            output: { type: "json", value: {} },
+          },
+        ],
+      },
       assistant("plain string content"),
       assistant([
         { type: "text", text: "no tools here" },

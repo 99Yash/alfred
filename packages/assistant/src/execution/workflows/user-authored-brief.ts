@@ -1,4 +1,10 @@
-import { route, resolveEffectiveInputWindowTokens, AlfredAgent } from "@alfred/ai";
+import {
+  AlfredAgent,
+  resolveEffectiveInputWindowTokens,
+  route,
+  toModelMessages,
+  type TranscriptMessage,
+} from "@alfred/ai";
 import {
   compactionThresholdTokens,
   isInboundEventSource,
@@ -11,7 +17,6 @@ import {
   isToolName,
   workflowRevisionDefinitionSchema,
   workflowRequiredCapabilitySchema,
-  type AgentTranscriptMessage,
   type InboundEventSource,
   type GmailDocumentMetadata,
 } from "@alfred/contracts";
@@ -26,7 +31,6 @@ import {
   estimateTranscriptTokens,
   shouldSkipCompaction,
 } from "../run-compaction/tokens";
-import { toModelMessages, toTranscriptMessages } from "../model-transcript";
 import { appendModelResponseMessages } from "../transcript-dedup";
 import { publishEvent } from "@alfred/assistant/triggers";
 import {
@@ -280,7 +284,7 @@ const bossTurnStep: Step<BriefRunState> = {
 
     const nextTranscript = appendModelResponseMessages(
       transcript,
-      toTranscriptMessages(result.raw.responseMessages),
+      result.raw.responseMessages,
       stepCallIds,
     );
 
@@ -584,7 +588,7 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState> = {
   },
   async initialTranscript(input) {
     if (!input.brief) throw new Error("user-authored brief workflow requires a brief");
-    const transcript: AgentTranscriptMessage[] = [{ role: "user", content: input.brief }];
+    const transcript: TranscriptMessage[] = [{ role: "user", content: input.brief }];
     const triggerEvent = await buildTriggerEventMessage(input);
 
     if (triggerEvent) transcript.push(triggerEvent);
@@ -677,9 +681,7 @@ function readBriefAuthoredMetadata(metadata: unknown): BriefAuthoredMetadata {
   return briefAuthoredMetadataSchema.parse(metadata ?? {});
 }
 
-async function buildTriggerEventMessage(
-  input: WorkflowInput,
-): Promise<AgentTranscriptMessage | null> {
+async function buildTriggerEventMessage(input: WorkflowInput): Promise<TranscriptMessage | null> {
   const trigger = input.trigger;
 
   if (trigger.kind !== "event") return null;
@@ -788,7 +790,7 @@ async function buildReceiptTriggerMessage(input: {
   type: string | undefined;
   rawKind: string | undefined;
   receiptId: string;
-}): Promise<AgentTranscriptMessage> {
+}): Promise<TranscriptMessage> {
   const doc = await readReceiptDocument({
     id: input.receiptId,
     userId: input.userId,

@@ -1,5 +1,6 @@
+import type { TranscriptMessage } from "@alfred/ai";
 import { resolveModelContextWindow, type LanguageModel, type ToolSet } from "@alfred/ai";
-import { toMessage, type AgentTranscriptMessage } from "@alfred/contracts";
+import { toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { chatMessages } from "@alfred/db/schemas";
 import { and, asc, eq } from "drizzle-orm";
@@ -18,9 +19,9 @@ const FOREGROUND_COMPACTION_TIMEOUT_MS = 2 * 60_000;
 
 /** Place ephemeral assistant-known run context immediately before the request. */
 export function withEphemeralReference(
-  transcript: readonly AgentTranscriptMessage[],
+  transcript: readonly TranscriptMessage[],
   reference: string,
-): AgentTranscriptMessage[] {
+): TranscriptMessage[] {
   if (!reference) return [...transcript];
   let userIndex = -1;
 
@@ -31,7 +32,7 @@ export function withEphemeralReference(
     }
   }
 
-  const message = { role: "assistant", content: reference } satisfies AgentTranscriptMessage;
+  const message = { role: "assistant", content: reference } satisfies TranscriptMessage;
 
   if (userIndex < 0) return [message, ...transcript];
 
@@ -40,14 +41,14 @@ export function withEphemeralReference(
 
 /** Two views with the same message boundaries. Only the model view holds hydrated bytes. */
 export interface CompactedChatTranscriptPair {
-  modelTranscript: AgentTranscriptMessage[];
-  continuationTranscript: AgentTranscriptMessage[];
+  modelTranscript: TranscriptMessage[];
+  continuationTranscript: TranscriptMessage[];
 }
 
 export function buildCompactedChatTranscriptPair(
-  summary: AgentTranscriptMessage,
-  storedTail: readonly AgentTranscriptMessage[],
-  hydratedTail: readonly AgentTranscriptMessage[],
+  summary: TranscriptMessage,
+  storedTail: readonly TranscriptMessage[],
+  hydratedTail: readonly TranscriptMessage[],
 ): CompactedChatTranscriptPair {
   return {
     modelTranscript: [summary, ...hydratedTail],
@@ -58,7 +59,7 @@ export function buildCompactedChatTranscriptPair(
 export function oversizedUserMessageSummaryMessage(
   sourceMessageId: string,
   summary: string,
-): AgentTranscriptMessage {
+): TranscriptMessage {
   return {
     role: "user",
     content:
@@ -71,9 +72,9 @@ export function oversizedUserMessageSummaryMessage(
 
 /** The summary replaces this prefix, so hydrated bytes would add cost and nothing else. */
 export function storedCompactionPrefix(
-  transcript: readonly AgentTranscriptMessage[],
+  transcript: readonly TranscriptMessage[],
   endExclusive: number,
-): AgentTranscriptMessage[] {
+): TranscriptMessage[] {
   return transcript.slice(0, endExclusive);
 }
 
@@ -108,7 +109,7 @@ async function loadForegroundCompactionBoundary(
   };
 }
 
-function latestUserSuffixStart(transcript: readonly AgentTranscriptMessage[]): number {
+function latestUserSuffixStart(transcript: readonly TranscriptMessage[]): number {
   for (let index = transcript.length - 1; index >= 0; index -= 1) {
     if (transcript[index]?.role === "user") return index;
   }
@@ -143,20 +144,20 @@ async function applyForegroundContextGuard({
   systemPrompt: string;
   tools: ToolSet;
   model: LanguageModel;
-  storedTranscript: readonly AgentTranscriptMessage[];
-  hydratedTranscript: readonly AgentTranscriptMessage[];
+  storedTranscript: readonly TranscriptMessage[];
+  hydratedTranscript: readonly TranscriptMessage[];
   artifactReference: string;
-  pendingGuidance: AgentTranscriptMessage | undefined;
+  pendingGuidance: TranscriptMessage | undefined;
   abortSignal: AbortSignal;
   onCompactionStart?: () => Promise<void>;
   onCompactionFinish?: () => Promise<void>;
 }): Promise<{
-  modelTranscript: AgentTranscriptMessage[];
-  continuationTranscript: AgentTranscriptMessage[];
+  modelTranscript: TranscriptMessage[];
+  continuationTranscript: TranscriptMessage[];
 }> {
   const contextWindowTokens = await resolveModelContextWindow(model);
 
-  const assess = (candidate: readonly AgentTranscriptMessage[]) =>
+  const assess = (candidate: readonly TranscriptMessage[]) =>
     assessChatRequestPressure({
       systemPrompt,
       tools,
@@ -321,22 +322,22 @@ async function applyWithinRunContextGuard({
   systemPrompt: string;
   tools: ToolSet;
   model: LanguageModel;
-  transcript: readonly AgentTranscriptMessage[];
-  hydratedTranscript: readonly AgentTranscriptMessage[];
+  transcript: readonly TranscriptMessage[];
+  hydratedTranscript: readonly TranscriptMessage[];
   inFlightTailStart: number;
   artifactReference: string;
-  pendingGuidance: AgentTranscriptMessage | undefined;
+  pendingGuidance: TranscriptMessage | undefined;
   abortSignal: AbortSignal;
   onCompactionStart?: () => Promise<void>;
   onCompactionFinish?: () => Promise<void>;
 }): Promise<{
-  modelTranscript: AgentTranscriptMessage[];
-  continuationTranscript: AgentTranscriptMessage[];
+  modelTranscript: TranscriptMessage[];
+  continuationTranscript: TranscriptMessage[];
   compacted: boolean;
 }> {
   const contextWindowTokens = await resolveModelContextWindow(model);
 
-  const assess = (candidate: readonly AgentTranscriptMessage[]) =>
+  const assess = (candidate: readonly TranscriptMessage[]) =>
     assessChatRequestPressure({
       systemPrompt,
       tools,
@@ -424,18 +425,18 @@ async function guardExistingTurnContext(args: {
   systemPrompt: string;
   tools: ToolSet;
   model: LanguageModel;
-  storedTranscript: readonly AgentTranscriptMessage[];
-  hydratedTranscript: readonly AgentTranscriptMessage[];
+  storedTranscript: readonly TranscriptMessage[];
+  hydratedTranscript: readonly TranscriptMessage[];
   artifactReference: string;
-  pendingGuidance?: AgentTranscriptMessage | undefined;
+  pendingGuidance?: TranscriptMessage | undefined;
   abortSignal: AbortSignal;
   onPhase: (
     phase: "compaction_started" | "compaction_finished",
     scope: "foreground" | "within_run",
   ) => Promise<void>;
 }): Promise<{
-  continuationTranscript: AgentTranscriptMessage[];
-  modelTranscript: AgentTranscriptMessage[];
+  continuationTranscript: TranscriptMessage[];
+  modelTranscript: TranscriptMessage[];
   compacted: boolean;
 }> {
   // Otherwise the loaded transcript is already bounded.

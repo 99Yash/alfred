@@ -1,20 +1,18 @@
-import type { AgentTranscriptMessage } from "@alfred/contracts";
-import type { ChatMessageRole } from "@alfred/db/schemas";
+import type { StoredUserMessage, TranscriptMessage } from "@alfred/ai";
+import type { AssistantModelMessage } from "ai";
 
 import type { ConversationSummary } from "./conversation-summary";
 import { nullableChatMessageWatermark, type ChatMessageWatermark } from "./chat-message-watermark";
 import type { LoadedChatThreadContext } from "./chat-context-store";
 import { estimateTranscriptTokens } from "@alfred/assistant/execution";
 
-export interface ChatContextMessage {
-  id: string;
-  role: ChatMessageRole;
-  content: AgentTranscriptMessage["content"];
-  createdAt: Date;
-}
+export type ChatContextMessage = { id: string; createdAt: Date } & (
+  | { role: "user"; content: StoredUserMessage["content"] }
+  | { role: "assistant"; content: AssistantModelMessage["content"] }
+);
 
 export interface AssembledChatContext {
-  summaryMessage: AgentTranscriptMessage | null;
+  summaryMessage: TranscriptMessage | null;
   verbatimMessageIds: string[];
   summaryApplied: boolean;
   invalidSummary: boolean;
@@ -78,7 +76,7 @@ export function selectVerbatimTail(
   return messages.slice(selectedStart);
 }
 
-export function conversationSummaryMessage(summary: ConversationSummary): AgentTranscriptMessage {
+export function conversationSummaryMessage(summary: ConversationSummary): TranscriptMessage {
   return {
     role: "user",
     content:
@@ -96,8 +94,10 @@ function completeWatermark(context: LoadedChatThreadContext | null): ChatMessage
   );
 }
 
-function toTranscriptMessage(message: ChatContextMessage): AgentTranscriptMessage {
-  return { role: message.role, content: message.content } satisfies AgentTranscriptMessage;
+function toTranscriptMessage(message: ChatContextMessage): TranscriptMessage {
+  return message.role === "user"
+    ? { role: "user", content: message.content }
+    : { role: "assistant", content: message.content };
 }
 
 function estimateMessageTokens(messages: readonly ChatContextMessage[]): number {

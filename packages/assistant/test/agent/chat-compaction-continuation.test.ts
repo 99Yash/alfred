@@ -1,7 +1,8 @@
+import type { TranscriptMessage } from "@alfred/ai";
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import { toDisplayText } from "@alfred/contracts";
 
-import type { AgentTranscriptMessage } from "@alfred/contracts";
 import {
   buildCompactedChatTranscriptPair,
   oversizedUserMessageSummaryMessage,
@@ -13,20 +14,20 @@ describe("chat compaction continuation", () => {
     const summary = {
       role: "user",
       content: "<conversation_summary />",
-    } satisfies AgentTranscriptMessage;
+    } satisfies TranscriptMessage;
 
     const storedTail = [
       {
         role: "user",
         content: [{ type: "chat_attachment_image", storageKey: "private/thread/image.png" }],
-      } as AgentTranscriptMessage,
+      } as TranscriptMessage,
     ];
 
     const hydratedTail = [
       {
         role: "user",
         content: [{ type: "file", data: "base64-image-bytes", mediaType: "image/png" }],
-      } as AgentTranscriptMessage,
+      } as TranscriptMessage,
     ];
 
     const paired = buildCompactedChatTranscriptPair(summary, storedTail, hydratedTail);
@@ -37,12 +38,22 @@ describe("chat compaction continuation", () => {
   });
 
   test("preserves the whole in-flight tail after replacing only the compacted prefix", () => {
-    const summary = { role: "system", content: "<run_summary />" } satisfies AgentTranscriptMessage;
+    const summary = { role: "system", content: "<run_summary />" } satisfies TranscriptMessage;
 
     const tail = [
       { role: "assistant", content: "Checking." },
-      { role: "tool", content: "large result" },
-    ] satisfies AgentTranscriptMessage[];
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "c1",
+            toolName: "gmail.search",
+            output: { type: "text", value: "large result" },
+          },
+        ],
+      },
+    ] satisfies TranscriptMessage[];
 
     const paired = buildCompactedChatTranscriptPair(summary, tail, tail);
 
@@ -55,15 +66,15 @@ describe("chat compaction continuation", () => {
       {
         role: "user",
         content: [{ type: "chat_attachment_image", storageKey: "private/thread/image.png" }],
-      } as AgentTranscriptMessage,
-      { role: "assistant", content: "I inspected the image." } as AgentTranscriptMessage,
+      } as TranscriptMessage,
+      { role: "assistant", content: "I inspected the image." } as TranscriptMessage,
     ];
 
     const hydrated = [
       {
         role: "user",
         content: [{ type: "file", data: "base64-image-bytes", mediaType: "image/png" }],
-      } as AgentTranscriptMessage,
+      } as TranscriptMessage,
       stored[1],
     ];
 
@@ -80,7 +91,7 @@ describe("chat compaction continuation", () => {
       "<run_summary><current_goal>Ship it</current_goal></run_summary>",
     );
 
-    const content = String(message.content);
+    const content = toDisplayText(message.content);
 
     assert.equal(message.role, "user");
     assert.match(content, /<oversized_user_message_summary/);

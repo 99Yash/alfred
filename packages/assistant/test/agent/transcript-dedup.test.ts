@@ -1,7 +1,7 @@
+import type { TranscriptMessage } from "@alfred/ai";
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import type { AgentTranscriptMessage } from "@alfred/contracts";
 import {
   appendModelResponseMessages,
   isSynthesizedToolDup,
@@ -12,7 +12,7 @@ import {
  * adds one too. Two results for one toolCallId is an Anthropic 400, so drop the SDK's.
  */
 
-function toolMessage(...toolCallIds: string[]): AgentTranscriptMessage {
+function toolMessage(...toolCallIds: string[]): TranscriptMessage {
   return {
     role: "tool",
     content: toolCallIds.map((id) => ({
@@ -48,9 +48,9 @@ describe("isSynthesizedToolDup", () => {
 
 describe("appendModelResponseMessages", () => {
   test("filters the synthesized dup but keeps the assistant tool-call message", () => {
-    const transcript: AgentTranscriptMessage[] = [{ role: "user", content: "send it" }];
+    const transcript: TranscriptMessage[] = [{ role: "user", content: "send it" }];
 
-    const assistant: AgentTranscriptMessage = {
+    const assistant: TranscriptMessage = {
       role: "assistant",
       content: [{ type: "tool-call", toolCallId: "tc_1", toolName: "gmail.send_draft", input: {} }],
     };
@@ -63,8 +63,8 @@ describe("appendModelResponseMessages", () => {
   });
 
   test("empty stepCallIds filters nothing (a turn with no tool calls)", () => {
-    const transcript: AgentTranscriptMessage[] = [];
-    const messages: AgentTranscriptMessage[] = [{ role: "assistant", content: "final answer" }];
+    const transcript: TranscriptMessage[] = [];
+    const messages: TranscriptMessage[] = [{ role: "assistant", content: "final answer" }];
     const out = appendModelResponseMessages(transcript, messages, new Set());
     assert.deepEqual(out, messages);
   });

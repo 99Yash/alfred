@@ -1,4 +1,4 @@
-import type { AgentTranscriptMessage } from "@alfred/contracts";
+import type { StoredUserMessage, TranscriptMessage } from "@alfred/ai";
 
 /**
  * Marks a runtime note to the model. It is a user-role message because the transcript must end
@@ -7,8 +7,8 @@ import type { AgentTranscriptMessage } from "@alfred/contracts";
 const SYSTEM_NOTE_PREFIX = "[system] ";
 
 function isSystemNote(
-  message: AgentTranscriptMessage | undefined,
-): message is AgentTranscriptMessage & { content: string } {
+  message: TranscriptMessage | undefined,
+): message is StoredUserMessage & { content: string } {
   return (
     message?.role === "user" &&
     typeof message.content === "string" &&
@@ -22,9 +22,9 @@ function isSystemNote(
  * A real user message is never merged into.
  */
 export function appendSystemNote(
-  transcript: readonly AgentTranscriptMessage[],
+  transcript: readonly TranscriptMessage[],
   text: string,
-): AgentTranscriptMessage[] {
+): TranscriptMessage[] {
   const last = transcript.at(-1);
 
   if (last && isSystemNote(last)) {

@@ -1,4 +1,4 @@
-import type { AgentTranscriptMessage } from "@alfred/contracts";
+import type { TranscriptMessage } from "@alfred/ai";
 import { APPROXIMATE_CHARS_PER_TOKEN } from "@alfred/ai";
 
 export const CHARS_PER_TOKEN = APPROXIMATE_CHARS_PER_TOKEN;
@@ -8,7 +8,7 @@ export function estimateSerializedTokens(value: unknown): number {
 }
 
 /** Rough chars / 4 estimate, the same one the workflow uses. */
-export function estimateTranscriptTokens(messages: readonly AgentTranscriptMessage[]): number {
+export function estimateTranscriptTokens(messages: readonly TranscriptMessage[]): number {
   return estimateSerializedTokens(messages);
 }
 
@@ -18,7 +18,7 @@ export function estimateNextTurnInputTokens({
   inFlightTail,
 }: {
   priorInputTokens: number;
-  inFlightTail: readonly AgentTranscriptMessage[];
+  inFlightTail: readonly TranscriptMessage[];
 }): number {
   return priorInputTokens + estimateTranscriptTokens(inFlightTail);
 }

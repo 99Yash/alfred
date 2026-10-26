@@ -1,3 +1,4 @@
+import type { TranscriptMessage } from "@alfred/ai";
 import {
   isToolName,
   isWriteRiskTier,
@@ -19,7 +20,6 @@ import {
   searchMcpToolsLocal,
 } from "@alfred/assistant/connections/mcp";
 import { resolveMcpCallRiskTier } from "@alfred/assistant/tool-runtime/mcp";
-import { z } from "zod";
 import {
   evaluateToolAvailability,
   evaluateToolCatalog,
@@ -235,15 +235,18 @@ export function preloadToolCatalog(args: {
 }
 
 /** Bounded user text only. Tool and assistant output is not intent. */
-export function latestUserPrompt(
-  transcript: readonly { role: string; content: unknown }[],
-): string {
+export function latestUserPrompt(transcript: readonly TranscriptMessage[]): string {
   for (let index = transcript.length - 1; index >= 0; index -= 1) {
     const message = transcript[index];
 
     if (message?.role !== "user") continue;
 
-    return promptTextSchema.parse(message.content).slice(0, 8_000);
+    // An image or a file part has no text, so it drops out of the prompt.
+    const text = Array.isArray(message.content)
+      ? message.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join(" ")
+      : message.content;
+
+    return text.slice(0, 8_000);
   }
 
   return "";
@@ -523,19 +526,3 @@ const STOP_WORDS = new Set([
 function meaningfulTokens(value: string): Set<string> {
   return new Set(value.split(" ").filter((token) => token.length > 1 && !STOP_WORDS.has(token)));
 }
-
-// A part with no string `text` (an image or a file) drops out instead of failing the prompt.
-const promptPartTextSchema = z
-  .union([z.string(), z.object({ text: z.string() }).transform((part) => part.text)])
-  .optional()
-  .catch(undefined);
-
-/** Message content is a string or a content-part array. Any other shape reads as no text. */
-const promptTextSchema = z
-  .union([
-    z.string(),
-    z
-      .array(promptPartTextSchema)
-      .transform((parts) => parts.flatMap((text) => (text === undefined ? [] : [text])).join(" ")),
-  ])
-  .catch("");

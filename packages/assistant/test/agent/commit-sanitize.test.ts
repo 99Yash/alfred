@@ -1,8 +1,9 @@
+import type { TranscriptMessage } from "@alfred/ai";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 
-import { getPath, type AgentTranscriptMessage } from "@alfred/contracts";
+import { getPath } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { agentDecisionTraces, agentRuns, pendingActions, user } from "@alfred/db/schemas";
 import { eq, inArray, like } from "drizzle-orm";
@@ -128,7 +129,7 @@ const poisonWorkflow: Workflow<TestState> = {
           decisionKey: "secondary",
         });
 
-        const transcript: AgentTranscriptMessage[] = [
+        const transcript: TranscriptMessage[] = [
           { role: "assistant", content: `tool input ${NUL} echoed` },
         ];
 
@@ -143,7 +144,7 @@ const poisonWorkflow: Workflow<TestState> = {
     "poison-done": {
       id: "poison-done",
       run: async (): Promise<StepResult<TestState>> => {
-        const transcript: AgentTranscriptMessage[] = [
+        const transcript: TranscriptMessage[] = [
           { role: "assistant", content: `final ${LONE_SURROGATE} answer` },
         ];
 

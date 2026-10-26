@@ -1,5 +1,4 @@
-import type { AttributedCall } from "@alfred/ai";
-import type { AgentTranscriptMessage } from "@alfred/contracts";
+import type { AttributedCall, TranscriptMessage } from "@alfred/ai";
 
 import { conversationSummaryMessage } from "./chat-context-assembly";
 import {
@@ -29,7 +28,7 @@ export interface SynchronousConversationCompactionArgs {
   userId: string;
   threadId: string;
   throughWatermark: ChatMessageWatermark;
-  replayTail: readonly AgentTranscriptMessage[];
+  replayTail: readonly TranscriptMessage[];
   replayTailWatermark: ChatMessageWatermark;
   attribution: Omit<AttributedCall, "kind" | "role">;
   abortSignal?: AbortSignal | undefined;

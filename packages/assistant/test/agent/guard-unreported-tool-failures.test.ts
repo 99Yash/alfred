@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import { toDisplayText } from "@alfred/contracts";
 
 import { sanitizeChatMessageFields } from "@alfred/assistant/chat/chat-turn-closure";
 import {
@@ -98,9 +99,9 @@ describe("guardUnreportedToolFailures", () => {
     const last = transcript.at(-1);
     assert.ok(last);
     assert.equal(last.role, "user");
-    assert.match(String(last.content), /\[system\]/);
-    assert.match(String(last.content), /sheets\.append_values/);
-    assert.match(String(last.content), /did not complete/i);
+    assert.match(toDisplayText(last.content), /\[system\]/);
+    assert.match(toDisplayText(last.content), /sheets\.append_values/);
+    assert.match(toDisplayText(last.content), /did not complete/i);
 
     // Recorded, so the regenerated turn does not fire again.
     assert.deepEqual(state.notedFailureToolCallIds, ["tc_1"]);
@@ -139,7 +140,7 @@ describe("guardUnreportedToolFailures", () => {
     assert.ok(transcript);
     const last = transcript.at(-1);
     assert.ok(last);
-    const note = String(last.content);
+    const note = toDisplayText(last.content);
     assert.match(note, /sheets\.update_values/);
     assert.match(note, /completed the user's goal another way/);
   });
@@ -334,7 +335,7 @@ describe("guardUnreportedToolFailures", () => {
     assert.ok(transcript);
     const last = transcript.at(-1);
     assert.ok(last);
-    const note = String(last.content);
+    const note = toDisplayText(last.content);
     assert.match(note, /sheets\.batch_update/);
     assert.ok(!note.includes("append_values"));
     assert.deepEqual(state.notedFailureToolCallIds, ["tc_2"]);

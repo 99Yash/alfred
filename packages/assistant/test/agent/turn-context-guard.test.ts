@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import type { AgentTranscriptMessage } from "@alfred/contracts";
-import type { LanguageModel, ToolSet } from "@alfred/ai";
+import type { LanguageModel, ToolSet, TranscriptMessage } from "@alfred/ai";
 
 import {
   buildCompactedChatTranscriptPair,
@@ -19,9 +18,9 @@ import { asTestDouble } from "../support/test-double";
  * `chat-compaction-continuation.test.ts` covers the compaction paths.
  */
 
-const userMsg = (content: string): AgentTranscriptMessage => ({ role: "user", content });
+const userMsg = (content: string): TranscriptMessage => ({ role: "user", content });
 
-const assistantMsg = (content: string): AgentTranscriptMessage => ({ role: "assistant", content });
+const assistantMsg = (content: string): TranscriptMessage => ({ role: "assistant", content });
 
 describe("guardTurnContext gate", () => {
   // These throw if touched, so a wrong compaction branch fails fast instead of hanging.

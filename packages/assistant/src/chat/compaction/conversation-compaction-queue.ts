@@ -1,3 +1,4 @@
+import { parseStoredTranscript } from "@alfred/ai";
 import { jsonObjectSchema, toMessage, type AgentTranscriptMessage } from "@alfred/contracts";
 import { Queue, UnrecoverableError, Worker, type Job } from "bullmq";
 import { z } from "zod";
@@ -176,7 +177,7 @@ async function processConversationCompactionJob(job: Job<ConversationCompactionJ
         messageId: data.throughMessageId,
         createdAt: new Date(data.throughCreatedAt),
       },
-      replayTail: data.replayTail,
+      replayTail: parseStoredTranscript(data.replayTail),
       replayTailWatermark: {
         messageId: data.replayTailThroughMessageId,
         createdAt: new Date(data.replayTailThroughCreatedAt),

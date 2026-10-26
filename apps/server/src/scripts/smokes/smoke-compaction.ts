@@ -13,7 +13,7 @@ import {
 } from "@alfred/assistant/execution/run-compaction/index";
 import { closeConnections, warmPool } from "@alfred/db";
 import { verifyMeteringModels } from "@alfred/assistant/execution";
-import { flushLangfuse } from "@alfred/ai";
+import { flushLangfuse, parseStoredTranscript } from "@alfred/ai";
 import { jsonObjectSchema, parseJsonText } from "@alfred/contracts";
 import { readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -79,8 +79,8 @@ async function runFixture(
   console.log(`  ${fixture.description}`);
 
   const result = await compactTranscript({
-    prior: fixture.prior,
-    inFlightTail: fixture.inFlightTail,
+    prior: parseStoredTranscript(fixture.prior),
+    inFlightTail: parseStoredTranscript(fixture.inFlightTail),
     attribution: {
       idempotencyKey: `smoke-compaction:${fixture.name}:${Date.now()}`,
       requestMeta: { purpose: "smoke-compaction", fixture: fixture.name },

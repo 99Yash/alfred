@@ -34,8 +34,6 @@ export {
   toolSurfaceStateFields,
   toolNamesFromState,
   appendModelResponseMessages,
-  toModelMessages,
-  toTranscriptMessages,
   appendSystemNote,
   aggregateRunUsage,
   shouldPublishToolStarted,

@@ -1,3 +1,4 @@
+import type { TranscriptMessage } from "@alfred/ai";
 import {
   meteredGenerateText,
   requestFitsContextWindow,
@@ -7,7 +8,6 @@ import {
   type LanguageModel,
   type ModelMessage,
 } from "@alfred/ai";
-import type { AgentTranscriptMessage } from "@alfred/contracts";
 import { assertHandoffSections } from "./handoff";
 import { COMPACTOR_SYSTEM_PROMPT } from "./prompt";
 import { CHARS_PER_TOKEN, estimateTranscriptTokens } from "./tokens";
@@ -22,8 +22,8 @@ const compactorFallbackModel: LanguageModel = route("compactorFallback").model()
  * Throws `compactor_input_too_large` when it fits neither.
  */
 export interface CompactTranscriptArgs {
-  prior: AgentTranscriptMessage[];
-  inFlightTail: AgentTranscriptMessage[];
+  prior: TranscriptMessage[];
+  inFlightTail: TranscriptMessage[];
   /** The compactor sets `role` and `kind` itself, so a caller cannot misfile the spend. */
   attribution: Omit<AttributedCall, "role" | "kind">;
   abortSignal?: AbortSignal | undefined;
@@ -31,8 +31,8 @@ export interface CompactTranscriptArgs {
 }
 
 export interface CompactTranscriptResult {
-  transcript: AgentTranscriptMessage[];
-  summary: AgentTranscriptMessage;
+  transcript: TranscriptMessage[];
+  summary: TranscriptMessage;
   raw: { text: string; inputTokens: number | undefined; outputTokens: number | undefined };
 }
 
@@ -83,16 +83,14 @@ export async function compactTranscript(
   };
 }
 
-function transcriptPayloadMessage(prior: readonly AgentTranscriptMessage[]): ModelMessage {
+function transcriptPayloadMessage(prior: readonly TranscriptMessage[]): ModelMessage {
   return {
     role: "user",
     content: `Compact this Alfred transcript JSON. Preserve IDs and tool outcomes exactly where the system prompt requires them.\n\n${JSON.stringify(prior)}`,
   };
 }
 
-async function selectCompactorModel(
-  prior: readonly AgentTranscriptMessage[],
-): Promise<LanguageModel> {
+async function selectCompactorModel(prior: readonly TranscriptMessage[]): Promise<LanguageModel> {
   const priorTokens = estimateTranscriptTokens(prior);
   const compactorWindow = await resolveModelContextWindow(compactorModel);
 
@@ -179,7 +177,7 @@ function stripCodeFences(text: string): string {
  * A fifth breakpoint goes over Anthropic's cap of 4, and the provider then silently drops the
  * tool-definition cache.
  */
-function buildSummaryMessage(text: string): AgentTranscriptMessage {
+function buildSummaryMessage(text: string): TranscriptMessage {
   return {
     role: "system",
     content: text,
