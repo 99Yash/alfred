@@ -15,6 +15,7 @@ import {
   type ToolCallActor,
   type ToolCallRoundOutcome,
   type ToolCallRun,
+  uniqueToolNames,
 } from "@alfred/assistant/tool-runtime";
 import { buildConnectedSummaryFromAvailability } from "./connected-summary";
 import { startToolPreloadSpan, startToolSurfaceSpan } from "./runtime-spans";
@@ -93,11 +94,6 @@ export function foldToolSurfaceState<T extends ParsedToolSurfaceState>(
 
 export function activateTool(activeTools: readonly ToolName[], toolName: ToolName): ToolName[] {
   return uniqueToolNames([...activeTools, toolName]);
-}
-
-/** Deduplicated and sorted, so two surfaces compare by value. */
-export function uniqueToolNames(toolNames: readonly ToolName[]): ToolName[] {
-  return [...new Set(toolNames)].sort();
 }
 
 /**

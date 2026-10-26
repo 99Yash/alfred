@@ -360,7 +360,8 @@ export type SentryIssueNativeState = (typeof SENTRY_ISSUE_NATIVE_STATES)[number]
  */
 export const INTEGRATION_OBJECT_DEFS = {
   github: {
-    // GitHub declares no identity, so this gates only the soft-edge count (ADR-0109).
+    // Gates the GitHub `about` keys (object-state adapter) and the soft-edge count. GitHub
+    // declares no identity, so identity containment never reads it (ADR-0109).
     domains: ["github.com"],
     kinds: {
       // Merged absorbs: it can never reopen. Closed-unmerged does not, so a real reopen lands.

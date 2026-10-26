@@ -4,7 +4,7 @@ import {
   collectGithubPullRequestUrls,
   deriveLoopEntityRef,
   INTEGRATION_OBJECT_DEFS,
-  parseMailbox,
+  isNotificationSender,
 } from "@alfred/contracts";
 import { keyIdentity } from "./adapter";
 import type {
@@ -22,9 +22,6 @@ import type {
  * identity: a link to another PR in a comment must not close this mail's loop. Actions failure mail
  * also names a CI target (`owner/repo#branch`), so a later green run closes it (#1093).
  */
-
-/** Senders whose mail we treat as GitHub CI/notification traffic. */
-const GITHUB_NOTIFICATION_DOMAINS = ["github.com"];
 
 const HEAD_SHA_RE = /\b[0-9a-f]{40}\b/gi;
 
@@ -52,16 +49,6 @@ const ACTIONS_RUN_FAILURE_SUBJECT_RE = new RegExp(
   String.raw`^\[[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\][^\n]*\bRun failed:[^\n]*\([0-9a-f]{${MIN_ABBREVIATED_SHA_LENGTH},40}\)\s*$`,
   "i",
 );
-
-/**
- * Gate on the whole `github.com` domain. Unlike triage's `isGithubNotificationSender`, which
- * matches only `notifications@github.com`.
- */
-function isGithubSenderDomain(from: string | null | undefined): boolean {
-  const domain = parseMailbox(from)?.domain;
-
-  return domain !== undefined && GITHUB_NOTIFICATION_DOMAINS.includes(domain);
-}
 
 /**
  * Extract GitHub keys. Order: the subject's PR identity, then any 40-hex sha, then a sole body PR,
@@ -190,7 +177,8 @@ function pullRequestUrlKeys(text: string): ExtractedKey[] {
 }
 
 /**
- * - `about`: needs the `github.com` sender gate. Returns the mail's own PR or CI target, because
+ * - `about`: needs the provider sender gate (the provider `domains` list, with
+ *   subdomains). Returns the mail's own PR or CI target, because
  *   the briefing drops an item on it.
  * - `mentions`: every PR URL, no provenance. Not bare shas: a sha in prose is not a claim about a
  *   PR, and suppressing a real ask over a coincidence costs the user a message.
@@ -217,7 +205,9 @@ export const githubObjectStateAdapter: ObjectStateAdapter = {
       return [...pullRequestUrlKeys(text), ...shaKeys];
     }
 
-    if (!isGithubSenderDomain(proposal.sender)) return [];
+    // The provider's whole domain list, unlike triage's `isGithubNotificationSender`, which matches
+    // only `notifications@github.com`.
+    if (!isNotificationSender("github", proposal.sender)) return [];
 
     // The CI target first, so the exact target outranks the short-sha prefix.
     return [...subjectCiTargetIds(subject.text.subject), ...extractGithubKeys(subject.text)];

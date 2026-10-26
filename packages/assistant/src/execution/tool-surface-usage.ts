@@ -15,6 +15,7 @@ import {
   type ToolName,
 } from "@alfred/contracts";
 
+import { uniqueToolNames } from "@alfred/assistant/tool-runtime";
 import { migrateRecordedToolNames, systemToolKernel } from "./tool-surface";
 
 export interface ToolSurfaceUsage {
@@ -34,13 +35,11 @@ export function summarizeToolSurfaceUsage(args: {
   kernelTools: ReadonlySet<ToolName>;
   invokedTools: ReadonlySet<ToolName>;
 }): ToolSurfaceUsage {
-  const loaded = [...new Set(args.activeTools)]
-    .filter((name) => !args.kernelTools.has(name))
-    .sort();
+  const loaded = uniqueToolNames(args.activeTools).filter((name) => !args.kernelTools.has(name));
 
-  const preloaded = [...new Set(args.preloadedTools)]
-    .filter((name) => !args.kernelTools.has(name))
-    .sort();
+  const preloaded = uniqueToolNames(args.preloadedTools).filter(
+    (name) => !args.kernelTools.has(name),
+  );
 
   return {
     loaded,

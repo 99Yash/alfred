@@ -79,7 +79,6 @@ export {
   systemToolKernel,
   toolRuntimeForRun,
   toolSurfaceStateFields,
-  uniqueToolNames,
 } from "./tool-surface";
 
 export type { ToolRunIdentity } from "./tool-surface";

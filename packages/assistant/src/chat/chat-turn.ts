@@ -22,7 +22,11 @@ import { logger } from "@alfred/logging";
 import { buildThreadArtifactsContext } from "@alfred/assistant/artifacts";
 import { readIntegrationAvailability } from "@alfred/assistant/connections";
 import { selfIdentityGrounding, settings } from "@alfred/assistant/settings";
-import { artifactStreamMode, toolExecutionLane } from "@alfred/assistant/tool-runtime";
+import {
+  artifactStreamMode,
+  toolExecutionLane,
+  uniqueToolNames,
+} from "@alfred/assistant/tool-runtime";
 import {
   appendModelResponseMessages,
   toModelMessages,
@@ -39,7 +43,6 @@ import {
   resolveRuntimeGroundingAnchor,
   systemToolKernel,
   type ChatTurnRetries,
-  uniqueToolNames,
   toolArgsPreview,
   toolCardTerminal,
   toolEventOutcome,

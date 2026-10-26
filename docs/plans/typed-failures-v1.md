@@ -7,6 +7,8 @@ evidence: "PR 1 (the catalog) merged as #941. PRs 2 to 5 not built; FAILURE_PRES
 
 > **Status.** PR 1 (the catalog) built on branch `feat/typed-failures-catalog`, 2026-09-02.
 > PRs 2 to 5 are not started. Deviations from section 7 are listed at the end of section 7.
+> Note: the parse site this plan calls `extractStoredError` is now
+> `publicAppErrorFromStored` in `@alfred/contracts/app-errors` (the one-line forward is deleted).
 > This plan reshapes the error
 > surfaces that already exist. It does not add a library. It amends the tagged-error
 > philosophy of `packages/contracts/src/errors.ts` and extends
