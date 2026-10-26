@@ -484,7 +484,7 @@ async function dropClosedLoops(
     if (pending) return pending;
 
     // An unknown token and an archived issue both normalize to non-closing.
-    const confirmation = read(userId, state.externalId)
+    const confirmation = read(userId)
       .then((nativeState) => getObjectDef(state.provider).normalize(state.kind, nativeState))
       .catch((err: unknown) => {
         logger.warn(
