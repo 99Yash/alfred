@@ -1,11 +1,14 @@
-import type { IntegrationActivityItem, ObjectStateProvider } from "@alfred/contracts";
+import type {
+  DeploymentStatus,
+  IntegrationActivityItem,
+  ObjectStateProvider,
+} from "@alfred/contracts";
 import {
   deliveryInstantNow,
   objectStateStore,
   type ObjectState,
   type VerifiedPullEvent,
   type VerifiedPullReading,
-  type VerifiedPullStatus,
 } from "../object-state";
 
 /**
@@ -16,7 +19,7 @@ import {
  */
 
 // The reading is part of the fold input, so `object-state` owns it.
-export type { VerifiedPullReading, VerifiedPullStatus };
+export type { VerifiedPullReading };
 
 /**
  * One read's result. `absent`: every read succeeded and none held the target. `null`: a fault, or a
@@ -35,7 +38,7 @@ export interface VerifiedPullResult<Target, Names> {
   targetId: string;
   names: Names | null;
   /** The row's state after the fold, which the briefing prints. */
-  status: VerifiedPullStatus | null;
+  status: DeploymentStatus | null;
   /**
    * `duplicate`: this attempt already folded, and the row agrees. `stale`: the recency guard refused
    * the fold, and the fields show the row.
@@ -83,7 +86,7 @@ const VERDICT_BY_STATUS = {
   failure: { word: "failed", status: "failed", severity: "warning" },
   pending: { word: "building", status: "open", severity: "info" },
 } as const satisfies Record<
-  VerifiedPullStatus,
+  DeploymentStatus,
   Pick<VerifiedPullVerdict, "word" | "status" | "severity">
 >;
 
@@ -291,7 +294,7 @@ async function readTargetRow<E extends VerifiedPullEvent, Target, Session, Names
   source: VerifiedPullProvider<E, Target, Session, Names>,
   userId: string,
   targetId: string,
-): Promise<{ row: ObjectState | null; status: VerifiedPullStatus | null }> {
+): Promise<{ row: ObjectState | null; status: DeploymentStatus | null }> {
   const row = await objectStateStore.getByIdentity(userId, {
     provider: source.provider,
     kind: source.targetKind,

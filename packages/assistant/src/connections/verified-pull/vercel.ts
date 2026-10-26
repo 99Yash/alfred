@@ -1,4 +1,8 @@
-import { canonicalizeVercelTargetId, parseGitBranchRef } from "@alfred/contracts";
+import {
+  canonicalizeVercelTargetId,
+  type DeploymentStatus,
+  parseGitBranchRef,
+} from "@alfred/contracts";
 import {
   vercelClientForUser,
   type VercelClient,
@@ -11,7 +15,6 @@ import {
   type VerifiedPullProvider,
   type VerifiedPullRead,
   type VerifiedPullReading,
-  type VerifiedPullStatus,
   verifiedPullVerdict,
 } from "./driver";
 
@@ -121,12 +124,12 @@ const VERDICT_BY_VERCEL_STATE = {
   QUEUED: "pending",
   CANCELED: null,
   DELETED: null,
-} satisfies Record<(typeof VERCEL_DEPLOYMENT_STATES)[number], VerifiedPullStatus | null>;
+} satisfies Record<(typeof VERCEL_DEPLOYMENT_STATES)[number], DeploymentStatus | null>;
 
 /** `"unknown"` for a missing state or one this build does not know: a miss is then a fault. */
 function collapseVercelState(
   state: string | null | undefined,
-): VerifiedPullStatus | null | "unknown" {
+): DeploymentStatus | null | "unknown" {
   const known = vercelDeploymentStateSchema.safeParse(state);
 
   return known.success ? VERDICT_BY_VERCEL_STATE[known.data] : "unknown";

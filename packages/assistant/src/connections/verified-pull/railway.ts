@@ -1,4 +1,9 @@
-import { canonicalizeRailwayTargetId, getPath, isNotificationSender } from "@alfred/contracts";
+import {
+  canonicalizeRailwayTargetId,
+  type DeploymentStatus,
+  getPath,
+  isNotificationSender,
+} from "@alfred/contracts";
 import {
   builtInProviderForEndpoint,
   getMcpConnectionManager,
@@ -13,7 +18,6 @@ import {
   type VerifiedPullProvider,
   type VerifiedPullRead,
   type VerifiedPullReading,
-  type VerifiedPullStatus,
   verifiedPullVerdict,
 } from "./driver";
 
@@ -216,13 +220,13 @@ const VERDICT_BY_RAILWAY_STATUS = {
   WAITING: "pending",
   SLEEPING: null,
   REMOVED: null,
-} satisfies Record<(typeof RAILWAY_DEPLOYMENT_STATUSES)[number], VerifiedPullStatus | null>;
+} satisfies Record<(typeof RAILWAY_DEPLOYMENT_STATUSES)[number], DeploymentStatus | null>;
 
 /**
  * `null` for a status that proves no health and for an unknown one. The read treats both alike: the
  * target is there, so a list with no readable status is a fault, never `absent`.
  */
-function collapseRailwayStatus(status: string): VerifiedPullStatus | null {
+function collapseRailwayStatus(status: string): DeploymentStatus | null {
   const known = railwayDeploymentStatusSchema.safeParse(status);
 
   return known.success ? VERDICT_BY_RAILWAY_STATUS[known.data] : null;

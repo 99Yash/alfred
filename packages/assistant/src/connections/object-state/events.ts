@@ -1,4 +1,5 @@
 import {
+  type DeploymentStatus,
   type InboundEventSource,
   isEventTypeForSource,
   type StateCategory,
@@ -57,11 +58,9 @@ export type SentryLifecycleEventType =
   | "issue_resolved"
   | "issue_archived";
 
-export type VerifiedPullStatus = "success" | "failure" | "pending";
-
 /** What one read proved. A `null` read mints nothing and never closes a loop (ADR-0048-D). */
 export interface VerifiedPullReading {
-  status: VerifiedPullStatus;
+  status: DeploymentStatus;
   /** The dedup key, such as a deployment id. */
   attemptId: string;
   providerEventTime: Date | null;
