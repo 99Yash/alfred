@@ -12,7 +12,7 @@ export function reduceSentryEvent(
 ): ObjectStateDelta[] {
   const nativeState = issueNativeState(event.eventType);
   const issue = event.payload.data?.issue;
-  // The same id rule as `ingress/sentry.ts`, so the dedup key and the projection agree.
+  // Read through `sentryIssueEventSchema`, as the dedup key is.
   const issueId = issue?.id;
 
   if (!issueId) return [];
