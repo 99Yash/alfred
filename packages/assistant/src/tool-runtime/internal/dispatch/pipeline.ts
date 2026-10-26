@@ -63,7 +63,6 @@ import {
   publicAppError,
   publicAppErrorFromStored,
   toPublicAppError,
-  type PublicAppError,
 } from "@alfred/contracts/app-errors";
 import { logger, safeErrorDiagnostic } from "@alfred/logging";
 import { enrichInvalidInputMessage } from "./invalid-input";
@@ -931,7 +930,8 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
       return {
         kind: "failed",
         stagingId: row.id,
-        error: extractStoredError(row.executeError),
+        // Old rows may hold raw exception text, so re-render from the catalog.
+        error: publicAppErrorFromStored(row.executeError),
         ...(row.decidedInput !== null ? { executedInput: row.decidedInput } : {}),
       };
 
@@ -1680,9 +1680,4 @@ function storedCall(tool: RegisteredTool, stored: unknown): BoundToolCall | unde
   const binding = tool.bind(stored);
 
   return binding.success ? binding.call : undefined;
-}
-
-function extractStoredError(stored: unknown): PublicAppError {
-  // Old rows may hold raw exception text, so re-render from the catalog.
-  return publicAppErrorFromStored(stored);
 }

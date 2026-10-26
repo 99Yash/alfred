@@ -159,6 +159,11 @@ export function callerLabel(caller: ToolCallActor["caller"] | undefined): string
   return `sub:${caller.subId}`;
 }
 
+/** Deduplicated and sorted, so two surfaces compare by value. */
+export function uniqueToolNames(toolNames: readonly ToolName[]): ToolName[] {
+  return [...new Set(toolNames)].sort();
+}
+
 /** Stable run facts shared by every proposed call in one tool round. */
 export type ToolCallRun = ToolCallRunBase & ToolCallActor;
 

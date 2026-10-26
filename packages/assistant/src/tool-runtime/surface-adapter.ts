@@ -5,6 +5,7 @@ import {
   registerToolRuntimeAdapter,
   type ResolvedToolSurface,
   type ToolRuntimeAdapter,
+  uniqueToolNames,
 } from "./index";
 import { latestUserPrompt, preloadToolsForPrompt } from "./discovery";
 import {
@@ -27,23 +28,14 @@ const toolsRuntimeAdapter: ToolRuntimeAdapter = {
         return requiredToolKernelNames();
       case "exact":
         return registeredToolNames(source.names);
-      case "legacy": {
-        const integrationNames = new Set<ToolName>();
-
-        for (const integration of source.integrationNames) {
-          if (integration === "system" || !isIntegrationSlug(integration)) continue;
-
-          for (const definition of listToolsForIntegration(integration)) {
-            integrationNames.add(definition.name);
-          }
-        }
-
+      case "legacy":
         return uniqueToolNames([
           ...requiredToolKernelNames(),
-          ...integrationNames,
+          ...integrationToolNames(
+            source.integrationNames.filter((integration) => integration !== "system"),
+          ),
           ...registeredToolNames(source.pendingNames),
         ]);
-      }
     }
   },
 
@@ -93,17 +85,7 @@ const toolsRuntimeAdapter: ToolRuntimeAdapter = {
   },
 
   namesForIntegrations(integrations) {
-    const names = new Set<ToolName>();
-
-    for (const integration of integrations) {
-      if (!isIntegrationSlug(integration)) continue;
-
-      for (const definition of listToolsForIntegration(integration)) {
-        names.add(definition.name);
-      }
-    }
-
-    return uniqueToolNames([...names]);
+    return integrationToolNames(integrations);
   },
 
   availableToolNamesByIntegration(input) {
@@ -173,6 +155,11 @@ function registeredToolNames(names: readonly string[]): ToolName[] {
   );
 }
 
-function uniqueToolNames(names: readonly ToolName[]): ToolName[] {
-  return [...new Set(names)].sort();
+/** Every registered tool of each known integration slug; unknown slugs contribute nothing. */
+function integrationToolNames(integrations: readonly string[]): ToolName[] {
+  return uniqueToolNames(
+    integrations
+      .filter(isIntegrationSlug)
+      .flatMap((integration) => listToolsForIntegration(integration).map((tool) => tool.name)),
+  );
 }

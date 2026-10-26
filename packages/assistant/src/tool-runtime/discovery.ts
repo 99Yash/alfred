@@ -46,13 +46,14 @@ type AvailabilityTag =
 
 export type ToolSearchCandidate =
   | (ToolCandidateBase & {
-      name: Exclude<ToolName, "mcp.call">;
+      /** A curated catalog hit, including `mcp.call` itself. */
+      name: ToolName;
       ref?: never;
     } & AvailabilityTag)
   | (ToolCandidateBase & {
       name: "mcp.call";
-      /** Present only for a connected catalog hit; pass this ref's fields to mcp.call. */
-      ref?: ExternalToolRef;
+      /** A connected catalog hit; pass this ref's fields to mcp.call. */
+      ref: ExternalToolRef;
     } & AvailabilityTag);
 
 type RankedCandidate = ToolSearchCandidate & {
@@ -331,20 +332,11 @@ function rankToolCatalog(args: ToolSearchArgs): RankedCandidate[] {
       preloadEligible: match.preloadEligible,
     };
 
-    // Branch on the name so only `mcp.call` can carry a `ref`.
-    if (tool.name === "mcp.call") {
-      ranked.push(
-        unavailableReason
-          ? { ...scored, name: tool.name, availability: "unavailable", unavailableReason }
-          : { ...scored, name: tool.name, availability: "available" },
-      );
-    } else {
-      ranked.push(
-        unavailableReason
-          ? { ...scored, name: tool.name, availability: "unavailable", unavailableReason }
-          : { ...scored, name: tool.name, availability: "available" },
-      );
-    }
+    ranked.push(
+      unavailableReason
+        ? { ...scored, availability: "unavailable", unavailableReason }
+        : { ...scored, availability: "available" },
+    );
   }
 
   // Runnable first, so an unavailable match never crowds out a runnable tool.

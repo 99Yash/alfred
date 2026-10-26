@@ -32,7 +32,6 @@ export {
   systemToolKernel,
   toolRuntimeForRun,
   toolSurfaceStateFields,
-  uniqueToolNames,
   toolNamesFromState,
   appendModelResponseMessages,
   toModelMessages,
