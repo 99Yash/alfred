@@ -1,4 +1,4 @@
-import { type EventTypeForSource, getIdPath, isEventTypeForSource } from "@alfred/contracts";
+import { type EventTypeForSource, getIdPath } from "@alfred/contracts";
 import { z } from "zod";
 
 /**
@@ -141,10 +141,8 @@ function githubEvent<T extends GithubEventType>(
   return parsed.success ? { eventType, payload: parsed.data } : null;
 }
 
-/** A stored GitHub body, typed by its event. `null` for an undeclared type or a non-object body. */
-export function parseGithubEvent(eventType: string, raw: unknown): GithubEvent | null {
-  if (!isEventTypeForSource("github", eventType)) return null;
-
+/** A stored GitHub body, typed by its event. `null` for a body that is not an object. */
+export function parseGithubEvent(eventType: GithubEventType, raw: unknown): GithubEvent | null {
   switch (eventType) {
     case "pull_request":
       return githubEvent(eventType, GITHUB_EVENT_SCHEMAS.pull_request, raw);

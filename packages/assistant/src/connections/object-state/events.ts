@@ -1,7 +1,7 @@
 import {
   type DeploymentStatus,
+  type EventTypeForSource,
   type InboundEventSource,
-  isEventTypeForSource,
   type McpHealthObjectTitle,
   type McpHealthObjectUrl,
   type StateCategory,
@@ -120,29 +120,41 @@ export type VercelPullEvent = Extract<VerifiedPullEvent, { provider: "vercel" }>
 export type ApprovedMcpHealthEvent = Extract<ObjectStateEvent, { provider: "mcp" }>;
 
 /**
- * The one door from a stored receipt body to the fold. `null`: the type folds nothing, or the body
- * is not an object. Each switch names every declared type, so a new type does not compile until it
- * is classified here.
+ * The one door from a stored receipt body to the fold. `eventType` is a bare type of `source`, so a
+ * stored `<source>.<type>` name does not compile; a caller that holds one narrows it first with
+ * `parseEventTypeName`. `null`: the type folds nothing, or the body is not an object. Each switch
+ * names every declared type, so a new type does not compile until it is classified here.
  */
-export function parseReceiptEvent(
-  source: InboundEventSource,
-  eventType: string,
+export function parseReceiptEvent<S extends InboundEventSource>(
+  source: S,
+  eventType: EventTypeForSource<S>,
   raw: unknown,
 ): ObjectStateEvent | null {
-  switch (source) {
-    case "github":
-      return githubReceiptEvent(eventType, raw);
-    case "sentry":
-      return sentryReceiptEvent(eventType, raw);
-    default: {
-      const _exhaustive: never = source;
-
-      return _exhaustive;
-    }
-  }
+  return receiptParser(source)(eventType, raw);
 }
 
-function githubReceiptEvent(eventType: string, raw: unknown): ObjectStateEvent | null {
+type ReceiptParsers = {
+  [S in InboundEventSource]: (
+    eventType: EventTypeForSource<S>,
+    raw: unknown,
+  ) => ObjectStateEvent | null;
+};
+
+// A new inbound source fails this `satisfies` until it has a parser.
+const RECEIPT_PARSERS = {
+  github: githubReceiptEvent,
+  sentry: sentryReceiptEvent,
+} satisfies ReceiptParsers;
+
+// The indexed return type keeps `source` and `eventType` correlated; a `switch` narrows only `source`.
+function receiptParser<S extends InboundEventSource>(source: S): ReceiptParsers[S] {
+  return RECEIPT_PARSERS[source];
+}
+
+function githubReceiptEvent(
+  eventType: EventTypeForSource<"github">,
+  raw: unknown,
+): ObjectStateEvent | null {
   const event = parseGithubEvent(eventType, raw);
 
   if (!event) return null;
@@ -166,7 +178,10 @@ function githubReceiptEvent(eventType: string, raw: unknown): ObjectStateEvent |
   }
 }
 
-function sentryReceiptEvent(eventType: string, raw: unknown): ObjectStateEvent | null {
+function sentryReceiptEvent(
+  eventType: EventTypeForSource<"sentry">,
+  raw: unknown,
+): ObjectStateEvent | null {
   const lifecycle = sentryLifecycleEventType(eventType);
 
   if (!lifecycle) return null;
@@ -177,9 +192,9 @@ function sentryReceiptEvent(eventType: string, raw: unknown): ObjectStateEvent |
 }
 
 /** Exhaustive like `sentryDeliveryKey`: the other types are not lifecycle transitions. */
-function sentryLifecycleEventType(eventType: string): SentryLifecycleEventType | null {
-  if (!isEventTypeForSource("sentry", eventType)) return null;
-
+function sentryLifecycleEventType(
+  eventType: EventTypeForSource<"sentry">,
+): SentryLifecycleEventType | null {
   switch (eventType) {
     case "issue_created":
     case "issue_unresolved":
