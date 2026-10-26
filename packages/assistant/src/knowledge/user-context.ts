@@ -13,6 +13,7 @@ import { isNonBlankString, memorySourceSchema, type MemorySource } from "@alfred
 import { and, asc, desc, eq, gt, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { settings, type UserSettings } from "@alfred/assistant/settings";
 import { USER_FACING_MEMORY_CHUNK_KINDS } from "./chunks";
+import { entityAliasMatch } from "./entity-graph";
 import { logger } from "@alfred/logging";
 
 /** Sections `include` can select. */
@@ -514,10 +515,7 @@ async function fetchFocusEntities(
   const focusClauses = [];
 
   if (subjectEmail) {
-    focusClauses.push(sql`EXISTS (
-      SELECT 1 FROM jsonb_array_elements_text(${entities.aliases}) AS alias
-      WHERE lower(alias) = ${subjectEmail}
-    )`);
+    focusClauses.push(entityAliasMatch([subjectEmail]));
   }
 
   for (const token of tokens) {

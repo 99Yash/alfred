@@ -1,8 +1,8 @@
 import type { UserSettings } from "@alfred/assistant/settings";
-import {
-  senderSuppressions,
-  type SenderSuppressionMatch,
-  type SenderSuppressionOutcome,
+import type {
+  SenderSuppressionMatch,
+  SenderSuppressionOutcome,
+  SenderSuppressions,
 } from "../knowledge";
 import {
   resolveTodoSuggestion,
@@ -70,6 +70,8 @@ export async function decideTriageTodo(args: {
   senderAddress: string | null;
   isColdContact: boolean;
   actionItemsEnabled: boolean;
+  /** The step's one `"report"` load, so the todo lane and the category lane agree. */
+  suppressions: SenderSuppressions<SenderSuppressionOutcome>;
 }): Promise<TriageTodoDecision> {
   const { document, classification } = args;
 
@@ -84,9 +86,7 @@ export async function decideTriageTodo(args: {
 
   if (!todo) return { outcome: { kind: "none" }, standingSuppression: { kind: "none" }, closure };
 
-  const suppressions = await senderSuppressions({ userId: args.userId, onReadFailure: "report" });
-
-  const standingSuppression = suppressions.match(
+  const standingSuppression = args.suppressions.match(
     { sender: args.senderAddress ?? document.metadata.from ?? null, accountId: document.accountId },
     "block_todo_suggestion",
   );

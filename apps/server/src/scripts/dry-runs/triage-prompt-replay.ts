@@ -176,7 +176,7 @@ async function replayDocument(
     body: ctxData.document.content,
   });
 
-  const observations = await gatherObservations({
+  const { observations } = await gatherObservations({
     userId: selected.userId,
     settings: settings({ userId: selected.userId }),
     documentId,

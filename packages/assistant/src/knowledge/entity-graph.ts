@@ -9,7 +9,7 @@ import {
   hasUserWrittenTo,
   parsePersonEntityMetadata,
 } from "@alfred/contracts";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { classifyContactKind } from "./entity-kind-classifier";
 
@@ -332,15 +332,23 @@ async function resolveKindForUpdate(
   return collides ? { kind: storedKind, blocked: true } : { kind, blocked: false };
 }
 
-/** The alias-match predicate every contact read shares. */
+/**
+ * `EXISTS` over `entities.aliases`, case-insensitive. The one alias-match query.
+ * Callers pass lowercased addresses and add their own kind filter.
+ */
+export function entityAliasMatch(normalizedAddresses: readonly string[]): SQL {
+  return sql`EXISTS (
+    SELECT 1 FROM jsonb_array_elements_text(${entities.aliases}) AS alias
+    WHERE ${inArray(sql`lower(alias)`, [...normalizedAddresses])}
+  )`;
+}
+
+/** The predicate every contact read shares. */
 function storedContactMatch(userId: string, normalizedAddresses: readonly string[]) {
   return and(
     eq(entities.userId, userId),
     inArray(entities.kind, [...CONTACT_KINDS]),
-    sql`EXISTS (
-      SELECT 1 FROM jsonb_array_elements_text(${entities.aliases}) AS alias
-      WHERE ${inArray(sql`lower(alias)`, [...normalizedAddresses])}
-    )`,
+    entityAliasMatch(normalizedAddresses),
   );
 }
 

@@ -12,7 +12,14 @@ import {
   type ReconciledObject,
 } from "@alfred/assistant/connections";
 import { settings, type FeatureFlags, type UserSettings } from "@alfred/assistant/settings";
-import { getSenderSignificance, readUserContextLine, senderSuppressions } from "../knowledge";
+import {
+  readSenderPerson,
+  readUserContextLine,
+  senderSuppressions,
+  type SenderPersonRead,
+  type SenderSuppressionOutcome,
+  type SenderSuppressions,
+} from "../knowledge";
 import {
   resolvePaymentTodoFromReceipt,
   resolveTodosForGmailSource,
@@ -24,11 +31,10 @@ import {
   type ClassifyAudit,
   type TriageClassification,
 } from "./classify";
-import { isKnownContact } from "./contacts";
 import { extractSenderContext } from "./sender-context";
 import { senderExtractionEvent } from "./sender-extraction-event";
 import { resolveSenderKind, triageSenderKindProjectionEnabled } from "./sender-kind";
-import { RELATIONSHIP_READ_FAILED, resolveSenderRelationship } from "./sender-relationship";
+import { resolveSenderRelationship } from "./sender-relationship";
 import {
   getSenderPrior,
   incrementSenderPrior,
@@ -228,7 +234,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
   let classification: TriageClassification;
   let model: string;
   let audit: ClassifyAudit | null = null;
-  let observations: Awaited<ReturnType<typeof gatherObservations>> | null = null;
+  let observations: Observations | null = null;
   // This run owns the row. Gates the side effects below on both paths (#157).
   let written = false;
   let senderSignificanceBand: SignificanceBand | null = null;
@@ -236,7 +242,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
   let todo: TriageTodoDecision;
   const reusedExistingRow = Boolean(existing && existing.runId === ctx.runId);
 
-  const decideTodo = () =>
+  const decideTodo = (suppressions: SenderSuppressions<SenderSuppressionOutcome>) =>
     decideTriageTodo({
       userId: ctx.userId,
       settings: userSettings,
@@ -250,6 +256,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
         observations?.senderRelationshipIsCold ??
         (reusedExistingRow ? (existing?.senderRelationshipIsCold ?? false) : false),
       actionItemsEnabled: flags.actionItems,
+      suppressions,
     });
 
   if (reusedExistingRow && existing) {
@@ -269,11 +276,14 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     // A prior attempt may have written the row and died before the side effects (#157).
     written = true;
     senderSignificanceBand = existing.senderSignificanceBand ?? null;
-    todo = await decideTodo();
+    // No gather runs on reuse, so the todo lane loads the suppressions itself.
+    todo = await decideTodo(
+      await senderSuppressions({ userId: ctx.userId, onReadFailure: "report" }),
+    );
     await ctx.log(`classify: reuse existing thread row category=${classification.category}`);
   } else {
     // Before the try, so the fallback path still has them for the trace.
-    observations = await gatherObservations({
+    const gathered = await gatherObservations({
       userId: ctx.userId,
       settings: userSettings,
       documentId: ctx.state.documentId,
@@ -284,6 +294,8 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       senderContext,
       senderAddress: senderContextResult.senderAddress,
     });
+
+    observations = gathered.observations;
 
     try {
       const result = await classifyEmail({
@@ -320,14 +332,10 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     }
 
     // For the rail's demotion (ADR-0064). Null reads as neutral.
-    const senderSignificance = await getSenderSignificance(
-      ctx.userId,
-      senderContextResult.senderAddress,
-    ).catch(() => null);
+    senderSignificanceBand =
+      gathered.sender.kind === "found" ? (gathered.sender.significance?.band ?? null) : null;
 
-    senderSignificanceBand = senderSignificance?.band ?? null;
-
-    todo = await decideTodo();
+    todo = await decideTodo(gathered.suppressions);
 
     const decisionTrace = senderExtractionEvent({
       senderContextResult,
@@ -353,7 +361,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       // So a same-run retry can re-mint the todo (#157).
       todoSuggestion: classification.todoSuggestion ?? null,
       todoDecision: classification.todoDecision ?? null,
-      senderSignificanceBand: senderSignificance?.band ?? null,
+      senderSignificanceBand,
       // The reuse path has no observations, so it reads this from the row (#517 D1).
       senderRelationshipIsCold: observations.senderRelationshipIsCold,
       decisionTrace: {
@@ -973,9 +981,18 @@ async function resolveTodoObject(args: {
   };
 }
 
+export interface GatheredObservations {
+  observations: Observations;
+  /** For the rail band (ADR-0064). Not a classifier input. */
+  sender: SenderPersonRead;
+  /** One `"report"` load. The todo lane matches against it too. */
+  suppressions: SenderSuppressions<SenderSuppressionOutcome>;
+}
+
 /**
  * The IO for `assembleObservations` (ADR-0051 §4a). Every read is best-effort.
  * Dry-run scripts call this too, so a replay sees the facts the live classify sees.
+ * The sender's `person` row and the sender suppressions are each read one time here.
  */
 export async function gatherObservations(args: {
   userId: string;
@@ -989,13 +1006,13 @@ export async function gatherObservations(args: {
   persona: AccountPersona | null;
   senderContext: SenderContext;
   senderAddress: string | null;
-}): Promise<Observations> {
+}): Promise<GatheredObservations> {
   const meta = args.document.metadata;
   const labelIds = meta.labelIds ?? [];
 
   const isHumanSender = args.senderContext.effectiveAuthor === "person";
 
-  const [thread, senderKindEnabled, standing, userContext] = await Promise.all([
+  const [thread, senderKindEnabled, suppressions, userContext, sender] = await Promise.all([
     getThreadState({
       userId: args.userId,
       sourceThreadId: args.sourceThreadId,
@@ -1007,32 +1024,22 @@ export async function gatherObservations(args: {
       recentMessages: [],
     })),
     triageSenderKindProjectionEnabled(args.settings).catch(() => false),
-    // This sender's standing instruction, read before the model call. A blip
-    // reads as "none" and sets `readFailed`, so the trace can tell none from unknown.
-    senderSuppressions({ userId: args.userId, onReadFailure: "report" }).then((suppressions) => {
-      const outcome = suppressions.match(
-        { sender: args.senderAddress ?? meta.from ?? null, accountId: args.accountId },
-        "deprioritize_triage_category",
-      );
-
-      return {
-        instruction:
-          outcome.kind === "suppressed"
-            ? {
-                factId: outcome.match.factId,
-                directive: outcome.match.value.directive,
-                phrasing: outcome.match.value.phrasing,
-              }
-            : null,
-        readFailed: outcome.kind === "read_failed",
-      };
-    }),
+    // Read before the model call. A blip makes every `match` report `read_failed`,
+    // so the trace can tell none from unknown.
+    senderSuppressions({ userId: args.userId, onReadFailure: "report" }),
     // Cold-start prior (ADR-0050 D1). One point read, never a memory search (#435).
     // A flag, because null alone cannot tell a failure from no chunk.
     readUserContextLine(args.userId)
       .then((line) => ({ line, readFailed: false }))
       .catch(() => ({ line: null, readFailed: true })),
+    readSenderPerson(args.userId, args.senderAddress),
   ]);
+
+  // This sender's standing instruction.
+  const standing = suppressions.match(
+    { sender: args.senderAddress ?? meta.from ?? null, accountId: args.accountId },
+    "deprioritize_triage_category",
+  );
 
   const senderKind =
     senderKindEnabled && args.senderAddress
@@ -1050,17 +1057,14 @@ export async function gatherObservations(args: {
 
   const usePersonTreatment = isHumanSender && senderKind == null;
 
-  const [knownContact, relationship] = await Promise.all([
-    usePersonTreatment && args.senderAddress
-      ? isKnownContact(args.userId, args.senderAddress).catch(() => false)
-      : Promise.resolve(false),
-    resolveSenderRelationship({
-      userId: args.userId,
-      senderAddress: args.senderAddress,
-      isHumanSender: usePersonTreatment,
-      // A throw reads as "not cold": keep the todo rather than over-suppress.
-    }).catch(() => RELATIONSHIP_READ_FAILED),
-  ]);
+  // Best-effort hint: a failed read is not a known contact.
+  const knownContact = usePersonTreatment && sender.kind === "found";
+
+  const relationship = await resolveSenderRelationship({
+    userId: args.userId,
+    sender,
+    isHumanSender: usePersonTreatment,
+  });
 
   const signalText = [
     meta.from,
@@ -1074,7 +1078,7 @@ export async function gatherObservations(args: {
     .filter(Boolean)
     .join("\n");
 
-  return assembleObservations({
+  const observations = assembleObservations({
     senderKey,
     senderPrior,
     persona: args.persona,
@@ -1083,13 +1087,22 @@ export async function gatherObservations(args: {
     senderRelationship: relationship.descriptor,
     senderRelationshipIsCold: relationship.isColdContact,
     senderKind,
-    standingInstruction: standing.instruction,
-    standingInstructionReadFailed: standing.readFailed,
+    standingInstruction:
+      standing.kind === "suppressed"
+        ? {
+            factId: standing.match.factId,
+            directive: standing.match.value.directive,
+            phrasing: standing.match.value.phrasing,
+          }
+        : null,
+    standingInstructionReadFailed: standing.kind === "read_failed",
     userContext: userContext.line,
     userContextReadFailed: userContext.readFailed,
     labelIds,
     signalText,
   });
+
+  return { observations, sender, suppressions };
 }
 
 /** The step set. The order lives in `EMAIL_TRIAGE_EDGES`, not in this key order. */

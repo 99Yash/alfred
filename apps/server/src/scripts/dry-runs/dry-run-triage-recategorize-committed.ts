@@ -111,7 +111,7 @@ async function processUser(u: TargetUser): Promise<Set<string>> {
 
     const senderContext = scResult.context;
 
-    const observations = await gatherObservations({
+    const { observations } = await gatherObservations({
       userId: u.userId,
       settings: settings({ userId: u.userId }),
       documentId: row.documentId,

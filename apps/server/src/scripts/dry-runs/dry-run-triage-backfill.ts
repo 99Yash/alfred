@@ -115,7 +115,7 @@ async function main() {
 
     const senderContext = scResult.context;
 
-    const observations = await gatherObservations({
+    const { observations, suppressions } = await gatherObservations({
       userId: t.userId,
       settings: userSettings,
       documentId: docRow.id,
@@ -166,6 +166,7 @@ async function main() {
       senderAddress: scResult.senderAddress,
       isColdContact: observations.senderRelationshipIsCold,
       actionItemsEnabled: flags.actionItems,
+      suppressions,
     });
 
     const closureNote =

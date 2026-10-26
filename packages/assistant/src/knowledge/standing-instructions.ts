@@ -66,7 +66,7 @@ export type SenderSuppressionOutcome =
 type LoadedSenderSuppressionOutcome = Exclude<SenderSuppressionOutcome, { kind: "read_failed" }>;
 
 /** A user's active sender suppressions, read once. `match` is pure, so one read serves a loop. */
-interface SenderSuppressions<Outcome extends SenderSuppressionOutcome> {
+export interface SenderSuppressions<Outcome extends SenderSuppressionOutcome> {
   /** No active suppression. A failed read is never empty, so `match` still reports it. */
   readonly isEmpty: boolean;
   match(sender: SuppressionSender, effect: SuppressionEffect): Outcome;

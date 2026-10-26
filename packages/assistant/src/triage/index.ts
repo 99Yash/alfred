@@ -71,8 +71,6 @@ export { getThreadState, readGmailThreadClosure } from "./thread-state";
 
 export type { ThreadState, GetThreadStateArgs, GmailThreadClosure } from "./thread-state";
 
-export { isKnownContact } from "./contacts";
-
 export { resolveSenderRelationship } from "./sender-relationship";
 
 export {
