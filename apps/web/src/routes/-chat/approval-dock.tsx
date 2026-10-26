@@ -22,6 +22,7 @@ import {
 import { AnimatePresence, m } from "motion/react";
 import { useEffect, useImperativeHandle, useRef, use, useId, useState } from "react";
 import { asQuestionStaging, type QuestionStaging } from "~/components/approvals/ask-user";
+import { decideApproval } from "~/components/approvals/decide-approval";
 import { describeApprovalWait } from "./conversation-helpers";
 import { approveButtonLabel, cardTitle } from "~/components/approvals/card-spec";
 import { formatTimestamp } from "~/components/approvals/format";
@@ -40,8 +41,6 @@ import {
 import { AppButton, AppSwitch, AppTextarea } from "~/components/ui/v2";
 import { Kbd } from "~/components/ui/kbd";
 import { AppThemeContext } from "~/components/ui/v2/theme";
-import { responseErrorMessage } from "~/lib/api-error";
-import { client } from "~/lib/eden";
 import { getIntegrationPage } from "~/lib/integrations/integrations";
 import { useActionPolicy } from "~/lib/replicache/use-action-policy";
 import { callToast, toast } from "~/lib/toast";
@@ -393,26 +392,7 @@ function useRecordDecision<Decision extends RecordedDecision>({
     }
 
     return run(async () => {
-      const { data, error: responseError } = await client.api
-        .approvals({ stagingId: staging.id })
-        .decision.post(decision);
-
-      if (responseError) {
-        throw new Error(
-          responseErrorMessage(responseError.value, responseError.status, "Approval decision"),
-        );
-      }
-
-      // oxlint-disable-next-line typescript/no-unnecessary-condition -- Eden treaty `data` is the server's JSON typed by its route, not parsed here; an empty body or a skewed deploy can leave it null.
-      if (data?.status === "restaged") {
-        toast.info({
-          message: "Review the refreshed contract",
-          description:
-            "Alfred updated the derived schedule and account details. Approve it again to activate the workflow.",
-        });
-
-        return;
-      }
+      if ((await decideApproval(staging.id, decision)) === "restaged") return;
 
       setDecided(true);
       onDecision();
