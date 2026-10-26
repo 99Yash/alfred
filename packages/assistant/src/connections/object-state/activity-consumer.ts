@@ -1,4 +1,9 @@
-import { INBOUND_EVENT_SOURCES, type InboundEventSource, isRawEventType } from "@alfred/contracts";
+import {
+  INBOUND_EVENT_SOURCES,
+  type InboundEventSource,
+  isEventTypeForSource,
+  isRawEventType,
+} from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { typedEventReceipts } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
@@ -18,13 +23,16 @@ export function objectStateFoldConsumers(): TriggerConsumer[] {
   return INBOUND_EVENT_SOURCES.map((source) => objectStateFoldConsumer(source));
 }
 
-function objectStateFoldConsumer(source: InboundEventSource): TriggerConsumer {
+function objectStateFoldConsumer<S extends InboundEventSource>(source: S): TriggerConsumer {
   return {
     // Docs cite `github-activity-fold`, so the name pattern stays.
     name: `${source}-activity-fold`,
     mode: "propagate",
     async accept(event) {
       if (event.source !== source || isRawEventType(event.type)) return;
+
+      // `domainEventSchema` already refuses a type of another source; this only narrows.
+      if (!isEventTypeForSource(source, event.type)) return;
       const { receiptId } = inboundDeliveryPayloadSchema.parse(event.payload ?? {});
 
       const [receipt] = await db()

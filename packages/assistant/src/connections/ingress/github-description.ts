@@ -1,5 +1,6 @@
 import {
   collapseWhitespace,
+  isEventTypeForSource,
   isVercelDeploymentDeletion,
   parseGitBranchRef,
   vercelDeploymentOutcome,
@@ -101,6 +102,7 @@ function describeGithubActivity(
 export function describeGithubReceipt(kind: string, raw: unknown): InboundDescription {
   const fallback = describeInboundJson("github", kind, raw);
 
+  if (!isEventTypeForSource("github", kind)) return fallback;
   // A pruned body is NULL. It still gets the event line, read from an empty body.
   const event = parseGithubEvent(kind, raw ?? {});
 

@@ -1,4 +1,4 @@
-import { type EventTypeForSource, getIdPath, isEventTypeForSource } from "@alfred/contracts";
+import { type EventTypeForSource, getIdPath } from "@alfred/contracts";
 import { z } from "zod";
 
 /**
@@ -141,10 +141,11 @@ function githubEvent<T extends GithubEventType>(
   return parsed.success ? { eventType, payload: parsed.data } : null;
 }
 
-/** A stored GitHub body, typed by its event. `null` for an undeclared type or a non-object body. */
-export function parseGithubEvent(eventType: string, raw: unknown): GithubEvent | null {
-  if (!isEventTypeForSource("github", eventType)) return null;
-
+/**
+ * A stored GitHub body, typed by its event. `null`: the body is not an object, or the type is not a
+ * GitHub type. Only a caller that is generic over its source can pass such a type.
+ */
+export function parseGithubEvent(eventType: GithubEventType, raw: unknown): GithubEvent | null {
   switch (eventType) {
     case "pull_request":
       return githubEvent(eventType, GITHUB_EVENT_SCHEMAS.pull_request, raw);
@@ -159,9 +160,12 @@ export function parseGithubEvent(eventType: string, raw: unknown): GithubEvent |
     case "pull_request_review":
       return githubEvent(eventType, GITHUB_EVENT_SCHEMAS.pull_request_review, raw);
     default: {
+      // Unreachable for a literal source. A generic `S` can still land here at runtime with
+      // another source's type, so keep the exhaustiveness binding and fold nothing.
       const _exhaustive: never = eventType;
+      void _exhaustive;
 
-      return _exhaustive;
+      return null;
     }
   }
 }

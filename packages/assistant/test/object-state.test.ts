@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 
-import { closesOpenAsk, getObjectDef } from "@alfred/contracts";
+import { closesOpenAsk, type EventTypeForSource, getObjectDef } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
@@ -45,7 +45,7 @@ function prPayload(
 
 /** The fold path: the stored body goes through the one parse door, then the GitHub reducer. */
 function reduceGithub(
-  eventType: string,
+  eventType: EventTypeForSource<"github">,
   action: string,
   payload: Partial<ReturnType<typeof prPayload>>,
 ) {
