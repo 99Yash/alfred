@@ -10,6 +10,7 @@ import type {
 
 import type { PublicAppError } from "@alfred/contracts/app-errors";
 import type { ToolCallDispatchArgs } from "../index";
+import type { RegisteredTool } from "./registry";
 
 export interface RejectedToolResult {
   status: "rejected_by_user";
@@ -110,5 +111,6 @@ export type ToolCallDispatchResult =
 export interface ToolCallRoundAdapter {
   dispatch(args: ToolCallDispatchArgs): Promise<ToolCallDispatchResult>;
   wouldWaitForApproval(userId: string, toolName: string): Promise<boolean>;
-  executionLane(toolName: string): string | null;
+  executionLane(toolName: string): NonNullable<RegisteredTool["executionLane"]> | null;
+  artifactStreamMode(toolName: string): NonNullable<RegisteredTool["artifactStream"]> | null;
 }

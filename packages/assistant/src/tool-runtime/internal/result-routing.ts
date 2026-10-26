@@ -1,6 +1,7 @@
 import {
   boundToolResult,
   getStringPath,
+  isActionTool,
   isRecord,
   toJsonValue,
   type AgentTranscriptMessage,
@@ -71,70 +72,6 @@ function dispatchResultToToolOutput(
   }
 }
 
-const SIDE_EFFECT_ACTION_TOKENS = new Set([
-  "add",
-  "append",
-  "approve",
-  "archive",
-  "assign",
-  "cancel",
-  "close",
-  "create",
-  "delete",
-  "deploy",
-  "dismiss",
-  "edit",
-  "forget",
-  "forward",
-  "insert",
-  "invite",
-  "label",
-  "merge",
-  "move",
-  "post",
-  "promote",
-  "publish",
-  "reject",
-  "remember",
-  "remove",
-  "reopen",
-  "reply",
-  "redeploy",
-  "resolve",
-  "reschedule",
-  "save",
-  "schedule",
-  "send",
-  "set",
-  "snooze",
-  "spawn",
-  "suggest",
-  "tag",
-  "unarchive",
-  "unassign",
-  "unlabel",
-  "untag",
-  "update",
-  "upload",
-  "write",
-]);
-
-function actionTokensForToolName(toolName: string): string[] {
-  const rawAction = toolName.includes(".")
-    ? toolName.slice(toolName.lastIndexOf(".") + 1)
-    : toolName;
-
-  return rawAction
-    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter((token) => token.length > 0);
-}
-
-export function isMutatingToolName(toolName: string): boolean {
-  return actionTokensForToolName(toolName).some((token) => SIDE_EFFECT_ACTION_TOKENS.has(token));
-}
-
 const INCOMPLETE_ACTION_STATUSES = new Set([
   "error",
   "failed",
@@ -172,7 +109,7 @@ export function toolCallLogStatus(
 
   if (result.kind !== "executed") return "failed";
 
-  if (isMutatingToolName(toolName) && executedResultIsIncomplete(result.toolResult)) {
+  if (isActionTool(toolName) && executedResultIsIncomplete(result.toolResult)) {
     return "failed";
   }
 

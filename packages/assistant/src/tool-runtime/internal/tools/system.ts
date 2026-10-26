@@ -675,6 +675,7 @@ export const systemTools: readonly RegisteredTool[] = [
     integration: "system",
     action: "create_artifact",
     executionLane: "artifact_mutation",
+    artifactStream: "replace",
     riskTier: "no_risk",
     description:
       "Produce a rich artifact the user reads in a side panel: a written `document` (markdown) or a deck/PDF of `pages` (HTML). Use this when the user asks you to write, draft, or build something substantial, instead of dumping it all into the chat reply. Pick the medium by how the deliverable is meant to be consumed, not by which looks more impressive: if it is read as prose — a brief, an overview, a primer, a report, notes, an explainer, a write-up — author a `document`. Reserve `pages` for deliverables that are inherently presentational or visually laid out — a slide deck or presentation to show, a pitch, a designed one-pager, a résumé, a printable PDF. When the ask is ambiguous, default to `document`: it is the right home for reading material and far cheaper to produce, so only reach for `pages` when the user actually signals slides, a deck, a presentation, or a designed/printable page. Opens the artifact; for a `document` author the opening section here (≤~1,800 words) and continue with append_artifact_section — do not attempt the whole document in one call; for `pages` follow with append_artifact_page per page. Each page is body-level HTML authored against the Alfred house shell: write only the page body, not a full standalone document. This is in-app content, not a downloadable file.",
@@ -709,6 +710,7 @@ export const systemTools: readonly RegisteredTool[] = [
     integration: "system",
     action: "append_artifact_section",
     executionLane: "artifact_mutation",
+    artifactStream: "append",
     riskTier: "no_risk",
     description:
       "Append one section of markdown to a `document` created with create_artifact. Call once per section, in order — do not attempt the whole document in one call; each section renders in the sidebar as you add it. Write your own `##` headings and keep each section self-contained (close every code fence, finish every list/table) since the sidebar re-renders the accumulated document as each section arrives. Also use this to extend a document from an earlier turn.",
@@ -726,6 +728,7 @@ export const systemTools: readonly RegisteredTool[] = [
     integration: "system",
     action: "update_artifact",
     executionLane: "artifact_mutation",
+    artifactStream: "replace",
     riskTier: "no_risk",
     description:
       "Revise an existing artifact: rename it, make targeted text edits, replace a document's markdown, or replace a deck's full page list. Use this when the user asks to change content you already produced this conversation. To add a section or page at the end, use append_artifact_section or append_artifact_page instead. For a targeted change, send `edits`: exact oldString/newString pairs that save together, so you resend only what changes. Replace the full markdown or pages only for a broad rewrite. For cross-turn content replacement, work only from a reference with contentComplete=true and copy its baseContentHash; never replace content from a partial reference. Rename-only edits and `edits` need no hash.",

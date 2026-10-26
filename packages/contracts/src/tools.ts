@@ -669,7 +669,10 @@ export function toolLabel(toolName: string): ToolLabel | null {
   return isToolName(toolName) ? TOOL_LABELS[toolName] : null;
 }
 
-/** For run summaries. `system` is plumbing and never leads the summary. */
+/**
+ * For run summaries, and the "writes" fact: an `action` call writes ({@link isActionTool}).
+ * `system` is plumbing and never leads the summary.
+ */
 export type ToolCategory = "source" | "action" | "system";
 
 export const TOOL_CATEGORIES = {
@@ -765,6 +768,14 @@ export const TOOL_CATEGORIES = {
 /** `null` for an unregistered name. */
 export function toolCategoryOf(toolName: string): ToolCategory | null {
   return isToolName(toolName) ? TOOL_CATEGORIES[toolName] : null;
+}
+
+/**
+ * Whether a call of this tool writes, so a failed result counts as a failed action.
+ * An unregistered name counts as a write: guessing "read" would hide a failure.
+ */
+export function isActionTool(toolName: string): boolean {
+  return (toolCategoryOf(toolName) ?? "action") === "action";
 }
 
 /**

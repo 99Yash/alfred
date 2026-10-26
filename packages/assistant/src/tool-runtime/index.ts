@@ -29,8 +29,6 @@ import type { ToolCallRoundAdapter } from "./internal/adapter";
 import { runToolCallRound } from "./internal/tool-call-round";
 import type { SpawnSubAgentInput } from "./sub-agent-contract";
 
-export { isMutatingToolName } from "./internal/result-routing";
-
 export { withdrawToolCallApproval } from "./approval-lifecycle";
 
 export { joinChildRunId, joinToolInput } from "./join-contract";
@@ -1110,6 +1108,20 @@ export function executeToolCallRound<Call extends ProposedToolCall>(input: {
     | undefined;
 }): Promise<ToolCallRoundOutcome<Call>> {
   return runToolCallRound(input, requireToolCallRoundAdapter(), restoreToolSurface);
+}
+
+/** The shared-state lane whose calls run in model order, or `null` for none. */
+export function toolExecutionLane(
+  toolName: string,
+): ReturnType<ToolCallRoundAdapter["executionLane"]> {
+  return requireToolCallRoundAdapter().executionLane(toolName);
+}
+
+/** How a tool's streamed artifact input lands, or `null` when it does not stream. */
+export function artifactStreamMode(
+  toolName: string,
+): ReturnType<ToolCallRoundAdapter["artifactStreamMode"]> {
+  return requireToolCallRoundAdapter().artifactStreamMode(toolName);
 }
 
 function requireToolRuntimeAdapter(): ToolRuntimeAdapter {

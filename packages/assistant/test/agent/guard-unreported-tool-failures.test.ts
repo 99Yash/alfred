@@ -294,12 +294,12 @@ describe("guardUnreportedToolFailures", () => {
     assert.equal(published.length, 1);
   });
 
-  test("does not fire for an unknown read-shaped tool name", async () => {
+  test("does not fire for a registered read tool", async () => {
     const state = baseState({
       toolCallsLog: [
         {
           toolCallId: "tc_1",
-          toolName: "github.list_pull_requests",
+          toolName: "github.get_pull_requests",
           status: "failed",
           segmentIndex: 0,
         },

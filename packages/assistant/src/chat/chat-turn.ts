@@ -14,7 +14,6 @@ import {
   isNonEmptyString,
   parseIanaTimezone,
   type AgentTranscriptMessage,
-  type ToolName,
   type ToolRunContext,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -25,7 +24,11 @@ import { logger } from "@alfred/logging";
 import { buildThreadArtifactsContext } from "@alfred/assistant/artifacts";
 import { readIntegrationAvailability } from "@alfred/assistant/connections";
 import { selfIdentityGrounding, settings } from "@alfred/assistant/settings";
-import { joinChildRunId } from "@alfred/assistant/tool-runtime";
+import {
+  artifactStreamMode,
+  joinChildRunId,
+  toolExecutionLane,
+} from "@alfred/assistant/tool-runtime";
 import {
   appendModelResponseMessages,
   toModelMessages,
@@ -120,15 +123,6 @@ function chatToolRunIdentity(
 
 /** Warn when the input estimate undercounts billed input by more than this ratio. */
 const CHAT_INPUT_ESTIMATE_WARN_UNDERSHOOT_RATIO = 0.1;
-
-const ARTIFACT_MUTATION_TOOL_NAMES = [
-  "system.create_artifact",
-  "system.append_artifact_page",
-  "system.append_artifact_section",
-  "system.update_artifact",
-] as const satisfies readonly ToolName[];
-
-const ARTIFACT_MUTATION_TOOLS: ReadonlySet<string> = new Set(ARTIFACT_MUTATION_TOOL_NAMES);
 
 // A charter, not a rulebook (ADR-0077). The connected catalog goes last, as the strongest anchor.
 // "Now" is not here: it rides the ephemeral runtime_context line (#410).
@@ -548,6 +542,7 @@ const chatTurnStep: Step<ChatRunState> = {
         state,
         ctx,
         stopController: stop,
+        artifactStreamMode,
       });
 
       if (stop.stopped) {
@@ -842,7 +837,9 @@ const dispatchToolsStep: Step<ChatRunState> = {
         for (const completion of round.calls) {
           const { call } = completion;
 
-          if (ARTIFACT_MUTATION_TOOLS.has(call.toolName) && completion.execution === "completed") {
+          const mutatesArtifact = toolExecutionLane(call.toolName) === "artifact_mutation";
+
+          if (mutatesArtifact && completion.execution === "completed") {
             // The model sees this edit as its own tool call, after the run-start reference.
             state.artifactMediumStale = true;
           }
@@ -862,12 +859,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
 
           // A live artifact stream is keyed by toolCallId; this lets it adopt the synced row.
           const artifactId = (() => {
-            if (
-              !ARTIFACT_MUTATION_TOOLS.has(call.toolName) ||
-              completion.execution !== "completed"
-            ) {
-              return undefined;
-            }
+            if (!mutatesArtifact || completion.execution !== "completed") return undefined;
 
             const id = getStringPath(completion.result, "artifactId");
 
