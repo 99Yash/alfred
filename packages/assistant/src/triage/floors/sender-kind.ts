@@ -1,9 +1,8 @@
 import {
-  extractEmailAddress,
   isOwnershipCollabActivity,
   isPassiveCollabActivity,
   isServiceEvidenceCode,
-  splitEmail,
+  parseMailbox,
   type CollabActivityKind,
   type ServiceEvidenceCode,
 } from "@alfred/contracts";
@@ -163,10 +162,9 @@ function senderKindFloorShouldDemoteCategory(
 
 /** The whole local part is a group envelope (`team@`). `sam.all@` does not match. */
 function isGroupEnvelopeSender(sender: string | null | undefined): boolean {
-  const address = extractEmailAddress(sender);
-  const split = address ? splitEmail(address) : null;
+  const mailbox = parseMailbox(sender);
 
-  return split ? isExactGroupLocal(split.localPart) : false;
+  return mailbox ? isExactGroupLocal(mailbox.localPart) : false;
 }
 
 const COLLAB_STATE_TRANSITION_RE =

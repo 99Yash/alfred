@@ -1,6 +1,6 @@
 import {
-  canonicalizeIdentityValue,
   entityKindClassificationSchema,
+  parseEmailIdentity,
   type EntityKindClassification,
   type EntityNodeKind,
 } from "@alfred/contracts";
@@ -43,7 +43,7 @@ export async function resolveSenderKind(
   userId: string,
   senderAddress: string | null,
 ): Promise<TriageSenderKindSignal | null> {
-  const value = canonicalSenderEmail(senderAddress);
+  const value = parseEmailIdentity(senderAddress);
 
   if (!value) return null;
 
@@ -78,14 +78,6 @@ export function senderKindSignalFromProfile(
     entityId: profile.entityId,
     displayName: profile.displayName,
   };
-}
-
-function canonicalSenderEmail(senderAddress: string | null): string | null {
-  const value = senderAddress ? canonicalizeIdentityValue("email", senderAddress) : "";
-
-  if (!value || !value.includes("@")) return null;
-
-  return value;
 }
 
 function flagOn(value: unknown): boolean {

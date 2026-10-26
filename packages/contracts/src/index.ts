@@ -52,10 +52,13 @@ export * from "./chat-memory";
 export {
   domainSchema,
   emailDomain,
-  extractEmailAddress,
   isDomainOrSubdomain,
+  mailboxLabel,
   normalizeEmailAddress,
+  parseMailbox,
+  splitAddressList,
   splitEmail,
+  type Mailbox,
 } from "./domain";
 
 export * from "./identity-affiliation";

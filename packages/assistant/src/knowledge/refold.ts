@@ -1,9 +1,8 @@
 import {
   type GmailKindRefoldSkippedReason,
   USER_MODEL_PROJECTION_NAME,
-  canonicalizeIdentityValue,
   getStringPath,
-  identityRefSchema,
+  parseEmailIdentity,
   type ProjectionCursorValue,
   type ProjectionSourceHighWatermark,
 } from "@alfred/contracts";
@@ -277,20 +276,12 @@ function canonicalEmailList(values: readonly (string | null)[]): string[] {
   const out = new Set<string>();
 
   for (const value of values) {
-    const email = canonicalEmail(value);
+    const email = parseEmailIdentity(value);
 
     if (email) out.add(email);
   }
 
   return [...out].sort();
-}
-
-function canonicalEmail(value: string | null): string | null {
-  if (!value) return null;
-  const canonical = canonicalizeIdentityValue("email", value);
-  const parsed = identityRefSchema.safeParse({ kind: "email", value: canonical });
-
-  return parsed.success ? parsed.data.value : null;
 }
 
 function hasGmailAppendSnapshot(cursor: ProjectionCursorValue): boolean {

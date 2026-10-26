@@ -624,9 +624,22 @@ export const RULES = [
   },
   {
     id: "raw-email-normalize",
-    re: /\.match\(\s*\/<\s*\(\?/,
+    // A `Name <addr>` header split: `.match(/<(?…` or the `<([^>]+)>` capture.
+    // Seven copies of the second spelling read one `From:` header seven ways
+    // until `parseMailbox`. `hint`, because a body scan for an address
+    // (`<([^>]+@noreply.github.com)>`) or an organizer line is a fair use.
+    re: /\.match\(\s*\/<\s*\(\?|<\(\[\^>\]\+\)>/,
     severity: "hint",
-    fix: "Use parseEmailAddress(value) from @alfred/contracts to pull an address out of a `Name <addr>` header and normalize it. It is also the single source of self-mail matching.",
+    owners: ["packages/contracts/src/domain.ts"],
+    fix: "Use parseMailbox(value) from @alfred/contracts for the name, address, local part and domain of a `Name <addr>` header, or parseEmailAddress(value) for the address alone (the single source of self-mail matching). mailboxLabel(value) is the display label; splitAddressList(value) splits a To/Cc list.",
+  },
+  {
+    id: "email-domain-split",
+    // `address.split("@")[1]` takes the text after the FIRST `@`, so
+    // `a@b@x.com` gives `b`. `parseMailbox` splits at the last `@`.
+    re: /\.split\(\s*["'`]@["'`]\s*\)\s*\[\s*1\s*\]/,
+    severity: "gate",
+    fix: "Use parseMailbox(value)?.domain (or emailDomain(value) for a bare address) from @alfred/contracts. A split on the first `@` reads the wrong domain when the local part holds one.",
   },
   {
     id: "sender-regex-test",

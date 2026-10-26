@@ -4,7 +4,7 @@ import {
   collectGithubPullRequestUrls,
   deriveLoopEntityRef,
   INTEGRATION_OBJECT_DEFS,
-  parseEmailAddress,
+  parseMailbox,
 } from "@alfred/contracts";
 import { keyIdentity } from "./adapter";
 import type {
@@ -58,10 +58,7 @@ const ACTIONS_RUN_FAILURE_SUBJECT_RE = new RegExp(
  * matches only `notifications@github.com`.
  */
 function isGithubSenderDomain(from: string | null | undefined): boolean {
-  const address = parseEmailAddress(from);
-
-  if (!address) return false;
-  const domain = address.split("@")[1];
+  const domain = parseMailbox(from)?.domain;
 
   return domain !== undefined && GITHUB_NOTIFICATION_DOMAINS.includes(domain);
 }

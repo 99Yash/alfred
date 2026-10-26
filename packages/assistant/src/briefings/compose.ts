@@ -10,6 +10,7 @@ import {
   type FullBriefing,
   type IanaTimezone,
   listBriefingReferenceOptions,
+  mailboxLabel,
   referencesFromSections,
 } from "@alfred/contracts";
 import type { ComposedEmail } from "@alfred/assistant/delivery";
@@ -24,7 +25,6 @@ import {
   EMAIL_WRAPPER_STYLE as WRAPPER_STYLE,
 } from "./email-styles";
 import { buildBriefingSourcePanels, escapeHtml } from "./references";
-import { shortenFrom } from "./sender";
 
 /**
  * Composers for the legacy `morning-briefing` workflow: `composeBriefing` (boss model,
@@ -388,7 +388,7 @@ function renderText(args: ComposeInboxBriefingArgs, greeting: string): string {
 
 function formatItemText(item: BriefingItem): string {
   const subject = item.subject?.trim() || "(no subject)";
-  const fromShort = shortenFrom(item.from);
+  const fromShort = mailboxLabel(item.from);
   const head = fromShort ? `• ${subject} — ${fromShort}` : `• ${subject}`;
   const rationale = item.rationale ? `\n    ${item.rationale}` : "";
   const link = item.threadUrl ? `\n    ${item.threadUrl}` : "";
@@ -457,7 +457,7 @@ function renderBucketHtml(category: PriorityCategory, bucket: BriefingItem[]): s
 
 function renderItemHtml(item: BriefingItem): string {
   const subject = escapeHtml(item.subject?.trim() || "(no subject)");
-  const fromShort = shortenFrom(item.from);
+  const fromShort = mailboxLabel(item.from);
 
   const fromHtml = fromShort
     ? `<span style="${MUTED_INLINE_STYLE}"> — ${escapeHtml(fromShort)}</span>`

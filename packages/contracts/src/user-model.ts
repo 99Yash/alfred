@@ -260,6 +260,21 @@ export const identityRefSchema = z
 export type IdentityRef = z.infer<typeof identityRefSchema>;
 
 /**
+ * The email identity value: `canonicalizeIdentityValue("email", v)` when it passes
+ * the email identity format, else null. Every email `ent_*` id is minted from this.
+ */
+export function parseEmailIdentity(value: string | null | undefined): string | null {
+  if (!value) return null;
+
+  const parsed = identityRefSchema.safeParse({
+    kind: "email",
+    value: canonicalizeIdentityValue("email", value),
+  });
+
+  return parsed.success ? parsed.data.value : null;
+}
+
+/**
  * What an observation is about: an identity, or `{ kind: "user" }` for the user, who has no `IdentityRef`.
  * Stored in the `observations.subject_identity` column.
  */

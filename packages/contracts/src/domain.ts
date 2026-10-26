@@ -71,27 +71,122 @@ export const domainSchema: z.ZodType<string, string> = z
 
 const emailAddressSchema = z.string().trim().toLowerCase().pipe(z.email());
 
-/**
- * Loose: get the lowercase address out of a `From:` header, with or without
- * `Name <addr>`. Answers "what was written", not "is this mailable".
- */
-export function extractEmailAddress(value: string | null | undefined): string | null {
-  if (!value) return null;
-  const raw = (value.match(/<([^>]+)>/)?.[1] ?? value).trim().toLowerCase();
+/** One mailbox from a `From:`-style header: `Name <addr>`, `<addr>`, or `addr`. */
+export interface Mailbox {
+  /** Outer quotes stripped, backslash escapes removed, trimmed. Null when empty. */
+  readonly displayName: string | null;
+  /** Trimmed and lowercased: the same string `canonicalizeIdentityValue("email", …)` gives. */
+  readonly address: string;
+  readonly localPart: string;
+  readonly domain: string;
+}
 
-  return raw.includes("@") ? raw : null;
+const ANCHORED_ANGLE_RE = /^(.*?)<([^>]+)>\s*$/;
+
+const ANY_ANGLE_RE = /^(.*?)<([^>]+)>/;
+
+function cleanDisplayName(raw: string): string | null {
+  let name = raw.trim().replace(/^"+/, "");
+
+  // Drop closing quotes, but keep an escaped one (`"Ada \"AL\""`).
+  while (name.endsWith('"') && !name.endsWith('\\"')) name = name.slice(0, -1);
+
+  return name.replace(/\\(.)/g, "$1").trim() || null;
 }
 
 /**
- * Strict: `extractEmailAddress`, strip `mailto:`, then `z.email()`.
+ * Loose: answers "what was written", not "is this mailable". Text after `>`
+ * (`Ada <a@x.com> (via list)`) is dropped. The address splits at the last `@`;
+ * both halves must be non-empty. Null when there is no `local@domain`.
+ */
+export function parseMailbox(raw: string | null | undefined): Mailbox | null {
+  const trimmed = raw?.trim();
+
+  if (!trimmed) return null;
+  const angle = ANCHORED_ANGLE_RE.exec(trimmed) ?? ANY_ANGLE_RE.exec(trimmed);
+  const address = (angle?.[2] ?? trimmed).trim().toLowerCase();
+  const at = address.lastIndexOf("@");
+
+  if (at < 1 || at === address.length - 1) return null;
+
+  return {
+    displayName: angle ? cleanDisplayName(angle[1] ?? "") : null,
+    address,
+    localPart: address.slice(0, at),
+    domain: address.slice(at + 1),
+  };
+}
+
+/** The display label: name, else address, else the trimmed raw text, else null. */
+export function mailboxLabel(raw: string | null | undefined): string | null {
+  const mailbox = parseMailbox(raw);
+
+  return mailbox?.displayName ?? mailbox?.address ?? (raw?.trim() || null);
+}
+
+/**
+ * Split a To/Cc list on top-level commas. Honors quotes, backslash escapes, and
+ * angle brackets, so `"Doe, Jane" <j@x.com>` stays one token.
+ */
+export function splitAddressList(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  const parts: string[] = [];
+  let current = "";
+  let inQuote = false;
+  let angleDepth = 0;
+  let escaped = false;
+
+  for (const char of raw) {
+    if (escaped) {
+      current += char;
+      escaped = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      current += char;
+      escaped = true;
+      continue;
+    }
+
+    if (char === '"') {
+      inQuote = !inQuote;
+      current += char;
+      continue;
+    }
+
+    if (!inQuote && char === "<") angleDepth++;
+
+    if (!inQuote && char === ">" && angleDepth > 0) angleDepth--;
+
+    if (!inQuote && angleDepth === 0 && char === ",") {
+      const trimmed = current.trim();
+
+      if (trimmed) parts.push(trimmed);
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  const trimmed = current.trim();
+
+  if (trimmed) parts.push(trimmed);
+
+  return parts;
+}
+
+/**
+ * Strict: `parseMailbox`, strip `mailto:`, then `z.email()`.
  * Stored sender targets use this, so readers compare them with `===`.
  */
 export function normalizeEmailAddress(value: string | null | undefined): string | null {
-  const extracted = extractEmailAddress(value);
+  const mailbox = parseMailbox(value);
 
-  if (!extracted) return null;
+  if (!mailbox) return null;
 
-  const candidate = extracted.replace(/^mailto:/i, "").trim();
+  const candidate = mailbox.address.replace(/^mailto:/i, "").trim();
   const parsed = emailAddressSchema.safeParse(candidate);
 
   return parsed.success ? parsed.data : null;

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { splitAddressList } from "@alfred/assistant/triage/gmail-sender-adapter";
+import { splitAddressList } from "@alfred/contracts";
 
 describe("splitAddressList", () => {
   test("splits a plain comma-separated list", () => {

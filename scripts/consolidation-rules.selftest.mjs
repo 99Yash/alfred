@@ -1096,6 +1096,19 @@ const WEB_LANDING_FILE = "apps/web/src/components/landing/hero-band.tsx";
  */
 const LINE_CASES = [
   {
+    // `email-domain-split` — the github-adapter and loop-key spelling that
+    // parseMailbox replaced. `[0]` (a local-part display fallback) is not drift.
+    name: "email-domain-split — the domain after the first @",
+    caught: true,
+    rule: "email-domain-split",
+    code: `  if (address) parts.push(address, address.split("@")[1] ?? "");`,
+  },
+  {
+    name: "email-domain-split — the local part is not the domain",
+    caught: false,
+    code: `  if (user.email) return user.email.split("@")[0] ?? "";`,
+  },
+  {
     name: "module-scope-settings-bind — a bind held at module scope",
     caught: true,
     rule: "module-scope-settings-bind",

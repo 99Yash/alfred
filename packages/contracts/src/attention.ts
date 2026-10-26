@@ -4,6 +4,7 @@
  * The weights and cutoffs are first guesses, to tune from prod data.
  */
 import { z } from "zod";
+import { parseMailbox } from "./domain";
 import type { TriageCategory } from "./triage";
 
 // ─── Significance bucketing (ADR-0059) ───
@@ -134,25 +135,10 @@ export function normalizeSubjectForRecurrence(subject: string): string {
 const BULK_LOCALPART_RE =
   /(?:^|[._+-])(?:no-?reply|do-?not-?reply|donotreply|notifications?|notify|mailer-daemon|mailer|automated|auto-?confirm|bounces?|alerts?|postmaster)(?:[._+-]|$)/;
 
-function senderAddress(from: string | null | undefined): string | null {
-  if (!from) return null;
-  const trimmed = from.trim();
-
-  if (!trimmed) return null;
-  const angle = trimmed.match(/<([^>]+)>/);
-  const addr = (angle?.[1] ?? trimmed).trim().toLowerCase();
-
-  return addr || null;
-}
-
 export function isLikelyBulkSender(from: string | null | undefined): boolean {
-  const addr = senderAddress(from);
+  const mailbox = parseMailbox(from);
 
-  if (!addr) return false;
-  const at = addr.indexOf("@");
-  const local = at >= 0 ? addr.slice(0, at) : addr;
-
-  return BULK_LOCALPART_RE.test(local);
+  return mailbox ? BULK_LOCALPART_RE.test(mailbox.localPart) : false;
 }
 
 // ─── Windowed item scoring (the cross-row recurrence pass) ───────────────────
@@ -192,7 +178,7 @@ export function scoreAttentionForItems(items: readonly AttentionItemInput[]): At
 
   for (const entry of chronological) {
     if (!entry.bulk) continue;
-    const key = `${senderAddress(entry.item.sender) ?? ""}${RECURRENCE_KEY_SEP}${normalizeSubjectForRecurrence(entry.item.subject ?? "")}`;
+    const key = `${parseMailbox(entry.item.sender)?.address ?? ""}${RECURRENCE_KEY_SEP}${normalizeSubjectForRecurrence(entry.item.subject ?? "")}`;
     const idx = seen.get(key) ?? 0;
     entry.recurrenceIndex = idx;
     seen.set(key, idx + 1);
