@@ -141,7 +141,7 @@ function githubEvent<T extends GithubEventType>(
   return parsed.success ? { eventType, payload: parsed.data } : null;
 }
 
-/** A stored GitHub body, typed by its event. `null` for a body that is not an object. */
+/** A stored GitHub body, typed by its event. `null` for a body that is not an object, or a type the switch does not classify (only reachable through a generic `S`). */
 export function parseGithubEvent(eventType: GithubEventType, raw: unknown): GithubEvent | null {
   switch (eventType) {
     case "pull_request":
@@ -157,9 +157,12 @@ export function parseGithubEvent(eventType: GithubEventType, raw: unknown): Gith
     case "pull_request_review":
       return githubEvent(eventType, GITHUB_EVENT_SCHEMAS.pull_request_review, raw);
     default: {
+      // Unreachable for a literal source. A generic `S` can still land here at runtime with
+      // another source's type, so keep the exhaustiveness binding and fold nothing.
       const _exhaustive: never = eventType;
+      void _exhaustive;
 
-      return _exhaustive;
+      return null;
     }
   }
 }
