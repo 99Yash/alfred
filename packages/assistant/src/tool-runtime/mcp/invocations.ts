@@ -1,6 +1,7 @@
 /**
  * Persistence for `mcp_invocation` and `mcp_tool_policy`, plus the one tool-identity
- * resolution the approval gate and the broker share (ADR-0088).
+ * resolution the approval gate, the broker, and the two review stores (`policy.ts`,
+ * `health-mapping.ts`) share (ADR-0088).
  * The connection half must not import this module: that makes a cycle.
  * Normal-call transitions live in `broker.ts`; successor reservation in `recovery.ts`.
  */
@@ -187,13 +188,13 @@ export async function resolveMcpToolIdentity(
 }
 
 /** Why an owner review cannot bind. Assignable to every review store's result union. */
-export type McpReviewUnresolvedState =
+type McpReviewUnresolvedState =
   | { status: "connection_missing" }
   | { status: "catalog_stale" }
   | { status: "not_found" };
 
 /** The identity a review binds to, or the reason it cannot bind. */
-export type McpReviewTarget = ResolvedMcpToolIdentity | McpReviewUnresolvedState;
+type McpReviewTarget = ResolvedMcpToolIdentity | McpReviewUnresolvedState;
 
 function reviewStateFromReason(reason: McpToolIdentityUnresolvedReason): McpReviewUnresolvedState {
   switch (reason) {
@@ -206,7 +207,10 @@ function reviewStateFromReason(reason: McpToolIdentityUnresolvedReason): McpRevi
   }
 }
 
-/** Read path of the review stores: resolve `ref` for `userId`. No lock. */
+/**
+ * Read path of the review stores: resolve `ref` for `userId`. No lock.
+ * A mutation calls `lockMcpReviewTarget`, not this function.
+ */
 export async function resolveMcpReviewTarget(
   input: { userId: string; ref: ExternalToolRef },
   runner: DbRunner = db(),
