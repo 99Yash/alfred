@@ -84,6 +84,11 @@ tester.run("alfred/no-union-enum-without-default", noUnionEnumWithoutDefaultRule
       errors: [missingDefault()],
     },
     {
+      name: "a spread after the default key",
+      code: "t.UnionEnum(VALUES, { default: undefined, ...withDef })",
+      errors: [missingDefault()],
+    },
+    {
       name: "a bare union enum call",
       code: "UnionEnum(VALUES)",
       errors: [missingDefault()],

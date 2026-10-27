@@ -19,13 +19,23 @@ import { inGateScope } from "../shared/scope.ts";
  * What it flags. A call to `t.UnionEnum` (also `ElysiaType.UnionEnum` or a
  * bare `UnionEnum`) whose arguments hold no object literal with an explicit
  * `default` key: no second argument, a non-object second argument, an object
- * without the key, or an object whose only `default` could come from a spread
- * (`{ ...base }`). The tree cannot tell what a spread carries, so a spread
- * without an explicit `default` key alongside it is reported.
+ * without the key, an object whose only `default` could come from a spread
+ * (`{ ...base }`), or a spread after the last `default` key
+ * (`{ default: undefined, ...withDef }`). The tree cannot tell what a spread
+ * carries, so a spread without an explicit `default` key alongside it is reported.
  *
  * What it skips. An options object with an explicit `default` key, including
- * alongside a spread (`{ ...base, default: undefined }`). A callee that merely
- * contains the name (`myUnionEnumerator(...)`) is not a call of it.
+ * alongside a spread that comes before the key
+ * (`{ ...base, default: undefined }`). A callee that merely contains the name
+ * (`myUnionEnumerator(...)`) is not a call of it.
+ *
+ * What it does not see. Only a direct call counts: `t.UnionEnum(...)`,
+ * `ElysiaType.UnionEnum(...)`, a bare `UnionEnum(...)`, or a computed member
+ * (`t["UnionEnum"](...)`), each with or without `?.`. It does not see
+ * `.call`/`.apply`, an indirect call (`(0, t.UnionEnum)(...)`), an alias
+ * variable (`const u = t.UnionEnum; u(...)`), or a renamed destructure
+ * (`const { UnionEnum: ue } = t; ue(...)`). The repo uses none of those forms
+ * today.
  *
  * Why not `t.Union` of `t.Literal` instead. A `t.Union` over a mapped owner
  * tuple (`TUPLE.map((v) => t.Literal(v))`) compiles and runs, but Elysia's
@@ -60,17 +70,27 @@ function hasDefaultKey(node: ESTree.CallExpression): boolean {
 
   if (options.type !== "ObjectExpression") return false;
 
-  for (const property of options.properties) {
-    if (property.type === "SpreadElement") continue;
+  let lastDefaultIndex = -1;
+  let lastSpreadIndex = -1;
+
+  options.properties.forEach((property, index) => {
+    if (property.type === "SpreadElement") {
+      lastSpreadIndex = index;
+
+      return;
+    }
 
     const { key } = property;
 
-    if (!property.computed && key.type === "Identifier" && key.name === "default") return true;
+    if (!property.computed && key.type === "Identifier" && key.name === "default") {
+      lastDefaultIndex = index;
+    } else if (key.type === "Literal" && key.value === "default") {
+      lastDefaultIndex = index;
+    }
+  });
 
-    if (key.type === "Literal" && key.value === "default") return true;
-  }
-
-  return false;
+  // A spread after the last `default` key can put the default back.
+  return lastDefaultIndex >= 0 && lastDefaultIndex > lastSpreadIndex;
 }
 
 export const noUnionEnumWithoutDefaultRule = defineRule({
