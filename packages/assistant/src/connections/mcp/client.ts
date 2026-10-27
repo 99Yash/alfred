@@ -78,13 +78,20 @@ export type McpCallEnvelope =
   | (McpCallEnvelopeFields & { result: McpProtocolCallResult; truncation?: undefined })
   | (McpCallEnvelopeFields & { result: unknown; truncation: PassthroughTruncation });
 
+interface McpToolCallOptions {
+  signal?: AbortSignal;
+  trace?: McpTraceContext;
+  /**
+   * `structured`: the caller is code that parses only `structuredContent`. When the server sent it,
+   * the client drops `content` before the bounds. The MCP spec asks a server to repeat the structured
+   * result as text, and a clipped text copy must not reject a whole structured result.
+   */
+  result?: "full" | "structured";
+}
+
 export interface McpPreparedToolCall {
   catalog: McpCatalogSnapshot;
-  call(
-    ref: ExternalToolRef,
-    args: unknown,
-    options?: { signal?: AbortSignal; trace?: McpTraceContext },
-  ): Promise<McpCallEnvelope>;
+  call(ref: ExternalToolRef, args: unknown, options?: McpToolCallOptions): Promise<McpCallEnvelope>;
 }
 
 /** Tunable limits against a slow or hostile server. Fixed caps like `MAX_CATALOG_BYTES` are not tunable. */
@@ -665,11 +672,8 @@ export class McpRawClient {
 
     return Object.freeze({
       catalog,
-      call: (
-        ref: ExternalToolRef,
-        args: unknown,
-        options: { signal?: AbortSignal; trace?: McpTraceContext } = {},
-      ) => this.#callPreparedTool(catalogGeneration, catalog, ref, args, options),
+      call: (ref: ExternalToolRef, args: unknown, options: McpToolCallOptions = {}) =>
+        this.#callPreparedTool(catalogGeneration, catalog, ref, args, options),
     });
   }
 
@@ -678,7 +682,7 @@ export class McpRawClient {
     catalog: McpCatalogSnapshot,
     ref: ExternalToolRef,
     args: unknown,
-    options: { signal?: AbortSignal; trace?: McpTraceContext },
+    options: McpToolCallOptions,
   ): Promise<McpCallEnvelope> {
     const generation = this.#requireGeneration();
     const protocol = generation.protocol;
@@ -762,7 +766,12 @@ export class McpRawClient {
       outputSchemaValidated = true;
     }
 
-    const bounded = boundPassthroughBody(result);
+    const kept =
+      options.result === "structured" && result.structuredContent !== undefined
+        ? { ...result, content: [] }
+        : result;
+
+    const bounded = boundPassthroughBody(kept);
 
     const fields: McpCallEnvelopeFields = {
       connectionId: this.#options.connectionId,

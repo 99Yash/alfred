@@ -96,6 +96,7 @@ async function readRailwayTool<Schema extends z.ZodType>(
   const envelope = await prepared.call(
     { kind: "mcp", connectionId, remoteName, catalogRevision: prepared.catalog.revision },
     args,
+    { result: "structured" },
   );
 
   if (envelope.outcome !== "completed" || envelope.truncation) return null;
