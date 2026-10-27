@@ -54,11 +54,11 @@ Triggers: `cron`, `manual`, `event` (Gmail `message_received`, and `{type:"raw",
 
 **Not built.** ADR-0087 (object handles, `isolated-vm`, host functions with no network). No package or source file uses `isolated-vm` or QuickJS. The feasibility study (`docs/research/code-mode-sandbox-feasibility.md`) gives GO for `isolated-vm@6.1.2` in a forked worker. It also finds that Railway cannot block the network at the OS level, so the only boundary is app-level.
 
-**How approval works today.** `requiresApproval = policyMode === "gated" || riskTier === "high"` (`tool-runtime/internal/dispatch/pipeline.ts:940`). The policy mode is per tool or per integration, from `user_action_policies` (`assistant/src/action-policies/resolve.ts:69-117`). The default is `gated`.
+**How approval works today.** `requiresApproval = policyMode === "gated" || riskTier === "high"` (`tool-runtime/approval-rule.ts:17`, called from `tool-runtime/internal/dispatch/pipeline.ts:706`). The policy mode is per tool or per integration, from `user_action_policies` (`assistant/src/action-policies/resolve.ts:69-117`). The default is `gated`.
 
-**Owner decision (2026-10-22): code mode can write.** This supersedes the read-only scope of ADR-0087, which designs code mode as read-only and network-less for custody reasons. A new ADR must record the write scope. The set of write capabilities is not decided yet. The user can turn on some of them in settings.
+**Owner decision (2026-10-22): code mode can write.** This supersedes the read-only scope of ADR-0087, which designs code mode as read-only and network-less for custody reasons. ADR-0116 (proposed) records the write scope: writes are host calls through dispatch, planned before they apply, under the ADR-0115 record. The set of write capabilities is not decided yet. The user can turn on some of them in settings.
 
-**The owner's permission example is a new axis.** Today, permission is per tool. The owner's example ("the agent may delete what it created") is per record: it depends on who made the record. The provenance data exists: `todos.created_by` (`user|agent`), `agent_run_id`, `resolved_by` (`db/src/schema/todos.ts:39-51`). No rule reads it. `system.resolve_todo` is `no_risk` and does not check `createdBy` (`assistant/src/tasks/resolve.ts:196`). A provenance rule is small and can come before code mode.
+**The owner's permission example is a new axis.** Today, permission is per tool. The owner's example ("the agent may delete what it created") is per record: it depends on who made the record. The provenance data exists: `todos.created_by` (`user|agent`), `agent_run_id`, `resolved_by` (`db/src/schema/todos.ts:39-51`). No rule reads it. `system.resolve_todo` is `no_risk` and does not check `createdBy` (`assistant/src/tasks/resolve.ts:196`). A provenance rule is small and can come before code mode. ADR-0115 stores the provenance for each change, and ADR-0116 rule 4 reads it for Code Mode writes.
 
 ---
 
