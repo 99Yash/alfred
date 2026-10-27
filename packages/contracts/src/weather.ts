@@ -37,7 +37,24 @@ export const WEATHER_FALLBACK_CITIES: ReadonlyMap<string, WeatherFallbackLocatio
   ["UTC", { lat: 51.4934, lng: 0.0098, label: "Greenwich" }],
 ]);
 
+/**
+ * ICU's id for a zone. An alias and its current name resolve to the same id, so a stored
+ * `Asia/Calcutta` finds the `Asia/Kolkata` row. Which of the two ICU returns does not matter,
+ * because the table keys go through the same function.
+ */
+function icuZoneId(tz: string): string {
+  try {
+    return new Intl.DateTimeFormat("en-US", { timeZone: tz }).resolvedOptions().timeZone;
+  } catch {
+    return tz;
+  }
+}
+
+const WEATHER_FALLBACK_BY_ICU_ID: ReadonlyMap<string, WeatherFallbackLocation> = new Map(
+  [...WEATHER_FALLBACK_CITIES].map(([tz, location]) => [icuZoneId(tz), location]),
+);
+
 /** `null` for an unknown zone. The caller decides what to do without weather. */
 export function weatherFallbackFor(tz: IanaTimezone): WeatherFallbackLocation | null {
-  return WEATHER_FALLBACK_CITIES.get(tz) ?? null;
+  return WEATHER_FALLBACK_BY_ICU_ID.get(icuZoneId(tz)) ?? null;
 }
