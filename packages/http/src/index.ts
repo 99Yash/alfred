@@ -47,8 +47,6 @@ export type { SecurityHeadersOptions } from "./middleware/security-headers";
 // timer or socket, because tests run with `--test-force-exit`.
 export { agent, approvalsRoutes, chatRoutes, meRoutes };
 
-export type { MeInboxItem, MeInboxMessage, MeLatestBriefing, MeMeetingItem } from "./me";
-
 export {
   connections,
   integrationsRoutes,

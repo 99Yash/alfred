@@ -108,81 +108,6 @@ function inboxCursorWhere(cursor: ParsedInboxCursor | null) {
   );
 }
 
-export interface MeInboxItem {
-  documentId: string;
-  /** Gmail thread id, used to deep-link into Gmail web. The column is nullable. */
-  threadId: string | null;
-  /** Raw `From` header, e.g. `"Maya Chen <maya@example.com>"`. */
-  sender: string | null;
-  subject: string | null;
-  snippet: string | null;
-  authoredAt: string | null;
-  unread: boolean;
-  category: string | null;
-}
-
-/**
- * One Gmail thread for the rail reader, oldest message first.
- *
- * @public Eden infers it from `typeof app`, so knip cannot see the use.
- */
-export interface MeInboxDetail {
-  threadId: string | null;
-  subject: string | null;
-  category: string | null;
-  selectedDocumentId: string;
-  messages: ReadonlyArray<MeInboxMessage>;
-}
-
-/** @public Nested in {@link MeInboxDetail}; see its note on Eden inference. */
-export interface MeInboxMessage {
-  documentId: string;
-  sender: string | null;
-  to: string | null;
-  cc: string | null;
-  subject: string | null;
-  snippet: string | null;
-  /** Plain body, ready for markdown. */
-  body: string;
-  /** Sanitized `text/html` part, or null. The reader shows it in a sandboxed iframe. */
-  htmlBody: string | null;
-  authoredAt: string | null;
-  unread: boolean;
-  /** The client cannot download bytes. A click opens Gmail web. */
-  attachments: ReadonlyArray<MeInboxAttachment>;
-}
-
-/** @public Nested in {@link MeInboxMessage}; see its note on Eden inference. */
-export interface MeInboxAttachment {
-  partId: string | null;
-  attachmentId: string;
-  filename: string;
-  mimeType: string;
-  size: number;
-}
-
-export interface MeLatestBriefing {
-  id: string;
-  slot: string;
-  briefingDate: string;
-  runAt: string;
-  subject: string | null;
-  status: string;
-}
-
-export interface MeMeetingItem {
-  id: string;
-  title: string;
-  startAt: string | null;
-  endAt: string | null;
-  allDay: boolean;
-  location: string | null;
-  /** Attendees other than the user. */
-  attendees: ReadonlyArray<{ email: string; displayName: string | null }>;
-  hangoutLink: string | null;
-  htmlLink: string | null;
-}
-
 /** Raw HTML that some senders put inside a `text/plain` body. */
 const HTML_TAG_RE =
   /<(?:!--|\/?(?:a|p|div|span|br|img|picture|source|table|tr|td|th|ul|ol|li|blockquote|h[1-6]|html|body|head|style|script|font|center|pre|code|hr|strong|em|b|i|u|figure|figcaption|small|details|summary)\b)/i;
@@ -383,19 +308,21 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
               ? encodeInboxCursor({ authoredAt: last.authoredAt, documentId: last.documentId })
               : null;
 
-          const items: MeInboxItem[] = pageRows.map((r) => {
+          const items = pageRows.map((r) => {
             const meta = parseGmailDocumentMetadata(r.metadata);
             const labelIds = meta.labelIds ?? [];
 
             return {
               documentId: r.documentId,
+              // Nullable Gmail thread id, used to deep-link into Gmail web.
               threadId: r.threadId ?? null,
+              // Raw `From` header, e.g. `"Maya Chen <maya@example.com>"`.
               sender: meta.from ?? null,
               subject: r.subject ?? null,
               snippet: meta.snippet ?? null,
               authoredAt: r.authoredAt?.toISOString() ?? null,
               unread: labelIds.includes("UNREAD"),
-              category: r.category ?? null,
+              category: r.category,
             };
           });
 
@@ -461,7 +388,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
             // Oldest first, like Gmail web.
             .orderBy(asc(documents.authoredAt), asc(documents.id));
 
-          const messages: MeInboxMessage[] = threadRows.map((row) => {
+          const messages = threadRows.map((row) => {
             const meta = parseGmailDocumentMetadata(row.metadata);
             const labelIds = meta.labelIds ?? [];
             const raw = parseStoredGmailMessage(row.raw);
@@ -475,15 +402,18 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
               cc: meta.cc ?? null,
               subject: row.subject ?? null,
               snippet: meta.snippet ?? null,
+              // Plain body, ready for markdown.
               body: normalizeBodyForReader(row.content, {
                 from: meta.from,
                 to: meta.to,
                 cc: meta.cc,
                 subject: row.subject,
               }),
+              // Sanitized `text/html` part, or null. The reader shows it in a sandboxed iframe.
               htmlBody: sanitizeEmailHtml(rawHtml),
               authoredAt: row.authoredAt?.toISOString() ?? null,
               unread: labelIds.includes("UNREAD"),
+              // The client cannot download bytes. A click opens Gmail web.
               attachments,
             };
           });
@@ -492,14 +422,13 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
           const selectedRow =
             threadRows.find((r) => r.documentId === params.documentId) ?? threadRows[0];
 
-          // `satisfies`, not an annotation: the `ReadonlyArray` type made Eden infer attachments as `any`.
           const detail = {
             threadId: selected.threadId ?? null,
             subject: selectedRow?.subject ?? selected.subject ?? null,
             category: selectedRow?.category ?? null,
             selectedDocumentId: params.documentId,
             messages,
-          } satisfies MeInboxDetail;
+          };
 
           return detail;
         },
@@ -629,108 +558,103 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
           }),
         },
       )
-      .get(
-        "/meetings",
-        async ({ user: u }): Promise<{ items: MeMeetingItem[]; connected: boolean }> => {
-          // A user can have several Google accounts. Pick one with a calendar scope.
-          const creds = await db()
-            .select({
-              id: integrationCredentials.id,
-              scopes: integrationCredentials.scopes,
-            })
-            .from(integrationCredentials)
-            .where(
-              and(
-                eq(integrationCredentials.userId, u.id),
-                eq(integrationCredentials.provider, "google"),
-                eq(integrationCredentials.status, "active"),
-              ),
-            );
-
-          const row = creds.find((c) =>
-            holdsAnyScope(toStringArray(c.scopes), INTEGRATIONS.calendar.credential.anyOfScopes),
+      .get("/meetings", async ({ user: u }) => {
+        // A user can have several Google accounts. Pick one with a calendar scope.
+        const creds = await db()
+          .select({
+            id: integrationCredentials.id,
+            scopes: integrationCredentials.scopes,
+          })
+          .from(integrationCredentials)
+          .where(
+            and(
+              eq(integrationCredentials.userId, u.id),
+              eq(integrationCredentials.provider, "google"),
+              eq(integrationCredentials.status, "active"),
+            ),
           );
 
-          if (!row) return { items: [], connected: false };
+        const row = creds.find((c) =>
+          holdsAnyScope(toStringArray(c.scopes), INTEGRATIONS.calendar.credential.anyOfScopes),
+        );
 
-          const { start, end } = inZone(await settings({ userId: u.id }).timezone()).dayBounds();
+        if (!row) return { items: [], connected: false };
 
-          const accessToken = await getFreshAccessToken(row.id);
+        const { start, end } = inZone(await settings({ userId: u.id }).timezone()).dayBounds();
 
-          const { events } = await listEvents({
-            accessToken,
-            timeMin: start.toISOString(),
-            timeMax: end.toISOString(),
-            singleEvents: true,
-            orderBy: "startTime",
-            maxResults: 50,
-          });
+        const accessToken = await getFreshAccessToken(row.id);
 
-          const items: MeMeetingItem[] = events.map((e) => {
-            const startIso = e.start?.dateTime ?? e.start?.date ?? null;
-            const endIso = e.end?.dateTime ?? e.end?.date ?? null;
-            const attendees: Array<{ email: string; displayName: string | null }> = [];
+        const { events } = await listEvents({
+          accessToken,
+          timeMin: start.toISOString(),
+          timeMax: end.toISOString(),
+          singleEvents: true,
+          orderBy: "startTime",
+          maxResults: 50,
+        });
 
-            for (const a of e.attendees ?? []) {
-              if (!a.self && a.email) {
-                attendees.push({ email: a.email, displayName: a.displayName ?? null });
-              }
+        const items = events.map((e) => {
+          const startIso = e.start?.dateTime ?? e.start?.date ?? null;
+          const endIso = e.end?.dateTime ?? e.end?.date ?? null;
+          const attendees: Array<{ email: string; displayName: string | null }> = [];
+
+          for (const a of e.attendees ?? []) {
+            if (!a.self && a.email) {
+              attendees.push({ email: a.email, displayName: a.displayName ?? null });
             }
-
-            return {
-              id: e.id,
-              title: e.summary ?? "(no title)",
-              startAt: startIso,
-              endAt: endIso,
-              allDay: Boolean(e.start?.date) && !e.start?.dateTime,
-              location: e.location ?? null,
-              attendees,
-              hangoutLink: e.hangoutLink ?? null,
-              htmlLink: e.htmlLink ?? null,
-            };
-          });
-
-          return { items, connected: true };
-        },
-      )
-      .get(
-        "/briefings/latest",
-        async ({ user: u }): Promise<{ briefing: MeLatestBriefing | null }> => {
-          // Today only, so the chip never shows a stale day. The newest slot wins.
-          const today = inZone(await settings({ userId: u.id }).timezone()).day();
-
-          const rows = await db()
-            .select({
-              id: briefings.id,
-              slot: briefings.slot,
-              briefingDate: briefings.briefingDate,
-              runAt: briefings.createdAt,
-              breakingSummary: briefings.breakingSummary,
-              fullBriefing: briefings.fullBriefing,
-              status: briefings.status,
-            })
-            .from(briefings)
-            .where(and(eq(briefings.userId, u.id), eq(briefings.briefingDate, today)))
-            .orderBy(desc(briefings.createdAt))
-            .limit(1);
-
-          const row = rows[0];
-          const headline = row?.fullBriefing?.headline ?? null;
+          }
 
           return {
-            briefing: row
-              ? {
-                  id: row.id,
-                  slot: row.slot,
-                  briefingDate: row.briefingDate,
-                  runAt: row.runAt.toISOString(),
-                  subject: headline ?? row.breakingSummary,
-                  status: row.status,
-                }
-              : null,
+            id: e.id,
+            title: e.summary ?? "(no title)",
+            startAt: startIso,
+            endAt: endIso,
+            allDay: Boolean(e.start?.date) && !e.start?.dateTime,
+            location: e.location ?? null,
+            // Attendees other than the user.
+            attendees,
+            hangoutLink: e.hangoutLink ?? null,
+            htmlLink: e.htmlLink ?? null,
           };
-        },
-      )
+        });
+
+        return { items, connected: true };
+      })
+      .get("/briefings/latest", async ({ user: u }) => {
+        // Today only, so the chip never shows a stale day. The newest slot wins.
+        const today = inZone(await settings({ userId: u.id }).timezone()).day();
+
+        const rows = await db()
+          .select({
+            id: briefings.id,
+            slot: briefings.slot,
+            briefingDate: briefings.briefingDate,
+            runAt: briefings.createdAt,
+            breakingSummary: briefings.breakingSummary,
+            fullBriefing: briefings.fullBriefing,
+            status: briefings.status,
+          })
+          .from(briefings)
+          .where(and(eq(briefings.userId, u.id), eq(briefings.briefingDate, today)))
+          .orderBy(desc(briefings.createdAt))
+          .limit(1);
+
+        const row = rows[0];
+        const headline = row?.fullBriefing?.headline ?? null;
+
+        return {
+          briefing: row
+            ? {
+                id: row.id,
+                slot: row.slot,
+                briefingDate: row.briefingDate,
+                runAt: row.runAt.toISOString(),
+                subject: headline ?? row.breakingSummary,
+                status: row.status,
+              }
+            : null,
+        };
+      })
       .post("/briefings/run", async ({ user: u }) => {
         // `reason: "manual"` skips morning suppression, so the slot always sends.
         const prefs = await resolveBriefingPreferences(settings({ userId: u.id }));

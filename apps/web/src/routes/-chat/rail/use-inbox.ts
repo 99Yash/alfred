@@ -4,7 +4,6 @@ import {
   INBOX_DEFAULT_LIMIT,
   isDomainOrSubdomain,
   isFreeMail,
-  isTriageCategory,
   mailboxLabel,
   parseMailbox,
   type TriageCategory,
@@ -186,7 +185,7 @@ export function useInboxDetail(documentId: string | null) {
       return {
         threadId: data.threadId,
         subject: data.subject,
-        category: isTriageCategory(data.category) ? data.category : null,
+        category: data.category,
         selectedDocumentId: data.selectedDocumentId,
         messages,
       };
@@ -237,7 +236,7 @@ function toInboxItem(row: InboxResponseItem): RailInboxItem {
     unread: row.unread,
     initial: sender.initial,
     tone: sender.tone,
-    category: isTriageCategory(row.category) ? row.category : null,
+    category: row.category,
     senderBrand: brand,
     senderDomain: brand === null && !isFreeMail(domain) && domain ? domain : null,
   };
