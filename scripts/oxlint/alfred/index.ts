@@ -5,6 +5,7 @@ import { noExportedHasherRule } from "./rules/no-exported-hasher.ts";
 import { noFunctionWrapperShimRule } from "./rules/no-function-wrapper-shim.ts";
 import { noTypeAliasShimRule } from "./rules/no-type-alias-shim.ts";
 import { noTypeReExportShimRule } from "./rules/no-type-re-export-shim.ts";
+import { noUnionEnumWithoutDefaultRule } from "./rules/no-union-enum-without-default.ts";
 import { sha256OverJsonStringifyRule } from "./rules/sha256-over-json-stringify.ts";
 
 /**
@@ -19,6 +20,7 @@ const alfredPlugin = eslintCompatPlugin({
     "no-function-wrapper-shim": noFunctionWrapperShimRule,
     "no-type-alias-shim": noTypeAliasShimRule,
     "no-type-re-export-shim": noTypeReExportShimRule,
+    "no-union-enum-without-default": noUnionEnumWithoutDefaultRule,
     "sha256-over-json-stringify": sha256OverJsonStringifyRule,
   },
 });

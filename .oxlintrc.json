@@ -80,11 +80,14 @@
     // no-constants-re-export / no-type-re-export-shim: a logic file that hands out a value /
     // a type of a `constants` module again; only the package barrel may. no-type-alias-shim:
     // an exported type that is only a new name for an imported type.
+    // no-union-enum-without-default: a `t.UnionEnum` call with no `default` key, which
+    // would fill a missing field with the first member.
     "alfred/no-constants-re-export": "error",
     "alfred/no-exported-hasher": "error",
     "alfred/no-function-wrapper-shim": "error",
     "alfred/no-type-alias-shim": "error",
     "alfred/no-type-re-export-shim": "error",
+    "alfred/no-union-enum-without-default": "error",
     "alfred/sha256-over-json-stringify": "error",
     // The tailwind rules sit at `error` by the same bar: zero violations on promotion, and
     // `pnpm lint` does not fail on `warn`, so a warn-level rule here enforced nothing.

@@ -7,19 +7,18 @@ import {
   TRIAGE_RAIL_SUPPRESSED_CATEGORIES,
   USAGE_ACTIVITY_DEFAULT_PAGE_SIZE,
   USAGE_ACTIVITY_MAX_PAGE_SIZE,
+  USAGE_RUN_CATEGORIES,
   encodeInboxCursor,
   Errors,
   decodeHtmlEntities,
   extractGmailDocumentBody,
   INTEGRATIONS,
-  isUsageRunCategory,
   parseGmailDocumentMetadata,
   parseInboxCursor,
   toStringArray,
   type BriefingSlot,
-  type UsageRunCategory,
-  type UsageSortDir,
-  type UsageSortField,
+  usageSortDirValues,
+  usageSortFieldValues,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { briefings, documents, emailTriage, integrationCredentials } from "@alfred/db/schemas";
@@ -221,15 +220,6 @@ function resolveUsageRange(query: { start?: string; end?: string }) {
   if (start.getTime() > end.getTime()) throw Errors.BadRequestError("`start` must be before `end`");
 
   return { start, end };
-}
-
-function parseUsageCategories(raw: string | undefined): UsageRunCategory[] {
-  if (!raw) return [];
-
-  return raw
-    .split(",")
-    .map((s) => s.trim())
-    .filter((s): s is UsageRunCategory => isUsageRunCategory(s));
 }
 
 export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
@@ -740,17 +730,15 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
         "/usage/activity",
         async ({ user: u, query }) => {
           const { start, end } = resolveUsageRange(query);
-          const sortField: UsageSortField = query.sortField === "costUsd" ? "costUsd" : "createdAt";
-          const sortDir: UsageSortDir = query.sortDir === "asc" ? "asc" : "desc";
 
           return getUsageActivity(u.id, {
             start,
             end,
             page: query.page ?? 1,
             pageSize: query.pageSize ?? USAGE_ACTIVITY_DEFAULT_PAGE_SIZE,
-            categories: parseUsageCategories(query.categories),
-            sortField,
-            sortDir,
+            categories: query.categories ?? [],
+            sortField: query.sortField ?? "createdAt",
+            sortDir: query.sortDir ?? "desc",
           });
         },
         {
@@ -759,10 +747,15 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
             end: t.Optional(t.String()),
             page: t.Optional(t.Numeric({ minimum: 1 })),
             pageSize: t.Optional(t.Numeric({ minimum: 1, maximum: USAGE_ACTIVITY_MAX_PAGE_SIZE })),
-            /** Comma-separated `UsageRunCategory` values. Unknown values are dropped. */
-            categories: t.Optional(t.String()),
-            sortField: t.Optional(t.String()),
-            sortDir: t.Optional(t.String()),
+            // `t.UnionEnum` defaults to its first member. `default: undefined`
+            // keeps a missing field missing, so the handler `??` defaults stay
+            // the one place that names the usage defaults.
+            // `alfred/no-union-enum-without-default` keeps the option honest.
+            categories: t.Optional(
+              t.Array(t.UnionEnum(USAGE_RUN_CATEGORIES, { default: undefined })),
+            ),
+            sortField: t.Optional(t.UnionEnum(usageSortFieldValues, { default: undefined })),
+            sortDir: t.Optional(t.UnionEnum(usageSortDirValues, { default: undefined })),
           }),
         },
       ),

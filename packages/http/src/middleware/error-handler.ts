@@ -1,6 +1,6 @@
 import { logger } from "@alfred/logging";
 import { ApiError, apiErrorResponse, Errors } from "@alfred/contracts";
-import { Elysia } from "elysia";
+import { Elysia, ValidationError } from "elysia";
 
 export const errorHandler = new Elysia({ name: "error-handler", normalize: "typebox" }).onError(
   { as: "global" },
@@ -14,7 +14,11 @@ export const errorHandler = new Elysia({ name: "error-handler", normalize: "type
     if (error instanceof ApiError) return respond(error);
 
     if (code === "VALIDATION") {
-      const first = error.all[0];
+      // A query `t.Array` decodes through a TypeBox Transform (`ArrayQuery`): a bad item
+      // throws `TransformDecodeCheckError`, which Elysia reports with code "VALIDATION"
+      // but no `.all` list. Reading `.all` unconditionally throws inside `onError`, so
+      // the node adapter never answers. Only `ValidationError` carries `.all`.
+      const first = error instanceof ValidationError ? error.all[0] : undefined;
       const summary = first?.summary ? `Validation failed: ${first.summary}` : undefined;
 
       return respond(Errors.ValidationError(summary));

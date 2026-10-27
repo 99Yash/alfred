@@ -19,12 +19,6 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
     app.post(
       "/:stagingId/decision",
       async ({ params, body, user }) => {
-        const decision = parseDecision(body.decision);
-
-        if (!decision) {
-          throw Errors.BadRequestError("decision must be 'approve' | 'reject' | 'cancel_run'");
-        }
-
         const reason = body.reason?.trim();
 
         const editedInput =
@@ -35,7 +29,7 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
 
         const outcome = await action.decide(
           await toStagedActionDecision({
-            decision,
+            decision: body.decision,
             reason,
             editedInput,
             expectedRowVersion,
@@ -58,7 +52,13 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
       {
         params: t.Object({ stagingId: t.String({ minLength: 1, maxLength: 120 }) }),
         body: t.Object({
-          decision: t.String({ minLength: 1, maxLength: 32 }),
+          // `t.UnionEnum` defaults to its first member, so a missing decision
+          // would become "approve". `default: undefined` fails it instead.
+          // `alfred/no-union-enum-without-default` keeps the option honest.
+          decision: t.UnionEnum(
+            ["approve", "reject", "cancel_run"] as const satisfies readonly Decision[],
+            { default: undefined },
+          ),
           expectedRowVersion: t.Integer({ minimum: 1 }),
           editedInput: t.Optional(t.Unknown()),
           reason: t.Optional(t.String({ maxLength: 2_000 })),
@@ -66,12 +66,6 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
       },
     ),
   );
-
-function parseDecision(value: string): Decision | null {
-  if (value === "approve" || value === "reject" || value === "cancel_run") return value;
-
-  return null;
-}
 
 /** The checks that need no row lock. The plain-reject reason check needs the row, so it is in `decide`. */
 async function toStagedActionDecision(args: {

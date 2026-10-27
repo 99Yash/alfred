@@ -87,7 +87,7 @@ export function useUsageActivity(args: ActivityArgs) {
           end: args.end,
           page: args.page,
           pageSize: args.pageSize,
-          ...(categoriesKey ? { categories: categoriesKey } : {}),
+          ...(args.categories.length > 0 ? { categories: [...args.categories] } : {}),
           sortField: args.sortField,
           sortDir: args.sortDir,
         },
