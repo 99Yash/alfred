@@ -58,6 +58,11 @@ interface BuildArgs {
   closedLoops: BriefingClosedLoop[];
   /** Non-closing verdicts for each live loop. */
   loopRelevance: BriefingLoopRelevance[];
+  /**
+   * The gather's day shape. It holds the live GitHub read, which a recompute here would repeat.
+   * Absent on a run that gathered before this field existed; the tool then recomputes.
+   */
+  dayShape?: DayShape | undefined;
 }
 
 /** Day-shape window on the first run, when there is no watermark. */
@@ -188,9 +193,16 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
 
     get_day_shape: tool({
       description:
-        "Deterministic read of how active the day actually was: { activityVolume: 'busy'|'normal'|'quiet', shipped: [{title, url}] }, computed from connected-tool activity (GitHub) over the briefing window. Use it to ground the day's tone — NEVER call the day 'quiet' or 'slow' when activityVolume is 'busy' or 'normal'. In the evening slot, `shipped` is the recently-completed work you can recap in one collapsed clause ('a batch of the X work shipped'); never enumerate it.",
+        "Deterministic read of how active the day actually was: { activityVolume: 'busy'|'normal'|'quiet', shipped: [{title, url}], shippedTotal?: number }, computed from connected-tool activity (GitHub) over the briefing window. `shipped` holds the newest merges; `shippedTotal`, when present, is the full merge count for the window and can be larger than `shipped`. Use it to ground the day's tone — NEVER call the day 'quiet' or 'slow' when activityVolume is 'busy' or 'normal'. In the evening slot, `shipped` is the recently-completed work you can recap in one collapsed clause ('a batch of the X work shipped'); never enumerate it.",
       inputSchema: z.object({}),
       execute: async (): Promise<DayShape> => {
+        if (args.dayShape) {
+          // The email-demand fields steer the gate, not the prose.
+          const { demandingEmailCount: _demand, topEmailBand: _band, ...dayShape } = args.dayShape;
+
+          return dayShape;
+        }
+
         return gatherDayShape({
           userId: args.userId,
           windowStart: args.sinceIngestedAt ?? new Date(args.untilIngestedAt.getTime() - DAY_MS),

@@ -23,6 +23,7 @@ import {
   type BriefingClosedLoop,
   type BriefingGather,
   type BriefingLoopRelevance,
+  type DayShape,
   type IanaTimezone,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -67,6 +68,8 @@ export interface DailyBriefingOperationState {
   closedLoops: BriefingClosedLoop[];
   /** Non-closing relevance verdicts for the live priority loops. */
   loopRelevance: BriefingLoopRelevance[];
+  /** The gathered day shape. Compose reads it, so the agent does not repeat the GitHub read. */
+  dayShape?: DayShape | undefined;
   composed?: {
     subject: string;
     bodyText: string;
@@ -219,6 +222,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
       quietDay,
       closedLoops,
       loopRelevance,
+      dayShape: gather.day_shape,
     },
     nextStep: "compose",
   };
@@ -287,6 +291,7 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
         stepId: "compose",
         closedLoops: ctx.state.closedLoops,
         loopRelevance: ctx.state.loopRelevance,
+        dayShape: ctx.state.dayShape,
         ...(openAskViolations ? { openAskViolations } : {}),
       });
     };

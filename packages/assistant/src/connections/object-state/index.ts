@@ -24,10 +24,12 @@ export { objectStateFoldConsumers } from "./activity-consumer";
 
 export {
   approvedMcpHealthExternalId,
+  GITHUB_MERGED_PULL_READ_EVENT_TYPE,
   MCP_APPROVED_HEALTH_EVENT_TYPE,
   parseReceiptEvent,
   VERIFIED_PULL_EVENT_TYPE,
   type ApprovedMcpHealthEvent,
+  type GithubMergedPullReadEvent,
   type RailwayPullEvent,
   type VercelPullEvent,
   type VerifiedPullEvent,

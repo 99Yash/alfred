@@ -191,6 +191,8 @@ export const dayShapeSchema = z.object({
   activityVolume: dayShapeVolumeSchema,
   /** Work that shipped or resolved, for the evening recap. */
   shipped: z.array(z.object({ title: z.string().min(1).max(300), url: z.url().optional() })),
+  /** Merges in the window when a live read counted them. `shipped` holds only the newest few. */
+  shippedTotal: z.number().int().nonnegative().optional(),
   /**
    * Priority emails in the `demanding` band. With no activity and no events, zero
    * suppresses the morning briefing (#259). Absent on old rows and without email
