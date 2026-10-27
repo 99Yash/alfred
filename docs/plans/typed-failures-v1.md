@@ -321,7 +321,7 @@ entry. Replace the nine dead codes with `connection_required`, `reauth_required`
 `extractStoredError` to parse params. No behavior change for the model yet except the
 new `fix` field in the result. Tier 4 producer test lands here.
 
-**PR 2 — the classifier.** Add `_tag` to the six untagged classes. Replace
+**PR 2 — the classifier.** Add `_tag` to the five untagged classes. Replace
 `toPublicAppError` with `classifyToolFailure`. Add the mid-call reauth test: a fake tool
 throws `GoogleReauthRequiredError` through `dispatchToolCall`; assert the persisted code is
 `reauth_required`, and assert `completedToolCall(...).connectNudge` is `reconnect`. Add
