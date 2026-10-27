@@ -5,10 +5,9 @@ import {
   MCP_LIST_TOOLS_MAX_LIMIT,
   mcpCallInput,
   mcpExternalToolRefSchema,
-  mcpListToolsInput,
   mcpToolDiscoveryPageSchema,
   mcpToolInspectionResultSchema,
-  parseMcpListToolsOperation,
+  mcpToolSearchInputSchema,
 } from "@alfred/contracts";
 
 const ref = {
@@ -55,53 +54,23 @@ describe("MCP discovery contracts", () => {
   });
 
   test("accepts an empty search", () => {
-    assert.deepEqual(mcpListToolsInput.parse({}), {});
-  });
-
-  test("rejects mixed search and inspection fields", () => {
-    assert.equal(mcpListToolsInput.safeParse({ ref, query: "calendar" }).success, false);
-    assert.equal(mcpListToolsInput.safeParse({ ref, limit: 1 }).success, false);
-    assert.equal(mcpListToolsInput.safeParse({ ref, query: undefined }).success, false);
-    assert.equal(
-      mcpListToolsInput.safeParse({ connectionId: "connection-1", remoteName: "tool" }).success,
-      false,
-    );
-  });
-
-  test("parses one search-or-inspect operation at the contract boundary", () => {
-    assert.deepEqual(parseMcpListToolsOperation({ query: "calendar", limit: 2 }), {
-      operation: "search",
-      input: { query: "calendar", limit: 2 },
-    });
-    assert.deepEqual(parseMcpListToolsOperation({ ref }), {
-      operation: "inspect",
-      input: { ref },
-    });
-    assert.throws(() => parseMcpListToolsOperation({ ref, query: "calendar" }));
-  });
-
-  test("accepts only the exact-ref inspection form", () => {
-    assert.deepEqual(mcpListToolsInput.parse({ ref }), { ref });
-    assert.equal(mcpListToolsInput.safeParse({ ref: { ...ref, extra: true } }).success, false);
-    assert.equal(
-      mcpListToolsInput.safeParse({
-        ref: { connectionId: ref.connectionId, remoteName: ref.remoteName },
-      }).success,
-      false,
-    );
+    assert.deepEqual(mcpToolSearchInputSchema.parse({}), {});
   });
 
   test("enforces search input bounds", () => {
-    assert.equal(mcpListToolsInput.safeParse({ query: "q".repeat(200) }).success, true);
-    assert.equal(mcpListToolsInput.safeParse({ query: "q".repeat(201) }).success, false);
-    assert.equal(mcpListToolsInput.safeParse({ cursor: "c".repeat(512) }).success, true);
-    assert.equal(mcpListToolsInput.safeParse({ cursor: "c".repeat(513) }).success, false);
-    assert.equal(mcpListToolsInput.safeParse({ limit: MCP_LIST_TOOLS_MAX_LIMIT }).success, true);
+    assert.equal(mcpToolSearchInputSchema.safeParse({ query: "q".repeat(200) }).success, true);
+    assert.equal(mcpToolSearchInputSchema.safeParse({ query: "q".repeat(201) }).success, false);
+    assert.equal(mcpToolSearchInputSchema.safeParse({ cursor: "c".repeat(512) }).success, true);
+    assert.equal(mcpToolSearchInputSchema.safeParse({ cursor: "c".repeat(513) }).success, false);
     assert.equal(
-      mcpListToolsInput.safeParse({ limit: MCP_LIST_TOOLS_MAX_LIMIT + 1 }).success,
+      mcpToolSearchInputSchema.safeParse({ limit: MCP_LIST_TOOLS_MAX_LIMIT }).success,
+      true,
+    );
+    assert.equal(
+      mcpToolSearchInputSchema.safeParse({ limit: MCP_LIST_TOOLS_MAX_LIMIT + 1 }).success,
       false,
     );
-    assert.equal(mcpListToolsInput.safeParse({ limit: 0 }).success, false);
+    assert.equal(mcpToolSearchInputSchema.safeParse({ limit: 0 }).success, false);
   });
 
   test("bounds strict discovery pages", () => {

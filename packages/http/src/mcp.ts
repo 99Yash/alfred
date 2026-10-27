@@ -3,19 +3,17 @@ import {
   isApiError,
   isBuiltInMCPProvider,
   mcpAddServerBodySchema,
-  mcpExternalToolRefSchema,
+  mcpConnectionToolTargetSchema,
   mcpHealthMappingReviewInputSchema,
   mcpHealthMappingStateSchema,
   mcpRecoveryDecisionBodySchema,
   mcpRecoveryOperationsPageQuerySchema,
   mcpRenameConnectionBodySchema,
-  mcpToolDiscoveryPageSchema,
-  mcpToolInspectionResultSchema,
-  mcpToolInspectInputSchema,
   mcpToolPolicyReviewInputSchema,
   mcpToolPolicyStateSchema,
   mcpToolSearchInputSchema,
   type ExternalToolRef,
+  type McpConnectionToolTarget,
   type McpHealthMappingState as McpHealthMappingWireState,
   type McpToolPolicy,
   type McpToolPolicyState,
@@ -32,7 +30,7 @@ import {
   ensureBuiltInConnection,
   getMcpConnectionManager,
   getMcpEndpointAuthorizer,
-  listMcpToolsLocal,
+  inspectMcpToolLocal,
   listOwnedConnections,
   MCP_DEFAULT_REQUEST_TIMEOUT_MS,
   isAddUserMcpServerRefusal,
@@ -43,6 +41,7 @@ import {
   mcpOAuthClientConfiguration,
   mcpOAuthProviderForConnection,
   readOwnedConnection,
+  searchMcpToolsLocal,
   updateConnection,
   withMcpEndpointAuthorization,
   type McpConnectionManager,
@@ -179,6 +178,16 @@ function mcpToolPolicyResult(policy: McpToolPolicyRow): McpToolPolicy {
     note: policy.reviewedNote,
     policyRevision: policy.policyRevision,
     reviewedAt: policy.reviewedAt?.toISOString() ?? null,
+  };
+}
+
+/** The path owns the connection, so no review body or query field can name another one. */
+function pathToolRef(connectionId: string, target: McpConnectionToolTarget): ExternalToolRef {
+  return {
+    kind: "mcp",
+    connectionId,
+    remoteName: target.remoteName,
+    catalogRevision: target.catalogRevision,
   };
 }
 
@@ -529,17 +538,12 @@ export const mcpIntegrationRoutes = new Elysia({
         },
         { params: t.Object({ id: t.String({ minLength: 1 }) }) },
       )
-      // Reads the stored catalog only; never dials the remote. The query omits `connectionId`,
-      // so the path is the only connection a client can name.
+      // Reads the stored catalog only; never dials the remote. The query omits `connectionId`.
+      // The `cursor` still names a connection; `searchMcpToolsLocal` refuses one off the path.
       .get(
         "/connections/:id/tools",
         async ({ params, query, user }) => {
-          const page = await listMcpToolsLocal({
-            userId: user.id,
-            request: { ...query, connectionId: params.id },
-          });
-
-          return mcpToolDiscoveryPageSchema.parse(page);
+          return searchMcpToolsLocal({ userId: user.id, ...query, connectionId: params.id });
         },
         {
           params: t.Object({ id: t.String({ minLength: 1 }) }),
@@ -550,35 +554,18 @@ export const mcpIntegrationRoutes = new Elysia({
       .get(
         "/connections/:id/tools/inspect",
         async ({ params, query, user }) => {
-          const result = await listMcpToolsLocal({
-            userId: user.id,
-            request: {
-              ref: {
-                kind: "mcp",
-                connectionId: params.id,
-                remoteName: query.remoteName,
-                catalogRevision: query.catalogRevision,
-              },
-            },
-          });
-
-          return mcpToolInspectionResultSchema.parse(result);
+          return inspectMcpToolLocal({ userId: user.id, ref: pathToolRef(params.id, query) });
         },
         {
           params: t.Object({ id: t.String({ minLength: 1 }) }),
-          query: mcpExternalToolRefSchema.pick({ remoteName: true, catalogRevision: true }),
+          query: mcpConnectionToolTargetSchema,
         },
       )
-      // Policy review (ADR-0088 / ADR-0096). `ref.connectionId` always comes from the path.
+      // Policy review (ADR-0088 / ADR-0096). The connection always comes from the path.
       .get(
         "/connections/:id/tools/policy",
         async ({ params, query, user }) => {
-          const ref: ExternalToolRef = {
-            kind: "mcp",
-            connectionId: params.id,
-            remoteName: query.remoteName,
-            catalogRevision: query.catalogRevision,
-          };
+          const ref = pathToolRef(params.id, query);
 
           return mcpToolPolicyStateResult(
             await readMcpToolPolicyState({ userId: user.id, ref }),
@@ -587,19 +574,17 @@ export const mcpIntegrationRoutes = new Elysia({
         },
         {
           params: t.Object({ id: t.String({ minLength: 1 }) }),
-          query: mcpExternalToolRefSchema.pick({ remoteName: true, catalogRevision: true }),
+          query: mcpConnectionToolTargetSchema,
         },
       )
       .put(
         "/connections/:id/tools/policy",
         async ({ body, params, user }) => {
-          if (body.ref.connectionId !== params.id) {
-            throw Errors.BadRequestError("MCP tool reference must name the path connection");
-          }
+          const ref = pathToolRef(params.id, body);
 
           const state = await reviewMcpToolPolicy({
             userId: user.id,
-            ref: body.ref,
+            ref,
             riskTier: body.riskTier,
             effectClass: body.effectClass,
             retryContract: body.retryContract,
@@ -616,7 +601,7 @@ export const mcpIntegrationRoutes = new Elysia({
             throw Errors.NotFoundError("MCP tool not found in the current catalog");
           }
 
-          return mcpToolPolicyStateResult(state, body.ref);
+          return mcpToolPolicyStateResult(state, ref);
         },
         {
           params: t.Object({ id: t.String({ minLength: 1 }) }),
@@ -626,11 +611,9 @@ export const mcpIntegrationRoutes = new Elysia({
       .delete(
         "/connections/:id/tools/policy",
         async ({ body, params, user }) => {
-          if (body.ref.connectionId !== params.id) {
-            throw Errors.BadRequestError("MCP tool reference must name the path connection");
-          }
+          const ref = pathToolRef(params.id, body);
 
-          const state = await clearMcpToolPolicy({ userId: user.id, ref: body.ref });
+          const state = await clearMcpToolPolicy({ userId: user.id, ref });
 
           if (state.status === "catalog_stale") {
             throw Errors.ConflictError(
@@ -642,23 +625,18 @@ export const mcpIntegrationRoutes = new Elysia({
             throw Errors.NotFoundError("MCP tool not found in the current catalog");
           }
 
-          return mcpToolPolicyStateResult(state, body.ref);
+          return mcpToolPolicyStateResult(state, ref);
         },
         {
           params: t.Object({ id: t.String({ minLength: 1 }) }),
-          body: mcpToolInspectInputSchema,
+          body: mcpConnectionToolTargetSchema,
         },
       )
       // Health mapping. Same server-derived hash and revision lock as policy review.
       .get(
         "/connections/:id/tools/health-mapping",
         async ({ params, query, user }) => {
-          const ref: ExternalToolRef = {
-            kind: "mcp",
-            connectionId: params.id,
-            remoteName: query.remoteName,
-            catalogRevision: query.catalogRevision,
-          };
+          const ref = pathToolRef(params.id, query);
 
           return mcpHealthMappingStateResult(
             await readMcpHealthMappingState({ userId: user.id, ref }),
@@ -667,19 +645,17 @@ export const mcpIntegrationRoutes = new Elysia({
         },
         {
           params: t.Object({ id: t.String({ minLength: 1 }) }),
-          query: mcpExternalToolRefSchema.pick({ remoteName: true, catalogRevision: true }),
+          query: mcpConnectionToolTargetSchema,
         },
       )
       .put(
         "/connections/:id/tools/health-mapping",
         async ({ body, params, user }) => {
-          if (body.ref.connectionId !== params.id) {
-            throw Errors.BadRequestError("MCP tool reference must name the path connection");
-          }
+          const ref = pathToolRef(params.id, body);
 
           const state = await reviewMcpHealthMapping({
             userId: user.id,
-            ref: body.ref,
+            ref,
             readOnly: body.readOnly,
             definition: body.definition,
             note: body.note,
@@ -699,7 +675,7 @@ export const mcpIntegrationRoutes = new Elysia({
             throw Errors.BadRequestError("MCP health mappings require a read-only descriptor");
           }
 
-          return mcpHealthMappingStateResult(state, body.ref);
+          return mcpHealthMappingStateResult(state, ref);
         },
         {
           params: t.Object({ id: t.String({ minLength: 1 }) }),
@@ -709,11 +685,9 @@ export const mcpIntegrationRoutes = new Elysia({
       .delete(
         "/connections/:id/tools/health-mapping",
         async ({ body, params, user }) => {
-          if (body.ref.connectionId !== params.id) {
-            throw Errors.BadRequestError("MCP tool reference must name the path connection");
-          }
+          const ref = pathToolRef(params.id, body);
 
-          const state = await clearMcpHealthMapping({ userId: user.id, ref: body.ref });
+          const state = await clearMcpHealthMapping({ userId: user.id, ref });
 
           if (state.status === "catalog_stale") {
             throw Errors.ConflictError(
@@ -725,11 +699,11 @@ export const mcpIntegrationRoutes = new Elysia({
             throw Errors.NotFoundError("MCP tool not found in the current catalog");
           }
 
-          return mcpHealthMappingStateResult(state, body.ref);
+          return mcpHealthMappingStateResult(state, ref);
         },
         {
           params: t.Object({ id: t.String({ minLength: 1 }) }),
-          body: mcpToolInspectInputSchema,
+          body: mcpConnectionToolTargetSchema,
         },
       ),
   )
