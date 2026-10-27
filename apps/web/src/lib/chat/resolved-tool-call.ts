@@ -41,7 +41,8 @@ export interface ResolvedToolCall extends Omit<RawToolCall, "argsPreview"> {
 /** The only place a chat card's previews are parsed and its name is checked against the registry. */
 export function resolveToolCall(raw: RawToolCall): ResolvedToolCall {
   // The spread carries every raw field, so a field added to `RawToolCall` reaches the
-  // resolved shape; the declared return type fails the build until it is handled there.
+  // resolved shape. A new required field fails the build at each producer that does not set it;
+  // a new optional field compiles, so the stream fold must be updated by hand.
   const { argsPreview, ...rest } = raw;
 
   return {
