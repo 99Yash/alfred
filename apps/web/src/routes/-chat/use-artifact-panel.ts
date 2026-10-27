@@ -34,7 +34,9 @@ export interface ArtifactPanelState {
   artifacts: SyncedArtifact[];
   selectedId: string | null;
   /** The open artifact's synced row. Null for a `pending:` selection or before the row syncs.
-   * Keeps its identity while id and `rowVersion` match, so the sidebar node stays stable. */
+   * Keeps its identity while id and `rowVersion` match, so the sidebar node stays stable.
+   * The held object can carry a stale `runId` or `messageId`: an FK set-null does not bump
+   * `rowVersion`. The sidebar renders neither. */
   selectedArtifact: SyncedArtifact | null;
   isOpen: boolean;
   /** Inline width in px, clamped. */
@@ -148,17 +150,13 @@ export function useArtifactPanel(
   // other rows sync. Adjusted during render, not in an effect.
   const [prevSelected, setPrevSelected] = useState<SyncedArtifact | null>(null);
 
-  if (
-    (prevSelected?.id ?? null) !== (foundArtifact?.id ?? null) ||
-    (prevSelected?.rowVersion ?? null) !== (foundArtifact?.rowVersion ?? null)
-  ) {
-    setPrevSelected(foundArtifact);
-  }
+  const sameRow =
+    (prevSelected?.id ?? null) === (foundArtifact?.id ?? null) &&
+    (prevSelected?.rowVersion ?? null) === (foundArtifact?.rowVersion ?? null);
 
-  const selectedArtifact =
-    prevSelected?.id === foundArtifact?.id && prevSelected?.rowVersion === foundArtifact?.rowVersion
-      ? prevSelected
-      : foundArtifact;
+  if (!sameRow) setPrevSelected(foundArtifact);
+
+  const selectedArtifact = sameRow ? prevSelected : foundArtifact;
 
   const open = useCallback(
     (artifactId: string) => setSelection({ threadId, selectedId: artifactId }),
