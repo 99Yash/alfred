@@ -75,7 +75,7 @@ import {
   type SearchContactsArgs,
 } from "./contacts";
 import type { GoogleService } from "./http";
-import { GOOGLE_SCOPE, holdsAnyScope } from "@alfred/contracts";
+import { googleAuthorityScopes, holdsAnyScope, type GoogleAuthority } from "@alfred/contracts";
 
 type WithCredentialId<T extends { accessToken: string }> = Omit<T, "accessToken"> & {
   credentialId: string;
@@ -84,31 +84,6 @@ type WithCredentialId<T extends { accessToken: string }> = Omit<T, "accessToken"
 export interface GoogleTokenResolver {
   (credentialId: string, authority: GoogleAuthority): Promise<string>;
 }
-
-export type GoogleAuthority =
-  | "gmail_read"
-  | "gmail_send"
-  | "gmail_modify"
-  | "calendar_read"
-  | "calendar_write"
-  | "docs"
-  | "drive"
-  | "sheets"
-  | "slides"
-  | "contacts";
-
-const AUTHORITY_SCOPES = {
-  gmail_read: [GOOGLE_SCOPE.gmail.readonly, GOOGLE_SCOPE.gmail.modify],
-  gmail_send: [GOOGLE_SCOPE.gmail.send],
-  gmail_modify: [GOOGLE_SCOPE.gmail.modify],
-  calendar_read: [GOOGLE_SCOPE.calendar.readonly, GOOGLE_SCOPE.calendar.events],
-  calendar_write: [GOOGLE_SCOPE.calendar.events],
-  docs: [GOOGLE_SCOPE.docs.full],
-  drive: [GOOGLE_SCOPE.drive.full],
-  sheets: [GOOGLE_SCOPE.sheets.full],
-  slides: [GOOGLE_SCOPE.slides.full],
-  contacts: [GOOGLE_SCOPE.contacts.readonly, GOOGLE_SCOPE.contacts.other],
-} satisfies Record<GoogleAuthority, readonly string[]>;
 
 export type GoogleCredential = Pick<CredentialRow, "id" | "accountId" | "accountLabel">;
 
@@ -140,7 +115,7 @@ async function credentialsForAuthority(
   }
 
   const scoped = active.filter((credential) =>
-    holdsAnyScope(credential.scopes, AUTHORITY_SCOPES[authority]),
+    holdsAnyScope(credential.scopes, googleAuthorityScopes(authority)),
   );
 
   if (scoped.length === 0) {
@@ -169,12 +144,13 @@ export function createGoogleClient(
     return call({ ...args, accessToken }, retry);
   }
 
-  const passthrough = (service: GoogleService, authority: GoogleAuthority, credentialId: string) =>
+  // A passthrough is a read, and the read authority of a service is its slug.
+  const passthrough = (service: GoogleService, credentialId: string) =>
     restPassthroughCapability({
       slug: service,
       retry,
       resolveProfile: async () =>
-        googlePassthroughProfile(service, await tokenFor(credentialId, authority)),
+        googlePassthroughProfile(service, await tokenFor(credentialId, service)),
     });
 
   // The same mailbox `gmailMailbox` returns, behind this client's owner-checked resolver.
@@ -187,12 +163,12 @@ export function createGoogleClient(
         credentialId,
         ...args
       }: WithCredentialId<ListMessagesArgs>): Promise<ListMessagesResult> =>
-        mailbox(credentialId, "gmail_read").listMessages(args),
+        mailbox(credentialId, "gmail").listMessages(args),
       getMessage: ({
         credentialId,
         ...args
       }: WithCredentialId<GetMessageArgs>): Promise<GmailMessage> =>
-        mailbox(credentialId, "gmail_read").getMessage(args),
+        mailbox(credentialId, "gmail").getMessage(args),
       sendMessage: ({
         credentialId,
         ...args
@@ -202,9 +178,9 @@ export function createGoogleClient(
         credentialId,
         ...args
       }: WithCredentialId<GetThreadArgs>): Promise<GmailThread> =>
-        mailbox(credentialId, "gmail_read").getThread(args),
+        mailbox(credentialId, "gmail").getThread(args),
       listLabels: (credentialId: string): Promise<GmailLabel[]> =>
-        mailbox(credentialId, "gmail_read").listLabels(),
+        mailbox(credentialId, "gmail").listLabels(),
       createLabel: ({
         credentialId,
         ...args
@@ -225,27 +201,27 @@ export function createGoogleClient(
         ...args
       }: WithCredentialId<SendMessageArgs>): Promise<CreateDraftResult> =>
         mailbox(credentialId, "gmail_modify").createDraft(args),
-      passthrough: (credentialId: string) => passthrough("gmail", "gmail_read", credentialId),
+      passthrough: (credentialId: string) => passthrough("gmail", credentialId),
     },
     calendar: {
       listEvents: ({ credentialId, ...args }: WithCredentialId<ListEventsArgs>) =>
-        withToken("calendar_read", credentialId, args, listEvents),
+        withToken("calendar", credentialId, args, listEvents),
       createEvent: ({ credentialId, ...args }: WithCredentialId<CreateEventArgs>) =>
         withToken("calendar_write", credentialId, args, createEvent),
       getEvent: ({ credentialId, ...args }: WithCredentialId<EventRefArgs>) =>
-        withToken("calendar_read", credentialId, args, getEvent),
+        withToken("calendar", credentialId, args, getEvent),
       updateEvent: ({ credentialId, ...args }: WithCredentialId<UpdateEventArgs>) =>
         withToken("calendar_write", credentialId, args, updateEvent),
       deleteEvent: ({ credentialId, ...args }: WithCredentialId<DeleteEventArgs>) =>
         withToken("calendar_write", credentialId, args, deleteEvent),
       respondToEvent: ({ credentialId, ...args }: WithCredentialId<RespondToEventArgs>) =>
         withToken("calendar_write", credentialId, args, respondToEvent),
-      passthrough: (credentialId: string) => passthrough("calendar", "calendar_read", credentialId),
+      passthrough: (credentialId: string) => passthrough("calendar", credentialId),
     },
     docs: {
       getDocument: ({ credentialId, ...args }: WithCredentialId<GetDocumentArgs>) =>
         withToken("docs", credentialId, args, getDocument),
-      passthrough: (credentialId: string) => passthrough("docs", "docs", credentialId),
+      passthrough: (credentialId: string) => passthrough("docs", credentialId),
     },
     drive: {
       listFiles: ({ credentialId, ...args }: WithCredentialId<ListFilesArgs>) =>
@@ -256,7 +232,7 @@ export function createGoogleClient(
         withToken("drive", credentialId, args, exportFile),
       downloadFile: ({ credentialId, ...args }: WithCredentialId<DownloadFileArgs>) =>
         withToken("drive", credentialId, args, downloadFile),
-      passthrough: (credentialId: string) => passthrough("drive", "drive", credentialId),
+      passthrough: (credentialId: string) => passthrough("drive", credentialId),
     },
     sheets: {
       createSpreadsheet: ({ credentialId, ...args }: WithCredentialId<CreateSpreadsheetArgs>) =>
@@ -279,7 +255,7 @@ export function createGoogleClient(
           addSheet({ accessToken, ...rest }),
         );
       },
-      passthrough: (credentialId: string) => passthrough("sheets", "sheets", credentialId),
+      passthrough: (credentialId: string) => passthrough("sheets", credentialId),
     },
     slides: {
       createPresentation: ({ credentialId, ...args }: WithCredentialId<CreatePresentationArgs>) =>
@@ -302,7 +278,7 @@ export function createGoogleClient(
           addSlide({ accessToken, ...rest }),
         );
       },
-      passthrough: (credentialId: string) => passthrough("slides", "slides", credentialId),
+      passthrough: (credentialId: string) => passthrough("slides", credentialId),
     },
     contacts: {
       searchContacts: ({ credentialId, ...args }: WithCredentialId<SearchContactsArgs>) =>
@@ -321,7 +297,7 @@ export function googleClientForUser(options: ProviderBindOptions) {
     const accessToken = await getOwnedFreshAccessToken({
       userId: options.userId,
       credentialId,
-      anyOfScopes: AUTHORITY_SCOPES[authority],
+      anyOfScopes: googleAuthorityScopes(authority),
     });
 
     if (accessToken === null) throw new GoogleCredentialSelectionError(authority, "scope_required");
@@ -346,7 +322,7 @@ export function googleClientForUser(options: ProviderBindOptions) {
     ...client,
     gmail: {
       ...client.gmail,
-      readCredential: () => first("gmail_read"),
+      readCredential: () => first("gmail"),
       sendCredential: () => first("gmail_send"),
       modifyCredential: () => first("gmail_modify"),
       /** Every account that can change labels. A message picks one by `accountId`. */
@@ -356,7 +332,7 @@ export function googleClientForUser(options: ProviderBindOptions) {
     calendar: {
       ...client.calendar,
       readCredentials: () =>
-        credentialsForAuthority(options.userId, "calendar_read", options.accountRef),
+        credentialsForAuthority(options.userId, "calendar", options.accountRef),
       writeCredential: () => first("calendar_write"),
       /** Every account that can write events. An event reference picks one by `accountId`. */
       writeCredentials: () =>

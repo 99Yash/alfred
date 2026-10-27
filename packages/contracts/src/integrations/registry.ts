@@ -47,7 +47,10 @@ export type CredentialSpec =
       readonly shape: "google_oauth";
       /** Sent as `?features=` on connect. */
       readonly features: readonly GoogleFeature[];
+      /** The connected proof, and the scopes a read of this integration needs. */
       readonly anyOfScopes: readonly GoogleScope[];
+      /** Named grants other than a read. `{}` when a read grant covers every call. */
+      readonly grants: Readonly<Record<string, readonly GoogleScope[]>>;
     }
   | { readonly shape: "github_app" }
   | { readonly shape: "bearer"; readonly connect: "oauth" | "token_paste" };
@@ -125,6 +128,7 @@ export const INTEGRATIONS = {
       shape: "google_oauth",
       features: ["briefing", "triage", "reply_draft"],
       anyOfScopes: [GOOGLE_SCOPE.gmail.readonly, GOOGLE_SCOPE.gmail.modify],
+      grants: { modify: [GOOGLE_SCOPE.gmail.modify], send: [GOOGLE_SCOPE.gmail.send] },
     },
     passthrough: { transport: "rest" },
     actions: [
@@ -149,6 +153,7 @@ export const INTEGRATIONS = {
       shape: "google_oauth",
       features: ["calendar"],
       anyOfScopes: [GOOGLE_SCOPE.calendar.readonly, GOOGLE_SCOPE.calendar.events],
+      grants: { write: [GOOGLE_SCOPE.calendar.events] },
     },
     passthrough: { transport: "rest" },
     actions: [
@@ -171,6 +176,7 @@ export const INTEGRATIONS = {
       shape: "google_oauth",
       features: ["drive"],
       anyOfScopes: [GOOGLE_SCOPE.drive.full],
+      grants: {},
     },
     passthrough: { transport: "rest" },
     actions: ["search_files", "get_file", "export_file", "download_file", "request"],
@@ -186,6 +192,7 @@ export const INTEGRATIONS = {
       shape: "google_oauth",
       features: ["docs"],
       anyOfScopes: [GOOGLE_SCOPE.docs.full],
+      grants: {},
     },
     passthrough: { transport: "rest" },
     actions: ["get_document", "request"],
@@ -201,6 +208,7 @@ export const INTEGRATIONS = {
       shape: "google_oauth",
       features: ["sheets"],
       anyOfScopes: [GOOGLE_SCOPE.sheets.full],
+      grants: {},
     },
     passthrough: { transport: "rest" },
     actions: [
@@ -224,6 +232,7 @@ export const INTEGRATIONS = {
       shape: "google_oauth",
       features: ["slides"],
       anyOfScopes: [GOOGLE_SCOPE.slides.full],
+      grants: {},
     },
     passthrough: { transport: "rest" },
     actions: ["create_presentation", "get_presentation", "batch_update", "add_slide", "request"],
@@ -239,6 +248,7 @@ export const INTEGRATIONS = {
       shape: "google_oauth",
       features: ["contacts"],
       anyOfScopes: [GOOGLE_SCOPE.contacts.readonly, GOOGLE_SCOPE.contacts.other],
+      grants: {},
     },
     passthrough: null,
     actions: ["search", "list", "get"],

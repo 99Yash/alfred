@@ -7,3 +7,5 @@ export * from "./slugs";
 export * from "./projections";
 
 export * from "./connected";
+
+export * from "./google-authority";
