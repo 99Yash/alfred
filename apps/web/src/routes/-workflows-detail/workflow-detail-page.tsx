@@ -3,7 +3,6 @@ import { MoreHorizontal, Pause, Play, Share2 } from "lucide-react";
 import { useState } from "react";
 import { AppButton, AppCard, AppSegmented } from "~/components/ui/v2";
 import { useWorkflow } from "~/lib/replicache/use-workflows";
-import { syncedWorkflowToView } from "~/routes/-workflows/workflows-utils";
 import { ApprovalsTab } from "./approvals-tab";
 import { BackLink } from "./back-link";
 import { DetailShell } from "./detail-shell";
@@ -51,7 +50,6 @@ export function WorkflowDetailPage() {
     );
   }
 
-  const view = syncedWorkflowToView(workflow);
   const active = workflow.status === "active";
 
   const hasUnpublishedChanges =
@@ -137,7 +135,7 @@ export function WorkflowDetailPage() {
       {tab === "history" ? <HistoryTab workflow={workflow} /> : null}
       {tab === "approvals" ? <ApprovalsTab workflow={workflow} /> : null}
 
-      <ShareDialog workflow={view} open={shareOpen} onClose={() => setShareOpen(false)} />
+      <ShareDialog workflow={workflow} open={shareOpen} onClose={() => setShareOpen(false)} />
     </DetailShell>
   );
 }

@@ -1,9 +1,4 @@
-import type {
-  SyncedActionStaging,
-  SyncedArtifact,
-  SyncedChatAttachment,
-  SyncedChatMessage,
-} from "@alfred/sync";
+import type { SyncedArtifact, SyncedChatAttachment, SyncedChatMessage } from "@alfred/sync";
 import { ArrowDown } from "lucide-react";
 import { AnimatePresence, m, useIsPresent } from "motion/react";
 import {
@@ -26,6 +21,7 @@ import {
   type ListRange,
   type VirtuosoHandle,
 } from "react-virtuoso";
+import type { StagedRow } from "~/components/approvals/ask-user";
 import { markChatTimingByAssistant } from "~/lib/chat/timing";
 import { useChatAttachmentsByMessage } from "~/lib/replicache/use-chat";
 import { useThreadArtifacts } from "~/lib/replicache/use-artifacts";
@@ -85,7 +81,7 @@ export function Conversation({
    * Pending approvals for the live run, in tool-trail order. The dock above the composer shows
    * the cards; the feed keeps one marker line at the tail of the streaming turn.
    */
-  approvals?: readonly SyncedActionStaging[] | undefined;
+  approvals?: readonly StagedRow[] | undefined;
 }) {
   const virtuosoRef = useRef<VirtuosoHandle | null>(null);
   // Smooth jumps stall across many unmeasured rows, so use smooth only when the live edge is near.
@@ -356,7 +352,7 @@ interface FeedFooterValue {
   followUps: ReadonlyArray<FollowUpSuggestion>;
   onFollowUp?: ((text: string) => void) | undefined;
   /** Pending approvals for the live run. The dock above the composer shows them; the feed keeps a marker. */
-  approvals: readonly SyncedActionStaging[];
+  approvals: readonly StagedRow[];
   /** Registers the footer content box with the question anchor (reserve and pill). */
   setFooterEl: (el: HTMLElement | null) => void;
 }
@@ -715,7 +711,7 @@ function ActivityPill({
 
 const EMPTY_FOLLOW_UPS: ReadonlyArray<FollowUpSuggestion> = [];
 
-const EMPTY_APPROVALS: readonly SyncedActionStaging[] = [];
+const EMPTY_APPROVALS: readonly StagedRow[] = [];
 
 interface StreamRenderTiming {
   thinking: (el: HTMLDivElement | null) => void;

@@ -3,6 +3,7 @@ import {
   INTEGRATIONS,
   integrationStatusSchema,
   isLiveProviderSlug,
+  type CatalogSlug,
   type ConnectedAccount,
   type CredentialProvider,
   type DeliveryAlert,
@@ -117,7 +118,7 @@ export function useResolvedIntegrations(): ReadonlyArray<ResolvedIntegration> {
   return useResolvedIntegrationsWithReady().integrations;
 }
 
-export function useResolvedIntegration(slug: string): ResolvedIntegration | undefined {
+export function useResolvedIntegration(slug: CatalogSlug): ResolvedIntegration | undefined {
   const all = useResolvedIntegrations();
 
   return all.find((p) => p.slug === slug);

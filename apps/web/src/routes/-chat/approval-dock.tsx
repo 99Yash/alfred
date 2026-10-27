@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import { AnimatePresence, m } from "motion/react";
 import { useEffect, useImperativeHandle, useRef, use, useId, useState } from "react";
-import { asQuestionStaging, type QuestionStaging } from "~/components/approvals/ask-user";
+import type { QuestionStaging, StagedRow } from "~/components/approvals/ask-user";
 import { decideApproval } from "~/components/approvals/decide-approval";
 import { describeApprovalWait } from "./conversation-helpers";
 import { approveButtonLabel, cardTitle } from "~/components/approvals/card-spec";
@@ -86,14 +86,11 @@ export interface ApprovalDockHandle {
 export function ChatApprovalDock({
   runId,
   approvals,
-  preview = false,
   ref,
 }: {
   runId: string | undefined;
   /** Pending rows for the run, in tool-trail order. */
-  approvals: readonly SyncedActionStaging[];
-  /** Styleguide only: no toast, audio, API, or policy writes. */
-  preview?: boolean | undefined;
+  approvals: readonly StagedRow[];
   ref?: React.Ref<ApprovalDockHandle> | undefined;
 }) {
   const reduceMotion = usePrefersReducedMotion();
@@ -103,7 +100,7 @@ export function ChatApprovalDock({
   const [direction, setDirection] = useState(1);
 
   // A decided card stays on screen for the done row, also after its row leaves `pending`.
-  const [settled, setSettled] = useState<SyncedActionStaging | null>(null);
+  const [settled, setSettled] = useState<StagedRow | null>(null);
   const [previousRunId, setPreviousRunId] = useState(runId);
 
   // A new run starts fresh. A run that ends (End run, or the turn finishes) keeps its done row.
@@ -124,7 +121,7 @@ export function ChatApprovalDock({
   }, [settled]);
 
   // The chosen card while it waits, else the first one. A settled card holds the dock first.
-  const pending = approvals.find((row) => row.id === shownId) ?? approvals[0] ?? null;
+  const pending = approvals.find((row) => row.staging.id === shownId) ?? approvals[0] ?? null;
   const current = settled ?? pending;
 
   // The current card registers its primary action here, for ⌘↵.
@@ -150,10 +147,9 @@ export function ChatApprovalDock({
   };
 
   useEffect(() => {
-    if (preview) return;
     const chimes = (chimesRef.current ??= new Map<string, string | number | null>());
-    const fresh = approvals.filter((row) => !chimes.has(row.id));
-    const live = new Set(approvals.map((row) => row.id));
+    const fresh = approvals.filter((row) => !chimes.has(row.staging.id));
+    const live = new Set(approvals.map((row) => row.staging.id));
 
     // A decided row (here, on the approvals page, or by expiry) has a stale chime.
     for (const [id, toastId] of chimes) {
@@ -168,14 +164,14 @@ export function ChatApprovalDock({
     const first = fresh[0];
     // A question gets its own copy: "Approval needed" reads as a warning about an action the user never proposed.
     const lone = fresh.length === 1 ? first : undefined;
-    const loneQuestion = lone ? asQuestionStaging(lone) : null;
+    const loneQuestion = lone?.kind === "question" ? lone : null;
 
     const toastId = callToast({
       message: loneQuestion ? "Alfred has a question" : "Approval needed",
       description: loneQuestion
         ? (loneQuestion.input.questions[0]?.question ?? "Answer to continue the turn.")
         : lone
-          ? cardTitle(lone.toolName, lone.proposedInput)
+          ? cardTitle(lone.staging.toolName, lone.staging.proposedInput)
           : `${fresh.length} actions need your review`,
       icon: loneQuestion ? (
         <MessageCircleQuestion size={14} className="text-app-purple-3" />
@@ -184,14 +180,14 @@ export function ChatApprovalDock({
       ),
     });
 
-    for (const row of fresh) chimes.set(row.id, toastId);
+    for (const row of fresh) chimes.set(row.staging.id, toastId);
 
     const audio = new Audio("/sounds/run-finished.mp3");
     audio.volume = 0.42;
     void audio.play().catch(() => {
       // Browsers can block audio before user activation; the card still shows.
     });
-  }, [approvals, preview]);
+  }, [approvals]);
 
   const page = (step: 1 | -1) => {
     const position = pending ? approvals.indexOf(pending) : -1;
@@ -199,7 +195,7 @@ export function ChatApprovalDock({
 
     if (!next) return;
     setDirection(step);
-    setShownId(next.id);
+    setShownId(next.staging.id);
   };
 
   const dockTransition = dockMotion(reduceMotion, DOCK_ENTER_S);
@@ -217,15 +213,13 @@ export function ChatApprovalDock({
       />
     ) : null;
 
-  const question = current ? asQuestionStaging(current) : null;
-
   return (
     // `initial={false}`: a thread that opens with an approval pending shows the dock in place.
     <AnimatePresence initial={false}>
       {current && (runId !== undefined || settled) ? (
         <m.section
           key="approval-dock"
-          aria-label={question ? "Question from Alfred" : "Approval required"}
+          aria-label={current.kind === "question" ? "Question from Alfred" : "Approval required"}
           initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: "100%" }}
           animate={{ opacity: 1, y: 0, transition: dockTransition }}
           exit={
@@ -249,28 +243,26 @@ export function ChatApprovalDock({
           )}
         >
           <m.div
-            key={current.id}
+            key={current.staging.id}
             initial={reduceMotion ? { opacity: 0 } : { opacity: 0, x: direction * 8 }}
             animate={{ opacity: 1, x: 0 }}
             transition={pageTransition}
             className="flex min-h-0 flex-1 flex-col"
           >
-            {question ? (
+            {current.kind === "question" ? (
               <DockQuestionCard
-                question={question}
-                preview={preview}
+                question={current}
                 renderPager={renderPager}
                 primaryRef={primaryRef}
-                onDecisionStart={() => dismissChime(current.id)}
+                onDecisionStart={() => dismissChime(current.staging.id)}
                 onDecision={() => setSettled(current)}
               />
             ) : (
               <DockApprovalCard
-                staging={current}
-                preview={preview}
+                staging={current.staging}
                 renderPager={renderPager}
                 primaryRef={primaryRef}
-                onDecisionStart={() => dismissChime(current.id)}
+                onDecisionStart={() => dismissChime(current.staging.id)}
                 onDecision={() => setSettled(current)}
               />
             )}
@@ -360,7 +352,6 @@ interface DecisionToast {
  */
 function useRecordDecision<Decision extends RecordedDecision>({
   staging,
-  preview,
   onDecisionStart,
   onDecision,
   run,
@@ -368,7 +359,6 @@ function useRecordDecision<Decision extends RecordedDecision>({
   toastFor,
 }: {
   staging: SyncedActionStaging;
-  preview: boolean | undefined;
   /** Fires on the click, before the API call. */
   onDecisionStart: () => void;
   onDecision: () => void;
@@ -382,14 +372,6 @@ function useRecordDecision<Decision extends RecordedDecision>({
   const decide = (decision: Decision) => {
     setDecisionKind(decision.decision);
     onDecisionStart();
-
-    if (preview) {
-      // Styleguide: decide locally so the states show without an API.
-      setDecided(true);
-      onDecision();
-
-      return;
-    }
 
     return run(async () => {
       if ((await decideApproval(staging.id, decision)) === "restaged") return;
@@ -410,7 +392,6 @@ function useRecordDecision<Decision extends RecordedDecision>({
 }
 
 interface DockCardProps {
-  preview: boolean | undefined;
   /** The "1 of 2" control, or `null` for a lone card. Pass the card's `busy`. */
   renderPager: (busy: boolean) => React.ReactNode;
   /** Set to the card's primary action while it can run, for ⌘↵. */
@@ -421,7 +402,6 @@ interface DockCardProps {
 
 function DockApprovalCard({
   staging,
-  preview,
   renderPager,
   primaryRef,
   onDecisionStart,
@@ -453,7 +433,6 @@ function DockApprovalCard({
 
   const { decisionKind, decide } = useRecordDecision({
     staging,
-    preview,
     onDecisionStart,
     onDecision,
     run,
@@ -523,7 +502,6 @@ function DockApprovalCard({
             {canAlwaysAllow(staging) ? (
               <PermissionsAffordance
                 staging={staging}
-                preview={preview}
                 integrationAllowed={modeFor(staging.integration) === "autonomy"}
                 toolAllowed={toolModeFor(staging.toolName) === "autonomy"}
                 onFlipIntegration={(autonomy) => {
@@ -759,7 +737,6 @@ function questionDecisionToast(decision: QuestionDecision): DecisionToast | null
  */
 function DockQuestionCard({
   question,
-  preview,
   renderPager,
   primaryRef,
   onDecisionStart,
@@ -772,7 +749,6 @@ function DockQuestionCard({
 
   const { decisionKind, decide } = useRecordDecision<QuestionDecision>({
     staging,
-    preview,
     onDecisionStart,
     onDecision,
     run,
@@ -848,14 +824,12 @@ function DockQuestionCard({
  */
 function PermissionsAffordance({
   staging,
-  preview,
   integrationAllowed,
   toolAllowed,
   onFlipIntegration,
   onFlipTool,
 }: {
   staging: SyncedActionStaging;
-  preview: boolean | undefined;
   integrationAllowed: boolean;
   toolAllowed: boolean;
   onFlipIntegration: (autonomy: boolean) => void;
@@ -904,9 +878,7 @@ function PermissionsAffordance({
           <PermissionSwitch
             id={`permissions-tool-${staging.id}`}
             checked={toolAllowed}
-            onCheckedChange={(checked) => {
-              if (!preview) onFlipTool(checked);
-            }}
+            onCheckedChange={onFlipTool}
             label="Always allow this action"
             hint={
               toolAllowed
@@ -917,9 +889,7 @@ function PermissionsAffordance({
           <PermissionSwitch
             id={`permissions-integration-${staging.id}`}
             checked={integrationAllowed}
-            onCheckedChange={(checked) => {
-              if (!preview) onFlipIntegration(checked);
-            }}
+            onCheckedChange={onFlipIntegration}
             label={`Always allow ${integrationName}`}
             hint={
               integrationAllowed
@@ -1010,7 +980,7 @@ function policyCopy(riskTier: ToolRiskTier): string {
  * The feed's line where the docked card waits. It shows only while a row is pending, so a
  * reload and a live decision both leave only the tool row behind.
  */
-export function ApprovalMarker({ approvals }: { approvals: readonly SyncedActionStaging[] }) {
+export function ApprovalMarker({ approvals }: { approvals: readonly StagedRow[] }) {
   const reduceMotion = usePrefersReducedMotion();
   const [first] = approvals;
 

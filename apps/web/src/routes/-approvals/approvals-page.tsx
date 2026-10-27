@@ -1,5 +1,6 @@
 import { INTEGRATION_DISPLAY_NAMES, type ToolRiskTier } from "@alfred/contracts";
 import type { SyncedActionStaging } from "@alfred/sync";
+import type { StagedRow } from "~/components/approvals/ask-user";
 import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
 import { ClipboardCheck, Loader2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -39,14 +40,14 @@ interface Facet<T extends string> {
 
 /** Counts by key in first-seen order. */
 function buildFacets<T extends string>(
-  rows: SyncedActionStaging[],
+  rows: StagedRow[],
   pick: (r: SyncedActionStaging) => T,
   label: (v: T) => string,
 ): Facet<T>[] {
   const counts = new Map<T, number>();
 
   for (const r of rows) {
-    const v = pick(r);
+    const v = pick(r.staging);
     counts.set(v, (counts.get(v) ?? 0) + 1);
   }
 
@@ -93,7 +94,7 @@ export function ApprovalsPage() {
   const filtered = useMemo(
     () =>
       rows.filter(
-        (r) =>
+        ({ staging: r }) =>
           (selectedIntegrations.size === 0 || selectedIntegrations.has(r.integration)) &&
           (selectedRisks.size === 0 || selectedRisks.has(r.riskTier)),
       ),
@@ -107,7 +108,10 @@ export function ApprovalsPage() {
   // approval, and stays that size after the approval leaves the list. Both updates happen in render.
   const [shown, setShown] = useState({ filterKey, size: WINDOW });
   const targetId = approvalIdFromHash(routeHash);
-  const targetIndex = loading || !targetId ? -1 : filtered.findIndex((row) => row.id === targetId);
+
+  const targetIndex =
+    loading || !targetId ? -1 : filtered.findIndex((row) => row.staging.id === targetId);
+
   const visible = Math.max(shown.filterKey === filterKey ? shown.size : WINDOW, targetIndex + 1);
 
   if (shown.filterKey !== filterKey || shown.size !== visible)
@@ -260,16 +264,16 @@ export function ApprovalsPage() {
           />
         ) : (
           <div className="flex flex-col gap-3">
-            {windowed.map((staging, i) => (
+            {windowed.map((row, i) => (
               <div
-                id={approvalElementId(staging.id)}
-                key={staging.id}
+                id={approvalElementId(row.staging.id)}
+                key={row.staging.id}
                 className="app-card-in scroll-mt-6"
                 style={{ animationDelay: `${Math.min(i, 6) * 40}ms` }}
               >
                 <StagedApprovalCard
-                  staging={staging}
-                  onDecide={(decision) => decideApproval(staging.id, decision)}
+                  row={row}
+                  onDecide={(decision) => decideApproval(row.staging.id, decision)}
                 />
               </div>
             ))}
