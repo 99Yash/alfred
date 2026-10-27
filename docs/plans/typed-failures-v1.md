@@ -139,7 +139,7 @@ export function hasTag<T extends string>(err: unknown, tag: T): err is TaggedErr
 ```
 
 `HttpError`, `RailwayGraphqlError`, and `SerializationError` already carry `_tag`.
-`GoogleReauthRequiredError`, `MissingScopesError`, `McpOAuthAuthorizationRequiredError`,
+`GoogleReauthRequiredError`, `McpOAuthAuthorizationRequiredError`,
 `McpClientError`, `GoogleCredentialNotFoundError`, and `CredentialVaultError` do not.
 Give them one. Do not add public copy to these classes. The message stays a log message.
 
@@ -216,8 +216,6 @@ export function classifyToolFailure(err: unknown): PublicFailure {
   if (err instanceof AppError) return err.public;
   if (hasTag(err, "GoogleReauthRequired"))
     return FAILURES.reauth_required({ integration: err.integration });
-  if (hasTag(err, "MissingScopes"))
-    return FAILURES.scope_required({ integration: "google", feature: err.features[0] });
   if (hasTag(err, "McpOAuthAuthorizationRequired"))
     return FAILURES.reauth_required({ integration: "mcp" });
   if (isHttpError(err)) {
@@ -228,6 +226,8 @@ export function classifyToolFailure(err: unknown): PublicFailure {
   return FAILURES.tool_execution_failed();
 }
 ```
+
+The runtime scope failure is `GoogleCredentialSelectionError` with reason `scope_required` (`packages/integrations/src/google/client.ts`); the sketch above leaves it on the `tool_execution_failed` fallback until PR 2 maps it.
 
 Two design points:
 
@@ -321,7 +321,7 @@ entry. Replace the nine dead codes with `connection_required`, `reauth_required`
 `extractStoredError` to parse params. No behavior change for the model yet except the
 new `fix` field in the result. Tier 4 producer test lands here.
 
-**PR 2 — the classifier.** Add `_tag` to the six untagged classes. Replace
+**PR 2 — the classifier.** Add `_tag` to the five untagged classes. Replace
 `toPublicAppError` with `classifyToolFailure`. Add the mid-call reauth test: a fake tool
 throws `GoogleReauthRequiredError` through `dispatchToolCall`; assert the persisted code is
 `reauth_required`, and assert `completedToolCall(...).connectNudge` is `reconnect`. Add

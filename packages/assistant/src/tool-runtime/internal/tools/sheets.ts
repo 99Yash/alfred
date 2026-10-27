@@ -1,4 +1,4 @@
-/** Google Sheets tools. A missing `spreadsheets` scope throws `MissingScopesError` before any 403. */
+/** Google Sheets tools. */
 
 import {
   restPassthroughInput,
