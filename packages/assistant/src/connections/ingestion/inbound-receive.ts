@@ -86,9 +86,13 @@ export async function receiveInboundDelivery(
   const attribution = await descriptor.resolveOwner(payload, args.headers);
 
   if (attribution.kind === "unowned") {
-    // #1209: GitHub sends kinds no installation owns (security_advisory), which flooded Sentry.
-    // Drop those silently. For other sources it is still a bug worth reporting.
-    if (source !== "github") reportOwnerlessDelivery(source, projection, attribution);
+    // #1209: GitHub sends app-level kinds that name no installation (security_advisory), which
+    // flooded Sentry, so the descriptor marks those drops silent (`unscoped`). A delivery that
+    // names an installation no active credential holds is the #1033 break, and still reports,
+    // as every other source does.
+    if (attribution.reason !== "unscoped") {
+      reportOwnerlessDelivery(source, projection, attribution);
+    }
 
     return { kind: "ignored", source, reason: "no-owner" };
   }
@@ -153,7 +157,8 @@ export async function receiveInboundDelivery(
 }
 
 /**
- * Report an unattributable delivery (#1033). The drop itself stays (ADR-0097 alternative (e)):
+ * Report an unattributable delivery (#1033). An `unscoped` drop (GitHub's app-level kinds) never
+ * reaches this. The drop itself stays (ADR-0097 alternative (e)):
  * `credential_id` is `NOT NULL` and a retry cannot change the body. Tags carry the provider
  * reference under its credential column, to tell "no credential" from "credential for another
  * account". Never the payload: unbounded, unknown sensitivity. `warning`, not `error`:
@@ -162,7 +167,7 @@ export async function receiveInboundDelivery(
 function reportOwnerlessDelivery(
   source: InboundEventSource,
   projection: Exclude<InboundProjection<InboundEventSource>, { kind: "ignore" }>,
-  attribution: Extract<InboundAttribution, { kind: "unowned" }>,
+  attribution: Extract<InboundAttribution, { kind: "unowned"; reason: "no_match" | "ambiguous" }>,
 ): void {
   const kind = projectionKind(projection);
   const { reason, reference } = attribution;
