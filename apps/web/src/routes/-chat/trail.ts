@@ -1,18 +1,19 @@
 import { isQuestionApproval, SPAWN_SUB_AGENT_TOOL } from "@alfred/contracts";
 import type { SyncedChatNarration } from "@alfred/sync";
-import { foldIdentity, type ToolCallView } from "./tool-call-presentation";
+import type { ResolvedToolCall } from "~/lib/chat/resolved-tool-call";
+import { foldIdentity } from "./tool-call-presentation";
 
 export type TrailItem =
   | { kind: "narration"; key: string; text: string }
   // One row per run of identical calls, with a `2×` badge. Grouped on (`foldIdentity`, `foldClass`),
   // so a failure never hides in a success's count. An in-flight call joins its run.
-  | { kind: "tool"; key: string; tools: ToolCallView[] };
+  | { kind: "tool"; key: string; tools: ResolvedToolCall[] };
 
 /**
  * `started` and `succeeded` share `ok`, so a streaming call ticks the run's count in place.
  * `failed` is its own class. `ToolCallCard` reads failure with `some`, so a mixed row still shows it.
  */
-export function foldClass(status: ToolCallView["status"]): "failed" | "ok" {
+export function foldClass(status: ResolvedToolCall["status"]): "failed" | "ok" {
   return status === "failed" ? "failed" : "ok";
 }
 
@@ -22,13 +23,13 @@ export function foldClass(status: ToolCallView["status"]): "failed" | "ok" {
  * This is the trail's whole emptiness rule. Narration and cards are independent, so neither may gate the other.
  */
 export function buildTrail(
-  tools: ToolCallView[],
+  tools: ResolvedToolCall[],
   narration: readonly SyncedChatNarration[],
 ): TrailItem[] {
-  const toolsBySegment = new Map<number, ToolCallView[]>();
+  const toolsBySegment = new Map<number, ResolvedToolCall[]>();
 
   for (const tool of tools) {
-    const seg = tool.segmentIndex ?? 0;
+    const seg = tool.segmentIndex;
     const list = toolsBySegment.get(seg) ?? [];
     list.push(tool);
     toolsBySegment.set(seg, list);

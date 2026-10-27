@@ -4,6 +4,7 @@ import {
   type LiveProviderSlug,
 } from "@alfred/contracts";
 import type { SyncedChatToolCall } from "@alfred/sync";
+import { resolveToolCall, type ResolvedToolCall } from "~/lib/chat/resolved-tool-call";
 import {
   integrationPage,
   type IntegrationPage,
@@ -28,7 +29,7 @@ export interface ConnectNudgeView {
 }
 
 export interface PersistedToolCallSplit {
-  cards: SyncedChatToolCall[];
+  cards: ResolvedToolCall[];
   nudges: ChatConnectNudge[];
 }
 
@@ -39,12 +40,12 @@ export interface PersistedToolCallSplit {
 export function splitPersistedToolCalls(
   toolCalls: readonly SyncedChatToolCall[],
 ): PersistedToolCallSplit {
-  const cards: SyncedChatToolCall[] = [];
+  const cards: ResolvedToolCall[] = [];
   const offers = new Map<string, ChatConnectNudge>();
 
   for (const call of toolCalls) {
     if (call.connectNudge === undefined) {
-      cards.push(call);
+      cards.push(resolveToolCall(call));
       continue;
     }
 

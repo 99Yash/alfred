@@ -1,16 +1,12 @@
-import {
-  getStringPath,
-  jsonObjectSchema,
-  parseJsonWith,
-  toNonEmptyString,
-} from "@alfred/contracts";
+import { getStringPath, toNonEmptyString } from "@alfred/contracts";
 import * as Accordion from "@radix-ui/react-accordion";
 import { ChevronRight, ExternalLink, Scissors, Search, X } from "lucide-react";
 import { AnimatePresence, m } from "motion/react";
 import { useId } from "react";
+import type { ResolvedToolCall } from "~/lib/chat/resolved-tool-call";
 import { IntegrationGlyph, IntegrationIcon } from "~/lib/integrations/integration-icons";
 import { cn } from "~/lib/utils";
-import { brandlessToolIcon, RunningToolIcon } from "./animated-tool-icons";
+import { RunningToolIcon } from "./animated-tool-icons";
 import {
   presentBrowsing,
   presentEvidence,
@@ -24,8 +20,8 @@ import {
 } from "./evidence";
 import { Favicon } from "~/components/favicon";
 import { ToolResultJson } from "./tool-result-json";
-import { useMcpServerLookup } from "./mcp-server";
-import { hasMcpCall, presentTool, type ToolCallView } from "./tool-call-presentation";
+import type { McpServerLookup } from "./mcp-server";
+import { presentTool } from "./tool-call-presentation";
 import { foldClass } from "./trail";
 import { CHAT_POP, CHAT_SWAP } from "./motion";
 
@@ -33,13 +29,6 @@ const PANEL_ITEM = "panel";
 
 /** Rows past this index share the last stagger delay. */
 const MAX_STAGGERED_ROWS = 6;
-
-/** Re-indent minified JSON results. Null for anything that is not a parseable object. */
-function prettyJson(text: string): string | null {
-  const record = parseJsonWith(text, jsonObjectSchema);
-
-  return record ? JSON.stringify(record, null, 2) : null;
-}
 
 /** Each call's shape, resolved once and shared by the header and the panel. */
 interface ResolvedCall {
@@ -61,15 +50,16 @@ function recordCount(resolved: ResolvedCall[]): number | undefined {
   return counted ? total : undefined;
 }
 
-function failureReason(resultPreview: string | undefined): string | undefined {
-  const parsed = parseJsonWith(resultPreview, jsonObjectSchema);
-
-  if (!parsed) return resultPreview;
-  const message = getStringPath(parsed, "error", "message");
+function failureReason({
+  result,
+  resultPreview,
+}: Pick<ResolvedToolCall, "result" | "resultPreview">): string | undefined {
+  if (!result) return resultPreview;
+  const message = getStringPath(result, "error", "message");
 
   if (message) return message;
 
-  return toNonEmptyString(parsed.message) ?? toNonEmptyString(parsed.error) ?? resultPreview;
+  return toNonEmptyString(result.message) ?? toNonEmptyString(result.error) ?? resultPreview;
 }
 
 /**
@@ -80,13 +70,15 @@ function failureReason(resultPreview: string | undefined): string | undefined {
 export function ToolCallCard({
   tools,
   live,
+  mcpServers,
 }: {
-  tools: ToolCallView[];
+  tools: ResolvedToolCall[];
   /** The run that owns these calls has not ended. Motion needs this AND a `started` call. */
   live: boolean;
+  /** The parent's lookup. It already covers these calls, so the card asks for nothing itself. */
+  mcpServers: McpServerLookup;
 }) {
   const panelId = useId();
-  const mcpServers = useMcpServerLookup(hasMcpCall(tools));
   // A folded run of identical calls (see buildTrail). Running if any call is out, failed if any failed.
   const [tool] = tools;
 
@@ -102,6 +94,7 @@ export function ToolCallCard({
 
   const {
     brand,
+    icon,
     fallbackIcon: FallbackIcon,
     running: runningLabel,
     done,
@@ -119,7 +112,7 @@ export function ToolCallCard({
   const expandable = tools.some((t) => Boolean(t.resultPreview));
 
   const title = running ? runningLabel : failed ? (failedLabel ?? `${done} failed`) : done;
-  const BrandlessIcon = brand ? undefined : brandlessToolIcon(tool.toolName);
+  const BrandlessIcon = brand ? undefined : icon;
   // One browsing page shows its favicon; a fold of several URLs keeps the browsing glyph.
   // A user-added MCP server shows its vendor's favicon.
   const browsing = resolved[0]?.browsing ?? null;
@@ -291,7 +284,7 @@ export function ToolCallCard({
               {/* One block per folded call: a browsing or evidence panel, else pretty JSON, else a failure line. */}
               {tools.map((t, i) => {
                 if (failed) {
-                  const reason = failureReason(t.resultPreview) ?? t.resultPreview;
+                  const reason = failureReason(t) ?? t.resultPreview;
 
                   if (!reason) return null;
 
@@ -333,7 +326,8 @@ export function ToolCallCard({
                 const raw = t.resultPreview;
 
                 if (!raw) return null;
-                const json = prettyJson(raw);
+                // Re-indent a minified object result; anything else shows as plain text.
+                const json = t.result ? JSON.stringify(t.result, null, 2) : null;
 
                 // Last resort: the themed surface, not the dark CodeBlock meant for reply code.
                 return (

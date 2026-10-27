@@ -6,7 +6,6 @@ import {
   getPath,
   isToolName,
   jsonObjectSchema,
-  parseJsonWith,
   toFiniteNumber,
   toNonEmptyString,
   type DocumentSource,
@@ -20,7 +19,7 @@ import { getIntegrationPage } from "~/lib/integrations/integrations";
 import { formatRelative } from "~/lib/strings";
 import { brandlessToolIcon } from "./animated-tool-icons";
 import { toSource, type Source } from "./sources";
-import type { ToolCallView } from "./tool-call-presentation";
+import type { ResolvedToolCall } from "~/lib/chat/resolved-tool-call";
 
 /** The two live-web tools. `satisfies ToolName` makes a rename fail to compile here. */
 const WEB_SEARCH_TOOL = "system.web_search" satisfies ToolName;
@@ -49,9 +48,8 @@ export type BrowsingView = FetchUrlView | WebSearchView;
  * Display shape for a browsing tool call. Previews are best-effort JSON, so a bad one gives less detail, not an error.
  * `null` for a non-browsing tool.
  */
-export function presentBrowsing(tool: ToolCallView): BrowsingView | null {
-  const args = parseJsonWith(tool.argsPreview, jsonObjectSchema);
-  const result = parseJsonWith(tool.resultPreview, jsonObjectSchema);
+export function presentBrowsing(tool: ResolvedToolCall): BrowsingView | null {
+  const { args, result } = tool;
 
   if (tool.toolName === FETCH_URL_TOOL) {
     // Only `url` exists while the fetch is in flight.
@@ -259,10 +257,9 @@ const SEARCH_TOOLS = new Set<ToolName>([
  * Live args first, then the result echo.
  * `argsPreview` is dropped on persist, so after reload only an echoed query survives.
  */
-export function searchQueryOf(tool: ToolCallView): string | undefined {
-  if (!isToolName(tool.toolName) || !SEARCH_TOOLS.has(tool.toolName)) return undefined;
-  const args = parseJsonWith(tool.argsPreview, jsonObjectSchema);
-  const result = parseJsonWith(tool.resultPreview, jsonObjectSchema);
+export function searchQueryOf(tool: ResolvedToolCall): string | undefined {
+  if (!tool.registeredName || !SEARCH_TOOLS.has(tool.registeredName)) return undefined;
+  const { args, result } = tool;
 
   // Gmail names it `q`.
   return (
@@ -347,7 +344,7 @@ const LIST_SPECS = new Map<ToolName, ListSpec>([
           meta: name,
           brand: brandOfToolName(name),
           // A `system.*` tool has no service, so use its trail icon.
-          icon: brandlessToolIcon(name),
+          icon: brandlessToolIcon(isToolName(name) ? name : undefined),
           // Explains a search that found a tool and then did nothing.
           badge: unavailable ? { label: "unavailable", tone: "amber" } : undefined,
         };
@@ -560,12 +557,12 @@ const ENTITY_BUILDERS = new Map<ToolName, (result: JsonObject) => EntityView | n
 ]);
 
 /** A record list or entity for a read tool. `null` keeps the JSON dump. */
-export function presentEvidence(tool: ToolCallView): RecordListView | EntityView | null {
-  const result = parseJsonWith(tool.resultPreview, jsonObjectSchema);
+export function presentEvidence(tool: ResolvedToolCall): RecordListView | EntityView | null {
+  const { result, registeredName } = tool;
 
-  if (!result || !isToolName(tool.toolName)) return null;
+  if (!result || !registeredName) return null;
 
-  const listSpec = LIST_SPECS.get(tool.toolName);
+  const listSpec = LIST_SPECS.get(registeredName);
 
   if (listSpec) {
     const raw = result[listSpec.arrayKey];
@@ -594,7 +591,7 @@ export function presentEvidence(tool: ToolCallView): RecordListView | EntityView
     };
   }
 
-  const entityBuilder = ENTITY_BUILDERS.get(tool.toolName);
+  const entityBuilder = ENTITY_BUILDERS.get(registeredName);
 
   if (entityBuilder) return entityBuilder(result);
 

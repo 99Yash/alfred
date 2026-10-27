@@ -3,8 +3,6 @@ import {
   AWAIT_SUB_AGENT_TOOL,
   isQuestionApproval,
   SPAWN_SUB_AGENT_TOOL,
-  jsonObjectSchema,
-  parseJsonWith,
   toNonEmptyString,
 } from "@alfred/contracts";
 import type { SyncedChatNarration } from "@alfred/sync";
@@ -13,6 +11,7 @@ import { type ReactNode, useId, useState } from "react";
 import { askUserSummary, type AskUserSummary } from "~/components/approvals/ask-user";
 import { QuestionAnswersCard } from "~/components/approvals/question-answers-card";
 import type { SubAgentTrail } from "~/lib/chat/chat-stream-state";
+import type { ResolvedToolCall } from "~/lib/chat/resolved-tool-call";
 import { cn } from "~/lib/utils";
 import { ChatProse } from "./chat-prose";
 import { CollapseItem, CollapseList } from "./collapse-list";
@@ -21,7 +20,7 @@ import { RunGlyphCluster } from "./run-glyph-cluster";
 import { runGlyphs, runSummary } from "./run-summary";
 import { SubAgentCard } from "./sub-agent-card";
 import { ToolCallCard } from "./tool-call-card";
-import { hasMcpCall, presentTool, type ToolCallView, visibleTools } from "./tool-call-presentation";
+import { hasMcpCall, presentTool, visibleTools } from "./tool-call-presentation";
 import { buildTrail, type TrailItem } from "./trail";
 
 const ITEM = "tools";
@@ -32,7 +31,7 @@ const NO_SUB_AGENTS: readonly SubAgentTrail[] = [];
  * A settled `system.ask_user` call shows its questions and answers (ADR-0099).
  * Null while parked (the approval tray owns that) or when the preview is unreadable.
  */
-function questionSummary(item: ToolCallView[]): AskUserSummary | null {
+function questionSummary(item: ResolvedToolCall[]): AskUserSummary | null {
   const only = item.length === 1 ? item[0] : undefined;
 
   return only && isQuestionApproval(only.toolName) ? askUserSummary(only) : null;
@@ -54,7 +53,7 @@ export function ToolCallGroup({
   narration,
   subAgents = NO_SUB_AGENTS,
 }: {
-  tools: ToolCallView[];
+  tools: ResolvedToolCall[];
   active: boolean;
   /** Required so a caller cannot silently drop prose. Pass `[]` when a persisted turn has none. */
   narration: readonly SyncedChatNarration[];
@@ -74,8 +73,8 @@ export function ToolCallGroup({
 
   /** A lone `spawn_sub_agent` call and the child trail it names. */
   const subAgentFor = (
-    item: ToolCallView[],
-  ): { tool: ToolCallView; childTrail: SubAgentTrail } | undefined => {
+    item: ResolvedToolCall[],
+  ): { tool: ResolvedToolCall; childTrail: SubAgentTrail } | undefined => {
     const [tool] = item;
 
     if (item.length !== 1 || tool?.toolName !== SPAWN_SUB_AGENT_TOOL) return undefined;
@@ -88,14 +87,12 @@ export function ToolCallGroup({
    * Hide an `await_sub_agent` card when that child's trail is already on screen.
    * It still counts in `shown` for the headline.
    */
-  const isRedundantAwait = (item: ToolCallView[]): boolean => {
+  const isRedundantAwait = (item: ResolvedToolCall[]): boolean => {
     const [tool] = item;
 
     if (item.length !== 1 || tool?.toolName !== AWAIT_SUB_AGENT_TOOL) return false;
 
-    const childRunId = toNonEmptyString(
-      parseJsonWith(tool.argsPreview, jsonObjectSchema)?.childRunId,
-    );
+    const childRunId = toNonEmptyString(tool.args?.childRunId);
 
     return childRunId !== undefined && subAgents.some((s) => s.childRunId === childRunId);
   };
@@ -127,7 +124,7 @@ export function ToolCallGroup({
         {loneQuestion ? (
           <QuestionAnswersCard summary={loneQuestion} />
         ) : (
-          <ToolCallCard tools={only.tools} live={active} />
+          <ToolCallCard tools={only.tools} live={active} mcpServers={mcpServers} />
         )}
       </div>
     );
@@ -143,7 +140,7 @@ export function ToolCallGroup({
     return question ? (
       <QuestionAnswersCard summary={question} />
     ) : (
-      <ToolCallCard tools={item.tools} live={active} />
+      <ToolCallCard tools={item.tools} live={active} mcpServers={mcpServers} />
     );
   };
 

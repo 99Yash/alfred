@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import type { StreamingMessage } from "../../src/lib/chat/chat-stream-state";
+import { resolveToolCall } from "../../src/lib/chat/resolved-tool-call";
 import { shouldShowThinkingIndicator } from "../../src/routes/-chat/conversation-helpers";
 
 const BLANK: StreamingMessage = {
@@ -57,10 +58,13 @@ describe("shouldShowThinkingIndicator", () => {
         stream({
           tools: [
             {
-              toolCallId: "t1",
-              toolName: "gmail.search",
-              status: "started",
-              segmentIndex: 0,
+              ...resolveToolCall({
+                toolCallId: "t1",
+                toolName: "gmail.search",
+                status: "started",
+                segmentIndex: 0,
+              }),
+              argsPreview: undefined,
               startedTs: 0,
               endedTs: null,
             },

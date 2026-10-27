@@ -106,6 +106,56 @@ const GMAIL_SIBLING_FILE = "packages/integrations/src/google/client.ts";
  */
 const CASES = [
   {
+    name: "chat-tool-preview-reparse — a card surface parses a result preview again",
+    caught: true,
+    rule: "chat-tool-preview-reparse",
+    file: "apps/web/src/routes/-chat/sources.ts",
+    code: `const parsed = parseJsonWith(tool.resultPreview, jsonObjectSchema);`,
+  },
+  {
+    name: "chat-tool-preview-reparse — prettier puts the args preview on its own line",
+    caught: true,
+    rule: "chat-tool-preview-reparse",
+    file: "apps/web/src/routes/-chat/tool-call-group.tsx",
+    code: `const args = parseJsonWith(
+  call?.argsPreview,
+  jsonObjectSchema,
+);`,
+  },
+  {
+    name: "chat-tool-preview-reparse — an index receiver parses a result preview again",
+    caught: true,
+    rule: "chat-tool-preview-reparse",
+    file: "apps/web/src/routes/-chat/tool-call-group.tsx",
+    code: `const parsed = parseJsonWith(tools[0]?.resultPreview, jsonObjectSchema);`,
+  },
+  {
+    name: "chat-tool-preview-reparse — a non-null assertion on the preview receiver",
+    caught: true,
+    rule: "chat-tool-preview-reparse",
+    file: "apps/web/src/routes/-chat/evidence.ts",
+    code: `const args = parseJsonWith(tool!.argsPreview, jsonObjectSchema);`,
+  },
+  {
+    name: "chat-tool-preview-reparse — an explicit type argument on the re-parse",
+    caught: true,
+    rule: "chat-tool-preview-reparse",
+    file: "apps/web/src/routes/-chat/sources.ts",
+    code: `const parsed = parseJsonWith<JsonObject>(tool.resultPreview, jsonObjectSchema);`,
+  },
+  {
+    name: "chat-tool-preview-reparse — resolveToolCall owns the one parse",
+    caught: false,
+    file: "apps/web/src/lib/chat/resolved-tool-call.ts",
+    code: `args: parseJsonWith(raw.argsPreview, jsonObjectSchema) ?? undefined,`,
+  },
+  {
+    name: "chat-tool-preview-reparse — a longer preview-suffixed name is not a preview",
+    caught: false,
+    file: "apps/web/src/routes/-chat/sources.ts",
+    code: `const parsed = parseJsonWith(tool.resultPreviewText, s);`,
+  },
+  {
     name: "hand-rolled-no-reply-regex — a local no-reply prefix regex",
     caught: true,
     rule: "hand-rolled-no-reply-regex",

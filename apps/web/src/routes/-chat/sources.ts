@@ -1,11 +1,6 @@
-import {
-  getStringPath,
-  isNonEmptyString,
-  jsonObjectSchema,
-  parseJsonWith,
-} from "@alfred/contracts";
+import { getStringPath, isNonEmptyString } from "@alfred/contracts";
+import type { ResolvedToolCall } from "~/lib/chat/resolved-tool-call";
 import { domainOf } from "~/lib/favicon";
-import type { ToolCallView } from "./tool-call-presentation";
 
 export interface Source {
   /** Publisher name: the domain or the page title. */
@@ -46,13 +41,12 @@ export function toSource(citation: unknown): Source | null {
 }
 
 /** Every web-search citation in a turn, deduped by publisher in first-seen order. Best-effort. */
-export function collectSources(tools: ToolCallView[]): Source[] {
+export function collectSources(tools: readonly ResolvedToolCall[]): Source[] {
   const byKey = new Map<string, Source>();
 
   for (const tool of tools) {
     if (tool.status !== "succeeded") continue;
-    const result = parseJsonWith(tool.resultPreview, jsonObjectSchema);
-    const citations = result?.citations;
+    const citations = tool.result?.citations;
 
     if (!Array.isArray(citations)) continue;
 
