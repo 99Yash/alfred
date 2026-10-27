@@ -15,7 +15,7 @@ import {
   type RespondToEventArgs,
   type UpdateEventArgs,
 } from "./calendar";
-import { getFreshAccessToken, listCredentials, type CredentialRow } from "./credentials";
+import { getOwnedFreshAccessToken, listCredentials, type CredentialRow } from "./credentials";
 import { getDocument, type GetDocumentArgs } from "./docs";
 import {
   downloadFile,
@@ -123,27 +123,24 @@ export class GoogleCredentialSelectionError extends Error {
   }
 }
 
-function hasAuthority(credential: CredentialRow, authority: GoogleAuthority): boolean {
-  return holdsAnyScope(credential.scopes, AUTHORITY_SCOPES[authority]);
-}
-
 async function credentialsForAuthority(
   userId: string,
   authority: GoogleAuthority,
   accountRef?: string,
 ): Promise<GoogleCredential[]> {
+  // A pinned account that is gone is "not connected", not "missing a scope".
   const active = (await listCredentials(userId, "google")).filter(
-    (credential) => credential.status === "active",
+    (credential) =>
+      credential.status === "active" &&
+      (accountRef === undefined || credential.accountId === accountRef),
   );
 
   if (active.length === 0) {
     throw new GoogleCredentialSelectionError(authority, "connection_required");
   }
 
-  const scoped = active.filter(
-    (credential) =>
-      hasAuthority(credential, authority) &&
-      (accountRef === undefined || credential.accountId === accountRef),
+  const scoped = active.filter((credential) =>
+    holdsAnyScope(credential.scopes, AUTHORITY_SCOPES[authority]),
   );
 
   if (scoped.length === 0) {
@@ -321,16 +318,15 @@ export function createGoogleClient(
 /** Checks ownership of the credential id on every request. */
 export function googleClientForUser(options: ProviderBindOptions) {
   const client = createGoogleClient(async (credentialId, authority) => {
-    const owned = (await listCredentials(options.userId, "google")).some(
-      (credential) =>
-        credential.id === credentialId &&
-        credential.status === "active" &&
-        hasAuthority(credential, authority),
-    );
+    const accessToken = await getOwnedFreshAccessToken({
+      userId: options.userId,
+      credentialId,
+      anyOfScopes: AUTHORITY_SCOPES[authority],
+    });
 
-    if (!owned) throw new GoogleCredentialSelectionError(authority, "scope_required");
+    if (accessToken === null) throw new GoogleCredentialSelectionError(authority, "scope_required");
 
-    return getFreshAccessToken(credentialId);
+    return accessToken;
   }, options.retry);
 
   const first = async (authority: GoogleAuthority) => {
@@ -353,6 +349,9 @@ export function googleClientForUser(options: ProviderBindOptions) {
       readCredential: () => first("gmail_read"),
       sendCredential: () => first("gmail_send"),
       modifyCredential: () => first("gmail_modify"),
+      /** Every account that can change labels. A message picks one by `accountId`. */
+      modifyCredentials: () =>
+        credentialsForAuthority(options.userId, "gmail_modify", options.accountRef),
     },
     calendar: {
       ...client.calendar,

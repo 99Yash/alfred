@@ -1,5 +1,6 @@
-import { GOOGLE_SCOPE, holdsAnyScope, type ReplyNoAccessReason } from "@alfred/contracts";
-import { listCredentials } from "@alfred/integrations/google";
+import { assertNever, type ReplyNoAccessReason } from "@alfred/contracts";
+import { integrations } from "@alfred/integrations";
+import { GoogleCredentialSelectionError } from "@alfred/integrations/google";
 
 /**
  * Can Alfred send from this mailbox (ADR-0098)? `no_access` is a decision, not an error:
@@ -14,18 +15,24 @@ export async function checkGmailSendAccess(args: {
   /** `integration_credentials.account_id` of the receiving mailbox. */
   accountId: string;
 }): Promise<GmailSendAccess> {
-  const active = (await listCredentials(args.userId, "google")).filter(
-    (row) => row.status === "active",
-  );
+  try {
+    const mailbox = await integrations({
+      userId: args.userId,
+      accountRef: args.accountId,
+      retry: "none",
+    }).google.gmail.sendCredential();
 
-  if (active.length === 0) return { ok: false, reason: "gmail_not_connected" };
-  const mailbox = active.find((row) => row.accountId === args.accountId);
+    return { ok: true, credentialId: mailbox.id, mailboxAddress: mailbox.accountLabel };
+  } catch (err) {
+    if (!(err instanceof GoogleCredentialSelectionError)) throw err;
 
-  if (!mailbox) return { ok: false, reason: "gmail_not_connected" };
-
-  if (!holdsAnyScope(mailbox.scopes, [GOOGLE_SCOPE.gmail.send])) {
-    return { ok: false, reason: "gmail_send_scope_missing" };
+    switch (err.reason) {
+      case "connection_required":
+        return { ok: false, reason: "gmail_not_connected" };
+      case "scope_required":
+        return { ok: false, reason: "gmail_send_scope_missing" };
+      default:
+        return assertNever(err.reason, "GoogleCredentialSelectionError reason");
+    }
   }
-
-  return { ok: true, credentialId: mailbox.id, mailboxAddress: mailbox.accountLabel };
 }
