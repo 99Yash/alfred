@@ -26,7 +26,6 @@ import {
   OBJECT_STATE_PROVIDERS,
   parseEventTypeName,
   parseGmailDocumentMetadata,
-  toStringArray,
   weatherFallbackFor,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -823,7 +822,7 @@ export async function gatherCalendarContribution(
     );
 
   const calendarCreds = creds.filter((cred) =>
-    holdsAnyScope(toStringArray(cred.scopes), INTEGRATIONS.calendar.credential.anyOfScopes),
+    holdsAnyScope(cred.scopes, INTEGRATIONS.calendar.credential.anyOfScopes),
   );
 
   if (calendarCreds.length === 0) return null;

@@ -107,7 +107,7 @@ export const chunks = pgTable(
   ],
 );
 
-/** What `@alfred/corpus` writes. Readers still validate it (`extractPageFromMetadata`). */
+/** What `@alfred/corpus` writes. Its one writer, `chunkMetadata`, drops an invalid page. */
 export interface ChunkMetadata {
   /** 1-indexed PDF page. Absent on older rows. */
   page?: number;

@@ -1,5 +1,4 @@
 import type { AccountPersona } from "@alfred/contracts";
-import { toStringArray } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { credentialVault } from "@alfred/db/credential-vault";
 import { integrationCredentials } from "@alfred/db/schemas";
@@ -155,7 +154,7 @@ async function loadCredential(
     accessToken: vault.open(row.accessToken),
     refreshToken: vault.open(row.refreshToken),
     expiresAt: row.expiresAt,
-    scopes: toStringArray(row.scopes),
+    scopes: row.scopes,
     status: row.status,
   };
 }
@@ -267,7 +266,7 @@ export async function listCredentials(
       userId: r.userId,
       accountId: r.accountId,
       accountLabel: r.accountLabel,
-      scopes: toStringArray(r.scopes),
+      scopes: r.scopes,
       status: r.status,
     }));
 }

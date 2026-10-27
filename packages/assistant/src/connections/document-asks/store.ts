@@ -2,7 +2,6 @@ import {
   contentFormatSchema,
   documentAskEvidenceSourceSchema,
   documentAskKindSchema,
-  documentAskStatusSchema,
   type ContentFormat,
   type DocumentAskEvidenceSource,
 } from "@alfred/contracts";
@@ -31,26 +30,6 @@ type ResolveIfActiveInput = Pick<
   attachmentFormat: ContentFormat;
   observedAt: Date;
 };
-
-function rowToDocumentAsk(row: DocumentAskRow): DocumentAskRow {
-  return {
-    ...row,
-    requestedKind: documentAskKindSchema.parse(row.requestedKind),
-    status: documentAskStatusSchema.parse(row.status),
-    resolvedAttachmentFormat:
-      row.resolvedAttachmentFormat === null
-        ? null
-        : contentFormatSchema.parse(row.resolvedAttachmentFormat),
-    resolvedContentKind:
-      row.resolvedContentKind === null
-        ? null
-        : documentAskKindSchema.parse(row.resolvedContentKind),
-    resolvedEvidenceSource:
-      row.resolvedEvidenceSource === null
-        ? null
-        : documentAskEvidenceSourceSchema.parse(row.resolvedEvidenceSource),
-  };
-}
 
 function requireDate(value: Date): Date {
   if (!(value instanceof Date) || Number.isNaN(value.getTime())) {
@@ -86,7 +65,7 @@ export async function createIfAbsent(
 
   const createdRow = inserted[0];
 
-  if (createdRow) return { ask: rowToDocumentAsk(createdRow), created: true };
+  if (createdRow) return { ask: createdRow, created: true };
 
   const existing = await db()
     .select()
@@ -106,7 +85,7 @@ export async function createIfAbsent(
     throw new Error("[document-ask] insert conflicted but the source identity cannot be read");
   }
 
-  return { ask: rowToDocumentAsk(existingRow), created: false };
+  return { ask: existingRow, created: false };
 }
 
 /** Re-read after replay so a racing observer cannot return a stale result. */
@@ -119,7 +98,7 @@ export async function readById(userId: string, id: string): Promise<DocumentAskR
 
   const row = rows[0];
 
-  return row ? rowToDocumentAsk(row) : null;
+  return row ?? null;
 }
 
 export async function readActiveForThread(
@@ -139,7 +118,7 @@ export async function readActiveForThread(
       ),
     );
 
-  return rows.map(rowToDocumentAsk);
+  return rows;
 }
 
 /**
@@ -223,5 +202,5 @@ export async function resolveIfActive(
 
   const row = updated[0];
 
-  return row ? rowToDocumentAsk(row) : "not_current";
+  return row ?? "not_current";
 }
