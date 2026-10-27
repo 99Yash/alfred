@@ -5,25 +5,25 @@ import {
   type JsonObject,
   type ToolName,
 } from "@alfred/contracts";
+import type { EventPayload } from "@alfred/contracts/events";
 
 /**
  * A chat tool call as it reaches the web: a live `chat.tool` event folded with the ones before it,
- * or a synced `chat_messages.toolCalls` row. Structural, so both producers satisfy it as they are.
+ * or a synced `chat_messages.toolCalls` row. A `Pick` off the `chat.tool` payload, so the field
+ * types cannot drift from the event. The synced row satisfies the same pick (its `status` is the
+ * narrower `"succeeded" | "failed"`); the stream fold builds it field by field.
  */
-export interface RawToolCall {
-  toolCallId: string;
-  /** Raw name. A retired name must still draw a row, so the sync schema keeps it a string. */
-  toolName: string;
-  status: "started" | "succeeded" | "failed";
-  argsPreview?: string | undefined;
-  resultPreview?: string | undefined;
-  /** `preview()` pruned the preview. It still parses, so check this before trusting its shape. */
-  resultTruncated?: boolean | undefined;
-  /** ADR-0070: non-text bytes were stripped before storage. */
-  sanitized?: boolean | undefined;
-  /** The narration segment this call follows. */
-  segmentIndex: number;
-}
+export type RawToolCall = Pick<
+  EventPayload<"chat.tool">,
+  | "toolCallId"
+  | "toolName"
+  | "status"
+  | "argsPreview"
+  | "resultPreview"
+  | "resultTruncated"
+  | "sanitized"
+  | "segmentIndex"
+>;
 
 /**
  * One chat tool call with its previews parsed one time. Every card surface reads this shape.
@@ -40,16 +40,14 @@ export interface ResolvedToolCall extends Omit<RawToolCall, "argsPreview"> {
 
 /** The only place a chat card's previews are parsed and its name is checked against the registry. */
 export function resolveToolCall(raw: RawToolCall): ResolvedToolCall {
+  // The spread carries every raw field, so a field added to `RawToolCall` reaches the
+  // resolved shape; the declared return type fails the build until it is handled there.
+  const { argsPreview, ...rest } = raw;
+
   return {
-    toolCallId: raw.toolCallId,
-    toolName: raw.toolName,
+    ...rest,
     registeredName: isToolName(raw.toolName) ? raw.toolName : undefined,
-    status: raw.status,
-    args: parseJsonWith(raw.argsPreview, jsonObjectSchema) ?? undefined,
+    args: parseJsonWith(argsPreview, jsonObjectSchema) ?? undefined,
     result: parseJsonWith(raw.resultPreview, jsonObjectSchema) ?? undefined,
-    resultPreview: raw.resultPreview,
-    resultTruncated: raw.resultTruncated,
-    sanitized: raw.sanitized,
-    segmentIndex: raw.segmentIndex,
   };
 }

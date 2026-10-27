@@ -574,7 +574,12 @@ export const RULES = [
     //
     // `scope: "chain"`: prettier puts the argument on its own line when the
     // call is long, so the receiver can follow the parenthesis after a break.
-    re: /\bparseJsonWith\(\s*[\w$.?]+\.(?:argsPreview|resultPreview)\b/,
+    // The receiver class also covers an index (`tools[0]?.`) and a non-null
+    // assertion (`tool!.`); the call may carry an explicit type argument.
+    // Still missed, by construction: a preview through a bare or destructured
+    // local, an alias, bracket-string access, or another parser
+    // (`safeJsonParse`, `JSON.parse`). Those need a type-aware lint rule.
+    re: /\bparseJsonWith\s*(?:<[^<>]*>)?\(\s*[\w$.?![\]]+\.(?:argsPreview|resultPreview)\b/,
     scope: "chain",
     paths: /(^|\/)apps\/web\/src\//,
     severity: "gate",
