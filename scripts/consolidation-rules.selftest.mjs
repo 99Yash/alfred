@@ -1373,6 +1373,19 @@ const LINE_CASES = [
     file: WEB_LANDING_FILE,
   },
   {
+    name: "replicache-subscribe-outside-helper — a hook writes its own subscription",
+    caught: true,
+    rule: "replicache-subscribe-outside-helper",
+    code: `    const unsubscribe = rep.subscribe(scanTodos, (rows) => setSnapshot({ rep, rows }));`,
+    file: WEB_APP_FILE,
+  },
+  {
+    name: "replicache-subscribe-outside-helper — another store's subscribe is not Replicache",
+    caught: false,
+    code: `    return store.subscribe(onChange);`,
+    file: WEB_APP_FILE,
+  },
+  {
     // `unowned-live-confirmation-proof` is the only witness that a caller's
     // `proof` argument is honest. The compiler cannot be one: the argument is
     // a member of a union, and every member typechecks at every site. So the

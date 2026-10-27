@@ -1,6 +1,7 @@
 import { Link, useParams } from "@tanstack/react-router";
 import { ArrowLeft } from "lucide-react";
 import { AppCard } from "~/components/ui/v2";
+import { CachedSyncNotice } from "~/components/cached-sync-notice";
 import { useBriefing } from "~/lib/replicache/use-briefings";
 import { cn } from "~/lib/utils";
 import { BriefingSlot } from "./briefing-slot";
@@ -33,7 +34,7 @@ export function BriefingDetailPage() {
             </h1>
           </header>
 
-          {error ? (
+          {error && slots.length === 0 ? (
             <AppCard className="flex flex-col items-center gap-3 px-6 py-12 text-center">
               <p className="text-sm font-medium text-app-fg-4">Briefing could not sync</p>
               <p className="max-w-md text-xs leading-5 text-app-fg-3">{error}</p>
@@ -47,6 +48,7 @@ export function BriefingDetailPage() {
             </AppCard>
           ) : slots.length > 0 ? (
             <div className="space-y-4">
+              {error ? <CachedSyncNotice subject="briefings" error={error} retry={retry} /> : null}
               {slots.map((briefing) => (
                 <BriefingSlot key={briefing.id} briefing={briefing} />
               ))}

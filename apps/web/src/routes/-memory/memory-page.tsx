@@ -3,6 +3,7 @@ import type { SyncedFact } from "@alfred/sync";
 import { Brain, Sparkles } from "lucide-react";
 import { useMemo } from "react";
 import { AppCard } from "~/components/ui/v2";
+import { CachedSyncNotice } from "~/components/cached-sync-notice";
 import { ProposedFactCard } from "./proposed-fact-card";
 import { SectionHeading } from "./section-heading";
 import { useMemoryFacts } from "./use-memory-facts";
@@ -54,20 +55,7 @@ export function MemoryPage() {
           </AppCard>
         ) : (
           <div className="mx-auto mt-12 w-full max-w-3xl space-y-12">
-            {error ? (
-              <AppCard className="flex items-center justify-between gap-4 px-4 py-3">
-                <p className="text-xs text-app-fg-3">
-                  Showing cached memory. <span className="text-app-red-4">{error}</span>
-                </p>
-                <button
-                  type="button"
-                  onClick={retry}
-                  className="shrink-0 text-xs font-medium text-app-fg-4 hover:underline"
-                >
-                  Retry
-                </button>
-              </AppCard>
-            ) : null}
+            {error ? <CachedSyncNotice subject="memory" error={error} retry={retry} /> : null}
             <section className="space-y-3">
               <SectionHeading
                 title="Proposed"

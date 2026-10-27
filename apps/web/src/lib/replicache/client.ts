@@ -13,12 +13,6 @@ const SYNC_FETCH_TIMEOUT_MS = 30_000;
  */
 const REPLICACHE_SCHEMA_VERSION = "1";
 
-/** A handle with its last read value, so a client swap drops the stale value too. */
-export interface ReplicacheSnapshot<T> {
-  rep: Replicache<ClientMutators>;
-  value: T;
-}
-
 export interface CreateReplicacheOptions {
   /** A pull or push got a 401, or the poke `EventSource` closed for good. */
   onAuthError?: (() => void) | undefined;

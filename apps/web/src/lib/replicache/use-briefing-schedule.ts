@@ -45,7 +45,7 @@ function parseTimezone(value: unknown): string | null {
 
 /** The briefing schedule from preference rows. A missing row means the server default. */
 export function useBriefingSchedule(): BriefingScheduleState {
-  const { values, loaded, setPref, loadError, retry } = usePreferenceMap();
+  const { values, loading, error, retry, setPref } = usePreferenceMap();
 
   const tzStored =
     parseTimezone(values[BRIEFING_PREF_KEYS.timezone]) ??
@@ -71,8 +71,8 @@ export function useBriefingSchedule(): BriefingScheduleState {
     setTimezone: (tz) => setPref(BRIEFING_PREF_KEYS.timezone, tz),
     setMorningHour: (hour) => setPref(BRIEFING_PREF_KEYS.morningHour, hour),
     setEveningHour: (hour) => setPref(BRIEFING_PREF_KEYS.eveningHour, hour),
-    loading: !loaded && !loadError,
-    error: loadError,
+    loading,
+    error,
     retry,
   };
 }

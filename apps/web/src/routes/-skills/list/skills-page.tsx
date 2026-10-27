@@ -2,6 +2,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
 import { useState } from "react";
 import { AppButton, AppCard } from "~/components/ui/v2";
+import { CachedSyncNotice } from "~/components/cached-sync-notice";
 import { responseErrorMessage } from "~/lib/api-error";
 import { client } from "~/lib/eden";
 import { useSkills } from "../use-skills";
@@ -81,14 +82,7 @@ export function SkillsPage() {
             </AppCard>
           ) : null}
           {error && hasCachedSkills ? (
-            <AppCard className="flex items-center justify-between gap-4 px-4 py-3">
-              <p className="text-xs text-app-fg-3">
-                Showing cached skills. <span className="text-app-red-4">{error}</span>
-              </p>
-              <AppButton size="sm" onClick={retry}>
-                Retry
-              </AppButton>
-            </AppCard>
+            <CachedSyncNotice subject="skills" error={error} retry={retry} />
           ) : null}
           {!loading && !error && !hasCachedSkills ? (
             <AppCard className="px-6 py-12 text-center">

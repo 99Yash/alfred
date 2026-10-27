@@ -1,9 +1,9 @@
 import { isNonEmptyString } from "@alfred/contracts";
 import { SYNC_MODEL, type SyncedFact } from "@alfred/sync";
-import { useCallback, useMemo } from "react";
+import { useCallback } from "react";
 import type { ReadTransaction } from "replicache";
 import { authClient } from "~/lib/auth/auth-client";
-import { useReplicacheStatus } from "./context";
+import { useReplicache } from "./context";
 import { useReplicacheSubscription } from "./use-replicache-subscription";
 
 /** The fact key cold-start writes the bio under. */
@@ -23,23 +23,24 @@ function scanFacts(tx: ReadTransaction): Promise<SyncedFact[]> {
   return SYNC_MODEL.fact.scan(tx);
 }
 
+function activeBio(facts: SyncedFact[]): SyncedFact | null {
+  const active = facts.filter((f) => f.key === BIO_KEY && f.validUntil === null);
+
+  // Mid-pull, both a confirmed and a proposed row can be active.
+  return active.find((f) => f.status === "confirmed") ?? active[0] ?? null;
+}
+
 function toText(value: unknown): string {
   return isNonEmptyString(value) ? value : "";
 }
 
 /** The active `bio_summary` fact, for the settings Background card. */
 export function useBioFact(): BioFactState {
-  const { rep, loadError, retry } = useReplicacheStatus();
+  const rep = useReplicache();
   const { data: session } = authClient.useSession();
   const userId = session?.user.id;
-  const rows = useReplicacheSubscription(scanFacts);
-
-  const bio = useMemo(() => {
-    const active = (rows ?? []).filter((f) => f.key === BIO_KEY && f.validUntil === null);
-
-    // Mid-pull, both a confirmed and a proposed row can be active.
-    return active.find((f) => f.status === "confirmed") ?? active[0] ?? null;
-  }, [rows]);
+  const { data, loading, error, retry } = useReplicacheSubscription(scanFacts, activeBio);
+  const bio = data ?? null;
 
   const saveBio = useCallback(
     async (text: string): Promise<void> => {
@@ -70,8 +71,8 @@ export function useBioFact(): BioFactState {
 
   return {
     value: toText(bio?.value),
-    loading: rows === null && !loadError,
-    error: loadError,
+    loading,
+    error,
     retry,
     saveBio,
   };

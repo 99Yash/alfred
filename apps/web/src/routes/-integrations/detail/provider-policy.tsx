@@ -4,6 +4,7 @@ import { toolChipLabel } from "~/components/approvals/card-spec";
 import { useActionPolicy } from "~/lib/replicache/use-action-policy";
 import type { IntegrationPage } from "~/lib/integrations/integrations";
 import { AppButton, AppCard, AppSegmented, type AppSegmentedItem } from "~/components/ui/v2";
+import { CachedSyncNotice } from "~/components/cached-sync-notice";
 import { SectionHeading } from "./section-heading";
 
 const MODE_ITEMS: ReadonlyArray<AppSegmentedItem<PolicyMode>> = [
@@ -28,7 +29,8 @@ export function ProviderPolicy({ provider }: { provider: IntegrationPage }) {
     (entry): entry is [ToolName, PolicyMode] => isToolName(entry[0]),
   );
 
-  if (error) {
+  // A failed pull keeps the cached row, so the panel shows only when there is no row.
+  if (error && !policy) {
     return (
       <section className="app-card-in space-y-3" style={{ animationDelay: "150ms" }}>
         <SectionHeading>Approval policy</SectionHeading>
@@ -62,6 +64,8 @@ export function ProviderPolicy({ provider }: { provider: IntegrationPage }) {
   return (
     <section className="app-card-in space-y-3" style={{ animationDelay: "150ms" }}>
       <SectionHeading>Approval policy</SectionHeading>
+
+      {error ? <CachedSyncNotice subject="policy" error={error} retry={retry} /> : null}
 
       <AppCard className="space-y-3">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">

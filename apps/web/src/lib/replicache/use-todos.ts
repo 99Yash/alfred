@@ -2,7 +2,7 @@ import { SYNC_MODEL, type SyncedTodo } from "@alfred/sync";
 import { useCallback, useMemo } from "react";
 import type { ReadTransaction } from "replicache";
 import { authClient } from "~/lib/auth/auth-client";
-import { useReplicacheStatus } from "./context";
+import { useReplicache } from "./context";
 import { useReplicacheSubscription } from "./use-replicache-subscription";
 
 export interface TodosState {
@@ -61,10 +61,10 @@ function sortedTodos(todos: SyncedTodo[]): SyncedTodo[] {
 
 /** Todos and suggestions for the rail (ADR-0050). `done` rows sync for 2 days. */
 export function useTodos(): TodosState {
-  const { rep, loadError, retry } = useReplicacheStatus();
+  const rep = useReplicache();
   const { data: session } = authClient.useSession();
   const userId = session?.user.id;
-  const rows = useReplicacheSubscription(scanTodos, sortedTodos);
+  const { data: rows, loading, error, retry } = useReplicacheSubscription(scanTodos, sortedTodos);
 
   const createTodo = useCallback(
     async (name: string, description?: string): Promise<void> => {
@@ -150,8 +150,8 @@ export function useTodos(): TodosState {
   return {
     todos,
     suggestions,
-    loading: rows === null && !loadError,
-    error: loadError,
+    loading,
+    error,
     retry,
     createTodo,
     completeTodo,

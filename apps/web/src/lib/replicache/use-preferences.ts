@@ -1,26 +1,31 @@
 import { SYNC_MODEL, type PreferenceValue, type SyncedPreference } from "@alfred/sync";
-import { useCallback, useMemo } from "react";
+import { useCallback } from "react";
 import type { ReadTransaction } from "replicache";
-import { useReplicacheStatus } from "./context";
+import { useReplicache } from "./context";
 import { useReplicacheSubscription } from "./use-replicache-subscription";
 
 export interface PreferenceMap {
   /** An absent key is unset. */
   values: Record<string, PreferenceValue>;
-  loaded: boolean;
-  setPref: (key: string, value: PreferenceValue) => Promise<void>;
-  loadError: string | null;
+  loading: boolean;
+  error: string | null;
   retry: () => void;
+  setPref: (key: string, value: PreferenceValue) => Promise<void>;
 }
 
 const EMPTY_PREFERENCE_VALUES: Record<string, PreferenceValue> = {};
 
+const noPreferences = (values: Record<string, PreferenceValue>) => Object.keys(values).length === 0;
+
 /** The synced preferences (ADR-0012) as a key-value map. Domain hooks read their own keys. */
 export function usePreferenceMap(): PreferenceMap {
-  const { rep, loadError, retry } = useReplicacheStatus();
+  const rep = useReplicache();
   const query = useCallback((tx: ReadTransaction) => SYNC_MODEL.pref.scan(tx), []);
 
-  const rows = useReplicacheSubscription<SyncedPreference[], Record<string, PreferenceValue>>(
+  const { data, loading, error, retry } = useReplicacheSubscription<
+    SyncedPreference[],
+    Record<string, PreferenceValue>
+  >(
     query,
     useCallback((preferences: SyncedPreference[]) => {
       const next: Record<string, PreferenceValue> = {};
@@ -31,13 +36,8 @@ export function usePreferenceMap(): PreferenceMap {
 
       return next;
     }, []),
+    { isEmpty: noPreferences },
   );
-
-  const { values, loaded } = useMemo(() => {
-    if (rows === null) return { values: EMPTY_PREFERENCE_VALUES, loaded: false };
-
-    return { values: rows, loaded: true };
-  }, [rows]);
 
   const setPref = useCallback(
     async (key: string, value: PreferenceValue): Promise<void> => {
@@ -47,5 +47,5 @@ export function usePreferenceMap(): PreferenceMap {
     [rep],
   );
 
-  return { values, loaded, setPref, loadError, retry };
+  return { values: data ?? EMPTY_PREFERENCE_VALUES, loading, error, retry, setPref };
 }

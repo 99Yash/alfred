@@ -13,7 +13,7 @@ export interface FeatureFlagsState {
 
 /** Background-agent feature toggles (Settings, Features). */
 export function useFeatureFlags(): FeatureFlagsState {
-  const { values, loaded, setPref, loadError, retry } = usePreferenceMap();
+  const { values, loading, error, retry, setPref } = usePreferenceMap();
 
   const isOn = useCallback(
     (key: FeatureFlagKey): boolean => isFeatureFlagOn(key, values[key]),
@@ -28,8 +28,8 @@ export function useFeatureFlags(): FeatureFlagsState {
   return {
     isOn,
     setFlag,
-    loading: !loaded && !loadError,
-    error: loadError,
+    loading,
+    error,
     retry,
   };
 }

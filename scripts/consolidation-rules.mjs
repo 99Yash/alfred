@@ -1034,6 +1034,18 @@ export const RULES = [
     severity: "gate",
     fix: "Use an `app-*` token from apps/web/src/index.css. Status: `text-app-{red,amber,green}-4` for text and solid fills, `-1` for a tint fill, `-2` for its border or ring, and `text-app-bg-1` for ink on a solid `-4` fill. On a fixed dark surface (video, lightbox, overlay), add `app-media` to its root and use `text-app-fg-a{1..4}` / `bg-app-bg-a{1..4}` for white-alpha ink and fills.",
   },
+  {
+    id: "replicache-subscribe-outside-helper",
+    // A Replicache subscription written outside the one hook. Each data hook
+    // wrote its own `rep.subscribe` with one of two loading rules, so one cold
+    // store showed "empty" on some pages and "loading" on others, and some
+    // pages hid cached rows behind a sync error.
+    re: /\b(?:rep|replicache)\.subscribe\(/,
+    paths: /^apps\/web\/src\//,
+    severity: "gate",
+    owners: ["apps/web/src/lib/replicache/use-replicache-subscription.ts"],
+    fix: "Use useReplicacheSubscription(query, select?, { isEmpty? }) from ~/lib/replicache/use-replicache-subscription. It owns the one loading rule and keeps cached rows through a sync error.",
+  },
 ];
 
 /**

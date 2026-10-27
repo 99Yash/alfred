@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { ChevronRight, Sparkles } from "lucide-react";
 import type { SyncedBriefing } from "@alfred/sync";
 import { AppCard } from "~/components/ui/v2";
+import { CachedSyncNotice } from "~/components/cached-sync-notice";
 import { useBriefings } from "~/lib/replicache/use-briefings";
 import { briefingPlainText } from "./briefing-prose-utils";
 import { formatDayHeading, slotLabel } from "./briefing-utils";
@@ -46,7 +47,7 @@ export function BriefingsPage() {
           </p>
         </header>
 
-        {error ? (
+        {error && days.length === 0 ? (
           <AppCard className="mt-10 flex flex-col items-center justify-center gap-3 px-6 py-12 text-center">
             <p className="text-sm font-medium text-app-fg-4">Briefings could not sync</p>
             <p className="max-w-[28rem] text-xs leading-5 text-app-fg-3">{error}</p>
@@ -60,7 +61,12 @@ export function BriefingsPage() {
           </AppCard>
         ) : days.length > 0 ? (
           <>
-            <AppCard padded={false} className="mt-10">
+            {error ? (
+              <div className="mt-10">
+                <CachedSyncNotice subject="briefings" error={error} retry={retry} />
+              </div>
+            ) : null}
+            <AppCard padded={false} className={error ? "mt-4" : "mt-10"}>
               <ul className="divide-y divide-app-bg-3">
                 {days.map(({ date, slots }) => (
                   <li key={date}>

@@ -20,7 +20,7 @@ export interface PassthroughFlagsState {
 
 /** Per-integration passthrough toggles, default off. */
 export function usePassthroughFlags(): PassthroughFlagsState {
-  const { values, loaded, setPref, loadError, retry } = usePreferenceMap();
+  const { values, loading, error, retry, setPref } = usePreferenceMap();
 
   const isOn = useCallback(
     (slug: SupportedPassthroughSlug): boolean =>
@@ -37,8 +37,8 @@ export function usePassthroughFlags(): PassthroughFlagsState {
   return {
     isOn,
     setEnabled,
-    loading: !loaded && !loadError,
-    error: loadError,
+    loading,
+    error,
     retry,
   };
 }

@@ -4,6 +4,7 @@ import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
 import { ClipboardCheck, Loader2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { AppButton, AppCard, AppPill } from "~/components/ui/v2";
+import { CachedSyncNotice } from "~/components/cached-sync-notice";
 import { IntegrationGlyph } from "~/lib/integrations/integration-icons";
 import { useActionStagings } from "~/lib/replicache/use-action-stagings";
 import { cn } from "~/lib/utils";
@@ -221,7 +222,7 @@ export function ApprovalsPage() {
             <Loader2 size={16} className="animate-spin" />
             Loading approvals…
           </AppCard>
-        ) : error ? (
+        ) : error && rows.length === 0 ? (
           <EmptyState
             title="Approvals sync did not load"
             body={error}
@@ -253,6 +254,7 @@ export function ApprovalsPage() {
           />
         ) : (
           <div className="flex flex-col gap-3">
+            {error ? <CachedSyncNotice subject="approvals" error={error} retry={retry} /> : null}
             {windowed.map((staging, i) => (
               <div
                 id={approvalElementId(staging.id)}
