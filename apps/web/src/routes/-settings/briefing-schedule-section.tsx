@@ -1,6 +1,7 @@
 import { AlertCircle, Clock, RefreshCw, Sparkles, Sunrise, Sunset } from "lucide-react";
 import { useMemo, type ComponentType, type ReactNode } from "react";
 import { AppButton, AppCard, AppSelect, type AppSelectOption } from "~/components/ui/v2";
+import { CachedSyncNotice } from "~/components/cached-sync-notice";
 import { useBriefingSchedule } from "~/lib/replicache/use-briefing-schedule";
 
 /** Timezone and morning/evening hour pickers for briefing delivery. */
@@ -15,6 +16,7 @@ export function BriefingScheduleSection() {
     setEveningHour,
     loading,
     error,
+    hasData,
     retry,
   } = useBriefingSchedule();
 
@@ -36,6 +38,8 @@ export function BriefingScheduleSection() {
 
   const showDeviceHint = deviceTimezone !== null && deviceTimezone !== timezone;
 
+  // A failed pull keeps stored values. While `hasData` is false the pickers
+  // would show defaults as if they were saved.
   return (
     <AppCard padded={false}>
       <div className="space-y-1 p-5 pb-2">
@@ -45,7 +49,7 @@ export function BriefingScheduleSection() {
         </p>
       </div>
 
-      {error ? (
+      {error && !hasData ? (
         <div
           className="flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-start sm:justify-between"
           role="alert"
@@ -69,6 +73,11 @@ export function BriefingScheduleSection() {
         </div>
       ) : (
         <div className="divide-y divide-app-bg-2">
+          {error ? (
+            <div className="px-5 py-3">
+              <CachedSyncNotice subject="schedule" error={error} retry={retry} />
+            </div>
+          ) : null}
           <ScheduleRow
             icon={Sparkles}
             tint="bg-app-purple-1 text-app-purple-4"

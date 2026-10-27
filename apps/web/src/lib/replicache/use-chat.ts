@@ -4,31 +4,19 @@ import {
   type SyncedChatMessage,
   type SyncedChatThread,
 } from "@alfred/sync";
-import { useEffect, useMemo, useState } from "react";
-import type { ReadTransaction, Replicache } from "replicache";
-import type { ClientMutators } from "@alfred/sync";
+import { useCallback, useEffect, useMemo } from "react";
+import type { ReadTransaction } from "replicache";
 import { clearPendingTurn, usePendingTurn } from "~/lib/chat/pending-turn";
-import type { ReplicacheSnapshot } from "./client";
-import { useReplicache, useReplicacheStatus } from "./context";
+import { useReplicacheSubscription } from "./use-replicache-subscription";
+
+const scanThreads = (tx: ReadTransaction) => SYNC_MODEL.chatthread.scan(tx);
+
+const byLastMessageDesc = (threads: SyncedChatThread[]) =>
+  threads.toSorted((a, b) => (b.lastMessageAt ?? "").localeCompare(a.lastMessageAt ?? ""));
 
 /** Chat threads, newest activity first. */
 export function useChatThreads(): SyncedChatThread[] {
-  const rep = useReplicache();
-  const [snapshot, setSnapshot] = useState<ReplicacheSnapshot<SyncedChatThread[]> | null>(null);
-
-  useEffect(() => {
-    if (!rep) return;
-
-    return rep.subscribe(
-      (tx: ReadTransaction) => SYNC_MODEL.chatthread.scan(tx),
-      (threads) => {
-        threads.sort((a, b) => (b.lastMessageAt ?? "").localeCompare(a.lastMessageAt ?? ""));
-        setSnapshot({ rep, value: threads });
-      },
-    );
-  }, [rep]);
-
-  return snapshot?.rep === rep ? snapshot.value : [];
+  return useReplicacheSubscription(scanThreads, byLastMessageDesc).data ?? [];
 }
 
 export interface ChatThreadState {
@@ -38,35 +26,15 @@ export interface ChatThreadState {
 
 /** Keeps "not loaded" apart from "not found". */
 export function useChatThread(threadId: string | undefined): ChatThreadState {
-  const { rep, loadError, pullError, initialPullPending } = useReplicacheStatus();
+  const query = useMemo(
+    () =>
+      threadId ? (tx: ReadTransaction) => SYNC_MODEL.chatthread.get(tx, { id: threadId }) : null,
+    [threadId],
+  );
 
-  const [snapshot, setSnapshot] = useState<{
-    rep: Replicache<ClientMutators>;
-    threadId: string;
-    thread: SyncedChatThread | null;
-  } | null>(null);
+  const { data, loading } = useReplicacheSubscription(query);
 
-  useEffect(() => {
-    if (!rep || !threadId) return;
-
-    return rep.subscribe(
-      (tx: ReadTransaction) => SYNC_MODEL.chatthread.get(tx, { id: threadId }),
-      (thread) => setSnapshot({ rep, threadId, thread }),
-    );
-  }, [rep, threadId]);
-
-  const current =
-    snapshot?.rep === rep && snapshot.threadId === threadId ? snapshot.thread : undefined;
-
-  const error = loadError ?? pullError;
-
-  return {
-    thread: current ?? null,
-    loading:
-      Boolean(threadId) &&
-      !error &&
-      (current === undefined || (current === null && initialPullPending)),
-  };
+  return { thread: data ?? null, loading };
 }
 
 export interface ChatMessagesState {
@@ -76,37 +44,32 @@ export interface ChatMessagesState {
   retry: () => void;
 }
 
+const scanMessages = (tx: ReadTransaction) => SYNC_MODEL.chatmsg.scan(tx);
+
 /** Does not report an unresolved subscription as empty. */
 export function useChatMessages(threadId: string | undefined): ChatMessagesState {
-  const { rep, loadError, pullError, initialPullPending, retry } = useReplicacheStatus();
+  const selectThread = useCallback(
+    (rows: SyncedChatMessage[]) =>
+      rows
+        .filter((row) => row.threadId === threadId)
+        .toSorted((a, b) => a.createdAt.localeCompare(b.createdAt)),
+    [threadId],
+  );
 
-  const [snapshot, setSnapshot] = useState<{
-    rep: Replicache<ClientMutators>;
-    threadId: string;
-    rows: SyncedChatMessage[];
-  } | null>(null);
-
-  useEffect(() => {
-    if (!rep || !threadId) return;
-
-    return rep.subscribe(
-      (tx: ReadTransaction) => SYNC_MODEL.chatmsg.scan(tx),
-      (values) => {
-        const rows = values.filter((value) => value.threadId === threadId);
-        rows.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-        setSnapshot({ rep, threadId, rows });
-      },
-    );
-  }, [rep, threadId]);
-
-  const current = snapshot?.rep === rep && snapshot.threadId === threadId ? snapshot.rows : null;
-  const error = loadError ?? pullError;
+  const {
+    data: current,
+    loading,
+    error,
+    retry,
+  } = useReplicacheSubscription(threadId ? scanMessages : null, selectThread);
 
   // The sent message shows before its mirror; the synced row replaces it by id.
   const pendingMessage = usePendingTurn(threadId)?.message ?? null;
 
   const pendingSynced =
-    pendingMessage !== null && current !== null && current.some((m) => m.id === pendingMessage.id);
+    pendingMessage !== null &&
+    current !== undefined &&
+    current.some((m) => m.id === pendingMessage.id);
 
   // Drop the copy once synced, so a later delete of the real row cannot bring it back.
   useEffect(() => {
@@ -120,69 +83,59 @@ export function useChatMessages(threadId: string | undefined): ChatMessagesState
     return pendingMessage && !pendingSynced ? [...rows, pendingMessage] : rows;
   }, [current, pendingMessage, pendingSynced]);
 
-  return {
-    messages,
-    loading:
-      Boolean(threadId) &&
-      !error &&
-      (current === null || (current.length === 0 && initialPullPending)),
-    error,
-    retry,
-  };
+  return { messages, loading, error, retry };
 }
+
+const scanMessagesAndAttachments = async (tx: ReadTransaction) => ({
+  messages: await SYNC_MODEL.chatmsg.scan(tx),
+  attachments: await SYNC_MODEL.chatatt.scan(tx),
+});
 
 /** A thread's attachments by message id (ADR-0065). One subscription per thread, not per message. */
 export function useChatAttachmentsByMessage(
   threadId: string | undefined,
 ): Record<string, SyncedChatAttachment[]> {
-  const rep = useReplicache();
+  const selectThread = useCallback(
+    ({
+      messages,
+      attachments,
+    }: {
+      messages: SyncedChatMessage[];
+      attachments: SyncedChatAttachment[];
+    }) => {
+      const messageIds = new Set<string>();
 
-  const [snapshot, setSnapshot] = useState<{
-    rep: Replicache<ClientMutators>;
-    threadId: string;
-    byMessage: Record<string, SyncedChatAttachment[]>;
-  } | null>(null);
-
-  useEffect(() => {
-    if (!rep || !threadId) return;
-
-    return rep.subscribe(
-      async (tx: ReadTransaction) => ({
-        messages: await SYNC_MODEL.chatmsg.scan(tx),
-        attachments: await SYNC_MODEL.chatatt.scan(tx),
-      }),
-      ({ messages, attachments }) => {
-        const messageIds = new Set<string>();
-
-        for (const message of messages) {
-          if (message.threadId === threadId) {
-            messageIds.add(message.id);
-          }
+      for (const message of messages) {
+        if (message.threadId === threadId) {
+          messageIds.add(message.id);
         }
+      }
 
-        const byMessage: Record<string, SyncedChatAttachment[]> = {};
+      const byMessage: Record<string, SyncedChatAttachment[]> = {};
 
-        for (const attachment of attachments) {
-          if (!messageIds.has(attachment.messageId)) continue;
-          (byMessage[attachment.messageId] ??= []).push(attachment);
-        }
+      for (const attachment of attachments) {
+        if (!messageIds.has(attachment.messageId)) continue;
+        (byMessage[attachment.messageId] ??= []).push(attachment);
+      }
 
-        for (const list of Object.values(byMessage)) {
-          list.sort(
-            (a, b) =>
-              a.position - b.position ||
-              a.createdAt.localeCompare(b.createdAt) ||
-              a.id.localeCompare(b.id),
-          );
-        }
+      for (const list of Object.values(byMessage)) {
+        list.sort(
+          (a, b) =>
+            a.position - b.position ||
+            a.createdAt.localeCompare(b.createdAt) ||
+            a.id.localeCompare(b.id),
+        );
+      }
 
-        setSnapshot({ rep, threadId, byMessage });
-      },
-    );
-  }, [rep, threadId]);
+      return byMessage;
+    },
+    [threadId],
+  );
 
-  const synced =
-    snapshot?.rep === rep && snapshot.threadId === threadId ? snapshot.byMessage : null;
+  const synced = useReplicacheSubscription(
+    threadId ? scanMessagesAndAttachments : null,
+    selectThread,
+  ).data;
 
   const pendingTurn = usePendingTurn(threadId);
 

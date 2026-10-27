@@ -1,8 +1,8 @@
 import { SYNC_MODEL, type SyncedFact } from "@alfred/sync";
-import type { ClientMutators } from "@alfred/sync";
-import { useCallback, useEffect, useState } from "react";
-import type { ReadTransaction, Replicache } from "replicache";
-import { useReplicacheStatus } from "~/lib/replicache/context";
+import { useCallback } from "react";
+import type { ReadTransaction } from "replicache";
+import { useReplicache } from "~/lib/replicache/context";
+import { useReplicacheSubscription } from "~/lib/replicache/use-replicache-subscription";
 
 interface MemoryFactsState {
   facts: SyncedFact[];
@@ -14,31 +14,19 @@ interface MemoryFactsState {
   rejectFact: (id: string) => Promise<void>;
 }
 
-function sortFacts(a: SyncedFact, b: SyncedFact): number {
-  return b.createdAt.localeCompare(a.createdAt);
-}
+const scanFacts = (tx: ReadTransaction) => SYNC_MODEL.fact.scan(tx);
+
+const newestFirst = (facts: SyncedFact[]) =>
+  facts.toSorted((a, b) => b.createdAt.localeCompare(a.createdAt));
 
 /** Live, schema-validated facts used only by the memory review surface. */
 export function useMemoryFacts(): MemoryFactsState {
-  const { rep, loadError, pullError, initialPullPending, retry } = useReplicacheStatus();
+  const rep = useReplicache();
 
-  const [snapshot, setSnapshot] = useState<{
-    rep: Replicache<ClientMutators>;
-    facts: SyncedFact[];
-  } | null>(null);
-
-  useEffect(() => {
-    // The snapshot is tagged with its client, so a missing or new client reads no rows.
-    if (!rep) return;
-
-    return rep.subscribe(
-      (tx: ReadTransaction) => SYNC_MODEL.fact.scan(tx),
-      (facts) => {
-        facts.sort(sortFacts);
-        setSnapshot({ rep, facts });
-      },
-    );
-  }, [rep]);
+  const { data, loading, error, initialPullPending, retry } = useReplicacheSubscription(
+    scanFacts,
+    newestFirst,
+  );
 
   const confirmFact = useCallback(
     async (id: string): Promise<void> => {
@@ -56,12 +44,9 @@ export function useMemoryFacts(): MemoryFactsState {
     [rep],
   );
 
-  const facts = snapshot?.rep === rep ? snapshot.facts : null;
-  const error = loadError ?? pullError;
-
   return {
-    facts: facts ?? [],
-    loading: !error && (facts === null || (facts.length === 0 && initialPullPending)),
+    facts: data ?? [],
+    loading,
     error,
     initialPullPending,
     retry,

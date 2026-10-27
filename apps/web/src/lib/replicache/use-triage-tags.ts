@@ -2,7 +2,7 @@ import type { TriageCategory } from "@alfred/contracts";
 import { SYNC_MODEL, type SyncedTriageTag } from "@alfred/sync";
 import { useCallback } from "react";
 import type { ReadTransaction } from "replicache";
-import { useReplicacheStatus } from "./context";
+import { useReplicache } from "./context";
 import { useReplicacheSubscription } from "./use-replicache-subscription";
 
 const EMPTY_TRIAGE_TAGS: ReadonlyMap<string, SyncedTriageTag> = new Map();
@@ -32,9 +32,8 @@ export interface TriageTagsState {
 
 /** Synced triage tags (docs/rfc-triage-tags.md), keyed by Gmail thread id. */
 export function useTriageTags(): TriageTagsState {
-  const { rep, loadError, retry } = useReplicacheStatus();
-
-  const tagsByThreadId = useReplicacheSubscription(scanTriageTags, byThreadId);
+  const rep = useReplicache();
+  const { data, loading, error, retry } = useReplicacheSubscription(scanTriageTags, byThreadId);
 
   const overrideTag = useCallback(
     async (threadId: string, category: TriageCategory): Promise<void> => {
@@ -45,9 +44,9 @@ export function useTriageTags(): TriageTagsState {
   );
 
   return {
-    tagsByThreadId: tagsByThreadId ?? EMPTY_TRIAGE_TAGS,
-    loading: tagsByThreadId == null && !loadError,
-    error: loadError,
+    tagsByThreadId: data ?? EMPTY_TRIAGE_TAGS,
+    loading,
+    error,
     retry,
     overrideTag,
   };

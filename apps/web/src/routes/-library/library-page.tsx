@@ -1,6 +1,7 @@
 import { AlertTriangle, Loader2, Search } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 import { AppButton, AppInput } from "~/components/ui/v2";
+import { CachedSyncNotice } from "~/components/cached-sync-notice";
 import { useRecentArtifacts } from "~/lib/replicache/use-artifacts";
 import { cn } from "~/lib/utils";
 import { ArtifactCard } from "./artifact-card";
@@ -74,16 +75,7 @@ export function LibraryPage({ dimmed = false }: { dimmed?: boolean }) {
             />
           ) : (
             <div className="space-y-4">
-              {error ? (
-                <div className="flex items-center justify-between gap-4 rounded-surface bg-app-bg-2 px-4 py-3">
-                  <p className="text-xs text-app-fg-3">
-                    Showing cached artifacts. <span className="text-app-red-4">{error}</span>
-                  </p>
-                  <AppButton size="sm" onClick={retry}>
-                    Retry
-                  </AppButton>
-                </div>
-              ) : null}
+              {error ? <CachedSyncNotice subject="artifacts" error={error} retry={retry} /> : null}
               {artifacts.length > 0 ? (
                 <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                   {artifacts.map((artifact, i) => (

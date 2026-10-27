@@ -8,7 +8,7 @@ import { resolveIntegrationMode, resolveToolMode } from "@alfred/contracts";
 import { SYNC_MODEL, type SyncedActionPolicy } from "@alfred/sync";
 import { useCallback } from "react";
 import type { ReadTransaction } from "replicache";
-import { useReplicacheStatus } from "./context";
+import { useReplicache } from "./context";
 import { useReplicacheSubscription } from "./use-replicache-subscription";
 
 function scanActionPolicy(tx: ReadTransaction): Promise<SyncedActionPolicy[]> {
@@ -36,9 +36,9 @@ export interface ActionPolicyState {
  * `modeFor` and `toolModeFor` use the same rules the server enforces.
  */
 export function useActionPolicy(): ActionPolicyState {
-  const { rep, loadError, retry } = useReplicacheStatus();
-  const rows = useReplicacheSubscription(scanActionPolicy);
-  const policy = rows?.[0] ?? null;
+  const rep = useReplicache();
+  const { data, loading, error, retry } = useReplicacheSubscription(scanActionPolicy);
+  const policy = data?.[0] ?? null;
 
   const modeFor = useCallback(
     (slug: IntegrationSlug): PolicyMode | null =>
@@ -83,8 +83,8 @@ export function useActionPolicy(): ActionPolicyState {
     setIntegrationMode,
     setToolMode,
     setDefaultMode,
-    loading: rows === null && !loadError,
-    error: loadError,
+    loading,
+    error,
     retry,
   };
 }

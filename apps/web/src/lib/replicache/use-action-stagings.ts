@@ -1,6 +1,5 @@
 import { SYNC_MODEL, type SyncedActionStaging } from "@alfred/sync";
 import type { ReadTransaction } from "replicache";
-import { useReplicacheStatus } from "./context";
 import { useReplicacheSubscription } from "./use-replicache-subscription";
 
 function scanActionStagings(tx: ReadTransaction): Promise<SyncedActionStaging[]> {
@@ -21,8 +20,10 @@ export interface ActionStagingsState {
 
 /** Pending approvals. The server syncs only pending rows that need approval, so no filter here. */
 export function useActionStagings(): ActionStagingsState {
-  const { loadError, retry } = useReplicacheStatus();
-  const rows = useReplicacheSubscription(scanActionStagings, newestFirst);
+  const { data, loading, error, retry } = useReplicacheSubscription(
+    scanActionStagings,
+    newestFirst,
+  );
 
-  return { rows: rows ?? [], loading: rows === null && !loadError, error: loadError, retry };
+  return { rows: data ?? [], loading, error, retry };
 }

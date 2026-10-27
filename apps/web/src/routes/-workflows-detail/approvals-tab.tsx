@@ -2,6 +2,7 @@ import { integrationDisplayName } from "@alfred/contracts";
 import type { SyncedWorkflow } from "@alfred/sync";
 import { ShieldCheck } from "lucide-react";
 import { AppButton, AppCard } from "~/components/ui/v2";
+import { CachedSyncNotice } from "~/components/cached-sync-notice";
 import { StagedApprovalCard } from "~/components/approvals/staged-approval-card";
 import { decideApproval } from "~/components/approvals/decide-approval";
 import { useActionPolicy } from "~/lib/replicache/use-action-policy";
@@ -21,13 +22,17 @@ export function ApprovalsTab({ workflow }: { workflow: SyncedWorkflow }) {
 
   return (
     <div className="grid gap-4">
-      {error ? (
+      {error && pending.length === 0 ? (
         <AppCard className="flex items-center justify-between gap-3">
           <p className="text-xs text-app-red-4">{error}</p>
           <AppButton variant="white" size="sm" onClick={retry}>
             Retry
           </AppButton>
         </AppCard>
+      ) : null}
+
+      {error && pending.length > 0 ? (
+        <CachedSyncNotice subject="approvals" error={error} retry={retry} />
       ) : null}
 
       {pending.length > 0 ? (

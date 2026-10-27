@@ -15,12 +15,14 @@ export interface PassthroughFlagsState {
   setEnabled: (slug: SupportedPassthroughSlug, enabled: boolean) => Promise<void>;
   loading: boolean;
   error: string | null;
+  /** Pass-through of `ReplicacheQueryState.hasData` (see the helper for the formula). */
+  hasData: boolean;
   retry: () => void;
 }
 
 /** Per-integration passthrough toggles, default off. */
 export function usePassthroughFlags(): PassthroughFlagsState {
-  const { values, loaded, setPref, loadError, retry } = usePreferenceMap();
+  const { values, loading, error, hasData, retry, setPref } = usePreferenceMap();
 
   const isOn = useCallback(
     (slug: SupportedPassthroughSlug): boolean =>
@@ -37,8 +39,9 @@ export function usePassthroughFlags(): PassthroughFlagsState {
   return {
     isOn,
     setEnabled,
-    loading: !loaded && !loadError,
-    error: loadError,
+    loading,
+    error,
+    hasData,
     retry,
   };
 }

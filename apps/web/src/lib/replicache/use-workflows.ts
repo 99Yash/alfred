@@ -1,9 +1,8 @@
 import { SYNC_MODEL, type SyncedWorkflow, type WorkflowUpdateArgs } from "@alfred/sync";
-import { useCallback, useEffect, useState } from "react";
-import type { ReadTransaction, Replicache } from "replicache";
-import type { ClientMutators } from "@alfred/sync";
-import type { ReplicacheSnapshot } from "./client";
-import { useReplicacheStatus } from "./context";
+import { useCallback } from "react";
+import type { ReadTransaction } from "replicache";
+import { useReplicache } from "./context";
+import { useReplicacheSubscription } from "./use-replicache-subscription";
 
 export interface WorkflowsState {
   /** Built-in and user-authored, sorted by name. */
@@ -13,30 +12,15 @@ export interface WorkflowsState {
   retry: () => void;
 }
 
+const scanWorkflows = (tx: ReadTransaction) => SYNC_MODEL.workflow.scan(tx);
+
+const sortByName = (workflows: SyncedWorkflow[]) =>
+  workflows.toSorted((a, b) => a.name.localeCompare(b.name));
+
 export function useWorkflows(): WorkflowsState {
-  const { rep, loadError, retry } = useReplicacheStatus();
-  const [snapshot, setSnapshot] = useState<ReplicacheSnapshot<SyncedWorkflow[]> | null>(null);
+  const { data, loading, error, retry } = useReplicacheSubscription(scanWorkflows, sortByName);
 
-  useEffect(() => {
-    if (!rep) return;
-
-    return rep.subscribe(
-      (tx: ReadTransaction) => SYNC_MODEL.workflow.scan(tx),
-      (workflows) => {
-        workflows.sort((a, b) => a.name.localeCompare(b.name));
-        setSnapshot({ rep, value: workflows });
-      },
-    );
-  }, [rep]);
-
-  const workflows = snapshot?.rep === rep ? snapshot.value : null;
-
-  return {
-    workflows: workflows ?? [],
-    loading: workflows === null && !loadError,
-    error: loadError,
-    retry,
-  };
+  return { workflows: data ?? [], loading, error, retry };
 }
 
 export interface WorkflowState {
@@ -49,41 +33,23 @@ export interface WorkflowState {
 }
 
 export function useWorkflow(slug: string): WorkflowState {
-  const { rep, loadError, retry } = useReplicacheStatus();
+  const rep = useReplicache();
 
-  const [snapshot, setSnapshot] = useState<{
-    rep: Replicache<ClientMutators>;
-    slug: string;
-    workflow: SyncedWorkflow | null;
-  } | null>(null);
+  const query = useCallback((tx: ReadTransaction) => SYNC_MODEL.workflow.get(tx, { slug }), [slug]);
 
-  useEffect(() => {
-    if (!rep) return;
-
-    return rep.subscribe(
-      (tx: ReadTransaction) => SYNC_MODEL.workflow.get(tx, { slug }),
-      (workflow) => setSnapshot({ rep, slug, workflow }),
-    );
-  }, [rep, slug]);
-
-  const current = snapshot?.rep === rep && snapshot.slug === slug ? snapshot : null;
+  const { data, loading, error, retry } = useReplicacheSubscription(query);
+  const workflow = data ?? null;
 
   const updateWorkflow = useCallback(
     async (args: Omit<WorkflowUpdateArgs, "slug" | "expectedRowVersion">): Promise<void> => {
       if (!rep) return;
-      const expectedRowVersion = current?.workflow?.rowVersion;
+      const expectedRowVersion = workflow?.rowVersion;
 
       if (expectedRowVersion === undefined) return;
       await rep.mutate.workflowUpdate({ slug, expectedRowVersion, ...args });
     },
-    [current?.workflow?.rowVersion, rep, slug],
+    [workflow?.rowVersion, rep, slug],
   );
 
-  return {
-    workflow: current?.workflow ?? null,
-    updateWorkflow,
-    loading: current === null && !loadError,
-    error: loadError,
-    retry,
-  };
+  return { workflow, updateWorkflow, loading, error, retry };
 }

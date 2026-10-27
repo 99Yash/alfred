@@ -30,6 +30,8 @@ export interface BriefingScheduleState {
   setEveningHour: (hour: number) => Promise<void>;
   loading: boolean;
   error: string | null;
+  /** Pass-through of `ReplicacheQueryState.hasData` (see the helper for the formula). */
+  hasData: boolean;
   retry: () => void;
 }
 
@@ -45,7 +47,7 @@ function parseTimezone(value: unknown): string | null {
 
 /** The briefing schedule from preference rows. A missing row means the server default. */
 export function useBriefingSchedule(): BriefingScheduleState {
-  const { values, loaded, setPref, loadError, retry } = usePreferenceMap();
+  const { values, loading, error, hasData, retry, setPref } = usePreferenceMap();
 
   const tzStored =
     parseTimezone(values[BRIEFING_PREF_KEYS.timezone]) ??
@@ -71,8 +73,9 @@ export function useBriefingSchedule(): BriefingScheduleState {
     setTimezone: (tz) => setPref(BRIEFING_PREF_KEYS.timezone, tz),
     setMorningHour: (hour) => setPref(BRIEFING_PREF_KEYS.morningHour, hour),
     setEveningHour: (hour) => setPref(BRIEFING_PREF_KEYS.eveningHour, hour),
-    loading: !loaded && !loadError,
-    error: loadError,
+    loading,
+    error,
+    hasData,
     retry,
   };
 }

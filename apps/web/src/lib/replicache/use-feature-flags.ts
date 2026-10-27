@@ -8,12 +8,14 @@ export interface FeatureFlagsState {
   setFlag: (key: FeatureFlagKey, enabled: boolean) => Promise<void>;
   loading: boolean;
   error: string | null;
+  /** Pass-through of `ReplicacheQueryState.hasData` (see the helper for the formula). */
+  hasData: boolean;
   retry: () => void;
 }
 
 /** Background-agent feature toggles (Settings, Features). */
 export function useFeatureFlags(): FeatureFlagsState {
-  const { values, loaded, setPref, loadError, retry } = usePreferenceMap();
+  const { values, loading, error, hasData, retry, setPref } = usePreferenceMap();
 
   const isOn = useCallback(
     (key: FeatureFlagKey): boolean => isFeatureFlagOn(key, values[key]),
@@ -28,8 +30,9 @@ export function useFeatureFlags(): FeatureFlagsState {
   return {
     isOn,
     setFlag,
-    loading: !loaded && !loadError,
-    error: loadError,
+    loading,
+    error,
+    hasData,
     retry,
   };
 }
