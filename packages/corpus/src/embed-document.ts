@@ -6,7 +6,7 @@ import { buildEmbedFailureSet, EMBED_SUCCESS_RESET } from "@alfred/db/helpers";
 import { chunks, documents, type Document } from "@alfred/db/schemas";
 import { and, desc, eq, isNull, notExists, sql } from "drizzle-orm";
 import { parseDocumentMetadata } from "@alfred/contracts";
-import { chunkMetadata, extractPageFromMetadata } from "./chunk-metadata";
+import { chunkMetadata } from "./chunk-metadata";
 import { chunkPages, chunkText, type Chunk, type PageInput } from "./chunker";
 import {
   capChunksForBudget,
@@ -119,10 +119,7 @@ export async function indexDocument(args: IndexDocumentArgs): Promise<IndexDocum
     .where(eq(chunks.documentId, doc.id));
 
   const existingByPosition = new Map(
-    existingChunks.map((c) => [
-      c.position,
-      { hash: c.contentHash, page: extractPageFromMetadata(c.metadata) },
-    ]),
+    existingChunks.map((c) => [c.position, { hash: c.contentHash, page: c.metadata.page ?? null }]),
   );
 
   const toEmbed: Chunk[] = [];

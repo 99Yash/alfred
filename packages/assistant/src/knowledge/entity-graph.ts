@@ -27,8 +27,6 @@ export const entityKindSchema = z.enum(ENTITY_KINDS);
 
 export type EntityKind = (typeof ENTITY_KINDS)[number];
 
-const aliasesSchema = z.array(z.string());
-
 /**
  * The two kinds the mail-contact writer owns. The match spans both, so a re-kinded
  * contact updates in place instead of duplicating (#1108).
@@ -64,13 +62,9 @@ const upsertEntityArgsSchema = entityInsertSchema
 
 export type UpsertEntityArgs = z.infer<typeof upsertEntityArgsSchema>;
 
-/** `Entity` with the zod-parsed jsonb/enum columns narrowed and the lifecycle dates dropped. */
-export type EntityRow = Omit<
-  Entity,
-  "kind" | "aliases" | "metadata" | "createdAt" | "updatedAt"
-> & {
+/** `Entity` with the zod-parsed `kind`/`metadata` narrowed and the lifecycle dates dropped. `aliases` reads straight off the column type. */
+export type EntityRow = Omit<Entity, "kind" | "metadata" | "createdAt" | "updatedAt"> & {
   kind: EntityKind;
-  aliases: string[];
   metadata: z.infer<typeof jsonObjectSchema>;
 };
 
@@ -80,7 +74,7 @@ function rowToEntity(r: Entity): EntityRow {
     userId: r.userId,
     kind: entityKindSchema.parse(r.kind),
     canonicalName: r.canonicalName,
-    aliases: aliasesSchema.parse(r.aliases),
+    aliases: r.aliases,
     metadata: jsonObjectSchema.parse(r.metadata),
     rowVersion: r.rowVersion,
   };
@@ -127,9 +121,7 @@ export async function upsertEntity(args: UpsertEntityArgs, tx?: DbTransaction): 
       return rowToEntity(row);
     }
 
-    const mergedAliases = Array.from(
-      new Set([...aliasesSchema.parse(existing.aliases), ...aliases]),
-    );
+    const mergedAliases = Array.from(new Set([...existing.aliases, ...aliases]));
 
     const mergedMetadata = { ...jsonObjectSchema.parse(existing.metadata), ...metadata };
 
@@ -248,9 +240,7 @@ export async function upsertContactByAlias(
       return { row: rowToEntity(row), reKindBlocked: false };
     }
 
-    const mergedAliases = Array.from(
-      new Set([...aliasesSchema.parse(existing.aliases), ...args.aliases]),
-    );
+    const mergedAliases = Array.from(new Set([...existing.aliases, ...args.aliases]));
 
     const mergedMetadata = metadata;
 
@@ -405,7 +395,7 @@ export async function previewContactKinds(
     const kind = contactKindSchema.parse(row.kind);
     const metadata = jsonObjectSchema.parse(row.metadata);
 
-    for (const alias of aliasesSchema.parse(row.aliases)) {
+    for (const alias of row.aliases) {
       const normalized = canonicalizeIdentityValue("email", alias);
       stored.set(normalized, { canonicalName: row.canonicalName, kind, metadata });
     }

@@ -15,7 +15,6 @@ import {
   INTEGRATIONS,
   parseGmailDocumentMetadata,
   parseInboxCursor,
-  toStringArray,
   type BriefingSlot,
   usageSortDirValues,
   usageSortFieldValues,
@@ -481,7 +480,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
 
           // Removing a label needs `gmail.modify`.
           const modifyCreds = creds.filter((c) =>
-            holdsAnyScope(toStringArray(c.scopes), [GOOGLE_SCOPE.gmail.modify]),
+            holdsAnyScope(c.scopes, [GOOGLE_SCOPE.gmail.modify]),
           );
 
           if (modifyCreds.length === 0) {
@@ -565,7 +564,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
           );
 
         const row = creds.find((c) =>
-          holdsAnyScope(toStringArray(c.scopes), INTEGRATIONS.calendar.credential.anyOfScopes),
+          holdsAnyScope(c.scopes, INTEGRATIONS.calendar.credential.anyOfScopes),
         );
 
         if (!row) return { items: [], connected: false };

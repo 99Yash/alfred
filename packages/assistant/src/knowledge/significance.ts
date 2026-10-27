@@ -9,7 +9,6 @@ import {
   clamp01,
   emailDomain,
   jsonObjectSchema,
-  toStringArray,
   type JsonObject,
   type CorrespondenceStats,
   type PersonEntityMetadata,
@@ -18,7 +17,7 @@ import {
   parsePersonEntityMetadata,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { entities, user } from "@alfred/db/schemas";
+import { entities, user, type Entity } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { logger } from "@alfred/logging";
 import { entityAliasMatch } from "./entity-graph";
@@ -294,7 +293,7 @@ export async function getSenderSignificanceBatch(
   if (targets.size === 0) return out;
   const targetList = [...targets];
 
-  let rows: { metadata: unknown; aliases: unknown }[];
+  let rows: Pick<Entity, "metadata" | "aliases">[];
 
   try {
     rows = await db()
@@ -315,9 +314,7 @@ export async function getSenderSignificanceBatch(
     if (!resolved) continue;
 
     // One entity can answer several requested addresses.
-    const aliases = toStringArray(row.aliases);
-
-    for (const alias of aliases) {
+    for (const alias of row.aliases) {
       const normalized = alias.trim().toLowerCase();
 
       if (targets.has(normalized)) out.set(normalized, resolved);

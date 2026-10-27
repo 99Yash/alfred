@@ -5,7 +5,7 @@ export {
   recordDocumentEmbedFailure,
 } from "./embed-document";
 
-export { chunkMetadata, extractPageFromMetadata } from "./chunk-metadata";
+export { chunkMetadata } from "./chunk-metadata";
 
 export type { ChunkMetadata } from "./chunk-metadata";
 

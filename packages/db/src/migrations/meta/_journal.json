@@ -1037,6 +1037,13 @@
       "when": 1792989546067,
       "tag": "0147_action_staging_execute_effects",
       "breakpoints": true
+    },
+    {
+      "idx": 148,
+      "version": "7",
+      "when": 1793113593256,
+      "tag": "0148_slow_jackal",
+      "breakpoints": true
     }
   ]
 }

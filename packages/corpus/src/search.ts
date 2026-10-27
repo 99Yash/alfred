@@ -4,7 +4,6 @@ import { db } from "@alfred/db";
 import { formatVectorFloat32 } from "@alfred/db/helpers";
 import { chunks, documents, type Document } from "@alfred/db/schemas";
 import { and, eq, isNotNull, sql } from "drizzle-orm";
-import { extractPageFromMetadata } from "./chunk-metadata";
 
 interface SearchArgs {
   query: string;
@@ -159,7 +158,7 @@ async function search(args: SearchArgs): Promise<SearchHit[]> {
       },
       title: r.title,
       position: r.position,
-      page: extractPageFromMetadata(r.metadata),
+      page: r.metadata.page ?? null,
       preview: r.content.length > 280 ? r.content.slice(0, 277) + "…" : r.content,
       similarity: 1 - Number(r.distance),
       authoredAt: r.authoredAt,
