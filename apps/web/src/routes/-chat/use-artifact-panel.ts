@@ -33,7 +33,8 @@ export interface ArtifactPanelState {
   /** This thread's artifacts, newest first. */
   artifacts: SyncedArtifact[];
   selectedId: string | null;
-  /** The open artifact's synced row. Null for a `pending:` selection or before the row syncs. */
+  /** The open artifact's synced row. Null for a `pending:` selection or before the row syncs.
+   * Keeps its identity while id and `rowVersion` match, so the sidebar node stays stable. */
   selectedArtifact: SyncedArtifact | null;
   isOpen: boolean;
   /** Inline width in px, clamped. */
@@ -136,10 +137,28 @@ export function useArtifactPanel(
     setSelection({ threadId, selectedId: fresh.id });
   }, [activeRunId, threadArtifacts, threadId, artifactStream]);
 
-  const selectedArtifact = useMemo(
+  const foundArtifact = useMemo(
     () => (selectedId ? (threadArtifacts.find((a) => a.id === selectedId) ?? null) : null),
     [selectedId, threadArtifacts],
   );
+
+  // `threadArtifacts` holds new row objects on every `artifact.scan` fire, while the old
+  // single-row `get` only produced a new object when the open row itself changed. Keep the
+  // previous object while id and `rowVersion` match, so the sidebar node stays stable when
+  // other rows sync. Adjusted during render, not in an effect.
+  const [prevSelected, setPrevSelected] = useState<SyncedArtifact | null>(null);
+
+  if (
+    (prevSelected?.id ?? null) !== (foundArtifact?.id ?? null) ||
+    (prevSelected?.rowVersion ?? null) !== (foundArtifact?.rowVersion ?? null)
+  ) {
+    setPrevSelected(foundArtifact);
+  }
+
+  const selectedArtifact =
+    prevSelected?.id === foundArtifact?.id && prevSelected?.rowVersion === foundArtifact?.rowVersion
+      ? prevSelected
+      : foundArtifact;
 
   const open = useCallback(
     (artifactId: string) => setSelection({ threadId, selectedId: artifactId }),
