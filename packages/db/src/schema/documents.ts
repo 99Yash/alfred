@@ -104,10 +104,28 @@ export const chunks = pgTable(
   (t) => [
     uniqueIndex("chunks_document_position_idx").on(t.documentId, t.position),
     index("chunks_user_idx").on(t.userId),
+    /**
+     * Owns the ADR-0091 page rule: the value is an object, and `page`, when
+     * present, is a positive integer. `chunkMetadata` is the write door that
+     * drops an invalid page first; this CHECK also closes the raw-`sql` door.
+     * The SQL predicate and `isValidPage` are two spellings of one rule —
+     * keep them in agreement.
+     */
+    check(
+      "chunks_metadata_page_valid",
+      sql`jsonb_typeof(${t.metadata}) = 'object'
+        AND (NOT (${t.metadata} ? 'page')
+          OR (jsonb_typeof(${t.metadata}->'page') = 'number'
+            AND (${t.metadata}->>'page')::numeric >= 1
+            AND (${t.metadata}->>'page')::numeric = trunc((${t.metadata}->>'page')::numeric)))`,
+    ),
   ],
 );
 
-/** What `@alfred/corpus` writes. Its one writer, `chunkMetadata`, drops an invalid page. */
+/**
+ * What `@alfred/corpus` writes. The `chunks_metadata_page_valid` CHECK owns the
+ * page rule (positive integer or absent); `chunkMetadata` is the write door.
+ */
 export interface ChunkMetadata {
   /** 1-indexed PDF page. Absent on older rows. */
   page?: number;

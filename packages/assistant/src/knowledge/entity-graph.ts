@@ -62,13 +62,9 @@ const upsertEntityArgsSchema = entityInsertSchema
 
 export type UpsertEntityArgs = z.infer<typeof upsertEntityArgsSchema>;
 
-/** `Entity` with the zod-parsed jsonb/enum columns narrowed and the lifecycle dates dropped. */
-export type EntityRow = Omit<
-  Entity,
-  "kind" | "aliases" | "metadata" | "createdAt" | "updatedAt"
-> & {
+/** `Entity` with the zod-parsed `kind`/`metadata` narrowed and the lifecycle dates dropped. `aliases` reads straight off the column type. */
+export type EntityRow = Omit<Entity, "kind" | "metadata" | "createdAt" | "updatedAt"> & {
   kind: EntityKind;
-  aliases: string[];
   metadata: z.infer<typeof jsonObjectSchema>;
 };
 
