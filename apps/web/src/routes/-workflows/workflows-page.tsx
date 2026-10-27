@@ -61,6 +61,8 @@ export function WorkflowsPage() {
                 <WorkflowCard key={w.slug} workflow={syncedWorkflowToView(w)} index={i} />
               ))}
             </div>
+          ) : loading ? (
+            <p className="px-1 text-xs text-app-fg-3">Loading workflows…</p>
           ) : (
             <AppCard
               padded={false}
