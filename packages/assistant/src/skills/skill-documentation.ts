@@ -47,9 +47,7 @@ const skillDocumentationContextSchema = z.object({
   sourceCounts: z.record(z.string(), z.number()),
 }) satisfies z.ZodType<SkillDocumentationContext>;
 
-const stateSchema = z.object({
-  skillId: z.string(),
-  triggeringLearnRunId: z.string().optional(),
+const stateSchema = skillDocumentationInputSchema.extend({
   context: skillDocumentationContextSchema.optional(),
   documented: z
     .object({

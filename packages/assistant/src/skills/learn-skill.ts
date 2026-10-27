@@ -6,8 +6,8 @@ import { proposeFact } from "@alfred/assistant/knowledge";
 import { SKILL_DOCUMENTATION_WORKFLOW_SLUG } from "./skill-documentation-workflow-input";
 import { commitSkillRevision, finalizeSkillRun, recordSkillRun } from "./revisions";
 import { collectSkillLearnContext, type SkillLearnContext } from "./context";
-import { distillSkill } from "./distill";
-import { type ParsedMention } from "./mentions";
+import { distillResultSchema, distillSkill, type DistillSkillResult } from "./distill";
+import { parsedMentionSchema, type ParsedMention } from "./mentions";
 import {
   LEARN_SKILL_WORKFLOW_SLUG,
   learnSkillDedupKey,
@@ -24,26 +24,10 @@ import {
  * Review happens on the proposed `user_facts`, not here. The body commits on success.
  */
 
-const distillProposalSchema = z.object({
-  key: z.string(),
-  value: z.string(),
-  confidence: z.number(),
-  rationale: z.string(),
-});
-
-const distillOutputSchema = z.object({
-  suggestedName: z.string(),
-  body: z.string(),
-  proposals: z.array(distillProposalSchema),
-  mentions: z.array(
-    z.object({
-      raw: z.string(),
-      kind: z.enum(["integration", "skill", "collaborator", "unresolved"]),
-      slug: z.string(),
-      index: z.number(),
-    }),
-  ),
-});
+// Composed from the owner schemas, so the distill and mention limits apply to stored state.
+const distillStateSchema = distillResultSchema.extend({
+  mentions: z.array(parsedMentionSchema),
+}) satisfies z.ZodType<DistillSkillResult>;
 
 // `satisfies` ties this to `SkillLearnContext`, so a new field fails typecheck instead of being dropped on resume.
 const skillLearnContextSchema = z.object({
@@ -60,12 +44,9 @@ const skillLearnContextSchema = z.object({
   existingSkillSlugs: z.array(z.string()),
 }) satisfies z.ZodType<SkillLearnContext>;
 
-const stateSchema = z.object({
-  skillId: z.string(),
-  prompt: z.string(),
-  reason: z.enum(["manual", "regen"]),
+const stateSchema = learnSkillWorkflowInputSchema.extend({
   context: skillLearnContextSchema.optional(),
-  distill: distillOutputSchema.optional(),
+  distill: distillStateSchema.optional(),
 });
 
 type State = z.infer<typeof stateSchema>;
