@@ -30,12 +30,16 @@ tester.run("alfred/no-union-enum-without-default", noUnionEnumWithoutDefaultRule
       code: "t.UnionEnum(VALUES, { default: undefined, description: 'pick one' })",
     },
     {
-      name: "a shorthand default key",
+      name: "a default key with a computed value",
       code: "t.UnionEnum(VALUES, { default: makeDefault() })",
     },
     {
-      name: "an options object spread may carry the key",
-      code: "t.UnionEnum(VALUES, { ...base })",
+      name: "a string default key",
+      code: 't.UnionEnum(VALUES, { "default": undefined })',
+    },
+    {
+      name: "a spread alongside an explicit default key",
+      code: "t.UnionEnum(VALUES, { ...base, default: undefined })",
     },
     {
       name: "a union of literals is not a union enum",
@@ -44,6 +48,12 @@ tester.run("alfred/no-union-enum-without-default", noUnionEnumWithoutDefaultRule
     {
       name: "a callee that only contains the name",
       code: "myUnionEnumerator(VALUES)",
+    },
+    {
+      // The rule keeps the consolidation gate's file scope (`isSkippedPath`).
+      name: "a bare call in a test tree is out of scope",
+      filename: "packages/http/test/union-enum.ts",
+      code: "t.UnionEnum(VALUES)",
     },
   ],
   invalid: [
@@ -66,6 +76,11 @@ tester.run("alfred/no-union-enum-without-default", noUnionEnumWithoutDefaultRule
     {
       name: "a non-object second argument",
       code: "t.UnionEnum(VALUES, opts)",
+      errors: [missingDefault()],
+    },
+    {
+      name: "a spread without an explicit default key",
+      code: "t.UnionEnum(VALUES, { ...base })",
       errors: [missingDefault()],
     },
     {

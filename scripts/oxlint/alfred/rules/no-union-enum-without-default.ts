@@ -17,14 +17,14 @@ import { inGateScope } from "../shared/scope.ts";
  * missing, so the handler `??` defaults stay the one place that names them.
  *
  * What it flags. A call to `t.UnionEnum` (also `ElysiaType.UnionEnum` or a
- * bare `UnionEnum`) whose arguments hold no object literal with a `default`
- * key: no second argument, a non-object second argument, or an object without
- * the key. Any `default` key counts, including shorthand (`{ default }`): an
- * explicit default is a deliberate choice, and the hazard is the implicit
- * first-member one.
+ * bare `UnionEnum`) whose arguments hold no object literal with an explicit
+ * `default` key: no second argument, a non-object second argument, an object
+ * without the key, or an object whose only `default` could come from a spread
+ * (`{ ...base }`). The tree cannot tell what a spread carries, so a spread
+ * without an explicit `default` key alongside it is reported.
  *
- * What it skips. An options object containing a spread (`{ ...base }`): the
- * spread may carry the key, and the tree cannot tell. A callee that merely
+ * What it skips. An options object with an explicit `default` key, including
+ * alongside a spread (`{ ...base, default: undefined }`). A callee that merely
  * contains the name (`myUnionEnumerator(...)`) is not a call of it.
  *
  * Why not `t.Union` of `t.Literal` instead. A `t.Union` over a mapped owner
@@ -61,7 +61,7 @@ function hasDefaultKey(node: ESTree.CallExpression): boolean {
   if (options.type !== "ObjectExpression") return false;
 
   for (const property of options.properties) {
-    if (property.type === "SpreadElement") return true;
+    if (property.type === "SpreadElement") continue;
 
     const { key } = property;
 
