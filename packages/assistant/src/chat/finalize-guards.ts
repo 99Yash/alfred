@@ -12,15 +12,13 @@ import { actionStagings, mcpInvocation } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
 import {
   isTerminalChildStatus,
-  joinChildRun,
+  joinChildOutcome,
   listSpawnedChildRuns,
   PREVIEW_CHARS,
-  readChildRunOutcome,
   appendSystemNote,
   resetChatTurnRetryBudgets,
   scheduleSubAgentJoinWakeJob,
   type ChildRunOutcome,
-  type JoinChildRunDeps,
   type ParkWake,
   type StepContext,
   type StepResult,
@@ -101,23 +99,23 @@ async function closePrematureAnswerSegment(
   return true;
 }
 
-/** Injectable I/O for tests. `readOutcome` and `scheduleWake` go to {@link joinChildRun}. */
-export interface GuardSpawnedChildrenDeps extends JoinChildRunDeps {
+/** Injectable I/O for tests. `scheduleWake` goes to {@link joinChildOutcome}. */
+export interface GuardSpawnedChildrenDeps {
   listChildren: typeof listSpawnedChildRuns;
+  scheduleWake: typeof scheduleSubAgentJoinWakeJob;
   publish: typeof publishEvent;
 }
 
 const defaultGuardSpawnedChildrenDeps: GuardSpawnedChildrenDeps = {
   listChildren: listSpawnedChildRuns,
-  readOutcome: readChildRunOutcome,
   scheduleWake: scheduleSubAgentJoinWakeJob,
   publish: publishEvent,
 };
 
 /**
  * The parent never answers while a child it spawned still runs (ADR-0073).
- * Park on a running child; fold finished ones and regenerate. {@link joinChildRun}
- * decides park or fold, the same as `await_sub_agent`.
+ * Park on a running child; fold finished ones and regenerate. The list reads each child one
+ * time, and {@link joinChildOutcome} decides park or fold, the same as `await_sub_agent`.
  */
 export async function guardSpawnedChildren(
   ctx: StepContext<ChatRunState>,
@@ -131,7 +129,7 @@ export async function guardSpawnedChildren(
 
   if (!spawnedThisTurn) return null;
 
-  const children = await deps.listChildren(ctx.runId);
+  const children = await deps.listChildren({ parentRunId: ctx.runId, userId: ctx.userId });
   const unfolded = children.filter((c) => !state.foldedChildRunIds.includes(c.id));
 
   if (unfolded.length === 0) return null;
@@ -141,8 +139,9 @@ export async function guardSpawnedChildren(
   const parkWakes: ParkWake[] = [];
 
   for (const child of unfolded) {
-    const join = await joinChildRun(
-      { parentRunId: ctx.runId, userId: ctx.userId, childRunId: child.id },
+    const join = await joinChildOutcome(
+      { parentRunId: ctx.runId, childRunId: child.id },
+      child.outcome,
       deps,
     );
 

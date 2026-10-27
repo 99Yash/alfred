@@ -23,7 +23,7 @@ export type JoinChildRunResult =
 
 /**
  * A `sub_agent_done` signal wake with a persisted deadline. A raw signal wake condition
- * can still bypass it, so join through {@link joinChildRun}.
+ * can still bypass it, so join through {@link joinChildRun} or {@link joinChildOutcome}.
  */
 export type ParkWake = SafeToParkWake;
 
@@ -52,8 +52,15 @@ export async function joinChildRun(
   args: { parentRunId: string; userId: string; childRunId: string },
   deps: JoinChildRunDeps = defaultJoinChildRunDeps,
 ): Promise<JoinChildRunResult> {
-  const outcome = await deps.readOutcome(args);
+  return await joinChildOutcome(args, await deps.readOutcome(args), deps);
+}
 
+/** Decide park or fold from an outcome the caller already read. */
+export async function joinChildOutcome(
+  args: { parentRunId: string; childRunId: string },
+  outcome: ChildRunOutcome,
+  deps: Pick<JoinChildRunDeps, "scheduleWake"> = defaultJoinChildRunDeps,
+): Promise<JoinChildRunResult> {
   // Past the ceiling the child is reported, not parked again, so a stuck child cannot loop.
   if (shouldResolveWithoutParking(outcome)) return { kind: "resolved", outcome };
 

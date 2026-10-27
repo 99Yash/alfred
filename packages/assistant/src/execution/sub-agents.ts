@@ -1,7 +1,7 @@
 import { isTerminalStatus } from "@alfred/contracts";
 import { AppError } from "@alfred/contracts/app-errors";
 import { db } from "@alfred/db";
-import { agentRuns } from "@alfred/db/schemas";
+import { agentRuns, type AgentRun } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { createRun } from "./service";
 import type { AgentDbExecutor } from "./registry";
@@ -46,49 +46,21 @@ export function shouldResolveWithoutParking(outcome: ChildRunOutcome): boolean {
   );
 }
 
-export interface SpawnedChildRun {
-  id: string;
-  status: string;
-}
+/** The columns a child's outcome is built from. Both child reads select these. */
+const childOutcomeColumns = {
+  status: agentRuns.status,
+  output: agentRuns.output,
+  error: agentRuns.error,
+  metadata: agentRuns.metadata,
+  startedAt: agentRuns.startedAt,
+} as const;
 
-/**
- * Every child the run spawned, terminal or not, so a chat turn cannot end with children still
- * running.
- */
-export async function listSpawnedChildRuns(parentRunId: string): Promise<SpawnedChildRun[]> {
-  return await db()
-    .select({ id: agentRuns.id, status: agentRuns.status })
-    .from(agentRuns)
-    .where(subAgentParentRunIdMatches(parentRunId));
-}
+type ChildOutcomeRow = Pick<AgentRun, "status" | "output" | "error" | "metadata" | "startedAt">;
 
-/** Read a child's outcome. The child must belong to the caller, so a boss cannot await any run. */
-export async function readChildRunOutcome(args: {
-  parentRunId: string;
-  userId: string;
-  childRunId: string;
-}): Promise<ChildRunOutcome> {
-  const rows = await db()
-    .select({
-      status: agentRuns.status,
-      output: agentRuns.output,
-      error: agentRuns.error,
-      metadata: agentRuns.metadata,
-      startedAt: agentRuns.startedAt,
-    })
-    .from(agentRuns)
-    .where(and(eq(agentRuns.id, args.childRunId), eq(agentRuns.userId, args.userId)))
-    .limit(1);
-
-  const child = rows[0];
-
-  if (!child) {
-    return { ok: false, done: false, status: "not_found", reason: "child_run_not_found" };
-  }
-
+function toChildRunOutcome(child: ChildOutcomeRow, parentRunId: string): ChildRunOutcome {
   const sub = readSubAgentMetadata(child.metadata);
 
-  if (!sub || sub.parentRunId !== args.parentRunId) {
+  if (!sub || sub.parentRunId !== parentRunId) {
     return { ok: false, done: false, status: child.status, reason: "not_your_sub_agent" };
   }
 
@@ -103,6 +75,49 @@ export async function readChildRunOutcome(args: {
     error: done ? (child.error ?? null) : undefined,
     runningMs: !done && startedMs !== null ? Date.now() - startedMs : undefined,
   };
+}
+
+export interface SpawnedChildRun {
+  id: string;
+  outcome: ChildRunOutcome;
+}
+
+/**
+ * Every child the run spawned, terminal or not, so a chat turn cannot end with children still
+ * running. One read gives each child's outcome, so the caller does not read the child again.
+ */
+export async function listSpawnedChildRuns(args: {
+  parentRunId: string;
+  userId: string;
+}): Promise<SpawnedChildRun[]> {
+  const rows = await db()
+    .select({ id: agentRuns.id, ...childOutcomeColumns })
+    .from(agentRuns)
+    // `user_id` is the leading column of `agent_runs_sub_agent_parent_idx`.
+    .where(and(eq(agentRuns.userId, args.userId), subAgentParentRunIdMatches(args.parentRunId)));
+
+  return rows.map((row) => ({ id: row.id, outcome: toChildRunOutcome(row, args.parentRunId) }));
+}
+
+/** Read a child's outcome. The child must belong to the caller, so a boss cannot await any run. */
+export async function readChildRunOutcome(args: {
+  parentRunId: string;
+  userId: string;
+  childRunId: string;
+}): Promise<ChildRunOutcome> {
+  const rows = await db()
+    .select(childOutcomeColumns)
+    .from(agentRuns)
+    .where(and(eq(agentRuns.id, args.childRunId), eq(agentRuns.userId, args.userId)))
+    .limit(1);
+
+  const child = rows[0];
+
+  if (!child) {
+    return { ok: false, done: false, status: "not_found", reason: "child_run_not_found" };
+  }
+
+  return toChildRunOutcome(child, args.parentRunId);
 }
 
 const existingSubAgentSelection = {

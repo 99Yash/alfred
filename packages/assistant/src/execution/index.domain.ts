@@ -122,7 +122,7 @@ export {
   type WorkflowReadinessVerdict,
 } from "./workflows/readiness-port";
 
-export { joinChildRun, type JoinChildRunDeps, type ParkWake } from "./sub-agent-join";
+export { joinChildOutcome, type ParkWake } from "./sub-agent-join";
 
 export { scheduleSubAgentJoinWakeJob } from "./sub-agent-join-wake-queue";
 
@@ -147,11 +147,6 @@ export {
   type StartApprovalNotificationWorkerOpts,
 } from "./approval-notification-worker";
 
-export {
-  isTerminalChildStatus,
-  listSpawnedChildRuns,
-  readChildRunOutcome,
-  type ChildRunOutcome,
-} from "./sub-agents";
+export { isTerminalChildStatus, listSpawnedChildRuns, type ChildRunOutcome } from "./sub-agents";
 
 export type { AgentDbExecutor } from "./registry";
