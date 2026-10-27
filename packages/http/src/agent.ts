@@ -9,7 +9,6 @@ import {
   wakeRun,
   listPublicWorkflows,
 } from "@alfred/assistant/execution";
-import type { SignalArgs } from "@alfred/assistant/execution";
 import { isUniqueViolation } from "@alfred/db/pg-errors";
 import { approvalKindSchema, Errors, toMessage } from "@alfred/contracts";
 import { requireOnboarded } from "./middleware/onboarding";
@@ -112,40 +111,8 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
           const run = await getRun(params.runId, user.id);
 
           if (!run) throw Errors.NotFoundError("Run not found");
-          // `kind` is `t.String()`: Elysia's exact-mirror warns on any `t.Union`. Narrow here.
-          let match: SignalArgs["match"];
 
-          if (body.match) {
-            const kind = body.match.kind;
-
-            if (kind === "hil") {
-              if (!body.match.approvalId) {
-                throw Errors.BadRequestError("match.kind='hil' requires approvalId");
-              }
-
-              // An unknown kind is dropped, so the match is any hil wake on this id.
-              const approvalKind = approvalKindSchema.safeParse(body.match.approvalKind);
-              match = {
-                kind: "hil",
-                approvalId: body.match.approvalId,
-                ...(approvalKind.success ? { approvalKind: approvalKind.data } : {}),
-              };
-            } else if (kind === "signal") {
-              if (!body.match.name) {
-                throw Errors.BadRequestError("match.kind='signal' requires name");
-              }
-
-              match = { kind: "signal", name: body.match.name };
-            } else if (kind === "any") {
-              match = { kind: "any" };
-            } else {
-              throw Errors.BadRequestError(
-                `match.kind must be 'hil' | 'signal' | 'any'; got ${String(kind)}`,
-              );
-            }
-          }
-
-          const woken = await wakeRun({ runId: params.runId, match });
+          const woken = await wakeRun({ runId: params.runId, match: body.match });
 
           if (!woken) throw Errors.ConflictError("Run not waiting on a matching condition");
 
@@ -155,12 +122,18 @@ export const agent = new Elysia({ prefix: "/api/agent", normalize: "typebox" })
           params: t.Object({ runId: t.String() }),
           body: t.Object({
             match: t.Optional(
-              t.Object({
-                kind: t.String({ minLength: 1, maxLength: 16 }),
-                approvalId: t.Optional(t.String({ minLength: 1, maxLength: 120 })),
-                approvalKind: t.Optional(t.String({ minLength: 1, maxLength: 32 })),
-                name: t.Optional(t.String({ minLength: 1, maxLength: 120 })),
-              }),
+              t.Union([
+                t.Object({
+                  kind: t.Literal("hil"),
+                  approvalId: t.String({ minLength: 1, maxLength: 120 }),
+                  approvalKind: t.Optional(t.Enum(approvalKindSchema.enum)),
+                }),
+                t.Object({
+                  kind: t.Literal("signal"),
+                  name: t.String({ minLength: 1, maxLength: 120 }),
+                }),
+                t.Object({ kind: t.Literal("any") }),
+              ]),
             ),
           }),
         },
