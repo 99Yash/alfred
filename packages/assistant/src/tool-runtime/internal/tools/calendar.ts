@@ -1,12 +1,12 @@
 import {
   assertNever,
-  GOOGLE_SCOPE,
   calendarCreateEventSendsInvitations,
   calendarCreateEventInput,
   calendarDeleteEventInput,
   calendarListEventsInput,
   calendarRespondToEventInput,
   calendarUpdateEventInput,
+  googleAuthorityScopes,
   isHttpError,
   restPassthroughInput,
   type IanaTimezone,
@@ -88,14 +88,6 @@ interface CalendarCredential {
 }
 
 type CompactCalendarEvent = ReturnType<typeof compactEvent>;
-
-/** Read needs either scope. Write needs the events scope. */
-const CALENDAR_READ_SCOPES = [
-  GOOGLE_SCOPE.calendar.readonly,
-  GOOGLE_SCOPE.calendar.events,
-] as const;
-
-const CALENDAR_WRITE_SCOPES = [GOOGLE_SCOPE.calendar.events] as const;
 
 export function resolveCalendarListWindow(
   input: CalendarListEventsInput,
@@ -480,7 +472,7 @@ export const calendarTools: readonly RegisteredTool[] = [
       ],
     },
     availability: {
-      credential: { provider: "google", anyOfScopes: CALENDAR_READ_SCOPES },
+      credential: { provider: "google", anyOfScopes: googleAuthorityScopes("calendar") },
     },
     inputSchema: calendarListEventsInput,
     execute: async (input, ctx) => {
@@ -500,7 +492,7 @@ export const calendarTools: readonly RegisteredTool[] = [
       relatedTools: ["calendar.list_events", "calendar.update_event", "calendar.delete_event"],
     },
     availability: {
-      credential: { provider: "google", anyOfScopes: CALENDAR_WRITE_SCOPES },
+      credential: { provider: "google", anyOfScopes: googleAuthorityScopes("calendar_write") },
     },
     inputSchema: calendarCreateEventInput,
     resolveRiskTier: (input) => Promise.resolve(resolveCalendarCreateEventRiskTier(input)),
@@ -526,7 +518,7 @@ export const calendarTools: readonly RegisteredTool[] = [
       relatedTools: ["calendar.list_events", "calendar.delete_event", "calendar.respond_to_event"],
     },
     availability: {
-      credential: { provider: "google", anyOfScopes: CALENDAR_WRITE_SCOPES },
+      credential: { provider: "google", anyOfScopes: googleAuthorityScopes("calendar_write") },
     },
     inputSchema: calendarUpdateEventInput,
     resolveRiskTier: (input, ctx) => resolveCalendarUpdateEventRiskTier(input, ctx),
@@ -552,7 +544,7 @@ export const calendarTools: readonly RegisteredTool[] = [
       relatedTools: ["calendar.list_events", "calendar.update_event", "calendar.respond_to_event"],
     },
     availability: {
-      credential: { provider: "google", anyOfScopes: CALENDAR_WRITE_SCOPES },
+      credential: { provider: "google", anyOfScopes: googleAuthorityScopes("calendar_write") },
     },
     inputSchema: calendarDeleteEventInput,
     execute: async (input, ctx) => {
@@ -577,7 +569,7 @@ export const calendarTools: readonly RegisteredTool[] = [
       relatedTools: ["calendar.list_events", "calendar.update_event", "calendar.delete_event"],
     },
     availability: {
-      credential: { provider: "google", anyOfScopes: CALENDAR_WRITE_SCOPES },
+      credential: { provider: "google", anyOfScopes: googleAuthorityScopes("calendar_write") },
     },
     inputSchema: calendarRespondToEventInput,
     execute: async (input, ctx) => {

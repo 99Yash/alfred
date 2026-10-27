@@ -12,7 +12,6 @@ export {
   createGoogleClient,
   GoogleCredentialSelectionError,
   googleClientForUser,
-  type GoogleAuthority,
   type GoogleClient,
   type GoogleCredential,
   type GoogleTokenResolver,

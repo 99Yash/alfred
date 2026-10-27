@@ -1,4 +1,4 @@
-/** The connected rule (ADR-0093). Server and web both call it, so they agree on which rows count. */
+/** The connected rule (ADR-0093). The server calls it; the web reads `GET /api/integrations`. */
 
 import type { ProviderAvailability } from "../integration-availability";
 import type { CredentialSpec } from "./registry";

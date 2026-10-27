@@ -1,9 +1,9 @@
 /** Gmail tools. Every write runs only after the staging gate approves it. */
 
 import {
-  GOOGLE_SCOPE,
   GMAIL_SEARCH_SNIPPET_MAX_CHARS,
   collapseWhitespace,
+  googleAuthorityScopes,
   gmailGetThreadInput,
   gmailModifyMessageInput,
   gmailModifyThreadInput,
@@ -38,10 +38,6 @@ import { assertGmailRecipientsAllowed } from "./gmail-recipient-policy";
 function gmailThreadUrl(threadId: string): string {
   return `https://mail.google.com/mail/u/0/#all/${encodeURIComponent(threadId)}`;
 }
-
-const GMAIL_READ_SCOPES = [GOOGLE_SCOPE.gmail.readonly, GOOGLE_SCOPE.gmail.modify] as const;
-
-const GMAIL_MODIFY_SCOPES = [GOOGLE_SCOPE.gmail.modify] as const;
 
 /** Gmail empties Trash after 30 days, and a spam mark trains Google's filter. */
 const DESTRUCTIVE_LABEL_IDS: ReadonlySet<string> = new Set(["TRASH", "SPAM"]);
@@ -198,7 +194,7 @@ export const gmailTools: readonly RegisteredTool[] = [
       relatedTools: ["gmail.read_message"],
     },
     availability: {
-      credential: { provider: "google", anyOfScopes: GMAIL_READ_SCOPES },
+      credential: { provider: "google", anyOfScopes: googleAuthorityScopes("gmail") },
     },
     inputSchema: gmailSearchInput,
     execute: async (input, ctx) => {
@@ -300,7 +296,7 @@ export const gmailTools: readonly RegisteredTool[] = [
       relatedTools: ["gmail.search", "gmail.send_draft"],
     },
     availability: {
-      credential: { provider: "google", anyOfScopes: GMAIL_READ_SCOPES },
+      credential: { provider: "google", anyOfScopes: googleAuthorityScopes("gmail") },
     },
     inputSchema: gmailReadMessageInput,
     execute: async (input, ctx) => {
@@ -404,7 +400,7 @@ export const gmailTools: readonly RegisteredTool[] = [
       relatedTools: ["gmail.search", "gmail.modify_thread", "gmail.create_draft"],
     },
     availability: {
-      credential: { provider: "google", anyOfScopes: GMAIL_READ_SCOPES },
+      credential: { provider: "google", anyOfScopes: googleAuthorityScopes("gmail") },
     },
     inputSchema: gmailGetThreadInput,
     execute: async (input, ctx) => {
@@ -465,7 +461,7 @@ export const gmailTools: readonly RegisteredTool[] = [
       relatedTools: ["gmail.search", "gmail.get_thread"],
     },
     availability: {
-      credential: { provider: "google", anyOfScopes: GMAIL_MODIFY_SCOPES },
+      credential: { provider: "google", anyOfScopes: googleAuthorityScopes("gmail_modify") },
     },
     inputSchema: gmailModifyThreadInput,
     resolveRiskTier: (input) => Promise.resolve(resolveGmailLabelChangeRiskTier(input)),
@@ -520,7 +516,7 @@ export const gmailTools: readonly RegisteredTool[] = [
       relatedTools: ["gmail.get_thread", "gmail.modify_thread"],
     },
     availability: {
-      credential: { provider: "google", anyOfScopes: GMAIL_MODIFY_SCOPES },
+      credential: { provider: "google", anyOfScopes: googleAuthorityScopes("gmail_modify") },
     },
     inputSchema: gmailModifyMessageInput,
     resolveRiskTier: (input) => Promise.resolve(resolveGmailLabelChangeRiskTier(input)),
@@ -568,7 +564,7 @@ export const gmailTools: readonly RegisteredTool[] = [
       relatedTools: ["gmail.get_thread", "gmail.send_draft"],
     },
     availability: {
-      credential: { provider: "google", anyOfScopes: GMAIL_MODIFY_SCOPES },
+      credential: { provider: "google", anyOfScopes: googleAuthorityScopes("gmail_modify") },
     },
     inputSchema: gmailSendDraftInput,
     execute: async (input, ctx) => {
@@ -602,7 +598,7 @@ export const gmailTools: readonly RegisteredTool[] = [
       relatedTools: ["gmail.search", "gmail.read_message", "gmail.create_draft"],
     },
     availability: {
-      credential: { provider: "google", anyOfScopes: [GOOGLE_SCOPE.gmail.send] },
+      credential: { provider: "google", anyOfScopes: googleAuthorityScopes("gmail_send") },
     },
     inputSchema: gmailSendDraftInput,
     execute: async (input, ctx) => {

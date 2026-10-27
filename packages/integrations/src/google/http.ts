@@ -1,3 +1,4 @@
+import type { GoogleSlug, SupportedPassthroughSlug } from "@alfred/contracts";
 import type { z } from "zod";
 import { authedJson } from "../shared/authed-json";
 import type { RetryPolicy } from "../shared/retry";
@@ -8,7 +9,7 @@ import type { RetryPolicy } from "../shared/retry";
  */
 
 /** An API with a read-only passthrough namespace (ADR-0074). */
-export type GoogleService = "calendar" | "gmail" | "drive" | "docs" | "sheets" | "slides";
+export type GoogleService = Extract<GoogleSlug, SupportedPassthroughSlug>;
 
 /** Every Google API Alfred calls. People has curated reads only, so no passthrough. */
 export type GoogleApi = GoogleService | "people";

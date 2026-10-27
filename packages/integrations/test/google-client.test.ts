@@ -62,7 +62,7 @@ describe("Google configured client", () => {
       globalThis.fetch = originalFetch;
     }
 
-    assert.deepEqual(authorities, ["gmail_read", "gmail_send"]);
+    assert.deepEqual(authorities, ["gmail", "gmail_send"]);
   });
 
   test("honors the bind retry envelope for safe reads", async () => {
