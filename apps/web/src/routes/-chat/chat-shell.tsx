@@ -188,7 +188,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   const { rows: approvalRows } = useActionStagings();
 
   const runApprovals = useMemo(
-    () => (activeRunId ? approvalRows.filter((row) => row.runId === activeRunId) : []),
+    () => (activeRunId ? approvalRows.filter((row) => row.staging.runId === activeRunId) : []),
     [approvalRows, activeRunId],
   );
 

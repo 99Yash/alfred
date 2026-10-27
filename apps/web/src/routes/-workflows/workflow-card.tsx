@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
-import { Clock3, type LucideIcon } from "lucide-react";
-import type { WorkflowDefinition } from "./workflows-utils";
+import { Clock3 } from "lucide-react";
+import type { SyncedWorkflow } from "@alfred/sync";
+import { describeCadence, presentationFor, type WorkflowTint } from "./workflows-utils";
 import { cn } from "~/lib/utils";
 
 const TINT = {
@@ -22,20 +23,16 @@ const TINT = {
     ring: "ring-app-amber-2",
     accent: "text-app-amber-4",
   },
-} satisfies Record<
-  WorkflowDefinition["tint"],
-  { bg: string; chip: string; ring: string; accent: string }
->;
+} satisfies Record<WorkflowTint, { bg: string; chip: string; ring: string; accent: string }>;
 
-export function WorkflowCard({ workflow, index }: { workflow: WorkflowDefinition; index: number }) {
-  const Icon: LucideIcon = workflow.icon;
-  const tint = TINT[workflow.tint];
-  const Hero = workflow.hero;
+export function WorkflowCard({ workflow, index }: { workflow: SyncedWorkflow; index: number }) {
+  const { icon: Icon, tint: tintKey, hero: Hero } = presentationFor(workflow);
+  const tint = TINT[tintKey];
 
   return (
     <Link
       to="/workflows/$workflow"
-      params={{ workflow: workflow.id }}
+      params={{ workflow: workflow.slug }}
       className={cn(
         "app-card-in app-hover-lift app-press",
         "group flex min-h-[268px] flex-col overflow-hidden rounded-surface bg-app-bg-1",
@@ -70,12 +67,12 @@ export function WorkflowCard({ workflow, index }: { workflow: WorkflowDefinition
         <div className="mt-3 min-w-0 flex-1">
           <p className="line-clamp-2 text-sm font-medium text-app-fg-4">{workflow.name}</p>
           <p className="mt-1 line-clamp-3 text-xs leading-5 text-app-fg-3">
-            {workflow.description}
+            {workflow.description ?? ""}
           </p>
         </div>
         <span className="mt-3 inline-flex w-fit items-center gap-1 rounded-control-sm bg-app-bg-2 px-2 py-0.5 text-[11px] text-app-fg-3 tabular-nums">
           <Clock3 size={11} />
-          {workflow.cadence}
+          {describeCadence(workflow.trigger)}
         </span>
       </div>
     </Link>

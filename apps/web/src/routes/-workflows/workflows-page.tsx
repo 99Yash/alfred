@@ -1,7 +1,6 @@
 import { Plus, Sparkles } from "lucide-react";
 import { AppButton, AppCard } from "~/components/ui/v2";
 import { useWorkflows } from "~/lib/replicache/use-workflows";
-import { syncedWorkflowToView } from "./workflows-utils";
 import { WorkflowCard } from "./workflow-card";
 
 const CREATE_LEADING = <Plus size={14} />;
@@ -41,7 +40,7 @@ export function WorkflowsPage() {
           {builtins.length > 0 ? (
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               {builtins.map((w, i) => (
-                <WorkflowCard key={w.slug} workflow={syncedWorkflowToView(w)} index={i} />
+                <WorkflowCard key={w.slug} workflow={w} index={i} />
               ))}
             </div>
           ) : (
@@ -58,7 +57,7 @@ export function WorkflowsPage() {
           {authored.length > 0 ? (
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               {authored.map((w, i) => (
-                <WorkflowCard key={w.slug} workflow={syncedWorkflowToView(w)} index={i} />
+                <WorkflowCard key={w.slug} workflow={w} index={i} />
               ))}
             </div>
           ) : loading ? (

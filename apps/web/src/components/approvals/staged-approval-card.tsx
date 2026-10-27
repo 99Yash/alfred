@@ -1,6 +1,5 @@
-import type { SyncedActionStaging } from "@alfred/sync";
 import { ApprovalCard } from "./approval-card";
-import { asQuestionStaging } from "./ask-user";
+import type { StagedRow } from "./ask-user";
 import { QuestionApprovalCard } from "./question-approval-card";
 import type { DecisionOutcome } from "./decide-approval";
 import type { RecordedDecision } from "./use-approval-decision";
@@ -10,19 +9,16 @@ import type { RecordedDecision } from "./use-approval-decision";
  * Branch here so every queue picks the same way.
  */
 export function StagedApprovalCard({
-  staging,
+  row,
   onDecide,
 }: {
-  staging: SyncedActionStaging;
+  row: StagedRow;
   /** Throws with a message on failure. */
   onDecide: (decision: RecordedDecision) => Promise<DecisionOutcome>;
 }) {
-  // An input that does not parse gets the write card, as in the chat tray.
-  const question = asQuestionStaging(staging);
-
-  return question ? (
-    <QuestionApprovalCard question={question} onDecide={onDecide} />
+  return row.kind === "question" ? (
+    <QuestionApprovalCard question={row} onDecide={onDecide} />
   ) : (
-    <ApprovalCard staging={staging} onDecide={onDecide} />
+    <ApprovalCard staging={row.staging} onDecide={onDecide} />
   );
 }

@@ -17,7 +17,7 @@ import { WorkflowIcon } from "./workflow-icon";
 export function ApprovalsTab({ workflow }: { workflow: SyncedWorkflow }) {
   const { rows, loading, error, retry } = useActionStagings();
   const { modeFor } = useActionPolicy();
-  const pending = rows.filter((row) => row.workflowSlug === workflow.slug);
+  const pending = rows.filter((row) => row.staging.workflowSlug === workflow.slug);
   const integrations = workflow.allowedIntegrations;
 
   return (
@@ -37,11 +37,11 @@ export function ApprovalsTab({ workflow }: { workflow: SyncedWorkflow }) {
 
       {pending.length > 0 ? (
         <div className="grid gap-3">
-          {pending.map((staging) => (
+          {pending.map((row) => (
             <StagedApprovalCard
-              key={staging.id}
-              staging={staging}
-              onDecide={(decision) => decideApproval(staging.id, decision)}
+              key={row.staging.id}
+              row={row}
+              onDecide={(decision) => decideApproval(row.staging.id, decision)}
             />
           ))}
         </div>

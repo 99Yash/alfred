@@ -43,20 +43,25 @@ export interface QuestionStaging {
   raw: JsonObject;
 }
 
+/** A staged row, classified one time. A question whose input fails to parse is a `write`. */
+export type StagedRow =
+  | ({ kind: "question" } & QuestionStaging)
+  | { kind: "write"; staging: SyncedActionStaging };
+
 /**
- * Read a staged row as a question, or `null`.
+ * Classify a staged row as a question or a write.
  * A row whose tool name matches but whose input fails to parse (a newer schema)
  * must fall back to the write card.
  */
-export function asQuestionStaging(staging: SyncedActionStaging): QuestionStaging | null {
-  if (!isQuestionApproval(staging.toolName)) return null;
+export function toStagedRow(staging: SyncedActionStaging): StagedRow {
+  if (!isQuestionApproval(staging.toolName)) return { kind: "write", staging };
   const parsed = jsonObjectSchema.safeParse(staging.proposedInput);
 
-  if (!parsed.success) return null;
+  if (!parsed.success) return { kind: "write", staging };
   const raw = parsed.data;
   const input = parseAskUserInput(raw);
 
-  return input ? { staging, input, raw } : null;
+  return input ? { kind: "question", staging, input, raw } : { kind: "write", staging };
 }
 
 /** Padded to one answer per question. */

@@ -1,5 +1,5 @@
-import type { SyncedActionStaging, SyncedChatMessage } from "@alfred/sync";
-import { asQuestionStaging } from "~/components/approvals/ask-user";
+import type { SyncedChatMessage } from "@alfred/sync";
+import type { StagedRow } from "~/components/approvals/ask-user";
 import type { StreamingMessage } from "~/lib/chat/chat-stream-state";
 import { presentTool, visibleTools } from "./tool-call-presentation";
 
@@ -93,12 +93,12 @@ export function describeActivity(
  * What the run waits on, for the feed marker and the activity pill. With no synced row yet
  * (the approval frame arrived first), it reads as an approval.
  */
-export function describeApprovalWait(approvals: readonly SyncedActionStaging[]): string {
+export function describeApprovalWait(approvals: readonly StagedRow[]): string {
   const [first] = approvals;
 
   if (approvals.length > 1) return `${approvals.length} actions wait for your approval`;
 
-  return first && asQuestionStaging(first) ? "Alfred has a question" : "Waiting for your approval";
+  return first?.kind === "question" ? "Alfred has a question" : "Waiting for your approval";
 }
 
 /** The model-written next prompts on the last reply (ADR-0112), once it is complete. */
@@ -114,19 +114,19 @@ export function buildFollowUpSuggestions(
 
 /** Sort approvals in tool-trail order. Ones with no tool card go last, by `createdAt`. */
 export function orderApprovalsByTool(
-  approvals: readonly SyncedActionStaging[],
+  approvals: readonly StagedRow[],
   stream: StreamingMessage | null,
-): readonly SyncedActionStaging[] {
+): readonly StagedRow[] {
   if (approvals.length <= 1) return approvals;
   const toolOrder = new Map<string, number>();
   stream?.tools.forEach((tool, i) => toolOrder.set(tool.toolCallId, i));
 
   return approvals.toSorted((a, b) => {
-    const ia = toolOrder.get(a.toolCallId) ?? Number.POSITIVE_INFINITY;
-    const ib = toolOrder.get(b.toolCallId) ?? Number.POSITIVE_INFINITY;
+    const ia = toolOrder.get(a.staging.toolCallId) ?? Number.POSITIVE_INFINITY;
+    const ib = toolOrder.get(b.staging.toolCallId) ?? Number.POSITIVE_INFINITY;
 
     if (ia !== ib) return ia - ib;
 
-    return a.createdAt.localeCompare(b.createdAt);
+    return a.staging.createdAt.localeCompare(b.staging.createdAt);
   });
 }

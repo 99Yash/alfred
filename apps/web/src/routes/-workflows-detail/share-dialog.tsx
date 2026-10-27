@@ -1,14 +1,14 @@
+import type { SyncedWorkflow } from "@alfred/sync";
 import { Copy, Link2, Share2 } from "lucide-react";
 import { useEffect, useEffectEvent } from "react";
 import { AppButton } from "~/components/ui/v2";
 import { cn } from "~/lib/utils";
-import type { WorkflowDefinition } from "~/routes/-workflows/workflows-utils";
 import { WorkflowIcon } from "./workflow-icon";
 
 const COPY_LEADING = <Copy size={13} />;
 
 interface ShareDialogProps {
-  workflow: WorkflowDefinition;
+  workflow: SyncedWorkflow;
   open: boolean;
   onClose: () => void;
 }
@@ -62,7 +62,7 @@ export function ShareDialog({ workflow, open, onClose }: ShareDialogProps) {
               </WorkflowIcon>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-app-fg-4">{workflow.name}</p>
-                <p className="truncate text-[12px] text-app-fg-3">{workflow.description}</p>
+                <p className="truncate text-[12px] text-app-fg-3">{workflow.description ?? ""}</p>
               </div>
             </div>
             <div
@@ -73,7 +73,7 @@ export function ShareDialog({ workflow, open, onClose }: ShareDialogProps) {
             >
               <Link2 size={14} className="shrink-0 text-app-fg-2" />
               <p className="min-w-0 flex-1 truncate text-[12.5px] text-app-fg-3">
-                alfred.local/workflows/{workflow.id}
+                alfred.local/workflows/{workflow.slug}
               </p>
               <AppButton variant="ghost" size="sm" leading={COPY_LEADING}>
                 Copy

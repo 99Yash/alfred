@@ -2,13 +2,11 @@ import {
   COLD_START_WORKFLOW_SLUG,
   DAILY_BRIEFING_WORKFLOW_SLUG,
   eventTriggerPhrase,
-  integrationDisplayName,
   REPLY_DRAFTING_WORKFLOW_SLUG,
   TRIAGE_WORKFLOW_SLUG,
 } from "@alfred/contracts";
 import type { SyncedWorkflow } from "@alfred/sync";
 import type { ComponentType } from "react";
-import { lowerFirst } from "~/lib/strings";
 import {
   CalendarClock,
   CheckCircle2,
@@ -25,26 +23,9 @@ import { TriageHero } from "./triage-hero";
 /** Tints cycled by slug hash for workflows without their own art. */
 const FALLBACK_TINTS = ["violet", "emerald", "amber"] as const;
 
-type WorkflowTint = (typeof FALLBACK_TINTS)[number];
+export type WorkflowTint = (typeof FALLBACK_TINTS)[number];
 
 type WorkflowHero = ComponentType<{ accent: string }>;
-
-export type WorkflowDefinition = {
-  id: string;
-  name: string;
-  description: string;
-  cadence: string;
-  icon: LucideIcon;
-  tint: WorkflowTint;
-  hero: WorkflowHero | undefined;
-  status: "active" | "draft";
-  prompt: string;
-  trigger: {
-    type: "Schedule" | "Event";
-    summary: string;
-  };
-  integrations: ReadonlyArray<string>;
-};
 
 /** Art for the builtin workflows, keyed on the slugs the server registers. */
 const KNOWN_PRESENTATION = new Map<
@@ -65,7 +46,8 @@ function hashSlug(slug: string): number {
   return h;
 }
 
-function presentationFor(w: SyncedWorkflow) {
+/** The card art: a builtin's own icon, tint, and hero, else a fallback picked from the slug and trigger. */
+export function presentationFor(w: SyncedWorkflow) {
   const known = KNOWN_PRESENTATION.get(w.slug);
 
   if (known) return known;
@@ -100,64 +82,13 @@ function describeCron(schedule: string, timezone?: string): string {
   return `On schedule (${schedule})${tzSuffix}`;
 }
 
-interface TriggerView {
-  type: WorkflowDefinition["trigger"]["type"];
-  summary: string;
-  cadence: string;
-}
+/** The card's cadence line for a trigger. */
+export function describeCadence(trigger: SyncedWorkflow["trigger"]): string {
+  if (trigger.kind === "cron") return describeCron(trigger.schedule, trigger.timezone);
 
-function describeTrigger(trigger: SyncedWorkflow["trigger"]): TriggerView {
-  if (trigger.kind === "cron") {
-    const cadence = describeCron(trigger.schedule, trigger.timezone);
+  if (trigger.kind === "event") return `On ${eventTriggerPhrase(trigger)}`;
 
-    return {
-      type: "Schedule",
-      summary: `Run ${lowerFirst(cadence)}.`,
-      cadence,
-    };
-  }
+  if (trigger.kind === "on_signal") return "On signal";
 
-  if (trigger.kind === "event") {
-    const phrase = eventTriggerPhrase(trigger);
-
-    return {
-      type: "Event",
-      summary: `Run when a ${phrase} event arrives.`,
-      cadence: `On ${phrase}`,
-    };
-  }
-
-  if (trigger.kind === "on_signal") {
-    return {
-      type: "Event",
-      summary: `Run on the '${trigger.name}' signal.`,
-      cadence: "On signal",
-    };
-  }
-
-  return {
-    type: "Event",
-    summary: "Run manually via Run now.",
-    cadence: "Manual",
-  };
-}
-
-export function syncedWorkflowToView(w: SyncedWorkflow): WorkflowDefinition {
-  const { icon, tint, hero } = presentationFor(w);
-  const t = describeTrigger(w.trigger);
-
-  return {
-    id: w.slug,
-    name: w.name,
-    description: w.description ?? "",
-    cadence: t.cadence,
-    icon,
-    tint,
-    hero,
-    status: w.status === "active" ? "active" : "draft",
-    prompt: w.brief ?? "",
-    trigger: { type: t.type, summary: t.summary },
-    integrations:
-      w.allowedIntegrations.length > 0 ? w.allowedIntegrations.map(integrationDisplayName) : ["—"],
-  };
+  return "Manual";
 }
