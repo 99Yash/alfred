@@ -4,6 +4,7 @@ import { user } from "@alfred/db/schemas";
 import { eq, sql } from "drizzle-orm";
 import { Elysia, t } from "elysia";
 import { authMacro } from "./middleware/auth";
+import { readOnboarding } from "./middleware/onboarding";
 import { settings } from "@alfred/assistant/settings";
 
 /** Onboarding state. `routeToOnboarding` comes from `user.onboarded_at`; the client gates on it. */
@@ -12,13 +13,7 @@ export const onboardingRoutes = new Elysia({ prefix: "/api/me/onboarding", norma
   .guard({ auth: true }, (app) =>
     app
       .get("/", async ({ user: u }) => {
-        const rows = await db()
-          .select({ onboardedAt: user.onboardedAt })
-          .from(user)
-          .where(eq(user.id, u.id))
-          .limit(1);
-
-        const row = rows[0];
+        const row = await readOnboarding(u.id);
 
         if (!row) throw Errors.NotFoundError("User not found");
 
