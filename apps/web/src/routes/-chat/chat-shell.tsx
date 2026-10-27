@@ -13,12 +13,12 @@ import { useActionPolicy } from "~/lib/replicache/use-action-policy";
 import { useActionStagings } from "~/lib/replicache/use-action-stagings";
 import { useThreadActions } from "~/lib/chat/use-thread-actions";
 import { DeleteThreadDialog } from "~/lib/chat/delete-thread-dialog";
-import { useChatMessages, useChatThread } from "~/lib/replicache/use-chat";
+import { useChatMessages } from "~/lib/replicache/use-chat";
 import { useRightRail } from "~/lib/shell/app-shell";
 import { toast } from "~/lib/toast";
 import { McpServerScopeProvider } from "./mcp-server";
 import { ChatApprovalDock, type ApprovalDockHandle } from "./approval-dock";
-import type { ChatApprovalMode } from "@alfred/sync";
+import type { ChatApprovalMode, SyncedChatThread } from "@alfred/sync";
 import { ArtifactSidebar, type ArtifactEditSuggestion } from "./artifact-sidebar";
 import { Composer } from "./composer/composer";
 import { useModelTier } from "./composer/use-model-tier";
@@ -39,10 +39,12 @@ import { pendingToolCallId, useArtifactPanel } from "./use-artifact-panel";
 /** Chat scaffold for `/chat` and `/chat/$threadId`: top bar, feed or hero, composer, right rail. */
 export interface ChatShellProps {
   threadId: string | undefined;
+  /** The route's read. `null` while it loads, for a new chat, or when the thread is gone. */
+  thread: SyncedChatThread | null;
   title: string;
 }
 
-export function ChatShell({ threadId, title }: ChatShellProps) {
+export function ChatShell({ threadId, thread, title }: ChatShellProps) {
   const railMode = useRailMode();
   const [railOpen, setRailOpen] = useState(() => railMode === "inline");
   const railData = useRailData();
@@ -136,6 +138,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
         <ArtifactSidebar
           key="artifact-panel"
           artifactId={artifact.selectedId}
+          artifact={artifact.selectedArtifact}
           liveStream={liveArtifact}
           mode={railMode}
           width={artifact.width}
@@ -146,6 +149,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
       ) : null,
     [
       artifact.selectedId,
+      artifact.selectedArtifact,
       liveArtifact,
       railMode,
       artifact.width,
@@ -231,7 +235,6 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
   /* Same hook as the sidebar row menu: one write path, one optimistic patch.
    * Passing `threadId` arms the bounce to `/chat` after deleting the open thread. */
   const threadActions = useThreadActions(threadId);
-  const { thread } = useChatThread(threadId);
   const pendingTurn = usePendingTurn(threadId);
   const [deleteOpen, setDeleteOpen] = useState(false);
 
@@ -248,7 +251,8 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
 
   // Review and Auto set the global `user_action_policies.defaultMode`; settings rules still win.
   // Full autonomy is this thread's flag, which the gate reads live on each call (ADR-0069).
-  const { policy, setDefaultMode, loading: policyLoading } = useActionPolicy();
+  const actionPolicy = useActionPolicy();
+  const { policy, setDefaultMode, loading: policyLoading } = actionPolicy;
 
   const fullAutonomy = threadId
     ? (thread?.fullAutonomy ?? pendingTurn?.newThreadFullAutonomy ?? false)
@@ -352,6 +356,8 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
                 onOpenArtifact={artifact.open}
                 openArtifactId={artifact.selectedId}
                 approvals={orderedApprovals}
+                artifacts={artifact.artifacts}
+                artifactStream={artifactStream}
               />
               <div className="shrink-0 px-4 pb-4">
                 <div className="mx-auto flex w-full max-w-3xl flex-col gap-2">
@@ -391,6 +397,7 @@ export function ChatShell({ threadId, title }: ChatShellProps) {
                         ref={dockRef}
                         runId={showStream ? stream.runId : undefined}
                         approvals={orderedApprovals}
+                        policy={actionPolicy}
                       />
                     }
                     onApproveShortcut={hasPendingApproval ? runDockPrimary : undefined}

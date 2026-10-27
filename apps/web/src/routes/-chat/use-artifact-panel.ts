@@ -1,5 +1,5 @@
 import type { SyncedArtifact } from "@alfred/sync";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { ArtifactStreamState } from "~/lib/chat/use-artifact-stream";
 import { useThreadArtifacts } from "~/lib/replicache/use-artifacts";
@@ -33,6 +33,8 @@ export interface ArtifactPanelState {
   /** This thread's artifacts, newest first. */
   artifacts: SyncedArtifact[];
   selectedId: string | null;
+  /** The open artifact's synced row. Null for a `pending:` selection or before the row syncs. */
+  selectedArtifact: SyncedArtifact | null;
   isOpen: boolean;
   /** Inline width in px, clamped. */
   width: number;
@@ -134,6 +136,11 @@ export function useArtifactPanel(
     setSelection({ threadId, selectedId: fresh.id });
   }, [activeRunId, threadArtifacts, threadId, artifactStream]);
 
+  const selectedArtifact = useMemo(
+    () => (selectedId ? (threadArtifacts.find((a) => a.id === selectedId) ?? null) : null),
+    [selectedId, threadArtifacts],
+  );
+
   const open = useCallback(
     (artifactId: string) => setSelection({ threadId, selectedId: artifactId }),
     [threadId],
@@ -150,6 +157,7 @@ export function useArtifactPanel(
   return {
     artifacts: threadArtifacts,
     selectedId,
+    selectedArtifact,
     isOpen: selectedId !== null,
     width,
     open,

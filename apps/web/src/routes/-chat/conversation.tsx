@@ -24,9 +24,8 @@ import {
 import type { StagedRow } from "~/components/approvals/ask-user";
 import { markChatTimingByAssistant } from "~/lib/chat/timing";
 import { useChatAttachmentsByMessage } from "~/lib/replicache/use-chat";
-import { useThreadArtifacts } from "~/lib/replicache/use-artifacts";
 import type { StreamingMessage } from "~/lib/chat/chat-stream-state";
-import { useArtifactStream } from "~/lib/chat/use-artifact-stream";
+import type { ArtifactStreamState } from "~/lib/chat/use-artifact-stream";
 import { SCROLL_CHAT_TO_BOTTOM_EVENT } from "~/lib/chat/use-run-complete";
 import { cn } from "~/lib/utils";
 import { ArtifactTriggerCard } from "./artifact-trigger-card";
@@ -64,6 +63,8 @@ export function Conversation({
   onOpenArtifact,
   openArtifactId,
   approvals = EMPTY_APPROVALS,
+  artifacts,
+  artifactStream,
 }: {
   messages: SyncedChatMessage[];
   stream: StreamingMessage | null;
@@ -82,6 +83,10 @@ export function Conversation({
    * the cards; the feed keeps one marker line at the tail of the streaming turn.
    */
   approvals?: readonly StagedRow[] | undefined;
+  /** This thread's artifacts, newest first (ADR-0075). */
+  artifacts: readonly SyncedArtifact[];
+  /** Live artifact bodies for this thread. */
+  artifactStream: ArtifactStreamState;
 }) {
   const virtuosoRef = useRef<VirtuosoHandle | null>(null);
   // Smooth jumps stall across many unmeasured rows, so use smooth only when the live edge is near.
@@ -97,12 +102,10 @@ export function Conversation({
   const attachmentsByMessage = useChatAttachmentsByMessage(threadId);
 
   // Artifacts grouped by authoring message (ADR-0075). A run can make more than one.
-  const threadArtifacts = useThreadArtifacts(threadId);
-
   const artifactsByMessage = useMemo(() => {
     const map = new Map<string, SyncedArtifact[]>();
 
-    for (const artifact of threadArtifacts) {
+    for (const artifact of artifacts) {
       if (!artifact.messageId) continue;
       const list = map.get(artifact.messageId);
 
@@ -111,18 +114,17 @@ export function Conversation({
     }
 
     return map;
-  }, [threadArtifacts]);
+  }, [artifacts]);
 
   // A document the live run writes now. Its tool call starts only when the body is complete,
   // so without this the step reads "Thinking" the whole time the body streams.
-  const artifactStreams = useArtifactStream(threadId);
-  const writing = showStream && !stream.done ? artifactStreams.writingForRun(stream.runId) : null;
+  const writing = showStream && !stream.done ? artifactStream.writingForRun(stream.runId) : null;
 
   // An append or update names no title, so read it off the synced row.
   const writingLabel = writing
     ? describeWriting(
         writing.title ??
-          threadArtifacts.find((artifact) => artifact.id === writing.artifactId)?.title ??
+          artifacts.find((artifact) => artifact.id === writing.artifactId)?.title ??
           null,
       )
     : null;

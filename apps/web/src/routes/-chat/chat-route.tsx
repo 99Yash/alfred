@@ -12,5 +12,5 @@ export function ChatRoute() {
     if (!hasChild) document.title = formatPageTitle("Chat");
   }, [hasChild]);
 
-  return hasChild ? <Outlet /> : <ChatShell threadId={undefined} title="New chat" />;
+  return hasChild ? <Outlet /> : <ChatShell threadId={undefined} thread={null} title="New chat" />;
 }
