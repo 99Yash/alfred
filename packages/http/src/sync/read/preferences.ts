@@ -27,11 +27,5 @@ export const fetchPreferences = syncEntity(SYNC_MODEL.pref, {
         ),
       )
       .orderBy(asc(userPreferences.key)),
-  map: (p: UserPreference) => ({
-    key: p.key,
-    userId: p.userId,
-    value: p.value,
-    source: p.source,
-    rowVersion: p.rowVersion,
-  }),
+  map: (p: UserPreference) => p,
 });
