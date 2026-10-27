@@ -62,9 +62,11 @@ export async function joinChildRun(
 }
 
 /**
- * Decide park or fold from a listed child. The one value carries the row's id, the parent it
- * was listed under, and the outcome read from that row, so a caller cannot pair child A's
- * outcome with child B's id or with the wrong parent.
+ * Decide park or fold from one child value. The value carries the row's id, the parent it was
+ * read under, and the outcome of that row (`not_found` too, from `joinChildRun`), so a caller
+ * cannot pass child A's outcome next to child B's id as free arguments. A hand-built or spread
+ * `SpawnedChildRun` literal still compiles: only `listSpawnedChildRuns` and `joinChildRun` bind
+ * the id and parent to the row they checked.
  */
 export async function joinChildOutcome(
   child: SpawnedChildRun,
