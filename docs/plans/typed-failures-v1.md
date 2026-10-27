@@ -139,7 +139,7 @@ export function hasTag<T extends string>(err: unknown, tag: T): err is TaggedErr
 ```
 
 `HttpError`, `RailwayGraphqlError`, and `SerializationError` already carry `_tag`.
-`GoogleReauthRequiredError`, `MissingScopesError`, `McpOAuthAuthorizationRequiredError`,
+`GoogleReauthRequiredError`, `McpOAuthAuthorizationRequiredError`,
 `McpClientError`, `GoogleCredentialNotFoundError`, and `CredentialVaultError` do not.
 Give them one. Do not add public copy to these classes. The message stays a log message.
 

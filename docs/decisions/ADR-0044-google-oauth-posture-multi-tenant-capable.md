@@ -88,3 +88,5 @@ The 2026-06-08 amendment says "single-tenant forever". This section records the 
 - **Ways around it.** Drop every restricted scope (this reverses the 2026-06-08 grant-all), or use the self-host-per-user path in **Open**, where each user is the OAuth developer for their own client.
 
 Sources (checked 2026-10-16): [restricted-scope verification](https://developers.google.com/identity/protocols/oauth2/production-readiness/restricted-scope-verification), [Gmail scopes](https://developers.google.com/workspace/gmail/api/auth/scopes), [CASA](https://appdefensealliance.dev/casa), [app audience/user cap](https://support.google.com/cloud/answer/15549945).
+
+**Amendment (2026-10-27) — the unused scope guard is deleted.** `requireScopes`, `MissingScopesError`, and `featuresFromGrantedScopes` are deleted, because nothing called them. The 2026-06-08 amendment said `requireScopes()` stays for per-tool capability gating. That is no longer true: the tool registry availability check gates each tool before dispatch, with the code `missing_scope` (ADR-0093). `GOOGLE_FEATURE_SCOPES` and `scopesForFeatures()` stay.
