@@ -2,7 +2,6 @@ import {
   askUserInput,
   askUserResultSchema,
   isQuestionApproval,
-  parseJsonWith,
   type AskUserAnswer,
   type AskUserInput,
   type AskUserQuestion,
@@ -11,6 +10,8 @@ import {
   jsonObjectSchema,
 } from "@alfred/contracts";
 import type { SyncedActionStaging } from "@alfred/sync";
+
+import type { ResolvedToolCall } from "~/lib/chat/resolved-tool-call";
 
 /**
  * Readers for the `system.ask_user` approval (ADR-0099). Its staged input and
@@ -98,14 +99,14 @@ export type AskUserSummary =
  * shows this; then we return null and the caller draws the plain tool row.
  * A 3-question call with long descriptions already overflows, so this is common.
  */
-export function askUserSummary(tool: {
-  resultPreview?: string | undefined;
-  resultTruncated?: boolean | undefined;
-}): AskUserSummary | null {
-  if (!tool.resultPreview || tool.resultTruncated) return null;
-  const result = parseJsonWith(tool.resultPreview, askUserResultSchema);
+export function askUserSummary(
+  tool: Pick<ResolvedToolCall, "result" | "resultTruncated">,
+): AskUserSummary | null {
+  if (!tool.result || tool.resultTruncated) return null;
+  const parsed = askUserResultSchema.safeParse(tool.result);
 
-  if (!result) return null;
+  if (!parsed.success) return null;
+  const result = parsed.data;
 
   if (result.status === "unanswered") {
     return { status: "unanswered", reason: result.reason, questions: result.questions };

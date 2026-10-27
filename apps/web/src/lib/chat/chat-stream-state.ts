@@ -7,6 +7,7 @@ import {
 import type { EventPayload } from "@alfred/contracts/events";
 import type { SyncedChatNarration } from "@alfred/sync";
 import { frameThreadId, type EventStreamFrame } from "~/lib/events/frame";
+import { resolveToolCall, type ResolvedToolCall } from "./resolved-tool-call";
 import { markChatTimingByAssistant } from "./timing";
 
 /**
@@ -16,22 +17,16 @@ import { markChatTimingByAssistant } from "./timing";
  * and a terminal tool card never changes again.
  */
 
-export interface StreamingToolCall {
-  toolCallId: string;
-  toolName: string;
-  status: "started" | "succeeded" | "failed";
-  argsPreview?: string | undefined;
-  resultPreview?: string | undefined;
-  /** `preview()` pruned `resultPreview`, so it is not the whole result. */
-  resultTruncated?: boolean | undefined;
-  /** ADR-0070: non-text bytes were stripped from this result before storage. */
-  sanitized?: boolean | undefined;
-  /** Narration segment this call follows. */
-  segmentIndex: number;
+/**
+ * A live tool card. `argsPreview` stays raw here only for the fold's carry-forward and the
+ * re-render compare. Every surface reads the parsed `args`; never parse the raw text again.
+ */
+export type StreamingToolCall = ResolvedToolCall & {
+  argsPreview: string | undefined;
   /** Client clock at the first and terminal events, for the duration chip. Null while in flight. */
   startedTs: number;
   endedTs: number | null;
-}
+};
 
 /**
  * A sub-agent's tool calls, nested under its spawn card.
@@ -173,7 +168,8 @@ export function applyStreamingToolEvent(
 
   // A terminal card stays terminal. Resume or reclaim republishes `started`, and SSE is unordered.
   if (event.status === "started" && previous && previous.endedTs !== null) return;
-  tools.set(event.toolCallId, {
+
+  const merged = {
     toolCallId: event.toolCallId,
     toolName: event.toolName,
     status: event.status,
@@ -182,6 +178,11 @@ export function applyStreamingToolEvent(
     resultTruncated: event.resultTruncated ?? previous?.resultTruncated,
     sanitized: event.sanitized ?? previous?.sanitized,
     segmentIndex: event.segmentIndex,
+  };
+
+  tools.set(event.toolCallId, {
+    ...resolveToolCall(merged),
+    argsPreview: merged.argsPreview,
     startedTs: previous?.startedTs ?? now,
     // A replayed terminal event keeps the first end time.
     endedTs: event.status === "started" ? null : (previous?.endedTs ?? now),

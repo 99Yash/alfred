@@ -5,12 +5,12 @@ import {
   type ToolCategory,
   type ToolName,
   toolCategoryOf,
-  toolLabel,
-  jsonObjectSchema,
-  parseJsonWith,
+  TOOL_LABELS,
   toNonEmptyString,
+  type JsonObject,
 } from "@alfred/contracts";
 import { Sparkles, Wrench, type LucideIcon } from "lucide-react";
+import type { ResolvedToolCall } from "~/lib/chat/resolved-tool-call";
 import { type IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { getIntegrationPage } from "~/lib/integrations/integrations";
 import { brandlessToolIcon } from "./animated-tool-icons";
@@ -25,24 +25,13 @@ const TRAIL_HIDDEN_TOOLS: ReadonlySet<string> = new Set([
   "system.load_tool",
 ] satisfies ToolName[]);
 
-export interface ToolCallView {
-  toolCallId: string;
-  toolName: string;
-  status: "started" | "succeeded" | "failed";
-  argsPreview?: string | undefined;
-  resultPreview?: string | undefined;
-  /** `preview()` pruned the preview. It still parses, so check this before trusting its shape. */
-  resultTruncated?: boolean | undefined;
-  /** ADR-0070: non-text bytes were stripped before storage. */
-  sanitized?: boolean | undefined;
-  /** The narration segment this call follows. */
-  segmentIndex?: number | undefined;
-}
-
 export interface ToolPresentation {
   brand?: IntegrationBrand | undefined;
   /** A user-added MCP server has no brand artwork, so its row shows the vendor's favicon. */
   faviconDomain?: string | undefined;
+  /** The tool's drawn, animatable mark. `undefined` for a name this build does not know. */
+  icon: LucideIcon | undefined;
+  /** `icon`, else a generic mark. */
   fallbackIcon: LucideIcon;
   running: string;
   done: string;
@@ -56,7 +45,9 @@ export interface ToolPresentation {
  * The calls a person sees. Every surface that draws or counts tool calls reads this, never the raw list.
  * Filter once where the surface receives its list and pass the result down.
  */
-export function visibleTools<T extends Pick<ToolCallView, "toolName">>(tools: readonly T[]): T[] {
+export function visibleTools<T extends Pick<ResolvedToolCall, "toolName">>(
+  tools: readonly T[],
+): T[] {
   return tools.filter((tool) => !TRAIL_HIDDEN_TOOLS.has(tool.toolName));
 }
 
@@ -70,11 +61,10 @@ function humanizeTool(toolName: string): string {
   return actionSegment(toolName).replace(/_/g, " ");
 }
 
-/** The remote tool an `mcp.call` names. `undefined` when the args preview does not carry both ids. */
+/** The remote tool an `mcp.call` names. `undefined` when the args do not carry both ids. */
 function mcpCallTarget(
-  argsPreview: string | undefined,
+  args: JsonObject | undefined,
 ): { connectionId: string; remoteName: string } | undefined {
-  const args = parseJsonWith(argsPreview, jsonObjectSchema);
   const connectionId = toNonEmptyString(args?.connectionId);
   const remoteName = toNonEmptyString(args?.remoteName);
 
@@ -85,8 +75,8 @@ function mcpCallTarget(
  * What makes two calls the same operation for a folded row. An `mcp.call` is one tool name for
  * every server, so its target joins the key: two servers or two remote tools never share a row.
  */
-export function foldIdentity(tool: Pick<ToolCallView, "toolName" | "argsPreview">): string {
-  const target = tool.toolName === MCP_CALL_TOOL ? mcpCallTarget(tool.argsPreview) : undefined;
+export function foldIdentity(tool: Pick<ResolvedToolCall, "toolName" | "args">): string {
+  const target = tool.toolName === MCP_CALL_TOOL ? mcpCallTarget(tool.args) : undefined;
 
   return target
     ? `${tool.toolName}\u0000${target.connectionId}\u0000${target.remoteName}`
@@ -94,7 +84,7 @@ export function foldIdentity(tool: Pick<ToolCallView, "toolName" | "argsPreview"
 }
 
 /** True when any call is an `mcp.call`, so a surface asks for the server list only then. */
-export function hasMcpCall(tools: readonly Pick<ToolCallView, "toolName">[]): boolean {
+export function hasMcpCall(tools: readonly Pick<ResolvedToolCall, "toolName">[]): boolean {
   return tools.some((tool) => tool.toolName === MCP_CALL_TOOL);
 }
 
@@ -133,8 +123,12 @@ export function toolCategory(toolName: string): ToolCategory {
  * A readable tool call: integration logo, present-tense phrase, and the meaningful argument.
  * `mcpServers` names the server behind an `mcp.call`. Without it the row still names the remote tool.
  */
-export function presentTool(tool: ToolCallView, mcpServers?: McpServerLookup): ToolPresentation {
-  const args = parseJsonWith(tool.argsPreview, jsonObjectSchema);
+export function presentTool(
+  tool: ResolvedToolCall,
+  mcpServers?: McpServerLookup,
+): ToolPresentation {
+  const { args } = tool;
+  const icon = brandlessToolIcon(tool.registeredName);
 
   const slug = tool.toolName.includes(".")
     ? tool.toolName.slice(0, tool.toolName.indexOf("."))
@@ -146,6 +140,7 @@ export function presentTool(tool: ToolCallView, mcpServers?: McpServerLookup): T
 
     return {
       brand: provider?.brand,
+      icon,
       fallbackIcon: Sparkles,
       running: "Delegating a sub-task",
       done: "Delegated a sub-task",
@@ -155,12 +150,12 @@ export function presentTool(tool: ToolCallView, mcpServers?: McpServerLookup): T
   }
 
   // The fallback is only for unregistered names.
-  const label = toolLabel(tool.toolName);
+  const label = tool.registeredName ? TOOL_LABELS[tool.registeredName] : undefined;
   const failed = label ? `Couldn't ${label.title}` : undefined;
   // The wrench is for names this build does not know.
-  const fallbackIcon = brandlessToolIcon(tool.toolName) ?? Wrench;
+  const fallbackIcon = icon ?? Wrench;
 
-  const mcpTarget = tool.toolName === MCP_CALL_TOOL ? mcpCallTarget(tool.argsPreview) : undefined;
+  const mcpTarget = tool.toolName === MCP_CALL_TOOL ? mcpCallTarget(args) : undefined;
 
   if (mcpTarget) {
     // The remote name is the server's own word for the action, e.g. "list deployments".
@@ -170,6 +165,7 @@ export function presentTool(tool: ToolCallView, mcpServers?: McpServerLookup): T
     return {
       brand: server?.brand,
       faviconDomain: server?.faviconDomain,
+      icon,
       fallbackIcon,
       running: `Running ${action}`,
       done: `Ran ${action}`,
@@ -179,10 +175,10 @@ export function presentTool(tool: ToolCallView, mcpServers?: McpServerLookup): T
   }
 
   if (slug === "system" || slug === "") {
-    if (label) return { fallbackIcon, running: label.running, done: label.done, failed };
+    if (label) return { icon, fallbackIcon, running: label.running, done: label.done, failed };
     const verb = humanizeTool(tool.toolName);
 
-    return { fallbackIcon, running: verb, done: verb, failed: `Couldn't ${verb}` };
+    return { icon, fallbackIcon, running: verb, done: verb, failed: `Couldn't ${verb}` };
   }
 
   // Integration-scoped tool, e.g. `github.search`.
@@ -192,6 +188,7 @@ export function presentTool(tool: ToolCallView, mcpServers?: McpServerLookup): T
   if (label) {
     return {
       brand,
+      icon,
       fallbackIcon,
       running: label.running,
       done: label.done,
@@ -204,6 +201,7 @@ export function presentTool(tool: ToolCallView, mcpServers?: McpServerLookup): T
 
   return {
     brand,
+    icon,
     fallbackIcon,
     running: verb,
     done: verb,

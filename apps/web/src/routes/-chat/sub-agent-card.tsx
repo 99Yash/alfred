@@ -1,17 +1,18 @@
-import { jsonObjectSchema, parseJsonWith, toNonEmptyString } from "@alfred/contracts";
+import { toNonEmptyString } from "@alfred/contracts";
 import * as Accordion from "@radix-ui/react-accordion";
 import { ChevronRight } from "lucide-react";
 import { useId, useState } from "react";
 import type { SubAgentTrail } from "~/lib/chat/chat-stream-state";
+import type { ResolvedToolCall } from "~/lib/chat/resolved-tool-call";
 import { cn } from "~/lib/utils";
-import { brandlessToolIcon, RunningToolIcon } from "./animated-tool-icons";
+import { RunningToolIcon } from "./animated-tool-icons";
 import { Elapsed } from "./elapsed";
 import { CollapseItem, CollapseList } from "./collapse-list";
 import { RunGlyphCluster } from "./run-glyph-cluster";
 import { runGlyphs, runSummary } from "./run-summary";
 import { ToolCallCard } from "./tool-call-card";
 import { useMcpServerLookup } from "./mcp-server";
-import { hasMcpCall, presentTool, type ToolCallView, visibleTools } from "./tool-call-presentation";
+import { hasMcpCall, presentTool, visibleTools } from "./tool-call-presentation";
 
 const ITEM = "subagent";
 
@@ -19,7 +20,7 @@ const ITEM = "subagent";
  * A spawned sub-agent's card, showing the child's steps nested while it works.
  * Live only: the child's calls are not persisted, so on reload this is the plain spawn card.
  */
-export function SubAgentCard({ tool, trail }: { tool: ToolCallView; trail: SubAgentTrail }) {
+export function SubAgentCard({ tool, trail }: { tool: ResolvedToolCall; trail: SubAgentTrail }) {
   const contentId = useId();
 
   // Live includes parked; only a terminal outcome ends it.
@@ -37,7 +38,7 @@ export function SubAgentCard({ tool, trail }: { tool: ToolCallView; trail: SubAg
   const steps = visibleTools(trail.tools);
   const mcpServers = useMcpServerLookup(hasMcpCall(steps));
   const spawn = presentTool(tool);
-  const brief = toNonEmptyString(parseJsonWith(tool.argsPreview, jsonObjectSchema)?.brief);
+  const brief = toNonEmptyString(tool.args?.brief);
   // `cancelled` also means the child did not finish.
   const failed = trail.outcome === "failed" || trail.outcome === "cancelled";
 
@@ -53,7 +54,7 @@ export function SubAgentCard({ tool, trail }: { tool: ToolCallView; trail: SubAg
           ? runSummary(steps, mcpServers)
           : spawn.done;
 
-  const SpawnIcon = brandlessToolIcon(tool.toolName);
+  const SpawnIcon = spawn.icon;
 
   const stepCount =
     steps.length > 0 ? `${steps.length} step${steps.length === 1 ? "" : "s"}` : null;
@@ -128,7 +129,7 @@ export function SubAgentCard({ tool, trail }: { tool: ToolCallView; trail: SubAg
                   <CollapseItem key={step.toolCallId}>
                     <div className="flex items-center gap-2">
                       <div className="min-w-0 flex-1">
-                        <ToolCallCard tools={[step]} live={live} />
+                        <ToolCallCard tools={[step]} live={live} mcpServers={mcpServers} />
                       </div>
                       <Elapsed startedTs={step.startedTs} endedTs={step.endedTs} />
                     </div>

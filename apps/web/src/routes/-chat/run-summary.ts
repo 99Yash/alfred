@@ -1,14 +1,9 @@
 import { type LucideIcon } from "lucide-react";
+import type { ResolvedToolCall } from "~/lib/chat/resolved-tool-call";
 import { type IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { lowerFirst } from "~/lib/strings";
-import { brandlessToolIcon } from "./animated-tool-icons";
 import { type McpServerLookup } from "./mcp-server";
-import {
-  foldIdentity,
-  presentTool,
-  toolCategory,
-  type ToolCallView,
-} from "./tool-call-presentation";
+import { foldIdentity, presentTool, toolCategory } from "./tool-call-presentation";
 
 // Run summary for `ToolCallGroup` and `SubAgentCard`. Its own module to avoid a cycle between them.
 
@@ -22,7 +17,7 @@ export type RunGlyph =
  * Distinct glyphs a run touched, in first-seen order: the brand coin, else the server's favicon,
  * else the tool's own mark.
  */
-export function runGlyphs(tools: ToolCallView[], mcpServers?: McpServerLookup): RunGlyph[] {
+export function runGlyphs(tools: ResolvedToolCall[], mcpServers?: McpServerLookup): RunGlyph[] {
   const glyphs: RunGlyph[] = [];
   const seenBrands = new Set<IntegrationBrand>();
   const seenDomains = new Set<string>();
@@ -30,7 +25,7 @@ export function runGlyphs(tools: ToolCallView[], mcpServers?: McpServerLookup): 
   const seenIcons = new Set<LucideIcon>();
 
   for (const tool of tools) {
-    const { brand, faviconDomain } = presentTool(tool, mcpServers);
+    const { brand, faviconDomain, icon: Icon } = presentTool(tool, mcpServers);
 
     if (brand) {
       if (seenBrands.has(brand)) continue;
@@ -45,8 +40,6 @@ export function runGlyphs(tools: ToolCallView[], mcpServers?: McpServerLookup): 
       glyphs.push({ kind: "favicon", key: faviconDomain, domain: faviconDomain });
       continue;
     }
-
-    const Icon = brandlessToolIcon(tool.toolName);
 
     if (Icon) {
       if (seenIcons.has(Icon)) continue;
@@ -64,7 +57,7 @@ export function runGlyphs(tools: ToolCallView[], mcpServers?: McpServerLookup): 
  * "Finished N actions", or reads and writes joined. Plumbing is not counted.
  * Only steps that landed count, so a failed read never reads as done.
  */
-export function runSummary(tools: ToolCallView[], mcpServers?: McpServerLookup): string {
+export function runSummary(tools: ResolvedToolCall[], mcpServers?: McpServerLookup): string {
   const succeeded = tools.filter((t) => t.status === "succeeded");
   const sources = succeeded.filter((t) => toolCategory(t.toolName) === "source");
   const actions = succeeded.filter((t) => toolCategory(t.toolName) === "action");

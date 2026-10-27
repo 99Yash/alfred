@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import { runSummary } from "../../src/routes/-chat/run-summary";
-import type { ToolCallView } from "../../src/routes/-chat/tool-call-presentation";
+import { resolveToolCall, type ResolvedToolCall } from "../../src/lib/chat/resolved-tool-call";
 
 const call = (
   toolName: string,
-  status: ToolCallView["status"],
+  status: ResolvedToolCall["status"],
   toolCallId = toolName,
-): ToolCallView => ({ toolCallId, toolName, status });
+): ResolvedToolCall => resolveToolCall({ toolCallId, toolName, status, segmentIndex: 0 });
 
 describe("runSummary", () => {
   test("describes what landed, not what was attempted", () => {

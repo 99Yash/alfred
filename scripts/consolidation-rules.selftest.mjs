@@ -106,6 +106,35 @@ const GMAIL_SIBLING_FILE = "packages/integrations/src/google/client.ts";
  */
 const CASES = [
   {
+    name: "chat-tool-preview-reparse — a card surface parses a result preview again",
+    caught: true,
+    rule: "chat-tool-preview-reparse",
+    file: "apps/web/src/routes/-chat/sources.ts",
+    code: `const parsed = parseJsonWith(tool.resultPreview, jsonObjectSchema);`,
+  },
+  {
+    name: "chat-tool-preview-reparse — prettier puts the args preview on its own line",
+    caught: true,
+    rule: "chat-tool-preview-reparse",
+    file: "apps/web/src/routes/-chat/tool-call-group.tsx",
+    code: `const args = parseJsonWith(
+  call?.argsPreview,
+  jsonObjectSchema,
+);`,
+  },
+  {
+    name: "chat-tool-preview-reparse — resolveToolCall owns the one parse",
+    caught: false,
+    file: "apps/web/src/lib/chat/resolved-tool-call.ts",
+    code: `args: parseJsonWith(raw.argsPreview, jsonObjectSchema) ?? undefined,`,
+  },
+  {
+    name: "chat-tool-preview-reparse — a surface reads the parsed result",
+    caught: false,
+    file: "apps/web/src/routes/-chat/sources.ts",
+    code: `const citations = tool.result?.citations;`,
+  },
+  {
     name: "hand-rolled-no-reply-regex — a local no-reply prefix regex",
     caught: true,
     rule: "hand-rolled-no-reply-regex",

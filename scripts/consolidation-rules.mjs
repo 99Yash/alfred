@@ -563,6 +563,25 @@ export const RULES = [
     fix: "parseJsonWith(raw, schema, fallback?) from @alfred/contracts parses AND validates in one step; safeJsonParse(raw) handles malformed input without a try/catch. Reach for those before JSON.parse + a cast.",
   },
   {
+    id: "chat-tool-preview-reparse",
+    // A chat tool call's previews are parsed one time, where the call enters
+    // the web: `resolveToolCall`, called by the stream fold and the persisted
+    // split. Every card surface reads `args` / `result` off `ResolvedToolCall`.
+    // Types cannot close the residue: `resultPreview` stays on the resolved
+    // shape for the JSON dump and the failure line, and `argsPreview` stays on
+    // `StreamingToolCall` for carry-forward and `toolListsEqual`. A second
+    // parse of either one is a surface that drifts from the others.
+    //
+    // `scope: "chain"`: prettier puts the argument on its own line when the
+    // call is long, so the receiver can follow the parenthesis after a break.
+    re: /\bparseJsonWith\(\s*[\w$.?]+\.(?:argsPreview|resultPreview)\b/,
+    scope: "chain",
+    paths: /(^|\/)apps\/web\/src\//,
+    severity: "gate",
+    owners: ["apps/web/src/lib/chat/resolved-tool-call.ts"],
+    fix: "Read `args` / `result` off ResolvedToolCall from ~/lib/chat/resolved-tool-call. resolveToolCall parses both previews one time, at the stream fold and the persisted split. Take a ResolvedToolCall (or a Pick of it) as the parameter instead of a raw preview string.",
+  },
+  {
     id: "raw-intl-timezone",
     re: /new\s+Intl\.DateTimeFormat\(/,
     severity: "hint",

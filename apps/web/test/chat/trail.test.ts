@@ -4,14 +4,14 @@ import { describe, test } from "node:test";
 import { SPAWN_SUB_AGENT_TOOL } from "@alfred/contracts";
 
 import { buildTrail } from "../../src/routes/-chat/trail";
-import type { ToolCallView } from "../../src/routes/-chat/tool-call-presentation";
+import { resolveToolCall, type ResolvedToolCall } from "../../src/lib/chat/resolved-tool-call";
 
 const call = (
   toolName: string,
-  status: ToolCallView["status"],
-  segmentIndex?: number,
-  toolCallId = `${toolName}-${segmentIndex ?? 0}`,
-): ToolCallView => ({ toolCallId, toolName, status, segmentIndex });
+  status: ResolvedToolCall["status"],
+  segmentIndex = 0,
+  toolCallId = `${toolName}-${segmentIndex}`,
+): ResolvedToolCall => resolveToolCall({ toolCallId, toolName, status, segmentIndex });
 
 const kinds = (items: ReturnType<typeof buildTrail>) => items.map((i) => i.kind);
 

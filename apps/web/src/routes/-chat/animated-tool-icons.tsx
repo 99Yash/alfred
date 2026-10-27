@@ -1,4 +1,4 @@
-import { isToolName, type ToolName } from "@alfred/contracts";
+import type { ToolName } from "@alfred/contracts";
 import {
   Blocks,
   Bookmark,
@@ -86,9 +86,9 @@ const ICON_BY_TOOL_NAME: ReadonlyMap<string, LucideIcon> = new Map(
   Object.entries(BRANDLESS_TOOL_ICONS),
 );
 
-/** `undefined` for an unknown name, which keeps the generic fallback. */
-export function brandlessToolIcon(toolName: string): LucideIcon | undefined {
-  return isToolName(toolName) ? ICON_BY_TOOL_NAME.get(toolName) : undefined;
+/** `undefined` for an unregistered name, which keeps the generic fallback. */
+export function brandlessToolIcon(toolName: ToolName | undefined): LucideIcon | undefined {
+  return toolName === undefined ? undefined : ICON_BY_TOOL_NAME.get(toolName);
 }
 
 /** Pulses while `running`. CSS, so the global reduced-motion block can stop it. */
