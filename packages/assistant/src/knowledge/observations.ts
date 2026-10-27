@@ -1,6 +1,10 @@
 import { db } from "@alfred/db";
 import { observationFamilyHeads, observations, type Observation } from "@alfred/db/schemas";
-import { observationInsertSchema, type ObservationInsertInput } from "@alfred/contracts";
+import {
+  observationInsertSchema,
+  type ObservationInsert,
+  type ObservationInsertInput,
+} from "@alfred/contracts";
 import { and, eq, sql, type SQL } from "drizzle-orm";
 import { PG_UNIQUE_VIOLATION, pgErrorChain } from "@alfred/db/pg-errors";
 import { type DbTransaction } from "@alfred/db";
@@ -82,72 +86,76 @@ export async function insertObservation(
 ): Promise<InsertObservationResult> {
   const parsed = observationInsertSchema.parse(input);
 
-  const run = async (ex: DbTransaction): Promise<InsertObservationResult> => {
-    const [inserted] = await ex
-      .insert(observations)
-      .values({
-        userId: parsed.userId,
-        source: parsed.source,
-        kind: parsed.kind,
-        occurredAt: parsed.occurredAt,
-        familyKey: parsed.familyKey,
-        evidenceHash: parsed.evidenceHash,
-        subjectIdentity: parsed.subjectIdentity,
-        objectIdentity: parsed.objectIdentity ?? null,
-        participants: parsed.participants,
-        payload: parsed.payload,
-        schemaVersion: parsed.schemaVersion,
-        reducerVersion: parsed.reducerVersion,
-        supersedesObservationId: parsed.supersedesObservationId ?? null,
-      })
-      // Dedup index only: no-fork and single-root violations must surface.
-      .onConflictDoNothing({
-        target: [observations.userId, observations.familyKey, observations.evidenceHash],
-      })
-      .returning();
+  return tx ? insertParsed(parsed, tx) : db().transaction((ex) => insertParsed(parsed, ex));
+}
 
-    if (!inserted) {
-      // Dedup: return the existing row; the head pointer stays.
-      const [existing] = await ex
-        .select()
-        .from(observations)
-        .where(
-          and(
-            eq(observations.userId, parsed.userId),
-            eq(observations.familyKey, parsed.familyKey),
-            eq(observations.evidenceHash, parsed.evidenceHash),
-          ),
-        )
-        .limit(1);
+/** The insert body for a value one exported entry already parsed. Module-private, so the P1 gate stays at the export. */
+async function insertParsed(
+  parsed: ObservationInsert,
+  ex: DbTransaction,
+): Promise<InsertObservationResult> {
+  const [inserted] = await ex
+    .insert(observations)
+    .values({
+      userId: parsed.userId,
+      source: parsed.source,
+      kind: parsed.kind,
+      occurredAt: parsed.occurredAt,
+      familyKey: parsed.familyKey,
+      evidenceHash: parsed.evidenceHash,
+      subjectIdentity: parsed.subjectIdentity,
+      objectIdentity: parsed.objectIdentity ?? null,
+      participants: parsed.participants,
+      payload: parsed.payload,
+      schemaVersion: parsed.schemaVersion,
+      reducerVersion: parsed.reducerVersion,
+      supersedesObservationId: parsed.supersedesObservationId ?? null,
+    })
+    // Dedup index only: no-fork and single-root violations must surface.
+    .onConflictDoNothing({
+      target: [observations.userId, observations.familyKey, observations.evidenceHash],
+    })
+    .returning();
 
-      if (!existing) {
-        // Only possible if the row was deleted between the two statements.
-        throw new Error(
-          "[user-model.insertObservation] dedup conflict but no existing observation found " +
-            `(user=${parsed.userId}, family=${parsed.familyKey})`,
-        );
-      }
+  if (!inserted) {
+    // Dedup: return the existing row; the head pointer stays.
+    const [existing] = await ex
+      .select()
+      .from(observations)
+      .where(
+        and(
+          eq(observations.userId, parsed.userId),
+          eq(observations.familyKey, parsed.familyKey),
+          eq(observations.evidenceHash, parsed.evidenceHash),
+        ),
+      )
+      .limit(1);
 
-      return { observation: existing, deduped: true };
+    if (!existing) {
+      // Only possible if the row was deleted between the two statements.
+      throw new Error(
+        "[user-model.insertObservation] dedup conflict but no existing observation found " +
+          `(user=${parsed.userId}, family=${parsed.familyKey})`,
+      );
     }
 
-    // The new row is the family's live member now.
-    await ex
-      .insert(observationFamilyHeads)
-      .values({
-        userId: parsed.userId,
-        familyKey: parsed.familyKey,
-        headObservationId: inserted.id,
-      })
-      .onConflictDoUpdate({
-        target: [observationFamilyHeads.userId, observationFamilyHeads.familyKey],
-        set: { headObservationId: inserted.id },
-      });
+    return { observation: existing, deduped: true };
+  }
 
-    return { observation: inserted, deduped: false };
-  };
+  // The new row is the family's live member now.
+  await ex
+    .insert(observationFamilyHeads)
+    .values({
+      userId: parsed.userId,
+      familyKey: parsed.familyKey,
+      headObservationId: inserted.id,
+    })
+    .onConflictDoUpdate({
+      target: [observationFamilyHeads.userId, observationFamilyHeads.familyKey],
+      set: { headObservationId: inserted.id },
+    });
 
-  return tx ? run(tx) : db().transaction(run);
+  return { observation: inserted, deduped: false };
 }
 
 /**
@@ -175,11 +183,8 @@ export async function appendObservationFamilyMember(
           )
           .limit(1);
 
-        const result = await insertObservation(
-          {
-            ...parsed,
-            supersedesObservationId: head?.headObservationId ?? null,
-          },
+        const result = await insertParsed(
+          { ...parsed, supersedesObservationId: head?.headObservationId ?? null },
           tx,
         );
 

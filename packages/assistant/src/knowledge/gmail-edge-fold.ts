@@ -17,7 +17,6 @@ import {
   collapseWhitespace,
   domainSchema,
   extractGmailDocumentBody,
-  gmailEmailMessagePayloadSchema,
   identityRefSchema,
   isNonEmptyString,
   parseGmailDocumentMetadata,
@@ -41,7 +40,7 @@ import { and, asc, eq, inArray, isNull, lte, notInArray, sql } from "drizzle-orm
 import { parse as parseDomainName } from "tldts";
 import { ensureEntityNode } from "./entities";
 import { classifyEntityKind, type GmailPayloadSignals } from "./entity-kind-classifier";
-import { gmailHighWatermarkCondition, payloadSignalsFromObservation } from "./gmail-kind-fold";
+import { gmailHighWatermarkCondition, parseGmailObservationPayload } from "./gmail-kind-fold";
 import { liveObservationHeadJoin } from "./observations";
 
 /** The block's stated name and org domain. */
@@ -233,9 +232,9 @@ export async function projectGmailWorksAtEdges(
     const groups = new Map<string, SenderGroup>();
 
     for (const { observation } of rows) {
-      const payload = gmailEmailMessagePayloadSchema.safeParse(observation.payload);
+      const payload = parseGmailObservationPayload(observation);
 
-      if (!payload.success) continue;
+      if (!payload) continue;
 
       const subject = identityRefSchema.safeParse(observation.subjectIdentity);
 
@@ -257,9 +256,9 @@ export async function projectGmailWorksAtEdges(
       }
 
       // Signals come from every subject observation, sent included, like the kind fold. Only inbound mints.
-      group.payloadSignals.push(payloadSignalsFromObservation(observation));
+      group.payloadSignals.push(payload.headers);
 
-      if (payload.data.isSent) continue;
+      if (payload.isSent) continue;
 
       const displayName = senderDisplayName(observation, subject.data);
 
@@ -268,7 +267,7 @@ export async function projectGmailWorksAtEdges(
       group.displayNames.add(displayName);
       group.messages.push({
         observation,
-        documentId: payload.data.documentId,
+        documentId: payload.documentId,
         senderDisplayName: displayName,
       });
     }
