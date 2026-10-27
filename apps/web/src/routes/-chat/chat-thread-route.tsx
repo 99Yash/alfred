@@ -25,5 +25,5 @@ export function ChatThreadRoute() {
     document.title = formatPageTitle(title);
   }, [title]);
 
-  return <ChatShell threadId={threadId} title={title} />;
+  return <ChatShell threadId={threadId} thread={thread} title={title} />;
 }

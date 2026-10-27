@@ -42,7 +42,7 @@ import { AppButton, AppSwitch, AppTextarea } from "~/components/ui/v2";
 import { Kbd } from "~/components/ui/kbd";
 import { AppThemeContext } from "~/components/ui/v2/theme";
 import { getIntegrationPage } from "~/lib/integrations/integrations";
-import { useActionPolicy } from "~/lib/replicache/use-action-policy";
+import type { ActionPolicyState } from "~/lib/replicache/use-action-policy";
 import { callToast, toast } from "~/lib/toast";
 import { cn } from "~/lib/utils";
 import { CHAT_EASE, CHAT_SWAP, usePrefersReducedMotion, type LiveTransition } from "./motion";
@@ -86,11 +86,14 @@ export interface ApprovalDockHandle {
 export function ChatApprovalDock({
   runId,
   approvals,
+  policy,
   ref,
 }: {
   runId: string | undefined;
   /** Pending rows for the run, in tool-trail order. */
   approvals: readonly StagedRow[];
+  /** The chat's action policy read, for the "Always allow" switches. */
+  policy: DockPolicy;
   ref?: React.Ref<ApprovalDockHandle> | undefined;
 }) {
   const reduceMotion = usePrefersReducedMotion();
@@ -260,6 +263,7 @@ export function ChatApprovalDock({
             ) : (
               <DockApprovalCard
                 staging={current.staging}
+                policy={policy}
                 renderPager={renderPager}
                 primaryRef={primaryRef}
                 onDecisionStart={() => dismissChime(current.staging.id)}
@@ -391,6 +395,11 @@ function useRecordDecision<Decision extends RecordedDecision>({
   return { decisionKind, decide };
 }
 
+type DockPolicy = Pick<
+  ActionPolicyState,
+  "modeFor" | "toolModeFor" | "setIntegrationMode" | "setToolMode"
+>;
+
 interface DockCardProps {
   /** The "1 of 2" control, or `null` for a lone card. Pass the card's `busy`. */
   renderPager: (busy: boolean) => React.ReactNode;
@@ -402,11 +411,12 @@ interface DockCardProps {
 
 function DockApprovalCard({
   staging,
+  policy,
   renderPager,
   primaryRef,
   onDecisionStart,
   onDecision,
-}: DockCardProps & { staging: SyncedActionStaging }) {
+}: DockCardProps & { staging: SyncedActionStaging; policy: DockPolicy }) {
   const {
     draftInput,
     setDraftInput,
@@ -427,7 +437,7 @@ function DockApprovalCard({
     run,
   } = useApprovalDecision(staging);
 
-  const { modeFor, toolModeFor, setIntegrationMode, setToolMode } = useActionPolicy();
+  const { modeFor, toolModeFor, setIntegrationMode, setToolMode } = policy;
   // The facts list by default; Edit swaps in the field editor.
   const [editing, setEditing] = useState(false);
 

@@ -1,5 +1,5 @@
 import type { SyncedArtifact } from "@alfred/sync";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { ArtifactStreamState } from "~/lib/chat/use-artifact-stream";
 import { useThreadArtifacts } from "~/lib/replicache/use-artifacts";
@@ -33,6 +33,11 @@ export interface ArtifactPanelState {
   /** This thread's artifacts, newest first. */
   artifacts: SyncedArtifact[];
   selectedId: string | null;
+  /** The open artifact's synced row. Null for a `pending:` selection or before the row syncs.
+   * Keeps its identity while id and `rowVersion` match, so the sidebar node stays stable.
+   * The held object can carry a stale `runId` or `messageId`: an FK set-null does not bump
+   * `rowVersion`. The sidebar renders neither. */
+  selectedArtifact: SyncedArtifact | null;
   isOpen: boolean;
   /** Inline width in px, clamped. */
   width: number;
@@ -134,6 +139,25 @@ export function useArtifactPanel(
     setSelection({ threadId, selectedId: fresh.id });
   }, [activeRunId, threadArtifacts, threadId, artifactStream]);
 
+  const foundArtifact = useMemo(
+    () => (selectedId ? (threadArtifacts.find((a) => a.id === selectedId) ?? null) : null),
+    [selectedId, threadArtifacts],
+  );
+
+  // `threadArtifacts` holds new row objects on every `artifact.scan` fire, while the old
+  // single-row `get` only produced a new object when the open row itself changed. Keep the
+  // previous object while id and `rowVersion` match, so the sidebar node stays stable when
+  // other rows sync. Adjusted during render, not in an effect.
+  const [prevSelected, setPrevSelected] = useState<SyncedArtifact | null>(null);
+
+  const sameRow =
+    (prevSelected?.id ?? null) === (foundArtifact?.id ?? null) &&
+    (prevSelected?.rowVersion ?? null) === (foundArtifact?.rowVersion ?? null);
+
+  if (!sameRow) setPrevSelected(foundArtifact);
+
+  const selectedArtifact = sameRow ? prevSelected : foundArtifact;
+
   const open = useCallback(
     (artifactId: string) => setSelection({ threadId, selectedId: artifactId }),
     [threadId],
@@ -150,6 +174,7 @@ export function useArtifactPanel(
   return {
     artifacts: threadArtifacts,
     selectedId,
+    selectedArtifact,
     isOpen: selectedId !== null,
     width,
     open,

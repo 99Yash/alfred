@@ -37,7 +37,6 @@ import {
 import { printArtifactPages } from "~/lib/artifacts/export-artifact";
 import { easeShownChars } from "~/lib/chat/chat-stream-state";
 import type { LiveArtifactStream } from "~/lib/chat/use-artifact-stream";
-import { useArtifact } from "~/lib/replicache/use-artifacts";
 import { cn } from "~/lib/utils";
 import type { ChatSidePanelMode } from "~/routes/-chat/rail/models";
 import { CHAT_PANEL, CHAT_SWAP, usePrefersReducedMotion, type LiveTransition } from "./motion";
@@ -58,6 +57,8 @@ export interface ArtifactEditSuggestion {
 interface ArtifactSidebarProps {
   /** A synced row id, or `pending:<toolCallId>` while a create streams; then the body is all `liveStream`. */
   artifactId: string;
+  /** Synced row for `artifactId`, from the thread's list. Null until it syncs. */
+  artifact: SyncedArtifact | null;
   /** The live authoring stream for a document, if it is being written now. Null for pages and idle rows. */
   liveStream?: LiveArtifactStream | null | undefined;
   mode: ChatSidePanelMode;
@@ -111,6 +112,7 @@ function resolveDocumentView(
 
 export function ArtifactSidebar({
   artifactId,
+  artifact,
   liveStream,
   mode,
   width,
@@ -118,7 +120,6 @@ export function ArtifactSidebar({
   onClose,
   onSuggestEdit,
 }: ArtifactSidebarProps) {
-  const artifact = useArtifact(artifactId);
   const [fullscreen, setFullscreen] = useState(false);
   // While the handle drags, the width follows the pointer with no tween.
   const [resizing, setResizing] = useState(false);

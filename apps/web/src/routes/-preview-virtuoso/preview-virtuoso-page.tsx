@@ -1,7 +1,8 @@
-import type { SyncedChatMessage } from "@alfred/sync";
+import type { SyncedArtifact, SyncedChatMessage } from "@alfred/sync";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { Conversation } from "~/routes/-chat/conversation";
 import type { StreamingMessage } from "~/lib/chat/chat-stream-state";
+import { useArtifactStream } from "~/lib/chat/use-artifact-stream";
 import { SCROLL_CHAT_TO_BOTTOM_EVENT } from "~/lib/chat/use-run-complete";
 
 /**
@@ -9,6 +10,9 @@ import { SCROLL_CHAT_TO_BOTTOM_EVENT } from "~/lib/chat/use-run-complete";
  * fed to the real `Conversation`, without Replicache. Never imported by production.
  */
 const THREAD_ID = "preview-virtuoso-thread";
+
+/** The synthetic thread writes no artifacts. */
+const NO_ARTIFACTS: readonly SyncedArtifact[] = [];
 
 const EPOCH = Date.UTC(2026, 0, 1, 12, 0, 0);
 
@@ -60,6 +64,8 @@ export function PreviewVirtuosoPage() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const messages = useMemo(() => [...base, ...appended], [base, appended]);
+  // No thread id, so the store keeps no entry for the synthetic thread.
+  const artifactStream = useArtifactStream(undefined);
 
   // A reply that grows for ~5s then folds into the transcript, to test the
   // question anchor: the question pins to the top while the reply grows below it.
@@ -207,6 +213,8 @@ export function PreviewVirtuosoPage() {
           stream={stream}
           onFollowUp={() => {}}
           onOpenArtifact={() => {}}
+          artifacts={NO_ARTIFACTS}
+          artifactStream={artifactStream}
         />
       </div>
     </div>
