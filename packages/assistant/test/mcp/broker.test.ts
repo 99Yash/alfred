@@ -1553,7 +1553,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     assert.equal(row.resultProvenance, null);
   });
 
-  // Ownership, as in `listMcpToolsLocal`: a foreign `connectionId` reads as "not connected",
+  // Ownership, as in `inspectMcpToolLocal`: a foreign `connectionId` reads as "not connected",
   // and never reaches the network or mints a ledger row.
   test("a call against a connection owned by another user is refused pre-dispatch", async () => {
     const owner = await seedUser();

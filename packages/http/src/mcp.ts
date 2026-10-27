@@ -181,7 +181,7 @@ function mcpToolPolicyResult(policy: McpToolPolicyRow): McpToolPolicy {
   };
 }
 
-/** The path owns the connection, so no body or query field can name another one. */
+/** The path owns the connection, so no review body or query field can name another one. */
 function pathToolRef(connectionId: string, target: McpConnectionToolTarget): ExternalToolRef {
   return {
     kind: "mcp",
@@ -538,8 +538,8 @@ export const mcpIntegrationRoutes = new Elysia({
         },
         { params: t.Object({ id: t.String({ minLength: 1 }) }) },
       )
-      // Reads the stored catalog only; never dials the remote. The query omits `connectionId`,
-      // so the path is the only connection a client can name.
+      // Reads the stored catalog only; never dials the remote. The query omits `connectionId`.
+      // The `cursor` still names a connection; `searchMcpToolsLocal` refuses one off the path.
       .get(
         "/connections/:id/tools",
         async ({ params, query, user }) => {
