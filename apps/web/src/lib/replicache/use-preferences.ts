@@ -10,7 +10,7 @@ export interface PreferenceMap {
   loading: boolean;
   error: string | null;
   /**
-   * True once the preference query produced a result past the first pull.
+   * Pass-through of `ReplicacheQueryState.hasData` (see the helper for the formula).
    * The settings sections show their error panel only when this is false,
    * and their controls with a cached notice otherwise.
    */

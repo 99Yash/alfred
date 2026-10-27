@@ -38,7 +38,7 @@ export function BriefingScheduleSection() {
 
   const showDeviceHint = deviceTimezone !== null && deviceTimezone !== timezone;
 
-  // A failed pull keeps stored values. With no confirmed data, the pickers
+  // A failed pull keeps stored values. While `hasData` is false the pickers
   // would show defaults as if they were saved.
   return (
     <AppCard padded={false}>

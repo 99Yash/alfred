@@ -8,7 +8,7 @@ export interface FeatureFlagsState {
   setFlag: (key: FeatureFlagKey, enabled: boolean) => Promise<void>;
   loading: boolean;
   error: string | null;
-  /** From `usePreferenceMap`: false until the preferences read past the first pull. */
+  /** Pass-through of `ReplicacheQueryState.hasData` (see the helper for the formula). */
   hasData: boolean;
   retry: () => void;
 }

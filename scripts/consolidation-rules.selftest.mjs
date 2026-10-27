@@ -1387,6 +1387,13 @@ const LINE_CASES = [
     file: WEB_APP_FILE,
   },
   {
+    name: "replicache-subscribe-outside-helper — an experimental watch outside the helper",
+    caught: true,
+    rule: "replicache-subscribe-outside-helper",
+    code: `    const unsubscribe = rep.experimentalWatch(scanTodos, (rows) => setSnapshot({ rep, rows }));`,
+    file: WEB_APP_FILE,
+  },
+  {
     name: "replicache-subscribe-outside-helper — another store's subscribe is not Replicache",
     caught: false,
     code: `    return store.subscribe(onChange);`,

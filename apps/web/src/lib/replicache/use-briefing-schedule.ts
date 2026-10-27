@@ -30,7 +30,7 @@ export interface BriefingScheduleState {
   setEveningHour: (hour: number) => Promise<void>;
   loading: boolean;
   error: string | null;
-  /** From `usePreferenceMap`: false until the preferences read past the first pull. */
+  /** Pass-through of `ReplicacheQueryState.hasData` (see the helper for the formula). */
   hasData: boolean;
   retry: () => void;
 }

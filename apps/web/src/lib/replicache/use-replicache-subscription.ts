@@ -11,8 +11,10 @@ export interface ReplicacheQueryState<U> {
   /** `loadError ?? pullError`. Rows may still be present: show them with the error, do not hide them. */
   error: string | null;
   /**
-   * True once this client, query and mapper produced a result past the first
-   * pull. A surface with an `error` shows its full panel only when this is
+   * `!(data === undefined || (isEmpty(data) && initialPullPending))`: the hook would not be
+   * `loading` if there were no error. True for rows already in IndexedDB before any pull;
+   * false for an empty result before the first pull, even though `data` is defined. False
+   * for a null query. A surface with an `error` shows its full panel only when this is
    * false, and its rows with a cached notice otherwise.
    */
   hasData: boolean;
