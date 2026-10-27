@@ -18,8 +18,6 @@ import {
   closureCandidate,
   getObjectDef,
   getStringPath,
-  holdsAnyScope,
-  INTEGRATIONS,
   isNotificationSender,
   isRecord,
   mailboxLabel,
@@ -30,16 +28,12 @@ import {
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { INBOUND_SOURCES, parseGithubEvent } from "@alfred/assistant/connections/ingress";
-import {
-  documents,
-  emailTriage,
-  typedEventReceipts,
-  integrationCredentials,
-} from "@alfred/db/schemas";
+import { documents, emailTriage, typedEventReceipts } from "@alfred/db/schemas";
+import { integrations } from "@alfred/integrations";
 import {
   type CalendarEvent,
-  getFreshAccessToken,
-  listEvents,
+  GoogleCredentialSelectionError,
+  type GoogleCredential,
   type TriageCategory,
 } from "@alfred/integrations/google";
 import { and, desc, eq, gte, lte } from "drizzle-orm";
@@ -807,25 +801,15 @@ export interface GatherCalendarArgs {
 export async function gatherCalendarContribution(
   args: GatherCalendarArgs,
 ): Promise<CalendarContribution | null> {
-  const creds = await db()
-    .select({
-      id: integrationCredentials.id,
-      scopes: integrationCredentials.scopes,
-    })
-    .from(integrationCredentials)
-    .where(
-      and(
-        eq(integrationCredentials.userId, args.userId),
-        eq(integrationCredentials.provider, "google"),
-        eq(integrationCredentials.status, "active"),
-      ),
-    );
+  const calendar = integrations({ userId: args.userId, retry: "none" }).google.calendar;
+  let calendarCreds: GoogleCredential[];
 
-  const calendarCreds = creds.filter((cred) =>
-    holdsAnyScope(cred.scopes, INTEGRATIONS.calendar.credential.anyOfScopes),
-  );
-
-  if (calendarCreds.length === 0) return null;
+  try {
+    calendarCreds = await calendar.readCredentials();
+  } catch (err) {
+    if (err instanceof GoogleCredentialSelectionError) return null;
+    throw err;
+  }
 
   const { timeMin, timeMax } = calendarWindow(args.briefingDate, args.timezone, args.slot);
   const events: CalendarContribution["events"] = [];
@@ -833,10 +817,8 @@ export async function gatherCalendarContribution(
 
   for (const cred of calendarCreds) {
     try {
-      const accessToken = await getFreshAccessToken(cred.id);
-
-      const result = await listEvents({
-        accessToken,
+      const result = await calendar.listEvents({
+        credentialId: cred.id,
         timeMin: timeMin.toISOString(),
         timeMax: timeMax.toISOString(),
         singleEvents: true,

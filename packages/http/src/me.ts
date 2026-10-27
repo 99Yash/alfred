@@ -1,7 +1,5 @@
 import { logger } from "@alfred/logging";
 import {
-  GOOGLE_SCOPE,
-  holdsAnyScope,
   INBOX_DEFAULT_LIMIT,
   INBOX_MAX_LIMIT,
   TRIAGE_RAIL_SUPPRESSED_CATEGORIES,
@@ -12,7 +10,6 @@ import {
   Errors,
   decodeHtmlEntities,
   extractGmailDocumentBody,
-  INTEGRATIONS,
   parseGmailDocumentMetadata,
   parseInboxCursor,
   type BriefingSlot,
@@ -20,15 +17,16 @@ import {
   usageSortFieldValues,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { briefings, documents, emailTriage, integrationCredentials } from "@alfred/db/schemas";
+import { briefings, documents, emailTriage } from "@alfred/db/schemas";
+import { integrations } from "@alfred/integrations";
 import {
   extractAttachments,
   extractMessageHtml,
-  getFreshAccessToken,
+  GoogleCredentialSelectionError,
   gmailMailbox,
-  listEvents,
   parseStoredGmailMessage,
   type ExtractedAttachment,
+  type GoogleCredential,
 } from "@alfred/integrations/google";
 import {
   and,
@@ -463,27 +461,17 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
             byAccount.set(key, bucket);
           }
 
-          const creds = await db()
-            .select({
-              id: integrationCredentials.id,
-              accountId: integrationCredentials.accountId,
-              scopes: integrationCredentials.scopes,
-            })
-            .from(integrationCredentials)
-            .where(
-              and(
-                eq(integrationCredentials.userId, u.id),
-                eq(integrationCredentials.provider, "google"),
-                eq(integrationCredentials.status, "active"),
-              ),
-            );
-
           // Removing a label needs `gmail.modify`.
-          const modifyCreds = creds.filter((c) =>
-            holdsAnyScope(c.scopes, [GOOGLE_SCOPE.gmail.modify]),
-          );
+          let modifyCreds: GoogleCredential[];
 
-          if (modifyCreds.length === 0) {
+          try {
+            modifyCreds = await integrations({
+              userId: u.id,
+              retry: "none",
+            }).google.gmail.modifyCredentials();
+          } catch (err) {
+            if (!(err instanceof GoogleCredentialSelectionError)) throw err;
+
             throw Errors.ConflictError(
               "Gmail modify scope not granted. Reconnect Gmail to enable this action.",
             );
@@ -548,33 +536,22 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
         },
       )
       .get("/meetings", async ({ user: u }) => {
-        // A user can have several Google accounts. Pick one with a calendar scope.
-        const creds = await db()
-          .select({
-            id: integrationCredentials.id,
-            scopes: integrationCredentials.scopes,
-          })
-          .from(integrationCredentials)
-          .where(
-            and(
-              eq(integrationCredentials.userId, u.id),
-              eq(integrationCredentials.provider, "google"),
-              eq(integrationCredentials.status, "active"),
-            ),
-          );
+        // A user can have several Google accounts. Show the first one with a calendar scope.
+        const calendar = integrations({ userId: u.id, retry: "none" }).google.calendar;
+        let row: GoogleCredential | undefined;
 
-        const row = creds.find((c) =>
-          holdsAnyScope(c.scopes, INTEGRATIONS.calendar.credential.anyOfScopes),
-        );
+        try {
+          [row] = await calendar.readCredentials();
+        } catch (err) {
+          if (!(err instanceof GoogleCredentialSelectionError)) throw err;
+        }
 
         if (!row) return { items: [], connected: false };
 
         const { start, end } = inZone(await settings({ userId: u.id }).timezone()).dayBounds();
 
-        const accessToken = await getFreshAccessToken(row.id);
-
-        const { events } = await listEvents({
-          accessToken,
+        const { events } = await calendar.listEvents({
+          credentialId: row.id,
           timeMin: start.toISOString(),
           timeMax: end.toISOString(),
           singleEvents: true,

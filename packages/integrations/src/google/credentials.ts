@@ -1,4 +1,4 @@
-import type { AccountPersona } from "@alfred/contracts";
+import { holdsAnyScope, type AccountPersona } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { credentialVault } from "@alfred/db/credential-vault";
 import { integrationCredentials, type IntegrationCredential } from "@alfred/db/schemas";
@@ -70,10 +70,16 @@ interface StoredCredentialRow extends CredentialRow {
   expiresAt: Date | null;
 }
 
+interface LoadCredentialOptions {
+  ex?: DbExecutor;
+  lockForUpdate?: boolean;
+  /** Match only this user's Google row, so a foreign or non-Google id reads as absent. */
+  ownerId?: string;
+}
+
 async function loadCredential(
   credentialId: string,
-  ex: DbExecutor = db(),
-  lockForUpdate = false,
+  { ex = db(), lockForUpdate = false, ownerId }: LoadCredentialOptions = {},
 ): Promise<StoredCredentialRow | null> {
   const query = ex
     .select({
@@ -88,7 +94,13 @@ async function loadCredential(
       status: integrationCredentials.status,
     })
     .from(integrationCredentials)
-    .where(eq(integrationCredentials.id, credentialId));
+    .where(
+      and(
+        eq(integrationCredentials.id, credentialId),
+        ownerId === undefined ? undefined : eq(integrationCredentials.userId, ownerId),
+        ownerId === undefined ? undefined : eq(integrationCredentials.provider, "google"),
+      ),
+    );
 
   const rows = lockForUpdate ? await query.for("update") : await query;
   const row = rows[0];
@@ -137,14 +149,39 @@ type RefreshResolution =
  * @internal For provider clients and background callers with no ToolExecuteContext.
  */
 export async function getFreshAccessToken(credentialId: string): Promise<string> {
-  const current = requireActiveCredential(await loadCredential(credentialId), credentialId);
+  return freshAccessToken(
+    requireActiveCredential(await loadCredential(credentialId), credentialId),
+  );
+}
+
+/**
+ * The token of one of this user's active Google rows that holds a scope from `anyOfScopes`, read
+ * once. `null` when the row is absent, foreign, not active, or holds none of the scopes.
+ * @internal Package-private: the user-bound Google client's token resolver is the only caller.
+ */
+export async function getOwnedFreshAccessToken(args: {
+  userId: string;
+  credentialId: string;
+  anyOfScopes: readonly string[];
+}): Promise<string | null> {
+  const current = await loadCredential(args.credentialId, { ownerId: args.userId });
+
+  if (current?.status !== "active" || !holdsAnyScope(current.scopes, args.anyOfScopes)) {
+    return null;
+  }
+
+  return freshAccessToken(current);
+}
+
+async function freshAccessToken(current: StoredCredentialRow): Promise<string> {
+  const credentialId = current.id;
 
   if (!isExpiringSoon(current)) return current.accessToken;
 
   const resolution = await db().transaction(async (tx): Promise<RefreshResolution> => {
     // Lock and re-read so only one worker calls Google; the others use its token.
     const cred = requireActiveCredential(
-      await loadCredential(credentialId, tx, true),
+      await loadCredential(credentialId, { ex: tx, lockForUpdate: true }),
       credentialId,
     );
 
