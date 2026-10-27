@@ -3,9 +3,14 @@
 import type { ProviderAvailability } from "../integration-availability";
 import type { CredentialSpec } from "./registry";
 
+/** `integration_credentials.status`. Only a Google refresh failure writes `needs_reauth`; a reconnect writes `active`. */
+export const CREDENTIAL_STATUSES = ["active", "needs_reauth"] as const;
+
+export type CredentialStatus = (typeof CREDENTIAL_STATUSES)[number];
+
 /** The row fields the connected rule reads. */
 export interface CredentialProofRow {
-  readonly status: string;
+  readonly status: CredentialStatus;
   readonly scopes: Iterable<string>;
   /** `null` on a classic-OAuth GitHub row. */
   readonly installationId: string | null;

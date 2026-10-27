@@ -53,7 +53,6 @@ async function seedGoogleCredential(args: {
 
   return upsertCredential({
     userId: args.userId,
-    provider: "google",
     accountId: randomUUID(),
     accessToken: args.accessToken,
     refreshToken: args.refreshToken,
@@ -151,7 +150,6 @@ describe("Google credential refresh (DB-backed)", { skip: SKIP }, () => {
     // application can no longer produce.
     const credential = await upsertCredential({
       userId,
-      provider: "google",
       accountId: randomUUID(),
       accessToken: "expired-access-token",
       refreshToken: "refresh-token",

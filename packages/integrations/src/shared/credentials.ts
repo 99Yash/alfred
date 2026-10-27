@@ -8,6 +8,7 @@ import { db } from "@alfred/db";
 import { credentialVault } from "@alfred/db/credential-vault";
 import { integrationCredentials, type IntegrationCredential } from "@alfred/db/schemas";
 import { and, desc, eq } from "drizzle-orm";
+import { upsertIntegrationCredential } from "./credential-upsert";
 
 /**
  * Storage for single long-lived bearer tokens (Vercel, Sentry). Tokens are
@@ -34,49 +35,18 @@ export interface UpsertBearerCredentialArgs {
 export async function upsertBearerCredential(
   args: UpsertBearerCredentialArgs,
 ): Promise<{ id: string }> {
-  const vault = credentialVault();
-  const sealedAccessToken = vault.seal(args.accessToken);
-  const sealedRefreshToken = args.refreshToken ? vault.seal(args.refreshToken) : null;
-
-  const result = await db()
-    .insert(integrationCredentials)
-    .values({
-      userId: args.userId,
-      provider: args.provider,
-      accountId: args.accountId,
-      accountLabel: args.accountLabel ?? null,
-      accessToken: sealedAccessToken,
-      refreshToken: sealedRefreshToken,
-      expiresAt: args.expiresAt ?? null,
-      scopes: args.scopes ?? [],
-      metadata: args.metadata ?? {},
-      status: "active",
-    })
-    .onConflictDoUpdate({
-      target: [
-        integrationCredentials.userId,
-        integrationCredentials.provider,
-        integrationCredentials.accountId,
-      ],
-      set: {
-        accessToken: sealedAccessToken,
-        refreshToken: sealedRefreshToken,
-        expiresAt: args.expiresAt ?? null,
-        scopes: args.scopes ?? [],
-        metadata: args.metadata ?? {},
-        status: "active",
-        accountLabel: args.accountLabel ?? null,
-        lastRefreshedAt: new Date(),
-        updatedAt: new Date(),
-      },
-    })
-    .returning({ id: integrationCredentials.id });
-
-  const row = result[0];
-
-  if (!row) throw new Error(`[${args.provider}.credentials] upsert returned no row`);
-
-  return { id: row.id };
+  return upsertIntegrationCredential({
+    userId: args.userId,
+    provider: args.provider,
+    accountId: args.accountId,
+    accountLabel: args.accountLabel ?? null,
+    accessToken: args.accessToken,
+    // A blank or omitted token writes NULL, also on a reconnect.
+    refreshToken: args.refreshToken || null,
+    expiresAt: args.expiresAt ?? null,
+    scopes: args.scopes ?? [],
+    metadata: { replace: args.metadata ?? {} },
+  });
 }
 
 /**

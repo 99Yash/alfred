@@ -135,7 +135,6 @@ describe("credential reads are scoped to the bound user (DB-backed)", { skip: SK
     try {
       const a = await upsertCredential({
         userId: userA,
-        provider: "google",
         accountId: `a-${randomUUID()}`,
         accessToken: "access-a",
         refreshToken: "refresh-a",
@@ -145,7 +144,6 @@ describe("credential reads are scoped to the bound user (DB-backed)", { skip: SK
 
       const b = await upsertCredential({
         userId: userB,
-        provider: "google",
         accountId: `b-${randomUUID()}`,
         accessToken: "access-b",
         refreshToken: "refresh-b",
@@ -184,7 +182,6 @@ describe("credential reads are scoped to the bound user (DB-backed)", { skip: SK
       // A owns its own credential; B owns the one A will illegitimately name.
       await upsertCredential({
         userId: userA,
-        provider: "google",
         accountId: `a-${randomUUID()}`,
         accessToken: "access-a",
         refreshToken: "refresh-a",
@@ -194,7 +191,6 @@ describe("credential reads are scoped to the bound user (DB-backed)", { skip: SK
 
       const b = await upsertCredential({
         userId: userB,
-        provider: "google",
         accountId: `b-${randomUUID()}`,
         accessToken: "access-b",
         refreshToken: "refresh-b",
