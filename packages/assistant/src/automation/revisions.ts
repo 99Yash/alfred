@@ -31,6 +31,7 @@ import {
   type WorkflowRevision,
 } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
+import type { z } from "zod";
 import { canonicalWorkflowDefinition, workflowRevisionContentHash } from "./content-hash";
 import { readFreshIntegrationAvailability, seenRawKinds } from "@alfred/assistant/connections";
 import { workflowToolCatalog, type WorkflowToolCatalog } from "@alfred/assistant/tool-runtime";
@@ -140,22 +141,32 @@ export function validateWorkflowDefinition(
 ):
   | { ok: true; definition: WorkflowRevisionDefinition }
   | { ok: false; problems: WorkflowRevisionProblem[] } {
-  const parsed = workflowRevisionDefinitionSchema.safeParse(input);
+  const parsed = parseWithProblems(workflowRevisionDefinitionSchema, input);
 
-  if (!parsed.success) {
-    return {
-      ok: false,
-      problems: parsed.error.issues.map((issue) => ({
-        code: "invalid_definition" as const,
-        message: issue.message,
-        field: issue.path.join("."),
-      })),
-    };
-  }
+  if (!parsed.ok) return { ok: false, problems: parsed.failure.problems };
 
-  const definition = canonicalWorkflowDefinition(parsed.data);
+  return checkWorkflowDefinition(parsed.value, opts);
+}
+
+/**
+ * Check a parsed definition, with no parse of its own. The trigger type passes through,
+ * so a card parse keeps its authorable trigger.
+ */
+function checkWorkflowDefinition<T extends WorkflowTrigger>(
+  parsed: WorkflowRevisionDefinition & { trigger: T },
+  opts: { timezone: IanaTimezone; requireActivatable?: boolean },
+):
+  | { ok: true; definition: WorkflowRevisionDefinition & { trigger: T } }
+  | { ok: false; problems: WorkflowRevisionProblem[] } {
+  const definition = canonicalWorkflowDefinition(parsed);
   const problems: WorkflowRevisionProblem[] = [];
-  const { trigger, allowedIntegrations, allowedTools, requiredCapabilities } = definition;
+
+  const {
+    trigger,
+    allowedIntegrations,
+    allowedTools,
+    requiredCapabilities,
+  }: WorkflowRevisionDefinition = definition;
 
   // Whether the source delivered the kind is a DB fact; see {@link unseenRawKindProblem}.
   if (trigger.kind === "event") {
@@ -280,6 +291,41 @@ export function validateWorkflowDefinition(
   }
 
   return problems.length > 0 ? { ok: false, problems } : { ok: true, definition };
+}
+
+type ValidationFailure = Extract<WorkflowServiceFailure, { kind: "validation_failed" }>;
+
+/** One schema parse. Each issue becomes an `invalid_definition` problem on its dotted path. */
+function parseWithProblems<T>(
+  schema: z.ZodType<T>,
+  input: unknown,
+): { ok: true; value: T } | { ok: false; failure: ValidationFailure } {
+  const parsed = schema.safeParse(input);
+
+  if (parsed.success) return { ok: true, value: parsed.data };
+
+  return {
+    ok: false,
+    failure: {
+      kind: "validation_failed",
+      problems: parsed.error.issues.map((issue) => ({
+        code: "invalid_definition",
+        message: issue.message,
+        field: issue.path.join("."),
+      })),
+    },
+  };
+}
+
+/** `loadRevision` reads an invalid stored proposal as `null`, so one shape covers both. */
+function storedProposalFailure(message: string): WorkflowServiceResult<never> {
+  return {
+    ok: false,
+    failure: {
+      kind: "validation_failed",
+      problems: [{ code: "invalid_definition", message, field: "authoringProposal" }],
+    },
+  };
 }
 
 /**
@@ -601,23 +647,11 @@ export async function refreshWorkflowActivationProposal(args: {
 }): Promise<
   WorkflowServiceResult<{ input: ReturnType<typeof activateWorkflowInputSchema.parse> }>
 > {
-  const parsed = activateWorkflowInputSchema.safeParse(args.input);
+  const parsed = parseWithProblems(activateWorkflowInputSchema, args.input);
 
-  if (!parsed.success) {
-    return {
-      ok: false,
-      failure: {
-        kind: "validation_failed",
-        problems: parsed.error.issues.map((issue) => ({
-          code: "invalid_definition",
-          message: issue.message,
-          field: issue.path.join("."),
-        })),
-      },
-    };
-  }
+  if (!parsed.ok) return parsed;
 
-  const requested = parsed.data;
+  const requested = parsed.value;
   const existing = await loadWorkflow(db(), args.userId, requested.workflowId);
 
   if (!existing) return { ok: false, failure: { kind: "not_found" } };
@@ -650,9 +684,9 @@ export async function refreshWorkflowActivationProposal(args: {
     toolCatalog,
   });
 
-  const timezone = await resolveTimezoneForInput(args.userId, canonicalDefinition);
+  const timezone = await resolveWorkflowTimezone(args.userId, canonicalDefinition.trigger);
 
-  const validated = validateWorkflowDefinition(canonicalDefinition, {
+  const validated = checkWorkflowDefinition(canonicalDefinition, {
     timezone,
     requireActivatable: true,
   });
@@ -661,23 +695,11 @@ export async function refreshWorkflowActivationProposal(args: {
     return { ok: false, failure: { kind: "validation_failed", problems: validated.problems } };
   }
 
-  const definition = authorableWorkflowDefinitionSchema.parse(validated.definition);
-  const baseProposal = workflowAuthoringProposalSchema.safeParse(current.authoringProposal);
+  const definition = validated.definition;
+  const baseProposal = current.authoringProposal;
 
-  if (!baseProposal.success) {
-    return {
-      ok: false,
-      failure: {
-        kind: "validation_failed",
-        problems: [
-          {
-            code: "invalid_definition",
-            message: "The stored workflow proposal is invalid and cannot be approved.",
-            field: "authoringProposal",
-          },
-        ],
-      },
-    };
+  if (!baseProposal) {
+    return storedProposalFailure("The stored workflow proposal is invalid and cannot be approved.");
   }
 
   const blockers = resolveWorkflowReadiness({
@@ -699,7 +721,7 @@ export async function refreshWorkflowActivationProposal(args: {
       baseContentHash: current.contentHash,
       baseRowVersion: existing.rowVersion,
       definition,
-      authoringProposal: baseProposal.data,
+      authoringProposal: baseProposal,
       availability,
       toolCatalog,
       timezone,
@@ -751,38 +773,31 @@ export async function recoverWorkflowDraft(args: {
     };
   }
 
-  const storedDefinition = definitionOf(baseRevision);
-  const baseProposal = workflowAuthoringProposalSchema.safeParse(baseRevision.authoringProposal);
+  const baseProposal = baseRevision.authoringProposal;
 
-  if (!baseProposal.success) {
-    return {
-      ok: false,
-      failure: {
-        kind: "validation_failed",
-        problems: [
-          {
-            code: "invalid_definition",
-            message: "The stored workflow proposal is invalid and cannot be recovered.",
-            field: "authoringProposal",
-          },
-        ],
-      },
-    };
+  if (!baseProposal) {
+    return storedProposalFailure(
+      "The stored workflow proposal is invalid and cannot be recovered.",
+    );
   }
+
+  const stored = parseWithProblems(authorableWorkflowDefinitionSchema, definitionOf(baseRevision));
+
+  if (!stored.ok) return stored;
 
   const context = await readWorkflowReadinessContext(args.userId);
   const { availability } = context;
   const toolCatalog = workflowToolCatalog();
 
   const canonicalDefinition = canonicalizeWorkflowAccounts({
-    definition: storedDefinition,
+    definition: stored.value,
     availability,
     toolCatalog,
   });
 
-  const timezone = await resolveTimezoneForInput(args.userId, canonicalDefinition);
+  const timezone = await resolveWorkflowTimezone(args.userId, canonicalDefinition.trigger);
 
-  const validated = validateWorkflowDefinition(canonicalDefinition, {
+  const validated = checkWorkflowDefinition(canonicalDefinition, {
     timezone,
     requireActivatable: true,
   });
@@ -791,12 +806,12 @@ export async function recoverWorkflowDraft(args: {
     return { ok: false, failure: { kind: "validation_failed", problems: validated.problems } };
   }
 
-  const definition = authorableWorkflowDefinitionSchema.parse(validated.definition);
+  const definition = validated.definition;
 
   const readiness = resolveWorkflowReadiness({
     definition,
     context,
-    requestedCapabilities: baseProposal.data.requestedCapabilities,
+    requestedCapabilities: baseProposal.requestedCapabilities,
     toolCatalog,
   });
 
@@ -850,7 +865,7 @@ export async function recoverWorkflowDraft(args: {
               baseContentHash: current.contentHash,
               baseRowVersion: reconciled.workflow.rowVersion,
               definition,
-              authoringProposal: baseProposal.data,
+              authoringProposal: baseProposal,
               availability,
               toolCatalog,
               timezone,
@@ -931,23 +946,11 @@ export function buildWorkflowActivationProposal(args: {
 export async function activateWorkflowDefinition(
   args: ActivateWorkflowDefinitionArgs,
 ): Promise<WorkflowServiceResult<WorkflowRevisionOutcome & { revised: boolean }>> {
-  const parsed = activateWorkflowInputSchema.safeParse(args.input);
+  const parsed = parseWithProblems(activateWorkflowInputSchema, args.input);
 
-  if (!parsed.success) {
-    return {
-      ok: false,
-      failure: {
-        kind: "validation_failed",
-        problems: parsed.error.issues.map((issue) => ({
-          code: "invalid_definition",
-          message: issue.message,
-          field: issue.path.join("."),
-        })),
-      },
-    };
-  }
+  if (!parsed.ok) return parsed;
 
-  const input = parsed.data;
+  const input = parsed.value;
   const inputHash = workflowRevisionContentHash(input.definition);
 
   const alreadyApplied = await db().transaction(async (tx) => {
@@ -1009,9 +1012,9 @@ export async function activateWorkflowDefinition(
     toolCatalog,
   });
 
-  const timezone = await resolveTimezoneForInput(args.userId, canonicalInputDefinition);
+  const timezone = await resolveWorkflowTimezone(args.userId, canonicalInputDefinition.trigger);
 
-  const validated = validateWorkflowDefinition(canonicalInputDefinition, {
+  const validated = checkWorkflowDefinition(canonicalInputDefinition, {
     timezone,
     requireActivatable: true,
   });
@@ -1074,29 +1077,15 @@ export async function activateWorkflowDefinition(
 
     if (stale) return { ok: false, failure: stale };
 
-    const baseProposal = workflowAuthoringProposalSchema.safeParse(current.authoringProposal);
-
-    const expectedProposal = baseProposal.success
-      ? approvalProposalForDefinition(baseProposal.data, definition)
+    const expectedProposal = current.authoringProposal
+      ? approvalProposalForDefinition(current.authoringProposal, definition)
       : null;
 
     if (
       !expectedProposal ||
       canonicalJson(input.authoringProposal) !== canonicalJson(expectedProposal)
     ) {
-      return {
-        ok: false,
-        failure: {
-          kind: "validation_failed",
-          problems: [
-            {
-              code: "invalid_definition",
-              message: "The proposal summary does not match the approved definition.",
-              field: "authoringProposal",
-            },
-          ],
-        },
-      };
+      return storedProposalFailure("The proposal summary does not match the approved definition.");
     }
 
     let revised = false;
@@ -1208,9 +1197,13 @@ export async function activateWorkflow(
       };
     }
 
-    const timezone = await resolveWorkflowTimezone(args.userId, current.trigger);
+    const stored = parseWithProblems(workflowRevisionDefinitionSchema, definitionOf(current));
 
-    const validated = validateWorkflowDefinition(definitionOf(current), {
+    if (!stored.ok) return stored;
+
+    const timezone = await resolveWorkflowTimezone(args.userId, stored.value.trigger);
+
+    const validated = checkWorkflowDefinition(stored.value, {
       timezone,
       requireActivatable: true,
     });
@@ -1220,16 +1213,14 @@ export async function activateWorkflow(
     }
 
     const definition = validated.definition;
-    const proposal = workflowAuthoringProposalSchema.safeParse(current.authoringProposal);
     const context = await readWorkflowReadinessContext(args.userId);
     const toolCatalog = workflowToolCatalog();
 
     const blockers = resolveWorkflowReadiness({
       definition,
       context,
-      requestedCapabilities: proposal.success
-        ? proposal.data.requestedCapabilities
-        : definition.requiredCapabilities,
+      requestedCapabilities:
+        current.authoringProposal?.requestedCapabilities ?? definition.requiredCapabilities,
       toolCatalog,
     });
 
@@ -1478,7 +1469,15 @@ async function loadRevision(
     .where(eq(workflowRevisions.id, revisionId))
     .limit(1);
 
-  return row ?? null;
+  if (!row) return null;
+
+  // The jsonb column only claims the type. Every revision read comes through here, so the
+  // claim holds for the module, and a proposal that fails the parse reads as missing.
+  return {
+    ...row,
+    authoringProposal:
+      workflowAuthoringProposalSchema.safeParse(row.authoringProposal).data ?? null,
+  };
 }
 
 async function insertRevision(
