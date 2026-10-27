@@ -1,5 +1,10 @@
 import { route, meteredGenerateText, isStepCount, type ModelMessage } from "@alfred/ai";
-import type { BriefingClosedLoop, BriefingLoopRelevance, IanaTimezone } from "@alfred/contracts";
+import type {
+  BriefingClosedLoop,
+  BriefingLoopRelevance,
+  DayShape,
+  IanaTimezone,
+} from "@alfred/contracts";
 import type { LocalDateKey } from "@alfred/assistant/time";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
 import { buildSystemPrompt } from "./prompt";
@@ -27,6 +32,8 @@ export interface RunBriefingAgentArgs {
   closedLoops: BriefingClosedLoop[];
   /** One verdict per live loop, from the same gather. */
   loopRelevance: BriefingLoopRelevance[];
+  /** The gather's day shape, so `get_day_shape` does not repeat the live GitHub read. */
+  dayShape?: DayShape | undefined;
   /** Only on a re-prompt: earlier violations, named back verbatim so the rewrite is aimed (#1082). */
   openAskViolations?: readonly OpenAskViolation[];
 }
@@ -62,6 +69,7 @@ export async function runBriefingAgent(
     timezone: args.timezone,
     closedLoops: args.closedLoops,
     loopRelevance: args.loopRelevance,
+    dayShape: args.dayShape,
   });
 
   const seed: ModelMessage[] = [

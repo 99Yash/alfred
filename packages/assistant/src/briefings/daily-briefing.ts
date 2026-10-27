@@ -2,6 +2,7 @@ import {
   briefingClosedLoopSchema,
   briefingLoopRelevanceSchema,
   DAILY_BRIEFING_WORKFLOW_SLUG,
+  dayShapeSchema,
   ianaTimezoneSchema,
 } from "@alfred/contracts";
 import { z } from "zod";
@@ -26,6 +27,7 @@ const stateSchema = z.object({
   quietDay: z.boolean().optional(),
   closedLoops: z.array(briefingClosedLoopSchema).default([]),
   loopRelevance: z.array(briefingLoopRelevanceSchema).default([]),
+  dayShape: dayShapeSchema.optional(),
   composed: z
     .object({
       subject: z.string(),

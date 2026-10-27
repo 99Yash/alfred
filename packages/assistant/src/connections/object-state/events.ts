@@ -18,6 +18,12 @@ import { type SentryIssuePayload, sentryIssueEventSchema } from "../ingress/sent
 /** Synthetic verified-pull type for both Railway (#1094) and Vercel (#1193). */
 export const VERIFIED_PULL_EVENT_TYPE = "deployment_status";
 
+/**
+ * Synthetic GitHub read (ADR-0062 amendment 2026-10-27): a merge that a live search proved. It
+ * carries the external id of a row that a webhook minted, so the read never mints a row.
+ */
+export const GITHUB_MERGED_PULL_READ_EVENT_TYPE = "merged_pull_read";
+
 /** The one synthetic event an owner-reviewed MCP health pull may fold. */
 export const MCP_APPROVED_HEALTH_EVENT_TYPE = "mcp.approved_health";
 
@@ -73,6 +79,20 @@ export type ObjectStateEvent =
   | { provider: "github"; eventType: "pull_request"; payload: GithubPayload<"pull_request"> }
   | { provider: "github"; eventType: "check_suite"; payload: GithubPayload<"check_suite"> }
   | {
+      provider: "github";
+      eventType: typeof GITHUB_MERGED_PULL_READ_EVENT_TYPE;
+      payload: {
+        /** The existing row's external id, found through its `pull_request_url` key. */
+        externalId: string;
+        mergedAt: Date;
+        title: string;
+        /** Canonical, as `canonicalizeGithubPullRequestUrl` gives it. */
+        url: string;
+        repoFullName: string;
+        number: number;
+      };
+    }
+  | {
       provider: "vercel";
       eventType: "repository_dispatch";
       payload: GithubPayload<"repository_dispatch">;
@@ -115,6 +135,12 @@ export type RailwayPullEvent = Extract<VerifiedPullEvent, { provider: "railway" 
 
 /** The Vercel member of the pull union. The Vercel provider is generic over this, never the union. */
 export type VercelPullEvent = Extract<VerifiedPullEvent, { provider: "vercel" }>;
+
+/** The GitHub read member. The GitHub pull builds this, never the union. */
+export type GithubMergedPullReadEvent = Extract<
+  ObjectStateEvent,
+  { eventType: typeof GITHUB_MERGED_PULL_READ_EVENT_TYPE }
+>;
 
 /** The MCP health member. The health producer and the reducer take this, never the union. */
 export type ApprovedMcpHealthEvent = Extract<ObjectStateEvent, { provider: "mcp" }>;

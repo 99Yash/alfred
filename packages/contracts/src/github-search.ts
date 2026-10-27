@@ -100,6 +100,15 @@ export function parseSearchQualifiers(query: string): ParsedQualifier[] {
 }
 
 /**
+ * A date-time value for a GitHub search date qualifier (`merged:`, `created:`, `closed:`).
+ * GitHub documents the `+00:00` offset form, not a `Z` suffix (ADR-0068), and the
+ * `merged:` range has second precision, so the milliseconds are dropped.
+ */
+export function githubSearchDateTime(date: Date): string {
+  return date.toISOString().replace(/\.\d{3}Z$/, "+00:00");
+}
+
+/**
  * Each date qualifier and the `github.search` field that sets it. Read the window
  * length only through {@link githubSearchWindowDays}.
  */

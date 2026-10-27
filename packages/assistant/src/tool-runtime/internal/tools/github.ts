@@ -6,6 +6,7 @@ import {
   githubGetIssueInput,
   githubGetPullRequestInput,
   githubGetPullRequestsInput,
+  githubSearchDateTime,
   githubSearchInput,
   githubSearchWindowDays,
   queryHasNarrowingScope,
@@ -20,10 +21,6 @@ import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
 import { AppError } from "@alfred/contracts/app-errors";
 
 type GithubSearchInput = z.infer<typeof githubSearchInput>;
-
-function githubSearchDateTime(date: Date): string {
-  return date.toISOString().replace(/\.\d{3}Z$/, "+00:00");
-}
 
 /**
  * Local midnight N-1 days ago, as a date-time. A date-only qualifier would miss

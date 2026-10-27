@@ -55,8 +55,12 @@ import {
   type ReconcileResult,
 } from "@alfred/assistant/connections";
 import {
+  gatherGithubMergedPullRequests,
   gatherVerifiedPulls,
+  shippedFromGithubRead,
   verifyApprovedMcpHealth,
+  type GithubMergedRead,
+  type GithubMergedReadOutcome,
   type VerifiedPullTriggerItem,
 } from "@alfred/assistant/connections/verified-pull";
 import { type UserSettings } from "@alfred/assistant/settings";
@@ -130,6 +134,12 @@ export interface BriefingDigest {
    * failure mail reconciles against the target's state as of this gather.
    */
   verifiedPull: IntegrationActivityItem[];
+  /**
+   * The window's merged pull requests, read live from GitHub (ADR-0062 amendment 2026-10-27).
+   * The read folds into existing rows before reconciliation. A miss and a fault are two
+   * variants; only `completed` carries a read.
+   */
+  githubMerged: GithubMergedReadOutcome;
   /** Priority items dropped because a standing instruction matched the sender. */
   suppressedByInstruction: BriefingInstructionSuppression[];
   /** Items whose work object reached a terminal state (ADR-0062). Feeds the evening recap. */
@@ -321,11 +331,15 @@ export async function gatherBriefingDigest(
 
   // Verified pull (#1094, #1192): a triaged deploy failure triggers a live status read. It runs
   // before reconciliation, so the stored target state is current when a failure mail reconciles.
-  // Its verdicts go into activity, not into the email buckets. Never throws.
-  const verifiedPull = await gatherVerifiedPulls({
-    userId: args.userId,
-    digestItems: triggerItems,
-  });
+  // Its verdicts go into activity, not into the email buckets. The GitHub read folds the window's
+  // merges the same way, so a review-request mail for a merged PR reconciles closed. Neither throws.
+  const [verifiedPull, githubMerged] = await Promise.all([
+    gatherVerifiedPulls({
+      userId: args.userId,
+      digestItems: triggerItems,
+    }),
+    gatherGithubMergedPullRequests({ userId: args.userId, windowStart, windowEnd }),
+  ]);
 
   // Approved MCP health reads run before reconciliation. They add candidates; they never close.
   const priorityLoops = PRIORITY_CATEGORIES.flatMap((category) => buckets[category]);
@@ -407,6 +421,7 @@ export async function gatherBriefingDigest(
     buckets,
     suppressedCounts,
     verifiedPull,
+    githubMerged,
     suppressedByInstruction,
     closedLoops: reconciliation.closedLoops,
     loopRelevance,
@@ -599,14 +614,21 @@ export async function gatherBriefingWithSuppressionAudit(
     }));
   }
 
-  const { verifiedPull } = digest;
+  const { verifiedPull, githubMerged } = digest;
+
+  // Only `completed` carries a read; every fault and the miss fall back to the stored rows.
+  const githubMergedRead = githubMerged.status === "completed" ? githubMerged.read : null;
 
   // Runs after the verified pull, so a day whose only activity is a Railway failure is not quiet.
+  // The GitHub read counts merges that no webhook delivered. `max`, not a sum: a delivered merge
+  // is in both counts.
   const dayShape = await gatherDayShape({
     userId: args.userId,
     windowStart: activityStart,
     windowEnd,
-    activityCount: integrationActivity.length + verifiedPull.length,
+    activityCount:
+      Math.max(integrationActivity.length, githubMergedRead?.total ?? 0) + verifiedPull.length,
+    githubMerged: githubMergedRead,
   });
 
   // Demand over the final buckets (ADR-0064). Use the raw `from`, not the shortened
@@ -652,8 +674,10 @@ const MAX_SHIPPED = 6;
 
 /**
  * Day shape without an LLM, so the composer cannot call an active day "quiet" (ADR-0064).
- * `shipped` filters on `stateDeliveredAt`, so a retry does not pull in objects resolved
- * outside the window.
+ * `shipped` comes from the GitHub read when it completed: it covers merges that no webhook
+ * delivered. Else it lists resolved rows by `stateDeliveredAt`, so a retry does not pull in
+ * objects resolved outside the window. The two are never merged: a read fold stamps the fold
+ * time, so a union would list the same merge in two briefs.
  */
 export async function gatherDayShape(args: {
   userId: string;
@@ -661,6 +685,8 @@ export async function gatherDayShape(args: {
   windowEnd: Date;
   /** Falls back to a fresh query. */
   activityCount?: number;
+  /** The digest's GitHub read. Absent or `null` falls back to the stored rows. */
+  githubMerged?: GithubMergedRead | null;
 }): Promise<DayShape> {
   const activityCount =
     args.activityCount ??
@@ -672,6 +698,17 @@ export async function gatherDayShape(args: {
       })
     ).length;
 
+  const activityVolume: DayShape["activityVolume"] =
+    activityCount === 0 ? "quiet" : activityCount >= DAY_SHAPE_BUSY_AT ? "busy" : "normal";
+
+  if (args.githubMerged) {
+    return {
+      activityVolume,
+      shipped: shippedFromGithubRead(args.githubMerged, MAX_SHIPPED),
+      shippedTotal: args.githubMerged.total,
+    };
+  }
+
   const resolved = await objectStateStore.list(args.userId, "github", {
     stateCategory: "resolved",
     deliveredWithin: { start: args.windowStart, end: args.windowEnd },
@@ -682,9 +719,6 @@ export async function gatherDayShape(args: {
     .filter((o): o is ObjectState & { title: string } => typeof o.title === "string" && !!o.title)
     .slice(0, MAX_SHIPPED)
     .map((o) => ({ title: o.title, ...(o.url ? { url: o.url } : {}) }));
-
-  const activityVolume: DayShape["activityVolume"] =
-    activityCount === 0 ? "quiet" : activityCount >= DAY_SHAPE_BUSY_AT ? "busy" : "normal";
 
   return { activityVolume, shipped };
 }

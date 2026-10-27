@@ -1,5 +1,5 @@
 import { canonicalizeGithubPullRequestUrl, canonicalizeGithubTargetId } from "@alfred/contracts";
-import type { ObjectStateEvent } from "./events";
+import { GITHUB_MERGED_PULL_READ_EVENT_TYPE, type ObjectStateEvent } from "./events";
 import type { ObjectStateDelta } from "./store";
 
 type GithubFoldEvent = Extract<ObjectStateEvent, { provider: "github" }>;
@@ -8,13 +8,20 @@ type PullRequestPayload = Extract<GithubFoldEvent, { eventType: "pull_request" }
 
 type CheckSuitePayload = Extract<GithubFoldEvent, { eventType: "check_suite" }>["payload"];
 
+type MergedPullReadPayload = Extract<
+  GithubFoldEvent,
+  { eventType: typeof GITHUB_MERGED_PULL_READ_EVENT_TYPE }
+>["payload"];
+
 /**
- * GitHub reducer (ADR-0062). Pure. Webhooks are the only state source, so a model-proposed key can
- * never fake a merge. An empty array is a no-op.
+ * GitHub reducer (ADR-0062). Pure. Webhooks and the verified read are the only state sources, so a
+ * model-proposed key can never fake a merge. An empty array is a no-op.
  * - `pull_request`: opened, reopened or synchronize gives `open`; closed gives `merged` or
  *   `closed`. Other actions are no-ops.
  * - `check_suite` (completed only): an attempt delta plus an `owner/repo#branch` target delta,
  *   ordered by the suite's `updated_at` (#1093). `neutral` and `stale` fold nothing.
+ * - `merged_pull_read`: a merge that the GitHub pull read, on a row a webhook minted. It gives
+ *   `merged`, ordered by the provider's `merged_at` (ADR-0062 amendment 2026-10-27).
  */
 export function reduceGithubEvent(event: GithubFoldEvent): ObjectStateDelta[] {
   switch (event.eventType) {
@@ -22,6 +29,8 @@ export function reduceGithubEvent(event: GithubFoldEvent): ObjectStateDelta[] {
       return reducePullRequest(event.payload);
     case "check_suite":
       return reduceCheckSuite(event.payload);
+    case GITHUB_MERGED_PULL_READ_EVENT_TYPE:
+      return reduceMergedPullRead(event.payload);
     default: {
       const _exhaustive: never = event;
 
@@ -79,6 +88,27 @@ function reducePullRequest(payload: PullRequestPayload): ObjectStateDelta[] {
         ...(number !== null ? { number } : {}),
       },
       keys,
+    },
+  ];
+}
+
+/**
+ * Only the URL key: the search does not return the pull request id or the head sha. The row
+ * keeps the keys and attributes that its webhook wrote.
+ */
+function reduceMergedPullRead(payload: MergedPullReadPayload): ObjectStateDelta[] {
+  return [
+    {
+      kind: "pull_request",
+      externalId: payload.externalId,
+      nativeState: "merged",
+      closureSource: "verified_pull",
+      providerEventTime: payload.mergedAt,
+      title: payload.title,
+      url: payload.url,
+      repo: payload.repoFullName,
+      attributes: { number: payload.number },
+      keys: [{ keyKind: "pull_request_url", keyValue: payload.url }],
     },
   ];
 }

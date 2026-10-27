@@ -21,6 +21,14 @@ export {
   type RailwayPullTarget,
 } from "./railway";
 
+export {
+  gatherGithubMergedPullRequests,
+  shippedFromGithubRead,
+  type GithubMergedPullRequest,
+  type GithubMergedRead,
+  type GithubMergedReadOutcome,
+} from "./github";
+
 export { discoverVercelTargets, readVercelDeploymentStatus, type VercelPullTarget } from "./vercel";
 
 export {
@@ -34,6 +42,7 @@ export {
 
 /** `null` for a provider with no pull. A new provider without a row is a type error. */
 const VERIFIED_PULLS = {
+  // GitHub reads merged pull requests per window, not one target per trigger mail. See `./github`.
   github: null,
   sentry: null,
   railway: defineVerifiedPull(railwayVerifiedPullProvider),
