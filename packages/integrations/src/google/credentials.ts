@@ -1,9 +1,9 @@
 import type { AccountPersona } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { credentialVault } from "@alfred/db/credential-vault";
-import { integrationCredentials } from "@alfred/db/schemas";
+import { integrationCredentials, type IntegrationCredential } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
-import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
+import { upsertIntegrationCredential } from "../shared/credential-upsert";
 import { GOOGLE_EXCHANGE_METADATA_KEYS, type GoogleExchangeMetadata } from "./credential-metadata";
 import { GoogleReauthRequiredError, refreshAccessToken } from "./oauth";
 
@@ -21,7 +21,6 @@ type DbExecutor =
 
 export interface UpsertCredentialsArgs {
   userId: string;
-  provider: "google";
   accountId: string;
   accountLabel?: string | null | undefined;
   accessToken: string;
@@ -42,75 +41,28 @@ export async function upsertCredential(
   args: UpsertCredentialsArgs,
   ex: DbExecutor = db(),
 ): Promise<{ id: string }> {
-  const vault = credentialVault();
-  // Seal once: each `seal` draws a fresh DEK and nonces.
-  const sealedAccessToken = vault.seal(args.accessToken);
-  const sealedRefreshToken = vault.seal(args.refreshToken);
-  const exchangeMetadata = args.metadata ?? {};
-
-  const exchangeKeys = sql.join(
-    GOOGLE_EXCHANGE_METADATA_KEYS.map((key) => sql`${key}`),
-    sql`, `,
-  );
-
-  const updateSet: PgUpdateSetSource<typeof integrationCredentials> = {
-    accessToken: sealedAccessToken,
-    refreshToken: sealedRefreshToken,
-    expiresAt: args.expiresAt,
-    scopes: args.scopes,
-    // Same `sub`, so the same mailbox: keep the watch and label caches, replace the exchange keys.
-    metadata: sql`(${integrationCredentials.metadata} - ARRAY[${exchangeKeys}]::text[]) || ${JSON.stringify(exchangeMetadata)}::jsonb`,
-    status: "active",
-    accountLabel: args.accountLabel ?? null,
-    lastRefreshedAt: new Date(),
-    updatedAt: new Date(),
-  };
-
-  // Fill persona only when NULL, so a reconnect never overwrites a user override.
-  if (args.persona !== undefined) {
-    updateSet.persona = sql`COALESCE(${integrationCredentials.persona}, ${args.persona ?? null})`;
-  }
-
-  const result = await ex
-    .insert(integrationCredentials)
-    .values({
+  return upsertIntegrationCredential(
+    {
       userId: args.userId,
-      provider: args.provider,
+      provider: "google",
       accountId: args.accountId,
       accountLabel: args.accountLabel ?? null,
-      accessToken: sealedAccessToken,
-      refreshToken: sealedRefreshToken,
+      accessToken: args.accessToken,
+      refreshToken: args.refreshToken,
       expiresAt: args.expiresAt,
       scopes: args.scopes,
-      metadata: exchangeMetadata,
-      status: "active",
-      persona: args.persona ?? null,
-    })
-    .onConflictDoUpdate({
-      target: [
-        integrationCredentials.userId,
-        integrationCredentials.provider,
-        integrationCredentials.accountId,
-      ],
-      set: updateSet,
-    })
-    .returning({ id: integrationCredentials.id });
-
-  const row = result[0];
-
-  if (!row) throw new Error("[google.credentials] upsert returned no row");
-
-  return { id: row.id };
+      // Same `sub`, so the same mailbox: keep the watch and label caches, replace the exchange keys.
+      metadata: { ownedKeys: GOOGLE_EXCHANGE_METADATA_KEYS, values: args.metadata ?? {} },
+      persona: args.persona,
+    },
+    ex,
+  );
 }
 
-export interface CredentialRow {
-  id: string;
-  userId: string;
-  accountId: string;
-  accountLabel: string | null;
-  scopes: string[];
-  status: string;
-}
+export type CredentialRow = Pick<
+  IntegrationCredential,
+  "id" | "userId" | "accountId" | "accountLabel" | "scopes" | "status"
+>;
 
 interface StoredCredentialRow extends CredentialRow {
   accessToken: string;

@@ -110,7 +110,6 @@ export function createGoogleCredentialLifecycleHandler(
           const credential = await deps.upsertCredential(
             {
               userId: request.userId,
-              provider: "google",
               accountId: request.accountId,
               accountLabel: request.accountEmail,
               accessToken: request.accessToken,

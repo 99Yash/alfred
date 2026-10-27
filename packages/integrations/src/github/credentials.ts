@@ -3,6 +3,7 @@ import { db } from "@alfred/db";
 import { credentialVault } from "@alfred/db/credential-vault";
 import { integrationCredentials, type IntegrationCredential } from "@alfred/db/schemas";
 import { and, asc, eq } from "drizzle-orm";
+import { upsertIntegrationCredential } from "../shared/credential-upsert";
 import { getInstallationToken } from "./app";
 
 /**
@@ -27,51 +28,19 @@ export interface UpsertGithubCredentialArgs {
 export async function upsertGithubCredential(
   args: UpsertGithubCredentialArgs,
 ): Promise<{ id: string }> {
-  const vault = credentialVault();
-  const sealedAccessToken = vault.seal(args.accessToken);
-  const sealedRefreshToken = args.refreshToken ? vault.seal(args.refreshToken) : null;
-
-  const result = await db()
-    .insert(integrationCredentials)
-    .values({
-      userId: args.userId,
-      provider: "github",
-      accountId: args.accountId,
-      accountLabel: args.accountLabel,
-      accessToken: sealedAccessToken,
-      refreshToken: sealedRefreshToken,
-      installationId: args.installationId,
-      expiresAt: args.expiresAt,
-      scopes: args.scopes,
-      metadata: args.metadata ?? {},
-      status: "active",
-    })
-    .onConflictDoUpdate({
-      target: [
-        integrationCredentials.userId,
-        integrationCredentials.provider,
-        integrationCredentials.accountId,
-      ],
-      set: {
-        accessToken: sealedAccessToken,
-        refreshToken: sealedRefreshToken,
-        installationId: args.installationId,
-        expiresAt: args.expiresAt,
-        scopes: args.scopes,
-        metadata: args.metadata ?? {},
-        status: "active",
-        accountLabel: args.accountLabel,
-        lastRefreshedAt: new Date(),
-        updatedAt: new Date(),
-      },
-    })
-    .returning({ id: integrationCredentials.id });
-
-  const row = result[0];
-
-  if (!row) throw new Error("[github.credentials] upsert returned no row");
-
-  return { id: row.id };
+  return upsertIntegrationCredential({
+    userId: args.userId,
+    provider: "github",
+    accountId: args.accountId,
+    accountLabel: args.accountLabel,
+    accessToken: args.accessToken,
+    // A blank or omitted token writes NULL, also on a reconnect.
+    refreshToken: args.refreshToken || null,
+    installationId: args.installationId,
+    expiresAt: args.expiresAt,
+    scopes: args.scopes,
+    metadata: { replace: args.metadata ?? {} },
+  });
 }
 
 export type GithubCredentialSummary = Pick<

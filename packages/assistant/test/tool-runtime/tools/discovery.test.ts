@@ -459,7 +459,7 @@ describe("evaluateToolAvailability reason codes (#413)", () => {
   test("needs_reauth when a credential exists but is not active", () => {
     const snapshot: IntegrationAvailabilitySnapshot = {
       integrations: new Map([["gmail", { health: "needs_reauth", accountLabel: null }]]),
-      providers: new Map([["google", [provider("expired", [scoped])]]]),
+      providers: new Map([["google", [provider("needs_reauth", [scoped])]]]),
       passthroughEnabled: new Map(),
     };
 

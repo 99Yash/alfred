@@ -129,7 +129,6 @@ describe("credential persistence is sealed at rest (DB-backed)", { skip: SKIP },
 
     const { id } = await upsertCredential({
       userId,
-      provider: "google",
       accountId,
       accessToken: "ya29.first-access",
       refreshToken: "1//first-refresh",
@@ -149,7 +148,6 @@ describe("credential persistence is sealed at rest (DB-backed)", { skip: SKIP },
     // A re-connect replaces the row in place and must not regress to plaintext.
     await upsertCredential({
       userId,
-      provider: "google",
       accountId,
       accessToken: "ya29.second-access",
       refreshToken: "1//second-refresh",
@@ -200,7 +198,6 @@ describe("credential persistence is sealed at rest (DB-backed)", { skip: SKIP },
 
     const { id } = await upsertCredential({
       userId,
-      provider: "google",
       accountId: randomUUID(),
       accountLabel: "listed@example.test",
       accessToken: "ya29.listed",

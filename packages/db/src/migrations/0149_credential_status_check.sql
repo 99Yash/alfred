@@ -1,0 +1,1 @@
+ALTER TABLE "integration_credentials" ADD CONSTRAINT "integration_credentials_status_valid" CHECK ("integration_credentials"."status" IN ('active', 'needs_reauth'));

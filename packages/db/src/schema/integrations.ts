@@ -1,7 +1,9 @@
 import {
   CREDENTIAL_PROVIDERS,
+  CREDENTIAL_STATUSES,
   type AccountPersona,
   type CredentialProvider,
+  type CredentialStatus,
   type JsonObject,
 } from "@alfred/contracts";
 import { getTableColumns, isNull, sql } from "drizzle-orm";
@@ -60,7 +62,7 @@ export const integrationCredentials = pgTable(
      * Always look it up with `provider` too, because each provider owns its id space.
      */
     installationId: text("installation_id"),
-    status: text("status").notNull().default("active"),
+    status: text("status").$type<CredentialStatus>().notNull().default("active"),
     /** Detected from the Google `hd` claim at connect; the user can override it (ADR-0051). */
     persona: text("persona").$type<AccountPersona>(),
     lastRefreshedAt: timestamp("last_refreshed_at", { withTimezone: true }),
@@ -70,6 +72,10 @@ export const integrationCredentials = pgTable(
     check(
       "integration_credentials_provider_valid",
       sql`${t.provider} IN (${inList(CREDENTIAL_PROVIDERS)})`,
+    ),
+    check(
+      "integration_credentials_status_valid",
+      sql`${t.status} IN (${inList(CREDENTIAL_STATUSES)})`,
     ),
     uniqueIndex("integration_credentials_unique_idx").on(t.userId, t.provider, t.accountId),
     index("integration_credentials_installation_idx").on(t.installationId),

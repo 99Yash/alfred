@@ -10,7 +10,6 @@ import type {
 export interface ProviderAvailability extends CredentialProofRow {
   credentialId: string;
   accountId: string;
-  status: string;
   scopes: Set<string>;
   installationId: string | null;
   accountLabel: string | null;
