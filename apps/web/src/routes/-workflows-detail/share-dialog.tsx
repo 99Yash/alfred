@@ -8,7 +8,7 @@ import { WorkflowIcon } from "./workflow-icon";
 const COPY_LEADING = <Copy size={13} />;
 
 interface ShareDialogProps {
-  workflow: SyncedWorkflow;
+  workflow: Pick<SyncedWorkflow, "slug" | "name" | "description">;
   open: boolean;
   onClose: () => void;
 }
@@ -62,7 +62,7 @@ export function ShareDialog({ workflow, open, onClose }: ShareDialogProps) {
               </WorkflowIcon>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-app-fg-4">{workflow.name}</p>
-                <p className="truncate text-[12px] text-app-fg-3">{workflow.description ?? ""}</p>
+                <p className="truncate text-[12px] text-app-fg-3">{workflow.description}</p>
               </div>
             </div>
             <div

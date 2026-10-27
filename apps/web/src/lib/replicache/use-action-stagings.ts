@@ -9,7 +9,7 @@ function scanActionStagings(tx: ReadTransaction): Promise<SyncedActionStaging[]>
 
 /** Runs one time per synced change, so each row is classified in one place. */
 function toRowsNewestFirst(values: SyncedActionStaging[]): StagedRow[] {
-  return values.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(toStagedRow);
+  return values.toSorted((a, b) => b.createdAt.localeCompare(a.createdAt)).map(toStagedRow);
 }
 
 export interface ActionStagingsState {

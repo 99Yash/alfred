@@ -25,7 +25,13 @@ const TINT = {
   },
 } satisfies Record<WorkflowTint, { bg: string; chip: string; ring: string; accent: string }>;
 
-export function WorkflowCard({ workflow, index }: { workflow: SyncedWorkflow; index: number }) {
+export function WorkflowCard({
+  workflow,
+  index,
+}: {
+  workflow: Pick<SyncedWorkflow, "slug" | "name" | "description" | "trigger">;
+  index: number;
+}) {
   const { icon: Icon, tint: tintKey, hero: Hero } = presentationFor(workflow);
   const tint = TINT[tintKey];
 
@@ -67,7 +73,7 @@ export function WorkflowCard({ workflow, index }: { workflow: SyncedWorkflow; in
         <div className="mt-3 min-w-0 flex-1">
           <p className="line-clamp-2 text-sm font-medium text-app-fg-4">{workflow.name}</p>
           <p className="mt-1 line-clamp-3 text-xs leading-5 text-app-fg-3">
-            {workflow.description ?? ""}
+            {workflow.description}
           </p>
         </div>
         <span className="mt-3 inline-flex w-fit items-center gap-1 rounded-control-sm bg-app-bg-2 px-2 py-0.5 text-[11px] text-app-fg-3 tabular-nums">

@@ -47,7 +47,7 @@ function hashSlug(slug: string): number {
 }
 
 /** The card art: a builtin's own icon, tint, and hero, else a fallback picked from the slug and trigger. */
-export function presentationFor(w: SyncedWorkflow) {
+export function presentationFor(w: Pick<SyncedWorkflow, "slug" | "trigger">) {
   const known = KNOWN_PRESENTATION.get(w.slug);
 
   if (known) return known;
@@ -84,11 +84,19 @@ function describeCron(schedule: string, timezone?: string): string {
 
 /** The card's cadence line for a trigger. */
 export function describeCadence(trigger: SyncedWorkflow["trigger"]): string {
-  if (trigger.kind === "cron") return describeCron(trigger.schedule, trigger.timezone);
+  switch (trigger.kind) {
+    case "cron":
+      return describeCron(trigger.schedule, trigger.timezone);
+    case "event":
+      return `On ${eventTriggerPhrase(trigger)}`;
+    case "on_signal":
+      return "On signal";
+    case "manual":
+      return "Manual";
+    default: {
+      const _exhaustive: never = trigger;
 
-  if (trigger.kind === "event") return `On ${eventTriggerPhrase(trigger)}`;
-
-  if (trigger.kind === "on_signal") return "On signal";
-
-  return "Manual";
+      return _exhaustive;
+    }
+  }
 }
