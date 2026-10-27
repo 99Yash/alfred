@@ -317,6 +317,11 @@ function parseWithProblems<T>(
   };
 }
 
+/** One stored-proposal read. An invalid or missing value reads as `null`. */
+function parseStoredProposal(value: unknown): WorkflowAuthoringProposal | null {
+  return workflowAuthoringProposalSchema.safeParse(value).data ?? null;
+}
+
 /** `loadRevision` reads an invalid stored proposal as `null`, so one shape covers both. */
 function storedProposalFailure(message: string): WorkflowServiceResult<never> {
   return {
@@ -492,8 +497,8 @@ export async function reviseWorkflow(
     const contentHash = workflowRevisionContentHash(definition);
 
     const proposalUnchanged =
-      canonicalJson(current?.authoringProposal ?? null) ===
-      canonicalJson(args.authoringProposal ?? null);
+      canonicalJson(parseStoredProposal(current?.authoringProposal ?? null)) ===
+      canonicalJson(parseStoredProposal(args.authoringProposal ?? null));
 
     if (current && current.contentHash === contentHash && proposalUnchanged) {
       return { ok: true, workflow: existing, revision: current, created: false };
@@ -1270,7 +1275,11 @@ export async function activateWorkflow(
       )
       .returning();
 
-    return { ok: true, workflow: published, revision: revision ?? current };
+    return {
+      ok: true,
+      workflow: published,
+      revision: revision ? { ...revision, authoringProposal: current.authoringProposal } : current,
+    };
   };
 
   return args.tx ? run(args.tx) : db().transaction(run);
@@ -1471,12 +1480,13 @@ async function loadRevision(
 
   if (!row) return null;
 
-  // The jsonb column only claims the type. Every revision read comes through here, so the
-  // claim holds for the module, and a proposal that fails the parse reads as missing.
+  // The jsonb column only claims the type. Every `select` in this module comes through
+  // here, so the claim holds for selected rows, and a proposal that fails the parse reads
+  // as `null`. `insertRevision(...).returning()` rows keep the written value and are not
+  // re-parsed here.
   return {
     ...row,
-    authoringProposal:
-      workflowAuthoringProposalSchema.safeParse(row.authoringProposal).data ?? null,
+    authoringProposal: parseStoredProposal(row.authoringProposal),
   };
 }
 
