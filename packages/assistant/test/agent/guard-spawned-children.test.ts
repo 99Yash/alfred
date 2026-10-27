@@ -79,21 +79,21 @@ interface Recorder {
 }
 
 function recorder(args: {
-  children: Array<{ id: string; status: string }>;
+  children: Array<{ id: string }>;
   outcomes: Partial<Record<string, ChildRunOutcome>>;
 }): Recorder {
   const scheduleCalls: string[] = [];
   const published: Array<{ kind: string; payload: Record<string, unknown> }> = [];
 
   const deps: GuardSpawnedChildrenDeps = {
-    listChildren: async () => args.children,
-    readOutcome: async ({ childRunId }) => {
-      const outcome = args.outcomes[childRunId];
+    listChildren: async () =>
+      args.children.map(({ id }) => {
+        const outcome = args.outcomes[id];
 
-      if (!outcome) throw new Error(`no fake outcome for ${childRunId}`);
+        if (!outcome) throw new Error(`no fake outcome for ${id}`);
 
-      return outcome;
-    },
+        return { id, parentRunId: RUN_ID, outcome };
+      }),
     scheduleWake: async ({ childRunId }) => {
       scheduleCalls.push(childRunId);
     },
@@ -117,7 +117,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
     const state = baseState();
 
     const rec = recorder({
-      children: [{ id: "child_a", status: "running" }],
+      children: [{ id: "child_a" }],
       outcomes: { child_a: { ok: true, done: false, status: "running", runningMs: 1_000 } },
     });
 
@@ -133,7 +133,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
     const state = baseState();
 
     const rec = recorder({
-      children: [{ id: "child_a", status: "running" }],
+      children: [{ id: "child_a" }],
       outcomes: {
         child_a: {
           ok: true,
@@ -156,7 +156,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
     const state = baseState();
 
     const rec = recorder({
-      children: [{ id: "child_a", status: "completed" }],
+      children: [{ id: "child_a" }],
       outcomes: {
         child_a: {
           ok: true,
@@ -233,10 +233,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
     const state = baseState();
 
     const rec = recorder({
-      children: [
-        { id: "child_done", status: "completed" },
-        { id: "child_run", status: "running" },
-      ],
+      children: [{ id: "child_done" }, { id: "child_run" }],
       outcomes: {
         child_done: { ok: true, done: true, status: "completed", output: { ok: 1 } },
         child_run: { ok: true, done: false, status: "running", runningMs: 500 },
@@ -277,7 +274,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
     });
 
     const rec = recorder({
-      children: [{ id: "child_a", status: "running" }],
+      children: [{ id: "child_a" }],
       outcomes: { child_a: { ok: true, done: false, status: "running", runningMs: 1_000 } },
     });
 
@@ -306,7 +303,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
     const state = baseState({ assistantText: "premature answer" });
 
     const rec = recorder({
-      children: [{ id: "child_a", status: "completed" }],
+      children: [{ id: "child_a" }],
       outcomes: {
         child_a: {
           ok: true,
@@ -342,10 +339,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
     const state = baseState({ assistantText: "premature answer" });
 
     const rec = recorder({
-      children: [
-        { id: "child_done", status: "completed" },
-        { id: "child_run", status: "running" },
-      ],
+      children: [{ id: "child_done" }, { id: "child_run" }],
       outcomes: {
         child_done: { ok: true, done: true, status: "completed", output: { ok: 1 } },
         child_run: { ok: true, done: false, status: "running", runningMs: 500 },
@@ -368,7 +362,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
     const state = baseState({ foldedChildRunIds: ["child_a"] });
 
     const rec = recorder({
-      children: [{ id: "child_a", status: "completed" }],
+      children: [{ id: "child_a" }],
       outcomes: { child_a: { ok: true, done: true, status: "completed", output: {} } },
     });
 
@@ -398,7 +392,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
     });
 
     const rec = recorder({
-      children: [{ id: "child_a", status: "completed" }],
+      children: [{ id: "child_a" }],
       outcomes: { child_a: { ok: true, done: true, status: "completed", output: { ok: 1 } } },
     });
 
@@ -411,7 +405,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
     const state = baseState({ assistantText: "premature answer", segmentIndex: 2, deltaSeq: 9 });
 
     const rec = recorder({
-      children: [{ id: "child_a", status: "running" }],
+      children: [{ id: "child_a" }],
       outcomes: { child_a: { ok: true, done: false, status: "running", runningMs: 1_000 } },
     });
 
@@ -437,7 +431,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
     const state = baseState({ assistantText: "", segmentIndex: 1, deltaSeq: 4 });
 
     const rec = recorder({
-      children: [{ id: "child_a", status: "running" }],
+      children: [{ id: "child_a" }],
       outcomes: { child_a: { ok: true, done: false, status: "running", runningMs: 1_000 } },
     });
 
