@@ -55,7 +55,7 @@ const childOutcomeColumns = {
   startedAt: agentRuns.startedAt,
 } as const;
 
-type ChildOutcomeRow = Pick<AgentRun, "status" | "output" | "error" | "metadata" | "startedAt">;
+type ChildOutcomeRow = Pick<AgentRun, keyof typeof childOutcomeColumns>;
 
 function toChildRunOutcome(child: ChildOutcomeRow, parentRunId: string): ChildRunOutcome {
   const sub = readSubAgentMetadata(child.metadata);
@@ -79,6 +79,7 @@ function toChildRunOutcome(child: ChildOutcomeRow, parentRunId: string): ChildRu
 
 export interface SpawnedChildRun {
   id: string;
+  parentRunId: string;
   outcome: ChildRunOutcome;
 }
 
@@ -96,7 +97,11 @@ export async function listSpawnedChildRuns(args: {
     // `user_id` is the leading column of `agent_runs_sub_agent_parent_idx`.
     .where(and(eq(agentRuns.userId, args.userId), subAgentParentRunIdMatches(args.parentRunId)));
 
-  return rows.map((row) => ({ id: row.id, outcome: toChildRunOutcome(row, args.parentRunId) }));
+  return rows.map((row) => ({
+    id: row.id,
+    parentRunId: args.parentRunId,
+    outcome: toChildRunOutcome(row, args.parentRunId),
+  }));
 }
 
 /** Read a child's outcome. The child must belong to the caller, so a boss cannot await any run. */

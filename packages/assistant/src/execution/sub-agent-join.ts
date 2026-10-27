@@ -10,6 +10,7 @@ import {
   readChildRunOutcome,
   shouldResolveWithoutParking,
   type ChildRunOutcome,
+  type SpawnedChildRun,
 } from "./sub-agents";
 
 /**
@@ -52,27 +53,36 @@ export async function joinChildRun(
   args: { parentRunId: string; userId: string; childRunId: string },
   deps: JoinChildRunDeps = defaultJoinChildRunDeps,
 ): Promise<JoinChildRunResult> {
-  return await joinChildOutcome(args, await deps.readOutcome(args), deps);
+  const outcome = await deps.readOutcome(args);
+
+  return await joinChildOutcome(
+    { id: args.childRunId, parentRunId: args.parentRunId, outcome },
+    deps,
+  );
 }
 
-/** Decide park or fold from an outcome the caller already read. */
+/**
+ * Decide park or fold from a listed child. The one value carries the row's id, the parent it
+ * was listed under, and the outcome read from that row, so a caller cannot pair child A's
+ * outcome with child B's id or with the wrong parent.
+ */
 export async function joinChildOutcome(
-  args: { parentRunId: string; childRunId: string },
-  outcome: ChildRunOutcome,
-  deps: Pick<JoinChildRunDeps, "scheduleWake"> = defaultJoinChildRunDeps,
+  child: SpawnedChildRun,
+  deps: Pick<JoinChildRunDeps, "scheduleWake">,
 ): Promise<JoinChildRunResult> {
   // Past the ceiling the child is reported, not parked again, so a stuck child cannot loop.
-  if (shouldResolveWithoutParking(outcome)) return { kind: "resolved", outcome };
+  if (shouldResolveWithoutParking(child.outcome))
+    return { kind: "resolved", outcome: child.outcome };
 
   // The child's own signal can be lost in a race, skipped by a cancel, or dropped by a crash.
   // The Redis job is the fast path. The deadline in the wake is the backstop if the job is lost.
   // The deadline counts from the join, not from the park commit, the same as the Redis delay.
   const deadlineAt = new Date(Date.now() + AWAIT_SUB_AGENT_CEILING_MS).toISOString();
   await deps.scheduleWake({
-    childRunId: args.childRunId,
-    parentRunId: args.parentRunId,
+    childRunId: child.id,
+    parentRunId: child.parentRunId,
     delayMs: AWAIT_SUB_AGENT_CEILING_MS,
   });
 
-  return { kind: "park", wake: mintParkWake(args.childRunId, deadlineAt) };
+  return { kind: "park", wake: mintParkWake(child.id, deadlineAt) };
 }

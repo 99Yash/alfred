@@ -92,7 +92,7 @@ function recorder(args: {
 
         if (!outcome) throw new Error(`no fake outcome for ${id}`);
 
-        return { id, outcome };
+        return { id, parentRunId: RUN_ID, outcome };
       }),
     scheduleWake: async ({ childRunId }) => {
       scheduleCalls.push(childRunId);

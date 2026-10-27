@@ -139,11 +139,7 @@ export async function guardSpawnedChildren(
   const parkWakes: ParkWake[] = [];
 
   for (const child of unfolded) {
-    const join = await joinChildOutcome(
-      { parentRunId: ctx.runId, childRunId: child.id },
-      child.outcome,
-      deps,
-    );
+    const join = await joinChildOutcome(child, deps);
 
     if (join.kind === "park") {
       parkWakes.push(join.wake);
