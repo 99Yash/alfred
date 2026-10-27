@@ -38,8 +38,9 @@ export const githubInboundSource: InboundSourceDescriptor<"github"> = {
   resolveOwner: async (payload) => {
     const installationId = githubInstallationId(payload);
 
-    // No `installation.id` means this is not an App delivery.
-    if (!installationId) return { kind: "unowned", reason: "no_match", reference: null };
+    // No `installation.id`: an app-level delivery (GitHub sends some kinds, e.g. `security_advisory`,
+    // to the App itself). No credential could ever own it, and #1209 keeps that drop silent.
+    if (!installationId) return { kind: "unowned", reason: "unscoped", reference: null };
 
     const credential = await findActiveCredentialByInstallationId({
       provider: "github",

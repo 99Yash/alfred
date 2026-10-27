@@ -95,7 +95,9 @@ Subscribed only to the five events the `github` entry names
 `check_suite` is typed but not subscribable: it needs the Checks permission
 the App does not hold, so no `check_suite` deliveries arrive (#1167 notes the
 empty lane). `meta` and `installation_target` are deliberately unsubscribed;
-ownerless GitHub deliveries drop silently since #1209.
+app-level deliveries name no installation and drop silently (#1209). A delivery
+that names an installation no active credential holds reports an
+`ingress.no_owner` warning.
 
 Production holds no `ci_attempt` or `ci_target` row (measured 2026-10-20), so a
 `[owner/repo] Run failed: <workflow> - <branch> (<sha>)` mail cannot close

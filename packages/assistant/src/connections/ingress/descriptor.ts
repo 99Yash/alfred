@@ -22,7 +22,7 @@ export interface InboundSourceDescriptor<S extends InboundEventSource = InboundE
   project(payload: JsonObject, headers: Headers): InboundProjection<S>;
   /** Describe a stored receipt; unknown kinds use the shared JSON fallback. */
   describe(kind: string, payload: unknown): InboundDescription;
-  /** An `unowned` delivery is dropped and reported (ADR-0097 alternative e). */
+  /** An `unowned` delivery is dropped (ADR-0097 alternative e) and reported, unless its reason is `unscoped`. */
   resolveOwner(payload: JsonObject, headers: Headers): Promise<InboundAttribution>;
   /** Without one, readiness reads the source as degraded: its silence proves nothing. */
   subscription?: InboundSubscriptionAdapter;
@@ -88,10 +88,15 @@ export interface UnattributedReference {
  * `ambiguous`: more than one active credential behind one shared secret (Sentry).
  * `reference` tells an operator if a credential is missing or stale.
  * It is `null` when the payload names no account.
+ * `unscoped`: the payload names no installation at all — a GitHub app-level kind such as
+ * `security_advisory` (#1209), not one whose installation has no credential. The shared
+ * receive path drops these silently. The variant pins `reference: null`, so a descriptor
+ * cannot smuggle an id into a drop nothing reports.
  */
 export type InboundAttribution =
   | { kind: "owned"; owner: InboundOwner }
-  | { kind: "unowned"; reason: "no_match" | "ambiguous"; reference: UnattributedReference | null };
+  | { kind: "unowned"; reason: "no_match" | "ambiguous"; reference: UnattributedReference | null }
+  | { kind: "unowned"; reason: "unscoped"; reference: null };
 
 /** What restores deliveries. Event source slugs and integration slugs differ, so `connect` names the integration. */
 export type EventDeliveryRecovery =
