@@ -1062,6 +1062,8 @@ export class McpExecutionBroker {
         envelope = await resolved.prepared.call(input.ref, definition.arguments, {
           ...(input.signal ? { signal: input.signal } : {}),
           trace: span.context,
+          // `parseMcpToolResult` reads `structuredContent` first, so its text copy is not needed.
+          result: "structured",
         });
       } catch (error) {
         const provenance = error instanceof McpClientError ? error.provenance : undefined;
