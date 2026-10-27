@@ -49,7 +49,7 @@ export type CredentialSpec =
       readonly features: readonly GoogleFeature[];
       /** The connected proof, and the scopes a read of this integration needs. */
       readonly anyOfScopes: readonly GoogleScope[];
-      /** Named grants narrower than a read. `{}` when a read grant covers every call. */
+      /** Named grants other than a read. `{}` when a read grant covers every call. */
       readonly grants: Readonly<Record<string, readonly GoogleScope[]>>;
     }
   | { readonly shape: "github_app" }

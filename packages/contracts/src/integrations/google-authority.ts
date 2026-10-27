@@ -1,7 +1,7 @@
 /**
  * Google authorities: the named scope sets that a Google call needs. The registry
- * entry owns them (ADR-0093): `anyOfScopes` is the read grant, `grants` the narrower
- * ones. Do not write a Google scope list anywhere else.
+ * entry owns them (ADR-0093): `anyOfScopes` is the read grant, `grants` the other
+ * grants. Do not write the scope list of a grant anywhere else.
  */
 
 import type { GOOGLE_FEATURE_SCOPES, GoogleScope } from "../google-scopes";
