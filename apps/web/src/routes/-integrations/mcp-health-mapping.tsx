@@ -123,6 +123,7 @@ function useMcpHealthMapping(
   const [error, setError] = useState<string | null>(null);
   const tools = client.api.integrations.mcp.connections({ id: connectionId }).tools;
   const route = tools["health-mapping"];
+  const target = { remoteName: ref.remoteName, catalogRevision: ref.catalogRevision };
 
   const queryKey = [
     ...MCP_HEALTH_MAPPING_QUERY_KEY,
@@ -135,7 +136,7 @@ function useMcpHealthMapping(
     queryKey,
     queryFn: async () => {
       const response = await route.get({
-        query: { remoteName: ref.remoteName, catalogRevision: ref.catalogRevision },
+        query: target,
       });
 
       if (response.error) {
@@ -157,7 +158,7 @@ function useMcpHealthMapping(
   const review = useMutation({
     mutationFn: async (input: { definition: McpHealthMappingDefinition; note: string | null }) => {
       const response = await route.put({
-        ref,
+        ...target,
         readOnly: true,
         definition: input.definition,
         note: input.note,
@@ -182,7 +183,7 @@ function useMcpHealthMapping(
 
   const clear = useMutation({
     mutationFn: async () => {
-      const response = await route.delete({ ref });
+      const response = await route.delete(target);
 
       if (response.error) {
         throw new Error(

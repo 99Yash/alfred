@@ -387,6 +387,14 @@ export const mcpExternalToolRefSchema = z
 
 export type ExternalToolRef = z.infer<typeof mcpExternalToolRefSchema>;
 
+/** The tool a `/connections/:id/tools/*` route names. The path owns the connection. */
+export const mcpConnectionToolTargetSchema = mcpExternalToolRefSchema.pick({
+  remoteName: true,
+  catalogRevision: true,
+});
+
+export type McpConnectionToolTarget = z.infer<typeof mcpConnectionToolTargetSchema>;
+
 export const mcpCallInput = z
   .object({
     ...mcpExternalToolRefSchema.omit({ kind: true }).shape,
@@ -446,42 +454,6 @@ export const mcpToolInspectInputSchema = z
   .strict();
 
 export type McpToolInspectInput = z.infer<typeof mcpToolInspectInputSchema>;
-
-/** Search or inspect as one object, because providers require a root `type: "object"`. */
-export const mcpListToolsInput = z
-  .object({
-    ...mcpToolSearchInputSchema.shape,
-    ref: mcpExternalToolRefSchema.optional(),
-  })
-  .strict()
-  .superRefine((input, ctx) => {
-    const inputKeys = Object.keys(input);
-
-    if (!inputKeys.includes("ref")) return;
-
-    if (input.ref === undefined || inputKeys.some((key) => key !== "ref")) {
-      ctx.addIssue({
-        code: "custom",
-        message: "MCP tool inspection accepts only an exact ref",
-      });
-    }
-  });
-
-export type McpListToolsInput = z.infer<typeof mcpListToolsInput>;
-
-export type McpListToolsOperation =
-  | { operation: "inspect"; input: McpToolInspectInput }
-  | { operation: "search"; input: McpToolSearchInput };
-
-export function parseMcpListToolsOperation(input: unknown): McpListToolsOperation {
-  const parsed = mcpListToolsInput.parse(input);
-
-  if (parsed.ref !== undefined) {
-    return { operation: "inspect", input: { ref: parsed.ref } };
-  }
-
-  return { operation: "search", input: mcpToolSearchInputSchema.parse(parsed) };
-}
 
 export const mcpDiscoveryConnectionSchema = z
   .object({
@@ -592,10 +564,10 @@ export type McpToolInspectionResult = z.infer<typeof mcpToolInspectionResultSche
 // The server derives `descriptorHash` and `policyRevision`, so the client cannot send them.
 export const MCP_TOOL_POLICY_NOTE_MAX = 500;
 
-/** `ref` carries the revision the owner saw. The server refuses a stale one. */
+/** `catalogRevision` is the revision the owner saw. The server refuses a stale one. */
 export const mcpToolPolicyReviewInputSchema = z
   .object({
-    ref: mcpExternalToolRefSchema,
+    ...mcpConnectionToolTargetSchema.shape,
     riskTier: z.enum(TOOL_RISK_TIERS),
     effectClass: mcpEffectClassSchema,
     retryContract: mcpRetryContractSchema,
@@ -784,7 +756,7 @@ export type McpHealthMappingDefinition = z.infer<typeof mcpHealthMappingDefiniti
 /** `readOnly: true` is the owner's own statement that the tool only reads. */
 export const mcpHealthMappingReviewInputSchema = z
   .object({
-    ref: mcpExternalToolRefSchema,
+    ...mcpConnectionToolTargetSchema.shape,
     readOnly: z.literal(true),
     definition: mcpHealthMappingDefinitionSchema,
     note: z.string().trim().max(MCP_HEALTH_MAPPING_NOTE_MAX).nullable(),

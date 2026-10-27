@@ -54,7 +54,7 @@ export { canonicalArgsHash, descriptorHash } from "./hash";
 
 export { catalogWords, connectionNameWords } from "./catalog-query";
 
-export { inspectMcpToolLocal, listMcpToolsLocal, searchMcpToolsLocal } from "./list-tools";
+export { inspectMcpToolLocal, searchMcpToolsLocal } from "./list-tools";
 
 export { McpConnectionManager, type McpConnectionManagerPersistence } from "./manager";
 

@@ -76,6 +76,7 @@ function useMcpToolPolicy(connectionId: string, ref: ExternalToolRef): McpToolPo
   const [error, setError] = useState<string | null>(null);
 
   const route = client.api.integrations.mcp.connections({ id: connectionId }).tools;
+  const target = { remoteName: ref.remoteName, catalogRevision: ref.catalogRevision };
 
   const queryKey = [
     ...MCP_TOOL_POLICY_QUERY_KEY,
@@ -88,7 +89,7 @@ function useMcpToolPolicy(connectionId: string, ref: ExternalToolRef): McpToolPo
     queryKey,
     queryFn: async () => {
       const response = await route.policy.get({
-        query: { remoteName: ref.remoteName, catalogRevision: ref.catalogRevision },
+        query: target,
       });
 
       if (response.error) {
@@ -109,7 +110,7 @@ function useMcpToolPolicy(connectionId: string, ref: ExternalToolRef): McpToolPo
   const review = useMutation({
     mutationFn: async (draft: McpToolPolicyDraft) => {
       const response = await route.policy.put({
-        ref,
+        ...target,
         riskTier: draft.riskTier,
         effectClass: draft.effectClass,
         retryContract: draft.retryContract,
@@ -131,7 +132,7 @@ function useMcpToolPolicy(connectionId: string, ref: ExternalToolRef): McpToolPo
 
   const clear = useMutation({
     mutationFn: async () => {
-      const response = await route.policy.delete({ ref });
+      const response = await route.policy.delete(target);
 
       if (response.error) {
         throw new Error(

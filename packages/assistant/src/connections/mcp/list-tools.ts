@@ -10,11 +10,9 @@ import {
   mcpToolInspectionResultSchema,
   mcpToolSearchInputSchema,
   parseJsonWith,
-  parseMcpListToolsOperation,
   summarizeBody,
   type ExternalToolRef,
   type McpDiscoveryConnection,
-  type McpListToolsInput,
   type McpListToolsDetail,
   type McpToolDiscoveryHit,
   type McpToolDiscoveryPage,
@@ -270,7 +268,7 @@ async function rowsForSearch(input: {
   return { rows: [current, ...following.rows], hasMore: following.hasMore };
 }
 
-/** Search stored catalogs. `listMcpToolsLocal` is the HTTP search-or-inspect entry. */
+/** Search stored catalogs. */
 export async function searchMcpToolsLocal(
   input: McpToolSearchInput & { userId: string },
 ): Promise<McpToolDiscoveryPage> {
@@ -391,19 +389,4 @@ export async function inspectMcpToolLocal(input: {
     connection: connection(row),
     tool: tool.data,
   });
-}
-
-/** Run a search or an inspect, never both. */
-export async function listMcpToolsLocal(input: {
-  userId: string;
-  request: McpListToolsInput;
-}): Promise<McpToolDiscoveryPage | McpToolInspectionResult> {
-  const operation = parseMcpListToolsOperation(input.request);
-
-  switch (operation.operation) {
-    case "inspect":
-      return inspectMcpToolLocal({ userId: input.userId, ref: operation.input.ref });
-    case "search":
-      return searchMcpToolsLocal({ userId: input.userId, ...operation.input });
-  }
 }
