@@ -385,16 +385,22 @@ function isDemandingPayment(item: PriorityEmailDemandItem): boolean {
 /**
  * Morning is quiet, and suppresses without an LLM call, when nothing is demanding,
  * there is no integration activity, and no meetings (ADR-0064).
- * With no attention signal, fall back to the raw email count:
- * a false send is better than a silent suppression (ADR-0048).
+ * `githubMergedTotal` counts merges the live GitHub read proved that no webhook delivered,
+ * so a merge day is not quiet (ADR-0062 amendment 2026-10-27). With no attention signal,
+ * fall back to the raw email count: a false send is better than a silent suppression
+ * (ADR-0048).
  */
 export function isQuietMorning(args: {
   demandingEmailCount: number | undefined;
   emailCount: number;
   activityCount: number;
+  /** Merges the live GitHub read counted. Absent when the read failed or was not run. */
+  githubMergedTotal?: number | undefined;
   meetingCount: number;
 }): boolean {
-  if (args.activityCount > 0 || args.meetingCount > 0) return false;
+  if (args.activityCount > 0 || args.meetingCount > 0 || (args.githubMergedTotal ?? 0) > 0) {
+    return false;
+  }
 
   return args.demandingEmailCount !== undefined
     ? args.demandingEmailCount === 0

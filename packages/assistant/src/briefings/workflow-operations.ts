@@ -191,7 +191,9 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
   }
 
   const counts = gatherCounts(gather);
-  // Quiet means no `demanding` email, no activity, and no meetings (ADR-0064).
+  // Quiet means no `demanding` email, no activity, no meetings, and no read-proven merges
+  // (ADR-0064; ADR-0062 amendment 2026-10-27). `shippedTotal` is the read's full merge count,
+  // and is absent when the read failed, so the gate then behaves as before.
   // With no demand signal, fall back to the raw email count.
   const demandingEmailCount = gather.day_shape?.demandingEmailCount;
 
@@ -199,6 +201,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
     demandingEmailCount,
     emailCount: counts.email,
     activityCount: counts.activity,
+    githubMergedTotal: gather.day_shape?.shippedTotal,
     meetingCount: counts.meetings,
   });
 

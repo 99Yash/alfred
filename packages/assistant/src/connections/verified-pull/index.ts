@@ -26,6 +26,7 @@ export {
   shippedFromGithubRead,
   type GithubMergedPullRequest,
   type GithubMergedRead,
+  type GithubMergedReadOutcome,
 } from "./github";
 
 export { discoverVercelTargets, readVercelDeploymentStatus, type VercelPullTarget } from "./vercel";

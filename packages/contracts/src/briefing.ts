@@ -187,10 +187,15 @@ export type DayShapeVolume = (typeof DAY_SHAPE_VOLUMES)[number];
 
 export const dayShapeVolumeSchema = z.enum(DAY_SHAPE_VOLUMES);
 
+/** The `shipped` title bound. Every producer of a `shipped` title clips to this value. */
+export const DAY_SHAPE_TITLE_MAX = 300;
+
 export const dayShapeSchema = z.object({
   activityVolume: dayShapeVolumeSchema,
   /** Work that shipped or resolved, for the evening recap. */
-  shipped: z.array(z.object({ title: z.string().min(1).max(300), url: z.url().optional() })),
+  shipped: z.array(
+    z.object({ title: z.string().min(1).max(DAY_SHAPE_TITLE_MAX), url: z.url().optional() }),
+  ),
   /** Merges in the window when a live read counted them. `shipped` holds only the newest few. */
   shippedTotal: z.number().int().nonnegative().optional(),
   /**

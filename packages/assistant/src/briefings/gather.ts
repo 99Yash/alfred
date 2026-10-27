@@ -60,6 +60,7 @@ import {
   shippedFromGithubRead,
   verifyApprovedMcpHealth,
   type GithubMergedRead,
+  type GithubMergedReadOutcome,
   type VerifiedPullTriggerItem,
 } from "@alfred/assistant/connections/verified-pull";
 import { type UserSettings } from "@alfred/assistant/settings";
@@ -135,9 +136,10 @@ export interface BriefingDigest {
   verifiedPull: IntegrationActivityItem[];
   /**
    * The window's merged pull requests, read live from GitHub (ADR-0062 amendment 2026-10-27).
-   * The read folds into existing rows before reconciliation. `null` when the read failed.
+   * The read folds into existing rows before reconciliation. A miss and a fault are two
+   * variants; only `completed` carries a read.
    */
-  githubMerged: GithubMergedRead | null;
+  githubMerged: GithubMergedReadOutcome;
   /** Priority items dropped because a standing instruction matched the sender. */
   suppressedByInstruction: BriefingInstructionSuppression[];
   /** Items whose work object reached a terminal state (ADR-0062). Feeds the evening recap. */
@@ -614,6 +616,9 @@ export async function gatherBriefingWithSuppressionAudit(
 
   const { verifiedPull, githubMerged } = digest;
 
+  // Only `completed` carries a read; every fault and the miss fall back to the stored rows.
+  const githubMergedRead = githubMerged.status === "completed" ? githubMerged.read : null;
+
   // Runs after the verified pull, so a day whose only activity is a Railway failure is not quiet.
   // The GitHub read counts merges that no webhook delivered. `max`, not a sum: a delivered merge
   // is in both counts.
@@ -622,8 +627,8 @@ export async function gatherBriefingWithSuppressionAudit(
     windowStart: activityStart,
     windowEnd,
     activityCount:
-      Math.max(integrationActivity.length, githubMerged?.total ?? 0) + verifiedPull.length,
-    githubMerged,
+      Math.max(integrationActivity.length, githubMergedRead?.total ?? 0) + verifiedPull.length,
+    githubMerged: githubMergedRead,
   });
 
   // Demand over the final buckets (ADR-0064). Use the raw `from`, not the shortened
