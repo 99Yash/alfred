@@ -216,8 +216,6 @@ export function classifyToolFailure(err: unknown): PublicFailure {
   if (err instanceof AppError) return err.public;
   if (hasTag(err, "GoogleReauthRequired"))
     return FAILURES.reauth_required({ integration: err.integration });
-  if (hasTag(err, "MissingScopes"))
-    return FAILURES.scope_required({ integration: "google", feature: err.features[0] });
   if (hasTag(err, "McpOAuthAuthorizationRequired"))
     return FAILURES.reauth_required({ integration: "mcp" });
   if (isHttpError(err)) {
@@ -228,6 +226,8 @@ export function classifyToolFailure(err: unknown): PublicFailure {
   return FAILURES.tool_execution_failed();
 }
 ```
+
+The runtime scope failure is `GoogleCredentialSelectionError` with reason `scope_required` (`packages/integrations/src/google/client.ts`); the sketch above leaves it on the `tool_execution_failed` fallback until PR 2 maps it.
 
 Two design points:
 
