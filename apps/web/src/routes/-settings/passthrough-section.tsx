@@ -18,6 +18,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { AppButton, AppCard } from "~/components/ui/v2";
+import { CachedSyncNotice } from "~/components/cached-sync-notice";
 import { usePassthroughFlags } from "~/lib/replicache/use-passthrough-flags";
 import type { AppTint } from "~/lib/tints";
 import { AgentRow } from "./agent-row";
@@ -85,7 +86,7 @@ const PASSTHROUGH_META = {
 
 /** Read-only API passthrough toggles, one per integration (ADR-0074 rung-a). Default off. */
 export function PassthroughSection() {
-  const { isOn, setEnabled, error, retry } = usePassthroughFlags();
+  const { isOn, setEnabled, error, hasData, retry } = usePassthroughFlags();
 
   return (
     <AppCard padded={false}>
@@ -96,7 +97,7 @@ export function PassthroughSection() {
           Off by default; writes are always blocked at the boundary.
         </p>
       </div>
-      {error ? (
+      {error && !hasData ? (
         <div
           className="flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-start sm:justify-between"
           role="alert"
@@ -120,6 +121,11 @@ export function PassthroughSection() {
         </div>
       ) : (
         <div className="divide-y divide-app-bg-2">
+          {error ? (
+            <div className="px-5 py-3">
+              <CachedSyncNotice subject="toggles" error={error} retry={retry} />
+            </div>
+          ) : null}
           {SUPPORTED_PASSTHROUGH_SLUGS.map((slug) => {
             const meta = PASSTHROUGH_META[slug];
 

@@ -1,5 +1,6 @@
 import { AlertCircle, RefreshCw } from "lucide-react";
 import { AppButton, AppCard } from "~/components/ui/v2";
+import { CachedSyncNotice } from "~/components/cached-sync-notice";
 import { useFeatureFlags } from "~/lib/replicache/use-feature-flags";
 import { AgentRow } from "./agent-row";
 import { BriefingScheduleSection } from "./briefing-schedule-section";
@@ -9,7 +10,7 @@ import { BACKGROUND_AGENTS } from "./helpers";
 const RETRY_LEADING = <RefreshCw size={13} aria-hidden />;
 
 export function FeaturesSection() {
-  const { isOn, setFlag, error, retry } = useFeatureFlags();
+  const { isOn, setFlag, error, hasData, retry } = useFeatureFlags();
 
   return (
     <>
@@ -20,7 +21,7 @@ export function FeaturesSection() {
             Enable or disable the agents that run on your behalf.
           </p>
         </div>
-        {error ? (
+        {error && !hasData ? (
           <div
             className="flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-start sm:justify-between"
             role="alert"
@@ -44,6 +45,11 @@ export function FeaturesSection() {
           </div>
         ) : (
           <div className="divide-y divide-app-bg-2">
+            {error ? (
+              <div className="px-5 py-3">
+                <CachedSyncNotice subject="agents" error={error} retry={retry} />
+              </div>
+            ) : null}
             {BACKGROUND_AGENTS.map((agent) => (
               <AgentRow
                 key={agent.id}

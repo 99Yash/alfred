@@ -16,6 +16,7 @@ export function BriefingScheduleSection() {
     setEveningHour,
     loading,
     error,
+    hasData,
     retry,
   } = useBriefingSchedule();
 
@@ -37,9 +38,8 @@ export function BriefingScheduleSection() {
 
   const showDeviceHint = deviceTimezone !== null && deviceTimezone !== timezone;
 
-  // A failed pull keeps stored values. With none, the pickers would show defaults as if they were saved.
-  const hasStored = hasOverride.timezone || hasOverride.morningHour || hasOverride.eveningHour;
-
+  // A failed pull keeps stored values. With no confirmed data, the pickers
+  // would show defaults as if they were saved.
   return (
     <AppCard padded={false}>
       <div className="space-y-1 p-5 pb-2">
@@ -49,7 +49,7 @@ export function BriefingScheduleSection() {
         </p>
       </div>
 
-      {error && !hasStored ? (
+      {error && !hasData ? (
         <div
           className="flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-start sm:justify-between"
           role="alert"

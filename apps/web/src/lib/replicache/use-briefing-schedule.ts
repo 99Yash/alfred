@@ -30,6 +30,8 @@ export interface BriefingScheduleState {
   setEveningHour: (hour: number) => Promise<void>;
   loading: boolean;
   error: string | null;
+  /** From `usePreferenceMap`: false until the preferences read past the first pull. */
+  hasData: boolean;
   retry: () => void;
 }
 
@@ -45,7 +47,7 @@ function parseTimezone(value: unknown): string | null {
 
 /** The briefing schedule from preference rows. A missing row means the server default. */
 export function useBriefingSchedule(): BriefingScheduleState {
-  const { values, loading, error, retry, setPref } = usePreferenceMap();
+  const { values, loading, error, hasData, retry, setPref } = usePreferenceMap();
 
   const tzStored =
     parseTimezone(values[BRIEFING_PREF_KEYS.timezone]) ??
@@ -73,6 +75,7 @@ export function useBriefingSchedule(): BriefingScheduleState {
     setEveningHour: (hour) => setPref(BRIEFING_PREF_KEYS.eveningHour, hour),
     loading,
     error,
+    hasData,
     retry,
   };
 }

@@ -15,12 +15,14 @@ export interface PassthroughFlagsState {
   setEnabled: (slug: SupportedPassthroughSlug, enabled: boolean) => Promise<void>;
   loading: boolean;
   error: string | null;
+  /** From `usePreferenceMap`: false until the preferences read past the first pull. */
+  hasData: boolean;
   retry: () => void;
 }
 
 /** Per-integration passthrough toggles, default off. */
 export function usePassthroughFlags(): PassthroughFlagsState {
-  const { values, loading, error, retry, setPref } = usePreferenceMap();
+  const { values, loading, error, hasData, retry, setPref } = usePreferenceMap();
 
   const isOn = useCallback(
     (slug: SupportedPassthroughSlug): boolean =>
@@ -39,6 +41,7 @@ export function usePassthroughFlags(): PassthroughFlagsState {
     setEnabled,
     loading,
     error,
+    hasData,
     retry,
   };
 }

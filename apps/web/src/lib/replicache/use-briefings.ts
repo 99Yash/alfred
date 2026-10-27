@@ -32,13 +32,13 @@ export function useBriefings(): BriefingsState {
   >(
     query,
     useCallback((rows: SyncedBriefing[]) => {
-      rows.sort((a, b) => {
+      const byDay = [...rows].sort((a, b) => {
         if (a.briefingDate !== b.briefingDate) return b.briefingDate.localeCompare(a.briefingDate);
 
         return compareSlots(a, b);
       });
 
-      return rows;
+      return byDay;
     }, []),
   );
 
@@ -65,11 +65,7 @@ export function useBriefing(date: string): BriefingDayState {
     SyncedBriefing[]
   >(
     query,
-    useCallback((rows: SyncedBriefing[]) => {
-      rows.sort(compareSlots);
-
-      return rows;
-    }, []),
+    useCallback((rows: SyncedBriefing[]) => [...rows].sort(compareSlots), []),
   );
 
   return { slots: data ?? [], loading, error, retry };

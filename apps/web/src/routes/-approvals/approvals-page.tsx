@@ -217,6 +217,12 @@ export function ApprovalsPage() {
           </div>
         ) : null}
 
+        {error && rows.length > 0 ? (
+          <div className="mb-3">
+            <CachedSyncNotice subject="approvals" error={error} retry={retry} />
+          </div>
+        ) : null}
+
         {loading ? (
           <AppCard className="flex items-center justify-center gap-2 px-6 py-12 text-sm text-app-fg-3">
             <Loader2 size={16} className="animate-spin" />
@@ -254,7 +260,6 @@ export function ApprovalsPage() {
           />
         ) : (
           <div className="flex flex-col gap-3">
-            {error ? <CachedSyncNotice subject="approvals" error={error} retry={retry} /> : null}
             {windowed.map((staging, i) => (
               <div
                 id={approvalElementId(staging.id)}

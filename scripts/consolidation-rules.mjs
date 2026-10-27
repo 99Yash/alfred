@@ -1040,7 +1040,7 @@ export const RULES = [
     // wrote its own `rep.subscribe` with one of two loading rules, so one cold
     // store showed "empty" on some pages and "loading" on others, and some
     // pages hid cached rows behind a sync error.
-    re: /\b(?:rep|replicache)\.subscribe\(/,
+    re: /\b(?:rep|replicache)[?!]?\.(?:subscribe|experimentalWatch)\(/,
     paths: /^apps\/web\/src\//,
     severity: "gate",
     owners: ["apps/web/src/lib/replicache/use-replicache-subscription.ts"],

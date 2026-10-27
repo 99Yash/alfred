@@ -6,10 +6,16 @@ import { useReplicacheStatus } from "./context";
 export interface ReplicacheQueryState<U> {
   /** `undefined` until the first result for this client, query and mapper. `null` is a result. */
   data: U | undefined;
-  /** `query !== null && error === null && (data === undefined || (isEmpty(data) && initialPullPending))` */
+  /** `query !== null && error === null && !hasData` */
   loading: boolean;
   /** `loadError ?? pullError`. Rows may still be present: show them with the error, do not hide them. */
   error: string | null;
+  /**
+   * True once this client, query and mapper produced a result past the first
+   * pull. A surface with an `error` shows its full panel only when this is
+   * false, and its rows with a cached notice otherwise.
+   */
+  hasData: boolean;
   initialPullPending: boolean;
   retry: () => void;
 }
@@ -88,14 +94,13 @@ export function useReplicacheSubscription<T, U>(
 
   const error = loadError ?? pullError;
   const isEmpty = options?.isEmpty ?? isEmptyResult;
+  const hasData = data !== undefined && !(isEmpty(data) && initialPullPending);
 
   return {
     data,
-    loading:
-      query !== null &&
-      error === null &&
-      (data === undefined || (isEmpty(data) && initialPullPending)),
+    loading: query !== null && error === null && !hasData,
     error,
+    hasData,
     initialPullPending,
     retry,
   };

@@ -9,6 +9,12 @@ export interface PreferenceMap {
   values: Record<string, PreferenceValue>;
   loading: boolean;
   error: string | null;
+  /**
+   * True once the preference query produced a result past the first pull.
+   * The settings sections show their error panel only when this is false,
+   * and their controls with a cached notice otherwise.
+   */
+  hasData: boolean;
   retry: () => void;
   setPref: (key: string, value: PreferenceValue) => Promise<void>;
 }
@@ -22,7 +28,7 @@ export function usePreferenceMap(): PreferenceMap {
   const rep = useReplicache();
   const query = useCallback((tx: ReadTransaction) => SYNC_MODEL.pref.scan(tx), []);
 
-  const { data, loading, error, retry } = useReplicacheSubscription<
+  const { data, loading, error, hasData, retry } = useReplicacheSubscription<
     SyncedPreference[],
     Record<string, PreferenceValue>
   >(
@@ -47,5 +53,5 @@ export function usePreferenceMap(): PreferenceMap {
     [rep],
   );
 
-  return { values: data ?? EMPTY_PREFERENCE_VALUES, loading, error, retry, setPref };
+  return { values: data ?? EMPTY_PREFERENCE_VALUES, loading, error, hasData, retry, setPref };
 }

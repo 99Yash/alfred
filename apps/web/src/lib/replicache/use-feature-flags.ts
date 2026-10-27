@@ -8,12 +8,14 @@ export interface FeatureFlagsState {
   setFlag: (key: FeatureFlagKey, enabled: boolean) => Promise<void>;
   loading: boolean;
   error: string | null;
+  /** From `usePreferenceMap`: false until the preferences read past the first pull. */
+  hasData: boolean;
   retry: () => void;
 }
 
 /** Background-agent feature toggles (Settings, Features). */
 export function useFeatureFlags(): FeatureFlagsState {
-  const { values, loading, error, retry, setPref } = usePreferenceMap();
+  const { values, loading, error, hasData, retry, setPref } = usePreferenceMap();
 
   const isOn = useCallback(
     (key: FeatureFlagKey): boolean => isFeatureFlagOn(key, values[key]),
@@ -30,6 +32,7 @@ export function useFeatureFlags(): FeatureFlagsState {
     setFlag,
     loading,
     error,
+    hasData,
     retry,
   };
 }
