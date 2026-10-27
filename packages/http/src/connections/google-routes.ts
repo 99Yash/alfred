@@ -9,7 +9,7 @@ import {
   type GoogleFeature,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { integrationCredentials, user } from "@alfred/db/schemas";
+import { integrationCredentials } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
 import {
   buildAuthorizeUrl,
@@ -36,7 +36,7 @@ import {
   upsertGoogleCredentialConnection,
 } from "@alfred/assistant/connections";
 import { authMacro } from "../middleware/auth";
-import { requireOnboarded } from "../middleware/onboarding";
+import { readOnboarding, requireOnboarded } from "../middleware/onboarding";
 
 /**
  * Google connect. `state` is HMAC-signed `(userId, nonce)`. The CSRF defense is the
@@ -312,13 +312,9 @@ export const googleIntegrationRoutes = new Elysia({
       await publishGoogleCallbackCompleted(userId, credentialId);
 
       // A user still onboarding goes back to step 2.
-      const userRow = await db()
-        .select({ onboardedAt: user.onboardedAt })
-        .from(user)
-        .where(eq(user.id, userId))
-        .limit(1);
+      const userRow = await readOnboarding(userId);
 
-      const stillOnboarding = userRow[0]?.onboardedAt === null;
+      const stillOnboarding = userRow?.onboardedAt === null;
       const connectedParam = `google_connected=${encodeURIComponent(tokens.accountEmail)}`;
       let target = stillOnboarding ? `/onboarding?step=2&${connectedParam}` : `/?${connectedParam}`;
 

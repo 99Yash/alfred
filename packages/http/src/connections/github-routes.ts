@@ -1,6 +1,4 @@
 import { Errors, integrationRoutePrefix, type CredentialProvider } from "@alfred/contracts";
-import { db } from "@alfred/db";
-import { user } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
 import {
   buildInstallUrl,
@@ -11,10 +9,9 @@ import {
 } from "@alfred/integrations/github";
 import { deleteIntegrationCredential } from "@alfred/integrations/shared";
 import { Elysia, t } from "elysia";
-import { eq } from "drizzle-orm";
 import { oauthHandshake } from "@alfred/assistant/connections";
 import { authMacro } from "../middleware/auth";
-import { requireOnboarded } from "../middleware/onboarding";
+import { readOnboarding, requireOnboarded } from "../middleware/onboarding";
 
 /**
  * GitHub App connect (ADR-0052). With `request_oauth_on_install`, one install
@@ -143,14 +140,10 @@ export const githubIntegrationRoutes = new Elysia({
             setup_action: query.setup_action ?? null,
           },
         }),
-        db()
-          .select({ onboardedAt: user.onboardedAt })
-          .from(user)
-          .where(eq(user.id, userId))
-          .limit(1),
+        readOnboarding(userId),
       ]);
 
-      const stillOnboarding = userRow[0]?.onboardedAt === null;
+      const stillOnboarding = userRow?.onboardedAt === null;
       const connectedParam = `github_connected=${encodeURIComponent(accountLogin)}`;
 
       const target = stillOnboarding
