@@ -288,8 +288,8 @@ export async function projectGmailWorksAtEdges(
 
     if (groups.size === 0) return { edgesWritten: 0, checksum: checksumForEdges([]) };
 
-    // Person gate first, with the kind fold's exact inputs and no `observations`,
-    // so this answer matches the sender's profile. Bodies load only for survivors.
+    // Person gate first, with the kind fold's exact inputs, so this answer
+    // matches the sender's profile. Bodies load only for survivors.
     const personGroups: SenderGroup[] = [];
 
     for (const group of groups.values()) {
