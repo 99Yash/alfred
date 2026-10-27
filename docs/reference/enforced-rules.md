@@ -101,6 +101,7 @@ When you add, remove or change a rule in `.oxlintrc.json`, a JS plugin, `scripts
 | `alfred/no-function-wrapper-shim` |  | Disallow an exported function whose only job is to return a constant or an imported name. |
 | `alfred/no-type-alias-shim` |  | Disallow exporting a bare new name for an imported type. |
 | `alfred/no-type-re-export-shim` |  | Disallow re-exporting a constants module's type from a module that is not its barrel. |
+| `alfred/no-union-enum-without-default` |  | Require an explicit `default` on every Elysia `t.UnionEnum` call. |
 | `alfred/sha256-over-json-stringify` |  | Disallow a hash digest over JSON.stringify output, whose pre-image depends on object key order. |
 
 ## Lint rules: `anti-slop` plugin

@@ -823,8 +823,13 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
             end: t.Optional(t.String()),
             page: t.Optional(t.Numeric({ minimum: 1 })),
             pageSize: t.Optional(t.Numeric({ minimum: 1, maximum: USAGE_ACTIVITY_MAX_PAGE_SIZE })),
-            categories: t.Optional(t.Array(t.UnionEnum(USAGE_RUN_CATEGORIES))),
-            // `t.UnionEnum` defaults to its first member. `undefined` keeps a missing field missing.
+            // `t.UnionEnum` defaults to its first member. `default: undefined`
+            // keeps a missing field missing, so the handler `??` defaults stay
+            // the one place that names the usage defaults.
+            // `alfred/no-union-enum-without-default` keeps the option honest.
+            categories: t.Optional(
+              t.Array(t.UnionEnum(USAGE_RUN_CATEGORIES, { default: undefined })),
+            ),
             sortField: t.Optional(t.UnionEnum(usageSortFieldValues, { default: undefined })),
             sortDir: t.Optional(t.UnionEnum(usageSortDirValues, { default: undefined })),
           }),

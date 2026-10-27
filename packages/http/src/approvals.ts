@@ -52,7 +52,9 @@ export const approvalsRoutes = new Elysia({ prefix: "/api/approvals", normalize:
       {
         params: t.Object({ stagingId: t.String({ minLength: 1, maxLength: 120 }) }),
         body: t.Object({
-          // `t.UnionEnum` defaults to its first member, so a missing decision would become "approve".
+          // `t.UnionEnum` defaults to its first member, so a missing decision
+          // would become "approve". `default: undefined` fails it instead.
+          // `alfred/no-union-enum-without-default` keeps the option honest.
           decision: t.UnionEnum(
             ["approve", "reject", "cancel_run"] as const satisfies readonly Decision[],
             { default: undefined },

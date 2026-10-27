@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { enumGuard } from "./guards";
 
 /** Settings > Usage dashboard. The server groups `api_call_log` by `run_id`; cost is USD at write time. */
 
@@ -23,8 +22,6 @@ export const USAGE_RUN_CATEGORIES = [
 export const usageRunCategorySchema = z.enum(USAGE_RUN_CATEGORIES);
 
 export type UsageRunCategory = (typeof USAGE_RUN_CATEGORIES)[number];
-
-export const isUsageRunCategory = enumGuard(USAGE_RUN_CATEGORIES);
 
 /** One served model within a run: its id and how many calls it answered. */
 export const usageModelBreakdownSchema = z.object({
