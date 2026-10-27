@@ -1,7 +1,6 @@
 import {
   getStringPath,
   gmailEmailMessagePayloadSchema,
-  observationInsertSchema,
   parseEmailIdentity,
   parseGmailDocumentMetadata,
   parseMailbox,
@@ -148,8 +147,6 @@ export function reduceGmailDocument(row: GmailDocumentForReduction): GmailReduct
     schemaVersion: 1,
     reducerVersion: GMAIL_REDUCER_VERSION,
   };
-
-  observationInsertSchema.parse(input);
 
   return { observations: [input], issues };
 }

@@ -4,7 +4,6 @@ import {
   classifyDomainFirstLabel,
   classifyLocalPart,
   emailDomain,
-  gmailEmailMessagePayloadSchema,
   identityRefSchema,
   isDomainOrSubdomain,
   isFirstLastLocalPart,
@@ -18,6 +17,7 @@ import {
   splitEmail,
   type EntityKindClassification,
   type EntityNodeKind,
+  type GmailEmailMessagePayload,
   type IdentityRef,
   type DomainFirstLabelClass,
   type ListEvidenceCode,
@@ -25,7 +25,6 @@ import {
   type MatchedSenderClass,
   type ServiceEvidenceCode,
 } from "@alfred/contracts";
-import type { Observation } from "@alfred/db/schemas";
 import type { ContactKind, EntityKind } from "./entity-graph";
 
 const AUTHORITATIVE_CONFIDENCE = 0.99;
@@ -66,27 +65,23 @@ function localServiceEvidence(localPart: string): LocalServiceEvidence | null {
 const LIST_DISPLAY_RE =
   /\b(team|engineering|developers?|all hands|newsletter|digest|mailing list|distribution list)\b/i;
 
-export interface GmailPayloadSignals {
-  readonly listId?: string | null;
-  readonly listUnsubscribe?: string | null;
-  readonly precedence?: string | null;
-  readonly autoSubmitted?: string | null;
-}
+export type GmailPayloadSignals = Partial<
+  Pick<
+    GmailEmailMessagePayload["headers"],
+    "listId" | "listUnsubscribe" | "precedence" | "autoSubmitted"
+  >
+>;
 
 export interface ClassifyEntityKindInput {
   readonly identity: IdentityRef;
   readonly displayNames?: readonly string[];
-  readonly observations?: readonly Observation[];
   readonly payloadSignals?: readonly GmailPayloadSignals[];
   /** Stored list-header codes. They reach the same branch as `payloadSignals`. */
   readonly listEvidence?: readonly ListEvidenceCode[];
 }
 
 export function classifyEntityKind(input: ClassifyEntityKindInput): EntityKindClassification {
-  const signals = [
-    ...(input.payloadSignals ?? []),
-    ...signalsFromObservations(input.observations ?? []),
-  ];
+  const signals = input.payloadSignals ?? [];
 
   const evidenceCodes: string[] = [];
 
@@ -152,7 +147,7 @@ export function classifyEntityKind(input: ClassifyEntityKindInput): EntityKindCl
     return classification("service", STRONG_CONFIDENCE, [SERVICE_EVIDENCE_CODES.autoSubmitted]);
   }
 
-  const displayNames = normalizedDisplayNames(input.displayNames ?? [], input.observations ?? []);
+  const displayNames = normalizedDisplayNames(input.displayNames ?? []);
   const personDisplay = displayNames.find(isLikelyPersonDisplayName);
 
   if (personDisplay && !localEvidence) {
@@ -184,25 +179,6 @@ export function classifyEntityKind(input: ClassifyEntityKindInput): EntityKindCl
   return classification("person", PERSON_CONFIDENCE, evidenceCodes);
 }
 
-function signalsFromObservations(observations: readonly Observation[]): GmailPayloadSignals[] {
-  const signals: GmailPayloadSignals[] = [];
-
-  for (const observation of observations) {
-    if (observation.kind !== "email_message") continue;
-    const payload = gmailEmailMessagePayloadSchema.safeParse(observation.payload);
-
-    if (!payload.success) continue;
-    signals.push({
-      listId: payload.data.headers.listId,
-      listUnsubscribe: payload.data.headers.listUnsubscribe,
-      precedence: payload.data.headers.precedence,
-      autoSubmitted: payload.data.headers.autoSubmitted,
-    });
-  }
-
-  return signals;
-}
-
 /** Sorted, deduped list codes. The team-graph writer persists these. */
 export function listEvidenceCodes(signals: readonly GmailPayloadSignals[]): ListEvidenceCode[] {
   const evidenceCodes = new Set<ListEvidenceCode>();
@@ -220,24 +196,13 @@ export function listEvidenceCodes(signals: readonly GmailPayloadSignals[]): List
   return [...evidenceCodes].sort();
 }
 
-function normalizedDisplayNames(
-  directDisplayNames: readonly string[],
-  observations: readonly Observation[],
-): string[] {
+function normalizedDisplayNames(directDisplayNames: readonly string[]): string[] {
   const names = new Set<string>();
 
   for (const name of directDisplayNames) {
     const normalized = normalizeDisplayName(name);
 
     if (normalized) names.add(normalized);
-  }
-
-  for (const observation of observations) {
-    for (const participant of observation.participants.items) {
-      const normalized = normalizeDisplayName(participant.displayName);
-
-      if (normalized) names.add(normalized);
-    }
   }
 
   return [...names];

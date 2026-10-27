@@ -19,7 +19,7 @@ import {
 } from "@alfred/assistant/knowledge";
 import { warmPool } from "@alfred/db";
 import { closeScriptResources } from "../script-runtime";
-import { toMessage } from "@alfred/contracts";
+import { observationInsertSchema, toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import {
   documents,
@@ -229,6 +229,8 @@ async function processUser(args: {
 
       for (const observation of reduced.observations) {
         if (!COMMIT) {
+          // The writer parses on commit; a dry run parses here so a bad row counts as an error.
+          observationInsertSchema.parse(observation);
           stats.wouldWrite++;
           continue;
         }

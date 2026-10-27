@@ -1,14 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import {
-  gmailEmailMessagePayloadSchema,
-  identityRefSchema,
-  type IdentityRef,
-} from "@alfred/contracts";
-import type { Observation } from "@alfred/db/schemas";
+import { identityRefSchema, type IdentityRef } from "@alfred/contracts";
 import { classifyEntityKind } from "@alfred/assistant/knowledge/entity-kind-classifier";
-
-const OCCURRED_AT = new Date("2026-06-30T08:00:00.000Z");
 
 describe("classifyEntityKind", () => {
   test("uses List-Id as authoritative group evidence", () => {
@@ -146,21 +139,6 @@ describe("classifyEntityKind", () => {
     assert.equal(result.bestGuess, "project");
     assert.deepEqual(result.evidenceCodes, ["identity:integration_object_key:unregistered"]);
   });
-
-  test("extracts Gmail payload signals from observations", () => {
-    const result = classifyEntityKind({
-      identity: emailIdentity("engineering@oliv.ai"),
-      observations: [
-        gmailObservation({
-          listId: "Engineering <engineering.oliv.ai>",
-          listUnsubscribe: "<mailto:off@example.com>",
-        }),
-      ],
-    });
-
-    assert.equal(result.kind, "group");
-    assert.deepEqual(result.evidenceCodes, ["gmail:list_id", "gmail:list_unsubscribe"]);
-  });
 });
 
 function emailIdentity(value: string): IdentityRef {
@@ -173,58 +151,4 @@ function domainIdentity(value: string): IdentityRef {
 
 function identity(kind: IdentityRef["kind"], value: string): IdentityRef {
   return identityRefSchema.parse({ kind, value });
-}
-
-function gmailObservation(overrides: {
-  readonly listId?: string | null;
-  readonly listUnsubscribe?: string | null;
-  readonly precedence?: string | null;
-  readonly autoSubmitted?: string | null;
-}): Observation {
-  const sender = emailIdentity("engineering@oliv.ai");
-
-  const payload = gmailEmailMessagePayloadSchema.parse({
-    provider: "gmail",
-    documentId: "doc_1",
-    messageId: "gmail_msg_1",
-    threadId: "gmail_thread_1",
-    accountId: "acct_1",
-    isSent: false,
-    subject: "Update",
-    subjectHash: "sha256:abc",
-    headers: {
-      messageId: "<m1@example.com>",
-      inReplyTo: null,
-      references: [],
-      listId: overrides.listId ?? null,
-      listUnsubscribe: overrides.listUnsubscribe ?? null,
-      replyTo: null,
-      deliveredTo: null,
-      autoSubmitted: overrides.autoSubmitted ?? null,
-      precedence: overrides.precedence ?? null,
-    },
-  });
-
-  return {
-    id: "obs_1",
-    userId: "usr_1",
-    source: "gmail",
-    kind: "email_message",
-    occurredAt: OCCURRED_AT,
-    familyKey: "gmail:message:acct_1:gmail_msg_1",
-    evidenceHash: "sha256:abc",
-    subjectIdentity: sender,
-    objectIdentity: null,
-    participants: {
-      items: [{ identity: sender, role: "from", displayName: "Engineering" }],
-      recipientCount: 0,
-      ...(overrides.listId ? { listId: overrides.listId } : {}),
-    },
-    payload,
-    schemaVersion: 1,
-    reducerVersion: 1,
-    supersedesObservationId: null,
-    createdAt: OCCURRED_AT,
-    updatedAt: OCCURRED_AT,
-  };
 }

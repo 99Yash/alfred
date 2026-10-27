@@ -1,8 +1,10 @@
 import {
   USER_MODEL_PROJECTION_NAME,
   getStringPath,
+  gmailEmailMessagePayloadSchema,
   identityRefSchema,
   type EntityKindClassification,
+  type GmailEmailMessagePayload,
   type IdentityRef,
   type ProjectionCursorValue,
   type ProjectionProvenance,
@@ -174,7 +176,9 @@ function collectIdentities(
 
     if (subject && !isExcluded(subject, excludedEmails)) {
       const acc = ensureAccumulator(byIdentity, subject, observation);
-      acc.payloadSignals.push(payloadSignalsFromObservation(observation));
+      const payload = parseGmailObservationPayload(observation);
+
+      if (payload) acc.payloadSignals.push(payload.headers);
     }
 
     for (const participant of observation.participants.items) {
@@ -233,16 +237,13 @@ function ensureAccumulator(
   return created;
 }
 
-/** Header list/bulk signals for one observation. Shared with the `works_at` fold so both classify alike. */
-export function payloadSignalsFromObservation(observation: Observation): GmailPayloadSignals {
-  const payload = observation.payload;
+/** The Gmail payload of one `email_message` row, or null when it does not parse. Shared with the `works_at` fold. */
+export function parseGmailObservationPayload(
+  observation: Observation,
+): GmailEmailMessagePayload | null {
+  const parsed = gmailEmailMessagePayloadSchema.safeParse(observation.payload);
 
-  return {
-    listId: getStringPath(payload, "headers", "listId") ?? null,
-    listUnsubscribe: getStringPath(payload, "headers", "listUnsubscribe") ?? null,
-    precedence: getStringPath(payload, "headers", "precedence") ?? null,
-    autoSubmitted: getStringPath(payload, "headers", "autoSubmitted") ?? null,
-  };
+  return parsed.success ? parsed.data : null;
 }
 
 /** Inclusive Gmail replay bound, shared with the `works_at` fold so both replay one window. */
