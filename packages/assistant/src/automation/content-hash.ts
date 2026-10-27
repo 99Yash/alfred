@@ -1,4 +1,8 @@
-import { canonicalJson, type WorkflowRevisionDefinition } from "@alfred/contracts";
+import {
+  canonicalJson,
+  type WorkflowRevisionDefinition,
+  type WorkflowTrigger,
+} from "@alfred/contracts";
 import { sha256Canonical } from "@alfred/db/hash";
 
 /**
@@ -12,10 +16,13 @@ export function workflowRevisionContentHash(definition: WorkflowRevisionDefiniti
   return sha256Canonical(canonicalWorkflowDefinition(definition));
 }
 
-/** Set-valued fields sorted. This form is also what is stored, so a read-back re-hashes the same. */
-export function canonicalWorkflowDefinition(
-  definition: WorkflowRevisionDefinition,
-): WorkflowRevisionDefinition {
+/**
+ * Set-valued fields sorted. This form is also what is stored, so a read-back re-hashes the same.
+ * The trigger passes through, so an authorable trigger stays authorable.
+ */
+export function canonicalWorkflowDefinition<T extends WorkflowTrigger>(
+  definition: WorkflowRevisionDefinition & { trigger: T },
+): WorkflowRevisionDefinition & { trigger: T } {
   return {
     name: definition.name,
     description: definition.description,

@@ -46,8 +46,9 @@ export async function resolveWorkflowTimezone(
   userId: string,
   trigger: WorkflowTrigger,
 ): Promise<IanaTimezone> {
-  // `current.trigger` is an unparsed `$type` database row (revisions.ts:1211), so the
-  // guard stays. The same trigger is parsed one line later (revisions.ts:1213).
+  // Every caller passes a parsed trigger (the revision service parses at its boundary;
+  // the cron tick parses the `workflows.trigger` row before it builds its due rows), so
+  // the `isIanaTimezone` guard is redundant. It stays until a later item deletes it.
   if (trigger.kind === "cron" && trigger.timezone && isIanaTimezone(trigger.timezone)) {
     return trigger.timezone;
   }
