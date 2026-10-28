@@ -24,6 +24,7 @@ import {
   extractMessageHtml,
   GoogleCredentialSelectionError,
   gmailMailbox,
+  listCredentials,
   parseStoredGmailMessage,
   type ExtractedAttachment,
   type GoogleCredential,
@@ -219,6 +220,13 @@ function resolveUsageRange(query: { start?: string; end?: string }) {
   return { start, end };
 }
 
+/** Google `sub` to the account email, from one credential read per request. */
+async function googleMailboxByAccountId(userId: string): Promise<Map<string, string | null>> {
+  const credentials = await listCredentials(userId, "google");
+
+  return new Map(credentials.map((c) => [c.accountId, c.accountLabel]));
+}
+
 export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
   .use(authMacro)
   .use(requireOnboarded)
@@ -267,6 +275,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
             .select({
               documentId: documents.id,
               threadId: documents.sourceThreadId,
+              accountId: documents.accountId,
               subject: documents.title,
               authoredAt: documents.authoredAt,
               metadata: documents.metadata,
@@ -295,6 +304,8 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
               ? encodeInboxCursor({ authoredAt: last.authoredAt, documentId: last.documentId })
               : null;
 
+          const mailboxByAccountId = await googleMailboxByAccountId(u.id);
+
           const items = pageRows.map((r) => {
             const meta = parseGmailDocumentMetadata(r.metadata);
             const labelIds = meta.labelIds ?? [];
@@ -303,6 +314,8 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
               documentId: r.documentId,
               // Nullable Gmail thread id, used to deep-link into Gmail web.
               threadId: r.threadId ?? null,
+              // Account email of the connection that holds the thread, so the Gmail link opens it.
+              mailbox: r.accountId ? (mailboxByAccountId.get(r.accountId) ?? null) : null,
               // Raw `From` header, e.g. `"Maya Chen <maya@example.com>"`.
               sender: meta.from ?? null,
               subject: r.subject ?? null,
@@ -330,6 +343,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
             .select({
               documentId: documents.id,
               threadId: documents.sourceThreadId,
+              accountId: documents.accountId,
               subject: documents.title,
             })
             .from(documents)
@@ -409,8 +423,13 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
           const selectedRow =
             threadRows.find((r) => r.documentId === params.documentId) ?? threadRows[0];
 
+          const mailbox = selected.accountId
+            ? ((await googleMailboxByAccountId(u.id)).get(selected.accountId) ?? null)
+            : null;
+
           const detail = {
             threadId: selected.threadId ?? null,
+            mailbox,
             subject: selectedRow?.subject ?? selected.subject ?? null,
             category: selectedRow?.category ?? null,
             selectedDocumentId: params.documentId,

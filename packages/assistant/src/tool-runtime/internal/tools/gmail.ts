@@ -11,6 +11,7 @@ import {
   gmailSearchInput,
   gmailSearchResultSchema,
   gmailSendDraftInput,
+  gmailThreadUrl,
   parseGmailDocumentMetadata,
   restPassthroughInput,
   type GmailModifyMessageInput,
@@ -33,11 +34,6 @@ import { and, eq, inArray } from "drizzle-orm";
 import { runRestPassthrough } from "./passthrough";
 import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
 import { assertGmailRecipientsAllowed } from "./gmail-recipient-policy";
-
-/** Gmail picks the active account itself, so the URL needs no account index. */
-function gmailThreadUrl(threadId: string): string {
-  return `https://mail.google.com/mail/u/0/#all/${encodeURIComponent(threadId)}`;
-}
 
 /** Gmail empties Trash after 30 days, and a spam mark trains Google's filter. */
 const DESTRUCTIVE_LABEL_IDS: ReadonlySet<string> = new Set(["TRASH", "SPAM"]);
@@ -373,7 +369,7 @@ export const gmailTools: readonly RegisteredTool[] = [
           to: extracted.to,
           cc: extracted.cc,
           authoredAt: extracted.date?.toISOString() ?? null,
-          url: gmailThreadUrl(message.threadId),
+          url: gmailThreadUrl({ threadId: message.threadId, mailbox: credential.accountLabel }),
           content: extracted.body,
         };
       }
@@ -422,7 +418,7 @@ export const gmailTools: readonly RegisteredTool[] = [
 
       return {
         threadId: thread.id,
-        url: gmailThreadUrl(thread.id),
+        url: gmailThreadUrl({ threadId: thread.id, mailbox: credential.accountLabel }),
         labels: [...threadLabelIds].map((id) => labelNames.get(id) ?? id),
         messageCount: messages.length,
         messages: messages.map((message) => {

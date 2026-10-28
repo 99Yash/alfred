@@ -1,4 +1,5 @@
 import {
+  gmailThreadUrl,
   TRIAGE_CATEGORIES,
   TRIAGE_DISPLAY,
   type TriageCategory,
@@ -336,7 +337,7 @@ function InboxRow({
   onOpen?: ((documentId: string) => void) | undefined;
 }) {
   const href = item.threadId
-    ? `https://mail.google.com/mail/u/0/#inbox/${item.threadId}`
+    ? gmailThreadUrl({ threadId: item.threadId, mailbox: item.mailbox })
     : undefined;
 
   // Order: `onOpen` (reader), then a Gmail link, then static. Do not make a row with no action focusable.
@@ -613,6 +614,7 @@ function InboxDetailPane({
 }) {
   const { data, isLoading, isError } = useInboxDetail(documentId);
   const threadId = data?.threadId ?? null;
+  const gmailHref = threadId ? gmailThreadUrl({ threadId, mailbox: data?.mailbox }) : null;
   const syncedTag = threadId ? triageTagsByThreadId?.get(threadId) : undefined;
   const displayedCategory = syncedTag?.category ?? data?.category ?? null;
   const displayedSource = syncedTag?.source ?? null;
@@ -638,9 +640,9 @@ function InboxDetailPane({
           <ArrowLeft size={12} />
           Back
         </button>
-        {data?.threadId ? (
+        {gmailHref ? (
           <a
-            href={`https://mail.google.com/mail/u/0/#inbox/${data.threadId}`}
+            href={gmailHref}
             target="_blank"
             rel="noreferrer noopener"
             className={cn(
@@ -693,7 +695,7 @@ function InboxDetailPane({
                   <ThreadMessageCard
                     message={m}
                     isSelected={m.documentId === data.selectedDocumentId}
-                    threadId={data.threadId}
+                    gmailHref={gmailHref}
                     /* Open the last message and the clicked one; collapse the rest. */
                     defaultOpen={
                       m.documentId === data.selectedDocumentId || i === data.messages.length - 1
@@ -716,12 +718,12 @@ function InboxDetailPane({
 function ThreadMessageCard({
   message,
   isSelected,
-  threadId,
+  gmailHref,
   defaultOpen,
 }: {
   message: InboxMessage;
   isSelected: boolean;
-  threadId: string | null;
+  gmailHref: string | null;
   defaultOpen: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -795,7 +797,7 @@ function ThreadMessageCard({
             )}
           </div>
           {message.attachments.length > 0 ? (
-            <AttachmentStrip attachments={message.attachments} threadId={threadId} />
+            <AttachmentStrip attachments={message.attachments} gmailHref={gmailHref} />
           ) : null}
         </div>
       ) : null}
@@ -986,13 +988,11 @@ function SenderInitialAvatar({ initial, tone }: { initial: string; tone: AppTint
 /** Attachment downloads need an OAuth token we keep off the browser, so chips link to the Gmail thread. */
 function AttachmentStrip({
   attachments,
-  threadId,
+  gmailHref,
 }: {
   attachments: ReadonlyArray<InboxAttachment>;
-  threadId: string | null;
+  gmailHref: string | null;
 }) {
-  const gmailHref = threadId ? `https://mail.google.com/mail/u/0/#inbox/${threadId}` : null;
-
   return (
     <section aria-label="Attachments" className="space-y-1.5">
       <div className="flex items-center gap-1.5 px-0.5">

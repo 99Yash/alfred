@@ -27,6 +27,8 @@ export interface RailInboxItem {
   initial: string;
   tone: AppTint;
   threadId?: string | null | undefined;
+  /** Account email of the connection that holds the thread, for the Gmail link. */
+  mailbox?: string | null | undefined;
   category?: TriageCategory | null | undefined;
   categorySource?: TriageTagSource | null | undefined;
   attentionBand?: AttentionBand | null | undefined;

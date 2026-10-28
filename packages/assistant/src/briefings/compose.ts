@@ -2,6 +2,7 @@ import { route, meteredGenerateObject } from "@alfred/ai";
 import {
   briefingComposerSchema,
   fullBriefingSchema,
+  gmailThreadUrl,
   type BriefingComposerOutput,
   type BriefingGather,
   type BriefingSlot,
@@ -387,12 +388,17 @@ function renderText(args: ComposeInboxBriefingArgs, greeting: string): string {
   return lines.join("\n");
 }
 
+function itemThreadUrl(item: BriefingItem): string | null {
+  return item.threadId ? gmailThreadUrl({ threadId: item.threadId, mailbox: item.mailbox }) : null;
+}
+
 function formatItemText(item: BriefingItem): string {
   const subject = item.subject?.trim() || "(no subject)";
   const fromShort = mailboxLabel(item.from);
   const head = fromShort ? `• ${subject} — ${fromShort}` : `• ${subject}`;
   const rationale = item.rationale ? `\n    ${item.rationale}` : "";
-  const link = item.threadUrl ? `\n    ${item.threadUrl}` : "";
+  const threadUrl = itemThreadUrl(item);
+  const link = threadUrl ? `\n    ${threadUrl}` : "";
 
   return `${head}${rationale}${link}`;
 }
@@ -464,8 +470,10 @@ function renderItemHtml(item: BriefingItem): string {
     ? `<span style="${MUTED_INLINE_STYLE}"> — ${escapeHtml(fromShort)}</span>`
     : "";
 
-  const titleHtml = item.threadUrl
-    ? `<a href="${escapeHtml(item.threadUrl)}" style="${LINK_STYLE}">${subject}</a>`
+  const threadUrl = itemThreadUrl(item);
+
+  const titleHtml = threadUrl
+    ? `<a href="${escapeHtml(threadUrl)}" style="${LINK_STYLE}">${subject}</a>`
     : subject;
 
   const rationale = item.rationale
