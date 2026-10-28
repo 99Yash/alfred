@@ -194,6 +194,15 @@ function buildComposerPrompt(args: ComposeBriefingArgs): string {
 function composerSafeGather(gather: BriefingGather): BriefingGather {
   return {
     ...gather,
+    email: {
+      ...gather.email,
+      categories: Object.fromEntries(
+        Object.entries(gather.email.categories).map(([category, items]) => [
+          category,
+          items.map(({ mailbox: _mailbox, ...item }) => item),
+        ]),
+      ),
+    },
     integration_activity: {
       items: gather.integration_activity.items.map(({ url: _url, ...item }) => item),
     },
