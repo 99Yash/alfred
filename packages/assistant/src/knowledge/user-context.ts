@@ -5,13 +5,17 @@ import {
   entityRelations,
   integrationCredentials,
   memoryChunks,
-  user,
   type UserFact,
   userFacts,
 } from "@alfred/db/schemas";
 import { isNonBlankString, memorySourceSchema, type MemorySource } from "@alfred/contracts";
 import { and, asc, desc, eq, gt, ilike, inArray, isNull, or, sql } from "drizzle-orm";
-import { settings, type UserSettings } from "@alfred/assistant/settings";
+import {
+  settings,
+  userIdentity,
+  type UserIdentity,
+  type UserSettings,
+} from "@alfred/assistant/settings";
 import { USER_FACING_MEMORY_CHUNK_KINDS } from "./chunks";
 import { entityAliasMatch } from "./entity-graph";
 import { logger } from "@alfred/logging";
@@ -39,8 +43,8 @@ export interface ReadUserContextOptions {
 
 export interface UserContext {
   profile: {
-    name: string;
-    email: string;
+    name: UserIdentity["name"];
+    email: UserIdentity["primaryEmail"];
     currentCompany: string | null;
     currentRole: string | null;
     currentWork: string | null;
@@ -51,7 +55,7 @@ export interface UserContext {
       value: string;
       confidence: number;
     }>;
-  } | null;
+  };
   activeIntegrations: Array<{
     provider: string;
     accountLabel: string | null;
@@ -296,7 +300,7 @@ export async function readUserContext(
   const tokens = queryTokens(options.query);
 
   const [
-    profileRows,
+    identity,
     integrationRows,
     rankedFactRows,
     identityFactRowsRaw,
@@ -304,11 +308,7 @@ export async function readUserContext(
     rankedEntityRows,
     memoryRows,
   ] = await Promise.all([
-    db()
-      .select({ name: user.name, email: user.email })
-      .from(user)
-      .where(eq(user.id, userId))
-      .limit(1),
+    userIdentity({ userId }),
     wants("integrations")
       ? db()
           .select({
@@ -450,22 +450,21 @@ export async function readUserContext(
           .limit(RELATION_LIMIT)
       : [];
 
-  const profile = profileRows[0]
-    ? {
-        ...profileRows[0],
-        // DTO names stay stable; they map from canonical keys (#330).
-        currentCompany: stringIdentityValue(profileIdentityRows, "employer"),
-        currentRole: stringIdentityValue(profileIdentityRows, "job_title"),
-        currentWork: stringIdentityValue(profileIdentityRows, "work_summary"),
-        currentLocation: stringIdentityValue(profileIdentityRows, "location"),
-        bioSummary: stringIdentityValue(profileIdentityRows, "bio_summary"),
-        identityFacts: profileIdentityRows.map((row) => ({
-          key: row.key,
-          value: row.value,
-          confidence: row.confidence,
-        })),
-      }
-    : null;
+  const profile = {
+    name: identity.name,
+    email: identity.primaryEmail,
+    // DTO names stay stable; they map from canonical keys (#330).
+    currentCompany: stringIdentityValue(profileIdentityRows, "employer"),
+    currentRole: stringIdentityValue(profileIdentityRows, "job_title"),
+    currentWork: stringIdentityValue(profileIdentityRows, "work_summary"),
+    currentLocation: stringIdentityValue(profileIdentityRows, "location"),
+    bioSummary: stringIdentityValue(profileIdentityRows, "bio_summary"),
+    identityFacts: profileIdentityRows.map((row) => ({
+      key: row.key,
+      value: row.value,
+      confidence: row.confidence,
+    })),
+  };
 
   return {
     profile,

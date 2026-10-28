@@ -1,13 +1,14 @@
 /**
  * Compile-only fixture: `@alfred/assistant` exports no `./knowledge/*` wildcard, so unlisted
- * files fail to resolve. A wildcard once let `knowledge/self-identity` skip the
- * `./knowledge/internal` door and its lint fence (oxlint matches specifiers as text).
+ * files fail to resolve. A wildcard once let `knowledge/self-identity` (since deleted) skip the
+ * `./knowledge/internal` door and its lint fence (oxlint matches specifiers as text). `rejected`
+ * stands in for it: the internal door re-exports it too.
  * It lives here because `packages/http` type-checks `test/`; `packages/assistant/test/` is
  * compiled by nothing. It never runs: `.type-test.ts` misses the `test` glob.
  */
 
-// @ts-expect-error - `self-identity` is not an exported subpath; the exports map is the gate.
-type _SelfIdentity = typeof import("@alfred/assistant/knowledge/self-identity");
+// @ts-expect-error - `rejected` is not an exported subpath; the exports map is the gate.
+type _Rejected = typeof import("@alfred/assistant/knowledge/rejected");
 
 // @ts-expect-error - `projection` is not an exported subpath; the exports map is the gate.
 type _Projection = typeof import("@alfred/assistant/knowledge/projection");
@@ -22,8 +23,8 @@ type _Facts = typeof import("@alfred/assistant/knowledge/facts");
  *   "./knowledge/*": "./src/knowledge/*"     -> only the `.ts` specifiers below resolve
  */
 
-// @ts-expect-error - `self-identity` is not exported under any spelling; see above.
-type _SelfIdentityTs = typeof import("@alfred/assistant/knowledge/self-identity.ts");
+// @ts-expect-error - `rejected` is not exported under any spelling; see above.
+type _RejectedTs = typeof import("@alfred/assistant/knowledge/rejected.ts");
 
 // @ts-expect-error - `projection` is not exported under any spelling; see above.
 type _ProjectionTs = typeof import("@alfred/assistant/knowledge/projection.ts");

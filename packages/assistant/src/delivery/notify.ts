@@ -1,9 +1,10 @@
 import { db } from "@alfred/db";
-import { emailSends, user, type NotificationKind } from "@alfred/db/schemas";
+import { emailSends, type NotificationKind } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
 import { and, eq, ne } from "drizzle-orm";
 import { getResendClient } from "./resend-client";
 import { toMessage, type JsonObject } from "@alfred/contracts";
+import { userIdentity } from "@alfred/assistant/settings";
 
 /** Add a kind in `NOTIFICATION_KINDS` (`@alfred/db`), with an idempotency-key convention. */
 export type { NotificationKind };
@@ -39,7 +40,7 @@ export type NotifyResult =
 export async function notify(args: NotifyArgs): Promise<NotifyResult> {
   const env = serverEnv();
 
-  const toAddress = args.toAddress ?? (await resolveUserEmail(args.userId));
+  const toAddress = args.toAddress ?? (await userIdentity({ userId: args.userId })).primaryEmail;
 
   // Reclaim a `queued` or `failed` row. Only a `sent` row is a duplicate.
   const upserted = await db()
@@ -128,13 +129,4 @@ export async function notify(args: NotifyArgs): Promise<NotifyResult> {
 
     return { status: "failed", emailSendId, error: message };
   }
-}
-
-async function resolveUserEmail(userId: string): Promise<string> {
-  const rows = await db().select({ email: user.email }).from(user).where(eq(user.id, userId));
-  const row = rows[0];
-
-  if (!row) throw new Error(`[notify] user not found: ${userId}`);
-
-  return row.email;
 }

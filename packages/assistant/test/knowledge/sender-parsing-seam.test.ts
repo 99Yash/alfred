@@ -2,11 +2,8 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 // Internal helpers, not in the `knowledge` barrel.
-import {
-  authoredByUser,
-  type AuthorshipDocument,
-  type SelfIdentity,
-} from "@alfred/assistant/knowledge/fact-policy";
+import { authoredByUser, type AuthorshipDocument } from "@alfred/assistant/knowledge/fact-policy";
+import type { UserIdentity } from "@alfred/assistant/settings";
 import { accumulateDoc, type ContactAggregate } from "@alfred/assistant/knowledge/team-graph";
 import { gmailSenderAdapter } from "@alfred/assistant/triage/gmail-sender-adapter";
 
@@ -16,9 +13,12 @@ import { gmailSenderAdapter } from "@alfred/assistant/triage/gmail-sender-adapte
  * Characterization: quirks are pinned on purpose, so a cleanup cannot change them silently.
  */
 
-const self: SelfIdentity = {
-  emails: ["yash@gmail.com", "yash@oliv.ai"],
-  gmailAccountEmailById: { acc_work: "yash@oliv.ai", acc_personal: "yash@gmail.com" },
+const self: Pick<UserIdentity, "emails" | "mailboxByAccountId"> = {
+  emails: new Set(["yash@gmail.com", "yash@oliv.ai"]),
+  mailboxByAccountId: new Map([
+    ["acc_work", "yash@oliv.ai"],
+    ["acc_personal", "yash@gmail.com"],
+  ]),
 };
 
 function gmailDoc(
@@ -126,7 +126,7 @@ describe("[campaign-04 seam] authoredByGmail — From-header normalization via e
 
 describe("[campaign-04 seam] accumulateDoc — team-graph human rescue via isHumanLikeSender", () => {
   const t1 = new Date("2026-06-10T00:00:00.000Z");
-  const SELF = "me.user@acme.com";
+  const SELF = new Set(["me.user@acme.com"]);
 
   function keysFor(meta: Record<string, unknown>): string[] {
     const c = new Map<string, ContactAggregate>();

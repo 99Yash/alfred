@@ -36,7 +36,6 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
 
   const result = await backfillTeamGraph(
     u.userId,
-    u.email,
     (metadata) => gmailSenderAdapter.correspondents(metadata),
     {
       commit: COMMIT,

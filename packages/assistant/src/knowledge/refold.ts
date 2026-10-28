@@ -8,11 +8,9 @@ import {
 } from "@alfred/contracts";
 import { db, rowsFromExecute } from "@alfred/db";
 import {
-  integrationCredentials,
   observationFamilyHeads,
   observations,
   projectionRuns,
-  user as userTable,
   type ProjectionRun,
 } from "@alfred/db/schemas";
 import { and, desc, eq, gt, lte, sql } from "drizzle-orm";
@@ -25,6 +23,7 @@ import { liveObservationHeadJoin } from "./observations";
 import { activateProjectionVersion } from "./projection";
 import { userModelReader } from "./reader";
 import { logger } from "@alfred/logging";
+import { userIdentity } from "@alfred/assistant/settings";
 
 /**
  * Re-fold the active Gmail kind projection over new observations and, when safe,
@@ -78,7 +77,16 @@ export async function refoldActiveGmailKindProjection(
   const gmailCursor = sourceHighWatermark.gmail;
 
   requireEntityIdNamespace();
-  const excludeEmailValues = await gmailProjectionExcludedEmails(userId);
+
+  // Sorted: the list goes into the projection run args. The bind holds the loose self-mail
+  // form (`parseEmailAddress`); the run args keep the strict reducer form
+  // (`parseEmailIdentity`), as the old `canonicalEmailList` did. For bare-address labels the
+  // checksum is unchanged; a non-bare label (`Name <a@b>`) now adds `a@b` and blocks as
+  // logic-drift.
+  const excludeEmailValues = [...(await userIdentity({ userId })).emails]
+    .map((email) => parseEmailIdentity(email))
+    .filter((email) => email !== null)
+    .sort();
 
   // Frozen-logic gate: the current code must reproduce the active checksum first.
   if (!activeChecksum || !activeGmailWatermark || !hasGmailAppendSnapshot(activeGmailWatermark)) {
@@ -246,42 +254,6 @@ async function dbNow(tx: DbTransaction): Promise<Date> {
   if (!row) throw new Error("[user-model.refold] failed to capture DB timestamp");
 
   return row.capturedAt;
-}
-
-async function gmailProjectionExcludedEmails(userId: string): Promise<string[]> {
-  const [userRow] = await db()
-    .select({ email: userTable.email })
-    .from(userTable)
-    .where(eq(userTable.id, userId))
-    .limit(1);
-
-  const credentials = await db()
-    .select({ accountLabel: integrationCredentials.accountLabel })
-    .from(integrationCredentials)
-    .where(
-      and(
-        eq(integrationCredentials.userId, userId),
-        eq(integrationCredentials.provider, "google"),
-        eq(integrationCredentials.status, "active"),
-      ),
-    );
-
-  return canonicalEmailList([
-    userRow?.email ?? null,
-    ...credentials.map((credential) => credential.accountLabel),
-  ]);
-}
-
-function canonicalEmailList(values: readonly (string | null)[]): string[] {
-  const out = new Set<string>();
-
-  for (const value of values) {
-    const email = parseEmailIdentity(value);
-
-    if (email) out.add(email);
-  }
-
-  return [...out].sort();
 }
 
 function hasGmailAppendSnapshot(cursor: ProjectionCursorValue): boolean {

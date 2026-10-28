@@ -7,7 +7,6 @@ import {
   type SignificanceBand,
   bucketSignificance,
   clamp01,
-  emailDomain,
   jsonObjectSchema,
   type JsonObject,
   type CorrespondenceStats,
@@ -17,7 +16,7 @@ import {
   parsePersonEntityMetadata,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { entities, user, type Entity } from "@alfred/db/schemas";
+import { entities, type Entity } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
 import { logger } from "@alfred/logging";
 import { entityAliasMatch } from "./entity-graph";
@@ -105,27 +104,10 @@ export function computeSignificance(
   return { score: round3(score), components, computedAt: now.toISOString() };
 }
 
-/** The user's own domains, from `user.email` only for now. */
-export async function loadUserDomains(userId: string): Promise<Set<string>> {
-  const rows = await db()
-    .select({ email: user.email })
-    .from(user)
-    .where(eq(user.id, userId))
-    .limit(1);
-
-  const domains = new Set<string>();
-  // `user.email` has no schema gate; an unusable address gives `null` and same-org 0.
-  const d = emailDomain(rows[0]?.email ?? null);
-
-  if (d) domains.add(d);
-
-  return domains;
-}
-
 export interface RunSignificancePassOpts {
   now?: Date;
-  /** Loaded from the `user` row when omitted. */
-  userDomains?: Set<string>;
+  /** The same-org set: `userIdentity({ userId }).domains`. */
+  userDomains: ReadonlySet<string>;
   /** False: compute and return scores, write nothing. */
   commit?: boolean;
   weights?: SignificanceWeights;
@@ -143,11 +125,11 @@ export interface SignificancePassResult {
 /** Recompute every `person` entity's score into `metadata.significance` (ADR-0059 P4a). Idempotent. */
 export async function runSignificancePass(
   userId: string,
-  opts: RunSignificancePassOpts = {},
+  opts: RunSignificancePassOpts,
 ): Promise<SignificancePassResult> {
   const now = opts.now ?? new Date();
   const commit = opts.commit ?? false;
-  const userDomains = opts.userDomains ?? (await loadUserDomains(userId));
+  const { userDomains } = opts;
   const weights = opts.weights ?? DEFAULT_SIGNIFICANCE_WEIGHTS;
 
   const rows = await db()

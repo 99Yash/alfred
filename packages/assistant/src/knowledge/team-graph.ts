@@ -29,7 +29,8 @@ import {
 import type { DbTransaction } from "@alfred/db";
 import { listEvidenceCodes, type GmailPayloadSignals } from "./entity-kind-classifier";
 import { gmailPayloadSignalsFromHeaders } from "./gmail-reducer";
-import { computeSignificance, loadUserDomains, runSignificancePass } from "./significance";
+import { computeSignificance, runSignificancePass } from "./significance";
+import { userIdentity } from "@alfred/assistant/settings";
 
 /** Per-contact accumulator, keyed by lowercased address. */
 export interface ContactAggregate {
@@ -103,7 +104,8 @@ function toStats(agg: ContactAggregate): CorrespondenceStats {
 
 /**
  * Add one document's header contributions to a contacts map. Shared by the
- * backfill and the daily capture. `self` is skipped, so the user is never a contact.
+ * backfill and the daily capture. Every `self` address is skipped, so no mailbox of the user
+ * is ever a contact.
  * `isSent` ignores labelIds, unlike fact-policy's authorship check.
  * `signals` land only on the `From:` contact of a received message (#1198).
  */
@@ -111,22 +113,22 @@ export function accumulateDoc(
   contacts: Map<string, ContactAggregate>,
   observation: GmailCorrespondentsObservation,
   authoredAt: Date | null,
-  self: string,
+  self: ReadonlySet<string>,
   signals: GmailPayloadSignals = {},
 ): void {
   const { isSent, from, recipients } = observation;
 
   if (isSent) {
     for (const p of recipients) {
-      if (p.address !== self) touch(contacts, p, "outbound", authoredAt);
+      if (!self.has(p.address)) touch(contacts, p, "outbound", authoredAt);
     }
   } else {
-    if (from && from.address !== self) {
+    if (from && !self.has(from.address)) {
       touch(contacts, from, "inbound", authoredAt, listEvidenceCodes([signals]));
     }
 
     for (const p of recipients) {
-      if (p.address !== self) touch(contacts, p, "coRecipient", authoredAt);
+      if (!self.has(p.address)) touch(contacts, p, "coRecipient", authoredAt);
     }
   }
 }
@@ -317,12 +319,10 @@ export interface BackfillTeamGraphResult {
 /** Aggregate `documents` into a per-contact map. Read-only. */
 export async function aggregateCorrespondence(
   userId: string,
-  userEmail: string,
+  self: ReadonlySet<string>,
   parse: (metadata: unknown) => GmailCorrespondentsObservation,
   maxDocs = 5000,
 ): Promise<{ contacts: Map<string, ContactAggregate>; docsScanned: number }> {
-  const self = userEmail.trim().toLowerCase();
-
   const rows = await db()
     .select({
       authoredAt: documents.authoredAt,
@@ -352,17 +352,16 @@ export async function aggregateCorrespondence(
 /** Backfill the team graph (ADR-0059 P4a). Dry run by default. Idempotent. */
 export async function backfillTeamGraph(
   userId: string,
-  userEmail: string,
   parse: (metadata: unknown) => GmailCorrespondentsObservation,
   opts: BackfillTeamGraphOpts = {},
 ): Promise<BackfillTeamGraphResult> {
   const commit = opts.commit ?? false;
   const now = opts.now ?? new Date();
-  const userDomains = await loadUserDomains(userId);
+  const { emails, domains: userDomains } = await userIdentity({ userId });
 
   const { contacts, docsScanned } = await aggregateCorrespondence(
     userId,
-    userEmail,
+    emails,
     parse,
     opts.maxDocs ?? 5000,
   );
@@ -433,7 +432,7 @@ function rankTop(
   contacts: Map<string, ContactAggregate>,
   persistedScore: (address: string) => number | null,
   now: Date,
-  userDomains: Set<string>,
+  userDomains: ReadonlySet<string>,
 ): BackfillTeamGraphResult["top"] {
   const ranked = [...contacts.values()].map((agg) => {
     const persisted = persistedScore(agg.address);

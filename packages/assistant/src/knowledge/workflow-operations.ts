@@ -6,7 +6,6 @@ import {
   describeMemoryExtractionOutcome,
   summarizeMemoryExtractionRun,
 } from "./memory-extraction-outcome";
-import { loadSelfIdentity } from "./self-identity";
 import { runSignificancePass } from "./significance";
 import { gmailPayloadSignalsFromHeaders } from "./gmail-reducer";
 import {
@@ -16,9 +15,10 @@ import {
   type ContactAggregate,
 } from "./team-graph";
 import type { StepContext, StepResult } from "@alfred/assistant/execution";
+import { userIdentity } from "@alfred/assistant/settings";
 import { toMessage, type GmailSenderParser, type JsonObject } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { documents, memoryExtractionStatus, user, userFacts } from "@alfred/db/schemas";
+import { documents, memoryExtractionStatus, userFacts } from "@alfred/db/schemas";
 import { and, desc, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
 
 /**
@@ -101,17 +101,10 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
   // `captured_into_graph_at` marker, independent of extraction. Auto mode only.
   const captureEnabled = ctx.state.mode === "auto";
 
-  const [selfRow] = captureEnabled
-    ? await db().select({ email: user.email }).from(user).where(eq(user.id, ctx.userId)).limit(1)
-    : [];
-
-  const selfEmail = (selfRow?.email ?? "").trim().toLowerCase();
-
-  // Self identity for the Tier B authorship gate (#330). Per-account identities
-  // win over `user.email`, so a work mailbox is not matched to a personal address.
-  const selfIdentity = captureEnabled
-    ? await loadSelfIdentity(ctx.userId)
-    : { emails: selfEmail ? [selfEmail] : [] };
+  // Self identity for the Tier B authorship gate (#330) and the team-graph skip. Per-account
+  // identities win over `user.email`, so a work mailbox is not matched to a personal address.
+  // `identity !== null` means auto mode: the bind is taken exactly when `captureEnabled`.
+  const identity = captureEnabled ? await userIdentity({ userId: ctx.userId }) : null;
 
   const captureContacts = new Map<string, ContactAggregate>();
   // Stamped captured only after the post-loop increments commit.
@@ -175,7 +168,7 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
       let sourceMeta: JsonObject = { rationale: p.rationale };
 
       // The authorship check `proposeFact` cannot do (#330). Manual mode skips it.
-      if (ctx.state.mode === "auto") {
+      if (identity) {
         const gate = gateDocumentFact({
           proposal: { key: p.key, value: p.value },
           document: {
@@ -185,7 +178,7 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
             // Parsed by the injected triage adapter (ADR-0089).
             sender: doc.source === "gmail" ? sender.authorship(doc.metadata) : null,
           },
-          selfIdentity,
+          selfIdentity: identity,
         });
 
         if (!gate.ok) {
@@ -250,12 +243,12 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
         },
       });
 
-    if (captureEnabled && !alreadyCaptured.has(doc.id) && doc.source === "gmail") {
+    if (identity && !alreadyCaptured.has(doc.id) && doc.source === "gmail") {
       accumulateDoc(
         captureContacts,
         sender.correspondents(doc.metadata),
         doc.authoredAt ?? null,
-        selfEmail,
+        identity.emails,
         gmailPayloadSignalsFromHeaders(doc.gmailHeaders),
       );
       capturedThisRun.push(doc.id);
@@ -318,7 +311,8 @@ export async function runMemoryFinalize<State extends MemoryExtractionOperationS
 
   if (ctx.state.mode === "auto") {
     try {
-      const pass = await runSignificancePass(ctx.userId, { commit: true });
+      const { domains } = await userIdentity({ userId: ctx.userId });
+      const pass = await runSignificancePass(ctx.userId, { commit: true, userDomains: domains });
       significanceScored = pass.scored;
       await ctx.log(`significance pass: scored ${pass.scored}/${pass.total} person entit(ies)`);
     } catch (err) {

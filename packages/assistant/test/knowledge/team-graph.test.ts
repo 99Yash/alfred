@@ -18,7 +18,7 @@ function acc(
   authoredAt: Date | null,
   self: string,
 ): void {
-  accumulateDoc(contacts, gmailSenderAdapter.correspondents(meta), authoredAt, self);
+  accumulateDoc(contacts, gmailSenderAdapter.correspondents(meta), authoredAt, new Set([self]));
 }
 
 describe("accumulateDoc", () => {

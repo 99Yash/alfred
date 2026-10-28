@@ -12,8 +12,8 @@ import {
   SINGLE_VALUED_KEYS,
   validateFactValueForKey,
   type AuthorshipDocument,
-  type SelfIdentity,
 } from "@alfred/assistant/knowledge/fact-policy";
+import type { UserIdentity } from "@alfred/assistant/settings";
 import { gmailSenderAdapter } from "@alfred/assistant/triage/gmail-sender-adapter";
 
 describe("classifyDocumentFactKey (#330 — document write tiers)", () => {
@@ -196,9 +196,12 @@ describe("SINGLE_VALUED_KEYS", () => {
 });
 
 describe("authoredByUser (#330 — conservative, evidence-returning)", () => {
-  const self: SelfIdentity = {
-    emails: ["yash@oliv.ai"],
-    gmailAccountEmailById: { acc_work: "yash@oliv.ai", acc_personal: "yash@gmail.com" },
+  const self: Pick<UserIdentity, "emails" | "mailboxByAccountId"> = {
+    emails: new Set(["yash@oliv.ai"]),
+    mailboxByAccountId: new Map([
+      ["acc_work", "yash@oliv.ai"],
+      ["acc_personal", "yash@gmail.com"],
+    ]),
   };
 
   function gmailDoc(
@@ -265,9 +268,9 @@ describe("authoredByUser (#330 — conservative, evidence-returning)", () => {
 });
 
 describe("gateDocumentFact", () => {
-  const self: SelfIdentity = {
-    emails: ["yash@oliv.ai"],
-    gmailAccountEmailById: { acc_work: "yash@oliv.ai" },
+  const self: Pick<UserIdentity, "emails" | "mailboxByAccountId"> = {
+    emails: new Set(["yash@oliv.ai"]),
+    mailboxByAccountId: new Map([["acc_work", "yash@oliv.ai"]]),
   };
 
   const authoredDoc: AuthorshipDocument = {
