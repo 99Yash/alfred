@@ -1,4 +1,4 @@
-import { parseEmailAddress, parseGmailDocumentMetadata } from "@alfred/contracts";
+import { parseEmailAddress, parseGmailDocumentMetadata, policyAuthority } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, emailTriage, todos, type Document } from "@alfred/db/schemas";
 import { and, desc, eq, gte, lt } from "drizzle-orm";
@@ -197,14 +197,20 @@ export async function resolvePaymentTodoFromReceipt(args: {
     };
   }
 
-  const resolved = await resolveTodosForGmailSource({
-    userId: args.userId,
-    sourceThreadId: candidate.sourceThreadId,
-    todoIds,
-    reason: `payment-reconciler: receipt ${receipt.id} matched ${candidate.id}`,
-    actor: "system",
-    statuses: ["suggested"],
-  });
+  const resolved = await resolveTodosForGmailSource(
+    {
+      userId: args.userId,
+      sourceThreadId: candidate.sourceThreadId,
+      todoIds,
+      statuses: ["suggested"],
+    },
+    {
+      actor: "system",
+      ...policyAuthority("todo.payment_match"),
+      cause: "payment_matched",
+      note: `receipt ${receipt.id} matched ${candidate.id}`,
+    },
+  );
 
   if (resolved.ok && resolved.dismissedCount > 0) {
     return {

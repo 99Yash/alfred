@@ -1,3 +1,4 @@
+import { todoAttributionSchema, type TodoAttribution, type TodoCause } from "@alfred/contracts";
 import { todos } from "@alfred/db/schemas";
 import type {
   TodoClearArgs,
@@ -14,6 +15,16 @@ import type { DbTransaction } from "@alfred/db";
 
 // ADR-0050. Each transition checks the source status, so a redelivery is a no-op.
 
+/** A rail write: the user's own click, so the session is the authority (ADR-0115). */
+function byUser(cause: TodoCause): TodoAttribution {
+  return todoAttributionSchema.parse({
+    actor: "user",
+    authority: "user_direct",
+    authorityRef: null,
+    cause,
+  });
+}
+
 export async function todoCreate(
   tx: DbTransaction,
   args: TodoCreateArgs,
@@ -28,6 +39,7 @@ export async function todoCreate(
       description: args.description ?? null,
       status: "open",
       createdBy: "user",
+      attribution: byUser("created"),
       createdAt: new Date(args.createdAt),
     })
     .onConflictDoNothing();
@@ -43,8 +55,7 @@ export async function todoComplete(
     .set({
       status: "done",
       completedAt: new Date(),
-      resolvedBy: "user",
-      resolvedReason: "completed",
+      attribution: byUser("completed"),
       rowVersion: sql`${todos.rowVersion} + 1`,
     })
     .where(and(eq(todos.id, args.id), eq(todos.userId, userId), eq(todos.status, "open")));
@@ -61,8 +72,7 @@ export async function todoCompleteSuggestion(
     .set({
       status: "done",
       completedAt: new Date(),
-      resolvedBy: "user",
-      resolvedReason: "completed",
+      attribution: byUser("completed"),
       rowVersion: sql`${todos.rowVersion} + 1`,
     })
     .where(and(eq(todos.id, args.id), eq(todos.userId, userId), eq(todos.status, "suggested")));
@@ -78,8 +88,7 @@ export async function todoReopen(
     .set({
       status: "open",
       completedAt: null,
-      resolvedBy: "user",
-      resolvedReason: "reopened",
+      attribution: byUser("reopened"),
       rowVersion: sql`${todos.rowVersion} + 1`,
     })
     .where(and(eq(todos.id, args.id), eq(todos.userId, userId), eq(todos.status, "done")));
@@ -94,8 +103,7 @@ export async function todoPromote(
     .update(todos)
     .set({
       status: "open",
-      resolvedBy: "user",
-      resolvedReason: "promoted",
+      attribution: byUser("promoted"),
       rowVersion: sql`${todos.rowVersion} + 1`,
     })
     .where(and(eq(todos.id, args.id), eq(todos.userId, userId), eq(todos.status, "suggested")));
@@ -110,8 +118,7 @@ export async function todoDismiss(
     .update(todos)
     .set({
       status: "dismissed",
-      resolvedBy: "user",
-      resolvedReason: "dismissed",
+      attribution: byUser("dismissed"),
       rowVersion: sql`${todos.rowVersion} + 1`,
     })
     .where(
@@ -133,8 +140,7 @@ export async function todoClear(
     .update(todos)
     .set({
       status: "cleared",
-      resolvedBy: "user",
-      resolvedReason: "cleared",
+      attribution: byUser("cleared"),
       rowVersion: sql`${todos.rowVersion} + 1`,
     })
     .where(and(eq(todos.id, args.id), eq(todos.userId, userId), eq(todos.status, "done")));
@@ -150,6 +156,8 @@ export async function todoEdit(
     .set({
       ...(args.name !== undefined ? { name: args.name } : {}),
       ...(args.description !== undefined ? { description: args.description } : {}),
+      // The trigger logs only a change of name; a description edit clears the record unlogged.
+      attribution: byUser("edited"),
       rowVersion: sql`${todos.rowVersion} + 1`,
     })
     .where(and(eq(todos.id, args.id), eq(todos.userId, userId)));

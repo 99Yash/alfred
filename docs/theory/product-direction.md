@@ -58,7 +58,7 @@ Triggers: `cron`, `manual`, `event` (Gmail `message_received`, and `{type:"raw",
 
 **Owner decision (2026-10-22): code mode can write.** This supersedes the read-only scope of ADR-0087, which designs code mode as read-only and network-less for custody reasons. ADR-0116 (proposed) records the write scope: writes are host calls through dispatch, planned before they apply, under the ADR-0115 record. The set of write capabilities is not decided yet. The user can turn on some of them in settings.
 
-**The owner's permission example is a new axis.** Today, permission is per tool. The owner's example ("the agent may delete what it created") is per record: it depends on who made the record. The provenance data exists: `todos.created_by` (`user|agent`), `agent_run_id`, `resolved_by` (`db/src/schema/todos.ts:39-51`). No rule reads it. `system.resolve_todo` is `no_risk` and does not check `createdBy` (`assistant/src/tasks/resolve.ts:196`). A provenance rule is small and can come before code mode. ADR-0115 stores the provenance for each change, and ADR-0116 rule 4 reads it for Code Mode writes.
+**The owner's permission example is a new axis.** Today, permission is per tool. The owner's example ("the agent may delete what it created") is per record: it depends on who made the record. The provenance data exists: `todos.created_by` (`user|agent`), `agent_run_id`, and the `todo_events` actor, authority, and run for each change (ADR-0115 slice 1). No rule reads it. `system.resolve_todo` is `no_risk` and does not check `createdBy` (`assistant/src/tasks/resolve.ts:196`). A provenance rule is small and can come before code mode. ADR-0115 stores the provenance for each change, and ADR-0116 rule 4 reads it for Code Mode writes.
 
 ---
 

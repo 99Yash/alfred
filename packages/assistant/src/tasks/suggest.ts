@@ -3,7 +3,9 @@ import {
   boundTodoSources,
   mergeTodoSources,
   todoSourceKey,
+  todoAttributionSchema,
   todoSourcesShareIdentityOverlap,
+  type TodoAttribution,
   type TodoSource,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -19,7 +21,8 @@ const RESUGGEST_SUPPRESSION_WINDOW_DAYS = 30;
 
 export interface SuggestTodoInput {
   userId: string;
-  agentRunId: string;
+  /** The ADR-0115 record of the creation. Its `runId` becomes `todos.agent_run_id`. */
+  attribution: Extract<TodoAttribution, { actor: "agent" }>;
   name: string;
   description?: string | undefined;
   /** An honest "I can't act on this" is fine. */
@@ -49,6 +52,7 @@ export function todoSourcesOverlap(existing: TodoSource[], incoming: TodoSource[
  * A live overlap beats a resolved one.
  */
 export async function suggestTodo(input: SuggestTodoInput): Promise<SuggestTodoResult> {
+  const attribution = todoAttributionSchema.parse(input.attribution);
   // Sanitize once here, so triage and the tool both get it.
   const name = sanitizeVoice(input.name.trim()).trim();
   const rawAssist = input.assist?.trim() ?? "";
@@ -141,7 +145,8 @@ export async function suggestTodo(input: SuggestTodoInput): Promise<SuggestTodoR
         createdBy: "agent",
         assist: normalizedAssist ?? null,
         sources,
-        agentRunId: input.agentRunId,
+        agentRunId: input.attribution.runId,
+        attribution,
       })
       .returning({ id: todos.id });
 

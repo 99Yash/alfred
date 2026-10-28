@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 
+import { attributionRecordSchema } from "./attribution";
 import { getObjectKindDef, type ObjectStateProvider } from "./integration-objects";
 import { deriveLoopEntityRef } from "./loop-key";
 
@@ -26,17 +27,41 @@ export type TodoCreatedBy = (typeof TODO_CREATED_BY)[number];
 
 export const todoCreatedBySchema = z.enum(TODO_CREATED_BY);
 
-// ─── Resolution attribution ──────────────────────────────────────────
+// ─── Change attribution (ADR-0115) ───────────────────────────────────
+
+/** Why a todo changed. A new cause is a code change, and `todo_events_cause_valid` checks it. */
+export const TODO_CAUSES = [
+  /** The user added the todo in the rail. */
+  "created",
+  /** Alfred proposed the todo. */
+  "suggested",
+  "completed",
+  "reopened",
+  "promoted",
+  "dismissed",
+  "cleared",
+  /** The user changed the name or the due date. */
+  "edited",
+  /** The user replied on the source thread. */
+  "reply_detected",
+  /** A payment receipt matched the bill. */
+  "payment_matched",
+  /** A standing instruction now suppresses the sender. */
+  "sender_suppressed",
+] as const;
+
+export type TodoCause = (typeof TODO_CAUSES)[number];
+
+export const todoCauseSchema = z.enum(TODO_CAUSES);
 
 /**
- * Who made the last status change. NULL only before the first transition.
- * `system` means no user in the loop, such as a reply retraction.
+ * The record of one todo write. Each insert, and each update that changes `status`, `name`, or
+ * `due_date`, must carry it, or the `todos` trigger raises. The trigger copies it to `todo_events`
+ * and clears the column. Each writer parses the record with this schema before the write.
  */
-export const TODO_RESOLVED_BY = ["user", "agent", "system"] as const;
+export const todoAttributionSchema = attributionRecordSchema(todoCauseSchema);
 
-export type TodoResolvedBy = (typeof TODO_RESOLVED_BY)[number];
-
-export const todoResolvedBySchema = z.enum(TODO_RESOLVED_BY);
+export type TodoAttribution = z.infer<typeof todoAttributionSchema>;
 
 // ─── Forward-compat: executor + kind ───────────────────────────────────────
 

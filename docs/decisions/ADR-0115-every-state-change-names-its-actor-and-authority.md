@@ -1,6 +1,6 @@
 # ADR-0115 — Every state change names its actor and its authority, and the database keeps the history
 
-**Status.** Proposed; not built. Extends the todo attribution of #1177 (`todo_events`, migration 0134) to the other entities that a user sees and an agent can change. Gives ADR-0113 its authority rule. Uses the existing ledgers (`action_stagings`, `mcp_invocation`, the outbound email log of ADR-0020) and does not replace them.
+**Status.** Proposed. Slice 1 (contract and todos) is built in #1586; the other slices are not built. Extends the todo attribution of #1177 (`todo_events`, migration 0134) to the other entities that a user sees and an agent can change. Gives ADR-0113 its authority rule. Uses the existing ledgers (`action_stagings`, `mcp_invocation`, the outbound email log of ADR-0020) and does not replace them.
 
 **Decision.** Each write that changes user-visible state carries one **attribution record**: who did it (`actor`), what permitted it (`authority` and `authorityRef`), which agent action did it (`runId`, `toolCallId`), and why (`cause`, a closed code). For an entity with a lifecycle, a database trigger copies the record into an append-only event table, as `todos_log_transition` does today. For an action outside Alfred, the existing ledger row carries the record. An agent write without an authority is rejected in code. A write without an actor fails; it is not recorded as `system`.
 

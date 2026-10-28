@@ -54,7 +54,21 @@ async function seedGmailTodoFromSender(
     });
   const todoId = `todo_${randomUUID().slice(0, 12)}`;
   const sources = [{ provider: "gmail", kind: "thread", id: threadId }] satisfies TodoSource[];
-  await db().insert(todos).values({ id: todoId, userId, name: "Pay the invoice", status, sources });
+  await db()
+    .insert(todos)
+    .values({
+      id: todoId,
+      userId,
+      name: "Pay the invoice",
+      status,
+      sources,
+      attribution: {
+        actor: "user",
+        authority: "user_direct",
+        authorityRef: null,
+        cause: "created",
+      },
+    });
 
   return { todoId };
 }
