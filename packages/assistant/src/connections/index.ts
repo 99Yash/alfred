@@ -8,6 +8,8 @@
 
 export * from "./availability";
 
+export * from "./broken-connection-facts";
+
 export { readDeliveryAlerts, toDeliveryAlerts, type DeliveryAlertVerdict } from "./delivery-alerts";
 
 export {

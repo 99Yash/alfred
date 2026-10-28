@@ -1,12 +1,15 @@
 import { route, meteredGenerateText, isStepCount, type ModelMessage } from "@alfred/ai";
 import {
-  INTEGRATION_DISPLAY_NAMES,
   type BriefingClosedLoop,
   type BriefingLoopRelevance,
   type DayShape,
-  type DeliveryAlert,
   type IanaTimezone,
 } from "@alfred/contracts";
+import {
+  BROKEN_CONNECTION_GUIDANCE,
+  describeBrokenConnection,
+  type BrokenConnection,
+} from "@alfred/assistant/connections";
 import type { LocalDateKey } from "@alfred/assistant/time";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
 import { buildSystemPrompt } from "./prompt";
@@ -36,10 +39,15 @@ export interface RunBriefingAgentArgs {
   loopRelevance: BriefingLoopRelevance[];
   /** The gather's day shape, so `get_day_shape` does not repeat the live GitHub read. */
   dayShape?: DayShape | undefined;
-  /** Connections whose delivery broke. The email renders them in a fixed block below the body. */
-  brokenConnections: readonly DeliveryAlert[];
+  /**
+   * Connections the user must repair. The composer writes one notice per connection; the email
+   * renders each notice with its repair link below the body.
+   */
+  brokenConnections: readonly BrokenConnection[];
   /** Only on a re-prompt: earlier violations, named back verbatim so the rewrite is aimed (#1082). */
   openAskViolations?: readonly OpenAskViolation[];
+  /** Only on a re-prompt: connection keys the earlier draft wrote no notice for. */
+  missingConnectionNotices?: readonly string[];
 }
 
 export interface RunBriefingAgentResult {
@@ -56,22 +64,30 @@ export interface RunBriefingAgentResult {
 const MAX_STEPS = 8;
 
 /**
- * The broken connections as a fact, so the prose does not claim a complete view (ADR-0100
- * amendment 2026-10-28). A broken delivery does not prove that data is missing: a lapsed Gmail
- * watch still has the history poll. So the fact states the delivery failure, not blindness.
- * The template renders the block itself; the composer must not repeat it.
+ * The broken connections as facts (ADR-0100 amendment 2026-10-28, revised). The code supplies
+ * what it knows; the composer decides what to tell the user, one notice per connection. The send
+ * step adds the repair link and checks that every key has a notice.
  */
-function brokenConnectionFact(connections: readonly DeliveryAlert[]): string {
+function brokenConnectionFacts(connections: readonly BrokenConnection[]): string {
   if (connections.length === 0) return "";
 
-  const names = connections.map((connection) => INTEGRATION_DISPLAY_NAMES[connection.integration]);
+  return (
+    `\n\nThese connections need the user to repair them. ` +
+    `Write one entry in connectionNotices for each key below, in the briefing's voice.\n\n` +
+    `${BROKEN_CONNECTION_GUIDANCE}\n` +
+    `The notices render below your body, so do not repeat them in the body. ` +
+    `The body must not say that nothing needs attention, or that you saw everything from these sources.\n\n` +
+    connections.map(describeBrokenConnection).join("\n")
+  );
+}
+
+/** Re-prompt text for keys the earlier draft wrote no notice for. */
+function connectionNoticeCorrection(missing: readonly string[]): string {
+  if (missing.length === 0) return "";
 
   return (
-    `\n\nFact: Alfred stopped receiving live updates from ${names.join(", ")}. ` +
-    `Activity from these sources can be missing or late in your inputs. ` +
-    `The email shows a reconnect notice for each one below your text. ` +
-    `Do not repeat that notice. Do not say that nothing needs attention, ` +
-    `and do not say that Alfred saw everything from these sources.`
+    `\n\nYour previous draft wrote no connectionNotices entry for these keys: ${missing.join(", ")}. ` +
+    `Write one for each key this time.`
   );
 }
 
@@ -103,8 +119,9 @@ export async function runBriefingAgent(
         `Compose the ${args.slot} briefing for ${args.recipientFirstName ?? "the user"}. ` +
         `Start by reading list_prior_briefings, then list_emails_since, list_closed_loops, and list_loop_relevance. ` +
         `Apply the three honest loop-state tiers, then end with dump_briefing.` +
-        brokenConnectionFact(args.brokenConnections) +
-        openAskCorrection(args.openAskViolations ?? []),
+        brokenConnectionFacts(args.brokenConnections) +
+        openAskCorrection(args.openAskViolations ?? []) +
+        connectionNoticeCorrection(args.missingConnectionNotices ?? []),
     },
   ];
 

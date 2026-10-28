@@ -5,7 +5,7 @@
  * `@alfred/mailer`, which the alert rule must not.
  */
 
-import { INTEGRATIONS, toMessage, type EventSource } from "@alfred/contracts";
+import { INTEGRATIONS, toMessage, type McpConnectionAlert } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { emailSends } from "@alfred/db/schemas";
 import { renderDeliveryAlertEmail } from "@alfred/mailer";
@@ -15,6 +15,13 @@ import { emailLogoUrl, settings, webOrigin } from "@alfred/assistant/settings";
 import { inZone, type LocalDateKey } from "@alfred/assistant/time";
 import { readIntegrationAvailability } from "../availability";
 import { readDeliveryAlerts, type DeliveryAlertVerdict } from "../delivery-alerts";
+import { readMcpConnectionAlerts } from "../mcp/connection-alerts";
+import {
+  deliveryConnectionKey,
+  mcpConnectionKey,
+  type BrokenConnection,
+} from "../broken-connection-facts";
+import { composeDeliveryAlertCopy } from "./delivery-alert-copy";
 import { logger } from "@alfred/logging";
 
 /**
@@ -30,9 +37,46 @@ const ALERT_REPEAT_MS = 7 * 24 * 60 * 60 * 1000;
  */
 const ALERT_LOOKBACK_LIMIT = 50;
 
+/**
+ * One thing the sweep can email about. `subject` keys the repeat window: an event source, or
+ * `mcp:{connectionId}` for an MCP connection (ADR-0100 amendment 2026-10-28, item 4).
+ * `connection` holds the facts the model writes from.
+ */
+interface SweepAlert {
+  subject: string;
+  connection: BrokenConnection;
+  url: string;
+  payload: Record<string, string>;
+}
+
+function fromDeliveryVerdict(verdict: DeliveryAlertVerdict): SweepAlert {
+  const alert = { integration: verdict.integration, reason: verdict.reason };
+
+  return {
+    subject: verdict.source,
+    connection: {
+      kind: "delivery",
+      key: deliveryConnectionKey(alert),
+      name: INTEGRATIONS[verdict.integration].displayName,
+      alert,
+    },
+    url: `${webOrigin()}/integrations/${verdict.integration}`,
+    payload: { source: verdict.source, integration: verdict.integration, reason: verdict.reason },
+  };
+}
+
+function fromMcpAlert(alert: McpConnectionAlert): SweepAlert {
+  return {
+    subject: `mcp:${alert.connectionId}`,
+    connection: { kind: "mcp", key: mcpConnectionKey(alert), name: alert.label, alert },
+    url: `${webOrigin()}/integrations`,
+    payload: { connectionId: alert.connectionId, label: alert.label, status: alert.status },
+  };
+}
+
 interface DeliveryAlertSweepResult {
   userId: string;
-  /** Sources that are broken and repairable right now. */
+  /** Sources and MCP connections that are broken and repairable right now. */
   alerts: number;
   /** Of those, the ones this run emailed. */
   sent: number;
@@ -47,12 +91,18 @@ async function runDeliveryAlertSweep(
   now: Date = new Date(),
 ): Promise<DeliveryAlertSweepResult> {
   const availability = await readIntegrationAvailability(userId);
-  const alerts = await readDeliveryAlerts(userId, availability.providers, now);
+
+  const [deliveryAlerts, mcpAlerts] = await Promise.all([
+    readDeliveryAlerts(userId, availability.providers, now),
+    readMcpConnectionAlerts(userId),
+  ]);
+
+  const alerts = [...deliveryAlerts.map(fromDeliveryVerdict), ...mcpAlerts.map(fromMcpAlert)];
 
   if (alerts.length === 0) return { userId, alerts: 0, sent: 0 };
 
   const recentKeys = await listRecentAlertKeys(userId, new Date(now.getTime() - ALERT_REPEAT_MS));
-  const due = alerts.filter((alert) => !wasAlerted(recentKeys, userId, alert.source));
+  const due = alerts.filter((alert) => !wasAlerted(recentKeys, userId, alert.subject));
 
   if (due.length === 0) return { userId, alerts: alerts.length, sent: 0 };
 
@@ -66,7 +116,7 @@ async function runDeliveryAlertSweep(
 
       if (result === "sent") sent++;
     } catch (err) {
-      failures.push(`${alert.source}: ${toMessage(err)}`);
+      failures.push(`${alert.subject}: ${toMessage(err)}`);
     }
   }
 
@@ -83,36 +133,32 @@ async function runDeliveryAlertSweep(
 
 async function sendDeliveryAlert(
   userId: string,
-  alert: DeliveryAlertVerdict,
+  alert: SweepAlert,
   day: LocalDateKey,
 ): Promise<"sent" | "duplicate"> {
-  const integrationName = INTEGRATIONS[alert.integration].displayName;
-  const integrationUrl = `${webOrigin()}/integrations/${alert.integration}`;
-  const subject = `Alfred stopped receiving ${integrationName} activity`;
+  const { name } = alert.connection;
+  const copy = await composeDeliveryAlertCopy(userId, alert.connection);
 
   const html = await renderDeliveryAlertEmail({
-    integrationName,
-    reason: alert.reason,
-    integrationUrl,
+    headline: copy.headline,
+    body: copy.body,
+    name,
+    url: alert.url,
     logoUrl: emailLogoUrl(),
   });
 
-  const text = [
-    subject,
-    "",
-    `${alert.reason}.`,
-    "",
-    `Reconnect ${integrationName}: ${integrationUrl}`,
-  ].join("\n");
+  const text = [copy.headline, copy.body, `Reconnect ${name}: ${alert.url}`]
+    .filter((part) => part.length > 0)
+    .join("\n\n");
 
   const result = await send({
     userId,
     kind: "delivery_alert",
-    idempotencyKey: `${alertKeyPrefix(userId, alert.source)}${day}`,
-    subject,
+    idempotencyKey: `${alertKeyPrefix(userId, alert.subject)}${day}`,
+    subject: copy.headline,
     html,
     text,
-    payload: { source: alert.source, integration: alert.integration, reason: alert.reason },
+    payload: alert.payload,
   });
 
   if (result.status === "failed") throw new Error(result.error);
@@ -121,16 +167,16 @@ async function sendDeliveryAlert(
 }
 
 /**
- * Key prefix in the `{kind}:{userId}:{subject}:{local-day}` form. Per source, so sources never
- * silence each other.
+ * Key prefix in the `{kind}:{userId}:{subject}:{local-day}` form. Per subject, so sources and
+ * connections never silence each other.
  */
-function alertKeyPrefix(userId: string, source: EventSource): string {
-  return `delivery_alert:${userId}:${source}:`;
+function alertKeyPrefix(userId: string, subject: string): string {
+  return `delivery_alert:${userId}:${subject}:`;
 }
 
-/** Whether this source was already alerted inside the window. */
-function wasAlerted(keys: readonly string[], userId: string, source: EventSource): boolean {
-  const prefix = alertKeyPrefix(userId, source);
+/** Whether this subject was already alerted inside the window. */
+function wasAlerted(keys: readonly string[], userId: string, subject: string): boolean {
+  const prefix = alertKeyPrefix(userId, subject);
 
   return keys.some((key) => key.startsWith(prefix));
 }

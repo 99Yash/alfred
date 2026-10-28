@@ -21,6 +21,7 @@ import {
   type IntegrationConnection,
   type IntegrationStatus,
   type LoadableIntegrationSlug,
+  type McpConnectionAlert,
   type ProviderAvailability,
   type SupportedPassthroughSlug,
 } from "@alfred/contracts";
@@ -30,6 +31,7 @@ import { asc, eq } from "drizzle-orm";
 import { settings } from "@alfred/assistant/settings";
 import { gmailPushStaleStatus, readGmailDeliveryFacts } from "./ingestion/gmail-delivery-facts";
 import { readBrokenConnections, readDeliveryAlerts, toDeliveryAlerts } from "./delivery-alerts";
+import { readMcpConnectionAlerts } from "./mcp/connection-alerts";
 import { logger } from "@alfred/logging";
 
 /**
@@ -89,9 +91,10 @@ export async function readFreshIntegrationAvailability(
 export async function readIntegrationStatus(userId: string): Promise<IntegrationStatus> {
   const byProvider = await loadCredentialRowsByProvider(userId);
 
-  const [gmailDelivery, deliveryAlerts] = await Promise.all([
+  const [gmailDelivery, deliveryAlerts, mcpAlerts] = await Promise.all([
     readGmailDeliveryFacts(userId),
     readWireDeliveryAlerts(userId, byProvider),
+    readWireMcpAlerts(userId),
   ]);
 
   const rowsOf = (provider: CredentialProvider): readonly AvailabilityRow[] =>
@@ -131,7 +134,7 @@ export async function readIntegrationStatus(userId: string): Promise<Integration
     }));
   }
 
-  return { integrations, providers, deliveryAlerts };
+  return { integrations, providers, deliveryAlerts, mcpAlerts };
 }
 
 /**
@@ -152,16 +155,41 @@ async function readWireDeliveryAlerts(
   }
 }
 
+/** MCP alerts (ADR-0100 amendment 2026-10-28, item 4), or none on failure, for the same reason. */
+async function readWireMcpAlerts(userId: string): Promise<McpConnectionAlert[]> {
+  try {
+    return await readMcpConnectionAlerts(userId);
+  } catch (err) {
+    logger.error({ err }, `[integrations] MCP connection alert read failed for user=${userId}`);
+
+    return [];
+  }
+}
+
+/** What one briefing reports as broken: integrations by slug, MCP connections by id. */
+export interface BriefingBrokenConnections {
+  integrations: DeliveryAlert[];
+  mcp: McpConnectionAlert[];
+}
+
 /**
  * The broken connections for one briefing (ADR-0100 amendment 2026-10-28): the alert rule
- * without the banner's credential-nag dedup, one row per integration. A read fault throws,
- * unlike {@link readWireDeliveryAlerts}: an empty list here would let a quiet morning suppress
- * a briefing that could not check its connections. The gather fails and the run retries.
+ * without the banner's credential-nag dedup, one row per integration, plus the MCP connections
+ * the user must repair. A read fault throws, unlike {@link readWireDeliveryAlerts}: an empty
+ * list here would let a quiet morning suppress a briefing that could not check its connections.
+ * The gather fails and the run retries.
  */
-export async function readBriefingBrokenConnections(userId: string): Promise<DeliveryAlert[]> {
+export async function readBriefingBrokenConnections(
+  userId: string,
+): Promise<BriefingBrokenConnections> {
   const rows = await loadCredentialRowsByProvider(userId);
 
-  return toDeliveryAlerts(await readBrokenConnections(userId, rows));
+  const [integrations, mcp] = await Promise.all([
+    readBrokenConnections(userId, rows).then(toDeliveryAlerts),
+    readMcpConnectionAlerts(userId),
+  ]);
+
+  return { integrations, mcp };
 }
 
 /** Not the `CredentialRow` of `@alfred/integrations/google`, which is a token row. */

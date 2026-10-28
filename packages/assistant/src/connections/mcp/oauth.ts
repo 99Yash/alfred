@@ -9,9 +9,8 @@ import { parseOAuthScopeList } from "@alfred/contracts";
 import { db, type DbSessionRunner, withDbSession } from "@alfred/db";
 import {
   credentialVault,
-  CredentialVaultError,
+  opensWithCurrentKey,
   type CredentialVault,
-  type SealedCredentialSecret,
 } from "@alfred/db/credential-vault";
 import { sha256Hex } from "@alfred/db/hash";
 import {
@@ -54,6 +53,7 @@ import {
   resolveBuiltInClient,
   type BuiltInClientResolution,
 } from "./built-ins";
+import { SEALED_CREDENTIAL_FIELDS } from "./connection-alerts";
 import type { McpAuthorizedOAuth, McpAuthorizedOAuthServer } from "./endpoint-authorization";
 import { isMcpAuthorizationChallenge, McpClientError } from "./errors";
 
@@ -135,14 +135,6 @@ const REFUSED_CLIENT_ERROR_CODES: ReadonlySet<string> = new Set([
   OAuthErrorCode.InvalidClient,
   OAuthErrorCode.UnauthorizedClient,
 ]);
-
-/** Sealed columns a read checks against the current KEK. */
-const SEALED_CREDENTIAL_FIELDS = [
-  "clientSecret",
-  "accessToken",
-  "refreshToken",
-  "idToken",
-] as const;
 
 /** `GET /api/integrations/mcp/callback` completes this handshake with its own `oauthHandshake("mcp")`. */
 const handshake = oauthHandshake("mcp");
@@ -1156,7 +1148,9 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
 
     if (!credential) return undefined;
 
-    const unopenable = SEALED_CREDENTIAL_FIELDS.filter((field) => !this.#opens(credential[field]));
+    const unopenable = SEALED_CREDENTIAL_FIELDS.filter(
+      (field) => !opensWithCurrentKey(this.#vault, credential[field]),
+    );
 
     if (unopenable.length === 0) return credential;
 
@@ -1176,26 +1170,6 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
     await this.#store.update(credential.id, this.#userId, patch);
 
     return { ...credential, ...patch };
-  }
-
-  /** `false` only for an envelope sealed under another key. Any other vault failure still throws. */
-  #opens(sealed: SealedCredentialSecret | null): boolean {
-    if (sealed === null) return true;
-
-    try {
-      this.#vault.open(sealed);
-
-      return true;
-    } catch (error) {
-      if (
-        error instanceof CredentialVaultError &&
-        (error.failure === "unknown_key" || error.failure === "authentication_failed")
-      ) {
-        return false;
-      }
-
-      throw error;
-    }
   }
 
   async #credentialForIssuer(issuer?: string): Promise<McpOauthCredential | undefined> {

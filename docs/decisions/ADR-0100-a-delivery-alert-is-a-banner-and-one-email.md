@@ -1,6 +1,6 @@
 # ADR-0100 — A delivery alert is a banner and one email, never a briefing line
 
-**Status.** Accepted (issue #1035, PR #1038). Motivated by incident #1033. Refines ADR-0097 item 5. Amends nothing in ADR-0048. **Amended 2026-10-28 (accepted; slice 1 built):** a broken connection is also a fixed block in the briefing, and a broken connection stops a quiet morning. See the amendment of that date; it reverses "never a briefing line" for this case only.
+**Status.** Accepted (issue #1035, PR #1038). Motivated by incident #1033. Refines ADR-0097 item 5. Amends nothing in ADR-0048. **Amended 2026-10-28 (accepted; slices 1 and 2 built):** a broken connection is also a block in the briefing, and a broken connection stops a quiet morning. The code supplies facts and a model writes the words (see **Revision: the model writes the words**). See the amendment of that date; it reverses "never a briefing line" for this case only.
 
 **Decision.** An event source that stopped delivering reaches the user through two surfaces: a live app banner, and at most one pushed `delivery_alert` email per source per week. It never reaches the user through the morning or evening briefing. A delivery verdict names a cause. Only the cause `broken`, with a recovery the user can perform, and with no other surface already asking for the same click, is alertable. Every other verdict is operator text and stays in the log.
 
@@ -58,7 +58,7 @@ The fix is a **fourth alert condition**, not a change to the verdict: `unrepaira
 
 ## Amendment — 2026-10-28: a broken connection is a block in the briefing, and a missing row does not prove a disconnect
 
-**Status.** Accepted. Slice 1 is built (items 1 and 2): `gather.broken_connections`, `isQuietMorning`'s `brokenConnectionCount`, and the `BriefingBlockRow` block in the briefing template. Slices 2 to 4 are not built. Item 1 was revised on the same day after review; see **Revision to item 1**.
+**Status.** Accepted. Slice 1 is built (items 1 and 2): `gather.broken_connections`, `isQuietMorning`'s `brokenConnectionCount`, and the `BriefingBlockRow` block in the briefing template. Slice 2 is built (item 4), with the revision **The model writes the words**. Slices 3 and 4 are not built. Item 1 was revised on the same day after review; see **Revision to item 1**.
 
 ### What happened
 
@@ -87,6 +87,17 @@ The banner waits for the user to open the app. The weekly email waits for a verd
    - **A user disconnect still deletes the row.** `deleteIntegrationCredential` (`packages/integrations/src/shared/credentials.ts`) does not change. So "no row" keeps one meaning: the user never connected, or the user chose to disconnect. The rule stays silent for both.
 4. **The rule folds MCP connections.** An MCP connection is alertable when its status is `auth_required` or `failed`, or when its sealed OAuth secrets do not open with the current key. The second check is local and makes no network call. It is the same test that the OAuth provider runs before a call. The sweep, the briefing gather, and the integration-status read run it, so a connection that no call uses cannot stay `ready` with dead secrets. The recovery is a new consent for that connection. The row shows the connection's label.
 5. **The briefing gather closes the #1033 residual risk for GitHub.** **Residual risk** below says that a correct GitHub check needs a GitHub API call, and that the call does not belong in the tile read. The morning gather already makes that call: the merged-pull read of the ADR-0062 amendment of 2026-10-27. When that read proves a merge in a repository that delivered App webhooks before, and no App delivery for that repository arrived in the window, GitHub App delivery is `broken` with recovery `connect github`. This is a fact from two reads, not a guess. The condition "a repository that delivered webhooks before" stops a false alert for a repository where the App was never installed. This verdict appears in the briefing block only, because only the gather makes the read.
+
+### Revision: the model writes the words (2026-10-28, owner decision during slice 2)
+
+The owner decided that Alfred's words about a broken connection come from a model, not from the code. The code supplies facts. The model reasons from them as a personal assistant does: what broke, what it costs the user, and what the fix takes. This revision replaces the fixed wording of item 1. It keeps the guarantee that the rejected alternative **Composer prose for the block** protected: a broken connection cannot be dropped.
+
+- **Facts, not sentences.** `mcpConnectionAlertSchema` carries `status`, `credentialUnopenable`, `missingScopes` (the consent ask minus the grant), a sanitized `lastError`, and `lastConnectedAt`. It carries no `reason`. A delivery alert keeps its verdict `reason`, and the model reads it as a fact. `connections/broken-connection-facts.ts` turns both kinds into fact lines with one key each (`integration:{slug}`, `mcp:{connectionId}`), and holds `BROKEN_CONNECTION_GUIDANCE`, the principles that both model surfaces read.
+- **The briefing.** The composer writes one `connectionNotices` entry per key in `dump_briefing`. The compose step checks that each key has a notice. A missing key joins the open-ask re-prompt (one aimed retry). A key that still has no notice after the retry gets a bare row: the name and the link only. The code owns the name, the link, and the row order, so the composer cannot drop a row or change a link. The notices are stored in `full_briefing.connectionNotices`, so a resumed send reuses them.
+- **The alert email.** The weekly sweep asks the `cheap` route for a headline and a body from the same facts. The template adds the button and the link. A model failure sends a bare email with the button, because a silent alert is the failure that this surface exists to prevent.
+- **The banner.** The banner shows facts as labels: the connection name, then a dead saved sign-in, the missing scopes, or the last error. The server sends no sentence.
+
+What the composer can still get wrong: a notice can be weak or vague. The check proves that each connection has a notice. It does not prove that the notice is good.
 
 ### Which breaks Alfred can know
 

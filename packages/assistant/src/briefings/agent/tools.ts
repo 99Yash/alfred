@@ -9,12 +9,14 @@ import {
 } from "../read";
 import { sanitizeVoice } from "@alfred/ai/voice";
 import { tool, type ToolSet } from "@alfred/ai";
-import type {
-  BriefingClosedLoop,
-  BriefingLoopRelevance,
-  CalendarContribution,
-  DayShape,
-  IanaTimezone,
+import {
+  briefingConnectionNoticeSchema,
+  type BriefingConnectionNotice,
+  type BriefingClosedLoop,
+  type BriefingLoopRelevance,
+  type CalendarContribution,
+  type DayShape,
+  type IanaTimezone,
 } from "@alfred/contracts";
 import type { LocalDateKey } from "@alfred/assistant/time";
 import { z } from "zod";
@@ -41,6 +43,8 @@ export interface DumpedBriefing {
   citedDocumentIds: string[];
   /** One line for ops logs. */
   rationale: string | null;
+  /** The composer's words about each broken connection, keyed by the fact's `key`. */
+  connectionNotices: BriefingConnectionNotice[];
 }
 
 interface BuildArgs {
@@ -75,6 +79,8 @@ const dumpInputSchema = z
     bodyMarkdown: z.string().min(1),
     citedDocumentIds: z.array(z.string()).default([]),
     rationale: z.string().nullable().default(null),
+    /** One per broken connection the prompt listed. The send step adds the name and the link. */
+    connectionNotices: z.array(briefingConnectionNoticeSchema).default([]),
   })
   .superRefine((value, ctx) => {
     const internalTerms = [
@@ -249,7 +255,7 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
 
     dump_briefing: tool({
       description:
-        "Terminal write. Submit the final composed briefing. Call this exactly once when you're done — calling it ends the loop. subject, bodyText, and bodyMarkdown are all required; cite documentIds for items you referenced inline. The body should be conversational prose (no bullets), read naturally on its own, and contain no internal verification terminology such as 'unverifiable', 'work-object', 'object key', or 'provider read'.",
+        "Terminal write. Submit the final composed briefing. Call this exactly once when you're done — calling it ends the loop. subject, bodyText, and bodyMarkdown are all required; cite documentIds for items you referenced inline. The body should be conversational prose (no bullets), read naturally on its own, and contain no internal verification terminology such as 'unverifiable', 'work-object', 'object key', or 'provider read'. When the prompt lists connections that need repair, write one connectionNotices entry per listed key; leave it empty otherwise.",
       inputSchema: dumpInputSchema,
       execute: async (input): Promise<{ ok: true }> => {
         // The model keeps em dashes despite the prompt. This is the one place before persist and send.
@@ -259,6 +265,10 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
           bodyMarkdown: sanitizeVoice(input.bodyMarkdown),
           citedDocumentIds: input.citedDocumentIds,
           rationale: input.rationale,
+          connectionNotices: input.connectionNotices.map((notice) => ({
+            key: notice.key,
+            text: sanitizeVoice(notice.text),
+          })),
         });
 
         return { ok: true };

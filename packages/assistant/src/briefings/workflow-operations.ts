@@ -19,19 +19,25 @@ import {
 import { send } from "@alfred/assistant/delivery";
 import { emailLogoUrl } from "@alfred/assistant/settings";
 import type { StepContext, StepResult } from "@alfred/assistant/execution";
-import { readBriefingBrokenConnections } from "@alfred/assistant/connections";
+import {
+  brokenConnectionRepairPath,
+  listBrokenConnections,
+  readBriefingBrokenConnections,
+  type BriefingBrokenConnections,
+  type BrokenConnection,
+} from "@alfred/assistant/connections";
 import {
   briefingClosedLoopSchema,
+  briefingConnectionNoticeSchema,
   briefingLoopRelevanceSchema,
   dayShapeSchema,
   deliveryAlertSchema,
   ianaTimezoneSchema,
-  INTEGRATION_DISPLAY_NAMES,
-  integrationConnectPath,
+  mcpConnectionAlertSchema,
   type BriefingClosedLoop,
+  type BriefingConnectionNotice,
   type BriefingGather,
   type BriefingLoopRelevance,
-  type DeliveryAlert,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
@@ -80,10 +86,12 @@ export const dailyBriefingStateSchema = z.object({
   /** The gathered day shape. Compose reads it, so the agent does not repeat the GitHub read. */
   dayShape: dayShapeSchema.optional(),
   /**
-   * Connections whose delivery broke (ADR-0100 amendment 2026-10-28). Send renders them in a
-   * fixed block. Absent on a run persisted before this field; send then renders none.
+   * Connections whose delivery broke (ADR-0100 amendment 2026-10-28). Send renders one row for
+   * each below the prose. Absent on a run persisted before this field; send then renders none.
    */
   brokenConnections: z.array(deliveryAlertSchema).optional(),
+  /** MCP connections the user must repair (item 4 of the same amendment). Absent reads as none. */
+  brokenMcpConnections: z.array(mcpConnectionAlertSchema).optional(),
   composed: z
     .object({
       subject: z.string(),
@@ -91,6 +99,8 @@ export const dailyBriefingStateSchema = z.object({
       bodyMarkdown: z.string(),
       citedDocumentIds: z.array(z.string()),
       modelId: z.string(),
+      /** The composer's notice for each broken connection. A run from before this field has none. */
+      connectionNotices: z.array(briefingConnectionNoticeSchema).default([]),
     })
     .optional(),
 });
@@ -146,14 +156,14 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
     // The gather did not run, so read the block rows now. Prose composed against another set
     // can contradict the block ("nothing needs attention" above a new break), so a changed set
     // falls through to a fresh compose, as a legacy row does.
-    const brokenConnections = await readBriefingBrokenConnections(ctx.userId);
-    const composedAgainst = begun.row.gather?.broken_connections ?? [];
-    const sameConnections = sameIntegrations(brokenConnections, composedAgainst);
+    const broken = await readBriefingBrokenConnections(ctx.userId);
+    const composedAgainst = gatheredBrokenConnections(begun.row.gather);
+    const sameConnections = sameBrokenSet(broken, composedAgainst);
 
     if (!sameConnections) {
       await ctx.log(
         `gather: resume composed briefing id=${begun.row.id} — broken connections changed ` +
-          `(composed=${integrationList(composedAgainst)} now=${integrationList(brokenConnections)}); recomposing`,
+          `(composed=${brokenList(composedAgainst)} now=${brokenList(broken)}); recomposing`,
       );
     }
 
@@ -172,7 +182,8 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
           briefingId: begun.row.id,
           briefingDate,
           timezone,
-          brokenConnections,
+          brokenConnections: broken.integrations,
+          brokenMcpConnections: broken.mcp,
           // `bodyText` and citations are not persisted, so reuse the markdown and no citations.
           // Use the frozen window end, not now.
           untilIngestedAt: watermarkAt.toISOString(),
@@ -182,6 +193,8 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
             bodyMarkdown: breakingSummary,
             citedDocumentIds: fullBriefing.surfacedDocumentIds ?? [],
             modelId: begun.row.model ?? "unknown",
+            // The set matched above, so these notices name the connections send renders.
+            connectionNotices: fullBriefing.connectionNotices ?? [],
           },
         },
         nextStep: "send",
@@ -236,14 +249,14 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
     activityCount: counts.activity,
     githubMergedTotal: gather.day_shape?.shippedTotal,
     meetingCount: counts.meetings,
-    brokenConnectionCount: gather.broken_connections?.length ?? 0,
+    brokenConnectionCount: brokenCount(gatheredBrokenConnections(gather)),
   });
 
   await ctx.log(
     `gather: id=${begun.row.id} action=${begun.action} tz=${timezone} date=${briefingDate} ` +
       `since=${since ? since.toISOString() : "(first run)"} until=${until.toISOString()} ` +
       `email=${counts.email} demanding=${demandingEmailCount ?? "n/a"} topBand=${gather.day_shape?.topEmailBand ?? "n/a"} ` +
-      `activity=${counts.activity} meetings=${counts.meetings} broken=${gather.broken_connections?.length ?? 0} quiet=${quietDay}${instructionSuppressionLogPart(suppressedByInstruction)}`,
+      `activity=${counts.activity} meetings=${counts.meetings} broken=${brokenCount(gatheredBrokenConnections(gather))} quiet=${quietDay}${instructionSuppressionLogPart(suppressedByInstruction)}`,
   );
 
   return {
@@ -261,6 +274,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
       loopRelevance,
       dayShape: gather.day_shape,
       brokenConnections: gather.broken_connections ?? [],
+      brokenMcpConnections: gather.broken_mcp_connections ?? [],
     },
     nextStep: "compose",
   };
@@ -314,9 +328,16 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
   let result: Awaited<ReturnType<typeof runBriefingAgent>>;
   let body: ComposedBriefingBody;
   let surfacedDocumentIds: string[] = [];
+  let connectionNotices: BriefingConnectionNotice[] = [];
+
+  // One notice per connection, written by the composer; send adds the name and the link.
+  const brokenConnections = listBrokenConnections(stateBrokenConnections(ctx.state));
 
   try {
-    const compose = async (openAskViolations?: readonly OpenAskViolation[]) => {
+    const compose = async (
+      openAskViolations: readonly OpenAskViolation[],
+      missingConnectionNotices: readonly string[],
+    ) => {
       return runBriefingAgent({
         userId: ctx.userId,
         slot: ctx.state.slot,
@@ -330,8 +351,9 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
         closedLoops: ctx.state.closedLoops,
         loopRelevance: ctx.state.loopRelevance,
         dayShape: ctx.state.dayShape,
-        brokenConnections: ctx.state.brokenConnections ?? [],
-        ...(openAskViolations ? { openAskViolations } : {}),
+        brokenConnections,
+        openAskViolations,
+        missingConnectionNotices,
       });
     };
 
@@ -343,19 +365,33 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
       });
     };
 
-    result = await compose();
+    result = await compose([], []);
     body = result.briefing;
 
     // Open-ask guard (#1082): one aimed re-prompt, then a downgrade, then failure.
-    // The guard may block or drop, never write prose.
+    // The guard may block or drop, never write prose. The connection-notice check shares the
+    // re-prompt; a key still without a notice after it gets a bare row, not a failure.
     let violations = await audit(body);
+    let missingNotices = missingNoticeKeys(brokenConnections, result.briefing.connectionNotices);
 
-    if (violations.length > 0) {
-      await ctx.log(`compose: open-ask guard rejected draft 1 — ${describeViolations(violations)}`);
-      result = await compose(violations);
+    if (violations.length > 0 || missingNotices.length > 0) {
+      await ctx.log(
+        `compose: draft 1 rejected — open-ask=${violations.length > 0 ? describeViolations(violations) : "ok"} ` +
+          `missing-notices=${missingNotices.join(",") || "none"}`,
+      );
+      result = await compose(violations, missingNotices);
       body = result.briefing;
       violations = await audit(body);
+      missingNotices = missingNoticeKeys(brokenConnections, result.briefing.connectionNotices);
     }
+
+    if (missingNotices.length > 0) {
+      await ctx.log(
+        `compose: no connection notice for ${missingNotices.join(",")}; send shows a bare row`,
+      );
+    }
+
+    connectionNotices = keptNotices(brokenConnections, result.briefing.connectionNotices);
 
     surfacedDocumentIds = uniqueStrings(result.briefing.citedDocumentIds);
 
@@ -384,6 +420,7 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
         headline: body.subject,
         sections: [],
         surfacedDocumentIds,
+        connectionNotices,
       },
       model: result.modelId,
       composeFallback: false,
@@ -411,6 +448,7 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
         bodyMarkdown: body.bodyMarkdown,
         citedDocumentIds: surfacedDocumentIds,
         modelId: result.modelId,
+        connectionNotices,
       },
     },
     nextStep: "send",
@@ -487,7 +525,12 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
   // `@alfred/mailer` owns all styling; the model only writes markdown.
   const webOrigin = serverEnv().CORS_ORIGIN.replace(/\/$/, "");
   const apiOrigin = serverEnv().BETTER_AUTH_URL.replace(/\/$/, "");
-  const blockRows = toBlockRows(ctx.state.brokenConnections ?? [], apiOrigin);
+
+  const blockRows = toBlockRows(
+    listBrokenConnections(stateBrokenConnections(ctx.state)),
+    composed.connectionNotices,
+    apiOrigin,
+  );
 
   const html = await renderBriefingEmail({
     content: body.bodyMarkdown,
@@ -567,46 +610,104 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
 }
 
 /**
- * The fixed block's rows. The template renders them below the prose, so the composer
- * cannot drop or reword them (ADR-0100 amendment 2026-10-28). The link is the banner's
- * connect route on the API origin: one click starts the repair.
+ * One row per broken connection, below the prose (ADR-0100 amendment 2026-10-28, revised). The
+ * composer wrote the words; the code owns the name and the link, so a key with no notice still
+ * gets a bare row and cannot be dropped. The link is the banner's repair route on the API origin.
  */
-function toBlockRows(connections: readonly DeliveryAlert[], apiOrigin: string): BriefingBlockRow[] {
-  return connections.map((connection) => {
-    const name = INTEGRATION_DISPLAY_NAMES[connection.integration];
+function toBlockRows(
+  connections: readonly BrokenConnection[],
+  notices: readonly BriefingConnectionNotice[],
+  apiOrigin: string,
+): BriefingBlockRow[] {
+  const textByKey = new Map(notices.map((notice) => [notice.key, notice.text]));
 
-    return {
-      name,
-      sentence: connection.reason,
-      actionLabel: `Reconnect ${name}`,
-      actionUrl: `${apiOrigin}${integrationConnectPath(connection.integration)}`,
-    };
-  });
+  return connections.map((connection) => ({
+    name: connection.name,
+    text: textByKey.get(connection.key) ?? null,
+    actionLabel: `Reconnect ${connection.name}`,
+    actionUrl: `${apiOrigin}${brokenConnectionRepairPath(connection)}`,
+  }));
 }
 
-/** The same block, for the plain-text part. */
+/** The same rows, for the plain-text part. */
 function appendBlockText(bodyText: string, rows: readonly BriefingBlockRow[]): string {
   if (rows.length === 0) return bodyText;
 
   const lines = rows.map(
-    (row) => `${row.name}: ${row.sentence}. ${row.actionLabel}: ${row.actionUrl}`,
+    (row) => `${row.text ?? `${row.name}.`} ${row.actionLabel}: ${row.actionUrl}`,
   );
 
-  return [bodyText, "", "Alfred stopped receiving updates from these connections:", ...lines].join(
-    "\n",
-  );
+  return [bodyText, "", ...lines].join("\n");
 }
 
-/** Order-free: the composer fact names integrations, so only the set matters. */
-function sameIntegrations(a: readonly DeliveryAlert[], b: readonly DeliveryAlert[]): boolean {
-  const left = new Set(a.map((alert) => alert.integration));
-  const right = new Set(b.map((alert) => alert.integration));
-
-  return left.size === right.size && [...left].every((slug) => right.has(slug));
+/** The broken set the state carries. A run from before a field reads that field as none. */
+function stateBrokenConnections(state: DailyBriefingOperationState): BriefingBrokenConnections {
+  return {
+    integrations: state.brokenConnections ?? [],
+    mcp: state.brokenMcpConnections ?? [],
+  };
 }
 
-function integrationList(alerts: readonly DeliveryAlert[]): string {
-  return alerts.length === 0 ? "none" : alerts.map((alert) => alert.integration).join(",");
+/** Keys the composer wrote no notice for. */
+function missingNoticeKeys(
+  connections: readonly BrokenConnection[],
+  notices: readonly BriefingConnectionNotice[],
+): string[] {
+  const written = new Set(notices.map((notice) => notice.key));
+
+  return connections.map((connection) => connection.key).filter((key) => !written.has(key));
+}
+
+/** The first notice per listed key. A key the prompt did not list is dropped. */
+function keptNotices(
+  connections: readonly BrokenConnection[],
+  notices: readonly BriefingConnectionNotice[],
+): BriefingConnectionNotice[] {
+  const listed = new Set(connections.map((connection) => connection.key));
+  const seen = new Set<string>();
+
+  return notices.filter((notice) => {
+    if (!listed.has(notice.key) || seen.has(notice.key)) return false;
+
+    seen.add(notice.key);
+
+    return true;
+  });
+}
+
+/** The set a gather stored. A gather from before a field reads that field as none. */
+function gatheredBrokenConnections(
+  gather: Pick<BriefingGather, "broken_connections" | "broken_mcp_connections"> | null | undefined,
+): BriefingBrokenConnections {
+  return {
+    integrations: gather?.broken_connections ?? [],
+    mcp: gather?.broken_mcp_connections ?? [],
+  };
+}
+
+function brokenCount(broken: BriefingBrokenConnections): number {
+  return broken.integrations.length + broken.mcp.length;
+}
+
+/**
+ * Order-free: the composer fact names integrations and connections, so only the set matters.
+ * An MCP connection keys by id, because two connections can share a label.
+ */
+function sameBrokenSet(a: BriefingBrokenConnections, b: BriefingBrokenConnections): boolean {
+  const left = new Set(brokenKeys(a));
+  const right = new Set(brokenKeys(b));
+
+  return left.size === right.size && [...left].every((key) => right.has(key));
+}
+
+function brokenKeys(broken: BriefingBrokenConnections): string[] {
+  return listBrokenConnections(broken).map((connection) => connection.key);
+}
+
+function brokenList(broken: BriefingBrokenConnections): string {
+  const keys = brokenKeys(broken);
+
+  return keys.length === 0 ? "none" : keys.join(",");
 }
 
 function uniqueStrings(values: readonly string[]): string[] {

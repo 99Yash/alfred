@@ -26,6 +26,14 @@ export type McpConnectionStatus = (typeof mcpConnectionStatusValues)[number];
 
 export const mcpConnectionStatusSchema = z.enum(mcpConnectionStatusValues);
 
+/**
+ * The repair route for one stored connection: OAuth goes to consent, any other connection
+ * reconnects. The web tile, the delivery-alert banner, and the briefing block link here.
+ */
+export function mcpConnectionAuthorizePath(connectionId: string): string {
+  return `/api/integrations/mcp/connections/${encodeURIComponent(connectionId)}/authorize`;
+}
+
 // Snapshot of the negotiated server identity, stored on `mcp_connections.server_identity`.
 export const mcpServerIdentitySchema = z.object({
   protocolVersion: z.string(),

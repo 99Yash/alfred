@@ -10,6 +10,7 @@ import {
   type GoogleSlug,
   type IntegrationConnection,
   type IntegrationStatus,
+  type McpConnectionAlert,
 } from "@alfred/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
@@ -200,3 +201,12 @@ export function useDeliveryAlerts(): readonly DeliveryAlert[] {
 
 /** Stable identity for callers' `useMemo`. */
 const EMPTY_ALERTS: readonly DeliveryAlert[] = [];
+
+/** MCP connections the user must repair (ADR-0100 amendment 2026-10-28, item 4). */
+export function useMcpConnectionAlerts(): readonly McpConnectionAlert[] {
+  const { data } = useIntegrationStatus();
+
+  return data?.mcpAlerts ?? EMPTY_MCP_ALERTS;
+}
+
+const EMPTY_MCP_ALERTS: readonly McpConnectionAlert[] = [];
