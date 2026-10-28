@@ -8,7 +8,11 @@ import { useMcpConnectionActions, type McpConnectionActions } from "./mcp-connec
 import { McpActionErrorText, McpConnectionMenu } from "./mcp-connection-menu";
 import { McpConnectionWarning } from "./mcp-connection-warning";
 import { McpTile } from "./mcp-tile";
-import { mcpConnectionPresentation, mcpConnectionSubtitle } from "./mcp-server-status";
+import {
+  mcpConnectionNeedsRepair,
+  mcpConnectionPresentation,
+  mcpConnectionSubtitle,
+} from "./mcp-server-status";
 
 export interface McpConnectionCardViewProps {
   connection: McpConnection;
@@ -17,12 +21,14 @@ export interface McpConnectionCardViewProps {
 
 /**
  * One user-added MCP server, rendered from props so `renderToStaticMarkup` can test it.
- * Like a built-in tile, it has one main button; the rest is in the "..." menu.
+ * Like a built-in tile, it shows a main button only when the user must act; the rest,
+ * including Reconnect on a working connection, is in the "..." menu.
  * `auth_required` has no usable credential (`reconnect` returns 400), so it
  * navigates to consent instead of offering Reconnect.
  */
 export function McpConnectionCardView({ connection, actions }: McpConnectionCardViewProps) {
   const needsConsent = connection.status === "auth_required";
+  const needsRepair = mcpConnectionNeedsRepair(connection);
 
   const { alert } = mcpConnectionPresentation(connection);
 
@@ -56,7 +62,7 @@ export function McpConnectionCardView({ connection, actions }: McpConnectionCard
         >
           Grant access
         </AppButton>
-      ) : (
+      ) : needsRepair ? (
         <AppButton
           size="sm"
           variant="white"
@@ -67,8 +73,13 @@ export function McpConnectionCardView({ connection, actions }: McpConnectionCard
         >
           {connection.status === "disconnected" ? "Connect" : "Reconnect"}
         </AppButton>
-      )}
-      <McpConnectionMenu connection={connection} actions={actions} custom />
+      ) : null}
+      <McpConnectionMenu
+        connection={connection}
+        actions={actions}
+        custom
+        onReconnect={needsConsent || needsRepair ? null : actions.onReconnect}
+      />
     </McpTile>
   );
 }

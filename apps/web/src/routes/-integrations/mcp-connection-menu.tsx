@@ -1,6 +1,6 @@
 import { MCP_ADD_SERVER_MAX_LABEL_LENGTH } from "@alfred/contracts";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { Ellipsis, Pencil, PlugZap, Trash2, Wrench } from "lucide-react";
+import { Ellipsis, Pencil, PlugZap, RotateCw, Trash2, Wrench } from "lucide-react";
 import { use, useRef, useState } from "react";
 import {
   AppButton,
@@ -43,18 +43,21 @@ export function McpActionErrorText({
 }
 
 /**
- * The secondary actions of one MCP connection behind a "..." trigger, so every
- * MCP tile has one main button. Built-in rows cannot be renamed (the server
- * refuses it), and they keep their row, so `custom` gates Rename and Remove.
+ * The secondary actions of one MCP connection behind a "..." trigger, so a tile
+ * shows a main button only when the user must act. Built-in rows cannot be renamed
+ * (the server refuses it), and they keep their row, so `custom` gates Rename and Remove.
+ * `onReconnect` is set when the tile has no main reconnect button.
  */
 export function McpConnectionMenu({
   connection,
   actions,
   custom,
+  onReconnect,
 }: {
   connection: McpConnection;
   actions: McpConnectionActions;
   custom: boolean;
+  onReconnect: (() => void) | null;
 }) {
   // The menu portals outside `.app`; stamp the resolved theme so tokens resolve.
   const resolved = use(AppThemeContext)?.resolved;
@@ -97,6 +100,16 @@ export function McpConnectionMenu({
               <Wrench size={14} aria-hidden className="text-app-fg-2" />
               View tools
             </DropdownMenu.Item>
+            {onReconnect ? (
+              <DropdownMenu.Item
+                className={appMenuItemClass}
+                disabled={busy}
+                onSelect={onReconnect}
+              >
+                <RotateCw size={14} aria-hidden className="text-app-fg-2" />
+                Reconnect
+              </DropdownMenu.Item>
+            ) : null}
             {custom ? (
               <DropdownMenu.Item
                 className={appMenuItemClass}

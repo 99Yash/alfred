@@ -8,17 +8,25 @@ import { mcpAuthorizeUrl, mcpBuiltInConnectUrl } from "./helpers";
 import { type McpConnection } from "~/lib/integrations/mcp-connections";
 import { useMcpConnectionActions, type McpConnectionActions } from "./mcp-connection-actions";
 import { McpActionErrorText, McpConnectionMenu } from "./mcp-connection-menu";
-import { mcpConnectionPresentation, mcpConnectionSubtitle } from "./mcp-server-status";
+import {
+  mcpConnectionNeedsRepair,
+  mcpConnectionPresentation,
+  mcpConnectionSubtitle,
+} from "./mcp-server-status";
 import { McpConnectionWarning } from "./mcp-connection-warning";
 import { McpTile } from "./mcp-tile";
 
-/** One closed state that drives the subtitle, button text, disabled rule, and destination. */
+/**
+ * One closed state that drives the subtitle, button text, disabled rule, and destination.
+ * `connected` needs nothing from the user, so it has no main button; Reconnect is in the menu.
+ */
 type BuiltInState =
   | { readonly kind: "loading"; readonly connection: McpConnection | undefined }
   | { readonly kind: "read_error"; readonly connection: McpConnection | undefined }
   | { readonly kind: "absent" }
   | { readonly kind: "connecting"; readonly connection: McpConnection }
   | { readonly kind: "needs_consent"; readonly connection: McpConnection }
+  | { readonly kind: "needs_repair"; readonly connection: McpConnection }
   | { readonly kind: "connected"; readonly connection: McpConnection };
 
 function builtInState(input: {
@@ -38,8 +46,13 @@ function builtInState(input: {
 
   if (connection.status === "auth_required") return { kind: "needs_consent", connection };
 
+  if (mcpConnectionNeedsRepair(connection)) return { kind: "needs_repair", connection };
+
   return { kind: "connected", connection };
 }
+
+/** The states that show a main button. */
+type MainActionKind = Exclude<BuiltInState["kind"], "connected">;
 
 const ACTION_LABEL = {
   loading: "Loading",
@@ -47,8 +60,8 @@ const ACTION_LABEL = {
   absent: "Add",
   connecting: "Connecting",
   needs_consent: "Grant access",
-  connected: "Reconnect",
-} satisfies Record<BuiltInState["kind"], string>;
+  needs_repair: "Reconnect",
+} satisfies Record<MainActionKind, string>;
 
 interface McpBuiltInCardProps {
   provider: BuiltInMCPProvider;
@@ -65,8 +78,8 @@ const ACTION_ICON = {
   absent: <Plus size={12} />,
   connecting: <Plus size={12} />,
   needs_consent: <AlertTriangle size={12} />,
-  connected: <RotateCw size={12} />,
-} satisfies Record<BuiltInState["kind"], ReactNode>;
+  needs_repair: <RotateCw size={12} />,
+} satisfies Record<MainActionKind, ReactNode>;
 
 /**
  * One built-in MCP server: one main button, plus the "..." menu once a row exists.
@@ -132,30 +145,41 @@ function McpBuiltInCardView({
       subtitle={subtitle}
       warning={alert !== null}
     >
-      <AppButton
-        size="sm"
-        variant="white"
-        leading={ACTION_ICON[state.kind]}
-        disabled={state.kind === "loading" || state.kind === "connecting"}
-        onClick={() => {
-          if (state.kind === "read_error") {
-            onRetry();
+      {state.kind === "connected" ? null : (
+        <AppButton
+          size="sm"
+          variant="white"
+          leading={ACTION_ICON[state.kind]}
+          disabled={state.kind === "loading" || state.kind === "connecting"}
+          onClick={() => {
+            if (state.kind === "read_error") {
+              onRetry();
 
-            return;
-          }
+              return;
+            }
 
-          // The connection's own consent door. `mcpConsentAsk` decides if a screen is needed.
-          openAuthorizationTab(
-            state.kind === "needs_consent"
-              ? mcpAuthorizeUrl(state.connection.id)
-              : mcpBuiltInConnectUrl(provider),
-          );
-        }}
-      >
-        {ACTION_LABEL[state.kind]}
-      </AppButton>
+            // The connection's own consent door. `mcpConsentAsk` decides if a screen is needed.
+            openAuthorizationTab(
+              state.kind === "needs_consent"
+                ? mcpAuthorizeUrl(state.connection.id)
+                : mcpBuiltInConnectUrl(provider),
+            );
+          }}
+        >
+          {ACTION_LABEL[state.kind]}
+        </AppButton>
+      )}
       {connection && actions ? (
-        <McpConnectionMenu connection={connection} actions={actions} custom={false} />
+        <McpConnectionMenu
+          connection={connection}
+          actions={actions}
+          custom={false}
+          onReconnect={
+            state.kind === "connected"
+              ? () => openAuthorizationTab(mcpBuiltInConnectUrl(provider))
+              : null
+          }
+        />
       ) : null}
     </McpTile>
   );

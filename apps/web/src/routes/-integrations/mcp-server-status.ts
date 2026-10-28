@@ -56,6 +56,14 @@ export function mcpConnectionPresentation(
   }
 }
 
+/**
+ * Whether the tile's main button asks for a repair. Every other status needs nothing
+ * from the user, so its reconnect stays in the "..." menu.
+ */
+export function mcpConnectionNeedsRepair(connection: Pick<McpConnection, "status">): boolean {
+  return connection.status === "failed" || connection.status === "disconnected";
+}
+
 /** Status text plus the published tool count once a revision exists. */
 export function mcpConnectionSubtitle(
   connection: Pick<McpConnection, "status" | "lastError" | "toolCount">,
