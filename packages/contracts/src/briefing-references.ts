@@ -146,7 +146,7 @@ export function briefingReference(kind: BriefingReferenceKind, id: string): Brie
 
 export interface GmailThreadLink {
   threadId: string;
-  /** Account email of the connection that holds the thread. Absent or null: Gmail's default account. */
+  /** Account email of the connection that holds the thread. `null` or `undefined`: Gmail's default account. */
   mailbox: string | null | undefined;
 }
 
