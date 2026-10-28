@@ -6,7 +6,7 @@ import { attentionBandSchema } from "./attention";
 import { LOOP_CLOSING_STATE_CATEGORIES } from "./integration-objects";
 import { triageCategorySchema } from "./triage";
 import { isIntegrationSlug } from "./integrations";
-import { deliveryAlertSchema } from "./integration-status";
+import { deliveryAlertSchema, mcpConnectionAlertSchema } from "./integration-status";
 
 // ─── Sources + reference kinds ────────────────────────────────────────────
 
@@ -334,6 +334,8 @@ export const briefingGatherSchema = z.object({
    * watch still has the history poll. Optional, so older gathers parse. Absent reads as none.
    */
   broken_connections: z.array(deliveryAlertSchema).optional(),
+  /** MCP connections the user must repair (item 4 of the same amendment). Optional for the same reason. */
+  broken_mcp_connections: z.array(mcpConnectionAlertSchema).optional(),
 });
 
 export const fullBriefingSectionSchema = z.object({
@@ -374,11 +376,28 @@ export const briefingSourcePanelSchema = z.object({
   items: z.array(briefingSourcePanelItemSchema).max(50),
 });
 
+/** Bound on one notice the composer writes about a broken connection. */
+export const BRIEFING_CONNECTION_NOTICE_MAX = 600;
+
+/**
+ * The composer's words about one broken connection (ADR-0100 amendment 2026-10-28). `key` names
+ * the connection the gather listed; the send step adds the name and the repair link, and shows a
+ * bare row for a key with no notice.
+ */
+export const briefingConnectionNoticeSchema = z.object({
+  key: z.string().min(1),
+  text: z.string().min(1).max(BRIEFING_CONNECTION_NOTICE_MAX),
+});
+
+export type BriefingConnectionNotice = z.infer<typeof briefingConnectionNoticeSchema>;
+
 export const fullBriefingSchema = briefingComposerSchema.shape.fullBriefing.extend({
   /** Built after compose, never by the model. */
   sourcePanels: z.array(briefingSourcePanelSchema).max(8).optional(),
   /** Emails the prose actually cited. The next briefing reads this, not the whole gather. */
   surfacedDocumentIds: z.array(z.string().min(1)).max(100).optional(),
+  /** The composer's notices for the broken connections, so a resumed send reuses them. */
+  connectionNotices: z.array(briefingConnectionNoticeSchema).max(50).optional(),
 });
 
 // ─── Contributor contract ─────────────────────────────────────────────────

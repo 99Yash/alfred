@@ -30,8 +30,8 @@ export type EmailSendStatus = (typeof EMAIL_SEND_STATUSES)[number];
  *   `health_alert:{userId}:{metric}:{local day}`
  *   `delivery_alert:{userId}:{source}:{local day}` (ADR-0100)
  *
- * `delivery_alert` is its own kind because its sender reads a bounded page of recent rows
- * of that kind. Drift rows in the same kind could fill the page and hide the last alert.
+ * `delivery_alert` is its own kind so weekly dedup reads only connection alerts. The sender
+ * reads every page of recent sent rows, including arbitrary MCP connection ids.
  */
 export const emailSends = pgTable(
   "email_sends",

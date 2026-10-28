@@ -127,7 +127,8 @@ export async function markBriefingSent(args: {
   gateReason?: string | null;
   /**
    * After a send-time downgrade, patch the headline, body, and citations to what went out.
-   * Sections and panels stay. Otherwise the next slot treats a dropped item as delivered.
+   * Other fields, including connection notices, stay. Otherwise the next slot treats a dropped
+   * item as delivered, or the stored briefing loses content that the email carried.
    */
   downgraded?: {
     breakingSummary: string;
@@ -154,10 +155,9 @@ export async function markBriefingSent(args: {
   const existing = current[0]?.fullBriefing;
 
   const fullBriefing: FullBriefing = {
+    ...existing,
     headline: args.downgraded.headline,
     sections: existing?.sections ?? [],
-    ...(existing?.sourcePanels ? { sourcePanels: existing.sourcePanels } : {}),
-    ...(existing?.auditSummary ? { auditSummary: existing.auditSummary } : {}),
     surfacedDocumentIds: args.downgraded.surfacedDocumentIds,
   };
 

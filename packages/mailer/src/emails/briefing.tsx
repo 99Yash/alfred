@@ -6,14 +6,15 @@ import { bodyStyles, EmailShell } from "./_shell";
 /** The briefing email. The agent writes markdown; this template owns all styling. */
 
 /**
- * One row of the fixed block below the prose: a connection whose delivery broke, and the action
- * that restores it (ADR-0100 amendment 2026-10-28). The composer never writes these.
+ * One row below the prose: a connection that broke, and the action that restores it
+ * (ADR-0100 amendment 2026-10-28, revised). The composer writes `text`; the sender owns the
+ * name and the link, so a row with no text still renders.
  */
 export interface BriefingBlockRow {
-  /** Integration display name. */
+  /** Integration display name, or an MCP connection's label. */
   name: string;
-  /** One clause from the health check, written for the user, with no final period. */
-  sentence: string;
+  /** The composer's notice. `null` renders the name alone. */
+  text: string | null;
   actionLabel: string;
   actionUrl: string;
 }
@@ -33,7 +34,7 @@ export interface BriefingEmailProps {
   ctaUrl?: string;
   /** Defaults to "Open Alfred". */
   ctaLabel?: string;
-  /** The fixed block. Rendered below the body; empty or absent renders nothing. */
+  /** Broken connections. Rendered below the body; empty or absent renders nothing. */
   blockRows?: readonly BriefingBlockRow[];
 }
 
@@ -100,15 +101,13 @@ const BrokenConnectionBlock = ({
         margin: "8px 0 0 0",
       }}
     >
-      <p style={{ ...bodyStyles.strong, fontSize: "14px", margin: "0 0 8px 0" }}>
-        Alfred stopped receiving updates from these connections
-      </p>
       {rows.map((row) => (
         <p
-          key={row.name}
+          // Two MCP connections can share a label; the link names one connection.
+          key={row.actionUrl}
           style={{ color: "#374151", fontSize: "14px", lineHeight: "1.6", margin: "0 0 4px 0" }}
         >
-          <strong style={bodyStyles.strong}>{row.name}:</strong> {row.sentence}.{" "}
+          {row.text ?? <strong style={bodyStyles.strong}>{row.name}</strong>}{" "}
           <a href={row.actionUrl} style={bodyStyles.link}>
             {row.actionLabel}
           </a>

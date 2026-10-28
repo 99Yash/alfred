@@ -1,7 +1,8 @@
-import type {
-  BuiltInMCPProvider,
-  McpRecoveryOperation,
-  McpRecoveryOperationsPage,
+import {
+  mcpConnectionAuthorizePath,
+  type BuiltInMCPProvider,
+  type McpRecoveryOperation,
+  type McpRecoveryOperationsPage,
 } from "@alfred/contracts";
 import { API_URL, type client, type EdenData } from "~/lib/eden";
 import {
@@ -57,7 +58,7 @@ export type McpHealthMappingWireState = EdenData<
 
 /** Consent URL for a stored connection. A browser navigation, not a fetch. */
 export function mcpAuthorizeUrl(connectionId: string): string {
-  return `${API_URL}/api/integrations/mcp/connections/${connectionId}/authorize`;
+  return `${API_URL}${mcpConnectionAuthorizePath(connectionId)}`;
 }
 
 export function mcpBuiltInConnectUrl(provider: BuiltInMCPProvider): string {

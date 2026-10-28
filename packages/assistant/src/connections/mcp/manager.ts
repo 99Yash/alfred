@@ -24,6 +24,7 @@ import {
 } from "./client";
 import { readApiKeyAuthForConnection } from "./api-key";
 import { builtInClientPolicy, builtInProviderForEndpoint } from "./built-ins";
+import { mcpConnectionUsesOAuth } from "./consent";
 import { getMcpEndpointAuthorizer } from "./endpoint-authorization";
 import { boundedMcpErrorText, isMcpAuthorizationChallenge, McpClientError } from "./errors";
 import {
@@ -201,7 +202,7 @@ async function resolveMcpClientAuth(connection: McpConnectionWithServer): Promis
 
   if (reader !== undefined) return { mode: "api_key", reader };
 
-  if (connection.credentialId !== null || connection.authServerIdentity !== null) {
+  if (mcpConnectionUsesOAuth(connection)) {
     return {
       mode: "oauth",
       provider: (authorization) =>

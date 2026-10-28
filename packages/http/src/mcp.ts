@@ -37,6 +37,7 @@ import {
   isMcpAuthorizationChallenge,
   isMcpTransportFailure,
   McpOAuthAuthorizationRequiredError,
+  mcpConnectionUsesOAuth,
   mcpConsentAsk,
   mcpOAuthClientConfiguration,
   mcpOAuthProviderForConnection,
@@ -256,6 +257,10 @@ async function beginAuthorization(input: {
   const connection = await readOwnedConnection(input.connectionId, input.userId);
 
   if (!connection) throw Errors.NotFoundError("MCP connection not found");
+
+  // API-key and no-auth connections reopen through the manager below, without OAuth discovery.
+  if (!mcpConnectionUsesOAuth(connection)) return null;
+
   const consent = mcpConsentAsk(connection, { forced: input.forceReauthorization === true });
 
   try {

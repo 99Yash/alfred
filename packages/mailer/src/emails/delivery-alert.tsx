@@ -2,55 +2,55 @@ import * as React from "react";
 import { bodyStyles, EmailShell } from "./_shell";
 
 /**
- * Sent when a connected integration stops delivering events and only the user
- * can fix it (ADR-0100). The in-app banner waits for the user to open Alfred; this does not.
+ * Sent when a connection breaks and only the user can fix it (ADR-0100). The in-app banner waits
+ * for the user to open Alfred; this does not. A model writes the headline and the body from the
+ * connection's facts (ADR-0100 amendment 2026-10-28, revised); this template owns the styling,
+ * the name on the button, and the link.
  */
 
 export interface DeliveryAlertEmailProps {
-  /** Integration display name. */
-  integrationName?: string;
-  /** One sentence from the health check, written for the user. Never raw provider text. */
-  reason?: string;
-  /** Link to the integration page. */
-  integrationUrl?: string;
+  /** The model's headline. The sender also uses it as the subject. */
+  headline?: string;
+  /** The model's body, as plain paragraphs split on a blank line. Empty renders none. */
+  body?: string;
+  /** Integration display name, or an MCP connection's label. Names the button. */
+  name?: string;
+  /** Where the button goes. */
+  url?: string;
   logoUrl?: string;
   createdAt?: string;
-  timezone?: string;
+  timezone?: string | undefined;
 }
 
 export const DeliveryAlertEmail = ({
-  integrationName = "GitHub",
-  reason = "the GitHub App installation for this account is no longer active",
-  integrationUrl = "http://localhost:3000/integrations/github",
+  headline = "GitHub stopped sending me activity",
+  body = "The GitHub App installation for your account is no longer active, so new pull requests and reviews stopped reaching me on the 22nd.\n\nOne reconnect fixes it.",
+  name = "GitHub",
+  url = "http://localhost:3000/integrations/github",
   logoUrl,
   createdAt = new Date().toISOString(),
   timezone,
 }: DeliveryAlertEmailProps): React.ReactElement => {
+  const paragraphs = body
+    .split(/\n\s*\n/)
+    .map((paragraph) => paragraph.trim())
+    .filter((paragraph) => paragraph.length > 0);
+
   return (
     <EmailShell
-      previewText={`Alfred stopped receiving ${integrationName} activity`}
+      previewText={headline}
       logoUrl={logoUrl}
       createdAt={createdAt}
       timezone={timezone}
-      ctaUrl={integrationUrl}
-      ctaLabel={`Reconnect ${integrationName}`}
+      ctaUrl={url}
+      ctaLabel={`Reconnect ${name}`}
     >
-      <h1 style={bodyStyles.heading}>Alfred stopped receiving {integrationName} activity</h1>
-      <p style={bodyStyles.paragraph}>
-        Nothing from {integrationName} has reached Alfred since the connection broke. Anything that
-        happened there in the meantime is missing, and it stays missing until you reconnect.
-      </p>
-      <p
-        style={{
-          ...bodyStyles.paragraph,
-          background: "#fff7ed",
-          border: "1px solid #fed7aa",
-          borderRadius: "8px",
-          padding: "12px 16px",
-        }}
-      >
-        <strong style={bodyStyles.strong}>{reason}.</strong>
-      </p>
+      <h1 style={bodyStyles.heading}>{headline}</h1>
+      {paragraphs.map((paragraph) => (
+        <p key={paragraph} style={bodyStyles.paragraph}>
+          {paragraph}
+        </p>
+      ))}
     </EmailShell>
   );
 };

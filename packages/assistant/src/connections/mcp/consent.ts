@@ -4,6 +4,16 @@ import type { McpConnection, McpServer } from "@alfred/db/schemas";
 
 import { builtInAuthorizationScopes } from "./built-ins";
 
+/** API keys take priority over a past OAuth identity, as they do in the live client. */
+export function mcpConnectionUsesOAuth(
+  connection: Pick<McpConnection, "apiKeyCredentialId" | "credentialId" | "authServerIdentity">,
+): boolean {
+  return (
+    connection.apiKeyCredentialId === null &&
+    (connection.credentialId !== null || connection.authServerIdentity !== null)
+  );
+}
+
 /** The connection fields a consent decision reads. */
 export type McpConsentConnection = Pick<McpConnection, "grantedScopes" | "requiredScopes"> & {
   readonly server: Pick<McpServer, "endpointUrl">;
