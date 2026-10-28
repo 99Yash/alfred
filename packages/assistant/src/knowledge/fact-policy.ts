@@ -18,6 +18,7 @@ import {
   type GmailAuthorshipObservation,
 } from "@alfred/contracts";
 import type { Document } from "@alfred/db/schemas";
+import type { UserIdentity } from "@alfred/assistant/settings";
 
 // --- document write tiers ---
 
@@ -209,14 +210,6 @@ export type AuthorshipDocument =
       sender: GmailAuthorshipObservation | null;
     };
 
-/** Who "the user" is per provider. A missing provider identity fails attribution. */
-export interface SelfIdentity {
-  /** Lowercased self emails: `user.email` plus every connected Gmail account. Fallback when a doc has no `accountId`. */
-  readonly emails: readonly string[];
-  /** `documents.accountId` to that mailbox's email, so a work mailbox is not matched to a personal address. */
-  readonly gmailAccountEmailById?: Readonly<Record<string, string>>;
-}
-
 /** Typed on `AuthorshipDocument["source"]`, so a new document source breaks this switch. */
 function toAuthorshipSource(source: AuthorshipDocument["source"]): AuthorshipSource {
   switch (source) {
@@ -240,10 +233,9 @@ function toAuthorshipSource(source: AuthorshipDocument["source"]): AuthorshipSou
 function authoredByGmail(
   sender: GmailAuthorshipObservation | null,
   accountId: string | null,
-  self: SelfIdentity,
+  self: Pick<UserIdentity, "emails" | "mailboxByAccountId">,
 ): Authorship {
-  const accountEmail =
-    (accountId && self.gmailAccountEmailById?.[accountId]?.toLowerCase()) || null;
+  const accountEmail = (accountId && self.mailboxByAccountId.get(accountId)) || null;
 
   // The triage adapter parses `From:` and SENT (ADR-0089). No observation reads as not sent.
   const isSent = sender?.isSent ?? false;
@@ -287,9 +279,7 @@ function authoredByGmail(
   }
 
   // No `accountId` (legacy rows): fall back to every self email.
-  const selfEmails = new Set<string>(self.emails.map((e) => e.toLowerCase()));
-
-  if (selfEmails.size === 0) {
+  if (self.emails.size === 0) {
     return {
       authoredByUser: false,
       source: "gmail",
@@ -298,7 +288,7 @@ function authoredByGmail(
     };
   }
 
-  if (selfEmails.has(fromEmail)) {
+  if (self.emails.has(fromEmail)) {
     return {
       authoredByUser: true,
       source: "gmail",
@@ -321,7 +311,10 @@ function authoredByGmail(
 }
 
 /** Is this document authored by the user (not "about" the user)? Defaults to `false`. */
-export function authoredByUser(doc: AuthorshipDocument, self: SelfIdentity): Authorship {
+export function authoredByUser(
+  doc: AuthorshipDocument,
+  self: Pick<UserIdentity, "emails" | "mailboxByAccountId">,
+): Authorship {
   const source = toAuthorshipSource(doc.source);
 
   switch (source) {
@@ -366,7 +359,7 @@ export type DocumentFactGateResult =
 export interface DocumentFactGateInput {
   readonly proposal: { key: string; value: unknown };
   readonly document: AuthorshipDocument;
-  readonly selfIdentity: SelfIdentity;
+  readonly selfIdentity: Pick<UserIdentity, "emails" | "mailboxByAccountId">;
 }
 
 /**

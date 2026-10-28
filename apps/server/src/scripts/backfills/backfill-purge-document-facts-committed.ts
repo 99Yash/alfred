@@ -20,11 +20,8 @@
  */
 import { gmailSenderAdapter } from "@alfred/assistant/triage";
 import { isSingleValuedKey, rejectFact, valueSignature } from "@alfred/assistant/knowledge";
-import {
-  gateDocumentFact,
-  loadSelfIdentity,
-  type SelfIdentity,
-} from "@alfred/assistant/knowledge/internal";
+import { gateDocumentFact } from "@alfred/assistant/knowledge/internal";
+import { userIdentity } from "@alfred/assistant/settings";
 import { warmPool } from "@alfred/db";
 import { closeScriptResources } from "../script-runtime";
 import { canonicalizeFactKey, getStringPath, toDisplayText, toMessage } from "@alfred/contracts";
@@ -135,7 +132,7 @@ async function reject(row: ActiveFactRow, userId: string, reason: string): Promi
 async function processUser(u: { userId: string; email: string }): Promise<void> {
   console.log(`\n=== ${u.email} (user=${u.userId}) ===`);
   const now = new Date();
-  const selfIdentity: SelfIdentity = await loadSelfIdentity(u.userId);
+  const selfIdentity = await userIdentity({ userId: u.userId });
 
   const rows: ActiveFactRow[] = await db()
     .select({

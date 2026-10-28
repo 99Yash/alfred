@@ -5,7 +5,6 @@ import {
   documents,
   emailTriage,
   integrationCredentials,
-  user,
   type EmailTriage,
 } from "@alfred/db/schemas";
 import {
@@ -25,6 +24,7 @@ import type {
 import { and, eq, sql } from "drizzle-orm";
 import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 import { normalizeDecisionTraceKey } from "@alfred/assistant/execution";
+import { userIdentity } from "@alfred/assistant/settings";
 import type { SenderExtractionEvent } from "./sender-extraction-event";
 
 /** DB access for `email_triage`: one row per (user, thread). User overrides stay pinned. */
@@ -383,7 +383,7 @@ export async function loadTriageContext(
     throw new Error(`[triage] document ${documentId} missing accountId`);
   }
 
-  const [credRows, userRows] = await Promise.all([
+  const [credRows, identity] = await Promise.all([
     db()
       .select({
         id: integrationCredentials.id,
@@ -398,7 +398,7 @@ export async function loadTriageContext(
           eq(integrationCredentials.accountId, doc.accountId),
         ),
       ),
-    db().select({ name: user.name, email: user.email }).from(user).where(eq(user.id, userId)),
+    userIdentity({ userId }),
   ]);
 
   const cred = credRows[0];
@@ -406,8 +406,6 @@ export async function loadTriageContext(
   if (!cred) {
     throw new Error(`[triage] no google credential for user=${userId} account=${doc.accountId}`);
   }
-
-  const userRow = userRows[0];
 
   return {
     document: {
@@ -424,8 +422,8 @@ export async function loadTriageContext(
     credentialId: cred.id,
     persona: cred.persona ?? null,
     identity: {
-      name: userRow?.name ?? null,
-      email: cred.accountLabel ?? userRow?.email ?? null,
+      name: identity.name,
+      email: cred.accountLabel ?? identity.primaryEmail,
       mailboxAddress: cred.accountLabel ?? null,
     },
   };
