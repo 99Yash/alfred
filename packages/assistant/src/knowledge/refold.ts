@@ -80,7 +80,9 @@ export async function refoldActiveGmailKindProjection(
 
   // Sorted: the list goes into the projection run args. The bind holds the loose self-mail
   // form (`parseEmailAddress`); the run args keep the strict reducer form
-  // (`parseEmailIdentity`), as the old `canonicalEmailList` did, so the checksum is unchanged.
+  // (`parseEmailIdentity`), as the old `canonicalEmailList` did. For bare-address labels the
+  // checksum is unchanged; a non-bare label (`Name <a@b>`) now adds `a@b` and blocks as
+  // logic-drift.
   const excludeEmailValues = [...(await userIdentity({ userId })).emails]
     .map((email) => parseEmailIdentity(email))
     .filter((email) => email !== null)

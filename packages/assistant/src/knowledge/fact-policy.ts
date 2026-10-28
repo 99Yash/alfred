@@ -278,7 +278,7 @@ function authoredByGmail(
     };
   }
 
-  // No `accountId` (legacy rows): fall back to every self email.
+  // No `accountId` (legacy rows) or no active mailbox for it: fall back to every self email.
   if (self.emails.size === 0) {
     return {
       authoredByUser: false,
