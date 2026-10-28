@@ -21,6 +21,7 @@ import { emailLogoUrl } from "@alfred/assistant/settings";
 import type { StepContext, StepResult } from "@alfred/assistant/execution";
 import {
   brokenConnectionRepairPath,
+  describeBrokenConnection,
   listBrokenConnections,
   readBriefingBrokenConnections,
   type BriefingBrokenConnections,
@@ -68,7 +69,7 @@ import {
  * Morning may suppress; evening and manual runs always send.
  */
 
-/** The workflow's persisted state. The workflow parses with it; the steps read its output. */
+/** Persisted state contract. Send parses it so older queued runs receive the field defaults. */
 export const dailyBriefingStateSchema = z.object({
   slot: z.enum(["morning", "evening"]),
   reason: z.enum(["cron", "manual", "forced"]),
@@ -153,23 +154,22 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
   if (begun.action === "resume" && begun.row.status === "composed") {
     const { breakingSummary, fullBriefing, watermarkAt } = begun.row;
 
-    // The gather did not run, so read the block rows now. Prose composed against another set
-    // can contradict the block ("nothing needs attention" above a new break), so a changed set
-    // falls through to a fresh compose, as a legacy row does.
+    // The gather did not run, so read the block rows now. Changed facts can contradict the saved
+    // diagnosis even when the connection ids stay the same, so either change needs fresh prose.
     const broken = await readBriefingBrokenConnections(ctx.userId);
     const composedAgainst = gatheredBrokenConnections(begun.row.gather);
-    const sameConnections = sameBrokenSet(broken, composedAgainst);
+    const sameFacts = sameBrokenFacts(broken, composedAgainst);
 
-    if (!sameConnections) {
+    if (!sameFacts) {
       await ctx.log(
-        `gather: resume composed briefing id=${begun.row.id} — broken connections changed ` +
+        `gather: resume composed briefing id=${begun.row.id} — broken connection facts changed ` +
           `(composed=${brokenList(composedAgainst)} now=${brokenList(broken)}); recomposing`,
       );
     }
 
     // Send needs the frozen window end too, so the watermark stops where the prose stops (#158).
     // A row without it (legacy) falls through to a fresh compose.
-    if (breakingSummary && fullBriefing && watermarkAt && sameConnections) {
+    if (breakingSummary && fullBriefing && watermarkAt && sameFacts) {
       await ctx.log(
         `gather: resume composed briefing id=${begun.row.id} — skipping to send ` +
           `(reuse prose, watermark=${watermarkAt.toISOString()})`,
@@ -462,7 +462,8 @@ function describeViolations(violations: readonly OpenAskViolation[]): string {
 export async function runDailyBriefingSend<State extends DailyBriefingOperationState>(
   ctx: StepContext<State>,
 ): Promise<StepResult<State>> {
-  const { composed, briefingId, briefingDate, untilIngestedAt } = ctx.state;
+  const state = dailyBriefingStateSchema.parse(ctx.state);
+  const { composed, briefingId, briefingDate, untilIngestedAt } = state;
 
   if (!composed || !briefingId || !briefingDate || !untilIngestedAt) {
     throw new Error("[daily-briefing] send entered without composed output");
@@ -480,7 +481,7 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
   const sendViolations = await auditComposedBriefing({
     userId: ctx.userId,
     composed: body,
-    closedLoops: ctx.state.closedLoops,
+    closedLoops: state.closedLoops,
   });
 
   // After a send-time downgrade, patch the row's citations to match what the user got.
@@ -504,7 +505,7 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
   }
 
   // Dry run: skip Resend. The `composed` row is what to inspect.
-  if (ctx.state.dryRun) {
+  if (state.dryRun) {
     await ctx.log("send: skipped (dryRun)");
 
     return {
@@ -515,19 +516,19 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
         status: "dry_run" as const,
         briefingDate,
         briefingId,
-        slot: ctx.state.slot,
+        slot: state.slot,
       },
     };
   }
 
-  const idempotencyKey = `briefing:${ctx.userId}:${briefingDate}:${ctx.state.slot}`;
+  const idempotencyKey = `briefing:${ctx.userId}:${briefingDate}:${state.slot}`;
 
   // `@alfred/mailer` owns all styling; the model only writes markdown.
   const webOrigin = serverEnv().CORS_ORIGIN.replace(/\/$/, "");
   const apiOrigin = serverEnv().BETTER_AUTH_URL.replace(/\/$/, "");
 
   const blockRows = toBlockRows(
-    listBrokenConnections(stateBrokenConnections(ctx.state)),
+    listBrokenConnections(stateBrokenConnections(state)),
     composed.connectionNotices,
     apiOrigin,
   );
@@ -535,7 +536,7 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
   const html = await renderBriefingEmail({
     content: body.bodyMarkdown,
     createdAt: new Date().toISOString(),
-    timezone: ctx.state.timezone,
+    timezone: state.timezone,
     logoUrl: emailLogoUrl(webOrigin),
     previewText: body.subject,
     // Link to the day's full briefing (ADR-0049), not to chat.
@@ -546,7 +547,7 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
 
   const result = await send({
     userId: ctx.userId,
-    kind: ctx.state.slot === "morning" ? "briefing" : "evening_recap",
+    kind: state.slot === "morning" ? "briefing" : "evening_recap",
     idempotencyKey,
     subject: body.subject,
     html,
@@ -554,10 +555,9 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
     payload: {
       briefingId,
       briefingDate,
-      slot: ctx.state.slot,
-      ...(ctx.state.timezone !== undefined ? { timezone: ctx.state.timezone } : {}),
-      // oxlint-disable-next-line typescript/no-unnecessary-condition -- DailyBriefingOperationState types persisted run state by hand, with no parse on resume; an older run can lack this field.
-      ...(ctx.state.reason !== undefined ? { reason: ctx.state.reason } : {}),
+      slot: state.slot,
+      ...(state.timezone !== undefined ? { timezone: state.timezone } : {}),
+      reason: state.reason,
     },
   });
 
@@ -574,10 +574,10 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
   }
 
   const gateReason =
-    ctx.state.slot === "evening"
+    state.slot === "evening"
       ? "evening slot always sends"
-      : ctx.state.reason !== "cron"
-        ? `${ctx.state.reason} run bypasses morning suppression`
+      : state.reason !== "cron"
+        ? `${state.reason} run bypasses morning suppression`
         : "demanding signal present";
 
   await markBriefingSent({
@@ -604,7 +604,7 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
       status: result.status,
       briefingDate,
       briefingId,
-      slot: ctx.state.slot,
+      slot: state.slot,
     },
   };
 }
@@ -690,14 +690,23 @@ function brokenCount(broken: BriefingBrokenConnections): number {
 }
 
 /**
- * Order-free: the composer fact names integrations and connections, so only the set matters.
- * An MCP connection keys by id, because two connections can share a label.
+ * Order-free comparison of the exact facts the composer reads. A stable connection id does not
+ * imply a stable diagnosis, label, or repair: any changed fact needs fresh prose.
  */
-function sameBrokenSet(a: BriefingBrokenConnections, b: BriefingBrokenConnections): boolean {
-  const left = new Set(brokenKeys(a));
-  const right = new Set(brokenKeys(b));
+function sameBrokenFacts(a: BriefingBrokenConnections, b: BriefingBrokenConnections): boolean {
+  const left = listBrokenConnections(a);
 
-  return left.size === right.size && [...left].every((key) => right.has(key));
+  const right = new Map(
+    listBrokenConnections(b).map((connection) => [
+      connection.key,
+      describeBrokenConnection(connection),
+    ]),
+  );
+
+  return (
+    left.length === right.size &&
+    left.every((connection) => right.get(connection.key) === describeBrokenConnection(connection))
+  );
 }
 
 function brokenKeys(broken: BriefingBrokenConnections): string[] {

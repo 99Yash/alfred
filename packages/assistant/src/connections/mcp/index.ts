@@ -47,7 +47,12 @@ export {
 
 export { RAILWAY_MCP_ENDPOINT_HREF, RAILWAY_MCP_STORED_ISSUER } from "./constants";
 
-export { mcpConsentAsk, type McpConsentAsk, type McpConsentConnection } from "./consent";
+export {
+  mcpConnectionUsesOAuth,
+  mcpConsentAsk,
+  type McpConsentAsk,
+  type McpConsentConnection,
+} from "./consent";
 
 // `projectCatalogRevision` stays private to publication.
 export { canonicalArgsHash, descriptorHash } from "./hash";

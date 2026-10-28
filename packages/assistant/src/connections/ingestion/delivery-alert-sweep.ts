@@ -9,7 +9,7 @@ import { INTEGRATIONS, toMessage, type McpConnectionAlert } from "@alfred/contra
 import { db } from "@alfred/db";
 import { emailSends } from "@alfred/db/schemas";
 import { renderDeliveryAlertEmail } from "@alfred/mailer";
-import { and, desc, eq, gt } from "drizzle-orm";
+import { and, asc, eq, gt } from "drizzle-orm";
 import { selectEmailableUsers, send } from "@alfred/assistant/delivery";
 import { emailLogoUrl, settings, webOrigin } from "@alfred/assistant/settings";
 import { inZone, type LocalDateKey } from "@alfred/assistant/time";
@@ -32,10 +32,10 @@ import { logger } from "@alfred/logging";
 const ALERT_REPEAT_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
- * Cap on recent `delivery_alert` rows read. Slack, not a limit, because only this feature writes
- * the kind. An exhausted page would read as "never alerted" and re-send.
+ * Page size for recent sends. Read every page: MCP connections have no count limit, so a fixed
+ * lookback cap could hide an alert that must still silence a repeat.
  */
-const ALERT_LOOKBACK_LIMIT = 50;
+const ALERT_LOOKBACK_PAGE_SIZE = 100;
 
 /**
  * One thing the sweep can email about. `subject` keys the repeat window: an event source, or
@@ -182,25 +182,36 @@ function wasAlerted(keys: readonly string[], userId: string, subject: string): b
 }
 
 /**
- * Keys of `delivery_alert` emails actually sent inside the window. Queued or failed rows told the
- * user nothing. `status` filters on the heap, hence the cap.
+ * Keys of every `delivery_alert` email sent inside the window. Queued or failed rows told the
+ * user nothing. The primary key gives each page a stable, exclusive cursor.
  */
 async function listRecentAlertKeys(userId: string, since: Date): Promise<string[]> {
-  const rows = await db()
-    .select({ idempotencyKey: emailSends.idempotencyKey })
-    .from(emailSends)
-    .where(
-      and(
-        eq(emailSends.userId, userId),
-        eq(emailSends.kind, "delivery_alert"),
-        eq(emailSends.status, "sent"),
-        gt(emailSends.createdAt, since),
-      ),
-    )
-    .orderBy(desc(emailSends.createdAt))
-    .limit(ALERT_LOOKBACK_LIMIT);
+  const keys: string[] = [];
+  let afterId: string | undefined;
 
-  return rows.map((row) => row.idempotencyKey);
+  for (;;) {
+    const rows = await db()
+      .select({ id: emailSends.id, idempotencyKey: emailSends.idempotencyKey })
+      .from(emailSends)
+      .where(
+        and(
+          eq(emailSends.userId, userId),
+          eq(emailSends.kind, "delivery_alert"),
+          eq(emailSends.status, "sent"),
+          gt(emailSends.createdAt, since),
+          afterId === undefined ? undefined : gt(emailSends.id, afterId),
+        ),
+      )
+      .orderBy(asc(emailSends.id))
+      .limit(ALERT_LOOKBACK_PAGE_SIZE);
+
+    keys.push(...rows.map((row) => row.idempotencyKey));
+    const last = rows.at(-1);
+
+    if (rows.length < ALERT_LOOKBACK_PAGE_SIZE || !last) return keys;
+
+    afterId = last.id;
+  }
 }
 
 export interface DeliveryAlertSweepTally {
