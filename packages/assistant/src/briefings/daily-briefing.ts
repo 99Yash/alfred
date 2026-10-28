@@ -1,45 +1,16 @@
-import {
-  briefingClosedLoopSchema,
-  briefingLoopRelevanceSchema,
-  DAILY_BRIEFING_WORKFLOW_SLUG,
-  dayShapeSchema,
-  ianaTimezoneSchema,
-} from "@alfred/contracts";
-import { z } from "zod";
+import { DAILY_BRIEFING_WORKFLOW_SLUG } from "@alfred/contracts";
+import type { z } from "zod";
 import { type Workflow } from "@alfred/assistant/execution";
 import { dailyBriefingWorkflowInputSchema } from "./workflow-input";
 import {
+  dailyBriefingStateSchema,
   runDailyBriefingCompose,
   runDailyBriefingGather,
   runDailyBriefingSend,
+  type DailyBriefingOperationState,
 } from "./workflow-operations";
 
-const stateSchema = z.object({
-  slot: z.enum(["morning", "evening"]),
-  reason: z.enum(["cron", "manual", "forced"]),
-  dryRun: z.boolean().default(false),
-  briefingDate: z.string().optional(),
-  timezone: ianaTimezoneSchema.optional(),
-  recipientName: z.string().nullable().optional(),
-  sinceIngestedAt: z.string().nullable().optional(),
-  untilIngestedAt: z.string().optional(),
-  briefingId: z.string().optional(),
-  quietDay: z.boolean().optional(),
-  closedLoops: z.array(briefingClosedLoopSchema).default([]),
-  loopRelevance: z.array(briefingLoopRelevanceSchema).default([]),
-  dayShape: dayShapeSchema.optional(),
-  composed: z
-    .object({
-      subject: z.string(),
-      bodyText: z.string(),
-      bodyMarkdown: z.string(),
-      citedDocumentIds: z.array(z.string()),
-      modelId: z.string(),
-    })
-    .optional(),
-});
-
-type State = z.infer<typeof stateSchema>;
+type State = DailyBriefingOperationState;
 
 export const dailyBriefingWorkflow: Workflow<
   State,
@@ -53,7 +24,7 @@ export const dailyBriefingWorkflow: Workflow<
     "Watermarked LLM-composed daily briefing in two slots (morning, evening). Reads its own prior briefings as memory. Writes the canonical `briefings` table (ADR-0048).",
   trigger: { kind: "cron", schedule: "0 * * * *" },
   initialStep: "gather",
-  stateSchema,
+  stateSchema: dailyBriefingStateSchema,
   inputSchema: dailyBriefingWorkflowInputSchema,
   closure: { kind: "none" },
   initialState({ input: parsed }) {

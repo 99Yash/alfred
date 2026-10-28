@@ -29,7 +29,7 @@ import { integrationCredentials, type IntegrationCredential } from "@alfred/db/s
 import { asc, eq } from "drizzle-orm";
 import { settings } from "@alfred/assistant/settings";
 import { gmailPushStaleStatus, readGmailDeliveryFacts } from "./ingestion/gmail-delivery-facts";
-import { readDeliveryAlerts, toDeliveryAlerts } from "./delivery-alerts";
+import { readBrokenConnections, readDeliveryAlerts, toDeliveryAlerts } from "./delivery-alerts";
 import { logger } from "@alfred/logging";
 
 /**
@@ -153,12 +153,15 @@ async function readWireDeliveryAlerts(
 }
 
 /**
- * The banner's alert list, read fresh for one briefing (ADR-0100 amendment 2026-10-28).
- * Same rule and same per-integration dedup as {@link readIntegrationStatus}, so the briefing
- * block, the banner, and the sweep show one set.
+ * The broken connections for one briefing (ADR-0100 amendment 2026-10-28): the alert rule
+ * without the banner's credential-nag dedup, one row per integration. A read fault throws,
+ * unlike {@link readWireDeliveryAlerts}: an empty list here would let a quiet morning suppress
+ * a briefing that could not check its connections. The gather fails and the run retries.
  */
-export async function readConnectionAlerts(userId: string): Promise<DeliveryAlert[]> {
-  return readWireDeliveryAlerts(userId, await loadCredentialRowsByProvider(userId));
+export async function readBriefingBrokenConnections(userId: string): Promise<DeliveryAlert[]> {
+  const rows = await loadCredentialRowsByProvider(userId);
+
+  return toDeliveryAlerts(await readBrokenConnections(userId, rows));
 }
 
 /** Not the `CredentialRow` of `@alfred/integrations/google`, which is a token row. */

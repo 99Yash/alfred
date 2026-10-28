@@ -1,10 +1,10 @@
 import { route, meteredGenerateText, isStepCount, type ModelMessage } from "@alfred/ai";
 import {
   INTEGRATION_DISPLAY_NAMES,
-  type BriefingBlindInput,
   type BriefingClosedLoop,
   type BriefingLoopRelevance,
   type DayShape,
+  type DeliveryAlert,
   type IanaTimezone,
 } from "@alfred/contracts";
 import type { LocalDateKey } from "@alfred/assistant/time";
@@ -36,8 +36,8 @@ export interface RunBriefingAgentArgs {
   loopRelevance: BriefingLoopRelevance[];
   /** The gather's day shape, so `get_day_shape` does not repeat the live GitHub read. */
   dayShape?: DayShape | undefined;
-  /** Sources the gather could not read. The email renders them in a fixed block below the body. */
-  blindInputs: readonly BriefingBlindInput[];
+  /** Connections whose delivery broke. The email renders them in a fixed block below the body. */
+  brokenConnections: readonly DeliveryAlert[];
   /** Only on a re-prompt: earlier violations, named back verbatim so the rewrite is aimed (#1082). */
   openAskViolations?: readonly OpenAskViolation[];
 }
@@ -56,19 +56,22 @@ export interface RunBriefingAgentResult {
 const MAX_STEPS = 8;
 
 /**
- * The blind inputs as a fact, so the prose does not claim a complete view (ADR-0100 amendment
- * 2026-10-28). The template renders the block itself; the composer must not repeat it.
+ * The broken connections as a fact, so the prose does not claim a complete view (ADR-0100
+ * amendment 2026-10-28). A broken delivery does not prove that data is missing: a lapsed Gmail
+ * watch still has the history poll. So the fact states the delivery failure, not blindness.
+ * The template renders the block itself; the composer must not repeat it.
  */
-function blindInputFact(inputs: readonly BriefingBlindInput[]): string {
-  if (inputs.length === 0) return "";
+function brokenConnectionFact(connections: readonly DeliveryAlert[]): string {
+  if (connections.length === 0) return "";
 
-  const names = inputs.map((input) => INTEGRATION_DISPLAY_NAMES[input.recovery.integration]);
+  const names = connections.map((connection) => INTEGRATION_DISPLAY_NAMES[connection.integration]);
 
   return (
-    `\n\nFact: Alfred cannot see activity from ${names.join(", ")} right now. ` +
+    `\n\nFact: Alfred stopped receiving live updates from ${names.join(", ")}. ` +
+    `Activity from these sources can be missing or late in your inputs. ` +
     `The email shows a reconnect notice for each one below your text. ` +
     `Do not repeat that notice. Do not say that nothing needs attention, ` +
-    `because Alfred could not check every source.`
+    `and do not say that Alfred saw everything from these sources.`
   );
 }
 
@@ -100,7 +103,7 @@ export async function runBriefingAgent(
         `Compose the ${args.slot} briefing for ${args.recipientFirstName ?? "the user"}. ` +
         `Start by reading list_prior_briefings, then list_emails_since, list_closed_loops, and list_loop_relevance. ` +
         `Apply the three honest loop-state tiers, then end with dump_briefing.` +
-        blindInputFact(args.blindInputs) +
+        brokenConnectionFact(args.brokenConnections) +
         openAskCorrection(args.openAskViolations ?? []),
     },
   ];

@@ -1,4 +1,4 @@
-import { credentialProviderOf, INTEGRATIONS, integrationRoutePrefix } from "@alfred/contracts";
+import { INTEGRATIONS, integrationConnectPath } from "@alfred/contracts";
 import { useState } from "react";
 import { NagBanner } from "~/components/nag-banner";
 import { API_URL } from "~/lib/eden";
@@ -31,8 +31,7 @@ export function DeliveryAlertBanner() {
       actionLabel={`Reconnect ${name}`}
       onAction={() => {
         // New tab; the status read refetches on focus, so the alert clears on return.
-        const prefix = integrationRoutePrefix(credentialProviderOf(alert.integration));
-        openAuthorizationTab(`${API_URL}${prefix}/connect`);
+        openAuthorizationTab(`${API_URL}${integrationConnectPath(alert.integration)}`);
       }}
       onDismiss={() => setDismissed((prev) => [...prev, alert.integration])}
     />

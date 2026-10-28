@@ -6,7 +6,7 @@ import { bodyStyles, EmailShell } from "./_shell";
 /** The briefing email. The agent writes markdown; this template owns all styling. */
 
 /**
- * One row of the fixed block below the prose: a source Alfred could not read, and the action
+ * One row of the fixed block below the prose: a connection whose delivery broke, and the action
  * that restores it (ADR-0100 amendment 2026-10-28). The composer never writes these.
  */
 export interface BriefingBlockRow {
@@ -80,12 +80,16 @@ export const BriefingEmail = ({
       >
         {content}
       </Markdown>
-      {blockRows.length > 0 ? <BlindInputBlock rows={blockRows} /> : null}
+      {blockRows.length > 0 ? <BrokenConnectionBlock rows={blockRows} /> : null}
     </EmailShell>
   );
 };
 
-const BlindInputBlock = ({ rows }: { rows: readonly BriefingBlockRow[] }): React.ReactElement => {
+const BrokenConnectionBlock = ({
+  rows,
+}: {
+  rows: readonly BriefingBlockRow[];
+}): React.ReactElement => {
   return (
     <div
       style={{
@@ -97,7 +101,7 @@ const BlindInputBlock = ({ rows }: { rows: readonly BriefingBlockRow[] }): React
       }}
     >
       <p style={{ ...bodyStyles.strong, fontSize: "14px", margin: "0 0 8px 0" }}>
-        Alfred cannot see these sources
+        Alfred stopped receiving updates from these connections
       </p>
       {rows.map((row) => (
         <p
