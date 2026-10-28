@@ -2,6 +2,7 @@ import {
   type GmailKindRefoldSkippedReason,
   USER_MODEL_PROJECTION_NAME,
   getStringPath,
+  parseEmailIdentity,
   type ProjectionCursorValue,
   type ProjectionSourceHighWatermark,
 } from "@alfred/contracts";
@@ -76,8 +77,14 @@ export async function refoldActiveGmailKindProjection(
   const gmailCursor = sourceHighWatermark.gmail;
 
   requireEntityIdNamespace();
-  // Sorted: the list goes into the projection run args.
-  const excludeEmailValues = [...(await userIdentity({ userId })).emails].sort();
+
+  // Sorted: the list goes into the projection run args. The bind holds the loose self-mail
+  // form (`parseEmailAddress`); the run args keep the strict reducer form
+  // (`parseEmailIdentity`), as the old `canonicalEmailList` did, so the checksum is unchanged.
+  const excludeEmailValues = [...(await userIdentity({ userId })).emails]
+    .map((email) => parseEmailIdentity(email))
+    .filter((email) => email !== null)
+    .sort();
 
   // Frozen-logic gate: the current code must reproduce the active checksum first.
   if (!activeChecksum || !activeGmailWatermark || !hasGmailAppendSnapshot(activeGmailWatermark)) {

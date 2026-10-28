@@ -10,7 +10,12 @@ import {
 } from "@alfred/db/schemas";
 import { isNonBlankString, memorySourceSchema, type MemorySource } from "@alfred/contracts";
 import { and, asc, desc, eq, gt, ilike, inArray, isNull, or, sql } from "drizzle-orm";
-import { settings, userIdentity, type UserSettings } from "@alfred/assistant/settings";
+import {
+  settings,
+  userIdentity,
+  type UserIdentity,
+  type UserSettings,
+} from "@alfred/assistant/settings";
 import { USER_FACING_MEMORY_CHUNK_KINDS } from "./chunks";
 import { entityAliasMatch } from "./entity-graph";
 import { logger } from "@alfred/logging";
@@ -38,8 +43,8 @@ export interface ReadUserContextOptions {
 
 export interface UserContext {
   profile: {
-    name: string;
-    email: string;
+    name: UserIdentity["name"];
+    email: UserIdentity["primaryEmail"];
     currentCompany: string | null;
     currentRole: string | null;
     currentWork: string | null;
@@ -50,7 +55,7 @@ export interface UserContext {
       value: string;
       confidence: number;
     }>;
-  } | null;
+  };
   activeIntegrations: Array<{
     provider: string;
     accountLabel: string | null;

@@ -103,6 +103,7 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
 
   // Self identity for the Tier B authorship gate (#330) and the team-graph skip. Per-account
   // identities win over `user.email`, so a work mailbox is not matched to a personal address.
+  // `identity !== null` means auto mode: the bind is taken exactly when `captureEnabled`.
   const identity = captureEnabled ? await userIdentity({ userId: ctx.userId }) : null;
 
   const captureContacts = new Map<string, ContactAggregate>();

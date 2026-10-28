@@ -5,7 +5,7 @@ import {
   type IntegrationCredential,
   type User,
 } from "@alfred/db/schemas";
-import { emailDomain, isFreeMail, parseEmailIdentity } from "@alfred/contracts";
+import { emailDomain, isFreeMail, parseEmailAddress } from "@alfred/contracts";
 import { and, asc, eq } from "drizzle-orm";
 
 /**
@@ -22,7 +22,7 @@ export interface UserIdentity {
    * and a `Record` would reorder them.
    */
   readonly mailboxByAccountId: ReadonlyMap<IntegrationCredential["accountId"], string>;
-  /** Canonical self addresses (`parseEmailIdentity`): `user.email` plus every mailbox. */
+  /** Self addresses (`parseEmailAddress`, the self-mail matcher): `user.email` plus every mailbox. */
   readonly emails: ReadonlySet<string>;
   /** Domains of `emails`, minus free-mail domains. The same-org set (ADR-0059 §3). */
   readonly domains: ReadonlySet<string>;
@@ -30,9 +30,10 @@ export interface UserIdentity {
 
 /**
  * Read the user's identity in two parallel queries. Bind once per request, step, or job, as
- * with `settings({ userId })`. Only `active` Google credentials count, so a missing mailbox
- * identity fails the Tier B authorship gate (ADR-0079), never passes it. Throws when the user
- * row is missing.
+ * with `settings({ userId })`. Only `active` Google credentials count. A doc whose mailbox
+ * is not active has no per-account entry, so the Tier B authorship gate (ADR-0079) falls
+ * back to matching every self address (`fact-policy.ts`); whether that fallback is right
+ * is out of scope here. Throws when the user row is missing.
  */
 export async function userIdentity({ userId }: { userId: string }): Promise<UserIdentity> {
   const [[row], creds] = await Promise.all([
@@ -61,12 +62,12 @@ export async function userIdentity({ userId }: { userId: string }): Promise<User
 
   const mailboxByAccountId = new Map<IntegrationCredential["accountId"], string>();
   const emails = new Set<string>();
-  const signIn = parseEmailIdentity(row.email);
+  const signIn = parseEmailAddress(row.email);
 
   if (signIn) emails.add(signIn);
 
   for (const cred of creds) {
-    const mailbox = parseEmailIdentity(cred.accountLabel);
+    const mailbox = parseEmailAddress(cred.accountLabel);
 
     if (!mailbox) continue;
     mailboxByAccountId.set(cred.accountId, mailbox);
