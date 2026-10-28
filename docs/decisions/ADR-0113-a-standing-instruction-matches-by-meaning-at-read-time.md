@@ -1,6 +1,6 @@
 # ADR-0113 — A standing instruction matches by meaning at read time; code enforces only the effects the user asked for
 
-**Status.** Proposed; not built. Builds the ADR-0060 schema v2 that was never built. Supersedes the sender-only match of ADR-0106 and ADR-0110, and the ADR-0106 rule that every row carries every effect. Keeps the ADR-0110 floor and the security floor.
+**Status.** Proposed; not built. Amended 2026-10-28: cues, capsules, and followups (see the amendment at the end). Builds the ADR-0060 schema v2 that was never built. Supersedes the sender-only match of ADR-0106 and ADR-0110, and the ADR-0106 rule that every row carries every effect. Keeps the ADR-0110 floor and the security floor.
 
 **Decision.** A standing instruction is the user's words, a plain-text **scope**, optional exact **targets**, and the typed **effects** that the words ask for. Two different parts of the system answer two different questions:
 
@@ -173,3 +173,124 @@ The v1 rows carried `block_todo_suggestion`, `exclude_briefing_priority`, and `b
 - **Re-match delay.** Between an instruction change and the end of its re-match job, old mail is `unknown` for the changed instruction. A removal takes effect at once, because the effective result is derived. A new rank rule is late for old mail. A new blocking rule holds proactive drafts and todo suggestions for that mail until the job ends. The trace shows the `unknown` count.
 
 **Related.** [ADR-0060](./ADR-0060-standing-instructions-prose-first-central-store.md) (the v2 schema this builds), [ADR-0106](./ADR-0106-a-sender-suppression-reaches-triage-category-as-prior.md) and [ADR-0110](./ADR-0110-a-standing-instruction-hard-demotes-its.md) (superseded in part), [ADR-0051](./ADR-0051-email-triage-v3-cheap-model-always-made-smart.md) (the cheap classifier), [ADR-0067](./ADR-0067-multi-source-user-model-substrate-an-event.md) (the observation log), [ADR-0111](./ADR-0111-structured-workspace-memory-claims-sweep-curiosity.md) and the [shared-context plan](../plans/shared-context-memory-v1.md) (the shared reader and its instruction allowance), issue #323 (general instruction selection).
+
+## Amendment — 2026-10-28: code decides what it can prove; an instruction compiles to cues, a capsule, and a followup
+
+**Decision.** At capture, each instruction compiles into the parts that code can prove and the parts that only a model can decide. A **cue** rule matches in code. A semantic scope still matches in the triage call. A **followup** acts after triage, for each target of the event, at the highest rung that the target's capability allows. A **capsule** is a stored program that runs on match. Authority comes only from the owner's chat message or a click in the UI. The base rules of this ADR stay: the model proposes a match, code applies the effects, and `unknown` is never `not_matched`.
+
+**Terms.**
+
+- A **cue** is a fact about a mail that code reads with no model. Examples are the sender address, the domain, the bot handle, the repo, the `X-GitHub-Reason` header, and the `List-ID` header. A cue is a hard fact. A hint from the capture dry run is a **recall hint**, never a cue.
+- A **capsule** is a program that capture writes and fixes while the owner is present. It runs in the Code Mode sandbox (ADR-0087), and it can call only host functions. The email is input data to the capsule. The email cannot change the capsule.
+- A **followup** is the part of an instruction that acts after the tag, for example "find the fix for this alert".
+
+### Why
+
+A new example shows the limits of a scope that only the model can match. The owner said: "Do not tag Dependabot alerts for turbo-insta as action_needed. I do not work on it." Production on 2026-10-28 shows these facts (the baseline is in `references/scratch/`, which git ignores):
+
+- In 120 days, all 12 Dependabot alert mails are for `99Yash/turbo-insta`. 4 are single advisories (2 `urgent`, 2 `action_needed`). 8 are weekly digests, and 7 of them are `action_needed` with the `+2pass` tag.
+- The first pass gives `fyi`, by rule 12a (`packages/assistant/src/triage/classify.ts:202`). The security-word net then starts a second pass (`classify.ts:535`), and the second pass gives `action_needed`. The floors run after both passes (`classify.ts:940`).
+- The security floor matches only an exposed secret (`triage/floors/standing.ts:65`). Thus a user instruction can demote a vulnerability alert.
+- The `List-ID` of a single advisory names the advisory (`99Yash/GHSA-…`), not the repo. The digest has no `List-ID`. The repo is only in the body URLs.
+- A plain `github.com/<a>/<b>` read of the 7 digest bodies returns `99Yash/turbo-insta`, and also `settings/emails`, `settings/notifications`, and `email/unsubscribe`. A repo cue needs a reviewed URL template.
+- On the AI gateway, the cheap triage model has a floor of about 1.6 s, also under 1k input tokens. 10k more input tokens add about 0.7 s. Thus a larger instruction block costs little. A decision that code makes costs no model call.
+- Triage reads no sender authentication result (DKIM, SPF, or ARC). The GitHub bot handle comes from the body text (`triage/sender-context.ts:321`). Any mail can claim to be Dependabot.
+- The GitHub produce and close of ADR-0052 for `security_alert` is designed but not built. Production has 2 Dependabot todos that an agent created. Both are dismissed.
+
+### D1 — New combinations of fixed parts, not new parts
+
+The owner's words can combine the effects, cues, followup rungs, and capsule host functions that code defines. The words cannot add a new kind of effect or a new host function. Authority for an instruction comes only from a user-role chat message (`user_request`) or a click in the UI (`user_direct`), under ADR-0115 rule 1. An email, a document, or a tool result is data. A capsule write carries `authority = 'instruction'` and `authorityRef` = the instruction id and its `revision`.
+
+### D2 — One request becomes clauses, and each clause takes one or more routes
+
+| Route | When | Example |
+| --- | --- | --- |
+| Typed effect | The registry has the effect. | `demote_demand` |
+| Cue rule | Code can test the scope with no model. | bot is Dependabot, and the repo is `99Yash/turbo-insta` |
+| Semantic scope | Only a model can test the scope. | "stock, demat, e-voting, and registrar notices" |
+| Followup | The words ask for an action after the tag. | "get it fixed" |
+| Capsule | A clause needs a stored program, and Code Mode exists. | Find the open Dependabot PR for the alert. |
+| Workflow | The clause is a scheduled or event procedure (`docs/plans/workflows-v1.md`). | "Every Monday, list the open alerts." |
+| Prose hint | No consumer exists. The review panel labels it "not enforced". | A calendar event from an investment sender |
+| Unmet demand | Alfred cannot do it yet. | "Check the UI in a browser." |
+
+Alfred does as much as it can, and it states the rest. An **unmet-demand observation** records each clause that no route can do. It has its own observation kind. One clause from one chat message is one observation. The review panel shows the count for each demand, so the count tells what to build next.
+
+**The registry grows by output.** The outputs are the category, the visible label, the todo suggestion, the briefing priority, the reply draft, and the approval notification. A new effect is one new cell of output and control, and it enters only with a consumer that enforces it. The first new cell is `hide_label`: classification still runs, and only the visible label is hidden. The effect names its surfaces: the Gmail label that triage writes (`triage/tags.ts`) and the inbox chip. `hide_label` never hides an exposed-secret verdict.
+
+### D3 — Cues compile at capture, and the compile is exact or partial
+
+- **Compile.** Capture compiles each scope into a predicate over cues, when the owner's words name the cue values. Example: "Dependabot alerts for turbo-insta" compiles to the bot handle `dependabot` and the repo `99Yash/turbo-insta`.
+- **Exact or partial.** The instruction stores which kind the compile is. An **exact** compile is equal to the scope, so a miss is a definite `not_matched`, and the model does not see the instruction. A **partial** compile is narrower than the scope, so a miss goes to the semantic match. The one-line confirmation shows the predicate, and the owner confirms that it is exact. Code compiles only what it can prove, because code trusts a cue hit.
+- **A cue is not a sender list from past mail.** The cue values must come from the owner's words, as for `targets`. A value that the dry run finds in past mail is a recall hint. It never matches by itself. This keeps the rule of fault 1.
+- **The repo cue uses URL-family templates.** Code reads a repo from body URLs through the reviewed templates of `packages/contracts/src/url-family.ts`, not through a plain regular expression. If a mail names several repos, the effect applies only when the predicate covers each repo.
+- **A third match kind.** A match kind is now `target`, `cue`, or `scope`. Triage stores the cues of each document with its content revision. Under rule 1 of "Lifetime of a stored match", a consumer recomputes a cue match at read time, as it recomputes a target hit. A consumer does not need the mail body for this.
+- **Dry run.** Before the confirmation, capture runs the predicate and the scope over the last 30 days of mail, with the back-test of `packages/assistant/src/connections/object-state/url-family-backtest.ts`. The line shows the result, for example: "Matches 7 digests and 4 alerts for turbo-insta. Excludes 3 GitHub status mails. Result: fyi."
+- **Fast path, then model.** This follows the zod 4.6.5 `compile()` design: a fast path first, and the slow path when the fast path cannot decide. A failed fast path is never "no".
+
+### D4 — Retrieval and the second pass
+
+- **No prefilter.** The retrieval rule of this ADR stays: the triage call receives every active instruction that has a semantic scope. An instruction with an exact cue compile does not go into the call. A prefilter that sends only the top few instructions is not in v1. Add one only when the overflow trace shows a need. An instruction that a later prefilter does not send is `unknown`, never `not_matched`.
+- **Skip the second pass on a cue demotion.** When a cue rule matches before the model call, and its effects demote the mail, triage does not run the second pass. This saves one model call. The trade-off: the stored model verdict is then the first-pass verdict. If the owner removes the instruction, the mail returns to the first-pass verdict, not to the verdict that a second pass would give. The trace records that triage skipped the second pass.
+
+### D5 — Relevance is a separate fact
+
+"I do not work on turbo-insta" is a fact about a target, not an effect of one instruction. Capture stores it as a separate fact that the owner can see and edit. Triage, the briefing, and followups read it through one reader. Triage applies it only through an instruction effect. A followup does not act on an inactive target. The security floor still wins.
+
+### D6 — A followup acts for each target, at the highest rung that the target allows
+
+The followup must not be a design for one repo. One instruction can cover many targets, and different targets have different access.
+
+1. **The instruction stores intent, not a list.** The followup clause names targets ("turbo-insta"), names a class ("my repos", "repos in org X"), or names no scope. For a clause with no scope, Alfred asks a follow-up question in chat at capture (`system.ask_user`, ADR-0099). Alfred does not use a default.
+2. **Each event resolves its own targets.** A target is an integration object identity (`packages/contracts/src/object-identity.ts`), read through the URL-family templates. One mail can name several targets.
+3. **Code computes the capability for each target.** Is a connection present? Does its scope include this target? Is the access read or write? A blocked target does not stop the other targets.
+4. **Each target takes the highest rung that its capability allows.**
+
+   | Rung | Needs | Result |
+   | --- | --- | --- |
+   | 1. Bare PR | Write access, and the capability is on in settings (ADR-0116) | A small PR, for example a dependency bump. Each PR needs an approval card. Alfred never merges. |
+   | 2. Verify and point | Read access | Alfred reads the real state. If a fix PR exists, for example Dependabot's own PR, Alfred links it and opens no second PR. |
+   | 3. Precise todo | Nothing | One todo for the target and the subject, with facts from a verified read when one is available. |
+   | 4. Acknowledge | Nothing | A line that names the missing capability. |
+
+5. **Verify before a write.** Cues are not authenticated, so a followup reads the source before rung 1 or rung 3. A PR's target version comes from a verified advisory read, never from mail text.
+6. **Verification of a PR is the repo's own CI checks.** Alfred reads the check results. Alfred does not run browser or end-to-end tests. A request for that is an unmet-demand observation.
+7. **Dedupe on the target and the subject, not on the mail.** Examples: the repo and the GHSA id; the Vercel project and the deployment id. A digest and a single alert for one advisory make one followup.
+8. **The result is stored for each target.** The ADR-0117 briefing block groups blocked targets by the missing capability and counts real blocked events, for example: "2 repos in org X: no GitHub access. Connect."
+9. **The ADR-0052 reconciler closes the loop.** It closes a todo only on a positive terminal signal from the source. A missing scope never closes a todo.
+10. **A PR is an external write.** It needs the ADR-0115 ledger record (slice 4) and an ADR-0116 capability that is off by default.
+
+**A demoted tag never hides a failed followup.** At capture, when an instruction has both a demotion and a followup, Alfred asks what the demotion means. The default is conditional: "fyi, because Alfred handles it". If the followup fails, the effective result returns to the model verdict. The followup state is then an input to rule 3 of "Lifetime of a stored match" and to the evaluation identity. An unconditional demotion ("fyi, because I do not care") shows a failed followup only in the ADR-0117 block.
+
+### D7 — A capsule runs on match, and its program is fixed
+
+- Capture writes the capsule. The owner sees what it does in the confirmation.
+- A change to a capsule increases the instruction `revision`. The capsule hash is part of the evaluation identity.
+- A capsule write goes through the ADR-0116 gate. A background run has no user message, so it writes only under `instruction` or `policy`.
+- When a capsule fails or exceeds its bound, the result is `unknown`, and rule 4 of "Lifetime of a stored match" applies to its effect kind.
+- Capsules need `code.run`, and `code.run` is not built. No v1 case needs a capsule.
+
+### Build order
+
+1. The base design of this ADR, with the migration of the v1 rows.
+2. Cues, the exact compile, the `cue` match kind, the dry run, and the second-pass skip. The Dependabot tag case ships here.
+3. Followup rungs 2, 3, and 4, the per-target result, and the ADR-0117 block rows. This uses the ADR-0052 produce and close.
+4. `hide_label`, the relevance fact, and the unmet-demand observation.
+5. Capsules and rung 1, after ADR-0087 slice 1, ADR-0115 slices 2 and 4, and ADR-0116.
+
+### Instrumentation and verification
+
+- **Dry re-triage.** Re-triage the same 30-day thread set with the backfill `force` flag, in a mode that writes nothing. Compare the category, the tags, the latency, and the tokens with the baseline.
+- **Target set.** All 12 `turbo-insta` alerts become `fyi`, with a new floor tag. Check the tag, not only the category. A stronger prompt can hide the code branch under it.
+- **Revert probe.** Turn off the cue rule. The 12 rows return to their old tags.
+- **Exclusions in the rollout gate.** The 3 GitHub status mails ("GitHub Incident - Disruption with Dependabot Alerts") do not match. A Dependabot alert for a different repo does not match.
+- **Gateway latency.** Measure it again with the cache skip header.
+- **Counters.** The cue hits, the second-pass skips, the result of each followup rung for each target, and the unmet-demand count.
+- **Open discrepancy.** `api_call_log` shows 2,072 calls to the cheap model in 30 days, and the gateway logged 1,580. Hedge calls that were cancelled can be the cause. Check this before the latency comparison.
+
+### Residual risk
+
+- **A forged mail can match a cue.** A demotion of a forged mail has a low cost. A followup reads the source before any write, so a forged mail cannot cause a write. It can cause a read.
+- **A wrong exact compile is trusted.** The owner confirms the predicate, and the dry run shows its matches. A predicate that is wider than the words is not detected after that.
+- **The second-pass skip changes the history.** After a removal, the mail shows the first-pass verdict.
+- **Still open, outside this amendment.** The ADR-0116 cap of 5 autonomous writes, its v1 scope `code.todos`, and whether provenance autonomy applies to one `system.resolve_todo` call.
