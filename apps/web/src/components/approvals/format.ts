@@ -52,26 +52,3 @@ export function formatJson(value: unknown): string {
 export function shortId(value: string): string {
   return value.length > 14 ? `${value.slice(0, 10)}…` : value;
 }
-
-export function formatTimestamp(iso: string): string {
-  const d = new Date(iso);
-
-  if (Number.isNaN(d.getTime())) return iso;
-  const now = new Date();
-
-  const sameDay =
-    d.getFullYear() === now.getFullYear() &&
-    d.getMonth() === now.getMonth() &&
-    d.getDate() === now.getDate();
-
-  if (sameDay) {
-    return `today at ${d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
-  }
-
-  return d.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}

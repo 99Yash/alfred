@@ -25,7 +25,7 @@ import type { QuestionStaging, StagedRow } from "~/components/approvals/ask-user
 import { decideApproval } from "~/components/approvals/decide-approval";
 import { describeApprovalWait } from "./conversation-helpers";
 import { approveButtonLabel, cardTitle } from "~/components/approvals/card-spec";
-import { formatTimestamp } from "~/components/approvals/format";
+import { formatDateTime } from "~/lib/date-format";
 import { ApprovalInputEditor, ApprovalInputFacts } from "~/components/approvals/input-editor";
 import { RiskChip } from "~/components/approvals/risk-pill";
 import { ToolIcon } from "~/components/approvals/tool-icon";
@@ -556,7 +556,8 @@ function DockApprovalCard({
               <div className="mt-2 flex items-start gap-2 rounded-surface bg-app-amber-1 px-3 py-2 text-[12px] leading-5 text-app-amber-4 shadow-[0_0_0_1px_var(--app-amber-2)]">
                 <AlertTriangle size={14} className="mt-0.5 shrink-0" />
                 <p className="min-w-0">
-                  Last rejected {formatTimestamp(staging.recentRejection.decidedAt)}
+                  Last rejected{" "}
+                  {formatDateTime(staging.recentRejection.decidedAt, { today: "sentence" })}
                   {staging.recentRejection.reason ? `: ${staging.recentRejection.reason}` : "."}
                 </p>
               </div>

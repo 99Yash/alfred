@@ -1,39 +1,6 @@
-import { formatDateTime } from "~/lib/strings";
+import { formatDateTime } from "~/lib/date-format";
 import { cn } from "~/lib/utils";
 import { Tip } from "./tip";
-
-function sameDay(a: Date, b: Date): boolean {
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
-}
-
-/**
- * "3:42 PM" today, "Yesterday 3:42 PM", "Oct 21, 3:42 PM" this year, then "Oct 21, 2025, 3:42 PM".
- * Without the year, a message from a year ago reads as this year's. The browser's zone, like the rest of the feed.
- */
-function shortStamp(date: Date, now: Date): string {
-  const clock = date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-
-  if (sameDay(date, now)) return clock;
-
-  const yesterday = new Date(now);
-  yesterday.setDate(now.getDate() - 1);
-
-  if (sameDay(date, yesterday)) return `Yesterday ${clock}`;
-
-  if (date.getFullYear() === now.getFullYear()) return formatDateTime(date.toISOString());
-
-  return date.toLocaleString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
 
 /**
  * A message's send time. Hidden until the reader hovers or keyboard-focuses the message group,
@@ -65,7 +32,9 @@ export function MessageTime({ iso, revealClassName }: { iso: string; revealClass
           revealClassName,
         )}
       >
-        {shortStamp(date, new Date())}
+        {/* "3:42 PM" today, "Yesterday 3:42 PM", "Oct 21, 3:42 PM" this year, then "Oct 21, 2025, 3:42 PM".
+            Without the year, a message from a year ago reads as this year's. */}
+        {formatDateTime(iso, { today: "clock", yesterday: true, year: "other-years" })}
       </time>
     </Tip>
   );

@@ -7,7 +7,8 @@ import {
   type WorkflowRunHistoryOutcome,
   type WorkflowRunHistoryTrigger,
 } from "@alfred/contracts";
-import { formatTimestamp, shortId, triggerLabel } from "~/components/approvals/format";
+import { shortId, triggerLabel } from "~/components/approvals/format";
+import { formatDateTime } from "~/lib/date-format";
 import { RUN_STATUS_DISPLAY } from "~/lib/run-status";
 import type { WorkflowIconTone } from "./workflow-icon";
 
@@ -33,7 +34,7 @@ function outcomeHeadline(
       return {
         title: "Deferred",
         detail: outcome.retryAt
-          ? `${reason}. Retries ${formatTimestamp(outcome.retryAt)}.`
+          ? `${reason}. Retries ${formatDateTime(outcome.retryAt, { today: "sentence" })}.`
           : reason,
         tone: "amber",
       };
@@ -86,7 +87,7 @@ export function triggerIdentity(trigger: WorkflowRunHistoryTrigger | null): stri
 
   switch (trigger.kind) {
     case "cron":
-      return `${label} for ${formatTimestamp(trigger.scheduledFor)}`;
+      return `${label} for ${formatDateTime(trigger.scheduledFor, { today: "sentence" })}`;
     case "event":
       return `${label} · ${shortId(trigger.eventId)}`;
     case "on_signal":
@@ -104,9 +105,11 @@ export function revisionLabel(row: WorkflowRunHistoryRow): string {
 }
 
 export function timingLabel(row: WorkflowRunHistoryRow): string {
-  const started = formatTimestamp(row.startedAt ?? row.createdAt);
+  const started = formatDateTime(row.startedAt ?? row.createdAt, { today: "sentence" });
 
-  return row.endedAt ? `${started} → ${formatTimestamp(row.endedAt)}` : started;
+  return row.endedAt
+    ? `${started} → ${formatDateTime(row.endedAt, { today: "sentence" })}`
+    : started;
 }
 
 export interface EffectCount {

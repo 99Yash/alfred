@@ -16,7 +16,7 @@ import type { LucideIcon } from "lucide-react";
 import { domainOf } from "~/lib/favicon";
 import type { IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { getIntegrationPage } from "~/lib/integrations/integrations";
-import { formatRelative } from "~/lib/strings";
+import { formatRelative } from "~/lib/date-format";
 import { brandlessToolIcon } from "./animated-tool-icons";
 import { toSource, type Source } from "./sources";
 import type { ResolvedToolCall } from "~/lib/chat/resolved-tool-call";

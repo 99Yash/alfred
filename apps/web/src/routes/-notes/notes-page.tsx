@@ -2,7 +2,7 @@ import { ArrowUp, FileText, Mic } from "lucide-react";
 import { useRef, useState } from "react";
 import { AppCard, AppTextarea } from "~/components/ui/v2";
 import { cn } from "~/lib/utils";
-import { formatDateTime } from "~/lib/strings";
+import { formatDateTime } from "~/lib/date-format";
 import { useDictation } from "./use-dictation";
 import { NotesShell } from "./notes-shell";
 
@@ -169,7 +169,7 @@ export function NotesPage() {
                       {note.text}
                     </p>
                     <p className="mt-2 text-[11.5px] text-app-fg-2 tabular-nums">
-                      {formatTimestamp(note.createdAt)}
+                      {formatDateTime(note.createdAt, { today: "label" })}
                     </p>
                   </AppCard>
                 </li>
@@ -180,23 +180,4 @@ export function NotesPage() {
       </div>
     </NotesShell>
   );
-}
-
-function formatTimestamp(iso: string): string {
-  const d = new Date(iso);
-  const now = new Date();
-
-  const sameDay =
-    d.getFullYear() === now.getFullYear() &&
-    d.getMonth() === now.getMonth() &&
-    d.getDate() === now.getDate();
-
-  if (sameDay) {
-    return `Today, ${d.toLocaleTimeString(undefined, {
-      hour: "numeric",
-      minute: "2-digit",
-    })}`;
-  }
-
-  return formatDateTime(iso);
 }

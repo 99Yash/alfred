@@ -4,7 +4,8 @@ import { AlertTriangle, Ban, Check, Pencil, RefreshCw, Workflow, X } from "lucid
 import { AppButton, AppCard, AppTextarea } from "~/components/ui/v2";
 import { cn } from "~/lib/utils";
 import { approveButtonLabel, toolChipLabel } from "./card-spec";
-import { formatTimestamp, shortId, triggerLabel } from "./format";
+import { formatDateTime } from "~/lib/date-format";
+import { shortId, triggerLabel } from "./format";
 import { ApprovalInputEditor } from "./input-editor";
 import { RiskPill } from "./risk-pill";
 import { ToolIcon } from "./tool-icon";
@@ -87,7 +88,9 @@ export function ApprovalCard({
             <span className="text-app-fg-2">·</span>
             <span className="font-mono">{shortId(staging.runId)}</span>
             <span className="text-app-fg-2">·</span>
-            <span className="tabular-nums">{formatTimestamp(staging.createdAt)}</span>
+            <span className="tabular-nums">
+              {formatDateTime(staging.createdAt, { today: "sentence" })}
+            </span>
           </div>
           <div className="mt-1.5 flex flex-wrap items-center gap-x-2">
             <span className="rounded-control-sm bg-app-bg-2/70 px-1.5 py-0.5 text-[11px] font-medium text-app-fg-3">
@@ -107,7 +110,8 @@ export function ApprovalCard({
           <AlertTriangle size={15} className="mt-0.5 shrink-0" />
           <div className="min-w-0">
             <p className="font-medium">
-              Last rejected {formatTimestamp(staging.recentRejection.decidedAt)}
+              Last rejected{" "}
+              {formatDateTime(staging.recentRejection.decidedAt, { today: "sentence" })}
             </p>
             {staging.recentRejection.reason ? (
               <p className="mt-0.5 wrap-break-word opacity-80">{staging.recentRejection.reason}</p>

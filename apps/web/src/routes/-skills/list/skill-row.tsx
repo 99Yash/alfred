@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import type { SyncedSkill } from "@alfred/sync";
 import { Sparkles } from "lucide-react";
 import { AppPill } from "~/components/ui/v2";
-import { formatRelative } from "~/lib/strings";
+import { formatRelative } from "~/lib/date-format";
 import { cn } from "~/lib/utils";
 
 export function SkillRow({ skill, index }: { skill: SyncedSkill; index: number }) {
