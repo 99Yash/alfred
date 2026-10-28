@@ -1,5 +1,5 @@
-// Date text for the web, in the browser's zone. Each option opts one caller into one rule,
-// so every surface keeps its own wording while the rules live in one place.
+// Date text for the web, in the browser's zone. Each option selects one rule, so every
+// surface keeps its own wording while the rules live in one place.
 
 const MINUTE = 60 * 1000;
 
