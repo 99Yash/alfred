@@ -45,7 +45,7 @@ function render(overrides: Partial<McpConnectionActions> = {}, status = connecti
   );
 }
 
-test("the tile has one main button and keeps the rest behind the actions menu", async () => {
+test("the tile has at most one main button and keeps the rest behind the actions menu", async () => {
   const html = render();
 
   assert.match(html, /Billing MCP/);
@@ -67,10 +67,10 @@ test("an auth_required connection offers consent and never a reconnect", () => {
   assert.doesNotMatch(html, />Reconnect<|>Connect</);
 });
 
-test("a ready connection offers reconnect and shows its tool count", () => {
+test("a ready connection has no main button and shows its tool count", () => {
   const html = render();
 
-  assert.match(html, />Reconnect</);
+  assert.doesNotMatch(html, />Reconnect<|>Connect</, "reconnect is in the menu");
   assert.match(html, /Connected · 3 tools/);
 });
 
