@@ -1,4 +1,5 @@
 import {
+  gatherBlindInputs,
   gatherBriefingWithSuppressionAudit,
   instructionSuppressionLogPart,
   type BriefingInstructionSuppression,
@@ -20,6 +21,8 @@ import { send } from "@alfred/assistant/delivery";
 import { emailLogoUrl } from "@alfred/assistant/settings";
 import type { StepContext, StepResult } from "@alfred/assistant/execution";
 import {
+  INTEGRATION_DISPLAY_NAMES,
+  type BriefingBlindInput,
   type BriefingClosedLoop,
   type BriefingGather,
   type BriefingLoopRelevance,
@@ -29,7 +32,7 @@ import {
 import { db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
-import { renderBriefingEmail } from "@alfred/mailer";
+import { renderBriefingEmail, type BriefingBlockRow } from "@alfred/mailer";
 import { eq } from "drizzle-orm";
 import { runBriefingAgent } from "./agent/agent";
 import {
@@ -70,6 +73,11 @@ export interface DailyBriefingOperationState {
   loopRelevance: BriefingLoopRelevance[];
   /** The gathered day shape. Compose reads it, so the agent does not repeat the GitHub read. */
   dayShape?: DayShape | undefined;
+  /**
+   * Sources the briefing could not read (ADR-0100 amendment 2026-10-28). Send renders them in a
+   * fixed block. Absent on a run persisted before this field; send then renders none.
+   */
+  blindInputs?: BriefingBlindInput[] | undefined;
   composed?: {
     subject: string;
     bodyText: string;
@@ -140,6 +148,8 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
           briefingId: begun.row.id,
           briefingDate,
           timezone,
+          // The gather did not run, so read the block rows now. The reused prose may not know them.
+          blindInputs: await gatherBlindInputs(ctx.userId),
           // `bodyText` and citations are not persisted, so reuse the markdown and no citations.
           // Use the frozen window end, not now.
           untilIngestedAt: watermarkAt.toISOString(),
@@ -203,13 +213,14 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
     activityCount: counts.activity,
     githubMergedTotal: gather.day_shape?.shippedTotal,
     meetingCount: counts.meetings,
+    blindInputCount: gather.blind_inputs?.length ?? 0,
   });
 
   await ctx.log(
     `gather: id=${begun.row.id} action=${begun.action} tz=${timezone} date=${briefingDate} ` +
       `since=${since ? since.toISOString() : "(first run)"} until=${until.toISOString()} ` +
       `email=${counts.email} demanding=${demandingEmailCount ?? "n/a"} topBand=${gather.day_shape?.topEmailBand ?? "n/a"} ` +
-      `activity=${counts.activity} meetings=${counts.meetings} quiet=${quietDay}${instructionSuppressionLogPart(suppressedByInstruction)}`,
+      `activity=${counts.activity} meetings=${counts.meetings} blind=${gather.blind_inputs?.length ?? 0} quiet=${quietDay}${instructionSuppressionLogPart(suppressedByInstruction)}`,
   );
 
   return {
@@ -226,6 +237,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
       closedLoops,
       loopRelevance,
       dayShape: gather.day_shape,
+      blindInputs: gather.blind_inputs ?? [],
     },
     nextStep: "compose",
   };
@@ -295,6 +307,7 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
         closedLoops: ctx.state.closedLoops,
         loopRelevance: ctx.state.loopRelevance,
         dayShape: ctx.state.dayShape,
+        blindInputs: ctx.state.blindInputs ?? [],
         ...(openAskViolations ? { openAskViolations } : {}),
       });
     };
@@ -450,6 +463,7 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
 
   // `@alfred/mailer` owns all styling; the model only writes markdown.
   const webOrigin = serverEnv().CORS_ORIGIN.replace(/\/$/, "");
+  const blockRows = toBlockRows(ctx.state.blindInputs ?? [], webOrigin);
 
   const html = await renderBriefingEmail({
     content: body.bodyMarkdown,
@@ -460,6 +474,7 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
     // Link to the day's full briefing (ADR-0049), not to chat.
     ctaUrl: `${webOrigin}/briefings/${briefingDate}`,
     ctaLabel: "View full briefing",
+    blockRows,
   });
 
   const result = await send({
@@ -468,7 +483,7 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
     idempotencyKey,
     subject: body.subject,
     html,
-    text: body.bodyText,
+    text: appendBlockText(body.bodyText, blockRows),
     payload: {
       briefingId,
       briefingDate,
@@ -525,6 +540,34 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
       slot: ctx.state.slot,
     },
   };
+}
+
+/**
+ * The fixed block's rows. The template renders them below the prose, so the composer
+ * cannot drop or reword them (ADR-0100 amendment 2026-10-28). The link is the banner's.
+ */
+function toBlockRows(inputs: readonly BriefingBlindInput[], webOrigin: string): BriefingBlockRow[] {
+  return inputs.map((input) => {
+    const name = INTEGRATION_DISPLAY_NAMES[input.recovery.integration];
+
+    return {
+      name,
+      sentence: input.reason,
+      actionLabel: `Reconnect ${name}`,
+      actionUrl: `${webOrigin}/integrations/${input.recovery.integration}`,
+    };
+  });
+}
+
+/** The same block, for the plain-text part. */
+function appendBlockText(bodyText: string, rows: readonly BriefingBlockRow[]): string {
+  if (rows.length === 0) return bodyText;
+
+  const lines = rows.map(
+    (row) => `${row.name}: ${row.sentence}. ${row.actionLabel}: ${row.actionUrl}`,
+  );
+
+  return [bodyText, "", "Alfred cannot see these sources:", ...lines].join("\n");
 }
 
 function uniqueStrings(values: readonly string[]): string[] {

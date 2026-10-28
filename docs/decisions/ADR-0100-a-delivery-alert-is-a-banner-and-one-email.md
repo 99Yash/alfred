@@ -1,6 +1,6 @@
 # ADR-0100 — A delivery alert is a banner and one email, never a briefing line
 
-**Status.** Accepted (issue #1035, PR #1038). Motivated by incident #1033. Refines ADR-0097 item 5. Amends nothing in ADR-0048. **Amended 2026-10-28 (proposed):** a broken connection is also a fixed block in the briefing, and a broken connection stops a quiet morning. See the amendment of that date; it reverses "never a briefing line" for this case only.
+**Status.** Accepted (issue #1035, PR #1038). Motivated by incident #1033. Refines ADR-0097 item 5. Amends nothing in ADR-0048. **Amended 2026-10-28 (accepted; slice 1 built):** a broken connection is also a fixed block in the briefing, and a broken connection stops a quiet morning. See the amendment of that date; it reverses "never a briefing line" for this case only.
 
 **Decision.** An event source that stopped delivering reaches the user through two surfaces: a live app banner, and at most one pushed `delivery_alert` email per source per week. It never reaches the user through the morning or evening briefing. A delivery verdict names a cause. Only the cause `broken`, with a recovery the user can perform, and with no other surface already asking for the same click, is alertable. Every other verdict is operator text and stays in the log.
 
@@ -58,7 +58,7 @@ The fix is a **fourth alert condition**, not a change to the verdict: `unrepaira
 
 ## Amendment — 2026-10-28: a broken connection is a block in the briefing, and a missing row does not prove a disconnect
 
-**Status.** Proposed. Not built.
+**Status.** Accepted. Slice 1 is built (items 1 and 2): `gather.blind_inputs`, `isQuietMorning`'s `blindInputCount`, and the `BriefingBlockRow` block in the briefing template. Slices 2 to 4 are not built.
 
 ### What happened
 

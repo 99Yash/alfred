@@ -11,7 +11,7 @@ import { dbBackedSkip } from "../support/db-backed";
 
 /** A cron morning is suppressed when nothing is demanding, even with priority items present (ADR-0064). */
 describe("isQuietMorning", () => {
-  const base = { emailCount: 0, activityCount: 0, meetingCount: 0 };
+  const base = { emailCount: 0, activityCount: 0, meetingCount: 0, blindInputCount: 0 };
 
   test("no demanding email + no activity + no meetings ⇒ quiet (suppress)", () => {
     assert.equal(isQuietMorning({ ...base, demandingEmailCount: 0, emailCount: 5 }), true);

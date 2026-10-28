@@ -5,7 +5,7 @@ import { z } from "zod";
 import { attentionBandSchema } from "./attention";
 import { LOOP_CLOSING_STATE_CATEGORIES } from "./integration-objects";
 import { triageCategorySchema } from "./triage";
-import { isIntegrationSlug } from "./integrations";
+import { isIntegrationSlug, LIVE_PROVIDER_SLUGS } from "./integrations";
 
 // ─── Sources + reference kinds ────────────────────────────────────────────
 
@@ -319,6 +319,24 @@ export const integrationActivityContributionSchema = z.object({
   items: z.array(integrationActivityItemSchema),
 });
 
+/**
+ * A briefing input that Alfred could not read, and the one action that restores it (ADR-0117).
+ * The send step renders each row in a fixed block that the composer cannot drop (ADR-0100
+ * amendment 2026-10-28). A broken connection is the first producer, so `state` and `recovery`
+ * have one arm each today; ADR-0117 slice 2 adds `fallback` and `set`.
+ */
+export const briefingBlindInputSchema = z.object({
+  state: z.literal("unavailable"),
+  /** One sentence from the source's health check, written for the user. */
+  reason: z.string().min(1).max(200),
+  recovery: z.object({
+    kind: z.literal("connect"),
+    integration: z.enum(LIVE_PROVIDER_SLUGS),
+  }),
+});
+
+export type BriefingBlindInput = z.infer<typeof briefingBlindInputSchema>;
+
 export const briefingGatherSchema = z.object({
   email: emailContributionSchema,
   calendar: calendarContributionSchema.nullable(),
@@ -327,6 +345,8 @@ export const briefingGatherSchema = z.object({
   day_of_week: dayOfWeekContributionSchema,
   /** Optional, so older gathers parse. Absence is not an error. */
   day_shape: dayShapeSchema.optional(),
+  /** Optional, so older gathers parse. Absent reads as none. */
+  blind_inputs: z.array(briefingBlindInputSchema).optional(),
 });
 
 export const fullBriefingSectionSchema = z.object({

@@ -1,4 +1,5 @@
 import type {
+  BriefingBlindInput,
   BriefingClosedLoop,
   BriefingGather,
   BriefingLoopRelevance,
@@ -42,6 +43,7 @@ import {
   firstClosingObject,
   objectStateStore,
   proposeReconcileCandidates,
+  readConnectionAlerts,
   reconcileEvidence,
   type ObjectState,
   type ReconcileCandidates,
@@ -571,7 +573,7 @@ export async function gatherBriefingWithSuppressionAudit(
   // Activity uses the email window.
   const activityStart = args.windowStart ?? new Date(windowEnd.getTime() - 24 * 60 * 60 * 1000);
 
-  const [digest, calendar, weather, integrationActivity] = await Promise.all([
+  const [digest, calendar, weather, integrationActivity, blindInputs] = await Promise.all([
     gatherBriefingDigest({
       userId: args.userId,
       windowStart: args.windowStart,
@@ -593,6 +595,7 @@ export async function gatherBriefingWithSuppressionAudit(
       windowStart: activityStart,
       windowEnd,
     }),
+    gatherBlindInputs(args.userId),
   ]);
 
   const categories: BriefingGather["email"]["categories"] = {};
@@ -653,11 +656,26 @@ export async function gatherBriefingWithSuppressionAudit(
         demandingEmailCount: emailDemand.demandingCount,
         topEmailBand: emailDemand.topBand,
       },
+      blind_inputs: blindInputs,
     },
     suppressedByInstruction: digest.suppressedByInstruction,
     closedLoops: digest.closedLoops,
     loopRelevance: digest.loopRelevance,
   };
+}
+
+/**
+ * Each broken connection the user can repair, as a blind input (ADR-0100 amendment 2026-10-28).
+ * The banner's rule decides the set, so the briefing never names a break the banner hides.
+ */
+export async function gatherBlindInputs(userId: string): Promise<BriefingBlindInput[]> {
+  const alerts = await readConnectionAlerts(userId);
+
+  return alerts.map((alert) => ({
+    state: "unavailable",
+    reason: alert.reason,
+    recovery: { kind: "connect", integration: alert.integration },
+  }));
 }
 
 /** Tunable. Zero activity is the only "quiet" (#230). */

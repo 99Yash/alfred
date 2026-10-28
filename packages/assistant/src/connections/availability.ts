@@ -152,6 +152,15 @@ async function readWireDeliveryAlerts(
   }
 }
 
+/**
+ * The banner's alert list, read fresh for one briefing (ADR-0100 amendment 2026-10-28).
+ * Same rule and same per-integration dedup as {@link readIntegrationStatus}, so the briefing
+ * block, the banner, and the sweep show one set.
+ */
+export async function readConnectionAlerts(userId: string): Promise<DeliveryAlert[]> {
+  return readWireDeliveryAlerts(userId, await loadCredentialRowsByProvider(userId));
+}
+
 /** Not the `CredentialRow` of `@alfred/integrations/google`, which is a token row. */
 type AvailabilityRow = ProviderAvailability & Pick<IntegrationCredential, "createdAt">;
 

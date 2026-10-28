@@ -1,9 +1,11 @@
 import { route, meteredGenerateText, isStepCount, type ModelMessage } from "@alfred/ai";
-import type {
-  BriefingClosedLoop,
-  BriefingLoopRelevance,
-  DayShape,
-  IanaTimezone,
+import {
+  INTEGRATION_DISPLAY_NAMES,
+  type BriefingBlindInput,
+  type BriefingClosedLoop,
+  type BriefingLoopRelevance,
+  type DayShape,
+  type IanaTimezone,
 } from "@alfred/contracts";
 import type { LocalDateKey } from "@alfred/assistant/time";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
@@ -34,6 +36,8 @@ export interface RunBriefingAgentArgs {
   loopRelevance: BriefingLoopRelevance[];
   /** The gather's day shape, so `get_day_shape` does not repeat the live GitHub read. */
   dayShape?: DayShape | undefined;
+  /** Sources the gather could not read. The email renders them in a fixed block below the body. */
+  blindInputs: readonly BriefingBlindInput[];
   /** Only on a re-prompt: earlier violations, named back verbatim so the rewrite is aimed (#1082). */
   openAskViolations?: readonly OpenAskViolation[];
 }
@@ -50,6 +54,23 @@ export interface RunBriefingAgentResult {
 }
 
 const MAX_STEPS = 8;
+
+/**
+ * The blind inputs as a fact, so the prose does not claim a complete view (ADR-0100 amendment
+ * 2026-10-28). The template renders the block itself; the composer must not repeat it.
+ */
+function blindInputFact(inputs: readonly BriefingBlindInput[]): string {
+  if (inputs.length === 0) return "";
+
+  const names = inputs.map((input) => INTEGRATION_DISPLAY_NAMES[input.recovery.integration]);
+
+  return (
+    `\n\nFact: Alfred cannot see activity from ${names.join(", ")} right now. ` +
+    `The email shows a reconnect notice for each one below your text. ` +
+    `Do not repeat that notice. Do not say that nothing needs attention, ` +
+    `because Alfred could not check every source.`
+  );
+}
 
 export async function runBriefingAgent(
   args: RunBriefingAgentArgs,
@@ -79,6 +100,7 @@ export async function runBriefingAgent(
         `Compose the ${args.slot} briefing for ${args.recipientFirstName ?? "the user"}. ` +
         `Start by reading list_prior_briefings, then list_emails_since, list_closed_loops, and list_loop_relevance. ` +
         `Apply the three honest loop-state tiers, then end with dump_briefing.` +
+        blindInputFact(args.blindInputs) +
         openAskCorrection(args.openAskViolations ?? []),
     },
   ];
