@@ -4,6 +4,7 @@ import {
   standingInstructionTargetSchema,
   targetMatchesSender,
   targetNamesOneMailbox,
+  todoAttributionSchema,
   todoSourcesSchema,
   type TodoAttribution,
   type TodoSource,
@@ -119,8 +120,9 @@ export async function resolveTodosForGmailSource(
   const requestedTodoIds = parsed.todoIds ? new Set(parsed.todoIds) : null;
   const accountId = normalizeOptional(parsed.accountId);
   const target = parsed.target ?? null;
-  const note = normalizeOptional(attribution.note);
-  const auditReason = note ?? attribution.cause;
+  const record = todoAttributionSchema.parse(attribution);
+  const note = normalizeOptional(record.note);
+  const auditReason = note ?? record.cause;
 
   // Class target: `suggested` only. One-mailbox target: the caller default.
   // The schema refuses `statuses` with `target`.
@@ -196,7 +198,7 @@ export async function resolveTodosForGmailSource(
     .set({
       status: "dismissed",
       completedAt: null,
-      attribution: { ...attribution, note },
+      attribution: { ...record, note },
       rowVersion: sql`${todos.rowVersion} + 1`,
     })
     .where(

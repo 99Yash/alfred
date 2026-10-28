@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 
-import type { AttributionRecord } from "./attribution";
+import { attributionRecordSchema } from "./attribution";
 import { getObjectKindDef, type ObjectStateProvider } from "./integration-objects";
 import { deriveLoopEntityRef } from "./loop-key";
 
@@ -52,12 +52,16 @@ export const TODO_CAUSES = [
 
 export type TodoCause = (typeof TODO_CAUSES)[number];
 
+export const todoCauseSchema = z.enum(TODO_CAUSES);
+
 /**
  * The record of one todo write. Each insert, and each update that changes `status`, `name`, or
  * `due_date`, must carry it, or the `todos` trigger raises. The trigger copies it to `todo_events`
- * and clears the column.
+ * and clears the column. Each writer parses the record with this schema before the write.
  */
-export type TodoAttribution = AttributionRecord<TodoCause>;
+export const todoAttributionSchema = attributionRecordSchema(todoCauseSchema);
+
+export type TodoAttribution = z.infer<typeof todoAttributionSchema>;
 
 // ─── Forward-compat: executor + kind ───────────────────────────────────────
 

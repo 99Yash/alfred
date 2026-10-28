@@ -1,4 +1,4 @@
-import type { TodoAttribution, TodoCause } from "@alfred/contracts";
+import { todoAttributionSchema, type TodoAttribution, type TodoCause } from "@alfred/contracts";
 import { todos } from "@alfred/db/schemas";
 import type {
   TodoClearArgs,
@@ -17,7 +17,12 @@ import type { DbTransaction } from "@alfred/db";
 
 /** A rail write: the user's own click, so the session is the authority (ADR-0115). */
 function byUser(cause: TodoCause): TodoAttribution {
-  return { actor: "user", authority: "user_direct", authorityRef: null, cause };
+  return todoAttributionSchema.parse({
+    actor: "user",
+    authority: "user_direct",
+    authorityRef: null,
+    cause,
+  });
 }
 
 export async function todoCreate(

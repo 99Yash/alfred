@@ -7,6 +7,7 @@ import type {
 import {
   ATTRIBUTION_ACTORS,
   ATTRIBUTION_AUTHORITIES,
+  ATTRIBUTION_POLICY_CODES,
   TODO_CAUSES,
   TODO_CREATED_BY,
   TODO_EXECUTORS,
@@ -86,6 +87,11 @@ export type Todo = typeof todos.$inferSelect;
  * Only the `todos` triggers write it, from the ADR-0115 record on the write.
  * Another trigger blocks UPDATE and direct DELETE; FK cascades still work.
  * `from_status` is null for the row that records creation.
+ *
+ * A row with a `cause` is an ADR-0115 row. Its checks enforce the rules of
+ * `attributionRecordSchema`: the actor's authorities, the agent's action ids, and the one ref
+ * shape for each authority. A row without a `cause` is from before ADR-0115 and has no record.
+ * Each check is wrapped in COALESCE, because a CHECK that evaluates to NULL passes.
  */
 export const todoEvents = pgTable(
   "todo_events",
@@ -106,7 +112,7 @@ export const todoEvents = pgTable(
     reason: text("reason"),
     // ADR-0115 record. Null on rows from before it: readers show "not recorded".
     authority: text("authority").$type<AttributionAuthority>(),
-    /** Persisted jsonb: parse it with `attributionAuthorityRefSchema`. */
+    /** Persisted jsonb. `todo_events_authority_ref_valid` enforces the shape for its `authority`. */
     authorityRef: jsonb("authority_ref").$type<AttributionAuthorityRef>(),
     /** No FK, so the history outlives run retention. */
     runId: text("run_id"),
@@ -135,6 +141,46 @@ export const todoEvents = pgTable(
     check(
       "todo_events_cause_valid",
       sql`(${t.cause} IS NULL) OR (${t.cause} IN (${inList(TODO_CAUSES)}))`,
+    ),
+    check(
+      "todo_events_unattributed_bare",
+      sql`(${t.cause} IS NOT NULL) OR (${t.authority} IS NULL AND ${t.authorityRef} IS NULL AND ${t.runId} IS NULL AND ${t.toolCallId} IS NULL AND ${t.note} IS NULL)`,
+    ),
+    check(
+      "todo_events_actor_authority_valid",
+      sql`COALESCE((${t.cause} IS NULL)
+        OR (${t.actor} = 'user' AND ${t.authority} = 'user_direct')
+        OR (${t.actor} = 'agent' AND (${t.authority} IS NULL OR ${t.authority} <> 'user_direct'))
+        OR (${t.actor} = 'system' AND ${t.authority} IN ('instruction', 'policy')), false)`,
+    ),
+    check(
+      "todo_events_agent_action_valid",
+      sql`COALESCE((${t.cause} IS NULL) OR CASE WHEN ${t.actor} = 'agent'
+        THEN length(${t.runId}) > 0 AND length(${t.toolCallId}) > 0
+        ELSE ${t.runId} IS NULL AND ${t.toolCallId} IS NULL END, false)`,
+    ),
+    check(
+      "todo_events_authority_ref_valid",
+      sql`COALESCE((${t.cause} IS NULL) OR CASE
+        WHEN ${t.authority} IS NULL OR ${t.authority} = 'user_direct' THEN ${t.authorityRef} IS NULL
+        WHEN jsonb_typeof(${t.authorityRef}) IS DISTINCT FROM 'object' THEN false
+        WHEN ${t.authority} = 'user_request' THEN ${t.authorityRef}->>'kind' = 'message'
+          AND jsonb_typeof(${t.authorityRef}->'id') = 'string' AND ${t.authorityRef}->>'id' <> ''
+          AND ${t.authorityRef} - 'kind' - 'id' = '{}'::jsonb
+        WHEN ${t.authority} = 'instruction' THEN ${t.authorityRef}->>'kind' = 'instruction'
+          AND jsonb_typeof(${t.authorityRef}->'id') = 'string' AND ${t.authorityRef}->>'id' <> ''
+          AND ${t.authorityRef} - 'kind' - 'id' - 'revision' = '{}'::jsonb
+          AND CASE
+            WHEN ${t.authorityRef}->'revision' IS NULL THEN true
+            WHEN jsonb_typeof(${t.authorityRef}->'revision') <> 'number' THEN false
+            ELSE (${t.authorityRef}->>'revision')::numeric >= 0
+              AND (${t.authorityRef}->>'revision')::numeric = trunc((${t.authorityRef}->>'revision')::numeric)
+          END
+        WHEN ${t.authority} = 'policy' THEN ${t.authorityRef}->>'kind' = 'policy'
+          AND jsonb_typeof(${t.authorityRef}->'code') = 'string'
+          AND ${t.authorityRef}->>'code' IN (${inList(ATTRIBUTION_POLICY_CODES)})
+          AND ${t.authorityRef} - 'kind' - 'code' = '{}'::jsonb
+        ELSE false END, false)`,
     ),
   ],
 );

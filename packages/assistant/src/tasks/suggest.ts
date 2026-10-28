@@ -3,6 +3,7 @@ import {
   boundTodoSources,
   mergeTodoSources,
   todoSourceKey,
+  todoAttributionSchema,
   todoSourcesShareIdentityOverlap,
   type TodoAttribution,
   type TodoSource,
@@ -51,6 +52,7 @@ export function todoSourcesOverlap(existing: TodoSource[], incoming: TodoSource[
  * A live overlap beats a resolved one.
  */
 export async function suggestTodo(input: SuggestTodoInput): Promise<SuggestTodoResult> {
+  const attribution = todoAttributionSchema.parse(input.attribution);
   // Sanitize once here, so triage and the tool both get it.
   const name = sanitizeVoice(input.name.trim()).trim();
   const rawAssist = input.assist?.trim() ?? "";
@@ -144,7 +146,7 @@ export async function suggestTodo(input: SuggestTodoInput): Promise<SuggestTodoR
         assist: normalizedAssist ?? null,
         sources,
         agentRunId: input.attribution.runId,
-        attribution: input.attribution,
+        attribution,
       })
       .returning({ id: todos.id });
 

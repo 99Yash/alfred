@@ -91,8 +91,11 @@ and they fire for every role including the owner:
   every change of `status`, `name`, or `due_date` sets `todos.attribution`, the
   ADR-0115 record (`TodoAttribution` in `@alfred/contracts`: actor, authority,
   authority ref, run and tool call ids for an agent, `cause`, optional `note`).
-  The trigger rejects a write without a record, and it clears the column after
-  each update, so a record never carries over to the next write.
+  `todoAttributionSchema` is the one runtime schema of the record, and each
+  writer parses the record with it. The trigger rejects a write without a
+  record, a record with an unknown key, and a field of the wrong JSON type. It
+  clears the column after each update, so a record never carries over to the
+  next write.
   Identity columns (`id`, `user_id`, `created_by`, `agent_run_id`) and
   identity-bearing `sources` refs are trigger-immutable; Gmail `thread` refs
   are transport and may come and go under the #355 cap.
@@ -100,7 +103,11 @@ and they fire for every role including the owner:
   `todos_creation_history` (AFTER INSERT) and `todos_change_history` (BEFORE
   UPDATE, one row per write that changes status, name, or due date) triggers.
   Each row copies the attribution record and the before/after values. It is guarded against UPDATE/direct-DELETE by its own trigger
-  (FK-cascade from a user/todo wipe is allowed).
+  (FK-cascade from a user/todo wipe is allowed). Its CHECK constraints enforce
+  the record rules on each row that has a `cause`: the authorities for each
+  actor, nonempty run and tool call ids for an agent only, and the one
+  `authority_ref` shape for each authority, with a known policy code
+  (migration 0152). A row without a `cause` is from before ADR-0115.
 
 Bypass needs superuser `session_replication_role` or dropping a trigger —
 both outside application reach, by design. FK-cascade from a user/todo or
