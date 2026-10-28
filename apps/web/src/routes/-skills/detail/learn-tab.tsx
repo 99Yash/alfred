@@ -5,7 +5,7 @@ import { useState } from "react";
 import { AppTextarea } from "~/components/ui/v2";
 import { responseErrorMessage } from "~/lib/api-error";
 import { client } from "~/lib/eden";
-import { formatRelative } from "~/lib/strings";
+import { formatRelative } from "~/lib/date-format";
 import { cn } from "~/lib/utils";
 import { EmptyMemoryCard } from "./empty-memory-card";
 import { Kbd } from "./kbd";

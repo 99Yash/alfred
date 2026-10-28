@@ -12,7 +12,8 @@ import {
 import { useState } from "react";
 import type { z } from "zod";
 import { AppDateTimePicker, AppInput, AppSelect, AppSwitch, AppTextarea } from "~/components/ui/v2";
-import { formatJson, formatTimestamp, parseJson } from "./format";
+import { formatDateTime } from "~/lib/date-format";
+import { formatJson, parseJson } from "./format";
 
 type FieldControlSpec = Exclude<FieldSpec, { kind: "boolean" }>;
 
@@ -125,7 +126,7 @@ function factText(field: FieldSpec, record: JsonObject): string | null {
     case "datetime": {
       const iso = fieldValue(field, record);
 
-      return iso ? formatTimestamp(iso) : null;
+      return iso ? formatDateTime(iso, { today: "sentence" }) : null;
     }
 
     case "text":

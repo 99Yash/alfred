@@ -14,7 +14,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { AppButton, AppPill } from "~/components/ui/v2";
-import { formatTimestamp } from "~/components/approvals/format";
+import { formatDateTime } from "~/lib/date-format";
 import { API_URL } from "~/lib/eden";
 import { openAuthorizationTab } from "~/lib/integrations/authorization-tab";
 import {
@@ -161,7 +161,9 @@ export function HistoryRunRow({
               </span>
               <span className="shrink-0 text-app-fg-3">
                 {humanizeSlug(effect.outcome)}
-                {effect.executedAt ? ` · ${formatTimestamp(effect.executedAt)}` : ""}
+                {effect.executedAt
+                  ? ` · ${formatDateTime(effect.executedAt, { today: "sentence" })}`
+                  : ""}
               </span>
             </li>
           ))}

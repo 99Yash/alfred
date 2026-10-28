@@ -8,7 +8,7 @@ import { useState } from "react";
 import { AppButton, AppCard } from "~/components/ui/v2";
 import { useDisconnectIntegration } from "~/lib/integrations/use-integration-status";
 import type { IntegrationPage } from "~/lib/integrations/integrations";
-import { formatDateTime, formatRelative } from "~/lib/strings";
+import { formatDateTime, formatRelative } from "~/lib/date-format";
 import { toast } from "~/lib/toast";
 import { ColumnLabel } from "./column-label";
 import { SectionHeading } from "./section-heading";

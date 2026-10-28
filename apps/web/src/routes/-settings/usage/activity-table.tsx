@@ -11,7 +11,8 @@ import { modelLabel, providerOf } from "~/components/provider-marks";
 import { AppButton, AppCard, AppSelect } from "~/components/ui/v2";
 import { cn } from "~/lib/utils";
 import { CATEGORY_LABELS, CATEGORY_TILE } from "./constants";
-import { formatCost, formatDateTime, formatTokens } from "./format";
+import { formatDateTime } from "~/lib/date-format";
+import { formatCost, formatTokens } from "./format";
 import { useUsageActivity } from "./use-usage";
 
 const PAGE_SIZE_OPTIONS = [
@@ -200,7 +201,7 @@ export function ActivityTable({ start, end, categories }: ActivityTableProps) {
                 return (
                   <tr key={run.runId} className="border-b border-app-bg-2 last:border-0">
                     <td className="px-5 py-3 whitespace-nowrap text-app-fg-3 tabular-nums">
-                      {formatDateTime(run.createdAt)}
+                      {formatDateTime(run.createdAt, { locale: "en-US", invalid: "empty" })}
                     </td>
                     <td className="p-3">
                       <CategoryPill category={run.category} label={run.label} />

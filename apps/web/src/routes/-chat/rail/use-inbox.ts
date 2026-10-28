@@ -11,6 +11,7 @@ import {
 import type { InfiniteData } from "@tanstack/react-query";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { responseErrorMessage } from "~/lib/api-error";
+import { formatRelative } from "~/lib/date-format";
 import { client, type EdenData } from "~/lib/eden";
 import type { IntegrationBrand } from "~/lib/integrations/integration-icons";
 import type { AppTint } from "~/lib/tints";
@@ -173,7 +174,9 @@ export function useInboxDetail(documentId: string | null) {
               body: m.body,
               htmlBody: m.htmlBody ?? null,
               authoredAt: m.authoredAt,
-              authoredAtRelative: formatRelativeShort(m.authoredAt),
+              authoredAtRelative: m.authoredAt
+                ? formatRelative(m.authoredAt, { style: "compact", invalid: "empty" })
+                : "",
               unread: m.unread,
               attachments,
               initial: sender.initial,
@@ -231,7 +234,9 @@ function toInboxItem(row: InboxResponseItem): RailInboxItem {
     senderAddress: sender.email,
     subject: row.subject ?? "(no subject)",
     preview: cleanPreview(row.snippet) || " ",
-    time: formatRelativeShort(row.authoredAt),
+    time: row.authoredAt
+      ? formatRelative(row.authoredAt, { style: "compact", invalid: "empty" })
+      : "",
     authoredAtMs: row.authoredAt ? new Date(row.authoredAt).getTime() : null,
     unread: row.unread,
     initial: sender.initial,
@@ -280,29 +285,4 @@ function cleanPreview(snippet: string | null): string {
   if (!snippet) return "";
 
   return collapseWhitespace(decodeHtmlEntities(snippet));
-}
-
-const MINUTE = 60 * 1000;
-
-const HOUR = 60 * MINUTE;
-
-const DAY = 24 * HOUR;
-
-function formatRelativeShort(iso: string | null): string {
-  if (!iso) return "";
-  const t = Date.parse(iso);
-
-  if (Number.isNaN(t)) return "";
-  const delta = Date.now() - t;
-
-  if (delta < MINUTE) return "now";
-
-  if (delta < HOUR) return `${Math.floor(delta / MINUTE)}m`;
-
-  if (delta < DAY) return `${Math.floor(delta / HOUR)}h`;
-  const days = Math.floor(delta / DAY);
-
-  if (days < 7) return `${days}d`;
-
-  return new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }

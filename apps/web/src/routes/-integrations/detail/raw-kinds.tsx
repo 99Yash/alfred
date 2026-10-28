@@ -1,6 +1,6 @@
 import { AppButton, AppCard } from "~/components/ui/v2";
 import type { InboundEventSource } from "@alfred/contracts";
-import { formatRelative } from "~/lib/strings";
+import { formatRelative } from "~/lib/date-format";
 import { ColumnLabel } from "./column-label";
 import { SectionHeading } from "./section-heading";
 import { useRawReceiptKinds } from "~/lib/integrations/use-raw-kinds";

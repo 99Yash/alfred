@@ -4,7 +4,8 @@ import { useApprovalDecision, type QuestionDecision } from "./use-approval-decis
 import { Workflow } from "lucide-react";
 import { AppCard } from "~/components/ui/v2";
 import { cn } from "~/lib/utils";
-import { formatTimestamp, shortId, triggerLabel } from "./format";
+import { formatDateTime } from "~/lib/date-format";
+import { shortId, triggerLabel } from "./format";
 import { QuestionSheet } from "./question-sheet";
 import type { QuestionStaging } from "./ask-user";
 
@@ -65,7 +66,9 @@ export function QuestionApprovalCard({
               <span className="text-app-fg-2">·</span>
               <span className="font-mono">{shortId(staging.runId)}</span>
               <span className="text-app-fg-2">·</span>
-              <span className="tabular-nums">{formatTimestamp(staging.createdAt)}</span>
+              <span className="tabular-nums">
+                {formatDateTime(staging.createdAt, { today: "sentence" })}
+              </span>
             </div>
           </div>
         </div>
