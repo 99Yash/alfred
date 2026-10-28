@@ -177,7 +177,7 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
 
     list_calendar_events: tool({
       description:
-        "List the user's calendar events in the briefing window (today through end of tomorrow; for the evening slot, from now onward). Returns title, start/end, attendees, and location per event. An empty array means either no events in the window or no calendar scope granted — treat it as 'no calendar signal,' not necessarily 'no events.'",
+        "List the user's calendar events in the briefing window (today through end of tomorrow; for the evening slot, from now onward). Returns title, start/end, attendees, and location per event. An empty array means either no events in the window or no calendar scope granted. It is not proof of a clear day, and it is not news: do not mention the calendar when it is empty.",
       inputSchema: z.object({
         window: z
           .enum(["today", "today_and_tomorrow", "rest_of_today_and_tomorrow"])
@@ -219,9 +219,11 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
 
     list_closed_loops: tool({
       description:
-        "List priority-email loops that the deterministic object-state projection positively proved closed. An email absent from this result is not proved closed by this tool and stays live unless get_day_shape.shipped identifies the same object as shipped.",
+        "List priority-email loops that the deterministic object-state projection positively proved closed. Each row is finished work, not a live item, so it never outranks a live item. An email absent from this result is not proved closed by this tool and stays live unless get_day_shape.shipped identifies the same object as shipped.",
       inputSchema: z.object({}),
-      execute: async (): Promise<BriefingClosedLoop[]> => args.closedLoops,
+      // The email's old triage label stays out: an `urgent` label on a closed loop reads as a live alarm.
+      execute: async (): Promise<Omit<BriefingClosedLoop, "category">[]> =>
+        args.closedLoops.map(({ category: _category, ...loop }) => loop),
     }),
 
     list_loop_relevance: tool({
