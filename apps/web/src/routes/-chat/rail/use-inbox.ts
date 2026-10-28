@@ -109,6 +109,7 @@ export function useMarkInboxRead() {
 
 export interface InboxThread {
   threadId: string | null;
+  mailbox: string | null;
   subject: string | null;
   category: TriageCategory | null;
   selectedDocumentId: string;
@@ -187,6 +188,7 @@ export function useInboxDetail(documentId: string | null) {
 
       return {
         threadId: data.threadId,
+        mailbox: data.mailbox,
         subject: data.subject,
         category: data.category,
         selectedDocumentId: data.selectedDocumentId,
@@ -230,6 +232,7 @@ function toInboxItem(row: InboxResponseItem): RailInboxItem {
   return {
     id: row.documentId,
     threadId: row.threadId,
+    mailbox: row.mailbox,
     sender: sender.label,
     senderAddress: sender.email,
     subject: row.subject ?? "(no subject)",

@@ -152,7 +152,9 @@ function emailPanelItems(
         id: item.documentId,
         title: item.subject,
         subtitle: item.sender,
-        href: item.threadId ? gmailThreadUrl(item.threadId) : undefined,
+        href: item.threadId
+          ? gmailThreadUrl({ threadId: item.threadId, mailbox: item.mailbox })
+          : undefined,
         reference: briefingReference("email", item.documentId),
         metadata: compactMetadata({
           category,

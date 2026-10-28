@@ -57,7 +57,7 @@ import {
   type GithubMergedReadOutcome,
   type VerifiedPullTriggerItem,
 } from "@alfred/assistant/connections/verified-pull";
-import { type UserSettings } from "@alfred/assistant/settings";
+import { type UserSettings, userIdentity } from "@alfred/assistant/settings";
 import { getMcpExecutionBroker } from "@alfred/assistant/tool-runtime/mcp";
 import { senderSuppressions } from "../knowledge";
 import {
@@ -114,7 +114,9 @@ export interface BriefingItem {
   from: string | null;
   snippet: string | null;
   authoredAt: Date | null;
-  threadUrl: string | null;
+  threadId: string | null;
+  /** Account email of the connection that holds the thread; null when no credential names it. */
+  mailbox: string | null;
 }
 
 export interface BriefingDigest {
@@ -211,7 +213,7 @@ export async function gatherBriefingDigest(
   const maxPerBucket = args.maxPerBucket ?? DEFAULT_MAX_PER_BUCKET;
 
   // One query, then partition in JS.
-  const [rows, suppressions] = await Promise.all([
+  const [rows, suppressions, identity] = await Promise.all([
     db()
       .select({
         // `emailTriage.documentId` can dangle after a purge; the joined id cannot.
@@ -240,6 +242,7 @@ export async function gatherBriefingDigest(
       )
       .orderBy(desc(documents.authoredAt)),
     senderSuppressions({ userId: args.userId, onReadFailure: "throw" }),
+    userIdentity({ userId: args.userId }),
   ]);
 
   const newPriorityBucket = (): BriefingItem[] => [];
@@ -311,7 +314,8 @@ export async function gatherBriefingDigest(
       from: from,
       snippet: meta.snippet ?? null,
       authoredAt: r.authoredAt,
-      threadUrl: r.sourceThreadId ? gmailThreadUrl(r.sourceThreadId) : null,
+      threadId: r.sourceThreadId,
+      mailbox: r.accountId ? (identity.mailboxByAccountId.get(r.accountId) ?? null) : null,
     });
 
     // Propose keys here, while the body is in hand, so content never reaches the resolve phase.
@@ -602,7 +606,8 @@ export async function gatherBriefingWithSuppressionAudit(
   for (const category of PRIORITY_CATEGORIES) {
     categories[category] = digest.buckets[category].map((item) => ({
       documentId: item.documentId,
-      threadId: threadIdFromGmailUrl(item.threadUrl),
+      threadId: item.threadId ?? "",
+      ...(item.mailbox ? { mailbox: item.mailbox } : {}),
       subject: item.subject?.trim() || "(no subject)",
       sender: mailboxLabel(item.from) ?? "Unknown sender",
       snippet: item.snippet ?? item.rationale ?? "",
@@ -1012,18 +1017,6 @@ function isPriority(c: string): c is PriorityCategory {
 
 function isSuppressed(c: string): c is SuppressedCategory {
   return SUPPRESSED_CATEGORY_SET.has(c);
-}
-
-/** Gmail picks the active account, so we need not know which one is signed in. */
-function gmailThreadUrl(threadId: string): string {
-  return `https://mail.google.com/mail/u/0/#all/${encodeURIComponent(threadId)}`;
-}
-
-function threadIdFromGmailUrl(url: string | null): string {
-  if (!url) return "";
-  const tail = url.slice(url.lastIndexOf("/") + 1);
-
-  return decodeURIComponent(tail);
 }
 
 const SUNDAY = 0;

@@ -84,6 +84,8 @@ export const ianaTimezoneSchema: z.ZodType<IanaTimezone, string> = z
 const emailContributionItemSchema = z.object({
   documentId: z.string().min(1),
   threadId: z.string(),
+  // Account email of the connection that holds the thread. Absent on old rows, and when no active credential maps the account.
+  mailbox: z.string().min(1).optional(),
   subject: z.string(),
   sender: z.string(),
   snippet: z.string(),

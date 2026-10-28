@@ -2,6 +2,7 @@ import { route, meteredGenerateObject } from "@alfred/ai";
 import {
   briefingComposerSchema,
   fullBriefingSchema,
+  gmailThreadUrl,
   type BriefingComposerOutput,
   type BriefingGather,
   type BriefingSlot,
@@ -193,6 +194,15 @@ function buildComposerPrompt(args: ComposeBriefingArgs): string {
 function composerSafeGather(gather: BriefingGather): BriefingGather {
   return {
     ...gather,
+    email: {
+      ...gather.email,
+      categories: Object.fromEntries(
+        Object.entries(gather.email.categories).map(([category, items]) => [
+          category,
+          items.map(({ mailbox: _mailbox, ...item }) => item),
+        ]),
+      ),
+    },
     integration_activity: {
       items: gather.integration_activity.items.map(({ url: _url, ...item }) => item),
     },
@@ -387,12 +397,17 @@ function renderText(args: ComposeInboxBriefingArgs, greeting: string): string {
   return lines.join("\n");
 }
 
+function itemThreadUrl(item: BriefingItem): string | null {
+  return item.threadId ? gmailThreadUrl({ threadId: item.threadId, mailbox: item.mailbox }) : null;
+}
+
 function formatItemText(item: BriefingItem): string {
   const subject = item.subject?.trim() || "(no subject)";
   const fromShort = mailboxLabel(item.from);
   const head = fromShort ? `• ${subject} — ${fromShort}` : `• ${subject}`;
   const rationale = item.rationale ? `\n    ${item.rationale}` : "";
-  const link = item.threadUrl ? `\n    ${item.threadUrl}` : "";
+  const threadUrl = itemThreadUrl(item);
+  const link = threadUrl ? `\n    ${threadUrl}` : "";
 
   return `${head}${rationale}${link}`;
 }
@@ -464,8 +479,10 @@ function renderItemHtml(item: BriefingItem): string {
     ? `<span style="${MUTED_INLINE_STYLE}"> — ${escapeHtml(fromShort)}</span>`
     : "";
 
-  const titleHtml = item.threadUrl
-    ? `<a href="${escapeHtml(item.threadUrl)}" style="${LINK_STYLE}">${subject}</a>`
+  const threadUrl = itemThreadUrl(item);
+
+  const titleHtml = threadUrl
+    ? `<a href="${escapeHtml(threadUrl)}" style="${LINK_STYLE}">${subject}</a>`
     : subject;
 
   const rationale = item.rationale

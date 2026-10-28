@@ -144,8 +144,20 @@ export function briefingReference(kind: BriefingReferenceKind, id: string): Brie
   return `${kind}:${id}`;
 }
 
-export function gmailThreadUrl(threadId: string): string {
-  return `https://mail.google.com/mail/u/0/#all/${encodeURIComponent(threadId)}`;
+export interface GmailThreadLink {
+  threadId: string;
+  /** Account email of the connection that holds the thread. `null` or `undefined`: Gmail's default account. */
+  mailbox: string | null | undefined;
+}
+
+/**
+ * The one Gmail thread link. Names the mailbox when the caller knows it, so Gmail opens that account.
+ * `?authuser=` and not `/mail/u/<email>/`: Gmail serves an error page for the email path form.
+ */
+export function gmailThreadUrl({ threadId, mailbox }: GmailThreadLink): string {
+  const account = mailbox ? `?authuser=${encodeURIComponent(mailbox)}` : "";
+
+  return `https://mail.google.com/mail/u/0/${account}#all/${encodeURIComponent(threadId)}`;
 }
 
 function buildReferenceEntityMap(gather: BriefingGather): Map<BriefingReference, ReferenceEntity> {
@@ -159,7 +171,9 @@ function buildReferenceEntityMap(gather: BriefingGather): Map<BriefingReference,
         referenceKind: "email",
         label: item.subject,
         source: "email",
-        ...(item.threadId ? { href: gmailThreadUrl(item.threadId) } : {}),
+        ...(item.threadId
+          ? { href: gmailThreadUrl({ threadId: item.threadId, mailbox: item.mailbox }) }
+          : {}),
       });
     }
   }
