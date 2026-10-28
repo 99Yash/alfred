@@ -4,8 +4,8 @@ import {
   standingInstructionTargetSchema,
   targetMatchesSender,
   targetNamesOneMailbox,
-  TODO_RESOLVED_BY,
   todoSourcesSchema,
+  type TodoAttribution,
   type TodoSource,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -32,17 +32,10 @@ const resolveTodosForGmailSourceArgsSchema = z
      */
     target: standingInstructionTargetSchema.nullish(),
     /**
-         /** Audit label, persisted as `resolved_reason`. Free text, because the model supplies it. */
-    reason: z.string().max(1_000).nullish(),
-    /**
-         /** Persisted as `resolved_by`; `todo_events` records it. `system` is the `close-loop-todos` retraction. */
-    actor: z.enum(TODO_RESOLVED_BY).default("agent"),
-    /**
-         /**
-          * Statuses to retract; defaults to both. `close-loop-todos` passes `["suggested"]`:
-          * it may drop an unpromoted proposal, never a todo the user promoted to `open`.
-          * Never with `target`.
-          */
+     * Statuses to retract; defaults to both. `close-loop-todos` passes `["suggested"]`:
+     * it may drop an unpromoted proposal, never a todo the user promoted to `open`.
+     * Never with `target`.
+     */
     statuses: z.array(liveTodoStatusSchema).min(1).optional(),
   })
   .refine((data) => data.todoIds === undefined || data.sourceThreadId != null, {
@@ -84,7 +77,7 @@ export type ResolveTodosForGmailSourceResult =
       dismissedCount: number;
       todoIds: string[];
       matchedThreadIds: string[];
-      /** Persisted as `resolved_reason`. */
+      /** The write's `note`, else its `cause`. Echoed for the model and the log. */
       auditReason: string | null;
     }
   | {
@@ -112,9 +105,13 @@ interface GmailThreadMetadata {
  * by `senderEmail`/`accountId` (`system.resolve_todo`), by `target` (`system.remember`),
  * or a thread plus one sender scope. `todoIds` can narrow a thread call further.
  * A class-target sweep is forced to `suggested` only.
+ *
+ * `attribution` is the ADR-0115 record of the dismissal. It has no default: each caller names
+ * its actor, and the `todos` trigger fails a write without one.
  */
 export async function resolveTodosForGmailSource(
   args: ResolveTodosForGmailSourceArgs,
+  attribution: TodoAttribution,
 ): Promise<ResolveTodosForGmailSourceResult> {
   const parsed = resolveTodosForGmailSourceArgsSchema.parse(args);
   const senderEmail = normalizeEmailAddress(parsed.senderEmail);
@@ -122,7 +119,8 @@ export async function resolveTodosForGmailSource(
   const requestedTodoIds = parsed.todoIds ? new Set(parsed.todoIds) : null;
   const accountId = normalizeOptional(parsed.accountId);
   const target = parsed.target ?? null;
-  const auditReason = normalizeOptional(parsed.reason);
+  const note = normalizeOptional(attribution.note);
+  const auditReason = note ?? attribution.cause;
 
   // Class target: `suggested` only. One-mailbox target: the caller default.
   // The schema refuses `statuses` with `target`.
@@ -198,8 +196,7 @@ export async function resolveTodosForGmailSource(
     .set({
       status: "dismissed",
       completedAt: null,
-      resolvedBy: parsed.actor,
-      resolvedReason: auditReason,
+      attribution: { ...attribution, note },
       rowVersion: sql`${todos.rowVersion} + 1`,
     })
     .where(

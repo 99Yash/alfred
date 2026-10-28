@@ -1,5 +1,5 @@
 import { isQuotaOrBillingError } from "@alfred/ai";
-import { toMessage, type TodoSource } from "@alfred/contracts";
+import { toMessage, type TodoAttribution, type TodoSource } from "@alfred/contracts";
 import { AppError } from "@alfred/contracts/app-errors";
 import {
   editStandingInstruction,
@@ -24,7 +24,27 @@ import {
 import { resolveTodosForGmailSource, suggestTodo } from "@alfred/assistant/tasks";
 import { gmailThreadIdsFromSources } from "@alfred/assistant/tasks/resolve";
 
-const SENDER_SUPPRESSION_REASON = "standing_instruction_sender_suppression";
+type ToolCallContext = SystemToolRequest<"system.resolve_todo">["context"];
+
+/**
+ * A todo write from a chat tool call. Dispatch does not pass the user message yet, so the
+ * authority is not recorded; #1588 checks it at dispatch and fills it.
+ */
+function chatToolAttribution(
+  context: ToolCallContext,
+  cause: TodoAttribution["cause"],
+  note: string | null = null,
+): Extract<TodoAttribution, { actor: "agent" }> {
+  return {
+    actor: "agent",
+    runId: context.runId,
+    toolCallId: context.toolCallId,
+    authority: null,
+    authorityRef: null,
+    cause,
+    note,
+  };
+}
 
 type RememberSenderSuppressionResult = Awaited<ReturnType<typeof rememberSenderSuppression>>;
 
@@ -95,14 +115,22 @@ async function rememberOneSender(
 
   if (!result.ok) return result;
 
-  const resolvedTodos = await dependencies.dismissTodos({
-    userId: context.userId,
-    // The whole target, such as every sender at a domain. It already carries `accountId`.
-    target: result.instruction.target,
-    reason: SENDER_SUPPRESSION_REASON,
-    // `agent`: not a direct UI clear (`user`) and not an automatic retraction (`system`).
-    actor: "agent",
-  });
+  const resolvedTodos = await dependencies.dismissTodos(
+    {
+      userId: context.userId,
+      // The whole target, such as every sender at a domain. It already carries `accountId`.
+      target: result.instruction.target,
+    },
+    // The instruction just stored permits the sweep, so it is the authority.
+    {
+      actor: "agent",
+      runId: context.runId,
+      toolCallId: context.toolCallId,
+      authority: "instruction",
+      authorityRef: { kind: "instruction", id: result.factId },
+      cause: "sender_suppressed",
+    },
+  );
 
   return { ...result, resolvedTodos };
 }
@@ -263,14 +291,15 @@ async function gmailSourcesAlreadyAnswered(
 
 const taskAdapter: SystemToolTaskAdapter = {
   resolveTodo({ input, context }) {
-    return resolveTodosForGmailSource({
-      userId: context.userId,
-      senderEmail: input.senderEmail,
-      sourceThreadId: input.sourceThreadId,
-      accountId: input.accountId ?? null,
-      reason: input.reason,
-      actor: "agent",
-    });
+    return resolveTodosForGmailSource(
+      {
+        userId: context.userId,
+        senderEmail: input.senderEmail,
+        sourceThreadId: input.sourceThreadId,
+        accountId: input.accountId ?? null,
+      },
+      chatToolAttribution(context, "dismissed", input.reason ?? null),
+    );
   },
   async suggestTodo({ input, context }) {
     const answered = await gmailSourcesAlreadyAnswered(context.userId, input.sources ?? []).catch(
@@ -283,7 +312,7 @@ const taskAdapter: SystemToolTaskAdapter = {
 
     return suggestTodo({
       userId: context.userId,
-      agentRunId: context.runId,
+      attribution: chatToolAttribution(context, "suggested"),
       name: input.name,
       description: input.description,
       assist: input.assist,

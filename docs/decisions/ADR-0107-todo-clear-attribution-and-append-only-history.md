@@ -1,6 +1,6 @@
 # ADR-0107 — Todo clear-attribution and append-only history at the DB layer
 
-**Status.** Accepted; implements #1177 with two scoped deviations noted below.
+**Status.** Accepted; implements #1177 with two scoped deviations noted below. Items 1 and 2 are superseded by [ADR-0115](./ADR-0115-every-state-change-names-its-actor-and-authority.md) slice 1 (#1586, migrations 0150 and 0151): `resolved_by` and `resolved_reason` are gone, each write carries the `todos.attribution` record, and a write without an actor fails in place of the `system` fallback.
 
 ## Decision
 

@@ -60,6 +60,7 @@ import {
   isHttpError,
   isSentGmailMetadata,
   parseGmailDocumentMetadata,
+  policyAuthority,
   senderContextSchema,
   triageCategorySchema,
   type AccountPersona,
@@ -562,7 +563,14 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
 
       const suggested = await suggestTodo({
         userId: ctx.userId,
-        agentRunId: ctx.runId,
+        // No tool call: the step key names the action inside the run.
+        attribution: {
+          actor: "agent",
+          runId: ctx.runId,
+          toolCallId: ctx.idempotencyKey,
+          ...policyAuthority("triage.todo_gate"),
+          cause: "suggested",
+        },
         name: suggestion.name,
         assist: suggestion.assist,
         sources,
@@ -679,15 +687,15 @@ export async function runEmailTriageCloseLoopTodos<State extends EmailTriageOper
 
         summaryParts.push("reply re-eval, no open suggestion to close");
       } else {
-        const resolved = await resolveTodosForGmailSource({
-          userId: ctx.userId,
-          sourceThreadId,
-          // Stored as `resolved_reason`.
-          reason: ctx.state.reason,
-          actor: "system",
-          // Never `open`: the user accepted it, and a holding reply is not closure.
-          statuses: ["suggested"],
-        });
+        const resolved = await resolveTodosForGmailSource(
+          {
+            userId: ctx.userId,
+            sourceThreadId,
+            // Never `open`: the user accepted it, and a holding reply is not closure.
+            statuses: ["suggested"],
+          },
+          { actor: "system", ...policyAuthority("todo.reply_retraction"), cause: "reply_detected" },
+        );
 
         await ctx.log(
           `close-loop-todos: thread=${sourceThreadId} newest=sent reason=${resolved.auditReason ?? "unknown"} ` +

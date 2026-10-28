@@ -4,6 +4,7 @@ import {
   mergeTodoSources,
   todoSourceKey,
   todoSourcesShareIdentityOverlap,
+  type TodoAttribution,
   type TodoSource,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -19,7 +20,8 @@ const RESUGGEST_SUPPRESSION_WINDOW_DAYS = 30;
 
 export interface SuggestTodoInput {
   userId: string;
-  agentRunId: string;
+  /** The ADR-0115 record of the creation. Its `runId` becomes `todos.agent_run_id`. */
+  attribution: Extract<TodoAttribution, { actor: "agent" }>;
   name: string;
   description?: string | undefined;
   /** An honest "I can't act on this" is fine. */
@@ -141,7 +143,8 @@ export async function suggestTodo(input: SuggestTodoInput): Promise<SuggestTodoR
         createdBy: "agent",
         assist: normalizedAssist ?? null,
         sources,
-        agentRunId: input.agentRunId,
+        agentRunId: input.attribution.runId,
+        attribution: input.attribution,
       })
       .returning({ id: todos.id });
 

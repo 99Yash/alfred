@@ -45,7 +45,7 @@ Last verified: 2026-10-20 at `fd13e6427`.
 
 **Deduplication today.** `suggestTodo` (`assistant/src/tasks/suggest.ts:51`) takes a per-user advisory lock and compares source refs `(provider, kind, id)` (`contracts/src/todos.ts:73`). A shared ref merges into the live todo. A todo resolved in the last 30 days suppresses a new one with the same identity ref. Gmail todos also carry a loop ref from the subject, for example `github:pull_request:owner/repo#N` (`contracts/src/loop-key.ts:130`).
 
-**Closure today.** `todos.resolved_by` / `resolved_reason` and the append-only `todo_events` table (ADR-0107) are built. The live closers are Gmail-only: a user reply dismisses `suggested` todos (`triage/workflow-operations.ts:585`), and a payment receipt closes its payment todo (`tasks/payment-reconciler.ts:95`).
+**Closure today.** The ADR-0115 attribution record on each todo write (`todos.attribution`) and the append-only `todo_events` table (ADR-0107, ADR-0115) are built. The live closers are Gmail-only: a user reply dismisses `suggested` todos (`triage/workflow-operations.ts:585`), and a payment receipt closes its payment todo (`tasks/payment-reconciler.ts:95`).
 
 **Gaps.**
 

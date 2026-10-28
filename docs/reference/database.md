@@ -87,15 +87,19 @@ and they fire for every role including the owner:
   stay writable: that lifecycle belongs to the `ingress.deliver` job
   (`markProcessed`), and a literal "no UPDATE" rule would break delivery.
   Corrections are new rows, never mutations.
-- `todos` stays mutable on `status` / `sources` / body, but every status
-  write sets `resolved_by` (`user` = UI mutator, `agent` = tool call acting
-  for the user, `system` = automatic retraction) plus `resolved_reason`.
+- `todos` stays mutable on `status` / `sources` / body, but every insert and
+  every change of `status`, `name`, or `due_date` sets `todos.attribution`, the
+  ADR-0115 record (`TodoAttribution` in `@alfred/contracts`: actor, authority,
+  authority ref, run and tool call ids for an agent, `cause`, optional `note`).
+  The trigger rejects a write without a record, and it clears the column after
+  each update, so a record never carries over to the next write.
   Identity columns (`id`, `user_id`, `created_by`, `agent_run_id`) and
   identity-bearing `sources` refs are trigger-immutable; Gmail `thread` refs
   are transport and may come and go under the #355 cap.
-- `todo_events` is the append-only transition log, written only by the
-  `todos_transition_history` trigger (mint on INSERT, one row per status
-  change) and guarded against UPDATE/direct-DELETE by its own trigger
+- `todo_events` is the append-only change log, written only by the
+  `todos_creation_history` (AFTER INSERT) and `todos_change_history` (BEFORE
+  UPDATE, one row per write that changes status, name, or due date) triggers.
+  Each row copies the attribution record and the before/after values. It is guarded against UPDATE/direct-DELETE by its own trigger
   (FK-cascade from a user/todo wipe is allowed).
 
 Bypass needs superuser `session_replication_role` or dropping a trigger —

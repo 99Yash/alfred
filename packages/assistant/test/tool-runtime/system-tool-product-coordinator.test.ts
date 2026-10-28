@@ -58,7 +58,7 @@ describe("sender suppression coordinator", () => {
       dismissedCount: 1,
       todoIds: ["todo_1"],
       matchedThreadIds: ["thread_1"],
-      auditReason: "standing_instruction_sender_suppression",
+      auditReason: "sender_suppressed",
     };
 
     const coordinate = createRememberSenderSuppressionCoordinator({
@@ -67,8 +67,8 @@ describe("sender suppression coordinator", () => {
 
         return Promise.resolve(remembered);
       },
-      dismissTodos: (args) => {
-        calls.push({ name: "dismiss", args });
+      dismissTodos: (args, attribution) => {
+        calls.push({ name: "dismiss", args: { args, attribution } });
 
         return Promise.resolve(dismissed);
       },
@@ -96,10 +96,15 @@ describe("sender suppression coordinator", () => {
       {
         name: "dismiss",
         args: {
-          userId: "user_1",
-          target: instruction.target,
-          reason: "standing_instruction_sender_suppression",
-          actor: "agent",
+          args: { userId: "user_1", target: instruction.target },
+          attribution: {
+            actor: "agent",
+            runId: "run_1",
+            toolCallId: "call_1",
+            authority: "instruction",
+            authorityRef: { kind: "instruction", id: "fact_1" },
+            cause: "sender_suppressed",
+          },
         },
       },
     ]);
@@ -126,7 +131,7 @@ describe("sender suppression coordinator", () => {
           dismissedCount: 0,
           todoIds: [],
           matchedThreadIds: [],
-          auditReason: "standing_instruction_sender_suppression",
+          auditReason: "sender_suppressed",
         });
       },
     });

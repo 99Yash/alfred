@@ -75,6 +75,17 @@ async function seedTodo(
       name: "drift fixture todo",
       status,
       createdBy,
+      attribution:
+        createdBy === "agent"
+          ? {
+              actor: "agent",
+              runId: "run_fixture",
+              toolCallId: "call_fixture",
+              authority: null,
+              authorityRef: null,
+              cause: "suggested",
+            }
+          : { actor: "user", authority: "user_direct", authorityRef: null, cause: "created" },
       completedAt: status === "done" ? new Date() : null,
     });
 }
