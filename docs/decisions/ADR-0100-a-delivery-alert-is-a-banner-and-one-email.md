@@ -1,6 +1,6 @@
 # ADR-0100 — A delivery alert is a banner and one email, never a briefing line
 
-**Status.** Accepted (issue #1035, PR #1038). Motivated by incident #1033. Refines ADR-0097 item 5. Amends nothing in ADR-0048.
+**Status.** Accepted (issue #1035, PR #1038). Motivated by incident #1033. Refines ADR-0097 item 5. Amends nothing in ADR-0048. **Amended 2026-10-28 (proposed):** a broken connection is also a fixed block in the briefing, and a broken connection stops a quiet morning. See the amendment of that date; it reverses "never a briefing line" for this case only.
 
 **Decision.** An event source that stopped delivering reaches the user through two surfaces: a live app banner, and at most one pushed `delivery_alert` email per source per week. It never reaches the user through the morning or evening briefing. A delivery verdict names a cause. Only the cause `broken`, with a recovery the user can perform, and with no other surface already asking for the same click, is alertable. Every other verdict is operator text and stays in the log.
 
@@ -55,6 +55,73 @@ A dev instance showed `Alfred stopped receiving Gmail activity` for an account t
 The fix is a **fourth alert condition**, not a change to the verdict: `unrepairableHere()` in `connections/delivery-alerts.ts` adds Gmail to the surface rule's suppressed set when the mailbox-write gate is off. `readGmailEventHealth` is untouched, so workflow readiness keeps refusing the Gmail trigger with the same `cause: "broken"` and `recovery: connect`, and the banner and the email go quiet together. The condition is general — an instance cannot ask a user to perform a repair the instance is forbidden from performing — and Gmail is its only member today.
 
 **Rejected alternative.** Return `cause: "unknown"` from the Gmail reader when writes are disabled. It reads well ("Alfred holds no signal"), but the verdict type pins `unknown` to `recovery: { kind: "none" }`, so readiness would move the trigger from `trigger_not_ready` to `trigger_degraded`: the workflow would defer quietly instead of telling the user, changing a second surface for a sentence the alert surface alone owns. The suppression keeps the amendment to the surface rule.
+
+## Amendment — 2026-10-28: a broken connection is a block in the briefing, and a missing row does not prove a disconnect
+
+**Status.** Proposed. Not built.
+
+### What happened
+
+Three facts from production on 2026-10-28 show that the two surfaces did not reach the user.
+
+- **The rows that prove a break were deleted.** The October 2026 key rotation used the lost-key path of the vault runbook (`docs/runbooks/oauth-credential-vault-rollout.md`), which runs `delete from integration_credentials`. That removed the GitHub App row and its `installation_id`. The GitHub adapter then had no row with an installation id, so it read `never_connected`, and the alert rule stayed silent. GitHub App webhook rows stopped on 2026-10-22. `email_sends` holds zero `delivery_alert` rows. Neither the banner nor the sweep spoke.
+- **An MCP connection showed `ready` with secrets that do not open.** The Sentry MCP row kept `status = 'ready'` after the rotation. Its sealed OAuth secrets did not open with the current key. The OAuth provider finds that only when a call uses the connection (`mcp_oauth_credential_unopenable`, `connections/mcp/oauth.ts`). No call used it for weeks, so nothing found it. This ADR does not fold MCP connections at all.
+- **The briefing said that it saw everything.** The 2026-10-28 morning briefing could not check three loops. A dry run over the same window wrote "Nothing new overnight needs your attention." The briefing claimed a complete view while one delivery source and one MCP connection were dark.
+
+The banner waits for the user to open the app. The weekly email waits for a verdict that the rule can see. The briefing is the one surface that the user reads every day, and it was the surface that this ADR kept silent.
+
+### Decisions
+
+1. **The briefing carries one fixed block for broken connections.** This reverses "never a briefing line" for this case only. The banner and the weekly email do not change. The block is not composer prose. The send step renders it from the alert rule's output, below the body, in the morning and the evening template. The composer cannot drop it, change its words, or move it. The block has one row per integration: the display name, the verdict's sentence, and the connect link that the banner uses. The block shows the same set that the banner and the sweep show, because all three call the same rule (extended by items 4 and 5). The composer also receives the list as a fact, so that its prose does not claim a complete view. The block does not depend on the composer. ADR-0117 generalizes this block to every briefing input. Broken connections are its first producer.
+2. **A broken connection stops a quiet morning.** `isQuietMorning` (`briefings/read.ts`) gets the count of alertable connections. A count above zero sends the morning. The block repeats each day that the break continues. A briefing that cannot see a source must say so on each day that it cannot see it. To stop the block, the user reconnects or disconnects.
+3. **A missing credential row does not prove that the user disconnected.** This ADR reads "a non-null `installation_id` on any row" as the durable record that deliveries flowed. An operator action must not erase that record.
+   - **The operator path keeps the row.** A lost key or a key rotation sets `status = 'needs_reauth'` and clears the sealed secrets. It does not delete the row. This needs `access_token` to be nullable when the status is not `active`, with a CHECK that keeps it required for an `active` row. The runbook's lost-key step changes to match.
+   - **A user disconnect still deletes the row.** `deleteIntegrationCredential` (`packages/integrations/src/shared/credentials.ts`) does not change. So "no row" keeps one meaning: the user never connected, or the user chose to disconnect. The rule stays silent for both.
+4. **The rule folds MCP connections.** An MCP connection is alertable when its status is `auth_required` or `failed`, or when its sealed OAuth secrets do not open with the current key. The second check is local and makes no network call. It is the same test that the OAuth provider runs before a call. The sweep, the briefing gather, and the integration-status read run it, so a connection that no call uses cannot stay `ready` with dead secrets. The recovery is a new consent for that connection. The row shows the connection's label.
+5. **The briefing gather closes the #1033 residual risk for GitHub.** **Residual risk** below says that a correct GitHub check needs a GitHub API call, and that the call does not belong in the tile read. The morning gather already makes that call: the merged-pull read of the ADR-0062 amendment of 2026-10-27. When that read proves a merge in a repository that delivered App webhooks before, and no App delivery for that repository arrived in the window, GitHub App delivery is `broken` with recovery `connect github`. This is a fact from two reads, not a guess. The condition "a repository that delivered webhooks before" stops a false alert for a repository where the App was never installed. This verdict appears in the briefing block only, because only the gather makes the read.
+
+### Which breaks Alfred can know
+
+| Break | Signal | Who is told |
+| --- | --- | --- |
+| A GitHub row with an installation id that is no longer active | the credential row | user (already) |
+| A Gmail watch that lapsed | ingestion state | user (already) |
+| An operator removed the credentials | the kept `needs_reauth` row (item 3) | user, after item 3 |
+| MCP secrets that do not open | the local envelope test (item 4) | user |
+| An MCP connection in `auth_required` or `failed` | `mcp_connections.status` (item 4) | user |
+| The App is installed but its credential is lost or does not match (#1033) | merges with no deliveries (item 5) | user, in the briefing |
+| A delivery names an installation that no row owns | `ingress.no_owner` (#1583) | operator only; the delivery names no user |
+| The user disconnected on purpose | no row | nobody, by design |
+
+### Why the old reasons against the briefing do not hold here
+
+- *The briefing suppresses a quiet morning.* Item 2 removes that path. A broken connection is a reason to send.
+- *A broken subscription needs a button, not prose.* The block is a rendered row with a link, not a sentence in the narrative.
+- *A report of its own blindness asks the user to trust the rest of the page.* The opposite happened. The briefing told the user that nothing needed them while it was blind. A row that names the dark source makes the rest of the page honest.
+
+### Rejected alternatives
+
+- **Infer "connected once" from provider data**, for example `integration_objects` or `documents` rows from that provider. Those rows stay after a deliberate disconnect too, so the rule would alert after a real disconnect.
+- **A disconnect tombstone table.** It records the same fact as a kept row with a status, and it can disagree with the credential table. Item 3 keeps one source.
+- **Composer prose for the block.** On 2026-10-28 the composer dropped an open item because a rule told it to drop rows it could not check. A block that the template renders cannot be dropped.
+- **A daily delivery email in place of the block.** It adds a second daily email beside the briefing. The block costs no new send.
+
+### Preserved behavior
+
+The cause vocabulary, the three-arm `EventDeliveryFailure` union, workflow readiness, and the banner and the email keep their behavior. Sentry's two operator-only `broken` arms stay silent. The 2026-09-12 condition stays: an instance does not ask for a repair that it cannot perform. A user disconnect still deletes the credential row.
+
+### Residual risk
+
+- The block repeats daily. A user who keeps a broken connection on purpose sees it each day until they disconnect.
+- Item 5 also fires when GitHub itself stops sending webhooks. The row is still true: Alfred did not receive GitHub activity.
+- Item 5 runs only when the gather makes the merged-pull read. The evening slot and a failed read fall back to items 3 and 4.
+
+### Implementation slices
+
+1. The briefing block and the quiet-morning input (items 1 and 2).
+2. The MCP fold (item 4).
+3. The merges-with-no-deliveries verdict (item 5).
+4. The kept-row operator path: the `access_token` CHECK migration, the rotation path, and the runbook (item 3).
 
 ## Where the code lives
 
