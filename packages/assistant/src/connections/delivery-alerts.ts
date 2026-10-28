@@ -16,10 +16,10 @@ import type { EventDeliveryFailure } from "./ingress/descriptor";
 import { logger } from "@alfred/logging";
 
 /**
- * Which delivery failures to show a person (ADR-0100). The banner and the email both use this.
- * A verdict must be `broken`, have a `connect` recovery to a live integration,
- * not duplicate a reconnect nag ({@link nagsOwnCredential}), and be repairable
- * on this instance ({@link unrepairableHere}).
+ * Which delivery failures to show a person (ADR-0100). The banner, the sweep email, and the
+ * briefing block all use this. A verdict must be `broken`, have a `connect` recovery to a live
+ * integration, and be repairable on this instance ({@link unrepairableHere}). The banner and the
+ * sweep also drop a duplicate of a reconnect nag ({@link nagsOwnCredential}).
  * Covers every `EventSource`, not only inbound ones: Gmail watch lapses are a real incident class.
  */ export interface DeliveryAlertVerdict {
   /** Server-side only: keys the email repeat window. */
@@ -28,14 +28,33 @@ import { logger } from "@alfred/logging";
   reason: string;
 }
 
-/** Broken sources the user can restore. `rows` is the caller's credential read, so no extra query. */
+/**
+ * Broken sources the user can restore, for the banner and the sweep. Drops an integration that a
+ * credential banner already nags about ({@link nagsOwnCredential}), so one screen asks once.
+ * `rows` is the caller's credential read, so no extra query.
+ */
 export async function readDeliveryAlerts(
   userId: string,
   rows: CredentialRowsByProvider,
   now: Date = new Date(),
 ): Promise<DeliveryAlertVerdict[]> {
-  const health = await readEventSourceHealth(userId, rows, now);
   const suppressed = nagsOwnCredential(rows);
+  const verdicts = await readBrokenConnections(userId, rows, now);
+
+  return verdicts.filter((verdict) => !suppressed.has(verdict.integration));
+}
+
+/**
+ * The same rule without the credential-nag dedup. The briefing reads this: an email has no
+ * credential banner beside it, so a dedup there would hide the break (ADR-0100 amendment
+ * 2026-10-28). A read fault throws; the caller decides what a fault means.
+ */
+export async function readBrokenConnections(
+  userId: string,
+  rows: CredentialRowsByProvider,
+  now: Date = new Date(),
+): Promise<DeliveryAlertVerdict[]> {
+  const health = await readEventSourceHealth(userId, rows, now);
   const unrepairable = unrepairableHere();
 
   return EVENT_SOURCES.flatMap((source): DeliveryAlertVerdict[] => {
@@ -47,7 +66,7 @@ export async function readDeliveryAlerts(
         : eventDeliveryRows(rows, entry.accounts).map(entry.healthOf);
 
     return verdicts.flatMap((verdict) =>
-      verdict.healthy ? [] : alertable(source, verdict, suppressed, unrepairable),
+      verdict.healthy ? [] : alertable(source, verdict, unrepairable),
     );
   });
 }
@@ -55,7 +74,6 @@ export async function readDeliveryAlerts(
 function alertable(
   source: EventSource,
   verdict: EventDeliveryFailure,
-  suppressed: ReadonlySet<LiveProviderSlug>,
   unrepairable: ReadonlySet<LiveProviderSlug>,
 ): DeliveryAlertVerdict[] {
   if (verdict.cause !== "broken") return [];
@@ -64,8 +82,6 @@ function alertable(
   const { integration } = verdict.recovery;
 
   if (!isLiveProviderSlug(integration)) return [];
-
-  if (suppressed.has(integration)) return [];
 
   if (unrepairable.has(integration)) return [];
 

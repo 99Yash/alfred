@@ -19,18 +19,26 @@ import {
 import { send } from "@alfred/assistant/delivery";
 import { emailLogoUrl } from "@alfred/assistant/settings";
 import type { StepContext, StepResult } from "@alfred/assistant/execution";
+import { readBriefingBrokenConnections } from "@alfred/assistant/connections";
 import {
+  briefingClosedLoopSchema,
+  briefingLoopRelevanceSchema,
+  dayShapeSchema,
+  deliveryAlertSchema,
+  ianaTimezoneSchema,
+  INTEGRATION_DISPLAY_NAMES,
+  integrationConnectPath,
   type BriefingClosedLoop,
   type BriefingGather,
   type BriefingLoopRelevance,
-  type DayShape,
-  type IanaTimezone,
+  type DeliveryAlert,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
-import { renderBriefingEmail } from "@alfred/mailer";
+import { renderBriefingEmail, type BriefingBlockRow } from "@alfred/mailer";
 import { eq } from "drizzle-orm";
+import { z } from "zod";
 import { runBriefingAgent } from "./agent/agent";
 import {
   auditComposedBriefing,
@@ -54,30 +62,40 @@ import {
  * Morning may suppress; evening and manual runs always send.
  */
 
-export interface DailyBriefingOperationState {
-  slot: "morning" | "evening";
-  reason: "cron" | "manual" | "forced";
-  dryRun: boolean;
-  briefingDate?: string;
-  timezone?: IanaTimezone;
-  recipientName?: string | null;
-  sinceIngestedAt?: string | null;
-  untilIngestedAt?: string;
-  briefingId?: string;
-  quietDay?: boolean;
-  closedLoops: BriefingClosedLoop[];
+/** The workflow's persisted state. The workflow parses with it; the steps read its output. */
+export const dailyBriefingStateSchema = z.object({
+  slot: z.enum(["morning", "evening"]),
+  reason: z.enum(["cron", "manual", "forced"]),
+  dryRun: z.boolean().default(false),
+  briefingDate: z.string().optional(),
+  timezone: ianaTimezoneSchema.optional(),
+  recipientName: z.string().nullable().optional(),
+  sinceIngestedAt: z.string().nullable().optional(),
+  untilIngestedAt: z.string().optional(),
+  briefingId: z.string().optional(),
+  quietDay: z.boolean().optional(),
+  closedLoops: z.array(briefingClosedLoopSchema).default([]),
   /** Non-closing relevance verdicts for the live priority loops. */
-  loopRelevance: BriefingLoopRelevance[];
+  loopRelevance: z.array(briefingLoopRelevanceSchema).default([]),
   /** The gathered day shape. Compose reads it, so the agent does not repeat the GitHub read. */
-  dayShape?: DayShape | undefined;
-  composed?: {
-    subject: string;
-    bodyText: string;
-    bodyMarkdown: string;
-    citedDocumentIds: string[];
-    modelId: string;
-  };
-}
+  dayShape: dayShapeSchema.optional(),
+  /**
+   * Connections whose delivery broke (ADR-0100 amendment 2026-10-28). Send renders them in a
+   * fixed block. Absent on a run persisted before this field; send then renders none.
+   */
+  brokenConnections: z.array(deliveryAlertSchema).optional(),
+  composed: z
+    .object({
+      subject: z.string(),
+      bodyText: z.string(),
+      bodyMarkdown: z.string(),
+      citedDocumentIds: z.array(z.string()),
+      modelId: z.string(),
+    })
+    .optional(),
+});
+
+export type DailyBriefingOperationState = z.infer<typeof dailyBriefingStateSchema>;
 
 export async function runDailyBriefingGather<State extends DailyBriefingOperationState>(
   ctx: StepContext<State>,
@@ -125,9 +143,23 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
   if (begun.action === "resume" && begun.row.status === "composed") {
     const { breakingSummary, fullBriefing, watermarkAt } = begun.row;
 
+    // The gather did not run, so read the block rows now. Prose composed against another set
+    // can contradict the block ("nothing needs attention" above a new break), so a changed set
+    // falls through to a fresh compose, as a legacy row does.
+    const brokenConnections = await readBriefingBrokenConnections(ctx.userId);
+    const composedAgainst = begun.row.gather?.broken_connections ?? [];
+    const sameConnections = sameIntegrations(brokenConnections, composedAgainst);
+
+    if (!sameConnections) {
+      await ctx.log(
+        `gather: resume composed briefing id=${begun.row.id} — broken connections changed ` +
+          `(composed=${integrationList(composedAgainst)} now=${integrationList(brokenConnections)}); recomposing`,
+      );
+    }
+
     // Send needs the frozen window end too, so the watermark stops where the prose stops (#158).
     // A row without it (legacy) falls through to a fresh compose.
-    if (breakingSummary && fullBriefing && watermarkAt) {
+    if (breakingSummary && fullBriefing && watermarkAt && sameConnections) {
       await ctx.log(
         `gather: resume composed briefing id=${begun.row.id} — skipping to send ` +
           `(reuse prose, watermark=${watermarkAt.toISOString()})`,
@@ -140,6 +172,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
           briefingId: begun.row.id,
           briefingDate,
           timezone,
+          brokenConnections,
           // `bodyText` and citations are not persisted, so reuse the markdown and no citations.
           // Use the frozen window end, not now.
           untilIngestedAt: watermarkAt.toISOString(),
@@ -203,13 +236,14 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
     activityCount: counts.activity,
     githubMergedTotal: gather.day_shape?.shippedTotal,
     meetingCount: counts.meetings,
+    brokenConnectionCount: gather.broken_connections?.length ?? 0,
   });
 
   await ctx.log(
     `gather: id=${begun.row.id} action=${begun.action} tz=${timezone} date=${briefingDate} ` +
       `since=${since ? since.toISOString() : "(first run)"} until=${until.toISOString()} ` +
       `email=${counts.email} demanding=${demandingEmailCount ?? "n/a"} topBand=${gather.day_shape?.topEmailBand ?? "n/a"} ` +
-      `activity=${counts.activity} meetings=${counts.meetings} quiet=${quietDay}${instructionSuppressionLogPart(suppressedByInstruction)}`,
+      `activity=${counts.activity} meetings=${counts.meetings} broken=${gather.broken_connections?.length ?? 0} quiet=${quietDay}${instructionSuppressionLogPart(suppressedByInstruction)}`,
   );
 
   return {
@@ -226,6 +260,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
       closedLoops,
       loopRelevance,
       dayShape: gather.day_shape,
+      brokenConnections: gather.broken_connections ?? [],
     },
     nextStep: "compose",
   };
@@ -295,6 +330,7 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
         closedLoops: ctx.state.closedLoops,
         loopRelevance: ctx.state.loopRelevance,
         dayShape: ctx.state.dayShape,
+        brokenConnections: ctx.state.brokenConnections ?? [],
         ...(openAskViolations ? { openAskViolations } : {}),
       });
     };
@@ -450,6 +486,8 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
 
   // `@alfred/mailer` owns all styling; the model only writes markdown.
   const webOrigin = serverEnv().CORS_ORIGIN.replace(/\/$/, "");
+  const apiOrigin = serverEnv().BETTER_AUTH_URL.replace(/\/$/, "");
+  const blockRows = toBlockRows(ctx.state.brokenConnections ?? [], apiOrigin);
 
   const html = await renderBriefingEmail({
     content: body.bodyMarkdown,
@@ -460,6 +498,7 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
     // Link to the day's full briefing (ADR-0049), not to chat.
     ctaUrl: `${webOrigin}/briefings/${briefingDate}`,
     ctaLabel: "View full briefing",
+    blockRows,
   });
 
   const result = await send({
@@ -468,7 +507,7 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
     idempotencyKey,
     subject: body.subject,
     html,
-    text: body.bodyText,
+    text: appendBlockText(body.bodyText, blockRows),
     payload: {
       briefingId,
       briefingDate,
@@ -525,6 +564,49 @@ export async function runDailyBriefingSend<State extends DailyBriefingOperationS
       slot: ctx.state.slot,
     },
   };
+}
+
+/**
+ * The fixed block's rows. The template renders them below the prose, so the composer
+ * cannot drop or reword them (ADR-0100 amendment 2026-10-28). The link is the banner's
+ * connect route on the API origin: one click starts the repair.
+ */
+function toBlockRows(connections: readonly DeliveryAlert[], apiOrigin: string): BriefingBlockRow[] {
+  return connections.map((connection) => {
+    const name = INTEGRATION_DISPLAY_NAMES[connection.integration];
+
+    return {
+      name,
+      sentence: connection.reason,
+      actionLabel: `Reconnect ${name}`,
+      actionUrl: `${apiOrigin}${integrationConnectPath(connection.integration)}`,
+    };
+  });
+}
+
+/** The same block, for the plain-text part. */
+function appendBlockText(bodyText: string, rows: readonly BriefingBlockRow[]): string {
+  if (rows.length === 0) return bodyText;
+
+  const lines = rows.map(
+    (row) => `${row.name}: ${row.sentence}. ${row.actionLabel}: ${row.actionUrl}`,
+  );
+
+  return [bodyText, "", "Alfred stopped receiving updates from these connections:", ...lines].join(
+    "\n",
+  );
+}
+
+/** Order-free: the composer fact names integrations, so only the set matters. */
+function sameIntegrations(a: readonly DeliveryAlert[], b: readonly DeliveryAlert[]): boolean {
+  const left = new Set(a.map((alert) => alert.integration));
+  const right = new Set(b.map((alert) => alert.integration));
+
+  return left.size === right.size && [...left].every((slug) => right.has(slug));
+}
+
+function integrationList(alerts: readonly DeliveryAlert[]): string {
+  return alerts.length === 0 ? "none" : alerts.map((alert) => alert.integration).join(",");
 }
 
 function uniqueStrings(values: readonly string[]): string[] {

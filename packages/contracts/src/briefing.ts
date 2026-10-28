@@ -6,6 +6,7 @@ import { attentionBandSchema } from "./attention";
 import { LOOP_CLOSING_STATE_CATEGORIES } from "./integration-objects";
 import { triageCategorySchema } from "./triage";
 import { isIntegrationSlug } from "./integrations";
+import { deliveryAlertSchema } from "./integration-status";
 
 // ─── Sources + reference kinds ────────────────────────────────────────────
 
@@ -327,6 +328,12 @@ export const briefingGatherSchema = z.object({
   day_of_week: dayOfWeekContributionSchema,
   /** Optional, so older gathers parse. Absence is not an error. */
   day_shape: dayShapeSchema.optional(),
+  /**
+   * Connections whose delivery broke and that the user can repair (ADR-0100 amendment
+   * 2026-10-28). A delivery fact, not proof that the gathered data is missing: a lapsed Gmail
+   * watch still has the history poll. Optional, so older gathers parse. Absent reads as none.
+   */
+  broken_connections: z.array(deliveryAlertSchema).optional(),
 });
 
 export const fullBriefingSectionSchema = z.object({

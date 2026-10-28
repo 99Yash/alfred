@@ -120,6 +120,14 @@ export function integrationRoutePrefix<P extends CredentialProvider>(
   return `/api/integrations/${provider}`;
 }
 
+/**
+ * The full-grant connect route that a reconnect opens (ADR-0044). The delivery-alert banner and
+ * the briefing block both link here (ADR-0100). A `token_paste` credential POSTs here instead.
+ */
+export function integrationConnectPath(slug: LiveProviderSlug): string {
+  return `${integrationRoutePrefix(credentialProviderOf(slug))}/connect`;
+}
+
 /** Distinct providers in slug order. `google` appears once. */
 export const CREDENTIAL_PROVIDERS: readonly CredentialProvider[] = [
   ...new Set(LIVE_PROVIDER_SLUGS.map(credentialProviderOf)),

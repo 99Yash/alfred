@@ -1,6 +1,6 @@
 # ADR-0100 — A delivery alert is a banner and one email, never a briefing line
 
-**Status.** Accepted (issue #1035, PR #1038). Motivated by incident #1033. Refines ADR-0097 item 5. Amends nothing in ADR-0048. **Amended 2026-10-28 (proposed):** a broken connection is also a fixed block in the briefing, and a broken connection stops a quiet morning. See the amendment of that date; it reverses "never a briefing line" for this case only.
+**Status.** Accepted (issue #1035, PR #1038). Motivated by incident #1033. Refines ADR-0097 item 5. Amends nothing in ADR-0048. **Amended 2026-10-28 (accepted; slice 1 built):** a broken connection is also a fixed block in the briefing, and a broken connection stops a quiet morning. See the amendment of that date; it reverses "never a briefing line" for this case only.
 
 **Decision.** An event source that stopped delivering reaches the user through two surfaces: a live app banner, and at most one pushed `delivery_alert` email per source per week. It never reaches the user through the morning or evening briefing. A delivery verdict names a cause. Only the cause `broken`, with a recovery the user can perform, and with no other surface already asking for the same click, is alertable. Every other verdict is operator text and stays in the log.
 
@@ -58,7 +58,7 @@ The fix is a **fourth alert condition**, not a change to the verdict: `unrepaira
 
 ## Amendment — 2026-10-28: a broken connection is a block in the briefing, and a missing row does not prove a disconnect
 
-**Status.** Proposed. Not built.
+**Status.** Accepted. Slice 1 is built (items 1 and 2): `gather.broken_connections`, `isQuietMorning`'s `brokenConnectionCount`, and the `BriefingBlockRow` block in the briefing template. Slices 2 to 4 are not built. Item 1 was revised on the same day after review; see **Revision to item 1**.
 
 ### What happened
 
@@ -73,6 +73,14 @@ The banner waits for the user to open the app. The weekly email waits for a verd
 ### Decisions
 
 1. **The briefing carries one fixed block for broken connections.** This reverses "never a briefing line" for this case only. The banner and the weekly email do not change. The block is not composer prose. The send step renders it from the alert rule's output, below the body, in the morning and the evening template. The composer cannot drop it, change its words, or move it. The block has one row per integration: the display name, the verdict's sentence, and the connect link that the banner uses. The block shows the same set that the banner and the sweep show, because all three call the same rule (extended by items 4 and 5). The composer also receives the list as a fact, so that its prose does not claim a complete view. The block does not depend on the composer. ADR-0117 generalizes this block to every briefing input. Broken connections are its first producer.
+
+   **Revision to item 1 (2026-10-28, after review of slice 1).** Five points of item 1 change.
+   - **The set.** The block does not apply the banner's credential-nag dedup (`nagsOwnCredential`). That dedup exists because a credential banner on the same screen already asks for the same click. The email has no such banner. Example: an inactive GitHub App row with an `installation_id`, beside an active OAuth row without one. GitHub delivery is `broken`, the reconnect banner covers it in the app, and the dedup removed it from the briefing. So the block reads `readBrokenConnections`, which is the rule without the dedup. The banner and the sweep keep the dedup.
+   - **The claim.** A broken delivery does not prove that the gathered data is missing. A lapsed Gmail watch still has the history poll, so the briefing can show current mail. The block therefore says "Alfred stopped receiving updates from these connections", not "Alfred cannot see these sources". The composer fact says the same, and it tells the composer not to claim a complete view of those sources. The gather field is `broken_connections`, not an ADR-0117 `unavailable` input. ADR-0117 can mark an input `unavailable` only when the gather proves missing coverage.
+   - **A failed read.** The banner reads an alert fault as no alerts, so that one fault does not blank every tile. The briefing must not do that: an empty list lets a quiet morning suppress a briefing that could not check its connections. The briefing read throws, the gather marks the row `failed`, and the next run retries it.
+   - **The link.** The row links to the banner's connect route (`integrationConnectPath` on the API origin), as item 1 states. The weekly sweep email still links to the integration page.
+   - **A resumed send.** A run that resumes from a `composed` row reads the set again. When the set differs from the set that the gather stored for that compose, the run composes again, so the prose cannot contradict the block.
+
 2. **A broken connection stops a quiet morning.** `isQuietMorning` (`briefings/read.ts`) gets the count of alertable connections. A count above zero sends the morning. The block repeats each day that the break continues. A briefing that cannot see a source must say so on each day that it cannot see it. To stop the block, the user reconnects or disconnects.
 3. **A missing credential row does not prove that the user disconnected.** This ADR reads "a non-null `installation_id` on any row" as the durable record that deliveries flowed. An operator action must not erase that record.
    - **The operator path keeps the row.** A lost key or a key rotation sets `status = 'needs_reauth'` and clears the sealed secrets. It does not delete the row. This needs `access_token` to be nullable when the status is not `active`, with a CHECK that keeps it required for an `active` row. The runbook's lost-key step changes to match.

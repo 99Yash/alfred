@@ -1,8 +1,7 @@
 import {
   CATALOG_SLUGS,
-  credentialProviderOf,
   INTEGRATIONS,
-  integrationRoutePrefix,
+  integrationConnectPath,
   isBuiltInMCPProvider,
   isCatalogSlug,
   recordFromKeys,
@@ -388,7 +387,7 @@ export function matchesIntegration(page: IntegrationPage, query: string): boolea
  * asks only for its scopes. A `token_paste` credential POSTs here instead of redirecting.
  */
 export function connectPathFor(slug: LiveProviderSlug): string {
-  const path = `${integrationRoutePrefix(credentialProviderOf(slug))}/connect`;
+  const path = integrationConnectPath(slug);
   const credential = INTEGRATIONS[slug].credential;
 
   return credential.shape === "google_oauth"

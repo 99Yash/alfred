@@ -42,6 +42,7 @@ import {
   firstClosingObject,
   objectStateStore,
   proposeReconcileCandidates,
+  readBriefingBrokenConnections,
   reconcileEvidence,
   type ObjectState,
   type ReconcileCandidates,
@@ -571,7 +572,7 @@ export async function gatherBriefingWithSuppressionAudit(
   // Activity uses the email window.
   const activityStart = args.windowStart ?? new Date(windowEnd.getTime() - 24 * 60 * 60 * 1000);
 
-  const [digest, calendar, weather, integrationActivity] = await Promise.all([
+  const [digest, calendar, weather, integrationActivity, brokenConnections] = await Promise.all([
     gatherBriefingDigest({
       userId: args.userId,
       windowStart: args.windowStart,
@@ -593,6 +594,7 @@ export async function gatherBriefingWithSuppressionAudit(
       windowStart: activityStart,
       windowEnd,
     }),
+    readBriefingBrokenConnections(args.userId),
   ]);
 
   const categories: BriefingGather["email"]["categories"] = {};
@@ -653,6 +655,7 @@ export async function gatherBriefingWithSuppressionAudit(
         demandingEmailCount: emailDemand.demandingCount,
         topEmailBand: emailDemand.topBand,
       },
+      broken_connections: brokenConnections,
     },
     suppressedByInstruction: digest.suppressedByInstruction,
     closedLoops: digest.closedLoops,

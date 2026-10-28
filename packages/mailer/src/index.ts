@@ -1,4 +1,9 @@
-export { BriefingEmail, renderBriefingEmail, type BriefingEmailProps } from "./emails/briefing";
+export {
+  BriefingEmail,
+  renderBriefingEmail,
+  type BriefingBlockRow,
+  type BriefingEmailProps,
+} from "./emails/briefing";
 
 export {
   ApprovalEmail,

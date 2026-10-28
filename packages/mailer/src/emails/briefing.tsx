@@ -5,6 +5,19 @@ import { bodyStyles, EmailShell } from "./_shell";
 
 /** The briefing email. The agent writes markdown; this template owns all styling. */
 
+/**
+ * One row of the fixed block below the prose: a connection whose delivery broke, and the action
+ * that restores it (ADR-0100 amendment 2026-10-28). The composer never writes these.
+ */
+export interface BriefingBlockRow {
+  /** Integration display name. */
+  name: string;
+  /** One clause from the health check, written for the user, with no final period. */
+  sentence: string;
+  actionLabel: string;
+  actionUrl: string;
+}
+
 export interface BriefingEmailProps {
   /** Body markdown. */
   content?: string;
@@ -20,6 +33,8 @@ export interface BriefingEmailProps {
   ctaUrl?: string;
   /** Defaults to "Open Alfred". */
   ctaLabel?: string;
+  /** The fixed block. Rendered below the body; empty or absent renders nothing. */
+  blockRows?: readonly BriefingBlockRow[];
 }
 
 const DEFAULT_CONTENT = `Good morning, Yash.
@@ -36,6 +51,7 @@ export const BriefingEmail = ({
   previewText = "Your briefing is ready",
   ctaUrl,
   ctaLabel = "Open Alfred",
+  blockRows = [],
 }: BriefingEmailProps): React.ReactElement => {
   return (
     <EmailShell
@@ -64,7 +80,41 @@ export const BriefingEmail = ({
       >
         {content}
       </Markdown>
+      {blockRows.length > 0 ? <BrokenConnectionBlock rows={blockRows} /> : null}
     </EmailShell>
+  );
+};
+
+const BrokenConnectionBlock = ({
+  rows,
+}: {
+  rows: readonly BriefingBlockRow[];
+}): React.ReactElement => {
+  return (
+    <div
+      style={{
+        background: "#fff7ed",
+        border: "1px solid #fed7aa",
+        borderRadius: "8px",
+        padding: "12px 16px",
+        margin: "8px 0 0 0",
+      }}
+    >
+      <p style={{ ...bodyStyles.strong, fontSize: "14px", margin: "0 0 8px 0" }}>
+        Alfred stopped receiving updates from these connections
+      </p>
+      {rows.map((row) => (
+        <p
+          key={row.name}
+          style={{ color: "#374151", fontSize: "14px", lineHeight: "1.6", margin: "0 0 4px 0" }}
+        >
+          <strong style={bodyStyles.strong}>{row.name}:</strong> {row.sentence}.{" "}
+          <a href={row.actionUrl} style={bodyStyles.link}>
+            {row.actionLabel}
+          </a>
+        </p>
+      ))}
+    </div>
   );
 };
 
