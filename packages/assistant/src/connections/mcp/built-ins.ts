@@ -78,7 +78,7 @@ type BuiltInDefinition = {
   /**
    * Baseline scopes for every authorize. Pinned because servers hide tools the
    * token lacks scope for, and the protocol never says so.
-   * {@link mcpConsentAsk} unions this with granted and demanded scopes.
+   * {@link mcpConsentAsk} adds the granted and demanded scopes only on a step-up.
    */
   readonly scopes: readonly string[];
   /**

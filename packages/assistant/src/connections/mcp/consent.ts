@@ -31,8 +31,11 @@ export interface McpConsentAsk {
 }
 
 /**
- * Union the registry baseline, granted, and demanded scopes.
+ * Ask for the registry baseline, plus the demanded scopes on a step-up.
  * The baseline is derived, not stored: servers hide tools the token lacks scope for.
+ * A step-up also asks for the grant again, so the new token does not lose what the old one held.
+ * A plain reconnect does not: a server that picks its own scopes can retire one later and
+ * then refuses the whole ask with `invalid_scope` (Polylane dropped `datasets:*`).
  * Force consent when the ask exceeds the grant, or the SDK's `auth()` would just
  * refresh the narrow token and never ask.
  */
@@ -40,11 +43,12 @@ export function mcpConsentAsk(
   connection: McpConsentConnection,
   options: { readonly forced: boolean },
 ): McpConsentAsk {
+  const stepUp = connection.requiredScopes.length > 0;
+
   const scopes = [
     ...new Set([
       ...builtInAuthorizationScopes(connection.server.endpointUrl),
-      ...connection.grantedScopes,
-      ...connection.requiredScopes,
+      ...(stepUp ? [...connection.grantedScopes, ...connection.requiredScopes] : []),
     ]),
   ];
 
