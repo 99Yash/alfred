@@ -146,15 +146,18 @@ export function briefingReference(kind: BriefingReferenceKind, id: string): Brie
 
 export interface GmailThreadLink {
   threadId: string;
-  /** Account email of the connection that holds the thread. Absent or null: `/mail/u/0/`. */
+  /** Account email of the connection that holds the thread. Absent or null: Gmail's default account. */
   mailbox?: string | null | undefined;
 }
 
-/** The one Gmail thread link. Names the mailbox when the caller knows it, so Gmail opens that account. */
+/**
+ * The one Gmail thread link. Names the mailbox when the caller knows it, so Gmail opens that account.
+ * `?authuser=` and not `/mail/u/<email>/`: Gmail serves an error page for the email path form.
+ */
 export function gmailThreadUrl({ threadId, mailbox }: GmailThreadLink): string {
-  const account = mailbox ? encodeURIComponent(mailbox) : "0";
+  const account = mailbox ? `?authuser=${encodeURIComponent(mailbox)}` : "";
 
-  return `https://mail.google.com/mail/u/${account}/#all/${encodeURIComponent(threadId)}`;
+  return `https://mail.google.com/mail/u/0/${account}#all/${encodeURIComponent(threadId)}`;
 }
 
 function buildReferenceEntityMap(gather: BriefingGather): Map<BriefingReference, ReferenceEntity> {

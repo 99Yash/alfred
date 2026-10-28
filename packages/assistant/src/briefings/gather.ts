@@ -33,7 +33,6 @@ import { integrations } from "@alfred/integrations";
 import {
   type CalendarEvent,
   GoogleCredentialSelectionError,
-  listCredentials,
   type GoogleCredential,
   type TriageCategory,
 } from "@alfred/integrations/google";
@@ -58,7 +57,7 @@ import {
   type GithubMergedReadOutcome,
   type VerifiedPullTriggerItem,
 } from "@alfred/assistant/connections/verified-pull";
-import { type UserSettings } from "@alfred/assistant/settings";
+import { type UserSettings, userIdentity } from "@alfred/assistant/settings";
 import { getMcpExecutionBroker } from "@alfred/assistant/tool-runtime/mcp";
 import { senderSuppressions } from "../knowledge";
 import {
@@ -214,7 +213,7 @@ export async function gatherBriefingDigest(
   const maxPerBucket = args.maxPerBucket ?? DEFAULT_MAX_PER_BUCKET;
 
   // One query, then partition in JS.
-  const [rows, suppressions, googleCredentials] = await Promise.all([
+  const [rows, suppressions, identity] = await Promise.all([
     db()
       .select({
         // `emailTriage.documentId` can dangle after a purge; the joined id cannot.
@@ -243,10 +242,8 @@ export async function gatherBriefingDigest(
       )
       .orderBy(desc(documents.authoredAt)),
     senderSuppressions({ userId: args.userId, onReadFailure: "throw" }),
-    listCredentials(args.userId, "google"),
+    userIdentity({ userId: args.userId }),
   ]);
-
-  const mailboxByAccountId = new Map(googleCredentials.map((c) => [c.accountId, c.accountLabel]));
 
   const newPriorityBucket = (): BriefingItem[] => [];
 
@@ -318,7 +315,7 @@ export async function gatherBriefingDigest(
       snippet: meta.snippet ?? null,
       authoredAt: r.authoredAt,
       threadId: r.sourceThreadId,
-      mailbox: r.accountId ? (mailboxByAccountId.get(r.accountId) ?? null) : null,
+      mailbox: r.accountId ? (identity.mailboxByAccountId.get(r.accountId) ?? null) : null,
     });
 
     // Propose keys here, while the body is in hand, so content never reaches the resolve phase.

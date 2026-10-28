@@ -24,7 +24,6 @@ import {
   extractMessageHtml,
   GoogleCredentialSelectionError,
   gmailMailbox,
-  listCredentials,
   parseStoredGmailMessage,
   type ExtractedAttachment,
   type GoogleCredential,
@@ -49,7 +48,7 @@ import { createRedisConnection, type BoundedRedis } from "@alfred/db/redis";
 import { resolveBriefingPreferences } from "@alfred/assistant/briefings/preferences";
 import { enqueueBriefingRun } from "@alfred/assistant/briefings/queue";
 import { notSentGmailDocumentWhere } from "@alfred/assistant/triage/sent-mail";
-import { settings } from "@alfred/assistant/settings";
+import { settings, userIdentity } from "@alfred/assistant/settings";
 import { inZone } from "@alfred/assistant/time";
 import { sanitizeEmailHtml } from "@alfred/assistant/triage/email-html";
 import {
@@ -220,13 +219,6 @@ function resolveUsageRange(query: { start?: string; end?: string }) {
   return { start, end };
 }
 
-/** Google `sub` to the account email, from one credential read per request. */
-async function googleMailboxByAccountId(userId: string): Promise<Map<string, string | null>> {
-  const credentials = await listCredentials(userId, "google");
-
-  return new Map(credentials.map((c) => [c.accountId, c.accountLabel]));
-}
-
 export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
   .use(authMacro)
   .use(requireOnboarded)
@@ -304,7 +296,7 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
               ? encodeInboxCursor({ authoredAt: last.authoredAt, documentId: last.documentId })
               : null;
 
-          const mailboxByAccountId = await googleMailboxByAccountId(u.id);
+          const { mailboxByAccountId } = await userIdentity({ userId: u.id });
 
           const items = pageRows.map((r) => {
             const meta = parseGmailDocumentMetadata(r.metadata);
@@ -424,7 +416,8 @@ export const meRoutes = new Elysia({ prefix: "/api/me", normalize: "typebox" })
             threadRows.find((r) => r.documentId === params.documentId) ?? threadRows[0];
 
           const mailbox = selected.accountId
-            ? ((await googleMailboxByAccountId(u.id)).get(selected.accountId) ?? null)
+            ? ((await userIdentity({ userId: u.id })).mailboxByAccountId.get(selected.accountId) ??
+              null)
             : null;
 
           const detail = {
