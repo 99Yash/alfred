@@ -546,8 +546,8 @@ export const standingInstructionValueV2Schema = z
     directive: singleLineProse,
     /** Which items the instruction is about, for the triage model's match. */
     scope: singleLineProse.optional(),
-    /** Senders the words name, for the whole sender. Matched in code. */
-    targets: z.array(standingInstructionTargetSchema),
+    /** Senders the words name, for the whole sender. Matched in code. Optional: absent is none. */
+    targets: z.array(standingInstructionTargetSchema).default([]),
     /** Senders that narrow `scope`. Never matches alone. */
     senderFilter: z.array(standingInstructionTargetSchema).optional(),
     effects: z.array(standingInstructionEffectSchema),

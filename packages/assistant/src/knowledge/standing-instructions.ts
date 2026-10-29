@@ -39,7 +39,7 @@ import { valueSignature } from "./signature";
 
 export const STANDING_INSTRUCTION_LIST_LIMIT = 100;
 
-/** A stored v1 row, for the chat management tools. They stay on v1 until v2 capture lands. */
+/** A stored v1 row, for the chat management tools. They stay on v1 until v2 capture (plan PR 4). */
 export interface ActiveSuppressionInstruction {
   factId: string;
   value: StandingInstructionValue;
@@ -809,6 +809,8 @@ interface SenderTargetHit {
 /**
  * ADR-0060 micro-decision 8, made total: the more specific hit target wins, then the newer
  * `validFrom`, then the greater `factId`. Callers already filtered on `accountId`.
+ * This holds only for lifted v1 rows. ADR-0113 counts specificity only through `exceptionOf`,
+ * so this rule changes before capture can write a v2 row (PR 4 of the step-1 plan).
  */
 function isStrongerSuppressionMatch(
   candidate: SenderTargetHit,

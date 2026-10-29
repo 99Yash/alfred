@@ -38,7 +38,7 @@ const STANDING_FLOOR_LANE_OUTCOMES = {
 
 /**
  * The user's own words for THIS sender, enforced. `instruction` is the category-lane
- * read from `gatherObservations` (`deprioritize_triage_category`), so a null here means
+ * read from `gatherObservations` (`demote_demand`), so a null here means
  * "no active instruction" AND "read failed" together — a failed read must never
  * over-suppress, and the trace's `standingInstructionCategoryReadFailed` still
  * tells the two apart.
