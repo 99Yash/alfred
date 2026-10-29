@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
+  liftStandingInstructionV1,
   normalizeEmailAddress,
   SUPPRESSION_EFFECTS,
   rememberInput,
@@ -13,7 +14,7 @@ import {
 // Internal, not in the `knowledge` barrel.
 import {
   senderSuppressionsOf,
-  type ActiveSuppressionInstruction,
+  type ActiveStandingInstruction,
 } from "@alfred/assistant/knowledge/standing-instructions";
 
 function instruction(overrides: Partial<StandingInstructionValue> = {}): StandingInstructionValue {
@@ -34,10 +35,10 @@ function instruction(overrides: Partial<StandingInstructionValue> = {}): Standin
   });
 }
 
-function active(value: StandingInstructionValue): ActiveSuppressionInstruction {
+function active(value: StandingInstructionValue): ActiveStandingInstruction {
   return {
     factId: "fact_1",
-    value,
+    value: liftStandingInstructionV1(value, "fact_1"),
     validFrom: new Date("2026-06-15T00:00:00.000Z"),
   };
 }
@@ -93,7 +94,7 @@ describe("senderSuppressions match", () => {
     );
   });
 
-  test("derives membership at read time — the stored effects array never filters", () => {
+  test("lifts a v1 row to its enforced effects — the stored v1 array never filters", () => {
     const value = instruction({ effects: ["exclude_briefing_priority"] });
     assert.equal(
       senderSuppressionsOf([active(value)]).match(

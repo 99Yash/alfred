@@ -11,10 +11,14 @@ import {
   standingInstructionScopeRelation,
   standingInstructionTargetSpecificity,
   memorySourceSchema,
+  readStoredStandingInstruction,
+  standingInstructionHasEffect,
   standingInstructionValueSchema,
   SUPPRESSION_EFFECTS,
   targetMatchesSender,
   targetNamesOneMailbox,
+  type StandingInstructionEffectKind,
+  type StandingInstructionValueV2,
   type MemorySource,
   type ObservationSource,
   type StandingInstructionDroppedInput,
@@ -23,7 +27,6 @@ import {
   type StandingInstructionTarget,
   type StandingInstructionTargetKind,
   type StandingInstructionValue,
-  type SuppressionEffect,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { sha256Canonical } from "@alfred/db/hash";
@@ -36,9 +39,17 @@ import { valueSignature } from "./signature";
 
 export const STANDING_INSTRUCTION_LIST_LIMIT = 100;
 
+/** A stored v1 row, for the chat management tools. They stay on v1 until v2 capture lands. */
 export interface ActiveSuppressionInstruction {
   factId: string;
   value: StandingInstructionValue;
+  validFrom: Date;
+}
+
+/** Any stored version, read as v2 (ADR-0113). A v1 row is lifted with the effects it enforces. */
+export interface ActiveStandingInstruction {
+  factId: string;
+  value: StandingInstructionValueV2;
   validFrom: Date;
 }
 
@@ -50,10 +61,10 @@ interface SuppressionSender {
   accountId: string | null;
 }
 
-export type SenderSuppressionMatch = ActiveSuppressionInstruction & {
+export type SenderSuppressionMatch = ActiveStandingInstruction & {
   matchedEmail: string;
-  /** Audit echo only: an active suppression binds every consumer, so the effect never filters. */
-  effect: SuppressionEffect;
+  /** The effect the consumer asked for. The matched instruction stores it. */
+  effect: StandingInstructionEffectKind;
   /** Which target kind matched. The only trace of whether a domain target ever fires. */
   matchedVia: StandingInstructionTargetKind;
 };
@@ -69,7 +80,7 @@ type LoadedSenderSuppressionOutcome = Exclude<SenderSuppressionOutcome, { kind: 
 interface SenderSuppressions<Outcome extends SenderSuppressionOutcome> {
   /** No active suppression. A failed read is never empty, so `match` still reports it. */
   readonly isEmpty: boolean;
-  match(sender: SuppressionSender, effect: SuppressionEffect): Outcome;
+  match(sender: SuppressionSender, effect: StandingInstructionEffectKind): Outcome;
 }
 
 /**
@@ -100,12 +111,12 @@ export async function senderSuppressions(args: {
   onReadFailure: "throw" | "report";
 }): Promise<ReportedSenderSuppressions | SenderSuppressions<LoadedSenderSuppressionOutcome>> {
   if (args.onReadFailure === "throw") {
-    return senderSuppressionsOf(await listActiveSuppressionInstructions(args.userId));
+    return senderSuppressionsOf(await listActiveStandingInstructions(args.userId));
   }
 
   try {
     return {
-      ...senderSuppressionsOf(await listActiveSuppressionInstructions(args.userId)),
+      ...senderSuppressionsOf(await listActiveStandingInstructions(args.userId)),
       onReadFailure: "report" as const,
     };
   } catch (error) {
@@ -119,7 +130,7 @@ export async function senderSuppressions(args: {
 
 /** Pure, for tests that build the instructions by hand. Consumers read with `senderSuppressions`. */
 export function senderSuppressionsOf(
-  instructions: readonly ActiveSuppressionInstruction[],
+  instructions: readonly ActiveStandingInstruction[],
 ): SenderSuppressions<LoadedSenderSuppressionOutcome> {
   return {
     isEmpty: instructions.length === 0,
@@ -424,15 +435,32 @@ function findTargetOverlaps(
   };
 }
 
-/** Every active `suppress` instruction. No effect filter: a suppression binds every consumer. */
-async function listActiveSuppressionInstructions(
-  userId: string,
-): Promise<ActiveSuppressionInstruction[]> {
-  const facts = await db()
+function selectActiveStandingInstructionFacts(userId: string) {
+  return db()
     .select({ id: userFacts.id, value: userFacts.value, validFrom: userFacts.validFrom })
     .from(userFacts)
     .where(activeStandingInstructionsWhere(userId))
     .orderBy(desc(userFacts.validFrom));
+}
+
+/** Every active instruction of any stored version, as v2. A row of neither shape is skipped. */
+async function listActiveStandingInstructions(
+  userId: string,
+): Promise<ActiveStandingInstruction[]> {
+  const facts = await selectActiveStandingInstructionFacts(userId);
+
+  return facts.flatMap((fact) => {
+    const value = readStoredStandingInstruction(fact.value, fact.id);
+
+    return value ? [{ factId: fact.id, value, validFrom: fact.validFrom }] : [];
+  });
+}
+
+/** Every active v1 `suppress` row, for the chat management tools. */
+async function listActiveSuppressionInstructions(
+  userId: string,
+): Promise<ActiveSuppressionInstruction[]> {
+  const facts = await selectActiveStandingInstructionFacts(userId);
 
   return facts
     .map(instructionFromFact)
@@ -772,71 +800,72 @@ async function supersedeStandingInstruction(args: {
   });
 }
 
+/** An instruction with the target that hit the sender. */
+interface SenderTargetHit {
+  instruction: ActiveStandingInstruction;
+  target: StandingInstructionTarget;
+}
+
 /**
- * ADR-0060 micro-decision 8, made total: the more specific target wins, then the newer `validFrom`,
- * then the greater `factId`. Callers already filtered on `accountId`.
+ * ADR-0060 micro-decision 8, made total: the more specific hit target wins, then the newer
+ * `validFrom`, then the greater `factId`. Callers already filtered on `accountId`.
  */
 function isStrongerSuppressionMatch(
-  candidate: ActiveSuppressionInstruction,
-  incumbent: ActiveSuppressionInstruction,
+  candidate: SenderTargetHit,
+  incumbent: SenderTargetHit,
 ): boolean {
-  const candidateSpecificity = standingInstructionTargetSpecificity(candidate.value.target);
-  const incumbentSpecificity = standingInstructionTargetSpecificity(incumbent.value.target);
+  const candidateSpecificity = standingInstructionTargetSpecificity(candidate.target);
+  const incumbentSpecificity = standingInstructionTargetSpecificity(incumbent.target);
 
   if (candidateSpecificity !== incumbentSpecificity) {
     return candidateSpecificity > incumbentSpecificity;
   }
 
-  const candidateValidFrom = candidate.validFrom.getTime();
-  const incumbentValidFrom = incumbent.validFrom.getTime();
+  const candidateValidFrom = candidate.instruction.validFrom.getTime();
+  const incumbentValidFrom = incumbent.instruction.validFrom.getTime();
 
   if (candidateValidFrom !== incumbentValidFrom) {
     return candidateValidFrom > incumbentValidFrom;
   }
 
-  return candidate.factId > incumbent.factId;
+  return candidate.instruction.factId > incumbent.instruction.factId;
 }
 
+/**
+ * The strongest instruction whose sender-wide target hits and that stores `effect`
+ * (ADR-0113: readers branch on the stored effects). A scope or a `senderFilter` never
+ * matches here. The triage scope match owns those.
+ */
 function findSenderSuppression(
-  instructions: readonly ActiveSuppressionInstruction[],
+  instructions: readonly ActiveStandingInstruction[],
   lookup: SuppressionSender,
-  effect: SuppressionEffect,
+  effect: StandingInstructionEffectKind,
 ): SenderSuppressionMatch | null {
   const email = normalizeEmailAddress(lookup.sender);
 
   if (!email) return null;
 
-  const accountId = lookup.accountId;
-
-  let best: ActiveSuppressionInstruction | null = null;
+  let best: SenderTargetHit | null = null;
 
   for (const instruction of instructions) {
-    // oxlint-disable-next-line typescript/no-unnecessary-condition -- `suppress` is the only standing-instruction action today; the check keeps a second action out of this path when it lands.
-    if (instruction.value.action !== "suppress") continue;
+    if (!standingInstructionHasEffect(instruction.value, effect)) continue;
 
-    const { target } = instruction.value;
+    for (const target of instruction.value.targets) {
+      if (!targetMatchesSender(target, email, lookup.accountId)) continue;
 
-    // An active suppression binds every consumer; the stored `effects` array is not read.
-    if (!targetMatchesSender(target, email, accountId)) continue;
+      const hit = { instruction, target };
 
-    // ADR-0060 micro-decision 8: the most specific target wins, so a pinned address beats a newer domain mute.
-    if (best === null || isStrongerSuppressionMatch(instruction, best)) best = instruction;
+      if (best === null || isStrongerSuppressionMatch(hit, best)) best = hit;
+    }
   }
 
   if (!best) return null;
 
-  // Nothing renders `directive` from here today; rendering keeps a future reader on the class sentence.
-  // `phrasing` stays as stored: it is the user's verbatim words.
-  const value = targetNamesOneMailbox(best.value.target)
-    ? best.value
-    : { ...best.value, directive: renderStandingInstructionDirective(best.value.target) };
-
   return {
-    ...best,
-    value,
+    ...best.instruction,
     matchedEmail: email,
     effect,
-    matchedVia: best.value.target.kind,
+    matchedVia: best.target.kind,
   };
 }
 

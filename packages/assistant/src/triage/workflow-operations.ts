@@ -1045,7 +1045,7 @@ export async function gatherObservations(args: {
   // This sender's standing instruction.
   const standing = suppressions.match(
     { sender: args.senderAddress ?? meta.from ?? null, accountId: args.accountId },
-    "deprioritize_triage_category",
+    "demote_demand",
   );
 
   const senderKind =
