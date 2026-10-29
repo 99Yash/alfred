@@ -5,6 +5,7 @@ import {
   documents,
   emailTriage,
   integrationCredentials,
+  standingInstructionSetRevisions,
   type EmailTriage,
 } from "@alfred/db/schemas";
 import {
@@ -125,11 +126,18 @@ export interface UpsertTriageArgs {
   authoredAt: Date | null;
 }
 
-export interface UpsertTriageResult {
-  row: TriageRow;
-  /** False when a newer stored row won. Gate side effects on it. */
-  written: boolean;
-}
+/** `written` is false when a newer stored row won. Gate side effects on it. */
+export type UpsertTriageResult =
+  | { row: TriageRow; written: false }
+  | {
+      row: TriageRow;
+      written: true;
+      /**
+       * The instruction set changed after the classify call read it, so this row can miss a
+       * new instruction. The caller enqueues a re-match (ADR-0113, "Writes are conditional").
+       */
+      instructionSetMoved: boolean;
+    };
 
 /**
  * Upsert under the thread lock. A user-pinned row or an older message is a no-op
@@ -306,7 +314,15 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriage
         .onConflictDoNothing();
     }
 
-    return { row: rowToTriage(row), written: true };
+    const [set] = await tx
+      .select({ revision: standingInstructionSetRevisions.revision })
+      .from(standingInstructionSetRevisions)
+      .where(eq(standingInstructionSetRevisions.userId, args.userId));
+
+    const instructionSetMoved =
+      (set?.revision ?? 0) > (args.instructionEvaluation?.setRevision ?? 0);
+
+    return { row: rowToTriage(row), written: true, instructionSetMoved };
   });
 }
 

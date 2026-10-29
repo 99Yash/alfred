@@ -67,17 +67,23 @@ function renderInstruction(instruction: ActiveStandingInstruction): string {
   return `- id=${instruction.value.instructionId} | scope: ${scope} | the user's words: ${phrasing}`;
 }
 
-const SECTION_HEADER = "=== The user's standing instructions with a scope ===";
+export const STANDING_SCOPE_SECTION_HEADER =
+  "=== The user's standing instructions with a scope ===";
 
-/** The `covers` rule. `verdict` names the verdict that the model reads; the re-match job shares it. */
-export function standingScopeCoversRule(verdict: string): string {
-  return `\`covers\` is "all" when every reason for a demand in ${verdict} is inside the scope. It is "part" when the email also holds a reason for a demand that the scope does not cover. If you are not sure, write "part".`;
+/**
+ * The match rules that the classify call and the re-match job share. `lead` opens the entry
+ * rule. `verdict` names the verdict that the `covers` rule reads.
+ */
+export function standingScopeMatchRules(args: { lead: string; verdict: string }): string[] {
+  return [
+    `${args.lead} each instruction whose scope this email is about, add one entry to \`instructionMatches\`: \`id\` (copied exactly), \`reason\` (one short line, under 20 words), and \`covers\`. Leave out every instruction whose scope does not fit. An empty list is a normal answer.`,
+    `\`covers\` is "all" when every reason for a demand in ${args.verdict} is inside the scope. It is "part" when the email also holds a reason for a demand that the scope does not cover. If you are not sure, write "part".`,
+  ];
 }
 
 const SECTION_RULES = [
   "Classify the email on its own evidence, as if these instructions did not exist. Alfred applies them in code after your answer, so do not change the category, the todo, or the ask for them.",
-  "Then, for each instruction whose scope this email is about, add one entry to `instructionMatches`: `id` (copied exactly), `reason` (one short line, under 20 words), and `covers`. Leave out every instruction whose scope does not fit. An empty list is a normal answer.",
-  standingScopeCoversRule("your own verdict"),
+  ...standingScopeMatchRules({ lead: "Then, for", verdict: "your own verdict" }),
 ];
 
 /**
@@ -123,7 +129,8 @@ export function buildStandingScopeBlock(
 
   const { sent, lines } = fitStandingScopeInstructions(scoped);
 
-  const section = sent.length > 0 ? [SECTION_HEADER, ...SECTION_RULES, ...lines].join("\n") : null;
+  const section =
+    sent.length > 0 ? [STANDING_SCOPE_SECTION_HEADER, ...SECTION_RULES, ...lines].join("\n") : null;
 
   return {
     sent,

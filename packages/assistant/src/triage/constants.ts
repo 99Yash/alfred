@@ -70,3 +70,6 @@ export const TRIAGE_REMATCH_MAX_ROWS = 200;
 
 /** Match-only calls in flight at one time in one re-match job. */
 export const TRIAGE_REMATCH_CONCURRENCY = 4;
+
+/** The re-match sweep period, so the most that old mail lags an instruction write. */
+export const TRIAGE_REMATCH_SWEEP_EVERY_MS = 60_000;

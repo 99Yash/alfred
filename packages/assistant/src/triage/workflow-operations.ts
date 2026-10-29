@@ -49,6 +49,7 @@ import {
   upsertTriage,
   type TriageDocumentContext,
 } from "./store";
+import { enqueueTriageRematch } from "./rematch-queue";
 import { reconcileThreadLabel } from "./tags";
 import { getThreadState } from "./thread-state";
 import {
@@ -404,8 +405,17 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
 
     written = upserted.written;
 
-    if (written) {
+    if (upserted.written) {
       ctx.trace("triage.classification", decisionTrace);
+
+      // A write during the classify call: the re-match job brings this row up to the new set.
+      if (upserted.instructionSetMoved) {
+        try {
+          await enqueueTriageRematch(ctx.userId);
+        } catch (err) {
+          await ctx.log(`re-match enqueue failed: ${toMessage(err)}`);
+        }
+      }
     }
   }
 

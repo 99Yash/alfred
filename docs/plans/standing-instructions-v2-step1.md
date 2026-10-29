@@ -102,14 +102,24 @@ These choices are not in the ADR. Each one is the smallest choice that keeps an 
     `clock_timestamp()` after the lock and use it for the active read and for the write.
 20. **A sweep triggers the re-match, not the writer.** `standing_instruction_set_revisions`
     gains `rematched_revision`, which the re-match job owns. A repeatable sweep runs every
-    60 s. It enqueues one job for each user whose `revision` is ahead, with the revision in the
-    job id. So every writer reaches old mail, also the memory page or a script that never
-    enqueues, and the lag is at most one sweep period. The job reads the mail ingested in the
-    last 48 hours (200 rows at most), makes one match-only cheap call for each row that has an
-    `unknown` scoped instruction, and derives the cached result again for every row. A write
-    takes the thread lock and reads the row again. It skips a user-pinned row and a row that
-    moved to another document. A changed category enqueues a relabel. The job records the set
-    revision that it read only when no call failed. Else it throws, and BullMQ retries it.
+    60 s and enqueues each user whose `revision` is ahead. So every writer reaches old mail,
+    also the memory page or a script that never enqueues, and the lag is at most one sweep
+    period. The queue keeps one job for each user at a time (BullMQ deduplication with
+    `keepLastIfActive`). An add while the job runs becomes one follow-up job, so two jobs
+    never write the same rows at once. The job reads the mail ingested in the last 48 hours
+    (200 rows at most, and the log counts the rows past the cap). It makes one match-only
+    cheap call for each row that has an `unknown` scoped instruction, also a row from before
+    ADR-0113, and derives the cached result again for every row. A write takes the thread
+    lock and reads the row again. It skips a user-pinned row and a row that moved to another
+    document, because ingest triage classifies the new document with the full set. A changed
+    category enqueues a relabel. The job records the set revision that it read when no call
+    failed. Else it throws, and BullMQ retries it. On the final attempt it records the
+    revision anyway, and the failed states stay `unknown` (rule 4).
+21. **A stale triage write enqueues a re-match.** This replaces "the database rejects the
+    write" of the ADR. Under the thread lock, `upsertTriage` compares the set revision that
+    the classify call read with the current one. When the set moved, the caller enqueues the
+    user's re-match job. Each stored scope result carries the instruction `revision` that it
+    read, so a result for an older revision reads as `unknown` and cannot apply.
 
 ## Pull requests
 

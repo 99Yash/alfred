@@ -1,34 +1,34 @@
 import { meteredGenerateObject, route } from "@alfred/ai";
 import {
   canonicalJson,
-  extractGmailDocumentBody,
   mapConcurrent,
   parseGmailDocumentMetadata,
+  type GmailDocumentMetadata,
   type StandingInstructionScopeResult,
   type TriageInstructionEvaluation,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, emailTriage, standingInstructionSetRevisions } from "@alfred/db/schemas";
 import { logger } from "@alfred/logging";
-import { and, desc, eq, gte, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gt, gte, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { enqueueTriageRelabel } from "@alfred/assistant/connections/ingestion";
-import { standingInstructions, type MailStandingInstructions } from "../knowledge";
+import { standingInstructions, type LoadedMailStandingInstructions } from "../knowledge";
+import { triageEmailBody, triageEmailHeaderLines } from "./classify";
 import {
-  TRIAGE_BODY_MAX_CHARS,
   TRIAGE_INSTRUCTION_MATCH_OUTPUT_TOKENS,
   TRIAGE_REMATCH_CONCURRENCY,
   TRIAGE_REMATCH_MAX_ROWS,
   TRIAGE_REMATCH_WINDOW_HOURS,
   TRIAGE_REQUEST_TIMEOUT_MS,
 } from "./constants";
-import { deriveEffectiveTriage } from "./effective";
+import { currentScopeResults, deriveEffectiveTriage } from "./effective";
 import {
   fitStandingScopeInstructions,
   readStandingScopeMatches,
-  standingScopeCoversRule,
+  STANDING_SCOPE_SECTION_HEADER,
+  standingScopeMatchRules,
   triageInstructionMatchOutputSchema,
-  type TriageInstructionMatchOutput,
 } from "./standing-scope";
 import {
   parseTriageEvaluationColumns,
@@ -37,13 +37,12 @@ import {
   type TriageRow,
 } from "./store";
 
-/**
- * The re-match job (ADR-0113, "Re-match after a change"). After an instruction write, it
- * brings the stored scope results of recent mail up to the current instruction set:
+/*
+ * The re-match job (ADR-0113, "Re-match after a change"). It brings the stored scope results
+ * of recent mail up to the current instruction set:
  *  - a scoped instruction with no current result for a document gets one match-only cheap call;
  *  - every row gets its cached effective result derived again, so a removal or a target-only
  *    change costs no model call.
- * A failed call leaves the state `unknown`, and the job throws at the end, so BullMQ retries it.
  */
 
 const rematchOutputSchema = z.object({
@@ -53,8 +52,7 @@ const rematchOutputSchema = z.object({
 const REMATCH_SYSTEM_PROMPT = [
   "You decide which of the user's standing instructions are about one email. Alfred applies them in code after your answer.",
   "Alfred already classified the email. Do not classify it again.",
-  "For each instruction whose scope this email is about, add one entry to `instructionMatches`: `id` (copied exactly), `reason` (one short line, under 20 words), and `covers`. Leave out every instruction whose scope does not fit. An empty list is a normal answer.",
-  standingScopeCoversRule("the stored verdict"),
+  ...standingScopeMatchRules({ lead: "For", verdict: "the stored verdict" }),
 ].join("\n");
 
 /** The row and document fields the job reads, newest ingest first. */
@@ -73,6 +71,8 @@ async function loadRematchRows(userId: string) {
       title: documents.title,
       content: documents.content,
       authoredAt: documents.authoredAt,
+      // Before the limit, so the job can report the rows past the cap.
+      inWindow: sql<number>`count(*) over ()`.mapWith(Number),
     })
     .from(emailTriage)
     .innerJoin(
@@ -92,51 +92,46 @@ async function loadRematchRows(userId: string) {
 
 type RematchRow = Awaited<ReturnType<typeof loadRematchRows>>[number];
 
-type LoadedMail = Extract<MailStandingInstructions, { kind: "loaded" }>;
-
-/** One match-only call. Tests and probes inject it. */
-export type RunRematchMatch = (input: {
+async function matchScopes(args: {
   userId: string;
   documentId: string;
   prompt: string;
-}) => Promise<readonly TriageInstructionMatchOutput[]>;
-
-const defaultRunMatch: RunRematchMatch = async ({ userId, documentId, prompt }) => {
+  signal: AbortSignal | undefined;
+}) {
   const result = await meteredGenerateObject(
     {
       model: route("cheap").model(),
       schema: rematchOutputSchema,
       instructions: REMATCH_SYSTEM_PROMPT,
-      prompt,
+      prompt: args.prompt,
       temperature: 0,
       maxOutputTokens: TRIAGE_INSTRUCTION_MATCH_OUTPUT_TOKENS,
       timeout: { totalMs: TRIAGE_REQUEST_TIMEOUT_MS },
+      ...(args.signal ? { abortSignal: args.signal } : {}),
     },
     {
       role: "triage",
-      userId,
+      userId: args.userId,
       name: "triage.standing_rematch",
-      requestMeta: { purpose: "triage.standing_rematch", documentId },
+      requestMeta: { purpose: "triage.standing_rematch", documentId: args.documentId },
     },
   );
 
   return result.output.instructionMatches;
-};
+}
 
 /**
- * The verdict the `covers` rule reads. A row with no model verdict (from before ADR-0113, or
- * the classifier fallback) shows its cached category, which is the best record it has.
+ * The prompt for one match-only call. A row with no model verdict (from before ADR-0113, or
+ * the classifier fallback) shows its cached category to the `covers` rule, which is the best
+ * record it has.
  */
-function rematchPrompt(row: RematchRow, verdict: TriageRow["modelVerdict"], lines: string[]) {
-  const meta = parseGmailDocumentMetadata(row.metadata);
-  const { from, to, cc } = meta;
-
-  const body = extractGmailDocumentBody(row.content, { from, to, cc, subject: row.title });
-
-  const content =
-    body.length > TRIAGE_BODY_MAX_CHARS
-      ? body.slice(0, TRIAGE_BODY_MAX_CHARS) + "\n[…truncated]"
-      : body;
+function rematchPrompt(
+  row: RematchRow,
+  metadata: GmailDocumentMetadata,
+  verdict: TriageRow["modelVerdict"],
+  instructionLines: readonly string[],
+) {
+  const document = { ...row, metadata };
 
   const stored = verdict
     ? {
@@ -147,22 +142,19 @@ function rematchPrompt(row: RematchRow, verdict: TriageRow["modelVerdict"], line
     : { category: row.category };
 
   return [
-    "=== The user's standing instructions with a scope ===",
-    ...lines,
+    STANDING_SCOPE_SECTION_HEADER,
+    ...instructionLines,
     "",
     "=== The stored verdict ===",
     JSON.stringify(stored),
     "",
-    ...(from ? [`From: ${from}`] : []),
-    ...(to ? [`To: ${to}`] : []),
-    ...(cc ? [`Cc: ${cc}`] : []),
-    ...(row.authoredAt ? [`Date: ${row.authoredAt.toISOString()}`] : []),
+    ...triageEmailHeaderLines(document),
     "",
     "=== Subject ===",
     row.title?.trim() || "(no subject)",
     "",
     "=== Body ===",
-    content,
+    triageEmailBody(document),
   ].join("\n");
 }
 
@@ -172,7 +164,7 @@ function rematchPrompt(row: RematchRow, verdict: TriageRow["modelVerdict"], line
  * the call. A result for an instruction that is no longer a candidate drops.
  */
 function mergeScopes(
-  mail: LoadedMail,
+  mail: LoadedMailStandingInstructions,
   stored: TriageInstructionEvaluation | null,
   fresh: readonly StandingInstructionScopeResult[],
 ): StandingInstructionScopeResult[] {
@@ -199,7 +191,7 @@ function scopesKey(scopes: readonly StandingInstructionScopeResult[]): string {
 function nextEvaluation(
   row: TriageRow,
   documentId: string,
-  mail: LoadedMail,
+  mail: LoadedMailStandingInstructions,
   fresh: readonly StandingInstructionScopeResult[],
 ): TriageEvaluationUpdate | null {
   const stored = row.instructionEvaluation;
@@ -233,8 +225,10 @@ function nextEvaluation(
   return unchanged ? null : { instructionEvaluation, ...result };
 }
 
-export interface RematchCounts {
+interface RematchCounts {
   rows: number;
+  /** Rows in the window past `TRIAGE_REMATCH_MAX_ROWS`. Their states stay `unknown`. */
+  pastCap: number;
   /** Rows that got a match-only call. */
   called: number;
   /** Fresh `matched` results. */
@@ -247,22 +241,25 @@ export interface RematchCounts {
 }
 
 /**
- * Re-match one user's recent mail against the current instruction set. On success it records
- * the set revision it read in `rematched_revision`. A failed call throws at the end, after the
- * other rows are written, so a retry repeats only what is still `unknown`.
+ * Re-match one user's recent mail against the current instruction set, and record the set
+ * revision it read in `rematched_revision`. A failed call throws at the end, after the other
+ * rows are written, so a retry repeats only what is still `unknown`. On the final attempt the
+ * job records the revision anyway: the failed states stay `unknown` (ADR-0113 rule 4), and
+ * the log counts them.
  */
 export async function rematchStandingInstructions(args: {
   userId: string;
-  runMatch?: RunRematchMatch;
+  signal: AbortSignal | undefined;
+  finalAttempt: boolean;
 }): Promise<RematchCounts> {
   const { userId } = args;
-  const runMatch = args.runMatch ?? defaultRunMatch;
 
   const set = await standingInstructions({ userId, onReadFailure: "throw" });
   const rows = await loadRematchRows(userId);
 
   const counts: RematchCounts = {
     rows: rows.length,
+    pastCap: Math.max(0, (rows[0]?.inWindow ?? 0) - rows.length),
     called: 0,
     matched: 0,
     unknownLeft: 0,
@@ -276,20 +273,7 @@ export async function rematchStandingInstructions(args: {
     const mail = set.forMail({ sender: metadata.from ?? null, accountId: row.accountId });
 
     const evaluation = parseTriageEvaluationColumns(row);
-
-    // Only `unknown` is read here, and it depends on the evaluation alone.
-    const { unknown } = deriveEffectiveTriage({
-      triage: {
-        documentId: row.documentId,
-        category: row.category,
-        documentAsk: null,
-        todoSuggestion: null,
-        todoDecision: null,
-        ...evaluation,
-      },
-      documentId: row.documentId,
-      instructions: mail,
-    });
+    const { unknown } = currentScopeResults(evaluation.instructionEvaluation, mail.scoped);
 
     let fresh: StandingInstructionScopeResult[] = [];
 
@@ -302,10 +286,11 @@ export async function rematchStandingInstructions(args: {
         counts.called += 1;
 
         try {
-          const output = await runMatch({
+          const output = await matchScopes({
             userId,
             documentId: row.documentId,
-            prompt: rematchPrompt(row, evaluation.modelVerdict, lines),
+            prompt: rematchPrompt(row, metadata, evaluation.modelVerdict, lines),
+            signal: args.signal,
           });
 
           fresh = readStandingScopeMatches(sent, output).scopes;
@@ -347,12 +332,19 @@ export async function rematchStandingInstructions(args: {
 
   logger.info(
     { userId, setRevision: set.setRevision, ...counts },
-    `[triage.rematch] user=${userId} rows=${counts.rows} called=${counts.called} matched=${counts.matched} unknownLeft=${counts.unknownLeft} failed=${counts.failed} cacheUpdated=${counts.cacheUpdated} relabeled=${counts.relabeled}`,
+    `[triage.rematch] user=${userId} rows=${counts.rows} pastCap=${counts.pastCap} called=${counts.called} matched=${counts.matched} unknownLeft=${counts.unknownLeft} failed=${counts.failed} cacheUpdated=${counts.cacheUpdated} relabeled=${counts.relabeled}`,
   );
 
   if (counts.failed > 0) {
-    throw new Error(
-      `[triage.rematch] ${counts.failed} match call(s) failed for user=${userId}; their states stay unknown until a retry`,
+    if (!args.finalAttempt) {
+      throw new Error(
+        `[triage.rematch] ${counts.failed} match call(s) failed for user=${userId}; their states stay unknown until a retry`,
+      );
+    }
+
+    logger.warn(
+      { userId, setRevision: set.setRevision, failed: counts.failed },
+      "[triage.rematch] final attempt: failed states stay unknown until the next instruction change",
     );
   }
 
@@ -368,14 +360,16 @@ export async function rematchStandingInstructions(args: {
 }
 
 /** Users whose instruction set changed since their last finished re-match. */
-export async function usersBehindRematch(): Promise<{ userId: string; revision: number }[]> {
-  return db()
-    .select({
-      userId: standingInstructionSetRevisions.userId,
-      revision: standingInstructionSetRevisions.revision,
-    })
+export async function usersBehindRematch(): Promise<string[]> {
+  const rows = await db()
+    .select({ userId: standingInstructionSetRevisions.userId })
     .from(standingInstructionSetRevisions)
     .where(
-      sql`${standingInstructionSetRevisions.revision} > ${standingInstructionSetRevisions.rematchedRevision}`,
+      gt(
+        standingInstructionSetRevisions.revision,
+        standingInstructionSetRevisions.rematchedRevision,
+      ),
     );
+
+  return rows.map((row) => row.userId);
 }

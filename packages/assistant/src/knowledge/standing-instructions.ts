@@ -92,7 +92,7 @@ export type MailStandingInstructions =
     }
   | { kind: "read_failed"; error: unknown };
 
-type LoadedMailStandingInstructions = Extract<MailStandingInstructions, { kind: "loaded" }>;
+export type LoadedMailStandingInstructions = Extract<MailStandingInstructions, { kind: "loaded" }>;
 
 /** A user's active standing instructions, read once. The match methods are pure, so one read serves a loop. */
 interface StandingInstructionSet<Mail extends MailStandingInstructions> {

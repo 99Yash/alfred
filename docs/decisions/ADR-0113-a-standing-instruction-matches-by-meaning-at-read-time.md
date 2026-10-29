@@ -1,6 +1,6 @@
 # ADR-0113 — A standing instruction matches by meaning at read time; code enforces only the effects the user asked for
 
-**Status.** Proposed; not built. Amended 2026-10-28: cues, capsules, and followups. Amended 2026-10-29: partial class words, full cover for a demotion, anchors, relation words, and notes (see the amendments at the end). Builds the ADR-0060 schema v2 that was never built. Supersedes the sender-only match of ADR-0106 and ADR-0110, and the ADR-0106 rule that every row carries every effect. Keeps the ADR-0110 floor and the security floor.
+**Status.** Proposed; not built. Amended 2026-10-28: cues, capsules, and followups. Amended 2026-10-29: partial class words, full cover for a demotion, anchors, relation words, and notes. Amended 2026-10-29: a sweep starts the re-match (see the amendments at the end). Builds the ADR-0060 schema v2 that was never built. Supersedes the sender-only match of ADR-0106 and ADR-0110, and the ADR-0106 rule that every row carries every effect. Keeps the ADR-0110 floor and the security floor.
 
 **Decision.** A standing instruction is the user's words, a plain-text **scope**, optional exact **targets**, and the typed **effects** that the words ask for. Two different parts of the system answer two different questions:
 
@@ -398,3 +398,12 @@ Each stored scope match result gains `covers` (`all` or `part`).
 - **A mail about an object that names neither its URL nor its name.** The object test misses it, and the instruction does not apply. The dry run and the review panel count show the matches, but they do not show this miss.
 - **A wrong person at capture.** The confirmation line is the guard. After the owner confirms, a wrong anchor is not detected.
 - **An address that the person entity does not know yet.** Mail from it does not hit the person anchor until Alfred links the address to the entity.
+
+## Amendment — 2026-10-29: a sweep starts the re-match, and a stale triage write enqueues it
+
+This changes two sentences of "Re-match after a change" and "Writes are conditional". The build is plan decisions 20 and 21 of [standing-instructions-v2-step1](../plans/standing-instructions-v2-step1.md).
+
+- **The trigger.** An instruction write does not enqueue the job. A sweep runs every 60 s and enqueues each user whose set `revision` is ahead of `rematched_revision`. Thus a writer that never enqueues (the memory page, a script) also reaches old mail. The "Re-match delay" risk grows by at most one sweep period.
+- **One job for each user.** The queue runs one re-match job for each user at a time and keeps at most one follow-up job. Two jobs never write the same rows at once.
+- **A rejected write.** The job does not enqueue one document again. A stored scope result carries the instruction `revision` that it read, so a result for an older revision reads as `unknown`. A row that moved to another document is not written, and ingest triage classifies the new document. A triage write that read an older set enqueues the user's job.
+- **The bound.** The job reads the mail ingested in the last 48 hours, 200 rows at most, and the log counts the rows past the cap. After the final failed attempt, the failed states stay `unknown` until the next instruction change (rule 4).
