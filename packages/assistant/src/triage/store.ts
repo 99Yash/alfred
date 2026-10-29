@@ -11,6 +11,8 @@ import {
   documentAskProposalSchema,
   parseGmailDocumentMetadata,
   sanitizeToolResult,
+  triageInstructionEvaluationSchema,
+  triageModelVerdictSchema,
 } from "@alfred/contracts";
 import type {
   AccountPersona,
@@ -18,6 +20,8 @@ import type {
   GmailDocumentMetadata,
   SignificanceBand,
   TriageCategory,
+  TriageInstructionEvaluation,
+  TriageModelVerdict,
   TriageTodoDecision,
   TriageTodoSuggestion,
 } from "@alfred/contracts";
@@ -55,9 +59,17 @@ export async function withTriageThreadLock<T>(
   });
 }
 
-/** `category` narrowed to the triage enum; lifecycle dates dropped. */
-export type TriageRow = Omit<EmailTriage, "category" | "createdAt" | "updatedAt"> & {
+/**
+ * `category` narrowed to the triage enum, the two ADR-0113 columns parsed, and lifecycle
+ * dates dropped. A column that fails its parse reads as null: no verdict, or no evaluation.
+ */
+export type TriageRow = Omit<
+  EmailTriage,
+  "category" | "modelVerdict" | "instructionEvaluation" | "createdAt" | "updatedAt"
+> & {
   category: TriageCategory;
+  modelVerdict: TriageModelVerdict | null;
+  instructionEvaluation: TriageInstructionEvaluation | null;
 };
 
 export async function getTriage(userId: string, sourceThreadId: string): Promise<TriageRow | null> {
@@ -88,6 +100,10 @@ export interface UpsertTriageArgs {
   /** So a same-run retry can re-mint the todo (#157). */
   todoSuggestion?: TriageTodoSuggestion | null;
   todoDecision?: TriageTodoDecision | null;
+  /** The verdict before any instruction effect (ADR-0113). Null on the fallback path. */
+  modelVerdict: TriageModelVerdict | null;
+  /** The scoped match results for `documentId`. Null means every scoped instruction is unknown. */
+  instructionEvaluation: TriageInstructionEvaluation | null;
   /** For the rail's in-category demotion (ADR-0064). */
   senderSignificanceBand?: SignificanceBand | null;
   /** So the reuse path can re-apply the cold-sender gate (#517). */
@@ -182,6 +198,8 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriage
       appliedLabelId: args.appliedLabelId ?? null,
       todoSuggestion: args.todoSuggestion ?? null,
       todoDecision: args.todoDecision ?? null,
+      modelVerdict: args.modelVerdict,
+      instructionEvaluation: args.instructionEvaluation,
       senderSignificanceBand: args.senderSignificanceBand ?? null,
       senderRelationshipIsCold: args.senderRelationshipIsCold ?? null,
       rowVersion: sql`${emailTriage.rowVersion} + 1`,
@@ -204,6 +222,8 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriage
         appliedLabelId: args.appliedLabelId ?? null,
         todoSuggestion: args.todoSuggestion ?? null,
         todoDecision: args.todoDecision ?? null,
+        modelVerdict: args.modelVerdict,
+        instructionEvaluation: args.instructionEvaluation,
         senderSignificanceBand: args.senderSignificanceBand ?? null,
         senderRelationshipIsCold: args.senderRelationshipIsCold ?? null,
         source: "auto",
@@ -456,6 +476,11 @@ export async function markGmailDocumentSent(args: {
 
 function rowToTriage(row: EmailTriage): TriageRow {
   const documentAsk = documentAskProposalSchema.safeParse(row.documentAsk);
+  const modelVerdict = triageModelVerdictSchema.safeParse(row.modelVerdict);
+
+  const instructionEvaluation = triageInstructionEvaluationSchema.safeParse(
+    row.instructionEvaluation,
+  );
 
   return {
     userId: row.userId,
@@ -465,6 +490,8 @@ function rowToTriage(row: EmailTriage): TriageRow {
     confidence: row.confidence,
     rationale: row.rationale,
     documentAsk: documentAsk.success ? documentAsk.data : null,
+    modelVerdict: modelVerdict.success ? modelVerdict.data : null,
+    instructionEvaluation: instructionEvaluation.success ? instructionEvaluation.data : null,
     model: row.model,
     appliedLabelId: row.appliedLabelId,
     classifiedAt: row.classifiedAt,

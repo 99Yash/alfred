@@ -31,3 +31,29 @@ export const TRIAGE_STRONG_BULK_MIN_SHARE = 0.8;
 export const TRIAGE_SERVICE_ACTION_LOOP_MIN_TOTAL = 8;
 
 export const TRIAGE_SERVICE_ACTION_LOOP_MIN_SHARE = 0.5;
+
+/**
+ * The instruction allowance (ADR-0113): characters of scoped standing instructions in one
+ * classifier prompt, with {@link TRIAGE_INSTRUCTION_MATCH_MAX_ENTRIES} as the count limit.
+ * Newest first. An instruction past either limit is `unknown`, and the trace counts it.
+ */
+export const TRIAGE_INSTRUCTION_BLOCK_MAX_CHARS = 12_000;
+
+/**
+ * The most scoped instructions in one classifier prompt. The output allowance below must hold a
+ * match for each of them, so the count and the allowance change together.
+ */
+export const TRIAGE_INSTRUCTION_MATCH_MAX_ENTRIES = 24;
+
+/**
+ * The output budget for one `instructionMatches` entry: the id, a reason under 20 words, and
+ * `covers`. About 30 tokens is typical; the rest is headroom for a long reason.
+ */
+const TRIAGE_INSTRUCTION_MATCH_ENTRY_TOKENS = 64;
+
+/** Extra output budget when the prompt carries scoped instructions: every sent one can match. */
+export const TRIAGE_INSTRUCTION_MATCH_OUTPUT_TOKENS =
+  TRIAGE_INSTRUCTION_MATCH_MAX_ENTRIES * TRIAGE_INSTRUCTION_MATCH_ENTRY_TOKENS;
+
+/** Maximum length of the model's reason for one instruction match. */
+export const TRIAGE_INSTRUCTION_MATCH_REASON_MAX_CHARS = 200;

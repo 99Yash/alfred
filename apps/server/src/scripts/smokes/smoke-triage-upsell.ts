@@ -22,8 +22,7 @@ const baseObs = (over: Partial<Observations> = {}): Observations => ({
   senderRelationship: null,
   senderRelationshipIsCold: false,
   senderKind: null,
-  standingInstruction: null,
-  standingInstructionReadFailed: false,
+  standingInstructions: null,
   userContext: null,
   userContextReadFailed: false,
   gmail: {

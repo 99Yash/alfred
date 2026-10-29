@@ -77,6 +77,23 @@ export const userFactInsertSchema = createInsertSchema(userFacts, {
 });
 
 // ---------------------------------------------------------------------------
+// standing_instruction_set_revisions
+// ---------------------------------------------------------------------------
+
+/**
+ * One row per user (ADR-0113). Each standing-instruction write, edit, status change, or
+ * deletion increases `revision` in the same transaction. A stored match records the revision
+ * it read, so a reader can tell that the set changed since. No row reads as revision 0.
+ */
+export const standingInstructionSetRevisions = pgTable("standing_instruction_set_revisions", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  revision: integer("revision").notNull().default(0),
+  ...lifecycle_dates,
+});
+
+// ---------------------------------------------------------------------------
 // user_preferences
 // ---------------------------------------------------------------------------
 

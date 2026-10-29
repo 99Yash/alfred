@@ -6,8 +6,8 @@ import {
   type StandingInstructionTargetKind,
 } from "@alfred/contracts";
 import { type TriageCategory } from "@alfred/integrations/google";
-import type { ClassifyAudit, TriageClassification } from "./classify";
-import type { FloorAudits } from "./floors";
+import type { ClassifyAudit, StandingClassifyAudit, TriageClassification } from "./classify";
+import type { FloorAudits, StandingEffectAudit, StandingFloorOutcome } from "./floors";
 import type { Observations } from "./observations";
 import type { SenderContextResult } from "./sender-context";
 import type { TriageSenderKindSignal } from "./sender-kind";
@@ -50,18 +50,6 @@ export const FLOOR_TRACE_PROJECTIONS = {
      */
     spamFloorOutcome: audit?.outcome ?? null,
   }),
-  standing: (audit) => ({
-    /** A demand lane died under a matched sender instruction (ADR-0110). */
-    standingDemotedCategory: audit?.verdict.kind === "demote",
-    /**
-     * `demoted_demand_lane`, `held_secret_lane` (the override's secret bar held
-     * the lane), or null. Not named `standingDemotionReason`: a query on that
-     * key silently reads NULL. Count demotions with `= 'demoted_demand_lane'`;
-     * `IS NOT NULL` over-counts. Who held the lane: `floorForced = true` means
-     * the override floor escalated past the veto.
-     */
-    standingFloorOutcome: audit?.outcome ?? null,
-  }),
 } satisfies { [K in keyof FloorAudits]: FloorTraceProjection<K> };
 
 type UnionToIntersection<U> = (U extends unknown ? (of: U) => void : never) extends (
@@ -86,7 +74,51 @@ function floorTraceFields(floors: FloorAudits | null): FloorTraceFields {
     ...project.senderKind(floors?.senderKind ?? null),
     ...project.meeting(floors?.meeting ?? null),
     ...project.spam(floors?.spam ?? null),
-    ...project.standing(floors?.standing ?? null),
+  };
+}
+
+/**
+ * The instruction floor's trace fields (ADR-0113). It is not a system floor, so it is not in
+ * {@link FLOOR_TRACE_PROJECTIONS}. The two ADR-0110 keys keep their names and meaning, so old
+ * queries still count the same thing.
+ */
+interface StandingTraceFields {
+  /** The model verdict was `urgent` or `action_needed`, and the effective category is neither. */
+  standingDemotedCategory: boolean;
+  /**
+   * `demoted_demand_lane`, `held_secret_lane` (the exposed-secret signal held a lowering
+   * effect), or null. Count demotions with `= 'demoted_demand_lane'`; `IS NOT NULL`
+   * over-counts. Who held the lane: `floorForced = true` means the override floor escalated.
+   */
+  standingFloorOutcome: StandingFloorOutcome | null;
+  /** One entry for each effect of each matched instruction, with what it did. */
+  standingEffects: StandingEffectAudit[];
+  /** Instruction ids that a matched exception cancelled. */
+  standingCancelledInstructionIds: string[];
+  /** The E3 counter. Null on the fallback path, where no call ran. */
+  standingClassOnlyCount: number | null;
+  standingKeyedCount: number | null;
+  standingClassOnlyTokens: number | null;
+  /** Scoped candidates past the allowance. Their state is `unknown`. */
+  standingOverflowCount: number | null;
+  /**
+   * The stored pass's output failed with the match list, so it ran again without it, and every
+   * sent instruction is `unknown`. Null when it did not fail, or on the fallback path.
+   */
+  standingMatchFailure: string | null;
+}
+
+function standingTraceFields(audit: StandingClassifyAudit | null): StandingTraceFields {
+  return {
+    standingDemotedCategory: audit?.floor.outcome === "demoted_demand_lane",
+    standingFloorOutcome: audit?.floor.outcome ?? null,
+    standingEffects: audit?.floor.effects ?? [],
+    standingCancelledInstructionIds: audit?.floor.cancelled ?? [],
+    standingClassOnlyCount: audit?.counter.classOnly ?? null,
+    standingKeyedCount: audit?.counter.keyed ?? null,
+    standingClassOnlyTokens: audit?.counter.classOnlyTokens ?? null,
+    standingOverflowCount: audit?.counter.overflow ?? null,
+    standingMatchFailure: audit?.matchFailure?.message ?? null,
   };
 }
 
@@ -94,7 +126,7 @@ function floorTraceFields(floors: FloorAudits | null): FloorTraceFields {
  * The `triage.classification` decision trace: enough to debug a bad tag without
  * the email body. Written in the same transaction as the triage row.
  */
-export interface SenderExtractionEvent extends FloorTraceFields {
+export interface SenderExtractionEvent extends FloorTraceFields, StandingTraceFields {
   fromKind: SenderContext["fromKind"];
   bodyActor: SenderContext["bodyActor"] | null;
   effectiveAuthor: SenderContext["effectiveAuthor"];
@@ -135,10 +167,9 @@ export interface SenderExtractionEvent extends FloorTraceFields {
   standingInstructionMatchedVia: StandingInstructionTargetKind | null;
   standingInstructionReadFailed: boolean;
   /**
-   * The instruction in the prompt. The fields above report the later todo read;
-   * only this one can explain `finalCategory`. Read with its `ReadFailed` flag.
+   * The read for the instruction floor failed, so no effect applied. The fields above report
+   * the later todo read; the `standing*` fields explain `finalCategory`.
    */
-  standingInstructionCategoryFactId: string | null;
   standingInstructionCategoryReadFailed: boolean;
   /**
    * Mirrors the `if (obs.userContext)` render branch in `classify.ts`. Change both together.
@@ -187,6 +218,7 @@ export function senderExtractionEvent(args: {
     senderKindDemotedPersonTreatment: Boolean(obs.senderKind),
     // floors
     ...floorTraceFields(audit?.floors ?? null),
+    ...standingTraceFields(audit?.standing ?? null),
     threadMessages: obs.thread.messageCount,
     threadNewest: obs.thread.newestDirection,
     gmailImportant: obs.gmail.important,
@@ -211,8 +243,7 @@ export function senderExtractionEvent(args: {
     standingInstructionEffect: standingMatch?.effect ?? null,
     standingInstructionMatchedVia: standingMatch?.matchedVia ?? null,
     standingInstructionReadFailed: args.standingSuppression.kind === "read_failed",
-    standingInstructionCategoryFactId: obs.standingInstruction?.factId ?? null,
-    standingInstructionCategoryReadFailed: obs.standingInstructionReadFailed,
+    standingInstructionCategoryReadFailed: obs.standingInstructions?.kind === "read_failed",
     userContextPresent: obs.userContext !== null,
     userContextReadFailed: obs.userContextReadFailed,
     todoOutcome: args.classification.todoDecision?.outcome ?? null,

@@ -2,8 +2,12 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import type { TriageClassification } from "@alfred/assistant/triage/classify";
-import { applyFloors, type FloorContext } from "@alfred/assistant/triage/floors";
-import type { TriageStandingDirective } from "@alfred/assistant/triage/observations";
+import {
+  applyFloors,
+  applyStandingInstructionEffects,
+  type FloorContext,
+  type StandingInstructionMatch,
+} from "@alfred/assistant/triage/floors";
 import { FLOOR_TRACE_PROJECTIONS } from "@alfred/assistant/triage/sender-extraction-event";
 
 // ---------------------------------------------------------------------------
@@ -45,12 +49,38 @@ function context(over: Partial<FloorContext> = {}): FloorContext {
     accountEmail: null,
     contentFlags: { hasInvestorNotice: false, hasPublicEventLanguage: false },
     isSpam: false,
-    standingInstruction: null as TriageStandingDirective | null,
     ...over,
   } satisfies FloorContext;
 }
 
 const SECRET_TEXT = "an api key was leaked in the public repo";
+
+/** A v1 row as the reader lifts it: one sender target, `demote_demand`, and the todo block. */
+function v1TargetMatch(): StandingInstructionMatch {
+  return {
+    factId: "fact_ricktyy6c1gc",
+    validFrom: new Date("2026-09-01T00:00:00Z"),
+    value: {
+      schemaVersion: 2,
+      instructionId: "fact_ricktyy6c1gc",
+      revision: 0,
+      phrasing: "stop reminding me about connecting stuff to polylane",
+      directive: "Treat routine notices as FYI, not urgent.",
+      targets: [{ kind: "sender_domain", domain: "polylane.dev", accountId: null }],
+      effects: [{ kind: "demote_demand" }, { kind: "block_todo_suggestion" }],
+    },
+    via: { kind: "target", targetKind: "sender_domain" },
+  };
+}
+
+function verdictOf(c: TriageClassification) {
+  return {
+    category: c.category,
+    documentAsk: c.documentAsk ?? null,
+    todoSuggestion: c.todoSuggestion ?? null,
+    todoDecision: c.todoDecision ?? null,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Floor order is the policy. Each case gives a different audit if the floors
@@ -58,16 +88,10 @@ const SECRET_TEXT = "an api key was leaked in the public repo";
 // ---------------------------------------------------------------------------
 
 describe("applyFloors — sequence order", () => {
-  test("audits arrive in sequence order: override → senderKind → spam → standing → meeting", () => {
+  test("audits arrive in sequence order: override → senderKind → spam → meeting", () => {
     // One audit key per `FLOOR_SEQUENCE` entry, in fold order.
     const { audits } = applyFloors(classification(), context());
-    assert.deepEqual(Object.keys(audits), [
-      "override",
-      "senderKind",
-      "spam",
-      "standing",
-      "meeting",
-    ]);
+    assert.deepEqual(Object.keys(audits), ["override", "senderKind", "spam", "meeting"]);
   });
 
   test("every floor reports an audit even when none of them fire", () => {
@@ -76,7 +100,6 @@ describe("applyFloors — sequence order", () => {
     assert.deepEqual(outcome.audits.override, { verdict: { kind: "keep" }, matched: false });
     assert.deepEqual(outcome.audits.senderKind, { verdict: { kind: "keep" }, reason: null });
     assert.deepEqual(outcome.audits.spam, { verdict: { kind: "keep" }, outcome: null });
-    assert.deepEqual(outcome.audits.standing, { verdict: { kind: "keep" }, outcome: null });
     assert.deepEqual(outcome.audits.meeting, { verdict: { kind: "keep" }, reason: null });
   });
 
@@ -111,51 +134,45 @@ describe("applyFloors — sequence order", () => {
     assert.equal(outcome.audits.meeting.reason, null);
   });
 
-  test("standing runs after spam and before meeting: a matched instruction demotes the model's demand lane", () => {
+  test("the instruction floor demotes the model's demand lane on a v1 target hit", () => {
     // Exactly the Polylane shape: the model chose action_needed for a connect
-    // upsell, the user's own words for this sender say otherwise (ADR-0110).
-    const outcome = applyFloors(
-      classification({
-        category: "action_needed",
-        todoSuggestion: { name: "Connect Supabase to Polylane" },
-        todoDecision: { outcome: "proposed" },
-      }),
-      context({
-        standingInstruction: {
-          factId: "fact_ricktyy6c1gc",
-          directive: "Treat routine notices as FYI, not urgent.",
-          phrasing: "stop reminding me about connecting stuff to polylane",
-        },
-      }),
+    // upsell, the user's own words for this sender say otherwise (ADR-0110, ADR-0113).
+    const { result, audit, reason } = applyStandingInstructionEffects(
+      verdictOf(
+        classification({
+          category: "action_needed",
+          todoSuggestion: { name: "Connect Supabase to Polylane" },
+          todoDecision: { outcome: "proposed" },
+        }),
+      ),
+      { exposedSecret: false, matches: [v1TargetMatch()] },
     );
 
-    assert.equal(outcome.classification.category, "fyi");
-    assert.equal(outcome.audits.standing.verdict.kind, "demote");
-    assert.equal(outcome.audits.standing.outcome, "demoted_demand_lane");
-    assert.equal(outcome.audits.meeting.verdict.kind, "keep");
+    assert.equal(result.category, "fyi");
+    assert.equal(audit.outcome, "demoted_demand_lane");
     // A demoted lane no longer proposes anything.
-    assert.equal(outcome.classification.todoSuggestion, null);
-    assert.match(outcome.classification.rationale, /fact_ricktyy6c1gc/);
+    assert.equal(result.todoSuggestion, null);
+    assert.equal(result.todoDecision?.outcome, "no_obligation");
+    assert.match(result.todoDecision.note ?? "", /^standing_floor: .*fact_ricktyy6c1gc/);
+    assert.match(reason ?? "", /fact_ricktyy6c1gc/);
   });
 
-  test("standing holds the lane behind the override's secret bar", () => {
+  test("the instruction floor holds the lane behind the exposed-secret signal", () => {
     // ADR-0106's bar, kept: the protective security floor outranks a down-rank,
     // so a leaked secret on a suppressed sender stays urgent.
-    const standingInstruction = {
-      factId: "fact_ricktyy6c1gc",
-      directive: "Treat routine notices as FYI, not urgent.",
-      phrasing: "stop marking these urgent",
-    };
-
     const outcome = applyFloors(
       classification({ category: "action_needed" }),
-      context({ signalText: SECRET_TEXT, standingInstruction }),
+      context({ signalText: SECRET_TEXT }),
     );
 
-    assert.equal(outcome.classification.category, "urgent");
+    const { result, audit } = applyStandingInstructionEffects(verdictOf(outcome.classification), {
+      exposedSecret: true,
+      matches: [v1TargetMatch()],
+    });
+
     assert.equal(outcome.audits.override.verdict.kind, "escalate");
-    assert.equal(outcome.audits.standing.verdict.kind, "keep");
-    assert.equal(outcome.audits.standing.outcome, "held_secret_lane");
+    assert.equal(result.category, "urgent");
+    assert.equal(audit.outcome, "held_secret_lane");
   });
 
   test("meeting runs LAST: a sender-kind-demoted fyi is already past the gate", () => {
@@ -284,19 +301,6 @@ describe("applyFloors — model id tags", () => {
       ).modelIdTags,
       ["+meetingfloor"],
     );
-    assert.deepEqual(
-      applyFloors(
-        classification({ category: "urgent" }),
-        context({
-          standingInstruction: {
-            factId: "fact_ricktyy6c1gc",
-            directive: "d",
-            phrasing: "p",
-          },
-        }),
-      ).modelIdTags,
-      ["+standingfloor"],
-    );
   });
 
   test("tags only the override floor on a sign-in broadcast that names a leaked key", () => {
@@ -341,21 +345,6 @@ describe("applyFloors — demote, never bury", () => {
         todoDecision: { outcome: "proposed" },
       }),
       ctx: context({ subject: "Meeting notes: Eng standup", effectiveAuthor: "person" }),
-    },
-    {
-      name: "standing",
-      classification: classification({
-        category: "urgent",
-        todoSuggestion: { name: "Keep Polylane monitoring on" },
-        todoDecision: { outcome: "proposed" },
-      }),
-      ctx: context({
-        standingInstruction: {
-          factId: "fact_ricktyy6c1gc",
-          directive: "d",
-          phrasing: "stop marking em urgent",
-        },
-      }),
     },
   ];
 

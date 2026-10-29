@@ -77,9 +77,12 @@ export type TriageTodoSuggestion = z.infer<typeof triageTodoSuggestionSchema>;
  * `resolveTodoSuggestion` suppresses a `proposed` whose note starts
  * `cold_sender:`, `manufactured:`, or `advisory:`.
  */
+/** The `todoDecision.note` cap. A floor that writes a note cuts it here. */
+export const TRIAGE_TODO_DECISION_NOTE_MAX_CHARS = 200;
+
 export const triageTodoDecisionSchema = z.object({
   outcome: z.enum(TODO_DECISION_OUTCOMES),
-  note: z.string().max(200).nullish(),
+  note: z.string().max(TRIAGE_TODO_DECISION_NOTE_MAX_CHARS).nullish(),
 });
 
 export type TriageTodoDecision = z.infer<typeof triageTodoDecisionSchema>;

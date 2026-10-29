@@ -70,7 +70,7 @@ Last verified: 2026-10-20 at `fd13e6427`.
 
 **Thread re-tag.** Each new inbound message classifies the whole thread again and overwrites the row. The model sees the new message body (6,000 chars) and at most 6 earlier snippets of 220 chars (`triage/thread-state.ts:73`). An open ask older than that is invisible. No thread state machine exists. "Immutable category" (ADR-0048, ADR-0064) only means that briefings and integrations do not rewrite the tag.
 
-**Standing instructions.** The only stored shape is `action: "suppress"` with a `sender_email` or `sender_domain` target (`contracts/src/standing-instructions.ts`). Code applies two effects: no todo for that sender, and a demotion of `urgent` / `action_needed` to `fyi` (`triage/floors/standing.ts`). The model receives the phrasing as prose for all other effects.
+**Standing instructions.** The only stored shape is `action: "suppress"` with a `sender_email` or `sender_domain` target (`contracts/src/standing-instructions.ts`). Every row reads as a v2 instruction (ADR-0113). Triage applies the stored effects after the system floors (`triage/floors/standing.ts`): for a v1 row, no todo for that sender, and a demotion of `urgent` / `action_needed` to `fyi`. The model does not get the phrasing of a sender instruction. It gets only the scoped instructions, and it reports which ones match.
 
 **Gaps (standing instructions).**
 

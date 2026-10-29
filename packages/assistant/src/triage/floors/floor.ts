@@ -2,7 +2,11 @@ import type { TriageClassification } from "../classify";
 import { truncateRationale } from "../rationale";
 
 /** Persisted as the `todoDecision.note` prefix that audits group on, so keep the set closed. */
-type FloorDemotionKey = "sender_kind_floor" | "meeting_floor" | "spam_floor" | "standing_floor";
+export type FloorDemotionKey =
+  | "sender_kind_floor"
+  | "meeting_floor"
+  | "spam_floor"
+  | "standing_floor";
 
 /**
  * A floor returns a verdict, not a classification, so it cannot get the rules wrong.
@@ -30,7 +34,11 @@ export interface FloorResult {
   verdict: FloorVerdict;
 }
 
-/** The only writer of the demotion rules. Every demotion lands on `fyi`. */
+/**
+ * The only writer of the system floors' demotion rules. Every demotion lands on `fyi`. The
+ * instruction floor (`standing.ts`) writes its own, because `demote_urgent` lands on
+ * `action_needed` and keeps the todo. Its `fyi` demotions follow the same rules.
+ */
 export function applyFloorVerdict(
   classification: TriageClassification,
   verdict: FloorVerdict,

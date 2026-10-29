@@ -83,7 +83,8 @@ flowchart LR
 | `index.ts` (129) | Public exports. |
 | `floors/override.ts` (111) | The only escalating floor (exposed secret → `urgent` @ 0.85). |
 | `sender-kind.ts` (98) | Sender-kind signal projection for the floor. |
-| `floors/standing.ts` (83) | ADR-0110: matched instruction demotes the demand lane; security veto; fail-open on read failure. |
+| `floors/standing.ts` | ADR-0113: applies the effects of matched instructions to the model verdict after the system floors; exceptions, later write wins, full cover to lower, security veto on lowering category effects. |
+| `standing-scope.ts` | ADR-0113: the scoped-instruction prompt section under the allowance, the E3 counter, and the parse of `instructionMatches`. |
 | `floors/meeting.ts` (82) | False-`meeting` demotion. |
 | `gmail-sender-adapter.ts` (80) | Boot-port adapter (import-cycle break between ingestion and triage). |
 | `email-html.ts` (75) | DOMPurify sanitization for the rail's sandboxed iframe. |

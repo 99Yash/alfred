@@ -1,7 +1,7 @@
 import type { AccountPersona } from "@alfred/contracts";
 // Top-level `import type`: an inline `{ type X }` survives as a side-effect import
 // and loads the whole knowledge barrel at runtime.
-import type { UserContextLine } from "../knowledge";
+import type { MailStandingInstructions, UserContextLine } from "../knowledge";
 import type { TriageSenderKindSignal } from "./sender-kind";
 import type { SenderPrior } from "./sender-priors";
 import type { ThreadState } from "./thread-state";
@@ -127,26 +127,19 @@ export interface Observations {
   senderRelationshipIsCold: boolean;
   /** The projection says this sender is a non-person. Null means no opinion, not "person". */
   senderKind: TriageSenderKindSignal | null;
-  /** The only observation in the user's own words, so it outranks the rest. */
-  standingInstruction: TriageStandingDirective | null;
-  /** Trace only: a null `standingInstruction` means unknown, not none. */
-  standingInstructionReadFailed: boolean;
+  /**
+   * The user's standing instructions for this mail (ADR-0113): the target hits that code
+   * decided, and the scoped candidates for the model. Not rendered as a hint; the scoped
+   * block is its own prompt section, and the instruction floor applies the effects.
+   * Null means not read (evals and smokes), so every instruction is unknown.
+   */
+  standingInstructions: MailStandingInstructions | null;
   /** Cold-start research prior (ADR-0050 D1). Weaker than the body and the user's words. */
   userContext: UserContextLine | null;
   /** A null `userContext` means unknown, not absent. Else a total read failure looks normal. */
   userContextReadFailed: boolean;
   gmail: GmailSignals;
   content: ContentFlags;
-}
-
-/**
- * `phrasing` is the user's words and is rendered. `directive` is model-composed and
- * is not. `factId` lets the trace join back to the instruction.
- */
-export interface TriageStandingDirective {
-  factId: string;
-  directive: string;
-  phrasing: string;
 }
 
 export interface AssembleObservationsArgs {
@@ -161,8 +154,7 @@ export interface AssembleObservationsArgs {
   // `gatherObservations` always passes them.
   senderRelationshipIsCold?: boolean;
   senderKind: TriageSenderKindSignal | null;
-  standingInstruction?: TriageStandingDirective | null | undefined;
-  standingInstructionReadFailed?: boolean | undefined;
+  standingInstructions?: MailStandingInstructions | null | undefined;
   /** Not capped here; `classify.ts` caps it at render. */
   userContext?: UserContextLine | null | undefined;
   userContextReadFailed?: boolean | undefined;
@@ -185,8 +177,7 @@ export function assembleObservations(args: AssembleObservationsArgs): Observatio
     senderRelationship: args.senderRelationship,
     senderRelationshipIsCold: args.senderRelationshipIsCold ?? false,
     senderKind: args.senderKind,
-    standingInstruction: args.standingInstruction ?? null,
-    standingInstructionReadFailed: args.standingInstructionReadFailed ?? false,
+    standingInstructions: args.standingInstructions ?? null,
     userContext: args.userContext ?? null,
     userContextReadFailed: args.userContextReadFailed ?? false,
     gmail: extractGmailSignals(args.labelIds),

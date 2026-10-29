@@ -1,6 +1,6 @@
 ---
 status: in-progress
-evidence: "PR 1 is #1609 (open)."
+evidence: "PR 1 is #1609 (merged). PR 2 is #1610."
 ---
 
 # Standing instructions v2, step 1: the base design of ADR-0113
@@ -34,6 +34,26 @@ These choices are not in the ADR. Each one is the smallest choice that keeps an 
    result from it. Triage and every consumer call the same function, so they cannot disagree.
    The verdict also stores whether the exposed-secret signal fired, so that a consumer can apply
    the security floor with no mail text.
+6. **Only `demote_demand` and `demote_meeting` clear the ask and the todo.** `force_category`
+   sets only the category, also when it sets `fyi`. Each effect does one thing, and
+   `block_todo_suggestion` is the effect that clears a todo.
+7. **The match list fits in the output allowance.** At most 24 scoped instructions go into one
+   classify prompt, and the output allowance holds a match for each. If the output still fails
+   with the match list, the pass runs again without it. The verdict stays, and each sent
+   instruction is `unknown`. The trace records `standingMatchFailure`.
+
+## Open before PR 4
+
+PR 4 lets capture write a scoped instruction and an `exceptionOf`. These points need a decision
+first.
+
+- **An exception on part cover.** Now an exception cancels the broader instruction before the
+  cover check, so a `part` scope match of an exception cancels a sender-wide raise. The
+  recommendation is to apply E2 to the cancellation: to cancel a raise is a lowering, so it
+  needs full cover; to cancel a lowering is a raise, so any part is enough.
+- **One owner for the revision.** Each `facts.ts` write branch now calls `noteFactKeyWrite`.
+  A new branch that does not call it leaves a stale revision. PR 4 puts the instruction write,
+  the revision increase, and the re-match job behind one function.
 
 ## Pull requests
 
