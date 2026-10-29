@@ -1,6 +1,6 @@
 # ADR-0113 — A standing instruction matches by meaning at read time; code enforces only the effects the user asked for
 
-**Status.** Proposed; not built. Amended 2026-10-28: cues, capsules, and followups (see the amendment at the end). Builds the ADR-0060 schema v2 that was never built. Supersedes the sender-only match of ADR-0106 and ADR-0110, and the ADR-0106 rule that every row carries every effect. Keeps the ADR-0110 floor and the security floor.
+**Status.** Proposed; not built. Amended 2026-10-28: cues, capsules, and followups. Amended 2026-10-29: partial class words, full cover for a demotion, anchors, relation words, and notes (see the amendments at the end). Builds the ADR-0060 schema v2 that was never built. Supersedes the sender-only match of ADR-0106 and ADR-0110, and the ADR-0106 rule that every row carries every effect. Keeps the ADR-0110 floor and the security floor.
 
 **Decision.** A standing instruction is the user's words, a plain-text **scope**, optional exact **targets**, and the typed **effects** that the words ask for. Two different parts of the system answer two different questions:
 
@@ -294,3 +294,107 @@ The followup must not be a design for one repo. One instruction can cover many t
 - **A wrong exact compile is trusted.** The owner confirms the predicate, and the dry run shows its matches. A predicate that is wider than the words is not detected after that.
 - **The second-pass skip changes the history.** After a removal, the mail shows the first-pass verdict.
 - **Still open, outside this amendment.** The ADR-0116 cap of 5 autonomous writes, its v1 scope `code.todos`, and whether provenance autonomy applies to one `system.resolve_todo` call.
+
+## Amendment — 2026-10-29: a class word stays partial, a demotion needs full cover, and an instruction is found by its anchors
+
+**Decision.** Five changes keep the design general. The owner's words have no fixed structure, so no part of this ADR may depend on one example. The Dependabot example of the 2026-10-28 amendment is one case, not the design.
+
+1. A class word compiles only as a **partial** cue rule.
+2. An effect that lowers or hides applies only when the instruction **covers** every reason for the demand of the item.
+3. An instruction stores typed **anchors**, and triage finds the instruction by key.
+4. Capture resolves a **relation word** ("my wife") to a person before it writes, and it asks when it cannot.
+5. An instruction can carry free **notes**, and code never matches on them.
+
+The base rules stay: the model proposes a match, code applies the effects, and `unknown` is never `not_matched`.
+
+### Why
+
+- **A class word has no fixed members.** The owner can say "Dependabot alerts" and mean every notice about the dependencies of a repo, from Dependabot, Renovate, Snyk, Socket, a GitHub advisory, or a person. The 2026-10-28 amendment compiled "Dependabot alerts for turbo-insta" as **exact**. Then a Renovate mail for the same repo is a definite `not_matched`, the model never sees the instruction, and no error shows. This is the fault of the v1 sender list again, in a new form.
+- **One mail can hold many items.** A summary from another assistant or a reminder service can hold one line about a dependency and one urgent item about a contract. The model can return the instruction id, because the mail mentions the topic. Code then applies `demote_demand` to the whole mail, and the urgent item becomes `fyi`. The 2026-10-28 amendment had a rule for this only for cue matches ("the predicate covers each repo"). A scope match had no rule.
+- **Speed is the model call, not the read.** Alfred has one user, so a read from Postgres takes about 1 ms. The cheap model has a floor of about 1.6 s. The cost grows with the count of instructions that the triage call must judge, and the cheap model matches less accurately as that count grows. Thus the instructions that code can find by key must not go to the model unless a key hits.
+- **A relation word names no address.** "Do not tag my wife's email" names a person by relation. Cold-start research covers only the account holder (`docs/reference/cold-start.md`). Thus memory often has no answer.
+- **The shared-context plan already sets the limits.** The tag path reads exact identities, the active instructions, and at most five facts, with no embedding and no graph engine (`docs/plans/shared-context-memory-v1.md`). This amendment stays inside those limits.
+
+### E1 — A class word compiles only as partial
+
+This amends D3 of the 2026-10-28 amendment.
+
+- A compile is **exact** only when the owner's words name the cue values themselves and nothing broader. Examples: a sender address, a domain, or "only mail from Dependabot about turbo-insta".
+- A class word compiles as **partial**, also when the owner names a product or a bot inside it. "Dependabot alerts for turbo-insta" compiles to a partial rule. A cue hit is a fast yes. A cue miss goes to the semantic match.
+- Capture never offers an exact compile for a class word. The owner can make it exact only with words that limit it.
+- **The dry run shows near matches.** Capture lists mail from the last 30 days that the scope matches and the cues do not. Example: "Also matches 3 Renovate mails about turbo-insta. Include them?" The owner can then widen or narrow the words.
+- The D4 second-pass skip stays. It runs on a cue hit, and a cue hit is still a yes.
+
+### E2 — Raise on any part, lower only on full cover
+
+- **The match output gains a coverage field.** For each matched scope instruction, the triage call and the re-match job return `covers`: `all` or `part`. `all` means that every reason for the demand in the model verdict is inside the scope. `part` means that the mail also holds a reason that the scope does not cover. If the field is missing or not valid, code reads it as `part`.
+- **Code decides the coverage of a cue match.** The cue rule covers the mail only when it covers each object that the mail names. This keeps the 2026-10-28 rule for repos and makes it general.
+- **A target match covers the whole mail.** The owner named the sender, so every mail from that sender is in scope.
+- **The direction of the effect decides which coverage it needs:**
+
+  | Direction | Effects | Applies on |
+  | --- | --- | --- |
+  | Raises or adds | `include_briefing_priority`, `force_todo_suggestion`, and `force_category` when the forced category is above the model verdict | `all` or `part` |
+  | Lowers, hides, or blocks | `demote_urgent`, `demote_demand`, `demote_meeting`, `exclude_briefing_priority`, `hide_label`, `block_todo_suggestion`, `block_reply_draft`, and `force_category` when the forced category is not above the model verdict | `all` only |
+
+  "Above" uses the demand order `urgent`, then `action_needed`, then every other category. A move between two categories outside the demand lanes counts as a lowering, so it needs `all`.
+- **Coverage is part of the stored match result.** It has the same evaluation identity as the match, and the lifetime rules apply to it without change.
+- **Rollout gate cases.** A summary mail with one dependency line for a covered repo and one urgent contract item stays `urgent`. A summary mail in which every item is covered is lowered. A digest that names a covered repo and an active repo keeps its tag.
+
+### E3 — Anchors, a key index, and a counter
+
+- **An anchor is a typed reference to what the words name.** It is a person entity, or an integration object identity (`packages/contracts/src/object-identity.ts`: provider, kind, external id). The kind is an open string, so a GitHub repo, a HubSpot deal, and a Salesforce account need no new schema. An object anchor also stores its display name, for example the repo name.
+- **Capture writes the anchors from the words, not from past mail.** The rule of fault 1 applies: a value that the dry run finds is a recall hint, never an anchor.
+- **An anchor is a required condition of its instruction.** When the words name a thing, the instruction cannot apply to a mail that is not about that thing.
+- **The key index.** Each anchor, target, and exact cue value becomes one canonical key, for example `github:repository:<owner>/<repo>` or `person:<entity id>`. Alfred stores the keys of each active instruction in an indexed table, and it rebuilds the rows of an instruction at each change of its `revision`.
+- **At triage, code computes the keys of the mail.** The keys come from the sender address, the domain, the person entity of the sender, the objects in the body URLs (through the url-family templates), and the bot handle. One indexed query returns the keyed instructions that can apply.
+- **The object test.** An object anchor hits when the mail names the object by URL identity, or names its display name as a whole word in the subject or the body. If neither is true, the state is `not_matched`, and the instruction does not go to the model. A name hit is a candidate only, and the class part still goes to the model.
+- **The person test.** A person anchor hits when the sender address belongs to the person entity at read time. Rule 1 of "Lifetime of a stored match" applies, so a new address that is added to the entity is covered at the next read.
+- **What goes into the triage call.** These instructions go into the call:
+  - every class-only instruction, which is a scope with no anchor;
+  - every keyed partial instruction whose key hit.
+
+  An exact keyed instruction that hits is decided in code. This replaces the "Retrieval" rule of the base design and the first D4 rule of the 2026-10-28 amendment, which sent every active instruction that has a semantic scope.
+- **The counter.** Each triage call records three values in the trace: the count of class-only instructions, their token size, and the count of keyed candidates. A prefilter for the class-only block stays out of v1. Two candidates exist for later: a Postgres full-text recall filter, and a first tag that the re-match job corrects later. The counter and a replay check decide when to add one and which one. An instruction that a later filter does not send is `unknown`, never `not_matched`.
+
+### E4 — Capture resolves a relation word before it writes
+
+When the words name a person by relation ("my wife", "my manager", "my landlord"), capture follows this order:
+
+1. **Memory.** Read the relation facts and `entity_relations` (ADR-0056). If one person matches, use that person.
+2. **The owner's own sources.** Search the connected mail, calendar, and contacts. Do no web search on the person. The ADR-0111 limit for people in the personal workspace stays.
+3. **Ask.** If the sources do not give one clear person, ask with `system.ask_user` (ADR-0099). The options are the best candidates and "someone else".
+4. **Confirm.** The one-line confirmation names the person and the addresses that Alfred knows, for example: "This hides the tag on mail from <name> (2 addresses). Correct?" Alfred never writes an anchor from a silent guess. A wrong person would change the mail of someone else.
+5. **Store the relation one time.** The answer becomes a relation fact apart from the instruction, under the authority of the owner's chat message (ADR-0115). The next instruction about the same person needs no search and no question.
+6. **No answer.** The instruction stays inactive. The review panel shows "waiting for a person", and Alfred tells the owner. It never drops the instruction.
+
+The proactive half, which learns the key people before the owner names them, is issue #1604. The question in the briefing is issue #1606.
+
+### E5 — Notes are for hints and display only
+
+- An instruction can carry `notes`: free JSON, for example the URL as the owner typed it, the dry-run summary, or the name of a CRM record.
+- Code never matches on `notes` and never decides from them. A reader treats them as `unknown` data and checks them at its own boundary.
+- An instruction does not store live state, for example "the repo is archived" or "the deal is closed". Live state stays on the object (`integration_objects`) or in a relevance fact (D5 of the 2026-10-28 amendment), and a reader reads it at match time.
+
+### Changes to the shape
+
+| Field | Meaning | Who reads it |
+| --- | --- | --- |
+| `anchors` | Typed references to the people and objects that the words name. Optional. | Code, for the key index and the required condition. |
+| `compile` | `exact` or `partial`, for the cue rule. A class word is always `partial`. | Code, for the decision after a cue miss. |
+| `notes` | Free JSON for hints and display. Optional. | Model consumers and the review panel. Never code. |
+
+Each stored scope match result gains `covers` (`all` or `part`).
+
+### Changes to the build order
+
+- Step 1 (the base design) adds the `covers` field, the direction rule of E2, the counter, and `notes`.
+- Step 2 (cues) adds the partial rule of E1, the near matches in the dry run, `anchors`, the key index, and the relation order of E4.
+- Steps 3 to 5 do not change.
+
+### Residual risk
+
+- **A wrong `all` from the model.** The model can say that an instruction covers a mail when it covers only part of the mail. Then a real demand is lowered. The security floor, the stored effects, and the trace bound the damage. The rollout gate checks the summary-mail cases.
+- **A mail about an object that names neither its URL nor its name.** The object test misses it, and the instruction does not apply. The dry run and the review panel count show the matches, but they do not show this miss.
+- **A wrong person at capture.** The confirmation line is the guard. After the owner confirms, a wrong anchor is not detected.
+- **An address that the person entity does not know yet.** Mail from it does not hit the person anchor until Alfred links the address to the entity.
