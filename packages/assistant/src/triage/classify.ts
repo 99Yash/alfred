@@ -15,6 +15,7 @@ import {
   isOwnershipCollabActivity,
   isPassiveCollabActivity,
   sanitizeErrorMessage,
+  sanitizeToolResult,
   triageTodoDecisionSchema,
   triageTodoSuggestionSchema,
   type CollabActivityKind,
@@ -27,6 +28,7 @@ import {
   toMessage,
 } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
+import { NoObjectGeneratedError } from "ai";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
 import { TRIAGE_CATEGORIES, type TriageCategory } from "@alfred/integrations/google";
 import { z } from "zod";
@@ -127,6 +129,12 @@ type ServedPass = (
   input: Parameters<RunPass>[0],
 ) => Promise<{ classification: TriageClassifierOutput; modelId: string }>;
 
+/** A served pass, and why its match list failed, if it did. */
+interface ClassifyPassResult {
+  served: Awaited<ReturnType<ServedPass>>;
+  matchFailure: { message: string } | null;
+}
+
 export interface ClassifyEmailArgs {
   /** Metering only; never sent to the model. */
   userId?: string;
@@ -178,6 +186,11 @@ export interface ClassifyAudit {
 export interface StandingClassifyAudit {
   floor: StandingFloorAudit;
   counter: StandingScopeCounter;
+  /**
+   * The stored pass's output failed with the match list, so it ran again without it. Every
+   * sent instruction is `unknown`. Null when the match list did not fail.
+   */
+  matchFailure: { message: string } | null;
 }
 
 const PASSIVE_CATEGORIES = new Set<TriageCategory>(["fyi", "done", "newsletter", "marketing"]);
@@ -942,19 +955,41 @@ export async function classifyEmail(args: ClassifyEmailArgs): Promise<ClassifyEm
 
   const standing = args.observations.standingInstructions;
   const scopeBlock = buildStandingScopeBlock(standing);
-  const withInstructionMatches = scopeBlock.section !== null;
 
-  const firstResult = await runPass({
-    system: classifySystemPrompt(),
-    prompt: userPrompt(args, null, scopeBlock.section),
-    pass: "first",
-    withInstructionMatches,
-  });
+  /**
+   * One pass. When its output fails with the match list (cut at the token limit, or a bad
+   * shape), it runs again without the instruction section. The email verdict survives, and
+   * each sent instruction stays `unknown`: ADR-0113 reads a match that fails or exceeds its
+   * bound as `unknown`, and it never discards the verdict for it.
+   */
+  const runClassifyPass = async (
+    pass: "first" | "second",
+    conflict: TriageConflict | null,
+  ): Promise<ClassifyPassResult> => {
+    const run = (section: string | null) =>
+      runPass({
+        system: classifySystemPrompt(),
+        prompt: userPrompt(args, conflict, section),
+        pass,
+        withInstructionMatches: section !== null,
+      });
 
-  const firstPass = firstResult.classification;
+    if (scopeBlock.section === null) return { served: await run(null), matchFailure: null };
+
+    try {
+      return { served: await run(scopeBlock.section), matchFailure: null };
+    } catch (err) {
+      if (!NoObjectGeneratedError.isInstance(err)) throw err;
+
+      return { served: await run(null), matchFailure: { message: errorMessage(err) } };
+    }
+  };
+
+  const first = await runClassifyPass("first", null);
+  const firstPass = first.served.classification;
 
   const conflict = detectConflict(firstPass, args.observations, floorMatches, args.senderContext);
-  let working = firstResult;
+  let working = first;
   let secondPass: TriageClassification | null = null;
   let secondPassFailure: { message: string } | null = null;
 
@@ -962,15 +997,10 @@ export async function classifyEmail(args: ClassifyEmailArgs): Promise<ClassifyEm
     // A failed second pass keeps the first pass. Rethrowing would fall back to
     // `fyi` and bury a real urgent; escalating would flag every vendor auth echo.
     try {
-      const secondResult = await runPass({
-        system: classifySystemPrompt(),
-        prompt: userPrompt(args, conflict, scopeBlock.section),
-        pass: "second",
-        withInstructionMatches,
-      });
+      const second = await runClassifyPass("second", conflict);
 
-      secondPass = secondResult.classification;
-      working = secondResult;
+      secondPass = second.served.classification;
+      working = second;
     } catch (err) {
       secondPassFailure = { message: errorMessage(err) };
       secondPass = null;
@@ -981,7 +1011,8 @@ export async function classifyEmail(args: ClassifyEmailArgs): Promise<ClassifyEm
   const { from, to, cc } = meta;
 
   // `instructionMatches` is not a classification field, so it leaves before the floors.
-  const { instructionMatches: workingMatches, ...workingClassification } = working.classification;
+  const { instructionMatches: workingMatches, ...workingClassification } =
+    working.served.classification;
 
   const floors = applyFloors(workingClassification, {
     signalText,
@@ -1039,10 +1070,11 @@ export async function classifyEmail(args: ClassifyEmailArgs): Promise<ClassifyEm
   // Pass tags, then floor tags in sequence order. Query with `LIKE '%+kindfloor%'`, never equality.
   // The base names the leg whose classification the row stores.
   const model_id = [
-    working.modelId,
+    working.served.modelId,
     ...(secondPass ? ["+2pass"] : []),
     ...(secondPassFailure ? ["+2pass_failed"] : []),
     ...floors.modelIdTags,
+    ...(working.matchFailure ? ["+match_failed"] : []),
     ...(standingApplied ? ["+standingfloor"] : []),
   ].join("");
 
@@ -1055,7 +1087,11 @@ export async function classifyEmail(args: ClassifyEmailArgs): Promise<ClassifyEm
       secondPass,
       secondPassFailure,
       floors: floors.audits,
-      standing: { floor: standingFloor.audit, counter: scopeBlock.counter },
+      standing: {
+        floor: standingFloor.audit,
+        counter: scopeBlock.counter,
+        matchFailure: working.matchFailure,
+      },
     },
     modelVerdict: { ...verdict, exposedSecret: floorMatches },
     instructionEvaluation:
@@ -1160,7 +1196,11 @@ function defaultRunPass(model: LanguageModel, args: ClassifyEmailArgs): ServedPa
   };
 }
 
-export function normalizeClassifierOutput<O extends TriageClassification>(object: O): O {
+export function normalizeClassifierOutput<O extends TriageClassification>(output: O): O {
+  // NUL and lone surrogates fail `text` and `jsonb`. Strip them here, so the stored model
+  // verdict, the effective result, and the rationale all start clean.
+  const object = sanitizeToolResult(output).value;
+
   return {
     ...object,
     confidence: clamp01(object.confidence),

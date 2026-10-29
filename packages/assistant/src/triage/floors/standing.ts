@@ -30,7 +30,7 @@ export type StandingInstructionMatch = ActiveStandingInstruction & {
   via: StandingInstructionMatchVia;
 };
 
-/** The fields the effects read and write. A caller keeps its other fields. */
+/** The fields the effects read and write. A caller merges the result into its other fields. */
 export type StandingEffectVerdict = Pick<
   TriageModelVerdict,
   "category" | "documentAsk" | "todoSuggestion" | "todoDecision"
@@ -73,8 +73,8 @@ export interface StandingEffectAudit {
 export type StandingFloorOutcome = "demoted_demand_lane" | "held_secret_lane";
 
 /** The floor's output. `reason` is the rationale clause, or null when nothing applied. */
-export interface StandingFloorResult<V extends StandingEffectVerdict> {
-  result: V;
+export interface StandingFloorResult {
+  result: StandingEffectVerdict;
   audit: StandingFloorAudit;
   reason: string | null;
 }
@@ -130,7 +130,11 @@ const IS_TRIAGE_EFFECT = {
   block_reply_draft: false,
 } satisfies Record<StandingInstructionEffectKind, boolean>;
 
-/** A demotion to `fyi` says "not a thing to do", so it also clears the ask and the todo. */
+/**
+ * `demote_demand` and `demote_meeting` say "not a thing to do", so they also clear the ask and
+ * the todo. `force_category` sets only the category, even to `fyi`: the user asked for a lane,
+ * and `block_todo_suggestion` is the separate effect that clears the todo.
+ */
 const CLEARS_OBLIGATION = {
   demote_urgent: false,
   demote_demand: true,
@@ -176,10 +180,10 @@ function describeMatch(match: StandingInstructionMatch): string {
  *  3. A lowering effect needs full cover (E2). A target hit is full cover.
  *  4. The security floor holds a lowering category effect and never a raise.
  */
-export function applyStandingInstructionEffects<V extends StandingEffectVerdict>(
-  verdict: V,
+export function applyStandingInstructionEffects(
+  verdict: StandingEffectVerdict,
   context: { exposedSecret: boolean; matches: readonly StandingInstructionMatch[] },
-): StandingFloorResult<V> {
+): StandingFloorResult {
   const matchedIds = new Set(context.matches.map((match) => match.value.instructionId));
 
   const cancelledIds = new Set(
@@ -274,7 +278,7 @@ export function applyStandingInstructionEffects<V extends StandingEffectVerdict>
   const noteBy = clearsObligation ? categorySetBy?.match : todoBlockedBy;
   const alsoBlockedBy = clearsObligation ? todoBlockedBy : null;
 
-  const result: V = {
+  const result: StandingEffectVerdict = {
     ...verdict,
     category,
     ...(clearsObligation ? { documentAsk: null } : {}),

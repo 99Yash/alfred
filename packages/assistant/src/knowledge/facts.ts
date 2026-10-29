@@ -426,8 +426,9 @@ export async function createFact(args: CreateFactArgs & FactExec): Promise<FactR
       .onConflictDoNothing()
       .returning();
 
-    // A superseded conflict changed even when the insert was a no-op.
-    await noteFactKeyWrite(tx, parsed.userId, key);
+    // A superseded conflict changed even when the insert was a no-op. With neither, nothing
+    // changed (an `id` that already exists), so the set revision stays.
+    if (row || conflicts.length > 0) await noteFactKeyWrite(tx, parsed.userId, key);
 
     return row ? rowToFact(row) : null;
   });

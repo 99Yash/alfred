@@ -72,6 +72,7 @@ function traceFixture(senderRelationship: string): SenderExtractionEvent {
     standingKeyedCount: null,
     standingClassOnlyTokens: null,
     standingOverflowCount: null,
+    standingMatchFailure: null,
     threadMessages: 1,
     threadNewest: "received",
     gmailImportant: false,

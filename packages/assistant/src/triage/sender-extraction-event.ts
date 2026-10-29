@@ -101,6 +101,11 @@ interface StandingTraceFields {
   standingClassOnlyTokens: number | null;
   /** Scoped candidates past the allowance. Their state is `unknown`. */
   standingOverflowCount: number | null;
+  /**
+   * The stored pass's output failed with the match list, so it ran again without it, and every
+   * sent instruction is `unknown`. Null when it did not fail, or on the fallback path.
+   */
+  standingMatchFailure: string | null;
 }
 
 function standingTraceFields(audit: StandingClassifyAudit | null): StandingTraceFields {
@@ -113,6 +118,7 @@ function standingTraceFields(audit: StandingClassifyAudit | null): StandingTrace
     standingKeyedCount: audit?.counter.keyed ?? null,
     standingClassOnlyTokens: audit?.counter.classOnlyTokens ?? null,
     standingOverflowCount: audit?.counter.overflow ?? null,
+    standingMatchFailure: audit?.matchFailure?.message ?? null,
   };
 }
 

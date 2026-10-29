@@ -9,6 +9,7 @@ import { z } from "zod";
 import type { ActiveStandingInstruction, MailStandingInstructions } from "../knowledge";
 import {
   TRIAGE_INSTRUCTION_BLOCK_MAX_CHARS,
+  TRIAGE_INSTRUCTION_MATCH_MAX_ENTRIES,
   TRIAGE_INSTRUCTION_MATCH_REASON_MAX_CHARS,
 } from "./constants";
 import type { StandingInstructionMatch } from "./floors";
@@ -20,12 +21,14 @@ import type { StandingInstructionMatch } from "./floors";
 
 /**
  * The model's answer for one instruction. `covers` is an optional free string, so that one
- * missing or bad value cannot fail the whole classification. The parse reads it as `part` (E2).
+ * missing or bad value cannot fail the whole classification. A value of another type (`null`,
+ * a number) also reads as missing, and the parse reads every such value as `part` (E2). The
+ * `.catch` does not change the JSON schema that the model sees.
  */
 export const triageInstructionMatchOutputSchema = z.object({
   id: z.string(),
   reason: z.string(),
-  covers: z.string().optional(),
+  covers: z.string().optional().catch(undefined),
 });
 
 export type TriageInstructionMatchOutput = z.infer<typeof triageInstructionMatchOutputSchema>;
@@ -68,7 +71,9 @@ const SECTION_RULES = [
 
 /**
  * Pick the scoped candidates that fit the allowance, newest first, and render the section.
- * A candidate past the allowance is left out and counted; its state stays `unknown`.
+ * The count limit keeps the match list inside the output allowance, so a full list cannot
+ * cut the classification. A candidate past either limit is left out and counted; its state
+ * stays `unknown`.
  */
 export function buildStandingScopeBlock(
   standing: MailStandingInstructions | null,
@@ -84,6 +89,8 @@ export function buildStandingScopeBlock(
   let chars = 0;
 
   for (const instruction of newestFirst) {
+    if (sent.length >= TRIAGE_INSTRUCTION_MATCH_MAX_ENTRIES) break;
+
     const line = renderInstruction(instruction);
 
     if (chars + line.length + 1 > TRIAGE_INSTRUCTION_BLOCK_MAX_CHARS) continue;
