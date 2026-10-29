@@ -59,7 +59,13 @@ import {
 } from "@alfred/assistant/connections/verified-pull";
 import { type UserSettings, userIdentity } from "@alfred/assistant/settings";
 import { getMcpExecutionBroker } from "@alfred/assistant/tool-runtime/mcp";
-import { standingInstructions } from "../knowledge";
+import { standingInstructions, type ActiveStandingInstruction } from "../knowledge";
+import {
+  deriveEffectiveTriage,
+  parseTriageEvaluationColumns,
+  standingInstructionEvidence,
+} from "@alfred/assistant/triage";
+import type { StandingInstructionMatchVia } from "@alfred/assistant/triage/floors";
 import {
   addDays,
   formatDay,
@@ -150,7 +156,35 @@ export interface BriefingInstructionSuppression {
   category: PriorityCategory;
   sender: string | null;
   factId: string;
+  instructionId: string;
+  revision: number;
+  /** How the instruction reached the item, with the scope reason and cover (ADR-0113). */
+  match: StandingInstructionMatchVia;
   effect: "exclude_briefing_priority";
+}
+
+/** An instruction with a rank effect (ADR-0113 rule 4): a category or briefing-priority move. */
+function hasRankEffect(instruction: ActiveStandingInstruction): boolean {
+  return instruction.value.effects.some(
+    (effect) => effect.kind !== "block_todo_suggestion" && effect.kind !== "block_reply_draft",
+  );
+}
+
+/**
+ * The persisted decision trace of the briefing's instruction suppressions (ADR-0113, "Precedence,
+ * safety, and audit"). The triage trace cannot explain an instruction added after triage.
+ */
+export const BRIEFING_INSTRUCTION_SUPPRESSION_TRACE_KIND = "briefing.instruction_suppressions";
+
+export interface BriefingInstructionSuppressionTrace {
+  items: BriefingInstructionSuppression[];
+}
+
+// Module augmentation, not an import: `ctx.trace` stays typed and execution never imports briefings.
+declare module "@alfred/assistant/execution/decision-traces" {
+  interface DecisionTraceRegistry {
+    "briefing.instruction_suppressions": BriefingInstructionSuppressionTrace;
+  }
 }
 
 export function instructionSuppressionLogPart(
@@ -159,7 +193,11 @@ export function instructionSuppressionLogPart(
   if (items.length === 0) return " instruction_suppressions=0";
   const factIds = [...new Set(items.map((item) => item.factId))].join(",");
 
-  return ` instruction_suppressions=${items.length} fact_ids=${factIds}`;
+  const instructions = [
+    ...new Set(items.map((item) => `${item.instructionId}@r${item.revision}:${item.match.kind}`)),
+  ].join(",");
+
+  return ` instruction_suppressions=${items.length} fact_ids=${factIds} instructions=${instructions}`;
 }
 
 export interface GatherBriefingDigestArgs {
@@ -220,6 +258,8 @@ export async function gatherBriefingDigest(
         documentId: documents.id,
         accountId: documents.accountId,
         category: emailTriage.category,
+        modelVerdict: emailTriage.modelVerdict,
+        instructionEvaluation: emailTriage.instructionEvaluation,
         confidence: emailTriage.confidence,
         rationale: emailTriage.rationale,
         title: documents.title,
@@ -270,13 +310,36 @@ export async function gatherBriefingDigest(
   // Buckets stay uncapped until reconciliation, so closed loops do not take visible slots.
   const keyCandidates: ReconcileCandidates<"about">[] = [];
 
+  // Items whose instruction state is `unknown` for a rank effect. They keep the model verdict.
+  let instructionUnknownItems = 0;
+
   for (const r of rows) {
-    const cat = r.category;
     const meta = parseGmailDocumentMetadata(r.metadata);
+    const from = meta.from ?? null;
+
+    // ADR-0113 rule 3: the category comes from the stored model verdict and the current
+    // instructions, never from the cached post-floor category alone.
+    const effective = deriveEffectiveTriage({
+      // Gather reads only the category, so the cached ask and todo stay out.
+      triage: {
+        documentId: r.documentId,
+        category: r.category,
+        documentAsk: null,
+        todoSuggestion: null,
+        todoDecision: null,
+        ...parseTriageEvaluationColumns(r),
+      },
+      documentId: r.documentId,
+      instructions: suppressions.forMail({ sender: from, accountId: r.accountId }),
+    });
+
+    const cat = effective.result?.category ?? r.category;
+
+    if (effective.unknown.some(hasRankEffect)) instructionUnknownItems += 1;
 
     triggerItems.push({
       subject: r.title,
-      from: meta.from ?? null,
+      from,
       snippet: meta.snippet ?? null,
     });
 
@@ -287,19 +350,16 @@ export async function gatherBriefingDigest(
 
     if (!isPriority(cat)) continue;
 
-    const from = meta.from ?? null;
+    // An inclusion cancels an earlier exclusion. It adds no item that is outside the priority
+    // categories: no bucket exists for one yet.
+    const exclusion = effective.briefingPriority;
 
-    const instructionSuppression = suppressions.matchSender(
-      { sender: from, accountId: r.accountId },
-      "exclude_briefing_priority",
-    );
-
-    if (instructionSuppression.kind === "suppressed") {
+    if (exclusion?.effect === "exclude_briefing_priority") {
       suppressedByInstruction.push({
         documentId: r.documentId,
         category: cat,
         sender: from,
-        factId: instructionSuppression.match.factId,
+        ...standingInstructionEvidence(exclusion.match),
         effect: "exclude_briefing_priority",
       });
       continue;
@@ -325,6 +385,13 @@ export async function gatherBriefingDigest(
     );
 
     if (candidates) keyCandidates.push(candidates);
+  }
+
+  if (instructionUnknownItems > 0) {
+    logger.info(
+      { userId: args.userId, instructionUnknownItems },
+      "briefing gather: standing instruction state unknown, model verdict kept",
+    );
   }
 
   // Verified pull (#1094, #1192): a triaged deploy failure triggers a live status read. It runs

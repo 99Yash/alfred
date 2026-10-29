@@ -1,9 +1,5 @@
 import type { UserSettings } from "@alfred/assistant/settings";
-import type {
-  ReportedStandingInstructionSet,
-  SenderTargetMatch,
-  SenderTargetOutcome,
-} from "../knowledge";
+import type { ActiveStandingInstruction, ReportedStandingInstructionSet } from "../knowledge";
 import {
   resolveTodoSuggestion,
   todoSuppressionReason,
@@ -12,6 +8,13 @@ import {
   type TodoSuppressionReason,
   type TriageClassification,
 } from "./classify";
+import type { StandingInstructionMatch } from "./floors";
+import {
+  deriveEffectiveTriage,
+  standingBlockWaitsOn,
+  type EffectiveTriage,
+  type EffectiveTriageRow,
+} from "./effective";
 import type { TriageDocumentContext } from "./store";
 import { readGmailThreadClosure, userRepliedAfterMessage } from "./thread-state";
 import type { TriageRunReason } from "./workflow-input";
@@ -24,7 +27,13 @@ import type { TriageRunReason } from "./workflow-input";
 
 /** Why a proposed todo is not minted, in precedence order. */
 export type TriageTodoSuppression =
-  | { kind: "standing_instruction"; match: SenderTargetMatch }
+  /**
+   * A matched `block_todo_suggestion` on a row with no model verdict (ADR-0060). The floor did
+   * not run on that row, so its cached todo is still there and the lane blocks it here.
+   */
+  | { kind: "standing_instruction_matched"; match: StandingInstructionMatch }
+  /** ADR-0113 rule 4: a `block_todo_suggestion` instruction is `unknown`, so the todo waits. */
+  | { kind: "standing_instruction_unknown"; instructions: ActiveStandingInstruction[] }
   /** Fails closed: an unknown instruction must not mint a todo the user blocked. */
   | { kind: "standing_instruction_read_failed"; error: unknown }
   | { kind: "gate"; reason: TodoSuppressionReason }
@@ -48,12 +57,89 @@ export type TriageThreadClosureRead =
   /** Fails open: the todo stays mintable and `close-loop-todos` retracts nothing. */
   | { kind: "read_failed"; error: unknown };
 
+/**
+ * The instruction read of the todo lane. On a row with a model verdict, a matched
+ * `block_todo_suggestion` already cleared the todo in the effective result. A row with no
+ * verdict keeps its cached todo, so the lane also blocks a matched one (`todoBlockedBy`).
+ */
+export type TriageTodoStanding =
+  | { kind: "loaded"; effective: EffectiveTriage }
+  | { kind: "read_failed"; error: unknown };
+
+/** The `block_todo_suggestion` state, for the decision trace. `none` when no todo is proposed. */
+export type TriageTodoStandingRead =
+  | { kind: "none" }
+  | { kind: "blocked"; match: StandingInstructionMatch }
+  | { kind: "waiting"; instructions: ActiveStandingInstruction[] }
+  | { kind: "read_failed"; error: unknown };
+
 export type TriageTodoDecision = {
   outcome: TriageTodoOutcome;
-  /** The `block_todo_suggestion` read, for the decision trace. `none` when no todo is proposed. */
-  standingSuppression: SenderTargetOutcome;
+  standingSuppression: TriageTodoStandingRead;
   closure: TriageThreadClosureRead;
 };
+
+/** The triage result the todo lane decides on, for the document of this run. */
+export type TodoTriageResult = EffectiveTriageRow & { documentId: string };
+
+/**
+ * Derive the todo lane's instruction state from the triage result it decides on. The
+ * classify step passes what it stores, so the derivation repeats its own floor; a reused
+ * row derives again from its stored verdict under the current instructions.
+ */
+export function triageTodoStanding(args: {
+  suppressions: ReportedStandingInstructionSet;
+  sender: string | null;
+  accountId: string | null;
+  triage: TodoTriageResult;
+}): TriageTodoStanding {
+  const instructions = args.suppressions.forMail({
+    sender: args.sender,
+    accountId: args.accountId,
+  });
+
+  if (instructions.kind === "read_failed") return instructions;
+
+  return {
+    kind: "loaded",
+    effective: deriveEffectiveTriage({
+      triage: args.triage,
+      documentId: args.triage.documentId,
+      instructions,
+    }),
+  };
+}
+
+/** The classification with the effective category, ask, and todo of the current instructions. */
+function effectiveClassification(
+  classification: TriageClassification,
+  standing: TriageTodoStanding,
+): TriageClassification {
+  const result = standing.kind === "loaded" ? standing.effective.result : null;
+
+  if (!result) return classification;
+
+  return {
+    ...classification,
+    category: result.category,
+    documentAsk: result.documentAsk,
+    todoSuggestion: result.todoSuggestion,
+    todoDecision: result.todoDecision ?? undefined,
+  };
+}
+
+/** A matched block decides first, so an `unknown` one cannot turn it into a wait. */
+function todoStandingRead(standing: TriageTodoStanding): TriageTodoStandingRead {
+  if (standing.kind === "read_failed") return standing;
+
+  const { effective } = standing;
+
+  if (effective.todoBlockedBy) return { kind: "blocked", match: effective.todoBlockedBy };
+
+  const waitingOn = standingBlockWaitsOn(effective, "block_todo_suggestion");
+
+  return waitingOn.length > 0 ? { kind: "waiting", instructions: waitingOn } : { kind: "none" };
+}
 
 export async function decideTriageTodo(args: {
   userId: string;
@@ -67,13 +153,13 @@ export async function decideTriageTodo(args: {
     TriageDocumentContext["document"],
     "accountId" | "title" | "content" | "authoredAt" | "metadata"
   >;
-  senderAddress: string | null;
   isColdContact: boolean;
   actionItemsEnabled: boolean;
-  /** The step's one `"report"` load, so the todo lane and the category lane agree. */
-  suppressions: ReportedStandingInstructionSet;
+  /** From {@link triageTodoStanding} over the step's one `"report"` load, so both lanes agree. */
+  standing: TriageTodoStanding;
 }): Promise<TriageTodoDecision> {
-  const { document, classification } = args;
+  const { document } = args;
+  const classification = effectiveClassification(args.classification, args.standing);
 
   // Read the zone only when a todo is proposed. The step bind usually holds it already.
   const assistDateAnchor: AssistDateAnchor | null =
@@ -86,10 +172,7 @@ export async function decideTriageTodo(args: {
 
   if (!todo) return { outcome: { kind: "none" }, standingSuppression: { kind: "none" }, closure };
 
-  const standingSuppression = args.suppressions.matchSender(
-    { sender: args.senderAddress ?? document.metadata.from ?? null, accountId: document.accountId },
-    "block_todo_suggestion",
-  );
+  const standingSuppression = todoStandingRead(args.standing);
 
   const gateReason = todoSuppressionReason({
     sender: document.metadata.from ?? null,
@@ -107,15 +190,17 @@ export async function decideTriageTodo(args: {
   });
 
   const suppression: TriageTodoSuppression | null =
-    standingSuppression.kind === "suppressed"
-      ? { kind: "standing_instruction", match: standingSuppression.match }
-      : standingSuppression.kind === "read_failed"
-        ? { kind: "standing_instruction_read_failed", error: standingSuppression.error }
-        : gateReason
-          ? { kind: "gate", reason: gateReason }
-          : !args.actionItemsEnabled
-            ? { kind: "action_items_off" }
-            : null;
+    standingSuppression.kind === "blocked"
+      ? { kind: "standing_instruction_matched", match: standingSuppression.match }
+      : standingSuppression.kind === "waiting"
+        ? { kind: "standing_instruction_unknown", instructions: standingSuppression.instructions }
+        : standingSuppression.kind === "read_failed"
+          ? { kind: "standing_instruction_read_failed", error: standingSuppression.error }
+          : gateReason
+            ? { kind: "gate", reason: gateReason }
+            : !args.actionItemsEnabled
+              ? { kind: "action_items_off" }
+              : null;
 
   return {
     outcome: suppression ? { kind: "suppressed", todo, suppression } : { kind: "mint", todo },

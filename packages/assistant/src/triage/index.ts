@@ -9,7 +9,13 @@ export {
   DEFAULT_TRIAGE_CATEGORY,
 } from "./classify";
 
-export { applyFloors, applyOverrideFloor } from "./floors";
+export { applyFloors, applyOverrideFloor, standingInstructionEvidence } from "./floors";
+
+export { deriveEffectiveTriage, standingBlockWaitsOn } from "./effective";
+
+export type { EffectiveTriage, EffectiveTriageRow, StandingBlockEffectKind } from "./effective";
+
+export type { StandingEffectVerdict, StandingInstructionMatch } from "./floors";
 
 export type {
   AssistDateAnchor,
@@ -28,6 +34,7 @@ export {
   getTriage,
   loadTriageContext,
   markGmailDocumentSent,
+  parseTriageEvaluationColumns,
   setAppliedLabelId,
   triageThreadLockKey,
   upsertTriage,
@@ -114,9 +121,9 @@ export { senderExtractionEvent } from "./sender-extraction-event";
 
 export type { SenderExtractionEvent } from "./sender-extraction-event";
 
-export { decideTriageTodo } from "./todo-decision";
+export { decideTriageTodo, triageTodoStanding } from "./todo-decision";
 
-export type { TriageTodoDecision } from "./todo-decision";
+export type { TodoTriageResult, TriageTodoDecision } from "./todo-decision";
 
 export {
   gatherObservations,

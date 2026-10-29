@@ -368,24 +368,6 @@ export type StandingInstructionScopeNarrowing =
 /** Inputs a domain target cannot store: it renders its own sentence and has no label. */
 export type StandingInstructionDroppedInput = "directive" | "senderLabel";
 
-/** ADR-0060 §8, most specific first. Only relative order matters. */
-const STANDING_INSTRUCTION_TARGET_SPECIFICITY_ORDER = [
-  "sender_email",
-  "sender_domain",
-] as const satisfies readonly StandingInstructionTargetKind[];
-
-/**
- * Higher wins when several instructions match one sender; recency breaks ties
- * (ADR-0060). Without it, a domain mute written after an address pin defeats the pin.
- * `indexOf(target.kind)` fails to compile if the order tuple misses a kind.
- */
-export function standingInstructionTargetSpecificity(target: StandingInstructionTarget): number {
-  return (
-    STANDING_INSTRUCTION_TARGET_SPECIFICITY_ORDER.length -
-    STANDING_INSTRUCTION_TARGET_SPECIFICITY_ORDER.indexOf(target.kind)
-  );
-}
-
 // ─── The `user_facts.value` shape ───────────────────────────────────────────
 
 /**
@@ -656,6 +638,37 @@ export const standingInstructionScopeResultSchema = z.discriminatedUnion("state"
 ]);
 
 export type StandingInstructionScopeResult = z.infer<typeof standingInstructionScopeResultSchema>;
+
+/** How one instruction reached a mail. A target hit covers the whole mail (E2). */
+export const standingInstructionMatchViaSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("target"), targetKind: standingInstructionTargetKindSchema }),
+  z.object({
+    kind: z.literal("scope"),
+    /** The model's one line of reason. */
+    reason: z.string(),
+    covers: standingInstructionCoverageSchema,
+  }),
+]);
+
+export type StandingInstructionMatchVia = z.infer<typeof standingInstructionMatchViaSchema>;
+
+/**
+ * The audit evidence of one applied instruction effect (ADR-0113, "Precedence, safety, and
+ * audit"): the instruction id, its revision, and the match kind with its scope reason.
+ */
+export const standingInstructionEvidenceSchema = z.object({
+  instructionId: z.string().min(1),
+  revision: z.number().int().nonnegative(),
+  factId: z.string().min(1),
+  match: standingInstructionMatchViaSchema,
+});
+
+export type StandingInstructionEvidence = z.infer<typeof standingInstructionEvidenceSchema>;
+
+/** An `unknown` instruction: a scoped one with no current stored result for this document. */
+export const standingInstructionUnknownSchema = standingInstructionEvidenceSchema.omit({
+  match: true,
+});
 
 /**
  * The `email_triage.instruction_evaluation` column. The content revision is the row's

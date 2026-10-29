@@ -11,6 +11,7 @@ import { send } from "@alfred/assistant/delivery";
 import { inZone, parseLocalDateKey } from "@alfred/assistant/time";
 import { composeBriefing } from "./compose";
 import {
+  BRIEFING_INSTRUCTION_SUPPRESSION_TRACE_KIND,
   gatherBriefingWithSuppressionAudit,
   instructionSuppressionLogPart,
   type BriefingInstructionSuppression,
@@ -191,6 +192,13 @@ export const morningBriefingWorkflow: Workflow<
 
           gather = gathered.gather;
           suppressedByInstruction = gathered.suppressedByInstruction;
+
+          if (suppressedByInstruction.length > 0) {
+            ctx.trace(BRIEFING_INSTRUCTION_SUPPRESSION_TRACE_KIND, {
+              items: suppressedByInstruction,
+            });
+          }
+
           await markBriefingGathering({ briefingId: begun.row.id, gather, closedLoops: [] });
         } catch (err) {
           await markBriefingFailed(begun.row.id);

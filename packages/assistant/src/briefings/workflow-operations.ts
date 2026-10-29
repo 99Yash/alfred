@@ -1,4 +1,5 @@
 import {
+  BRIEFING_INSTRUCTION_SUPPRESSION_TRACE_KIND,
   gatherBriefingWithSuppressionAudit,
   instructionSuppressionLogPart,
   type BriefingInstructionSuppression,
@@ -228,6 +229,11 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
 
     gather = gathered.gather;
     suppressedByInstruction = gathered.suppressedByInstruction;
+
+    if (suppressedByInstruction.length > 0) {
+      ctx.trace(BRIEFING_INSTRUCTION_SUPPRESSION_TRACE_KIND, { items: suppressedByInstruction });
+    }
+
     closedLoops = gathered.closedLoops;
     loopRelevance = gathered.loopRelevance;
     await markBriefingGathering({ briefingId: begun.row.id, gather, closedLoops });

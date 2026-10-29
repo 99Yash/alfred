@@ -145,8 +145,6 @@ export {
   rememberSenderSuppression,
   type RememberSenderSuppressionArgs,
   type RememberSenderSuppressionResult,
-  type SenderTargetMatch,
-  type SenderTargetOutcome,
   type ReportedStandingInstructionSet,
   type ActiveStandingInstruction,
   type MailStandingInstructions,

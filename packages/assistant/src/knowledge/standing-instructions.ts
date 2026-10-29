@@ -9,15 +9,12 @@ import {
   STANDING_INSTRUCTION_SCHEMA_VERSION,
   standingInstructionTargetKey,
   standingInstructionScopeRelation,
-  standingInstructionTargetSpecificity,
   memorySourceSchema,
   readStoredStandingInstruction,
-  standingInstructionHasEffect,
   standingInstructionValueSchema,
   SUPPRESSION_EFFECTS,
   targetMatchesSender,
   targetNamesOneMailbox,
-  type StandingInstructionEffectKind,
   type StandingInstructionValueV2,
   type MemorySource,
   type ObservationSource,
@@ -61,21 +58,6 @@ interface SenderLookup {
   accountId: string | null;
 }
 
-export type SenderTargetMatch = ActiveStandingInstruction & {
-  matchedEmail: string;
-  /** The effect the consumer asked for. The matched instruction stores it. */
-  effect: StandingInstructionEffectKind;
-  /** Which target kind matched. The only trace of whether a domain target ever fires. */
-  matchedVia: StandingInstructionTargetKind;
-};
-
-export type SenderTargetOutcome =
-  | { kind: "suppressed"; match: SenderTargetMatch }
-  | { kind: "none" }
-  | { kind: "read_failed"; error: unknown };
-
-type LoadedSenderTargetOutcome = Exclude<SenderTargetOutcome, { kind: "read_failed" }>;
-
 /** An instruction whose sender-wide target hits one mail. A target hit covers the whole mail. */
 export type StandingInstructionTargetHit = ActiveStandingInstruction & {
   matchedVia: StandingInstructionTargetKind;
@@ -99,14 +81,13 @@ export type MailStandingInstructions =
 type LoadedMailStandingInstructions = Extract<MailStandingInstructions, { kind: "loaded" }>;
 
 /** A user's active standing instructions, read once. The match methods are pure, so one read serves a loop. */
-interface StandingInstructionSet<
-  Outcome extends SenderTargetOutcome,
-  Mail extends MailStandingInstructions,
-> {
-  /** No active instruction. A failed read is never empty, so `matchSender` still reports it. */
+interface StandingInstructionSet<Mail extends MailStandingInstructions> {
+  /** No active instruction. A failed read is never empty, so `forMail` still reports it. */
   readonly isEmpty: boolean;
-  matchSender(sender: SenderLookup, effect: StandingInstructionEffectKind): Outcome;
-  /** Every target hit and every scoped candidate for one mail, for the instruction floor. */
+  /**
+   * Every target hit and every scoped candidate for one mail. Each consumer derives its
+   * result from these with `deriveEffectiveTriage` (ADR-0113).
+   */
   forMail(sender: SenderLookup): Mail;
 }
 
@@ -116,10 +97,7 @@ interface StandingInstructionSet<
  * reporting. A value that writes the key by hand still compiles. Review owns
  * that case.
  */
-export interface ReportedStandingInstructionSet extends StandingInstructionSet<
-  SenderTargetOutcome,
-  MailStandingInstructions
-> {
+export interface ReportedStandingInstructionSet extends StandingInstructionSet<MailStandingInstructions> {
   readonly onReadFailure: "report";
 }
 
@@ -131,7 +109,7 @@ export interface ReportedStandingInstructionSet extends StandingInstructionSet<
 export function standingInstructions(args: {
   userId: string;
   onReadFailure: "throw";
-}): Promise<StandingInstructionSet<LoadedSenderTargetOutcome, LoadedMailStandingInstructions>>;
+}): Promise<StandingInstructionSet<LoadedMailStandingInstructions>>;
 export function standingInstructions(args: {
   userId: string;
   onReadFailure: "report";
@@ -140,8 +118,7 @@ export async function standingInstructions(args: {
   userId: string;
   onReadFailure: "throw" | "report";
 }): Promise<
-  | ReportedStandingInstructionSet
-  | StandingInstructionSet<LoadedSenderTargetOutcome, LoadedMailStandingInstructions>
+  ReportedStandingInstructionSet | StandingInstructionSet<LoadedMailStandingInstructions>
 > {
   if (args.onReadFailure === "throw") return loadStandingInstructionSet(args.userId);
 
@@ -154,7 +131,6 @@ export async function standingInstructions(args: {
     return {
       isEmpty: false,
       onReadFailure: "report" as const,
-      matchSender: () => ({ kind: "read_failed", error }),
       forMail: () => ({ kind: "read_failed", error }),
     };
   }
@@ -175,14 +151,9 @@ async function loadStandingInstructionSet(userId: string) {
 export function standingInstructionsOf(
   instructions: readonly ActiveStandingInstruction[],
   setRevision = 0,
-): StandingInstructionSet<LoadedSenderTargetOutcome, LoadedMailStandingInstructions> {
+): StandingInstructionSet<LoadedMailStandingInstructions> {
   return {
     isEmpty: instructions.length === 0,
-    matchSender(sender, effect) {
-      const match = findSenderTargetMatch(instructions, sender, effect);
-
-      return match ? { kind: "suppressed", match } : { kind: "none" };
-    },
     forMail(sender) {
       const email = normalizeEmailAddress(sender.sender);
 
@@ -884,74 +855,6 @@ async function supersedeStandingInstruction(args: {
 
     return inserted;
   });
-}
-
-/** An instruction with the target that hit the sender. */
-interface SenderTargetHit {
-  instruction: ActiveStandingInstruction;
-  target: StandingInstructionTarget;
-}
-
-/**
- * ADR-0060 micro-decision 8, made total: the more specific hit target wins, then the newer
- * `validFrom`, then the greater `factId`. Callers already filtered on `accountId`.
- * This holds only for lifted v1 rows. ADR-0113 counts specificity only through `exceptionOf`,
- * so this rule changes before capture can write a v2 row (PR 4 of the step-1 plan).
- */
-function isStrongerTargetHit(candidate: SenderTargetHit, incumbent: SenderTargetHit): boolean {
-  const candidateSpecificity = standingInstructionTargetSpecificity(candidate.target);
-  const incumbentSpecificity = standingInstructionTargetSpecificity(incumbent.target);
-
-  if (candidateSpecificity !== incumbentSpecificity) {
-    return candidateSpecificity > incumbentSpecificity;
-  }
-
-  const candidateValidFrom = candidate.instruction.validFrom.getTime();
-  const incumbentValidFrom = incumbent.instruction.validFrom.getTime();
-
-  if (candidateValidFrom !== incumbentValidFrom) {
-    return candidateValidFrom > incumbentValidFrom;
-  }
-
-  return candidate.instruction.factId > incumbent.instruction.factId;
-}
-
-/**
- * The strongest instruction whose sender-wide target hits and that stores `effect`
- * (ADR-0113: readers branch on the stored effects). A scope or a `senderFilter` never
- * matches here. The triage scope match owns those.
- */
-function findSenderTargetMatch(
-  instructions: readonly ActiveStandingInstruction[],
-  lookup: SenderLookup,
-  effect: StandingInstructionEffectKind,
-): SenderTargetMatch | null {
-  const email = normalizeEmailAddress(lookup.sender);
-
-  if (!email) return null;
-
-  let best: SenderTargetHit | null = null;
-
-  for (const instruction of instructions) {
-    if (!standingInstructionHasEffect(instruction.value, effect)) continue;
-
-    for (const target of instruction.value.targets) {
-      if (!targetMatchesSender(target, email, lookup.accountId)) continue;
-
-      const hit = { instruction, target };
-
-      if (best === null || isStrongerTargetHit(hit, best)) best = hit;
-    }
-  }
-
-  if (!best) return null;
-
-  return {
-    ...best.instruction,
-    matchedEmail: email,
-    effect,
-    matchedVia: best.target.kind,
-  };
 }
 
 function activeStandingInstructionWhere(userId: string, factId: string) {

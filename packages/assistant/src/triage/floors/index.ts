@@ -35,7 +35,11 @@ export { applyMeetingDemotionFloor } from "./meeting";
 export { applySpamDemotionFloor } from "./spam";
 
 export {
+  applyStandingConsumerEffects,
   applyStandingInstructionEffects,
+  standingInstructionEvidence,
+  type StandingBriefingPriority,
+  type StandingConsumerEffects,
   type StandingEffectAudit,
   type StandingEffectResult,
   type StandingEffectVerdict,

@@ -6,6 +6,10 @@
 import { z } from "zod";
 import { significanceBandSchema } from "./attention";
 import { enumGuard } from "./guards";
+import {
+  standingInstructionEvidenceSchema,
+  standingInstructionUnknownSchema,
+} from "./standing-instructions";
 import { triageCategorySchema, triageTodoDecisionSchema, type TriageCategory } from "./triage";
 
 // ─── Outcomes ─────────────────────────────────────────────────────────────
@@ -157,6 +161,22 @@ export const replyDraftTriageSnapshotSchema = z.object({
 
 export type ReplyDraftTriageSnapshot = z.infer<typeof replyDraftTriageSnapshotSchema>;
 
+/**
+ * The `block_reply_draft` read (ADR-0113). `unknown`: an instruction with the block has no
+ * current match result for this document, so a proactive draft waits (rule 4).
+ */
+export const replyDraftStandingInstructionSchema = z.discriminatedUnion("state", [
+  z.object({ state: z.literal("none") }),
+  z.object({ state: z.literal("suppress"), instruction: standingInstructionEvidenceSchema }),
+  z.object({
+    state: z.literal("unknown"),
+    instructions: z.array(standingInstructionUnknownSchema),
+  }),
+  z.object({ state: z.literal("read_failed") }),
+]);
+
+export type ReplyDraftStandingInstruction = z.infer<typeof replyDraftStandingInstructionSchema>;
+
 /** Which style profile the draft used, or the honest absence of one. */
 export const replyDraftStyleSelectionSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("profile"), styleProfileId: z.string().min(1) }),
@@ -213,7 +233,10 @@ export const replyDraftProvenanceSchema = z.object({
   invocation: replyDraftInvocationSchema,
   /** Flag state at decision time. `manual` runs record it but do not obey it. */
   featureFlagEnabled: z.boolean(),
+  /** The effective triage result the gate decided on (ADR-0113 rule 3), not the cached row. */
   triage: replyDraftTriageSnapshotSchema.nullable(),
+  /** Null when the gate did not read it. A record from before ADR-0113 has no value. */
+  standingInstruction: replyDraftStandingInstructionSchema.nullable().default(null),
   inbound: z.object({
     documentId: z.string().min(1),
     sourceThreadId: z.string().nullable(),

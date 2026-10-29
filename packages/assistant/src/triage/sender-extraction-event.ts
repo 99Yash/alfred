@@ -4,14 +4,20 @@ import {
   type JsonObject,
   type SenderContext,
   type StandingInstructionTargetKind,
+  type StandingInstructionEvidence,
 } from "@alfred/contracts";
 import { type TriageCategory } from "@alfred/integrations/google";
 import type { ClassifyAudit, StandingClassifyAudit, TriageClassification } from "./classify";
-import type { FloorAudits, StandingEffectAudit, StandingFloorOutcome } from "./floors";
+import {
+  standingInstructionEvidence,
+  type FloorAudits,
+  type StandingEffectAudit,
+  type StandingFloorOutcome,
+} from "./floors";
 import type { Observations } from "./observations";
 import type { SenderContextResult } from "./sender-context";
 import type { TriageSenderKindSignal } from "./sender-kind";
-import type { SenderTargetOutcome } from "../knowledge";
+import type { TriageTodoStandingRead } from "./todo-decision";
 
 /** One floor's audit as flat trace fields. `null` means no floor ran (the fallback path). */
 type FloorTraceProjection<K extends keyof FloorAudits> = (
@@ -160,11 +166,19 @@ export interface SenderExtractionEvent extends FloorTraceFields, StandingTraceFi
   finalConfidence: number;
   finalCollabActivity: CollabActivityKind | null;
   todoSuggested: boolean;
+  /**
+   * The todo lane held the todo for a `block_todo_suggestion` instruction. Either the state
+   * is `unknown` (ADR-0113 rule 4), or a block matched a row with no model verdict. On a row
+   * with a verdict, a matched block already cleared the todo, and the floor audit shows it.
+   */
   standingInstructionSuppressedTodo: boolean;
+  /** The blocking instruction's fact, else the first waiting instruction's fact. */
   standingInstructionFactId: string | null;
   standingInstructionEffect: string | null;
-  /** The only field that shows whether a domain-scoped instruction ever fires. */
+  /** The target kind of a matched block. Null for a scope match and for an `unknown` instruction. */
   standingInstructionMatchedVia: StandingInstructionTargetKind | null;
+  /** The full evidence of a matched block: id, revision, and match kind with its scope reason. */
+  standingInstructionTodoBlock: StandingInstructionEvidence | null;
   standingInstructionReadFailed: boolean;
   /**
    * The read for the instruction floor failed, so no effect applied. The fields above report
@@ -187,15 +201,17 @@ export function senderExtractionEvent(args: {
   audit: ClassifyAudit | null;
   classification: TriageClassification;
   todoSuggested: boolean;
-  /** The `block_todo_suggestion` read. Flattened below into the stored trace fields. */
-  standingSuppression: SenderTargetOutcome;
+  /** The `block_todo_suggestion` state. Flattened below into the stored trace fields. */
+  standingSuppression: TriageTodoStandingRead;
 }): SenderExtractionEvent {
   const { context } = args.senderContextResult;
   const obs = args.observations;
   const audit = args.audit;
 
-  const standingMatch =
-    args.standingSuppression.kind === "suppressed" ? args.standingSuppression.match : null;
+  const standing = args.standingSuppression;
+  const waitingOn = standing.kind === "waiting" ? standing.instructions : [];
+  const blockedBy = standing.kind === "blocked" ? standing.match : null;
+  const holdsTodo = blockedBy !== null || waitingOn.length > 0;
 
   return {
     // sender
@@ -238,11 +254,13 @@ export function senderExtractionEvent(args: {
     finalConfidence: args.classification.confidence,
     finalCollabActivity: args.classification.collabActivity ?? null,
     todoSuggested: args.todoSuggested,
-    standingInstructionSuppressedTodo: standingMatch !== null,
-    standingInstructionFactId: standingMatch?.factId ?? null,
-    standingInstructionEffect: standingMatch?.effect ?? null,
-    standingInstructionMatchedVia: standingMatch?.matchedVia ?? null,
-    standingInstructionReadFailed: args.standingSuppression.kind === "read_failed",
+    standingInstructionSuppressedTodo: holdsTodo,
+    standingInstructionFactId: blockedBy?.factId ?? waitingOn[0]?.factId ?? null,
+    standingInstructionEffect: holdsTodo ? "block_todo_suggestion" : null,
+    standingInstructionMatchedVia:
+      blockedBy?.via.kind === "target" ? blockedBy.via.targetKind : null,
+    standingInstructionTodoBlock: blockedBy ? standingInstructionEvidence(blockedBy) : null,
+    standingInstructionReadFailed: standing.kind === "read_failed",
     standingInstructionCategoryReadFailed: obs.standingInstructions?.kind === "read_failed",
     userContextPresent: obs.userContext !== null,
     userContextReadFailed: obs.userContextReadFailed,
