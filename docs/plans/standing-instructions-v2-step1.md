@@ -71,21 +71,29 @@ These choices are not in the ADR. Each one is the smallest choice that keeps an 
     raising exception of a lowering, the item stays lowered until triage or the re-match job
     reads the exception.
 15. **`system.remember` takes only the v2 shape.** Code mints the instruction id. A revision
-    passes `instructionId`, keeps the id, and adds 1 to `revision`. A domain target must
+    passes `instructionId` and `expectedRevision`, keeps the id, and adds 1 to `revision`. If
+    a different revision is active when the user confirms, capture stores nothing and returns
+    `stale_revision`, unless the active row already holds the same content. A domain target must
     belong to one organization (the v1 rail). `edit_instruction` stays for v1 rows until PR 5.
     The v1 writer stays for the backfill script until PR 5.
 16. **Capture refuses an unresolved structural conflict.** An active instruction that names
-    the same, a wider, or a narrower sender is a conflict (ADR-0060 micro-decision 6). The
+    the same, a wider, a narrower, or an overlapping sender is a conflict (ADR-0060
+    micro-decision 6). Overlapping means the two share mail but neither contains the other,
+    for example a domain in one mailbox and an address at that domain in every mailbox. The
     input must resolve each one: `replaces` (closed in the same transaction), `exceptionOf`,
     or `coexistsWith`. Else `system.remember` stores nothing and returns `conflict`. The same
-    check runs before the card, so the card shows the choice that the write binds to. The
-    write checks again under the capture lock. A duplicate returns `already_exists` before
-    this check.
+    check runs before the card, so the card shows the choice that the write binds to. It runs
+    only for a fresh proposal (`refuseProposal`): a replay or a resume of the same tool call
+    skips it, so a saved result still replays. The write checks again under the capture lock.
+    A duplicate returns `already_exists` before the conflict check, but it still closes the
+    rows that `replaces` names. Capture keeps two things apart: the stored content (a new row
+    or an existing one) and the rows that the operation closes.
 17. **The capture sweep follows the effective result.** The todo sweep dismisses a todo only
     where `deriveEffectiveTriage` blocks it now and the new instruction matches. So an
     exception that cancels the block keeps the todo. All targets go in one write. A failed
     sweep keeps the instruction and returns `sweep_failed`. The same call again returns
-    `already_exists` and sweeps again.
+    `already_exists` and sweeps again. `replaces` states an end state, so an id that is
+    already retired passes and closes nothing. A repeat after a replacement then still plans.
 18. **A scope can be bound to one mailbox.** A v2 value can carry `accountId`. A scope match
     then needs mail of that mailbox. Capture writes it when the input has a scope and an
     `accountId`. Targets and `senderFilter` keep their own `accountId`.

@@ -140,6 +140,9 @@ export interface StagingStore {
    */
   readThreadFullAutonomy(query: { userId: string; threadId: string }): Promise<boolean>;
 
+  /** Whether this call already has a staging row: a replay or a resume, not a fresh proposal. */
+  hasStaging(query: { runId: string; toolCallId: string }): Promise<boolean>;
+
   /** Idempotent on `(runId, toolCallId)`. On conflict, returns the stored row unchanged. */
   upsertStaging(values: StagingInsertValues): Promise<{ row: StagingRow; wasInserted: boolean }>;
 
@@ -302,6 +305,18 @@ export const postgresStagingStore: StagingStore = {
       .limit(1);
 
     return rows[0]?.fullAutonomy === true;
+  },
+
+  async hasStaging(query) {
+    const rows = await db()
+      .select({ id: actionStagings.id })
+      .from(actionStagings)
+      .where(
+        and(eq(actionStagings.runId, query.runId), eq(actionStagings.toolCallId, query.toolCallId)),
+      )
+      .limit(1);
+
+    return rows.length > 0;
   },
 
   async upsertStaging(values) {

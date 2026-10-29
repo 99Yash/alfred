@@ -570,7 +570,7 @@ export interface RelatedInstructionResult {
   readonly instructionId: string;
   readonly factId: string;
   readonly directive: string;
-  readonly relation: StandingInstructionOverlap["relation"] | "same";
+  readonly relation: StandingInstructionOverlap["relation"] | "same" | "overlaps";
 }
 
 /** A `system.remember` refusal. Nothing was stored. Mirrors `StandingInstructionCaptureRefusal`. */
@@ -585,6 +585,14 @@ export type RememberInstructionRefusal =
       readonly ok: false;
       readonly status: "unknown_instruction" | "invalid_resolution";
       readonly instructionId: string;
+      readonly message: string;
+    }
+  | {
+      readonly ok: false;
+      readonly status: "stale_revision";
+      readonly instructionId: string;
+      readonly expectedRevision: number | null;
+      readonly currentRevision: number;
       readonly message: string;
     }
   | {
@@ -612,7 +620,7 @@ export type RememberInstructionResult =
       readonly status: "remembered" | "revised" | "already_exists";
       readonly factId: string;
       readonly instruction: StandingInstructionValueV2;
-      /** Active instructions that name the same, a wider, or a narrower sender. Capped. */
+      /** Active instructions that name the same, a wider, a narrower, or an overlapping sender. Capped. */
       readonly related: readonly RelatedInstructionResult[];
       readonly relatedCount: number;
       readonly resolvedTodos:

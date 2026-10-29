@@ -352,6 +352,21 @@ export function standingInstructionScopeRelation(pair: {
 }
 
 /**
+ * Whether two scopes share a sender in a mailbox, nested or not. A domain row in one mailbox and
+ * an address row in every mailbox intersect, but {@link standingInstructionScopeRelation} says
+ * `null` for them, so a conflict check reads this.
+ */
+export function standingInstructionScopesIntersect(pair: {
+  readonly of: StandingInstructionTarget;
+  readonly relativeTo: StandingInstructionTarget;
+}): boolean {
+  return (
+    senderScopeAxis(pair.of, pair.relativeTo) !== "disjoint" &&
+    accountScopeAxis(pair.of, pair.relativeTo) !== "disjoint"
+  );
+}
+
+/**
  * Why a `scope:"domain"` write stored a `sender_email` target instead.
  * - `domain_unparseable`: zod's email pattern is looser than `domainSchema`,
  *   so `a@ab-.com` gets here.

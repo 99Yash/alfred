@@ -214,15 +214,18 @@ export interface ToolArgsCommon<
    */
   modelInputSchema?: z.ZodType;
   /**
-   * A refusal that the schema cannot express: it depends on who calls, or on stored state.
-   * Dispatch runs it on parsed input before any staging or execute, and returns a non-null
-   * text as `invalid_input`. Must be side-effect free and must not throw. The rule's owner
-   * supplies the text.
+   * A refusal that depends on who calls, which the schema cannot express. Dispatch runs it on
+   * parsed input before any staging or execute, and returns a non-null text as `invalid_input`.
+   * Must be side-effect free and must not throw. The rule's owner supplies the text.
    */
-  refuseInput?: (
-    input: z.infer<S>,
-    ctx: ToolExecuteContext,
-  ) => string | null | Promise<string | null>;
+  refuseInput?: (input: z.infer<S>, ctx: ToolExecuteContext) => string | null;
+  /**
+   * A refusal that depends on stored state, for a gated tool. Dispatch runs it only for a fresh
+   * proposal, before the call has a staging row, and returns a non-null text as `invalid_input`.
+   * A replay or a resume of the same call skips it: the state it read can change after the
+   * write, and the saved result must still replay. Must be side-effect free.
+   */
+  refuseProposal?: (input: z.infer<S>, ctx: ToolExecuteContext) => Promise<string | null>;
   /**
    * Scrub secrets before the input reaches a trace or a staging row (#293).
    * Must be pure and keep the shape. The hash and `execute` see the raw input.
@@ -292,7 +295,9 @@ export interface BoundToolCall {
   /** The parsed input. The hashes, the scope check, and the staging row read it. */
   input: unknown;
   /** See {@link LiveToolArgs.refuseInput}. `null` when the tool declares no refusal. */
-  refusal: (ctx: ToolExecuteContext) => string | null | Promise<string | null>;
+  refusal: (ctx: ToolExecuteContext) => string | null;
+  /** See {@link LiveToolArgs.refuseProposal}. `null` when the tool declares none. */
+  proposalRefusal: ((ctx: ToolExecuteContext) => Promise<string | null>) | null;
   /**
    * Resolves the tier for this call (ADR-0088). The static tier when the tool has no
    * `resolveRiskTier`. A resolver result that is not a tier fails closed to the static tier.
@@ -635,7 +640,14 @@ export function liveTool<
   O,
 >(args: LiveToolArgs<I, A, S, boolean, O> | PassthroughToolArgs<I, A, S, boolean>): RegisteredTool {
   const name = buildToolName(args.integration, args.action);
-  const { redactInput, resolveRiskTier, refuseInput } = args;
+  const { redactInput, resolveRiskTier, refuseInput, refuseProposal } = args;
+
+  // Only a gated call writes a staging row, so on any other policy the check would never run.
+  if (refuseProposal && (args.staging === "fast_path" || args.staging === "join")) {
+    throw new Error(
+      `[tools] '${name}' declares refuseProposal on staging='${args.staging}', which never stages`,
+    );
+  }
 
   const tool: RegisteredTool = {
     name,
@@ -697,6 +709,7 @@ export function liveTool<
           tool,
           input,
           refusal: (ctx) => refuseInput?.(input, ctx) ?? null,
+          proposalRefusal: refuseProposal ? (ctx) => refuseProposal(input, ctx) : null,
           effectiveRiskTier: async (ctx) =>
             resolveRiskTier
               ? clampResolvedRiskTier(tool, await resolveRiskTier(input, ctx), ctx.runId)

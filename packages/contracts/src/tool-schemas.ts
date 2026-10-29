@@ -1422,6 +1422,15 @@ export const rememberInput = coerceJsonArrayFields(
           "Set only to revise an instruction that `list_instructions` shows with schemaVersion 2. " +
             "The revision replaces every field below. Omit to store a new instruction.",
         ),
+      expectedRevision: z
+        .number()
+        .int()
+        .min(0)
+        .optional()
+        .describe(
+          "Required with `instructionId`: the `revision` that `list_instructions` shows for it. " +
+            "If the instruction changed since then, nothing is stored.",
+        ),
       phrasing: instructionLine(1_000).describe("The user's own words, verbatim."),
       directive: instructionLine(1_000).describe(
         "One resolved sentence that says what Alfred does, for later model readers.",
@@ -1488,6 +1497,10 @@ export const rememberInput = coerceJsonArrayFields(
         ),
     })
     .strict()
+    .refine((v) => (v.instructionId === undefined) === (v.expectedRevision === undefined), {
+      message: "expectedRevision is required with instructionId, and only with it",
+      path: ["expectedRevision"],
+    })
     .refine((v) => v.senderFilter === undefined || v.scope !== undefined, {
       message: "senderFilter needs a scope",
       path: ["senderFilter"],
