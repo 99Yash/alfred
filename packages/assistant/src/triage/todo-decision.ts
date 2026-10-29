@@ -193,14 +193,14 @@ export async function decideTriageTodo(args: {
     standingSuppression.kind === "blocked"
       ? { kind: "standing_instruction_matched", match: standingSuppression.match }
       : standingSuppression.kind === "waiting"
-      ? { kind: "standing_instruction_unknown", instructions: standingSuppression.instructions }
-      : standingSuppression.kind === "read_failed"
-        ? { kind: "standing_instruction_read_failed", error: standingSuppression.error }
-        : gateReason
-          ? { kind: "gate", reason: gateReason }
-          : !args.actionItemsEnabled
-            ? { kind: "action_items_off" }
-            : null;
+        ? { kind: "standing_instruction_unknown", instructions: standingSuppression.instructions }
+        : standingSuppression.kind === "read_failed"
+          ? { kind: "standing_instruction_read_failed", error: standingSuppression.error }
+          : gateReason
+            ? { kind: "gate", reason: gateReason }
+            : !args.actionItemsEnabled
+              ? { kind: "action_items_off" }
+              : null;
 
   return {
     outcome: suppression ? { kind: "suppressed", todo, suppression } : { kind: "mint", todo },

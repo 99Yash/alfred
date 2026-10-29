@@ -130,11 +130,7 @@ export async function acceptEmailTriageClassified(event: DomainEvent): Promise<v
       runId: payload.triageStep.runId,
       stepId: payload.triageStep.stepId,
       attempt: payload.triageStep.attempt,
-      result: noDraftResult(
-        decision.reason,
-        decision.note,
-        provenanceFor(payload, true, standing),
-      ),
+      result: noDraftResult(decision.reason, decision.note, provenanceFor(payload, true, standing)),
     });
 
     return;

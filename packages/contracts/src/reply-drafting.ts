@@ -168,7 +168,10 @@ export type ReplyDraftTriageSnapshot = z.infer<typeof replyDraftTriageSnapshotSc
 export const replyDraftStandingInstructionSchema = z.discriminatedUnion("state", [
   z.object({ state: z.literal("none") }),
   z.object({ state: z.literal("suppress"), instruction: standingInstructionEvidenceSchema }),
-  z.object({ state: z.literal("unknown"), instructions: z.array(standingInstructionUnknownSchema) }),
+  z.object({
+    state: z.literal("unknown"),
+    instructions: z.array(standingInstructionUnknownSchema),
+  }),
   z.object({ state: z.literal("read_failed") }),
 ]);
 

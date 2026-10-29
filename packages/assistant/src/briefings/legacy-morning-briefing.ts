@@ -194,7 +194,9 @@ export const morningBriefingWorkflow: Workflow<
           suppressedByInstruction = gathered.suppressedByInstruction;
 
           if (suppressedByInstruction.length > 0) {
-            ctx.trace(BRIEFING_INSTRUCTION_SUPPRESSION_TRACE_KIND, { items: suppressedByInstruction });
+            ctx.trace(BRIEFING_INSTRUCTION_SUPPRESSION_TRACE_KIND, {
+              items: suppressedByInstruction,
+            });
           }
 
           await markBriefingGathering({ briefingId: begun.row.id, gather, closedLoops: [] });
