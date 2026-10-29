@@ -33,7 +33,7 @@ import { db, type DbTransaction } from "@alfred/db";
 import { sha256Canonical } from "@alfred/db/hash";
 import { createId, type DbRunner } from "@alfred/db/helpers";
 import { rejectedInferences, standingInstructionSetRevisions, userFacts } from "@alfred/db/schemas";
-import { and, desc, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { insertObservation } from "./observations";
@@ -188,6 +188,14 @@ export function standingInstructionsOf(
         }
 
         if (instruction.value.scope === undefined) continue;
+
+        // A scope bound to one mailbox never matches mail of another.
+        if (
+          instruction.value.accountId !== undefined &&
+          instruction.value.accountId !== sender.accountId
+        ) {
+          continue;
+        }
 
         const filter = instruction.value.senderFilter;
 
@@ -442,7 +450,26 @@ export type SaveStandingInstructionResult =
       message: string;
     }
   | { ok: false; status: "unknown_instruction"; instructionId: string; message: string }
-  | { ok: false; status: "invalid_exception"; exceptionOf: string; message: string };
+  | { ok: false; status: "invalid_exception"; exceptionOf: string; message: string }
+  | { ok: false; status: "invalid_resolution"; instructionId: string; message: string }
+  | {
+      ok: false;
+      /**
+       * Nothing was stored (ADR-0060 micro-decision 6). Each related instruction needs the
+       * user's choice: `replaces`, `exceptionOf`, or `coexistsWith`.
+       */
+      status: "conflict";
+      /** Capped at {@link STANDING_INSTRUCTION_OVERLAP_LIMIT}; `conflictCount` has the total. */
+      conflicts: RelatedStandingInstruction[];
+      conflictCount: number;
+      message: string;
+    };
+
+/** The refusals of {@link saveStandingInstruction}. Nothing was stored. */
+export type StandingInstructionCaptureRefusal = Extract<
+  SaveStandingInstructionResult,
+  { ok: false }
+>;
 
 type SenderParse =
   | { ok: true; target: StandingInstructionTarget }
@@ -522,6 +549,205 @@ function instructionContentSignature(value: StandingInstructionValueV2): string 
   return valueSignature(content);
 }
 
+/** The senders, as stored targets, before the lock. A bad sender refuses the whole input. */
+type ParsedCaptureInput =
+  | {
+      ok: true;
+      accountId: string | null;
+      targets: StandingInstructionTarget[] | undefined;
+      senderFilter: StandingInstructionTarget[] | undefined;
+    }
+  | Extract<SaveStandingInstructionResult, { status: "invalid_sender" }>;
+
+function parseCaptureInput(input: SaveStandingInstructionInput): ParsedCaptureInput {
+  const accountId = normalizeOptionalLabel(input.accountId);
+  const targets = parseInstructionSenders(input.targets, accountId);
+
+  if (!targets.ok) return { ...targets, status: "invalid_sender" };
+
+  const senderFilter = parseInstructionSenders(input.senderFilter, accountId);
+
+  if (!senderFilter.ok) return { ...senderFilter, status: "invalid_sender" };
+
+  return { ok: true, accountId, targets: targets.targets, senderFilter: senderFilter.targets };
+}
+
+/** What capture does with one input over one read of the active set. */
+type CapturePlan =
+  | StandingInstructionCaptureRefusal
+  | {
+      ok: true;
+      kind: "already_exists";
+      existing: StoredStandingInstruction;
+      report: RelatedInstructionsReport;
+    }
+  | {
+      ok: true;
+      kind: "write";
+      value: StandingInstructionValueV2;
+      previous: StoredStandingInstruction | null;
+      replaced: StoredStandingInstruction[];
+      report: RelatedInstructionsReport;
+    };
+
+/**
+ * Decide one capture over the active set. Pure, so the pre-card check and the write under the
+ * lock decide the same way. The order is: the revision and exception targets, the user's
+ * resolution, the duplicate check, and last the structural-conflict gate (ADR-0060
+ * micro-decision 6): each related instruction needs `replaces`, `exceptionOf`, or `coexistsWith`.
+ */
+function planCapture(
+  active: readonly StoredStandingInstruction[],
+  input: SaveStandingInstructionInput,
+  parsed: Extract<ParsedCaptureInput, { ok: true }>,
+): CapturePlan {
+  // A v1 row's id is its fact id, so it is no revision or exception target.
+  const byId = new Map(
+    active.flatMap((row) =>
+      row.storedVersion === 2 ? [[row.value.instructionId, row] as const] : [],
+    ),
+  );
+
+  // `replaces` and `coexistsWith` take any version: a v1 row lists its fact id as its id.
+  const byAnyId = new Map(active.map((row) => [row.value.instructionId, row] as const));
+
+  const previous =
+    input.instructionId === undefined ? null : (byId.get(input.instructionId) ?? null);
+
+  if (input.instructionId !== undefined && previous === null) {
+    return unknownInstruction(input.instructionId);
+  }
+
+  const instructionId = previous?.value.instructionId ?? createId("si");
+
+  if (input.exceptionOf !== undefined) {
+    const message = exceptionProblem(byId, instructionId, input.exceptionOf);
+
+    if (message !== null) {
+      return { ok: false, status: "invalid_exception", exceptionOf: input.exceptionOf, message };
+    }
+  }
+
+  const replaces = input.replaces ?? [];
+  const coexistsWith = new Set(input.coexistsWith);
+
+  for (const id of [...replaces, ...coexistsWith]) {
+    if (!byAnyId.has(id)) return unknownInstruction(id);
+  }
+
+  for (const id of replaces) {
+    const message =
+      id === instructionId
+        ? "A revision cannot replace the instruction it revises."
+        : id === input.exceptionOf
+          ? "An instruction cannot replace the instruction it is an exception to."
+          : coexistsWith.has(id)
+            ? "An instruction cannot be both replaced and kept."
+            : null;
+
+    if (message !== null) {
+      return { ok: false, status: "invalid_resolution", instructionId: id, message };
+    }
+  }
+
+  const value = standingInstructionValueV2Schema.parse({
+    schemaVersion: STANDING_INSTRUCTION_SCHEMA_VERSION_V2,
+    instructionId,
+    revision: previous === null ? 0 : previous.value.revision + 1,
+    phrasing: input.phrasing,
+    directive: input.directive,
+    ...(input.scope === undefined ? {} : { scope: input.scope }),
+    targets: parsed.targets ?? [],
+    ...(parsed.senderFilter === undefined ? {} : { senderFilter: parsed.senderFilter }),
+    effects: captureEffects(input),
+    ...(input.exceptionOf === undefined ? {} : { exceptionOf: input.exceptionOf }),
+    // Targets and the filter carry the mailbox. The scope needs its own bound (ADR-0113).
+    ...(parsed.accountId === null || input.scope === undefined
+      ? {}
+      : { accountId: parsed.accountId }),
+  } satisfies z.input<typeof standingInstructionValueV2Schema>);
+
+  const replacedIds = new Set(replaces);
+  const replaced = active.filter((row) => replacedIds.has(row.value.instructionId));
+
+  const others = active.filter(
+    (row) => row.factId !== previous?.factId && !replacedIds.has(row.value.instructionId),
+  );
+
+  const report = findRelatedInstructions(others, value);
+  const signature = instructionContentSignature(value);
+
+  // A revision duplicates only its own row. A new instruction duplicates any active one.
+  const duplicate = previous
+    ? instructionContentSignature(previous.value) === signature
+      ? previous
+      : null
+    : (others.find((row) => instructionContentSignature(row.value) === signature) ?? null);
+
+  if (duplicate) return { ok: true, kind: "already_exists", existing: duplicate, report };
+
+  // An exception of this instruction, or the instruction this one narrows, is already declared.
+  const unresolved = others.filter(
+    (row) =>
+      !coexistsWith.has(row.value.instructionId) &&
+      row.value.instructionId !== input.exceptionOf &&
+      row.value.exceptionOf !== instructionId,
+  );
+
+  const conflicts = findRelatedInstructions(unresolved, value);
+
+  if (conflicts.relatedCount > 0) {
+    return {
+      ok: false,
+      status: "conflict",
+      conflicts: conflicts.related,
+      conflictCount: conflicts.relatedCount,
+      message:
+        "Nothing was stored. Show the user each conflicting instruction and ask for one " +
+        "choice: replace it (`replaces`), make the new one an exception to it (`exceptionOf`), " +
+        "or keep both (`coexistsWith`). Then call system.remember again with that choice.",
+    };
+  }
+
+  return { ok: true, kind: "write", value, previous, replaced, report };
+}
+
+function unknownInstruction(instructionId: string): StandingInstructionCaptureRefusal {
+  return {
+    ok: false,
+    status: "unknown_instruction",
+    instructionId,
+    message:
+      "No active instruction has this id. A revision and `exceptionOf` need schemaVersion 2. " +
+      "List the instructions and try again.",
+  };
+}
+
+/** A row that capture planned to close was closed by a writer outside the capture lock. */
+class CaptureRowClosedError extends Error {
+  constructor(readonly instructionId: string) {
+    super(`[memory.standing-instructions] instruction ${instructionId} closed during capture`);
+  }
+}
+
+/**
+ * The capture refusal for this input over the current set, or null. It runs before the card, so
+ * the user does not confirm an input that capture would refuse. It takes no lock, so
+ * {@link saveStandingInstruction} decides again under the lock.
+ */
+export async function checkStandingInstructionCapture(args: {
+  userId: string;
+  input: SaveStandingInstructionInput;
+}): Promise<StandingInstructionCaptureRefusal | null> {
+  const parsed = parseCaptureInput(args.input);
+
+  if (!parsed.ok) return parsed;
+
+  const plan = planCapture(await readStoredStandingInstructions(args.userId), args.input, parsed);
+
+  return plan.ok ? null : plan;
+}
+
 /**
  * Store a v2 standing instruction, or revise one (ADR-0113 capture). The user already
  * confirmed the input on its card. Code mints the instruction id; a revision keeps it and
@@ -532,186 +758,133 @@ export async function saveStandingInstruction(args: {
   input: SaveStandingInstructionInput;
   source?: MemorySource | undefined;
 }): Promise<SaveStandingInstructionResult> {
-  const { input } = args;
-  const accountId = normalizeOptionalLabel(input.accountId);
-  const targets = parseInstructionSenders(input.targets, accountId);
+  const parsed = parseCaptureInput(args.input);
 
-  if (!targets.ok) return { ...targets, status: "invalid_sender" };
-
-  const senderFilter = parseInstructionSenders(input.senderFilter, accountId);
-
-  if (!senderFilter.ok) return { ...senderFilter, status: "invalid_sender" };
+  if (!parsed.ok) return parsed;
 
   const source: MemorySource = args.source ?? { kind: "user" };
 
-  const outcome = await db().transaction(async (tx) => {
-    await lockStandingInstructionCapture(tx, args.userId);
+  type CaptureOutcome =
+    | Exclude<CapturePlan, { kind: "write" }>
+    | { ok: true; kind: "written"; factId: string; plan: Extract<CapturePlan, { kind: "write" }> };
 
-    const active = await readStoredStandingInstructions(args.userId, tx);
+  const outcome = await db()
+    .transaction(async (tx): Promise<CaptureOutcome> => {
+      const at = await lockStandingInstructionCapture(tx, args.userId);
 
-    // A v1 row's id is its fact id, so it is no revision or exception target.
-    const byId = new Map(
-      active.flatMap((row) =>
-        row.storedVersion === 2 ? [[row.value.instructionId, row] as const] : [],
-      ),
-    );
+      const decided = planCapture(
+        await readStoredStandingInstructions(args.userId, tx, at),
+        args.input,
+        parsed,
+      );
 
-    const previous =
-      input.instructionId === undefined ? null : (byId.get(input.instructionId) ?? null);
+      if (!decided.ok || decided.kind === "already_exists") return decided;
 
-    if (input.instructionId !== undefined && previous === null) {
-      return { kind: "unknown_instruction" as const, instructionId: input.instructionId };
-    }
+      const { value, previous, replaced } = decided;
+      const closing = [...(previous ? [previous] : []), ...replaced];
 
-    const instructionId = previous?.value.instructionId ?? createId("si");
+      if (closing.length > 0) {
+        const closed = await tx
+          .update(userFacts)
+          .set({
+            status: "edited",
+            validUntil: sql`${at}::timestamptz`,
+            rowVersion: sql`${userFacts.rowVersion} + 1`,
+          })
+          .where(
+            and(
+              inArray(
+                userFacts.id,
+                closing.map((row) => row.factId),
+              ),
+              activeStandingInstructionsWhere(args.userId, at),
+            ),
+          )
+          .returning({ id: userFacts.id });
 
-    const exceptionMessage =
-      input.exceptionOf === undefined
-        ? null
-        : exceptionProblem(byId, instructionId, input.exceptionOf);
+        // Each app writer of a v2 row takes the capture lock, but a v1 edit does not. Roll back.
+        const closedIds = new Set(closed.map((row) => row.id));
+        const missed = closing.find((row) => !closedIds.has(row.factId));
 
-    if (input.exceptionOf !== undefined && exceptionMessage !== null) {
-      return {
-        kind: "invalid_exception" as const,
-        exceptionOf: input.exceptionOf,
-        message: exceptionMessage,
-      };
-    }
+        if (missed) throw new CaptureRowClosedError(missed.value.instructionId);
+      }
 
-    const value = standingInstructionValueV2Schema.parse({
-      schemaVersion: STANDING_INSTRUCTION_SCHEMA_VERSION_V2,
-      instructionId,
-      revision: previous === null ? 0 : previous.value.revision + 1,
-      phrasing: input.phrasing,
-      directive: input.directive,
-      ...(input.scope === undefined ? {} : { scope: input.scope }),
-      targets: targets.targets ?? [],
-      ...(senderFilter.targets === undefined ? {} : { senderFilter: senderFilter.targets }),
-      effects: captureEffects(input),
-      ...(input.exceptionOf === undefined ? {} : { exceptionOf: input.exceptionOf }),
-    } satisfies z.input<typeof standingInstructionValueV2Schema>);
-
-    const others = active.filter((row) => row.factId !== previous?.factId);
-    const related = findRelatedInstructions(others, value);
-    const signature = instructionContentSignature(value);
-
-    // A revision duplicates only its own row. A new instruction duplicates any active one.
-    const duplicate = previous
-      ? instructionContentSignature(previous.value) === signature
-        ? previous
-        : null
-      : (others.find((row) => instructionContentSignature(row.value) === signature) ?? null);
-
-    if (duplicate) {
-      return {
-        kind: "already_exists" as const,
-        factId: duplicate.factId,
-        value: duplicate.value,
-        ...related,
-      };
-    }
-
-    if (previous !== null) {
-      const [closed] = await tx
-        .update(userFacts)
-        .set({
-          status: "edited",
-          validUntil: sql`now()`,
-          rowVersion: sql`${userFacts.rowVersion} + 1`,
+      const [inserted] = await tx
+        .insert(userFacts)
+        .values({
+          userId: args.userId,
+          key: STANDING_INSTRUCTION_KEY,
+          value,
+          confidence: 1,
+          status: "confirmed",
+          source,
+          validFrom: sql`${at}::timestamptz`,
+          validUntil: null,
+          supersedesId: previous?.factId ?? null,
         })
-        .where(activeStandingInstructionWhere(args.userId, previous.factId))
         .returning({ id: userFacts.id });
 
-      // Each app writer of a v2 row takes the capture lock, so only a script or hand SQL gets here.
-      if (!closed) {
-        return {
-          kind: "unknown_instruction" as const,
-          instructionId: previous.value.instructionId,
-        };
+      if (!inserted) throw new Error("[memory.standing-instructions] insert returned no row");
+
+      await appendStandingInstructionObservation(
+        {
+          userId: args.userId,
+          operation: previous === null ? "remember" : "edit",
+          factId: inserted.id,
+          previousFactId: previous?.factId ?? null,
+          instruction: value,
+          previousInstruction: previous?.value ?? null,
+          source,
+        },
+        tx,
+      );
+
+      // A replaced instruction is edited into the new one, so its history links to it.
+      for (const row of replaced) {
+        await appendStandingInstructionObservation(
+          {
+            userId: args.userId,
+            operation: "edit",
+            factId: inserted.id,
+            previousFactId: row.factId,
+            instruction: value,
+            previousInstruction: row.value,
+            reason: `replaced by ${value.instructionId}`,
+            source,
+          },
+          tx,
+        );
       }
-    }
 
-    const [inserted] = await tx
-      .insert(userFacts)
-      .values({
-        userId: args.userId,
-        key: STANDING_INSTRUCTION_KEY,
-        value,
-        confidence: 1,
-        status: "confirmed",
-        source,
-        validFrom: sql`now()`,
-        validUntil: null,
-        supersedesId: previous?.factId ?? null,
-      })
-      .returning({ id: userFacts.id });
+      return { ok: true, kind: "written", factId: inserted.id, plan: decided };
+    })
+    .catch((error: unknown) => {
+      if (error instanceof CaptureRowClosedError) return unknownInstruction(error.instructionId);
 
-    if (!inserted) throw new Error("[memory.standing-instructions] insert returned no row");
+      throw error;
+    });
 
-    await appendStandingInstructionObservation(
-      {
-        userId: args.userId,
-        operation: previous === null ? "remember" : "edit",
-        factId: inserted.id,
-        previousFactId: previous?.factId ?? null,
-        instruction: value,
-        previousInstruction: previous?.value ?? null,
-        source,
-      },
-      tx,
-    );
+  if (!outcome.ok) return outcome;
 
+  if (outcome.kind === "already_exists") {
     return {
-      kind: previous === null ? ("remembered" as const) : ("revised" as const),
-      factId: inserted.id,
-      value,
-      ...related,
+      ok: true,
+      status: "already_exists",
+      factId: outcome.existing.factId,
+      instruction: outcome.existing.value,
+      ...outcome.report,
     };
-  });
-
-  switch (outcome.kind) {
-    case "unknown_instruction":
-      return {
-        ok: false,
-        status: "unknown_instruction",
-        instructionId: outcome.instructionId,
-        message:
-          "No active schemaVersion 2 instruction has this id. List the instructions and try again.",
-      };
-    case "invalid_exception":
-      return {
-        ok: false,
-        status: "invalid_exception",
-        exceptionOf: outcome.exceptionOf,
-        message: outcome.message,
-      };
-    case "already_exists":
-      return {
-        ok: true,
-        status: "already_exists",
-        factId: outcome.factId,
-        instruction: outcome.value,
-        related: outcome.related,
-        relatedCount: outcome.relatedCount,
-      };
-    case "remembered":
-    case "revised":
-      emitReplicachePokes([args.userId]);
-
-      return {
-        ok: true,
-        status: outcome.kind,
-        factId: outcome.factId,
-        instruction: outcome.value,
-        related: outcome.related,
-        relatedCount: outcome.relatedCount,
-      };
-    default: {
-      const exhaustive: never = outcome;
-
-      return exhaustive;
-    }
   }
+
+  emitReplicachePokes([args.userId]);
+
+  return {
+    ok: true,
+    status: outcome.plan.previous === null ? "remembered" : "revised",
+    factId: outcome.factId,
+    instruction: outcome.plan.value,
+    ...outcome.plan.report,
+  };
 }
 
 /** The senders an instruction names: its targets and its scope filter. */
@@ -904,11 +1077,15 @@ function findTargetOverlaps(
   };
 }
 
-function selectActiveStandingInstructionFacts(userId: string, runner: DbRunner = db()) {
+function selectActiveStandingInstructionFacts(
+  userId: string,
+  runner: DbRunner = db(),
+  at?: CaptureClock,
+) {
   return runner
     .select({ id: userFacts.id, value: userFacts.value, validFrom: userFacts.validFrom })
     .from(userFacts)
-    .where(activeStandingInstructionsWhere(userId))
+    .where(activeStandingInstructionsWhere(userId, at))
     .orderBy(desc(userFacts.validFrom));
 }
 
@@ -919,8 +1096,9 @@ function selectActiveStandingInstructionFacts(userId: string, runner: DbRunner =
 async function readStoredStandingInstructions(
   userId: string,
   runner: DbRunner = db(),
+  at?: CaptureClock,
 ): Promise<StoredStandingInstruction[]> {
-  const facts = await selectActiveStandingInstructionFacts(userId, runner);
+  const facts = await selectActiveStandingInstructionFacts(userId, runner, at);
 
   return facts.flatMap((fact): StoredStandingInstruction[] => {
     const value = readStoredStandingInstruction(fact.value, fact.id);
@@ -942,11 +1120,25 @@ function listActiveStandingInstructions(userId: string): Promise<ActiveStandingI
  * One capture or forget at a time for each user, so a revision and an exception see a stable
  * set. Do not change the key text: a rolling deploy would then run unserialized.
  */
-async function lockStandingInstructionCapture(tx: DbTransaction, userId: string): Promise<void> {
+async function lockStandingInstructionCapture(
+  tx: DbTransaction,
+  userId: string,
+): Promise<CaptureClock> {
   await tx.execute(
     sql`select pg_advisory_xact_lock(hashtextextended(${`${userId}:standing_instruction:capture`}, 0))`,
   );
+
+  // `now()` is the transaction start, which can be before a row that a rival committed while
+  // this one waited. Read the clock after the lock. Text keeps the microseconds a Date drops.
+  const { rows } = await tx.execute(sql`select clock_timestamp()::text as at`);
+
+  return captureClockSchema.parse(rows[0]).at;
 }
+
+const captureClockSchema = z.object({ at: z.string().min(1) });
+
+/** The wall clock after the capture lock, as Postgres text. Bind it as `${at}::timestamptz`. */
+type CaptureClock = string;
 
 /** Every active v1 `suppress` row, for the chat management tools. */
 async function listActiveStandingInstructionsV1(
@@ -1100,7 +1292,7 @@ export async function forgetStandingInstruction(args: {
 }): Promise<ForgetStandingInstructionResult> {
   const forgotten = await db().transaction(async (tx) => {
     // Wait for a capture that reads this row as a revision or exception target.
-    await lockStandingInstructionCapture(tx, args.userId);
+    const at = await lockStandingInstructionCapture(tx, args.userId);
 
     // The `status = 'confirmed'` guard is the concurrency control; the lock lets the loser see the retired row.
     await tx.execute(
@@ -1110,7 +1302,7 @@ export async function forgetStandingInstruction(args: {
     const [old] = await tx
       .select({ value: userFacts.value })
       .from(userFacts)
-      .where(activeStandingInstructionWhere(args.userId, args.factId))
+      .where(activeStandingInstructionWhere(args.userId, args.factId, at))
       .limit(1);
 
     if (!old) return null;
@@ -1124,10 +1316,10 @@ export async function forgetStandingInstruction(args: {
       .update(userFacts)
       .set({
         status: "rejected",
-        validUntil: sql`now()`,
+        validUntil: sql`${at}::timestamptz`,
         rowVersion: sql`${userFacts.rowVersion} + 1`,
       })
-      .where(activeStandingInstructionWhere(args.userId, args.factId))
+      .where(activeStandingInstructionWhere(args.userId, args.factId, at))
       .returning({ id: userFacts.id });
 
     if (!row) return null;
@@ -1315,17 +1507,20 @@ async function supersedeStandingInstruction(args: {
   });
 }
 
-function activeStandingInstructionWhere(userId: string, factId: string) {
-  return and(eq(userFacts.id, factId), activeStandingInstructionsWhere(userId));
+function activeStandingInstructionWhere(userId: string, factId: string, at?: CaptureClock) {
+  return and(eq(userFacts.id, factId), activeStandingInstructionsWhere(userId, at));
 }
 
-function activeStandingInstructionsWhere(userId: string) {
+/** Active at `at`, the capture clock, or else at the transaction start. */
+function activeStandingInstructionsWhere(userId: string, at?: CaptureClock) {
+  const clock = at === undefined ? sql`now()` : sql`${at}::timestamptz`;
+
   return and(
     eq(userFacts.userId, userId),
     eq(userFacts.key, STANDING_INSTRUCTION_KEY),
     eq(userFacts.status, "confirmed"),
-    lte(userFacts.validFrom, sql`now()`),
-    or(isNull(userFacts.validUntil), gt(userFacts.validUntil, sql`now()`)),
+    lte(userFacts.validFrom, clock),
+    or(isNull(userFacts.validUntil), gt(userFacts.validUntil, clock)),
   );
 }
 

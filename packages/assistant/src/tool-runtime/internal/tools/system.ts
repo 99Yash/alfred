@@ -53,6 +53,7 @@ import {
   readUserContext,
   recoverWorkflow,
   rememberInstructionAndDismissTodos,
+  checkInstruction,
   resolveTodo,
   scratchpad,
   spawnSubAgent,
@@ -494,9 +495,27 @@ export const systemTools: readonly RegisteredTool[] = [
       "covered. Put a sender in `targets` only when the words name that sender; never expand " +
       "a class into senders from past mail. Choose only the `effects` the words ask for. Call " +
       "list_instructions first: to change an instruction, pass its `instructionId`; for an " +
-      "exception to a broader one, pass `exceptionOf`. The result lists `related` instructions " +
-      "on the same senders; tell the user. Emails still arrive in Gmail.",
+      "exception to a broader one, pass `exceptionOf`. An active instruction on the same, a " +
+      "wider, or a narrower sender is a conflict: ask the user to replace it (`replaces`), " +
+      "make the new one an exception to it (`exceptionOf`), or keep both (`coexistsWith`). " +
+      "With no choice, the call stores nothing and returns `conflict`. Emails still arrive " +
+      "in Gmail.",
     inputSchema: rememberInput,
+    // Refuse before the card, so the user never confirms an input that capture refuses.
+    // The write decides again under its lock. A failed check leaves that decision to the write.
+    refuseInput: async (input, ctx) => {
+      const refusal = await checkInstruction({
+        input,
+        context: {
+          userId: ctx.userId,
+          runId: ctx.runId,
+          stepId: ctx.stepId,
+          toolCallId: ctx.toolCallId,
+        },
+      }).catch(() => null);
+
+      return refusal === null ? null : JSON.stringify(refusal);
+    },
     execute: async (input, ctx) => {
       return await rememberInstructionAndDismissTodos({
         input,

@@ -520,8 +520,8 @@ const validateInputStage: DispatchStage<ResolvedDispatch, ValidatedDispatch> = a
     accountRef: workflowCapabilities[0]?.accountRef,
   });
 
-  // A refusal that depends on the caller, which the schema cannot express. Its owner decides it.
-  const refusal = call.refusal(ctx);
+  // A refusal that the schema cannot express. Its owner decides it.
+  const refusal = await call.refusal(ctx);
 
   if (refusal !== null) {
     recordRejection({

@@ -565,30 +565,16 @@ export interface WebSearchToolResult {
   readonly searchQueries: readonly string[];
 }
 
-/**
- * The `system.remember` result: `SaveStandingInstructionResult` from
- * `knowledge/standing-instructions.ts`, plus the todo dismissal for each named sender when the
- * instruction blocks todo suggestions.
- */
-export type RememberInstructionResult =
-  | {
-      readonly ok: true;
-      readonly status: "remembered" | "revised" | "already_exists";
-      readonly factId: string;
-      readonly instruction: StandingInstructionValueV2;
-      /**
-       * Active instructions that name the same, a wider, or a narrower sender. Capped;
-       * `relatedCount` has the total. Mirrors `RelatedStandingInstruction`.
-       */
-      readonly related: readonly {
-        readonly instructionId: string;
-        readonly factId: string;
-        readonly directive: string;
-        readonly relation: StandingInstructionOverlap["relation"] | "same";
-      }[];
-      readonly relatedCount: number;
-      readonly resolvedTodos: readonly ResolveTodoResult[];
-    }
+/** One related instruction. Mirrors `RelatedStandingInstruction`. */
+export interface RelatedInstructionResult {
+  readonly instructionId: string;
+  readonly factId: string;
+  readonly directive: string;
+  readonly relation: StandingInstructionOverlap["relation"] | "same";
+}
+
+/** A `system.remember` refusal. Nothing was stored. Mirrors `StandingInstructionCaptureRefusal`. */
+export type RememberInstructionRefusal =
   | {
       readonly ok: false;
       readonly status: "invalid_sender";
@@ -597,7 +583,7 @@ export type RememberInstructionResult =
     }
   | {
       readonly ok: false;
-      readonly status: "unknown_instruction";
+      readonly status: "unknown_instruction" | "invalid_resolution";
       readonly instructionId: string;
       readonly message: string;
     }
@@ -606,7 +592,35 @@ export type RememberInstructionResult =
       readonly status: "invalid_exception";
       readonly exceptionOf: string;
       readonly message: string;
+    }
+  | {
+      readonly ok: false;
+      readonly status: "conflict";
+      readonly conflicts: readonly RelatedInstructionResult[];
+      readonly conflictCount: number;
+      readonly message: string;
     };
+
+/**
+ * The `system.remember` result: `SaveStandingInstructionResult` from
+ * `knowledge/standing-instructions.ts`, plus the todo sweep over the named senders when the
+ * instruction blocks todo suggestions. `null`: no sweep ran.
+ */
+export type RememberInstructionResult =
+  | {
+      readonly ok: true;
+      readonly status: "remembered" | "revised" | "already_exists";
+      readonly factId: string;
+      readonly instruction: StandingInstructionValueV2;
+      /** Active instructions that name the same, a wider, or a narrower sender. Capped. */
+      readonly related: readonly RelatedInstructionResult[];
+      readonly relatedCount: number;
+      readonly resolvedTodos:
+        | ResolveTodoResult
+        | { readonly ok: false; readonly status: "sweep_failed"; readonly message: string }
+        | null;
+    }
+  | RememberInstructionRefusal;
 
 /** Mirrors `StandingInstructionSummary` in `knowledge/standing-instructions.ts`. */
 export interface StandingInstructionSummaryResult {
@@ -683,6 +697,10 @@ export interface SystemToolInstructionAdapter {
   rememberInstructionAndDismissTodos(
     args: SystemToolRequest<"system.remember">,
   ): Promise<RememberInstructionResult>;
+  /** The refusal capture would return for this input now, before the card. Writes nothing. */
+  checkInstruction(
+    args: SystemToolRequest<"system.remember">,
+  ): Promise<RememberInstructionRefusal | null>;
   listInstructions(
     args: SystemToolRequest<"system.list_instructions">,
   ): Promise<ListInstructionsResult>;
@@ -799,6 +817,12 @@ export function rememberInstructionAndDismissTodos(
   args: SystemToolRequest<"system.remember">,
 ): Promise<RememberInstructionResult> {
   return systemToolInstructionAdapterPort.read().rememberInstructionAndDismissTodos(args);
+}
+
+export function checkInstruction(
+  args: SystemToolRequest<"system.remember">,
+): Promise<RememberInstructionRefusal | null> {
+  return systemToolInstructionAdapterPort.read().checkInstruction(args);
 }
 
 export function listInstructions(

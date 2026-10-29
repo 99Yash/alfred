@@ -145,8 +145,10 @@ export {
   // backfill script and its tests until the v1 rows migrate (plan PR 5).
   rememberSenderSuppression,
   saveStandingInstruction,
+  checkStandingInstructionCapture,
   type SaveStandingInstructionInput,
   type SaveStandingInstructionResult,
+  type StandingInstructionCaptureRefusal,
   type RememberSenderSuppressionArgs,
   type RememberSenderSuppressionResult,
   type ReportedStandingInstructionSet,

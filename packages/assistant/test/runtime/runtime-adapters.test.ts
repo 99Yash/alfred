@@ -273,6 +273,7 @@ describe("runtime adapter lifecycle", () => {
             sender: "gmail.com",
             message: "not the domain of one organization",
           } as const),
+        checkInstruction: () => Promise.resolve(null),
         listInstructions: () =>
           Promise.resolve({
             instructions: [],

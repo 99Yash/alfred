@@ -1401,13 +1401,15 @@ const instructionLine = (max: number) =>
 
 const instructionSenders = z.array(z.string().trim().toLowerCase().min(1).max(320)).min(1).max(50);
 
+const instructionIds = z.array(z.string().min(1).max(100)).min(1).max(20).optional();
+
 /**
  * A v2 standing instruction (ADR-0113). The tool stages a card that the user confirms, also
  * under full autonomy, so the card is the one-line confirmation. Code mints the instruction id
  * and builds the stored targets; a domain must belong to one organization.
  */
 export const rememberInput = coerceJsonArrayFields(
-  ["targets", "senderFilter", "effects"],
+  ["targets", "senderFilter", "effects", "replaces", "coexistsWith"],
   z
     .object({
       kind: z.literal("standing_instruction").describe("Persist one standing instruction."),
@@ -1466,13 +1468,24 @@ export const rememberInput = coerceJsonArrayFields(
           "The `instructionId` of a broader active instruction that this one narrows, when the " +
             "words state an exception ('except its marketing mail').",
         ),
+      replaces: instructionIds.describe(
+        "The `instructionId`s of related instructions that the user chose to replace with this " +
+          "one. They stop when this one is stored.",
+      ),
+      coexistsWith: instructionIds.describe(
+        "The `instructionId`s of related instructions that the user chose to keep beside this " +
+          "one. On mail that both match, the later write wins a conflict.",
+      ),
       accountId: z
         .string()
         .trim()
         .max(200)
         .nullable()
         .optional()
-        .describe("Optional mailbox. Null or omitted means every connected mailbox."),
+        .describe(
+          "Optional mailbox. Null or omitted means every connected mailbox. It bounds the " +
+            "targets, the senderFilter, and the scope.",
+        ),
     })
     .strict()
     .refine((v) => v.senderFilter === undefined || v.scope !== undefined, {
@@ -1482,7 +1495,19 @@ export const rememberInput = coerceJsonArrayFields(
     .refine((v) => v.effects.includes("force_category") === (v.forceCategory !== undefined), {
       message: "forceCategory is required with force_category, and only with it",
       path: ["forceCategory"],
-    }),
+    })
+    // An effect or an exception with nothing to match never applies, so it must name senders or a class.
+    .refine(
+      (v) =>
+        (v.effects.length === 0 && v.exceptionOf === undefined) ||
+        v.targets !== undefined ||
+        v.scope !== undefined,
+      {
+        message:
+          "effects and exceptionOf need targets or a scope; with neither, keep effects empty",
+        path: ["effects"],
+      },
+    ),
 );
 
 /** No arguments. Returns a bounded newest-first page. */

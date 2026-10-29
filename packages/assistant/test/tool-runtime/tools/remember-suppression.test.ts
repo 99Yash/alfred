@@ -137,7 +137,7 @@ describe("rememberSenderSuppression coordinator (DB-backed)", { skip: SKIP }, ()
     assert.equal(result.ok, true);
 
     assert.equal(result.status, "remembered");
-    const [sweep] = result.resolvedTodos;
+    const sweep = result.resolvedTodos;
     assert.ok(sweep);
     assert.equal(sweep.ok, true);
 
@@ -163,7 +163,7 @@ describe("rememberSenderSuppression coordinator (DB-backed)", { skip: SKIP }, ()
     assert.equal(again.ok, true);
 
     assert.equal(again.status, "already_exists");
-    const [againSweep] = again.resolvedTodos;
+    const againSweep = again.resolvedTodos;
     assert.ok(againSweep);
     assert.equal(againSweep.status, "dismissed");
     assert.equal(await todoStatus(second.todoId), "dismissed");

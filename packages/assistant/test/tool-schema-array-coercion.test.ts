@@ -187,8 +187,10 @@ const FIXTURES = {
       targets: ["noreply@example.com", "promo@example.com"],
       senderFilter: ["example.com"],
       effects: ["demote_urgent", "block_todo_suggestion"],
+      replaces: ["si_old"],
+      coexistsWith: ["si_kept"],
     },
-    arrayFields: ["targets", "senderFilter", "effects"],
+    arrayFields: ["targets", "senderFilter", "effects", "replaces", "coexistsWith"],
   },
   "system.suggest_todo": {
     base: {

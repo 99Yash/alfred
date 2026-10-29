@@ -61,14 +61,24 @@ describe("standing instruction capture coordinator", () => {
 
         return Promise.resolve(remembered);
       },
-      dismissTodos: (args, attribution) => {
+      dismissTodos: async (args, attribution, options) => {
         calls.push({ name: "dismiss", args: { args, attribution } });
+        // The sweep asks the effective decision which threads it may touch.
+        calls.push({
+          name: "admitted",
+          args: [...((await options?.admitThreads?.(["thread_1"])) ?? [])],
+        });
 
-        return Promise.resolve(dismissed);
+        return dismissed;
+      },
+      admitThreads: (args) => {
+        calls.push({ name: "admit", args });
+
+        return Promise.resolve(new Set(args.sourceThreadIds));
       },
     });
 
-    assert.deepEqual(await coordinate(request), { ...remembered, resolvedTodos: [dismissed] });
+    assert.deepEqual(await coordinate(request), { ...remembered, resolvedTodos: dismissed });
     assert.deepEqual(calls, [
       {
         name: "save",
@@ -90,7 +100,7 @@ describe("standing instruction capture coordinator", () => {
       {
         name: "dismiss",
         args: {
-          args: { userId: "user_1", target: instruction.targets[0] },
+          args: { userId: "user_1", targets: instruction.targets },
           attribution: {
             actor: "agent",
             runId: "run_1",
@@ -101,6 +111,11 @@ describe("standing instruction capture coordinator", () => {
           },
         },
       },
+      {
+        name: "admit",
+        args: { userId: "user_1", instructionId: "si_1", sourceThreadIds: ["thread_1"] },
+      },
+      { name: "admitted", args: ["thread_1"] },
     ]);
   });
 
@@ -128,6 +143,7 @@ describe("standing instruction capture coordinator", () => {
           auditReason: "sender_suppressed",
         });
       },
+      admitThreads: () => Promise.resolve(new Set()),
     });
 
     assert.equal(await coordinate(request), refusal);

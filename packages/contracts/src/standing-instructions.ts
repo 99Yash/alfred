@@ -551,6 +551,11 @@ export const standingInstructionValueV2Schema = z
     effects: z.array(standingInstructionEffectSchema),
     /** The `instructionId` of a broader instruction that this one narrows. */
     exceptionOf: z.string().min(1).optional(),
+    /**
+     * The one mailbox a `scope` match needs. Absent means every mailbox. Each target and
+     * `senderFilter` entry carries its own `accountId`.
+     */
+    accountId: z.string().min(1).optional(),
     /** Hints and display only. Code never matches on it (ADR-0113 E5). */
     notes: z.json().optional(),
   })

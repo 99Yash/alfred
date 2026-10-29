@@ -74,6 +74,24 @@ These choices are not in the ADR. Each one is the smallest choice that keeps an 
     passes `instructionId`, keeps the id, and adds 1 to `revision`. A domain target must
     belong to one organization (the v1 rail). `edit_instruction` stays for v1 rows until PR 5.
     The v1 writer stays for the backfill script until PR 5.
+16. **Capture refuses an unresolved structural conflict.** An active instruction that names
+    the same, a wider, or a narrower sender is a conflict (ADR-0060 micro-decision 6). The
+    input must resolve each one: `replaces` (closed in the same transaction), `exceptionOf`,
+    or `coexistsWith`. Else `system.remember` stores nothing and returns `conflict`. The same
+    check runs before the card, so the card shows the choice that the write binds to. The
+    write checks again under the capture lock. A duplicate returns `already_exists` before
+    this check.
+17. **The capture sweep follows the effective result.** The todo sweep dismisses a todo only
+    where `deriveEffectiveTriage` blocks it now and the new instruction matches. So an
+    exception that cancels the block keeps the todo. All targets go in one write. A failed
+    sweep keeps the instruction and returns `sweep_failed`. The same call again returns
+    `already_exists` and sweeps again.
+18. **A scope can be bound to one mailbox.** A v2 value can carry `accountId`. A scope match
+    then needs mail of that mailbox. Capture writes it when the input has a scope and an
+    `accountId`. Targets and `senderFilter` keep their own `accountId`.
+19. **Capture reads its clock after the lock.** `now()` is the transaction start, so a waiter
+    could miss a row that a rival committed during the wait. Capture and forget read
+    `clock_timestamp()` after the lock and use it for the active read and for the write.
 
 ## Pull requests
 
