@@ -25,6 +25,7 @@ import {
   type MeteredMeta,
   type MeteredResult,
   type MeteredStep,
+  type StreamFirstOutput,
 } from "./metered";
 
 // AI SDK calls wrapped in `metered()`. Provider and model come from the `LanguageModel`.
@@ -345,11 +346,30 @@ export async function meteredGenerateObject<O>(
 /** `streamText` arguments with the generics of {@link GenerateTextArgs}. */
 export type StreamTextArgs = Parameters<typeof streamText<ToolSet, never, never>>[0];
 
+type StreamTextChunkEvent = Parameters<NonNullable<StreamTextArgs["onChunk"]>>[0];
+
 type StreamTextEndEvent = Parameters<NonNullable<StreamTextArgs["onEnd"]>>[0];
 
 type StreamTextErrorEvent = Parameters<NonNullable<StreamTextArgs["onError"]>>[0];
 
 type StreamTextAbortEvent = Parameters<NonNullable<StreamTextArgs["onAbort"]>>[0];
+
+/**
+ * Keep the first chunk time of each output kind. Hidden reasoning can send a
+ * `reasoning-start` with no text, so the start counts, not the first delta.
+ * A provider that does not stream tool input sends only `tool-call`.
+ */
+function markFirstOutput(first: StreamFirstOutput, chunk: StreamTextChunkEvent["chunk"]): void {
+  const at = new Date();
+
+  if (chunk.type === "reasoning-start" || chunk.type === "reasoning-delta") {
+    first.reasoning ??= at;
+  } else if (chunk.type === "text-delta" && chunk.text.length > 0) {
+    first.text ??= at;
+  } else if (chunk.type === "tool-input-start" || chunk.type === "tool-call") {
+    first.toolInput ??= at;
+  }
+}
 
 /** Streaming `meteredGenerateText`. Meters when the stream ends; caller hooks still run after. */
 export function meteredStreamText(
@@ -365,15 +385,22 @@ export function meteredStreamText(
     input: captureInput(args),
   };
 
+  const callerOnChunk = args.onChunk;
   const callerOnEnd = args.onEnd;
   const callerOnError = args.onError;
   const callerOnAbort = args.onAbort;
   const timeout = args.timeout ?? DEFAULT_STREAM_TIMEOUT;
+  const firstOutputAt: StreamFirstOutput = {};
 
   return meteredStream(meta, ({ finish, fail, abort }) =>
     streamText<ToolSet, never, never>({
       ...args,
       timeout,
+      onChunk: (event: StreamTextChunkEvent) => {
+        markFirstOutput(firstOutputAt, event.chunk);
+
+        return callerOnChunk?.(event);
+      },
       onEnd: (event: StreamTextEndEvent) => {
         const steps = extractStepAttribution(args.model, event.steps, attribution.cacheWriteTtl);
         finish({
@@ -388,6 +415,7 @@ export function meteredStreamText(
 
           output: captureOutput({ text: event.text, toolCalls: event.toolCalls }),
           ...servedFromModel(args.model, event.finalStep.response.modelId),
+          firstOutputAt,
         });
         callerOnEnd?.(event);
       },
@@ -408,6 +436,7 @@ export function meteredStreamText(
           },
           ...(steps ? { steps } : {}),
           ...served,
+          firstOutputAt,
         });
         callerOnAbort?.(event);
       },

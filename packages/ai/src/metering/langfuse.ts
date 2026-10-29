@@ -195,6 +195,8 @@ export interface LangfuseSpanCloser {
     responseMeta?: JsonObject | undefined;
     /** The model that actually ran, when a fallback switched it. */
     servedModel?: string | undefined;
+    /** Streams only. The first output chunk, which Langfuse shows as time to first token. */
+    completionStartTime?: Date | undefined;
   }): void;
   error(message: string): void;
 }
@@ -254,7 +256,7 @@ export function startLangfuseSpan(input: LangfuseSpanInput): LangfuseSpanCloser 
   }
 
   return {
-    success({ usage, costUsd, output, responseMeta, servedModel }) {
+    success({ usage, costUsd, output, responseMeta, servedModel, completionStartTime }) {
       try {
         const end = buildGenerationEndPayload({
           meta,
@@ -272,6 +274,7 @@ export function startLangfuseSpan(input: LangfuseSpanInput): LangfuseSpanCloser 
           costDetails: end.costDetails,
           ...(end.output !== undefined ? { output: end.output } : {}),
           ...(end.metadata !== undefined ? { metadata: end.metadata } : {}),
+          ...(completionStartTime !== undefined ? { completionStartTime } : {}),
         });
         generation?.end();
       } catch (err) {
