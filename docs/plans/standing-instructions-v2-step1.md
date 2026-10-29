@@ -56,7 +56,7 @@ These choices are not in the ADR. Each one is the smallest choice that keeps an 
 11. **`include_briefing_priority` is "not enforced".** Briefing gather has no bucket for an
     item outside the priority categories. Capture cannot write the effect, and the words stay
     prose. The registry keeps the effect, so a stored inclusion still cancels an exclusion. The
-    owner decided this on 2026-10-29. A follow-up issue adds the bucket.
+    owner decided this on 2026-10-29. Issue #1612 adds the bucket.
 12. **The confirmation is an approval card that always shows.** `system.remember` uses a new
     staging arm, `confirm`: a staged write with `forcesApproval`, so chat full autonomy does
     not waive it. The card shows the structured fields (words, scope, targets, effects,

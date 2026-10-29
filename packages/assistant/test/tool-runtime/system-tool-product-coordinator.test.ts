@@ -43,6 +43,7 @@ describe("standing instruction capture coordinator", () => {
       factId: "fact_1",
       instruction,
       related: [],
+      relatedCount: 0,
     };
 
     const dismissed: ResolveTodosForGmailSourceResult = {

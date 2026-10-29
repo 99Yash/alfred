@@ -31,7 +31,7 @@ import {
 } from "@alfred/contracts";
 import { db, type DbTransaction } from "@alfred/db";
 import { sha256Canonical } from "@alfred/db/hash";
-import { createId } from "@alfred/db/helpers";
+import { createId, type DbRunner } from "@alfred/db/helpers";
 import { rejectedInferences, standingInstructionSetRevisions, userFacts } from "@alfred/db/schemas";
 import { and, desc, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -41,7 +41,7 @@ import { valueSignature } from "./signature";
 
 export const STANDING_INSTRUCTION_LIST_LIMIT = 100;
 
-/** A stored v1 row, for the chat management tools. They stay on v1 until v2 capture (plan PR 4). */
+/** A stored v1 row, for the v1 writer and `edit_instruction`. Both leave with plan PR 5. */
 export interface ActiveStandingInstructionV1 {
   factId: string;
   value: StandingInstructionValue;
@@ -53,6 +53,14 @@ export interface ActiveStandingInstruction {
   factId: string;
   value: StandingInstructionValueV2;
   validFrom: Date;
+}
+
+/**
+ * An active instruction with the shape it is stored in. Only a stored v2 row has a durable
+ * `instructionId`: a lifted v1 row uses its fact id, which plan PR 5 replaces.
+ */
+interface StoredStandingInstruction extends ActiveStandingInstruction {
+  storedVersion: 1 | 2;
 }
 
 /** One message's sender, as the consumer holds it. */
@@ -422,8 +430,9 @@ export type SaveStandingInstructionResult =
       status: "remembered" | "revised" | "already_exists";
       factId: string;
       instruction: StandingInstructionValueV2;
-      /** Capped at {@link STANDING_INSTRUCTION_OVERLAP_LIMIT}. */
+      /** Capped at {@link STANDING_INSTRUCTION_OVERLAP_LIMIT}; `relatedCount` has the total. */
       related: RelatedStandingInstruction[];
+      relatedCount: number;
     }
   | {
       ok: false;
@@ -433,7 +442,7 @@ export type SaveStandingInstructionResult =
       message: string;
     }
   | { ok: false; status: "unknown_instruction"; instructionId: string; message: string }
-  | { ok: false; status: "unknown_exception"; exceptionOf: string; message: string };
+  | { ok: false; status: "invalid_exception"; exceptionOf: string; message: string };
 
 type SenderParse =
   | { ok: true; target: StandingInstructionTarget }
@@ -536,27 +545,19 @@ export async function saveStandingInstruction(args: {
   const source: MemorySource = args.source ?? { kind: "user" };
 
   const outcome = await db().transaction(async (tx) => {
-    // One capture at a time for each user, so a revision and an exception see a stable set.
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${`${args.userId}:standing_instruction:capture`}, 0))`,
+    await lockStandingInstructionCapture(tx, args.userId);
+
+    const active = await readStoredStandingInstructions(args.userId, tx);
+
+    // A v1 row's id is its fact id, so it is no revision or exception target.
+    const byId = new Map(
+      active.flatMap((row) =>
+        row.storedVersion === 2 ? [[row.value.instructionId, row] as const] : [],
+      ),
     );
 
-    const active = (
-      await tx
-        .select({ id: userFacts.id, value: userFacts.value, validFrom: userFacts.validFrom })
-        .from(userFacts)
-        .where(activeStandingInstructionsWhere(args.userId))
-        .orderBy(desc(userFacts.validFrom))
-    ).flatMap((fact) => {
-      const value = readStoredStandingInstruction(fact.value, fact.id);
-
-      return value ? [{ factId: fact.id, value, validFrom: fact.validFrom }] : [];
-    });
-
     const previous =
-      input.instructionId === undefined
-        ? null
-        : (active.find((row) => row.value.instructionId === input.instructionId) ?? null);
+      input.instructionId === undefined ? null : (byId.get(input.instructionId) ?? null);
 
     if (input.instructionId !== undefined && previous === null) {
       return { kind: "unknown_instruction" as const, instructionId: input.instructionId };
@@ -564,12 +565,17 @@ export async function saveStandingInstruction(args: {
 
     const instructionId = previous?.value.instructionId ?? createId("si");
 
-    if (
-      input.exceptionOf !== undefined &&
-      (input.exceptionOf === instructionId ||
-        !active.some((row) => row.value.instructionId === input.exceptionOf))
-    ) {
-      return { kind: "unknown_exception" as const, exceptionOf: input.exceptionOf };
+    const exceptionMessage =
+      input.exceptionOf === undefined
+        ? null
+        : exceptionProblem(byId, instructionId, input.exceptionOf);
+
+    if (input.exceptionOf !== undefined && exceptionMessage !== null) {
+      return {
+        kind: "invalid_exception" as const,
+        exceptionOf: input.exceptionOf,
+        message: exceptionMessage,
+      };
     }
 
     const value = standingInstructionValueV2Schema.parse({
@@ -589,19 +595,19 @@ export async function saveStandingInstruction(args: {
     const related = findRelatedInstructions(others, value);
     const signature = instructionContentSignature(value);
 
-    const duplicate =
-      previous !== null && instructionContentSignature(previous.value) === signature
+    // A revision duplicates only its own row. A new instruction duplicates any active one.
+    const duplicate = previous
+      ? instructionContentSignature(previous.value) === signature
         ? previous
-        : previous === null
-          ? (others.find((row) => instructionContentSignature(row.value) === signature) ?? null)
-          : null;
+        : null
+      : (others.find((row) => instructionContentSignature(row.value) === signature) ?? null);
 
     if (duplicate) {
       return {
         kind: "already_exists" as const,
         factId: duplicate.factId,
         value: duplicate.value,
-        related,
+        ...related,
       };
     }
 
@@ -616,7 +622,13 @@ export async function saveStandingInstruction(args: {
         .where(activeStandingInstructionWhere(args.userId, previous.factId))
         .returning({ id: userFacts.id });
 
-      if (!closed) throw new Error("[memory.standing-instructions] revised row was not active");
+      // Each app writer of a v2 row takes the capture lock, so only a script or hand SQL gets here.
+      if (!closed) {
+        return {
+          kind: "unknown_instruction" as const,
+          instructionId: previous.value.instructionId,
+        };
+      }
     }
 
     const [inserted] = await tx
@@ -653,7 +665,7 @@ export async function saveStandingInstruction(args: {
       kind: previous === null ? ("remembered" as const) : ("revised" as const),
       factId: inserted.id,
       value,
-      related,
+      ...related,
     };
   });
 
@@ -663,14 +675,15 @@ export async function saveStandingInstruction(args: {
         ok: false,
         status: "unknown_instruction",
         instructionId: outcome.instructionId,
-        message: "No active instruction has this id. List the instructions and try again.",
+        message:
+          "No active schemaVersion 2 instruction has this id. List the instructions and try again.",
       };
-    case "unknown_exception":
+    case "invalid_exception":
       return {
         ok: false,
-        status: "unknown_exception",
+        status: "invalid_exception",
         exceptionOf: outcome.exceptionOf,
-        message: "`exceptionOf` must name a different active instruction.",
+        message: outcome.message,
       };
     case "already_exists":
       return {
@@ -679,6 +692,7 @@ export async function saveStandingInstruction(args: {
         factId: outcome.factId,
         instruction: outcome.value,
         related: outcome.related,
+        relatedCount: outcome.relatedCount,
       };
     case "remembered":
     case "revised":
@@ -690,6 +704,7 @@ export async function saveStandingInstruction(args: {
         factId: outcome.factId,
         instruction: outcome.value,
         related: outcome.related,
+        relatedCount: outcome.relatedCount,
       };
     default: {
       const exhaustive: never = outcome;
@@ -708,16 +723,26 @@ function namedSenders(value: StandingInstructionValueV2): StandingInstructionTar
  * Active instructions that name a sender the saved one names, the same or wider or narrower.
  * The boss shows them, so the user can replace one, make an exception, or keep both.
  */
+interface RelatedInstructionsReport {
+  related: RelatedStandingInstruction[];
+  relatedCount: number;
+}
+
 function findRelatedInstructions(
   active: readonly ActiveStandingInstruction[],
   value: StandingInstructionValueV2,
-): RelatedStandingInstruction[] {
+): RelatedInstructionsReport {
   const related: RelatedStandingInstruction[] = [];
+  let relatedCount = 0;
 
   for (const instruction of active) {
     const relation = senderRelation(namedSenders(instruction.value), namedSenders(value));
 
     if (relation === null) continue;
+
+    relatedCount += 1;
+
+    if (related.length === STANDING_INSTRUCTION_OVERLAP_LIMIT) continue;
 
     related.push({
       instructionId: instruction.value.instructionId,
@@ -725,11 +750,41 @@ function findRelatedInstructions(
       directive: instruction.value.directive,
       relation,
     });
-
-    if (related.length === STANDING_INSTRUCTION_OVERLAP_LIMIT) break;
   }
 
-  return related;
+  return { related, relatedCount };
+}
+
+/**
+ * Why `exceptionOf` cannot name this target, or null. It must be a different active v2
+ * instruction, and the `exceptionOf` chain above it must not come back to `instructionId`.
+ */
+function exceptionProblem(
+  byId: ReadonlyMap<string, StoredStandingInstruction>,
+  instructionId: string,
+  exceptionOf: string,
+): string | null {
+  if (exceptionOf === instructionId) return "An instruction cannot be an exception to itself.";
+
+  if (!byId.has(exceptionOf)) {
+    return "`exceptionOf` must name an active schemaVersion 2 instruction.";
+  }
+
+  const seen = new Set<string>();
+
+  for (
+    let id: string | undefined = exceptionOf;
+    id !== undefined && !seen.has(id);
+    id = byId.get(id)?.value.exceptionOf
+  ) {
+    if (id === instructionId) {
+      return "`exceptionOf` makes a cycle: that instruction is already an exception to this one.";
+    }
+
+    seen.add(id);
+  }
+
+  return null;
 }
 
 function senderRelation(
@@ -797,7 +852,7 @@ function widenToDomain(email: string): DomainWidening {
   return { domain: candidateDomain.data, narrowing: null };
 }
 
-/** A prompt-budget cap, not a correctness one. `overlapCount` keeps the true total. */
+/** A prompt-budget cap, not a correctness one. `overlapCount` and `relatedCount` keep the true total. */
 const STANDING_INSTRUCTION_OVERLAP_LIMIT = 10;
 
 /** Shared by both `already_exists` paths and the insert path. */
@@ -849,25 +904,48 @@ function findTargetOverlaps(
   };
 }
 
-function selectActiveStandingInstructionFacts(userId: string) {
-  return db()
+function selectActiveStandingInstructionFacts(userId: string, runner: DbRunner = db()) {
+  return runner
     .select({ id: userFacts.id, value: userFacts.value, validFrom: userFacts.validFrom })
     .from(userFacts)
     .where(activeStandingInstructionsWhere(userId))
     .orderBy(desc(userFacts.validFrom));
 }
 
-/** Every active instruction of any stored version, as v2. A row of neither shape is skipped. */
-async function listActiveStandingInstructions(
+/**
+ * Every active instruction of any stored version, as v2, newest first, with the version it is
+ * stored in. A row of neither shape is skipped. Capture reads it inside its lock.
+ */
+async function readStoredStandingInstructions(
   userId: string,
-): Promise<ActiveStandingInstruction[]> {
-  const facts = await selectActiveStandingInstructionFacts(userId);
+  runner: DbRunner = db(),
+): Promise<StoredStandingInstruction[]> {
+  const facts = await selectActiveStandingInstructionFacts(userId, runner);
 
-  return facts.flatMap((fact) => {
+  return facts.flatMap((fact): StoredStandingInstruction[] => {
     const value = readStoredStandingInstruction(fact.value, fact.id);
 
-    return value ? [{ factId: fact.id, value, validFrom: fact.validFrom }] : [];
+    if (!value) return [];
+
+    const storedVersion = standingInstructionValueV2Schema.safeParse(fact.value).success ? 2 : 1;
+
+    return [{ factId: fact.id, value, validFrom: fact.validFrom, storedVersion }];
   });
+}
+
+/** Every active instruction of any stored version, as v2. */
+function listActiveStandingInstructions(userId: string): Promise<ActiveStandingInstruction[]> {
+  return readStoredStandingInstructions(userId);
+}
+
+/**
+ * One capture or forget at a time for each user, so a revision and an exception see a stable
+ * set. Do not change the key text: a rolling deploy would then run unserialized.
+ */
+async function lockStandingInstructionCapture(tx: DbTransaction, userId: string): Promise<void> {
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(hashtextextended(${`${userId}:standing_instruction:capture`}, 0))`,
+  );
 }
 
 /** Every active v1 `suppress` row, for the chat management tools. */
@@ -895,21 +973,13 @@ async function listActiveStandingInstructionsV1(
 
 /**
  * One active standing instruction as v2, for the model to reference. `schemaVersion` is the
- * stored shape: a v1 row is lifted, takes `edit_instruction`, and cannot be an `exceptionOf`
- * target until it is revised.
+ * stored shape. A v1 row is lifted: it takes `edit_instruction`, and it is no revision or
+ * `exceptionOf` target for `system.remember`.
  */
 export interface StandingInstructionSummary {
   factId: string;
   schemaVersion: 1 | 2;
-  instructionId: string;
-  revision: number;
-  phrasing: string;
-  directive: string;
-  scope: string | null;
-  targets: StandingInstructionTarget[];
-  senderFilter: StandingInstructionTarget[] | null;
-  effects: StandingInstructionEffect[];
-  exceptionOf: string | null;
+  instruction: StandingInstructionValueV2;
   validFrom: Date;
 }
 
@@ -959,32 +1029,14 @@ export type EditStandingInstructionArgs = z.infer<typeof editStandingInstruction
 export async function listStandingInstructions(
   userId: string,
 ): Promise<StandingInstructionListResult> {
-  const facts = await selectActiveStandingInstructionFacts(userId);
-
-  const instructions = facts.flatMap((fact): StandingInstructionSummary[] => {
-    const value = readStoredStandingInstruction(fact.value, fact.id);
-
-    if (!value) return [];
-
-    const stored = standingInstructionValueV2Schema.safeParse(fact.value).success ? 2 : 1;
-
-    return [
-      {
-        factId: fact.id,
-        schemaVersion: stored,
-        instructionId: value.instructionId,
-        revision: value.revision,
-        phrasing: value.phrasing,
-        directive: value.directive,
-        scope: value.scope ?? null,
-        targets: value.targets,
-        senderFilter: value.senderFilter ?? null,
-        effects: value.effects,
-        exceptionOf: value.exceptionOf ?? null,
-        validFrom: fact.validFrom,
-      },
-    ];
-  });
+  const instructions = (await readStoredStandingInstructions(userId)).map(
+    (row): StandingInstructionSummary => ({
+      factId: row.factId,
+      schemaVersion: row.storedVersion,
+      instruction: row.value,
+      validFrom: row.validFrom,
+    }),
+  );
 
   const capped = instructions.slice(0, STANDING_INSTRUCTION_LIST_LIMIT);
 
@@ -1047,6 +1099,9 @@ export async function forgetStandingInstruction(args: {
   source?: MemorySource | undefined;
 }): Promise<ForgetStandingInstructionResult> {
   const forgotten = await db().transaction(async (tx) => {
+    // Wait for a capture that reads this row as a revision or exception target.
+    await lockStandingInstructionCapture(tx, args.userId);
+
     // The `status = 'confirmed'` guard is the concurrency control; the lock lets the loser see the retired row.
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${`standing_instruction:${args.userId}:${args.factId}`}, 0))`,

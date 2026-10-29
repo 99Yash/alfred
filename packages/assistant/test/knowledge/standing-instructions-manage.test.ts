@@ -101,12 +101,12 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
     assert.equal(listed.truncated, false);
     assert.equal(instructions.length, 1);
     assert.equal(instructions[0]?.factId, factId);
-    const [target] = instructions[0].targets;
+    const [target] = instructions[0].instruction.targets;
     assert.ok(target);
     assert.equal(standingInstructionTargetKey(target), "sender_email:noisy@example.com");
     // A v1 row lists as v2, with the four effects it enforces (ADR-0113 plan decision 2).
     assert.equal(instructions[0].schemaVersion, 1);
-    assert.deepEqual(instructions[0].effects.map((effect) => effect.kind).sort(), [
+    assert.deepEqual(instructions[0].instruction.effects.map((effect) => effect.kind).sort(), [
       "block_reply_draft",
       "block_todo_suggestion",
       "demote_demand",
@@ -139,15 +139,17 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
     assert.ok(
       listed.instructions.some(
         (i) =>
-          i.targets[0] !== undefined &&
-          standingInstructionTargetKey(i.targets[0]) === "sender_email:sender-200@example.com",
+          i.instruction.targets[0] !== undefined &&
+          standingInstructionTargetKey(i.instruction.targets[0]) ===
+            "sender_email:sender-200@example.com",
       ),
     );
     assert.ok(
       !listed.instructions.some(
         (i) =>
-          i.targets[0] !== undefined &&
-          standingInstructionTargetKey(i.targets[0]) === "sender_email:sender-0@example.com",
+          i.instruction.targets[0] !== undefined &&
+          standingInstructionTargetKey(i.instruction.targets[0]) ===
+            "sender_email:sender-0@example.com",
       ),
     );
   });
@@ -217,8 +219,8 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
     const active = (await listStandingInstructions(userId)).instructions;
     assert.equal(active.length, 1);
     assert.equal(active[0]?.factId, result.factId);
-    assert.equal(active[0].directive, "Quietly ignore the reframed sender.");
-    const [target] = active[0].targets;
+    assert.equal(active[0].instruction.directive, "Quietly ignore the reframed sender.");
+    const [target] = active[0].instruction.targets;
     assert.ok(target);
     assert.equal(target.kind === "sender_email" ? target.label : undefined, "New Label");
     // Target sender is unchanged by a reframe.
@@ -298,7 +300,7 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
     const active = (await listStandingInstructions(userId)).instructions;
     assert.equal(active.length, 1);
     assert.equal(active[0]?.factId, first.factId);
-    assert.equal(active[0].directive, "Use this new wording.");
+    assert.equal(active[0].instruction.directive, "Use this new wording.");
   });
 
   test("edit with no effective change returns unchanged without creating a successor", async () => {

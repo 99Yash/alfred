@@ -576,13 +576,17 @@ export type RememberInstructionResult =
       readonly status: "remembered" | "revised" | "already_exists";
       readonly factId: string;
       readonly instruction: StandingInstructionValueV2;
-      /** Active instructions that name the same, a wider, or a narrower sender. Capped. */
+      /**
+       * Active instructions that name the same, a wider, or a narrower sender. Capped;
+       * `relatedCount` has the total. Mirrors `RelatedStandingInstruction`.
+       */
       readonly related: readonly {
         readonly instructionId: string;
         readonly factId: string;
         readonly directive: string;
         readonly relation: StandingInstructionOverlap["relation"] | "same";
       }[];
+      readonly relatedCount: number;
       readonly resolvedTodos: readonly ResolveTodoResult[];
     }
   | {
@@ -599,7 +603,7 @@ export type RememberInstructionResult =
     }
   | {
       readonly ok: false;
-      readonly status: "unknown_exception";
+      readonly status: "invalid_exception";
       readonly exceptionOf: string;
       readonly message: string;
     };
@@ -608,15 +612,7 @@ export type RememberInstructionResult =
 export interface StandingInstructionSummaryResult {
   readonly factId: string;
   readonly schemaVersion: 1 | 2;
-  readonly instructionId: string;
-  readonly revision: number;
-  readonly phrasing: string;
-  readonly directive: string;
-  readonly scope: string | null;
-  readonly targets: StandingInstructionValueV2["targets"];
-  readonly senderFilter: StandingInstructionValueV2["targets"] | null;
-  readonly effects: StandingInstructionValueV2["effects"];
-  readonly exceptionOf: string | null;
+  readonly instruction: StandingInstructionValueV2;
   readonly validFrom: Date;
 }
 

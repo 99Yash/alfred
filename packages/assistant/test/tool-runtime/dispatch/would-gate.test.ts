@@ -36,11 +36,7 @@ describe("toolCallWouldGate", () => {
       "the registry must be populated or this asserts nothing",
     );
 
-    for (const name of [
-      "system.read_user_context",
-      "system.spawn_sub_agent",
-      "system.load_tool",
-    ]) {
+    for (const name of ["system.read_user_context", "system.spawn_sub_agent", "system.load_tool"]) {
       assert.equal(await toolCallWouldGate(userId, name), false, name);
     }
   });
