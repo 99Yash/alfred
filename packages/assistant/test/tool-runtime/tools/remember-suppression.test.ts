@@ -10,7 +10,7 @@ import { eq, inArray, like } from "drizzle-orm";
 import { closeReplicachePokeBridge } from "@alfred/assistant/realtime";
 import { rememberSenderSuppression } from "@alfred/assistant/knowledge";
 import { closeRedis } from "@alfred/db/redis";
-import { rememberSenderSuppressionAndDismissTodos } from "../../../src/runtime/adapters/system-tool-product";
+import { rememberInstructionAndDismissTodos } from "../../../src/runtime/adapters/system-tool-product";
 import { dbBackedSkip } from "../../support/db-backed";
 
 const SKIP = dbBackedSkip("database");
@@ -85,7 +85,13 @@ async function todoStatus(todoId: string): Promise<string | undefined> {
 
 function rememberRequest(userId: string) {
   return {
-    input: { kind: "sender_suppression" as const, senderEmail: SENDER },
+    input: {
+      kind: "standing_instruction" as const,
+      phrasing: `Stop showing me ${SENDER}.`,
+      directive: `Do not surface reminders from ${SENDER}.`,
+      targets: [SENDER],
+      effects: ["block_todo_suggestion" as const],
+    },
     context: {
       userId,
       runId: "run_remember_suppression",
@@ -127,14 +133,16 @@ describe("rememberSenderSuppression coordinator (DB-backed)", { skip: SKIP }, ()
     // A one-mailbox target sweeps both live statuses. Only a domain target narrows to `suggested`.
     const { todoId } = await seedGmailTodoFromSender(userId, "open");
 
-    const result = await rememberSenderSuppressionAndDismissTodos(rememberRequest(userId));
+    const result = await rememberInstructionAndDismissTodos(rememberRequest(userId));
     assert.equal(result.ok, true);
 
     assert.equal(result.status, "remembered");
-    assert.equal(result.resolvedTodos.ok, true);
+    const [sweep] = result.resolvedTodos;
+    assert.ok(sweep);
+    assert.equal(sweep.ok, true);
 
-    assert.equal(result.resolvedTodos.status, "dismissed");
-    assert.equal(result.resolvedTodos.dismissedCount, 1);
+    assert.equal(sweep.status, "dismissed");
+    assert.equal(sweep.dismissedCount, 1);
     assert.equal(await todoStatus(todoId), "dismissed");
   });
 
@@ -142,7 +150,7 @@ describe("rememberSenderSuppression coordinator (DB-backed)", { skip: SKIP }, ()
     const userId = await seedUser();
     const first = await seedGmailTodoFromSender(userId, "open");
 
-    const remembered = await rememberSenderSuppressionAndDismissTodos(rememberRequest(userId));
+    const remembered = await rememberInstructionAndDismissTodos(rememberRequest(userId));
     assert.equal(remembered.ok, true);
 
     assert.equal(remembered.status, "remembered");
@@ -151,11 +159,13 @@ describe("rememberSenderSuppression coordinator (DB-backed)", { skip: SKIP }, ()
     const second = await seedGmailTodoFromSender(userId, "open");
 
     // The `already_exists` branch must still dismiss.
-    const again = await rememberSenderSuppressionAndDismissTodos(rememberRequest(userId));
+    const again = await rememberInstructionAndDismissTodos(rememberRequest(userId));
     assert.equal(again.ok, true);
 
     assert.equal(again.status, "already_exists");
-    assert.equal(again.resolvedTodos.status, "dismissed");
+    const [againSweep] = again.resolvedTodos;
+    assert.ok(againSweep);
+    assert.equal(againSweep.status, "dismissed");
     assert.equal(await todoStatus(second.todoId), "dismissed");
   });
 });

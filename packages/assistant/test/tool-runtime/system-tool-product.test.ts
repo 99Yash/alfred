@@ -10,7 +10,7 @@ import {
   registerSystemToolKnowledgeAdapter,
   registerSystemToolTaskAdapter,
   registerSystemToolWebSearchAdapter,
-  rememberSenderSuppressionAndDismissTodos,
+  rememberInstructionAndDismissTodos,
   resolveTodo,
   suggestTodo,
   webSearch,
@@ -31,7 +31,13 @@ const context = {
 const requests = {
   read: { input: {}, context } satisfies SystemToolRequest<"system.read_user_context">,
   remember: {
-    input: { kind: "sender_suppression", senderEmail: "sender@example.com" },
+    input: {
+      kind: "standing_instruction",
+      phrasing: "Ignore sender@example.com.",
+      directive: "Do not surface sender@example.com.",
+      targets: ["sender@example.com"],
+      effects: ["block_todo_suggestion"],
+    },
     context,
   } satisfies SystemToolRequest<"system.remember">,
   list: { input: {}, context } satisfies SystemToolRequest<"system.list_instructions">,
@@ -83,7 +89,7 @@ describe("system-tool product seams without registered adapters", () => {
     });
 
     const instructionMessage = "No system-tool instruction adapter is registered";
-    assert.throws(() => rememberSenderSuppressionAndDismissTodos(requests.remember), {
+    assert.throws(() => rememberInstructionAndDismissTodos(requests.remember), {
       message: instructionMessage,
     });
     assert.throws(() => listInstructions(requests.list), { message: instructionMessage });
@@ -115,9 +121,9 @@ describe("system-tool product seams with registered adapters", () => {
       } as const,
       remember: {
         ok: false,
-        status: "needs_clarification",
-        reason: "invalid_sender_email",
-        message: "not an email address",
+        status: "invalid_sender",
+        sender: "gmail.com",
+        message: "not the domain of one organization",
       } as const,
       list: { instructions: [], totalActive: 0, truncated: false, limit: 50 } as const,
       forget: { ok: false, status: "not_found" } as const,
@@ -150,7 +156,7 @@ describe("system-tool product seams with registered adapters", () => {
     };
 
     const instructions: SystemToolInstructionAdapter = {
-      rememberSenderSuppressionAndDismissTodos: (args) => {
+      rememberInstructionAndDismissTodos: (args) => {
         calls.push({ name: "remember", args });
 
         return Promise.resolve(results.remember);
@@ -199,10 +205,7 @@ describe("system-tool product seams with registered adapters", () => {
     unregisterTasks = registerSystemToolTaskAdapter(tasks);
 
     assert.equal(await readUserContext(requests.read), results.read);
-    assert.equal(
-      await rememberSenderSuppressionAndDismissTodos(requests.remember),
-      results.remember,
-    );
+    assert.equal(await rememberInstructionAndDismissTodos(requests.remember), results.remember);
     assert.equal(await listInstructions(requests.list), results.list);
     assert.equal(await forgetInstruction(requests.forget), results.forget);
     assert.equal(await editInstruction(requests.edit), results.edit);

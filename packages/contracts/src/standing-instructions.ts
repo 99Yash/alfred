@@ -429,6 +429,19 @@ const PARAMETERLESS_EFFECT_KINDS = STANDING_INSTRUCTION_EFFECT_KINDS.filter(
   (kind): kind is ParameterlessEffectKind => kind !== "force_category",
 );
 
+/**
+ * The effects that chat capture can write (ADR-0113 plan decision 11). Briefing gather has no
+ * bucket for an item outside the priority categories, so `include_briefing_priority` is "not
+ * enforced": capture keeps those words as prose and stores no effect for them.
+ */
+export const STANDING_INSTRUCTION_CAPTURE_EFFECT_KINDS = STANDING_INSTRUCTION_EFFECT_KINDS.filter(
+  (kind): kind is Exclude<StandingInstructionEffectKind, "include_briefing_priority"> =>
+    kind !== "include_briefing_priority",
+);
+
+export type StandingInstructionCaptureEffectKind =
+  (typeof STANDING_INSTRUCTION_CAPTURE_EFFECT_KINDS)[number];
+
 export const standingInstructionEffectSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.enum(PARAMETERLESS_EFFECT_KINDS) }),
   z.object({ kind: z.literal("force_category"), category: triageCategorySchema }),

@@ -14,8 +14,8 @@ import {
   type SpawnSubAgentInput,
   type StandingInstructionDroppedInput,
   type StandingInstructionOverlap,
-  type StandingInstructionScopeNarrowing,
   type StandingInstructionValue,
+  type StandingInstructionValueV2,
   type TOOL_INPUT_SCHEMAS,
   type ToolName,
   type ToolRunContext,
@@ -566,65 +566,57 @@ export interface WebSearchToolResult {
 }
 
 /**
- * Single-sender `system.remember` result: `RememberSenderSuppressionResult` from
- * `knowledge/standing-instructions.ts` plus the todo dismissal after the write.
+ * The `system.remember` result: `SaveStandingInstructionResult` from
+ * `knowledge/standing-instructions.ts`, plus the todo dismissal for each named sender when the
+ * instruction blocks todo suggestions.
  */
-export type RememberSenderSuppressionAndDismissResult =
+export type RememberInstructionResult =
   | {
       readonly ok: true;
-      readonly status: "remembered" | "already_exists";
+      readonly status: "remembered" | "revised" | "already_exists";
       readonly factId: string;
-      readonly instruction: StandingInstructionValue;
-      readonly resolvedSenderEmail: string;
-      /**
-       * Instructions that nest with the stored target. Can miss a concurrent write
-       * (see `RememberSenderSuppressionResult`). Capped; `overlapCount` is the total.
-       */
-      readonly overlaps: readonly StandingInstructionOverlap[];
-      readonly overlapCount: number;
-      /** Set when the caller asked for `scope:"domain"` and got one address. */
-      readonly scopeNarrowing: StandingInstructionScopeNarrowing | null;
-      /** Inputs a domain target cannot store, such as `directive` or `senderLabel`. */
-      readonly droppedInputs: readonly StandingInstructionDroppedInput[];
-      readonly resolvedTodos: ResolveTodoResult;
+      readonly instruction: StandingInstructionValueV2;
+      /** Active instructions that name the same, a wider, or a narrower sender. Capped. */
+      readonly related: readonly {
+        readonly instructionId: string;
+        readonly factId: string;
+        readonly directive: string;
+        readonly relation: StandingInstructionOverlap["relation"] | "same";
+      }[];
+      readonly resolvedTodos: readonly ResolveTodoResult[];
     }
   | {
       readonly ok: false;
-      readonly status: "needs_clarification";
-      readonly reason: "invalid_sender_email";
+      readonly status: "invalid_sender";
+      readonly sender: string;
+      readonly message: string;
+    }
+  | {
+      readonly ok: false;
+      readonly status: "unknown_instruction";
+      readonly instructionId: string;
+      readonly message: string;
+    }
+  | {
+      readonly ok: false;
+      readonly status: "unknown_exception";
+      readonly exceptionOf: string;
       readonly message: string;
     };
-
-/** One sender in a batch: its result, or the error its own throw produced. */
-export type RememberBatchEntryResult =
-  | RememberSenderSuppressionAndDismissResult
-  | { readonly ok: false; readonly status: "failed"; readonly message: string };
-
-/**
- * Batch `system.remember` result. The counts use different units:
- * `rememberedCount` counts instruction rows, `clarificationCount` counts sender entries.
- * `ok` is `rememberedCount > 0`.
- */
-export interface RememberBatchResult {
-  readonly ok: boolean;
-  readonly status: "batch";
-  readonly results: readonly {
-    readonly senderEmail: string;
-    readonly result: RememberBatchEntryResult;
-  }[];
-  /** Distinct `factId`s across ok entries. */
-  readonly rememberedCount: number;
-  readonly clarificationCount: number;
-  readonly failedCount: number;
-}
 
 /** Mirrors `StandingInstructionSummary` in `knowledge/standing-instructions.ts`. */
 export interface StandingInstructionSummaryResult {
   readonly factId: string;
-  readonly action: StandingInstructionValue["action"];
-  readonly target: StandingInstructionValue["target"];
-  readonly effects: StandingInstructionValue["effects"];
+  readonly schemaVersion: 1 | 2;
+  readonly instructionId: string;
+  readonly revision: number;
+  readonly phrasing: string;
   readonly directive: string;
+  readonly scope: string | null;
+  readonly targets: StandingInstructionValueV2["targets"];
+  readonly senderFilter: StandingInstructionValueV2["targets"] | null;
+  readonly effects: StandingInstructionValueV2["effects"];
+  readonly exceptionOf: string | null;
   readonly validFrom: Date;
 }
 
@@ -642,7 +634,7 @@ export type ForgetInstructionResult =
       readonly ok: true;
       readonly status: "forgotten";
       readonly factId: string;
-      readonly instruction: StandingInstructionValue;
+      readonly instruction: StandingInstructionValueV2;
     }
   | { readonly ok: false; readonly status: "not_found" };
 
@@ -664,7 +656,13 @@ export type EditInstructionResult =
       readonly instruction: StandingInstructionValue;
       readonly droppedInputs: readonly StandingInstructionDroppedInput[];
     }
-  | { readonly ok: false; readonly status: "not_found" };
+  | { readonly ok: false; readonly status: "not_found" }
+  | {
+      readonly ok: false;
+      readonly status: "revise_with_remember";
+      readonly instructionId: string;
+      readonly message: string;
+    };
 
 /**
  * Surface: chat.
@@ -686,9 +684,9 @@ export interface SystemToolKnowledgeAdapter {
  * Wiring: runtime/adapters/system-tool-product.ts installs; internal/tools/system.ts reads.
  */
 export interface SystemToolInstructionAdapter {
-  rememberSenderSuppressionAndDismissTodos(
+  rememberInstructionAndDismissTodos(
     args: SystemToolRequest<"system.remember">,
-  ): Promise<RememberSenderSuppressionAndDismissResult | RememberBatchResult>;
+  ): Promise<RememberInstructionResult>;
   listInstructions(
     args: SystemToolRequest<"system.list_instructions">,
   ): Promise<ListInstructionsResult>;
@@ -801,10 +799,10 @@ export function readUserContext(
   return systemToolKnowledgeAdapterPort.read().readUserContext(args);
 }
 
-export function rememberSenderSuppressionAndDismissTodos(
+export function rememberInstructionAndDismissTodos(
   args: SystemToolRequest<"system.remember">,
-): Promise<RememberSenderSuppressionAndDismissResult | RememberBatchResult> {
-  return systemToolInstructionAdapterPort.read().rememberSenderSuppressionAndDismissTodos(args);
+): Promise<RememberInstructionResult> {
+  return systemToolInstructionAdapterPort.read().rememberInstructionAndDismissTodos(args);
 }
 
 export function listInstructions(

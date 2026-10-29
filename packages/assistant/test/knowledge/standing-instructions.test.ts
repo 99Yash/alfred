@@ -107,19 +107,23 @@ describe("standingInstructions match", () => {
 });
 
 describe("system.remember input vs persisted standing instruction schema", () => {
-  test("tool input stays lenient so the handler can clarify unresolved senders", () => {
+  test("tool input stays lenient so the handler can refuse an unresolved sender", () => {
     assert.equal(
       rememberInput.safeParse({
-        kind: "sender_suppression",
-        senderEmail: "Ben Book",
+        kind: "standing_instruction",
         phrasing: "stop emailing me about Ben Book",
+        directive: "Do not surface mail from Ben Book.",
+        targets: ["Ben Book"],
+        effects: ["block_todo_suggestion"],
       }).success,
       true,
     );
     assert.equal(
       rememberInput.safeParse({
-        kind: "sender_suppression",
-        senderEmail: "Ben Book",
+        kind: "standing_instruction",
+        phrasing: "stop emailing me about Ben Book",
+        directive: "Do not surface mail from Ben Book.",
+        effects: [],
       }).success,
       true,
     );

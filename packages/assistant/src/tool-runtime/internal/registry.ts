@@ -80,8 +80,10 @@ interface ToolAvailabilityMetadata {
  *   {@link joinToolInput} finishes. `execute` is the non-blocking fallback.
  * - `"question"` (ADR-0099): parks the chat turn on a question approval.
  *   Only `ASK_USER_TOOL` may use it. `STAGING_ARM` holds the per-arm differences.
+ * - `"confirm"` (ADR-0113): a staged write whose card always shows, also under chat full
+ *   autonomy. The user's click is the authority for what the write stores.
  */
-export type ToolStagingPolicy = "staged" | "fast_path" | "join" | "question";
+export type ToolStagingPolicy = "staged" | "fast_path" | "join" | "question" | "confirm";
 
 /** One live chat turn: its thread, and the assistant message the turn streams into (ADR-0073). */
 export const chatTurnAddressSchema = z
@@ -811,6 +813,23 @@ export function registerTool(tool: RegisteredTool): void {
         `[tools] '${tool.name}' declares staging='join' but '${existingJoin.name}' already does — ` +
           "the join arm has one implementation (ADR-0073 sub-agent join), so a second declarer " +
           "would silently route into it",
+      );
+    }
+  }
+
+  // ADR-0113. The card is the confirmation, so a person on a live thread must see it.
+  if (tool.staging === "confirm") {
+    if (tool.integration !== "system") {
+      throw new Error(
+        `[tools] '${tool.name}' declares staging='confirm' on integration='${tool.integration}' — ` +
+          "the confirm arm is only defined for 'system' tools",
+      );
+    }
+
+    if (tool.availability?.requiresLiveChat !== true) {
+      throw new Error(
+        `[tools] '${tool.name}' declares staging='confirm' but does not require a live chat — ` +
+          "declare availability: { requiresLiveChat: true }, so the user sees the card",
       );
     }
   }

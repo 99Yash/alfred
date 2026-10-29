@@ -40,7 +40,6 @@ describe("toolCallWouldGate", () => {
       "system.read_user_context",
       "system.spawn_sub_agent",
       "system.load_tool",
-      "system.remember",
     ]) {
       assert.equal(await toolCallWouldGate(userId, name), false, name);
     }
@@ -96,7 +95,7 @@ describe("toolCallWouldGate mirrors the dispatch gate for every registered tool"
 
       for (const tool of tools) {
         const expected =
-          tool.resolvesRiskTier || tool.staging === "question"
+          tool.resolvesRiskTier || tool.staging === "question" || tool.staging === "confirm"
             ? true
             : toolRequiresApproval(
                 await resolvePolicyMode(MIRROR_USER_ID, tool.name),

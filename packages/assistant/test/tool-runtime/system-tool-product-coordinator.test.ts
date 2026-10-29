@@ -1,17 +1,19 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { standingInstructionValueSchema } from "@alfred/contracts";
-import type { RememberSenderSuppressionResult } from "@alfred/assistant/knowledge";
+import { standingInstructionValueV2Schema } from "@alfred/contracts";
+import type { SaveStandingInstructionResult } from "@alfred/assistant/knowledge";
 import type { ResolveTodosForGmailSourceResult } from "@alfred/assistant/tasks";
 import type { SystemToolRequest } from "@alfred/assistant/tool-runtime";
-import { createRememberSenderSuppressionCoordinator } from "../../src/runtime/adapters/system-tool-product";
+import { createRememberInstructionCoordinator } from "../../src/runtime/adapters/system-tool-product";
 
 const request = {
   input: {
-    kind: "sender_suppression",
-    senderEmail: "Sender@Example.com",
-    senderLabel: "Sender",
+    kind: "standing_instruction",
+    phrasing: "Ignore this sender.",
+    directive: "Do not surface this sender.",
+    targets: ["sender@example.com"],
+    effects: ["block_todo_suggestion", "exclude_briefing_priority"],
   },
   context: {
     userId: "user_1",
@@ -21,35 +23,26 @@ const request = {
   },
 } satisfies SystemToolRequest<"system.remember">;
 
-const instruction = standingInstructionValueSchema.parse({
-  schemaVersion: 1,
-  action: "suppress",
-  surface: "open_loop",
-  target: {
-    kind: "sender_email",
-    email: "sender@example.com",
-    label: "Sender",
-    accountId: null,
-  },
-  effects: ["block_todo_suggestion", "exclude_briefing_priority"],
-  directive: "Do not surface this sender.",
+const instruction = standingInstructionValueV2Schema.parse({
+  schemaVersion: 2,
+  instructionId: "si_1",
+  revision: 0,
   phrasing: "Ignore this sender.",
+  directive: "Do not surface this sender.",
+  targets: [{ kind: "sender_email", email: "sender@example.com", label: null, accountId: null }],
+  effects: [{ kind: "block_todo_suggestion" }, { kind: "exclude_briefing_priority" }],
 });
 
-describe("sender suppression coordinator", () => {
+describe("standing instruction capture coordinator", () => {
   test("writes the instruction before it dismisses todos", async () => {
     const calls: Array<{ name: string; args: unknown }> = [];
 
-    const remembered: RememberSenderSuppressionResult = {
+    const remembered: SaveStandingInstructionResult = {
       ok: true,
       status: "remembered",
       factId: "fact_1",
       instruction,
-      resolvedSenderEmail: "sender@example.com",
-      overlaps: [],
-      overlapCount: 0,
-      scopeNarrowing: null,
-      droppedInputs: [],
+      related: [],
     };
 
     const dismissed: ResolveTodosForGmailSourceResult = {
@@ -61,9 +54,9 @@ describe("sender suppression coordinator", () => {
       auditReason: "sender_suppressed",
     };
 
-    const coordinate = createRememberSenderSuppressionCoordinator({
-      remember: (args) => {
-        calls.push({ name: "remember", args });
+    const coordinate = createRememberInstructionCoordinator({
+      save: (args) => {
+        calls.push({ name: "save", args });
 
         return Promise.resolve(remembered);
       },
@@ -74,18 +67,18 @@ describe("sender suppression coordinator", () => {
       },
     });
 
-    assert.deepEqual(await coordinate(request), { ...remembered, resolvedTodos: dismissed });
+    assert.deepEqual(await coordinate(request), { ...remembered, resolvedTodos: [dismissed] });
     assert.deepEqual(calls, [
       {
-        name: "remember",
+        name: "save",
         args: {
           userId: "user_1",
-          senderEmail: "Sender@Example.com",
-          senderLabel: "Sender",
-          accountId: null,
-          directive: undefined,
-          phrasing: undefined,
-          scope: undefined,
+          input: {
+            phrasing: "Ignore this sender.",
+            directive: "Do not surface this sender.",
+            targets: ["sender@example.com"],
+            effects: ["block_todo_suggestion", "exclude_briefing_priority"],
+          },
           source: {
             kind: "tool_call",
             id: "call_1",
@@ -96,7 +89,7 @@ describe("sender suppression coordinator", () => {
       {
         name: "dismiss",
         args: {
-          args: { userId: "user_1", target: instruction.target },
+          args: { userId: "user_1", target: instruction.targets[0] },
           attribution: {
             actor: "agent",
             runId: "run_1",
@@ -110,18 +103,18 @@ describe("sender suppression coordinator", () => {
     ]);
   });
 
-  test("returns a clarification unchanged and does not dismiss todos", async () => {
-    const clarification: RememberSenderSuppressionResult = {
+  test("returns a refusal unchanged and does not dismiss todos", async () => {
+    const refusal: SaveStandingInstructionResult = {
       ok: false,
-      status: "needs_clarification",
-      reason: "invalid_sender_email",
-      message: "Which sender should I suppress?",
+      status: "invalid_sender",
+      sender: "gmail.com",
+      message: "'gmail.com' is not the domain of one organization.",
     };
 
     let dismissCount = 0;
 
-    const coordinate = createRememberSenderSuppressionCoordinator({
-      remember: () => Promise.resolve(clarification),
+    const coordinate = createRememberInstructionCoordinator({
+      save: () => Promise.resolve(refusal),
       dismissTodos: () => {
         dismissCount += 1;
 
@@ -136,7 +129,7 @@ describe("sender suppression coordinator", () => {
       },
     });
 
-    assert.equal(await coordinate(request), clarification);
+    assert.equal(await coordinate(request), refusal);
     assert.equal(dismissCount, 0);
   });
 });

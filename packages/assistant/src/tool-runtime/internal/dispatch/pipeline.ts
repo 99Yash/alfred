@@ -577,6 +577,7 @@ const validateInputStage: DispatchStage<ResolvedDispatch, ValidatedDispatch> = a
     }
 
     case "staged":
+    case "confirm":
       break;
     default: {
       // A new policy must not silently take the staged path.
@@ -587,7 +588,7 @@ const validateInputStage: DispatchStage<ResolvedDispatch, ValidatedDispatch> = a
     }
   }
 
-  // Only `staged` and `question` reach here, so the arm is non-null.
+  // Only `staged`, `confirm`, and `question` reach here, so the arm is non-null.
   const arm: GatedArmPolicy = STAGING_ARM[tool.staging];
 
   return continueWith({ ...resolved, call, ctx, arm });

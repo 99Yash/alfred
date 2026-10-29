@@ -1,13 +1,13 @@
 import { isQuotaOrBillingError } from "@alfred/ai";
-import { toMessage, type TodoAttribution, type TodoSource } from "@alfred/contracts";
+import { type TodoAttribution, type TodoSource } from "@alfred/contracts";
 import { AppError } from "@alfred/contracts/app-errors";
 import {
   editStandingInstruction,
   forgetStandingInstruction,
   listStandingInstructions,
   readUserContext as readUserContextFromKnowledge,
-  rememberSenderSuppression,
   runWebSearch,
+  saveStandingInstruction,
 } from "@alfred/assistant/knowledge";
 import { readGmailThreadClosure } from "@alfred/assistant/triage";
 import {
@@ -46,166 +46,75 @@ function chatToolAttribution(
   };
 }
 
-type RememberSenderSuppressionResult = Awaited<ReturnType<typeof rememberSenderSuppression>>;
+type SaveInstructionResult = Awaited<ReturnType<typeof saveStandingInstruction>>;
 
 type ResolveSenderTodosResult = Awaited<ReturnType<typeof resolveTodosForGmailSource>>;
 
 export type RememberAndDismissResult =
-  | (Extract<RememberSenderSuppressionResult, { ok: true }> & {
-      resolvedTodos: ResolveSenderTodosResult;
+  | (Extract<SaveInstructionResult, { ok: true }> & {
+      resolvedTodos: ResolveSenderTodosResult[];
     })
-  | Extract<RememberSenderSuppressionResult, { ok: false }>;
+  | Extract<SaveInstructionResult, { ok: false }>;
 
-/**
- * One sender's batch outcome. A throw fails only that sender, because earlier
- * senders already persisted. The exported name lives in `tool-runtime/index.ts`.
- */
-type RememberBatchEntryResult =
-  | RememberAndDismissResult
-  | { ok: false; status: "failed"; message: string };
-
-/**
- * Result of a multi-sender `system.remember`. `ok` is false only when nothing
- * persisted, so the dispatcher treats a partial batch as success; the entries
- * show the misses.
- */
-export interface RememberAndDismissBatchResult {
-  ok: boolean;
-  status: "batch";
-  results: Array<{ senderEmail: string; result: RememberBatchEntryResult }>;
-  /** Distinct `factId`s: instruction rows, not senders. */
-  rememberedCount: number;
-  /** Entries, not rows. */
-  clarificationCount: number;
-  failedCount: number;
-}
-
-interface SenderSuppressionDependencies {
-  remember: typeof rememberSenderSuppression;
+interface InstructionCaptureDependencies {
+  save: typeof saveStandingInstruction;
   dismissTodos: typeof resolveTodosForGmailSource;
 }
 
 type RememberRequest = SystemToolRequest<"system.remember">;
 
-type RememberInput = RememberRequest["input"];
-
-/** Per-entry `scope` overrides the top-level one, like `accountId`. */
-type SenderEntry = Pick<RememberInput, "senderEmail" | "senderLabel" | "scope">;
-
-/** Remember first, so no todo is dismissed for a sender Alfred did not remember. */
-async function rememberOneSender(
-  dependencies: SenderSuppressionDependencies,
-  { input, context }: RememberRequest,
-  sender: SenderEntry,
-): Promise<RememberAndDismissResult> {
-  const result = await dependencies.remember({
-    userId: context.userId,
-    senderEmail: sender.senderEmail,
-    senderLabel: sender.senderLabel,
-    accountId: input.accountId ?? null,
-    directive: input.directive,
-    phrasing: input.phrasing,
-    scope: sender.scope ?? input.scope,
-    source: {
-      kind: "tool_call",
-      id: context.toolCallId,
-      meta: { runId: context.runId, stepId: context.stepId },
-    },
-  });
-
-  if (!result.ok) return result;
-
-  const resolvedTodos = await dependencies.dismissTodos(
-    {
-      userId: context.userId,
-      // The whole target, such as every sender at a domain. It already carries `accountId`.
-      target: result.instruction.target,
-    },
-    // The instruction just stored permits the sweep, so it is the authority.
-    {
-      actor: "agent",
-      runId: context.runId,
-      toolCallId: context.toolCallId,
-      authority: "instruction",
-      authorityRef: { kind: "instruction", id: result.factId },
-      cause: "sender_suppressed",
-    },
-  );
-
-  return { ...result, resolvedTodos };
-}
-
 /**
- * Without `senders`, the single-sender shape. With `senders`, one
- * remember-then-dismiss per entry in one model step, so a long list does not
- * use one step per sender. A duplicate sender is remembered once.
+ * Save first, so no todo is dismissed for an instruction Alfred did not store. When the
+ * instruction blocks todo suggestions, the live todos of each sender it names for the whole
+ * sender are dismissed too. A scope reaches no live todo here: it matches only in triage.
  */
-export function createRememberSenderSuppressionCoordinator(
-  dependencies: SenderSuppressionDependencies,
-): (args: RememberRequest) => Promise<RememberAndDismissResult | RememberAndDismissBatchResult> {
-  return async (args) => {
-    const { input } = args;
+export function createRememberInstructionCoordinator(
+  dependencies: InstructionCaptureDependencies,
+): (args: RememberRequest) => Promise<RememberAndDismissResult> {
+  return async ({ input, context }) => {
+    const { kind: _kind, ...fields } = input;
 
-    if (!input.senders) {
-      return rememberOneSender(dependencies, args, {
-        senderEmail: input.senderEmail,
-        senderLabel: input.senderLabel,
-        scope: input.scope,
-      });
+    const result = await dependencies.save({
+      userId: context.userId,
+      input: fields,
+      source: {
+        kind: "tool_call",
+        id: context.toolCallId,
+        meta: { runId: context.runId, stepId: context.stepId },
+      },
+    });
+
+    if (!result.ok) return result;
+
+    const blocksTodos = result.instruction.effects.some(
+      (effect) => effect.kind === "block_todo_suggestion",
+    );
+
+    const resolvedTodos: ResolveSenderTodosResult[] = [];
+
+    for (const target of blocksTodos ? result.instruction.targets : []) {
+      resolvedTodos.push(
+        await dependencies.dismissTodos(
+          { userId: context.userId, target },
+          // The instruction just stored permits the sweep, so it is the authority.
+          {
+            actor: "agent",
+            runId: context.runId,
+            toolCallId: context.toolCallId,
+            authority: "instruction",
+            authorityRef: { kind: "instruction", id: result.factId },
+            cause: "sender_suppressed",
+          },
+        ),
+      );
     }
 
-    // Keyed by email; the first spelling's label wins.
-    const entries = new Map<string, SenderEntry>();
-
-    if (input.senderEmail) {
-      entries.set(input.senderEmail, {
-        scope: input.scope,
-        senderEmail: input.senderEmail,
-        senderLabel: input.senderLabel,
-      });
-    }
-
-    for (const entry of input.senders) {
-      if (!entries.has(entry.senderEmail)) entries.set(entry.senderEmail, entry);
-    }
-
-    const results: RememberAndDismissBatchResult["results"] = [];
-
-    for (const [senderEmail, entry] of entries) {
-      try {
-        results.push({ senderEmail, result: await rememberOneSender(dependencies, args, entry) });
-      } catch (error) {
-        results.push({
-          senderEmail,
-          result: { ok: false, status: "failed", message: toMessage(error) },
-        });
-      }
-    }
-
-    // Count distinct rows: entries that collapse onto one domain instruction count once.
-    // `already_exists` carries a `factId` too, so a full collapse still reports `ok`.
-    const okEntryCount = results.filter(({ result }) => result.ok).length;
-
-    const rememberedCount = new Set(
-      results.flatMap(({ result }) => (result.ok ? [result.factId] : [])),
-    ).size;
-
-    const failedCount = results.filter(({ result }) => result.status === "failed").length;
-
-    return {
-      ok: rememberedCount > 0,
-      status: "batch",
-      results,
-      rememberedCount,
-      // Entries, not rows.
-      clarificationCount: results.length - okEntryCount - failedCount,
-      failedCount,
-    };
+    return { ...result, resolvedTodos };
   };
 }
 
-export const rememberSenderSuppressionAndDismissTodos = createRememberSenderSuppressionCoordinator({
-  remember: rememberSenderSuppression,
+export const rememberInstructionAndDismissTodos = createRememberInstructionCoordinator({
+  save: saveStandingInstruction,
   dismissTodos: resolveTodosForGmailSource,
 });
 
@@ -220,7 +129,7 @@ const knowledgeAdapter: SystemToolKnowledgeAdapter = {
 };
 
 const instructionAdapter: SystemToolInstructionAdapter = {
-  rememberSenderSuppressionAndDismissTodos,
+  rememberInstructionAndDismissTodos,
   listInstructions({ context }) {
     return listStandingInstructions(context.userId);
   },

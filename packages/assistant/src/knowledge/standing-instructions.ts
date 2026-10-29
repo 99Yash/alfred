@@ -11,7 +11,11 @@ import {
   standingInstructionScopeRelation,
   memorySourceSchema,
   readStoredStandingInstruction,
+  STANDING_INSTRUCTION_SCHEMA_VERSION_V2,
   standingInstructionValueSchema,
+  standingInstructionValueV2Schema,
+  type rememberInput,
+  type StandingInstructionEffect,
   SUPPRESSION_EFFECTS,
   targetMatchesSender,
   targetNamesOneMailbox,
@@ -27,6 +31,7 @@ import {
 } from "@alfred/contracts";
 import { db, type DbTransaction } from "@alfred/db";
 import { sha256Canonical } from "@alfred/db/hash";
+import { createId } from "@alfred/db/helpers";
 import { rejectedInferences, standingInstructionSetRevisions, userFacts } from "@alfred/db/schemas";
 import { and, desc, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -397,6 +402,358 @@ export async function rememberSenderSuppression(
   };
 }
 
+// ─── Capture (v2, ADR-0113) ─────────────────────────────────────────────────
+
+/** The parsed `system.remember` input, after the user confirmed it on its card. */
+export type SaveStandingInstructionInput = Omit<z.infer<typeof rememberInput>, "kind">;
+
+/** An active instruction that shares a sender with the saved one (ADR-0060 micro-decision 6). */
+export interface RelatedStandingInstruction {
+  instructionId: string;
+  factId: string;
+  directive: string;
+  /** How the related instruction's sender relates to the saved one's, for one shared sender. */
+  relation: StandingInstructionOverlap["relation"] | "same";
+}
+
+export type SaveStandingInstructionResult =
+  | {
+      ok: true;
+      status: "remembered" | "revised" | "already_exists";
+      factId: string;
+      instruction: StandingInstructionValueV2;
+      /** Capped at {@link STANDING_INSTRUCTION_OVERLAP_LIMIT}. */
+      related: RelatedStandingInstruction[];
+    }
+  | {
+      ok: false;
+      status: "invalid_sender";
+      /** The input value that is not an address or a single organization's domain. */
+      sender: string;
+      message: string;
+    }
+  | { ok: false; status: "unknown_instruction"; instructionId: string; message: string }
+  | { ok: false; status: "unknown_exception"; exceptionOf: string; message: string };
+
+type SenderParse =
+  | { ok: true; target: StandingInstructionTarget }
+  | { ok: false; sender: string; message: string };
+
+/**
+ * An address, or a bare domain of one organization. The domain gate is the same rail as v1
+ * capture: a personal, school, shared-hosting, or mail-service host is refused, because it
+ * names many unrelated senders.
+ */
+function parseInstructionSender(sender: string, accountId: string | null): SenderParse {
+  if (sender.includes("@")) {
+    const email = normalizeEmailAddress(sender);
+
+    if (email === null) {
+      return { ok: false, sender, message: `'${sender}' is not a valid email address.` };
+    }
+
+    return {
+      ok: true,
+      target: buildStandingInstructionTarget({ email, domain: null, label: null, accountId }),
+    };
+  }
+
+  const domain = domainSchema.safeParse(sender);
+
+  if (!domain.success || classifyBareDomain({ domain: domain.data }) !== "corporate_domain") {
+    return {
+      ok: false,
+      sender,
+      message:
+        `'${sender}' is not the domain of one organization. Name an address, or use a scope ` +
+        "for a class of mail.",
+    };
+  }
+
+  return {
+    ok: true,
+    target: { kind: "sender_domain", domain: domain.data, accountId },
+  };
+}
+
+function parseInstructionSenders(
+  senders: readonly string[] | undefined,
+  accountId: string | null,
+):
+  | { ok: true; targets: StandingInstructionTarget[] | undefined }
+  | Extract<SenderParse, { ok: false }> {
+  if (senders === undefined) return { ok: true, targets: undefined };
+
+  const targets = new Map<string, StandingInstructionTarget>();
+
+  for (const sender of senders) {
+    const parsed = parseInstructionSender(sender, accountId);
+
+    if (!parsed.ok) return parsed;
+
+    targets.set(standingInstructionTargetKey(parsed.target), parsed.target);
+  }
+
+  return { ok: true, targets: [...targets.values()] };
+}
+
+/** The contract requires `forceCategory` with `force_category`, so no effect is dropped. */
+function captureEffects(input: SaveStandingInstructionInput): StandingInstructionEffect[] {
+  return [...new Set(input.effects)].flatMap((kind): StandingInstructionEffect[] => {
+    if (kind !== "force_category") return [{ kind }];
+
+    return input.forceCategory === undefined ? [] : [{ kind, category: input.forceCategory }];
+  });
+}
+
+/** The content of an instruction, without its identity, for the duplicate check. */
+function instructionContentSignature(value: StandingInstructionValueV2): string {
+  const { instructionId: _id, revision: _revision, ...content } = value;
+
+  return valueSignature(content);
+}
+
+/**
+ * Store a v2 standing instruction, or revise one (ADR-0113 capture). The user already
+ * confirmed the input on its card. Code mints the instruction id; a revision keeps it and
+ * adds 1 to `revision`. The `user_facts` trigger raises the set revision with the write.
+ */
+export async function saveStandingInstruction(args: {
+  userId: string;
+  input: SaveStandingInstructionInput;
+  source?: MemorySource | undefined;
+}): Promise<SaveStandingInstructionResult> {
+  const { input } = args;
+  const accountId = normalizeOptionalLabel(input.accountId);
+  const targets = parseInstructionSenders(input.targets, accountId);
+
+  if (!targets.ok) return { ...targets, status: "invalid_sender" };
+
+  const senderFilter = parseInstructionSenders(input.senderFilter, accountId);
+
+  if (!senderFilter.ok) return { ...senderFilter, status: "invalid_sender" };
+
+  const source: MemorySource = args.source ?? { kind: "user" };
+
+  const outcome = await db().transaction(async (tx) => {
+    // One capture at a time for each user, so a revision and an exception see a stable set.
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`${args.userId}:standing_instruction:capture`}, 0))`,
+    );
+
+    const active = (
+      await tx
+        .select({ id: userFacts.id, value: userFacts.value, validFrom: userFacts.validFrom })
+        .from(userFacts)
+        .where(activeStandingInstructionsWhere(args.userId))
+        .orderBy(desc(userFacts.validFrom))
+    ).flatMap((fact) => {
+      const value = readStoredStandingInstruction(fact.value, fact.id);
+
+      return value ? [{ factId: fact.id, value, validFrom: fact.validFrom }] : [];
+    });
+
+    const previous =
+      input.instructionId === undefined
+        ? null
+        : (active.find((row) => row.value.instructionId === input.instructionId) ?? null);
+
+    if (input.instructionId !== undefined && previous === null) {
+      return { kind: "unknown_instruction" as const, instructionId: input.instructionId };
+    }
+
+    const instructionId = previous?.value.instructionId ?? createId("si");
+
+    if (
+      input.exceptionOf !== undefined &&
+      (input.exceptionOf === instructionId ||
+        !active.some((row) => row.value.instructionId === input.exceptionOf))
+    ) {
+      return { kind: "unknown_exception" as const, exceptionOf: input.exceptionOf };
+    }
+
+    const value = standingInstructionValueV2Schema.parse({
+      schemaVersion: STANDING_INSTRUCTION_SCHEMA_VERSION_V2,
+      instructionId,
+      revision: previous === null ? 0 : previous.value.revision + 1,
+      phrasing: input.phrasing,
+      directive: input.directive,
+      ...(input.scope === undefined ? {} : { scope: input.scope }),
+      targets: targets.targets ?? [],
+      ...(senderFilter.targets === undefined ? {} : { senderFilter: senderFilter.targets }),
+      effects: captureEffects(input),
+      ...(input.exceptionOf === undefined ? {} : { exceptionOf: input.exceptionOf }),
+    } satisfies z.input<typeof standingInstructionValueV2Schema>);
+
+    const others = active.filter((row) => row.factId !== previous?.factId);
+    const related = findRelatedInstructions(others, value);
+    const signature = instructionContentSignature(value);
+
+    const duplicate =
+      previous !== null && instructionContentSignature(previous.value) === signature
+        ? previous
+        : previous === null
+          ? (others.find((row) => instructionContentSignature(row.value) === signature) ?? null)
+          : null;
+
+    if (duplicate) {
+      return {
+        kind: "already_exists" as const,
+        factId: duplicate.factId,
+        value: duplicate.value,
+        related,
+      };
+    }
+
+    if (previous !== null) {
+      const [closed] = await tx
+        .update(userFacts)
+        .set({
+          status: "edited",
+          validUntil: sql`now()`,
+          rowVersion: sql`${userFacts.rowVersion} + 1`,
+        })
+        .where(activeStandingInstructionWhere(args.userId, previous.factId))
+        .returning({ id: userFacts.id });
+
+      if (!closed) throw new Error("[memory.standing-instructions] revised row was not active");
+    }
+
+    const [inserted] = await tx
+      .insert(userFacts)
+      .values({
+        userId: args.userId,
+        key: STANDING_INSTRUCTION_KEY,
+        value,
+        confidence: 1,
+        status: "confirmed",
+        source,
+        validFrom: sql`now()`,
+        validUntil: null,
+        supersedesId: previous?.factId ?? null,
+      })
+      .returning({ id: userFacts.id });
+
+    if (!inserted) throw new Error("[memory.standing-instructions] insert returned no row");
+
+    await appendStandingInstructionObservation(
+      {
+        userId: args.userId,
+        operation: previous === null ? "remember" : "edit",
+        factId: inserted.id,
+        previousFactId: previous?.factId ?? null,
+        instruction: value,
+        previousInstruction: previous?.value ?? null,
+        source,
+      },
+      tx,
+    );
+
+    return {
+      kind: previous === null ? ("remembered" as const) : ("revised" as const),
+      factId: inserted.id,
+      value,
+      related,
+    };
+  });
+
+  switch (outcome.kind) {
+    case "unknown_instruction":
+      return {
+        ok: false,
+        status: "unknown_instruction",
+        instructionId: outcome.instructionId,
+        message: "No active instruction has this id. List the instructions and try again.",
+      };
+    case "unknown_exception":
+      return {
+        ok: false,
+        status: "unknown_exception",
+        exceptionOf: outcome.exceptionOf,
+        message: "`exceptionOf` must name a different active instruction.",
+      };
+    case "already_exists":
+      return {
+        ok: true,
+        status: "already_exists",
+        factId: outcome.factId,
+        instruction: outcome.value,
+        related: outcome.related,
+      };
+    case "remembered":
+    case "revised":
+      emitReplicachePokes([args.userId]);
+
+      return {
+        ok: true,
+        status: outcome.kind,
+        factId: outcome.factId,
+        instruction: outcome.value,
+        related: outcome.related,
+      };
+    default: {
+      const exhaustive: never = outcome;
+
+      return exhaustive;
+    }
+  }
+}
+
+/** The senders an instruction names: its targets and its scope filter. */
+function namedSenders(value: StandingInstructionValueV2): StandingInstructionTarget[] {
+  return [...value.targets, ...(value.senderFilter ?? [])];
+}
+
+/**
+ * Active instructions that name a sender the saved one names, the same or wider or narrower.
+ * The boss shows them, so the user can replace one, make an exception, or keep both.
+ */
+function findRelatedInstructions(
+  active: readonly ActiveStandingInstruction[],
+  value: StandingInstructionValueV2,
+): RelatedStandingInstruction[] {
+  const related: RelatedStandingInstruction[] = [];
+
+  for (const instruction of active) {
+    const relation = senderRelation(namedSenders(instruction.value), namedSenders(value));
+
+    if (relation === null) continue;
+
+    related.push({
+      instructionId: instruction.value.instructionId,
+      factId: instruction.factId,
+      directive: instruction.value.directive,
+      relation,
+    });
+
+    if (related.length === STANDING_INSTRUCTION_OVERLAP_LIMIT) break;
+  }
+
+  return related;
+}
+
+function senderRelation(
+  of: readonly StandingInstructionTarget[],
+  relativeTo: readonly StandingInstructionTarget[],
+): RelatedStandingInstruction["relation"] | null {
+  for (const a of of) {
+    for (const b of relativeTo) {
+      if (
+        standingInstructionTargetKey(a) === standingInstructionTargetKey(b) &&
+        a.accountId === b.accountId
+      ) {
+        return "same";
+      }
+
+      const relation = standingInstructionScopeRelation({ of: a, relativeTo: b });
+
+      if (relation !== null) return relation;
+    }
+  }
+
+  return null;
+}
+
 /** The active instruction whose target is exactly this one, or null. */
 function findInstructionByTarget(
   instructions: readonly ActiveStandingInstructionV1[],
@@ -536,13 +893,23 @@ async function listActiveStandingInstructionsV1(
 // the user said. Forget is a soft reject; edit supersedes. Each mutation appends a
 // `user_standing_instruction` observation in the same transaction (ADR-0067).
 
-/** One active standing instruction, flattened for the model to reference by `factId`. */
+/**
+ * One active standing instruction as v2, for the model to reference. `schemaVersion` is the
+ * stored shape: a v1 row is lifted, takes `edit_instruction`, and cannot be an `exceptionOf`
+ * target until it is revised.
+ */
 export interface StandingInstructionSummary {
   factId: string;
-  action: StandingInstructionValue["action"];
-  target: StandingInstructionValue["target"];
-  effects: StandingInstructionValue["effects"];
+  schemaVersion: 1 | 2;
+  instructionId: string;
+  revision: number;
+  phrasing: string;
   directive: string;
+  scope: string | null;
+  targets: StandingInstructionTarget[];
+  senderFilter: StandingInstructionTarget[] | null;
+  effects: StandingInstructionEffect[];
+  exceptionOf: string | null;
   validFrom: Date;
 }
 
@@ -554,7 +921,7 @@ export interface StandingInstructionListResult {
 }
 
 export type ForgetStandingInstructionResult =
-  | { ok: true; status: "forgotten"; factId: string; instruction: StandingInstructionValue }
+  | { ok: true; status: "forgotten"; factId: string; instruction: StandingInstructionValueV2 }
   | { ok: false; status: "not_found" };
 
 export type EditStandingInstructionResult =
@@ -575,7 +942,8 @@ export type EditStandingInstructionResult =
       /** Edits the row could not take. */
       droppedInputs: readonly StandingInstructionDroppedInput[];
     }
-  | { ok: false; status: "not_found" };
+  | { ok: false; status: "not_found" }
+  | { ok: false; status: "revise_with_remember"; instructionId: string; message: string };
 
 export const editStandingInstructionArgsSchema = z.object({
   userId: z.string().min(1),
@@ -587,31 +955,44 @@ export const editStandingInstructionArgsSchema = z.object({
 
 export type EditStandingInstructionArgs = z.infer<typeof editStandingInstructionArgsSchema>;
 
-/** Active standing instructions, newest first, capped. */
+/** Active standing instructions of any stored version, newest first, capped. */
 export async function listStandingInstructions(
   userId: string,
 ): Promise<StandingInstructionListResult> {
-  const instructions = await listActiveStandingInstructionsV1(userId);
+  const facts = await selectActiveStandingInstructionFacts(userId);
+
+  const instructions = facts.flatMap((fact): StandingInstructionSummary[] => {
+    const value = readStoredStandingInstruction(fact.value, fact.id);
+
+    if (!value) return [];
+
+    const stored = standingInstructionValueV2Schema.safeParse(fact.value).success ? 2 : 1;
+
+    return [
+      {
+        factId: fact.id,
+        schemaVersion: stored,
+        instructionId: value.instructionId,
+        revision: value.revision,
+        phrasing: value.phrasing,
+        directive: value.directive,
+        scope: value.scope ?? null,
+        targets: value.targets,
+        senderFilter: value.senderFilter ?? null,
+        effects: value.effects,
+        exceptionOf: value.exceptionOf ?? null,
+        validFrom: fact.validFrom,
+      },
+    ];
+  });
+
   const capped = instructions.slice(0, STANDING_INSTRUCTION_LIST_LIMIT);
 
   return {
-    instructions: capped.map(summarizeStandingInstruction),
+    instructions: capped,
     totalActive: instructions.length,
     truncated: instructions.length > capped.length,
     limit: STANDING_INSTRUCTION_LIST_LIMIT,
-  };
-}
-
-function summarizeStandingInstruction(
-  instruction: ActiveStandingInstructionV1,
-): StandingInstructionSummary {
-  return {
-    factId: instruction.factId,
-    action: instruction.value.action,
-    target: instruction.value.target,
-    effects: instruction.value.effects,
-    directive: readStandingInstructionDirective(instruction.value),
-    validFrom: instruction.validFrom,
   };
 }
 
@@ -632,11 +1013,16 @@ function readStandingInstruction(value: StandingInstructionValue): StandingInstr
   return directive === value.directive ? value : { ...value, directive };
 }
 
-/** Null for an unknown, foreign, non-instruction, or retired id. */
+/**
+ * Null for an unknown, foreign, non-instruction, or retired id. A v2 row is `v2`: only
+ * `system.remember` revises it, behind the confirmation card.
+ */
 async function loadOwnedStandingInstruction(
   userId: string,
   factId: string,
-): Promise<{ value: StandingInstructionValue } | null> {
+): Promise<
+  { kind: "v1"; value: StandingInstructionValue } | { kind: "v2"; instructionId: string } | null
+> {
   const [row] = await db()
     .select({ value: userFacts.value })
     .from(userFacts)
@@ -644,9 +1030,14 @@ async function loadOwnedStandingInstruction(
     .limit(1);
 
   if (!row) return null;
+
+  const v2 = standingInstructionValueV2Schema.safeParse(row.value);
+
+  if (v2.success) return { kind: "v2", instructionId: v2.data.instructionId };
+
   const parsed = standingInstructionValueSchema.safeParse(row.value);
 
-  return parsed.success ? { value: parsed.data } : null;
+  return parsed.success ? { kind: "v1", value: parsed.data } : null;
 }
 
 export async function forgetStandingInstruction(args: {
@@ -669,9 +1060,10 @@ export async function forgetStandingInstruction(args: {
 
     if (!old) return null;
 
-    const parsed = standingInstructionValueSchema.safeParse(old.value);
+    // Any stored version. The rejection signature keys on the stored value.
+    const instruction = readStoredStandingInstruction(old.value, args.factId);
 
-    if (!parsed.success) return null;
+    if (!instruction) return null;
 
     const [row] = await tx
       .update(userFacts)
@@ -690,7 +1082,7 @@ export async function forgetStandingInstruction(args: {
       .values({
         userId: args.userId,
         key: STANDING_INSTRUCTION_KEY,
-        valueSignature: valueSignature(parsed.data),
+        valueSignature: valueSignature(old.value),
         proposedFactId: args.factId,
         reason: args.reason ?? null,
       })
@@ -701,14 +1093,14 @@ export async function forgetStandingInstruction(args: {
         userId: args.userId,
         operation: "forget",
         factId: args.factId,
-        instruction: parsed.data,
+        instruction,
         reason: args.reason ?? null,
         source: args.source,
       },
       tx,
     );
 
-    return parsed.data;
+    return instruction;
   });
 
   if (!forgotten) return { ok: false, status: "not_found" };
@@ -726,6 +1118,17 @@ export async function editStandingInstruction(
   const existing = await loadOwnedStandingInstruction(parsed.userId, parsed.factId);
 
   if (!existing) return { ok: false, status: "not_found" };
+
+  if (existing.kind === "v2") {
+    return {
+      ok: false,
+      status: "revise_with_remember",
+      instructionId: existing.instructionId,
+      message:
+        "This instruction is schemaVersion 2. Revise it with system.remember and this " +
+        "instructionId, so the user confirms the change on its card.",
+    };
+  }
 
   const target = existing.value.target;
 
@@ -887,27 +1290,6 @@ function instructionFromFact(fact: {
   };
 }
 
-/**
- * Raise the per-user set revision (ADR-0113 decision 3). Each write that changes a
- * standing-instruction row calls it in the same transaction, so a stored evaluation that
- * read an older revision reads as `unknown`. The memory-page fact writers call it too.
- */
-export async function raiseStandingInstructionSetRevision(
-  tx: DbTransaction,
-  userId: string,
-): Promise<void> {
-  await tx
-    .insert(standingInstructionSetRevisions)
-    .values({ userId, revision: 1 })
-    .onConflictDoUpdate({
-      target: standingInstructionSetRevisions.userId,
-      set: {
-        revision: sql`${standingInstructionSetRevisions.revision} + 1`,
-        updatedAt: sql`now()`,
-      },
-    });
-}
-
 type StandingInstructionObservationOperation = "remember" | "edit" | "forget";
 
 async function appendStandingInstructionObservation(
@@ -916,17 +1298,13 @@ async function appendStandingInstructionObservation(
     operation: StandingInstructionObservationOperation;
     factId: string;
     previousFactId?: string | null;
-    instruction: StandingInstructionValue;
-    previousInstruction?: StandingInstructionValue | null;
+    instruction: StandingInstructionValue | StandingInstructionValueV2;
+    previousInstruction?: StandingInstructionValue | StandingInstructionValueV2 | null;
     reason?: string | null;
     source?: MemorySource | undefined;
   },
   tx: DbTransaction,
 ): Promise<void> {
-  // Every instruction writer here appends one observation in its own transaction, so the
-  // set revision rises here, with the write.
-  await raiseStandingInstructionSetRevision(tx, args.userId);
-
   const source = args.source ?? { kind: "user" as const };
 
   const payload = {

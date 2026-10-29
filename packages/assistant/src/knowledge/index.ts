@@ -141,8 +141,12 @@ export {
   forgetStandingInstruction,
   listStandingInstructions,
   standingInstructions,
-  // Prefer the `tools` suppression coordinator: it also dismisses the matching todos.
+  // Chat capture uses `saveStandingInstruction` (ADR-0113). The v1 writer stays for the
+  // backfill script and its tests until the v1 rows migrate (plan PR 5).
   rememberSenderSuppression,
+  saveStandingInstruction,
+  type SaveStandingInstructionInput,
+  type SaveStandingInstructionResult,
   type RememberSenderSuppressionArgs,
   type RememberSenderSuppressionResult,
   type ReportedStandingInstructionSet,
