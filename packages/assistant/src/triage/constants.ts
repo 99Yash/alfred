@@ -57,3 +57,16 @@ export const TRIAGE_INSTRUCTION_MATCH_OUTPUT_TOKENS =
 
 /** Maximum length of the model's reason for one instruction match. */
 export const TRIAGE_INSTRUCTION_MATCH_REASON_MAX_CHARS = 200;
+
+/**
+ * The re-match window (ADR-0113, "Re-match after a change"): mail ingested this recently is
+ * still read by a consumer. Briefing gather reads the last 24 hours on ingest time; the extra
+ * day covers a missed briefing and a reply-draft run that waits.
+ */
+export const TRIAGE_REMATCH_WINDOW_HOURS = 48;
+
+/** The most triage rows that one re-match job reads for one user, newest first. */
+export const TRIAGE_REMATCH_MAX_ROWS = 200;
+
+/** Match-only calls in flight at one time in one re-match job. */
+export const TRIAGE_REMATCH_CONCURRENCY = 4;

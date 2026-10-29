@@ -1,0 +1,1 @@
+ALTER TABLE "standing_instruction_set_revisions" ADD COLUMN "rematched_revision" integer DEFAULT 0 NOT NULL;

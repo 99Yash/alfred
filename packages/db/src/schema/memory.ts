@@ -83,7 +83,7 @@ export const userFactInsertSchema = createInsertSchema(userFacts, {
 /**
  * One row per user (ADR-0113). A trigger on `user_facts` (migration 0154) raises `revision` at
  * each standing-instruction write, edit, status change, or deletion, in the same transaction.
- * Code never writes it. A stored match records the revision it read, so a reader can tell that
+ * Code never writes `revision`. A stored match records the revision it read, so a reader can tell that
  * the set changed since. No row reads as revision 0.
  */
 export const standingInstructionSetRevisions = pgTable("standing_instruction_set_revisions", {
@@ -91,6 +91,12 @@ export const standingInstructionSetRevisions = pgTable("standing_instruction_set
     .primaryKey()
     .references(() => user.id, { onDelete: "cascade" }),
   revision: integer("revision").notNull().default(0),
+  /**
+   * The last `revision` that the triage re-match job finished (ADR-0113, "Re-match after a
+   * change"). The trigger owns `revision`; the job owns this. A sweep re-matches each user
+   * whose `revision` is ahead, so every writer reaches old mail, also one that never enqueues.
+   */
+  rematchedRevision: integer("rematched_revision").notNull().default(0),
   ...lifecycle_dates,
 });
 

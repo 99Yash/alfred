@@ -1086,6 +1086,13 @@
       "when": 1793260723365,
       "tag": "0154_standing_instruction_revision_trigger",
       "breakpoints": true
+    },
+    {
+      "idx": 155,
+      "version": "7",
+      "when": 1793284852753,
+      "tag": "0155_low_steel_serpent",
+      "breakpoints": true
     }
   ]
 }

@@ -105,6 +105,11 @@ interface StandingInstructionSet<Mail extends MailStandingInstructions> {
   forMail(sender: SenderLookup): Mail;
 }
 
+/** A set that loaded. `setRevision` is the per-user set revision, read before the instructions. */
+interface LoadedStandingInstructionSet extends StandingInstructionSet<LoadedMailStandingInstructions> {
+  readonly setRevision: number;
+}
+
 /**
  * A `"report"` load. The `onReadFailure: "report"` key rejects a `"throw"`
  * load and a value without the key where the todo lane needs fail-closed
@@ -123,7 +128,7 @@ export interface ReportedStandingInstructionSet extends StandingInstructionSet<M
 export function standingInstructions(args: {
   userId: string;
   onReadFailure: "throw";
-}): Promise<StandingInstructionSet<LoadedMailStandingInstructions>>;
+}): Promise<LoadedStandingInstructionSet>;
 export function standingInstructions(args: {
   userId: string;
   onReadFailure: "report";
@@ -131,9 +136,7 @@ export function standingInstructions(args: {
 export async function standingInstructions(args: {
   userId: string;
   onReadFailure: "throw" | "report";
-}): Promise<
-  ReportedStandingInstructionSet | StandingInstructionSet<LoadedMailStandingInstructions>
-> {
+}): Promise<ReportedStandingInstructionSet | LoadedStandingInstructionSet> {
   if (args.onReadFailure === "throw") return loadStandingInstructionSet(args.userId);
 
   try {
@@ -165,9 +168,10 @@ async function loadStandingInstructionSet(userId: string) {
 export function standingInstructionsOf(
   instructions: readonly ActiveStandingInstruction[],
   setRevision = 0,
-): StandingInstructionSet<LoadedMailStandingInstructions> {
+): LoadedStandingInstructionSet {
   return {
     isEmpty: instructions.length === 0,
+    setRevision,
     forMail(sender) {
       const email = normalizeEmailAddress(sender.sender);
 

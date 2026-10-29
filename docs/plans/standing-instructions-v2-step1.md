@@ -1,6 +1,6 @@
 ---
 status: in-progress
-evidence: "PR 1 is #1609 (merged). PR 2 is #1610 (merged). PR 3 is #1611 (merged). PR 4 is #1613 (open)."
+evidence: "PR 1 is #1609 (merged). PR 2 is #1610 (merged). PR 3 is #1611 (merged). PR 4 is #1613 (merged 2026-10-29T14:33Z). PR 4b is open."
 ---
 
 # Standing instructions v2, step 1: the base design of ADR-0113
@@ -100,6 +100,16 @@ These choices are not in the ADR. Each one is the smallest choice that keeps an 
 19. **Capture reads its clock after the lock.** `now()` is the transaction start, so a waiter
     could miss a row that a rival committed during the wait. Capture and forget read
     `clock_timestamp()` after the lock and use it for the active read and for the write.
+20. **A sweep triggers the re-match, not the writer.** `standing_instruction_set_revisions`
+    gains `rematched_revision`, which the re-match job owns. A repeatable sweep runs every
+    60 s. It enqueues one job for each user whose `revision` is ahead, with the revision in the
+    job id. So every writer reaches old mail, also the memory page or a script that never
+    enqueues, and the lag is at most one sweep period. The job reads the mail ingested in the
+    last 48 hours (200 rows at most), makes one match-only cheap call for each row that has an
+    `unknown` scoped instruction, and derives the cached result again for every row. A write
+    takes the thread lock and reads the row again. It skips a user-pinned row and a row that
+    moved to another document. A changed category enqueues a relabel. The job records the set
+    revision that it read only when no call failed. Else it throws, and BullMQ retries it.
 
 ## Pull requests
 
@@ -109,7 +119,7 @@ These choices are not in the ADR. Each one is the smallest choice that keeps an 
 | 2   | The set-revision table and the two `email_triage` columns. Triage stores the model verdict and the evaluation. The instruction floor runs last and applies the stored effects with the direction rule. The scoped block in the classify prompt, the matched ids with a reason and `covers`, and the counter. | None until a scoped instruction exists. The ADR-0106 prior line for a sender leaves the prompt. |
 | 3   | Briefing gather, the briefing reads, the two reply-draft gates, and the todo decision derive the effective result under the three states (`matched`, `not_matched`, `unknown`).                                                                                                                              | A removed instruction stops at the next read.                                                   |
 | 4   | (#1613) Capture: the v2 arm of `system.remember`, list, and forget, with the confirmation card and the revision trigger.                                                                                                                                                                                     | The owner can store a scoped instruction. Old mail stays `unknown` for it.                      |
-| 4b  | The re-match job: an instruction write enqueues one bounded match-only pass over the mail that a consumer can still read.                                                                                                                                                                                    | A new scoped instruction reaches old mail.                                                      |
+| 4b  | The re-match job: a sweep finds each changed instruction set and runs one bounded match-only pass over the mail that a consumer can still read.                                                                                                                                                              | A new scoped instruction reaches old mail.                                                      |
 | 5   | The migration script for the 21 v1 rows, with the owner's review of each row, and the rollout-gate replay.                                                                                                                                                                                                   | The investment instruction becomes one scoped instruction.                                      |
 
 PR 5 needs the owner at the keyboard. Each other PR can merge when its checks pass.

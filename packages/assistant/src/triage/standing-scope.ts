@@ -53,6 +53,12 @@ export interface StandingScopeBlock {
   counter: StandingScopeCounter;
 }
 
+/** The scoped instructions that fit the allowance, in prompt order, with their prompt lines. */
+export interface StandingScopeFit {
+  sent: ActiveStandingInstruction[];
+  lines: string[];
+}
+
 function renderInstruction(instruction: ActiveStandingInstruction): string {
   // One line each, so a value cannot forge a `===` section.
   const scope = collapseWhitespace(instruction.value.scope ?? "");
@@ -63,25 +69,25 @@ function renderInstruction(instruction: ActiveStandingInstruction): string {
 
 const SECTION_HEADER = "=== The user's standing instructions with a scope ===";
 
+/** The `covers` rule. `verdict` names the verdict that the model reads; the re-match job shares it. */
+export function standingScopeCoversRule(verdict: string): string {
+  return `\`covers\` is "all" when every reason for a demand in ${verdict} is inside the scope. It is "part" when the email also holds a reason for a demand that the scope does not cover. If you are not sure, write "part".`;
+}
+
 const SECTION_RULES = [
   "Classify the email on its own evidence, as if these instructions did not exist. Alfred applies them in code after your answer, so do not change the category, the todo, or the ask for them.",
   "Then, for each instruction whose scope this email is about, add one entry to `instructionMatches`: `id` (copied exactly), `reason` (one short line, under 20 words), and `covers`. Leave out every instruction whose scope does not fit. An empty list is a normal answer.",
-  '`covers` is "all" when every reason for a demand in your own verdict is inside the scope. It is "part" when the email also holds a reason for a demand that the scope does not cover. If you are not sure, write "part".',
+  standingScopeCoversRule("your own verdict"),
 ];
 
 /**
- * Pick the scoped candidates that fit the allowance, newest first, and render the section.
- * The count limit keeps the match list inside the output allowance, so a full list cannot
- * cut the classification. A candidate past either limit is left out and counted; its state
- * stays `unknown`.
+ * The scoped instructions that fit the allowance, newest first, each with its prompt line.
+ * The count limit keeps the match list inside the output allowance. A candidate past either
+ * limit is left out; its state stays `unknown`. The classify call and the re-match job share it.
  */
-export function buildStandingScopeBlock(
-  standing: MailStandingInstructions | null,
-): StandingScopeBlock {
-  const scoped = standing?.kind === "loaded" ? standing.scoped : [];
-
-  const classOnly = scoped.filter((instruction) => instruction.value.senderFilter === undefined);
-
+export function fitStandingScopeInstructions(
+  scoped: readonly ActiveStandingInstruction[],
+): StandingScopeFit {
   const newestFirst = [...scoped].sort((a, b) => b.validFrom.getTime() - a.validFrom.getTime());
 
   const sent: ActiveStandingInstruction[] = [];
@@ -99,6 +105,23 @@ export function buildStandingScopeBlock(
     sent.push(instruction);
     lines.push(line);
   }
+
+  return { sent, lines };
+}
+
+/**
+ * Pick the scoped candidates that fit the allowance and render the section. The count limit
+ * keeps the match list inside the output allowance, so a full list cannot cut the
+ * classification. A candidate past either limit is counted.
+ */
+export function buildStandingScopeBlock(
+  standing: MailStandingInstructions | null,
+): StandingScopeBlock {
+  const scoped = standing?.kind === "loaded" ? standing.scoped : [];
+
+  const classOnly = scoped.filter((instruction) => instruction.value.senderFilter === undefined);
+
+  const { sent, lines } = fitStandingScopeInstructions(scoped);
 
   const section = sent.length > 0 ? [SECTION_HEADER, ...SECTION_RULES, ...lines].join("\n") : null;
 

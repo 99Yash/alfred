@@ -310,6 +310,62 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriage
   });
 }
 
+/** A new instruction evaluation and the cached effective result derived with it. */
+export type TriageEvaluationUpdate = Pick<
+  TriageRow,
+  "instructionEvaluation" | "category" | "documentAsk" | "todoSuggestion" | "todoDecision"
+>;
+
+/**
+ * The conditional write of the re-match job (ADR-0113, "Writes are conditional"). Under the
+ * thread lock, `next` reads the row again and returns the new values, or null for no change.
+ * A missing row, a user-pinned row, or a row that moved to another document is not written.
+ * A changed category clears `appliedLabelId`, so the label reads as behind the category.
+ */
+export async function updateTriageEvaluation(args: {
+  userId: string;
+  sourceThreadId: string;
+  documentId: string;
+  next: (row: TriageRow) => TriageEvaluationUpdate | null;
+}): Promise<{ previous: TriageRow; update: TriageEvaluationUpdate } | null> {
+  return withTriageThreadLock(args.userId, args.sourceThreadId, async (tx) => {
+    const [stored] = await tx
+      .select()
+      .from(emailTriage)
+      .where(
+        and(
+          eq(emailTriage.userId, args.userId),
+          eq(emailTriage.sourceThreadId, args.sourceThreadId),
+        ),
+      )
+      .limit(1);
+
+    if (!stored || stored.source === "user" || stored.documentId !== args.documentId) return null;
+
+    const previous = rowToTriage(stored);
+    const update = args.next(previous);
+
+    if (update === null) return null;
+
+    await tx
+      .update(emailTriage)
+      .set({
+        ...update,
+        ...(update.category !== previous.category ? { appliedLabelId: null } : {}),
+        rowVersion: sql`${emailTriage.rowVersion} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(emailTriage.userId, args.userId),
+          eq(emailTriage.sourceThreadId, args.sourceThreadId),
+        ),
+      );
+
+    return { previous, update };
+  });
+}
+
 export async function setAppliedLabelId(
   userId: string,
   sourceThreadId: string,
