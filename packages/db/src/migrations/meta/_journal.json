@@ -1093,6 +1093,13 @@
       "when": 1793284852753,
       "tag": "0155_low_steel_serpent",
       "breakpoints": true
+    },
+    {
+      "idx": 156,
+      "version": "7",
+      "when": 1793287151401,
+      "tag": "0156_nice_proudstar",
+      "breakpoints": true
     }
   ]
 }

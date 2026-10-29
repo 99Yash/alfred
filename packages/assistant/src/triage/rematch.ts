@@ -8,6 +8,7 @@ import {
   type TriageInstructionEvaluation,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
+import { gmailMailboxWritesEnabled } from "@alfred/env/server";
 import { documents, emailTriage, standingInstructionSetRevisions } from "@alfred/db/schemas";
 import { logger } from "@alfred/logging";
 import { and, desc, eq, gt, gte, ne, sql } from "drizzle-orm";
@@ -33,7 +34,7 @@ import {
 import {
   parseTriageEvaluationColumns,
   updateTriageEvaluation,
-  type TriageEvaluationUpdate,
+  type TriageEvaluationChange,
   type TriageRow,
 } from "./store";
 
@@ -64,6 +65,7 @@ async function loadRematchRows(userId: string) {
       sourceThreadId: emailTriage.sourceThreadId,
       documentId: documents.id,
       category: emailTriage.category,
+      appliedLabelId: emailTriage.appliedLabelId,
       modelVerdict: emailTriage.modelVerdict,
       instructionEvaluation: emailTriage.instructionEvaluation,
       accountId: documents.accountId,
@@ -96,7 +98,7 @@ async function matchScopes(args: {
   userId: string;
   documentId: string;
   prompt: string;
-  signal: AbortSignal | undefined;
+  signal: AbortSignal;
 }) {
   const result = await meteredGenerateObject(
     {
@@ -107,7 +109,7 @@ async function matchScopes(args: {
       temperature: 0,
       maxOutputTokens: TRIAGE_INSTRUCTION_MATCH_OUTPUT_TOKENS,
       timeout: { totalMs: TRIAGE_REQUEST_TIMEOUT_MS },
-      ...(args.signal ? { abortSignal: args.signal } : {}),
+      abortSignal: args.signal,
     },
     {
       role: "triage",
@@ -187,13 +189,16 @@ function scopesKey(scopes: readonly StandingInstructionScopeResult[]): string {
   return canonicalJson([...scopes].sort((a, b) => a.instructionId.localeCompare(b.instructionId)));
 }
 
-/** The new evaluation and cache for the locked row, or null when nothing changed. */
+/**
+ * The new evaluation and cache for the locked row, with the floor audit as its history
+ * evidence, or null when nothing changed.
+ */
 function nextEvaluation(
   row: TriageRow,
   documentId: string,
   mail: LoadedMailStandingInstructions,
   fresh: readonly StandingInstructionScopeResult[],
-): TriageEvaluationUpdate | null {
+): TriageEvaluationChange | null {
   const stored = row.instructionEvaluation;
   const scopes = mergeScopes(mail, stored, fresh);
 
@@ -202,7 +207,7 @@ function nextEvaluation(
     scopes,
   };
 
-  const { result } = deriveEffectiveTriage({
+  const { result, floor } = deriveEffectiveTriage({
     triage: { ...row, instructionEvaluation },
     documentId,
     instructions: mail,
@@ -222,7 +227,13 @@ function nextEvaluation(
     scopesKey(scopes) === scopesKey(stored?.scopes ?? []) &&
     canonicalJson(result) === canonicalJson(cached);
 
-  return unchanged ? null : { instructionEvaluation, ...result };
+  if (unchanged) return null;
+
+  return {
+    update: { instructionEvaluation, ...result },
+    setRevision: mail.setRevision,
+    floor,
+  };
 }
 
 interface RematchCounts {
@@ -237,15 +248,22 @@ interface RematchCounts {
   unknownLeft: number;
   failed: number;
   cacheUpdated: number;
+  /** Relabels enqueued: a changed category, or a label still behind its category. */
   relabeled: number;
+  relabelFailed: number;
 }
 
 /**
  * Re-match one user's recent mail against the current instruction set, and record the set
- * revision it read in `rematched_revision`. A failed call throws at the end, after the other
- * rows are written, so a retry repeats only what is still `unknown`. On the final attempt the
- * job records the revision anyway: the failed states stay `unknown` (ADR-0113 rule 4), and
- * the log counts them.
+ * revision it read in `rematched_revision`. A failed call or relabel enqueue throws at the
+ * end, after the other rows are written, so a retry repeats only what is still `unknown`.
+ * On the final attempt the job records the revision anyway: the failed states stay `unknown`
+ * (ADR-0113 rule 4), and the log counts them.
+ *
+ * The relabel marker is durable: a changed category clears `appliedLabelId` in the same
+ * transaction. So each run enqueues a relabel for every row in its window whose label is
+ * behind, not only for the rows it changed. A retry after a failed enqueue, or after a stop
+ * between the commit and the enqueue, then finds the work again.
  */
 export async function rematchStandingInstructions(args: {
   userId: string;
@@ -266,85 +284,107 @@ export async function rematchStandingInstructions(args: {
     failed: 0,
     cacheUpdated: 0,
     relabeled: 0,
+    relabelFailed: 0,
   };
 
-  await mapConcurrent(rows, TRIAGE_REMATCH_CONCURRENCY, async (row) => {
-    const metadata = parseGmailDocumentMetadata(row.metadata);
-    const mail = set.forMail({ sender: metadata.from ?? null, accountId: row.accountId });
+  // With mailbox writes off no label is ever applied, so a null `appliedLabelId` is not a
+  // label behind its category, and a relabel would do nothing.
+  const relabels = gmailMailboxWritesEnabled();
 
-    const evaluation = parseTriageEvaluationColumns(row);
-    const { unknown } = currentScopeResults(evaluation.instructionEvaluation, mail.scoped);
+  await mapConcurrent(
+    rows,
+    TRIAGE_REMATCH_CONCURRENCY,
+    async (row, scope) => {
+      const metadata = parseGmailDocumentMetadata(row.metadata);
+      const mail = set.forMail({ sender: metadata.from ?? null, accountId: row.accountId });
 
-    let fresh: StandingInstructionScopeResult[] = [];
+      const evaluation = parseTriageEvaluationColumns(row);
+      const { unknown } = currentScopeResults(evaluation.instructionEvaluation, mail.scoped);
 
-    if (unknown.length > 0) {
-      const { sent, lines } = fitStandingScopeInstructions(unknown);
+      let fresh: StandingInstructionScopeResult[] = [];
 
-      counts.unknownLeft += unknown.length - sent.length;
+      if (unknown.length > 0) {
+        const { sent, lines } = fitStandingScopeInstructions(unknown);
 
-      if (sent.length > 0) {
-        counts.called += 1;
+        counts.unknownLeft += unknown.length - sent.length;
 
-        try {
-          const output = await matchScopes({
-            userId,
-            documentId: row.documentId,
-            prompt: rematchPrompt(row, metadata, evaluation.modelVerdict, lines),
-            signal: args.signal,
-          });
+        if (sent.length > 0) {
+          counts.called += 1;
 
-          fresh = readStandingScopeMatches(sent, output).scopes;
-          counts.matched += fresh.filter((scope) => scope.state === "matched").length;
-        } catch (err) {
-          counts.failed += 1;
-          counts.unknownLeft += sent.length;
-          logger.warn(
-            { err, userId, documentId: row.documentId },
-            "[triage.rematch] match call failed",
-          );
+          try {
+            const output = await matchScopes({
+              userId,
+              documentId: row.documentId,
+              prompt: rematchPrompt(row, metadata, evaluation.modelVerdict, lines),
+              signal: scope.signal,
+            });
+
+            fresh = readStandingScopeMatches(sent, output).scopes;
+            counts.matched += fresh.filter((result) => result.state === "matched").length;
+          } catch (err) {
+            // A cancelled job stops. It is not a failed call.
+            if (scope.signal.aborted) throw err;
+
+            counts.failed += 1;
+            counts.unknownLeft += sent.length;
+            logger.warn(
+              { err, userId, documentId: row.documentId },
+              "[triage.rematch] match call failed",
+            );
+          }
         }
       }
-    }
 
-    const written = await updateTriageEvaluation({
-      userId,
-      sourceThreadId: row.sourceThreadId,
-      documentId: row.documentId,
-      next: (locked) => nextEvaluation(locked, row.documentId, mail, fresh),
-    });
+      const written = await updateTriageEvaluation({
+        userId,
+        sourceThreadId: row.sourceThreadId,
+        documentId: row.documentId,
+        next: (locked) => nextEvaluation(locked, row.documentId, mail, fresh),
+      });
 
-    if (written === null) return;
+      if (written !== null) counts.cacheUpdated += 1;
 
-    counts.cacheUpdated += 1;
+      const labelBehind = written
+        ? written.update.category !== written.previous.category ||
+          written.previous.appliedLabelId === null
+        : row.appliedLabelId === null;
 
-    if (written.update.category === written.previous.category) return;
+      if (!relabels || !labelBehind) return;
 
-    try {
-      await enqueueTriageRelabel(userId, row.sourceThreadId);
-      counts.relabeled += 1;
-    } catch (err) {
-      logger.warn(
-        { err, userId, sourceThreadId: row.sourceThreadId },
-        "[triage.rematch] relabel enqueue failed",
-      );
-    }
-  });
+      try {
+        await enqueueTriageRelabel(userId, row.sourceThreadId);
+        counts.relabeled += 1;
+      } catch (err) {
+        counts.relabelFailed += 1;
+        logger.warn(
+          { err, userId, sourceThreadId: row.sourceThreadId },
+          "[triage.rematch] relabel enqueue failed",
+        );
+      }
+    },
+    args.signal ? { signal: args.signal } : {},
+  );
 
   logger.info(
     { userId, setRevision: set.setRevision, ...counts },
-    `[triage.rematch] user=${userId} rows=${counts.rows} pastCap=${counts.pastCap} called=${counts.called} matched=${counts.matched} unknownLeft=${counts.unknownLeft} failed=${counts.failed} cacheUpdated=${counts.cacheUpdated} relabeled=${counts.relabeled}`,
+    `[triage.rematch] user=${userId} rows=${counts.rows} pastCap=${counts.pastCap} called=${counts.called} matched=${counts.matched} unknownLeft=${counts.unknownLeft} failed=${counts.failed} cacheUpdated=${counts.cacheUpdated} relabeled=${counts.relabeled} relabelFailed=${counts.relabelFailed}`,
   );
 
-  if (counts.failed > 0) {
+  if (counts.failed > 0 || counts.relabelFailed > 0) {
     if (!args.finalAttempt) {
       throw new Error(
-        `[triage.rematch] ${counts.failed} match call(s) failed for user=${userId}; their states stay unknown until a retry`,
+        `[triage.rematch] ${counts.failed} match call(s) and ${counts.relabelFailed} relabel enqueue(s) failed for user=${userId}; a retry repeats them`,
       );
     }
 
     logger.warn(
-      { userId, setRevision: set.setRevision, failed: counts.failed },
-      "[triage.rematch] final attempt: failed states stay unknown until the next instruction change",
+      {
+        userId,
+        setRevision: set.setRevision,
+        failed: counts.failed,
+        relabelFailed: counts.relabelFailed,
+      },
+      "[triage.rematch] final attempt: failed states stay unknown, and failed relabels stay behind, until the next instruction change",
     );
   }
 

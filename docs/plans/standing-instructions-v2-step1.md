@@ -110,11 +110,16 @@ These choices are not in the ADR. Each one is the smallest choice that keeps an 
     (200 rows at most, and the log counts the rows past the cap). It makes one match-only
     cheap call for each row that has an `unknown` scoped instruction, also a row from before
     ADR-0113, and derives the cached result again for every row. A write takes the thread
-    lock and reads the row again. It skips a user-pinned row and a row that moved to another
-    document, because ingest triage classifies the new document with the full set. A changed
-    category enqueues a relabel. The job records the set revision that it read when no call
-    failed. Else it throws, and BullMQ retries it. On the final attempt it records the
-    revision anyway, and the failed states stay `unknown` (rule 4).
+    lock and a row lock, and reads the row again. The row lock is necessary because the user
+    override does not take the thread lock. The write skips a user-pinned row and a row that
+    moved to another document, because ingest triage classifies the new document with the
+    full set. Each write appends the before and after results, the scope results, and the
+    floor audit to `email_triage_changes` in the same transaction (ADR-0113, "History"). A
+    changed category clears `applied_label_id`, and the job enqueues a relabel for each row
+    in its window whose label is behind, so a retry finds a lost enqueue again. The job
+    records the set revision that it read when no call and no enqueue failed. Else it throws,
+    and BullMQ retries it. On the final attempt it records the revision anyway, and the
+    failed states stay `unknown` (rule 4).
 21. **A stale triage write enqueues a re-match.** This replaces "the database rejects the
     write" of the ADR. Under the thread lock, `upsertTriage` compares the set revision that
     the classify call read with the current one. When the set moved, the caller enqueues the
