@@ -11,10 +11,14 @@ import {
   standingInstructionScopeRelation,
   standingInstructionTargetSpecificity,
   memorySourceSchema,
+  readStoredStandingInstruction,
+  standingInstructionHasEffect,
   standingInstructionValueSchema,
   SUPPRESSION_EFFECTS,
   targetMatchesSender,
   targetNamesOneMailbox,
+  type StandingInstructionEffectKind,
+  type StandingInstructionValueV2,
   type MemorySource,
   type ObservationSource,
   type StandingInstructionDroppedInput,
@@ -23,7 +27,6 @@ import {
   type StandingInstructionTarget,
   type StandingInstructionTargetKind,
   type StandingInstructionValue,
-  type SuppressionEffect,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { sha256Canonical } from "@alfred/db/hash";
@@ -36,40 +39,48 @@ import { valueSignature } from "./signature";
 
 export const STANDING_INSTRUCTION_LIST_LIMIT = 100;
 
-export interface ActiveSuppressionInstruction {
+/** A stored v1 row, for the chat management tools. They stay on v1 until v2 capture (plan PR 4). */
+export interface ActiveStandingInstructionV1 {
   factId: string;
   value: StandingInstructionValue;
   validFrom: Date;
 }
 
+/** Any stored version, read as v2 (ADR-0113). A v1 row is lifted with the effects it enforces. */
+export interface ActiveStandingInstruction {
+  factId: string;
+  value: StandingInstructionValueV2;
+  validFrom: Date;
+}
+
 /** One message's sender, as the consumer holds it. */
-interface SuppressionSender {
+interface SenderLookup {
   /** A bare address or a raw `From` header. An unparseable value matches nothing. */
   sender: string | null | undefined;
   /** The mailbox the message reached. A per-account instruction matches only its own mailbox. */
   accountId: string | null;
 }
 
-export type SenderSuppressionMatch = ActiveSuppressionInstruction & {
+export type SenderTargetMatch = ActiveStandingInstruction & {
   matchedEmail: string;
-  /** Audit echo only: an active suppression binds every consumer, so the effect never filters. */
-  effect: SuppressionEffect;
+  /** The effect the consumer asked for. The matched instruction stores it. */
+  effect: StandingInstructionEffectKind;
   /** Which target kind matched. The only trace of whether a domain target ever fires. */
   matchedVia: StandingInstructionTargetKind;
 };
 
-export type SenderSuppressionOutcome =
-  | { kind: "suppressed"; match: SenderSuppressionMatch }
+export type SenderTargetOutcome =
+  | { kind: "suppressed"; match: SenderTargetMatch }
   | { kind: "none" }
   | { kind: "read_failed"; error: unknown };
 
-type LoadedSenderSuppressionOutcome = Exclude<SenderSuppressionOutcome, { kind: "read_failed" }>;
+type LoadedSenderTargetOutcome = Exclude<SenderTargetOutcome, { kind: "read_failed" }>;
 
-/** A user's active sender suppressions, read once. `match` is pure, so one read serves a loop. */
-interface SenderSuppressions<Outcome extends SenderSuppressionOutcome> {
-  /** No active suppression. A failed read is never empty, so `match` still reports it. */
+/** A user's active standing instructions, read once. `matchSender` is pure, so one read serves a loop. */
+interface StandingInstructionSet<Outcome extends SenderTargetOutcome> {
+  /** No active instruction. A failed read is never empty, so `matchSender` still reports it. */
   readonly isEmpty: boolean;
-  match(sender: SuppressionSender, effect: SuppressionEffect): Outcome;
+  matchSender(sender: SenderLookup, effect: StandingInstructionEffectKind): Outcome;
 }
 
 /**
@@ -78,53 +89,53 @@ interface SenderSuppressions<Outcome extends SenderSuppressionOutcome> {
  * reporting. A value that writes the key by hand still compiles. Review owns
  * that case.
  */
-export interface ReportedSenderSuppressions extends SenderSuppressions<SenderSuppressionOutcome> {
+export interface ReportedStandingInstructionSet extends StandingInstructionSet<SenderTargetOutcome> {
   readonly onReadFailure: "report";
 }
 
 /**
  * Each consumer owns its read-failure policy, so the caller must state it:
- * - `"throw"`: the returned promise rejects with the read error. `match` never reports `read_failed`.
- * - `"report"`: the promise always resolves. On a failed read, every `match` returns `read_failed`.
+ * - `"throw"`: the returned promise rejects with the read error. `matchSender` never reports `read_failed`.
+ * - `"report"`: the promise always resolves. On a failed read, every `matchSender` returns `read_failed`.
  */
-export function senderSuppressions(args: {
+export function standingInstructions(args: {
   userId: string;
   onReadFailure: "throw";
-}): Promise<SenderSuppressions<LoadedSenderSuppressionOutcome>>;
-export function senderSuppressions(args: {
+}): Promise<StandingInstructionSet<LoadedSenderTargetOutcome>>;
+export function standingInstructions(args: {
   userId: string;
   onReadFailure: "report";
-}): Promise<ReportedSenderSuppressions>;
-export async function senderSuppressions(args: {
+}): Promise<ReportedStandingInstructionSet>;
+export async function standingInstructions(args: {
   userId: string;
   onReadFailure: "throw" | "report";
-}): Promise<ReportedSenderSuppressions | SenderSuppressions<LoadedSenderSuppressionOutcome>> {
+}): Promise<ReportedStandingInstructionSet | StandingInstructionSet<LoadedSenderTargetOutcome>> {
   if (args.onReadFailure === "throw") {
-    return senderSuppressionsOf(await listActiveSuppressionInstructions(args.userId));
+    return standingInstructionsOf(await listActiveStandingInstructions(args.userId));
   }
 
   try {
     return {
-      ...senderSuppressionsOf(await listActiveSuppressionInstructions(args.userId)),
+      ...standingInstructionsOf(await listActiveStandingInstructions(args.userId)),
       onReadFailure: "report" as const,
     };
   } catch (error) {
     return {
       isEmpty: false,
       onReadFailure: "report" as const,
-      match: () => ({ kind: "read_failed", error }),
+      matchSender: () => ({ kind: "read_failed", error }),
     };
   }
 }
 
-/** Pure, for tests that build the instructions by hand. Consumers read with `senderSuppressions`. */
-export function senderSuppressionsOf(
-  instructions: readonly ActiveSuppressionInstruction[],
-): SenderSuppressions<LoadedSenderSuppressionOutcome> {
+/** Pure, for tests that build the instructions by hand. Consumers read with `standingInstructions`. */
+export function standingInstructionsOf(
+  instructions: readonly ActiveStandingInstruction[],
+): StandingInstructionSet<LoadedSenderTargetOutcome> {
   return {
     isEmpty: instructions.length === 0,
-    match(sender, effect) {
-      const match = findSenderSuppression(instructions, sender, effect);
+    matchSender(sender, effect) {
+      const match = findSenderTargetMatch(instructions, sender, effect);
 
       return match ? { kind: "suppressed", match } : { kind: "none" };
     },
@@ -224,7 +235,7 @@ export async function rememberSenderSuppression(
 
   // Identity, not coverage: collapse only onto a row with this exact target and `accountId`.
   // A domain row that covers the sender must not block pinning the address.
-  const active = await listActiveSuppressionInstructions(parsed.userId);
+  const active = await listActiveStandingInstructionsV1(parsed.userId);
   const existing = findInstructionByTarget(active, instruction.target);
 
   if (existing) {
@@ -257,7 +268,7 @@ export async function rememberSenderSuppression(
       .orderBy(desc(userFacts.validFrom));
 
     const locked = rivals.map(instructionFromFact).filter(
-      (candidate): candidate is ActiveSuppressionInstruction =>
+      (candidate): candidate is ActiveStandingInstructionV1 =>
         // oxlint-disable-next-line typescript/no-unnecessary-condition -- `suppress` is the only standing-instruction action today; the check keeps a second action out of this path when it lands.
         candidate !== null && candidate.value.action === "suppress",
     );
@@ -331,9 +342,9 @@ export async function rememberSenderSuppression(
 
 /** The active instruction whose target is exactly this one, or null. */
 function findInstructionByTarget(
-  instructions: readonly ActiveSuppressionInstruction[],
+  instructions: readonly ActiveStandingInstructionV1[],
   target: StandingInstructionTarget,
-): ActiveSuppressionInstruction | null {
+): ActiveStandingInstructionV1 | null {
   const key = standingInstructionTargetKey(target);
 
   for (const instruction of instructions) {
@@ -387,11 +398,11 @@ interface TargetOverlapReport {
  * because `Date` drops the microseconds Postgres stores.
  */
 function findTargetOverlaps(
-  instructions: readonly ActiveSuppressionInstruction[],
+  instructions: readonly ActiveStandingInstructionV1[],
   target: StandingInstructionTarget,
 ): TargetOverlapReport {
   const matched: Array<
-    ActiveSuppressionInstruction & { relation: StandingInstructionOverlap["relation"] }
+    ActiveStandingInstructionV1 & { relation: StandingInstructionOverlap["relation"] }
   > = [];
 
   for (const instruction of instructions) {
@@ -424,19 +435,36 @@ function findTargetOverlaps(
   };
 }
 
-/** Every active `suppress` instruction. No effect filter: a suppression binds every consumer. */
-async function listActiveSuppressionInstructions(
-  userId: string,
-): Promise<ActiveSuppressionInstruction[]> {
-  const facts = await db()
+function selectActiveStandingInstructionFacts(userId: string) {
+  return db()
     .select({ id: userFacts.id, value: userFacts.value, validFrom: userFacts.validFrom })
     .from(userFacts)
     .where(activeStandingInstructionsWhere(userId))
     .orderBy(desc(userFacts.validFrom));
+}
+
+/** Every active instruction of any stored version, as v2. A row of neither shape is skipped. */
+async function listActiveStandingInstructions(
+  userId: string,
+): Promise<ActiveStandingInstruction[]> {
+  const facts = await selectActiveStandingInstructionFacts(userId);
+
+  return facts.flatMap((fact) => {
+    const value = readStoredStandingInstruction(fact.value, fact.id);
+
+    return value ? [{ factId: fact.id, value, validFrom: fact.validFrom }] : [];
+  });
+}
+
+/** Every active v1 `suppress` row, for the chat management tools. */
+async function listActiveStandingInstructionsV1(
+  userId: string,
+): Promise<ActiveStandingInstructionV1[]> {
+  const facts = await selectActiveStandingInstructionFacts(userId);
 
   return facts
     .map(instructionFromFact)
-    .filter((instruction): instruction is ActiveSuppressionInstruction => {
+    .filter((instruction): instruction is ActiveStandingInstructionV1 => {
       if (!instruction) return false;
 
       // oxlint-disable-next-line typescript/no-unnecessary-condition -- `suppress` is the only standing-instruction action today; the check keeps a second action out of this path when it lands.
@@ -506,7 +534,7 @@ export type EditStandingInstructionArgs = z.infer<typeof editStandingInstruction
 export async function listStandingInstructions(
   userId: string,
 ): Promise<StandingInstructionListResult> {
-  const instructions = await listActiveSuppressionInstructions(userId);
+  const instructions = await listActiveStandingInstructionsV1(userId);
   const capped = instructions.slice(0, STANDING_INSTRUCTION_LIST_LIMIT);
 
   return {
@@ -518,7 +546,7 @@ export async function listStandingInstructions(
 }
 
 function summarizeStandingInstruction(
-  instruction: ActiveSuppressionInstruction,
+  instruction: ActiveStandingInstructionV1,
 ): StandingInstructionSummary {
   return {
     factId: instruction.factId,
@@ -772,71 +800,71 @@ async function supersedeStandingInstruction(args: {
   });
 }
 
+/** An instruction with the target that hit the sender. */
+interface SenderTargetHit {
+  instruction: ActiveStandingInstruction;
+  target: StandingInstructionTarget;
+}
+
 /**
- * ADR-0060 micro-decision 8, made total: the more specific target wins, then the newer `validFrom`,
- * then the greater `factId`. Callers already filtered on `accountId`.
+ * ADR-0060 micro-decision 8, made total: the more specific hit target wins, then the newer
+ * `validFrom`, then the greater `factId`. Callers already filtered on `accountId`.
+ * This holds only for lifted v1 rows. ADR-0113 counts specificity only through `exceptionOf`,
+ * so this rule changes before capture can write a v2 row (PR 4 of the step-1 plan).
  */
-function isStrongerSuppressionMatch(
-  candidate: ActiveSuppressionInstruction,
-  incumbent: ActiveSuppressionInstruction,
-): boolean {
-  const candidateSpecificity = standingInstructionTargetSpecificity(candidate.value.target);
-  const incumbentSpecificity = standingInstructionTargetSpecificity(incumbent.value.target);
+function isStrongerTargetHit(candidate: SenderTargetHit, incumbent: SenderTargetHit): boolean {
+  const candidateSpecificity = standingInstructionTargetSpecificity(candidate.target);
+  const incumbentSpecificity = standingInstructionTargetSpecificity(incumbent.target);
 
   if (candidateSpecificity !== incumbentSpecificity) {
     return candidateSpecificity > incumbentSpecificity;
   }
 
-  const candidateValidFrom = candidate.validFrom.getTime();
-  const incumbentValidFrom = incumbent.validFrom.getTime();
+  const candidateValidFrom = candidate.instruction.validFrom.getTime();
+  const incumbentValidFrom = incumbent.instruction.validFrom.getTime();
 
   if (candidateValidFrom !== incumbentValidFrom) {
     return candidateValidFrom > incumbentValidFrom;
   }
 
-  return candidate.factId > incumbent.factId;
+  return candidate.instruction.factId > incumbent.instruction.factId;
 }
 
-function findSenderSuppression(
-  instructions: readonly ActiveSuppressionInstruction[],
-  lookup: SuppressionSender,
-  effect: SuppressionEffect,
-): SenderSuppressionMatch | null {
+/**
+ * The strongest instruction whose sender-wide target hits and that stores `effect`
+ * (ADR-0113: readers branch on the stored effects). A scope or a `senderFilter` never
+ * matches here. The triage scope match owns those.
+ */
+function findSenderTargetMatch(
+  instructions: readonly ActiveStandingInstruction[],
+  lookup: SenderLookup,
+  effect: StandingInstructionEffectKind,
+): SenderTargetMatch | null {
   const email = normalizeEmailAddress(lookup.sender);
 
   if (!email) return null;
 
-  const accountId = lookup.accountId;
-
-  let best: ActiveSuppressionInstruction | null = null;
+  let best: SenderTargetHit | null = null;
 
   for (const instruction of instructions) {
-    // oxlint-disable-next-line typescript/no-unnecessary-condition -- `suppress` is the only standing-instruction action today; the check keeps a second action out of this path when it lands.
-    if (instruction.value.action !== "suppress") continue;
+    if (!standingInstructionHasEffect(instruction.value, effect)) continue;
 
-    const { target } = instruction.value;
+    for (const target of instruction.value.targets) {
+      if (!targetMatchesSender(target, email, lookup.accountId)) continue;
 
-    // An active suppression binds every consumer; the stored `effects` array is not read.
-    if (!targetMatchesSender(target, email, accountId)) continue;
+      const hit = { instruction, target };
 
-    // ADR-0060 micro-decision 8: the most specific target wins, so a pinned address beats a newer domain mute.
-    if (best === null || isStrongerSuppressionMatch(instruction, best)) best = instruction;
+      if (best === null || isStrongerTargetHit(hit, best)) best = hit;
+    }
   }
 
   if (!best) return null;
 
-  // Nothing renders `directive` from here today; rendering keeps a future reader on the class sentence.
-  // `phrasing` stays as stored: it is the user's verbatim words.
-  const value = targetNamesOneMailbox(best.value.target)
-    ? best.value
-    : { ...best.value, directive: renderStandingInstructionDirective(best.value.target) };
-
   return {
-    ...best,
-    value,
+    ...best.instruction,
     matchedEmail: email,
     effect,
-    matchedVia: best.value.target.kind,
+    matchedVia: best.target.kind,
   };
 }
 
@@ -858,7 +886,7 @@ function instructionFromFact(fact: {
   id: string;
   value: unknown;
   validFrom: Date;
-}): ActiveSuppressionInstruction | null {
+}): ActiveStandingInstructionV1 | null {
   const parsed = standingInstructionValueSchema.safeParse(fact.value);
 
   if (!parsed.success) return null;

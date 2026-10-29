@@ -1,7 +1,7 @@
 import { type ReplyDraftProvenance, REPLY_DRAFTING_WORKFLOW_SLUG } from "@alfred/contracts";
 import { isUniqueViolation } from "@alfred/db/pg-errors";
 import { startRun } from "@alfred/assistant/execution";
-import { senderSuppressions } from "@alfred/assistant/knowledge";
+import { standingInstructions } from "@alfred/assistant/knowledge";
 import { settings } from "@alfred/assistant/settings";
 import {
   type DomainEvent,
@@ -55,9 +55,9 @@ async function readStandingInstruction(
   userId: string,
   payload: EmailTriageClassifiedPayload,
 ): Promise<ReplyStandingInstructionState> {
-  const suppressions = await senderSuppressions({ userId, onReadFailure: "report" });
+  const suppressions = await standingInstructions({ userId, onReadFailure: "report" });
 
-  const outcome = suppressions.match(
+  const outcome = suppressions.matchSender(
     { sender: payload.sender.address, accountId: payload.mailbox.accountId },
     "block_reply_draft",
   );

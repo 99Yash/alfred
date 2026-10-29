@@ -7,6 +7,7 @@
 
 import { z } from "zod";
 import { domainSchema, emailDomain, normalizeEmailAddress } from "./domain";
+import { triageCategorySchema, type TriageCategory } from "./triage";
 
 export const STANDING_INSTRUCTION_KEY = "standing_instruction";
 
@@ -37,8 +38,9 @@ export const standingInstructionSurfaceSchema = z.enum(STANDING_INSTRUCTION_SURF
 // ─── Effects ────────────────────────────────────────────────────────────────
 
 /**
- * Writers store the full list, so never branch on the stored array: any active
- * suppression binds its sender for every consumer. A new consumer adds its effect here.
+ * The v1 write snapshot: v1 writers store the full list. Readers never branch on it. They read
+ * the v2 view (`readStoredStandingInstruction`), which lifts every v1 row to the effects that
+ * ADR-0106 and ADR-0110 enforce. A new consumer adds a v2 effect, not one here.
  * - `block_todo_suggestion`: triage mints no todo suggestion.
  * - `exclude_briefing_priority`: briefing gather drops it from the priority buckets.
  * - `block_reply_draft`: the reply-drafting gate returns `no_draft` (ADR-0098).
@@ -407,10 +409,200 @@ export const standingInstructionValueSchema = z.object({
 
 export type StandingInstructionValue = z.infer<typeof standingInstructionValueSchema>;
 
-/** Legacy. Do not use it on the hot path: the stored array is a snapshot. */
-export function hasSuppressionEffect(
-  value: StandingInstructionValue,
-  effect: SuppressionEffect,
+// ─── Schema v2 (ADR-0113) ───────────────────────────────────────────────────
+
+/**
+ * The v2 effect registry (ADR-0113). Capture stores only the effects the words ask for,
+ * and readers branch on the stored list. An effect enters only with a consumer that enforces it.
+ * - `demote_urgent`: `urgent` becomes `action_needed`.
+ * - `demote_demand`: `urgent` and `action_needed` become `fyi` (the ADR-0110 floor).
+ * - `demote_meeting`: `meeting` becomes `fyi`.
+ * - `force_category`: the user's own category for the mail.
+ * - `block_todo_suggestion`, `exclude_briefing_priority`, `include_briefing_priority`,
+ *   `block_reply_draft`: the triage todo lane, briefing gather, and the reply-draft gate.
+ * The security floor outranks every lowering effect.
+ */
+export const STANDING_INSTRUCTION_EFFECT_KINDS = [
+  "demote_urgent",
+  "demote_demand",
+  "demote_meeting",
+  "force_category",
+  "block_todo_suggestion",
+  "exclude_briefing_priority",
+  "include_briefing_priority",
+  "block_reply_draft",
+] as const;
+
+export type StandingInstructionEffectKind = (typeof STANDING_INSTRUCTION_EFFECT_KINDS)[number];
+
+type ParameterlessEffectKind = Exclude<StandingInstructionEffectKind, "force_category">;
+
+const PARAMETERLESS_EFFECT_KINDS = STANDING_INSTRUCTION_EFFECT_KINDS.filter(
+  (kind): kind is ParameterlessEffectKind => kind !== "force_category",
+);
+
+export const standingInstructionEffectSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.enum(PARAMETERLESS_EFFECT_KINDS) }),
+  z.object({ kind: z.literal("force_category"), category: triageCategorySchema }),
+]);
+
+export type StandingInstructionEffect = z.infer<typeof standingInstructionEffectSchema>;
+
+/**
+ * How much of a mail a matched instruction covers (ADR-0113 E2). `all`: every reason for
+ * the demand in the model verdict is inside the scope. A missing or unknown value reads as `part`.
+ */
+export const STANDING_INSTRUCTION_COVERAGES = ["all", "part"] as const;
+
+export type StandingInstructionCoverage = (typeof STANDING_INSTRUCTION_COVERAGES)[number];
+
+export const standingInstructionCoverageSchema = z
+  .enum(STANDING_INSTRUCTION_COVERAGES)
+  .catch("part");
+
+/** The demand order of E2: `urgent`, then `action_needed`, then every other category. */
+const DEMAND_RANK = {
+  urgent: 2,
+  action_needed: 1,
+  awaiting_reply: 0,
+  follow_up: 0,
+  meeting: 0,
+  payment: 0,
+  done: 0,
+  newsletter: 0,
+  marketing: 0,
+  fyi: 0,
+} satisfies Record<TriageCategory, number>;
+
+function demandRank(category: TriageCategory): number {
+  return DEMAND_RANK[category];
+}
+
+/**
+ * Does this effect raise the item, or lower, hide, or block it (ADR-0113 E2)? A
+ * `force_category` raises only when its category is above the model verdict. A move between
+ * two categories outside the demand lanes counts as a lowering.
+ */
+export function standingInstructionEffectRaises(
+  effect: StandingInstructionEffect,
+  modelCategory: TriageCategory,
 ): boolean {
-  return value.effects.includes(effect);
+  switch (effect.kind) {
+    case "include_briefing_priority":
+      return true;
+    case "force_category":
+      return demandRank(effect.category) > demandRank(modelCategory);
+    case "demote_urgent":
+    case "demote_demand":
+    case "demote_meeting":
+    case "block_todo_suggestion":
+    case "exclude_briefing_priority":
+    case "block_reply_draft":
+      return false;
+    default: {
+      const exhaustive: never = effect;
+
+      return Boolean(exhaustive);
+    }
+  }
+}
+
+/**
+ * Raise on any part, lower only on full cover (ADR-0113 E2). A target or a full cue match
+ * passes `all`; a scope match passes the model's `covers`.
+ */
+export function standingInstructionEffectApplies(
+  effect: StandingInstructionEffect,
+  context: { coverage: StandingInstructionCoverage; modelCategory: TriageCategory },
+): boolean {
+  return (
+    context.coverage === "all" || standingInstructionEffectRaises(effect, context.modelCategory)
+  );
+}
+
+export const STANDING_INSTRUCTION_SCHEMA_VERSION_V2 = 2 as const;
+
+/**
+ * The v2 `user_facts.value` (ADR-0113). `instructionId` is stable across edits, because an
+ * edit closes the fact row and inserts a successor; `revision` increases at each change.
+ * Matches and `exceptionOf` key on the instruction id, never on the fact id.
+ */
+export const standingInstructionValueV2Schema = z
+  .object({
+    schemaVersion: z.literal(STANDING_INSTRUCTION_SCHEMA_VERSION_V2),
+    instructionId: z.string().min(1),
+    revision: z.number().int().nonnegative(),
+    /** The user's own words, verbatim. */
+    phrasing: singleLineProse,
+    /** The resolved sentence for model consumers. */
+    directive: singleLineProse,
+    /** Which items the instruction is about, for the triage model's match. */
+    scope: singleLineProse.optional(),
+    /** Senders the words name, for the whole sender. Matched in code. Optional: absent is none. */
+    targets: z.array(standingInstructionTargetSchema).default([]),
+    /** Senders that narrow `scope`. Never matches alone. */
+    senderFilter: z.array(standingInstructionTargetSchema).optional(),
+    effects: z.array(standingInstructionEffectSchema),
+    /** The `instructionId` of a broader instruction that this one narrows. */
+    exceptionOf: z.string().min(1).optional(),
+    /** Hints and display only. Code never matches on it (ADR-0113 E5). */
+    notes: z.json().optional(),
+  })
+  .refine((value) => value.senderFilter === undefined || value.scope !== undefined, {
+    message: "senderFilter needs a scope",
+    path: ["senderFilter"],
+  });
+
+export type StandingInstructionValueV2 = z.infer<typeof standingInstructionValueV2Schema>;
+
+/** The effects ADR-0106 and ADR-0110 enforce for every v1 row. */
+const V1_ENFORCED_EFFECTS: readonly StandingInstructionEffect[] = [
+  { kind: "demote_demand" },
+  { kind: "block_todo_suggestion" },
+  { kind: "exclude_briefing_priority" },
+  { kind: "block_reply_draft" },
+];
+
+/**
+ * A v1 row as a v2 instruction: one sender target, no scope, and the effects it enforces
+ * today. The fact id stands in for the instruction id, so an edit of a v1 row reads as a
+ * new instruction. A class target renders its sentence from the target.
+ */
+export function liftStandingInstructionV1(
+  value: StandingInstructionValue,
+  factId: string,
+): StandingInstructionValueV2 {
+  return {
+    schemaVersion: STANDING_INSTRUCTION_SCHEMA_VERSION_V2,
+    instructionId: factId,
+    revision: 0,
+    phrasing: value.phrasing,
+    directive: targetNamesOneMailbox(value.target)
+      ? value.directive
+      : renderStandingInstructionDirective(value.target),
+    targets: [value.target],
+    effects: [...V1_ENFORCED_EFFECTS],
+  };
+}
+
+/** Any stored version, read as v2. `null` when the value is neither shape. */
+export function readStoredStandingInstruction(
+  value: unknown,
+  factId: string,
+): StandingInstructionValueV2 | null {
+  const v2 = standingInstructionValueV2Schema.safeParse(value);
+
+  if (v2.success) return v2.data;
+
+  const v1 = standingInstructionValueSchema.safeParse(value);
+
+  return v1.success ? liftStandingInstructionV1(v1.data, factId) : null;
+}
+
+/** Does the instruction store this effect? Readers branch on the v2 list. */
+export function standingInstructionHasEffect(
+  value: StandingInstructionValueV2,
+  kind: StandingInstructionEffectKind,
+): boolean {
+  return value.effects.some((effect) => effect.kind === kind);
 }
