@@ -178,8 +178,7 @@ describe("assembleObservations", () => {
         entityId: "ent_group",
         displayName: "Engineering",
       },
-      standingInstruction: null,
-      standingInstructionReadFailed: false,
+      standingInstructions: null,
       userContext: null,
       userContextReadFailed: false,
       gmail: {

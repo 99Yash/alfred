@@ -28,9 +28,9 @@ import {
   type StandingInstructionTargetKind,
   type StandingInstructionValue,
 } from "@alfred/contracts";
-import { db } from "@alfred/db";
+import { db, type DbTransaction } from "@alfred/db";
 import { sha256Canonical } from "@alfred/db/hash";
-import { rejectedInferences, userFacts } from "@alfred/db/schemas";
+import { rejectedInferences, standingInstructionSetRevisions, userFacts } from "@alfred/db/schemas";
 import { and, desc, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
@@ -76,11 +76,38 @@ export type SenderTargetOutcome =
 
 type LoadedSenderTargetOutcome = Exclude<SenderTargetOutcome, { kind: "read_failed" }>;
 
-/** A user's active standing instructions, read once. `matchSender` is pure, so one read serves a loop. */
-interface StandingInstructionSet<Outcome extends SenderTargetOutcome> {
+/** An instruction whose sender-wide target hits one mail. A target hit covers the whole mail. */
+export type StandingInstructionTargetHit = ActiveStandingInstruction & {
+  matchedVia: StandingInstructionTargetKind;
+};
+
+/**
+ * The instructions that can apply to one mail (ADR-0113). `targetHits` are decided in code.
+ * `scoped` go to the triage model for the scope match: each has a `scope`, and its
+ * `senderFilter` is absent or hits the sender. A filter alone never matches.
+ */
+export type MailStandingInstructions =
+  | {
+      kind: "loaded";
+      /** The per-user set revision, read before the instructions. */
+      setRevision: number;
+      targetHits: StandingInstructionTargetHit[];
+      scoped: ActiveStandingInstruction[];
+    }
+  | { kind: "read_failed"; error: unknown };
+
+type LoadedMailStandingInstructions = Extract<MailStandingInstructions, { kind: "loaded" }>;
+
+/** A user's active standing instructions, read once. The match methods are pure, so one read serves a loop. */
+interface StandingInstructionSet<
+  Outcome extends SenderTargetOutcome,
+  Mail extends MailStandingInstructions,
+> {
   /** No active instruction. A failed read is never empty, so `matchSender` still reports it. */
   readonly isEmpty: boolean;
   matchSender(sender: SenderLookup, effect: StandingInstructionEffectKind): Outcome;
+  /** Every target hit and every scoped candidate for one mail, for the instruction floor. */
+  forMail(sender: SenderLookup): Mail;
 }
 
 /**
@@ -89,19 +116,22 @@ interface StandingInstructionSet<Outcome extends SenderTargetOutcome> {
  * reporting. A value that writes the key by hand still compiles. Review owns
  * that case.
  */
-export interface ReportedStandingInstructionSet extends StandingInstructionSet<SenderTargetOutcome> {
+export interface ReportedStandingInstructionSet extends StandingInstructionSet<
+  SenderTargetOutcome,
+  MailStandingInstructions
+> {
   readonly onReadFailure: "report";
 }
 
 /**
  * Each consumer owns its read-failure policy, so the caller must state it:
- * - `"throw"`: the returned promise rejects with the read error. `matchSender` never reports `read_failed`.
- * - `"report"`: the promise always resolves. On a failed read, every `matchSender` returns `read_failed`.
+ * - `"throw"`: the returned promise rejects with the read error. No method reports `read_failed`.
+ * - `"report"`: the promise always resolves. On a failed read, every method returns `read_failed`.
  */
 export function standingInstructions(args: {
   userId: string;
   onReadFailure: "throw";
-}): Promise<StandingInstructionSet<LoadedSenderTargetOutcome>>;
+}): Promise<StandingInstructionSet<LoadedSenderTargetOutcome, LoadedMailStandingInstructions>>;
 export function standingInstructions(args: {
   userId: string;
   onReadFailure: "report";
@@ -109,14 +139,15 @@ export function standingInstructions(args: {
 export async function standingInstructions(args: {
   userId: string;
   onReadFailure: "throw" | "report";
-}): Promise<ReportedStandingInstructionSet | StandingInstructionSet<LoadedSenderTargetOutcome>> {
-  if (args.onReadFailure === "throw") {
-    return standingInstructionsOf(await listActiveStandingInstructions(args.userId));
-  }
+}): Promise<
+  | ReportedStandingInstructionSet
+  | StandingInstructionSet<LoadedSenderTargetOutcome, LoadedMailStandingInstructions>
+> {
+  if (args.onReadFailure === "throw") return loadStandingInstructionSet(args.userId);
 
   try {
     return {
-      ...standingInstructionsOf(await listActiveStandingInstructions(args.userId)),
+      ...(await loadStandingInstructionSet(args.userId)),
       onReadFailure: "report" as const,
     };
   } catch (error) {
@@ -124,14 +155,27 @@ export async function standingInstructions(args: {
       isEmpty: false,
       onReadFailure: "report" as const,
       matchSender: () => ({ kind: "read_failed", error }),
+      forMail: () => ({ kind: "read_failed", error }),
     };
   }
+}
+
+/**
+ * The set revision first, then the instructions. A write between the two reads leaves the
+ * stored revision older than the instructions, so a later reader sees a change and reads
+ * `unknown`. The other order could claim a newer revision for older instructions.
+ */
+async function loadStandingInstructionSet(userId: string) {
+  const setRevision = await readStandingInstructionSetRevision(userId);
+
+  return standingInstructionsOf(await listActiveStandingInstructions(userId), setRevision);
 }
 
 /** Pure, for tests that build the instructions by hand. Consumers read with `standingInstructions`. */
 export function standingInstructionsOf(
   instructions: readonly ActiveStandingInstruction[],
-): StandingInstructionSet<LoadedSenderTargetOutcome> {
+  setRevision = 0,
+): StandingInstructionSet<LoadedSenderTargetOutcome, LoadedMailStandingInstructions> {
   return {
     isEmpty: instructions.length === 0,
     matchSender(sender, effect) {
@@ -139,7 +183,49 @@ export function standingInstructionsOf(
 
       return match ? { kind: "suppressed", match } : { kind: "none" };
     },
+    forMail(sender) {
+      const email = normalizeEmailAddress(sender.sender);
+
+      const hits = (targets: readonly StandingInstructionTarget[] | undefined) =>
+        email === null
+          ? undefined
+          : targets?.find((target) => targetMatchesSender(target, email, sender.accountId));
+
+      const targetHits: StandingInstructionTargetHit[] = [];
+      const scoped: ActiveStandingInstruction[] = [];
+
+      for (const instruction of instructions) {
+        const hit = hits(instruction.value.targets);
+
+        // A target hit decides the match. The scope adds nothing for this mail.
+        if (hit) {
+          targetHits.push({ ...instruction, matchedVia: hit.kind });
+          continue;
+        }
+
+        if (instruction.value.scope === undefined) continue;
+
+        const filter = instruction.value.senderFilter;
+
+        if (filter !== undefined && !hits(filter)) continue;
+
+        scoped.push(instruction);
+      }
+
+      return { kind: "loaded", setRevision, targetHits, scoped };
+    },
   };
+}
+
+/** No row reads as 0. */
+async function readStandingInstructionSetRevision(userId: string): Promise<number> {
+  const [row] = await db()
+    .select({ revision: standingInstructionSetRevisions.revision })
+    .from(standingInstructionSetRevisions)
+    .where(eq(standingInstructionSetRevisions.userId, userId))
+    .limit(1);
+
+  return row?.revision ?? 0;
 }
 
 export const rememberSenderSuppressionArgsSchema = z.object({
@@ -898,6 +984,27 @@ function instructionFromFact(fact: {
   };
 }
 
+/**
+ * Raise the per-user set revision (ADR-0113 decision 3). Each write that changes a
+ * standing-instruction row calls it in the same transaction, so a stored evaluation that
+ * read an older revision reads as `unknown`. The memory-page fact writers call it too.
+ */
+export async function raiseStandingInstructionSetRevision(
+  tx: DbTransaction,
+  userId: string,
+): Promise<void> {
+  await tx
+    .insert(standingInstructionSetRevisions)
+    .values({ userId, revision: 1 })
+    .onConflictDoUpdate({
+      target: standingInstructionSetRevisions.userId,
+      set: {
+        revision: sql`${standingInstructionSetRevisions.revision} + 1`,
+        updatedAt: sql`now()`,
+      },
+    });
+}
+
 type StandingInstructionObservationOperation = "remember" | "edit" | "forget";
 
 async function appendStandingInstructionObservation(
@@ -911,8 +1018,12 @@ async function appendStandingInstructionObservation(
     reason?: string | null;
     source?: MemorySource | undefined;
   },
-  tx: Parameters<typeof insertObservation>[1],
+  tx: DbTransaction,
 ): Promise<void> {
+  // Every instruction writer here appends one observation in its own transaction, so the
+  // set revision rises here, with the write.
+  await raiseStandingInstructionSetRevision(tx, args.userId);
+
   const source = args.source ?? { kind: "user" as const };
 
   const payload = {

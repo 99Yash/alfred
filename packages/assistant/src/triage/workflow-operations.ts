@@ -70,6 +70,8 @@ import {
   type TodoObjectRef,
   type TodoSource,
   type TriageCategory,
+  type TriageInstructionEvaluation,
+  type TriageModelVerdict,
   todoSourceKey,
   toMessage,
 } from "@alfred/contracts";
@@ -235,6 +237,9 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
   let model: string;
   let audit: ClassifyAudit | null = null;
   let observations: Observations | null = null;
+  // Null on the fallback path: no verdict, and every scoped instruction is unknown.
+  let modelVerdict: TriageModelVerdict | null = null;
+  let instructionEvaluation: TriageInstructionEvaluation | null = null;
   // This run owns the row. Gates the side effects below on both paths (#157).
   let written = false;
   let senderSignificanceBand: SignificanceBand | null = null;
@@ -318,6 +323,8 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       classification = result.classification;
       model = result.model;
       audit = result.audit;
+      modelVerdict = result.modelVerdict;
+      instructionEvaluation = result.instructionEvaluation;
     } catch (err) {
       // A low-confidence label beats none. The error goes in `rationale` so the row
       // says why. `senderPriorWriteKeyFor` never learns from `model="fallback"`.
@@ -361,6 +368,8 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       // So a same-run retry can re-mint the todo (#157).
       todoSuggestion: classification.todoSuggestion ?? null,
       todoDecision: classification.todoDecision ?? null,
+      modelVerdict,
+      instructionEvaluation,
       senderSignificanceBand,
       // The reuse path has no observations, so it reads this from the row (#517 D1).
       senderRelationshipIsCold: observations.senderRelationshipIsCold,
@@ -1042,11 +1051,11 @@ export async function gatherObservations(args: {
     readSenderPerson(args.userId, args.senderAddress),
   ]);
 
-  // This sender's standing instruction.
-  const standing = suppressions.matchSender(
-    { sender: args.senderAddress ?? meta.from ?? null, accountId: args.accountId },
-    "demote_demand",
-  );
+  // The target hits and the scoped candidates for this mail (ADR-0113).
+  const mailInstructions = suppressions.forMail({
+    sender: args.senderAddress ?? meta.from ?? null,
+    accountId: args.accountId,
+  });
 
   const senderKind =
     senderKindEnabled && args.senderAddress
@@ -1094,15 +1103,7 @@ export async function gatherObservations(args: {
     senderRelationship: relationship.descriptor,
     senderRelationshipIsCold: relationship.isColdContact,
     senderKind,
-    standingInstruction:
-      standing.kind === "suppressed"
-        ? {
-            factId: standing.match.factId,
-            directive: standing.match.value.directive,
-            phrasing: standing.match.value.phrasing,
-          }
-        : null,
-    standingInstructionReadFailed: standing.kind === "read_failed",
+    standingInstructions: mailInstructions,
     userContext: userContext.line,
     userContextReadFailed: userContext.readFailed,
     labelIds,

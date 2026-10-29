@@ -31,3 +31,15 @@ export const TRIAGE_STRONG_BULK_MIN_SHARE = 0.8;
 export const TRIAGE_SERVICE_ACTION_LOOP_MIN_TOTAL = 8;
 
 export const TRIAGE_SERVICE_ACTION_LOOP_MIN_SHARE = 0.5;
+
+/**
+ * The instruction allowance (ADR-0113): characters of scoped standing instructions in one
+ * classifier prompt. Newest first. An instruction past it is `unknown`, and the trace counts it.
+ */
+export const TRIAGE_INSTRUCTION_BLOCK_MAX_CHARS = 12_000;
+
+/** Extra output budget when the prompt carries scoped instructions, for `instructionMatches`. */
+export const TRIAGE_INSTRUCTION_MATCH_OUTPUT_TOKENS = 300;
+
+/** Maximum length of the model's reason for one instruction match. */
+export const TRIAGE_INSTRUCTION_MATCH_REASON_MAX_CHARS = 200;

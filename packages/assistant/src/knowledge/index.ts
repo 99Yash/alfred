@@ -148,6 +148,9 @@ export {
   type SenderTargetMatch,
   type SenderTargetOutcome,
   type ReportedStandingInstructionSet,
+  type ActiveStandingInstruction,
+  type MailStandingInstructions,
+  type StandingInstructionTargetHit,
 } from "./standing-instructions";
 
 export { startMemoryWorker, stopMemoryWorker, closeMemoryQueue } from "./queue";

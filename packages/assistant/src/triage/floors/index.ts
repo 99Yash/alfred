@@ -1,12 +1,11 @@
 import { type SenderContext } from "@alfred/contracts";
 import type { TriageClassification } from "../classify";
-import type { Observations, TriageStandingDirective } from "../observations";
+import type { Observations } from "../observations";
 import { applyFloorVerdict, type FloorResult } from "./floor";
 import { applyMeetingDemotionFloor } from "./meeting";
 import { applyOverrideFloor } from "./override";
 import { applySenderKindDemotionFloor } from "./sender-kind";
 import { applySpamDemotionFloor } from "./spam";
-import { applyStandingDemotionFloor } from "./standing";
 
 /**
  * Deterministic floors after the model (ADR-0051 §5). The prompt owns judgment;
@@ -14,8 +13,9 @@ import { applyStandingDemotionFloor } from "./standing";
  *   - override    ↔ none (exposed secret → urgent)
  *   - sender-kind ↔ rules 8a/12e/12f
  *   - spam        ↔ rule 20
- *   - standing    ↔ the user's own instruction for this sender (ADR-0110)
  *   - meeting     ↔ rules 7/8/9
+ * The user's standing instructions are not a floor here. `applyStandingInstructionEffects`
+ * runs after this sequence, on its output (ADR-0113).
  */
 export {
   applyOverrideFloor,
@@ -34,7 +34,17 @@ export { applyMeetingDemotionFloor } from "./meeting";
 
 export { applySpamDemotionFloor } from "./spam";
 
-export { applyStandingDemotionFloor } from "./standing";
+export {
+  applyStandingInstructionEffects,
+  type StandingEffectAudit,
+  type StandingEffectResult,
+  type StandingEffectVerdict,
+  type StandingFloorAudit,
+  type StandingFloorOutcome,
+  type StandingFloorResult,
+  type StandingInstructionMatch,
+  type StandingInstructionMatchVia,
+} from "./standing";
 
 /** Everything the floor sequence reads about one email. Assembled by `classifyEmail`. */
 export interface FloorContext {
@@ -51,8 +61,6 @@ export interface FloorContext {
   cc: string | null;
   accountEmail: string | null;
   contentFlags: Pick<Observations["content"], "hasInvestorNotice" | "hasPublicEventLanguage">;
-  /** The category-lane matched instruction for this sender. Null = none matched or read failed. */
-  standingInstruction: TriageStandingDirective | null;
 }
 
 type FloorApply<R extends FloorResult> = (
@@ -89,10 +97,9 @@ function floor<N extends string, R extends FloorResult>(
  *  2. `senderKind` demotes passive group/no-reply mail.
  *  3. `spam` demotes reply lanes only. After `senderKind` so the audit names the
  *     sender reason when both match; the category is the same.
- *  4. `standing` demotes a surviving demand lane on a matched sender instruction
- *     (ADR-0110). After `spam` so an already-demoted lane is out of scope, and the
- *     exposed-secret veto keeps the override's escalation.
- *  5. `meeting` last: it only fires on a surviving `meeting` tag.
+ *  4. `meeting` last: it only fires on a surviving `meeting` tag.
+ * The output is the stored model verdict. The instruction floor applies the user's
+ * effects to it after this sequence, so a consumer can derive the same result later.
  * A new floor also needs an entry in `FLOOR_TRACE_PROJECTIONS` and a step in
  * `applyFloors`; the compiler asks for both.
  */
@@ -123,15 +130,6 @@ const FLOOR_SEQUENCE = [
     (audit) => (audit.verdict.kind === "demote" ? "+spamfloor" : ""),
   ),
   floor(
-    "standing",
-    (classification, ctx) =>
-      applyStandingDemotionFloor(classification, {
-        standingInstruction: ctx.standingInstruction,
-        signalText: ctx.signalText,
-      }),
-    (audit) => (audit.verdict.kind === "demote" ? "+standingfloor" : ""),
-  ),
-  floor(
     "meeting",
     (classification, ctx) =>
       applyMeetingDemotionFloor(classification, {
@@ -160,23 +158,21 @@ export interface FloorOutcome {
 export function applyFloors(classification: TriageClassification, ctx: FloorContext): FloorOutcome {
   // Positional, so FLOOR_SEQUENCE alone sets the order. A new floor leaves `audits`
   // without its FloorAudits key, so the compiler asks for its step here.
-  const [first, second, third, fourth, fifth] = FLOOR_SEQUENCE;
+  const [first, second, third, fourth] = FLOOR_SEQUENCE;
   const firstStep = first.run(classification, ctx);
   const secondStep = second.run(firstStep.classification, ctx);
   const thirdStep = third.run(secondStep.classification, ctx);
   const fourthStep = fourth.run(thirdStep.classification, ctx);
-  const fifthStep = fifth.run(fourthStep.classification, ctx);
 
   return {
-    classification: fifthStep.classification,
+    classification: fourthStep.classification,
     audits: {
       [first.name]: firstStep.audit,
       [second.name]: secondStep.audit,
       [third.name]: thirdStep.audit,
       [fourth.name]: fourthStep.audit,
-      [fifth.name]: fifthStep.audit,
     },
-    modelIdTags: [firstStep, secondStep, thirdStep, fourthStep, fifthStep].flatMap((step) =>
+    modelIdTags: [firstStep, secondStep, thirdStep, fourthStep].flatMap((step) =>
       step.modelIdTag ? [step.modelIdTag] : [],
     ),
   };

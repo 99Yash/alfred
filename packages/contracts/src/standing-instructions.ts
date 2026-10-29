@@ -6,8 +6,14 @@
  */
 
 import { z } from "zod";
+import { documentAskProposalSchema } from "./document-ask";
 import { domainSchema, emailDomain, normalizeEmailAddress } from "./domain";
-import { triageCategorySchema, type TriageCategory } from "./triage";
+import {
+  triageCategorySchema,
+  triageTodoDecisionSchema,
+  triageTodoSuggestionSchema,
+  type TriageCategory,
+} from "./triage";
 
 export const STANDING_INSTRUCTION_KEY = "standing_instruction";
 
@@ -478,6 +484,11 @@ function demandRank(category: TriageCategory): number {
   return DEMAND_RANK[category];
 }
 
+/** `urgent` or `action_needed`: the demand lanes that a lowering effect can leave. */
+export function isDemandCategory(category: TriageCategory): boolean {
+  return demandRank(category) > 0;
+}
+
 /**
  * Does this effect raise the item, or lower, hide, or block it (ADR-0113 E2)? A
  * `force_category` raises only when its category is above the model verdict. A move between
@@ -606,3 +617,53 @@ export function standingInstructionHasEffect(
 ): boolean {
   return value.effects.some((effect) => effect.kind === kind);
 }
+
+// ─── The stored triage evaluation (ADR-0113, "Lifetime of a stored match") ──────
+
+/**
+ * The `email_triage.model_verdict` column: the verdict after the system floors and before
+ * any standing-instruction effect. `exposedSecret` lets a consumer apply the security floor
+ * with no mail text. Nothing rewrites it.
+ */
+export const triageModelVerdictSchema = z.object({
+  category: triageCategorySchema,
+  documentAsk: documentAskProposalSchema.nullable(),
+  todoSuggestion: triageTodoSuggestionSchema,
+  todoDecision: triageTodoDecisionSchema.nullable(),
+  exposedSecret: z.boolean(),
+});
+
+export type TriageModelVerdict = z.infer<typeof triageModelVerdictSchema>;
+
+/**
+ * The result of one scoped instruction for one document, at the instruction's `revision`.
+ * An instruction with no stored result is `unknown`, never `not_matched`.
+ */
+export const standingInstructionScopeResultSchema = z.discriminatedUnion("state", [
+  z.object({
+    state: z.literal("matched"),
+    instructionId: z.string().min(1),
+    revision: z.number().int().nonnegative(),
+    /** The model's one line of reason. */
+    reason: z.string(),
+    covers: standingInstructionCoverageSchema,
+  }),
+  z.object({
+    state: z.literal("not_matched"),
+    instructionId: z.string().min(1),
+    revision: z.number().int().nonnegative(),
+  }),
+]);
+
+export type StandingInstructionScopeResult = z.infer<typeof standingInstructionScopeResultSchema>;
+
+/**
+ * The `email_triage.instruction_evaluation` column. The content revision is the row's
+ * `document_id`. `setRevision` is the per-user instruction-set revision that the evaluation read.
+ */
+export const triageInstructionEvaluationSchema = z.object({
+  setRevision: z.number().int().nonnegative(),
+  scopes: z.array(standingInstructionScopeResultSchema),
+});
+
+export type TriageInstructionEvaluation = z.infer<typeof triageInstructionEvaluationSchema>;

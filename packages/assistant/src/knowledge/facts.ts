@@ -2,6 +2,7 @@ import {
   canonicalizeFactKey,
   clamp01,
   memorySourceSchema,
+  STANDING_INSTRUCTION_KEY,
   toDisplayText,
   type MemorySource,
 } from "@alfred/contracts";
@@ -37,6 +38,7 @@ import {
   validateFactValueForKey,
 } from "./fact-policy";
 import { valueSignature } from "./signature";
+import { raiseStandingInstructionSetRevision } from "./standing-instructions";
 import { logger } from "@alfred/logging";
 
 /** `user_facts.status` values (ADR-0019). The union derives from the tuple. */
@@ -155,6 +157,11 @@ type FactExec = { exec?: DbTransaction };
 /** Serialize writes per `(userId, canonical key)`, or two writers can both add a confirmed single-valued row. */
 async function lockFactKey(tx: DbTransaction, userId: string, key: string): Promise<void> {
   await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`${userId}:${key}`}, 0))`);
+}
+
+/** A write to a standing-instruction row also raises the instruction-set revision (ADR-0113). */
+async function noteFactKeyWrite(tx: DbTransaction, userId: string, key: string): Promise<void> {
+  if (key === STANDING_INSTRUCTION_KEY) await raiseStandingInstructionSetRevision(tx, userId);
 }
 
 /** The canonical key. An alias moves into `source.meta.originalKey`; an unknown key stays as is. */
@@ -347,6 +354,7 @@ export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null
       .returning();
 
     const inserted = rowToFact(requireRow(row, "proposeFact"));
+    await noteFactKeyWrite(tx, parsed.userId, key);
 
     // Same tx as the fact, so a rollback leaves no phantom toast. A held conflict emits nothing.
     if (status === "confirmed") {
@@ -417,6 +425,9 @@ export async function createFact(args: CreateFactArgs & FactExec): Promise<FactR
       })
       .onConflictDoNothing()
       .returning();
+
+    // A superseded conflict changed even when the insert was a no-op.
+    await noteFactKeyWrite(tx, parsed.userId, key);
 
     return row ? rowToFact(row) : null;
   });
@@ -494,7 +505,11 @@ export async function confirmFact({
       )
       .returning();
 
-    return row ? rowToFact(row) : null;
+    if (!row) return null;
+
+    await noteFactKeyWrite(tx, userId, key);
+
+    return rowToFact(row);
   });
 }
 
@@ -533,6 +548,8 @@ export async function rejectFact(args: RejectFactArgs & FactExec): Promise<FactR
         reason: parsed.reason ?? null,
       })
       .onConflictDoNothing();
+
+    await noteFactKeyWrite(tx, parsed.userId, old.key);
 
     return rowToFact(requireRow(row, "rejectFact.update"));
   });
@@ -600,6 +617,9 @@ export async function editFact(args: EditFactArgs & FactExec): Promise<FactRow |
       .onConflictDoNothing()
       .returning();
 
+    // The old row changed even when the insert was a no-op.
+    await noteFactKeyWrite(tx, parsed.userId, key);
+
     return row ? rowToFact(row) : null;
   });
 }
@@ -644,6 +664,8 @@ export async function supersedeFact(args: SupersedeFactArgs): Promise<FactRow | 
         supersedesId: old.id,
       })
       .returning();
+
+    await noteFactKeyWrite(tx, parsed.userId, old.key);
 
     return rowToFact(requireRow(row, "supersedeFact.insert"));
   });

@@ -51,6 +51,19 @@ export const emailTriage = pgTable(
     documentId: text("document_id"),
     /** Lets the rail demote a thread inside its category, never retag it (ADR-0064). */
     senderSignificanceBand: text("sender_significance_band").$type<SignificanceBand>(),
+    /**
+     * The verdict after the system floors and before any standing-instruction effect
+     * (ADR-0113). History: nothing rewrites it. `unknown`: read it with
+     * `triageModelVerdictSchema`. `category`, `documentAsk`, and `todoSuggestion` above are the
+     * cached effective result derived from it.
+     */
+    modelVerdict: jsonb("model_verdict"),
+    /**
+     * The instruction-set revision and the scoped match results the model returned for
+     * `documentId` (ADR-0113). `unknown`: read it with `triageInstructionEvaluationSchema`.
+     * Null means no evaluation, so every scoped instruction is `unknown`.
+     */
+    instructionEvaluation: jsonb("instruction_evaluation"),
     /** Stored because a retry does not regather context. Null reads as not cold. */
     senderRelationshipIsCold: boolean("sender_relationship_is_cold"),
     classifiedAt: timestamp("classified_at", { withTimezone: true }).defaultNow().notNull(),
