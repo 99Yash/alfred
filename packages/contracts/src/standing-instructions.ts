@@ -352,6 +352,21 @@ export function standingInstructionScopeRelation(pair: {
 }
 
 /**
+ * Whether two scopes share a sender in a mailbox, nested or not. A domain row in one mailbox and
+ * an address row in every mailbox intersect, but {@link standingInstructionScopeRelation} says
+ * `null` for them, so a conflict check reads this.
+ */
+export function standingInstructionScopesIntersect(pair: {
+  readonly of: StandingInstructionTarget;
+  readonly relativeTo: StandingInstructionTarget;
+}): boolean {
+  return (
+    senderScopeAxis(pair.of, pair.relativeTo) !== "disjoint" &&
+    accountScopeAxis(pair.of, pair.relativeTo) !== "disjoint"
+  );
+}
+
+/**
  * Why a `scope:"domain"` write stored a `sender_email` target instead.
  * - `domain_unparseable`: zod's email pattern is looser than `domainSchema`,
  *   so `a@ab-.com` gets here.
@@ -428,6 +443,19 @@ type ParameterlessEffectKind = Exclude<StandingInstructionEffectKind, "force_cat
 const PARAMETERLESS_EFFECT_KINDS = STANDING_INSTRUCTION_EFFECT_KINDS.filter(
   (kind): kind is ParameterlessEffectKind => kind !== "force_category",
 );
+
+/**
+ * The effects that chat capture can write (ADR-0113 plan decision 11). Briefing gather has no
+ * bucket for an item outside the priority categories, so `include_briefing_priority` is "not
+ * enforced": capture keeps those words as prose and stores no effect for them.
+ */
+export const STANDING_INSTRUCTION_CAPTURE_EFFECT_KINDS = STANDING_INSTRUCTION_EFFECT_KINDS.filter(
+  (kind): kind is Exclude<StandingInstructionEffectKind, "include_briefing_priority"> =>
+    kind !== "include_briefing_priority",
+);
+
+export type StandingInstructionCaptureEffectKind =
+  (typeof STANDING_INSTRUCTION_CAPTURE_EFFECT_KINDS)[number];
 
 export const standingInstructionEffectSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.enum(PARAMETERLESS_EFFECT_KINDS) }),
@@ -538,6 +566,11 @@ export const standingInstructionValueV2Schema = z
     effects: z.array(standingInstructionEffectSchema),
     /** The `instructionId` of a broader instruction that this one narrows. */
     exceptionOf: z.string().min(1).optional(),
+    /**
+     * The one mailbox a `scope` match needs. Absent means every mailbox. Each target and
+     * `senderFilter` entry carries its own `accountId`.
+     */
+    accountId: z.string().min(1).optional(),
     /** Hints and display only. Code never matches on it (ADR-0113 E5). */
     notes: z.json().optional(),
   })

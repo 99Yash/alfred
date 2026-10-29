@@ -123,6 +123,8 @@ export type { SenderExtractionEvent } from "./sender-extraction-event";
 
 export { decideTriageTodo, triageTodoStanding } from "./todo-decision";
 
+export { threadsWhereInstructionBlocksTodo } from "./instruction-todo-sweep";
+
 export type { TodoTriageResult, TriageTodoDecision } from "./todo-decision";
 
 export {

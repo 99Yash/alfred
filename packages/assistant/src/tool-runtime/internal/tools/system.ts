@@ -52,7 +52,8 @@ import {
   readChildRunOutcome,
   readUserContext,
   recoverWorkflow,
-  rememberSenderSuppressionAndDismissTodos,
+  rememberInstructionAndDismissTodos,
+  checkInstruction,
   resolveTodo,
   scratchpad,
   spawnSubAgent,
@@ -483,24 +484,41 @@ export const systemTools: readonly RegisteredTool[] = [
     integration: "system",
     action: "remember",
     riskTier: "no_risk",
+    // ADR-0113: the card is the one-line confirmation, also under full autonomy.
+    staging: "confirm",
+    availability: { requiresLiveChat: true },
     description:
-      "Persist a resolved sender suppression standing instruction. Only persists when the " +
-      "sender email is resolved; otherwise returns a clarification request. The instruction " +
-      "suppresses todo suggestions and briefing priority for the sender AND deprioritizes the " +
-      "sender's mail as a triage-category prior (it can move the Gmail label toward 'fyi', " +
-      "though a genuinely urgent item may still surface) — tell the user both halves. " +
-      "When the user names several senders, pass them all in `senders` in ONE call; each " +
-      "gets its own instruction and its own result. Never call this once per sender. " +
-      "Set `scope: 'domain'` when the user names a CLASS of senders rather than one mailbox " +
-      "('apply this to all investment senders'): the instruction then covers every address at " +
-      "that sender's domain, including ones that never wrote before. Tell the user which one " +
-      "you stored. A domain scope also writes its own wording and keeps no display label, so " +
-      "any `directive` or `senderLabel` you send comes back under `droppedInputs`. The result " +
-      "names any wider or narrower instruction already stored, and says when a domain scope " +
-      "fell back to one address. Tell the user.",
+      "Store a standing instruction the user stated in chat (ADR-0113). The user confirms it on " +
+      "a card before it is stored, so do not ask again in text. Put the user's words in " +
+      "`phrasing`. When the words name a class of mail ('investment mail', 'Dependabot " +
+      "alerts'), put that class in `scope`: triage matches it by meaning, so a new sender is " +
+      "covered. Put a sender in `targets` only when the words name that sender; never expand " +
+      "a class into senders from past mail. Choose only the `effects` the words ask for. Call " +
+      "list_instructions first: to change an instruction, pass its `instructionId` and its " +
+      "`revision` as `expectedRevision`; for an exception to a broader one, pass `exceptionOf`. " +
+      "An active instruction on the same, a wider, a narrower, or an overlapping sender is a " +
+      "conflict: ask the user to replace it (`replaces`), " +
+      "make the new one an exception to it (`exceptionOf`), or keep both (`coexistsWith`). " +
+      "With no choice, the call stores nothing and returns `conflict`. Emails still arrive " +
+      "in Gmail.",
     inputSchema: rememberInput,
+    // Refuse before the card, so the user never confirms an input that capture refuses.
+    // The write decides again under its lock. A failed check leaves that decision to the write.
+    refuseProposal: async (input, ctx) => {
+      const refusal = await checkInstruction({
+        input,
+        context: {
+          userId: ctx.userId,
+          runId: ctx.runId,
+          stepId: ctx.stepId,
+          toolCallId: ctx.toolCallId,
+        },
+      }).catch(() => null);
+
+      return refusal === null ? null : JSON.stringify(refusal);
+    },
     execute: async (input, ctx) => {
-      return await rememberSenderSuppressionAndDismissTodos({
+      return await rememberInstructionAndDismissTodos({
         input,
         context: {
           userId: ctx.userId,
@@ -516,8 +534,9 @@ export const systemTools: readonly RegisteredTool[] = [
     action: "list_instructions",
     riskTier: "no_risk",
     description:
-      "List the user's active standing instructions (each with its `factId`, target, effects, and " +
-      "directive). Call this before forgetting or editing one so you target the right `factId`, and " +
+      "List the user's active standing instructions (each with its `factId`, `instructionId`, " +
+      "`schemaVersion`, scope, targets, effects, and directive). Call this before forgetting, " +
+      "editing, or revising one so you target the right id, and " +
       "to check whether a new request duplicates or conflicts with an existing instruction. The result " +
       "is capped; if `truncated` is true and the target is unclear, ask the user to narrow it.",
     inputSchema: listInstructionsInput,
@@ -559,8 +578,9 @@ export const systemTools: readonly RegisteredTool[] = [
     action: "edit_instruction",
     riskTier: "no_risk",
     description:
-      "Reframe an existing standing instruction's wording or display label, by its `factId` (from " +
-      "list_instructions), without changing what it targets. To point an instruction at a different " +
+      "Reframe a schemaVersion 1 standing instruction's wording or display label, by its `factId` " +
+      "(from list_instructions), without changing what it targets. Revise a schemaVersion 2 " +
+      "instruction with system.remember and its `instructionId` instead. To point an instruction at a different " +
       "sender, forget the wrong one and remember the right one instead. A row that targets a DOMAIN " +
       "takes neither edit — its sentence comes from the domain and it carries no display label — and " +
       "returns what it ignored under `droppedInputs`. Tell the user.",

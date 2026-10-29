@@ -577,6 +577,7 @@ const validateInputStage: DispatchStage<ResolvedDispatch, ValidatedDispatch> = a
     }
 
     case "staged":
+    case "confirm":
       break;
     default: {
       // A new policy must not silently take the staged path.
@@ -587,7 +588,7 @@ const validateInputStage: DispatchStage<ResolvedDispatch, ValidatedDispatch> = a
     }
   }
 
-  // Only `staged` and `question` reach here, so the arm is non-null.
+  // Only `staged`, `confirm`, and `question` reach here, so the arm is non-null.
   const arm: GatedArmPolicy = STAGING_ARM[tool.staging];
 
   return continueWith({ ...resolved, call, ctx, arm });
@@ -698,6 +699,30 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
         reason,
       }),
     };
+  }
+
+  // A state check runs only for a fresh proposal. A replay or a resume has a row, and the
+  // state can change after the write, so the check would refuse a call that already ran.
+  if (
+    call.proposalRefusal !== null &&
+    !(await stagingStore().hasStaging({ runId: args.runId, toolCallId: args.toolCallId }))
+  ) {
+    const refusal = await call.proposalRefusal(ctx);
+
+    if (refusal !== null) {
+      recordRejection({
+        dispatch: args,
+        outcome: "invalid_input",
+        reason: refusal,
+        toolName,
+        input: redactTraceInput(call),
+      });
+
+      return {
+        kind: "invalid_input",
+        result: { status: "invalid_input", toolName, message: refusal },
+      };
+    }
   }
 
   // Some tools resolve their tier from input (Calendar invites go up, `mcp.call` can go down).

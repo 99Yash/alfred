@@ -35,6 +35,15 @@ export const STAGING_ARM = {
     settled: "rejection",
     rejectedWithoutReason: "rejected by user",
   },
+  // ADR-0113: a write the user confirms on its card. Full autonomy does not waive it.
+  confirm: {
+    forcesApproval: true,
+    priorRejectionStatuses: ["rejected"],
+    approvalKind: "action_staging",
+    wakePrompt: (toolName) => `Confirm ${toolName}`,
+    settled: "rejection",
+    rejectedWithoutReason: "rejected by user",
+  },
   question: {
     forcesApproval: true,
     priorRejectionStatuses: ["rejected", "expired"],

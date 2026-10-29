@@ -40,7 +40,7 @@ const RESOLVE_TODO_TOOL = "system.resolve_todo";
 const CONNECTED_SUMMARY = [
   "You are connected to these integrations right now — call each as integration.action (for example calendar.list_events). Treat this list as authoritative: do not offer or attempt an integration that is not on it.",
   "- gmail.search, gmail.read_message — the user's email",
-  "- system.remember — persist a sender-level suppression standing instruction",
+  "- system.remember — store a standing instruction the user confirms on a card",
   "- system.resolve_todo — dismiss live todos by resolved Gmail sender",
 ].join("\n");
 
@@ -223,23 +223,22 @@ async function runResolutionScenario(
       }),
       [REMEMBER_TOOL]: tool({
         description:
-          "Persist a resolved sender-level suppression standing instruction. Only call this when " +
-          "the Gmail search result clearly identifies one sender; ask the user instead on ambiguous hits.",
+          "Store a standing instruction. Put a sender in `targets` only when the Gmail search " +
+          "result clearly identifies the one sender the user described; ask the user instead on " +
+          "ambiguous hits.",
         inputSchema: rememberInput,
         execute: async (input) => {
-          remembered.push({
-            senderEmail: typeof input.senderEmail === "string" ? input.senderEmail : null,
-            senderLabel: typeof input.senderLabel === "string" ? input.senderLabel : null,
-          });
+          const senderEmail = input.targets?.find((target) => target.includes("@")) ?? null;
+
+          remembered.push({ senderEmail, senderLabel: null });
 
           return {
             ok: true,
             status: "remembered",
             factId: "fact_eval_sender",
-            instruction: {
-              target: { email: input.senderEmail ?? null, label: input.senderLabel ?? null },
-            },
-            resolvedTodos: { ok: true, status: "not_found", dismissedCount: 0 },
+            instruction: { targets: input.targets ?? [], effects: input.effects },
+            related: [],
+            resolvedTodos: [{ ok: true, status: "not_found", dismissedCount: 0 }],
           };
         },
       }),

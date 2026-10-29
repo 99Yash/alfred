@@ -266,13 +266,14 @@ describe("runtime adapter lifecycle", () => {
       };
 
       const instructions: SystemToolInstructionAdapter = {
-        rememberSenderSuppressionAndDismissTodos: () =>
+        rememberInstructionAndDismissTodos: () =>
           Promise.resolve({
             ok: false,
-            status: "needs_clarification",
-            reason: "invalid_sender_email",
-            message: "not an email address",
+            status: "invalid_sender",
+            sender: "gmail.com",
+            message: "not the domain of one organization",
           } as const),
+        checkInstruction: () => Promise.resolve(null),
         listInstructions: () =>
           Promise.resolve({
             instructions: [],

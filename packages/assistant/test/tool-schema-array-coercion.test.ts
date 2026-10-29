@@ -180,11 +180,17 @@ const FIXTURES = {
   },
   "system.remember": {
     base: {
-      kind: "sender_suppression",
-      directive: "suppress",
-      senders: [{ senderEmail: "noreply@example.com" }, { senderEmail: "promo@example.com" }],
+      kind: "standing_instruction",
+      phrasing: "Investment mail from these two is never urgent.",
+      directive: "Do not mark mail from these two senders urgent.",
+      scope: "investment mail",
+      targets: ["noreply@example.com", "promo@example.com"],
+      senderFilter: ["example.com"],
+      effects: ["demote_urgent", "block_todo_suggestion"],
+      replaces: ["si_old"],
+      coexistsWith: ["si_kept"],
     },
-    arrayFields: ["senders"],
+    arrayFields: ["targets", "senderFilter", "effects", "replaces", "coexistsWith"],
   },
   "system.suggest_todo": {
     base: {

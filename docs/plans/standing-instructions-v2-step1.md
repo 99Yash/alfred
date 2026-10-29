@@ -1,6 +1,6 @@
 ---
 status: in-progress
-evidence: "PR 1 is #1609 (merged). PR 2 is #1610 (merged). PR 3 is #1611."
+evidence: "PR 1 is #1609 (merged). PR 2 is #1610 (merged). PR 3 is #1611 (merged). PR 4 is #1613 (open)."
 ---
 
 # Standing instructions v2, step 1: the base design of ADR-0113
@@ -50,26 +50,56 @@ These choices are not in the ADR. Each one is the smallest choice that keeps an 
    `exclude_briefing_priority` changes nothing. It does not hold a `block_reply_draft`, because
    a block is never less safe.
 
-## Open before PR 4
-
-PR 4 lets capture write a scoped instruction and an `exceptionOf`. These points need a decision
-first.
-
-- **An exception on part cover.** Now an exception cancels the broader instruction before the
-  cover check, so a `part` scope match of an exception cancels a sender-wide raise. The
-  recommendation is to apply E2 to the cancellation: to cancel a raise is a lowering, so it
-  needs full cover; to cancel a lowering is a raise, so any part is enough.
-- **What `include_briefing_priority` adds.** In PR 3 an inclusion only cancels an earlier
-  exclusion. Briefing gather has no bucket for an item outside the priority categories, so an
-  inclusion cannot add a `fyi` item. PR 4 must decide the bucket before capture can write the
-  effect.
-- **An `unknown` exception does not cancel.** An exception cancels only when it is `matched`.
-  While it is `unknown`, the broader instruction applies. For a lowering exception of a raise,
-  this is the safe direction. For a raising exception of a lowering, the item stays lowered
-  until the next triage run.
-- **One owner for the revision.** Each `facts.ts` write branch now calls `noteFactKeyWrite`.
-  A new branch that does not call it leaves a stale revision. PR 4 puts the instruction write,
-  the revision increase, and the re-match job behind one function.
+10. **An exception cancels by the E2 rule.** To cancel a raise is a lowering, so it needs full
+    cover of the exception. To cancel a lowering is a raise, so any part is enough. Each effect
+    of the broader instruction is tested on its own. A target hit of an exception is full cover.
+11. **`include_briefing_priority` is "not enforced".** Briefing gather has no bucket for an
+    item outside the priority categories. Capture cannot write the effect, and the words stay
+    prose. The registry keeps the effect, so a stored inclusion still cancels an exclusion. The
+    owner decided this on 2026-10-29. Issue #1612 adds the bucket.
+12. **The confirmation is an approval card that always shows.** `system.remember` uses a new
+    staging arm, `confirm`: a staged write with `forcesApproval`, so chat full autonomy does
+    not waive it. The card shows the structured fields (words, scope, targets, effects,
+    exception). The arm needs a live chat, so a background workflow cannot store an
+    instruction. The owner decided this on 2026-10-29.
+13. **A database trigger owns the set revision.** A row trigger on `user_facts` (migration 0154) raises `standing_instruction_set_revisions.revision` at each insert, delete, or
+    visible update of a `standing_instruction` row. Code no longer raises it, so a new writer,
+    a script, or hand SQL cannot leave a stale revision. An update that changes no value,
+    status, or validity window does not count.
+14. **An `unknown` exception does not cancel.** This follows rule 4: an `unknown` state applies
+    no rank effect. For a lowering exception of a raise, this is the safe direction. For a
+    raising exception of a lowering, the item stays lowered until triage or the re-match job
+    reads the exception.
+15. **`system.remember` takes only the v2 shape.** Code mints the instruction id. A revision
+    passes `instructionId` and `expectedRevision`, keeps the id, and adds 1 to `revision`. If
+    a different revision is active when the user confirms, capture stores nothing and returns
+    `stale_revision`, unless the active row already holds the same content. A domain target must
+    belong to one organization (the v1 rail). `edit_instruction` stays for v1 rows until PR 5.
+    The v1 writer stays for the backfill script until PR 5.
+16. **Capture refuses an unresolved structural conflict.** An active instruction that names
+    the same, a wider, a narrower, or an overlapping sender is a conflict (ADR-0060
+    micro-decision 6). Overlapping means the two share mail but neither contains the other,
+    for example a domain in one mailbox and an address at that domain in every mailbox. The
+    input must resolve each one: `replaces` (closed in the same transaction), `exceptionOf`,
+    or `coexistsWith`. Else `system.remember` stores nothing and returns `conflict`. The same
+    check runs before the card, so the card shows the choice that the write binds to. It runs
+    only for a fresh proposal (`refuseProposal`): a replay or a resume of the same tool call
+    skips it, so a saved result still replays. The write checks again under the capture lock.
+    A duplicate returns `already_exists` before the conflict check, but it still closes the
+    rows that `replaces` names. Capture keeps two things apart: the stored content (a new row
+    or an existing one) and the rows that the operation closes.
+17. **The capture sweep follows the effective result.** The todo sweep dismisses a todo only
+    where `deriveEffectiveTriage` blocks it now and the new instruction matches. So an
+    exception that cancels the block keeps the todo. All targets go in one write. A failed
+    sweep keeps the instruction and returns `sweep_failed`. The same call again returns
+    `already_exists` and sweeps again. `replaces` states an end state, so an id that is
+    already retired passes and closes nothing. A repeat after a replacement then still plans.
+18. **A scope can be bound to one mailbox.** A v2 value can carry `accountId`. A scope match
+    then needs mail of that mailbox. Capture writes it when the input has a scope and an
+    `accountId`. Targets and `senderFilter` keep their own `accountId`.
+19. **Capture reads its clock after the lock.** `now()` is the transaction start, so a waiter
+    could miss a row that a rival committed during the wait. Capture and forget read
+    `clock_timestamp()` after the lock and use it for the active read and for the write.
 
 ## Pull requests
 
@@ -78,7 +108,8 @@ first.
 | 1   | The v2 contract: the value schema, the effect registry with the direction of each effect, and the coverage rule. The reader lifts v1 rows. Each consumer reads the stored effects of the v2 view.                                                                                                            | None. A v1 row gives the same four effects that it enforces today.                              |
 | 2   | The set-revision table and the two `email_triage` columns. Triage stores the model verdict and the evaluation. The instruction floor runs last and applies the stored effects with the direction rule. The scoped block in the classify prompt, the matched ids with a reason and `covers`, and the counter. | None until a scoped instruction exists. The ADR-0106 prior line for a sender leaves the prompt. |
 | 3   | Briefing gather, the briefing reads, the two reply-draft gates, and the todo decision derive the effective result under the three states (`matched`, `not_matched`, `unknown`).                                                                                                                              | A removed instruction stops at the next read.                                                   |
-| 4   | Capture: the v2 arm of `system.remember`, edit, and forget, with the one-line confirmation, the revision increase, and the re-match job.                                                                                                                                                                     | The owner can store a scoped instruction.                                                       |
+| 4   | (#1613) Capture: the v2 arm of `system.remember`, list, and forget, with the confirmation card and the revision trigger.                                                                                                                                                                                     | The owner can store a scoped instruction. Old mail stays `unknown` for it.                      |
+| 4b  | The re-match job: an instruction write enqueues one bounded match-only pass over the mail that a consumer can still read.                                                                                                                                                                                    | A new scoped instruction reaches old mail.                                                      |
 | 5   | The migration script for the 21 v1 rows, with the owner's review of each row, and the rollout-gate replay.                                                                                                                                                                                                   | The investment instruction becomes one scoped instruction.                                      |
 
 PR 5 needs the owner at the keyboard. Each other PR can merge when its checks pass.

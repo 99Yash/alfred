@@ -31,7 +31,9 @@ import { safeJsonParse } from "./json";
 import { mcpCallInput, mcpToolInspectInputSchema, mcpToolSearchInputSchema } from "./mcp";
 import { restPassthroughRequestSchema } from "./passthrough";
 import { typedKeys } from "./records";
+import { STANDING_INSTRUCTION_CAPTURE_EFFECT_KINDS } from "./standing-instructions";
 import { todoSourceSchema } from "./todos";
+import { triageCategorySchema } from "./triage";
 import {
   GMAIL_SEARCH_DEFAULT_RESULTS,
   GMAIL_SEARCH_MAX_RESULTS,
@@ -1389,69 +1391,100 @@ export const readChatHistoryInput = z
     path: ["kind"],
   });
 
-const rememberSenderEmail = z.string().trim().toLowerCase().max(320);
+const instructionLine = (max: number) =>
+  z
+    .string()
+    .trim()
+    .min(1)
+    .max(max)
+    .refine((s) => !/[\r\n]/.test(s), { message: "must be single-line" });
 
-const rememberSenderLabel = z
-  .string()
-  .trim()
-  .max(200)
-  .nullish()
-  .describe(
-    "Human display label for the sender, if known. A `domain` scope drops it — a class rule names " +
-      "no one person — and the result lists `senderLabel` under `droppedInputs`.",
-  );
+const instructionSenders = z.array(z.string().trim().toLowerCase().min(1).max(320)).min(1).max(50);
 
-const rememberScope = z
-  .enum(["sender", "domain"])
-  .optional()
-  .describe(
-    "How wide the instruction binds. `sender` (default) binds this one address. `domain` binds every " +
-      "address at the sender's domain, including ones that never wrote before; pick it when the user " +
-      "names a class of senders, not one mailbox. Alfred derives the domain from the address, and " +
-      "only a single organization's domain widens: a personal, school, shared-hosting, or " +
-      "mail-service host falls back to `sender`.",
-  );
+const instructionIds = z.array(z.string().min(1).max(100)).min(1).max(20).optional();
 
-const rememberEntryScope = z
-  .enum(["sender", "domain"])
-  .optional()
-  .describe("Overrides the top-level `scope` for this sender.");
-
+/**
+ * A v2 standing instruction (ADR-0113). The tool stages a card that the user confirms, also
+ * under full autonomy, so the card is the one-line confirmation. Code mints the instruction id
+ * and builds the stored targets; a domain must belong to one organization.
+ */
 export const rememberInput = coerceJsonArrayFields(
-  ["senders"],
+  ["targets", "senderFilter", "effects", "replaces", "coexistsWith"],
   z
     .object({
-      kind: z
-        .literal("sender_suppression")
-        .describe("Persist a resolved sender-level standing instruction."),
-      senderEmail: rememberSenderEmail
-        .optional()
-        .describe(
-          "Resolved sender email to suppress. If unresolved, omit it so Alfred can ask a clarification instead of persisting an unmatched instruction.",
-        ),
-      senderLabel: rememberSenderLabel,
-      scope: rememberScope,
-      senders: z
-        .array(
-          z
-            .object({
-              senderEmail: rememberSenderEmail,
-              senderLabel: rememberSenderLabel,
-              scope: rememberEntryScope,
-            })
-            .strict(),
-        )
+      kind: z.literal("standing_instruction").describe("Persist one standing instruction."),
+      instructionId: z
+        .string()
         .min(1)
-        .max(50)
+        .max(100)
         .optional()
         .describe(
-          "Every resolved sender to suppress when the user names more than one. One call persists one " +
-            "instruction per entry; `accountId`, `directive`, `phrasing`, and the top-level `scope` " +
-            "apply to all of them, and an entry's own `scope` overrides that default. An entry at " +
-            "`domain` scope ignores `directive` and its own `senderLabel`, so several entries at one " +
-            "domain can persist ONE instruction — read each entry's result, not the count. Use this " +
-            "instead of one call per sender.",
+          "Set only to revise an instruction that `list_instructions` shows with schemaVersion 2. " +
+            "The revision replaces every field below. Omit to store a new instruction.",
         ),
+      expectedRevision: z
+        .number()
+        .int()
+        .min(0)
+        .optional()
+        .describe(
+          "Required with `instructionId`: the `revision` that `list_instructions` shows for it. " +
+            "If the instruction changed since then, nothing is stored.",
+        ),
+      phrasing: instructionLine(1_000).describe("The user's own words, verbatim."),
+      directive: instructionLine(1_000).describe(
+        "One resolved sentence that says what Alfred does, for later model readers.",
+      ),
+      scope: instructionLine(500)
+        .optional()
+        .describe(
+          "Plain text for the class of mail the words name, for example 'stock, demat, and " +
+            "registrar notices'. Triage matches it by meaning, so a new sender is covered. Omit " +
+            "when the words name only senders.",
+        ),
+      targets: instructionSenders
+        .optional()
+        .describe(
+          "Sender addresses or bare domains that the user's words NAME, each for the whole " +
+            "sender. Never a list you chose from past mail: a class of mail goes in `scope`.",
+        ),
+      senderFilter: instructionSenders
+        .optional()
+        .describe(
+          "Addresses or domains that the words name to narrow `scope` (both must hold). Needs " +
+            "`scope`. Never matches alone.",
+        ),
+      effects: z
+        .array(z.enum(STANDING_INSTRUCTION_CAPTURE_EFFECT_KINDS))
+        .max(STANDING_INSTRUCTION_CAPTURE_EFFECT_KINDS.length)
+        .describe(
+          "Only the effects the words ask for. demote_urgent: urgent becomes action_needed. " +
+            "demote_demand: urgent and action_needed become fyi. demote_meeting: meeting mail " +
+            "becomes fyi. force_category: always `forceCategory`. block_todo_suggestion: no " +
+            "todo. exclude_briefing_priority: not a briefing priority. block_reply_draft: no " +
+            "proactive draft. Can be empty: the words then stay prose for later model readers. " +
+            "'Always show X in the briefing' has no effect yet; keep it in the words.",
+        ),
+      forceCategory: triageCategorySchema
+        .optional()
+        .describe("The category for `force_category`. Required with it, else omit."),
+      exceptionOf: z
+        .string()
+        .min(1)
+        .max(100)
+        .optional()
+        .describe(
+          "The `instructionId` of a broader active instruction that this one narrows, when the " +
+            "words state an exception ('except its marketing mail').",
+        ),
+      replaces: instructionIds.describe(
+        "The `instructionId`s of related instructions that the user chose to replace with this " +
+          "one. They stop when this one is stored.",
+      ),
+      coexistsWith: instructionIds.describe(
+        "The `instructionId`s of related instructions that the user chose to keep beside this " +
+          "one. On mail that both match, the later write wins a conflict.",
+      ),
       accountId: z
         .string()
         .trim()
@@ -1459,32 +1492,35 @@ export const rememberInput = coerceJsonArrayFields(
         .nullable()
         .optional()
         .describe(
-          "Optional account scope. Null or omitted means suppress this sender across accounts.",
+          "Optional mailbox. Null or omitted means every connected mailbox. It bounds the " +
+            "targets, the senderFilter, and the scope.",
         ),
-      directive: z
-        .string()
-        .trim()
-        .max(1_000)
-        .refine((s) => !/[\r\n]/.test(s), {
-          message: "directive must be single-line",
-        })
-        .optional()
-        .describe(
-          "Resolved instruction sentence for a `sender` scope. Omit to use the default open-loop " +
-            "suppression wording. A `domain` scope ignores it: Alfred writes the sentence from the " +
-            "domain, and the result lists `directive` under `droppedInputs`.",
-        ),
-      phrasing: z
-        .string()
-        .trim()
-        .max(1_000)
-        .refine((s) => !/[\r\n]/.test(s), {
-          message: "phrasing must be single-line",
-        })
-        .optional()
-        .describe("Verbatim user phrasing that asked Alfred to remember this."),
     })
-    .strict(),
+    .strict()
+    .refine((v) => (v.instructionId === undefined) === (v.expectedRevision === undefined), {
+      message: "expectedRevision is required with instructionId, and only with it",
+      path: ["expectedRevision"],
+    })
+    .refine((v) => v.senderFilter === undefined || v.scope !== undefined, {
+      message: "senderFilter needs a scope",
+      path: ["senderFilter"],
+    })
+    .refine((v) => v.effects.includes("force_category") === (v.forceCategory !== undefined), {
+      message: "forceCategory is required with force_category, and only with it",
+      path: ["forceCategory"],
+    })
+    // An effect or an exception with nothing to match never applies, so it must name senders or a class.
+    .refine(
+      (v) =>
+        (v.effects.length === 0 && v.exceptionOf === undefined) ||
+        v.targets !== undefined ||
+        v.scope !== undefined,
+      {
+        message:
+          "effects and exceptionOf need targets or a scope; with neither, keep effects empty",
+        path: ["effects"],
+      },
+    ),
 );
 
 /** No arguments. Returns a bounded newest-first page. */

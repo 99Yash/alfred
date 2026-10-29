@@ -169,6 +169,10 @@ export function memoryStagingStore(): MemoryStagingStore {
       return false;
     },
 
+    async hasStaging(query) {
+      return byConflictKey.has(conflictKey(query.runId, query.toolCallId));
+    },
+
     async upsertStaging(values: StagingInsertValues) {
       const key = conflictKey(values.runId, values.toolCallId);
       const existingId = byConflictKey.get(key);

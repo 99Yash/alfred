@@ -14,7 +14,7 @@ Last verified: 2026-10-20 at `fd13e6427`.
 
 **Verified model.**
 
-- Sign-in does not start research. The Google *integration* connect starts it (`http/src/connections/google-routes.ts:273-314`, then `publishGoogleCallbackCompleted`). This flow is separate from the Better Auth Google sign-in.
+- Sign-in does not start research. The Google _integration_ connect starts it (`http/src/connections/google-routes.ts:273-314`, then `publishGoogleCallbackCompleted`). This flow is separate from the Better Auth Google sign-in.
 - The research is web-only. The inputs are the user name, the email address and its domain, and the credential label. Alfred does not read the mailbox or the calendar for this step. The search engine is grounded Gemini web search (`assistant/src/knowledge/web-search.ts:102`).
 - Steps: gather-signals → seed → research-aspects → synthesis → extract-facts → persist (`assistant/src/knowledge/cold-start/cold-start-research.ts`).
 - Writes: `user_facts` proposals (`source.kind='cold_start'`, auto-confirmed at confidence ≥ 0.85) and one `memory_chunks` row (`kind='cold_start_research'`).
@@ -36,12 +36,12 @@ Last verified: 2026-10-20 at `fd13e6427`.
 
 **Verified model.** Partly correct.
 
-| Producer | Trigger | Live |
-| --- | --- | --- |
-| Email triage, `suggestTodo` from the classify step (`assistant/src/triage/workflow-operations.ts:521-541`, decision in `triage/todo-decision.ts:73-121`) | `gmail.message_received` | Yes. The only automatic producer. |
-| `system.suggest_todo` tool (`tool-runtime/internal/tools/system.ts:606`) | Chat, sub-agent, or user workflow, when the model calls it | Yes, on demand |
-| User, in the UI (`http/src/sync/write/todos.ts:23`) | Replicache mutator | Yes |
-| GitHub notifications poller (ADR-0052) | none | Not built |
+| Producer                                                                                                                                                 | Trigger                                                    | Live                              |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | --------------------------------- |
+| Email triage, `suggestTodo` from the classify step (`assistant/src/triage/workflow-operations.ts:521-541`, decision in `triage/todo-decision.ts:73-121`) | `gmail.message_received`                                   | Yes. The only automatic producer. |
+| `system.suggest_todo` tool (`tool-runtime/internal/tools/system.ts:606`)                                                                                 | Chat, sub-agent, or user workflow, when the model calls it | Yes, on demand                    |
+| User, in the UI (`http/src/sync/write/todos.ts:23`)                                                                                                      | Replicache mutator                                         | Yes                               |
+| GitHub notifications poller (ADR-0052)                                                                                                                   | none                                                       | Not built                         |
 
 **Deduplication today.** `suggestTodo` (`assistant/src/tasks/suggest.ts:51`) takes a per-user advisory lock and compares source refs `(provider, kind, id)` (`contracts/src/todos.ts:73`). A shared ref merges into the live todo. A todo resolved in the last 30 days suppresses a new one with the same identity ref. Gmail todos also carry a loop ref from the subject, for example `github:pull_request:owner/repo#N` (`contracts/src/loop-key.ts:130`).
 
@@ -101,14 +101,14 @@ Last verified: 2026-10-20 at `fd13e6427`.
 
 **Provider status.**
 
-| Provider | Status |
-| --- | --- |
-| GitHub PRs | Works |
-| GitHub CI | Reducer exists. No receipts in production (the App does not have the Checks permission). |
-| Railway | Works (pull only) |
-| Vercel | Writer works. No kind can close a loop. |
-| Sentry | Reducer exists. No issue alert in production yet. |
-| MCP health | Writer exists. No approved mapping. |
+| Provider   | Status                                                                                   |
+| ---------- | ---------------------------------------------------------------------------------------- |
+| GitHub PRs | Works                                                                                    |
+| GitHub CI  | Reducer exists. No receipts in production (the App does not have the Checks permission). |
+| Railway    | Works (pull only)                                                                        |
+| Vercel     | Writer works. No kind can close a loop.                                                  |
+| Sentry     | Reducer exists. No issue alert in production yet.                                        |
+| MCP health | Writer exists. No approved mapping.                                                      |
 
 **The runtime agent check.** This is the ADR-0109 runtime closure verifier: the model selects reads and cites values, and code checks identity, time, and state. It is designed and deferred. The trigger to build it is the `[briefing.gather] soft-edge loops with no hard edge` log line (`briefings/gather.ts:415-442`). The 2026-10-20 replay found 35 such loops: 23 have no object state, and 12 are GitHub CI mails blocked by the Checks permission.
 
@@ -139,7 +139,7 @@ Last verified: 2026-10-20 at `fd13e6427`.
 **Memory from chat.**
 
 - `CHAT_MEMORY_CAPTURE_ENABLED` is off by default (`env/src/server.ts:305`). When it is on, a job runs 12 minutes after the thread goes quiet. The job extracts propositions, but it writes nothing (`chat/chat-memory-capture.ts:235`, `TODO(#399)`).
-- The only chat tool that writes memory is `system.remember`, and it stores only a sender suppression (`tool-runtime/internal/tools/system.ts:491`). The other memory tools list, edit, or forget those instructions. So Alfred does not keep "I prefer morning meetings" or "I am on X this week".
+- The only chat tool that writes memory is `system.remember`, and it stores only a standing instruction about mail (ADR-0113): the user's words, a scope that triage matches by meaning, the senders the words name, and the chosen effects. The user confirms each one on a card, also under full autonomy. The other memory tools list, edit, or forget those instructions. So Alfred does not keep "I prefer morning meetings" or "I am on X this week".
 
 **What chat can read.**
 
@@ -165,12 +165,12 @@ Last verified: 2026-10-20 at `fd13e6427`.
 
 Method: traces tagged `role:triage`, generations `triage.classify` and `triage.classify.second_pass`, read through `/api/public/v2/observations`. The clock starts at the worker lease, not at Gmail ingest.
 
-| Measure | p50 | p90 | max |
-| --- | --- | --- | --- |
-| Whole run | 4.9 s | 6.1 s | 7.6 s |
-| `classify` step | 3.1 s | 4.4 s | 5.7 s |
-| `apply-label` step (Gmail label calls, no span) | 1.6 s | 2.2 s | 2.9 s |
-| Queue wait between steps | 0.02 s | 0.03 s | 0.1 s |
+| Measure                                         | p50    | p90    | max   |
+| ----------------------------------------------- | ------ | ------ | ----- |
+| Whole run                                       | 4.9 s  | 6.1 s  | 7.6 s |
+| `classify` step                                 | 3.1 s  | 4.4 s  | 5.7 s |
+| `apply-label` step (Gmail label calls, no span) | 1.6 s  | 2.2 s  | 2.9 s |
+| Queue wait between steps                        | 0.02 s | 0.03 s | 0.1 s |
 
 - Model: `gemini-2.5-flash-lite` for all calls. Input about 11.9K tokens (p90 13.8K) for an output of about 115 tokens.
 - The first call usually has no cached input. Its p50 latency (2.84 s) is longer than the 2.5 s hedge delay, so the hedge call starts in 78% of runs and wins in 2%.

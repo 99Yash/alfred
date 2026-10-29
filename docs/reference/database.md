@@ -114,6 +114,16 @@ both outside application reach, by design. FK-cascade from a user/todo or
 user/credential wipe is the one allowed DELETE path, so owner deletion and
 test cleanup keep working.
 
+## Standing-instruction set revision (ADR-0113)
+
+The `user_facts_instruction_set_revision` trigger (migration 0154) owns
+`standing_instruction_set_revisions`. Each insert, delete, or visible update
+of a `standing_instruction` row in `user_facts` adds 1 to that user's
+revision in the same transaction. An update that changes only bookkeeping
+columns (for example `row_version`) does not count. Application code never
+writes the revision, so a new writer, a script, or hand SQL cannot leave it
+stale. A stored triage match that read an older revision reads as `unknown`.
+
 ## BullMQ / Redis
 
 `createRedisConnection(kind)` from `@alfred/db/redis` is the only factory. `kind` picks what the connection does when Redis is unreachable, refusing, or accepting but unresponsive. Read the kinds off the `RedisConnectionKind` table in `packages/db/src/redis.ts` — it is the single home of that matrix, and a copy here would drift from it. Pass `{ tracked: false }` for a short-lived probe the caller closes itself; every other connection is drained by `closeRedis()` at shutdown.

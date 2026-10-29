@@ -52,7 +52,8 @@ export type StandingEffectVerdict = Pick<
  *  - `no_change`: it applied, and the result already had its value.
  *  - `part_cover`: a lowering effect on a scope match that the model said covers only part.
  *  - `held_secret`: a lowering category effect lost to the exposed-secret signal.
- *  - `cancelled`: an exception of this instruction also matched (`exceptionOf`).
+ *  - `cancelled`: an exception of this instruction also matched (`exceptionOf`), with the
+ *    cover that E2 asks for this effect.
  *  - `not_triage`: a briefing or reply-draft effect. Its consumer applies it.
  */
 export type StandingEffectResult =
@@ -91,7 +92,7 @@ export interface StandingFloorResult {
 
 export interface StandingFloorAudit {
   effects: StandingEffectAudit[];
-  /** Instruction ids that an exception of theirs cancelled on this mail. */
+  /** Instruction ids that an exception of theirs cancelled, for one effect or more, on this mail. */
   cancelled: string[];
   outcome: StandingFloorOutcome | null;
 }
@@ -187,17 +188,39 @@ function coverageOf(match: StandingInstructionMatch): StandingInstructionCoverag
   return match.via.kind === "target" ? "all" : match.via.covers;
 }
 
-/** An exception cancels the instruction it names, on this mail only. */
-function cancelledInstructionIds(matches: readonly StandingInstructionMatch[]): Set<string> {
+/**
+ * The instructions that a matched exception names (`exceptionOf`), each with the widest cover
+ * of its exceptions on this mail. A target hit of an exception is full cover.
+ */
+function exceptionCovers(
+  matches: readonly StandingInstructionMatch[],
+): Map<string, StandingInstructionCoverage> {
   const matchedIds = new Set(matches.map((match) => match.value.instructionId));
+  const covers = new Map<string, StandingInstructionCoverage>();
 
-  return new Set(
-    matches.flatMap((match) => {
-      const broader = match.value.exceptionOf;
+  for (const match of matches) {
+    const broader = match.value.exceptionOf;
 
-      return broader !== undefined && matchedIds.has(broader) ? [broader] : [];
-    }),
-  );
+    if (broader === undefined || !matchedIds.has(broader)) continue;
+
+    if (covers.get(broader) !== "all") covers.set(broader, coverageOf(match));
+  }
+
+  return covers;
+}
+
+/**
+ * Does an exception cancel this effect of the instruction it names, on this mail only? The
+ * E2 rule applies to the cancellation: to cancel a raise is a lowering, so it needs full
+ * cover; to cancel a lowering is a raise, so any part of the mail is enough.
+ */
+function exceptionCancels(
+  effect: StandingInstructionEffect,
+  context: { cover: StandingInstructionCoverage | undefined; modelCategory: TriageCategory },
+): boolean {
+  if (context.cover === undefined) return false;
+
+  return context.cover === "all" || !standingInstructionEffectRaises(effect, context.modelCategory);
 }
 
 /** Oldest write first, so the later write wins a conflict. */
@@ -210,7 +233,8 @@ function oldestFirst(matches: readonly StandingInstructionMatch[]): StandingInst
 /**
  * Apply the effects of every matched instruction to the model verdict (ADR-0113). Pure, so
  * a consumer that reads the stored verdict and the current matches gets the triage result.
- *  1. An exception cancels the instruction it names, on this mail only.
+ *  1. An exception cancels the instruction it names, on this mail only. To cancel a raise
+ *     needs full cover of the exception (E2).
  *  2. Instructions apply oldest first, so the later write wins a conflict.
  *  3. A lowering effect needs full cover (E2). A target hit is full cover.
  *  4. The security floor holds a lowering category effect and never a raise.
@@ -219,8 +243,9 @@ export function applyStandingInstructionEffects(
   verdict: StandingEffectVerdict,
   context: { exposedSecret: boolean; matches: readonly StandingInstructionMatch[] },
 ): StandingFloorResult {
-  const cancelledIds = cancelledInstructionIds(context.matches);
+  const covers = exceptionCovers(context.matches);
   const ordered = oldestFirst(context.matches);
+  const cancelledIds = new Set<string>();
 
   const effects: StandingEffectAudit[] = [];
   const clauses: string[] = [];
@@ -244,7 +269,13 @@ export function applyStandingInstructionEffects(
           result,
         });
 
-      if (cancelledIds.has(match.value.instructionId)) {
+      if (
+        exceptionCancels(effect, {
+          cover: covers.get(match.value.instructionId),
+          modelCategory: verdict.category,
+        })
+      ) {
+        cancelledIds.add(match.value.instructionId);
         record("cancelled");
         continue;
       }
@@ -361,7 +392,7 @@ export function applyStandingConsumerEffects(context: {
   exposedSecret: boolean;
   matches: readonly StandingInstructionMatch[];
 }): StandingConsumerEffects {
-  const cancelledIds = cancelledInstructionIds(context.matches);
+  const covers = exceptionCovers(context.matches);
 
   let briefingPriority: StandingBriefingPriority | null = null;
   let briefingExclusionHeldBy: StandingInstructionMatch | null = null;
@@ -369,11 +400,12 @@ export function applyStandingConsumerEffects(context: {
   let todoBlockedBy: StandingInstructionMatch | null = null;
 
   for (const match of oldestFirst(context.matches)) {
-    if (cancelledIds.has(match.value.instructionId)) continue;
-
     const coverage = coverageOf(match);
+    const cover = covers.get(match.value.instructionId);
 
     for (const effect of match.value.effects) {
+      if (exceptionCancels(effect, { cover, modelCategory: context.modelCategory })) continue;
+
       if (
         !standingInstructionEffectApplies(effect, {
           coverage,

@@ -80,8 +80,10 @@ interface ToolAvailabilityMetadata {
  *   {@link joinToolInput} finishes. `execute` is the non-blocking fallback.
  * - `"question"` (ADR-0099): parks the chat turn on a question approval.
  *   Only `ASK_USER_TOOL` may use it. `STAGING_ARM` holds the per-arm differences.
+ * - `"confirm"` (ADR-0113): a staged write whose card always shows, also under chat full
+ *   autonomy. The user's click is the authority for what the write stores.
  */
-export type ToolStagingPolicy = "staged" | "fast_path" | "join" | "question";
+export type ToolStagingPolicy = "staged" | "fast_path" | "join" | "question" | "confirm";
 
 /** One live chat turn: its thread, and the assistant message the turn streams into (ADR-0073). */
 export const chatTurnAddressSchema = z
@@ -218,6 +220,13 @@ export interface ToolArgsCommon<
    */
   refuseInput?: (input: z.infer<S>, ctx: ToolExecuteContext) => string | null;
   /**
+   * A refusal that depends on stored state, for a gated tool. Dispatch runs it only for a fresh
+   * proposal, before the call has a staging row, and returns a non-null text as `invalid_input`.
+   * A replay or a resume of the same call skips it: the state it read can change after the
+   * write, and the saved result must still replay. Must be side-effect free.
+   */
+  refuseProposal?: (input: z.infer<S>, ctx: ToolExecuteContext) => Promise<string | null>;
+  /**
    * Scrub secrets before the input reaches a trace or a staging row (#293).
    * Must be pure and keep the shape. The hash and `execute` see the raw input.
    */
@@ -287,6 +296,8 @@ export interface BoundToolCall {
   input: unknown;
   /** See {@link LiveToolArgs.refuseInput}. `null` when the tool declares no refusal. */
   refusal: (ctx: ToolExecuteContext) => string | null;
+  /** See {@link LiveToolArgs.refuseProposal}. `null` when the tool declares none. */
+  proposalRefusal: ((ctx: ToolExecuteContext) => Promise<string | null>) | null;
   /**
    * Resolves the tier for this call (ADR-0088). The static tier when the tool has no
    * `resolveRiskTier`. A resolver result that is not a tier fails closed to the static tier.
@@ -629,7 +640,14 @@ export function liveTool<
   O,
 >(args: LiveToolArgs<I, A, S, boolean, O> | PassthroughToolArgs<I, A, S, boolean>): RegisteredTool {
   const name = buildToolName(args.integration, args.action);
-  const { redactInput, resolveRiskTier, refuseInput } = args;
+  const { redactInput, resolveRiskTier, refuseInput, refuseProposal } = args;
+
+  // Only a gated call writes a staging row, so on any other policy the check would never run.
+  if (refuseProposal && (args.staging === "fast_path" || args.staging === "join")) {
+    throw new Error(
+      `[tools] '${name}' declares refuseProposal on staging='${args.staging}', which never stages`,
+    );
+  }
 
   const tool: RegisteredTool = {
     name,
@@ -691,6 +709,7 @@ export function liveTool<
           tool,
           input,
           refusal: (ctx) => refuseInput?.(input, ctx) ?? null,
+          proposalRefusal: refuseProposal ? (ctx) => refuseProposal(input, ctx) : null,
           effectiveRiskTier: async (ctx) =>
             resolveRiskTier
               ? clampResolvedRiskTier(tool, await resolveRiskTier(input, ctx), ctx.runId)
@@ -811,6 +830,23 @@ export function registerTool(tool: RegisteredTool): void {
         `[tools] '${tool.name}' declares staging='join' but '${existingJoin.name}' already does — ` +
           "the join arm has one implementation (ADR-0073 sub-agent join), so a second declarer " +
           "would silently route into it",
+      );
+    }
+  }
+
+  // ADR-0113. The card is the confirmation, so a person on a live thread must see it.
+  if (tool.staging === "confirm") {
+    if (tool.integration !== "system") {
+      throw new Error(
+        `[tools] '${tool.name}' declares staging='confirm' on integration='${tool.integration}' — ` +
+          "the confirm arm is only defined for 'system' tools",
+      );
+    }
+
+    if (tool.availability?.requiresLiveChat !== true) {
+      throw new Error(
+        `[tools] '${tool.name}' declares staging='confirm' but does not require a live chat — ` +
+          "declare availability: { requiresLiveChat: true }, so the user sees the card",
       );
     }
   }

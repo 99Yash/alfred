@@ -11,7 +11,7 @@ import {
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, todos } from "@alfred/db/schemas";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
 
@@ -27,11 +27,11 @@ const resolveTodosForGmailSourceArgsSchema = z
     todoIds: z.array(z.string().min(1)).min(1).optional(),
     accountId: z.string().nullable().optional(),
     /**
-     * Sweep the live todos whose thread matches this standing-instruction target
-     * ({@link targetMatchesSender}). Never with `senderEmail`, `accountId`, `todoIds`,
-     * or `statuses`: the target owns its account gate and status bound.
+     * Sweep the live todos whose thread matches one of these standing-instruction targets
+     * ({@link targetMatchesSender}), in one write. Never with `senderEmail`, `accountId`,
+     * `todoIds`, or `statuses`: each target owns its account gate and status bound.
      */
-    target: standingInstructionTargetSchema.nullish(),
+    targets: z.array(standingInstructionTargetSchema).min(1).optional(),
     /**
      * Statuses to retract; defaults to both. `close-loop-todos` passes `["suggested"]`:
      * it may drop an unpromoted proposal, never a todo the user promoted to `open`.
@@ -45,29 +45,20 @@ const resolveTodosForGmailSourceArgsSchema = z
   .refine(
     (data) =>
       !(
-        data.target &&
+        data.targets &&
         (data.senderEmail ||
           data.accountId ||
           data.todoIds !== undefined ||
           data.statuses !== undefined)
       ),
     {
-      message: "Pass target alone — never beside senderEmail, accountId, todoIds, or statuses.",
+      message: "Pass targets alone — never beside senderEmail, accountId, todoIds, or statuses.",
     },
   );
 
 export type ResolveTodosForGmailSourceArgs = z.infer<typeof resolveTodosForGmailSourceArgsSchema>;
 
 const DEFAULT_RETRACTABLE_STATUSES = ["open", "suggested"] as const satisfies ReadonlyArray<
-  z.infer<typeof liveTodoStatusSchema>
->;
-
-/**
- * A class target (such as a domain) widens the sender set, so it may retract only
- * `suggested`, never a promoted `open` todo. A one-mailbox target
- * ({@link targetNamesOneMailbox}) keeps both statuses.
- */
-const TARGET_SWEEP_STATUSES = ["suggested"] as const satisfies ReadonlyArray<
   z.infer<typeof liveTodoStatusSchema>
 >;
 
@@ -92,6 +83,7 @@ export type ResolveTodosForGmailSourceResult =
 
 interface CandidateTodo {
   id: string;
+  status: z.infer<typeof liveTodoStatusSchema>;
   threadIds: string[];
 }
 
@@ -101,11 +93,19 @@ interface GmailThreadMetadata {
   senderEmails: Set<string>;
 }
 
+export interface ResolveTodosForGmailSourceOptions {
+  /**
+   * The threads of the matched todos that the caller's own rule still admits. A todo is
+   * dismissed only through an admitted thread. A throw dismisses nothing.
+   */
+  admitThreads?: (sourceThreadIds: readonly string[]) => Promise<ReadonlySet<string>>;
+}
+
 /**
  * Dismiss live Gmail-sourced todos by source: by `sourceThreadId` (`close-loop-todos`),
- * by `senderEmail`/`accountId` (`system.resolve_todo`), by `target` (`system.remember`),
+ * by `senderEmail`/`accountId` (`system.resolve_todo`), by `targets` (`system.remember`),
  * or a thread plus one sender scope. `todoIds` can narrow a thread call further.
- * A class-target sweep is forced to `suggested` only.
+ * A class target can dismiss only a `suggested` todo. All dismissals are one write.
  *
  * `attribution` is the ADR-0115 record of the dismissal. It has no default: each caller names
  * its actor, and the `todos` trigger fails a write without one.
@@ -113,26 +113,23 @@ interface GmailThreadMetadata {
 export async function resolveTodosForGmailSource(
   args: ResolveTodosForGmailSourceArgs,
   attribution: TodoAttribution,
+  options: ResolveTodosForGmailSourceOptions = {},
 ): Promise<ResolveTodosForGmailSourceResult> {
   const parsed = resolveTodosForGmailSourceArgsSchema.parse(args);
   const senderEmail = normalizeEmailAddress(parsed.senderEmail);
   const sourceThreadId = normalizeOptional(parsed.sourceThreadId);
   const requestedTodoIds = parsed.todoIds ? new Set(parsed.todoIds) : null;
   const accountId = normalizeOptional(parsed.accountId);
-  const target = parsed.target ?? null;
+  const targets = parsed.targets ?? null;
   const record = todoAttributionSchema.parse(attribution);
   const note = normalizeOptional(record.note);
   const auditReason = note ?? record.cause;
 
-  // Class target: `suggested` only. One-mailbox target: the caller default.
-  // The schema refuses `statuses` with `target`.
-  const statuses = target
-    ? targetNamesOneMailbox(target)
-      ? DEFAULT_RETRACTABLE_STATUSES
-      : TARGET_SWEEP_STATUSES
-    : (parsed.statuses ?? DEFAULT_RETRACTABLE_STATUSES);
+  // Load both statuses for a target sweep. Each target bounds its own matches below.
+  // The schema refuses `statuses` with `targets`.
+  const statuses = parsed.statuses ?? DEFAULT_RETRACTABLE_STATUSES;
 
-  if (!senderEmail && !sourceThreadId && !target) {
+  if (!senderEmail && !sourceThreadId && !targets) {
     return {
       ok: false,
       status: "needs_clarification",
@@ -154,28 +151,34 @@ export async function resolveTodosForGmailSource(
   const allThreadIds = [...new Set(relevant.flatMap((candidate) => candidate.threadIds))];
 
   const threadMetadata =
-    senderEmail || accountId || target
+    senderEmail || accountId || targets
       ? await loadThreadMetadata(parsed.userId, allThreadIds)
       : new Map<string, GmailThreadMetadata>();
 
-  const todoIds = new Set<string>();
-  const matchedThreadIds = new Set<string>();
+  const matches: Array<{ todoId: string; threadId: string }> = [];
 
   for (const candidate of relevant) {
     for (const threadId of candidate.threadIds) {
       if (sourceThreadId && threadId !== sourceThreadId) continue;
 
-      if (senderEmail || accountId || target) {
+      if (senderEmail || accountId || targets) {
         const meta = threadMetadata.get(threadId);
 
         if (!meta) continue;
 
-        if (target) {
+        if (targets) {
           // Use the instruction's own match rule. Senders and accounts are matched as two
           // separate sets, not as pairs, so a thread across two mailboxes can over-match.
-          // An unknown target kind matches nothing.
-          const covered = [...meta.senderEmails].some((sender) =>
-            [...meta.accountIds].some((account) => targetMatchesSender(target, sender, account)),
+          // An unknown target kind matches nothing. A class target (such as a domain) widens
+          // the sender set, so it retracts only `suggested`, never a promoted `open` todo.
+          const covered = targets.some(
+            (target) =>
+              (candidate.status === "suggested" || targetNamesOneMailbox(target)) &&
+              [...meta.senderEmails].some((sender) =>
+                [...meta.accountIds].some((account) =>
+                  targetMatchesSender(target, sender, account),
+                ),
+              ),
           );
 
           if (!covered) continue;
@@ -186,10 +189,29 @@ export async function resolveTodosForGmailSource(
         }
       }
 
-      todoIds.add(candidate.id);
-      matchedThreadIds.add(threadId);
+      matches.push({ todoId: candidate.id, threadId });
     }
   }
+
+  const admitted = options.admitThreads
+    ? await options.admitThreads([...new Set(matches.map((match) => match.threadId))])
+    : null;
+
+  const todoIds = new Set<string>();
+  const matchedThreadIds = new Set<string>();
+
+  for (const match of matches) {
+    if (admitted && !admitted.has(match.threadId)) continue;
+
+    todoIds.add(match.todoId);
+    matchedThreadIds.add(match.threadId);
+  }
+
+  // Each todo keeps the status it was matched in, so a todo promoted since the read stays.
+  const statusById = new Map(relevant.map((candidate) => [candidate.id, candidate.status]));
+
+  const idsIn = (status: z.infer<typeof liveTodoStatusSchema>) =>
+    [...todoIds].filter((id) => statusById.get(id) === status);
 
   if (todoIds.size === 0) return notFound(auditReason);
 
@@ -204,8 +226,13 @@ export async function resolveTodosForGmailSource(
     .where(
       and(
         eq(todos.userId, parsed.userId),
-        inArray(todos.id, [...todoIds]),
-        inArray(todos.status, [...statuses]),
+        or(
+          ...statuses.flatMap((status) => {
+            const ids = idsIn(status);
+
+            return ids.length > 0 ? [and(eq(todos.status, status), inArray(todos.id, ids))] : [];
+          }),
+        ),
       ),
     )
     .returning({ id: todos.id });
@@ -247,7 +274,7 @@ async function loadLiveGmailTodoCandidates(
   requestedTodoIds: ReadonlySet<string> | null,
 ): Promise<CandidateTodo[]> {
   const rows = await db()
-    .select({ id: todos.id, sources: todos.sources })
+    .select({ id: todos.id, status: todos.status, sources: todos.sources })
     .from(todos)
     .where(
       and(
@@ -259,8 +286,11 @@ async function loadLiveGmailTodoCandidates(
 
   return rows.flatMap((row) => {
     const threadIds = gmailThreadIdsFromTodoSources(row.sources);
+    const status = liveTodoStatusSchema.safeParse(row.status);
 
-    return threadIds.length > 0 ? [{ id: row.id, threadIds }] : [];
+    return threadIds.length > 0 && status.success
+      ? [{ id: row.id, status: status.data, threadIds }]
+      : [];
   });
 }
 
