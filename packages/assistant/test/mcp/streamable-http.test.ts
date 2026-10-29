@@ -252,7 +252,7 @@ test("McpRawClient negotiates, catalogs, and calls a real Streamable HTTP server
               ...payload,
               result: {
                 ...payload.result,
-                ttlMs: 60_000,
+                ttlMs: 10 * 60_000,
                 cacheScope: "private",
               },
             },
@@ -288,7 +288,7 @@ test("McpRawClient negotiates, catalogs, and calls a real Streamable HTTP server
     catalog.tools.map((tool) => tool.name),
     ["echo"],
   );
-  assert.equal(catalog.ttlMs, 60_000);
+  assert.equal(catalog.ttlMs, 10 * 60_000);
   assert.equal(catalog.cacheScope, "private");
   const listCallsBeforeCacheHit = wire.filter((entry) => entry.method === "tools/list").length;
   assert.equal(await client.refreshCatalog(), catalog);
