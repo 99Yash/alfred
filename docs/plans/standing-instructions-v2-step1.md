@@ -1,6 +1,6 @@
 ---
 status: in-progress
-evidence: "PR 1 is #1609 (open)."
+evidence: "PR 1 is #1609 (merged). PR 2 is #1610."
 ---
 
 # Standing instructions v2, step 1: the base design of ADR-0113
