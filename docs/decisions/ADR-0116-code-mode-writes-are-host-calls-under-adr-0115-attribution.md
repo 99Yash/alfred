@@ -94,6 +94,7 @@ The cap in rule 4 limits the case that ADR-0115 names as its honest limit: a pro
 
 - `models.classify(items, schema)` calls `route("cheap")` one time for each batch and returns typed results. A program has a model-call cap, and each call is metered like a tool call (`packages/db/src/schema/metering.ts`). This is the "non-tool API" idea of the article.
 - `mcp.read(server, tool, args)` uses the `result: "structured"` option, so a program gets the whole `structuredContent`. This is a facade over the same broker read that `mcp.call` uses, with the same gate.
+- **One prepared catalog for each server in a program** (owner decision of 2026-10-29). The first `mcp.read` on a connection prepares its catalog, and each later `mcp.read` on that connection in the same pass uses that prepared catalog. The broker read prepares the catalog before each call, and a server that sends `ttlMs: 0` made each call list the catalog again (GitHub: 9-17 s for each call). The 5-minute catalog TTL floor in `connections/mcp/protocol.ts` removes most of that cost, but a program must not pay it N times when the floor expires or a list-change event arrives. One catalog also gives one tool revision to the whole pass. If the server rejects a stale descriptor, the read fails with `descriptor_mismatch`, and the program gets a `RunError`. The program does not prepare the catalog again in the same pass.
 
 ### What this ADR does not adopt from the article
 

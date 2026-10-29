@@ -55,7 +55,9 @@ Status: implemented in PR #607 and its cache-hint follow-up
 - Test both the legacy notification and modern `subscriptions/listen`.
   Implemented in PR #607, including subscription-open failure and closure.
 - Carry `ttlMs` and `cacheScope` through `McpProtocolPage`. Implemented in the
-  cache-hint follow-up with conservative `0` / `private` defaults.
+  cache-hint follow-up with conservative `0` / `private` defaults. Since
+  2026-10-29 each catalog TTL has a 5-minute floor, also after a server `0`,
+  because an SDK-built server sends `0` and each call listed the catalog again.
 - Keep one full, bounded, multi-page refresh as the only revision publication
   path. Implemented; page-one hints apply only after the complete catalog is
   admitted.

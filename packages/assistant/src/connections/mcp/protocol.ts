@@ -22,11 +22,20 @@ import type { McpTraceContext } from "./trace";
 
 const HEADER_MISMATCH_ERROR_CODE = -32020;
 
-// A missing or malformed server TTL means "do not cache". Zod 4 numbers reject NaN and Infinity.
+/**
+ * Shortest catalog lifetime, the SDK's `defaultCacheTtlMs` choice. It also overrides a server `0`:
+ * an SDK-built server sends `0` by default, and a GitHub list takes 9-17 s before every call.
+ * A list-change event, a descriptor mismatch, or a newer durable revision still ends it early.
+ * Without list-change support, it bounds how long a changed catalog stays unseen.
+ */
+const CATALOG_TTL_FLOOR_MS = 5 * 60_000;
+
+// A missing or malformed server TTL gets the floor. Zod 4 numbers reject NaN and Infinity.
 const cacheTtlSchema = z
   .number()
-  .catch(0)
-  .transform((ttl) => Math.min(Math.max(0, ttl), MAX_CACHE_TTL_MS));
+  .optional()
+  .catch(undefined)
+  .transform((ttl) => Math.min(Math.max(CATALOG_TTL_FLOOR_MS, ttl ?? 0), MAX_CACHE_TTL_MS));
 
 /** A list-change stream that lived less than this is not reopened. */
 const MIN_RELISTEN_LIFETIME_MS = 10_000;
