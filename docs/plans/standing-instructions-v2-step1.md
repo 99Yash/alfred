@@ -1,6 +1,6 @@
 ---
 status: in-progress
-evidence: "PR 1 is #1609 (merged). PR 2 is #1610."
+evidence: "PR 1 is #1609 (merged). PR 2 is #1610 (merged). PR 3 is open on branch feat/standing-instructions-v2-consumers."
 ---
 
 # Standing instructions v2, step 1: the base design of ADR-0113
@@ -41,6 +41,14 @@ These choices are not in the ADR. Each one is the smallest choice that keeps an 
    classify prompt, and the output allowance holds a match for each. If the output still fails
    with the match list, the pass runs again without it. The verdict stays, and each sent
    instruction is `unknown`. The trace records `standingMatchFailure`.
+8. **One derivation for every consumer.** `deriveEffectiveTriage` in `triage/effective.ts`
+   takes the stored row, the consumer's document, and the current instructions. A stored scope
+   result counts only when the row's `documentId` is the consumer's document and the revision
+   is current. A row with no model verdict (from before ADR-0113, or the classifier fallback)
+   keeps its cached result, because to apply the effects again could undo a secret hold.
+9. **The security floor holds a briefing exclusion.** When the exposed-secret signal fired, an
+   `exclude_briefing_priority` changes nothing. It does not hold a `block_reply_draft`, because
+   a block is never less safe.
 
 ## Open before PR 4
 
@@ -51,6 +59,14 @@ first.
   cover check, so a `part` scope match of an exception cancels a sender-wide raise. The
   recommendation is to apply E2 to the cancellation: to cancel a raise is a lowering, so it
   needs full cover; to cancel a lowering is a raise, so any part is enough.
+- **What `include_briefing_priority` adds.** In PR 3 an inclusion only cancels an earlier
+  exclusion. Briefing gather has no bucket for an item outside the priority categories, so an
+  inclusion cannot add a `fyi` item. PR 4 must decide the bucket before capture can write the
+  effect.
+- **An `unknown` exception does not cancel.** An exception cancels only when it is `matched`.
+  While it is `unknown`, the broader instruction applies. For a lowering exception of a raise,
+  this is the safe direction. For a raising exception of a lowering, the item stays lowered
+  until the next triage run.
 - **One owner for the revision.** Each `facts.ts` write branch now calls `noteFactKeyWrite`.
   A new branch that does not call it leaves a stale revision. PR 4 puts the instruction write,
   the revision increase, and the re-match job behind one function.

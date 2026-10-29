@@ -37,11 +37,7 @@ import { prepareReplyStaging } from "./verifier";
 // Side-effect import: registers the `reply_drafting.decision` trace kind.
 import "./decision";
 import { replyDraftingWorkflowInputSchema } from "./workflow-input";
-import {
-  decideReplyWorthiness,
-  noDraftResult,
-  type ReplyStandingInstructionState,
-} from "./worthiness";
+import { decideReplyWorthiness, noDraftResult, replyStandingInstructionState } from "./worthiness";
 
 /**
  * `reply-drafting` workflow (ADR-0098): `gate`, `gather`, `compose`, `stage`.
@@ -177,20 +173,22 @@ async function runGate(ctx: StepContext<State>): Promise<StepResult<State>> {
     accountId: document.accountId,
   });
 
-  let standingInstruction: ReplyStandingInstructionState = "none";
-
   const suppressions = await standingInstructions({ userId: ctx.userId, onReadFailure: "report" });
 
-  const suppression = suppressions.matchSender(
-    { sender: senderContextResult.senderAddress, accountId: document.accountId },
-    "block_reply_draft",
-  );
+  const instructions = suppressions.forMail({
+    sender: senderContextResult.senderAddress,
+    accountId: document.accountId,
+  });
 
-  if (suppression.kind === "suppressed") standingInstruction = "suppress";
+  // The row is for this document (checked above), so its evaluation is current for it.
+  const standingInstruction = replyStandingInstructionState({
+    instructions,
+    triage: row,
+    documentId: ctx.state.documentId,
+  });
 
-  if (suppression.kind === "read_failed") {
-    standingInstruction = "read_failed";
-    await ctx.log(`gate: standing instruction read failed: ${toMessage(suppression.error)}`);
+  if (instructions.kind === "read_failed") {
+    await ctx.log(`gate: standing instruction read failed: ${toMessage(instructions.error)}`);
   }
 
   const state: State = {

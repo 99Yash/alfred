@@ -474,13 +474,27 @@ export async function markGmailDocumentSent(args: {
     );
 }
 
-function rowToTriage(row: EmailTriage): TriageRow {
-  const documentAsk = documentAskProposalSchema.safeParse(row.documentAsk);
+/**
+ * Parse the two ADR-0113 columns. A column that fails its parse reads as null: no verdict, or
+ * no evaluation, so every scoped instruction is `unknown`.
+ */
+export function parseTriageEvaluationColumns(
+  row: Pick<EmailTriage, "modelVerdict" | "instructionEvaluation">,
+): Pick<TriageRow, "modelVerdict" | "instructionEvaluation"> {
   const modelVerdict = triageModelVerdictSchema.safeParse(row.modelVerdict);
 
   const instructionEvaluation = triageInstructionEvaluationSchema.safeParse(
     row.instructionEvaluation,
   );
+
+  return {
+    modelVerdict: modelVerdict.success ? modelVerdict.data : null,
+    instructionEvaluation: instructionEvaluation.success ? instructionEvaluation.data : null,
+  };
+}
+
+function rowToTriage(row: EmailTriage): TriageRow {
+  const documentAsk = documentAskProposalSchema.safeParse(row.documentAsk);
 
   return {
     userId: row.userId,
@@ -490,8 +504,7 @@ function rowToTriage(row: EmailTriage): TriageRow {
     confidence: row.confidence,
     rationale: row.rationale,
     documentAsk: documentAsk.success ? documentAsk.data : null,
-    modelVerdict: modelVerdict.success ? modelVerdict.data : null,
-    instructionEvaluation: instructionEvaluation.success ? instructionEvaluation.data : null,
+    ...parseTriageEvaluationColumns(row),
     model: row.model,
     appliedLabelId: row.appliedLabelId,
     classifiedAt: row.classifiedAt,

@@ -51,7 +51,12 @@ import {
 } from "./store";
 import { reconcileThreadLabel } from "./tags";
 import { getThreadState } from "./thread-state";
-import { decideTriageTodo, type TriageTodoDecision } from "./todo-decision";
+import {
+  decideTriageTodo,
+  triageTodoStanding,
+  type TodoTriageResult,
+  type TriageTodoDecision,
+} from "./todo-decision";
 import { assembleObservations, type Observations } from "./observations";
 import type { StepContext, StepResult } from "@alfred/assistant/execution";
 import {
@@ -247,7 +252,9 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
   let todo: TriageTodoDecision;
   const reusedExistingRow = Boolean(existing && existing.runId === ctx.runId);
 
-  const decideTodo = (suppressions: ReportedStandingInstructionSet) =>
+  // The todo lane derives from the triage result it decides on (ADR-0113), under the same
+  // instruction read as the category lane.
+  const decideTodo = (suppressions: ReportedStandingInstructionSet, triage: TodoTriageResult) =>
     decideTriageTodo({
       userId: ctx.userId,
       settings: userSettings,
@@ -255,13 +262,17 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       reason: ctx.state.reason,
       classification,
       document: ctxData.document,
-      senderAddress: senderContextResult.senderAddress,
       // On reuse there are no observations, so read the row's verdict (#517 D1).
       isColdContact:
         observations?.senderRelationshipIsCold ??
         (reusedExistingRow ? (existing?.senderRelationshipIsCold ?? false) : false),
       actionItemsEnabled: flags.actionItems,
-      suppressions,
+      standing: triageTodoStanding({
+        suppressions,
+        sender: senderContextResult.senderAddress ?? ctxData.document.metadata.from ?? null,
+        accountId: ctxData.document.accountId,
+        triage,
+      }),
     });
 
   if (reusedExistingRow && existing) {
@@ -284,6 +295,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     // No gather runs on reuse, so the todo lane loads the suppressions itself.
     todo = await decideTodo(
       await standingInstructions({ userId: ctx.userId, onReadFailure: "report" }),
+      { ...existing, documentId: existing.documentId ?? ctx.state.documentId },
     );
     await ctx.log(`classify: reuse existing thread row category=${classification.category}`);
   } else {
@@ -342,7 +354,15 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     senderSignificanceBand =
       gathered.sender.kind === "found" ? (gathered.sender.significance?.band ?? null) : null;
 
-    todo = await decideTodo(gathered.suppressions);
+    todo = await decideTodo(gathered.suppressions, {
+      documentId: ctx.state.documentId,
+      category: classification.category,
+      documentAsk: classification.documentAsk ?? null,
+      todoSuggestion: classification.todoSuggestion ?? null,
+      todoDecision: classification.todoDecision ?? null,
+      modelVerdict,
+      instructionEvaluation,
+    });
 
     const decisionTrace = senderExtractionEvent({
       senderContextResult,
@@ -522,12 +542,12 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     const { suppression } = todo.outcome;
 
     switch (suppression.kind) {
-      case "standing_instruction": {
-        const { match } = suppression;
+      case "standing_instruction_unknown": {
+        const ids = suppression.instructions.map((instruction) => instruction.value.instructionId);
 
         await ctx.log(
-          `suggest_todo: suppressed reason=standing_instruction ` +
-            `effect=${match.effect} fact=${match.factId} sender=${match.matchedEmail}`,
+          `suggest_todo: suppressed reason=standing_instruction_unknown ` +
+            `effect=block_todo_suggestion instructions=${ids.join(",")}`,
         );
         break;
       }

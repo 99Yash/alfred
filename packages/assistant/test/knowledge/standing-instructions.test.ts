@@ -55,15 +55,18 @@ describe("normalizeEmailAddress", () => {
 });
 
 describe("standingInstructions match", () => {
-  test("matches cross-account sender suppressions by canonical email and effect", () => {
-    const outcome = standingInstructionsOf([active(instruction())]).matchSender(
-      { sender: "Ben Book <BEN@example.com>", accountId: "google-work" },
-      "block_todo_suggestion",
-    );
+  test("matches cross-account sender suppressions by canonical email", () => {
+    const mail = standingInstructionsOf([active(instruction())]).forMail({
+      sender: "Ben Book <BEN@example.com>",
+      accountId: "google-work",
+    });
 
-    assert.equal(outcome.kind, "suppressed");
-    assert.equal(outcome.match.factId, "fact_1");
-    assert.equal(outcome.match.matchedEmail, "ben@example.com");
+    assert.equal(mail.kind, "loaded");
+    assert.equal(mail.targetHits.length, 1);
+    const [hit] = mail.targetHits;
+    assert.ok(hit);
+    assert.equal(hit.factId, "fact_1");
+    assert.equal(hit.matchedVia, "sender_email");
   });
 
   test("honors account-specific suppressions when present", () => {
@@ -79,30 +82,27 @@ describe("standingInstructions match", () => {
     const suppressions = standingInstructionsOf([active(value)]);
 
     assert.equal(
-      suppressions.matchSender(
-        { sender: "ben@example.com", accountId: "google-personal" },
-        "exclude_briefing_priority",
-      ).kind,
-      "none",
+      suppressions.forMail({ sender: "ben@example.com", accountId: "google-personal" }).targetHits
+        .length,
+      0,
     );
     assert.equal(
-      suppressions.matchSender(
-        { sender: "ben@example.com", accountId: "google-work" },
-        "exclude_briefing_priority",
-      ).kind,
-      "suppressed",
+      suppressions.forMail({ sender: "ben@example.com", accountId: "google-work" }).targetHits
+        .length,
+      1,
     );
   });
 
   test("lifts a v1 row to its enforced effects — the stored v1 array never filters", () => {
     const value = instruction({ effects: ["exclude_briefing_priority"] });
-    assert.equal(
-      standingInstructionsOf([active(value)]).matchSender(
-        { sender: "ben@example.com", accountId: null },
-        "block_todo_suggestion",
-      ).kind,
-      "suppressed",
-    );
+
+    const [hit] = standingInstructionsOf([active(value)]).forMail({
+      sender: "ben@example.com",
+      accountId: null,
+    }).targetHits;
+
+    assert.ok(hit);
+    assert.ok(hit.value.effects.some((effect) => effect.kind === "block_todo_suggestion"));
   });
 });
 

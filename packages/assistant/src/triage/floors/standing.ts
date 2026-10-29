@@ -172,6 +172,31 @@ function describeMatch(match: StandingInstructionMatch): string {
   return `${match.value.instructionId} r${match.value.revision}, ${match.via.kind}`;
 }
 
+/** A target hit covers the whole mail (E2). A scope match carries the model's cover. */
+function coverageOf(match: StandingInstructionMatch): StandingInstructionCoverage {
+  return match.via.kind === "target" ? "all" : match.via.covers;
+}
+
+/** An exception cancels the instruction it names, on this mail only. */
+function cancelledInstructionIds(matches: readonly StandingInstructionMatch[]): Set<string> {
+  const matchedIds = new Set(matches.map((match) => match.value.instructionId));
+
+  return new Set(
+    matches.flatMap((match) => {
+      const broader = match.value.exceptionOf;
+
+      return broader !== undefined && matchedIds.has(broader) ? [broader] : [];
+    }),
+  );
+}
+
+/** Oldest write first, so the later write wins a conflict. */
+function oldestFirst(matches: readonly StandingInstructionMatch[]): StandingInstructionMatch[] {
+  return [...matches].sort(
+    (a, b) => a.validFrom.getTime() - b.validFrom.getTime() || a.factId.localeCompare(b.factId),
+  );
+}
+
 /**
  * Apply the effects of every matched instruction to the model verdict (ADR-0113). Pure, so
  * a consumer that reads the stored verdict and the current matches gets the triage result.
@@ -184,19 +209,8 @@ export function applyStandingInstructionEffects(
   verdict: StandingEffectVerdict,
   context: { exposedSecret: boolean; matches: readonly StandingInstructionMatch[] },
 ): StandingFloorResult {
-  const matchedIds = new Set(context.matches.map((match) => match.value.instructionId));
-
-  const cancelledIds = new Set(
-    context.matches.flatMap((match) => {
-      const broader = match.value.exceptionOf;
-
-      return broader !== undefined && matchedIds.has(broader) ? [broader] : [];
-    }),
-  );
-
-  const ordered = [...context.matches].sort(
-    (a, b) => a.validFrom.getTime() - b.validFrom.getTime() || a.factId.localeCompare(b.factId),
-  );
+  const cancelledIds = cancelledInstructionIds(context.matches);
+  const ordered = oldestFirst(context.matches);
 
   const effects: StandingEffectAudit[] = [];
   const clauses: string[] = [];
@@ -207,8 +221,7 @@ export function applyStandingInstructionEffects(
   let heldSecret = false;
 
   for (const match of ordered) {
-    const coverage: StandingInstructionCoverage =
-      match.via.kind === "target" ? "all" : match.via.covers;
+    const coverage = coverageOf(match);
 
     for (const effect of match.value.effects) {
       const record = (result: StandingEffectResult) =>
@@ -304,4 +317,85 @@ export function applyStandingInstructionEffects(
         ? `Standing instruction floor: the user's own instructions moved ${clauses.join("; ")}.`
         : null,
   };
+}
+
+/** The briefing effect that decides an item, with the instruction that set it. */
+export interface StandingBriefingPriority {
+  effect: "exclude_briefing_priority" | "include_briefing_priority";
+  match: StandingInstructionMatch;
+}
+
+/** The effects that briefing gather and the reply-draft gate apply. Triage records them as `not_triage`. */
+export interface StandingConsumerEffects {
+  /** The later write wins between an exclusion and an inclusion. Null: no instruction decides. */
+  briefingPriority: StandingBriefingPriority | null;
+  /** An exclusion that the exposed-secret signal held. It changes nothing. */
+  briefingExclusionHeldBy: StandingInstructionMatch | null;
+  replyDraftBlockedBy: StandingInstructionMatch | null;
+}
+
+/**
+ * The consumer effects of every matched instruction, under the same rules as
+ * {@link applyStandingInstructionEffects}: an exception cancels, the later write wins, a
+ * lowering needs full cover, and the exposed-secret signal holds a briefing exclusion. It does
+ * not hold a reply-draft block, because a block is never less safe.
+ */
+export function applyStandingConsumerEffects(context: {
+  /** The model verdict's category, which decides the direction of a `force_category`. */
+  modelCategory: TriageCategory;
+  exposedSecret: boolean;
+  matches: readonly StandingInstructionMatch[];
+}): StandingConsumerEffects {
+  const cancelledIds = cancelledInstructionIds(context.matches);
+
+  let briefingPriority: StandingBriefingPriority | null = null;
+  let briefingExclusionHeldBy: StandingInstructionMatch | null = null;
+  let replyDraftBlockedBy: StandingInstructionMatch | null = null;
+
+  for (const match of oldestFirst(context.matches)) {
+    if (cancelledIds.has(match.value.instructionId)) continue;
+
+    const coverage = coverageOf(match);
+
+    for (const effect of match.value.effects) {
+      if (
+        !standingInstructionEffectApplies(effect, {
+          coverage,
+          modelCategory: context.modelCategory,
+        })
+      ) {
+        continue;
+      }
+
+      switch (effect.kind) {
+        case "exclude_briefing_priority":
+          if (context.exposedSecret) {
+            briefingExclusionHeldBy = match;
+          } else {
+            briefingPriority = { effect: effect.kind, match };
+          }
+
+          break;
+        case "include_briefing_priority":
+          briefingPriority = { effect: effect.kind, match };
+          break;
+        case "block_reply_draft":
+          replyDraftBlockedBy ??= match;
+          break;
+        case "demote_urgent":
+        case "demote_demand":
+        case "demote_meeting":
+        case "force_category":
+        case "block_todo_suggestion":
+          break;
+        default: {
+          const exhaustive: never = effect;
+
+          return exhaustive;
+        }
+      }
+    }
+  }
+
+  return { briefingPriority, briefingExclusionHeldBy, replyDraftBlockedBy };
 }

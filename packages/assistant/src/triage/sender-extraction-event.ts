@@ -11,7 +11,7 @@ import type { FloorAudits, StandingEffectAudit, StandingFloorOutcome } from "./f
 import type { Observations } from "./observations";
 import type { SenderContextResult } from "./sender-context";
 import type { TriageSenderKindSignal } from "./sender-kind";
-import type { SenderTargetOutcome } from "../knowledge";
+import type { TriageTodoStandingRead } from "./todo-decision";
 
 /** One floor's audit as flat trace fields. `null` means no floor ran (the fallback path). */
 type FloorTraceProjection<K extends keyof FloorAudits> = (
@@ -160,10 +160,15 @@ export interface SenderExtractionEvent extends FloorTraceFields, StandingTraceFi
   finalConfidence: number;
   finalCollabActivity: CollabActivityKind | null;
   todoSuggested: boolean;
+  /**
+   * The todo waits on a `block_todo_suggestion` instruction whose state is `unknown`
+   * (ADR-0113 rule 4). A matched block already cleared the todo, and the floor audit shows it.
+   */
   standingInstructionSuppressedTodo: boolean;
+  /** The first waiting instruction's fact. */
   standingInstructionFactId: string | null;
   standingInstructionEffect: string | null;
-  /** The only field that shows whether a domain-scoped instruction ever fires. */
+  /** Null since ADR-0113: an `unknown` instruction has no match. The floor audit shows a target hit. */
   standingInstructionMatchedVia: StandingInstructionTargetKind | null;
   standingInstructionReadFailed: boolean;
   /**
@@ -187,15 +192,15 @@ export function senderExtractionEvent(args: {
   audit: ClassifyAudit | null;
   classification: TriageClassification;
   todoSuggested: boolean;
-  /** The `block_todo_suggestion` read. Flattened below into the stored trace fields. */
-  standingSuppression: SenderTargetOutcome;
+  /** The `block_todo_suggestion` state. Flattened below into the stored trace fields. */
+  standingSuppression: TriageTodoStandingRead;
 }): SenderExtractionEvent {
   const { context } = args.senderContextResult;
   const obs = args.observations;
   const audit = args.audit;
 
-  const standingMatch =
-    args.standingSuppression.kind === "suppressed" ? args.standingSuppression.match : null;
+  const waitingOn =
+    args.standingSuppression.kind === "waiting" ? args.standingSuppression.instructions : [];
 
   return {
     // sender
@@ -238,10 +243,10 @@ export function senderExtractionEvent(args: {
     finalConfidence: args.classification.confidence,
     finalCollabActivity: args.classification.collabActivity ?? null,
     todoSuggested: args.todoSuggested,
-    standingInstructionSuppressedTodo: standingMatch !== null,
-    standingInstructionFactId: standingMatch?.factId ?? null,
-    standingInstructionEffect: standingMatch?.effect ?? null,
-    standingInstructionMatchedVia: standingMatch?.matchedVia ?? null,
+    standingInstructionSuppressedTodo: waitingOn.length > 0,
+    standingInstructionFactId: waitingOn[0]?.factId ?? null,
+    standingInstructionEffect: waitingOn.length > 0 ? "block_todo_suggestion" : null,
+    standingInstructionMatchedVia: null,
     standingInstructionReadFailed: args.standingSuppression.kind === "read_failed",
     standingInstructionCategoryReadFailed: obs.standingInstructions?.kind === "read_failed",
     userContextPresent: obs.userContext !== null,

@@ -368,24 +368,6 @@ export type StandingInstructionScopeNarrowing =
 /** Inputs a domain target cannot store: it renders its own sentence and has no label. */
 export type StandingInstructionDroppedInput = "directive" | "senderLabel";
 
-/** ADR-0060 §8, most specific first. Only relative order matters. */
-const STANDING_INSTRUCTION_TARGET_SPECIFICITY_ORDER = [
-  "sender_email",
-  "sender_domain",
-] as const satisfies readonly StandingInstructionTargetKind[];
-
-/**
- * Higher wins when several instructions match one sender; recency breaks ties
- * (ADR-0060). Without it, a domain mute written after an address pin defeats the pin.
- * `indexOf(target.kind)` fails to compile if the order tuple misses a kind.
- */
-export function standingInstructionTargetSpecificity(target: StandingInstructionTarget): number {
-  return (
-    STANDING_INSTRUCTION_TARGET_SPECIFICITY_ORDER.length -
-    STANDING_INSTRUCTION_TARGET_SPECIFICITY_ORDER.indexOf(target.kind)
-  );
-}
-
 // ─── The `user_facts.value` shape ───────────────────────────────────────────
 
 /**

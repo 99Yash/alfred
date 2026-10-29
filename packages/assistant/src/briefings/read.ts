@@ -17,7 +17,16 @@ import type {
 import { db } from "@alfred/db";
 import { briefings, documents, emailTriage, type Briefing } from "@alfred/db/schemas";
 import { and, desc, eq, gt, inArray, isNotNull, sql } from "drizzle-orm";
-import { getSenderSignificanceBatch, standingInstructions } from "../knowledge";
+import {
+  getSenderSignificanceBatch,
+  standingInstructions,
+  type MailStandingInstructions,
+} from "../knowledge";
+import {
+  deriveEffectiveTriage,
+  parseTriageEvaluationColumns,
+  type EffectiveTriageRow,
+} from "@alfred/assistant/triage";
 import { inZone } from "@alfred/assistant/time";
 import { logger } from "@alfred/logging";
 
@@ -108,8 +117,67 @@ interface EmailListRow {
   metadata: unknown;
   gmailInternalDate: string | null;
   contentLength: number;
-  triageCategory: string | null;
+  triageCategory: TriageCategory | null;
   triageRationale: string | null;
+  triageDocumentId: string | null;
+  triageModelVerdict: unknown;
+  triageInstructionEvaluation: unknown;
+}
+
+/**
+ * The thread's triage row for the derivation. The briefing reads only the category, so the
+ * cached ask and todo stay out.
+ */
+function briefingTriageRow(triage: {
+  documentId: string | null;
+  category: TriageCategory;
+  modelVerdict: unknown;
+  instructionEvaluation: unknown;
+}): EffectiveTriageRow {
+  return {
+    documentId: triage.documentId,
+    category: triage.category,
+    documentAsk: null,
+    todoSuggestion: null,
+    todoDecision: null,
+    ...parseTriageEvaluationColumns(triage),
+  };
+}
+
+/**
+ * The row with its effective category (ADR-0113), or null when an instruction excludes it.
+ * The triage row is the thread's. A stored scope result counts only for the document that
+ * triage evaluated, so an older message of the thread reads its scoped instructions as `unknown`.
+ */
+function effectiveListRow(
+  row: EmailListRow,
+  suppressions: {
+    forMail(lookup: {
+      sender: string | null;
+      accountId: string | null;
+    }): Extract<MailStandingInstructions, { kind: "loaded" }>;
+  },
+): EmailListRow | null {
+  const effective = deriveEffectiveTriage({
+    triage:
+      row.triageCategory === null
+        ? null
+        : briefingTriageRow({
+            documentId: row.triageDocumentId,
+            category: row.triageCategory,
+            modelVerdict: row.triageModelVerdict,
+            instructionEvaluation: row.triageInstructionEvaluation,
+          }),
+    documentId: row.documentId,
+    instructions: suppressions.forMail({
+      sender: parseGmailDocumentMetadata(row.metadata).from ?? null,
+      accountId: row.accountId,
+    }),
+  });
+
+  if (effective.briefingPriority?.effect === "exclude_briefing_priority") return null;
+
+  return { ...row, triageCategory: effective.result?.category ?? row.triageCategory };
 }
 
 export async function listEmailsSinceWatermark(
@@ -155,6 +223,9 @@ export async function listEmailsSinceWatermark(
         contentLength: sql<number>`length(${documents.content})`,
         triageCategory: emailTriage.category,
         triageRationale: emailTriage.rationale,
+        triageDocumentId: emailTriage.documentId,
+        triageModelVerdict: emailTriage.modelVerdict,
+        triageInstructionEvaluation: emailTriage.instructionEvaluation,
       })
       .from(documents)
       .leftJoin(
@@ -172,20 +243,14 @@ export async function listEmailsSinceWatermark(
     if (page.length === 0) break;
     offset += page.length;
 
-    // Drop suppressed senders before scoring so they do not skew recurrence.
+    // Drop excluded items before scoring so they do not skew recurrence.
     for (const row of page) {
-      if (hasSuppression) {
-        const from = parseGmailDocumentMetadata(row.metadata).from;
+      // Always derived: with no instruction left, a demoted row shows its model verdict again.
+      const listed = effectiveListRow(row, suppressions);
 
-        const suppression = suppressions.matchSender(
-          { sender: from ?? null, accountId: row.accountId },
-          "exclude_briefing_priority",
-        );
+      if (listed === null) continue;
 
-        if (suppression.kind === "suppressed") continue;
-      }
-
-      rows.push(row);
+      rows.push(listed);
 
       if (rows.length >= limit) break;
     }
@@ -557,6 +622,7 @@ export async function readEmailDocument(args: {
       authoredAt: documents.authoredAt,
       content: documents.content,
       accountId: documents.accountId,
+      sourceThreadId: documents.sourceThreadId,
       metadata: documents.metadata,
     })
     .from(documents)
@@ -574,14 +640,34 @@ export async function readEmailDocument(args: {
   if (!row) return null;
   const meta = parseGmailDocumentMetadata(row.metadata);
 
-  const suppressions = await standingInstructions({ userId: args.userId, onReadFailure: "throw" });
+  const [suppressions, [triage]] = await Promise.all([
+    standingInstructions({ userId: args.userId, onReadFailure: "throw" }),
+    row.sourceThreadId
+      ? db()
+          .select({
+            documentId: emailTriage.documentId,
+            category: emailTriage.category,
+            modelVerdict: emailTriage.modelVerdict,
+            instructionEvaluation: emailTriage.instructionEvaluation,
+          })
+          .from(emailTriage)
+          .where(
+            and(
+              eq(emailTriage.userId, args.userId),
+              eq(emailTriage.sourceThreadId, row.sourceThreadId),
+            ),
+          )
+          .limit(1)
+      : [],
+  ]);
 
-  const suppression = suppressions.matchSender(
-    { sender: meta.from ?? null, accountId: row.accountId },
-    "exclude_briefing_priority",
-  );
+  const effective = deriveEffectiveTriage({
+    triage: triage ? briefingTriageRow(triage) : null,
+    documentId: row.documentId,
+    instructions: suppressions.forMail({ sender: meta.from ?? null, accountId: row.accountId }),
+  });
 
-  if (suppression.kind === "suppressed") return null;
+  if (effective.briefingPriority?.effect === "exclude_briefing_priority") return null;
 
   const full = row.content;
   const truncated = full.length > READ_EMAIL_BODY_CHAR_CAP;

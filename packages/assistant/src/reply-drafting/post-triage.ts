@@ -3,6 +3,7 @@ import { isUniqueViolation } from "@alfred/db/pg-errors";
 import { startRun } from "@alfred/assistant/execution";
 import { standingInstructions } from "@alfred/assistant/knowledge";
 import { settings } from "@alfred/assistant/settings";
+import { getTriage } from "@alfred/assistant/triage";
 import {
   type DomainEvent,
   type EmailTriageClassifiedPayload,
@@ -13,6 +14,7 @@ import type { ReplyDraftingWorkflowInput } from "./workflow-input";
 import {
   decideReplyWorthiness,
   noDraftResult,
+  replyStandingInstructionState,
   type ReplyStandingInstructionState,
 } from "./worthiness";
 import { logger } from "@alfred/logging";
@@ -51,27 +53,45 @@ function provenanceFor(
   };
 }
 
+/**
+ * The `block_reply_draft` state (ADR-0113). The row holds the evaluation that triage just
+ * stored, so a scoped block decides here as it does in the workflow gate.
+ */
 async function readStandingInstruction(
   userId: string,
   payload: EmailTriageClassifiedPayload,
 ): Promise<ReplyStandingInstructionState> {
-  const suppressions = await standingInstructions({ userId, onReadFailure: "report" });
+  const [suppressions, triage] = await Promise.all([
+    standingInstructions({ userId, onReadFailure: "report" }),
+    getTriage(userId, payload.triage.sourceThreadId).then(
+      (row) => ({ kind: "read" as const, row }),
+      (error: unknown) => ({ kind: "read_failed" as const, error }),
+    ),
+  ]);
 
-  const outcome = suppressions.matchSender(
-    { sender: payload.sender.address, accountId: payload.mailbox.accountId },
-    "block_reply_draft",
-  );
+  const instructions = suppressions.forMail({
+    sender: payload.sender.address,
+    accountId: payload.mailbox.accountId,
+  });
 
-  switch (outcome.kind) {
-    case "suppressed":
-      return "suppress";
-    case "none":
-      return "none";
-    case "read_failed":
-      logger.warn({ err: outcome.error }, `[${CONSUMER_NAME}] standing instruction read failed`);
+  const failure =
+    instructions.kind === "read_failed"
+      ? instructions.error
+      : triage.kind === "read_failed"
+        ? triage.error
+        : null;
 
-      return "read_failed";
+  if (failure !== null) {
+    logger.warn({ err: failure }, `[${CONSUMER_NAME}] standing instruction read failed`);
+
+    return "read_failed";
   }
+
+  return replyStandingInstructionState({
+    instructions,
+    triage: triage.kind === "read" ? triage.row : null,
+    documentId: payload.triage.documentId,
+  });
 }
 
 export async function acceptEmailTriageClassified(event: DomainEvent): Promise<void> {

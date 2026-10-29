@@ -18,6 +18,7 @@ import {
   extractSenderContext,
   gatherObservations,
   loadTriageContext,
+  triageTodoStanding,
   type TriageTodoDecision,
 } from "@alfred/assistant/triage";
 import { notSentGmailDocumentWhere } from "@alfred/assistant/triage/sent-mail";
@@ -127,10 +128,10 @@ async function main() {
       senderAddress: scResult.senderAddress,
     });
 
-    let classification;
+    let classified;
 
     try {
-      ({ classification } = await classifyEmail({
+      classified = await classifyEmail({
         userId: t.userId,
         document: {
           id: ctxData.document.id,
@@ -142,12 +143,14 @@ async function main() {
         senderContext,
         observations,
         identity: ctxData.identity,
-      }));
+      });
     } catch (err) {
       console.log(`! ${header}\n    classify error (skipped): ${toMessage(err)}\n`);
       unresolved++;
       continue;
     }
+
+    const { classification } = classified;
 
     const decision = classification.todoDecision?.outcome ?? "(none)";
     const note = classification.todoDecision?.note ? ` — ${classification.todoDecision.note}` : "";
@@ -163,10 +166,22 @@ async function main() {
       reason: "reply",
       classification,
       document: ctxData.document,
-      senderAddress: scResult.senderAddress,
       isColdContact: observations.senderRelationshipIsCold,
       actionItemsEnabled: flags.actionItems,
-      suppressions,
+      standing: triageTodoStanding({
+        suppressions,
+        sender: scResult.senderAddress ?? ctxData.document.metadata.from ?? null,
+        accountId: ctxData.document.accountId,
+        triage: {
+          documentId: ctxData.document.id,
+          category: classification.category,
+          documentAsk: classification.documentAsk ?? null,
+          todoSuggestion: classification.todoSuggestion ?? null,
+          todoDecision: classification.todoDecision ?? null,
+          modelVerdict: classified.modelVerdict,
+          instructionEvaluation: classified.instructionEvaluation,
+        },
+      }),
     });
 
     const closureNote =
@@ -201,10 +216,10 @@ function killReason(
   const { suppression } = outcome;
 
   switch (suppression.kind) {
-    case "standing_instruction":
+    case "standing_instruction_unknown":
       return (
-        `suppressed: standing_instruction effect=${suppression.match.effect} ` +
-        `fact=${suppression.match.factId} sender=${suppression.match.matchedEmail}`
+        `suppressed: standing_instruction_unknown effect=block_todo_suggestion ` +
+        `instructions=${suppression.instructions.map((instruction) => instruction.value.instructionId).join(",")}`
       );
     case "standing_instruction_read_failed":
       return `suppressed: standing_instruction_read_failed: ${toMessage(suppression.error)}`;

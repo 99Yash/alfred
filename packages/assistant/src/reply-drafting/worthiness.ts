@@ -8,6 +8,12 @@ import {
   type ReplyDraftTriageSnapshot,
   type ReplyNoDraftReason,
 } from "@alfred/contracts";
+import type { MailStandingInstructions } from "@alfred/assistant/knowledge";
+import {
+  deriveEffectiveTriage,
+  standingBlockWaitsOn,
+  type EffectiveTriageRow,
+} from "@alfred/assistant/triage";
 import type { GmailMessageEventReason } from "@alfred/assistant/triggers";
 
 /**
@@ -19,8 +25,33 @@ import type { GmailMessageEventReason } from "@alfred/assistant/triggers";
  * refuses a bot sender or a thread the user already answered.
  */
 
-/** Result of the `block_reply_draft` instruction read. */
-export type ReplyStandingInstructionState = "none" | "suppress" | "read_failed";
+/**
+ * Result of the `block_reply_draft` instruction read. `unknown`: an instruction with the block
+ * has no current match result for this document, so a proactive draft waits (ADR-0113 rule 4).
+ */
+export type ReplyStandingInstructionState = "none" | "suppress" | "unknown" | "read_failed";
+
+/**
+ * The `block_reply_draft` state for one document, derived from the stored triage evaluation
+ * and the current instructions. Pure; both gates call it.
+ */
+export function replyStandingInstructionState(args: {
+  instructions: MailStandingInstructions;
+  triage: EffectiveTriageRow | null;
+  documentId: string;
+}): ReplyStandingInstructionState {
+  if (args.instructions.kind === "read_failed") return "read_failed";
+
+  const effective = deriveEffectiveTriage({
+    triage: args.triage,
+    documentId: args.documentId,
+    instructions: args.instructions,
+  });
+
+  if (effective.replyDraftBlockedBy) return "suppress";
+
+  return standingBlockWaitsOn(effective, "block_reply_draft").length > 0 ? "unknown" : "none";
+}
 
 interface ReplyWorthinessBase {
   featureFlagEnabled: boolean;
