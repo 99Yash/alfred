@@ -154,6 +154,7 @@ export {
   type ReportedStandingInstructionSet,
   type ActiveStandingInstruction,
   type MailStandingInstructions,
+  type LoadedMailStandingInstructions,
   type StandingInstructionTargetHit,
 } from "./standing-instructions";
 

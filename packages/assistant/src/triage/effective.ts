@@ -1,8 +1,9 @@
 import {
   standingInstructionHasEffect,
   type StandingInstructionEffectKind,
+  type TriageInstructionEvaluation,
 } from "@alfred/contracts";
-import type { ActiveStandingInstruction, MailStandingInstructions } from "../knowledge";
+import type { ActiveStandingInstruction, LoadedMailStandingInstructions } from "../knowledge";
 import {
   applyStandingConsumerEffects,
   applyStandingInstructionEffects,
@@ -56,32 +57,27 @@ export interface EffectiveTriage extends StandingConsumerEffects {
   unknown: ActiveStandingInstruction[];
 }
 
+export interface CurrentScopeResults {
+  /** The current `matched` scope results, as matches. */
+  matched: StandingInstructionMatch[];
+  /** Current scoped instructions with no current stored result. */
+  unknown: ActiveStandingInstruction[];
+}
+
 /**
- * Derive the effective result for one document. `documentId` is the document the consumer
- * decides for. A stored scope result counts only when it equals the row's document.
+ * Rule 2: a stored scope result counts only at the instruction's current `revision`. Pass
+ * `evaluation` only for the document it was made for.
  */
-export function deriveEffectiveTriage(args: {
-  triage: EffectiveTriageRow | null;
-  documentId: string;
-  instructions: Extract<MailStandingInstructions, { kind: "loaded" }>;
-}): EffectiveTriage {
-  const { triage, instructions } = args;
-
-  const evaluation =
-    triage !== null && triage.documentId === args.documentId ? triage.instructionEvaluation : null;
-
+export function currentScopeResults(
+  evaluation: TriageInstructionEvaluation | null,
+  scoped: readonly ActiveStandingInstruction[],
+): CurrentScopeResults {
   const stored = new Map(evaluation?.scopes.map((scope) => [scope.instructionId, scope]));
 
-  const matches: StandingInstructionMatch[] = instructions.targetHits.map(
-    ({ matchedVia, ...instruction }) => ({
-      ...instruction,
-      via: { kind: "target", targetKind: matchedVia },
-    }),
-  );
-
+  const matched: StandingInstructionMatch[] = [];
   const unknown: ActiveStandingInstruction[] = [];
 
-  for (const instruction of instructions.scoped) {
+  for (const instruction of scoped) {
     const scope = stored.get(instruction.value.instructionId);
 
     if (scope === undefined || scope.revision !== instruction.value.revision) {
@@ -90,12 +86,41 @@ export function deriveEffectiveTriage(args: {
     }
 
     if (scope.state === "matched") {
-      matches.push({
+      matched.push({
         ...instruction,
         via: { kind: "scope", reason: scope.reason, covers: scope.covers },
       });
     }
   }
+
+  return { matched, unknown };
+}
+
+/**
+ * Derive the effective result for one document. `documentId` is the document the consumer
+ * decides for. A stored scope result counts only when it equals the row's document.
+ */
+export function deriveEffectiveTriage(args: {
+  triage: EffectiveTriageRow | null;
+  documentId: string;
+  instructions: LoadedMailStandingInstructions;
+}): EffectiveTriage {
+  const { triage, instructions } = args;
+
+  const evaluation =
+    triage !== null && triage.documentId === args.documentId ? triage.instructionEvaluation : null;
+
+  const scoped = currentScopeResults(evaluation, instructions.scoped);
+
+  const matches: StandingInstructionMatch[] = [
+    ...instructions.targetHits.map(({ matchedVia, ...instruction }) => ({
+      ...instruction,
+      via: { kind: "target" as const, targetKind: matchedVia },
+    })),
+    ...scoped.matched,
+  ];
+
+  const { unknown } = scoped;
 
   const verdict = triage?.modelVerdict ?? null;
 

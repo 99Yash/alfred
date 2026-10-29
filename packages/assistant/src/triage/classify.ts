@@ -436,14 +436,43 @@ function renderObservations(obs: Observations): string {
   return lines.join("\n");
 }
 
+/** The email fields that a triage prompt shows. The classify call and the re-match job share them. */
+export type TriageEmailDocument = Omit<ClassifyEmailArgs["document"], "id">;
+
+/** The From, To, Cc, and Date lines, each only when it is present. */
+export function triageEmailHeaderLines(document: TriageEmailDocument): string[] {
+  const { from, to, cc } = document.metadata;
+
+  return [
+    ...(from ? [`From: ${from}`] : []),
+    ...(to ? [`To: ${to}`] : []),
+    ...(cc ? [`Cc: ${cc}`] : []),
+    ...(document.authoredAt ? [`Date: ${document.authoredAt.toISOString()}`] : []),
+  ];
+}
+
+/** The body text, cut at `TRIAGE_BODY_MAX_CHARS`. */
+export function triageEmailBody(document: TriageEmailDocument): string {
+  const { from, to, cc } = document.metadata;
+
+  const body = extractGmailDocumentBody(document.content, {
+    from,
+    to,
+    cc,
+    subject: document.title,
+  });
+
+  return body.length > TRIAGE_BODY_MAX_CHARS
+    ? body.slice(0, TRIAGE_BODY_MAX_CHARS) + "\n[…truncated]"
+    : body;
+}
+
 function userPrompt(
   args: ClassifyEmailArgs,
   conflict: TriageConflict | null,
   instructionSection: string | null,
 ): string {
   const lines: string[] = [];
-  const meta = args.document.metadata;
-  const { from, to, cc } = meta;
 
   lines.push("=== SenderContext ===");
   lines.push(JSON.stringify(args.senderContext));
@@ -468,33 +497,14 @@ function userPrompt(
     lines.push("");
   }
 
-  if (from) lines.push(`From: ${from}`);
-
-  if (to) lines.push(`To: ${to}`);
-
-  if (cc) lines.push(`Cc: ${cc}`);
-
-  if (args.document.authoredAt) lines.push(`Date: ${args.document.authoredAt.toISOString()}`);
+  lines.push(...triageEmailHeaderLines(args.document));
   lines.push("");
 
   lines.push("=== Subject — context, not proof of user ownership ===");
   lines.push(args.document.title?.trim() || "(no subject)");
   lines.push("");
   lines.push("=== Body ===");
-
-  const body = extractGmailDocumentBody(args.document.content, {
-    from,
-    to,
-    cc,
-    subject: args.document.title,
-  });
-
-  const content =
-    body.length > TRIAGE_BODY_MAX_CHARS
-      ? body.slice(0, TRIAGE_BODY_MAX_CHARS) + "\n[…truncated]"
-      : body;
-
-  lines.push(content);
+  lines.push(triageEmailBody(args.document));
 
   lines.push("");
   lines.push("=== Earlier thread context — use this to decide loop state and ownership ===");

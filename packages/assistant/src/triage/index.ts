@@ -125,6 +125,14 @@ export { decideTriageTodo, triageTodoStanding } from "./todo-decision";
 
 export { threadsWhereInstructionBlocksTodo } from "./instruction-todo-sweep";
 
+export {
+  closeTriageRematchQueue,
+  getTriageRematchQueue,
+  scheduleRepeatableTriageRematchJobs,
+  startTriageRematchWorker,
+  stopTriageRematchWorker,
+} from "./rematch-queue";
+
 export type { TodoTriageResult, TriageTodoDecision } from "./todo-decision";
 
 export {

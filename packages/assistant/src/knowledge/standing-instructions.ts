@@ -92,7 +92,7 @@ export type MailStandingInstructions =
     }
   | { kind: "read_failed"; error: unknown };
 
-type LoadedMailStandingInstructions = Extract<MailStandingInstructions, { kind: "loaded" }>;
+export type LoadedMailStandingInstructions = Extract<MailStandingInstructions, { kind: "loaded" }>;
 
 /** A user's active standing instructions, read once. The match methods are pure, so one read serves a loop. */
 interface StandingInstructionSet<Mail extends MailStandingInstructions> {
@@ -103,6 +103,11 @@ interface StandingInstructionSet<Mail extends MailStandingInstructions> {
    * result from these with `deriveEffectiveTriage` (ADR-0113).
    */
   forMail(sender: SenderLookup): Mail;
+}
+
+/** A set that loaded. `setRevision` is the per-user set revision, read before the instructions. */
+interface LoadedStandingInstructionSet extends StandingInstructionSet<LoadedMailStandingInstructions> {
+  readonly setRevision: number;
 }
 
 /**
@@ -123,7 +128,7 @@ export interface ReportedStandingInstructionSet extends StandingInstructionSet<M
 export function standingInstructions(args: {
   userId: string;
   onReadFailure: "throw";
-}): Promise<StandingInstructionSet<LoadedMailStandingInstructions>>;
+}): Promise<LoadedStandingInstructionSet>;
 export function standingInstructions(args: {
   userId: string;
   onReadFailure: "report";
@@ -131,9 +136,7 @@ export function standingInstructions(args: {
 export async function standingInstructions(args: {
   userId: string;
   onReadFailure: "throw" | "report";
-}): Promise<
-  ReportedStandingInstructionSet | StandingInstructionSet<LoadedMailStandingInstructions>
-> {
+}): Promise<ReportedStandingInstructionSet | LoadedStandingInstructionSet> {
   if (args.onReadFailure === "throw") return loadStandingInstructionSet(args.userId);
 
   try {
@@ -165,9 +168,10 @@ async function loadStandingInstructionSet(userId: string) {
 export function standingInstructionsOf(
   instructions: readonly ActiveStandingInstruction[],
   setRevision = 0,
-): StandingInstructionSet<LoadedMailStandingInstructions> {
+): LoadedStandingInstructionSet {
   return {
     isEmpty: instructions.length === 0,
+    setRevision,
     forMail(sender) {
       const email = normalizeEmailAddress(sender.sender);
 
