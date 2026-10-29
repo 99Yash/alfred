@@ -5,6 +5,7 @@ import {
   type ReplyDraftInvocation,
   type ReplyDraftProvenance,
   type ReplyDraftResult,
+  type ReplyDraftStandingInstruction,
   type ReplyDraftTriageSnapshot,
   type ReplyNoDraftReason,
 } from "@alfred/contracts";
@@ -12,7 +13,10 @@ import type { MailStandingInstructions } from "@alfred/assistant/knowledge";
 import {
   deriveEffectiveTriage,
   standingBlockWaitsOn,
+  standingInstructionEvidence,
+  type EffectiveTriage,
   type EffectiveTriageRow,
+  type StandingEffectVerdict,
 } from "@alfred/assistant/triage";
 import type { GmailMessageEventReason } from "@alfred/assistant/triggers";
 
@@ -25,22 +29,29 @@ import type { GmailMessageEventReason } from "@alfred/assistant/triggers";
  * refuses a bot sender or a thread the user already answered.
  */
 
-/**
- * Result of the `block_reply_draft` instruction read. `unknown`: an instruction with the block
- * has no current match result for this document, so a proactive draft waits (ADR-0113 rule 4).
- */
-export type ReplyStandingInstructionState = "none" | "suppress" | "unknown" | "read_failed";
+export interface ReplyStandingRead {
+  /** The `block_reply_draft` read with its evidence (ADR-0113, "Precedence, safety, and audit"). */
+  standing: ReplyDraftStandingInstruction;
+  /**
+   * The snapshot with the effective category and todo decision (ADR-0113 rule 3), so the gate
+   * never decides on the cached row. Unchanged when the read failed or no row exists.
+   */
+  triage: ReplyDraftTriageSnapshot | null;
+}
 
 /**
- * The `block_reply_draft` state for one document, derived from the stored triage evaluation
- * and the current instructions. Pure; both gates call it.
+ * The `block_reply_draft` state and the effective snapshot for one document, derived from the
+ * stored triage evaluation and the current instructions. Pure; both gates call it.
  */
 export function replyStandingInstructionState(args: {
   instructions: MailStandingInstructions;
   triage: EffectiveTriageRow | null;
   documentId: string;
-}): ReplyStandingInstructionState {
-  if (args.instructions.kind === "read_failed") return "read_failed";
+  snapshot: ReplyDraftTriageSnapshot | null;
+}): ReplyStandingRead {
+  if (args.instructions.kind === "read_failed") {
+    return { standing: { state: "read_failed" }, triage: args.snapshot };
+  }
 
   const effective = deriveEffectiveTriage({
     triage: args.triage,
@@ -48,9 +59,41 @@ export function replyStandingInstructionState(args: {
     instructions: args.instructions,
   });
 
-  if (effective.replyDraftBlockedBy) return "suppress";
+  return {
+    standing: replyStanding(effective),
+    triage: effectiveSnapshot(args.snapshot, effective.result),
+  };
+}
 
-  return standingBlockWaitsOn(effective, "block_reply_draft").length > 0 ? "unknown" : "none";
+function replyStanding(effective: EffectiveTriage): ReplyDraftStandingInstruction {
+  if (effective.replyDraftBlockedBy) {
+    return {
+      state: "suppress",
+      instruction: standingInstructionEvidence(effective.replyDraftBlockedBy),
+    };
+  }
+
+  const waitingOn = standingBlockWaitsOn(effective, "block_reply_draft");
+
+  if (waitingOn.length === 0) return { state: "none" };
+
+  return {
+    state: "unknown",
+    instructions: waitingOn.map((instruction) => ({
+      instructionId: instruction.value.instructionId,
+      revision: instruction.value.revision,
+      factId: instruction.factId,
+    })),
+  };
+}
+
+function effectiveSnapshot(
+  snapshot: ReplyDraftTriageSnapshot | null,
+  result: StandingEffectVerdict | null,
+): ReplyDraftTriageSnapshot | null {
+  if (snapshot === null || result === null) return snapshot;
+
+  return { ...snapshot, category: result.category, todoDecision: result.todoDecision };
 }
 
 interface ReplyWorthinessBase {
@@ -59,7 +102,7 @@ interface ReplyWorthinessBase {
   thread: { inboundAuthoredAt: Date | null; lastUserReplyAt: Date | null };
   /** `reply` means the user's own reply caused a re-eval. */
   triageReason: GmailMessageEventReason | null;
-  standingInstruction: ReplyStandingInstructionState;
+  standingInstruction: ReplyDraftStandingInstruction;
 }
 
 /** A manual run may hit a thread triage never wrote, so its snapshot can be `null`. */
@@ -116,8 +159,8 @@ export function decideReplyWorthiness(input: ReplyWorthinessInput): ReplyWorthin
   // ── Proactive rubric, in order ────────────────────────────────
   if (!input.featureFlagEnabled) return declined("feature_disabled");
 
-  if (input.standingInstruction !== "none") {
-    return declined("standing_instruction", input.standingInstruction);
+  if (input.standingInstruction.state !== "none") {
+    return declined("standing_instruction", input.standingInstruction.state);
   }
 
   const triage = input.triage;

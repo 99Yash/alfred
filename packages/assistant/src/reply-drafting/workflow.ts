@@ -3,6 +3,7 @@ import {
   replyDraftProvenanceSchema,
   replyDraftResultSchema,
   replyDraftInvocationSchema,
+  replyDraftStandingInstructionSchema,
   replyDraftStyleSelectionSchema,
   replyDraftTriageSnapshotSchema,
   toMessage,
@@ -53,6 +54,7 @@ const stateSchema = z.object({
   invocation: replyDraftInvocationSchema,
   triage: replyDraftTriageSnapshotSchema.nullable(),
   featureFlagEnabled: z.boolean().optional(),
+  standingInstruction: replyDraftStandingInstructionSchema.optional(),
   sender: z.string().nullable().optional(),
   messageId: z.string().nullable().optional(),
   mailbox: z.object({ accountId: z.string().min(1), address: z.string().nullable() }).optional(),
@@ -90,6 +92,7 @@ function provenanceFor(state: State): ReplyDraftProvenance {
     invocation: state.invocation,
     featureFlagEnabled: state.featureFlagEnabled ?? false,
     triage: state.triage,
+    standingInstruction: state.standingInstruction ?? null,
     inbound: {
       documentId: state.documentId,
       sourceThreadId: state.sourceThreadId,
@@ -152,7 +155,6 @@ async function runGate(ctx: StepContext<State>): Promise<StepResult<State>> {
   });
 
   const row = await getTriage(ctx.userId, ctx.state.sourceThreadId);
-  const triage = row ? snapshotFromRow(row, ctx.state.documentId) : null;
 
   if (row && row.documentId !== ctx.state.documentId) {
     return finish(
@@ -180,11 +182,13 @@ async function runGate(ctx: StepContext<State>): Promise<StepResult<State>> {
     accountId: document.accountId,
   });
 
-  // The row is for this document (checked above), so its evaluation is current for it.
-  const standingInstruction = replyStandingInstructionState({
+  // The row is for this document (checked above), so its evaluation is current for it. The
+  // gate and the record use the effective result, never the cached row (ADR-0113 rule 3).
+  const { standing: standingInstruction, triage } = replyStandingInstructionState({
     instructions,
     triage: row,
     documentId: ctx.state.documentId,
+    snapshot: row ? snapshotFromRow(row, ctx.state.documentId) : null,
   });
 
   if (instructions.kind === "read_failed") {
@@ -195,6 +199,7 @@ async function runGate(ctx: StepContext<State>): Promise<StepResult<State>> {
     ...ctx.state,
     triage,
     featureFlagEnabled: flags.replyDrafting,
+    standingInstruction,
     sender: senderContextResult.senderAddress,
     messageId: document.sourceId,
     mailbox: { accountId: document.accountId, address: null },

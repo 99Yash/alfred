@@ -542,6 +542,17 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     const { suppression } = todo.outcome;
 
     switch (suppression.kind) {
+      case "standing_instruction_matched": {
+        const { match } = suppression;
+
+        await ctx.log(
+          `suggest_todo: suppressed reason=standing_instruction_matched ` +
+            `effect=block_todo_suggestion instruction=${match.value.instructionId} ` +
+            `revision=${match.value.revision} match=${match.via.kind}`,
+        );
+        break;
+      }
+
       case "standing_instruction_unknown": {
         const ids = suppression.instructions.map((instruction) => instruction.value.instructionId);
 

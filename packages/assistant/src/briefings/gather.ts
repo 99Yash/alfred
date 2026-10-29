@@ -60,7 +60,11 @@ import {
 import { type UserSettings, userIdentity } from "@alfred/assistant/settings";
 import { getMcpExecutionBroker } from "@alfred/assistant/tool-runtime/mcp";
 import { standingInstructions, type ActiveStandingInstruction } from "../knowledge";
-import { deriveEffectiveTriage, parseTriageEvaluationColumns } from "@alfred/assistant/triage";
+import {
+  deriveEffectiveTriage,
+  parseTriageEvaluationColumns,
+  standingInstructionEvidence,
+} from "@alfred/assistant/triage";
 import type { StandingInstructionMatchVia } from "@alfred/assistant/triage/floors";
 import {
   addDays,
@@ -153,8 +157,9 @@ export interface BriefingInstructionSuppression {
   sender: string | null;
   factId: string;
   instructionId: string;
-  /** How the instruction reached the item (ADR-0113). */
-  match: StandingInstructionMatchVia["kind"];
+  revision: number;
+  /** How the instruction reached the item, with the scope reason and cover (ADR-0113). */
+  match: StandingInstructionMatchVia;
   effect: "exclude_briefing_priority";
 }
 
@@ -165,13 +170,34 @@ function hasRankEffect(instruction: ActiveStandingInstruction): boolean {
   );
 }
 
+/**
+ * The persisted decision trace of the briefing's instruction suppressions (ADR-0113, "Precedence,
+ * safety, and audit"). The triage trace cannot explain an instruction added after triage.
+ */
+export const BRIEFING_INSTRUCTION_SUPPRESSION_TRACE_KIND = "briefing.instruction_suppressions";
+
+export interface BriefingInstructionSuppressionTrace {
+  items: BriefingInstructionSuppression[];
+}
+
+// Module augmentation, not an import: `ctx.trace` stays typed and execution never imports briefings.
+declare module "@alfred/assistant/execution/decision-traces" {
+  interface DecisionTraceRegistry {
+    "briefing.instruction_suppressions": BriefingInstructionSuppressionTrace;
+  }
+}
+
 export function instructionSuppressionLogPart(
   items: readonly BriefingInstructionSuppression[],
 ): string {
   if (items.length === 0) return " instruction_suppressions=0";
   const factIds = [...new Set(items.map((item) => item.factId))].join(",");
 
-  return ` instruction_suppressions=${items.length} fact_ids=${factIds}`;
+  const instructions = [
+    ...new Set(items.map((item) => `${item.instructionId}@r${item.revision}:${item.match.kind}`)),
+  ].join(",");
+
+  return ` instruction_suppressions=${items.length} fact_ids=${factIds} instructions=${instructions}`;
 }
 
 export interface GatherBriefingDigestArgs {
@@ -333,9 +359,7 @@ export async function gatherBriefingDigest(
         documentId: r.documentId,
         category: cat,
         sender: from,
-        factId: exclusion.match.factId,
-        instructionId: exclusion.match.value.instructionId,
-        match: exclusion.match.via.kind,
+        ...standingInstructionEvidence(exclusion.match),
         effect: "exclude_briefing_priority",
       });
       continue;

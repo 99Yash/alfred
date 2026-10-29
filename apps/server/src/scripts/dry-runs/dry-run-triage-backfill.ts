@@ -216,6 +216,12 @@ function killReason(
   const { suppression } = outcome;
 
   switch (suppression.kind) {
+    case "standing_instruction_matched":
+      return (
+        `suppressed: standing_instruction_matched effect=block_todo_suggestion ` +
+        `instruction=${suppression.match.value.instructionId} r${suppression.match.value.revision} ` +
+        `match=${suppression.match.via.kind}`
+      );
     case "standing_instruction_unknown":
       return (
         `suppressed: standing_instruction_unknown effect=block_todo_suggestion ` +

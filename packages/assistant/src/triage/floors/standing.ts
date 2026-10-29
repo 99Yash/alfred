@@ -7,7 +7,8 @@ import {
   type StandingInstructionCoverage,
   type StandingInstructionEffect,
   type StandingInstructionEffectKind,
-  type StandingInstructionTargetKind,
+  type StandingInstructionEvidence,
+  type StandingInstructionMatchVia,
   type TriageCategory,
   type TriageModelVerdict,
 } from "@alfred/contracts";
@@ -21,14 +22,23 @@ import type { FloorDemotionKey } from "./floor";
  * and `block_todo_suggestion`, so its category result is the same.
  */
 
-/** How one instruction reached this mail. A target hit covers the whole mail (E2). */
-export type StandingInstructionMatchVia =
-  | { kind: "target"; targetKind: StandingInstructionTargetKind }
-  | { kind: "scope"; reason: string; covers: StandingInstructionCoverage };
+export type { StandingInstructionMatchVia };
 
 export type StandingInstructionMatch = ActiveStandingInstruction & {
   via: StandingInstructionMatchVia;
 };
+
+/** The audit evidence of a match, for a consumer's persisted decision trace (ADR-0113). */
+export function standingInstructionEvidence(
+  match: StandingInstructionMatch,
+): StandingInstructionEvidence {
+  return {
+    instructionId: match.value.instructionId,
+    revision: match.value.revision,
+    factId: match.factId,
+    match: match.via,
+  };
+}
 
 /** The fields the effects read and write. A caller merges the result into its other fields. */
 export type StandingEffectVerdict = Pick<
@@ -325,13 +335,18 @@ export interface StandingBriefingPriority {
   match: StandingInstructionMatch;
 }
 
-/** The effects that briefing gather and the reply-draft gate apply. Triage records them as `not_triage`. */
+/**
+ * The effects that briefing gather and the reply-draft gate apply. Triage records them as
+ * `not_triage`. `todoBlockedBy` is for the todo lane: the floor already cleared the todo of a
+ * row with a model verdict, but a row with none keeps its cached todo, so the lane enforces it.
+ */
 export interface StandingConsumerEffects {
   /** The later write wins between an exclusion and an inclusion. Null: no instruction decides. */
   briefingPriority: StandingBriefingPriority | null;
   /** An exclusion that the exposed-secret signal held. It changes nothing. */
   briefingExclusionHeldBy: StandingInstructionMatch | null;
   replyDraftBlockedBy: StandingInstructionMatch | null;
+  todoBlockedBy: StandingInstructionMatch | null;
 }
 
 /**
@@ -351,6 +366,7 @@ export function applyStandingConsumerEffects(context: {
   let briefingPriority: StandingBriefingPriority | null = null;
   let briefingExclusionHeldBy: StandingInstructionMatch | null = null;
   let replyDraftBlockedBy: StandingInstructionMatch | null = null;
+  let todoBlockedBy: StandingInstructionMatch | null = null;
 
   for (const match of oldestFirst(context.matches)) {
     if (cancelledIds.has(match.value.instructionId)) continue;
@@ -382,11 +398,13 @@ export function applyStandingConsumerEffects(context: {
         case "block_reply_draft":
           replyDraftBlockedBy ??= match;
           break;
+        case "block_todo_suggestion":
+          todoBlockedBy ??= match;
+          break;
         case "demote_urgent":
         case "demote_demand":
         case "demote_meeting":
         case "force_category":
-        case "block_todo_suggestion":
           break;
         default: {
           const exhaustive: never = effect;
@@ -397,5 +415,5 @@ export function applyStandingConsumerEffects(context: {
     }
   }
 
-  return { briefingPriority, briefingExclusionHeldBy, replyDraftBlockedBy };
+  return { briefingPriority, briefingExclusionHeldBy, replyDraftBlockedBy, todoBlockedBy };
 }
