@@ -1,6 +1,6 @@
 ---
 status: in-progress
-evidence: "PR 1 is #1609 (merged). PR 2 is #1610 (merged). PR 3 is #1611 (merged)."
+evidence: "PR 1 is #1609 (merged). PR 2 is #1610 (merged). PR 3 is #1611 (merged). PR 4 is #1613 (open)."
 ---
 
 # Standing instructions v2, step 1: the base design of ADR-0113
@@ -82,7 +82,7 @@ These choices are not in the ADR. Each one is the smallest choice that keeps an 
 | 1   | The v2 contract: the value schema, the effect registry with the direction of each effect, and the coverage rule. The reader lifts v1 rows. Each consumer reads the stored effects of the v2 view.                                                                                                            | None. A v1 row gives the same four effects that it enforces today.                              |
 | 2   | The set-revision table and the two `email_triage` columns. Triage stores the model verdict and the evaluation. The instruction floor runs last and applies the stored effects with the direction rule. The scoped block in the classify prompt, the matched ids with a reason and `covers`, and the counter. | None until a scoped instruction exists. The ADR-0106 prior line for a sender leaves the prompt. |
 | 3   | Briefing gather, the briefing reads, the two reply-draft gates, and the todo decision derive the effective result under the three states (`matched`, `not_matched`, `unknown`).                                                                                                                              | A removed instruction stops at the next read.                                                   |
-| 4   | Capture: the v2 arm of `system.remember`, list, and forget, with the confirmation card and the revision trigger.                                                                                                                                                                                             | The owner can store a scoped instruction. Old mail stays `unknown` for it.                      |
+| 4   | (#1613) Capture: the v2 arm of `system.remember`, list, and forget, with the confirmation card and the revision trigger.                                                                                                                                                                                     | The owner can store a scoped instruction. Old mail stays `unknown` for it.                      |
 | 4b  | The re-match job: an instruction write enqueues one bounded match-only pass over the mail that a consumer can still read.                                                                                                                                                                                    | A new scoped instruction reaches old mail.                                                      |
 | 5   | The migration script for the 21 v1 rows, with the owner's review of each row, and the rollout-gate replay.                                                                                                                                                                                                   | The investment instruction becomes one scoped instruction.                                      |
 
