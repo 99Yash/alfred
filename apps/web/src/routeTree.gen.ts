@@ -16,6 +16,7 @@ import { Route as ChatRouteImport } from './routes/chat'
 import { Route as IntegrationsRouteImport } from './routes/integrations'
 import { Route as LibraryRouteImport } from './routes/library'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as McpClientRouteImport } from './routes/mcp-client'
 import { Route as MemoryRouteImport } from './routes/memory'
 import { Route as NotesRouteImport } from './routes/notes'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
@@ -72,6 +73,11 @@ const LibraryRoute = LibraryRouteImport.update({
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const McpClientRoute = McpClientRouteImport.update({
+  id: '/mcp-client',
+  path: '/mcp-client',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MemoryRoute = MemoryRouteImport.update({
@@ -193,6 +199,7 @@ export interface FileRoutesByFullPath {
   '/integrations': typeof IntegrationsRouteWithChildren
   '/library': typeof LibraryRouteWithChildren
   '/login': typeof LoginRoute
+  '/mcp-client': typeof McpClientRoute
   '/memory': typeof MemoryRoute
   '/notes': typeof NotesRoute
   '/onboarding': typeof OnboardingRoute
@@ -224,6 +231,7 @@ export interface FileRoutesByTo {
   '/integrations': typeof IntegrationsRouteWithChildren
   '/library': typeof LibraryRouteWithChildren
   '/login': typeof LoginRoute
+  '/mcp-client': typeof McpClientRoute
   '/memory': typeof MemoryRoute
   '/notes': typeof NotesRoute
   '/onboarding': typeof OnboardingRoute
@@ -256,6 +264,7 @@ export interface FileRoutesById {
   '/integrations': typeof IntegrationsRouteWithChildren
   '/library': typeof LibraryRouteWithChildren
   '/login': typeof LoginRoute
+  '/mcp-client': typeof McpClientRoute
   '/memory': typeof MemoryRoute
   '/notes': typeof NotesRoute
   '/onboarding': typeof OnboardingRoute
@@ -289,6 +298,7 @@ export interface FileRouteTypes {
     | '/integrations'
     | '/library'
     | '/login'
+    | '/mcp-client'
     | '/memory'
     | '/notes'
     | '/onboarding'
@@ -320,6 +330,7 @@ export interface FileRouteTypes {
     | '/integrations'
     | '/library'
     | '/login'
+    | '/mcp-client'
     | '/memory'
     | '/notes'
     | '/onboarding'
@@ -351,6 +362,7 @@ export interface FileRouteTypes {
     | '/integrations'
     | '/library'
     | '/login'
+    | '/mcp-client'
     | '/memory'
     | '/notes'
     | '/onboarding'
@@ -383,6 +395,7 @@ export interface RootRouteChildren {
   IntegrationsRoute: typeof IntegrationsRouteWithChildren
   LibraryRoute: typeof LibraryRouteWithChildren
   LoginRoute: typeof LoginRoute
+  McpClientRoute: typeof McpClientRoute
   MemoryRoute: typeof MemoryRoute
   NotesRoute: typeof NotesRoute
   OnboardingRoute: typeof OnboardingRoute
@@ -449,6 +462,13 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/mcp-client': {
+      id: '/mcp-client'
+      path: '/mcp-client'
+      fullPath: '/mcp-client'
+      preLoaderRoute: typeof McpClientRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/memory': {
@@ -696,6 +716,7 @@ const rootRouteChildren: RootRouteChildren = {
   IntegrationsRoute: IntegrationsRouteWithChildren,
   LibraryRoute: LibraryRouteWithChildren,
   LoginRoute: LoginRoute,
+  McpClientRoute: McpClientRoute,
   MemoryRoute: MemoryRoute,
   NotesRoute: NotesRoute,
   OnboardingRoute: OnboardingRoute,

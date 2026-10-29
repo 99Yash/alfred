@@ -83,9 +83,8 @@ nothing in it measured them:
   different product. 2026-10-29: Vercel's MCP page now links a client review
   form (`https://forms.gle/FQ3nYPbovoHvbfmz9`). The form says the Vercel auth
   server must whitelist each client's OAuth redirect URI. That is the
-  sanctioned way to get the production callback accepted. Alfred's client is
-  described for that review in
-  [`reference/mcp-client.md`](../reference/mcp-client.md).
+  sanctioned way to get the production callback accepted. The public page
+  `https://alfred.beauty/mcp-client` describes Alfred's client for that review.
 - **Vercel Connect**, the sanctioned hosted path, supplies short-lived tokens to
   an MCP client. It requires the application to be deployed ON Vercel, linked
   with `vercel link`, holding a `VERCEL_OIDC_TOKEN`, and using dashboard-created
