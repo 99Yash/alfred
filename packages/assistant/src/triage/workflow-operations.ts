@@ -15,8 +15,8 @@ import { settings, type FeatureFlags, type UserSettings } from "@alfred/assistan
 import {
   readSenderPerson,
   readUserContextLine,
-  senderSuppressions,
-  type ReportedSenderSuppressions,
+  standingInstructions,
+  type ReportedStandingInstructionSet,
   type SenderPersonRead,
 } from "../knowledge";
 import {
@@ -242,7 +242,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
   let todo: TriageTodoDecision;
   const reusedExistingRow = Boolean(existing && existing.runId === ctx.runId);
 
-  const decideTodo = (suppressions: ReportedSenderSuppressions) =>
+  const decideTodo = (suppressions: ReportedStandingInstructionSet) =>
     decideTriageTodo({
       userId: ctx.userId,
       settings: userSettings,
@@ -278,7 +278,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     senderSignificanceBand = existing.senderSignificanceBand ?? null;
     // No gather runs on reuse, so the todo lane loads the suppressions itself.
     todo = await decideTodo(
-      await senderSuppressions({ userId: ctx.userId, onReadFailure: "report" }),
+      await standingInstructions({ userId: ctx.userId, onReadFailure: "report" }),
     );
     await ctx.log(`classify: reuse existing thread row category=${classification.category}`);
   } else {
@@ -993,7 +993,7 @@ export interface GatheredObservations {
   /** For the rail band (ADR-0064). Not a classifier input. */
   sender: SenderPersonRead;
   /** One `"report"` load. The todo lane matches against it too. */
-  suppressions: ReportedSenderSuppressions;
+  suppressions: ReportedStandingInstructionSet;
 }
 
 /**
@@ -1031,9 +1031,9 @@ export async function gatherObservations(args: {
       recentMessages: [],
     })),
     triageSenderKindProjectionEnabled(args.settings).catch(() => false),
-    // Read before the model call. A blip makes every `match` report `read_failed`,
+    // Read before the model call. A blip makes every `matchSender` report `read_failed`,
     // so the trace can tell none from unknown.
-    senderSuppressions({ userId: args.userId, onReadFailure: "report" }),
+    standingInstructions({ userId: args.userId, onReadFailure: "report" }),
     // Cold-start prior (ADR-0050 D1). One point read, never a memory search (#435).
     // A flag, because null alone cannot tell a failure from no chunk.
     readUserContextLine(args.userId)
@@ -1043,7 +1043,7 @@ export async function gatherObservations(args: {
   ]);
 
   // This sender's standing instruction.
-  const standing = suppressions.match(
+  const standing = suppressions.matchSender(
     { sender: args.senderAddress ?? meta.from ?? null, accountId: args.accountId },
     "demote_demand",
   );

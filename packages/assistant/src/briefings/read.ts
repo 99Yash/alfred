@@ -17,7 +17,7 @@ import type {
 import { db } from "@alfred/db";
 import { briefings, documents, emailTriage, type Briefing } from "@alfred/db/schemas";
 import { and, desc, eq, gt, inArray, isNotNull, sql } from "drizzle-orm";
-import { getSenderSignificanceBatch, senderSuppressions } from "../knowledge";
+import { getSenderSignificanceBatch, standingInstructions } from "../knowledge";
 import { inZone } from "@alfred/assistant/time";
 import { logger } from "@alfred/logging";
 
@@ -131,7 +131,7 @@ export async function listEmailsSinceWatermark(
     // Anchor on the frozen "until" so the signal does not depend on wall-clock time.
     listRecentlySurfacedKeys({ userId: args.userId, before: args.untilIngestedAt }),
     // The agent writes prose from this list, not from `gather`, so suppression applies here too.
-    senderSuppressions({ userId: args.userId, onReadFailure: "throw" }),
+    standingInstructions({ userId: args.userId, onReadFailure: "throw" }),
   ]);
 
   const rows: EmailListRow[] = [];
@@ -177,7 +177,7 @@ export async function listEmailsSinceWatermark(
       if (hasSuppression) {
         const from = parseGmailDocumentMetadata(row.metadata).from;
 
-        const suppression = suppressions.match(
+        const suppression = suppressions.matchSender(
           { sender: from ?? null, accountId: row.accountId },
           "exclude_briefing_priority",
         );
@@ -574,9 +574,9 @@ export async function readEmailDocument(args: {
   if (!row) return null;
   const meta = parseGmailDocumentMetadata(row.metadata);
 
-  const suppressions = await senderSuppressions({ userId: args.userId, onReadFailure: "throw" });
+  const suppressions = await standingInstructions({ userId: args.userId, onReadFailure: "throw" });
 
-  const suppression = suppressions.match(
+  const suppression = suppressions.matchSender(
     { sender: meta.from ?? null, accountId: row.accountId },
     "exclude_briefing_priority",
   );

@@ -13,7 +13,7 @@ import {
 
 // Internal, not in the `knowledge` barrel.
 import {
-  senderSuppressionsOf,
+  standingInstructionsOf,
   type ActiveStandingInstruction,
 } from "@alfred/assistant/knowledge/standing-instructions";
 
@@ -54,9 +54,9 @@ describe("normalizeEmailAddress", () => {
   });
 });
 
-describe("senderSuppressions match", () => {
+describe("standingInstructions match", () => {
   test("matches cross-account sender suppressions by canonical email and effect", () => {
-    const outcome = senderSuppressionsOf([active(instruction())]).match(
+    const outcome = standingInstructionsOf([active(instruction())]).matchSender(
       { sender: "Ben Book <BEN@example.com>", accountId: "google-work" },
       "block_todo_suggestion",
     );
@@ -76,17 +76,17 @@ describe("senderSuppressions match", () => {
       },
     });
 
-    const suppressions = senderSuppressionsOf([active(value)]);
+    const suppressions = standingInstructionsOf([active(value)]);
 
     assert.equal(
-      suppressions.match(
+      suppressions.matchSender(
         { sender: "ben@example.com", accountId: "google-personal" },
         "exclude_briefing_priority",
       ).kind,
       "none",
     );
     assert.equal(
-      suppressions.match(
+      suppressions.matchSender(
         { sender: "ben@example.com", accountId: "google-work" },
         "exclude_briefing_priority",
       ).kind,
@@ -97,7 +97,7 @@ describe("senderSuppressions match", () => {
   test("lifts a v1 row to its enforced effects — the stored v1 array never filters", () => {
     const value = instruction({ effects: ["exclude_briefing_priority"] });
     assert.equal(
-      senderSuppressionsOf([active(value)]).match(
+      standingInstructionsOf([active(value)]).matchSender(
         { sender: "ben@example.com", accountId: null },
         "block_todo_suggestion",
       ).kind,

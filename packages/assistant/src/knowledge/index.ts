@@ -140,14 +140,14 @@ export {
   editStandingInstruction,
   forgetStandingInstruction,
   listStandingInstructions,
-  senderSuppressions,
+  standingInstructions,
   // Prefer the `tools` suppression coordinator: it also dismisses the matching todos.
   rememberSenderSuppression,
   type RememberSenderSuppressionArgs,
   type RememberSenderSuppressionResult,
-  type SenderSuppressionMatch,
-  type SenderSuppressionOutcome,
-  type ReportedSenderSuppressions,
+  type SenderTargetMatch,
+  type SenderTargetOutcome,
+  type ReportedStandingInstructionSet,
 } from "./standing-instructions";
 
 export { startMemoryWorker, stopMemoryWorker, closeMemoryQueue } from "./queue";

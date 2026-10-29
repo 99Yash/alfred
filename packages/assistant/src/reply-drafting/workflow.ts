@@ -20,7 +20,7 @@ import {
   type ToolRunIdentity,
   type Workflow,
 } from "@alfred/assistant/execution";
-import { senderSuppressions } from "@alfred/assistant/knowledge";
+import { standingInstructions } from "@alfred/assistant/knowledge";
 import { withdrawToolCallApproval } from "@alfred/assistant/tool-runtime";
 import { settings } from "@alfred/assistant/settings";
 import {
@@ -179,9 +179,9 @@ async function runGate(ctx: StepContext<State>): Promise<StepResult<State>> {
 
   let standingInstruction: ReplyStandingInstructionState = "none";
 
-  const suppressions = await senderSuppressions({ userId: ctx.userId, onReadFailure: "report" });
+  const suppressions = await standingInstructions({ userId: ctx.userId, onReadFailure: "report" });
 
-  const suppression = suppressions.match(
+  const suppression = suppressions.matchSender(
     { sender: senderContextResult.senderAddress, accountId: document.accountId },
     "block_reply_draft",
   );

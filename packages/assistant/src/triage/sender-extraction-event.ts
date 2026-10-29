@@ -11,7 +11,7 @@ import type { FloorAudits } from "./floors";
 import type { Observations } from "./observations";
 import type { SenderContextResult } from "./sender-context";
 import type { TriageSenderKindSignal } from "./sender-kind";
-import type { SenderSuppressionOutcome } from "../knowledge";
+import type { SenderTargetOutcome } from "../knowledge";
 
 /** One floor's audit as flat trace fields. `null` means no floor ran (the fallback path). */
 type FloorTraceProjection<K extends keyof FloorAudits> = (
@@ -157,7 +157,7 @@ export function senderExtractionEvent(args: {
   classification: TriageClassification;
   todoSuggested: boolean;
   /** The `block_todo_suggestion` read. Flattened below into the stored trace fields. */
-  standingSuppression: SenderSuppressionOutcome;
+  standingSuppression: SenderTargetOutcome;
 }): SenderExtractionEvent {
   const { context } = args.senderContextResult;
   const obs = args.observations;

@@ -59,7 +59,7 @@ import {
 } from "@alfred/assistant/connections/verified-pull";
 import { type UserSettings, userIdentity } from "@alfred/assistant/settings";
 import { getMcpExecutionBroker } from "@alfred/assistant/tool-runtime/mcp";
-import { senderSuppressions } from "../knowledge";
+import { standingInstructions } from "../knowledge";
 import {
   addDays,
   formatDay,
@@ -241,7 +241,7 @@ export async function gatherBriefingDigest(
         ),
       )
       .orderBy(desc(documents.authoredAt)),
-    senderSuppressions({ userId: args.userId, onReadFailure: "throw" }),
+    standingInstructions({ userId: args.userId, onReadFailure: "throw" }),
     userIdentity({ userId: args.userId }),
   ]);
 
@@ -289,7 +289,7 @@ export async function gatherBriefingDigest(
 
     const from = meta.from ?? null;
 
-    const instructionSuppression = suppressions.match(
+    const instructionSuppression = suppressions.matchSender(
       { sender: from, accountId: r.accountId },
       "exclude_briefing_priority",
     );

@@ -1,8 +1,8 @@
 import type { UserSettings } from "@alfred/assistant/settings";
 import type {
-  ReportedSenderSuppressions,
-  SenderSuppressionMatch,
-  SenderSuppressionOutcome,
+  ReportedStandingInstructionSet,
+  SenderTargetMatch,
+  SenderTargetOutcome,
 } from "../knowledge";
 import {
   resolveTodoSuggestion,
@@ -24,7 +24,7 @@ import type { TriageRunReason } from "./workflow-input";
 
 /** Why a proposed todo is not minted, in precedence order. */
 export type TriageTodoSuppression =
-  | { kind: "standing_instruction"; match: SenderSuppressionMatch }
+  | { kind: "standing_instruction"; match: SenderTargetMatch }
   /** Fails closed: an unknown instruction must not mint a todo the user blocked. */
   | { kind: "standing_instruction_read_failed"; error: unknown }
   | { kind: "gate"; reason: TodoSuppressionReason }
@@ -51,7 +51,7 @@ export type TriageThreadClosureRead =
 export type TriageTodoDecision = {
   outcome: TriageTodoOutcome;
   /** The `block_todo_suggestion` read, for the decision trace. `none` when no todo is proposed. */
-  standingSuppression: SenderSuppressionOutcome;
+  standingSuppression: SenderTargetOutcome;
   closure: TriageThreadClosureRead;
 };
 
@@ -71,7 +71,7 @@ export async function decideTriageTodo(args: {
   isColdContact: boolean;
   actionItemsEnabled: boolean;
   /** The step's one `"report"` load, so the todo lane and the category lane agree. */
-  suppressions: ReportedSenderSuppressions;
+  suppressions: ReportedStandingInstructionSet;
 }): Promise<TriageTodoDecision> {
   const { document, classification } = args;
 
@@ -86,7 +86,7 @@ export async function decideTriageTodo(args: {
 
   if (!todo) return { outcome: { kind: "none" }, standingSuppression: { kind: "none" }, closure };
 
-  const standingSuppression = args.suppressions.match(
+  const standingSuppression = args.suppressions.matchSender(
     { sender: args.senderAddress ?? document.metadata.from ?? null, accountId: document.accountId },
     "block_todo_suggestion",
   );

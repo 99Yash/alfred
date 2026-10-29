@@ -409,14 +409,6 @@ export const standingInstructionValueSchema = z.object({
 
 export type StandingInstructionValue = z.infer<typeof standingInstructionValueSchema>;
 
-/** Legacy. Do not use it on the hot path: the stored array is a snapshot. */
-export function hasSuppressionEffect(
-  value: StandingInstructionValue,
-  effect: SuppressionEffect,
-): boolean {
-  return value.effects.includes(effect);
-}
-
 // ─── Schema v2 (ADR-0113) ───────────────────────────────────────────────────
 
 /**
