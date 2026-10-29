@@ -80,7 +80,12 @@ nothing in it measured them:
   user combined.
 - **Register a client in the dashboard.** There is no such screen;
   `<team>/~/settings/mcp` answers `404`, and the `Agent` navigation item is a
-  different product.
+  different product. 2026-10-29: Vercel's MCP page now links a client review
+  form (`https://forms.gle/FQ3nYPbovoHvbfmz9`). The form says the Vercel auth
+  server must whitelist each client's OAuth redirect URI. That is the
+  sanctioned way to get the production callback accepted. Alfred's client is
+  described for that review in
+  [`reference/mcp-client.md`](../reference/mcp-client.md).
 - **Vercel Connect**, the sanctioned hosted path, supplies short-lived tokens to
   an MCP client. It requires the application to be deployed ON Vercel, linked
   with `vercel link`, holding a `VERCEL_OIDC_TOKEN`, and using dashboard-created
