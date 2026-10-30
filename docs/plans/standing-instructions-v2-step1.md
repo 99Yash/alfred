@@ -125,6 +125,13 @@ These choices are not in the ADR. Each one is the smallest choice that keeps an 
     the classify call read with the current one. When the set moved, the caller enqueues the
     user's re-match job. Each stored scope result carries the instruction `revision` that it
     read, so a result for an older revision reads as `unknown` and cannot apply.
+22. **A match needs an explicit decision.** The classify call and the match-only call write one
+    `instructionMatches` entry for each sent instruction: `id`, `reason`, `decision`
+    (`matched` or `not_matched`), and `covers`. Only `decision: "matched"` makes a match. The
+    presence of an entry is not a match. A missing or bad decision, or two entries that
+    disagree, read as `unknown`. Before this change, the code read each listed id as a match.
+    The cheap model listed an exception with the reason "not a tax or legal matter", and the
+    exception then cancelled every lowering effect of the investment instruction.
 
 ## Pull requests
 

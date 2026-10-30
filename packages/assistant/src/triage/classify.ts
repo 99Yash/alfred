@@ -108,7 +108,7 @@ export type TriageClassification = z.infer<typeof triageClassificationSchema>;
  */
 const triageClassificationWithMatchesSchema = triageClassificationSchema.extend({
   // Optional, so an omitted list does not fail the parse. Each sent instruction then stays
-  // `unknown`; an empty list makes each one `not_matched`.
+  // `unknown`. Only an entry with an explicit decision gives a result (`readStandingScopeMatches`).
   instructionMatches: z.array(triageInstructionMatchOutputSchema).optional(),
 });
 
