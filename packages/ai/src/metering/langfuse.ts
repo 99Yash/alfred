@@ -13,7 +13,13 @@ import {
 } from "@langfuse/tracing";
 import { ROOT_CONTEXT, TraceFlags, context, type SpanContext } from "@opentelemetry/api";
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
+import { defaultResource, resourceFromAttributes, type Resource } from "@opentelemetry/resources";
 import { BasicTracerProvider } from "@opentelemetry/sdk-trace-base";
+import {
+  ATTR_DEPLOYMENT_ENVIRONMENT_NAME,
+  ATTR_SERVICE_NAME,
+  ATTR_SERVICE_VERSION,
+} from "@opentelemetry/semantic-conventions";
 import type { CallKind, CallUsage, MeteredMeta } from "./metered";
 import {
   APPROVAL_EXPIRY_MS,
@@ -32,6 +38,26 @@ import type { JsonObject } from "@alfred/contracts";
  */
 type LangfuseRuntime = { readonly provider: BasicTracerProvider };
 
+/**
+ * OTel `service.name` for every trace this process sends. The Railway service is `server`.
+ * Without it, the SDK default is `unknown_service:<node binary path>`.
+ */
+const LANGFUSE_SERVICE_NAME = "alfred-server";
+
+/**
+ * Resource for the Langfuse provider. A `resource` replaces the SDK default, so merge onto
+ * `defaultResource()` to keep its `telemetry.sdk.*` attributes.
+ */
+function langfuseResource(args: { environment: string; release: string | undefined }): Resource {
+  return defaultResource().merge(
+    resourceFromAttributes({
+      [ATTR_SERVICE_NAME]: LANGFUSE_SERVICE_NAME,
+      [ATTR_DEPLOYMENT_ENVIRONMENT_NAME]: args.environment,
+      ...(args.release ? { [ATTR_SERVICE_VERSION]: args.release } : {}),
+    }),
+  );
+}
+
 let _runtime: LangfuseRuntime | "noop" | undefined;
 
 function getRuntime(): LangfuseRuntime | null {
@@ -48,16 +74,21 @@ function getRuntime(): LangfuseRuntime | null {
   }
 
   try {
+    // Every deploy target runs `NODE_ENV=production`, so prefer the per-target slug.
+    const environment = env.LANGFUSE_TRACING_ENVIRONMENT ?? env.NODE_ENV;
+
     const processor = new LangfuseSpanProcessor({
       publicKey: env.LANGFUSE_PUBLIC_KEY,
       secretKey: env.LANGFUSE_SECRET_KEY,
       ...(env.LANGFUSE_HOST ? { baseUrl: env.LANGFUSE_HOST } : {}),
-      // Every deploy target runs `NODE_ENV=production`, so prefer the per-target slug.
-      environment: env.LANGFUSE_TRACING_ENVIRONMENT ?? env.NODE_ENV,
+      environment,
       ...(env.LANGFUSE_RELEASE ? { release: env.LANGFUSE_RELEASE } : {}),
     });
 
-    const provider = new BasicTracerProvider({ spanProcessors: [processor] });
+    const provider = new BasicTracerProvider({
+      resource: langfuseResource({ environment, release: env.LANGFUSE_RELEASE }),
+      spanProcessors: [processor],
+    });
 
     // `propagateAttributes` needs a context manager. Scripts run without Sentry's,
     // so register one. No-op when one already exists.
