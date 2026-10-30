@@ -55,10 +55,10 @@ function toMeetingItem(row: MeetingResponseItem, nextStart: number | null): Rail
 }
 
 function formatStart(iso: string | null): string {
-  if (!iso) return "\u2014";
+  if (!iso) return "No time";
   const d = new Date(iso);
 
-  if (Number.isNaN(d.getTime())) return "\u2014";
+  if (Number.isNaN(d.getTime())) return "No time";
   const hours = d.getHours().toString().padStart(2, "0");
   const minutes = d.getMinutes().toString().padStart(2, "0");
 

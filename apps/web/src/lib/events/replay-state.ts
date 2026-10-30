@@ -127,7 +127,7 @@ const SPEAKS_FOR_NO_RUN = {
     "and never publishes `chat.message`, so `releasedRunId` clears that barrier on " +
     "this kind's terminal phase (`completed` / `failed` / `cancelled` / `blocked`). " +
     "Arming and releasing are " +
-    "separate policies — this reason is the arming one.",
+    "separate policies; this reason is the arming one.",
   "agent.progress": "Step telemetry with no client state that survives a reload.",
   "tool.call": "Workflow tool telemetry; the chat trail's cards arrive as `chat.tool`.",
   "artifact.delta":
@@ -135,8 +135,8 @@ const SPEAKS_FOR_NO_RUN = {
     "`packages/assistant/src/realtime/replay.ts`), so a client that armed this run's barrier at `chat.message` / " +
     '`phase: "started"` has that barrier span the deltas and gets them back on reload. But the ' +
     "barrier only exists for a client that saw `started`. A client that first observes the run " +
-    "through `artifact.delta` alone — a fresh tab, or a reconnect whose resume floor already " +
-    "sits above the run's `started` id — arms no barrier, floats the cursor past these deltas, " +
+    "through `artifact.delta` alone (a fresh tab, or a reconnect whose resume floor already " +
+    "sits above the run's `started` id) arms no barrier, floats the cursor past these deltas, " +
     "and re-loses them on the next reload. That window self-heals: the durable `artifacts` row " +
     "supersedes the live stream once the tool resolves. See `test/events/replay-state.test.ts` " +
     "(the mid-join gap) and campaign item 41's follow-up for the server-side recovery.",

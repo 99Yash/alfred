@@ -2464,8 +2464,9 @@
    * compose with `motion`'s inline `transform` on any `m.*` node.
    * These rules sit in `@layer components`, so a same-element Tailwind
    * `scale-*` utility wins over the press. Gate it with `not-active:`
-   * (for example `hover:not-active:scale-[1.04]`). Review-only: no gate
-   * catches it. */
+   * (for example `hover:not-active:scale-[1.04]`).
+   * `alfred/no-delta-class-utility-collision` catches it on one element;
+   * review catches a `className` passed to a primitive. */
   .app-press:active:not(:disabled) {
     scale: 0.96;
   }

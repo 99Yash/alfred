@@ -62,7 +62,7 @@ export function FullContent({
       <div className="flex items-center justify-between px-2 pt-2.5 pb-1">
         <Link
           to="/chat"
-          aria-label="Alfred — home"
+          aria-label="Alfred home"
           className={cn(
             "inline-flex size-8 items-center justify-center rounded-control",
             "app-press transition-colors hover:bg-app-bg-a2",

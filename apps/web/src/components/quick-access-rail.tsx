@@ -57,7 +57,7 @@ const FIXTURE_EMAILS: ReadonlyArray<EmailDraft> = [
     id: "e1",
     sender: "Anna Chen",
     subject: "Re: Q1 planning sync",
-    preview: "Thanks for the recap — one follow-up on the migration milestones…",
+    preview: "Thanks for the recap. One follow-up on the migration milestones…",
     time: "8:14 AM",
   },
   {
@@ -86,7 +86,7 @@ const FIXTURE_MEETINGS: ReadonlyArray<MeetingItem> = [
   },
   {
     id: "m2",
-    title: "Design review — onboarding",
+    title: "Design review: onboarding",
     time: "11:00 AM",
     attendees: 3,
     video: true,
@@ -171,7 +171,7 @@ export function QuickAccessRail() {
                   onClick={() => setMode(tab.mode)}
                   className={cn(
                     "grid h-9 w-14 place-items-center rounded-[14px]",
-                    "transition-[background-color,color,transform] active:scale-[0.96]",
+                    "transition-[background-color,color,scale] active:scale-[0.96]",
                     selected
                       ? "bg-white/12 text-white shadow-[inset_0_0_0_0.5px_rgba(255,255,255,0.14)]"
                       : "text-white/50 hover:text-white/90",
@@ -249,7 +249,7 @@ function TasksPanel({
         <button
           type="button"
           aria-label="Edit todos"
-          className="grid size-8 place-items-center rounded-xl text-white/70 transition-[background-color,color,transform] hover:bg-white/10 hover:text-white active:scale-[0.96]"
+          className="grid size-8 place-items-center rounded-xl text-white/70 transition-[background-color,color,scale] hover:bg-white/10 hover:text-white active:scale-[0.96]"
         >
           <Pencil size={15} />
         </button>

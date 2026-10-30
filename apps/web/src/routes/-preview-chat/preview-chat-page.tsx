@@ -29,7 +29,7 @@ const PREVIEW_RAIL_DATA: RailData = {
     slot: "morning",
     briefingDate: new Date().toISOString().slice(0, 10),
     runAt: new Date().toISOString(),
-    subject: "Morning briefing — Friday",
+    subject: "Morning briefing: Friday",
   },
 };
 

@@ -48,7 +48,7 @@ export function useBioFact(): BioFactState {
 
       // Throw so the caller toasts instead of reporting a save that did not happen.
       if (!rep || !userId) {
-        throw new Error("Sync client not ready — bio not saved.");
+        throw new Error("Sync client not ready. Bio not saved.");
       }
 
       if (bio) {

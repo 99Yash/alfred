@@ -118,7 +118,7 @@ export function DimensionComposerSendButton({ disabled }: { disabled?: boolean }
       aria-label="Send"
       className={cn(
         "inline-flex size-8 items-center justify-center rounded-full",
-        "transition-[opacity,filter,transform] active:scale-[0.96]",
+        "transition-[opacity,filter,scale] active:scale-[0.96]",
         "text-black backdrop-blur-sm",
         "bg-[linear-gradient(180deg,#a5a5a5_46%,#e3e3e3_100%)]",
         "shadow-[0_0_0_0.5px_rgba(0,0,0,0.4),0_18px_11px_rgba(0,0,0,0.01),0_8px_8px_rgba(0,0,0,0.01),0_2px_4px_rgba(0,0,0,0.02)]",

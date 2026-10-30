@@ -125,7 +125,7 @@ export function callToast({
               "-my-0.5 shrink-0 self-center rounded-control px-2.5 py-1 text-[12.5px] font-semibold",
               // A resting fill so it reads as a button before hover.
               "bg-app-bg-a2 text-app-fg-4 ring-1 ring-app-fg-a1/60 ring-inset",
-              "transition-[background-color,box-shadow,transform] duration-150 hover:ring-app-fg-a1 active:scale-[0.96]",
+              "transition-[background-color,box-shadow,scale] duration-150 hover:ring-app-fg-a1 active:scale-[0.96]",
               "outline-none focus-visible:ring-2 focus-visible:ring-app-fg-a2",
             )}
           >

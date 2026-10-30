@@ -52,6 +52,6 @@ export function formatEventRange(subtitle: string, timeZone: string): string {
   const sameDay = day(startDate) === day(endDate);
 
   return sameDay
-    ? `${time(startDate)} – ${time(endDate)}`
-    : `${day(startDate)}, ${time(startDate)} – ${day(endDate)}, ${time(endDate)}`;
+    ? `${time(startDate)} to ${time(endDate)}`
+    : `${day(startDate)}, ${time(startDate)} to ${day(endDate)}, ${time(endDate)}`;
 }

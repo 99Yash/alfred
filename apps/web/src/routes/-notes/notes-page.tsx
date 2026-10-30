@@ -128,7 +128,7 @@ export function NotesPage() {
                   "inline-flex size-8 items-center justify-center rounded-full",
                   "bg-(image:--app-cta-bg) text-[var(--app-accent-fg)]",
                   "shadow-[var(--app-button-primary-shadow)]",
-                  "transition-[opacity,filter,transform] active:scale-[0.96]",
+                  "transition-[opacity,filter,scale] active:scale-[0.96]",
                   hasContent
                     ? "hover:brightness-[1.06] active:brightness-[0.96]"
                     : "cursor-not-allowed opacity-50",

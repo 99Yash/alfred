@@ -103,7 +103,7 @@ export function getLocalStorageItem<K extends LocalStorageKey>(
   if (result.success) return result.data;
 
   console.warn(
-    `[storage] stored value for "${key}" is invalid — falling back to default`,
+    `[storage] stored value for "${key}" is invalid; falling back to default`,
     result.error.issues,
   );
 

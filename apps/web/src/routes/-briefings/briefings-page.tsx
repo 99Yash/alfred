@@ -25,7 +25,7 @@ function groupByDate(briefings: SyncedBriefing[]): { date: string; slots: Synced
 function slotGist(b: SyncedBriefing): string {
   if (b.breakingSummary) return briefingPlainText(b.breakingSummary, b.gather);
 
-  if (b.status === "suppressed") return "Quiet day — not emailed.";
+  if (b.status === "suppressed") return "Quiet day. Not emailed.";
 
   return "Not composed yet.";
 }

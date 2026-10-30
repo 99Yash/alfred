@@ -169,7 +169,7 @@ function DisconnectControl({
 function formatConnectedDate(iso: string): string {
   const d = new Date(iso);
 
-  if (Number.isNaN(d.getTime())) return "—";
+  if (Number.isNaN(d.getTime())) return "Unknown date";
 
   return d.toLocaleDateString(undefined, {
     month: "long",

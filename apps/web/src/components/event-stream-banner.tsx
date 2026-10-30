@@ -19,7 +19,7 @@ export function EventStreamBanner() {
         className="inline-flex size-2 shrink-0 animate-pulse rounded-full bg-app-amber-4"
         aria-hidden
       />
-      <span>Live updates disconnected — reconnecting…</span>
+      <span>Live updates disconnected. Reconnecting…</span>
     </div>
   );
 }

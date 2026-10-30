@@ -263,7 +263,7 @@ export function ToolCallCard({
                 <ChevronRight
                   size={14}
                   aria-hidden
-                  className="text-app-fg-2 opacity-0 transition-[transform,color,opacity] duration-200 group-hover/toolrow:text-app-fg-4 group-hover/toolrow:opacity-100 group-focus-visible/toolrow:opacity-100 group-data-[state=open]/toolrow:rotate-90 group-data-[state=open]/toolrow:opacity-100 pointer-coarse:opacity-100"
+                  className="text-app-fg-2 opacity-0 transition-[rotate,color,opacity] duration-200 group-hover/toolrow:text-app-fg-4 group-hover/toolrow:opacity-100 group-focus-visible/toolrow:opacity-100 group-data-[state=open]/toolrow:rotate-90 group-data-[state=open]/toolrow:opacity-100 pointer-coarse:opacity-100"
                 />
               ) : null}
             </span>

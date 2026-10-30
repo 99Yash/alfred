@@ -65,7 +65,7 @@ export function AuthorizationReturnPage() {
           your original tab.
         </p>
         <button
-          className="mt-8 inline-flex min-h-11 items-center justify-center gap-2 rounded-surface bg-[linear-gradient(145deg,#6b57e9,#4f37cb)] px-5 text-sm font-medium text-app-fg-4 shadow-[inset_0_1px_1px_#ffffff55,0_8px_24px_#281b7555,0_0_0_1px_#ffffff26] transition-[transform,filter] duration-200 ease-[cubic-bezier(0.2,0,0,1)] hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#a4acfd] active:scale-[0.96]"
+          className="mt-8 inline-flex min-h-11 items-center justify-center gap-2 rounded-surface bg-[linear-gradient(145deg,#6b57e9,#4f37cb)] px-5 text-sm font-medium text-app-fg-4 shadow-[inset_0_1px_1px_#ffffff55,0_8px_24px_#281b7555,0_0_0_1px_#ffffff26] transition-[scale,filter] duration-200 ease-[cubic-bezier(0.2,0,0,1)] hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#a4acfd] active:scale-[0.96]"
           onClick={continueAfterAuthorization}
           type="button"
         >

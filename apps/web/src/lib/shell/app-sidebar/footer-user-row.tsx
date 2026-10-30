@@ -29,7 +29,7 @@ export function RailUserButton() {
     <RailTip label={label}>
       <Link
         to="/settings"
-        aria-label={`${label} — settings`}
+        aria-label={`${label}: settings`}
         className={cn(
           "app-press inline-flex size-9 shrink-0 items-center justify-center rounded-control",
           "outline-none focus-visible:ring-2 focus-visible:ring-app-purple-2",

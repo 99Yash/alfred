@@ -70,7 +70,7 @@ export function useDictation() {
         code === "not-allowed" || code === "service-not-allowed"
           ? "Microphone access denied"
           : code === "no-speech"
-            ? "Didn't catch that — try again"
+            ? "Didn't catch that. Try again."
             : "Dictation stopped unexpectedly",
       );
       stop();

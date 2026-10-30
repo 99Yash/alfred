@@ -111,7 +111,7 @@ export function SubAgentCard({ tool, trail }: { tool: ResolvedToolCall; trail: S
               <ChevronRight
                 size={14}
                 aria-hidden
-                className="text-app-fg-2 transition-[transform,color] duration-200 group-hover/subagent:text-app-fg-4 group-data-[state=open]/subagent:rotate-90"
+                className="text-app-fg-2 transition-[rotate,color] duration-200 group-hover/subagent:text-app-fg-4 group-data-[state=open]/subagent:rotate-90"
               />
             </span>
           </Accordion.Trigger>
