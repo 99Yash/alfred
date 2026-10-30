@@ -87,6 +87,49 @@ export interface MeteredResult {
    * Anthropic dated snapshot ids miss often.
    */
   servedUnresolved?: string | undefined;
+  /** Streams only. When each kind of model output first arrived. */
+  firstOutputAt?: StreamFirstOutput | undefined;
+}
+
+/**
+ * The first chunk of each output kind. One "first token" time cannot show if the wait
+ * went to reasoning, to reply text, or to a tool call, so each kind keeps its own mark.
+ */
+export interface StreamFirstOutput {
+  reasoning?: Date | undefined;
+  text?: Date | undefined;
+  toolInput?: Date | undefined;
+}
+
+/** The earliest output of any kind. Langfuse reads it as the time to first token. */
+function earliestOutput(first: StreamFirstOutput | undefined): Date | undefined {
+  const marks = [first?.reasoning, first?.text, first?.toolInput].filter(
+    (mark): mark is Date => mark !== undefined,
+  );
+
+  if (marks.length === 0) return undefined;
+
+  return new Date(Math.min(...marks.map((mark) => mark.getTime())));
+}
+
+/** Milliseconds from the call start to each first output, for `response_meta` and the span. */
+function firstOutputMeta(
+  first: StreamFirstOutput | undefined,
+  startedAt: Date,
+): Record<string, number> {
+  const since = (mark: Date | undefined) =>
+    mark === undefined ? undefined : mark.getTime() - startedAt.getTime();
+
+  const entries = {
+    ttftMs: since(earliestOutput(first)),
+    firstReasoningMs: since(first?.reasoning),
+    firstTextMs: since(first?.text),
+    firstToolInputMs: since(first?.toolInput),
+  };
+
+  return Object.fromEntries(
+    Object.entries(entries).filter((entry): entry is [string, number] => entry[1] !== undefined),
+  );
 }
 
 export type ResultExtractor<T> = (value: T) => MeteredResult;
@@ -285,7 +328,15 @@ export function meteredStream<T>(
     settled = true;
     const latencyMs = Date.now() - startedAt.getTime();
     const served = reconcileServed(meta, extracted);
-    const responseMeta = aborted ? { ...served.responseMeta, aborted: true } : served.responseMeta;
+    const timing = firstOutputMeta(extracted.firstOutputAt, startedAt);
+
+    const responseMeta = {
+      ...served.responseMeta,
+      ...timing,
+      ...(aborted ? { aborted: true } : {}),
+    };
+
+    const completionStartTime = earliestOutput(extracted.firstOutputAt);
     enqueueMeteringWrite(
       (async () => {
         const costUsd = await costForExtracted(extracted, served);
@@ -303,6 +354,7 @@ export function meteredStream<T>(
           output: extracted.output,
           responseMeta,
           servedModel: served.model,
+          completionStartTime,
         });
       })(),
     );
