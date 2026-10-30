@@ -1,6 +1,6 @@
 ---
 status: in-progress
-evidence: "PR 1 is #1609 (merged). PR 2 is #1610 (merged). PR 3 is #1611 (merged). PR 4 is #1613 (merged 2026-10-29T14:33Z). PR 4b is #1614 (open)."
+evidence: "PR 1 is #1609 (merged). PR 2 is #1610 (merged). PR 3 is #1611 (merged). PR 4 is #1613 (merged 2026-10-29T14:33Z). PR 4b is #1614 (merged 2026-10-29T15:26Z). PR 5 is the migration script PR (open); the owner runs it."
 ---
 
 # Standing instructions v2, step 1: the base design of ADR-0113
@@ -138,6 +138,19 @@ These choices are not in the ADR. Each one is the smallest choice that keeps an 
     the classify call read with the current one. When the set moved, the caller enqueues the
     user's re-match job. Each stored scope result carries the instruction `revision` that it
     read, so a result for an older revision reads as `unknown` and cannot apply.
+
+22. **The migration writes through capture, in a safe order.** The script
+    (`migrate-standing-instructions-v2-committed`) calls `saveStandingInstruction` for each
+    instruction, so the lock, the conflict gate, the observation log, and the trigger all run.
+    It writes the investment instruction beside its v1 rows, then the exception, then the
+    Polylane and Smallcase instruction with `replaces`, and last the investment content again
+    with `replaces`. The capture duplicate check closes the v1 rows in that last call. Thus a
+    stop between two writes never leaves the investment scope without its exception. The source
+    `meta` marks each migrated row, so a rerun revises the same instruction and adds none.
+23. **The investment exception stores no effects.** On mail that both match, a matched exception
+    cancels each lowering effect of the broader instruction on any cover (decision 10), so the
+    mail keeps its model verdict. An effect on the exception would apply an owner rule that the
+    words do not state.
 
 ## Pull requests
 

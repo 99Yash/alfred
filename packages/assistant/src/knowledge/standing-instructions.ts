@@ -561,6 +561,48 @@ function captureEffects(input: SaveStandingInstructionInput): StandingInstructio
   });
 }
 
+/** The stored value for one parsed input at one identity. Capture and its preview share it. */
+function captureValue(
+  input: SaveStandingInstructionInput,
+  parsed: Extract<ParsedCaptureInput, { ok: true }>,
+  identity: { instructionId: string; revision: number },
+): StandingInstructionValueV2 {
+  return standingInstructionValueV2Schema.parse({
+    schemaVersion: STANDING_INSTRUCTION_SCHEMA_VERSION_V2,
+    instructionId: identity.instructionId,
+    revision: identity.revision,
+    phrasing: input.phrasing,
+    directive: input.directive,
+    ...(input.scope === undefined ? {} : { scope: input.scope }),
+    targets: parsed.targets ?? [],
+    ...(parsed.senderFilter === undefined ? {} : { senderFilter: parsed.senderFilter }),
+    effects: captureEffects(input),
+    ...(input.exceptionOf === undefined ? {} : { exceptionOf: input.exceptionOf }),
+    // Targets and the filter carry the mailbox. The scope needs its own bound (ADR-0113).
+    ...(parsed.accountId === null || input.scope === undefined
+      ? {}
+      : { accountId: parsed.accountId }),
+  } satisfies z.input<typeof standingInstructionValueV2Schema>);
+}
+
+/**
+ * The value that capture would store for this input as a new instruction, with no read and no
+ * write. A review tool matches it over stored mail before the owner stores it. The caller
+ * names the id, so an `exceptionOf` between two previews can point at a preview.
+ */
+export function previewStandingInstructionValue(
+  input: SaveStandingInstructionInput,
+  instructionId: string,
+):
+  | { ok: true; value: StandingInstructionValueV2 }
+  | Extract<SaveStandingInstructionResult, { status: "invalid_sender" }> {
+  const parsed = parseCaptureInput(input);
+
+  if (!parsed.ok) return parsed;
+
+  return { ok: true, value: captureValue(input, parsed, { instructionId, revision: 0 }) };
+}
+
 /** The content of an instruction, without its identity, for the duplicate check. */
 function instructionContentSignature(value: StandingInstructionValueV2): string {
   const { instructionId: _id, revision: _revision, ...content } = value;
@@ -721,22 +763,10 @@ function planCapture(
     }
   }
 
-  const value = standingInstructionValueV2Schema.parse({
-    schemaVersion: STANDING_INSTRUCTION_SCHEMA_VERSION_V2,
+  const value = captureValue(input, parsed, {
     instructionId,
     revision: previous === null ? 0 : previous.value.revision + 1,
-    phrasing: input.phrasing,
-    directive: input.directive,
-    ...(input.scope === undefined ? {} : { scope: input.scope }),
-    targets: parsed.targets ?? [],
-    ...(parsed.senderFilter === undefined ? {} : { senderFilter: parsed.senderFilter }),
-    effects: captureEffects(input),
-    ...(input.exceptionOf === undefined ? {} : { exceptionOf: input.exceptionOf }),
-    // Targets and the filter carry the mailbox. The scope needs its own bound (ADR-0113).
-    ...(parsed.accountId === null || input.scope === undefined
-      ? {}
-      : { accountId: parsed.accountId }),
-  } satisfies z.input<typeof standingInstructionValueV2Schema>);
+  });
 
   const signature = instructionContentSignature(value);
   const replacedIds = new Set(replaces);

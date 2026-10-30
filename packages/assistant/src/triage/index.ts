@@ -133,6 +133,13 @@ export {
   stopTriageRematchWorker,
 } from "./rematch-queue";
 
+// The ADR-0113 migration review previews a proposed scope over stored mail with it.
+export {
+  previewStandingScopeMatches,
+  type StandingScopePreview,
+  type StandingScopePreviewState,
+} from "./rematch";
+
 export type { TodoTriageResult, TriageTodoDecision } from "./todo-decision";
 
 export {
