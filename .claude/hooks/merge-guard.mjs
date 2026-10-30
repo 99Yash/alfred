@@ -8,10 +8,11 @@
 //
 // What it denies, in any simple command of the Bash input:
 //   - `gh pr merge … --admin` (also `--admin=<value>`, except `--admin=false`).
-//   - `gh api … repos/<o>/<r>/pulls/<n>/merge` with method PUT. The REST merge
-//     lets an admin skip the checks, so it is the same bypass.
+//   - `gh api … repos/<o>/<r>/pulls/<n>/merge` with method PUT. `gh` does no
+//     check-state test before this call, so an admin token can merge past red.
 //   - `gh api graphql … mergePullRequest …`, the GraphQL form of the same merge.
-// A plain `gh pr merge` is allowed: GitHub itself refuses it while checks are red.
+// A plain `gh pr merge` is allowed: `gh` refuses it while the base branch policy
+// blocks the merge, and its error names `--admin` as the way past.
 //
 // What it does not deny: text that only quotes these commands. A quoted string is
 // one word, so `git commit -m "never gh pr merge --admin"` passes, and so does a
