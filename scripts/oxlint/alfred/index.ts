@@ -1,5 +1,6 @@
 import { eslintCompatPlugin } from "@oxlint/plugins";
 
+import { handRolledKeyGuardRule } from "./rules/hand-rolled-key-guard.ts";
 import { noConstantsReExportRule } from "./rules/no-constants-re-export.ts";
 import { noExportedHasherRule } from "./rules/no-exported-hasher.ts";
 import { noFunctionWrapperShimRule } from "./rules/no-function-wrapper-shim.ts";
@@ -15,6 +16,7 @@ import { sha256OverJsonStringifyRule } from "./rules/sha256-over-json-stringify.
 const alfredPlugin = eslintCompatPlugin({
   meta: { name: "alfred" },
   rules: {
+    "hand-rolled-key-guard": handRolledKeyGuardRule,
     "no-constants-re-export": noConstantsReExportRule,
     "no-exported-hasher": noExportedHasherRule,
     "no-function-wrapper-shim": noFunctionWrapperShimRule,

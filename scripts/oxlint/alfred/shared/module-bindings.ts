@@ -1,10 +1,11 @@
 import type { ESTree, Scope, SourceCode, Variable } from "@oxlint/plugins";
 
 /**
- * Where a module-level name comes from, read through the scope manager. Three
+ * Where a module-level name comes from, read through the scope manager. Four
  * rules use it: `no-constants-re-export` and `no-type-re-export-shim` relate an
- * exported name to an import of a `constants` module, and `no-type-alias-shim`
- * relates an alias to the import it renames. A name is resolved to its one
+ * exported name to an import of a `constants` module, `no-type-alias-shim`
+ * relates an alias to the import it renames, and `hand-rolled-key-guard` asks
+ * whether a receiver is an imported or a declared table. A name is resolved to its one
  * binding, so a shadowing local, a comment or a string that holds the name, and
  * statements between the import and the export do not change the answer.
  */
@@ -124,7 +125,7 @@ function constantsImportOf(
 }
 
 /** `node` read through `(…)`, `as`, `satisfies`, `<T>` and `!`, which hand on the same value. */
-function passThrough(node: ESTree.Node): ESTree.Node {
+export function passThrough(node: ESTree.Node): ESTree.Node {
   let current = node;
 
   while (
