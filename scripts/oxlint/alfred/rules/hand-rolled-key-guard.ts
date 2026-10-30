@@ -319,7 +319,8 @@ export const handRolledKeyGuardRule = defineRule({
         const { sourceCode } = context;
 
         if (node.operator === "in") {
-          if (node.left.type === "PrivateIdentifier" || isStaticKey(node.left)) return;
+          // `#field in value` is a `PrivateInExpression`, not a `BinaryExpression`.
+          if (isStaticKey(node.left)) return;
 
           if (isTable(sourceCode, node.right)) {
             context.report({ node, messageId: "inheritedKey" });
