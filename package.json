@@ -65,7 +65,7 @@
   },
   "devDependencies": {
     "@oxlint/plugins": "^1.82.0",
-    "@types/node": "^24.13.4",
+    "@types/node": "^26.6.6",
     "jscpd": "^5.2.0",
     "knip": "^6.35.1",
     "oxfmt": "^0.26.0",
@@ -76,7 +76,7 @@
     "typescript": "catalog:"
   },
   "engines": {
-    "node": ">=24.0.0"
+    "node": ">=26.0.0"
   },
   "packageManager": "pnpm@11.26.0"
 }

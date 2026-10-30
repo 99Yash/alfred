@@ -54,7 +54,7 @@ catalog:
   "@tanstack/react-query": ^5.102.8
   "@tanstack/react-router": ^1.170.35
   "@tanstack/router-plugin": ^1.168.37
-  "@types/node": ^24.13.4
+  "@types/node": ^26.6.6
   "@vitejs/plugin-react": ^4.7.0
   # Pinned exact and bumped deliberately. This pin is a FREE choice again: the
   # ADR-0087 amendment of 2026-08-26 depends on `run` directly instead of
@@ -92,9 +92,9 @@ catalog:
   tailwindcss: ^4.3.3
   tsdown: ^0.15.12
   typescript: ^7.0.2
-  # Same major as the undici that Node bundles (Node 24 ships 7.x). Global
+  # Same major as the undici that Node bundles (Node 26 ships 8.x). Global
   # `fetch` accepts a `dispatcher` from this package only while the majors match.
-  undici: ^7.25.0
+  undici: ^8.12.2
   vaul: ^1.1.2
   vite: ^6.4.3
   zod: 4.6.5
