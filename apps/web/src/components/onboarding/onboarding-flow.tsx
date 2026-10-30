@@ -132,7 +132,7 @@ export function OnboardingFlow({
                 </FrostButton>
                 <span className="max-w-[32ch] text-[13px] leading-relaxed text-app-fg-a3">
                   {step === 2
-                    ? "Optional — connect GitHub now or do it later from Integrations. Google Drive/Docs/Sheets show as Included once Workspace is linked."
+                    ? "Optional. Connect GitHub now or later from Integrations. Google Drive/Docs/Sheets show as Included once Workspace is linked."
                     : active.assurance}
                 </span>
                 {step === 2 ? (
@@ -300,27 +300,27 @@ const STEPS: readonly [StepDef, ...StepDef[]] = [
     headline: "Connect the tools you live in.",
     lead: "Alfred works across your stack. Connect the apps you rely on so nothing falls through the cracks.",
     bullets: [
-      { icon: MessagesSquare, text: "Slack — pull threads, never miss a mention" },
-      { icon: Workflow, text: "Linear & GitHub — keep tickets and PRs in flow" },
-      { icon: Inbox, text: "Google Workspace — Drive, Docs, Sheets, Slides" },
+      { icon: MessagesSquare, text: "Slack: pull threads, never miss a mention" },
+      { icon: Workflow, text: "Linear & GitHub: keep tickets and PRs in flow" },
+      { icon: Inbox, text: "Google Workspace: Drive, Docs, Sheets, Slides" },
     ],
     assurance: "You're always in control. Critical actions need approval by default.",
     showcaseTitle: "Popular integrations",
-    showcaseDescription: "Connect now or come back later — your setup syncs across every device.",
+    showcaseDescription: "Connect now or come back later. Your setup syncs across every device.",
   },
   {
     id: "finish",
     pagerLabel: "Finish",
     headline: "Welcome to Alfred.",
-    lead: "Setup is complete. Here are a few more ways to use Alfred — coming soon to your pocket and desktop.",
+    lead: "Setup is complete. Here are a few more ways to use Alfred. Coming soon to your pocket and desktop.",
     bullets: [
       { icon: Sparkles, text: "Your morning briefing arrives at 7am tomorrow" },
-      { icon: MessagesSquare, text: "Chat from the web now — mobile and CLI shortly" },
+      { icon: MessagesSquare, text: "Chat from the web now, mobile and CLI shortly" },
       { icon: Lock, text: "Approval gates already on for destructive actions" },
     ],
     assurance: "You can change schedules and gates anytime under Settings.",
     showcaseTitle: "Where Alfred shows up next",
-    showcaseDescription: "Beyond the web app — Alfred is on its way to your desk and your phone.",
+    showcaseDescription: "Beyond the web app. Alfred is on its way to your desk and your phone.",
   },
 ];
 
@@ -353,7 +353,7 @@ const UNLOCK_FEATURES: ReadonlyArray<UnlockFeature> = [
     key: "labeling",
     label: "Labeling",
     headline: "Every email sorted automatically",
-    body: "Receipts, newsletters, project updates — labeled into the right place.",
+    body: "Receipts, newsletters, project updates, labeled into the right place.",
     icon: Tags,
   },
   {

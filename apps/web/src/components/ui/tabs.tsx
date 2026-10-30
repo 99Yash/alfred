@@ -79,7 +79,7 @@ function triggerClassName(variant: TabsVariant): string {
   const base = cn(
     "outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-0",
     "disabled:cursor-not-allowed disabled:opacity-50",
-    "transition-[background-color,color,box-shadow,transform] duration-200 ease-[cubic-bezier(0.2,0,0,1)]",
+    "transition-[background-color,color,box-shadow,scale] duration-200 ease-[cubic-bezier(0.2,0,0,1)]",
   );
 
   if (variant === "segmented") {

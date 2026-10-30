@@ -118,7 +118,7 @@ function ArtifactPanel({ artifact }: { artifact: SharedThreadArtifact }) {
         </MarkdownRenderer>
       ) : (
         <p className="text-xs text-app-fg-2">
-          {body.pageCount} {body.pageCount === 1 ? "page" : "pages"} — open this thread in Alfred to
+          {body.pageCount} {body.pageCount === 1 ? "page" : "pages"}. Open this thread in Alfred to
           view them.
         </p>
       )}
@@ -136,7 +136,7 @@ function AttachmentNote({ count, role }: { count: number; role: "user" | "assist
       )}
     >
       <Paperclip size={12} aria-hidden />
-      {count} {count === 1 ? "file" : "files"} — not published
+      {count} {count === 1 ? "file" : "files"} not published
     </p>
   );
 }

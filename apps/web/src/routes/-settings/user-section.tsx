@@ -228,7 +228,7 @@ export function UserSection() {
 
       <SettingCard
         title="Background"
-        description="Tell Alfred about yourself — used to ground every response."
+        description="Tell Alfred about yourself. Alfred uses it to ground every response."
         icon={FileText}
         tone="pink"
         footer={bioSaving ? "Saving…" : "Alfred drafts this from research. Edits save as you type."}

@@ -87,7 +87,7 @@ export function siteMeta(): PageMeta {
       { property: "og:image", content: SOCIAL_IMAGE },
       { property: "og:image:width", content: "1200" },
       { property: "og:image:height", content: "630" },
-      { property: "og:image:alt", content: `${SITE_NAME} — ${SITE_TAGLINE}` },
+      { property: "og:image:alt", content: `${SITE_NAME}: ${SITE_TAGLINE}` },
       { name: "twitter:card", content: "summary_large_image" },
       { name: "twitter:image", content: SOCIAL_IMAGE },
     ],

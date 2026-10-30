@@ -164,7 +164,7 @@ function formatEventWindow(startIso: string, endIso?: string): string {
   const day = `${MONTHS[start.month - 1]} ${start.day}`;
   const end = endIso ? parseWallClock(endIso) : null;
 
-  return end ? `${day}, ${clock12(start)} – ${clock12(end)}` : `${day}, ${clock12(start)}`;
+  return end ? `${day}, ${clock12(start)} to ${clock12(end)}` : `${day}, ${clock12(start)}`;
 }
 
 interface WallClock {

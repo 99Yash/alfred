@@ -271,7 +271,7 @@ function TokensSection() {
   return (
     <Section
       id="tokens"
-      title="Tokens — color"
+      title="Tokens: color"
       recipe="Dimension's exact 16-stop gray and 11-stop purple scales. Body bg is rgb(12,12,12)."
     >
       <Swatches name="--gray-N" scale="gray" stops={GRAY_STOPS} />
@@ -478,14 +478,14 @@ function TextareaSection() {
     >
       <Row label="card">
         <div className="w-96">
-          <LegacyTextarea placeholder="Background — what does Alfred need to know?" />
+          <LegacyTextarea placeholder="Background: what does Alfred need to know?" />
         </div>
       </Row>
       <Row label="card · filled">
         <div className="w-96">
           <LegacyTextarea
             defaultValue={
-              "Alfred should not action anything before 7am. Triage email aggressively — only Slack me for items that need a same-day reply."
+              "Alfred should not action anything before 7am. Triage email aggressively. Only Slack me for items that need a same-day reply."
             }
           />
         </div>
@@ -561,7 +561,7 @@ function TabsSection() {
     <Section
       id="tabs"
       title="Tabs"
-      recipe="3 variants — underline (skill editor), segmented (rail mode), pill (settings)."
+      recipe="3 variants: underline (skill editor), segmented (rail mode), pill (settings)."
     >
       <Row label="underline">
         <Tabs
@@ -1038,7 +1038,7 @@ function AppTokensSection() {
   return (
     <Section
       id="app-tokens"
-      title="Tokens — app palette"
+      title="Tokens: app palette"
       recipe="Background is #0a0a0a (slightly bluer than Dimension's rgb(12,12,12)). Accents lean indigo/violet for ambient warmth, with emerald/amber as status colors. Type stack locks Open Runde at the landing root."
     >
       <Row label="canvas">
@@ -1106,7 +1106,7 @@ function AppHeroTypographySection() {
     <Section
       id="app-hero-typography"
       title="Hero typography"
-      recipe="Three sizes carry the landing: 6xl hero headline, 4xl/5xl section heading, 15–18px sub. All semibold, white, with negative tracking to bring letters closer."
+      recipe="Three sizes carry the landing: 6xl hero headline, 4xl/5xl section heading, 15-18px sub. All semibold, white, with negative tracking to bring letters closer."
     >
       <AppCanvas>
         <div className="space-y-5 text-center">
@@ -1202,7 +1202,7 @@ function EyebrowChipSection() {
     <Section
       id="app-eyebrow-chip"
       title="EyebrowChip"
-      recipe="Small bordered pill above hero headlines. Four accents — neutral, indigo, emerald, amber — paired with a leading icon or a status dot."
+      recipe="Small bordered pill above hero headlines. Four accents (neutral, indigo, emerald, amber) paired with a leading icon or a status dot."
     >
       <AppCanvas>
         <div className="flex flex-wrap items-center justify-center gap-2">
@@ -1370,7 +1370,7 @@ function AuroraGlowSection() {
     <Section
       id="app-aurora-glow"
       title="AuroraGlow"
-      recipe="Two stacked radial gradients — wide indigo halo + tighter violet hot-spot. Sits behind the device bezel to make the mockup feel lit from above. intensity: default | subtle."
+      recipe="Two stacked radial gradients: wide indigo halo + tighter violet hot-spot. Sits behind the device bezel to make the mockup feel lit from above. intensity: default | subtle."
     >
       <AppCanvas>
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
@@ -1422,7 +1422,7 @@ function BenefitsRowSection() {
     <Section
       id="app-benefits-row"
       title="BenefitsRow"
-      recipe="3-up grid — small indigo-tinted icon tile + bold lead + muted tagline. Fades each column in 80ms apart on scroll."
+      recipe="3-up grid: small indigo-tinted icon tile + bold lead + muted tagline. Fades each column in 80ms apart on scroll."
     >
       <AppCanvas>
         <BenefitsRow />
@@ -1457,7 +1457,7 @@ function FeatureCardSection() {
             tone="emerald"
             eyebrow="Anywhere"
             title="Talk to it from any tool."
-            body="Chat with Alfred from the web, your phone, the terminal, or any iMessage thread — same memory, same context, every time."
+            body="Chat with Alfred from the web, your phone, the terminal, or any iMessage thread. Same memory, same context, every time."
             bullets={[
               "iMessage, Slack, browser, and CLI",
               "Persistent memory across sessions",
@@ -1544,7 +1544,7 @@ function FadeInOnScrollSection() {
     <Section
       id="app-fade-in"
       title="FadeInOnScroll"
-      recipe="IntersectionObserver-driven wrapper — children start translated/blurred and fade in on first viewport entry. Stagger with `delay` for sequenced reveals."
+      recipe="IntersectionObserver-driven wrapper. Children start translated/blurred and fade in on first viewport entry. Stagger with `delay` for sequenced reveals."
     >
       <AppCanvas>
         <div className="space-y-4">
@@ -1585,7 +1585,7 @@ function HeroShowcaseSection() {
     <Section
       id="app-hero-showcase"
       title="HeroShowcase"
-      recipe="The whole hero composition — TabPill + AuroraGlow + DeviceBezel + auto-cycling Briefing / Inbox / MeetingPrep slots. Pauses on hover and when off-screen."
+      recipe="The whole hero composition: TabPill + AuroraGlow + DeviceBezel + auto-cycling Briefing / Inbox / MeetingPrep slots. Pauses on hover and when off-screen."
     >
       <AppCanvas>
         <HeroShowcase />
@@ -1633,7 +1633,7 @@ function LandingFooterPreview() {
     <Section
       id="app-footer"
       title="LandingFooter"
-      recipe="Dark, quiet footer — tagline column with copyright, two grouped link columns. Sits on top-border neutral-900 hairline."
+      recipe="Dark, quiet footer: tagline column with copyright, two grouped link columns. Sits on top-border neutral-900 hairline."
     >
       <div className="overflow-hidden rounded-2xl border border-white/10">
         <LandingFooter onGetStarted={() => undefined} />
@@ -1703,7 +1703,7 @@ function V2ButtonSection() {
     <Section
       id="v2-button"
       title="AppButton"
-      recipe="components/ui/v2/button.tsx — primary fill + shadow resolve through --app-cta-bg / --app-button-primary-shadow, which are theme-aware. Dark primary is the 'polished obsidian' chip."
+      recipe="components/ui/v2/button.tsx: primary fill + shadow resolve through --app-cta-bg / --app-button-primary-shadow, which are theme-aware. Dark primary is the 'polished obsidian' chip."
     >
       <ThemePanes
         render={() => (
@@ -1823,7 +1823,7 @@ function V2ModalSection() {
     <Section
       id="v2-modal"
       title="Modal · form fields"
-      recipe="components/ui/v2/modal.tsx — a centered themed dialog at 640px and up, a drag-to-dismiss bottom sheet below. The form uses useAppForm, so each field component owns its input wiring and error slot."
+      recipe="components/ui/v2/modal.tsx: a centered themed dialog at 640px and up, a drag-to-dismiss bottom sheet below. The form uses useAppForm, so each field component owns its input wiring and error slot."
     >
       <ThemePanes
         render={() => (
@@ -1876,7 +1876,7 @@ function V2ToastSection() {
     <Section
       id="v2-toast"
       title="Toast"
-      recipe="lib/toast.tsx — sonner-backed notifications. One opaque neutral card per intent with a tinted icon disc + soft edge-glow (error adds a red hairline ring); fixed width, top-left glass sheen, scale-in landing, sonner-style corner close on hover. Self-themes via data-app-theme, so it tracks your saved app theme even though sonner mounts it at the document root. Fire one to verify — it docks per the intent's default position."
+      recipe="lib/toast.tsx: sonner-backed notifications. One opaque neutral card per intent with a tinted icon disc + soft edge-glow (error adds a red hairline ring); fixed width, top-left glass sheen, scale-in landing, sonner-style corner close on hover. Self-themes via data-app-theme, so it tracks your saved app theme even though sonner mounts it at the document root. Fire one to verify. It docks per the intent's default position."
     >
       <div className="app rounded-2xl p-5 shadow-[0_0_0_1px_var(--app-fg-a1)]">
         <div className="space-y-4">
@@ -1933,7 +1933,7 @@ function V2ToastSection() {
               onClick={() =>
                 toast.error({
                   message: "Send failed",
-                  description: "The draft to Patrick bounced — his address looks misspelled.",
+                  description: "The draft to Patrick bounced. His address looks misspelled.",
                 })
               }
             >
@@ -2099,7 +2099,7 @@ function V2QuestionAnswersSection() {
     <Section
       id="v2-question-answers"
       title="Chat question, settled"
-      recipe="components/approvals/question-answers-card.tsx — what a `system.ask_user` call leaves in the transcript once it settles. Rendered from the tool result, so a reload shows the same thing. Left: answered. Right: dismissed."
+      recipe="components/approvals/question-answers-card.tsx: what a `system.ask_user` call leaves in the transcript once it settles. Rendered from the tool result, so a reload shows the same thing. Left: answered. Right: dismissed."
     >
       <ThemePanes
         stacked

@@ -152,7 +152,7 @@ function TokenPasteConnect({ slug, connected }: { slug: TokenPasteSlug; connecte
       setOpen(false);
       await queryClient.invalidateQueries({ queryKey: INTEGRATION_STATUS_QUERY_KEY });
     } catch {
-      toast.error("Couldn't reach the server — try again");
+      toast.error("Couldn't reach the server. Try again.");
     } finally {
       setPending(false);
     }

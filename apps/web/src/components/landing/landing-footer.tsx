@@ -67,7 +67,7 @@ const FEATURE_ITEMS: ReadonlyArray<FooterLink> = [
   { label: "Inbox triage", href: "#features" },
   { label: "Morning briefing", href: "#features" },
   { label: "Chat that acts", href: "#features" },
-  { label: "Meeting prep — soon", href: "#features" },
+  { label: "Meeting prep (soon)", href: "#features" },
 ];
 
 // Link to the profile, not a site's front page.

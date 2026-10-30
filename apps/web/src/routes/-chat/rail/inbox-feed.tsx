@@ -1143,7 +1143,7 @@ function extensionFor(filename: string, mimeType: string): string {
 const KIB = 1024;
 
 function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return "—";
+  if (!Number.isFinite(bytes) || bytes <= 0) return "Unknown size";
 
   if (bytes < KIB) return `${bytes} B`;
 

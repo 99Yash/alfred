@@ -35,50 +35,49 @@ interface PassthroughMeta {
 // Exhaustive over SUPPORTED_PASSTHROUGH_SLUGS, so a new slug cannot ship without a row.
 const PASSTHROUGH_META = {
   gmail: {
-    helper:
-      "Raw read-only Gmail API — list labels, read message metadata beyond the curated tools.",
+    helper: "Raw read-only Gmail API: list labels, read message metadata beyond the curated tools.",
     icon: Mail,
     tint: "green",
   },
   calendar: {
     helper:
-      "Raw read-only Calendar API — calendar lists, settings, and event fields we never modeled.",
+      "Raw read-only Calendar API: calendar lists, settings, and event fields we never modeled.",
     icon: CalendarDays,
     tint: "sky",
   },
   drive: {
-    helper: "Raw read-only Drive API — file metadata, permissions, and revisions.",
+    helper: "Raw read-only Drive API: file metadata, permissions, and revisions.",
     icon: HardDrive,
     tint: "amber",
   },
   docs: {
     helper:
-      "Raw read-only Docs API — document structure and metadata (content stays in the curated tools).",
+      "Raw read-only Docs API: document structure and metadata (content stays in the curated tools).",
     icon: FileText,
     tint: "sky",
   },
   sheets: {
-    helper: "Raw read-only Sheets API — spreadsheet structure, named ranges, and metadata.",
+    helper: "Raw read-only Sheets API: spreadsheet structure, named ranges, and metadata.",
     icon: Table2,
     tint: "green",
   },
   slides: {
-    helper: "Raw read-only Slides API — presentation structure and metadata.",
+    helper: "Raw read-only Slides API: presentation structure and metadata.",
     icon: Presentation,
     tint: "orange",
   },
   github: {
-    helper: "Raw read-only GitHub REST — workflow runs, commits, releases, branches, and contents.",
+    helper: "Raw read-only GitHub REST: workflow runs, commits, releases, branches, and contents.",
     icon: GitBranch,
     tint: "purple",
   },
   vercel: {
-    helper: "Raw read-only Vercel REST — project and deployment detail.",
+    helper: "Raw read-only Vercel REST: project and deployment detail.",
     icon: Triangle,
     tint: "amber",
   },
   sentry: {
-    helper: "Raw read-only Sentry REST — issues, events, stack traces, and projects.",
+    helper: "Raw read-only Sentry REST: issues, events, stack traces, and projects.",
     icon: Bug,
     tint: "purple",
   },

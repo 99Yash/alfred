@@ -25,10 +25,10 @@ export interface ChatStream {
 /** A dead bus with no terminal frame would leave the stop button up forever. */
 const WATCHDOG_MS = 45_000;
 
-const STREAM_ERROR_MESSAGE = "Live updates disconnected — reply may be incomplete.";
+const STREAM_ERROR_MESSAGE = "Live updates disconnected. The reply may be incomplete.";
 
 const WATCHDOG_ERROR_MESSAGE =
-  "Connection stalled — no updates received. The reply may be incomplete.";
+  "Connection stalled. No updates received. The reply may be incomplete.";
 
 /**
  * One thread's live turn. It outlives the thread page: the shared event bus does not
@@ -142,7 +142,7 @@ function armWatchdog(): void {
       }
     }
 
-    if (stalled) toast.error("Connection stalled — live updates stopped. Please retry.");
+    if (stalled) toast.error("Connection stalled. Live updates stopped. Please retry.");
   }, WATCHDOG_MS);
 }
 

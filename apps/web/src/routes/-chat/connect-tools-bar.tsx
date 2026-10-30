@@ -37,7 +37,7 @@ export function ConnectToolsBar() {
           "group relative mx-auto mt-3 flex w-fit items-center gap-2.5",
           "rounded-full px-3.5 py-2",
           // Transparent at rest; a fill on hover, a press scale on pointer-down.
-          "bg-transparent transition-[background-color,transform] duration-300",
+          "bg-transparent transition-[background-color,scale] duration-300",
           "ease-[cubic-bezier(0.22,1,0.36,1)]",
           "hover:bg-app-bg-2/60 hover:backdrop-blur-sm",
           "focus-visible:bg-app-bg-2/60 focus-visible:backdrop-blur-sm",
@@ -70,7 +70,7 @@ export function ConnectToolsBar() {
               const connected = p.status === "connected";
 
               return (
-                <Tip key={p.slug} label={connected ? `${p.name} — connected` : p.name}>
+                <Tip key={p.slug} label={connected ? `${p.name} connected` : p.name}>
                   <span
                     className={cn(
                       "relative grid size-[22px] shrink-0 place-items-center rounded-full",
@@ -112,7 +112,7 @@ export function ConnectToolsBar() {
             aria-hidden
             className={cn(
               "ml-1.5 flex w-3 items-center justify-center text-app-fg-3",
-              "-translate-x-1 opacity-0 transition-[transform,opacity] duration-300",
+              "-translate-x-1 opacity-0 transition-[translate,opacity] duration-300",
               "ease-[cubic-bezier(0.22,1,0.36,1)]",
               "group-hover:translate-x-0 group-hover:opacity-100",
               "group-focus-visible:translate-x-0 group-focus-visible:opacity-100",

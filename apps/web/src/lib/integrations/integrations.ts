@@ -120,7 +120,7 @@ const INTEGRATION_PAGE_COPY = {
     capabilities: ["Read Documents", "Extract Headings", "Read Tables", "Search Document Text"],
     trust: GOOGLE_TRUST,
     overview: {
-      body: "Connect Google Docs to Alfred so it can pull structured content — headings, paragraphs, tables — into context when you ask.",
+      body: "Connect Google Docs to Alfred so it can pull structured content (headings, paragraphs, tables) into context when you ask.",
       heading: "Read-only document access",
       detail:
         "Alfred can use Docs as source material in answers and workflows. Drafting back to Docs (create/edit) is not enabled at this grant level.",

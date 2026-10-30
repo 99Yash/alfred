@@ -39,7 +39,7 @@ export function RailContent({
         <div className="group/logo relative size-9">
           <Link
             to="/chat"
-            aria-label="Alfred — home"
+            aria-label="Alfred home"
             className={cn(
               "absolute inset-0 inline-flex items-center justify-center rounded-surface",
               "transition-opacity duration-150 group-hover/logo:opacity-0",

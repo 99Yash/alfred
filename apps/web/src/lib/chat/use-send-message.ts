@@ -287,7 +287,7 @@ export function useSendMessage(options: SendMessageOptions = {}): SendMessage {
         } satisfies SendResult;
       }
 
-      console.warn("[chat] turn start ack unparseable but Replicache staged — using fallback id");
+      console.warn("[chat] turn start ack unparseable but Replicache staged; using fallback id");
 
       return { ok: true, runId: null, assistantMessageId: userMessageId } satisfies SendResult;
     },

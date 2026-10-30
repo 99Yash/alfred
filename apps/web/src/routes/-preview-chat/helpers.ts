@@ -15,7 +15,7 @@ const THREADS = {
   today: [
     {
       id: "morning-brief",
-      title: "Morning briefing — Friday",
+      title: "Morning briefing: Friday",
       preview: "Three threads to look at, calendar starts at 10.",
       pinned: true,
     },
@@ -46,7 +46,7 @@ const THREADS = {
   earlier: [
     {
       id: "weekly-recap",
-      title: "Weekly recap — week 21",
+      title: "Weekly recap: week 21",
       preview: "Highlights, blockers, decisions made.",
     },
     {
@@ -65,7 +65,7 @@ const THREADS = {
 export const TODOS: RailTodoItem[] = [
   {
     id: "maya-reply",
-    title: "Reply to Maya — vesting cliff question",
+    title: "Reply to Maya: vesting cliff question",
     due: "Today",
     source: "email",
   },
@@ -98,7 +98,7 @@ export const INBOX: RailInboxItem[] = [
     id: "maya",
     sender: "Maya Chen",
     subject: "Re: vesting cliff",
-    preview: "Quick question on the 4-yr — does the…",
+    preview: "Quick question on the 4-yr. Does the…",
     time: "8m",
     unread: true,
     initial: "M",
@@ -108,7 +108,7 @@ export const INBOX: RailInboxItem[] = [
     id: "sycamore",
     sender: "Sycamore Capital",
     subject: "Quarterly investor update",
-    preview: "Hi team — wanted to check in on the…",
+    preview: "Hi team, wanted to check in on the…",
     time: "1h",
     unread: true,
     initial: "S",

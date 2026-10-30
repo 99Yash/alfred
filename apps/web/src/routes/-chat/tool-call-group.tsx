@@ -219,7 +219,7 @@ export function ToolCallGroup({
               <ChevronRight
                 size={14}
                 aria-hidden
-                className="text-app-fg-2 transition-[transform,color] duration-200 group-hover/tools:text-app-fg-4 group-data-[state=open]/tools:rotate-90"
+                className="text-app-fg-2 transition-[rotate,color] duration-200 group-hover/tools:text-app-fg-4 group-data-[state=open]/tools:rotate-90"
               />
             </span>
           </Accordion.Trigger>

@@ -34,7 +34,7 @@ export function NagBanner({ message, actionLabel, onAction, onDismiss }: NagBann
         onClick={onDismiss}
         className={cn(
           "shrink-0 rounded-full p-1 text-app-fg-3",
-          "transition-[color,transform] duration-150 hover:text-app-fg-4 active:scale-[0.96]",
+          "transition-[color,scale] duration-150 hover:text-app-fg-4 active:scale-[0.96]",
         )}
         aria-label="Dismiss"
       >

@@ -247,7 +247,7 @@ export function ActivityTable({ start, end, categories }: ActivityTableProps) {
         </div>
         <div className="flex items-center gap-3 text-xs text-app-fg-3 tabular-nums">
           <span>
-            {rangeStart}–{rangeEnd} of {total.toLocaleString()}
+            {rangeStart}-{rangeEnd} of {total.toLocaleString()}
           </span>
           <div className="flex items-center gap-1">
             <AppButton

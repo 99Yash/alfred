@@ -19,9 +19,9 @@ const EPOCH = Date.UTC(2026, 0, 1, 12, 0, 0);
 const ASSISTANT_BODIES = [
   "Here's a quick summary of what I found.\n\n- First point worth calling out\n- A second, slightly longer observation that wraps across a couple of lines to exercise variable row heights\n- Third\n\nLet me know if you'd like me to go deeper on any of these.",
   "Short answer: yes.",
-  "I dug through the thread and pulled together the relevant context. The main tradeoff is between latency and completeness — we can optimize for one at the expense of the other, and the right call depends on how the feature is used in practice.\n\n```ts\nfunction example(n: number) {\n  return n * 2;\n}\n```\n\nThat snippet is illustrative, not final.",
+  "I dug through the thread and pulled together the relevant context. The main tradeoff is between latency and completeness. We can optimize for one at the expense of the other, and the right call depends on how the feature is used in practice.\n\n```ts\nfunction example(n: number) {\n  return n * 2;\n}\n```\n\nThat snippet is illustrative, not final.",
   "Done. I updated the draft and left the tone unchanged.",
-  "A few things to consider before we commit:\n\n1. The rollout order matters — schema first, then the consumer.\n2. We should keep the old path behind a flag for one release.\n3. Observability needs a decision-trace so we can debug drift later.\n\nHappy to expand any of these into a plan.",
+  "A few things to consider before we commit:\n\n1. The rollout order matters: schema first, then the consumer.\n2. We should keep the old path behind a flag for one release.\n3. Observability needs a decision-trace so we can debug drift later.\n\nHappy to expand any of these into a plan.",
 ];
 
 function makeMessage(i: number): SyncedChatMessage {

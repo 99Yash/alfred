@@ -64,7 +64,7 @@ export const BACKGROUND_AGENTS: ReadonlyArray<BackgroundAgentDef> = [
   {
     id: "morning-briefing",
     label: "Morning briefing",
-    helper: "Your schedule, tasks, and key updates — delivered each morning.",
+    helper: "Your schedule, tasks, and key updates, delivered each morning.",
     icon: Sunrise,
     tint: "amber",
     prefKey: FEATURE_FLAG_KEYS.morningBriefing,

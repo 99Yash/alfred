@@ -76,7 +76,7 @@ const FEATURES: ReadonlyArray<FeatureCard> = [
     icon: Sun,
     eyebrow: "Morning briefing",
     title: "One readout at 7 in the morning.",
-    body: "Alfred gathers the night — your calendar, your inbox, the tools it can reach — and writes you a single thing to read over coffee.",
+    body: "Alfred gathers the night: your calendar, your inbox, the tools it can reach. Then it writes you one thing to read over coffee.",
     bullets: [
       "Lands at 7am in your timezone, recap at 6pm",
       "Says nothing on a quiet day, instead of filler",
@@ -103,7 +103,7 @@ const FEATURES: ReadonlyArray<FeatureCard> = [
     icon: MessagesSquare,
     eyebrow: "Chat",
     title: "Ask it, and it acts.",
-    body: "One thread where you can ask Alfred anything and watch it work — reading your mail, moving your calendar, writing the document.",
+    body: "One thread where you can ask Alfred anything and watch it work. It reads your mail, moves your calendar, writes the document.",
     bullets: [
       "You see every tool call as it runs",
       "Destructive actions wait for your approval",

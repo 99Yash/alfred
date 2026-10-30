@@ -31,8 +31,11 @@
 // - Otherwise, the rule's own `invalid` fixture cases. The gate captures them
 //   at run time from `RuleTester#run` while it runs the fixtures, so it reads
 //   the values the fixture file built, not its text. Only a case that the root
-//   config can reproduce counts: one with no `filename`, `options`, `settings`,
-//   `languageOptions` or hooks. A rule needs at least one.
+//   config can reproduce counts: one with no `options`, `settings`,
+//   `languageOptions` or hooks, and no `filename` other than a bare file name
+//   such as `probe.tsx`. A bare name claims no path, only a language, so the
+//   drive writes the case with its extension: a JSX rule needs a `.tsx` probe,
+//   and a `.ts` file does not parse JSX. A rule needs at least one.
 //
 // The fixtures are `<rule>.rule-test.ts`, renamed from upstream's `<rule>.test.ts`.
 // In this repo `*.test.ts` is a name with enforcement attached: `isScanFile` in
@@ -119,9 +122,33 @@ const CONTROL = `export const ok = { id: "second" };\n`;
 const CONTROL_NAME = "control";
 
 // The fixture-case keys the root config can reproduce. A case that sets any
-// other key (`filename`, `options`, `settings`, `languageOptions`, a hook)
-// makes a claim the root config does not, so the drive skips it.
+// other key (`options`, `settings`, `languageOptions`, a hook, a `filename`
+// with a directory) makes a claim the root config does not, so the drive skips it.
 const DRIVABLE_CASE_KEYS = new Set(["code", "name", "errors", "output"]);
+
+// A `filename` that names only a language: no directory, a `.ts` or `.tsx` extension.
+const BARE_PROBE_FILENAME = /^[\w.-]+\.(tsx?)$/;
+
+/**
+ * The probe file extension for a captured case, or null when the root config
+ * cannot reproduce the case.
+ *
+ * @param {Record<string, unknown>} test
+ * @returns {"ts" | "tsx" | null}
+ */
+function probeExtension(test) {
+  for (const key of Object.keys(test)) {
+    if (key !== "filename" && !DRIVABLE_CASE_KEYS.has(key)) return null;
+  }
+
+  if (!Object.hasOwn(test, "filename")) return "ts";
+
+  const bare = BARE_PROBE_FILENAME.exec(String(test.filename));
+
+  if (bare === null) return null;
+
+  return bare[1] === "tsx" ? "tsx" : "ts";
+}
 
 const failures = [];
 
@@ -352,34 +379,37 @@ for (const { plugin, rule, rulesDir } of rules) {
 // The drive: does the ROOT config actually enforce each rule at "error"?
 // ---------------------------------------------------------------------------
 
-/** @type {Map<string, string[]>} probe snippets, keyed `<plugin>/<rule>` */
+/** @type {Map<string, { code: string, extension: "ts" | "tsx" }[]>} probe snippets, keyed `<plugin>/<rule>` */
 const probes = new Map();
 
 for (const { plugin, rule } of rules) {
   const id = `${plugin}/${rule}`;
 
   if (Object.hasOwn(PROBES, id)) {
-    probes.set(id, [PROBES[id]]);
+    probes.set(id, [{ code: PROBES[id], extension: "ts" }]);
     continue;
   }
 
-  const drivable = (capturedInvalid.get(id) ?? []).filter((test) =>
-    Object.keys(test).every((key) => DRIVABLE_CASE_KEYS.has(key)),
-  );
+  /** @type {{ code: string, extension: "ts" | "tsx" }[]} */
+  const drivable = [];
+
+  for (const test of capturedInvalid.get(id) ?? []) {
+    const extension = probeExtension(test);
+
+    if (extension !== null) drivable.push({ code: String(test.code), extension });
+  }
 
   if (drivable.length === 0) {
     failures.push(
       `"${id}" has no probe: no PROBES entry in ${GATE_FILE}, and no invalid fixture case the root config ` +
-        `can reproduce (one with no filename, options, settings, languageOptions or hooks). Nothing proves ` +
+        `can reproduce (one with no options, settings, languageOptions or hooks, and no filename but a bare ` +
+        `\`probe.ts\`/\`probe.tsx\`). Nothing proves ` +
         `the root config enables it.`,
     );
     continue;
   }
 
-  probes.set(
-    id,
-    drivable.map((test) => String(test.code)),
-  );
+  probes.set(id, drivable);
 }
 
 const pluginNames = new Set(pluginDirs);
@@ -395,7 +425,7 @@ try {
     snippets.forEach((snippet, index) => {
       const stem = `${id.replace("/", "__")}__${index}`;
 
-      writeFileSync(join(probeDir, `${stem}.ts`), snippet);
+      writeFileSync(join(probeDir, `${stem}.${snippet.extension}`), snippet.code);
       probeFiles += 1;
     });
   }
@@ -440,7 +470,7 @@ try {
       String(diagnostic.filename ?? "")
         .split("/")
         .pop()
-        ?.replace(/\.ts$/, "") ?? "";
+        ?.replace(/\.tsx?$/, "") ?? "";
 
     const seen = reports.get(stem) ?? [];
     seen.push({ id: `${code[1]}/${code[2]}`, severity: String(diagnostic.severity ?? "") });

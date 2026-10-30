@@ -15,7 +15,7 @@ export function ConversationPlaceholder({ entry }: { entry: PreviewThreadEntry |
     <div className="app-card-in space-y-8">
       <UserTurn text={entry.preview} />
       <AssistantTurn />
-      <UserTurn text="Skip the calendar bit — just the email summary, ranked by who's waiting on me." />
+      <UserTurn text="Skip the calendar bit. Just the email summary, ranked by who's waiting on me." />
       <AssistantTurn followUp />
     </div>
   );

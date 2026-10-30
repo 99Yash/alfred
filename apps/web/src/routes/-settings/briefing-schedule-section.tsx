@@ -85,7 +85,7 @@ export function BriefingScheduleSection() {
             helper={
               hasOverride.timezone
                 ? "Delivery times are interpreted in this zone."
-                : "Defaulting to UTC — set your zone so briefings land at the right local hour."
+                : "Defaulting to UTC. Set your zone so briefings land at the right local hour."
             }
           >
             <AppSelect
