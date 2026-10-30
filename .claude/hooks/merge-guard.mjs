@@ -53,6 +53,7 @@ const REASON = [
 function readSubstitution(src, start) {
   let depth = 1;
   let i = start;
+  /** @type {"'" | '"' | null} */
   let quote = null;
 
   while (i < src.length) {
