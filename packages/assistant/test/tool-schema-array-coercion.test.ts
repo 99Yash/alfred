@@ -293,7 +293,9 @@ describe("tool-schema array-field coercion (cross-integration)", () => {
       assert.ok(schema, `${name} is missing from TOOL_INPUT_SCHEMAS`);
 
       for (const { base } of fixtures) {
-        const parsed = schema.safeParse(base);
+        // Annotated: @types/node 26 overloads `assert.ok`, so the call below types its message
+        // argument to pick the assertion, and that argument reads `parsed` inside this loop.
+        const parsed: z.ZodSafeParseResult<unknown> = schema.safeParse(base);
         assert.ok(
           parsed.success,
           `base fixture should parse: ${JSON.stringify(parsed.error?.issues)}`,
