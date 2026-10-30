@@ -1,7 +1,17 @@
 import { Queue } from "bullmq";
+import { db } from "@alfred/db";
 import { createRedisConnection } from "@alfred/db/redis";
+import { agentRuns } from "@alfred/db/schemas";
+import { eq } from "drizzle-orm";
+import { getWorkflow } from "./registry";
 
 export const AGENT_QUEUE_NAME = "agent-runs";
+
+/**
+ * BullMQ takes every job with no priority before any prioritized job, so a bulk step runs only
+ * when no other step waits. Jobs of one priority keep their FIFO order.
+ */
+const BULK_JOB_PRIORITY = 1;
 
 export interface AgentJobData {
   runId: string;
@@ -35,14 +45,27 @@ export async function enqueueRun(
   opts?: { delayMs?: number; jobId?: string },
 ): Promise<void> {
   const queue = getAgentQueue();
+  const bulk = await isBulkRun(runId);
   await queue.add(
     "step",
     { runId },
     {
       ...(opts?.delayMs === undefined ? {} : { delay: opts.delayMs }),
       ...(opts?.jobId === undefined ? {} : { jobId: opts.jobId }),
+      ...(bulk ? { priority: BULK_JOB_PRIORITY } : {}),
     },
   );
+}
+
+/** A missing row or an unregistered slug is not bulk, so the step keeps the normal order. */
+async function isBulkRun(runId: string): Promise<boolean> {
+  const [row] = await db()
+    .select({ workflowSlug: agentRuns.workflowSlug })
+    .from(agentRuns)
+    .where(eq(agentRuns.id, runId))
+    .limit(1);
+
+  return row ? getWorkflow(row.workflowSlug)?.bulk === true : false;
 }
 
 export async function closeAgentQueue(): Promise<void> {

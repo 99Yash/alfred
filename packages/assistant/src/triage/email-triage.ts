@@ -20,6 +20,8 @@ export const emailTriageWorkflow: Workflow<
   description:
     "Classify an inbound Gmail message into one of ten categories and write the corresponding label back, keyed per-thread (ADR-0025).",
   trigger: { kind: "event", source: "gmail", type: "message_received" },
+  // A mailbox sync starts one run per message, up to 50 in one minute in prod.
+  bulk: true,
   initialStep: EMAIL_TRIAGE_INITIAL_STEP,
   // The step bodies read `z.infer` of this same schema (#1180).
   stateSchema: emailTriageStateSchema,

@@ -127,6 +127,11 @@ interface WorkflowDefinition<S, N extends string, M, I> {
   slug: string;
   /** Registered only so existing runs can finish; it cannot start new runs and is not seeded. */
   resumeOnly?: boolean | undefined;
+  /**
+   * Bursty background work, such as one run per inbound email. Its steps wait in the agent queue
+   * behind the steps of every other run, so a burst does not delay a chat turn.
+   */
+  bulk?: boolean | undefined;
   name: string;
   description?: string;
   /** Seeded into `workflows.trigger` for built-ins (ADR-0027). */
