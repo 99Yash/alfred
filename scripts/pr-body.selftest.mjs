@@ -9,7 +9,13 @@
 // and the mutation here is always a REMOVED section, because that is the only move a
 // contributor makes by accident.
 
-import { closingListFailure, prBodyFailures, statesCondition } from "./pr-body.mjs";
+import {
+  closingListFailure,
+  longSentences,
+  prBodyFailures,
+  processWords,
+  statesCondition,
+} from "./pr-body.mjs";
 
 function equal(actual, expected, label) {
   const left = JSON.stringify(actual);
@@ -173,7 +179,13 @@ function headingStylesAreAccepted() {
     ["colon-suffixed", colonSuffixed],
     ["blockquote-wrapped", blockquoted],
   ]) {
-    failures.push(...drive(`${label} headings are accepted`, { body, ok: true, missing: [] }));
+    failures.push(
+      ...drive(`${label} headings are accepted`, {
+        body,
+        ok: true,
+        missing: [],
+      }),
+    );
   }
 
   return failures;
@@ -294,6 +306,140 @@ function closingKeywordListIsRefused() {
   ];
 }
 
+/** `count` plain words, so a fixture states its length rather than spelling it. */
+function words(count) {
+  return Array.from({ length: count }, (_, index) => `w${index}`).join(" ");
+}
+
+/**
+ * The limit is 25 words. A sentence of 26 is reported and one of 25 is not, so the
+ * boundary cannot drift by one in either direction without a red self-test.
+ */
+function longSentenceBoundaryIsPinned() {
+  return [
+    ...equal(
+      longSentences(`${words(26)}.`).map((found) => found.words),
+      [26],
+      "a 26-word sentence is reported",
+    ),
+    ...equal(longSentences(`${words(25)}.`), [], "a 25-word sentence is accepted"),
+    ...equal(
+      longSentences(`${words(20)}. ${words(20)}.`),
+      [],
+      "two short sentences in one line are two sentences",
+    ),
+    ...equal(
+      longSentences(`${words(15)}\n${words(15)}.`).map((found) => found.words),
+      [30],
+      "a hard-wrapped sentence is joined across lines",
+    ),
+    ...equal(
+      longSentences(`Intro:\n\n- ${words(20)}\n- ${words(20)}`),
+      [],
+      "each list item is its own sentence",
+    ),
+    ...equal(longSentences(`${words(20)}: ${words(20)}.`), [], "a colon ends a lead-in"),
+    ...equal(
+      longSentences(`${words(15)}; ${words(15)}.`).map((found) => found.words),
+      [30],
+      "a semicolon does not end a sentence",
+    ),
+    ...equal(longSentences(`**Proof.** ${words(20)}.`), [], "a bold label ends at its period"),
+  ];
+}
+
+/**
+ * Text that is not a prose sentence must not count, or the rule would fail a body for
+ * a code listing or a table. Each case is longer than the limit on purpose.
+ */
+function nonProseIsSkipped() {
+  const long = `${words(40)}.`;
+
+  return [
+    ...equal(longSentences(`\`\`\`\n${long}\n\`\`\``), [], "fenced code is skipped"),
+    ...equal(longSentences(`~~~ts\n${long}\n~~~`), [], "a tilde fence is skipped"),
+    ...equal(longSentences(`| ${long} | x |`), [], "a table row is skipped"),
+    ...equal(longSentences(`> ${long}`), [], "a blockquote is skipped"),
+    ...equal(longSentences(`### ${long}`), [], "a heading is skipped"),
+    ...equal(longSentences(`<!--\n${long}\n-->`), [], "an HTML comment is skipped"),
+    ...equal(
+      longSentences(`${words(20)} \`${words(10)}\` and https://example.com/${words(1)}.`),
+      [],
+      "a code span and a URL are one word each",
+    ),
+    ...equal(
+      longSentences(`${words(20)} [${words(3)}](https://example.com/a-long-path).`),
+      [],
+      "a link counts its visible text",
+    ),
+  ];
+}
+
+/**
+ * Each process word is refused where a merged body used it, and the product word that
+ * shares its spelling is accepted, so the set cannot widen into ordinary prose.
+ */
+function processWordsAreRefused() {
+  const refused = [
+    "## Round 2 revise",
+    "The round-1 review counted −1.",
+    "Revise r1 verification: the suites pass.",
+    "Repeated after the revise with the export.",
+    "Refs: campaign type-flow item 36.",
+    "A known follow-up (item 01 review r3) stays.",
+    "Round 1 found 2 must-fix items.",
+    "### Vocabulary ledger",
+    "- Net: −4 names.",
+    "Net -2.",
+    "Every call site shows the same text as on main.",
+    "The tests time out at 120 s, as on `main`.",
+  ];
+
+  const accepted = [
+    "The user approves, revises, or ends the run.",
+    "A chat turn can create, extend, or revise an artifact.",
+    "This builds slice 1 of the ADR-0100 amendment (items 1 and 2).",
+    "The file lives in the Cloudflare R2 bucket.",
+    "The change removes 8 names and adds 6, for a net of −2.",
+    "The `campaign` skill and its `revise` phase change.",
+    "The broker ledger keeps one row per call.",
+    "A round-trip through the parser keeps the value.",
+    "See [the notes](https://example.com/campaign/r1).",
+  ];
+
+  return [
+    ...refused.flatMap((line) =>
+      processWords(line).length === 0 ? [`a process word is accepted: ${line}`] : [],
+    ),
+    ...accepted.flatMap((line) =>
+      processWords(line).length === 0
+        ? []
+        : [`ordinary prose is refused: ${line} (${JSON.stringify(processWords(line))})`],
+    ),
+  ];
+}
+
+/** Both prose faults reach the verdict, not only the exported predicates. */
+function proseFaultsFailTheBody() {
+  return [
+    ...drive("a full body with a long sentence is refused", {
+      body: `${fullBody()}\n\n${words(30)}.`,
+      ok: false,
+      missing: [],
+    }),
+    ...drive("a full body with a process word is refused", {
+      body: `${fullBody()}\n\nRound 1 found nothing.`,
+      ok: false,
+      missing: [],
+    }),
+    ...equal(
+      prBodyFailures({ title: "x", body: `${fullBody()}\n\n${words(30)}.` }).kind,
+      "prose",
+      "a prose fault names its kind",
+    ),
+  ];
+}
+
 export function prBodySelfTestFailures() {
   return [
     ...completeBodyIsAccepted(),
@@ -305,5 +451,9 @@ export function prBodySelfTestFailures() {
     ...proseMentionIsNotASection(),
     ...statesConditionIsWired(),
     ...closingKeywordListIsRefused(),
+    ...longSentenceBoundaryIsPinned(),
+    ...nonProseIsSkipped(),
+    ...processWordsAreRefused(),
+    ...proseFaultsFailTheBody(),
   ];
 }

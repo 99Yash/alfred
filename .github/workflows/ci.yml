@@ -43,7 +43,8 @@ jobs:
       - name: Install dependencies
         run: corepack pnpm install --frozen-lockfile
 
-      # The four sections CLAUDE.md asks a PR body for. A STEP here and not an entry in
+      # The four sections CLAUDE.md asks a PR body for, in sentences of 25 words or
+      # fewer and with no review-process words. A STEP here and not an entry in
       # `check:ci`, because the check reads GitHub rather than the working tree: it runs
       # `gh pr view`, which needs a pull request to exist. It fails CLOSED — `gh`
       # missing, unauthenticated, rate-limited, or no PR found is a failure, never a
