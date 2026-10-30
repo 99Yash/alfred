@@ -158,6 +158,12 @@ The research basis is in [Readable module interfaces](../research/readable-modul
 
 - **An incremental cutover starts a debt clock.** The PR that opens the clock names the closing PR. It marks the old path (internal, deprecated, or "callers are being migrated").
 - **Two doors are worse than one bad door.** The naive call site must now choose, and the reviewer must know which choice is current.
+- **Count each name one time, and compare the PR head with `main`.** A name counts when a module other than its owner must write it: an imported export, or a field, option key or method that a caller writes. Count a name one time, not one time for each site.
+  - A private name, or a name that only its own file reads, does not count on either side.
+  - An existing name that gets its first importer outside its owner is an addition.
+  - A rename counts as zero.
+  - A name that one commit of the PR adds and a later commit removes does not count.
+  - A fact that the caller must know and that has no name (an order, a precondition) counts as one name.
 
 ### The hazard rule
 
