@@ -1,6 +1,6 @@
 ---
 status: in-progress
-evidence: "PR 1 is #1609 (merged). PR 2 is #1610 (merged). PR 3 is #1611 (merged). PR 4 is #1613 (merged 2026-10-29T14:33Z). PR 4b is #1614 (merged 2026-10-29T15:26Z). PR 5 is the migration script PR (open); the owner runs it."
+evidence: "PR 1 is #1609 (merged). PR 2 is #1610 (merged). PR 3 is #1611 (merged). PR 4 is #1613 (merged 2026-10-29T14:33Z). PR 4b is #1614 (merged 2026-10-29T15:26Z). PR 5 is #1627 (open); the owner runs its script."
 ---
 
 # Standing instructions v2, step 1: the base design of ADR-0113
