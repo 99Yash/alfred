@@ -148,7 +148,12 @@ Each row is a rule from [review-checklist.md](./review-checklist.md), with the r
 | Scripts call the live owner (Backend) | A copy compiles. `no-restricted-imports` already fences each `internal` door | Stays review |
 | Render every state; SSR guards; show an error to the user (Frontend) | Behavior, not shape | Stays review |
 | Effect cleanup and no state after unmount (Frontend) | `react/exhaustive-deps` checks the dependency array. Whether an effect owns a resource to release is behavior | Stays review |
+| Find an item by id, not by position (Frontend) | `.at(-1)` and index 0 are correct on a list that keeps its order. A check cannot tell that list from a list that changes order | Stays review |
+| Data that outlives one page view stays out of per-mount state (Frontend) | The lifetime of the data is a product fact, not a fact in the code | Stays review |
 | Centralize logic only when copies change together (Constants) | `check:duplicates` finds copies. Whether they change together is judgment | Stays review |
 | Keep the reason of a suppression true (Process) | A check cannot read whether a reason is still true | Stays review |
 | Check the premise of an issue against data (Process) | Not a fact in the code | Stays review |
+| Prose does not claim that the code is safer than it is (Process) | A check cannot compare a claim with the sequences that the code permits | Stays review |
+| Search comments and docs for the prose names of a deleted mechanism (Process) | `check:doc-symbols` and `check:prose-locators` catch a dead backticked name. A plain-word name is not a token that a check can resolve | Stays review |
+| A brand or compile claim needs a recorded probe (Types) | The claim is prose. An AST rule that fails a type guard or a `z.custom` of a brand outside its owner module would remove the mints with no cast | Medium |
 | Check the `.d.ts` file before you say a library cannot do something (Types) | Not a fact in the code | Stays review |

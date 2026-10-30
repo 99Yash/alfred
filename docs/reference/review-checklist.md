@@ -31,6 +31,8 @@ Each rule has the rule, the reason, and an example.
   Why: a structural name does not tell which structure. Example: #1149.
 - **Check the `.d.ts` file or the library source before you say a library cannot do something.**
   Why: most limits are an option that nobody found. See [typescript.md](./typescript.md).
+- **Record a probe before you claim that only one function mints a brand, that a misuse does not compile, or that `check-types` catches a form.** Probe each form, and include the mints that need no cast: a type guard, `z.custom<Brand>()`, and `Object.assign` onto a branded value. Claim only the forms that fail.
+  Why: a `unique symbol` brand is only a type tag, so each expression of the brand type mints it, and no gate stops a mint with no cast. Example: the `RedactedToolInput` doc in `packages/ai/src/metering/langfuse.ts` names the forms that still compile (#1540). A draft of #1548 said that the compiler proves that no stored image part reaches the model, but a swap of two arguments of one type compiled. The local lesson is `.lessons/a-brand-only-mint-claim-is-false-*`.
 
 ## Constants and ownership
 
@@ -92,6 +94,10 @@ Each rule has the rule, the reason, and an example.
   Why: the surface must work without a mouse and without color.
 - **Do not put a same-property Tailwind utility on an element that has a delta class.** On an `app-press` element, gate a `scale-*` utility with `not-active:`. On an `app-hover-lift` element, do not add a `translate-*` utility. A `className` that you pass to an interactive `components/ui/v2` primitive or to `FrostButton` counts, because each of them carries `app-press`.
   Why: the delta classes sit in `@layer components`, so the utility wins, and the press or the lift stops with no error. Example: `hover:not-active:scale-[1.04]` in `apps/web/src/routes/-chat/composer/composer-toolbar.tsx`.
+- **Do not find an item by its position (`.at(-1)`, index 0, the queue head) when items run in parallel or change order.** Find it by its id or by its status.
+  Why: another item can take that position while the work runs. Example: in #1453 a send completion removed the queue head, but a promote had put a different entry there. #1503 changed `describeActivity` in `apps/web/src/routes/-chat/conversation-helpers.ts` to find the last tool with the status `started`.
+- **Do not keep data that must outlive one page view in a ref or a state that each mount creates.** A reset that runs on each route change has the same fault. Keep the data in a store that the app shell owns.
+  Why: the shared event bus does not send old frames again, so a page that mounts again starts empty. Example: #1486 moved the live chat state to a module store in `apps/web/src/lib/chat/use-chat-stream.ts`, and #1489 fixed the same fault for artifacts. #1487 removed the rail clear from the route-change block of `AppShell`.
 
 ## Tests
 
@@ -112,3 +118,7 @@ Each rule has the rule, the reason, and an example.
   Why: the gate checks that a reason exists, not that it is still true.
 - **Check the factual premise of an issue or plan against data before you write code.** Cite the query, log or commit.
   Why: #1357 said that no Vercel mail reached Alfred, and a query found three.
+- **Do not let prose claim that the code is safer or more closed than it is.** This applies to a PR body, a doc comment and a doc. A list that you call complete says why it is complete. A claimed closure names the sequences that you traced. A statement that predicts a worse outcome than the code is a smaller fault.
+  Why: a reader trusts the claim and does not do the check that it replaces. Example: a draft of #1458 gave three gaps in its liveness claim, and review found a fourth and a fifth. In #1459, a comment in `apps/web/src/lib/replicache/context.tsx` said that a pull sends no extra request, and a probe found one extra pull. That one comment took three review rounds.
+- **When you delete, rename or move a mechanism, search the comments and docs for the words that describe it.** Search for its plain-word names too, not only its identifier. `check:doc-symbols` and `check:prose-locators` catch only a dead backticked symbol, path or specifier.
+  Why: a comment that names a removed mechanism still reads as true. Example: #1483 removed the bottom pin, and review found a comment in `apps/web/src/routes/-chat/tool-call-group.tsx` that still gave it as a reason. Review of #1458 found that `packages/db/src/redis.ts` still named the old owner of the subscription recovery.
