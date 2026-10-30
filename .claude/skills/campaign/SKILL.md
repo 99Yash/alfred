@@ -77,6 +77,24 @@ ITEM=07 scripts/campaign.sh          # one item only — the way to smoke-test t
 MAX_ITER=4 scripts/campaign.sh       # cap iterations
 ```
 
+Run each lane with its log at `.campaign/<slug>/logs/<UTC stamp>-<id>.log`, for
+example `> "$C/logs/$(date -u +%Y%m%dT%H%M%SZ)-07.log" 2>&1`. The status command
+finds the log by that name.
+
+**Orchestrate with `scripts/campaign-ops.mjs`, not by hand.** One orchestrator
+session made about 2,500 tool calls on lane polls, merges, and patch compares.
+
+```bash
+node scripts/campaign-ops.mjs status <slug>      # items not done, PR, CI, live lanes, quiet time, log age
+node scripts/campaign-ops.mjs merge <slug> <id>  # gates, squash merge, patch compare, worktree removal, NOTES line
+```
+
+`merge` needs the item `landed`, the PR out of draft, one head on the PR, the remote
+branch and the worktree, a clean worktree, and green CI. It squashes with
+`--match-head-commit` and never with `--admin`. A patch that differs from the branch
+stops it before the worktree removal. The owner merges past a red check by hand.
+PHASES.md, "Harness facts for the orchestrator", says how to read a stopped lane.
+
 ## The phase machine
 
 | Phase       | Does                                                                                                                                                                                              | Ends by setting                      |
@@ -116,3 +134,8 @@ in **[REVIEW.md](REVIEW.md)**. Read only the section for the phase you are runni
 The loop halts on: an empty queue, `MAX_ITER`, a per-iteration budget overrun, a
 push failure, a dirty main checkout, or an item making no state progress. Every one
 of those leaves `state.json` readable and the campaign resumable.
+
+Three halts leave the item untouched, because the cause is not the item: a phase
+shorter than `MIN_PHASE_SECONDS`, a result that names a usage limit or an auth error
+(both exit 3), and no stream output for `STALE_OUTPUT_SECONDS` (exit 4). A park for
+no state movement writes the worktree's uncommitted paths into the note.

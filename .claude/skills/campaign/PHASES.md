@@ -347,6 +347,14 @@ The cheapest phase, and the one whose output you should expect a human to skim.
    `--env-file` at the main checkout's absolute path and prove the run by the suite-name
    list, per step 5.
 
+   When the item has its own database (`alfred_cNN`, from the orchestrator or NOTES.md),
+   keep that `--env-file` and set only `DATABASE_URL` in the environment. A variable in
+   the environment wins over the file. Copy the URL from the `.env`, with the same `alfred`
+   user and password, and change only the database name. A guessed
+   `postgres:postgres@…` URL fails auth: one revise lane got 49 DB failures and two hung
+   files from it. A run with only `DATABASE_URL` and `REDIS_URL` set fails on other
+   server variables, so do not drop the `--env-file`.
+
 3. Implement the Design section. **TDD at the seam the design named** — the test
    that fails for the right reason first. The repo's own guidance applies: derive
    source-of-truth shapes, validate `unknown` at the owning boundary, `db:generate`
@@ -390,6 +398,11 @@ yourself, and a verdict.
 2. Fix them. Nothing else. A follow-up that tempts you is a new queue item — queue it
    with `campaign-state.mjs add` (below), write the item file at the path it prints,
    then leave it.
+
+   When a must-fix gives fix text for prose (a PR body, a comment, a doc), paste that
+   text as written. Do not rewrite other prose in the same edit. In type-flow item 05,
+   each prose rewrite in two revise rounds added a new false claim. If the text is
+   false at the line it cites, do not correct it yourself: dispute it in step 4.
 3. `pnpm check && pnpm check-types`, tests, commit, push.
 4. Append to the review round section: how each must-fix was closed, or why it is
    being disputed. A disputed finding is legitimate — argue it in one paragraph
@@ -416,7 +429,44 @@ yourself, and a verdict.
    is the one continuity mechanism that outlives the campaign, and the recall hook
    surfaces it unprompted in later sessions. Prune anything campaign-local to
    `NOTES.md` instead.
-5. Leave the worktree in place — the human is merging, not you. Cleanup is
+5. **Move new orchestrator rulings into the skill files.** Read the
+   `[orchestrator …]` lines in NOTES.md. A ruling that applies to every item (a review
+   severity rule, a harness rule) belongs in the skill file that owns it: REVIEW.md for
+   review, this file for a phase or the harness. If no skill file states it yet, and no
+   `[NN land] moved ruling` line names it, move it. Use a separate worktree and branch
+   `chore/campaign-<slug>-rulings-NN` from `origin/<baseBranch>`, edit only the skill
+   files, and open its own PR. Never put it in the item PR. Then write one
+   `- [NN land] moved ruling <ruling timestamp> to <file> in PR #<n>` line with
+   `campaign-state.mjs note`. A ruling about one item stays in NOTES.md.
+6. Leave the worktree in place — the human is merging, not you. Cleanup is
    `git worktree remove` after the merge.
 
 **Close the phase:** `phase: "landed"`.
+
+---
+
+## Harness facts for the orchestrator
+
+These are not a phase. They are what the session that runs `scripts/campaign.sh`
+needs to read a stopped lane correctly.
+
+- **A usage-limit park is not a verdict.** A limit makes a phase end early with no state
+  movement. The driver stops (exit 3) when the phase ends in less than
+  `MIN_PHASE_SECONDS`, or when its last `result` event names a limit or an auth error.
+  Before these checks, three type-flow items were parked `needs-human` by a limit. If you
+  find such a park, reset the item to the phase and round it had
+  (`campaign-state.mjs set … phase=<phase> round=<round>`). Then restart the lane after
+  the limit resets.
+- **An expired auth session kills the review subagents with no log line.** The phase then
+  waits on report files that never come, with flat CPU. Signs: the lane log has not
+  changed for many minutes, and the only child under `claude` is `sleep`. The watchdog
+  in `campaign.sh` kills such a phase after `STALE_OUTPUT_SECONDS` of no stream output
+  and stops the run (exit 4) without a park. Fix: check `claude -p` auth, then start the
+  same item again.
+- **A park note lists the uncommitted paths in the worktree.** An opencode revise once
+  exited 0 with five fixes not committed, and the park read as "no progress". When the
+  note names uncommitted paths, read them before you re-run. The work can be done.
+- **One command for status and merge.** `node scripts/campaign-ops.mjs status <slug>`
+  lists the items that are not done, their PR and CI, the live lanes, and how long each
+  lane has had no output. `node scripts/campaign-ops.mjs merge <slug> <id>` merges one
+  landed item through every gate and writes the NOTES.md line. Do not merge by hand.

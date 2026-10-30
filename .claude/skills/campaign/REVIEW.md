@@ -120,6 +120,30 @@ and a reviewer who has to guess the claim will review the diff's shape instead.
 > Tag findings `must-fix` / `follow-up` / `nit`. Write to
 > `<campaign>/reviews/NN-rN-sweep.md`. Do not edit source.
 
+## Wait for the three reports in the same turn
+
+`claude -p` waits only 10 minutes after your last turn for background subagents.
+Then it exits and kills them. The log line is `Background tasks still running 10m
+after the last turn`. Two type-flow review rounds parked that way with no reports.
+
+So start the three lanes and do not end your turn. Block in a foreground Bash call
+until all three report files exist:
+
+```bash
+R="$C/reviews/NN-rN"
+end=$(( $(date +%s) + 540 ))
+until { [ -s "$R-up.md" ] && [ -s "$R-down.md" ] && [ -s "$R-sweep.md" ]; } || [ "$(date +%s)" -ge "$end" ]; do
+  sleep 20
+done
+ls -l "$R"-*.md
+```
+
+One call stops after 9 minutes, under the 10-minute cap of the Bash tool. Run it
+again until all three files exist, to a total of 45 minutes. Each call writes a
+stream line, so the stale-output watchdog in `scripts/campaign.sh` does not kill a
+healthy wait. At 45 minutes, write the names of the missing reports into the item
+file, set `phase=needs-human`, and stop. Synthesize in the same turn as the wait.
+
 ## Synthesis
 
 Read the three reports. Do not read the diff yourself — if the reports disagree
@@ -141,6 +165,38 @@ Then adjudicate, because three harsh reviewers over-produce:
 - **Cap it.** More than five must-fixes on one PR usually means the design was
   wrong, not the implementation. Say that instead, and send the item to
   `needs-human`.
+- **Rank a false prose claim by its direction.** Prose is a PR body, a doc comment,
+  or a doc. A claim that the code is safer or more closed than it is: `must-fix`,
+  because a reader trusts it and skips a guard. A conservative misstatement, which
+  predicts a worse outcome than the code gives: `nit`. `Preserved behavior` is the
+  list of invariants, so an overclaim there is `must-fix` even when a later section
+  corrects it. The general rule is in the Process section of
+  [`review-checklist.md`](../../../docs/reference/review-checklist.md). This
+  bullet only sets the severity.
+- **Cite the line under each fix sentence.** When a must-fix prescribes text to
+  paste, each fact in that text cites the `file:line` it rests on. Before you
+  write the text into the round, read that line for each example the text names:
+  each tool, field, case, or status. A fix sentence is a claim, and revise pastes
+  it without a second check. Four type-flow items (05, 09, 43, 60) got a new false
+  sentence from fix text that was wrong for one of its own examples. Keep
+  an illustrative name that does not exist out of backticks: `check:doc-symbols`
+  fails on it after the paste.
+
+Worked examples of the direction rule, from type-flow PRs:
+
+| PR    | Sentence                                                                                                           | What the code does                                                                                              | Rank       |
+| ----- | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- | ---------- |
+| #1528 | "A failed read-only MCP call through `mcp.call` now also fires the honesty note."                                  | A read-only failure returns `status:"tool_error"`, which logs `succeeded`. No note.                             | `must-fix` |
+| #1528 | "So a failed read-only remote call stays silent."                                                                  | A remote error on a read with no reviewed policy becomes `status:"unknown"`, logs `failed`, and fires the note. | `nit`      |
+| #1575 | Residual risk: only a run that is not terminal at deploy time can be affected.                                     | A model string that sanitizes to `""` can fail the new closure parse on any later run, not only in flight.      | `must-fix` |
+| #1575 | "Each writer of a state field already validates against the owner schema before the write." (`Preserved behavior`) | `commitStepSuccess` sanitizes the state after the check, so the stored value can differ.                        | `must-fix` |
+| #1575 | "No code parses the mentions against `parsedMentionSchema`."                                                       | The new closure parses them. The sentence states fewer checks than the code has.                                | `nit`      |
+| #1539 | `LenientLeaf` doc: `check-types` catches a strict leaf on the id path.                                             | `.refine`, a transform arm, and strict object mode pass `check-types` and make the dedup key `null`.            | `must-fix` |
+| #1539 | `LenientField` doc: "Each still nulls the dedup read."                                                             | A throw in a transform gives a 500, not a `null` key. The sentence claims no guard that the code lacks.         | `nit`      |
+
+Before this rule, the synthesis rated the second #1528 row and the last #1539 row
+`must-fix`. The first sent #1528 to `needs-human`. The second cost #1539 one more
+review round.
 
 Append to the item file's **Review** section:
 
@@ -154,6 +210,7 @@ Append to the item file's **Review** section:
 **Must-fix**
 
 1. `<file:line>` — <finding, one paragraph, naming the tier or the sequence>
+   Fix text, if the fix is prose: <text to paste> (rests on `<file:line>`, …)
 
 **Follow-up** (queued as items <ids>, not fixed here)
 

@@ -35,6 +35,14 @@
 #   MIN_PHASE_SECONDS
 #                   default 15. Below this, a non-progressing phase is treated as
 #                   never having run rather than as stuck. See the guard below.
+#   STALE_OUTPUT_SECONDS
+#                   default 1200. When a phase writes no stream line for this long,
+#                   the watchdog kills it and the run stops WITHOUT parking the
+#                   item. An expired auth session once killed the review subagents
+#                   with no log line, and the phases then waited with flat CPU. A
+#                   review phase polls for its reports in Bash calls of less than
+#                   10 min (REVIEW.md), so a healthy wait writes a line in time.
+#                   0 turns the watchdog off.
 #   DRY_RUN         default 0
 #   ENGINE          which CLI runs a phase: `claude` (default) or `opencode`.
 #                   This is the FALLBACK; a per-phase override wins.
@@ -74,6 +82,7 @@ MAX_ITER="${MAX_ITER:-20}"
 MAX_BUDGET_USD="${MAX_BUDGET_USD:-8}"
 REVIEW_BUDGET_USD="${REVIEW_BUDGET_USD:-12}"
 MIN_PHASE_SECONDS="${MIN_PHASE_SECONDS:-15}"
+STALE_OUTPUT_SECONDS="${STALE_OUTPUT_SECONDS:-1200}"
 DRY_RUN="${DRY_RUN:-0}"
 ITEM="${ITEM:-}"
 ENGINE="${ENGINE:-claude}"
@@ -195,6 +204,15 @@ jq -e '.items | type == "array"' "$STATE" >/dev/null || { echo "$STATE has no it
 
 BASE_BRANCH="$(jq -r '.baseBranch // "main"' "$STATE")"
 
+# One lane file per running driver, so `scripts/campaign-ops.mjs status` can list the
+# live lanes and how long each has been quiet. The heartbeat file's mtime is the time
+# of the last stream line; the watchdog below reads the same file.
+LANE_DIR="$CAMPAIGN_DIR/lanes"
+LANE_FILE="$LANE_DIR/$$.json"
+HEARTBEAT="$LANE_DIR/$$.heartbeat"
+RESULT_LINE="$LANE_DIR/$$.result"
+STALE_MARK="$LANE_DIR/$$.stale"
+
 # The main checkout must stay clean: items work in their own worktrees, and a dirty
 # root means an earlier iteration leaked edits outside its tree.
 assert_root_clean() {
@@ -213,7 +231,7 @@ TERMINAL='["landed","needs-human","skipped"]'
 
 # Items to pass over without mutating state: dry-run visits. Real parks go in state.
 SKIPPED="$(mktemp -t campaign-skip.XXXXXX)"
-trap 'rm -f "$SKIPPED"' EXIT
+trap 'rm -f "$SKIPPED" "$LANE_FILE" "$HEARTBEAT" "$RESULT_LINE" "$STALE_MARK"' EXIT
 
 # Ctrl-C must stop the LOOP, not just the current claude. Without this, SIGINT kills
 # the child, `|| true` swallows it, and the loop cheerfully starts the next item —
@@ -221,6 +239,8 @@ trap 'rm -f "$SKIPPED"' EXIT
 INTERRUPTED=0
 CHILD_PID=""
 JQ_PID=""
+TAP_PID=""
+WATCHDOG_PID=""
 on_interrupt() {
   INTERRUPTED=1
   echo
@@ -239,6 +259,8 @@ on_interrupt() {
   # Killing claude does not guarantee its descendants died with it, and any one of
   # them still holding the FIFO keeps the renderer from ever seeing EOF — which
   # would hang the loop on `wait` after we already said we were stopping.
+  [[ -n "$WATCHDOG_PID" ]] && kill -TERM "$WATCHDOG_PID" 2>/dev/null
+  [[ -n "$TAP_PID" ]] && kill -TERM "$TAP_PID" 2>/dev/null
   [[ -n "$JQ_PID" ]] && kill -TERM "$JQ_PID" 2>/dev/null
   return 0
 }
@@ -307,6 +329,52 @@ park_item() { # id, note
   jq --arg id "$1" --arg note "$2" --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
     .items |= map(if .id == $id then .phase = "needs-human" | .note = $note | .updatedAt = $ts else . end)
   ' "$STATE" > "$tmp" && mv "$tmp" "$STATE"
+}
+
+write_lane() { # id, phase, round
+  jq -n --argjson pid "$$" --arg item "$1" --arg phase "$2" --arg round "$3" \
+    --arg engine "$RESOLVED_ENGINE" --arg heartbeat "$HEARTBEAT" \
+    --arg startedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{pid: $pid, item: $item, phase: $phase, round: $round, engine: $engine,
+      startedAt: $startedAt, heartbeat: $heartbeat}' > "$LANE_FILE.tmp"
+  mv "$LANE_FILE.tmp" "$LANE_FILE"
+}
+
+# Kills the phase when the heartbeat has not moved for STALE_OUTPUT_SECONDS. It runs
+# as its own background subshell and leaves a mark file, so the main loop can tell a
+# watchdog kill from an operator kill: both end the child with SIGTERM.
+start_watchdog() { # child pid
+  WATCHDOG_PID=""
+  [[ "$STALE_OUTPUT_SECONDS" -gt 0 ]] || return 0
+  (
+    # A failed `pkill` (no child matched) must not end the watchdog before the kill.
+    set +e
+    while kill -0 "$1" 2>/dev/null; do
+      sleep 15
+      quiet="$(perl -e 'print time - (stat shift)[9]' "$HEARTBEAT" 2>/dev/null)"
+      if [[ -n "$quiet" && "$quiet" -ge "$STALE_OUTPUT_SECONDS" ]]; then
+        printf '%s\n' "$quiet" > "$STALE_MARK"
+        pkill -TERM -P "$1" 2>/dev/null
+        kill -TERM "$1" 2>/dev/null
+        sleep 10
+        pkill -KILL -P "$1" 2>/dev/null
+        kill -KILL "$1" 2>/dev/null
+        exit 0
+      fi
+    done
+  ) &
+  WATCHDOG_PID=$!
+}
+
+# Prints the first limit or auth phrase in the phase's last `result` event, or
+# nothing. Only an error result, or a result of one turn, is read: a normal final
+# message can mention a rate limit when the item is about one.
+limit_reason() {
+  [[ -s "$RESULT_LINE" ]] || return 0
+  jq -r 'select(.is_error == true or ((.num_turns // 0) <= 1)) | (.result // "") | tostring' \
+      "$RESULT_LINE" 2>/dev/null \
+    | grep -i -o -m1 -E 'usage limit|hit your limit|limit reached|rate limit|oauth token|token (has )?expired|invalid api key|/login|authentication|unauthorized' \
+    || true
 }
 
 build_prompt() {
@@ -400,6 +468,11 @@ for ((i = 1; i <= MAX_ITER; i++)); do
   before="$(signature "$id")"
   started_at="$(date +%s)"
 
+  mkdir -p "$LANE_DIR"
+  : > "$HEARTBEAT"
+  rm -f "$RESULT_LINE" "$STALE_MARK"
+  write_lane "$id" "$phase" "$round"
+
   # A phase is mostly tool calls, so printing only assistant *text* looks identical
   # to a hang for minutes at a time. Stream text deltas live, and print one line per
   # tool call so the run is visibly alive.
@@ -407,7 +480,19 @@ for ((i = 1; i <= MAX_ITER; i++)); do
   # the loop holds its real PID: the interrupt trap can forward the signal, and the
   # exit status is claude's own rather than jq's.
   fifo="$(mktemp -u -t campaign-fifo.XXXXXX)"
-  mkfifo "$fifo"
+  render_fifo="$(mktemp -u -t campaign-render.XXXXXX)"
+  mkfifo "$fifo" "$render_fifo"
+
+  # The tap sits between the engine and the renderer. It moves the heartbeat at most
+  # every 5 s, keeps the last `result` event for `limit_reason`, and passes each line
+  # on unchanged. It is its own job, not a pipe into jq, so the trap can kill it.
+  HB="$HEARTBEAT" RESULT="$RESULT_LINE" perl -ne '
+    BEGIN { $| = 1 }
+    if (time - $t >= 5) { utime undef, undef, $ENV{HB}; $t = time }
+    if (/"type":"result"/) { open my $o, ">", $ENV{RESULT}; print $o $_; close $o }
+    print;
+  ' < "$fifo" > "$render_fifo" &
+  TAP_PID=$!
 
   # Two engines, two event schemas. `claude` streams `stream_event`/`assistant`/
   # `result`; `opencode --format json` streams `text`/`tool_use`/`step_finish` with
@@ -435,7 +520,7 @@ for ((i = 1; i <= MAX_ITER; i++)); do
                                           // .state.input.description // "")
                                          | tostring | .[0:100])\n" )
         else empty end
-      ' < "$fifo" &
+      ' < "$render_fifo" &
   JQ_PID=$!
 
   set +e
@@ -459,16 +544,38 @@ for ((i = 1; i <= MAX_ITER; i++)); do
       ;;
   esac
   CHILD_PID=$!
+  start_watchdog "$CHILD_PID"
   wait "$CHILD_PID"
   claude_status=$?
   CHILD_PID=""   # the trap has already reaped it on the interrupt path
+  if [[ -n "$WATCHDOG_PID" ]]; then
+    kill -TERM "$WATCHDOG_PID" 2>/dev/null
+    wait "$WATCHDOG_PID" 2>/dev/null
+    WATCHDOG_PID=""
+  fi
+  # After a watchdog kill, a descendant can still hold the FIFO open, and the tap
+  # would then wait for an EOF that never comes. The same reason as on_interrupt.
+  if [[ -s "$STALE_MARK" ]]; then
+    kill -TERM "$TAP_PID" "$JQ_PID" 2>/dev/null
+  fi
+  wait "$TAP_PID" 2>/dev/null
   wait "$JQ_PID" 2>/dev/null
+  TAP_PID=""
   JQ_PID=""
   set -e
-  rm -f "$fifo"
+  rm -f "$fifo" "$render_fifo"
 
   elapsed=$(( $(date +%s) - started_at ))
   after="$(signature "$id")"
+
+  # Checked before the interrupt branch, because the watchdog also kills with SIGTERM.
+  if [[ -s "$STALE_MARK" ]]; then
+    echo
+    echo "item $id wrote no stream output for $(cat "$STALE_MARK")s in phase ${before%%:*} — the watchdog killed it."
+    echo "Most likely an expired auth session or a hung call. State left untouched, and the run is stopping."
+    echo "Check 'claude -p' auth, then resume with: ITEM=$id scripts/campaign.sh"
+    exit 4
+  fi
 
   # 130 = SIGINT, 143 = SIGTERM. An operator kill is not a stuck item.
   if [[ "$INTERRUPTED" == "1" || "$claude_status" == "130" || "$claude_status" == "143" ]]; then
@@ -498,12 +605,41 @@ for ((i = 1; i <= MAX_ITER; i++)); do
     exit 3
   fi
 
+  # A usage limit or an expired session that hits a LONG phase passes the clock
+  # guard above, and a park then reads as a verdict. Three type-flow items were
+  # parked that way and had to be reset by hand. The result event names the cause.
+  limit="$(limit_reason)"
+  if [[ "$before" == "$after" && -n "$limit" ]]; then
+    echo
+    echo "item $id stopped after ${elapsed}s (exit $claude_status): the result says '$limit'."
+    echo "State left untouched, and the run is stopping so the queue is not parked behind it."
+    echo "Resume with: ITEM=$id scripts/campaign.sh   after the limit resets or auth is fixed."
+    exit 3
+  fi
+
   if [[ "$before" == "$after" ]]; then
     echo "no state movement on item $id ($before) after ${elapsed}s (exit $claude_status) — parking it."
     # The work is often DONE and only the bookkeeping died — a phase writes
-    # (phase, round) last. Check the worktree for uncommitted edits and reviews/ for
-    # lane reports before re-running this item; see NOTES.md, "Campaign hygiene".
-    park_item "$id" "no progress in phase ${before%%:*} (exit $claude_status)"
+    # (phase, round) last. An opencode revise once exited 0 with five fixes not yet
+    # committed. So the park note says what the worktree holds; also check reviews/
+    # for lane reports before re-running this item.
+    note="no progress in phase ${before%%:*} (exit $claude_status)"
+    if [[ ! -d "$worktree" ]]; then
+      note="$note; no worktree at $worktree"
+    elif dirty="$(git -C "$worktree" status --porcelain 2>/dev/null)"; then
+      if [[ -n "$dirty" ]]; then
+        echo "uncommitted in $worktree:"
+        printf '%s\n' "$dirty"
+        count="$(printf '%s\n' "$dirty" | wc -l | tr -d ' ')"
+        paths="$(printf '%s\n' "$dirty" | awk 'NR <= 3 { print substr($0, 4) }' | paste -s -d, -)"
+        note="$note; worktree has $count uncommitted path(s): $paths — the work may be done, commit it before a re-run"
+      else
+        note="$note; worktree clean"
+      fi
+    else
+      note="$note; git status failed in $worktree"
+    fi
+    park_item "$id" "$note"
     continue
   fi
 
