@@ -33,6 +33,15 @@
             "command": "node \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/recall.mjs pre-edit"
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/merge-guard.mjs"
+          }
+        ]
       }
     ],
     "PostToolUse": [
