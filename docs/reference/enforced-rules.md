@@ -97,13 +97,18 @@ When you add, remove or change a rule in `.oxlintrc.json`, a JS plugin, `scripts
 | Rule | Scope | Description |
 | --- | --- | --- |
 | `alfred/hand-rolled-key-guard` |  | Test a key of a closed table with `keyGuard(TABLE)` from `@alfred/contracts`, not by hand. |
+| `alfred/motion-safe-variant-animate` |  | Require `motion-safe:` on a variant-prefixed `animate-*` utility on an element that has `motion-reduce:animate-none`. |
+| `alfred/no-conditional-motion-ref` |  | Reject a conditional `ref` on a `motion` element, which reads its ref only at mount. |
 | `alfred/no-constants-re-export` |  | Disallow re-exporting a constants module's value from a module that is not its barrel. |
+| `alfred/no-dash-in-web-copy` |  | Reject an em dash or an en dash in a web string or JSX text. |
+| `alfred/no-delta-class-utility-collision` |  | Reject a `scale-*` utility on an `app-press` element without `not-active:`, and a `translate-*` utility on an `app-hover-lift` element. |
 | `alfred/no-exported-hasher` |  | Disallow exporting a function whose parameter flows into a hash digest from a module that is not a hash owner. |
 | `alfred/no-function-wrapper-shim` |  | Disallow an exported function whose only job is to return a constant or an imported name. |
 | `alfred/no-type-alias-shim` |  | Disallow exporting a bare new name for an imported type. |
 | `alfred/no-type-re-export-shim` |  | Disallow re-exporting a constants module's type from a module that is not its barrel. |
 | `alfred/no-union-enum-without-default` |  | Require an explicit `default` on every Elysia `t.UnionEnum` call. |
 | `alfred/sha256-over-json-stringify` |  | Disallow a hash digest over JSON.stringify output, whose pre-image depends on object key order. |
+| `alfred/transition-names-individual-transform` |  | Require a `transition-[…transform…]` list to name the `scale`, `translate` or `rotate` property that the element writes. |
 
 ## Lint rules: `anti-slop` plugin
 

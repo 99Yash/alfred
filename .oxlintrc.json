@@ -81,17 +81,31 @@
     // a type of a `constants` module again; only the package barrel may. no-type-alias-shim:
     // an exported type that is only a new name for an imported type.
     // no-union-enum-without-default: a `t.UnionEnum` call with no `default` key, which
-    // would fill a missing field with the first member. hand-rolled-key-guard: a hand-written
-    // key test of a closed table (`Object.hasOwn`, `x in TABLE`, `TABLE[x] === undefined`);
-    // the last two are true for an inherited key such as "toString". Use keyGuard(TABLE).
+    // would fill a missing field with the first member.
+    // hand-rolled-key-guard: a hand-written key test of a closed table (`Object.hasOwn`,
+    // `x in TABLE`, `TABLE[x] === undefined`); the last two are true for an inherited key
+    // such as "toString". Use keyGuard(TABLE).
     "alfred/hand-rolled-key-guard": "error",
+    // The web motion and copy rules read one element's classes or JSX:
+    // transition-names-individual-transform: a `transition-[…transform…]` list that misses the
+    // `scale`/`translate`/`rotate` property a Tailwind v4 utility on the element writes.
+    // no-delta-class-utility-collision: a `scale-*` utility on an `app-press` element without
+    // `not-active:`, or a `translate-*` utility on an `app-hover-lift` element.
+    // motion-safe-variant-animate: a variant `animate-*` without `motion-safe:` beside
+    // `motion-reduce:animate-none`. no-conditional-motion-ref: a conditional `ref` on an
+    // `m.*`/`motion.*` element. no-dash-in-web-copy: an em or en dash in web copy.
+    "alfred/motion-safe-variant-animate": "error",
+    "alfred/no-conditional-motion-ref": "error",
     "alfred/no-constants-re-export": "error",
+    "alfred/no-dash-in-web-copy": "error",
+    "alfred/no-delta-class-utility-collision": "error",
     "alfred/no-exported-hasher": "error",
     "alfred/no-function-wrapper-shim": "error",
     "alfred/no-type-alias-shim": "error",
     "alfred/no-type-re-export-shim": "error",
     "alfred/no-union-enum-without-default": "error",
     "alfred/sha256-over-json-stringify": "error",
+    "alfred/transition-names-individual-transform": "error",
     // The tailwind rules sit at `error` by the same bar: zero violations on promotion, and
     // `pnpm lint` does not fail on `warn`, so a warn-level rule here enforced nothing.
     // `pnpm check:oxlint-plugin` drives only the anti-slop and alfred rules, not these.
