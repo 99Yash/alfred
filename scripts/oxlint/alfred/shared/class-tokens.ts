@@ -40,7 +40,7 @@ const CLASS_JOINERS = new Set(["cn", "clsx", "cx", "twMerge"]);
 const CLASS_ATTRIBUTES = new Set(["className", "class"]);
 
 /** True for a call of a class joiner such as `cn(…)`. */
-export function isClassJoinerCall(node: ESTree.Node): node is ESTree.CallExpression {
+function isClassJoinerCall(node: ESTree.Node): node is ESTree.CallExpression {
   return (
     node.type === "CallExpression" &&
     node.callee.type === "Identifier" &&
@@ -49,14 +49,14 @@ export function isClassJoinerCall(node: ESTree.Node): node is ESTree.CallExpress
 }
 
 /** True for a joiner call that is an argument of another joiner call (it is not a root). */
-export function isNestedJoinerCall(node: ESTree.CallExpression): boolean {
+function isNestedJoinerCall(node: ESTree.CallExpression): boolean {
   const { parent } = node;
 
   return isClassJoinerCall(parent) && parent.arguments.some((argument) => argument === node);
 }
 
 /** The class expression of a `className`/`class` JSX attribute, or null for another attribute. */
-export function classAttributeValue(node: ESTree.JSXAttribute): ESTree.Node | null {
+function classAttributeValue(node: ESTree.JSXAttribute): ESTree.Node | null {
   if (node.name.type !== "JSXIdentifier" || !CLASS_ATTRIBUTES.has(node.name.name)) return null;
   const { value } = node;
 
@@ -126,7 +126,7 @@ export function isStringLiteral(node: ESTree.Node): node is ESTree.StringLiteral
 }
 
 /** Every class token that `node` can give the element, by the reads in the module comment. */
-export function classTokensOf(
+function classTokensOf(
   sourceCode: SourceCode,
   node: ESTree.Node,
   seen: Set<Variable> = new Set(),
