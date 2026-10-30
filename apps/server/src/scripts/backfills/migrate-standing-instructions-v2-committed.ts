@@ -397,21 +397,28 @@ function proposeInstructions(accountIdOf: (group: GroupKey) => string | null): I
     },
     {
       key: "investment_exception",
-      phrasing: quote(w.investmentOct30),
+      // The match prompt shows `phrasing` as the user's words, so it holds only the exception
+      // clause. The full sentence leads with the investment clause; it stays in `evidence`.
+      phrasing: quote({
+        ...w.investmentOct30,
+        words: "unless it's from the income tax deptt. or some legal matter",
+      }),
       directive:
-        "Investment mail from the Income Tax Department or about a legal matter is outside the " +
-        "investment instruction: classify it on its own evidence.",
+        "Investment mail from the Income Tax Department, or investment mail about a legal " +
+        "matter, keeps its normal priority.",
       scope:
-        "Investment or stock-market mail that comes from the Income Tax Department (for " +
-        "example a tax notice or a tax demand), or that is about a legal case or a legal notice " +
-        "to the user. Not routine company notices, such as AGM, e-voting, or dividend notices.",
+        "Investment or stock-market mail that comes from the Income Tax Department or that is " +
+        "about a legal case or legal notice to the user, but not a routine AGM, e-voting, or " +
+        "dividend notice.",
       effects: [],
       accountId: accountIdOf("investment"),
       evidence: [w.investmentOct30],
       note:
         "No effects on purpose. On mail that both match, a matched exception cancels each " +
         "lowering effect of instruction 1 on any cover (plan decision 10, " +
-        "`exceptionCancels` in triage/floors/standing.ts). The mail keeps its model verdict.",
+        "`exceptionCancels` in triage/floors/standing.ts). The mail keeps its model verdict. " +
+        "The words hold only the exception clause, because the match prompt shows them; the " +
+        "full 2026-10-30 sentence is the evidence in the source meta.",
       confirmed: false,
     },
     {
@@ -788,6 +795,9 @@ function printInstruction(plan: Plan, instruction: InstructionPlan): void {
   }
 
   console.log(`  note: ${instruction.note}`);
+  console.log("  evidence:");
+
+  for (const e of instruction.evidence) console.log(`    ${e.date} (${e.source}): "${e.words}"`);
 }
 
 function printPlan(plan: Plan): void {
