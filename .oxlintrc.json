@@ -81,7 +81,10 @@
     // a type of a `constants` module again; only the package barrel may. no-type-alias-shim:
     // an exported type that is only a new name for an imported type.
     // no-union-enum-without-default: a `t.UnionEnum` call with no `default` key, which
-    // would fill a missing field with the first member.
+    // would fill a missing field with the first member. hand-rolled-key-guard: a hand-written
+    // key test of a closed table (`Object.hasOwn`, `x in TABLE`, `TABLE[x] === undefined`);
+    // the last two are true for an inherited key such as "toString". Use keyGuard(TABLE).
+    "alfred/hand-rolled-key-guard": "error",
     "alfred/no-constants-re-export": "error",
     "alfred/no-exported-hasher": "error",
     "alfred/no-function-wrapper-shim": "error",

@@ -24,8 +24,8 @@
 // A gate that needs scope or AST structure (which binding a name resolves to)
 // is an oxlint rule in scripts/oxlint/alfred/ instead, enforced by `pnpm lint`.
 // `sha256-over-json-stringify`, `no-function-wrapper-shim`,
-// `no-constants-re-export`, `no-type-re-export-shim` and `no-type-alias-shim`
-// moved there.
+// `no-constants-re-export`, `no-type-re-export-shim`, `no-type-alias-shim` and
+// `hand-rolled-key-guard` moved there.
 // helper-hints.mjs does not read those rules; `.claude/hooks/lint-on-edit.mjs`
 // runs oxlint on each file an agent writes, so they speak at edit time too.
 // Both hooks are registered in `.claude/settings.json`.
@@ -516,23 +516,6 @@ export const RULES = [
     scope: "chain",
     severity: "hint",
     fix: "Build the guard once with enumGuard(TUPLE) from @alfred/contracts — it narrows `unknown` to `typeof TUPLE[number]` with no cast and no SAFETY comment. The tuple stays the single source of truth; a per-site `(TUPLE as readonly string[]).includes(value)` is a fourth spelling of it.",
-  },
-  {
-    id: "hand-rolled-key-guard",
-    // `Object.hasOwn(TABLE, value)` or `Object.prototype.hasOwnProperty.call(
-    // TABLE, value)` over a SCREAMING_CASE table: the membership body of a
-    // hand-written "is this string a key of TABLE?" guard. `keyGuard(TABLE)`
-    // in packages/contracts/src/guards.ts owns it, and derives the predicate
-    // type from the table, so a key added to the table widens the guard with
-    // no second edit.
-    //
-    // Residue this regex cannot see: a lowercase table name
-    // (`eventPayloadSchemas`, `serverMutators`) and the `value in TABLE`
-    // form. Both stay catalog-only (docs/reference/shared-helpers.md).
-    re: /Object\.(?:hasOwn|prototype\.hasOwnProperty\.call)\(\s*[A-Z][A-Z0-9_]*\s*,/,
-    severity: "gate",
-    owners: ["packages/contracts/src/guards.ts"],
-    fix: "Build the guard once with keyGuard(TABLE) from @alfred/contracts — it narrows `unknown` to the table's own string keys, reads them with Object.hasOwn, and derives the predicate type from the table. The table must be a closed literal (`as const` or `satisfies Record<K, V>`), the same precondition as typedKeys.",
   },
   {
     id: "object-keys-cast",
