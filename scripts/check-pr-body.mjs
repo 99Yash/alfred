@@ -2,7 +2,7 @@
 // `CLAUDE.md` asks for, when one closing keyword lists several issues
 // (`Closes #1, #2`), which closes only the first on merge, when a prose sentence has
 // more than 25 words (the ASD-STE100 limit), or when the body uses a review-process
-// word such as `Round 1`, `r2`, `item 36` or `vocabulary ledger`.
+// word such as `Round 1`, `r2`, `item 36` or `as on main`.
 //
 // This is a check about a DOCUMENT, not about source, and it is the only gate in the
 // repo that reads GitHub rather than the working tree. It runs `gh`, so it fails

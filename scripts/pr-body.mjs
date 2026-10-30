@@ -316,6 +316,9 @@ export function longSentences(body) {
  *
  * Product words that share a spelling stay legal: `revise` as a verb (`the user
  * approves, revises, or ends the run`) and single-digit `item 4` of an ADR list.
+ * `campaign` and `vocabulary ledger` stay legal too: each names a tracked thing a
+ * reviewer can open (`.claude/skills/campaign/`, the ledger section of
+ * `docs/reference/structural-review.md`), and a PR that changes either must name it.
  */
 export const PROCESS_WORDS = [
   { label: "a review round number", pattern: /\bround[ -]?\d+\b/giu },
@@ -324,13 +327,8 @@ export const PROCESS_WORDS = [
     label: "a revise pass",
     pattern: /\b(?:(?:the|this|that|each|later|r\d|round[ -]?\d+)\s+revises?|revise\s+r\d)\b/giu,
   },
-  { label: "a campaign item number", pattern: /\bitems? \d{2,3}\b/giu },
-  { label: "a campaign reference", pattern: /\bcampaigns?\b/giu },
+  { label: "a review item number", pattern: /\bitems? \d{2,3}\b/giu },
   { label: "a review verdict", pattern: /\bmust-fix(?:es)?\b/giu },
-  {
-    label: "the review's name-count ledger",
-    pattern: /\bvocabulary ledger\b/giu,
-  },
   { label: "a ledger total", pattern: /\bNet:?\s*[*_]{0,2}\s*[−+-]?\s*\d/gu },
   { label: "a comparison to a moving base", pattern: /\bas on main\b/giu },
 ];
