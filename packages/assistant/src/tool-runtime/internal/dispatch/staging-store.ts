@@ -246,6 +246,15 @@ export interface StagingStore {
     restage: InterruptedRestage,
   ): Promise<InterruptedRestageResult>;
 
+  /** The provider handle that a tool kept for this call (`provider_ref`), or null. */
+  readProviderRef(stagingId: string): Promise<string | null>;
+
+  /**
+   * Keep `ref` as the call's provider handle when no attempt kept one first. Returns the kept
+   * handle: `ref`, or the handle of the attempt that wrote first.
+   */
+  recordProviderRef(stagingId: string, ref: string): Promise<string>;
+
   /**
    * Commit from the observed state, or fill the result when the MCP broker
    * already wrote the same outcome. False for any other outcome.
@@ -588,6 +597,32 @@ export const postgresStagingStore: StagingStore = {
     });
 
     return leased.ok ? leased.value : { kind: leased.loss };
+  },
+
+  async readProviderRef(stagingId) {
+    const [row] = await db()
+      .select({ providerRef: actionStagings.providerRef })
+      .from(actionStagings)
+      .where(eq(actionStagings.id, stagingId));
+
+    return row?.providerRef ?? null;
+  },
+
+  async recordProviderRef(stagingId, ref) {
+    // No `row_version` bump: the synced row does not carry `provider_ref`.
+    const [recorded] = await db()
+      .update(actionStagings)
+      .set({ providerRef: ref })
+      .where(and(eq(actionStagings.id, stagingId), isNull(actionStagings.providerRef)))
+      .returning({ id: actionStagings.id });
+
+    if (recorded) return ref;
+
+    const kept = await postgresStagingStore.readProviderRef(stagingId);
+
+    if (kept === null) throw new Error(`[dispatch] staging ${stagingId} not found`);
+
+    return kept;
   },
 
   async commitStaging(stagingId, expected, commit) {

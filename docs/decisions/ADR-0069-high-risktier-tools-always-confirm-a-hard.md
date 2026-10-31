@@ -16,8 +16,9 @@
 
 ## Amendment (2026-08-30) — live Gmail sends also have a recipient floor
 
-`gmail.send_draft` is a historical name: its execute path calls Gmail
-`users.messages.send`, so approval causes a live external effect. The hard
+`gmail.send_draft` is a historical name: its execute path saves a Gmail draft
+and calls `users.drafts.send` at once (ADR-0034 amendment item 10), so approval
+causes a live external effect. The hard
 approval floor above stays necessary, but it is not the only boundary. The
 execute path now permits recipients only when they are the active Gmail mailbox
 or a person the user has emailed before. Every `to`, `cc`, and `bcc` address is

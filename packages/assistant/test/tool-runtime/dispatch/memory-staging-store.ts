@@ -34,6 +34,7 @@ interface StoredRow extends StagingRow {
   toolCallId: string;
   decidedAt: Date | null;
   executedAt: Date | null;
+  providerRef: string | null;
   rowVersion: number;
 }
 
@@ -243,6 +244,7 @@ export function memoryStagingStore(): MemoryStagingStore {
         effectKey: effectKeyFor(values.runId, values.toolCallId),
         attemptKey: attemptKeyFor(values.runId, values.toolCallId),
         requestHash: values.requestHash,
+        providerRef: values.providerRef ?? null,
         rowVersion: values.rowVersion ?? 1,
       };
 
@@ -310,6 +312,17 @@ export function memoryStagingStore(): MemoryStagingStore {
       row.rowVersion += 1;
 
       return { kind: "restaged", row: project(row) };
+    },
+
+    async readProviderRef(stagingId) {
+      return byId.get(stagingId)?.providerRef ?? null;
+    },
+
+    async recordProviderRef(stagingId, ref) {
+      const row = mustGet(stagingId);
+      row.providerRef ??= ref;
+
+      return row.providerRef;
     },
 
     async commitStaging(stagingId, expected, commit) {

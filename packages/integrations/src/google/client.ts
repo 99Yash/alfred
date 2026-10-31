@@ -39,8 +39,9 @@ import type {
   ListMessagesArgs,
   ModifyMessageLabelsArgs,
   ModifyThreadLabelsArgs,
-  SendMessageResult,
-  SendMessageArgs,
+  DraftMessageArgs,
+  DraftRefArgs,
+  SentMessage,
 } from "./gmail";
 import { gmailMailboxFor } from "./mailbox";
 import { googlePassthroughProfile } from "./passthrough";
@@ -169,11 +170,6 @@ export function createGoogleClient(
         ...args
       }: WithCredentialId<GetMessageArgs>): Promise<GmailMessage> =>
         mailbox(credentialId, "gmail").getMessage(args),
-      sendMessage: ({
-        credentialId,
-        ...args
-      }: WithCredentialId<SendMessageArgs>): Promise<SendMessageResult> =>
-        mailbox(credentialId, "gmail_send").sendMessage(args),
       getThread: ({
         credentialId,
         ...args
@@ -199,8 +195,16 @@ export function createGoogleClient(
       createDraft: ({
         credentialId,
         ...args
-      }: WithCredentialId<SendMessageArgs>): Promise<CreateDraftResult> =>
+      }: WithCredentialId<DraftMessageArgs>): Promise<CreateDraftResult> =>
         mailbox(credentialId, "gmail_modify").createDraft(args),
+      // `drafts.send` takes `gmail.modify` or `gmail.compose`, not `gmail.send`.
+      sendDraft: ({
+        credentialId,
+        ...args
+      }: WithCredentialId<DraftRefArgs>): Promise<SentMessage> =>
+        mailbox(credentialId, "gmail_modify").sendDraft(args),
+      deleteDraft: ({ credentialId, ...args }: WithCredentialId<DraftRefArgs>): Promise<void> =>
+        mailbox(credentialId, "gmail_modify").deleteDraft(args),
       passthrough: (credentialId: string) => passthrough("gmail", credentialId),
     },
     calendar: {

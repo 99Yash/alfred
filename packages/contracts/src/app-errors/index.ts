@@ -203,6 +203,15 @@ export const APP_ERROR_REGISTRY = defineFailureCatalog({
     why: "Every connected credential for this integration failed the same read.",
     fix: reconnect,
   }),
+  gmail_draft_gone: {
+    message:
+      "The email was saved as a Gmail draft, but the draft is gone and no sent copy was found, " +
+      "so it may not have been sent. Ask the user to check Gmail before you send it again.",
+    why:
+      "Sending the kept draft returned 404, and its thread is gone or has no SENT message from " +
+      "after the save.",
+    fix: { kind: "none" },
+  },
   gmail_triage_label_refused: {
     message:
       "Alfred's numbered triage labels belong to triage, so this tool does not change them. " +
