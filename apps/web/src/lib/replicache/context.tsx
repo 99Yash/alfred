@@ -111,6 +111,7 @@ export function ReplicacheProvider({ children }: { children: React.ReactNode }) 
       // initial-pull waiter (`awaitInitialPull`) resolves on this same attempt, and it re-arms if
       // the attempt fails.
       // This pull rejects only with "Closed" after the client closes, when the lifecycle is already over.
+      // oxlint-disable-next-line alfred/no-swallowed-catch -- this pull rejects only with "Closed" after the client closes, when the lifecycle is already over
       void rep.pull({ now: true }).catch(() => undefined);
 
       return;

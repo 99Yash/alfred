@@ -67,6 +67,7 @@ export function useRunComplete(stream: StreamingMessage | null): void {
     if (pref === "always" || (pref === "unfocused" && !focused)) {
       const audio = new Audio(SFX_SRC);
       audio.volume = 0.4;
+      // oxlint-disable-next-line alfred/no-swallowed-catch -- autoplay can be blocked before the first interaction; a rejected play() is expected
       void audio.play().catch(() => {
         /* Autoplay can be blocked before the first interaction. */
       });

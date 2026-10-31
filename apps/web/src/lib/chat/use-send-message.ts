@@ -184,6 +184,7 @@ export function useSendMessage(options: SendMessageOptions = {}): SendMessage {
         });
 
         if (!res.ok) {
+          // oxlint-disable-next-line alfred/no-swallowed-catch -- an unreadable error body only drops detail; the thrown error keeps the status
           const body = await res.text().catch(() => "");
           markChatTimingByUser(
             userMessageId,
@@ -198,6 +199,7 @@ export function useSendMessage(options: SendMessageOptions = {}): SendMessage {
           return { ok: false, reason: "error" } satisfies SendResult;
         }
 
+        // oxlint-disable-next-line alfred/no-swallowed-catch -- an unreadable ack fails the parse below, and that path warns and uses the fallback id
         const payload = turnStartResponseSchema.safeParse(await res.json().catch(() => null));
 
         if (payload.success) {

@@ -188,6 +188,7 @@ export function ChatApprovalDock({
 
     const audio = new Audio("/sounds/run-finished.mp3");
     audio.volume = 0.42;
+    // oxlint-disable-next-line alfred/no-swallowed-catch -- autoplay can be blocked before the first interaction; a rejected play() is expected
     void audio.play().catch(() => {
       // Browsers can block audio before user activation; the card still shows.
     });

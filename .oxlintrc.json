@@ -101,6 +101,11 @@
     // (#1526, #1225, #1224, #1114). Take `exec: DbTransaction | "own"`, or a plain
     // `DbTransaction` when each caller holds one.
     "alfred/required-executor-param": "error",
+    // no-swallowed-catch: a `.catch(…)` handler that drops the error and returns a constant, such
+    // as `.catch(() => null)`. The fault looks like a real result and no log shows it (#1458,
+    // #1122). Log it and keep the value, return a failure value the caller tells apart, or keep
+    // an expected swallow (autoplay, best-effort close) with a disable comment and its reason.
+    "alfred/no-swallowed-catch": "error",
     // switch-literal-needs-default: a `switch` whose `case` tests are all string literals and
     // that has no `default`. switch-exhaustiveness-check proves each union member has a case, but
     // a stored row or a peer at deploy skew can hold a member this build does not know, and it

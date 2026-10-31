@@ -144,6 +144,7 @@ export function createUserChannelSubscriptions<T>({
       const channels = Array.from(subscribed).map(channelFor);
 
       if (channels.length > 0) {
+        // oxlint-disable-next-line alfred/no-swallowed-catch -- close() drops every channel; the connection quits right after, so a failed UNSUBSCRIBE has no effect
         await subscriber.unsubscribe(...channels).catch(() => {});
       }
     }

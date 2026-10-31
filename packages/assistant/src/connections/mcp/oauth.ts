@@ -965,6 +965,7 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
 
     if (existing && reason.kind === "expiry") return existing;
 
+    // oxlint-disable-next-line alfred/no-swallowed-catch -- this caller only waits for the other flight to settle; that flight's own caller gets and reports its failure
     if (existing) await existing.catch(() => undefined);
 
     const flight = this.#store

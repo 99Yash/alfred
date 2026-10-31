@@ -152,6 +152,7 @@ function write<A>(run: () => PromiseLike<A>): Effect.Effect<A, unknown> {
 }
 
 function closeQuietly(client: McpRawClient): Effect.Effect<void> {
+  // oxlint-disable-next-line alfred/no-swallowed-catch -- the scope release of a client that is going away; the fault that closed the scope is already reported
   return Effect.promise(() => client.close().catch(() => undefined));
 }
 

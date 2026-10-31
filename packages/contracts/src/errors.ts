@@ -142,6 +142,7 @@ export async function httpErrorFromResponse(
     bodyPolicy?: ErrorBodyPolicy | undefined;
   } = {},
 ): Promise<HttpError> {
+  // oxlint-disable-next-line alfred/no-swallowed-catch -- an unreadable error body only drops detail; the thrown error keeps the status
   const raw = await res.text().catch(() => "");
 
   return new HttpError({

@@ -402,6 +402,7 @@ export class McpRawClient {
                 : {}),
           });
     } catch (error) {
+      // oxlint-disable-next-line alfred/no-swallowed-catch -- best-effort close after a failed open; the open fault is rethrown below
       if (protocol) await protocol.close(false).catch(() => undefined);
       await this.#closeAuthorization(authorized);
       throw error;
@@ -429,6 +430,7 @@ export class McpRawClient {
         this.#lostError = error;
       }
 
+      // oxlint-disable-next-line alfred/no-swallowed-catch -- best-effort close of a connection that is already unhealthy; the next call sees `#lostError`
       const cleanup = this.#closeGeneration(generation, false).catch(() => undefined);
       this.#registerCleanup(cleanup);
 
@@ -463,6 +465,7 @@ export class McpRawClient {
         ? await this.#renewRejectedToken(oauth, handshake.sent.token)
         : null;
 
+      // oxlint-disable-next-line alfred/no-swallowed-catch -- best-effort close after a failed handshake; the handshake fault is rethrown below
       await this.#closeGeneration(generation, false).catch(() => undefined);
       throw renewal ?? err;
     }
@@ -874,6 +877,7 @@ export class McpRawClient {
       this.#invalidateCatalog();
     }
 
+    // oxlint-disable-next-line alfred/no-swallowed-catch -- best-effort close of an expired session; the `session_expired` error is thrown below
     const cleanup = this.#closeGeneration(generation, false).catch(() => undefined);
     this.#registerCleanup(cleanup);
     await cleanup;
@@ -924,6 +928,7 @@ export class McpRawClient {
   }
 
   async #closeAuthorization(authorization: McpAuthorizedEndpoint | null): Promise<void> {
+    // oxlint-disable-next-line alfred/no-swallowed-catch -- best-effort release of the endpoint dispatcher on a close path; a failure leaves nothing to undo
     await authorization?.close().catch(() => undefined);
   }
 

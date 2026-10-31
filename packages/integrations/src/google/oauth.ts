@@ -138,6 +138,7 @@ export async function exchangeCode(code: string): Promise<ExchangeCodeResult> {
     signal: AbortSignal.timeout(INTEGRATION_FETCH_TIMEOUT_MS),
   });
 
+  // oxlint-disable-next-line alfred/no-swallowed-catch -- an unreadable body becomes null; a non-OK status throws with it and an OK status fails the schema parse
   const json = await res.json().catch(() => null);
 
   if (!res.ok) {
@@ -206,6 +207,7 @@ export async function refreshAccessToken(refreshToken: string): Promise<RefreshT
     signal: AbortSignal.timeout(INTEGRATION_FETCH_TIMEOUT_MS),
   });
 
+  // oxlint-disable-next-line alfred/no-swallowed-catch -- an unreadable body becomes null; a non-OK status throws with it and an OK status fails the schema parse
   const json = await res.json().catch(() => null);
 
   if (!res.ok) {
