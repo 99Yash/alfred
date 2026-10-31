@@ -1,4 +1,5 @@
 import {
+  assertNever,
   eventTypeName,
   jsonObjectSchema,
   parseJsonWith,
@@ -118,6 +119,8 @@ export async function receiveInboundDelivery(
         return { kind: "duplicate", source, receiptId: stored.id };
       case "gone":
         return { kind: "ignored", source, reason: "receipt-gone" };
+      default:
+        return assertNever(stored, "receipt insert outcome");
     }
   }
 
@@ -153,6 +156,8 @@ export async function receiveInboundDelivery(
       return { kind: "duplicate", source, receiptId: stored.id };
     case "gone":
       return { kind: "ignored", source, reason: "receipt-gone" };
+    default:
+      return assertNever(stored, "receipt insert outcome");
   }
 }
 

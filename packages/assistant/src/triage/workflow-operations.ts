@@ -62,6 +62,7 @@ import {
 import { assembleObservations, type Observations } from "./observations";
 import type { StepContext, StepResult } from "@alfred/assistant/execution";
 import {
+  assertNever,
   documentAskProposalSchema,
   gmailTodoSources,
   isHttpError,
@@ -585,6 +586,8 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       case "action_items_off":
         // No log line: the user turned action items off.
         break;
+      default:
+        assertNever(suppression, "todo suppression");
     }
   } else if (written && todo.outcome.kind === "mint") {
     const { todo: suggestion } = todo.outcome;

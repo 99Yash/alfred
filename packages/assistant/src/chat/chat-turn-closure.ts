@@ -1,4 +1,5 @@
 import {
+  assertNever,
   applyChatDelta,
   createChatDeltaLog,
   sanitizeToolResult,
@@ -109,7 +110,7 @@ async function closeChatTurn(
   // Slow reads stay outside the fence, so the run row lock is held only for the write.
   const usage = await aggregateRunUsage(runId, routeEffort(state.tier));
 
-  // Exhaustive: a new ending leaves `write` unassigned and fails the build.
+  // Exhaustive: a new ending does not narrow to `never` in the `default`, so the build fails.
   let write: (tx: AgentDbExecutor) => Promise<{ id: string }[]>;
 
   switch (outcome.kind) {
@@ -137,6 +138,8 @@ async function closeChatTurn(
       write = (tx) =>
         upsertCompletedRow(tx, userId, runId, state, { fields, reasoningMs, usage, now });
       break;
+    default:
+      assertNever(outcome, "chat turn outcome");
   }
 
   let written: { id: string }[];

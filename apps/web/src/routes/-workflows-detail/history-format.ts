@@ -68,6 +68,9 @@ function outcomeHeadline(
           "A write reached the provider and its result was never observed. Alfred will not retry it.",
         tone: "red",
       };
+    default:
+      // Run history arrives as an unparsed HTTP response, so a newer server outcome can reach this clause.
+      return { title: "Unknown outcome", detail: null, tone: "muted" };
   }
 }
 
@@ -93,6 +96,9 @@ export function triggerIdentity(trigger: WorkflowRunHistoryTrigger | null): stri
     case "on_signal":
       return `${label} · ${trigger.signalName}`;
     case "manual":
+      return label;
+    default:
+      // Run history arrives as an unparsed HTTP response, so a newer trigger kind can reach this clause.
       return label;
   }
 }

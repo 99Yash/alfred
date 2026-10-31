@@ -1,4 +1,5 @@
 import {
+  assertNever,
   eventTriggerPhrase,
   isIanaTimezone,
   isRawEventType,
@@ -93,6 +94,8 @@ export function workflowScheduleSummary(trigger: WorkflowTrigger): string {
       return "Manual runs only";
     case "on_signal":
       return `On signal: ${trigger.name}`;
+    default:
+      return assertNever(trigger, "workflow trigger kind");
   }
 }
 

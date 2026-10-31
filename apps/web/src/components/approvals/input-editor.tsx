@@ -155,6 +155,9 @@ function factText(field: FieldSpec, record: JsonObject): string | null {
 
       return raw === undefined || raw === null ? null : formatJson(raw);
     }
+
+    default:
+      return assertNever(field, "field kind");
   }
 }
 

@@ -1,4 +1,4 @@
-import { USER_MODEL_PROJECTION_NAME, withDefaults } from "@alfred/contracts";
+import { assertNever, USER_MODEL_PROJECTION_NAME, withDefaults } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { activeProjectionVersions, documents } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
@@ -102,6 +102,8 @@ function connectionRefoldResult(
         profileCount: result.profileCount,
         checksum: result.checksum,
       };
+    default:
+      return assertNever(result, "Gmail refold result");
   }
 }
 

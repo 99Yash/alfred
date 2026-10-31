@@ -1,3 +1,4 @@
+import { assertNever } from "@alfred/contracts";
 import {
   Client,
   MAX_CACHE_TTL_MS,
@@ -414,6 +415,8 @@ export function parseMcpNegotiatedServer(server: McpProtocolServer): McpNegotiat
         return { ...facts, ...profile };
       case "post_2026_07_28":
         return { ...facts, ...profile };
+      default:
+        return assertNever(profile, "MCP protocol era");
     }
   }
 

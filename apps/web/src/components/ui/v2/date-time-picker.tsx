@@ -126,6 +126,9 @@ export function AppDateTimePicker({
         event.preventDefault();
         focusDay(index + (6 - (index % 7)));
         break;
+      default:
+        // Any other key keeps its browser behavior.
+        break;
     }
   };
 

@@ -1,3 +1,4 @@
+import { assertNever } from "@alfred/contracts";
 import type { TriageClassification } from "../classify";
 import { truncateRationale } from "../rationale";
 
@@ -64,5 +65,7 @@ export function applyFloorVerdict(
           `${classification.rationale} ${verdict.reason} — demoted ${classification.category} → fyi (demote, never bury).`,
         ),
       };
+    default:
+      return assertNever(verdict, "floor verdict");
   }
 }

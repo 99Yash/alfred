@@ -1,3 +1,4 @@
+import { assertNever } from "@alfred/contracts";
 import { createContext, use, useCallback, useEffect, useMemo, useReducer } from "react";
 import type { Replicache } from "replicache";
 import type { ClientMutators } from "@alfred/sync";
@@ -92,6 +93,8 @@ function syncLifecycleReducer(state: SyncLifecycle, action: SyncLifecycleAction)
       return state.rep === action.rep ? { ...state, pullError: null } : state;
     case "retryLoad":
       return { ...state, pullError: null, retryNonce: state.retryNonce + 1 };
+    default:
+      return assertNever(action, "sync lifecycle action");
   }
 }
 

@@ -11,6 +11,7 @@
 import { Readable, type Transform } from "node:stream";
 import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 import {
+  assertNever,
   FETCH_URL_MAX_TEXT_CHARS,
   collapseWhitespace,
   decodeHtmlEntities,
@@ -429,6 +430,8 @@ function refusalFor(error: HostedEndpointError, url: URL): FetchError {
     case "redirect_refused":
     case "too_many_redirects":
       return new FetchError("fetch_failed", error.message, shown);
+    default:
+      return assertNever(error.code, "hosted endpoint refusal");
   }
 }
 

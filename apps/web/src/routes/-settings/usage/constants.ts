@@ -1,3 +1,4 @@
+import { assertNever } from "@alfred/contracts";
 import type { UsageRunCategory } from "@alfred/contracts";
 import { APP_TINTS } from "~/lib/tints";
 
@@ -55,5 +56,7 @@ export function resolveRangePreset(preset: UsageRangePreset, now: Date) {
     case "all":
       // A fixed floor keeps the key finite and cache-stable.
       return { start: new Date("2024-01-01T00:00:00Z"), end };
+    default:
+      return assertNever(preset, "usage range preset");
   }
 }

@@ -128,7 +128,6 @@ Each row is a smell that review owns, from [smells/](./smells/README.md), with t
 | --- | --- | --- | --- |
 | [`guards-only-on-unknown`](./smells/guards-only-on-unknown.md) (Types) | Compiler: a closed-domain parameter that rejects an argument whose type is not `unknown`. | Candidate, #1629 | 7 |
 | [`external-call-timeout-and-abort`](./smells/external-call-timeout-and-abort.md) (Backend) | AST: an AI SDK generate or stream call whose options have no `abortSignal` key. | Candidate, #1629 | 4 |
-| [`switch-literal-needs-default`](./smells/switch-literal-needs-default.md) (Types) | AST: a `switch` whose every `case` test is a string literal and that has no `default` clause. A switch over an open `string` has no member set, so the rule must not fire on a switch that already has a `default`. | Candidate, #1629 | 4 |
 | [`brand-claim-needs-probe`](./smells/brand-claim-needs-probe.md) (Types) | The claim is prose. An AST rule that fails a type guard or a `z.custom` of a brand outside its owner module would remove the mints with no cast. | Candidate, #1629 | 2 |
 | [`no-barrel-export-for-test`](./smells/no-barrel-export-for-test.md) (Backend) | Knip in production mode, where test files are not entries. | Candidate, #1629 | 2 |
 | [`required-executor-param`](./smells/required-executor-param.md) (Backend) | AST: an optional parameter or property whose type annotation is `DbTransaction`. About 35 sites remain, and some of them are correct, so the rule needs a per-site decision. | Candidate, #1629 | 4 |

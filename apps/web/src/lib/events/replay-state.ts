@@ -208,7 +208,10 @@ type ChatMessagePhase = Extract<EventStreamFrame, { kind: "chat.message" }>["pay
 
 type AgentRunPhase = Extract<EventStreamFrame, { kind: "agent.run" }>["payload"]["phase"];
 
-/** No `default`, so a new phase fails with TS2366 until it is classified. */
+/**
+ * A new phase fails `switch-exhaustiveness-check` until it is classified. The frame parse drops an
+ * unknown phase, so the `default` cannot run.
+ */
 function isTerminalChatPhase(phase: ChatMessagePhase): boolean {
   switch (phase) {
     case "completed":
@@ -218,11 +221,14 @@ function isTerminalChatPhase(phase: ChatMessagePhase): boolean {
     case "compaction_finished":
     case "capacity_retry":
       return false;
+    default:
+      return assertNever(phase, "chat message phase");
   }
 }
 
 /**
- * No `default`, so a new phase fails with TS2366 until it is classified.
+ * A new phase fails `switch-exhaustiveness-check` until it is classified. The frame parse drops an
+ * unknown phase, so the `default` cannot run.
  * Phase names match run status names by convention only; nothing type-checks that.
  */
 function isTerminalRunPhase(phase: AgentRunPhase): boolean {
@@ -241,6 +247,8 @@ function isTerminalRunPhase(phase: AgentRunPhase): boolean {
     case "interrupted":
     case "resumed":
       return false;
+    default:
+      return assertNever(phase, "agent run phase");
   }
 }
 

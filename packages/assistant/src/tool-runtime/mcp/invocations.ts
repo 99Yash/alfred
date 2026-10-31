@@ -6,6 +6,7 @@
  * Normal-call transitions live in `broker.ts`; successor reservation in `recovery.ts`.
  */
 
+import { assertNever } from "@alfred/contracts";
 import type { ExternalToolRef } from "@alfred/contracts";
 import { db, type DbTransaction } from "@alfred/db";
 import { requireRow, runAtomic, type DbRunner } from "@alfred/db/helpers";
@@ -204,6 +205,8 @@ function reviewStateFromReason(reason: McpToolIdentityUnresolvedReason): McpRevi
       return { status: "catalog_stale" };
     case "descriptor_missing":
       return { status: "not_found" };
+    default:
+      return assertNever(reason, "MCP tool identity unresolved reason");
   }
 }
 

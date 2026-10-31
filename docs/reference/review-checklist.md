@@ -33,8 +33,6 @@ Each rule has the rule and the reason. Its smell file has a Bad and a Good examp
   Why: a present `undefined` binds `NULL` where an absent key takes the column `DEFAULT`. See "`exactOptionalPropertyTypes`" in `docs/reference/typescript.md`.
 - **Put a shape in the file that mints or stores it.** Do not make a `types.ts`, `schemas.ts` or per-package `schemas/` folder. [Smell](./smells/shape-in-minting-file.md).
   Why: a grab-bag file groups by syntax and hides the owner. See "Colocate the schema with its type, caps, and minting logic" in `docs/reference/schemas.md`.
-- **End a `switch` over a closed union of string literals with a `default` that calls `assertNever`.** `typescript/switch-exhaustiveness-check` proves that each member has a case. It does not ask for a `default`. [Smell](./smells/switch-literal-needs-default.md).
-  Why: the compiler checks the cases against the union of today. A stored row or a peer at deploy skew can hold a member that this build does not know. Without a `default`, that value falls through, and the function returns `undefined`. Example: `parseDocumentMetadata` in `packages/contracts/src/document-metadata.ts`.
 - **Give a zod-validated value the type `z.infer<typeof schema>`.** Do not write a parallel `interface`. [Smell](./smells/zod-infer-not-parallel-interface.md).
   Why: the schema is the source of the type. Example: `SetPreferenceArgs` in `packages/assistant/src/settings/preferences.ts`.
 

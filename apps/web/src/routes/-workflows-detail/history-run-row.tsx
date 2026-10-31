@@ -1,4 +1,5 @@
 import {
+  assertNever,
   humanizeSlug,
   humanizeToolName,
   integrationDisplayName,
@@ -54,6 +55,8 @@ function headlineIcon(headline: RunHeadline, status: WorkflowRunHistoryRow["stat
       return <LoaderCircle size={16} className="animate-spin" />;
     case "muted":
       return status === "cancelled" ? <Ban size={16} /> : <MinusCircle size={16} />;
+    default:
+      return assertNever(headline.tone, "run headline tone");
   }
 }
 

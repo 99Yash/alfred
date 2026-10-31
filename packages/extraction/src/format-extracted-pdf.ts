@@ -1,3 +1,4 @@
+import { assertNever } from "@alfred/contracts";
 import type { ContentFormat } from "@alfred/contracts";
 import type { MediaExtractionResult } from "./media-extraction";
 
@@ -54,6 +55,8 @@ export function mediaFailureMessage(
       return `This ${noun} is invalid: ${result.reason}`;
     case "limit_exceeded":
       return `${capitalizeFirst(noun)} extraction exceeded the limit: ${result.message}`;
+    default:
+      return assertNever(result, "media failure kind");
   }
 }
 

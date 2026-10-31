@@ -32,7 +32,7 @@ A `gated` smell stays here for its examples and its ledger. [review-checklist.md
 | [Give a shape that two packages share one owning schema.](./one-owning-schema-per-shared-shape.md) | Stays review | none | 0 |
 | [Choose `k?: T` or `k?: T \| undefined` for each optional field.](./optional-field-absence-choice.md) | Stays review | none | 0 |
 | [Put a shape in the file that mints or stores it.](./shape-in-minting-file.md) | Stays review | none | 0 |
-| [End a `switch` over a closed union of string literals with a `default` that calls `assertNever`.](./switch-literal-needs-default.md) | Candidate, #1629 | ast | 4 |
+| [End a `switch` over a closed union of string literals with a `default` that calls `assertNever`, or that returns a real value when unparsed data can reach it.](./switch-literal-needs-default.md) | Gated by `alfred/switch-literal-needs-default` | ast | 4 |
 | [Give a zod-validated value the type `z.infer<typeof schema>`.](./zod-infer-not-parallel-interface.md) | Stays review | none | 0 |
 
 ## Constants and ownership
