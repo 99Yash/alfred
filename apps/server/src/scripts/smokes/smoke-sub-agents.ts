@@ -86,6 +86,7 @@ async function createSmokeWorkflow(userId: string): Promise<void> {
       allowedTools: ["system.spawn_sub_agent", "system.write_scratch"],
       requiredCapabilities: [{ tool: "system.spawn_sub_agent" }, { tool: "system.write_scratch" }],
     },
+    tx: "own",
   });
 
   if (!draft.ok) {
@@ -96,6 +97,7 @@ async function createSmokeWorkflow(userId: string): Promise<void> {
     userId,
     workflowId: draft.workflow.id,
     expectedRowVersion: draft.workflow.rowVersion,
+    tx: "own",
   });
 
   if (!activated.ok) {

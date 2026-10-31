@@ -345,11 +345,14 @@ async function processTarget(target: TargetUser, projectionVersion: number): Pro
   );
 
   if (!ACTIVATE) return;
-  await activateProjectionVersion({
-    userId: target.userId,
-    projectionName: USER_MODEL_PROJECTION_NAME,
-    runId: committed.runId,
-  });
+  await activateProjectionVersion(
+    {
+      userId: target.userId,
+      projectionName: USER_MODEL_PROJECTION_NAME,
+      runId: committed.runId,
+    },
+    "own",
+  );
   console.log(`  ACTIVATED — ${USER_MODEL_PROJECTION_NAME} v${projectionVersion}`);
 }
 

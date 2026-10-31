@@ -35,18 +35,21 @@ export interface UpsertBearerCredentialArgs {
 export async function upsertBearerCredential(
   args: UpsertBearerCredentialArgs,
 ): Promise<{ id: string }> {
-  return upsertIntegrationCredential({
-    userId: args.userId,
-    provider: args.provider,
-    accountId: args.accountId,
-    accountLabel: args.accountLabel ?? null,
-    accessToken: args.accessToken,
-    // A blank or omitted token writes NULL, also on a reconnect.
-    refreshToken: args.refreshToken || null,
-    expiresAt: args.expiresAt ?? null,
-    scopes: args.scopes ?? [],
-    metadata: { replace: args.metadata ?? {} },
-  });
+  return upsertIntegrationCredential(
+    {
+      userId: args.userId,
+      provider: args.provider,
+      accountId: args.accountId,
+      accountLabel: args.accountLabel ?? null,
+      accessToken: args.accessToken,
+      // A blank or omitted token writes NULL, also on a reconnect.
+      refreshToken: args.refreshToken || null,
+      expiresAt: args.expiresAt ?? null,
+      scopes: args.scopes ?? [],
+      metadata: { replace: args.metadata ?? {} },
+    },
+    db(),
+  );
 }
 
 /**

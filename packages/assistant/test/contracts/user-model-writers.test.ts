@@ -148,7 +148,7 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
     const userId = await seedUser();
     const familyKey = `gmail:${randomUUID()}`;
 
-    const first = await insertObservation(gmailObs(userId, familyKey, "hash-a"));
+    const first = await insertObservation(gmailObs(userId, familyKey, "hash-a"), "own");
     assert.equal(first.deduped, false);
 
     const [head] = await db()
@@ -165,7 +165,7 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
     assert.equal(head.headObservationId, first.observation.id);
 
     // Identical evidence dedups to the same row.
-    const again = await insertObservation(gmailObs(userId, familyKey, "hash-a"));
+    const again = await insertObservation(gmailObs(userId, familyKey, "hash-a"), "own");
     assert.equal(again.deduped, true);
     assert.equal(again.observation.id, first.observation.id);
 
@@ -181,12 +181,15 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
     const userId = await seedUser();
     const familyKey = `gmail:${randomUUID()}`;
 
-    const root = await insertObservation(gmailObs(userId, familyKey, "hash-root"));
+    const root = await insertObservation(gmailObs(userId, familyKey, "hash-root"), "own");
 
-    const successor = await insertObservation({
-      ...gmailObs(userId, familyKey, "hash-successor"),
-      supersedesObservationId: root.observation.id,
-    });
+    const successor = await insertObservation(
+      {
+        ...gmailObs(userId, familyKey, "hash-successor"),
+        supersedesObservationId: root.observation.id,
+      },
+      "own",
+    );
 
     assert.equal(successor.deduped, false);
 
@@ -283,10 +286,13 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
     const userId = await seedUser();
     await assert.rejects(
       () =>
-        insertObservation({
-          ...gmailObs(userId, `gmail:${randomUUID()}`, "hash-x"),
-          kind: "user_org_affiliation",
-        }),
+        insertObservation(
+          {
+            ...gmailObs(userId, `gmail:${randomUUID()}`, "hash-x"),
+            kind: "user_org_affiliation",
+          },
+          "own",
+        ),
       /not valid for its source/,
     );
   });
@@ -294,11 +300,11 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
   test("insertObservation does NOT swallow a single-root fork (CAS signal surfaces)", async () => {
     const userId = await seedUser();
     const familyKey = `gmail:${randomUUID()}`;
-    await insertObservation(gmailObs(userId, familyKey, "hash-1"));
+    await insertObservation(gmailObs(userId, familyKey, "hash-1"), "own");
     // A second root must collide on the single-root index.
     // Drizzle puts the constraint name on `.cause`, so walk the chain.
     await assert.rejects(
-      () => insertObservation(gmailObs(userId, familyKey, "hash-2")),
+      () => insertObservation(gmailObs(userId, familyKey, "hash-2"), "own"),
       (err: unknown) => {
         const parts: string[] = [];
         let cur: unknown = err;
@@ -332,21 +338,27 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
     const userId = await seedUser();
     const entityId = await seedNode(userId, "person@example.com");
 
-    const a = await recordEntityIdentity({
-      userId,
-      entityId,
-      identity: { kind: "email", value: "person@example.com" },
-      source: "gmail",
-      validFrom: SEED_FIRST_SEEN_AT,
-    });
+    const a = await recordEntityIdentity(
+      {
+        userId,
+        entityId,
+        identity: { kind: "email", value: "person@example.com" },
+        source: "gmail",
+        validFrom: SEED_FIRST_SEEN_AT,
+      },
+      "own",
+    );
 
-    const b = await recordEntityIdentity({
-      userId,
-      entityId,
-      identity: { kind: "email", value: "person@example.com" },
-      source: "gmail",
-      validFrom: SEED_FIRST_SEEN_AT,
-    });
+    const b = await recordEntityIdentity(
+      {
+        userId,
+        entityId,
+        identity: { kind: "email", value: "person@example.com" },
+        source: "gmail",
+        validFrom: SEED_FIRST_SEEN_AT,
+      },
+      "own",
+    );
 
     assert.equal(a.id, b.id, "a repeat link returns the same live identity row");
   });
@@ -357,24 +369,30 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
     const entityB = await seedNode(userId, "node-b@example.com");
     const shared = { kind: "email" as const, value: "shared@example.com" };
 
-    await recordEntityIdentity({
-      userId,
-      entityId: entityA,
-      identity: shared,
-      source: "gmail",
-      validFrom: SEED_FIRST_SEEN_AT,
-    });
+    await recordEntityIdentity(
+      {
+        userId,
+        entityId: entityA,
+        identity: shared,
+        source: "gmail",
+        validFrom: SEED_FIRST_SEEN_AT,
+      },
+      "own",
+    );
 
     // Binding the same identity to B must return a typed conflict, not A's row.
     await assert.rejects(
       () =>
-        recordEntityIdentity({
-          userId,
-          entityId: entityB,
-          identity: shared,
-          source: "gmail",
-          validFrom: SEED_FIRST_SEEN_AT,
-        }),
+        recordEntityIdentity(
+          {
+            userId,
+            entityId: entityB,
+            identity: shared,
+            source: "gmail",
+            validFrom: SEED_FIRST_SEEN_AT,
+          },
+          "own",
+        ),
       (err: unknown) => {
         assert.ok(err instanceof EntityIdentityConflictError, "expected a typed conflict");
         assert.equal(err.liveEntityId, entityA);
@@ -391,17 +409,23 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
     const userId = await seedUser();
     const identity = { kind: "email" as const, value: "ordered@example.com" };
 
-    const newer = await ensureEntityNode({
-      userId,
-      identity,
-      firstSeenAt: new Date("2026-06-23T12:00:00.000Z"),
-    });
+    const newer = await ensureEntityNode(
+      {
+        userId,
+        identity,
+        firstSeenAt: new Date("2026-06-23T12:00:00.000Z"),
+      },
+      "own",
+    );
 
-    const older = await ensureEntityNode({
-      userId,
-      identity,
-      firstSeenAt: new Date("2026-06-22T12:00:00.000Z"),
-    });
+    const older = await ensureEntityNode(
+      {
+        userId,
+        identity,
+        firstSeenAt: new Date("2026-06-22T12:00:00.000Z"),
+      },
+      "own",
+    );
 
     assert.equal(older.id, newer.id, "same identity reuses the same stable node");
     assert.equal(
@@ -414,31 +438,40 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
   test("projection run is single-attempt and completion requires a checksum", async () => {
     const userId = await seedUser();
 
-    const started = await startProjectionRun({
-      userId,
-      projectionName: USER_MODEL_PROJECTION_NAME,
-      projectionVersion: 1,
-    });
+    const started = await startProjectionRun(
+      {
+        userId,
+        projectionName: USER_MODEL_PROJECTION_NAME,
+        projectionVersion: 1,
+      },
+      "own",
+    );
 
     assert.equal(started.reused, false);
 
-    const again = await startProjectionRun({
-      userId,
-      projectionName: USER_MODEL_PROJECTION_NAME,
-      projectionVersion: 1,
-    });
+    const again = await startProjectionRun(
+      {
+        userId,
+        projectionName: USER_MODEL_PROJECTION_NAME,
+        projectionVersion: 1,
+      },
+      "own",
+    );
 
     assert.equal(again.reused, true);
     assert.equal(again.run.id, started.run.id);
 
     await assert.rejects(
       () =>
-        completeProjectionRun({
-          runId: started.run.id,
-          userId,
-          checksum: "   ",
-          completedAt: new Date(),
-        }),
+        completeProjectionRun(
+          {
+            runId: started.run.id,
+            userId,
+            checksum: "   ",
+            completedAt: new Date(),
+          },
+          "own",
+        ),
       /non-empty checksum/,
     );
   });
@@ -446,34 +479,46 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
   test("activateProjectionVersion refuses a running run and accepts a completed one", async () => {
     const userId = await seedUser();
 
-    const { run } = await startProjectionRun({
-      userId,
-      projectionName: USER_MODEL_PROJECTION_NAME,
-      projectionVersion: 1,
-    });
+    const { run } = await startProjectionRun(
+      {
+        userId,
+        projectionName: USER_MODEL_PROJECTION_NAME,
+        projectionVersion: 1,
+      },
+      "own",
+    );
 
     await assert.rejects(
       () =>
-        activateProjectionVersion({
-          userId,
-          projectionName: USER_MODEL_PROJECTION_NAME,
-          runId: run.id,
-        }),
+        activateProjectionVersion(
+          {
+            userId,
+            projectionName: USER_MODEL_PROJECTION_NAME,
+            runId: run.id,
+          },
+          "own",
+        ),
       /not 'completed'/,
     );
 
-    await completeProjectionRun({
-      runId: run.id,
-      userId,
-      checksum: "checksum-v1",
-      completedAt: new Date("2026-06-23T01:00:00.000Z"),
-    });
+    await completeProjectionRun(
+      {
+        runId: run.id,
+        userId,
+        checksum: "checksum-v1",
+        completedAt: new Date("2026-06-23T01:00:00.000Z"),
+      },
+      "own",
+    );
 
-    const pointer = await activateProjectionVersion({
-      userId,
-      projectionName: USER_MODEL_PROJECTION_NAME,
-      runId: run.id,
-    });
+    const pointer = await activateProjectionVersion(
+      {
+        userId,
+        projectionName: USER_MODEL_PROJECTION_NAME,
+        runId: run.id,
+      },
+      "own",
+    );
 
     assert.equal(pointer.activeRunId, run.id);
     assert.equal(pointer.activeVersion, 1);
@@ -482,28 +527,37 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
   test("a completed run is terminal: re-completing and failing-after-complete are both rejected", async () => {
     const userId = await seedUser();
 
-    const { run } = await startProjectionRun({
-      userId,
-      projectionName: USER_MODEL_PROJECTION_NAME,
-      projectionVersion: 1,
-    });
+    const { run } = await startProjectionRun(
+      {
+        userId,
+        projectionName: USER_MODEL_PROJECTION_NAME,
+        projectionVersion: 1,
+      },
+      "own",
+    );
 
-    await completeProjectionRun({
-      runId: run.id,
-      userId,
-      checksum: "checksum-original",
-      completedAt: new Date("2026-06-23T01:00:00.000Z"),
-    });
+    await completeProjectionRun(
+      {
+        runId: run.id,
+        userId,
+        checksum: "checksum-original",
+        completedAt: new Date("2026-06-23T01:00:00.000Z"),
+      },
+      "own",
+    );
 
     // A second completion must not overwrite the checksum.
     await assert.rejects(
       () =>
-        completeProjectionRun({
-          runId: run.id,
-          userId,
-          checksum: "checksum-tampered",
-          completedAt: new Date("2026-06-24T01:00:00.000Z"),
-        }),
+        completeProjectionRun(
+          {
+            runId: run.id,
+            userId,
+            checksum: "checksum-tampered",
+            completedAt: new Date("2026-06-24T01:00:00.000Z"),
+          },
+          "own",
+        ),
       /already completed/,
     );
 
@@ -520,20 +574,26 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
   test("writeProjectionCursor writes while running and is rejected once completed", async () => {
     const userId = await seedUser();
 
-    const { run } = await startProjectionRun({
-      userId,
-      projectionName: USER_MODEL_PROJECTION_NAME,
-      projectionVersion: 1,
-    });
+    const { run } = await startProjectionRun(
+      {
+        userId,
+        projectionName: USER_MODEL_PROJECTION_NAME,
+        projectionVersion: 1,
+      },
+      "own",
+    );
 
-    await writeProjectionCursor({
-      userId,
-      projectionName: USER_MODEL_PROJECTION_NAME,
-      projectionVersion: 1,
-      projectionRunId: run.id,
-      source: "gmail",
-      cursor: { lastObservationId: "obs_1" },
-    });
+    await writeProjectionCursor(
+      {
+        userId,
+        projectionName: USER_MODEL_PROJECTION_NAME,
+        projectionVersion: 1,
+        projectionRunId: run.id,
+        source: "gmail",
+        cursor: { lastObservationId: "obs_1" },
+      },
+      "own",
+    );
 
     const [cursor] = await db()
       .select()
@@ -548,24 +608,30 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
 
     assert.equal(cursor?.cursor.lastObservationId, "obs_1");
 
-    await completeProjectionRun({
-      runId: run.id,
-      userId,
-      checksum: "checksum-v1",
-      completedAt: new Date("2026-06-23T01:00:00.000Z"),
-    });
+    await completeProjectionRun(
+      {
+        runId: run.id,
+        userId,
+        checksum: "checksum-v1",
+        completedAt: new Date("2026-06-23T01:00:00.000Z"),
+      },
+      "own",
+    );
 
     // A completed run is immutable.
     await assert.rejects(
       () =>
-        writeProjectionCursor({
-          userId,
-          projectionName: USER_MODEL_PROJECTION_NAME,
-          projectionVersion: 1,
-          projectionRunId: run.id,
-          source: "gmail",
-          cursor: { lastObservationId: "obs_2" },
-        }),
+        writeProjectionCursor(
+          {
+            userId,
+            projectionName: USER_MODEL_PROJECTION_NAME,
+            projectionVersion: 1,
+            projectionRunId: run.id,
+            source: "gmail",
+            cursor: { lastObservationId: "obs_2" },
+          },
+          "own",
+        ),
       /not 'running'|immutable replay record/,
     );
   });
@@ -579,11 +645,14 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
     assert.deepEqual(await reader.listProfiles(), []);
 
     const seedProfileVersion = async (version: number) => {
-      const { run } = await startProjectionRun({
-        userId,
-        projectionName: USER_MODEL_PROJECTION_NAME,
-        projectionVersion: version,
-      });
+      const { run } = await startProjectionRun(
+        {
+          userId,
+          projectionName: USER_MODEL_PROJECTION_NAME,
+          projectionVersion: version,
+        },
+        "own",
+      );
 
       await db()
         .insert(entityProfiles)
@@ -596,12 +665,15 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
           displayName: `v${version}`,
           kind: "person",
         });
-      await completeProjectionRun({
-        runId: run.id,
-        userId,
-        checksum: `checksum-v${version}`,
-        completedAt: new Date("2026-06-23T01:00:00.000Z"),
-      });
+      await completeProjectionRun(
+        {
+          runId: run.id,
+          userId,
+          checksum: `checksum-v${version}`,
+          completedAt: new Date("2026-06-23T01:00:00.000Z"),
+        },
+        "own",
+      );
 
       return run.id;
     };
@@ -609,11 +681,14 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
     const runV1 = await seedProfileVersion(1);
     await seedProfileVersion(2);
 
-    await activateProjectionVersion({
-      userId,
-      projectionName: USER_MODEL_PROJECTION_NAME,
-      runId: runV1,
-    });
+    await activateProjectionVersion(
+      {
+        userId,
+        projectionName: USER_MODEL_PROJECTION_NAME,
+        runId: runV1,
+      },
+      "own",
+    );
 
     const profiles = await reader.listProfiles();
     assert.equal(profiles.length, 1, "reader returns only the active version's rows");
@@ -635,11 +710,14 @@ describe("user-model write boundary (DB-backed)", { skip: SKIP }, () => {
       );
 
     assert.ok(v2run);
-    await activateProjectionVersion({
-      userId,
-      projectionName: USER_MODEL_PROJECTION_NAME,
-      runId: v2run.id,
-    });
+    await activateProjectionVersion(
+      {
+        userId,
+        projectionName: USER_MODEL_PROJECTION_NAME,
+        runId: v2run.id,
+      },
+      "own",
+    );
     const afterFlip = await reader.listProfiles();
     assert.equal(afterFlip[0]?.displayName, "v2");
 

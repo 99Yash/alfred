@@ -86,35 +86,47 @@ describe("projectGmailKindProfiles (DB-backed)", { skip: SKIP_DB }, () => {
       subject: "Project update",
     });
 
-    const { run } = await startProjectionRun({
-      userId,
-      projectionName: USER_MODEL_PROJECTION_NAME,
-      projectionVersion: 1,
-    });
+    const { run } = await startProjectionRun(
+      {
+        userId,
+        projectionName: USER_MODEL_PROJECTION_NAME,
+        projectionVersion: 1,
+      },
+      "own",
+    );
 
-    const projected = await projectGmailKindProfiles({
-      userId,
-      projectionRunId: run.id,
-      projectionVersion: 1,
-      computedAt: OCCURRED_AT,
-      excludeEmailValues: ["yash@example.com"],
-    });
+    const projected = await projectGmailKindProfiles(
+      {
+        userId,
+        projectionRunId: run.id,
+        projectionVersion: 1,
+        computedAt: OCCURRED_AT,
+        excludeEmailValues: ["yash@example.com"],
+      },
+      "own",
+    );
 
     assert.equal(projected.profileCount, 2);
     assert.match(projected.checksum, /^sha256:[a-f0-9]{64}$/);
 
-    await completeProjectionRun({
-      runId: run.id,
-      userId,
-      checksum: projected.checksum,
-      rowCounts: { entity_profiles: projected.profileCount },
-      completedAt: OCCURRED_AT,
-    });
-    await activateProjectionVersion({
-      userId,
-      projectionName: USER_MODEL_PROJECTION_NAME,
-      runId: run.id,
-    });
+    await completeProjectionRun(
+      {
+        runId: run.id,
+        userId,
+        checksum: projected.checksum,
+        rowCounts: { entity_profiles: projected.profileCount },
+        completedAt: OCCURRED_AT,
+      },
+      "own",
+    );
+    await activateProjectionVersion(
+      {
+        userId,
+        projectionName: USER_MODEL_PROJECTION_NAME,
+        runId: run.id,
+      },
+      "own",
+    );
 
     const reader = userModelReader(userId);
 

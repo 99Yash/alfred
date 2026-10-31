@@ -302,6 +302,7 @@ describe("recordOrgAffiliation lifecycle (DB-backed)", { skip: SKIP_DB }, () => 
         metadata: { googleHostedDomain: "oliv.ai" },
       },
       disconnectAt,
+      "own",
     );
 
     assert.equal(disconnected.status, "emitted");
@@ -385,11 +386,14 @@ describe("recordOrgAffiliation lifecycle (DB-backed)", { skip: SKIP_DB }, () => 
       })
       .where(eq(integrationCredentials.id, credentialId));
 
-    const changed = await recordOrgAffiliationOnCredentialUpsert({
-      credentialId,
-      previousCredential,
-      changedAt,
-    });
+    const changed = await recordOrgAffiliationOnCredentialUpsert(
+      {
+        credentialId,
+        previousCredential,
+        changedAt,
+      },
+      "own",
+    );
 
     assert.equal(changed.disconnectedPrevious?.status, "emitted");
     assert.equal(changed.connectedCurrent.status, "emitted");
@@ -461,11 +465,14 @@ describe("recordOrgAffiliation lifecycle (DB-backed)", { skip: SKIP_DB }, () => 
       .set({ metadata: { googleHostedDomain: "oliv.ai" } })
       .where(eq(integrationCredentials.id, credentialId));
 
-    const changed = await recordOrgAffiliationOnCredentialUpsert({
-      credentialId,
-      previousCredential,
-      changedAt,
-    });
+    const changed = await recordOrgAffiliationOnCredentialUpsert(
+      {
+        credentialId,
+        previousCredential,
+        changedAt,
+      },
+      "own",
+    );
 
     assert.equal(changed.disconnectedPrevious, undefined);
     assert.equal(changed.connectedCurrent.status, "emitted");

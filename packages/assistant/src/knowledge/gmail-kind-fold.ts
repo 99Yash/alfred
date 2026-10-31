@@ -60,7 +60,7 @@ interface ProfileChecksumRow {
 
 export async function projectGmailKindProfiles(
   args: ProjectGmailKindProfilesArgs,
-  tx?: DbTransaction,
+  tx: DbTransaction | "own",
 ): Promise<ProjectGmailKindProfilesResult> {
   const run = async (ex: DbTransaction): Promise<ProjectGmailKindProfilesResult> => {
     const conds: SQL[] = [
@@ -162,7 +162,7 @@ export async function projectGmailKindProfiles(
     };
   };
 
-  return tx ? run(tx) : db().transaction(run);
+  return tx === "own" ? db().transaction(run) : run(tx);
 }
 
 function collectIdentities(

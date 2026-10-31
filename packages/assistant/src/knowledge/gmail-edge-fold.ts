@@ -28,7 +28,7 @@ import {
   type ProjectionProvenance,
 } from "@alfred/contracts";
 import { sha256Canonical } from "@alfred/db/hash";
-import { db, type DbTransaction } from "@alfred/db";
+import type { DbTransaction } from "@alfred/db";
 import {
   documents,
   entityEdges,
@@ -199,272 +199,268 @@ interface SenderGroup {
  */
 export async function projectGmailWorksAtEdges(
   args: ProjectGmailWorksAtEdgesArgs,
-  tx?: DbTransaction,
+  tx: DbTransaction,
 ): Promise<ProjectGmailWorksAtEdgesResult> {
-  const run = async (ex: DbTransaction): Promise<ProjectGmailWorksAtEdgesResult> => {
-    if (!canGroundEdgeType(WORKS_AT_GROUNDING_TIER, "works_at")) {
-      throw new Error(
-        "[user-model.gmail-edge-fold] works_at grounding tier rejected by canGroundEdgeType",
-      );
-    }
+  if (!canGroundEdgeType(WORKS_AT_GROUNDING_TIER, "works_at")) {
+    throw new Error(
+      "[user-model.gmail-edge-fold] works_at grounding tier rejected by canGroundEdgeType",
+    );
+  }
 
-    const conds = [
-      eq(observations.userId, args.userId),
-      eq(observations.source, "gmail"),
-      eq(observations.kind, "email_message"),
-    ];
+  const conds = [
+    eq(observations.userId, args.userId),
+    eq(observations.source, "gmail"),
+    eq(observations.kind, "email_message"),
+  ];
 
-    const watermarkCond = gmailHighWatermarkCondition(args.gmailHighWatermark);
+  const watermarkCond = gmailHighWatermarkCondition(args.gmailHighWatermark);
 
-    if (watermarkCond) conds.push(watermarkCond);
+  if (watermarkCond) conds.push(watermarkCond);
 
-    const rows = await ex
-      .select({ observation: observations })
-      .from(observations)
-      .innerJoin(observationFamilyHeads, liveObservationHeadJoin())
-      .where(and(...conds))
-      .orderBy(asc(observations.occurredAt), asc(observations.id));
+  const rows = await tx
+    .select({ observation: observations })
+    .from(observations)
+    .innerJoin(observationFamilyHeads, liveObservationHeadJoin())
+    .where(and(...conds))
+    .orderBy(asc(observations.occurredAt), asc(observations.id));
 
-    const excludedEmails = new Set(args.excludeEmailValues.map((value) => value.toLowerCase()));
+  const excludedEmails = new Set(args.excludeEmailValues.map((value) => value.toLowerCase()));
 
-    const groups = new Map<string, SenderGroup>();
+  const groups = new Map<string, SenderGroup>();
 
-    for (const { observation } of rows) {
-      const payload = parseGmailObservationPayload(observation);
+  for (const { observation } of rows) {
+    const payload = parseGmailObservationPayload(observation);
 
-      if (!payload) continue;
+    if (!payload) continue;
 
-      const subject = identityRefSchema.safeParse(observation.subjectIdentity);
+    const subject = identityRefSchema.safeParse(observation.subjectIdentity);
 
-      if (!subject.success || subject.data.kind !== "email") continue;
+    if (!subject.success || subject.data.kind !== "email") continue;
 
-      if (excludedEmails.has(subject.data.value)) continue;
+    if (excludedEmails.has(subject.data.value)) continue;
 
-      const key = senderKey(subject.data);
-      let group = groups.get(key);
+    const key = senderKey(subject.data);
+    let group = groups.get(key);
 
-      if (!group) {
-        group = {
-          senderIdentity: subject.data,
-          displayNames: new Set(),
-          payloadSignals: [],
-          messages: [],
-        };
-        groups.set(key, group);
-      }
-
-      // Signals come from every subject observation, sent included, like the kind fold. Only inbound mints.
-      group.payloadSignals.push(payload.headers);
-
-      if (payload.isSent) continue;
-
-      const displayName = senderDisplayName(observation, subject.data);
-
-      if (!isNonEmptyString(displayName)) continue;
-
-      group.displayNames.add(displayName);
-      group.messages.push({
-        observation,
-        documentId: payload.documentId,
-        senderDisplayName: displayName,
-      });
-    }
-
-    // A display name counts only for its own participant, like `collectIdentities`.
-    // Else the user's name on every `to:` line makes almost every sender a person.
-    for (const { observation } of rows) {
-      for (const participant of observation.participants.items) {
-        const group = groups.get(senderKey(participant.identity));
-
-        if (!group) continue;
-
-        if (isNonEmptyString(participant.displayName)) {
-          group.displayNames.add(participant.displayName);
-        }
-      }
-    }
-
-    if (groups.size === 0) return { edgesWritten: 0, checksum: checksumForEdges([]) };
-
-    // Person gate first, with the kind fold's exact inputs, so this answer
-    // matches the sender's profile. Bodies load only for survivors.
-    const personGroups: SenderGroup[] = [];
-
-    for (const group of groups.values()) {
-      const senderKind = classifyEntityKind({
-        identity: group.senderIdentity,
-        displayNames: [...group.displayNames],
-        payloadSignals: group.payloadSignals,
-      });
-
-      if (senderKind.kind !== "person") continue;
-
-      personGroups.push(group);
-    }
-
-    if (personGroups.length === 0) return { edgesWritten: 0, checksum: checksumForEdges([]) };
-
-    const documentIds = new Set<string>();
-
-    for (const group of personGroups) {
-      for (const message of group.messages) documentIds.add(message.documentId);
-    }
-
-    const bodies = await readDocumentBodies(ex, args.userId, documentIds);
-
-    const edges = new Map<string, EdgeAccumulator>();
-
-    for (const group of personGroups) {
-      for (const item of group.messages) {
-        const body = bodies.get(item.documentId);
-
-        if (!isNonEmptyString(body)) continue;
-
-        const signature = parseEmploymentSignature(body);
-
-        if (!signature) continue;
-
-        if (!signatureNamesSender(signature.personName, item.senderDisplayName)) continue;
-
-        const canonicalDomain = canonicalizeIdentityValue("domain", signature.orgDomain);
-        const orgIdentity = identityRefSchema.safeParse({ kind: "domain", value: canonicalDomain });
-
-        if (!orgIdentity.success) continue;
-
-        const key = edgeKey(group.senderIdentity, orgIdentity.data);
-        const existing = edges.get(key);
-
-        if (existing) {
-          if (item.observation.occurredAt < existing.firstSeenAt) {
-            existing.firstSeenAt = item.observation.occurredAt;
-          }
-
-          existing.observationIds.add(item.observation.id);
-          existing.familyKeys.add(item.observation.familyKey);
-          continue;
-        }
-
-        edges.set(key, {
-          fromIdentity: group.senderIdentity,
-          orgIdentity: orgIdentity.data,
-          firstSeenAt: item.observation.occurredAt,
-          observationIds: new Set([item.observation.id]),
-          familyKeys: new Set([item.observation.familyKey]),
-          documentId: item.documentId,
-        });
-      }
-    }
-
-    let edgesWritten = 0;
-    const checksumRows: EdgeChecksumRow[] = [];
-
-    const senderOutcomes = new Map<
-      string,
-      { fromNodeId: string; newEdges: { toNodeId: string; validFrom: Date; orgKey: string }[] }
-    >();
-
-    for (const acc of [...edges.values()].toSorted(compareEdgeAccumulators)) {
-      const fromNode = await ensureEntityNode(
-        { userId: args.userId, identity: acc.fromIdentity, firstSeenAt: acc.firstSeenAt },
-        ex,
-      );
-
-      const toNode = await ensureEntityNode(
-        { userId: args.userId, identity: acc.orgIdentity, firstSeenAt: acc.firstSeenAt },
-        ex,
-      );
-
-      if (fromNode.id === toNode.id) continue;
-
-      const provenance: WorksAtEdgeProvenance = {
-        observationIds: [...acc.observationIds].toSorted(),
-        familyKeys: [...acc.familyKeys].toSorted(),
-        groundingTier: WORKS_AT_GROUNDING_TIER,
-        documentId: acc.documentId,
+    if (!group) {
+      group = {
+        senderIdentity: subject.data,
+        displayNames: new Set(),
+        payloadSignals: [],
+        messages: [],
       };
+      groups.set(key, group);
+    }
 
-      const inserted = await ex
-        .insert(entityEdges)
-        .values({
-          userId: args.userId,
-          projectionName: USER_MODEL_PROJECTION_NAME,
-          projectionVersion: args.projectionVersion,
-          projectionRunId: args.projectionRunId,
-          fromEntityId: fromNode.id,
-          toEntityId: toNode.id,
-          relationType: "works_at",
-          weight: WORKS_AT_WEIGHT,
-          confidence: WORKS_AT_CONFIDENCE,
-          provenance,
-          validFrom: acc.firstSeenAt,
-        } satisfies NewEntityEdge)
-        .onConflictDoNothing({
-          target: [
-            entityEdges.userId,
-            entityEdges.projectionName,
-            entityEdges.projectionVersion,
-            entityEdges.relationType,
-            entityEdges.fromEntityId,
-            entityEdges.toEntityId,
-          ],
-        })
-        .returning({ id: entityEdges.id });
+    // Signals come from every subject observation, sent included, like the kind fold. Only inbound mints.
+    group.payloadSignals.push(payload.headers);
 
-      edgesWritten += inserted.length;
-      checksumRows.push({
-        from: senderKey(acc.fromIdentity),
-        to: senderKey(acc.orgIdentity),
-        validFrom: acc.firstSeenAt.toISOString(),
+    if (payload.isSent) continue;
+
+    const displayName = senderDisplayName(observation, subject.data);
+
+    if (!isNonEmptyString(displayName)) continue;
+
+    group.displayNames.add(displayName);
+    group.messages.push({
+      observation,
+      documentId: payload.documentId,
+      senderDisplayName: displayName,
+    });
+  }
+
+  // A display name counts only for its own participant, like `collectIdentities`.
+  // Else the user's name on every `to:` line makes almost every sender a person.
+  for (const { observation } of rows) {
+    for (const participant of observation.participants.items) {
+      const group = groups.get(senderKey(participant.identity));
+
+      if (!group) continue;
+
+      if (isNonEmptyString(participant.displayName)) {
+        group.displayNames.add(participant.displayName);
+      }
+    }
+  }
+
+  if (groups.size === 0) return { edgesWritten: 0, checksum: checksumForEdges([]) };
+
+  // Person gate first, with the kind fold's exact inputs, so this answer
+  // matches the sender's profile. Bodies load only for survivors.
+  const personGroups: SenderGroup[] = [];
+
+  for (const group of groups.values()) {
+    const senderKind = classifyEntityKind({
+      identity: group.senderIdentity,
+      displayNames: [...group.displayNames],
+      payloadSignals: group.payloadSignals,
+    });
+
+    if (senderKind.kind !== "person") continue;
+
+    personGroups.push(group);
+  }
+
+  if (personGroups.length === 0) return { edgesWritten: 0, checksum: checksumForEdges([]) };
+
+  const documentIds = new Set<string>();
+
+  for (const group of personGroups) {
+    for (const message of group.messages) documentIds.add(message.documentId);
+  }
+
+  const bodies = await readDocumentBodies(tx, args.userId, documentIds);
+
+  const edges = new Map<string, EdgeAccumulator>();
+
+  for (const group of personGroups) {
+    for (const item of group.messages) {
+      const body = bodies.get(item.documentId);
+
+      if (!isNonEmptyString(body)) continue;
+
+      const signature = parseEmploymentSignature(body);
+
+      if (!signature) continue;
+
+      if (!signatureNamesSender(signature.personName, item.senderDisplayName)) continue;
+
+      const canonicalDomain = canonicalizeIdentityValue("domain", signature.orgDomain);
+      const orgIdentity = identityRefSchema.safeParse({ kind: "domain", value: canonicalDomain });
+
+      if (!orgIdentity.success) continue;
+
+      const key = edgeKey(group.senderIdentity, orgIdentity.data);
+      const existing = edges.get(key);
+
+      if (existing) {
+        if (item.observation.occurredAt < existing.firstSeenAt) {
+          existing.firstSeenAt = item.observation.occurredAt;
+        }
+
+        existing.observationIds.add(item.observation.id);
+        existing.familyKeys.add(item.observation.familyKey);
+        continue;
+      }
+
+      edges.set(key, {
+        fromIdentity: group.senderIdentity,
+        orgIdentity: orgIdentity.data,
+        firstSeenAt: item.observation.occurredAt,
+        observationIds: new Set([item.observation.id]),
+        familyKeys: new Set([item.observation.familyKey]),
+        documentId: item.documentId,
       });
+    }
+  }
 
-      const senderMapKey = senderKey(acc.fromIdentity);
-      const outcome = senderOutcomes.get(senderMapKey);
+  let edgesWritten = 0;
+  const checksumRows: EdgeChecksumRow[] = [];
 
-      const newEdge = {
-        toNodeId: toNode.id,
+  const senderOutcomes = new Map<
+    string,
+    { fromNodeId: string; newEdges: { toNodeId: string; validFrom: Date; orgKey: string }[] }
+  >();
+
+  for (const acc of [...edges.values()].toSorted(compareEdgeAccumulators)) {
+    const fromNode = await ensureEntityNode(
+      { userId: args.userId, identity: acc.fromIdentity, firstSeenAt: acc.firstSeenAt },
+      tx,
+    );
+
+    const toNode = await ensureEntityNode(
+      { userId: args.userId, identity: acc.orgIdentity, firstSeenAt: acc.firstSeenAt },
+      tx,
+    );
+
+    if (fromNode.id === toNode.id) continue;
+
+    const provenance: WorksAtEdgeProvenance = {
+      observationIds: [...acc.observationIds].toSorted(),
+      familyKeys: [...acc.familyKeys].toSorted(),
+      groundingTier: WORKS_AT_GROUNDING_TIER,
+      documentId: acc.documentId,
+    };
+
+    const inserted = await tx
+      .insert(entityEdges)
+      .values({
+        userId: args.userId,
+        projectionName: USER_MODEL_PROJECTION_NAME,
+        projectionVersion: args.projectionVersion,
+        projectionRunId: args.projectionRunId,
+        fromEntityId: fromNode.id,
+        toEntityId: toNode.id,
+        relationType: "works_at",
+        weight: WORKS_AT_WEIGHT,
+        confidence: WORKS_AT_CONFIDENCE,
+        provenance,
         validFrom: acc.firstSeenAt,
-        orgKey: senderKey(acc.orgIdentity),
-      };
+      } satisfies NewEntityEdge)
+      .onConflictDoNothing({
+        target: [
+          entityEdges.userId,
+          entityEdges.projectionName,
+          entityEdges.projectionVersion,
+          entityEdges.relationType,
+          entityEdges.fromEntityId,
+          entityEdges.toEntityId,
+        ],
+      })
+      .returning({ id: entityEdges.id });
 
-      if (outcome) {
-        outcome.newEdges.push(newEdge);
-      } else {
-        senderOutcomes.set(senderMapKey, { fromNodeId: fromNode.id, newEdges: [newEdge] });
-      }
+    edgesWritten += inserted.length;
+    checksumRows.push({
+      from: senderKey(acc.fromIdentity),
+      to: senderKey(acc.orgIdentity),
+      validFrom: acc.firstSeenAt.toISOString(),
+    });
+
+    const senderMapKey = senderKey(acc.fromIdentity);
+    const outcome = senderOutcomes.get(senderMapKey);
+
+    const newEdge = {
+      toNodeId: toNode.id,
+      validFrom: acc.firstSeenAt,
+      orgKey: senderKey(acc.orgIdentity),
+    };
+
+    if (outcome) {
+      outcome.newEdges.push(newEdge);
+    } else {
+      senderOutcomes.set(senderMapKey, { fromNodeId: fromNode.id, newEdges: [newEdge] });
     }
+  }
 
-    // One open row per sender. Winner: latest validFrom, then greatest org key, so replays converge.
-    // The `validFrom <= winner` floor keeps the `entity_edges_valid_window` CHECK passing.
-    for (const outcome of senderOutcomes.values()) {
-      const winner = outcome.newEdges.reduce((a, b) =>
-        b.validFrom > a.validFrom ||
-        (b.validFrom.getTime() === a.validFrom.getTime() && b.orgKey > a.orgKey)
-          ? b
-          : a,
+  // One open row per sender. Winner: latest validFrom, then greatest org key, so replays converge.
+  // The `validFrom <= winner` floor keeps the `entity_edges_valid_window` CHECK passing.
+  for (const outcome of senderOutcomes.values()) {
+    const winner = outcome.newEdges.reduce((a, b) =>
+      b.validFrom > a.validFrom ||
+      (b.validFrom.getTime() === a.validFrom.getTime() && b.orgKey > a.orgKey)
+        ? b
+        : a,
+    );
+
+    await tx
+      .update(entityEdges)
+      .set({ validUntil: winner.validFrom })
+      .where(
+        and(
+          eq(entityEdges.userId, args.userId),
+          eq(entityEdges.projectionName, USER_MODEL_PROJECTION_NAME),
+          eq(entityEdges.projectionVersion, args.projectionVersion),
+          eq(entityEdges.fromEntityId, outcome.fromNodeId),
+          eq(entityEdges.relationType, "works_at"),
+          isNull(entityEdges.validUntil),
+          notInArray(entityEdges.toEntityId, [winner.toNodeId]),
+          lte(entityEdges.validFrom, winner.validFrom),
+          sql`${entityEdges.provenance} ->> ${GROUNDING_TIER_KEY} = ${WORKS_AT_GROUNDING_TIER}`,
+        ),
       );
+  }
 
-      await ex
-        .update(entityEdges)
-        .set({ validUntil: winner.validFrom })
-        .where(
-          and(
-            eq(entityEdges.userId, args.userId),
-            eq(entityEdges.projectionName, USER_MODEL_PROJECTION_NAME),
-            eq(entityEdges.projectionVersion, args.projectionVersion),
-            eq(entityEdges.fromEntityId, outcome.fromNodeId),
-            eq(entityEdges.relationType, "works_at"),
-            isNull(entityEdges.validUntil),
-            notInArray(entityEdges.toEntityId, [winner.toNodeId]),
-            lte(entityEdges.validFrom, winner.validFrom),
-            sql`${entityEdges.provenance} ->> ${GROUNDING_TIER_KEY} = ${WORKS_AT_GROUNDING_TIER}`,
-          ),
-        );
-    }
-
-    return { edgesWritten, checksum: checksumForEdges(checksumRows) };
-  };
-
-  return tx ? run(tx) : db().transaction(run);
+  return { edgesWritten, checksum: checksumForEdges(checksumRows) };
 }
 
 /** The first `--` after quote lines are stripped. The last one on a reply is a quoted footer. */

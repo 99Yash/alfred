@@ -92,7 +92,7 @@ async function main() {
   console.log(`[smoke] 2. auto-confirmed high-confidence fact ${autoConfirmed.id}`);
 
   // 3. confirmFact transitions proposed → confirmed
-  const confirmed = await confirmFact({ factId: proposed.id, userId });
+  const confirmed = await confirmFact({ factId: proposed.id, userId, exec: "own" });
   assert(confirmed, "confirmFact returned null for a proposed row");
   assert(confirmed.status === "confirmed", `expected confirmed, got ${confirmed.status}`);
   assert(confirmed.rowVersion > proposed.rowVersion, "confirmFact should bump rowVersion");
@@ -117,6 +117,7 @@ async function main() {
     factId: superseded.id,
     userId,
     newValue: { name: "Alice Q. Doe", email: "alice.doe@example.com" },
+    exec: "own",
   });
 
   assert(edited, "editFact returned null");
@@ -151,6 +152,7 @@ async function main() {
     factId: toReject.id,
     userId,
     reason: { code: "wrong-entity", note: "smoke-test rejection" },
+    exec: "own",
   });
 
   assert(rejected, "rejectFact returned null");

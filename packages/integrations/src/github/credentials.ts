@@ -28,19 +28,22 @@ export interface UpsertGithubCredentialArgs {
 export async function upsertGithubCredential(
   args: UpsertGithubCredentialArgs,
 ): Promise<{ id: string }> {
-  return upsertIntegrationCredential({
-    userId: args.userId,
-    provider: "github",
-    accountId: args.accountId,
-    accountLabel: args.accountLabel,
-    accessToken: args.accessToken,
-    // A blank or omitted token writes NULL, also on a reconnect.
-    refreshToken: args.refreshToken || null,
-    installationId: args.installationId,
-    expiresAt: args.expiresAt,
-    scopes: args.scopes,
-    metadata: { replace: args.metadata ?? {} },
-  });
+  return upsertIntegrationCredential(
+    {
+      userId: args.userId,
+      provider: "github",
+      accountId: args.accountId,
+      accountLabel: args.accountLabel,
+      accessToken: args.accessToken,
+      // A blank or omitted token writes NULL, also on a reconnect.
+      refreshToken: args.refreshToken || null,
+      installationId: args.installationId,
+      expiresAt: args.expiresAt,
+      scopes: args.scopes,
+      metadata: { replace: args.metadata ?? {} },
+    },
+    db(),
+  );
 }
 
 export type GithubCredentialSummary = Pick<
