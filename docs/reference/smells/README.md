@@ -24,7 +24,7 @@ A `gated` smell stays here for its examples and its ledger. [review-checklist.md
 | [Check the `.d.ts` file or the library source before you say a library cannot do something.](./check-dts-before-library-claim.md) | Stays review | none | 0 |
 | [Choose the type of an open dictionary.](./choose-open-dictionary-type.md) | Stays review | none | 0 |
 | [Derive a row type from its table.](./derive-row-type-from-table.md) | Stays review | none | 0 |
-| [Use `isRecord` and `getPath` only on a value that is `unknown` at a true parse boundary.](./guards-only-on-unknown.md) | Candidate, #1629 | compiler | 7 |
+| [Use `isRecord` and `getPath` only on a value that is `unknown` at a true parse boundary.](./guards-only-on-unknown.md) | Gated by `check-types` | compiler | 7 |
 | [Write `import type { X }` when every name of an import is a type.](./import-type-side-effects.md) | Gated by `typescript/no-import-type-side-effects` | ast | 5 |
 | [Keep a literal type only when it is a different concept, and say why in one comment.](./literal-type-only-for-new-concept.md) | Stays review | none | 0 |
 | [Name a symbol for its domain role, not its structure.](./name-for-domain-role.md) | Stays review | none | 1 |

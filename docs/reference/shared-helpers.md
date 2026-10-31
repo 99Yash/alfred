@@ -106,6 +106,7 @@ and just signal how load-bearing each surface is.
 Validate external / persisted / protocol data instead of asserting it.
 
 - `isRecord`, `isIndexable`, `isNonEmptyString`, `isNonBlankString` (has a non-whitespace character; does not trim)
+- `isJsonObject` (`JsonValue | undefined` → `JsonObject`; the object branch of a JSON tree, with the `isRecord` runtime check)
 - `toRecord` (unknown → `Record` or `{}`), `toStringArray` (element-checked)
 - `enumGuard(TUPLE)` / `keyGuard(TABLE)` — build an `is*` guard once from its source of truth.
   `enumGuard` takes an `as const` tuple and narrows to `typeof TUPLE[number]`. `keyGuard` takes a
@@ -136,6 +137,13 @@ provider trace. It is **not** a tool to re-open a value a schema already parsed.
 shape back to `Record<string, unknown>`, and every field read has to rediscover a type the
 parse already proved. If the field you want is typed, index it directly — absence already
 shows up as `undefined`.
+
+The compiler holds this rule. `isRecord` and `toRecord` take only `unknown` (and `any`). The path
+helpers also take open JSON: `JsonValue`, `JsonObject`, and `Record<string, unknown>`. A closed
+argument type does not compile, and the error names the fix. Do not pass an explicit type
+argument; the `boundary-guard-type-argument` row rejects it. The domains and the forms the
+compiler cannot see are in
+[guards-only-on-unknown](./smells/guards-only-on-unknown.md#mechanism).
 
 ### Typed keys and records — `@alfred/contracts` (`src/records.ts`)
 
