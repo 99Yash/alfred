@@ -3,6 +3,12 @@ import { toDisplayText } from "@alfred/contracts";
 import type { SkillDocumentationContext } from "./skill-documentation-context";
 
 /**
+ * One boss call at medium reasoning that writes at most 2k tokens. That takes well under a minute,
+ * so three minutes ends only a hung call. The workflow step has no signal to combine.
+ */
+const COMPOSE_TIMEOUT_MS = 180_000;
+
+/**
  * Boss-tier compose, phase 2 of Learn. Rewrites the v1 body with retrieved evidence:
  * add named specifics without inventing them, keep every v1 directive, and stay imperative.
  * Boss tier because the cheap tier dropped specifics. One call per Learn click.
@@ -100,6 +106,7 @@ export async function composeSkillDocumentation(args: ComposeArgs): Promise<Comp
       prompt: buildUserPrompt(args.context),
       temperature: 0.2,
       maxOutputTokens: 2_000,
+      abortSignal: AbortSignal.timeout(COMPOSE_TIMEOUT_MS),
     },
     {
       userId: args.context.userId,

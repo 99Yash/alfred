@@ -1176,6 +1176,7 @@ function defaultRunPass(model: LanguageModel, args: ClassifyEmailArgs): ServedPa
       // With hedging off (the eval) there is nothing to budget, so skip `serverEnv()`.
       ...(delayMs > 0 ? { budget: classifyHedgeBudget() } : {}),
       run: ({ attempt, signal }) =>
+        // oxlint-disable-next-line alfred/ai-call-needs-abort-signal -- `classifyCallOptions` sets `abortSignal` to the hedge signal.
         meteredGenerateObject<TriageClassifierOutput>(
           classifyCallOptions({
             model,

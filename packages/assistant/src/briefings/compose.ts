@@ -33,6 +33,12 @@ import { buildBriefingSourcePanels } from "./references";
  * schema-bound) and `composeInboxBriefing` (deterministic HTML and text).
  */
 
+/**
+ * One boss call at medium reasoning that writes at most 2.5k tokens. Three minutes ends only a
+ * hung call, and the composer then falls back to the deterministic briefing.
+ */
+const COMPOSE_TIMEOUT_MS = 180_000;
+
 const CATEGORY_LABEL = {
   urgent: "Urgent",
   action_needed: "Action needed",
@@ -131,6 +137,7 @@ export async function composeBriefing(args: ComposeBriefingArgs): Promise<Compos
         prompt: buildComposerPrompt(args),
         temperature: 0.2,
         maxOutputTokens: 2_500,
+        abortSignal: AbortSignal.timeout(COMPOSE_TIMEOUT_MS),
       },
       {
         kind: "briefing",

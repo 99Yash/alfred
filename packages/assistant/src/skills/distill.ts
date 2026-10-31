@@ -5,6 +5,12 @@ import type { SkillLearnContext } from "./context";
 import { parseMentions, resolveMentions } from "./mentions";
 
 /**
+ * One cheap-route call with no reasoning that writes at most 4k tokens. Two minutes ends only a
+ * hung call. The workflow step has no signal to combine.
+ */
+const DISTILL_TIMEOUT_MS = 120_000;
+
+/**
  * Cheap-tier distill, phase 1 of Learn. One structured call turns the prompt and memory
  * into fact proposals, a v1 markdown body, a name, and resolved mentions.
  * One call, not three, so the body, facts, and name agree. Cheap tier, because this only
@@ -110,6 +116,7 @@ export async function distillSkill(args: DistillSkillArgs): Promise<DistillSkill
       schema: distillResultSchema,
       temperature: 0,
       maxOutputTokens: 4_000,
+      abortSignal: AbortSignal.timeout(DISTILL_TIMEOUT_MS),
     },
     {
       userId: args.context.userId,

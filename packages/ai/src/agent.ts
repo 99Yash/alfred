@@ -118,6 +118,7 @@ export class AlfredAgent<CTX = unknown> {
 
   async turn(args: TurnArgs<CTX>): Promise<TurnResult> {
     const { request, attribution } = await this.prepareTurn(args);
+    // oxlint-disable-next-line alfred/ai-call-needs-abort-signal -- `prepareTurn` copies the caller's `abortSignal` into `request`.
     const result = await meteredGenerateText(request, attribution);
 
     return classifyTurnResult(result);
@@ -127,6 +128,7 @@ export class AlfredAgent<CTX = unknown> {
   async streamTurn(args: TurnArgs<CTX>): Promise<StreamTextResult<ToolSet, never, never>> {
     const { request, attribution } = await this.prepareTurn(args);
 
+    // oxlint-disable-next-line alfred/ai-call-needs-abort-signal -- `prepareTurn` copies the caller's `abortSignal` into `request`.
     return meteredStreamText(
       { ...request, timeout: args.streamTimeout ?? DEFAULT_TURN_STREAM_TIMEOUT },
       attribution,

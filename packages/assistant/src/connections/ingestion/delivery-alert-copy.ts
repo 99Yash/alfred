@@ -47,7 +47,7 @@ export async function composeDeliveryAlertCopy(
         prompt: describeBrokenConnection(connection),
         temperature: 0.3,
         maxOutputTokens: 600,
-        timeout: COPY_TIMEOUT_MS,
+        abortSignal: AbortSignal.timeout(COPY_TIMEOUT_MS),
       },
       { kind: "llm", userId, name: "delivery-alert.copy" },
     );

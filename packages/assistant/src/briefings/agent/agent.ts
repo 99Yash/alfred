@@ -64,6 +64,12 @@ export interface RunBriefingAgentResult {
 const MAX_STEPS = 8;
 
 /**
+ * Up to eight boss steps at medium reasoning. The value is the 600 s backstop of the metered
+ * wrappers, so the deadline does not change. The workflow step has no signal to combine.
+ */
+const AGENT_TIMEOUT_MS = 600_000;
+
+/**
  * The broken connections as facts (ADR-0100 amendment 2026-10-28, revised). The code supplies
  * what it knows; the composer decides what to tell the user, one notice per connection. The send
  * step adds the repair link and checks that every key has a notice.
@@ -133,6 +139,7 @@ export async function runBriefingAgent(
       tools: bag.tools,
       // If `dump_briefing` is not reached in this budget, fail rather than burn tokens.
       stopWhen: isStepCount(MAX_STEPS),
+      abortSignal: AbortSignal.timeout(AGENT_TIMEOUT_MS),
     },
     {
       // `briefing` is the cost bucket (ADR-0041), not the call shape. Langfuse tags
