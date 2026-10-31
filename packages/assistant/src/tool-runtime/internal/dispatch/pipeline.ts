@@ -273,9 +273,9 @@ function unavailableToolResult(args: {
 }
 
 /** A stage either settles the call with a result or continues with the next state. */
-export type DispatchStageOutcome<Next> = DispatchResult | { readonly continueWith: Next };
+type DispatchStageOutcome<Next> = DispatchResult | { readonly continueWith: Next };
 
-export type DispatchStage<In, Next> = (input: In) => Promise<DispatchStageOutcome<Next>>;
+type DispatchStage<In, Next> = (input: In) => Promise<DispatchStageOutcome<Next>>;
 
 function continueWith<Next>(next: Next) {
   return { continueWith: next };

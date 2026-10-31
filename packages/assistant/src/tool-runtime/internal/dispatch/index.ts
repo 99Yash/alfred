@@ -6,7 +6,5 @@ export {
   buildDispatchRejectionTraceInput,
   _setDispatchTraceSinksForTests,
   _setIntegrationAvailabilityReaderForTests,
-  type DispatchStage,
-  type DispatchStageOutcome,
   type ToolCallDispatchResult,
 } from "./pipeline";
