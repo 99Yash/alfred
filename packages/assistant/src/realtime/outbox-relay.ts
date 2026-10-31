@@ -93,7 +93,9 @@ async function drainOnce(): Promise<number> {
 
     return rows.length;
   } catch (err) {
-    await client.query("ROLLBACK").catch(() => {});
+    await client.query("ROLLBACK").catch((rollbackErr: unknown) => {
+      logger.warn({ err: rollbackErr }, "[outbox-relay] rollback failed");
+    });
     throw err;
   } finally {
     client.release();
@@ -187,12 +189,14 @@ export async function stopOutboxRelay(): Promise<void> {
   const drained = await relay.stop();
 
   if (listenClient) {
+    // oxlint-disable-next-line alfred/no-swallowed-catch -- shutdown goes on: the connection may already be dead
     await listenClient.end().catch(() => {});
     listenClient = undefined;
   }
 
   if (pool) {
     if (!drained) logger.warn("[outbox-relay] closing pool with a drain still in flight");
+    // oxlint-disable-next-line alfred/no-swallowed-catch -- shutdown goes on: the pool is dropped right after
     await pool.end().catch(() => {});
     pool = undefined;
   }

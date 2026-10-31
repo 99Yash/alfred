@@ -106,6 +106,7 @@ export async function getSessionCached(request: Request): Promise<Session> {
     // Evict on both outcomes: a memoized rejection would lock the user out until restart.
     // The `.catch` on `base` avoids an unhandled-rejection warning.
     base
+      // oxlint-disable-next-line alfred/no-swallowed-catch -- only stops an unhandled rejection; the callers get the rejection through `promise`
       .catch(() => {})
       .finally(() => {
         // After a clear, a newer promise may own this token. Remove only ours.

@@ -278,6 +278,7 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
       }
 
       if (this.#isClosing()) {
+        // oxlint-disable-next-line alfred/no-swallowed-catch -- best-effort close of a stream that opened during a close; the client is going away
         await next.close().catch(() => undefined);
 
         return;

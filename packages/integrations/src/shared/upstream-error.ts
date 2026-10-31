@@ -17,6 +17,7 @@ export async function throwUpstreamError(args: {
 
   // The last place that still has the body. Reading it spends the stream.
   if (bodyPolicy === "omit") {
+    // oxlint-disable-next-line alfred/no-swallowed-catch -- an unreadable error body only drops detail; the thrown error keeps the status
     const raw = await res.text().catch(() => "");
     logger.error(`[${provider}] ${res.status} ${method ?? "GET"} ${url} :: ${summarizeBody(raw)}`);
   }

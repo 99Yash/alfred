@@ -17,6 +17,7 @@ export async function transcribeRecording(blob: Blob): Promise<string> {
   });
 
   if (!res.ok) {
+    // oxlint-disable-next-line alfred/no-swallowed-catch -- an unreadable error body only drops detail; the thrown error keeps the status
     const body: unknown = await res.json().catch(() => null);
     throw new Error(apiErrorMessage(body, `Transcription failed (${res.status})`));
   }

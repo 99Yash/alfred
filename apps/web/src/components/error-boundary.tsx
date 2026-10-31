@@ -20,6 +20,7 @@ export function DefaultCatchBoundary({ error, reset }: ErrorComponentProps) {
       .then((Sentry) => {
         Sentry.captureException(error);
       })
+      // oxlint-disable-next-line alfred/no-swallowed-catch -- the render error is already in console.error above; a failed Sentry chunk load has no other reporter
       .catch(() => {});
   }, [error]);
 

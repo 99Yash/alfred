@@ -65,6 +65,7 @@ import {
   webSearch,
 } from "@alfred/assistant/tool-runtime";
 import { inZone } from "@alfred/assistant/time";
+import { logger } from "@alfred/logging";
 import { redactCredentialUrl, runFetchUrl } from "./fetch-url";
 import { liveTool, NO_TOOL_EFFECTS, type RegisteredTool } from "@alfred/assistant/tool-runtime";
 import {
@@ -530,7 +531,11 @@ export const systemTools: readonly RegisteredTool[] = [
           stepId: ctx.stepId,
           toolCallId: ctx.toolCallId,
         },
-      }).catch(() => null);
+      }).catch((err: unknown) => {
+        logger.warn({ err }, "[remember-instruction] proposal check failed");
+
+        return null;
+      });
 
       return refusal === null ? null : JSON.stringify(refusal);
     },

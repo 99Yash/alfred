@@ -209,6 +209,7 @@ export async function exchangeUserCode(code: string): Promise<ExchangeUserCodeRe
   });
 
   if (!tokenRes.ok) {
+    // oxlint-disable-next-line alfred/no-swallowed-catch -- an unreadable error body only drops detail; the thrown error keeps the status
     const body = await tokenRes.text().catch(() => "");
     throw new Error(
       `[github.app] user code exchange failed: ${tokenRes.status} ${body.slice(0, 300)}`,

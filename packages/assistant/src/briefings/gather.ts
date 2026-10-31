@@ -973,6 +973,7 @@ async function gatherWeatherContribution(args: {
     const res = await fetch(url, { signal: AbortSignal.timeout(WEATHER_FETCH_TIMEOUT_MS) });
 
     if (!res.ok) {
+      // oxlint-disable-next-line alfred/no-swallowed-catch -- an unreadable error body only drops detail; the thrown error keeps the status
       const body = await res.text().catch(() => "");
       throw new Error(`[weather] ${res.status} ${body.slice(0, 300)}`);
     }

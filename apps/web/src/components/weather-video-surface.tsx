@@ -123,6 +123,7 @@ function WeatherVideoLayer({
       if (query.matches) {
         el.pause();
       } else {
+        // oxlint-disable-next-line alfred/no-swallowed-catch -- autoplay can be blocked before the first interaction; a rejected play() is expected
         void el.play().catch(() => {});
       }
     };

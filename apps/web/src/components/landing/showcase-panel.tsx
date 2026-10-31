@@ -41,6 +41,7 @@ export function ShowcaseVideo({
 
     if (!video || !active) return;
     video.currentTime = 0;
+    // oxlint-disable-next-line alfred/no-swallowed-catch -- autoplay can be blocked before the first interaction; a rejected play() is expected
     void video.play().catch(() => {
       // Autoplay can be blocked before interaction; a rejected play() is fine.
     });

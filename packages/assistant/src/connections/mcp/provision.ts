@@ -187,6 +187,7 @@ async function probeRequiresAuthorization(
     throw error;
   } finally {
     // Otherwise a legacy-era server keeps an orphan session until its idle timeout.
+    // oxlint-disable-next-line alfred/no-swallowed-catch -- best-effort session end after the probe; the probe result or its fault is already decided
     await client.close({ terminateSession: true }).catch(() => undefined);
   }
 

@@ -92,6 +92,7 @@ export async function exchangeVercelCode(code: string): Promise<VercelTokenResul
   });
 
   if (!res.ok) {
+    // oxlint-disable-next-line alfred/no-swallowed-catch -- an unreadable error body only drops detail; the thrown error keeps the status
     const body = await res.text().catch(() => "");
     throw new Error(`[vercel.oauth] token exchange ${res.status} :: ${body.slice(0, 300)}`);
   }

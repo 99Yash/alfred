@@ -65,6 +65,7 @@ export async function uploadAttachment(opts: {
   });
 
   if (!res.ok) {
+    // oxlint-disable-next-line alfred/no-swallowed-catch -- an unreadable error body only drops detail; the thrown error keeps the status
     const body = await res.text().catch(() => "");
     throw new Error(`upload failed (${res.status}): ${body}`);
   }

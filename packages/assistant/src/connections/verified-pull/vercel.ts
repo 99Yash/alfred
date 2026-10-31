@@ -8,6 +8,7 @@ import {
   type VercelClient,
   type VercelProject,
 } from "@alfred/integrations/vercel";
+import { logger } from "@alfred/logging";
 import { z } from "zod";
 import { VERIFIED_PULL_EVENT_TYPE, type VercelPullEvent } from "../object-state";
 import {
@@ -205,7 +206,11 @@ function readProjectDeployments(
       return { readings, unknownStateTargets };
     })
     // An error proves nothing, so return `null`, never a partial reading.
-    .catch(() => null);
+    .catch((err: unknown) => {
+      logger.warn({ err, projectId: project.projectId }, "[vercel.verify] deployment list failed");
+
+      return null;
+    });
 
   session.deployments.set(project.projectId, pending);
 
@@ -229,7 +234,11 @@ function lookupRepoProjects(
   const pending = session.client
     .projects({ limit: VERCEL_PROJECT_SCAN_LIMIT, repoUrl: `https://github.com/${repoFullName}` })
     .then((listed) => listed.map(toProjectRef).filter((project) => linksRepo(project, repo)))
-    .catch(() => null);
+    .catch((err: unknown) => {
+      logger.warn({ err }, "[vercel.verify] repo project lookup failed");
+
+      return null;
+    });
 
   session.repoProjects.set(repo, pending);
 

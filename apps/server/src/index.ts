@@ -84,6 +84,7 @@ async function shutdown(signal: string) {
   }
 
   await stopRuntime();
+  // oxlint-disable-next-line alfred/no-swallowed-catch -- shutdown goes on; a failed flush has no reporter left to tell it to
   await Sentry.flush(2000).catch(() => {});
   process.exit(0);
 }
