@@ -93,6 +93,8 @@ function labelOf(category: UsageRunCategory, workflowSlug: string | null, state:
       return workflowSlug ?? "Workflow";
     case "uncategorized":
       return "Uncategorized";
+    default:
+      return assertNever(category, "usage run category");
   }
 }
 

@@ -1,4 +1,4 @@
-import { Errors } from "@alfred/contracts";
+import { assertNever, Errors } from "@alfred/contracts";
 import { Elysia, t } from "elysia";
 import { authMacro } from "./middleware/auth";
 import { requireOnboarded } from "./middleware/onboarding";
@@ -38,6 +38,8 @@ export const skillsRoutes = new Elysia({ prefix: "/api/skills", normalize: "type
               });
             case "started":
               return { runId: outcome.runId };
+            default:
+              return assertNever(outcome, "skill relearn outcome");
           }
         },
         {

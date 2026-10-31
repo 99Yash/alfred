@@ -98,6 +98,9 @@ export function AppSelect({
         event.preventDefault();
         focusRow(rows.length - 1);
         break;
+      default:
+        // Any other key keeps its browser behavior.
+        break;
     }
   };
 

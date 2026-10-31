@@ -1,3 +1,4 @@
+import { assertNever } from "@alfred/contracts";
 import { FeaturesSection } from "./features-section";
 import type { SectionId } from "./helpers";
 import { PreferencesSection } from "./preferences-section";
@@ -14,5 +15,7 @@ export function SectionPanel({ section }: { section: SectionId }) {
       return <UsageSection />;
     case "preferences":
       return <PreferencesSection />;
+    default:
+      return assertNever(section, "settings section");
   }
 }

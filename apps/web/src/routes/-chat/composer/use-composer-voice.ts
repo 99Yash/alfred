@@ -1,3 +1,4 @@
+import { assertNever } from "@alfred/contracts";
 import { useCallback, useReducer, type RefObject } from "react";
 import { transcribeRecording } from "~/lib/chat/turn-controls";
 import { useMicRecording } from "../mic-recording";
@@ -24,6 +25,8 @@ function voiceReducer(state: VoiceState, action: VoiceAction): VoiceState {
       return { transcribing: false, error: null };
     case "transcribe_error":
       return { transcribing: false, error: action.error };
+    default:
+      return assertNever(action, "voice action");
   }
 }
 

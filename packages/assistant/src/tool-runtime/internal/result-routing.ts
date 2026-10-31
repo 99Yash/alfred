@@ -72,6 +72,8 @@ function dispatchResultToToolOutput(
     case "not_allowed":
     case "feature_disabled":
       return { type: "json", value: toJsonValue(boundToolResult(result.result).value) };
+    default:
+      return assertNever(result, "tool call dispatch result");
   }
 }
 

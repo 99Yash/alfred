@@ -5,7 +5,7 @@ import {
   type StagedActionDecision,
   type StagedActionRefusal,
 } from "@alfred/assistant/execution";
-import { Errors, jsonValueSchema, type JsonValue } from "@alfred/contracts";
+import { assertNever, Errors, jsonValueSchema, type JsonValue } from "@alfred/contracts";
 import { prepareStagedApproval } from "@alfred/assistant/automation";
 import { requireOnboarded } from "./middleware/onboarding";
 
@@ -111,6 +111,8 @@ function refusalError(reason: StagedActionRefusal): Error {
       return Errors.ConflictError("The approval changed. Review the latest contract.");
     case "run_unavailable":
       return Errors.ConflictError(runUnavailableMessage(reason.run));
+    default:
+      return assertNever(reason, "staged action refusal");
   }
 }
 
@@ -126,5 +128,7 @@ function runUnavailableMessage(
       return "Run is not waiting for this approval";
     case "already_terminal":
       return "Run has already finished";
+    default:
+      return assertNever(run, "run unavailable reason");
   }
 }

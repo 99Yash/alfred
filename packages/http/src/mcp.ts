@@ -1,4 +1,5 @@
 import {
+  assertNever,
   Errors,
   isApiError,
   isBuiltInMCPProvider,
@@ -218,6 +219,8 @@ function mcpToolPolicyStateResult(
       return mcpToolPolicyStateSchema.parse({ status: "not_found", ref });
     case "connection_missing":
       throw Errors.NotFoundError("MCP connection not found");
+    default:
+      return assertNever(state, "MCP tool policy state");
   }
 }
 
@@ -246,6 +249,8 @@ function mcpHealthMappingStateResult(
       return mcpHealthMappingStateSchema.parse({ status: "not_read_only", ref });
     case "connection_missing":
       throw Errors.NotFoundError("MCP connection not found");
+    default:
+      return assertNever(state, "MCP health mapping state");
   }
 }
 
@@ -483,6 +488,8 @@ export const mcpIntegrationRoutes = new Elysia({
               throw Errors.NotFoundError("MCP connection not found");
             case "failed":
               throw Errors.BadRequestError(reconnected.lastError);
+            default:
+              return assertNever(reconnected, "MCP reconnect outcome");
           }
         },
         { params: t.Object({ id: t.String({ minLength: 1 }) }) },

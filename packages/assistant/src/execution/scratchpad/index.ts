@@ -5,6 +5,7 @@
  */
 
 import {
+  assertNever,
   logicalScratchKey,
   parseJsonWith,
   scratchKeyPrefix,
@@ -172,6 +173,8 @@ function admit(writer: ScratchWriter, operation: ScratchOperation): Admission<un
       return admitWrite(writer, operation.key);
     case "promote":
       return admitPromote(writer, operation.fromKey, operation.toKey);
+    default:
+      return assertNever(operation, "scratchpad verb");
   }
 }
 

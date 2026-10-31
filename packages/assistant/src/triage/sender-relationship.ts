@@ -4,7 +4,7 @@
  * the todo gate reads the typed `isColdContact`, because the model did not
  * reliably apply `cold_sender:` itself.
  */
-import { isNonBlankString, type SignificanceBand } from "@alfred/contracts";
+import { assertNever, isNonBlankString, type SignificanceBand } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { userFacts } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
@@ -110,6 +110,8 @@ export async function resolveSenderRelationship(args: {
       return NO_PRIOR_CONTACT;
     case "found":
       break;
+    default:
+      return assertNever(args.sender, "sender read");
   }
 
   const meta = args.sender.metadata;

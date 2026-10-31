@@ -1,5 +1,5 @@
 import { tool, type Tool } from "@alfred/ai";
-import { isIntegrationSlug, isToolName, type ToolName } from "@alfred/contracts";
+import { assertNever, isIntegrationSlug, isToolName, type ToolName } from "@alfred/contracts";
 
 import {
   registerToolRuntimeAdapter,
@@ -38,6 +38,8 @@ const toolsRuntimeAdapter: ToolRuntimeAdapter = {
           ),
           ...registeredToolNames(source.pendingNames),
         ]);
+      default:
+        return assertNever(source, "tool surface source");
     }
   },
 

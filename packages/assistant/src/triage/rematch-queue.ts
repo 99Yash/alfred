@@ -1,3 +1,4 @@
+import { assertNever } from "@alfred/contracts";
 import { createRedisConnection } from "@alfred/db/redis";
 import { logger } from "@alfred/logging";
 import { Queue, Worker, type Job } from "bullmq";
@@ -114,5 +115,9 @@ async function processTriageRematchJob(
         // `attemptsMade` counts the failed attempts before this one.
         finalAttempt: job.attemptsMade + 1 >= (job.opts.attempts ?? 1),
       });
+    default:
+      // The job data is not parsed. A throw fails the job, so BullMQ retries it, and a newer
+      // worker can run a kind that this build does not know. A return would drop the job.
+      return assertNever(data, "triage rematch job kind");
   }
 }

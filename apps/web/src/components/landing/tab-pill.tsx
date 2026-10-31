@@ -111,6 +111,10 @@ export function TabPill<T extends string>({
         focusTabAt(options.length - 1);
         break;
       }
+
+      default:
+        // Any other key keeps its browser behavior.
+        break;
     }
   };
 

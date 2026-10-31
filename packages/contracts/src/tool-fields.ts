@@ -3,6 +3,7 @@
  * dispatcher validates with. Anything without a control becomes a `json` field.
  */
 
+import { assertNever } from "./errors";
 import { z } from "zod";
 import { isRecord, toStringArray } from "./guards";
 import { toJsonValue } from "./json";
@@ -124,6 +125,8 @@ export function fieldValue(field: FieldSpec, record: JsonObject): FieldValue {
       return typeof raw === "boolean" ? raw : undefined;
     case "json":
       return raw;
+    default:
+      return assertNever(field, "field kind");
   }
 }
 

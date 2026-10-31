@@ -5,6 +5,7 @@
  */
 
 import {
+  assertNever,
   mcpCallInput,
   mcpToolInspectInputSchema,
   mcpToolSearchInputSchema,
@@ -61,6 +62,8 @@ function brokerResult(outcome: McpBrokerOutcome): McpBrokerToolResult {
         retry: "blocked",
         message: outcome.message,
       });
+    default:
+      return assertNever(outcome, "MCP broker outcome");
   }
 }
 

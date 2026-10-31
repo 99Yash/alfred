@@ -1,5 +1,6 @@
 /** The connected rule (ADR-0093). The server calls it; the web reads `GET /api/integrations`. */
 
+import { assertNever } from "../errors";
 import type { ProviderAvailability } from "../integration-availability";
 import type { CredentialSpec } from "./registry";
 
@@ -41,6 +42,8 @@ export function credentialSatisfies(spec: CredentialSpec, row: CredentialProofRo
       return row.installationId !== null;
     case "bearer":
       return true;
+    default:
+      return assertNever(spec, "credential shape");
   }
 }
 
