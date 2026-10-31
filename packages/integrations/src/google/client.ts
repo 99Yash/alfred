@@ -104,6 +104,15 @@ async function credentialsForAuthority(
   authority: GoogleAuthority,
   accountRef?: string,
 ): Promise<GoogleCredential[]> {
+  return credentialsHoldingAll(userId, [authority], accountRef);
+}
+
+/** The active rows that hold every authority. One row must hold them all, not the set of rows. */
+async function credentialsHoldingAll(
+  userId: string,
+  authorities: readonly [GoogleAuthority, ...GoogleAuthority[]],
+  accountRef?: string,
+): Promise<GoogleCredential[]> {
   // A pinned account that is gone is "not connected", not "missing a scope".
   const active = (await listCredentials(userId, "google")).filter(
     (credential) =>
@@ -112,15 +121,29 @@ async function credentialsForAuthority(
   );
 
   if (active.length === 0) {
-    throw new GoogleCredentialSelectionError(authority, "connection_required");
+    throw new GoogleCredentialSelectionError(authorities[0], "connection_required");
   }
 
-  const scoped = active.filter((credential) =>
-    holdsAnyScope(credential.scopes, googleAuthorityScopes(authority)),
-  );
+  const holdsAll = (scopes: Iterable<string>) => {
+    const granted = [...scopes];
+
+    return authorities.every((authority) =>
+      holdsAnyScope(granted, googleAuthorityScopes(authority)),
+    );
+  };
+
+  const scoped = active.filter((credential) => holdsAll(credential.scopes));
 
   if (scoped.length === 0) {
-    throw new GoogleCredentialSelectionError(authority, "scope_required");
+    // Name the first grant that the first account lacks, so the error says what to grant.
+    const firstScopes = [...(active[0]?.scopes ?? [])];
+
+    const missing =
+      authorities.find(
+        (authority) => !holdsAnyScope(firstScopes, googleAuthorityScopes(authority)),
+      ) ?? authorities[0];
+
+    throw new GoogleCredentialSelectionError(missing, "scope_required");
   }
 
   return scoped.map(({ id, accountId, accountLabel }) => ({ id, accountId, accountLabel }));
@@ -309,15 +332,15 @@ export function googleClientForUser(options: ProviderBindOptions) {
     return accessToken;
   }, options.retry);
 
-  const first = async (authority: GoogleAuthority) => {
-    const [credential] = await credentialsForAuthority(
+  const first = async (...authorities: [GoogleAuthority, ...GoogleAuthority[]]) => {
+    const [credential] = await credentialsHoldingAll(
       options.userId,
-      authority,
+      authorities,
       options.accountRef,
     );
 
-    // credentialsForAuthority already throws this error for an empty list.
-    if (!credential) throw new GoogleCredentialSelectionError(authority, "scope_required");
+    // credentialsHoldingAll already throws this error for an empty list.
+    if (!credential) throw new GoogleCredentialSelectionError(authorities[0], "scope_required");
 
     return credential;
   };
@@ -327,7 +350,12 @@ export function googleClientForUser(options: ProviderBindOptions) {
     gmail: {
       ...client.gmail,
       readCredential: () => first("gmail"),
-      sendCredential: () => first("gmail_send"),
+      /**
+       * An account that can send through a draft: the send grant is the user's consent, and the
+       * draft calls need the modify grant. The send grant comes first, so a missing consent
+       * names `gmail_send`.
+       */
+      sendCredential: () => first("gmail_send", "gmail_modify"),
       modifyCredential: () => first("gmail_modify"),
       /** Every account that can change labels. A message picks one by `accountId`. */
       modifyCredentials: () =>
