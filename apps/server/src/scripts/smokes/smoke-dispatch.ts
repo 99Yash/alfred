@@ -485,10 +485,7 @@ async function main(): Promise<void> {
   const cancelledRow = (await db().select().from(agentRuns).where(eq(agentRuns.id, runId4)))[0];
   assert(cancelledRow?.status === "cancelled", "run row should be 'cancelled'");
   assert(cancelledRow.endedAt != null, "cancelled row should carry ended_at");
-  assert(
-    getStringPath(cancelledRow.error, "reason") === "smoke",
-    "cancelled row should record the reason",
-  );
+  assert(cancelledRow.error?.reason === "smoke", "cancelled row should record the reason");
 
   const cancelledStagings = await db()
     .select()

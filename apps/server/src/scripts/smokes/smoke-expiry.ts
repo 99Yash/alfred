@@ -12,7 +12,6 @@
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/smokes/smoke-expiry.ts
  */
 
-import { getStringPath } from "@alfred/contracts";
 import {
   approvalExpiryJobId,
   closeApprovalExpiryQueue,
@@ -190,7 +189,7 @@ async function stageGatedDraft(
 
   assert(
     staged.kind === "staged",
-    `expected 'staged', got '${staged.kind}': ${getStringPath(staged, "result", "message") ?? "no message"}`,
+    `expected 'staged', got '${staged.kind}': ${"result" in staged && "message" in staged.result ? staged.result.message : "no message"}`,
   );
 
   return staged.stagingId;
@@ -323,7 +322,7 @@ async function main(): Promise<void> {
     `re-dispatch of expired row expected 'rejected', got '${reDispatched.kind}'`,
   );
   assert(
-    getStringPath(reDispatched, "result", "reason") === "auto-expired",
+    reDispatched.result.reason === "auto-expired",
     "re-dispatch must synthesize reason='auto-expired'",
   );
   assert(draftExecCount() === 0, "re-dispatch of expired row must not execute the tool");

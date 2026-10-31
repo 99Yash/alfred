@@ -992,10 +992,13 @@ function encodedBytes(value: string): number {
 }
 
 function deepFreeze<T>(value: T): T {
-  if (Array.isArray(value)) {
-    for (const item of value) deepFreeze(item);
-  } else if (isRecord(value)) {
-    for (const child of Object.values(value)) deepFreeze(child);
+  // `T` is any value the caller froze, so walk it as `unknown`.
+  const node: unknown = value;
+
+  if (Array.isArray(node)) {
+    for (const item of node) deepFreeze(item);
+  } else if (isRecord(node)) {
+    for (const child of Object.values(node)) deepFreeze(child);
   }
 
   // Freeze every object, not only plain records: `structuredClone` keeps Dates.
