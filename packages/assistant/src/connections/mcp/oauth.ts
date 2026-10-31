@@ -815,9 +815,9 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
       if (err instanceof McpOAuthResourceMovedError) {
         logger.warn(
           {
+            err,
             event: "mcp_oauth_discovery_stale",
             connectionId: this.#connectionId,
-            cause: err.message,
           },
           "Dropped MCP OAuth discovery state cached for a moved resource",
         );

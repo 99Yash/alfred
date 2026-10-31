@@ -86,6 +86,10 @@
     // `x in TABLE`, `TABLE[x] === undefined`); the last two are true for an inherited key
     // such as "toString". Use keyGuard(TABLE).
     "alfred/hand-rolled-key-guard": "error",
+    // log-caught-error-under-err: a caught error, or its message, in a `logger` call anywhere
+    // but as the raw value under `err`. Only `err` goes through the redacting serializer.
+    // `safeErrorDiagnostic(err)` is the safe text form under another key.
+    "alfred/log-caught-error-under-err": "error",
     // The web motion and copy rules read one element's classes or JSX:
     // transition-names-individual-transform: a `transition-[…transform…]` list that misses the
     // `scale`/`translate`/`rotate` property a Tailwind v4 utility on the element writes.

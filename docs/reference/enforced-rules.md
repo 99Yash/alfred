@@ -98,6 +98,7 @@ When you add, remove or change a rule in `.oxlintrc.json`, a JS plugin, `scripts
 | Rule | Scope | Description |
 | --- | --- | --- |
 | `alfred/hand-rolled-key-guard` |  | Test a key of a closed table with `keyGuard(TABLE)` from `@alfred/contracts`, not by hand. |
+| `alfred/log-caught-error-under-err` |  | Reject a caught error, or its message, in a `logger` call anywhere but as the raw value under `err`. |
 | `alfred/motion-safe-variant-animate` |  | Require `motion-safe:` on a variant-prefixed `animate-*` utility on an element that has `motion-reduce:animate-none`. |
 | `alfred/no-conditional-motion-ref` |  | Reject a conditional `ref` on a `motion` element, which reads its ref only at mount. |
 | `alfred/no-constants-re-export` |  | Disallow re-exporting a constants module's value from a module that is not its barrel. |

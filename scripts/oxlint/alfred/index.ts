@@ -1,6 +1,7 @@
 import { eslintCompatPlugin } from "@oxlint/plugins";
 
 import { handRolledKeyGuardRule } from "./rules/hand-rolled-key-guard.ts";
+import { logCaughtErrorUnderErrRule } from "./rules/log-caught-error-under-err.ts";
 import { motionSafeVariantAnimateRule } from "./rules/motion-safe-variant-animate.ts";
 import { noConditionalMotionRefRule } from "./rules/no-conditional-motion-ref.ts";
 import { noConstantsReExportRule } from "./rules/no-constants-re-export.ts";
@@ -22,6 +23,7 @@ const alfredPlugin = eslintCompatPlugin({
   meta: { name: "alfred" },
   rules: {
     "hand-rolled-key-guard": handRolledKeyGuardRule,
+    "log-caught-error-under-err": logCaughtErrorUnderErrRule,
     "motion-safe-variant-animate": motionSafeVariantAnimateRule,
     "no-conditional-motion-ref": noConditionalMotionRefRule,
     "no-constants-re-export": noConstantsReExportRule,

@@ -70,7 +70,7 @@ async function applyMutation<K extends MutatorName>(
     });
   } catch (err) {
     if (err instanceof MutatorForbiddenError) {
-      logger.warn({ mutatorName, reason: err.message }, "[replicache:push] ACL rejected");
+      logger.warn({ err, mutatorName }, "[replicache:push] ACL rejected");
     } else {
       logger.error({ err, mutatorName }, "[replicache:push] mutator crashed");
     }
