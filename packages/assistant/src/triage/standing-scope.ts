@@ -160,7 +160,10 @@ export function buildStandingScopeBlock(
 }
 
 export interface StandingScopeMatchRead {
-  /** One result for each sent instruction, for `instruction_evaluation`. */
+  /**
+   * One result for each sent instruction that the model decided, for `instruction_evaluation`.
+   * A sent instruction with no result stays `unknown`.
+   */
   scopes: StandingInstructionScopeResult[];
   /** The `matched` results, for the instruction floor. */
   matches: StandingInstructionMatch[];
@@ -179,7 +182,8 @@ export function readStandingScopeMatches(
 ): StandingScopeMatchRead {
   if (output === undefined) return { scopes: [], matches: [] };
 
-  // An id with two entries that disagree maps to null: the model gave no one answer.
+  // An id with two entries that disagree on the decision maps to null: the model gave no one
+  // answer. Two `matched` entries that disagree on `covers` read as `part`, the narrower cover (E2).
   const byId = new Map<string, TriageInstructionMatchOutput | null>();
 
   for (const entry of output) {
@@ -187,7 +191,9 @@ export function readStandingScopeMatches(
     const seen = byId.get(id);
 
     if (seen === undefined) byId.set(id, entry);
-    else if (seen !== null && seen.decision !== entry.decision) byId.set(id, null);
+    else if (seen === null) continue;
+    else if (seen.decision !== entry.decision) byId.set(id, null);
+    else if (seen.covers !== entry.covers) byId.set(id, { ...seen, covers: "part" });
   }
 
   const scopes: StandingInstructionScopeResult[] = [];

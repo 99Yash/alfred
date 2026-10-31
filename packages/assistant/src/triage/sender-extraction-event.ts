@@ -112,6 +112,11 @@ interface StandingTraceFields {
    * sent instruction is `unknown`. Null when it did not fail, or on the fallback path.
    */
   standingMatchFailure: string | null;
+  /**
+   * Sent scoped instructions left `unknown` after the call (ADR-0113 rule 4). Null on the
+   * fallback path.
+   */
+  standingUndecidedCount: number | null;
 }
 
 function standingTraceFields(audit: StandingClassifyAudit | null): StandingTraceFields {
@@ -125,6 +130,7 @@ function standingTraceFields(audit: StandingClassifyAudit | null): StandingTrace
     standingClassOnlyTokens: audit?.counter.classOnlyTokens ?? null,
     standingOverflowCount: audit?.counter.overflow ?? null,
     standingMatchFailure: audit?.matchFailure?.message ?? null,
+    standingUndecidedCount: audit?.undecided ?? null,
   };
 }
 

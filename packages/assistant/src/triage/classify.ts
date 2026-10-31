@@ -191,6 +191,11 @@ export interface StandingClassifyAudit {
    * sent instruction is `unknown`. Null when the match list did not fail.
    */
   matchFailure: { message: string } | null;
+  /**
+   * Sent instructions with no result from the stored pass, so their state is `unknown`: the
+   * model left them out or gave no valid decision, or the match list failed.
+   */
+  undecided: number;
 }
 
 const PASSIVE_CATEGORIES = new Set<TriageCategory>(["fyi", "done", "newsletter", "marketing"]);
@@ -1101,6 +1106,7 @@ export async function classifyEmail(args: ClassifyEmailArgs): Promise<ClassifyEm
         floor: standingFloor.audit,
         counter: scopeBlock.counter,
         matchFailure: working.matchFailure,
+        undecided: scopeBlock.sent.length - scopeRead.scopes.length,
       },
     },
     modelVerdict: { ...verdict, exposedSecret: floorMatches },

@@ -45,7 +45,11 @@ These choices are not in the ADR. Each one is the smallest choice that keeps an 
    **A match needs an explicit decision.** Both calls write one `instructionMatches` entry for
    each sent instruction: `id`, `reason`, `decision` (`matched` or `not_matched`), and
    `covers`. Only `decision: "matched"` makes a match. The presence of an entry is not a match.
-   A missing or bad decision, or two entries that disagree, read as `unknown`. Before this
+   A missing or bad decision, or two entries that disagree, read as `unknown`. Two `matched`
+   entries that disagree on `covers` read as `part`. The trace records each sent instruction
+   left `unknown` in `standingUndecidedCount`. An `unknown` blocking effect holds its output
+   (ADR-0113 rule 4). The re-match job asks again only after the next change to the set, and
+   only for its window. Before this
    rule, code read each listed id as a match. The cheap model listed an exception with the
    reason "not a tax or legal matter", and the exception then cancelled every lowering effect
    of the investment instruction.

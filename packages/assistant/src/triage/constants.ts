@@ -47,7 +47,7 @@ export const TRIAGE_INSTRUCTION_MATCH_MAX_ENTRIES = 24;
 
 /**
  * The output budget for one `instructionMatches` entry: the id, a reason under 20 words, the
- * decision, and `covers`. About 40 tokens is typical; the rest is headroom for a long reason.
+ * decision, and `covers`. Live calls used about 65 tokens; the rest is headroom for a long reason.
  */
 const TRIAGE_INSTRUCTION_MATCH_ENTRY_TOKENS = 80;
 

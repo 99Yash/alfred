@@ -244,7 +244,10 @@ interface RematchCounts {
   called: number;
   /** Fresh `matched` results. */
   matched: number;
-  /** Scoped instructions still `unknown` after the job: past the allowance, or a failed call. */
+  /**
+   * Scoped instructions still `unknown` after the job: past the allowance, a failed call, or no
+   * decision from the model.
+   */
   unknownLeft: number;
   failed: number;
   cacheUpdated: number;
@@ -321,6 +324,8 @@ export async function rematchStandingInstructions(args: {
 
             fresh = readStandingScopeMatches(sent, output).scopes;
             counts.matched += fresh.filter((result) => result.state === "matched").length;
+            // A sent instruction that the model did not decide stays `unknown`.
+            counts.unknownLeft += sent.length - fresh.length;
           } catch (err) {
             // A cancelled job stops. It is not a failed call.
             if (scope.signal.aborted) throw err;
