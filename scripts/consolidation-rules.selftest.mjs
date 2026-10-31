@@ -1557,6 +1557,30 @@ const LINE_CASES = [
     code: `  const createdAt = bullJob.timestamp;`,
   },
   {
+    // `boundary-guard-type-argument` — an explicit argument skips the guard's own check.
+    name: "boundary-guard-type-argument — isRecord told that a typed row is unknown",
+    caught: true,
+    rule: "boundary-guard-type-argument",
+    code: `  if (!isRecord<unknown>(row)) return row;`,
+  },
+  {
+    name: "boundary-guard-type-argument — a path read told that a typed column is unknown",
+    caught: true,
+    rule: "boundary-guard-type-argument",
+    code: `  const reason = getStringPath<unknown>(run.error, "reason");`,
+  },
+  {
+    name: "boundary-guard-type-argument — an inferred call on an unknown value",
+    caught: false,
+    code: `  const reason = getStringPath(payload, "reason");`,
+  },
+  {
+    name: "boundary-guard-type-argument — the guards module declares its generics",
+    caught: false,
+    file: "packages/contracts/src/guards.ts",
+    code: `export function getPath<T>(value: OpenOnly<T>, ...keys: string[]): unknown {`,
+  },
+  {
     name: "bullmq-job-timestamp — the identity fallback for a request id",
     caught: false,
     code: "        requestId: `memory-job:${job.id ?? job.timestamp}`,",

@@ -6,11 +6,94 @@
 import { parseMailbox } from "./domain";
 import type { JsonObject, JsonValue } from "./user-model";
 
-/**
- * True only for plain objects: not `null`, arrays, Date, Map, or class instances.
- * Use it on values that are really `unknown`. On a typed value it erases the parse.
+/*
+ * The boundary guards below gate their argument type. A guard on a value that already has a
+ * closed type erases what a parse or a schema proved, so such a call does not compile.
+ * `T` infers from the argument through the false branch of each parameter type. When the
+ * argument is outside the domain, the parameter resolves to a marker interface that no value
+ * has. The key of the marker is the error message.
  */
-export function isRecord(value: unknown): value is Record<string, unknown> {
+
+/** The parameter of `isRecord` and `toRecord` when the argument has a static type. */
+interface TypedValueIndexTheFieldDirectly {
+  readonly "isRecord takes only unknown. Index the typed field directly, or call isJsonObject on a JsonValue": never;
+}
+
+/** The parameter of a path helper when the argument has a closed type. */
+interface ClosedTypeIndexTheFieldDirectly {
+  readonly "The path helpers take only unknown or open JSON. Index the typed field directly": never;
+}
+
+type GuardLeaf = string | number | boolean | bigint | symbol | null | undefined;
+
+/** The named keys of `M`, without its index signatures. */
+type NamedKeys<M> = keyof {
+  [K in keyof M as string extends K
+    ? never
+    : number extends K
+      ? never
+      : symbol extends K
+        ? never
+        : K]: 0;
+};
+
+/** `"closed"` when a member of `V` is an object with a named key. One level deep only. */
+type ShallowClosed<V> = V extends GuardLeaf
+  ? never
+  : V extends readonly unknown[]
+    ? never
+    : [NamedKeys<V>] extends [never]
+      ? never
+      : "closed";
+
+/**
+ * Each member of `T` as `"leaf"` (a primitive), `"open"` (an index signature or an array whose
+ * values are not closed objects, `{}`, `object`) or `"closed"` (an object with a named key).
+ */
+type OpenShape<T> = T extends GuardLeaf
+  ? "leaf"
+  : T extends readonly (infer E)[]
+    ? [ShallowClosed<E>] extends [never]
+      ? "open"
+      : "closed"
+    : [NamedKeys<T>] extends [never]
+      ? [ShallowClosed<T[keyof T]>] extends [never]
+        ? "open"
+        : "closed"
+      : "closed";
+
+/** `unknown`, `any`, `{}` and those with `null` or `undefined` pass. */
+type UnknownGate<T> = unknown extends T | null | undefined
+  ? unknown
+  : TypedValueIndexTheFieldDirectly;
+
+/**
+ * The parameter of `isRecord` and `toRecord`. An `any` argument reads as `unknown`, so the
+ * predicate still narrows it to `Record<string, unknown>`.
+ */
+type UnknownOnly<T> = 0 extends 1 & T
+  ? unknown
+  : UnknownGate<T> extends TypedValueIndexTheFieldDirectly
+    ? TypedValueIndexTheFieldDirectly
+    : T;
+
+/**
+ * Open JSON passes too: `JsonValue`, `JsonObject`, `Record<string, unknown>`, and a union of
+ * those with primitives. A member with a named key is closed, and so is a primitive alone.
+ */
+type OpenGate<T> = unknown extends T | null | undefined
+  ? unknown
+  : "closed" extends OpenShape<T>
+    ? ClosedTypeIndexTheFieldDirectly
+    : "open" extends OpenShape<T>
+      ? unknown
+      : ClosedTypeIndexTheFieldDirectly;
+
+/** The first parameter of a path helper. */
+type OpenOnly<T> =
+  OpenGate<T> extends ClosedTypeIndexTheFieldDirectly ? ClosedTypeIndexTheFieldDirectly : T;
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const proto: unknown = Object.getPrototypeOf(value);
 
@@ -18,11 +101,22 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
+ * True only for plain objects: not `null`, arrays, Date, Map, or class instances.
+ * The argument must be `unknown`. A typed argument does not compile, because the guard would
+ * erase its parse. Use `isJsonObject` on a `JsonValue`.
+ */
+export function isRecord<T>(
+  value: UnknownOnly<T>,
+): value is UnknownOnly<T> & Record<string, unknown> {
+  return isPlainObject(value);
+}
+
+/**
  * The object branch of a `JsonValue`, for a walker over a JSON tree.
  * It does the same runtime check as `isRecord`.
  */
 export function isJsonObject(value: JsonValue | undefined): value is JsonObject {
-  return isRecord(value);
+  return isPlainObject(value);
 }
 
 /**
@@ -47,9 +141,9 @@ export function isValidPage(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 1;
 }
 
-/** The value if it is a plain object, else `{}`. */
-export function toRecord(value: unknown): Record<string, unknown> {
-  return isRecord(value) ? value : {};
+/** The value if it is a plain object, else `{}`. The argument must be `unknown`, as for `isRecord`. */
+export function toRecord<T>(value: UnknownOnly<T>): Record<string, unknown> {
+  return isPlainObject(value) ? value : {};
 }
 
 /** The string elements of an array, else `[]`. */
@@ -69,13 +163,18 @@ export function toFiniteNumber(value: unknown): number | undefined {
 
 /**
  * Read a nested key through plain objects. `undefined` if a link is missing. Never throws.
- * Narrow the `unknown` result at the leaf.
+ * Narrow the `unknown` result at the leaf. The argument must be `unknown` or open JSON; a
+ * closed type does not compile, so index its typed field directly.
  */
-export function getPath(value: unknown, ...keys: string[]): unknown {
+export function getPath<T>(value: OpenOnly<T>, ...keys: string[]): unknown {
+  return readPath(value, keys);
+}
+
+function readPath(value: unknown, keys: readonly string[]): unknown {
   let current: unknown = value;
 
   for (const key of keys) {
-    if (!isRecord(current)) return undefined;
+    if (!isPlainObject(current)) return undefined;
     current = current[key];
   }
 
@@ -83,8 +182,8 @@ export function getPath(value: unknown, ...keys: string[]): unknown {
 }
 
 /** `getPath`, but only a string leaf. */
-export function getStringPath(value: unknown, ...keys: string[]): string | undefined {
-  const leaf = getPath(value, ...keys);
+export function getStringPath<T>(value: OpenOnly<T>, ...keys: string[]): string | undefined {
+  const leaf = readPath(value, keys);
 
   return typeof leaf === "string" ? leaf : undefined;
 }
@@ -104,8 +203,8 @@ export function getStringField(value: unknown, key: string): string | undefined 
  * Read a provider id that may be a string or an integer, as a string.
  * Webhooks send ids both ways, and the columns that store them are text.
  */
-export function getIdPath(value: unknown, ...keys: string[]): string | null {
-  const leaf = getPath(value, ...keys);
+export function getIdPath<T>(value: OpenOnly<T>, ...keys: string[]): string | null {
+  const leaf = readPath(value, keys);
 
   if (isNonEmptyString(leaf)) return leaf;
 

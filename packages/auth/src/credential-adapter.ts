@@ -43,7 +43,7 @@ function sealWrite<T extends Record<string, unknown>>(payload: T, vault: Credent
 
 /** Open token fields on read. Plaintext throws: it means a row was never sealed. */
 function openRow<T>(row: T, vault: CredentialVault): T {
-  if (!isRecord(row)) return row;
+  if (!isRecord<unknown>(row)) return row; // drift-ok: `T` is the caller's opaque row type; the explicit argument keeps `T` through the narrowing.
   let opened = row;
 
   for (const field of ACCOUNT_SECRET_FIELDS) {
@@ -66,7 +66,7 @@ function openJoined<T>(
 ): T {
   if (join === undefined || !(ACCOUNT_MODEL in join)) return row;
 
-  if (!isRecord(row)) return row;
+  if (!isRecord<unknown>(row)) return row; // drift-ok: `T` is the caller's opaque row type; the explicit argument keeps `T` through the narrowing.
 
   if (!(ACCOUNT_MODEL in row)) return row;
   const joined = row[ACCOUNT_MODEL];
