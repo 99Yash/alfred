@@ -17,10 +17,11 @@ import {
   searchToolCatalog,
   type ToolCatalogAccess,
 } from "@alfred/assistant/tool-runtime/discovery";
-import { liveTool, registerTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
+import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
 import {
   availableToolNames,
   evaluateToolAvailability,
+  registerTool,
 } from "../../../src/tool-runtime/internal/registry";
 import { resetToolFixtures } from "@alfred/assistant/tool-runtime/test-support";
 

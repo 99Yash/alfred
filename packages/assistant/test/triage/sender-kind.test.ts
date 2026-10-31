@@ -2,11 +2,12 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import type { ActiveEntityProfile } from "@alfred/assistant/knowledge";
-import { senderExtractionEvent, senderKindSignalFromProfile } from "@alfred/assistant/triage";
 import type { TriageClassification } from "@alfred/assistant/triage/classify";
 import { applyFloors, type FloorContext, type FloorOutcome } from "@alfred/assistant/triage/floors";
 import type { Observations } from "@alfred/assistant/triage/observations";
 import type { SenderContextResult } from "@alfred/assistant/triage/sender-context";
+import { senderExtractionEvent } from "../../src/triage/sender-extraction-event";
+import { senderKindSignalFromProfile } from "../../src/triage/sender-kind";
 
 function profile(overrides: Partial<ActiveEntityProfile>): ActiveEntityProfile {
   return {

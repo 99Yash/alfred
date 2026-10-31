@@ -7,7 +7,7 @@ import {
   chooseConversationSummaryModel,
   generateConversationSummary,
   type ConversationSummaryEvidence,
-} from "@alfred/assistant/chat/compaction/index";
+} from "../../src/chat/compaction/conversation-summary-generator";
 
 const evidence: ConversationSummaryEvidence = {
   priorSummary: null,

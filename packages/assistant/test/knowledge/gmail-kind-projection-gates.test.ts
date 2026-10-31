@@ -12,8 +12,8 @@ import {
   completeProjectionRun,
   startProjectionRun,
 } from "../../src/knowledge/projection";
-import { resolveSenderKind } from "@alfred/assistant/triage";
 import { dbBackedSkip } from "../support/db-backed";
+import { resolveSenderKind } from "../../src/triage/sender-kind";
 
 /**
  * Activation gates for the Gmail kind projection, run through the real

@@ -1,0 +1,466 @@
+{
+  "packages/ai/src/embeddings.ts": ["batchForVoyage"],
+  "packages/artifacts-design/src/index.ts": [
+    "buildArtifactDocument",
+    "documentTemplateById",
+    "documentTemplates",
+    "pdfArtifactHtmlViolations"
+  ],
+  "packages/artifacts-design/src/validation.ts": [
+    "MotionViolation",
+    "PdfArtifactHtmlViolation",
+    "authoredMotionViolations",
+    "pdfArtifactHtmlViolations",
+    "slideArtifactHtmlViolations"
+  ],
+  "packages/assistant/src/action-policies/index.ts": ["getResolvedPolicy"],
+  "packages/assistant/src/artifacts/read.ts": ["buildArtifactReference"],
+  "packages/assistant/src/automation/authoring.ts": ["definitionFromProposal"],
+  "packages/assistant/src/automation/revisions.ts": [
+    "WorkflowRevisionProblem",
+    "clearWorkflowBlocked",
+    "setWorkflowBlocked",
+    "validateWorkflowDefinition"
+  ],
+  "packages/assistant/src/automation/runtime-readiness.ts": ["runtimeReadinessDisposition"],
+  "packages/assistant/src/automation/seeder.ts": [
+    "BuiltinWorkflowSeedPlan",
+    "getBuiltinWorkflowSeedPlan"
+  ],
+  "packages/assistant/src/briefings/preferences.ts": [
+    "DEFAULT_BRIEFING_DELIVERY_HOUR",
+    "DEFAULT_BRIEFING_EVENING_HOUR",
+    "DEFAULT_BRIEFING_TIMEZONE",
+    "resolveBriefingPreferenceValues"
+  ],
+  "packages/assistant/src/briefings/read.ts": [
+    "SurfacedBriefingPayload",
+    "SurfacedKeys",
+    "collectSurfacedKeys",
+    "collectSurfacedLoopKeys",
+    "collectSurfacedThreadIds"
+  ],
+  "packages/assistant/src/chat/attachment-ingest.ts": ["extractChatAttachmentText"],
+  "packages/assistant/src/chat/attachments/attachment-enrichment.ts": [
+    "mediaModalityForMime",
+    "persistChatAttachmentRepresentation"
+  ],
+  "packages/assistant/src/chat/attachments/attachments.ts": ["validateStoredMeta"],
+  "packages/assistant/src/chat/chat-failure-kind.ts": ["classifyChatFailure"],
+  "packages/assistant/src/chat/chat-history-retrieval.ts": ["CHAT_HISTORY_EXCERPT_CHARS"],
+  "packages/assistant/src/chat/chat-turn-closure.ts": ["sanitizeChatMessageFields"],
+  "packages/assistant/src/chat/compaction/chat-context-assembly.ts": ["selectVerbatimTail"],
+  "packages/assistant/src/chat/compaction/conversation-compaction-queue.ts": [
+    "isUnrecoverableConversationCompactionError"
+  ],
+  "packages/assistant/src/chat/compaction/conversation-compaction-scheduler.ts": [
+    "BACKGROUND_COMPACTION_ABSOLUTE_CAP_TOKENS"
+  ],
+  "packages/assistant/src/chat/compaction/conversation-compaction-wait.ts": ["isCompactionActive"],
+  "packages/assistant/src/chat/compaction/conversation-summary-evidence.ts": [
+    "CONVERSATION_EVIDENCE_TEXT_LIMIT_CHARS",
+    "buildConversationSummaryEvidence"
+  ],
+  "packages/assistant/src/chat/compaction/conversation-summary-generator.ts": [
+    "ConversationSummaryModelRoute",
+    "chooseConversationSummaryModel"
+  ],
+  "packages/assistant/src/chat/compaction/turn-context-guard.ts": [
+    "CompactedChatTranscriptPair",
+    "buildCompactedChatTranscriptPair",
+    "oversizedUserMessageSummaryMessage",
+    "storedCompactionPrefix"
+  ],
+  "packages/assistant/src/chat/finalize-guards.ts": [
+    "FINALIZE_GUARD_SEQUENCE",
+    "GuardSpawnedChildrenDeps",
+    "GuardUnreportedToolFailuresDeps",
+    "guardSpawnedChildren",
+    "guardUnreportedToolFailures"
+  ],
+  "packages/assistant/src/chat/idle-capture-queue.ts": [
+    "chatMemoryIdleJobId",
+    "chatMemoryIdleTailJobId"
+  ],
+  "packages/assistant/src/chat/media-adapter.ts": ["createChatMediaHandler"],
+  "packages/assistant/src/chat/turn-attachment-reconciliation.ts": [
+    "freshAttachmentRowsMatchSubset"
+  ],
+  "packages/assistant/src/chat/turn-thermometer.ts": [
+    "RUNTIME_TURN_PHASES",
+    "TurnPhaseReading",
+    "_setTurnThermometerStarterForTests",
+    "buildTurnPhaseSpanInput",
+    "dispatchSharePct",
+    "otherPhaseMs"
+  ],
+  "packages/assistant/src/connections/mcp/index.ts": ["McpAuthorizedOAuth", "McpRawClient"],
+  "packages/assistant/src/execution/executor.ts": [
+    "LeaseResult",
+    "commitStepSuccess",
+    "leaseRun",
+    "markRunFailed"
+  ],
+  "packages/assistant/src/execution/index.domain.ts": [
+    "EffectReceiptSource",
+    "RunStatus",
+    "SignalArgs",
+    "StartApprovalExpiryWorkerOpts",
+    "StartApprovalNotificationWorkerOpts",
+    "WakeCondition",
+    "WorkflowInput"
+  ],
+  "packages/assistant/src/execution/index.ts": [
+    "EffectReceiptSource",
+    "RunStatus",
+    "ScratchOperation",
+    "ScratchWriter",
+    "Scratchpad",
+    "SignalArgs",
+    "StartApprovalExpiryWorkerOpts",
+    "StartApprovalNotificationWorkerOpts",
+    "WakeCondition"
+  ],
+  "packages/assistant/src/execution/registry.ts": ["_resetRegistryForTests"],
+  "packages/assistant/src/execution/run-bottlenecks.ts": [
+    "RunBottleneckInput",
+    "summarizeRunBottlenecks"
+  ],
+  "packages/assistant/src/execution/run-compaction/compactor.ts": [
+    "chooseCompactorModel",
+    "compactorRequestOverheadTokens"
+  ],
+  "packages/assistant/src/execution/runtime-spans.ts": [
+    "RUNTIME_APPROVAL_WAIT",
+    "RUNTIME_QUEUE_LEASE",
+    "RUNTIME_SUB_AGENT_WAIT",
+    "RUNTIME_TOOL_PRELOAD",
+    "RUNTIME_TOOL_SURFACE",
+    "_setRuntimeSpanStarterForTests",
+    "buildApprovalWaitSpanInput",
+    "buildQueueLeaseSpanInput",
+    "buildSubAgentWaitSpanInput",
+    "buildToolPreloadSpanInput",
+    "buildToolSurfaceSpanInput"
+  ],
+  "packages/assistant/src/execution/scratchpad/health.ts": ["hashScratchKey"],
+  "packages/assistant/src/execution/scratchpad/index.ts": ["ScratchOperation"],
+  "packages/assistant/src/execution/service.ts": [
+    "ResumeSweepCandidate",
+    "collectResumableRunIds",
+    "minStaleAfterMs"
+  ],
+  "packages/assistant/src/execution/sub-agent-join-wake-queue.ts": [
+    "getSubAgentJoinWakeQueue",
+    "subAgentJoinWakeJobId"
+  ],
+  "packages/assistant/src/execution/terminal-closure.ts": ["TerminalOutcome"],
+  "packages/assistant/src/execution/tool-surface-usage.ts": [
+    "ToolSurfaceUsage",
+    "invokedToolNamesFromTranscript",
+    "summarizeToolSurfaceUsage"
+  ],
+  "packages/assistant/src/execution/tool-surface.ts": [
+    "activateTool",
+    "buildSdkToolSet",
+    "migrateActiveTools"
+  ],
+  "packages/assistant/src/execution/transcript-dedup.ts": ["isSynthesizedToolDup"],
+  "packages/assistant/src/execution/usage-report.ts": ["SLUG_CATEGORY"],
+  "packages/assistant/src/execution/workflows/user-authored-brief.ts": [
+    "USER_AUTHORED_BRIEF_WORKFLOW_SLUG",
+    "parentRunStillOpen"
+  ],
+  "packages/assistant/src/knowledge/affiliation.ts": ["isOrgAffiliationObservationAppendConflict"],
+  "packages/assistant/src/knowledge/chunks.ts": ["MEMORY_CHUNK_KINDS", "pendingEmbedChunkIds"],
+  "packages/assistant/src/knowledge/drift-audit/metrics.ts": [
+    "MetricResult",
+    "attentionShare7d",
+    "selfIngestionCount",
+    "todoDismissDoneRatio"
+  ],
+  "packages/assistant/src/knowledge/extractor.ts": ["GenerateObject", "SYSTEM_PROMPT"],
+  "packages/assistant/src/knowledge/fact-policy.ts": [
+    "Authorship",
+    "AuthorshipDocument",
+    "SINGLE_VALUED_KEYS",
+    "authoredByUser"
+  ],
+  "packages/assistant/src/knowledge/index.ts": ["SaveStandingInstructionResult"],
+  "packages/assistant/src/knowledge/standing-instructions.ts": ["STANDING_INSTRUCTION_LIST_LIMIT"],
+  "packages/assistant/src/knowledge/style-profiles.ts": ["upsertStyleProfileArgsSchema"],
+  "packages/assistant/src/tasks/resolve.ts": ["gmailThreadIdsFromTodoSources"],
+  "packages/assistant/src/tasks/suggest.ts": ["todoSourcesOverlap"],
+  "packages/assistant/src/tool-runtime/approval-notification-queue.ts": [
+    "approvalNotificationJobId",
+    "notificationJobDataSchema",
+    "workflowBlockedNotificationJobId"
+  ],
+  "packages/assistant/src/tool-runtime/discovery.ts": [
+    "ToolCatalogAccess",
+    "preloadToolCatalog",
+    "searchToolCatalog"
+  ],
+  "packages/assistant/src/tool-runtime/index.ts": [
+    "BlockedWorkflowDraftResult",
+    "ChatHistoryExcerpt",
+    "ChatHistoryToolCallEvidence",
+    "ChatTurnAddress",
+    "QUESTION_TOOL_PROBE_INPUT",
+    "RelatedInstructionResult",
+    "ResolveTodoByIdsResult",
+    "ResolveTodoBySourceResult",
+    "StandingInstructionSummaryResult",
+    "SystemToolScratchOperation",
+    "ToolExecuteContextFields",
+    "WebSearchResultHit",
+    "WebSearchResultSource",
+    "WorkflowDefinitionProblem",
+    "WorkflowReadinessBlocker",
+    "WorkflowServiceFailureResult",
+    "WorkflowToolCatalogSource",
+    "notificationJobDataSchema",
+    "registerTool",
+    "registerWorkflowToolCatalogSource",
+    "workflowBlockedNotificationJobId"
+  ],
+  "packages/assistant/src/tool-runtime/internal/dispatch/index.ts": ["ToolCallDispatchResult"],
+  "packages/assistant/src/tool-runtime/internal/dispatch/pipeline.ts": [
+    "ToolCallDispatchResult",
+    "_setDispatchTraceSinksForTests",
+    "buildDispatchRejectionTraceInput",
+    "undeclaredToolMessage"
+  ],
+  "packages/assistant/src/tool-runtime/internal/dispatch/staging-store.ts": [
+    "StagingInsertValues",
+    "_setStagingStoreForTests",
+    "attemptKeyFor",
+    "effectKeyFor",
+    "effectsColumn",
+    "isRunnableStaging",
+    "outcomeForInsert",
+    "postgresStagingStore"
+  ],
+  "packages/assistant/src/tool-runtime/internal/registry.ts": [
+    "readsAvailabilitySnapshot",
+    "registerTool"
+  ],
+  "packages/assistant/src/tool-runtime/internal/result-routing.ts": [
+    "isNonExecutionFailure",
+    "toolCallLogStatus"
+  ],
+  "packages/assistant/src/tool-runtime/internal/runtime-spans.ts": [
+    "RUNTIME_TOOL_LOAD",
+    "RUNTIME_TOOL_SEARCH",
+    "_setToolRuntimeSpanStarterForTests",
+    "buildToolLoadSpanInput",
+    "buildToolSearchSpanInput"
+  ],
+  "packages/assistant/src/tool-runtime/internal/tools/calendar.ts": ["resolveCalendarListWindow"],
+  "packages/assistant/src/tool-runtime/internal/tools/fetch-url.ts": [
+    "FetchError",
+    "FetchUrlError",
+    "HttpRequester",
+    "RawResponse",
+    "ResponseBody",
+    "Transport",
+    "UndiciResponseLike",
+    "decodeResponseBody",
+    "htmlToText",
+    "safeRequest"
+  ],
+  "packages/assistant/src/tool-runtime/internal/tools/github.ts": [
+    "buildGithubSearchQuery",
+    "resolvePullRequestAuthor"
+  ],
+  "packages/assistant/src/tool-runtime/internal/tools/passthrough/bounds.ts": [
+    "PASSTHROUGH_MAX_ARRAY_ITEMS",
+    "PASSTHROUGH_MAX_BODY_BYTES"
+  ],
+  "packages/assistant/src/tool-runtime/internal/tools/passthrough/gate.ts": [
+    "assertReadableGraphqlRequest"
+  ],
+  "packages/assistant/src/tool-runtime/internal/tools/system.ts": ["currentTimeSnapshot"],
+  "packages/assistant/src/tool-runtime/mcp/broker-policy.ts": ["MCP_BROKER_ADMISSION_CAPACITY"],
+  "packages/assistant/src/tool-runtime/mcp/invocations.ts": ["readToolPolicy"],
+  "packages/assistant/src/tool-runtime/mcp/risk.ts": ["MCP_CALL_RISK_FLOOR"],
+  "packages/assistant/src/tool-runtime/mcp/runtime.ts": ["_setMcpExecutionBrokerForTests"],
+  "packages/assistant/src/triage/classify.ts": [
+    "SYSTEM_PROMPT",
+    "TriageClassifierOutput",
+    "TriageConflict",
+    "classifyCallOptions",
+    "detectConflict",
+    "normalizeClassifierOutput",
+    "noteMarksFailingOutcome",
+    "sanitizeAssist",
+    "sanitizeTodoName"
+  ],
+  "packages/assistant/src/triage/deepen.ts": ["DeepenDecision", "shouldDeepen"],
+  "packages/assistant/src/triage/email-html.ts": ["EMAIL_CSP_META"],
+  "packages/assistant/src/triage/hedge.ts": ["HedgeAttempt"],
+  "packages/assistant/src/triage/observations.ts": [
+    "ContentFlags",
+    "GmailSignals",
+    "extractContentFlags",
+    "extractGmailSignals"
+  ],
+  "packages/assistant/src/triage/sender-extraction-event.ts": ["FLOOR_TRACE_PROJECTIONS"],
+  "packages/assistant/src/triage/sender-kind.ts": ["senderKindSignalFromProfile"],
+  "packages/assistant/src/triage/sender-relationship.ts": [
+    "NON_HUMAN_RELATIONSHIP",
+    "RELATIONSHIP_READ_FAILED",
+    "SenderSignificanceBucket",
+    "isColdContactFromSignals"
+  ],
+  "packages/assistant/src/triage/thread-state.ts": ["buildThreadSnippet"],
+  "packages/assistant/src/triggers/index.ts": ["domainEventSchema"],
+  "packages/auth/src/credential-adapter.ts": ["AuthAdapter"],
+  "packages/auth/src/rate-limit.ts": ["createAuthRateLimitStorage"],
+  "packages/auth/src/session-policy.ts": ["SESSION_LIFETIME_SECONDS"],
+  "packages/contracts/src/api-errors.ts": ["API_ERROR_CODES", "API_ERROR_STATUS"],
+  "packages/contracts/src/app-errors/index.ts": [
+    "APP_ERROR_CODES",
+    "APP_ERROR_REGISTRY",
+    "FALLBACK_APP_ERROR_CODE",
+    "FIX_KINDS",
+    "Fix",
+    "isFixKind"
+  ],
+  "packages/contracts/src/attachments.ts": [
+    "MAX_ATTACHMENT_BYTES_PER_FILE",
+    "MAX_MODEL_ATTACHMENT_BYTES_PER_IMAGE"
+  ],
+  "packages/contracts/src/attention.ts": [
+    "AttentionInput",
+    "CATEGORY_BASE_DEMAND",
+    "DEMANDING_AT",
+    "MUTED_BELOW",
+    "attentionBand",
+    "attentionScore",
+    "isLikelyBulkSender",
+    "normalizeSubjectForRecurrence"
+  ],
+  "packages/contracts/src/bound.ts": ["TOOL_RESULT_MAX_STRING_CHARS"],
+  "packages/contracts/src/briefing-signals.ts": [
+    "BRIEFING_CONTEXT_SIGNALS",
+    "BRIEFING_CONTEXT_SIGNAL_KINDS",
+    "BriefingContextSignalDef",
+    "BriefingContextSignalKind",
+    "MAX_BRIEFING_SIGNAL_EVIDENCE",
+    "MAX_BRIEFING_SIGNAL_SUMMARY_LENGTH",
+    "briefingContextSignalSchema",
+    "isBriefingContextSignalKind"
+  ],
+  "packages/contracts/src/chat-memory.ts": [
+    "MAX_CHAT_PROPOSITIONS",
+    "PROPOSITION_ATTRIBUTIONS",
+    "VERIFICATION_CLASSES",
+    "VOLATILITY_CLASSES"
+  ],
+  "packages/contracts/src/concurrency.ts": ["TaskGroupSettledResult", "settleTaskGroup"],
+  "packages/contracts/src/context-search.ts": ["CONTEXT_SEARCH_DEFAULT_LIMIT"],
+  "packages/contracts/src/document-source.ts": ["documentSourceSchema"],
+  "packages/contracts/src/errors.ts": ["MAX_ERROR_BODY_CHARS"],
+  "packages/contracts/src/events.ts": ["AGENT_RUN_ERROR_MAX", "agentRunSchema", "chatToolSchema"],
+  "packages/contracts/src/identity-affiliation.ts": [
+    "DOMAIN_CLASSES",
+    "FREE_MAIL_DOMAINS",
+    "GROUNDING_TIERS",
+    "GROUNDING_TIER_RANK",
+    "PROJECTION_IDENTITY_KEYS",
+    "ProjectionIdentityKey",
+    "affiliationGroundingTier",
+    "canGroundIdentityKey",
+    "groundingTierRank",
+    "groundingTierSchema",
+    "isProjectionIdentityKey",
+    "isStrongerGrounding"
+  ],
+  "packages/contracts/src/integrations/index.ts": ["SUPPORTED_REST_PASSTHROUGH_SLUGS"],
+  "packages/contracts/src/integrations/slugs.ts": ["SUPPORTED_REST_PASSTHROUGH_SLUGS"],
+  "packages/contracts/src/mcp.ts": ["mcpRecoveryDecisionSchema"],
+  "packages/contracts/src/passthrough-bounds.ts": [
+    "PASSTHROUGH_MAX_ARRAY_ITEMS",
+    "PASSTHROUGH_MAX_BODY_BYTES"
+  ],
+  "packages/contracts/src/passthrough.ts": ["PASSTHROUGH_TOOL_ACTION", "passthroughPreferenceKey"],
+  "packages/contracts/src/standing-instructions.ts": ["liftStandingInstructionV1"],
+  "packages/contracts/src/todos.ts": ["TODO_SOURCES_MAX"],
+  "packages/contracts/src/user-model.ts": [
+    "AccountBridgeInput",
+    "CANONICAL_FACT_KEYS",
+    "ENTITY_NODE_KINDS",
+    "FACT_KEY_ALIASES",
+    "IDENTITY_ANCHOR_TIER",
+    "IdentityAnchorInput",
+    "IdentityAnchorTier",
+    "MAX_EVIDENCE_HASH_BYTES",
+    "MAX_FAMILY_KEY_BYTES",
+    "MAX_IDENTITY_VALUE_BYTES",
+    "NON_PERSON_ENTITY_KINDS",
+    "OBSERVATION_REDUCERS",
+    "OBSERVATION_SOURCE_RANK",
+    "PROJECTION_RUN_STATUS",
+    "UserFactKey",
+    "identityAnchorRank",
+    "isHardPersonBridge",
+    "isImmutableAccountBridge",
+    "isObservationKindForSource",
+    "isPersonScorable",
+    "isUserFactKey",
+    "observationParticipantsSchema",
+    "observationSourceKindSchema",
+    "observationSourceSchema",
+    "observationSubjectSchema",
+    "projectionCursorValueSchema",
+    "projectionRunStatusSchema",
+    "projectionSourceHighWatermarkSchema"
+  ],
+  "packages/corpus/src/index.ts": ["recordDocumentEmbedFailure"],
+  "packages/db/src/credential-vault.ts": ["createCredentialVault"],
+  "packages/db/src/helpers.ts": ["computeStableEntityId"],
+  "packages/http/src/index.ts": [
+    "SecurityHeadersOptions",
+    "agent",
+    "approvalsRoutes",
+    "authMacro",
+    "chatRoutes",
+    "connections",
+    "errorHandler",
+    "events",
+    "getSessionCached",
+    "integrationsRoutes",
+    "invalidateSessionToken",
+    "mcpIntegrationRoutes",
+    "meRoutes",
+    "onboardingRoutes",
+    "replicache",
+    "requireOnboarded",
+    "sharingRoutes",
+    "skillsRoutes",
+    "workflowRoutes"
+  ],
+  "packages/integrations/src/shared/index.ts": ["RestPassthroughProfile", "restPassthroughFetch"],
+  "packages/logging/src/logger.ts": ["createLogger", "serializeError"],
+  "packages/sync/src/index.ts": [
+    "syncedNoteSchema",
+    "todoClearClient",
+    "todoCompleteClient",
+    "todoCompleteSuggestionClient",
+    "todoDismissClient",
+    "todoPromoteClient",
+    "todoReopenClient",
+    "triageTagOverrideClient"
+  ],
+  "packages/sync/src/mutators/index.ts": [
+    "todoClearClient",
+    "todoCompleteClient",
+    "todoCompleteSuggestionClient",
+    "todoDismissClient",
+    "todoPromoteClient",
+    "todoReopenClient",
+    "triageTagOverrideClient"
+  ],
+  "packages/sync/src/sync-model.ts": ["SyncStringKey"]
+}

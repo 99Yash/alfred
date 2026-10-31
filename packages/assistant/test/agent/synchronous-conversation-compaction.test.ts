@@ -3,14 +3,14 @@ import { describe, test } from "node:test";
 
 import type { ChatThreadContext } from "@alfred/db/schemas";
 
-import {
-  compactConversationSynchronously,
-  conversationSummaryMessage,
-  type ConversationSummary,
-  type LoadedChatThreadContext,
-  type PersistConversationSummaryArgs,
-} from "@alfred/assistant/chat/compaction/index";
 import { estimateTranscriptTokens } from "@alfred/assistant/execution/run-compaction/index";
+import { compactConversationSynchronously } from "../../src/chat/compaction/synchronous-conversation-compaction";
+import { conversationSummaryMessage } from "../../src/chat/compaction/chat-context-assembly";
+import type { ConversationSummary } from "../../src/chat/compaction/conversation-summary";
+import type {
+  LoadedChatThreadContext,
+  PersistConversationSummaryArgs,
+} from "../../src/chat/compaction/chat-context-store";
 
 const at = new Date("2026-07-12T00:00:00.000Z");
 

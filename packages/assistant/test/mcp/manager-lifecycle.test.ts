@@ -7,18 +7,20 @@ import type { Tool } from "@modelcontextprotocol/client";
 import {
   McpClientError,
   McpConnectionManager,
-  McpRawClient,
-  type McpConnectionManagerPersistence,
-  type McpNegotiatedServer,
-  type McpProtocolCallResult,
-  type McpProtocolClient,
-  type McpProtocolPage,
   type McpTraceContext,
 } from "@alfred/assistant/connections/mcp";
 import { permissiveMcpEndpointAuthorizerForTests } from "@alfred/assistant/connections/mcp/test-support";
 import { GITHUB_MCP_ENDPOINT_HREF } from "../../src/connections/mcp/constants";
 import { projectCatalogRevision } from "../../src/connections/mcp/hash";
 import type { McpConnectionWithServer } from "../../src/connections/mcp/persistence";
+import { McpRawClient } from "../../src/connections/mcp/client";
+import type { McpConnectionManagerPersistence } from "../../src/connections/mcp/manager";
+import type {
+  McpNegotiatedServer,
+  McpProtocolCallResult,
+  McpProtocolClient,
+  McpProtocolPage,
+} from "../../src/connections/mcp/protocol";
 
 type JoinedServerDefinition = McpConnectionWithServer["server"];
 

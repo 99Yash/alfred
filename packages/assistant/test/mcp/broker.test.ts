@@ -15,14 +15,7 @@ import type { McpCallInput } from "@alfred/contracts";
 import { ProtocolError, SdkErrorCode, SdkHttpError, type Tool } from "@modelcontextprotocol/client";
 import { eq, inArray, like } from "drizzle-orm";
 
-import {
-  McpRawClient,
-  type ExternalToolRef,
-  type McpNegotiatedServer,
-  type McpProtocolCallResult,
-  type McpProtocolClient,
-  type McpProtocolPage,
-} from "../../src/connections/mcp";
+import type { ExternalToolRef } from "../../src/connections/mcp";
 import { McpExecutionBroker } from "../../src/tool-runtime/mcp/broker";
 import { McpClientError } from "../../src/connections/mcp/errors";
 import { descriptorHash } from "../../src/connections/mcp/hash";
@@ -41,6 +34,13 @@ import {
 import { _setMcpExecutionBrokerForTests } from "../../src/tool-runtime/mcp/runtime";
 import { dbBackedSkip } from "../support/db-backed";
 import { claimExpectedRejection } from "../support/expected-rejection";
+import { McpRawClient } from "../../src/connections/mcp/client";
+import type {
+  McpNegotiatedServer,
+  McpProtocolCallResult,
+  McpProtocolClient,
+  McpProtocolPage,
+} from "../../src/connections/mcp/protocol";
 
 /**
  * DB-backed broker tests. A real `McpRawClient` runs over a fake `McpProtocolClient`,

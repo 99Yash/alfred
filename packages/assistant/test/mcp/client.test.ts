@@ -2,16 +2,16 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { getPath } from "@alfred/contracts";
 import { ProtocolError, SdkErrorCode, SdkHttpError, type Tool } from "@modelcontextprotocol/client";
-import {
-  McpClientError,
-  McpRawClient,
-  type McpProtocolCallResult,
-  type McpProtocolClient,
-  type McpProtocolPage,
-  type McpProtocolServer,
-} from "../../src/connections/mcp";
+import { McpClientError } from "../../src/connections/mcp";
 import { isPreDeliveryErrorCode } from "../../src/connections/mcp/errors";
 import { permissiveMcpEndpointAuthorizerForTests } from "../../src/connections/mcp/test-support";
+import { McpRawClient } from "../../src/connections/mcp/client";
+import type {
+  McpProtocolCallResult,
+  McpProtocolClient,
+  McpProtocolPage,
+  McpProtocolServer,
+} from "../../src/connections/mcp/protocol";
 
 type FakePage = Omit<McpProtocolPage, "ttlMs" | "cacheScope"> &
   Partial<Pick<McpProtocolPage, "ttlMs" | "cacheScope">>;

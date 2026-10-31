@@ -11,7 +11,6 @@ export { createEvent, listEvents } from "./calendar";
 export {
   createGoogleClient,
   GoogleCredentialSelectionError,
-  googleClientForUser,
   type GoogleClient,
   type GoogleCredential,
   type GoogleTokenResolver,
@@ -19,7 +18,7 @@ export {
 
 export type { CredentialRow } from "./credentials";
 
-export { getFreshAccessToken, listCredentials, upsertCredential } from "./credentials";
+export { getFreshAccessToken, upsertCredential } from "./credentials";
 
 export type { DocumentHeading, GetDocumentArgs, GetDocumentResult } from "./docs";
 
@@ -79,7 +78,6 @@ export type {
   ApplyTriageLabelArgs,
   ApplyTriageLabelResult,
   LabelSelfAuthoredMailArgs,
-  LabelSelfMailDeps,
   TriageCategory,
 } from "./labels";
 

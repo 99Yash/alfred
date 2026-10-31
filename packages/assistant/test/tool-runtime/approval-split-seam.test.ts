@@ -5,7 +5,6 @@ import {
   APPROVAL_EXPIRY_QUEUE_NAME,
   APPROVAL_NOTIFICATION_QUEUE_NAME,
   approvalExpiryJobId,
-  approvalNotificationJobId,
   closeApprovalExpiryQueue,
   closeApprovalNotificationQueue,
   removeApprovalExpiryJob,
@@ -20,6 +19,7 @@ import {
   stopApprovalExpiryWorker,
   stopApprovalNotificationWorker,
 } from "@alfred/assistant/execution";
+import { approvalNotificationJobId } from "../../src/tool-runtime/approval-notification-queue";
 
 /**
  * Approval queue names and job-id formats must not change: a delayed job in flight

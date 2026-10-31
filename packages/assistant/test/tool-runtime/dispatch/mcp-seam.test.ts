@@ -16,21 +16,13 @@ import { and, eq, inArray, like } from "drizzle-orm";
 
 import { clearPolicyCacheForTests } from "@alfred/assistant/action-policies/test-support";
 import { dispatchToolCall } from "../../../src/tool-runtime/dispatch";
-import {
-  descriptorHash,
-  McpRawClient,
-  type McpCallEnvelope,
-  type McpNegotiatedServer,
-  type McpProtocolCallResult,
-  type McpProtocolClient,
-  type McpProtocolPage,
-} from "@alfred/assistant/connections/mcp";
+import { descriptorHash, type McpCallEnvelope } from "@alfred/assistant/connections/mcp";
 import {
   permissiveMcpEndpointAuthorizerForTests,
   publishCatalogRevision,
 } from "@alfred/assistant/connections/mcp/test-support";
 import { ensureConnection } from "../../../src/connections/mcp/persistence";
-import type { McpBrokerCallInput, McpBrokerOutcome } from "@alfred/assistant/tool-runtime/mcp";
+import type { McpBrokerOutcome } from "@alfred/assistant/tool-runtime/mcp";
 import {
   _setMcpExecutionBrokerForTests,
   upsertToolPolicy,
@@ -38,7 +30,7 @@ import {
 import { clearToolRegistryForTests, registerTools } from "@alfred/assistant/tool-runtime";
 import { mcpTools } from "../../../src/tool-runtime/internal/tools/mcp";
 import { McpConnectionManager } from "../../../src/connections/mcp/manager";
-import { McpExecutionBroker } from "../../../src/tool-runtime/mcp/broker";
+import { McpExecutionBroker, type McpBrokerCallInput } from "../../../src/tool-runtime/mcp/broker";
 import {
   _setStagingStoreForTests,
   postgresStagingStore,
@@ -53,6 +45,13 @@ import { dbBackedSkip } from "../../support/db-backed";
 import { awaitGate } from "../../support/gate-timeout";
 import { asTestDouble } from "../../support/test-double";
 import { FIRST_STEP } from "../../support/first-step";
+import { McpRawClient } from "../../../src/connections/mcp/client";
+import type {
+  McpNegotiatedServer,
+  McpProtocolCallResult,
+  McpProtocolClient,
+  McpProtocolPage,
+} from "../../../src/connections/mcp/protocol";
 
 const UTC = parseIanaTimezone("UTC");
 

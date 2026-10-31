@@ -7,8 +7,7 @@ import {
   toolCallLogStatus,
   toolResultMessage,
 } from "../../../../src/tool-runtime/internal/result-routing";
-import type { ToolCallDispatchResult } from "../../../../src/tool-runtime/dispatch";
-
+import type { ToolCallDispatchResult } from "../../../../src/tool-runtime/internal/dispatch";
 /**
  * A read-gate `rejected` and a `feature_disabled` route in opposite ways. The model must
  * see a gate rejection to self-correct. `feature_disabled` is hidden as `nonExecution`.

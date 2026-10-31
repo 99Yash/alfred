@@ -13,12 +13,15 @@ import {
   encryptPersistedOAuthCredentials,
 } from "@alfred/db/credential-vault-maintenance";
 import { account, integrationCredentials, user } from "@alfred/db/schemas";
-import { getGithubAccessToken, upsertGithubCredential } from "../src/github/index";
-import { getFreshAccessToken, listCredentials, upsertCredential } from "../src/google/index";
-import { getActiveBearerCredential, upsertBearerCredential } from "../src/shared/index";
+import { upsertGithubCredential } from "../src/github/index";
+import { getFreshAccessToken, upsertCredential } from "../src/google/index";
+import { upsertBearerCredential } from "../src/shared/index";
 import { eq, inArray, sql } from "drizzle-orm";
 import { dbBackedSkip } from "./support/db-backed";
 import { z } from "zod";
+import { getGithubAccessToken } from "../src/github/credentials";
+import { listCredentials } from "../src/google/credentials";
+import { getActiveBearerCredential } from "../src/shared/credentials";
 
 /**
  * After each write, the column holds an envelope and the public read returns the original token.

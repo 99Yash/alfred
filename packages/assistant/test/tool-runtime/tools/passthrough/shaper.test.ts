@@ -6,7 +6,7 @@ import {
   passthroughHttpResult,
   passthroughRejection,
   passthroughTransportError,
-} from "../../../../src/tool-runtime/internal/tools/passthrough";
+} from "../../../../src/tool-runtime/internal/tools/passthrough/shaper";
 
 describe("passthroughHttpResult — succeeded semantics", () => {
   test("a 2xx with no GraphQL errors succeeds and preserves the body", () => {

@@ -3,8 +3,8 @@ import { afterEach, describe, test } from "node:test";
 import { z } from "zod";
 import type { IntegrationAvailabilitySnapshot } from "@alfred/contracts";
 
-import { clearToolRegistryForTests, liveTool, registerTool } from "@alfred/assistant/tool-runtime";
-import { resolveToolAvailability } from "../../../src/tool-runtime/internal/registry";
+import { clearToolRegistryForTests, liveTool } from "@alfred/assistant/tool-runtime";
+import { resolveToolAvailability, registerTool } from "../../../src/tool-runtime/internal/registry";
 
 afterEach(() => {
   clearToolRegistryForTests();

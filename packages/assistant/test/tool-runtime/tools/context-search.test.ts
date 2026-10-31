@@ -8,7 +8,6 @@ import {
   parseIanaTimezone,
   type EvidenceCard,
 } from "@alfred/contracts";
-import { registerContextSource } from "@alfred/assistant/context-search";
 import { defineTestContextSource } from "@alfred/assistant/context-search/test-support";
 import {
   executeToolCallRound,
@@ -29,6 +28,7 @@ import {
 } from "../../../src/runtime/adapters/system-tool-context-search";
 import { executeTool } from "../../support/execute-tool";
 import { FIRST_STEP } from "../../support/first-step";
+import { registerContextSource } from "../../../src/context-search/registry";
 
 /**
  * `system.search_context` end to end over a fake source: tool, seam, `searchContext`,

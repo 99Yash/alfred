@@ -19,13 +19,11 @@ import {
   type RunPass,
   type TriageClassification,
 } from "@alfred/assistant/triage/classify";
-import {
-  applyMeetingDemotionFloor as meetingFloorVerdict,
-  applyOverrideFloor as overrideFloorVerdict,
-  applySenderKindDemotionFloor as senderKindFloorVerdict,
-} from "@alfred/assistant/triage/floors";
 import { applyFloorVerdict } from "@alfred/assistant/triage/floors/floor";
 import type { Observations } from "@alfred/assistant/triage/observations";
+import { applyMeetingDemotionFloor as meetingFloorVerdict } from "../../src/triage/floors/meeting";
+import { applyOverrideFloor as overrideFloorVerdict } from "../../src/triage/floors/override";
+import { applySenderKindDemotionFloor as senderKindFloorVerdict } from "../../src/triage/floors/sender-kind";
 
 // ---------------------------------------------------------------------------
 // Per-floor harness. Each wrapper runs a floor's verdict through `applyFloorVerdict`,

@@ -9,7 +9,7 @@ import {
   type GlobalReferentKey,
   type ReferentKey,
   type SenderScopedReferentKey,
-} from "@alfred/assistant/knowledge";
+} from "../../src/knowledge/referent-identity";
 
 const GITHUB_SENDER = "notifications@github.com";
 

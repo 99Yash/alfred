@@ -17,12 +17,8 @@
 
 export type { ContextSearchRequest } from "@alfred/contracts";
 
-export { registerContextSource } from "./registry";
-
 export {
   contextSourcePriorities,
-  isTrustedRetrievalSource,
-  selectContextSources,
   SELECTION_EXCLUSION_REASONS,
   SOURCE_EXCLUSION_REASONS,
 } from "./manifest";
@@ -47,7 +43,6 @@ export type {
 export type { EvidenceRanking } from "./rank";
 
 export type {
-  ContextSource,
   ContextSourceExpander,
   ContextSourceReads,
   ContextSourceReader,

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { preferenceValueSchema, syncedPreferenceSchema } from "../src/index";
+import { preferenceValueSchema, syncedPreferenceSchema } from "../src/schemas";
 
 describe("preference JSON contract", () => {
   test("accepts recursive JSON values", () => {

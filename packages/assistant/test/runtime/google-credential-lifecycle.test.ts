@@ -3,17 +3,19 @@ import { describe, test } from "node:test";
 import type { DbTransaction } from "@alfred/db";
 import { createGoogleCredentialLifecycleHandler } from "../../src/runtime/adapters/google-credential-lifecycle";
 import {
-  disconnectGoogleCredentialConnectionWith,
-  googleCredentialDisconnectRequestSchema,
-  googleCredentialUpsertRequestSchema,
   GoogleCredentialNotFoundError,
-  NoGoogleCredentialLifecycleHandlerRegisteredError,
   registerGoogleCredentialLifecycleHandler,
   upsertGoogleCredentialConnection,
 } from "@alfred/assistant/connections";
 import { TriggerConsumerBootError } from "@alfred/assistant/triggers";
 import { asContractViolation } from "../support/contract-violation";
 import { asTestDouble } from "../support/test-double";
+import {
+  disconnectGoogleCredentialConnectionWith,
+  googleCredentialDisconnectRequestSchema,
+  googleCredentialUpsertRequestSchema,
+  NoGoogleCredentialLifecycleHandlerRegisteredError,
+} from "../../src/connections/google-credential-lifecycle";
 
 // The handler passes the transaction through to the injected stores, which ignore it.
 const fakeTransaction = asTestDouble<DbTransaction>({});

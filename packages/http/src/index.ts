@@ -65,9 +65,12 @@ export { events };
 // Domain decisions come from `@alfred/assistant` (ADR-0089).
 export { replicache };
 
-// The inferred `App` type names these, so the barrel must export them.
+// The inferred `App` type names these, so the barrel must export them. Knip cannot see
+// that reach, so each one is tagged `@public`.
+/** @public The inferred `App` type names it. */
 export type { PullResponse } from "./sync/pull";
 
+/** @public The inferred `App` type names it. */
 export type { PushResponse } from "./sync/push";
 
 /**

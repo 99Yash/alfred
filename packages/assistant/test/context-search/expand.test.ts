@@ -3,17 +3,13 @@ import { describe, test } from "node:test";
 
 import type { EvidenceCard, EvidenceExpansionHandle } from "@alfred/contracts";
 import { CONTEXT_SEARCH_MAX_LIVE_EXPANSIONS } from "@alfred/contracts";
-import {
-  packEvidenceCards,
-  registerContextSource,
-  searchContext,
-  type ContextSource,
-} from "@alfred/assistant/context-search";
+import { packEvidenceCards, searchContext } from "@alfred/assistant/context-search";
 import {
   defineContextSource,
   defineTestContextSource,
   defineTestExpansionSource,
 } from "@alfred/assistant/context-search/test-support";
+import { registerContextSource, type ContextSource } from "../../src/context-search/registry";
 
 /**
  * Expansion phase policy (ADR-0101 sub-decisions 17-18): which cards earn a round trip,

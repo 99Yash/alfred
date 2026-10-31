@@ -65,8 +65,6 @@ Each rule has the rule and the reason. Its smell file has a Bad and a Good examp
   Why: a retry must not repeat a side effect. Example: #576.
 - **Name the clock of each timestamp. Compare only timestamps of one clock.** [Smell](./smells/name-timestamp-clock.md).
   Why: creation, delivery, provider event and fire time are different clocks. Example: `scheduledFireTime`, #1358.
-- **Do not export a primitive from a package barrel only for a test.** The test imports it from `src/`. [Smell](./smells/no-barrel-export-for-test.md).
-  Why: a public primitive is the door for the next copy. Example: #1361.
 - **Do not query in a loop. Paginate every list endpoint.** [Smell](./smells/no-query-in-loop.md).
   Why: an N+1 read grows with the data. Example: #1126.
 - **Do not let a `catch` clause with statements drop the error.** Rethrow it, log it, or return a failure value. `no-empty` fails only an empty `catch` body, and `alfred/no-swallowed-catch` reads only a `.catch(…)` handler, so check a `catch` clause that has statements. [Smell](./smells/no-swallowed-try-catch.md).

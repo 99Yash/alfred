@@ -9,10 +9,10 @@ import {
   type ProposedToolCall,
   type ToolCallRun,
   type ToolRuntimeAdapter,
-  type ToolEffects,
 } from "@alfred/assistant/tool-runtime";
 import { _setToolRuntimeSpanStarterForTests } from "../../src/tool-runtime/internal/runtime-spans";
 import { FIRST_STEP } from "../support/first-step";
+import type { ToolEffects } from "../../src/tool-runtime/internal/registry";
 
 const UTC = parseIanaTimezone("UTC");
 

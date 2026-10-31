@@ -9,14 +9,14 @@ import { findUnembeddedDocumentIds } from "@alfred/corpus";
 import { and, eq, inArray } from "drizzle-orm";
 
 // A watch install that fails to seed a cursor leaves the credential in endless full re-sync.
+import type { GmailMessage } from "@alfred/integrations/google";
+import type { Extraction } from "@alfred/extraction";
+import { dbBackedSkip } from "./support/db-backed";
 import {
   pollGmailRecent,
   runGmailMediaIngest,
   seedGmailHistoryCursorIfAbsent,
-} from "@alfred/assistant/connections/ingestion/internal";
-import type { GmailMessage } from "@alfred/integrations/google";
-import type { Extraction } from "@alfred/extraction";
-import { dbBackedSkip } from "./support/db-backed";
+} from "../src/connections/ingestion/gmail-ingest";
 
 const ID_PREFIX = "test-gmail-ingest-";
 

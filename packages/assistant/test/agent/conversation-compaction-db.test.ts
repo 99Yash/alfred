@@ -14,11 +14,9 @@ import {
 import { eq, inArray, sql } from "drizzle-orm";
 
 import { persistChatAttachmentRepresentation } from "@alfred/assistant/chat/attachments/attachment-enrichment";
-import {
-  loadConversationSummaryEvidence,
-  persistConversationSummary,
-} from "@alfred/assistant/chat/compaction/index";
 import { dbBackedSkip } from "../support/db-backed";
+import { loadConversationSummaryEvidence } from "../../src/chat/compaction/conversation-summary-evidence";
+import { persistConversationSummary } from "../../src/chat/compaction/chat-context-store";
 
 const SKIP = dbBackedSkip("database");
 

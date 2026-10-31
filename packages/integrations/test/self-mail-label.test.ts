@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { HttpError } from "@alfred/contracts";
-import type { LabelSelfMailDeps } from "../src/google/index";
+import type { LabelSelfMailDeps } from "../src/google/labels";
 
 // `serverEnv()` validates every field on first read, so seed it before the import.
 const SERVER_ENV_FIXTURES = {

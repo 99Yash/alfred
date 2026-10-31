@@ -4,8 +4,9 @@ import { z } from "zod";
 import { parseIanaTimezone, type ToolRiskTier } from "@alfred/contracts";
 
 import { toolExecuteContext } from "@alfred/assistant/tool-runtime/context";
-import { liveTool, type BoundToolCall, type RegisteredTool } from "@alfred/assistant/tool-runtime";
+import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
 import { asContractViolation } from "../../support/contract-violation";
+import type { BoundToolCall } from "../../../src/tool-runtime/internal/registry";
 
 /**
  * The registry half of `resolveRiskTier`. `test/mcp/risk.test.ts` covers the resolver.

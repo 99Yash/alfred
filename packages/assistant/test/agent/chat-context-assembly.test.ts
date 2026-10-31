@@ -3,12 +3,12 @@ import { describe, test } from "node:test";
 
 import type { ChatThreadContext } from "@alfred/db/schemas";
 
+import { assembleChatContext } from "@alfred/assistant/chat/compaction/index";
 import {
-  assembleChatContext,
   selectVerbatimTail,
   type ChatContextMessage,
-  type LoadedChatThreadContext,
-} from "@alfred/assistant/chat/compaction/index";
+} from "../../src/chat/compaction/chat-context-assembly";
+import type { LoadedChatThreadContext } from "../../src/chat/compaction/chat-context-store";
 
 const at = new Date("2026-07-11T00:00:00.000Z");
 

@@ -1,10 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import {
-  backgroundCompactionThresholdTokens,
-  BACKGROUND_COMPACTION_ABSOLUTE_CAP_TOKENS,
-} from "@alfred/assistant/chat/compaction/index";
+import { backgroundCompactionThresholdTokens } from "@alfred/assistant/chat/compaction/index";
+import { BACKGROUND_COMPACTION_ABSOLUTE_CAP_TOKENS } from "../../src/chat/compaction/conversation-compaction-scheduler";
 
 describe("background conversation compaction threshold", () => {
   test("uses 60% of ordinary effective windows", () => {

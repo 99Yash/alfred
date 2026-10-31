@@ -7,7 +7,7 @@ import {
   buildCompactedChatTranscriptPair,
   oversizedUserMessageSummaryMessage,
   storedCompactionPrefix,
-} from "@alfred/assistant/chat/compaction/index";
+} from "../../src/chat/compaction/turn-context-guard";
 
 describe("chat compaction continuation", () => {
   test("keeps hydrated image bytes in the provider transcript and storage keys in the checkpoint", () => {

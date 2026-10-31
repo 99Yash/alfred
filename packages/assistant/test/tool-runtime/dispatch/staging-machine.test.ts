@@ -23,7 +23,6 @@ import {
 } from "@alfred/contracts";
 
 import {
-  _setDispatchTraceSinksForTests,
   _setIntegrationAvailabilityReaderForTests,
   dispatchToolCall,
 } from "../../../src/tool-runtime/internal/dispatch";
@@ -34,12 +33,14 @@ import {
   _primePolicyCacheForTests,
   clearPolicyCacheForTests,
 } from "@alfred/assistant/action-policies/test-support";
-import { clearToolRegistryForTests, liveTool, registerTool } from "@alfred/assistant/tool-runtime";
+import { clearToolRegistryForTests, liveTool } from "@alfred/assistant/tool-runtime";
 import { calendarTools } from "../../../src/tool-runtime/internal/tools/calendar";
 import { registerReplicachePokeAdapter } from "@alfred/assistant/realtime";
 import { memoryStagingStore, type MemoryStagingStore } from "./memory-staging-store";
 import { runStagingStoreContract, type StagingStoreHarness } from "./staging-store-contract";
 import { FIRST_STEP } from "../../support/first-step";
+import { _setDispatchTraceSinksForTests } from "../../../src/tool-runtime/internal/dispatch/pipeline";
+import { registerTool } from "../../../src/tool-runtime/internal/registry";
 
 const USER_ID = "usr_staging_machine";
 

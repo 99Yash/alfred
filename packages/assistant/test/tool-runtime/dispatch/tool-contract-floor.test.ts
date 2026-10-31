@@ -4,12 +4,11 @@ import { afterEach, beforeEach, describe, test } from "node:test";
 import { z } from "zod";
 import { parseIanaTimezone } from "@alfred/contracts";
 
-import {
-  _setDispatchTraceSinksForTests,
-  dispatchToolCall,
-} from "../../../src/tool-runtime/internal/dispatch";
-import { clearToolRegistryForTests, liveTool, registerTool } from "@alfred/assistant/tool-runtime";
+import { dispatchToolCall } from "../../../src/tool-runtime/internal/dispatch";
+import { clearToolRegistryForTests, liveTool } from "@alfred/assistant/tool-runtime";
 import { FIRST_STEP } from "../../support/first-step";
+import { _setDispatchTraceSinksForTests } from "../../../src/tool-runtime/internal/dispatch/pipeline";
+import { registerTool } from "../../../src/tool-runtime/internal/registry";
 
 /**
  * The availability evaluator enforces the registration's contract at the dispatch floor,

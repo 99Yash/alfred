@@ -7,15 +7,11 @@ import type {
   RetrievalSourceManifest,
   SourceManifest,
 } from "@alfred/contracts";
-import {
-  isTrustedRetrievalSource,
-  registerContextSource,
-  searchContext,
-  selectContextSources,
-  type ContextSource,
-} from "@alfred/assistant/context-search";
+import { searchContext } from "@alfred/assistant/context-search";
 import { defineContextSource } from "@alfred/assistant/context-search/test-support";
 import { asContractViolation } from "../support/contract-violation";
+import { isTrustedRetrievalSource, selectContextSources } from "../../src/context-search/manifest";
+import { registerContextSource, type ContextSource } from "../../src/context-search/registry";
 
 /**
  * Selection policy for the source capability manifest (ADR-0101 sub-decisions 14-16).

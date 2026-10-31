@@ -10,8 +10,9 @@ import { and, eq, inArray, like } from "drizzle-orm";
 import { runOnce } from "@alfred/assistant/execution/executor";
 import { _resetRegistryForTests, registerRecipe } from "@alfred/assistant/execution/registry";
 import type { StepResult, Workflow } from "@alfred/assistant/execution";
-import { upsertTriage, type SenderExtractionEvent } from "@alfred/assistant/triage";
 import { dbBackedSkip } from "../support/db-backed";
+import { upsertTriage } from "../../src/triage/store";
+import type { SenderExtractionEvent } from "../../src/triage/sender-extraction-event";
 
 const SKIP = dbBackedSkip("database");
 

@@ -48,11 +48,9 @@ export {
   clearToolRegistryForTests,
   riskTierCountsForIntegration,
   NO_TOOL_EFFECTS,
-  type BoundToolCall,
   type ChatTurnAddress,
   type LiveChatToolExecuteContext,
   type RegisteredTool,
-  type ToolEffects,
   type ToolExecuteContext,
   type ToolExecuteContextFields,
 } from "./internal/registry";
@@ -82,7 +80,6 @@ export {
 export {
   APPROVAL_NOTIFICATION_QUEUE_NAME,
   approvalCardKey,
-  approvalNotificationJobId,
   approvalNotificationJobDataSchema,
   getApprovalNotificationQueue,
   scheduleApprovalNotificationJob,

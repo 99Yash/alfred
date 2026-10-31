@@ -61,7 +61,7 @@ export { catalogWords, connectionNameWords } from "./catalog-query";
 
 export { inspectMcpToolLocal, searchMcpToolsLocal } from "./list-tools";
 
-export { McpConnectionManager, type McpConnectionManagerPersistence } from "./manager";
+export { McpConnectionManager } from "./manager";
 
 export { parseMcpToolResult } from "./result";
 
@@ -85,16 +85,6 @@ export {
 } from "./persistence";
 
 export { addUserMcpServer, isAddUserMcpServerRefusal } from "./provision";
-
-export {
-  MCP_CLIENT_CAPABILITIES,
-  MCP_INPUT_REQUIRED_PROFILE,
-  type McpNegotiatedServer,
-  type McpProtocolCallResult,
-  type McpProtocolClient,
-  type McpProtocolPage,
-  type McpProtocolServer,
-} from "./protocol";
 
 export { getMcpConnectionManager } from "./runtime";
 

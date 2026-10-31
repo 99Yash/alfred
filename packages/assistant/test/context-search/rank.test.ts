@@ -2,12 +2,13 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import type { EvidenceCard } from "@alfred/contracts";
-import { registerContextSource, searchContext } from "@alfred/assistant/context-search";
+import { searchContext } from "@alfred/assistant/context-search";
 import {
   defineTestContextSource,
   entitySignificanceKey,
   rankEvidenceCards,
 } from "@alfred/assistant/context-search/test-support";
+import { registerContextSource } from "../../src/context-search/registry";
 
 /**
  * Deterministic evidence ranker. Tests assert order and feature presence, never a score

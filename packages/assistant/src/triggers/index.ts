@@ -19,10 +19,7 @@ import {
 import { z } from "zod";
 import { publishToConsumers, registerConsumer } from "./internal/consumer-registry";
 
-export {
-  NoTriggerConsumersRegisteredError,
-  TriggerConsumerBootError,
-} from "./internal/consumer-registry";
+export { TriggerConsumerBootError } from "./internal/consumer-registry";
 
 const domainEventIdentityShape = {
   userId: z.string().min(1).max(200),

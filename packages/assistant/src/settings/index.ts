@@ -9,7 +9,7 @@ export { settings, type UserSettings } from "./user-settings";
 
 export { userIdentity, type UserIdentity } from "./user-identity";
 
-export { setPreferenceArgsSchema, type PreferenceRow } from "./preferences";
+export { type PreferenceRow } from "./preferences";
 
 export { parseMemorySourceOrDefault } from "./memory-source";
 

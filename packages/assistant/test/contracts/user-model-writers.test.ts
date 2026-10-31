@@ -17,14 +17,7 @@ import {
 import { USER_MODEL_PROJECTION_NAME } from "@alfred/contracts";
 import { and, eq, inArray } from "drizzle-orm";
 
-import {
-  appendObservationFamilyMember,
-  EntityIdentityConflictError,
-  ensureEntityNode,
-  insertObservation,
-  recordEntityIdentity,
-  userModelReader,
-} from "@alfred/assistant/knowledge";
+import { appendObservationFamilyMember, userModelReader } from "@alfred/assistant/knowledge";
 import {
   activateProjectionVersion,
   completeProjectionRun,
@@ -33,6 +26,12 @@ import {
   writeProjectionCursor,
 } from "../../src/knowledge/projection";
 import { dbBackedSkip } from "../support/db-backed";
+import {
+  EntityIdentityConflictError,
+  ensureEntityNode,
+  recordEntityIdentity,
+} from "../../src/knowledge/entities";
+import { insertObservation } from "../../src/knowledge/observations";
 
 /**
  * The ADR-0067 user-model write and read helpers. `user-model-rails.test.ts` pins the raw constraints.

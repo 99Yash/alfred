@@ -1,12 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { logger } from "@alfred/logging";
-import {
-  domainEventSchema,
-  NoTriggerConsumersRegisteredError,
-  publishDomainEvent,
-  registerTriggerConsumer,
-} from "../src/triggers";
+import { domainEventSchema, publishDomainEvent, registerTriggerConsumer } from "../src/triggers";
+import { NoTriggerConsumersRegisteredError } from "../src/triggers/internal/consumer-registry";
 
 const event = {
   userId: "user-1",

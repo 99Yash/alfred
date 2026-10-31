@@ -33,15 +33,11 @@ export {
 } from "./event-source-health";
 
 export {
-  googleCredentialUpsertRequestSchema,
-  googleCredentialDisconnectRequestSchema,
   type GoogleCredentialLifecycleHandler,
-  NoGoogleCredentialLifecycleHandlerRegisteredError,
   GoogleCredentialNotFoundError,
   registerGoogleCredentialLifecycleHandler,
   upsertGoogleCredentialConnection,
   ownsGoogleCredential,
-  disconnectGoogleCredentialConnectionWith,
   disconnectGoogleCredentialConnection,
 } from "./google-credential-lifecycle";
 

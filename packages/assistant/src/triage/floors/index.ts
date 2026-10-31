@@ -17,20 +17,13 @@ import { applySpamDemotionFloor } from "./spam";
  * The user's standing instructions are not a floor here. `applyStandingInstructionEffects`
  * runs after this sequence, on its output (ADR-0113).
  */
-export {
-  applyOverrideFloor,
-  matchesExposedCredentialClaim,
-  matchesExposedSecret,
-} from "./override";
+export { matchesExposedCredentialClaim, matchesExposedSecret } from "./override";
 
 export {
-  applySenderKindDemotionFloor,
   isGithubNotificationSender,
   matchesCollabIntrinsicStake,
   matchesPrThread,
 } from "./sender-kind";
-
-export { applyMeetingDemotionFloor } from "./meeting";
 
 export { applySpamDemotionFloor } from "./spam";
 

@@ -18,9 +18,10 @@ import { inArray, like } from "drizzle-orm";
 import { clearPolicyCacheForTests } from "@alfred/assistant/action-policies/test-support";
 import { dispatchToolCall } from "../../../src/tool-runtime/dispatch";
 import { PASSTHROUGH_PER_RUN_CEILING } from "../../../src/tool-runtime/internal/tools/passthrough";
-import { clearToolRegistryForTests, liveTool, registerTool } from "@alfred/assistant/tool-runtime";
+import { clearToolRegistryForTests, liveTool } from "@alfred/assistant/tool-runtime";
 import { dbBackedSkip } from "../../support/db-backed";
 import { FIRST_STEP } from "../../support/first-step";
+import { registerTool } from "../../../src/tool-runtime/internal/registry";
 
 const UTC = parseIanaTimezone("UTC");
 

@@ -8,7 +8,7 @@ import {
   isSupportedPassthroughSlug,
   passthroughPreferenceKey,
 } from "@alfred/contracts";
-import { REST_GATE_CONFIG } from "../../../../src/tool-runtime/internal/tools/passthrough";
+import { REST_GATE_CONFIG } from "../../../../src/tool-runtime/internal/tools/passthrough/config";
 
 describe("general-invocation coverage registry", () => {
   test("isSupportedPassthroughSlug agrees with the registry", () => {

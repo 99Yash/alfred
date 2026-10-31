@@ -15,7 +15,8 @@ import { emailTriageWorkflow, gmailSenderAdapter } from "@alfred/assistant/triag
 // The injected sender adapter (ADR-0089) does not affect recipe identity.
 const memoryExtractionWorkflow = buildMemoryExtractionWorkflow(gmailSenderAdapter);
 
-import type { Workflow, WorkflowInput } from "@alfred/assistant/execution";
+import type { Workflow } from "@alfred/assistant/execution";
+import type { WorkflowInput } from "../../src/execution/index.domain";
 
 /**
  * Pin each recipe's slug, steps, entry, `trigger`, and `dedupKey` at its owning subpath.

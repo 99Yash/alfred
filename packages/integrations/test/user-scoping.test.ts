@@ -4,22 +4,17 @@ import { after, describe, test } from "node:test";
 
 import { closeConnections, db, rowsFromExecute } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
-import {
-  GoogleCredentialSelectionError,
-  googleClientForUser,
-  listCredentials,
-  upsertCredential,
-} from "../src/google/index";
-import { listGithubCredentials, upsertGithubCredential } from "../src/github/index";
-import {
-  getActiveBearerCredential,
-  listActiveBearerCredentials,
-  upsertBearerCredential,
-} from "../src/shared/index";
+import { GoogleCredentialSelectionError, upsertCredential } from "../src/google/index";
+import { upsertGithubCredential } from "../src/github/index";
+import { upsertBearerCredential } from "../src/shared/index";
 import { eq, sql } from "drizzle-orm";
 import { dbBackedSkip } from "./support/db-backed";
 import { z } from "zod";
 import { GOOGLE_SCOPE } from "@alfred/contracts";
+import { googleClientForUser } from "../src/google/client";
+import { listCredentials } from "../src/google/credentials";
+import { listGithubCredentials } from "../src/github/credentials";
+import { getActiveBearerCredential, listActiveBearerCredentials } from "../src/shared/credentials";
 
 const SKIP = dbBackedSkip("database");
 

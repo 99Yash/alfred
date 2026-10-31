@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { registerContextSource, searchContext } from "@alfred/assistant/context-search";
+import { searchContext } from "@alfred/assistant/context-search";
 import { defineTestContextSource } from "@alfred/assistant/context-search/test-support";
+import { registerContextSource } from "../../src/context-search/registry";
 
 /**
  * `searchContext` validates each card against `EvidenceCard` at the boundary.

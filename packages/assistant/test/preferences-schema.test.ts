@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { setPreferenceArgsSchema } from "../src/settings";
+import { setPreferenceArgsSchema } from "../src/settings/preferences";
 
 describe("setPreferenceArgsSchema", () => {
   test("derives insert presence while allowing database-managed fields to stay omitted", () => {
