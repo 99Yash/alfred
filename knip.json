@@ -21,6 +21,10 @@
   // `--treat-config-hints-as-errors` in the script, so a blind spot cannot outlive
   // the code it covered.
   "include": ["nsExports", "nsTypes"],
+  // `pnpm check:test-only-exports` runs knip in production mode too. There a
+  // pattern with a `!` suffix is a production entry and one without it is not, so
+  // scripts and evals carry `!` and test files do not. Default mode ignores the suffix.
+  //
   // An export tagged `@public` is intentional API that knip's static graph can't
   // see reaching — an Elysia route response type consumed only through Eden's
   // `typeof app` inference, for example. Tag such an export, don't un-export it.
@@ -39,14 +43,14 @@
       // off nothing; `pnpm check:oxlint-plugin` runs them. `.agents` is a symlink to
       // `.claude`, so `.claude/hooks/*.mjs` covers both.
       "entry": [
-        "scripts/*.mjs",
+        "scripts/*.mjs!",
         "scripts/oxlint/anti-slop/rules/*.rule-test.ts",
         "scripts/oxlint/alfred/rules/*.rule-test.ts",
-        ".claude/hooks/*.mjs"
+        ".claude/hooks/*.mjs!"
       ]
     },
     "apps/server": {
-      "entry": ["src/scripts/**/*.ts", "evals/**/*.ts", "evalite.config.ts"],
+      "entry": ["src/scripts/**/*.ts!", "evals/**/*.ts!", "evalite.config.ts!"],
       "ignoreDependencies": [
         // Bundle externals (see `external` in apps/server/tsdown.config.ts): a workspace
         // package in the server's graph imports these, tsdown leaves them out of the
@@ -72,10 +76,10 @@
       // Hand-run diagnostic/verification scripts (each documents its own tsx
       // invocation; see docs/decisions/ADR-0078 and the model-router plans).
       // Same category as apps/server and packages/assistant src/scripts — not dead.
-      "entry": ["src/scripts/**/*.ts"]
+      "entry": ["src/scripts/**/*.ts!"]
     },
     "packages/assistant": {
-      "entry": ["src/scripts/**/*.ts", "evals/**/*.ts", "evalite.config.ts", "test/**/*.test.ts"],
+      "entry": ["src/scripts/**/*.ts!", "evals/**/*.ts!", "evalite.config.ts!", "test/**/*.test.ts"],
       // Evalite loads Vitest at runtime but does not declare it as a dependency.
       "ignoreDependencies": ["vitest"]
     },
@@ -86,7 +90,7 @@
       // Each email is a preview-server entry: `@react-email/preview-server` renders the
       // file's `default` export, which no other module imports. Listing the emails as
       // entries stops knip from reporting those default exports as dead.
-      "entry": ["src/emails/*.tsx"],
+      "entry": ["src/emails/*.tsx!"],
       "ignoreDependencies": ["@react-email/preview-server"]
     }
   }
