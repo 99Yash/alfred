@@ -7,13 +7,12 @@ import { parseIanaTimezone } from "@alfred/contracts";
 import { activateTool, migrateActiveTools } from "@alfred/assistant/execution/tool-surface";
 import { chatTurnWorkflow } from "@alfred/assistant/chat/chat-turn";
 import { userAuthoredBriefWorkflow } from "@alfred/assistant/execution/workflows/user-authored-brief";
-import {
-  _setDispatchTraceSinksForTests,
-  dispatchToolCall,
-} from "../../../src/tool-runtime/internal/dispatch";
-import { liveTool, registerTool } from "@alfred/assistant/tool-runtime";
+import { dispatchToolCall } from "../../../src/tool-runtime/internal/dispatch";
+import { liveTool } from "@alfred/assistant/tool-runtime";
 import { resetToolFixtures } from "@alfred/assistant/tool-runtime/test-support";
 import { FIRST_STEP } from "../../support/first-step";
+import { _setDispatchTraceSinksForTests } from "../../../src/tool-runtime/internal/dispatch/pipeline";
+import { registerTool } from "../../../src/tool-runtime/internal/registry";
 
 let restoreTraceSinks: (() => void) | undefined;
 

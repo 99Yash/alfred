@@ -1,11 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import {
-  isObservationAppendConflict,
-  isOrgAffiliationObservationAppendConflict,
-  retryOnObservationChainConflict,
-} from "@alfred/assistant/knowledge";
+import { retryOnObservationChainConflict } from "@alfred/assistant/knowledge";
+import { isObservationAppendConflict } from "../../src/knowledge/observations";
+import { isOrgAffiliationObservationAppendConflict } from "../../src/knowledge/affiliation";
 
 function pgError(fields: {
   code?: string;

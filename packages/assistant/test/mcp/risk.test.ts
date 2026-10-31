@@ -12,10 +12,11 @@ import { inArray, like } from "drizzle-orm";
 import { descriptorHash } from "../../src/connections/mcp/hash";
 import { ensureConnection } from "../../src/connections/mcp/persistence";
 import { publishCatalogRevision } from "@alfred/assistant/connections/mcp/test-support";
-import { MCP_CALL_RISK_FLOOR, resolveMcpCallRiskTier } from "@alfred/assistant/tool-runtime/mcp";
+import { resolveMcpCallRiskTier } from "@alfred/assistant/tool-runtime/mcp";
 import { upsertToolPolicy } from "@alfred/assistant/tool-runtime/mcp/test-support";
 import { dbBackedSkip } from "../support/db-backed";
 import { asContractViolation } from "../support/contract-violation";
+import { MCP_CALL_RISK_FLOOR } from "../../src/tool-runtime/mcp/risk";
 
 /**
  * DB-backed tests for the `mcp.call` effective-risk resolver. A reviewed downgrade applies only to the

@@ -75,7 +75,6 @@ export type {
   StepResult,
   WakeCondition,
   Workflow,
-  WorkflowInput,
   SignalArgs,
   WorkflowReadinessVerdict,
   ParkWake,

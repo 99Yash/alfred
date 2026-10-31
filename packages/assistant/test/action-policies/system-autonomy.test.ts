@@ -6,12 +6,12 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, test } from "node:test";
 
-import type { ResolvedPolicy } from "@alfred/assistant/action-policies";
 import { defaultActionPolicy, resolvePolicyMode } from "@alfred/assistant/action-policies";
 import {
   _primePolicyCacheForTests,
   clearPolicyCacheForTests,
 } from "@alfred/assistant/action-policies/test-support";
+import type { ResolvedPolicy } from "../../src/action-policies/resolve";
 
 // With no `DATABASE_URL`, any policy row read throws, so a success proves no read happened.
 delete process.env["DATABASE_URL"]; // drift-ok: the probe needs the variable ABSENT, which no presence guard expresses

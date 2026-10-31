@@ -5,12 +5,11 @@ import type {
   ReadGateReason,
   RestPassthroughRequest,
 } from "@alfred/contracts";
+import { REST_GATE_CONFIG } from "../../../../src/tool-runtime/internal/tools/passthrough/config";
 import {
-  REST_GATE_CONFIG,
   assertReadableGraphqlRequest,
   assertReadableRestRequest,
-} from "../../../../src/tool-runtime/internal/tools/passthrough";
-
+} from "../../../../src/tool-runtime/internal/tools/passthrough/gate";
 /**
  * The read gate is the passthrough tier's security boundary. A denial must carry a reason the
  * model can fix.

@@ -7,17 +7,17 @@ import { user } from "@alfred/db/schemas";
 import type { Tool } from "@modelcontextprotocol/client";
 import { inArray, like } from "drizzle-orm";
 
-import {
-  McpRawClient,
-  type McpNegotiatedServer,
-  type McpProtocolCallResult,
-  type McpProtocolClient,
-  type McpProtocolPage,
-} from "../../src/connections/mcp";
 import { McpConnectionManager } from "../../src/connections/mcp/manager";
 import { ensureConnection, readConnection } from "../../src/connections/mcp/persistence";
 import { permissiveMcpEndpointAuthorizerForTests } from "../../src/connections/mcp/test-support";
 import { dbBackedSkip } from "../support/db-backed";
+import { McpRawClient } from "../../src/connections/mcp/client";
+import type {
+  McpNegotiatedServer,
+  McpProtocolCallResult,
+  McpProtocolClient,
+  McpProtocolPage,
+} from "../../src/connections/mcp/protocol";
 
 /**
  * DB-backed connection manager tests. A real `McpRawClient` runs over a fake `McpProtocolClient`

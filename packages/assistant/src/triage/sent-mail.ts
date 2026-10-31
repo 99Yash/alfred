@@ -7,8 +7,6 @@ import { sql, type SQL } from "drizzle-orm";
  * `SENT` label. Keep both forms checking both signals.
  */
 
-export { isSentGmailMetadata } from "@alfred/contracts";
-
 /**
  * Could a stored "not sent" doc still be the user's sent mail? If not, skip the
  * live Gmail check (#439). `isSent` is frozen at ingest, so a message caught

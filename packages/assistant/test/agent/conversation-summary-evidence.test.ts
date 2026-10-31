@@ -5,9 +5,9 @@ import type { ChatAttachment, ChatMessage } from "@alfred/db/schemas";
 
 import {
   buildConversationSummaryEvidence,
-  eligibleConversationSummarySources,
   CONVERSATION_EVIDENCE_TEXT_LIMIT_CHARS,
-} from "@alfred/assistant/chat/compaction/index";
+} from "../../src/chat/compaction/conversation-summary-evidence";
+import { eligibleConversationSummarySources } from "../../src/chat/compaction/conversation-summary-generator";
 
 const at = new Date("2026-07-12T00:00:00.000Z");
 

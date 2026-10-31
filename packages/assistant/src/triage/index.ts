@@ -9,7 +9,7 @@ export {
   DEFAULT_TRIAGE_CATEGORY,
 } from "./classify";
 
-export { applyFloors, applyOverrideFloor, standingInstructionEvidence } from "./floors";
+export { applyFloors, standingInstructionEvidence } from "./floors";
 
 export { deriveEffectiveTriage, standingBlockWaitsOn } from "./effective";
 
@@ -37,7 +37,6 @@ export {
   parseTriageEvaluationColumns,
   setAppliedLabelId,
   triageThreadLockKey,
-  upsertTriage,
   withTriageThreadLock,
 } from "./store";
 
@@ -81,8 +80,6 @@ export type { ThreadState, GetThreadStateArgs, GmailThreadClosure } from "./thre
 export { resolveSenderRelationship } from "./sender-relationship";
 
 export {
-  resolveSenderKind,
-  senderKindSignalFromProfile,
   triageSenderKindProjectionEnabled,
   TRIAGE_SENDER_KIND_CONFIDENCE_THRESHOLD,
   TRIAGE_SENDER_KIND_FEATURE_KEY,
@@ -116,10 +113,6 @@ export type {
   ContentFlags,
   AssembleObservationsArgs,
 } from "./observations";
-
-export { senderExtractionEvent } from "./sender-extraction-event";
-
-export type { SenderExtractionEvent } from "./sender-extraction-event";
 
 export { decideTriageTodo, triageTodoStanding } from "./todo-decision";
 

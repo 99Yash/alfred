@@ -6,9 +6,7 @@
 export {
   upsertBearerCredential,
   deleteIntegrationCredential,
-  listActiveBearerCredentials,
   findActiveCredentialByInstallationId,
-  getActiveBearerCredential,
 } from "./credentials";
 
 export {

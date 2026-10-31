@@ -6,20 +6,20 @@ import { parseIanaTimezone } from "@alfred/contracts";
 import type { DispatchRejectionInput, RedactedToolInput } from "@alfred/ai";
 import { z } from "zod";
 
-import {
-  _setDispatchTraceSinksForTests,
-  buildDispatchRejectionTraceInput,
-  dispatchToolCall,
-} from "../../../src/tool-runtime/internal/dispatch";
+import { dispatchToolCall } from "../../../src/tool-runtime/internal/dispatch";
 import {
   clearToolRegistryForTests,
   liveTool,
-  registerTool,
   type RegisteredTool,
   type ToolCallDispatchArgs,
 } from "@alfred/assistant/tool-runtime";
 import { closeRedis } from "@alfred/db/redis";
 import { FIRST_STEP } from "../../support/first-step";
+import {
+  _setDispatchTraceSinksForTests,
+  buildDispatchRejectionTraceInput,
+} from "../../../src/tool-runtime/internal/dispatch/pipeline";
+import { registerTool } from "../../../src/tool-runtime/internal/registry";
 
 const startedAt = new Date("2026-06-29T00:00:00.000Z");
 

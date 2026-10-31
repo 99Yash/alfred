@@ -4,11 +4,9 @@ import { describe, test } from "node:test";
 import { tool, type ModelMessage, type ToolSet } from "ai";
 import { z } from "zod";
 
-import {
-  assessChatRequestPressure,
-  estimateChatRequestTokens,
-  CHAT_HYDRATED_IMAGE_TOKENS,
-} from "@alfred/assistant/chat/compaction/index";
+import { estimateChatRequestTokens } from "@alfred/assistant/chat/compaction/index";
+import { assessChatRequestPressure } from "../../src/chat/compaction/chat-request-pressure";
+import { CHAT_HYDRATED_IMAGE_TOKENS } from "../../src/chat/compaction/constants";
 
 const tools = {
   lookup: tool({

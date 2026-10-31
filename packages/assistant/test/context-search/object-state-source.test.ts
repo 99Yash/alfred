@@ -2,12 +2,13 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import type { ObjectState } from "@alfred/assistant/connections";
-import { registerContextSource, searchContext } from "@alfred/assistant/context-search";
+import { searchContext } from "@alfred/assistant/context-search";
 
 import {
   createObjectStateContextSource,
   type ObjectStateReader,
 } from "../../src/context-search/object-state-source";
+import { registerContextSource } from "../../src/context-search/registry";
 
 /**
  * Object-state adapter, driven through `searchContext`: the `objects` envelope parses, the card

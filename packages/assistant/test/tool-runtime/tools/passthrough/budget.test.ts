@@ -9,8 +9,7 @@ import {
   isNonExecutionFailure,
   toolCallLogStatus,
 } from "../../../../src/tool-runtime/internal/result-routing";
-import type { ToolCallDispatchResult } from "../../../../src/tool-runtime/dispatch";
-
+import type { ToolCallDispatchResult } from "../../../../src/tool-runtime/internal/dispatch";
 /**
  * The per-run passthrough ceiling, pure half (ADR-0074). The `budget_exhausted` envelope
  * must stay a visible executed result: not hidden as `nonExecution`, and not logged `failed`.

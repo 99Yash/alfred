@@ -15,8 +15,8 @@ import {
   registerRecipe,
 } from "@alfred/assistant/execution/registry";
 import type { StepResult, Workflow } from "@alfred/assistant/execution";
-import type { SenderExtractionEvent } from "@alfred/assistant/triage";
 import { dbBackedSkip } from "../support/db-backed";
+import type { SenderExtractionEvent } from "../../src/triage/sender-extraction-event";
 
 /**
  * Model output can carry U+0000 or a lone surrogate into every jsonb sink that

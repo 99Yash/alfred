@@ -5,7 +5,7 @@
 import type { DecisionTraceFor } from "@alfred/assistant/execution/decision-traces";
 import type { StepContext } from "@alfred/assistant/execution";
 // Triage augments `"triage.classification"` with this payload via `declare module`; `tsconfig.test.json` includes `src`.
-import type { SenderExtractionEvent } from "@alfred/assistant/triage";
+import type { SenderExtractionEvent } from "../../src/triage/sender-extraction-event";
 
 // `declare const` is ambient, so the unused-locals checks do not fire.
 declare const ctx: StepContext<unknown>;

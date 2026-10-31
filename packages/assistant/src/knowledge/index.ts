@@ -11,10 +11,7 @@ export { requireEntityIdNamespace } from "./namespace";
 
 export {
   appendObservationFamilyMember,
-  insertObservation,
-  isObservationAppendConflict,
   type AppendObservationFamilyMemberResult,
-  type InsertObservationResult,
 } from "./observations";
 
 export {
@@ -33,21 +30,13 @@ export {
 } from "./gmail-projection-run";
 
 export {
-  globalReferentIdentity,
-  referentKeyForEmail,
-  senderScopedReferentIdentity,
-  REFERENT_IDENTITY_KIND,
-  type GlobalReferentKey,
   type ReferentEvidence,
-  type ReferentKey,
   type ReferentKeyInput,
   type ReferentThreadingHeaders,
-  type SenderScopedReferentKey,
 } from "./referent-identity";
 
 export {
   buildOrgAffiliationObservationInput,
-  isOrgAffiliationObservationAppendConflict,
   recordOrgAffiliationOnConnect,
   recordOrgAffiliationOnCredentialUpsert,
   recordOrgAffiliationOnDisconnect,
@@ -59,8 +48,6 @@ export {
   type RecordOrgAffiliationOnCredentialUpsertResult,
   type RecordOrgAffiliationResult,
 } from "./affiliation";
-
-export { ensureEntityNode, recordEntityIdentity, EntityIdentityConflictError } from "./entities";
 
 export { userModelReader, type ActiveEntityProfile } from "./reader";
 
@@ -88,7 +75,6 @@ export {
   supersedeFact,
   rejectFact,
   editFact,
-  proposeFactArgsSchema,
   type FactRow,
   type ProposeFactArgs,
   FACT_STATUSES,
@@ -102,10 +88,8 @@ export {
   recallMemory,
   writeMemoryChunk,
   type RecallMemoryHit,
-  MEMORY_CHUNK_KINDS,
   memoryChunkKindSchema,
   type MemoryChunkKind,
-  USER_FACING_MEMORY_CHUNK_KINDS,
 } from "./chunks";
 
 // The `./style-profiles` subpath also exports the CRUD.

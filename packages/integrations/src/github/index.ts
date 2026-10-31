@@ -13,9 +13,7 @@ export type { GithubAppConfig, InstallationToken, ExchangeUserCodeResult } from 
 
 export {
   upsertGithubCredential,
-  getGithubAccessToken,
   getInstallationTokenForUser,
-  listGithubCredentials,
   githubInstallationId,
 } from "./credentials";
 

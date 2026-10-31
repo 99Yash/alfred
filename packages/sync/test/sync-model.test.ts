@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { ReadTransaction, ReadonlyJSONValue, WriteTransaction } from "replicache";
 
-import { IDB_KEY_NAMES, SYNC_MODEL, type SyncStringKey } from "../src/index";
+import { IDB_KEY_NAMES, SYNC_MODEL } from "../src/index";
+import type { SyncStringKey } from "../src/sync-model";
 
 const note = {
   id: "note_1",

@@ -10,12 +10,13 @@ import { z } from "zod";
 import { getStringPath, toJsonValue, parseIanaTimezone } from "@alfred/contracts";
 
 import { dispatchToolCall } from "../../../src/tool-runtime/dispatch";
-import { clearToolRegistryForTests, liveTool, registerTool } from "@alfred/assistant/tool-runtime";
+import { clearToolRegistryForTests, liveTool } from "@alfred/assistant/tool-runtime";
 import { postgresStagingStore } from "../../../src/tool-runtime/internal/dispatch/staging-store";
 import { closeRedis } from "@alfred/db/redis";
 import { runStagingStoreContract, type StagingStoreHarness } from "./staging-store-contract";
 import { dbBackedSkip } from "../../support/db-backed";
 import { FIRST_STEP } from "../../support/first-step";
+import { registerTool } from "../../../src/tool-runtime/internal/registry";
 
 const UTC = parseIanaTimezone("UTC");
 

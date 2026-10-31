@@ -24,7 +24,6 @@ export {
   publishPolicyBust,
   startPolicyBustSubscriber,
   stopPolicyBustSubscriber,
-  type ResolvedPolicy,
 } from "./resolve";
 
 export async function ensureDefaultActionPolicyForUser(userId: string): Promise<void> {

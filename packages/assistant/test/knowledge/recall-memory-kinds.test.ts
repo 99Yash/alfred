@@ -6,15 +6,11 @@ import { closeConnections, db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
 import { inArray, like } from "drizzle-orm";
 
-import {
-  MEMORY_CHUNK_KINDS,
-  recallMemory,
-  USER_FACING_MEMORY_CHUNK_KINDS,
-  writeMemoryChunk,
-} from "@alfred/assistant/knowledge";
+import { recallMemory, writeMemoryChunk } from "@alfred/assistant/knowledge";
 // Internal helper, not in the `knowledge` barrel.
 import { embedMemoryChunk } from "@alfred/assistant/knowledge/chunks";
 import { dbBackedSkip } from "../support/db-backed";
+import { MEMORY_CHUNK_KINDS, USER_FACING_MEMORY_CHUNK_KINDS } from "../../src/knowledge/chunks";
 
 /**
  * `recallMemory` kind filter. Needs a migrated `DATABASE_URL`.

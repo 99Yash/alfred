@@ -10,7 +10,6 @@
 export {
   McpExecutionBroker,
   type McpBrokerBlockReason,
-  type McpBrokerCallInput,
   type McpHealthReadInput,
   type McpBrokerOutcome,
   type McpReservedSuccessorInput,
@@ -44,7 +43,7 @@ export {
   type McpHealthMappingResolution,
 } from "./health-mapping";
 
-export { MCP_CALL_RISK_FLOOR, resolveMcpCallRiskTier } from "./risk";
+export { resolveMcpCallRiskTier } from "./risk";
 
 export { getMcpExecutionBroker } from "./runtime";
 

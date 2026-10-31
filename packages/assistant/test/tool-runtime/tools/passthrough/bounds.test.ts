@@ -6,7 +6,7 @@ import {
   PASSTHROUGH_MAX_ARRAY_ITEMS,
   PASSTHROUGH_MAX_BODY_BYTES,
   boundPassthroughBody,
-} from "../../../../src/tool-runtime/internal/tools/passthrough";
+} from "../../../../src/tool-runtime/internal/tools/passthrough/bounds";
 
 const encoder = new TextEncoder();
 

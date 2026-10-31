@@ -1,5 +1,1 @@
-export {
-  dispatchToolCall,
-  registerDispatchToolCallRoundAdapter,
-  type ToolCallDispatchResult,
-} from "./internal/dispatch/index";
+export { dispatchToolCall, registerDispatchToolCallRoundAdapter } from "./internal/dispatch/index";

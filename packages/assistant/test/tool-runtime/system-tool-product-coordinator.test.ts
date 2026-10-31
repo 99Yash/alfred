@@ -3,9 +3,9 @@ import { describe, test } from "node:test";
 
 import { standingInstructionValueV2Schema } from "@alfred/contracts";
 import type { SaveStandingInstructionResult } from "@alfred/assistant/knowledge";
-import type { ResolveTodosForGmailSourceResult } from "@alfred/assistant/tasks";
 import type { SystemToolRequest } from "@alfred/assistant/tool-runtime";
 import { createRememberInstructionCoordinator } from "../../src/runtime/adapters/system-tool-product";
+import type { ResolveTodosForGmailSourceResult } from "../../src/tasks/resolve";
 
 const request = {
   input: {

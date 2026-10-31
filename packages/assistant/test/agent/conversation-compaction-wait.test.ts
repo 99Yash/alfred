@@ -6,9 +6,9 @@ import type { ChatThreadContext } from "@alfred/db/schemas";
 import {
   isCompactionActive,
   waitForActiveConversationCompaction,
-  type ConversationSummary,
-  type LoadedChatThreadContext,
-} from "@alfred/assistant/chat/compaction/index";
+} from "../../src/chat/compaction/conversation-compaction-wait";
+import type { ConversationSummary } from "../../src/chat/compaction/conversation-summary";
+import type { LoadedChatThreadContext } from "../../src/chat/compaction/chat-context-store";
 
 const at = new Date("2026-07-12T00:00:00.000Z");
 

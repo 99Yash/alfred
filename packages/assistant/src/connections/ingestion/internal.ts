@@ -4,11 +4,4 @@
  * exports only, never `export *`. `.oxlintrc.json` limits importers to `apps/server/src/scripts/**`
  * and `packages/assistant/test/gmail-ingest.test.ts`.
  */
-export {
-  findCredentialsNeedingPoll,
-  ingestRecentGmail,
-  pollGmailHistory,
-  pollGmailRecent,
-  runGmailMediaIngest,
-  seedGmailHistoryCursorIfAbsent,
-} from "./gmail-ingest";
+export { findCredentialsNeedingPoll, ingestRecentGmail, pollGmailHistory } from "./gmail-ingest";

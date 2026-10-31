@@ -1,10 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { PassthroughResult } from "@alfred/contracts";
-import {
-  passthroughSpanFacts,
-  passthroughTruncationTelemetry,
-} from "../../../../src/tool-runtime/internal/tools/passthrough";
+import { passthroughTruncationTelemetry } from "../../../../src/tool-runtime/internal/tools/passthrough";
+import { passthroughSpanFacts } from "../../../../src/tool-runtime/internal/tools/passthrough/telemetry";
 
 /**
  * Turns a clipped passthrough result's `handleEligible` marker into a span signal (ADR-0074).

@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { parseGmailDocumentMetadata } from "@alfred/contracts";
-import { isSentGmailMetadata } from "@alfred/assistant/triage/sent-mail";
+import { parseGmailDocumentMetadata, isSentGmailMetadata } from "@alfred/contracts";
 
 describe("isSentGmailMetadata", () => {
   // A doc is sent on either the legacy or the explicit signal.

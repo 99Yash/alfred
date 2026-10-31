@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { parseGmailDocumentMetadata } from "@alfred/contracts";
-import { isSentGmailMetadata, mayBeUnflaggedSentMail } from "@alfred/assistant/triage/sent-mail";
+import { parseGmailDocumentMetadata, isSentGmailMetadata } from "@alfred/contracts";
+import { mayBeUnflaggedSentMail } from "@alfred/assistant/triage/sent-mail";
 
 /**
  * `mayBeUnflaggedSentMail` lets classify skip the live Gmail sent check.

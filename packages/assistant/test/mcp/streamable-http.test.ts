@@ -6,8 +6,8 @@ import { toNodeHandler } from "@modelcontextprotocol/node";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { isRecord } from "@alfred/contracts";
 import { z } from "zod";
-import { McpRawClient } from "@alfred/assistant/connections/mcp";
 import { permissiveMcpEndpointAuthorizerForTests } from "@alfred/assistant/connections/mcp/test-support";
+import { McpRawClient } from "../../src/connections/mcp/client";
 
 let endpoint: URL;
 

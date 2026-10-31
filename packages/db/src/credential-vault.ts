@@ -8,11 +8,7 @@ import {
 
 export { createCredentialVault, CredentialVaultError } from "./credential-envelope";
 
-export type {
-  CredentialVault,
-  CredentialVaultFailure,
-  SealedCredentialSecret,
-} from "./credential-envelope";
+export type { CredentialVault, SealedCredentialSecret } from "./credential-envelope";
 
 /** OAuth token fields on `account`. The adapter and the boot gate must share this one list. */
 export const ACCOUNT_SECRET_FIELDS = ["accessToken", "refreshToken", "idToken"] as const;

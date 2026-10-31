@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 
-import type { ResolvedPolicy } from "@alfred/assistant/action-policies";
 import { defaultActionPolicy, resolvePolicyMode } from "@alfred/assistant/action-policies";
 import {
   _primePolicyCacheForTests,
@@ -12,6 +11,7 @@ import { clearToolRegistryForTests } from "@alfred/assistant/tool-runtime";
 import { registerBuiltinTools } from "../../../src/tool-runtime/builtin-tools";
 import { listRegisteredTools } from "../../../src/tool-runtime/internal/registry";
 import { toolCallWouldGate, toolRequiresApproval } from "../../../src/tool-runtime/approval-rule";
+import type { ResolvedPolicy } from "../../../src/action-policies/resolve";
 
 /**
  * `toolCallWouldGate` keeps gated calls out of the concurrent batch. It mirrors the

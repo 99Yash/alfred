@@ -1,5 +1,4 @@
 export {
-  type SyncStringKey,
   SYNC_MODEL,
   type IDBKeys,
   type SyncModelFor,
@@ -10,10 +9,8 @@ export {
 
 export {
   modelFactValueSchema,
-  preferenceValueSchema,
   type PreferenceValue,
   syncedNoteSchema,
-  syncedPreferenceSchema,
   type SyncedPreference,
   type SyncedSkill,
   type SyncedSkillRevision,

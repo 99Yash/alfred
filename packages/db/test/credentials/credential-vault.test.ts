@@ -5,11 +5,8 @@ import { describe, test } from "node:test";
 
 import { toDisplayText } from "@alfred/contracts";
 
-import {
-  createCredentialVault,
-  CredentialVaultError,
-  type CredentialVaultFailure,
-} from "@alfred/db/credential-vault";
+import { createCredentialVault, CredentialVaultError } from "@alfred/db/credential-vault";
+import type { CredentialVaultFailure } from "../../src/credential-envelope";
 
 /** Keys are injected, so no `OAUTH_CREDENTIAL_KEK`, database, or network is needed. */
 

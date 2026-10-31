@@ -4,8 +4,9 @@ import { afterEach, beforeEach, test } from "node:test";
 import { z } from "zod";
 
 import { awaitSubAgentInput, joinToolInput } from "@alfred/contracts";
-import { liveTool, registerTool } from "@alfred/assistant/tool-runtime";
+import { liveTool } from "@alfred/assistant/tool-runtime";
 import { resetToolFixtures } from "@alfred/assistant/tool-runtime/test-support";
+import { registerTool } from "../../src/tool-runtime/internal/registry";
 
 beforeEach(resetToolFixtures);
 
