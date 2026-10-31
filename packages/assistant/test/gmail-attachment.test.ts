@@ -143,7 +143,9 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
     assert.equal(doc.title, "contract.pdf");
     assert.equal(doc.content, "page one text\n\npage two text");
 
-    const meta = toRecord(doc.metadata);
+    // The column's `$type` does not validate a read; check the stored JSON.
+    const storedMetadata: unknown = doc.metadata;
+    const meta = toRecord(storedMetadata);
 
     assert.ok(Array.isArray(meta.pages));
     assert.equal(meta.pages.length, 2);
@@ -435,7 +437,9 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
 
     const [row] = rows;
     assert.ok(row);
-    const meta = toRecord(row.metadata);
+    // The column's `$type` does not validate a read; check the stored JSON.
+    const storedMetadata: unknown = row.metadata;
+    const meta = toRecord(storedMetadata);
     assert.ok(Array.isArray(meta.references));
     assert.equal(meta.references.length, 1);
     assert.deepEqual(meta.references[0], {
@@ -470,7 +474,9 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
 
     const [rowAfter] = after;
     assert.ok(rowAfter);
-    const metaAfter = toRecord(rowAfter.metadata);
+    // The column's `$type` does not validate a read; check the stored JSON.
+    const storedMetadataAfter: unknown = rowAfter.metadata;
+    const metaAfter = toRecord(storedMetadataAfter);
     assert.ok(Array.isArray(metaAfter.references));
     assert.equal(metaAfter.references.length, 1, "reference append must be idempotent");
   });
@@ -513,7 +519,9 @@ describe("gmail attachment ingestion — DB-backed", { skip: SKIP }, () => {
     const rows = await db().select().from(documents).where(eq(documents.id, documentId));
     const [row] = rows;
     assert.ok(row);
-    const meta = toRecord(row.metadata);
+    // The column's `$type` does not validate a read; check the stored JSON.
+    const storedMetadata: unknown = row.metadata;
+    const meta = toRecord(storedMetadata);
     assert.ok(Array.isArray(meta.references));
     assert.equal(meta.references.length, 3, "malformed entry kept, new entry appended once");
     assert.deepEqual(meta.references[0], { foo: "bar" }, "keyless element must survive");

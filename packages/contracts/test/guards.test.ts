@@ -12,22 +12,28 @@ import {
 } from "@alfred/contracts";
 
 test("isRecord accepts only plain object records", () => {
-  assert.equal(isRecord({ a: 1 }), true);
-
   // A `__proto__: null` key in a literal sets the prototype; it is not an own key.
   const nullProto = { __proto__: null, a: 1 };
   assert.equal(Object.getPrototypeOf(nullProto), null);
-  assert.equal(isRecord(nullProto), true);
 
   class Box {
     value = 1;
   }
 
-  assert.equal(isRecord(null), false);
-  assert.equal(isRecord(["a"]), false);
-  assert.equal(isRecord(new Date("2026-07-01T00:00:00Z")), false);
-  assert.equal(isRecord(new Map([["a", 1]])), false);
-  assert.equal(isRecord(new Box()), false);
+  // `isRecord` takes only `unknown`, so the probes sit in `unknown[]` lists.
+  const accepted: unknown[] = [{ a: 1 }, nullProto];
+
+  const rejected: unknown[] = [
+    null,
+    ["a"],
+    new Date("2026-07-01T00:00:00Z"),
+    new Map([["a", 1]]),
+    new Box(),
+  ];
+
+  for (const value of accepted) assert.equal(isRecord(value), true);
+
+  for (const value of rejected) assert.equal(isRecord(value), false);
 });
 
 test("isIndexable accepts every non-null reference isRecord rejects", () => {
@@ -63,15 +69,28 @@ test("isIndexable accepts every non-null reference isRecord rejects", () => {
 });
 
 test("toRecord and getPath use the same strict record boundary", () => {
-  assert.deepEqual(toRecord(new Date("2026-07-01T00:00:00Z")), {});
-  assert.equal(getPath({ a: { b: 1 } }, "a", "b"), 1);
-  assert.equal(getPath({ a: new Date("2026-07-01T00:00:00Z") }, "a", "b"), undefined);
+  // The guards take only `unknown`, so the probes sit in an `unknown[]`.
+  const [date, nested, nestedDate]: unknown[] = [
+    new Date("2026-07-01T00:00:00Z"),
+    { a: { b: 1 } },
+    { a: new Date("2026-07-01T00:00:00Z") },
+  ];
+
+  assert.deepEqual(toRecord(date), {});
+  assert.equal(getPath(nested, "a", "b"), 1);
+  assert.equal(getPath(nestedDate, "a", "b"), undefined);
 });
 
 test("getStringPath narrows only string leaves", () => {
-  assert.equal(getStringPath({ a: { b: "ok" } }, "a", "b"), "ok");
-  assert.equal(getStringPath({ a: { b: 1 } }, "a", "b"), undefined);
-  assert.equal(getStringPath({ a: ["not", "a", "record"] }, "a", "0"), undefined);
+  const [stringLeaf, numberLeaf, arrayLink]: unknown[] = [
+    { a: { b: "ok" } },
+    { a: { b: 1 } },
+    { a: ["not", "a", "record"] },
+  ];
+
+  assert.equal(getStringPath(stringLeaf, "a", "b"), "ok");
+  assert.equal(getStringPath(numberLeaf, "a", "b"), undefined);
+  assert.equal(getStringPath(arrayLink, "a", "0"), undefined);
 });
 
 test("enumGuard narrows to tuple members and rejects everything else", () => {

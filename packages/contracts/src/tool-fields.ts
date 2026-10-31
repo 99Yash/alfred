@@ -5,7 +5,7 @@
 
 import { assertNever } from "./errors";
 import { z } from "zod";
-import { isRecord, toStringArray } from "./guards";
+import { isJsonObject, toStringArray } from "./guards";
 import { toJsonValue } from "./json";
 import { TOOL_INPUT_SCHEMAS } from "./tool-schemas";
 import type { ToolName } from "./tools";
@@ -226,7 +226,7 @@ function fieldFromProperty(key: string, prop: JsonObject, required: boolean): Fi
   }
 
   if (type === "array") {
-    const items = isRecord(prop.items) ? prop.items : {};
+    const items = isJsonObject(prop.items) ? prop.items : {};
     const itemType = primaryType(items);
 
     if (itemType === "string") {
@@ -257,9 +257,9 @@ function deref(schema: JsonObject, root: JsonObject): JsonObject {
   if (!ref) return schema;
   const name = ref.replace(/^#\/(\$defs|definitions)\//, "");
   const defs = root.$defs ?? root.definitions;
-  const def = isRecord(defs) ? defs[name] : undefined;
+  const def = isJsonObject(defs) ? defs[name] : undefined;
 
-  return isRecord(def) ? def : schema;
+  return isJsonObject(def) ? def : schema;
 }
 
 function deriveFields(schema: z.ZodType): FieldSpec[] | null {
@@ -279,12 +279,12 @@ function deriveFields(schema: z.ZodType): FieldSpec[] | null {
     return null;
   }
 
-  if (!isRecord(json)) return null;
+  if (!isJsonObject(json)) return null;
   const root = json;
   const resolved = deref(json, root);
   const properties = resolved.properties;
 
-  if (!isRecord(properties)) return null;
+  if (!isJsonObject(properties)) return null;
 
   const required = new Set(
     Array.isArray(resolved.required)
@@ -294,7 +294,7 @@ function deriveFields(schema: z.ZodType): FieldSpec[] | null {
 
   // A boolean schema (`true`) has no keywords, so it reads as an empty one.
   return Object.entries(properties).map(([key, prop]) =>
-    fieldFromProperty(key, deref(isRecord(prop) ? prop : {}, root), required.has(key)),
+    fieldFromProperty(key, deref(isJsonObject(prop) ? prop : {}, root), required.has(key)),
   );
 }
 

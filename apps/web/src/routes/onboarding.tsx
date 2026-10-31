@@ -1,4 +1,4 @@
-import { getStringPath, toRecord } from "@alfred/contracts";
+import { getStringPath } from "@alfred/contracts";
 import { createFileRoute } from "@tanstack/react-router";
 import { pageMeta } from "~/lib/page-meta";
 import { OnboardingRoute, type OnboardingStep } from "./-onboarding/onboarding-route";
@@ -14,14 +14,14 @@ export const Route = createFileRoute("/onboarding")({
   staticData: { publicRoute: true },
   head: () => pageMeta({ title: "Get started", path: "/onboarding" }),
   validateSearch: (search): OnboardingSearch => {
-    const params = toRecord(search);
-    const raw = Number(params.step);
+    // The router gives a plain object of parsed query values, so read it directly.
+    const raw = Number(search["step"]);
     const step: OnboardingStep = raw === 2 ? 2 : raw === 3 ? 3 : 1;
 
     return {
       step,
-      google_connected: getStringPath(params, "google_connected"),
-      github_connected: getStringPath(params, "github_connected"),
+      google_connected: getStringPath(search, "google_connected"),
+      github_connected: getStringPath(search, "github_connected"),
     };
   },
   component: OnboardingRoute,

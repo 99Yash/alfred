@@ -1,4 +1,4 @@
-import { getStringField, isRecord, safeJsonParse } from "@alfred/contracts";
+import { getStringField, isJsonObject, safeJsonParse } from "@alfred/contracts";
 import type { JSONContent } from "@tiptap/react";
 import { useCallback, useMemo, useState } from "react";
 import { safeGet, safeRemove, safeSet } from "~/lib/storage/storage";
@@ -78,7 +78,7 @@ function readDraftJSON(draftKey: string): JSONContent | undefined {
     };
   }
 
-  if (isRecord(parsed) && "type" in parsed) {
+  if (isJsonObject(parsed) && "type" in parsed) {
     return parsed;
   }
 

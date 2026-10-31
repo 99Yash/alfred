@@ -2,7 +2,7 @@ import {
   assertNever,
   getStringPath,
   isNonEmptyString,
-  isRecord,
+  isJsonObject,
   safeJsonParse,
 } from "@alfred/contracts";
 import {
@@ -36,7 +36,7 @@ export function parseEventFrame<K extends EventKind>(
   if (!isNonEmptyString(msg.data) || !isNonEmptyString(msg.lastEventId)) return null;
   const parsed = safeJsonParse(msg.data);
 
-  if (!isRecord(parsed)) return null;
+  if (!isJsonObject(parsed)) return null;
   const payload = eventPayloadSchemas[kind].safeParse(parsed.payload);
 
   if (!payload.success) return null;

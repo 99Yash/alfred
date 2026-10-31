@@ -749,6 +749,17 @@ export const RULES = [
     fix: "Use scheduledFireTime(job) from @alfred/assistant/execution for the time a job scheduler fired this job for. BullMQ sets job.timestamp when it creates the job, one interval before a scheduled job runs. For when the job really started, read job.processedOn. If the value is an identity, not a time, append `// drift-ok: <what it identifies>`.",
   },
   {
+    id: "boundary-guard-type-argument",
+    // The boundary guards infer their own type argument and reject a closed
+    // type through it (docs/reference/smells/guards-only-on-unknown.md). An
+    // explicit argument such as `isRecord<unknown>(row)` skips that check, so
+    // the compiler gate cannot see it. A generic `T` is the one honest case.
+    re: /\b(?:isRecord|toRecord|getPath|getStringPath|getIdPath)\s*</,
+    severity: "gate",
+    owners: ["packages/contracts/src/guards.ts"],
+    fix: "Let the guard infer its argument. If the value has a closed type, index the typed field directly. Use isJsonObject on a JsonValue. Bind a generic value to `unknown` first. If the narrowing must keep a generic `T`, append `// drift-ok: <why>`.",
+  },
+  {
     id: "spread-over-defaults",
     // `{ ...DEFAULT_X, ...overrides }` — a defaults object (SCREAMING_CASE or
     // `defaultFoo`) with a second spread layered on top. A *present* `undefined`

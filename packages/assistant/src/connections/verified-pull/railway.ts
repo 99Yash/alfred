@@ -1,7 +1,6 @@
 import {
   canonicalizeRailwayTargetId,
   type DeploymentStatus,
-  getPath,
   isNotificationSender,
 } from "@alfred/contracts";
 import {
@@ -101,7 +100,7 @@ async function readRailwayTool<Schema extends z.ZodType>(
 
   if (envelope.outcome !== "completed" || envelope.truncation) return null;
 
-  const parsed = schema.safeParse(getPath(envelope.result, "structuredContent"));
+  const parsed = schema.safeParse(envelope.result.structuredContent);
 
   return parsed.success ? parsed.data : null;
 }

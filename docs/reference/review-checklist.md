@@ -21,8 +21,6 @@ Each rule has the rule and the reason. Its smell file has a Bad and a Good examp
   Why: `Record<string, unknown>` is not a substitute for a parse. See `docs/research/narrow-record-types-2026-08-09.md`.
 - **Derive a row type from its table.** Use the named row type (`Document`) with `Pick` or `Omit`, and the `New*` insert type or `$inferInsert`. [Smell](./smells/derive-row-type-from-table.md).
   Why: a copy drifts when a column changes. Before you derive, read "Derive row types from the table" in `docs/reference/database.md`. Example: `rowToFact` in `packages/assistant/src/knowledge/facts.ts`.
-- **Use `isRecord` and `getPath` only on a value that is `unknown` at a true parse boundary.** Index a typed field directly. Use `isIndexable` and `Reflect.get` for an SDK instance. [Smell](./smells/guards-only-on-unknown.md).
-  Why: the guard widens a parsed value again. Example: #1279.
 - **Keep a literal type only when it is a different concept, and say why in one comment.** A wire reshape is the usual case. [Smell](./smells/literal-type-only-for-new-concept.md).
   Why: the next reviewer otherwise collapses it to the row type. Example: the `Synced*` read models in `packages/sync/src/schemas.ts`.
 - **Name a symbol for its domain role, not its structure.** Do not use `shape` for a payload or a credential. `DayShape` is a real domain term and stays. [Smell](./smells/name-for-domain-role.md).
