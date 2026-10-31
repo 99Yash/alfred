@@ -128,7 +128,6 @@ Each row is a smell that review owns, from [smells/](./smells/README.md), with t
 | --- | --- | --- | --- |
 | [`guards-only-on-unknown`](./smells/guards-only-on-unknown.md) (Types) | Compiler: a closed-domain parameter that rejects an argument whose type is not `unknown`. | Candidate, #1629 | 7 |
 | [`external-call-timeout-and-abort`](./smells/external-call-timeout-and-abort.md) (Backend) | AST: an AI SDK generate or stream call whose options have no `abortSignal` key. | Candidate, #1629 | 4 |
-| [`brand-claim-needs-probe`](./smells/brand-claim-needs-probe.md) (Types) | The claim is prose. An AST rule that fails a type guard or a `z.custom` of a brand outside its owner module would remove the mints with no cast. | Candidate, #1629 | 2 |
 | [`no-barrel-export-for-test`](./smells/no-barrel-export-for-test.md) (Backend) | Knip in production mode, where test files are not entries. | Candidate, #1629 | 2 |
 | [`required-executor-param`](./smells/required-executor-param.md) (Backend) | AST: an optional parameter or property whose type annotation is `DbTransaction`. About 35 sites remain, and some of them are correct, so the rule needs a per-site decision. | Candidate, #1629 | 4 |
 | [`no-swallowed-catch`](./smells/no-swallowed-catch.md) (Backend) | AST: a `catch` with statements that does not rethrow, log or return a failure value. `no-empty` already fails an empty body. | Candidate, #1629 | 2 |
@@ -144,6 +143,7 @@ Each row is a smell that review owns, from [smells/](./smells/README.md), with t
 | [`literal-pin-needs-why`](./smells/literal-pin-needs-why.md) (Tests) | An AST rule cannot tell a policy literal from a change detector. | Low | 0 |
 | [`prose-not-safer-than-code`](./smells/prose-not-safer-than-code.md) (Process) | A check cannot compare a claim with the sequences that the code permits. The campaign review ranks an overclaim `must-fix` and an underclaim `nit` (`.claude/skills/campaign/REVIEW.md`). | Stays review | 5 |
 | [`app-lifetime-data-outside-mount`](./smells/app-lifetime-data-outside-mount.md) (Frontend) | The lifetime of the data is a product fact, not a fact in the code. | Stays review | 3 |
+| [`brand-claim-needs-probe`](./smells/brand-claim-needs-probe.md) (Types) | The claim is prose, so no check can separate the Bad doc from the Good doc. Both recorded hits are forms that no syntax rule sees: a swap of two arguments of one type (#1548), and a cast and a merge (#1540). Review keeps this smell. | Stays review | 2 |
 | [`find-item-by-id`](./smells/find-item-by-id.md) (Frontend) | `.at(-1)` and index 0 are correct on a list that keeps its order. A check cannot tell that list from a list that changes order. | Stays review | 2 |
 | [`search-prose-after-rename`](./smells/search-prose-after-rename.md) (Process) | `check:doc-symbols` and `check:prose-locators` catch a dead backticked name. A plain-word name is not a token that a check can resolve. | Stays review | 2 |
 | [`check-issue-premise`](./smells/check-issue-premise.md) (Process) | Not a fact in the code. | Stays review | 1 |
