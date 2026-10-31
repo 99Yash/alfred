@@ -123,6 +123,8 @@ export function MarkdownRenderer({
     <div
       className={cn(
         ...(size === "reading" ? READING_SIZE : COMPACT_SIZE),
+        // Preflight makes headings inherit body weight; set it once for every size.
+        "[&_h1]:font-semibold [&_h2]:font-semibold [&_h3]:font-semibold [&_h4]:font-semibold",
         "[&_strong]:font-semibold",
         "[&_em]:italic",
         // The citation pill keeps its look with its own `!` utilities.

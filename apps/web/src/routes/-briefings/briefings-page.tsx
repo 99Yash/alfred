@@ -4,7 +4,7 @@ import type { SyncedBriefing } from "@alfred/sync";
 import { AppCard } from "~/components/ui/v2";
 import { CachedSyncNotice } from "~/components/cached-sync-notice";
 import { useBriefings } from "~/lib/replicache/use-briefings";
-import { briefingPlainText } from "./briefing-prose-utils";
+import { briefingGist } from "./briefing-prose-utils";
 import { formatDayHeading, slotLabel } from "./briefing-utils";
 
 /** Rows arrive newest-first; group by day, keeping order. */
@@ -23,7 +23,7 @@ function groupByDate(briefings: SyncedBriefing[]): { date: string; slots: Synced
 
 /** One-line gist, or a status note. */
 function slotGist(b: SyncedBriefing): string {
-  if (b.breakingSummary) return briefingPlainText(b.breakingSummary, b.gather);
+  if (b.breakingSummary) return briefingGist(b.breakingSummary, b.gather);
 
   if (b.status === "suppressed") return "Quiet day. Not emailed.";
 
