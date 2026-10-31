@@ -255,6 +255,7 @@ Each script below runs in `pnpm check`, in CI (`.github/workflows/ci.yml`), or i
 | `check:rules-catalog` | yes | yes | `node scripts/enforced-rules-catalog.mjs --check` | Builds docs/reference/enforced-rules.md: the catalog of every rule that a gate enforces, generated from the files that define the rules. |
 | `check:schema-catalog` | yes | yes | `node scripts/schema-catalog.mjs --selftest` | A discovery aid for runtime validators: where do this repo's zod schemas live, and which declared shapes look identical under different names? |
 | `check:script-paths` | yes | yes | `node scripts/check-script-paths.mjs` | Fails when a repository path hardcoded inside `scripts/` stops resolving. |
+| `check:smells` | yes | yes | `node scripts/check-smells.mjs` | Fails when a smell file breaks the catalog grammar, when a smell found in two PRs has no decision, or when a view that scripts/smells.mjs writes is stale. |
 | `check:test-id-prefixes` | yes | yes | `node scripts/check-test-id-prefixes.mjs` | Fails when one test file's `LIKE '<prefix>%'` cleanup can delete another test file's rows. |
 | `check:test-tautology` | yes | yes | `node scripts/check-test-tautology.mjs` | Guards against tautological tests — asserts that restate implementation instead of pinning a product/state/contract property. |
 | `check:test-typecheck-baseline` | yes | yes | `node scripts/check-test-typecheck-baseline.mjs` | Fails the build when a package's second-pass `exclude` stops describing which of its test files are actually dirty. |

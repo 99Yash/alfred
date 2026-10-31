@@ -117,43 +117,66 @@ A suppression says "this line is the one exception". The gates check its form. R
 
 ## Queue: review-only rules and the mechanism that would enforce them
 
-Each row is a rule from [review-checklist.md](./review-checklist.md), with the rung that would enforce it and a feasibility estimate. **High**: the rule exists or is small, and the tree is near zero. **Medium**: the tree needs a paydown, or the rule is a narrow first-party rule. **Low**: a check cannot separate the good case from the bad case without many false positives. **Stays review**: decided, with the reason. When a rule here gets a gate, delete its row here and its line in the checklist.
+Each row is a smell that review owns, from [smells/](./smells/README.md), with the rung that would enforce it and a status. **Candidate**: a gate is planned, and the issue names the work. **High**: the rule exists or is small, and the tree is near zero. **Medium**: the tree needs a paydown, or the rule is a narrow first-party rule. **Low**: a check cannot separate the good case from the bad case without many false positives. **Stays review**: decided, with the reason. **PRs** counts the PRs where a review found the smell.
 
-| Rule (checklist section) | Mechanism | Feasibility |
-| --- | --- | --- |
-| `isRecord` and `getPath` only on `unknown` (Types) | Compiler: a closed-domain parameter that rejects an argument whose type is not `unknown` | Medium |
-| Accessibility (Frontend) | Lint: the `jsx-a11y` plugin, one rule per change | Medium |
-| No query in a loop (Backend) | AST: a query on a `db()` or transaction handle awaited inside a loop body or an async `.map` | Medium |
-| Timeout and `abortSignal` (Backend) | AST: an AI SDK generate or stream call whose options have no `abortSignal` key | Medium |
-| Log a caught error only under `err` (Backend) | AST: a `catch` binding, or its `.message`, in a `logger` call under any key other than `err`. `no-console` already stops the `console` path | Medium |
-| Do not use `updatedAt` as a queue key (Backend) | AST: an `updatedAt` column inside an ordering or a comparison in a query chain | Medium |
-| No barrel export only for a test (Backend) | Knip in production mode, where test files are not entries | Medium |
-| Bind the credential, not the token, past Gmail (Backend) | Compiler: client factories that take a credential id and never a token, one provider at a time | Medium |
-| Webhook signature on the raw body (Backend) | Compiler: the verifier takes a branded raw-body type that only the raw-body reader mints | Medium |
-| Pin one side of an equality assert (Tests) | AST: two calls of one callee inside one `assert.equal`. The regex row is a `hint` | Medium |
-| Existence-only assert; mock `calls.length` alone (Tests) | AST: a `test` block whose only assertions are of that kind | Medium |
-| Do not swallow a caught error (Backend) | AST: a `catch` with statements that does not rethrow, log or return a failure value. `no-empty` already fails an empty body | Low |
-| Name the clock of each timestamp (Backend) | Compiler: a brand for each clock. A wide migration for a rare bug | Low |
-| A literal pin needs a `why` (Tests) | An AST rule cannot tell a policy literal from a change detector | Low |
-| Derive row, schema and shared types (Types) | A correct derive depends on column traps and on intentional reshapes such as `Synced*`. A checker cannot separate a reshape from drift. `pnpm schemas:dupes` stays a discovery aid | Stays review |
-| Shape in the file that mints it; constants at the narrowest owner (Types, Constants) | Placement follows ownership, not file type. A file-exists gate or a literal ban fires on correct code | Stays review |
-| Name a constant; a constants file only when values couple (Constants) | `42` and `EMPTY_COMPLETION_MAX_RETRIES = 42` depend on context. A literal ban fires on simple arithmetic | Stays review |
-| The reason of a `SAFETY:` note or a directive stays true (Tests) | The unused-directive check reads whether a directive suppresses a report, not its reason text | Stays review |
-| Name a symbol for its domain role (Types) | A substring ban cannot tell a credential `shape` field from `DayShape` (#1149) | Stays review |
-| Choose `k?: T` or `k?: T \| undefined` (Types) | The choice depends on what each consumer does with absence | Stays review |
-| Transactions, idempotency, pagination, route auth (Backend) | Each needs knowledge of intent that the code does not state | Stays review |
-| Never `db:push` outside local exploration (Backend) | A command that someone runs, not a fact in the source | Stays review |
-| One return value per state; a closed status map (Backend) | The compiler holds a map after someone writes it. To decide that one is necessary is design | Stays review |
-| Scripts call the live owner (Backend) | A copy compiles. `no-restricted-imports` already fences each `internal` door | Stays review |
-| Render every state; SSR guards; show an error to the user (Frontend) | Behavior, not shape | Stays review |
-| Effect cleanup and no state after unmount (Frontend) | `react/exhaustive-deps` checks the dependency array. Whether an effect owns a resource to release is behavior | Stays review |
-| Find an item by id, not by position (Frontend) | `.at(-1)` and index 0 are correct on a list that keeps its order. A check cannot tell that list from a list that changes order | Stays review |
-| Data that outlives one page view stays out of per-mount state (Frontend) | The lifetime of the data is a product fact, not a fact in the code | Stays review |
-| Centralize logic only when copies change together (Constants) | `check:duplicates` finds copies. Whether they change together is judgment | Stays review |
-| Keep the reason of a suppression true (Process) | A check cannot read whether a reason is still true | Stays review |
-| Check the premise of an issue against data (Process) | Not a fact in the code | Stays review |
-| Prose does not claim that the code is safer than it is (Process) | A check cannot compare a claim with the sequences that the code permits | Stays review |
-| Search comments and docs for the prose names of a deleted mechanism (Process) | `check:doc-symbols` and `check:prose-locators` catch a dead backticked name. A plain-word name is not a token that a check can resolve | Stays review |
-| A brand or compile claim needs a recorded probe (Types) | The claim is prose. An AST rule that fails a type guard or a `z.custom` of a brand outside its owner module would remove the mints with no cast | Medium |
-| Check the `.d.ts` file before you say a library cannot do something (Types) | Not a fact in the code | Stays review |
-| A same-property utility passed through `className` to a primitive with a delta class (Frontend) | `alfred/no-delta-class-utility-collision` reads one element in one file. The class and the delta meet only after a component renders | Stays review |
+`node scripts/smells.mjs` writes this table from the smell files. Do not edit it here. When a smell gets a gate, set `status: gated` and `rule:` in its file. The smell then leaves this table and the checklist, and keeps its examples. When reviews find a `review` smell in two PRs and a check can state it, `pnpm check:smells` fails until the smell gets a decision.
+
+<!-- smells:queue:start -->
+<!-- Generated by scripts/smells.mjs from docs/reference/smells/. Run `node scripts/smells.mjs` after you change a smell. -->
+
+| Smell (checklist section) | Mechanism | Status | PRs |
+| --- | --- | --- | --- |
+| [`import-type-side-effects`](./smells/import-type-side-effects.md) (Types) | Built-in oxlint rule: `typescript/no-import-type-side-effects`. About 50 sites remain, and the fixer rewrites each of them. | Candidate, #1629 | 5 |
+| [`guards-only-on-unknown`](./smells/guards-only-on-unknown.md) (Types) | Compiler: a closed-domain parameter that rejects an argument whose type is not `unknown`. | Candidate, #1629 | 7 |
+| [`export-star-outside-root-barrel`](./smells/export-star-outside-root-barrel.md) (Constants and ownership) | Regex row: `export *` in a file under `src/`, with `packages/contracts/src/index.ts` and `packages/db/src/schemas.ts` as the owners. About 25 sites remain outside those two files. | Candidate, #1629 | 5 |
+| [`never-sentinel-escape`](./smells/never-sentinel-escape.md) (Types) | AST: in a `default` clause, a `const` binding with a `never` annotation that is then returned, passed to `String`, or discarded with `void`. About 50 sites remain, so a paydown comes first. | Candidate, #1629 | 5 |
+| [`external-call-timeout-and-abort`](./smells/external-call-timeout-and-abort.md) (Backend) | AST: an AI SDK generate or stream call whose options have no `abortSignal` key. | Candidate, #1629 | 4 |
+| [`log-caught-error-under-err`](./smells/log-caught-error-under-err.md) (Backend) | AST: a `catch` binding, or its `.message`, in a `logger` call under any key other than `err`. `no-console` already stops the `console` path. | Candidate, #1629 | 4 |
+| [`switch-literal-needs-default`](./smells/switch-literal-needs-default.md) (Types) | AST: a `switch` whose every `case` test is a string literal and that has no `default` clause. A switch over an open `string` has no member set, so the rule must not fire on a switch that already has a `default`. | Candidate, #1629 | 4 |
+| [`array-sort-in-place`](./smells/array-sort-in-place.md) (Frontend) | Built-in oxlint rule: `unicorn/no-array-sort`. About 150 sites remain, so a paydown comes first; the rule has a fix suggestion. | Candidate, #1629 | 2 |
+| [`brand-claim-needs-probe`](./smells/brand-claim-needs-probe.md) (Types) | The claim is prose. An AST rule that fails a type guard or a `z.custom` of a brand outside its owner module would remove the mints with no cast. | Candidate, #1629 | 2 |
+| [`no-barrel-export-for-test`](./smells/no-barrel-export-for-test.md) (Backend) | Knip in production mode, where test files are not entries. | Candidate, #1629 | 2 |
+| [`required-executor-param`](./smells/required-executor-param.md) (Backend) | AST: an optional parameter or property whose type annotation is `DbTransaction`. About 35 sites remain, and some of them are correct, so the rule needs a per-site decision. | Candidate, #1629 | 4 |
+| [`no-swallowed-catch`](./smells/no-swallowed-catch.md) (Backend) | AST: a `catch` with statements that does not rethrow, log or return a failure value. `no-empty` already fails an empty body. | Candidate, #1629 | 2 |
+| [`bind-credential-not-token`](./smells/bind-credential-not-token.md) (Backend) | Compiler: client factories that take a credential id and never a token, one provider at a time. | Medium | 1 |
+| [`no-query-in-loop`](./smells/no-query-in-loop.md) (Backend) | AST: a query on a `db()` or transaction handle awaited inside a loop body or an async `.map`. | Medium | 1 |
+| [`no-updated-at-queue-key`](./smells/no-updated-at-queue-key.md) (Backend) | AST: an `updatedAt` column inside an ordering or a comparison in a query chain. | Medium | 1 |
+| [`accessible-controls`](./smells/accessible-controls.md) (Frontend) | Lint: the `jsx-a11y` plugin, one rule per change. | Medium | 0 |
+| [`existence-assert-pairs-behavior`](./smells/existence-assert-pairs-behavior.md) (Tests) | AST: a `test` block whose only assertions are of that kind. | Medium | 0 |
+| [`mock-test-asserts-wire`](./smells/mock-test-asserts-wire.md) (Tests) | AST: a `test` block whose only assertions are of that kind. | Medium | 0 |
+| [`pin-one-side-of-equality`](./smells/pin-one-side-of-equality.md) (Tests) | AST: two calls of one callee inside one `assert.equal`. The regex row is a `hint`. | Medium | 0 |
+| [`webhook-signature-raw-body`](./smells/webhook-signature-raw-body.md) (Backend) | Compiler: the verifier takes a branded raw-body type that only the raw-body reader mints. | Medium | 0 |
+| [`name-timestamp-clock`](./smells/name-timestamp-clock.md) (Backend) | Compiler: a brand for each clock. A wide migration for a rare bug. | Low | 1 |
+| [`literal-pin-needs-why`](./smells/literal-pin-needs-why.md) (Tests) | An AST rule cannot tell a policy literal from a change detector. | Low | 0 |
+| [`prose-not-safer-than-code`](./smells/prose-not-safer-than-code.md) (Process) | A check cannot compare a claim with the sequences that the code permits. The campaign review ranks an overclaim `must-fix` and an underclaim `nit` (`.claude/skills/campaign/REVIEW.md`). | Stays review | 5 |
+| [`app-lifetime-data-outside-mount`](./smells/app-lifetime-data-outside-mount.md) (Frontend) | The lifetime of the data is a product fact, not a fact in the code. | Stays review | 3 |
+| [`find-item-by-id`](./smells/find-item-by-id.md) (Frontend) | `.at(-1)` and index 0 are correct on a list that keeps its order. A check cannot tell that list from a list that changes order. | Stays review | 2 |
+| [`search-prose-after-rename`](./smells/search-prose-after-rename.md) (Process) | `check:doc-symbols` and `check:prose-locators` catch a dead backticked name. A plain-word name is not a token that a check can resolve. | Stays review | 2 |
+| [`check-issue-premise`](./smells/check-issue-premise.md) (Process) | Not a fact in the code. | Stays review | 1 |
+| [`closed-provider-status-map`](./smells/closed-provider-status-map.md) (Backend) | The compiler holds a map after someone writes it. To decide that one is necessary is design. | Stays review | 1 |
+| [`idempotent-retried-work`](./smells/idempotent-retried-work.md) (Backend) | Each needs knowledge of intent that the code does not state. | Stays review | 1 |
+| [`name-for-domain-role`](./smells/name-for-domain-role.md) (Types) | A substring ban cannot tell a credential `shape` field from `DayShape` (#1149). | Stays review | 1 |
+| [`one-return-value-per-state`](./smells/one-return-value-per-state.md) (Backend) | The compiler holds a map after someone writes it. To decide that one is necessary is design. | Stays review | 1 |
+| [`scripts-call-live-owner`](./smells/scripts-call-live-owner.md) (Backend) | A copy compiles. `no-restricted-imports` already fences each `internal` door. | Stays review | 1 |
+| [`atomic-multi-step-write`](./smells/atomic-multi-step-write.md) (Backend) | Each needs knowledge of intent that the code does not state. | Stays review | 0 |
+| [`centralize-only-when-copies-change-together`](./smells/centralize-only-when-copies-change-together.md) (Constants and ownership) | `check:duplicates` finds copies. Whether they change together is judgment. | Stays review | 0 |
+| [`check-dts-before-library-claim`](./smells/check-dts-before-library-claim.md) (Types) | Not a fact in the code. | Stays review | 0 |
+| [`choose-open-dictionary-type`](./smells/choose-open-dictionary-type.md) (Types) | `anti-slop/no-unsafe-dictionary-type` already rejects `Record<string, unknown>`. Which of the four forms fits is a design choice. | Stays review | 0 |
+| [`constant-at-narrowest-owner`](./smells/constant-at-narrowest-owner.md) (Constants and ownership) | Placement follows ownership, not file type. A file-exists gate or a literal ban fires on correct code. | Stays review | 0 |
+| [`constants-file-only-when-coupled`](./smells/constants-file-only-when-coupled.md) (Constants and ownership) | `42` and `EMPTY_COMPLETION_MAX_RETRIES = 42` depend on context. A literal ban fires on simple arithmetic. | Stays review | 0 |
+| [`delta-class-across-component`](./smells/delta-class-across-component.md) (Frontend) | `alfred/no-delta-class-utility-collision` reads one element in one file. The class and the delta meet only after a component renders. | Stays review | 0 |
+| [`derive-row-type-from-table`](./smells/derive-row-type-from-table.md) (Types) | A correct derive depends on column traps and on intentional reshapes such as `Synced*`. A checker cannot separate a reshape from drift. `pnpm schemas:dupes` stays a discovery aid. | Stays review | 0 |
+| [`effect-cleanup`](./smells/effect-cleanup.md) (Frontend) | `react/exhaustive-deps` checks the dependency array. Whether an effect owns a resource to release is behavior. | Stays review | 0 |
+| [`endpoint-auth-and-migrations`](./smells/endpoint-auth-and-migrations.md) (Backend) | Each needs knowledge of intent that the code does not state. `db:push` is a command that someone runs, not a fact in the source. | Stays review | 0 |
+| [`env-var-only-for-deploy-knob`](./smells/env-var-only-for-deploy-knob.md) (Constants and ownership) | Whether a value is a knob is a deploy fact, not a fact in the code. | Stays review | 0 |
+| [`literal-type-only-for-new-concept`](./smells/literal-type-only-for-new-concept.md) (Types) | A check cannot tell an intentional reshape from drift. A literal type that copies a row type can be a wire reshape or a stale copy, and only the comment says which. | Stays review | 0 |
+| [`name-policy-number`](./smells/name-policy-number.md) (Constants and ownership) | `42` and `EMPTY_COMPLETION_MAX_RETRIES = 42` depend on context. A literal ban fires on simple arithmetic. | Stays review | 0 |
+| [`one-owning-schema-per-shared-shape`](./smells/one-owning-schema-per-shared-shape.md) (Types) | A correct derive depends on column traps and on intentional reshapes such as `Synced*`. A checker cannot separate a reshape from drift. `pnpm schemas:dupes` stays a discovery aid. | Stays review | 0 |
+| [`optional-field-absence-choice`](./smells/optional-field-absence-choice.md) (Types) | The choice depends on what each consumer does with absence. | Stays review | 0 |
+| [`render-every-state`](./smells/render-every-state.md) (Frontend) | Behavior, not shape. | Stays review | 0 |
+| [`shape-in-minting-file`](./smells/shape-in-minting-file.md) (Types) | Placement follows ownership, not file type. A file-exists gate or a literal ban fires on correct code. | Stays review | 0 |
+| [`show-error-to-user`](./smells/show-error-to-user.md) (Frontend) | Behavior, not shape. | Stays review | 0 |
+| [`ssr-guard-and-sanitize-html`](./smells/ssr-guard-and-sanitize-html.md) (Frontend) | Behavior, not shape. | Stays review | 0 |
+| [`suppression-reason-stays-true`](./smells/suppression-reason-stays-true.md) (Process) | A check cannot read whether a reason is still true. The unused-directive check reads whether a directive suppresses a report, not its reason text. | Stays review | 0 |
+| [`zod-infer-not-parallel-interface`](./smells/zod-infer-not-parallel-interface.md) (Types) | A correct derive depends on column traps and on intentional reshapes such as `Synced*`. A checker cannot separate a reshape from drift. `pnpm schemas:dupes` stays a discovery aid. | Stays review | 0 |
+<!-- smells:queue:end -->

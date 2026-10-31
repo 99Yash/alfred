@@ -132,11 +132,11 @@ const ALLOWED = new Map([
 ]);
 
 function referenceDocs() {
-  const dir = join(ROOT, "docs/reference");
-
-  return readdirSync(dir)
-    .filter((name) => name.endsWith(".md"))
-    .map((name) => `docs/reference/${name}`);
+  return ["docs/reference", "docs/reference/smells"].flatMap((dir) =>
+    readdirSync(join(ROOT, dir))
+      .filter((name) => name.endsWith(".md"))
+      .map((name) => `${dir}/${name}`),
+  );
 }
 
 /**
@@ -178,19 +178,25 @@ function withoutFencedBlocks(markdown) {
 /** A section banner: `> **Designed, not built.**` under a heading. */
 const DESIGN_SECTION_BANNER = /^>\s*\*\*Designed, not built\.\*\*/m;
 
+/**
+ * A smell file's `## Hits` section: a ledger of what reviews found then. A
+ * symbol there may be renamed later, and the line stays true as history.
+ */
+const LEDGER_SECTION = /^## Hits\n/;
+
 /** An entry whose own bold lead admits it is unbuilt: `**Foo (deferred).**` */
 const DESIGN_ENTRY_LEAD = /^\*\*[^*]*\((?:deferred|designed, not built)\)\.?\*\*/i;
 
 /**
  * Drop the regions that do not claim to describe current code: whole `##`
- * sections carrying the design banner, and individual entries whose lead marks
- * them deferred. Everything else still has to resolve.
+ * sections carrying the design banner, a smell's `## Hits` ledger, and
+ * individual entries whose lead marks them deferred. Everything else still has to resolve.
  */
 function withoutDesignRegions(markdown) {
   const kept = [];
 
   for (const section of markdown.split(/^(?=## )/m)) {
-    if (DESIGN_SECTION_BANNER.test(section)) continue;
+    if (DESIGN_SECTION_BANNER.test(section) || LEDGER_SECTION.test(section)) continue;
 
     const paragraphs = section
       .split(/\n{2,}/)

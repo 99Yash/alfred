@@ -132,7 +132,13 @@ export function commentBlocks(source) {
   return blocks;
 }
 
-/** The line indexes markdown must not be scanned on: fences and design regions. */
+/**
+ * A smell file's `## Hits` section is a ledger of what reviews found then. A
+ * path there may move later, and the line stays true as history.
+ */
+const LEDGER_HEADING = "## Hits";
+
+/** The line indexes markdown must not be scanned on: fences, design regions and hit ledgers. */
 export function excludedMarkdownLines(text) {
   const lines = text.split("\n");
   const excluded = new Set();
@@ -159,7 +165,7 @@ export function excludedMarkdownLines(text) {
     const end = section + 1 < sectionStarts.length ? sectionStarts[section + 1] : lines.length;
     const content = lines.slice(start, end).join("\n");
 
-    if (DESIGN_SECTION_BANNER.test(content)) {
+    if (DESIGN_SECTION_BANNER.test(content) || lines[start] === LEDGER_HEADING) {
       for (let index = start; index < end; index += 1) excluded.add(index);
     }
   }
