@@ -12,7 +12,7 @@ Sub-decisions:
 6. **The triage snapshot travels with the result.** `ReplyDraftProvenance.triage` freezes the row facts the gate relied on. A later re-classify of the thread cannot make the recorded decision ambiguous.
 7. **Every decision is a trace row of one kind.** Inside the workflow, terminal steps call `ctx.trace("reply_drafting.decision", result)`. The consumer's `no_draft` verdict has no step of its own, so `recordReplyDraftDecision` writes it under the triage run. Both land in `agent_decision_traces` with kind `reply_drafting.decision`.
 8. **One run per (thread, inbound document).** The `startRun` occurrence key is `${sourceThreadId}:${documentId}` under provider `email-triage`. A same-document re-classify raises a unique violation, which the consumer logs and drops.
-9. **`staged` names what was staged.** `gmail.send_draft` sends live mail after approval and does not create a Gmail Draft. The action kind is `approval_staged_send`, so an audit cannot overstate what happened.
+9. **`staged` names what was staged.** `gmail.send_draft` sends live mail after approval. Since 2026-10-31 it saves a Gmail draft for a moment and sends it at once (ADR-0034 amendment item 10); the draft is a replay key, not a result for the user to review. The action kind is `approval_staged_send`, so an audit cannot overstate what happened.
 10. **At #243 the composer is a seam.** The `compose` step returns `no_draft` with reason `composer_unavailable`. #237 replaces the step body.
 
 **Extends ADR-0025 #5** (the reply-drafting built-in). **Depends on ADR-0047** (event dispatch) and **ADR-0066** (significance-weighted triage). **Amends the UNSET = ON rule** documented on `user_preferences` for one key.
@@ -45,7 +45,6 @@ A smoke or an explicit user request is the opt-in. Recording `invocation: "manua
 - **The consumer runs inside the triage step's publish.** `mode: "best-effort"` means a consumer failure is logged, not propagated. A bug in the gate cannot fail triage, and it also cannot be seen from the triage run's status.
 - **The `classified` event carries no body text.** A consumer that needs content must load the document. This keeps the payload bounded and means the gate can never judge prose.
 - **`recordReplyDraftDecision` checks the run's user but not its step.** The consumer runs in-process during `classify`, so the step exists, but the write does not prove it.
-
 
 ## Amendment — Gmail reply tracer (#237)
 

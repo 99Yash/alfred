@@ -29,6 +29,7 @@ import {
   type ExtractedMessage,
   type GmailLabel,
   type GoogleClient,
+  type SentMessage,
   TRIAGE_CATEGORIES,
   extractMessageContent,
   labelNameFor,
@@ -185,15 +186,17 @@ function truncateSnippet(text: string | null): string | null {
  * caller's `Message-ID`, so the draft id is the only key that a rerun can find.
  */
 const sendDraftRefSchema = z.object({
+  /** The mailbox that holds the draft. A rerun may select another account, so keep this one. */
+  credentialId: z.string().min(1),
   draftId: z.string().min(1),
   threadId: z.string().min(1),
-  /** Epoch ms, just before the draft was saved. */
-  savedAt: z.number(),
+  /** Epoch ms on Alfred's clock, just before the draft was saved. Not Gmail's clock. */
+  alfredSavedAt: z.number(),
 });
 
 type SendDraftRef = z.infer<typeof sendDraftRefSchema>;
 
-/** Our clock and Gmail's `internalDate` can differ by this much. */
+/** Alfred's clock and Gmail's `internalDate` clock can differ by this much. */
 const SENT_CLOCK_SKEW_MS = 60_000;
 
 function parseSendDraftRef(raw: string): SendDraftRef {
@@ -224,7 +227,7 @@ async function draftForCall(
   if (kept !== null) return parseSendDraftRef(kept);
 
   const gmail = ctx.integrations.google.gmail;
-  const savedAt = Date.now();
+  const alfredSavedAt = Date.now();
 
   const draft = await gmail.createDraft({
     credentialId,
@@ -236,7 +239,13 @@ async function draftForCall(
     threadId: input.threadId,
   });
 
-  const own: SendDraftRef = { draftId: draft.draftId, threadId: draft.threadId, savedAt };
+  const own: SendDraftRef = {
+    credentialId,
+    draftId: draft.draftId,
+    threadId: draft.threadId,
+    alfredSavedAt,
+  };
+
   const winner = parseSendDraftRef(await slot.record(JSON.stringify(own)));
 
   if (winner.draftId !== own.draftId) {
@@ -253,18 +262,18 @@ async function draftForCall(
 
 /**
  * The message that an earlier attempt sent from this draft. Gmail deletes a draft on send, and
- * the sent message gets a new id in the draft's thread.
+ * the sent message gets a new id in the draft's thread. A reply thread can hold other sent mail,
+ * so take the SENT message nearest to the save.
  */
 async function sentFromDraft(
   ref: SendDraftRef,
   ctx: ToolExecuteContext,
-  credentialId: string,
-): Promise<{ id: string; threadId: string } | null> {
+): Promise<SentMessage | null> {
   let thread;
 
   try {
     thread = await ctx.integrations.google.gmail.getThread({
-      credentialId,
+      credentialId: ref.credentialId,
       threadId: ref.threadId,
       format: "minimal",
     });
@@ -274,11 +283,16 @@ async function sentFromDraft(
     throw err;
   }
 
-  const sent = (thread.messages ?? []).find(
-    (message) =>
-      (message.labelIds ?? []).includes("SENT") &&
-      Number(message.internalDate) >= ref.savedAt - SENT_CLOCK_SKEW_MS,
-  );
+  const distance = (message: { internalDate?: string | undefined }) =>
+    Math.abs(Number(message.internalDate) - ref.alfredSavedAt);
+
+  const [sent] = (thread.messages ?? [])
+    .filter(
+      (message) =>
+        (message.labelIds ?? []).includes("SENT") &&
+        Number(message.internalDate) >= ref.alfredSavedAt - SENT_CLOCK_SKEW_MS,
+    )
+    .toSorted((a, b) => distance(a) - distance(b));
 
   return sent ? { id: sent.id, threadId: sent.threadId } : null;
 }
@@ -289,7 +303,8 @@ async function sentFromDraft(
  * the tool returns the message that the earlier attempt sent.
  */
 async function executeSendDraft(input: GmailSendDraftInput, ctx: ToolExecuteContext) {
-  // Check the send scope first, so the staging records a re-consent failure.
+  // The send grant is the user's consent to send. Check it first, so the staging records a
+  // re-consent failure. The draft calls below use the modify grant on the same credential.
   const credential = await ctx.integrations.google.gmail.sendCredential();
   await assertGmailRecipientsAllowed({
     userId: ctx.userId,
@@ -298,19 +313,18 @@ async function executeSendDraft(input: GmailSendDraftInput, ctx: ToolExecuteCont
   });
 
   const draft = await draftForCall(input, ctx, credential.id);
+  let sent: SentMessage | null;
 
   try {
-    const sent = await ctx.integrations.google.gmail.sendDraft({
-      credentialId: credential.id,
+    sent = await ctx.integrations.google.gmail.sendDraft({
+      credentialId: draft.credentialId,
       draftId: draft.draftId,
     });
-
-    return { ok: true, messageId: sent.id, threadId: sent.threadId };
   } catch (err) {
     if (!isHttpError(err) || err.status !== 404) throw err;
-  }
 
-  const sent = await sentFromDraft(draft, ctx, credential.id);
+    sent = await sentFromDraft(draft, ctx);
+  }
 
   if (!sent) throw new AppError("gmail_draft_gone");
 
@@ -748,7 +762,7 @@ export const gmailTools: readonly RegisteredTool[] = [
       relatedTools: ["gmail.search", "gmail.read_message", "gmail.create_draft"],
     },
     availability: {
-      credential: { provider: "google", anyOfScopes: googleAuthorityScopes("gmail_send") },
+      credential: { provider: "google", anyOfScopes: googleAuthorityScopes("gmail_modify") },
     },
     inputSchema: gmailSendDraftInput,
     execute: executeSendDraft,

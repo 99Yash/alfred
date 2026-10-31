@@ -634,7 +634,7 @@ export const RULES = [
     // `google/gmail`, so the assistant's `./internal/tools/gmail` tool module is
     // not this file. A named import of the pure parsers (`extractMessageContent`,
     // the types) stays legal.
-    re: /\b(?:import|export)\s*(?:\{[^}]*\b(?:listMessages|getMessage|getThreadMessageLabels|listHistory|startWatch|stopWatch|listLabels|createLabel|modifyMessageLabels|batchModifyMessages|sendMessage|getAttachment)\b[^}]*\}|\*(?:\s*as\s+\w+)?)\s*from\s*["'](?:[^"']*\/google\/|\.\.?\/)gmail(?:\.[cm]?[jt]s)?["']|\bimport\(\s*["'](?:[^"']*\/google\/|\.\.?\/)gmail(?:\.[cm]?[jt]s)?["']\s*\)/,
+    re: /\b(?:import|export)\s*(?:\{[^}]*\b(?:listMessages|getMessage|getThreadMessageLabels|listHistory|startWatch|stopWatch|listLabels|createLabel|modifyMessageLabels|batchModifyMessages|createDraft|sendDraft|deleteDraft|getAttachment)\b[^}]*\}|\*(?:\s*as\s+\w+)?)\s*from\s*["'](?:[^"']*\/google\/|\.\.?\/)gmail(?:\.[cm]?[jt]s)?["']|\bimport\(\s*["'](?:[^"']*\/google\/|\.\.?\/)gmail(?:\.[cm]?[jt]s)?["']\s*\)/,
     scope: "chain",
     severity: "gate",
     owners: ["packages/integrations/src/google/mailbox.ts"],

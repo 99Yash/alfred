@@ -975,7 +975,7 @@ switch (resultCategory) {
     caught: true,
     rule: "raw-gmail-token-call",
     file: "packages/integrations/src/index.ts",
-    code: `import { sendMessage } from "./google/gmail.ts";`,
+    code: `import { sendDraft } from "./google/gmail.ts";`,
   },
   {
     name: "raw-gmail-token-call — a dynamic import",
