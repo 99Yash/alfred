@@ -146,20 +146,22 @@
       name="twitter:image"
       content="https://alfred.beauty/images/og-card.png"
     />
-    <!-- Preload Open Runde so the brand font is discovered immediately rather
-         than after the JS bundle parses index.css. Both weights render above
-         the fold (Medium=body, Semibold=hero heading). crossorigin is required
-         even same-origin: fonts are always fetched in CORS mode. -->
+    <!-- Preload the Latin slices of Open Runde so the brand font is discovered
+         immediately rather than after the JS bundle parses index.css. Both
+         weights render above the fold (Medium=body, Semibold=hero heading).
+         Never preload the full files: they hold only non-Latin glyphs for
+         index.css, and at ~165 KB each they delay the entry JS. crossorigin is
+         required even same-origin: fonts are always fetched in CORS mode. -->
     <link
       rel="preload"
-      href="/fonts/OpenRunde-Semibold.woff2"
+      href="/fonts/OpenRunde-Semibold-latin.woff2"
       as="font"
       type="font/woff2"
       crossorigin
     />
     <link
       rel="preload"
-      href="/fonts/OpenRunde-Medium.woff2"
+      href="/fonts/OpenRunde-Medium-latin.woff2"
       as="font"
       type="font/woff2"
       crossorigin

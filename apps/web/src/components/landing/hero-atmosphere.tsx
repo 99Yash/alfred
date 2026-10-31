@@ -63,7 +63,7 @@ export function HeroAtmosphere({
 
           {/* Cloud texture at color-burn (dimension's hero/shadow-bg.png). */}
           <img
-            src="/images/landing/shadow-bg.png"
+            src="/images/landing/shadow-bg.avif"
             alt=""
             aria-hidden
             className="pointer-events-none absolute inset-0 size-full object-cover mix-blend-color-burn transition-opacity duration-500 select-none"

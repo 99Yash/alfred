@@ -71,7 +71,7 @@ function BandAtmosphere() {
 
       {/* Shared cloud texture. `overlay` changes value, not hue. */}
       <img
-        src="/images/landing/shadow-bg.png"
+        src="/images/landing/shadow-bg.avif"
         alt=""
         className="absolute inset-0 size-full object-cover opacity-[0.28] mix-blend-overlay select-none"
       />

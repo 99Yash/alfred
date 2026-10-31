@@ -25,6 +25,9 @@
   // see reaching — an Elysia route response type consumed only through Eden's
   // `typeof app` inference, for example. Tag such an export, don't un-export it.
   "tags": ["-public"],
+  // `uvx` (from uv, outside the pnpm graph) runs fontTools for
+  // `apps/web/scripts/subset-fonts.mjs`.
+  "ignoreBinaries": ["uvx"],
   "ignore": [
     // Scratch/spike surfaces, kept deliberately unwired to the app.
     "scripts/spikes/**",
@@ -66,7 +69,8 @@
       ]
     },
     "apps/web": {
-      "entry": ["test/**/*.test.{ts,tsx}"]
+      // Hand-run asset generators (`scripts/subset-fonts.mjs`): not dead.
+      "entry": ["test/**/*.test.{ts,tsx}", "scripts/*.mjs"]
     },
     "packages/ai": {
       // Hand-run diagnostic/verification scripts (each documents its own tsx
