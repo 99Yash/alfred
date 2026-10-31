@@ -18,7 +18,7 @@ const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-retrypending-";
 
-const SOURCE = "sentry" as const;
+const SOURCE = "github" as const;
 
 const createdUserIds: string[] = [];
 

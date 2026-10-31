@@ -142,6 +142,10 @@ The cause vocabulary, the three-arm `EventDeliveryFailure` union, workflow readi
 3. The merges-with-no-deliveries verdict (item 5).
 4. The kept-row operator path: the `access_token` CHECK migration, the rotation path, and the runbook (item 3).
 
+## Amendment — 2026-10-31: Sentry is no longer an event source
+
+The `sentry` inbound source is deleted (ADR-0093 and ADR-0097, same date). Its two operator-only `broken` arms and its `never_connected` verdict are gone with the descriptor. The text above that names Sentry describes the state before this date. GitHub and Gmail stay the two producers of an alertable verdict.
+
 ## Where the code lives
 
 The health readers moved into `connections/`:

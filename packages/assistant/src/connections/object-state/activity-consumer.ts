@@ -29,6 +29,7 @@ function objectStateFoldConsumer<S extends InboundEventSource>(source: S): Trigg
     name: `${source}-activity-fold`,
     mode: "propagate",
     async accept(event) {
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- GitHub is the only inbound source today, so the types match; each consumer still owns one source, and a second source makes this filter load-bearing.
       if (!isInboundDomainEvent(event) || event.source !== source || isRawEventType(event.type)) {
         return;
       }

@@ -13,7 +13,6 @@ const FILE_DOCUMENT_SOURCES = {
   gmail: false,
   gmail_attachment: true,
   github: false,
-  sentry: false,
 } satisfies Record<DocumentSource, boolean>;
 
 export function isFileDocumentSource(source: DocumentSource): boolean {

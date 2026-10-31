@@ -183,7 +183,6 @@ const IN_PROCESS_EVENT_SCHEMAS = {
 /** One member per inbound source. The `satisfies` fails to compile when a source has none. */
 const INBOUND_EVENT_SCHEMAS = {
   github: inboundEvent("github"),
-  sentry: inboundEvent("sentry"),
 } satisfies {
   [S in InboundEventSource]: z.ZodType<{ source: S; type: EventTypeForSource<S> }>;
 };
@@ -214,7 +213,6 @@ export const domainEventSchema = z.union([
   IN_PROCESS_EVENT_SCHEMAS["google.oauth.callback"].completed,
   IN_PROCESS_EVENT_SCHEMAS["learn-skill"].completed,
   INBOUND_EVENT_SCHEMAS.github,
-  INBOUND_EVENT_SCHEMAS.sentry,
   rawInboundEventSchema,
 ]);
 

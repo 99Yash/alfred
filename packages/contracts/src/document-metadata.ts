@@ -29,7 +29,6 @@ type DocumentMetadataArms = {
   gmail: GmailDocumentMetadata;
   gmail_attachment: GmailAttachmentMetadata;
   github: ReceiptDocumentMetadata;
-  sentry: ReceiptDocumentMetadata;
 };
 
 /** The write shape of `documents.metadata`: any arm's input. Drizzle `$type` uses it. */
@@ -60,7 +59,6 @@ export function parseDocumentMetadata(row: {
     case "gmail_attachment":
       return { source: row.source, metadata: parseGmailAttachmentMetadata(row.metadata) };
     case "github":
-    case "sentry":
       return {
         source: row.source,
         metadata: parsePersistedMetadata(receiptDocumentMetadataSchema, row.metadata),

@@ -196,8 +196,6 @@ const serverEnvSchema = z
     VERCEL_CLIENT_SECRET: optionalSecret(),
     VERCEL_REDIRECT_URI: z.preprocess(blankAsUnset, z.url().optional()),
     VERCEL_APP_SLUG: optionalSecret(),
-    /** Verifies `sentry-hook-signature`. While unset, every Sentry delivery is rejected. */
-    SENTRY_WEBHOOK_CLIENT_SECRET: optionalSecret(),
     /** S3-compatible storage for chat uploads (ADR-0065). Uploads are off until it is set. */
     CHAT_S3_BUCKET: optionalSecret(),
     CHAT_S3_REGION: optionalSecret(),

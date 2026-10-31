@@ -282,7 +282,6 @@ const DOCUMENT_SOURCE_BRANDS = {
   gmail: "gmail",
   gmail_attachment: "gmail",
   github: "github",
-  sentry: "sentry",
 } satisfies Record<DocumentSource, IntegrationBrand>;
 
 /** Keyed by string: `source` comes from a parsed preview, so an unknown lane gets no glyph. */

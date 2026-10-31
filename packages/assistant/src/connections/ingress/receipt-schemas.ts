@@ -3,46 +3,21 @@ import { z } from "zod";
 
 /**
  * One schema per declared GitHub event type (ADR-0097 item 2). The fold, the descriptor and the
- * briefing read a stored body through these, never through path reads. The Sentry schema lives with
- * its descriptor in `ingress/sentry.ts` and uses the primitives below.
+ * briefing read a stored body through these, never through path reads.
  *
  * Lenient on purpose: every leaf and every nested object drops to `undefined` when its type is
  * wrong, as a path read does, so one bad field never drops the whole delivery. Only a body that is
  * not an object fails. A stricter schema would stop a verified state from folding (ADR-0062).
  */
 
-export function lenient<T extends z.ZodType>(schema: T) {
+function lenient<T extends z.ZodType>(schema: T) {
   return schema.optional().catch(undefined);
 }
 
-export const text = lenient(z.string());
-
-/**
- * A field of a shape that must stay lenient on every leaf, such as the shapes on the Sentry id
- * path in `ingress/sentry.ts`. Each such field is a `.catch`-wrapped optional or `providerId`. A
- * `satisfies Record<string, LenientField>` clause on a shape enforces that rule at `check-types`.
- * No gate checks the residue below. Only review finds it.
- *
- * The guard checks only the shape literal that carries the clause, and only the wrapper type. It
- * does not check what a callback does.
- *
- * These edits pass the guard and make a guarded field parse as `undefined`:
- * - a refine or check after the `.catch`
- * - a `providerId` transform that reports an issue
- * - an object-level refine on a guarded shape
- * - strict object mode (`strictObject`, `.strict()`)
- * - `.catchall(...)` with a schema that rejects a sibling key
- * - `.extend(...)` with a strict field (the added field sits outside the guarded literal)
- * - a hoisted `z.object` passed to `lenient` with no `satisfies` clause
- *
- * These edits pass the guard and make `safeParse` throw. `.catch` does not catch a thrown error.
- * - any callback that throws (a refine, check, transform, or catch handler), on any field
- * - any async callback
- */
-export type LenientField = z.ZodCatch<z.ZodOptional<z.ZodType>> | typeof providerId;
+const text = lenient(z.string());
 
 /** The `getIdPath` rule: a non-empty string, or a safe integer as text. A missing key is `undefined`. */
-export const providerId = z
+const providerId = z
   .unknown()
   .transform((value) => getIdPath(value) ?? undefined)
   .optional();

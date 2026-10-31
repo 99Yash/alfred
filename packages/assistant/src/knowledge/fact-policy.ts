@@ -156,7 +156,7 @@ export function isSingleValuedKey(canonicalKey: string): boolean {
 // --- authorship ---
 
 /**
- * Sources that can carry an author. Attachments, GitHub and Sentry events map to
+ * Sources that can carry an author. Attachments and GitHub events map to
  * `unknown`, which rejects. The cleanup backfill passes `unknown` for a missing document.
  */
 export type AuthorshipSource = "gmail" | "unknown";
@@ -220,7 +220,6 @@ function toAuthorshipSource(source: AuthorshipDocument["source"]): AuthorshipSou
     // a one-line webhook summary (`describeGithubActivity`), not text the user wrote.
     case "github":
     case "gmail_attachment":
-    case "sentry":
     case "unknown":
       return "unknown";
     default:

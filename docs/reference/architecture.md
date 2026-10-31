@@ -90,10 +90,10 @@ durable attachment creation take the same transaction-scoped advisory lock for
 each storage key, so cleanup cannot delete an object after its attachment row
 commits.
 
-GitHub and Sentry deliveries enter through `POST /webhooks/inbound/:source`.
+GitHub deliveries enter through `POST /webhooks/inbound/:source`.
 The receive path stores one `event_receipts` row and publishes
 `<source>.<event>` on the trigger bus (ADR-0097). The `github-activity-fold`
-and `sentry-activity-fold` trigger consumers read the receipt back and run the
+trigger consumer reads the receipt back and runs the
 ADR-0062 object-state reducer over it. `objectStateFoldConsumers()` builds one
 consumer per inbound source. Each one parses the body once with
 `parseReceiptEvent` into an `ObjectStateEvent`, a union keyed on provider and
@@ -302,7 +302,7 @@ Live backends today:
 - Notion MCP OAuth: dynamic client registration and the Notion MCP tools. Notion has no REST connection (ADR-0093, 2026-10-23 amendment).
 - Railway MCP OAuth: dynamic client registration, live deployment reads, and MCP tools.
 - Vercel OAuth (the curated grant): the Vercel tools and the verified-pull deployment reads. Vercel has no MCP built-in, because its server accepts only loopback redirect URIs (`docs/plans/vercel-mcp-retirement.md`).
-- Sentry internal-integration token connect, prod-only webhooks.
+- Sentry MCP OAuth: dynamic client registration and the Sentry MCP tools. Sentry has no REST connection and no webhooks (ADR-0093, 2026-10-31 amendment).
 
 Catalog/design-only today: Slack and Linear. The web catalog can render those providers, but there are no backend routes or tools for them yet.
 

@@ -118,24 +118,12 @@ They are not done yet.
 An event that needs a permission the App does not hold is not offered on the
 page. Adding a permission asks the installation to approve it again.
 
-### Sentry internal integration `Alfred` in `yashs-projects` (set 2026-09-06)
+### Sentry internal integrations `Alfred` and `Alfred Dev` in `yashs-projects` (webhooks off 2026-10-31)
 
-Webhook URL: `https://api.alfred.beauty/webhooks/inbound/sentry`. Alert Action
-is on, so `event_alert` deliveries arrive from alert rules that target the
-integration. Resources subscribed:
-
-- `issue`: `created`, `resolved`, `assigned`, `ignored`, `unresolved`
-- `comment`: `created`, `updated`, `deleted`
-- `seer`: `root_cause_started`, `root_cause_completed`, `solution_started`,
-  `solution_completed`, `coding_started`, `coding_completed`, `pr_created`,
-  `iteration_started`, `iteration_completed`
-- `preprod_artifact`: `size_analysis_completed`, `build_distribution_completed`
-- `error` (`error.created`): not available. Sentry offers it on the Business
-  plan and up, and the checkbox is disabled on this plan.
-
-`metric_alert` and `installation` are not resource checkboxes on this form.
-Sentry sends `installation` deliveries to every integration, and metric alerts
-arrive through the Alert Action on a metric alert rule.
+Sentry connects only through its MCP server (ADR-0093, 2026-10-31 amendment),
+so Alfred has no Sentry webhook route. Both internal integrations stay in the
+organization with no webhook URL, no subscribed resources, and Alert Action
+off. Do not turn a webhook back on: the route answers 404.
 
 ### Gmail push: Pub/Sub subscription `gmail-push-prod` (recreated 2026-09-06)
 

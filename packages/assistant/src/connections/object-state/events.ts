@@ -7,7 +7,6 @@ import type {
   StateCategory,
 } from "@alfred/contracts";
 import { type GithubPayload, parseGithubEvent } from "../ingress/receipt-schemas";
-import { type SentryIssuePayload, sentryIssueEventSchema } from "../ingress/sentry";
 
 /**
  * The fold input (ADR-0062): one member per (provider, event type), each with a typed payload. A
@@ -60,12 +59,6 @@ export function approvedMcpHealthExternalId(input: {
   return `${input.connectionId}|${input.loopKey}` as ApprovedMcpHealthExternalId;
 }
 
-export type SentryLifecycleEventType =
-  | "issue_created"
-  | "issue_unresolved"
-  | "issue_resolved"
-  | "issue_archived";
-
 /** What one read proved. A `null` read mints nothing and never closes a loop (ADR-0048-D). */
 export interface VerifiedPullReading {
   status: DeploymentStatus;
@@ -113,7 +106,6 @@ export type ObjectStateEvent =
         reading: VerifiedPullReading;
       };
     }
-  | { provider: "sentry"; eventType: SentryLifecycleEventType; payload: SentryIssuePayload }
   | {
       provider: "mcp";
       eventType: typeof MCP_APPROVED_HEALTH_EVENT_TYPE;
@@ -172,7 +164,6 @@ type ReceiptParsers = {
 // A new inbound source fails this `satisfies` until it has a parser.
 const RECEIPT_PARSERS = {
   github: githubReceiptEvent,
-  sentry: sentryReceiptEvent,
 } satisfies ReceiptParsers;
 
 // The indexed return type keeps `source` and `eventType` correlated; a `switch` narrows only `source`.
@@ -201,40 +192,6 @@ function githubReceiptEvent(
       return null;
     default:
       // `parseGithubEvent` returns `null` first for an undeclared type, so no path gets here.
-      return null;
-  }
-}
-
-function sentryReceiptEvent(
-  eventType: EventTypeForSource<"sentry">,
-  raw: unknown,
-): ObjectStateEvent | null {
-  const lifecycle = sentryLifecycleEventType(eventType);
-
-  if (!lifecycle) return null;
-
-  const parsed = sentryIssueEventSchema.safeParse(raw);
-
-  return parsed.success ? { provider: "sentry", eventType: lifecycle, payload: parsed.data } : null;
-}
-
-/** Exhaustive like `sentryDeliveryKey`: the other types are not lifecycle transitions. */
-function sentryLifecycleEventType(
-  eventType: EventTypeForSource<"sentry">,
-): SentryLifecycleEventType | null {
-  switch (eventType) {
-    case "issue_created":
-    case "issue_unresolved":
-    case "issue_resolved":
-    case "issue_archived":
-      return eventType;
-    case "issue_assigned":
-    case "error_created":
-    case "event_alert_triggered":
-    case "seer_pr_created":
-      return null;
-    default:
-      // A generic `S` can still land here at runtime with another source's type; fold nothing.
       return null;
   }
 }

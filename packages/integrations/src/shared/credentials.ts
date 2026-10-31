@@ -11,7 +11,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { upsertIntegrationCredential } from "./credential-upsert";
 
 /**
- * Storage for single long-lived bearer tokens (Vercel, Sentry). Tokens are
+ * Storage for single long-lived bearer tokens (Vercel). Tokens are
  * sealed on write and opened only where a caller needs a usable token (#453).
  *
  * Known gap: a token revoked at the provider stays `active` until a call fails.
@@ -124,20 +124,10 @@ const ownerRefColumns = {
 };
 
 /**
- * Sources whose deliveries are matched to a credential by the signing secret.
- * Sentry only: its token cannot read `sentry-app-installations` (404, checked
- * 2026-09-06), so the connect flow never learns the `installation.uuid`.
- */
-export type SecretAttributedProvider = Extract<CredentialProvider & InboundEventSource, "sentry">;
-
-/**
  * Sources joined by `installation_id`. Narrow, so a lookup for a provider that
  * never writes the column is a compile error.
  */
-export type InstallationProvider = Exclude<
-  CredentialProvider & InboundEventSource,
-  SecretAttributedProvider
->;
+export type InstallationProvider = CredentialProvider & InboundEventSource;
 
 /** Map a webhook's installation id to its credential. Newest active match wins. */
 export async function findActiveCredentialByInstallationId(args: {
@@ -158,38 +148,6 @@ export async function findActiveCredentialByInstallationId(args: {
     .limit(1);
 
   return rows[0] ?? null;
-}
-
-/**
- * The owner of a secret-attributed delivery. With more than one active row,
- * one secret no longer identifies an owner, so the caller must refuse.
- */
-export type SoleActiveCredential =
-  | { kind: "one"; credential: CredentialOwnerRef }
-  | { kind: "none" }
-  | { kind: "many" };
-
-export async function findSoleActiveCredential(args: {
-  provider: SecretAttributedProvider;
-}): Promise<SoleActiveCredential> {
-  const rows = await db()
-    .select(ownerRefColumns)
-    .from(integrationCredentials)
-    .where(
-      and(
-        eq(integrationCredentials.provider, args.provider),
-        eq(integrationCredentials.status, "active"),
-      ),
-    )
-    .limit(2);
-
-  const [first] = rows;
-
-  if (!first) return { kind: "none" };
-
-  if (rows.length > 1) return { kind: "many" };
-
-  return { kind: "one", credential: first };
 }
 
 /**

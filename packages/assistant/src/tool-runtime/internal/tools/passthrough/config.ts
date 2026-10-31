@@ -34,18 +34,6 @@ export const REST_GATE_CONFIG = {
     sideEffectingGetDenylist: NO_SIDE_EFFECTING_GET,
     authScopeDenylist: NO_AUTH_SCOPE_DENIALS,
   },
-  sentry: {
-    readViaPostAllowlist: NO_READ_VIA_POST,
-    sideEffectingGetDenylist: NO_SIDE_EFFECTING_GET,
-    // `/organizations/` answers only a user token; an internal-integration token gets a 403.
-    authScopeDenylist: [
-      {
-        pattern: /^\/organizations\/?$/,
-        detail:
-          "Sentry /organizations/ answers only a user token; an internal-integration token is scoped to one organization. Read under /organizations/{org}/ instead.",
-      },
-    ],
-  },
   gmail: {
     readViaPostAllowlist: NO_READ_VIA_POST,
     sideEffectingGetDenylist: NO_SIDE_EFFECTING_GET,

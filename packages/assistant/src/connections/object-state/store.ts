@@ -48,7 +48,6 @@ import { reduceGithubEvent } from "./github-reducer";
 import { reduceMcpEvent } from "./mcp-reducer";
 import { reduceRailwayEvent } from "./railway-reducer";
 import { reduceVercelEvent } from "./vercel-reducer";
-import { reduceSentryEvent } from "./sentry-reducer";
 
 /**
  * Integration object-state store (ADR-0062). Consumers use {@link ObjectStateStore}, never the
@@ -214,8 +213,6 @@ function reduce(event: ObjectStateEvent): ObjectStateDelta[] {
   switch (event.provider) {
     case "github":
       return reduceGithubEvent(event);
-    case "sentry":
-      return reduceSentryEvent(event);
     case "railway":
       return reduceRailwayEvent(event);
     case "vercel":

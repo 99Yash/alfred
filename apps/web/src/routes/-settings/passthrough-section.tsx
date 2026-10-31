@@ -5,7 +5,6 @@ import {
 } from "@alfred/contracts";
 import {
   AlertCircle,
-  Bug,
   CalendarDays,
   FileText,
   GitBranch,
@@ -75,11 +74,6 @@ const PASSTHROUGH_META = {
     helper: "Raw read-only Vercel REST: project and deployment detail.",
     icon: Triangle,
     tint: "amber",
-  },
-  sentry: {
-    helper: "Raw read-only Sentry REST: issues, events, stack traces, and projects.",
-    icon: Bug,
-    tint: "purple",
   },
 } satisfies Record<SupportedPassthroughSlug, PassthroughMeta>;
 

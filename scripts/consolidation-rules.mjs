@@ -71,7 +71,7 @@
  * aliases PR 4 of the registry plan deletes. Exported for the self-test, which
  * proves every `export type …Slug` in `slugs.ts` matches it.
  */
-export const REGISTRY_UNION = String.raw`(?:(?:\w*Integration|LiveProvider|Planned|Catalog|Google|GithubApp|Bearer|TokenPaste|Supported\w*)Slug|(?:Bearer|Credential)Provider)`;
+export const REGISTRY_UNION = String.raw`(?:(?:\w*Integration|LiveProvider|Planned|Catalog|Google|GithubApp|Bearer|Supported\w*)Slug|(?:Bearer|Credential)Provider)`;
 
 /**
  * Production web code that the design-token gates scan. The landing page, the
@@ -709,10 +709,9 @@ export const RULES = [
   {
     id: "hand-rolled-domain-literal-match",
     // The same idiom with the base written out: `domain === "sentry.io" ||
-    // domain.endsWith(".sentry.io")`. `hint`, because six such sites predate
+    // domain.endsWith(".sentry.io")`. `hint`, because such sites predate
     // the helper: three in `triage/sender-context.ts`, and one each in
-    // `object-state/sentry-adapter.ts`, `hosted-endpoint.ts` and the web
-    // `briefing-link.tsx`. The backreference pins both
+    // `hosted-endpoint.ts` and the web `briefing-link.tsx`. The backreference pins both
     // halves to one value and one host, so a different host on either side does
     // not match.
     re: /\b([\w.]+)\s*===\s*(["'])([\w.-]+)\2\s*\|\|\s*\1\.endsWith\(\s*(["'])\.\3\4\s*\)/,

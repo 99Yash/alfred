@@ -86,8 +86,8 @@ describe("credential reads are scoped to the bound user (DB-backed)", { skip: SK
     assert.equal(rows[0]?.current_database, configured);
   });
 
-  // Bearer providers (sentry/vercel) converge on ONE WHERE clause in
-  // shared/credentials.ts, so vercel stands in for both. Dropping the
+  // Bearer providers converge on ONE WHERE clause in shared/credentials.ts,
+  // so vercel stands in for all of them. Dropping the
   // `eq(userId)` predicate would leak B's row into A's reads here.
   test("bearer: reads bound to A never return B's credential", async () => {
     ensureCredentialTestEnv();

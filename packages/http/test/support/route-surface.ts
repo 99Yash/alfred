@@ -35,8 +35,6 @@ const ROUTE_SURFACE = [
   "GET /api/integrations/github/connect",
   "DELETE /api/integrations/github/:id",
   "GET /api/integrations/github/callback",
-  "POST /api/integrations/sentry/connect",
-  "DELETE /api/integrations/sentry/:id",
   "GET /api/integrations/vercel/connect",
   "DELETE /api/integrations/vercel/:id",
   "GET /api/integrations/vercel/callback",

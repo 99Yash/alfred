@@ -2074,7 +2074,6 @@ export const TOOL_INPUT_SCHEMAS = {
   "slides.batch_update": slidesBatchUpdateInput,
   "slides.add_slide": slidesAddSlideInput,
   "slides.request": restPassthroughInput,
-  "sentry.request": restPassthroughInput,
   "contacts.search": contactsSearchInput,
   "contacts.list": contactsListInput,
   "contacts.get": contactsGetInput,

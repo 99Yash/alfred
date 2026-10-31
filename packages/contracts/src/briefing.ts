@@ -246,7 +246,6 @@ export const loopRelevanceVerdictSchema = z.enum(LOOP_RELEVANCE_VERDICTS);
 
 /** The live read behind the verdict. `none`: no live read was available. */
 export const LOOP_RELEVANCE_SOURCES = [
-  "live_sentry_read",
   "live_github_read",
   "live_railway_read",
   "live_mcp_read",
