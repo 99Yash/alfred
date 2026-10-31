@@ -461,7 +461,7 @@ export async function modifyThreadLabels(args: ModifyThreadLabelsArgs): Promise<
   });
 }
 
-export interface SendMessageArgs {
+export interface DraftMessageArgs {
   accessToken: string;
   to: string[];
   cc?: string[] | undefined;
@@ -473,7 +473,7 @@ export interface SendMessageArgs {
   threadId?: string | undefined;
 }
 
-export interface SendMessageResult {
+export interface SentMessage {
   id: string;
   threadId: string;
 }
@@ -494,7 +494,7 @@ function assertHeaderSafe(name: string, value: string): void {
 }
 
 /** The Gmail `message` body for a plain-text mail: base64url MIME plus the optional thread. */
-function plainTextMessage(args: Omit<SendMessageArgs, "accessToken">) {
+function plainTextMessage(args: Omit<DraftMessageArgs, "accessToken">) {
   for (const value of [...args.to, ...(args.cc ?? []), ...(args.bcc ?? [])]) {
     assertHeaderSafe("recipient", value);
   }
@@ -519,20 +519,6 @@ function plainTextMessage(args: Omit<SendMessageArgs, "accessToken">) {
   };
 }
 
-/** Needs the `gmail.send` scope; without it the call gets a 403. */
-export async function sendMessage(args: SendMessageArgs): Promise<SendMessageResult> {
-  const { accessToken, ...message } = args;
-
-  const parsed = await googleJson("gmail", messageSchema, {
-    method: "POST",
-    url: `${API_BASE}/messages/send`,
-    accessToken,
-    payload: plainTextMessage(message),
-  });
-
-  return { id: parsed.id, threadId: parsed.threadId };
-}
-
 // users.drafts
 
 const draftResponseSchema = z.object({
@@ -550,7 +536,7 @@ export interface CreateDraftResult {
  * Saves a plain-text draft and sends nothing. Needs `gmail.modify` or `gmail.compose`. Not
  * idempotent: a second call saves a second draft.
  */
-export async function createDraft(args: SendMessageArgs): Promise<CreateDraftResult> {
+export async function createDraft(args: DraftMessageArgs): Promise<CreateDraftResult> {
   const { accessToken, ...message } = args;
 
   const parsed = await googleJson("gmail", draftResponseSchema, {
@@ -561,6 +547,36 @@ export async function createDraft(args: SendMessageArgs): Promise<CreateDraftRes
   });
 
   return { draftId: parsed.id, messageId: parsed.message.id, threadId: parsed.message.threadId };
+}
+
+export interface DraftRefArgs {
+  accessToken: string;
+  draftId: string;
+}
+
+/**
+ * Sends a saved draft. Needs `gmail.modify` or `gmail.compose`; `gmail.send` is not enough. A draft
+ * sends once: Gmail deletes it on send, so a second call with the same id gets 404 and sends
+ * nothing. The sent message has a new id, in the draft's thread.
+ */
+export async function sendDraft(args: DraftRefArgs): Promise<SentMessage> {
+  const parsed = await googleJson("gmail", messageSchema, {
+    method: "POST",
+    url: `${API_BASE}/drafts/send`,
+    accessToken: args.accessToken,
+    payload: { id: args.draftId },
+  });
+
+  return { id: parsed.id, threadId: parsed.threadId };
+}
+
+/** Deletes a draft for good, not to the trash. Needs `gmail.modify` or `gmail.compose`. */
+export async function deleteDraft(args: DraftRefArgs): Promise<void> {
+  await googleJson("gmail", uncheckedResponse, {
+    method: "DELETE",
+    url: `${API_BASE}/drafts/${encodeURIComponent(args.draftId)}`,
+    accessToken: args.accessToken,
+  });
 }
 
 // MIME helpers

@@ -112,6 +112,11 @@ export interface ToolExecuteContext {
   accountRef?: string | undefined;
   /** Set only on the staged path. The MCP broker keys its ledger row on it. */
   stagingId?: string;
+  /**
+   * Set only on the staged path. A `"safe"` tool whose provider has no idempotency key keeps the
+   * handle of the object it made here, so a rerun of the same call finds that object.
+   */
+  providerRef?: ProviderRefSlot;
   userId: string;
   /**
    * Provider clients bound to this call's user, so a tool never handles a token.
@@ -131,6 +136,14 @@ export interface ToolExecuteContext {
   /** Empty or undefined means unrestricted. */
   allowedIntegrations?: readonly IntegrationSlug[] | undefined;
   // TODO(#286): no abort signal yet, so a network tool outlives a stopped turn until its own timeout.
+}
+
+/** The call's `action_stagings.provider_ref`. It outlives a crash, so a rerun reads it. */
+export interface ProviderRefSlot {
+  /** The handle that an earlier attempt of this call kept, or null. */
+  read(): Promise<string | null>;
+  /** Keep `ref` when no attempt kept a handle first. Returns the kept handle. */
+  record(ref: string): Promise<string>;
 }
 
 /** The context minus the binds that `toolExecuteContext` in `../context` derives. */

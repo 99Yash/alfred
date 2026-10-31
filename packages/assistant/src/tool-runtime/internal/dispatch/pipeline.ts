@@ -1623,7 +1623,14 @@ async function executeAndCommit(
 
   try {
     // The MCP broker mints its ledger row 1:1 with this staging row.
-    execution = await executeToolWithSpan(call, { ...ctx, stagingId: row.id });
+    execution = await executeToolWithSpan(call, {
+      ...ctx,
+      stagingId: row.id,
+      providerRef: {
+        read: () => stagingStore().readProviderRef(row.id),
+        record: (ref) => stagingStore().recordProviderRef(row.id, ref),
+      },
+    });
   } catch (err) {
     // ADR-0070 §1.3: map to a public error, so raw exception text never persists.
     const error = toPublicAppError(err);

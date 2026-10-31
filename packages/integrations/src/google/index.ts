@@ -48,7 +48,7 @@ export type {
   GmailMessageRef,
   GmailThread,
   ListHistoryResult,
-  SendMessageResult,
+  SentMessage,
   StartWatchResult,
 } from "./gmail";
 

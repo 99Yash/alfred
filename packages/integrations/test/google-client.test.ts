@@ -52,17 +52,12 @@ describe("Google configured client", () => {
 
     try {
       await client.gmail.listMessages({ credentialId: "account" });
-      await client.gmail.sendMessage({
-        credentialId: "account",
-        to: ["person@example.com"],
-        subject: "Hello",
-        bodyText: "Body",
-      });
+      await client.gmail.sendDraft({ credentialId: "account", draftId: "draft" });
     } finally {
       globalThis.fetch = originalFetch;
     }
 
-    assert.deepEqual(authorities, ["gmail", "gmail_send"]);
+    assert.deepEqual(authorities, ["gmail", "gmail_modify"]);
   });
 
   test("honors the bind retry envelope for safe reads", async () => {
