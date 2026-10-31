@@ -24,6 +24,7 @@ import type {
 } from "@ai-sdk/provider";
 import {
   getStringPath,
+  isJsonObject,
   isRecord,
   redactSecrets,
   safeJsonParse,
@@ -367,7 +368,7 @@ function isJsonArray(value: JsonValue): value is readonly JsonValue[] {
 function sanitizeJson(value: JsonValue, ids: Map<string, string>): JsonValue {
   if (isJsonArray(value)) return value.map((entry) => sanitizeJson(entry, ids));
 
-  if (isRecord(value)) {
+  if (isJsonObject(value)) {
     const out: Record<string, JsonValue> = {};
 
     for (const [key, entry] of Object.entries(value)) {
@@ -578,7 +579,7 @@ function collectByType(value: JsonValue, type: string, out: JsonValue[]): void {
     return;
   }
 
-  if (!isRecord(value)) return;
+  if (!isJsonObject(value)) return;
 
   if (value.type === type) out.push(value);
 
@@ -592,7 +593,7 @@ function collectToolReferences(value: JsonValue, out: Set<string>): void {
     return;
   }
 
-  if (!isRecord(value)) return;
+  if (!isJsonObject(value)) return;
 
   if (value.type === "tool_reference" && typeof value.toolName === "string") {
     out.add(value.toolName);
@@ -625,7 +626,7 @@ function inspectRuns(runs: readonly RunRecord[]) {
   const clientToolCallNames: string[] = [];
 
   for (const call of toolCalls) {
-    if (!isRecord(call)) continue;
+    if (!isJsonObject(call)) continue;
 
     if (call.providerExecuted === true) {
       if (typeof call.toolName === "string") providerSearchCalls.push(call.toolName);
@@ -642,10 +643,10 @@ function inspectRuns(runs: readonly RunRecord[]) {
 
   for (const run of runs) {
     for (const step of run.steps) {
-      if (!isRecord(step.usage)) continue;
+      if (!isJsonObject(step.usage)) continue;
       const details = step.usage.inputTokenDetails;
 
-      if (isRecord(details) && typeof details.cacheReadTokens === "number") {
+      if (isJsonObject(details) && typeof details.cacheReadTokens === "number") {
         cacheReadTokens.push(details.cacheReadTokens);
       }
     }
@@ -812,7 +813,7 @@ async function runFallback(): Promise<ScenarioResult> {
 function stripInternalEnvelope(value: JsonValue): JsonValue {
   if (isJsonArray(value)) return value.map((entry) => stripInternalEnvelope(entry));
 
-  if (isRecord(value)) {
+  if (isJsonObject(value)) {
     const out: Record<string, JsonValue> = {};
 
     for (const [key, entry] of Object.entries(value)) {
@@ -828,7 +829,7 @@ function stripInternalEnvelope(value: JsonValue): JsonValue {
 }
 
 function extractWireToolNames(requestBody: JsonValue) {
-  if (!isRecord(requestBody) || !Array.isArray(requestBody.tools)) {
+  if (!isJsonObject(requestBody) || !Array.isArray(requestBody.tools)) {
     return { functions: [], providerTools: [] };
   }
 

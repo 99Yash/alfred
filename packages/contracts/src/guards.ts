@@ -4,6 +4,7 @@
  */
 
 import { parseMailbox } from "./domain";
+import type { JsonObject, JsonValue } from "./user-model";
 
 /**
  * True only for plain objects: not `null`, arrays, Date, Map, or class instances.
@@ -14,6 +15,14 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
   const proto: unknown = Object.getPrototypeOf(value);
 
   return proto === Object.prototype || proto === null;
+}
+
+/**
+ * The object branch of a `JsonValue`, for a walker over a JSON tree.
+ * It does the same runtime check as `isRecord`.
+ */
+export function isJsonObject(value: JsonValue | undefined): value is JsonObject {
+  return isRecord(value);
 }
 
 /**

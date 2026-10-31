@@ -3,7 +3,7 @@
 import {
   humanizeToolName,
   isQuestionApproval,
-  isRecord,
+  isJsonObject,
   jsonValueSchema,
   toDisplayText,
   toolInputFields,
@@ -264,7 +264,7 @@ function summarizeInput(
   toolName: ToolName,
   input: JsonValue,
 ): Array<{ label: string; value: string }> {
-  if (!isRecord(input)) {
+  if (!isJsonObject(input)) {
     return [{ label: "Input", value: truncate(formatValue(input), 500) }];
   }
 
