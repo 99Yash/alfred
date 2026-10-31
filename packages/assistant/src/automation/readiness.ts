@@ -2,7 +2,7 @@ import {
   INTEGRATIONS,
   canonicalJson,
   eventDeliveryAccounts,
-  holdsAnyScope,
+  missingRequiredScopes,
   integrationDisplayName,
   integrationFromToolName,
   isIntegrationSlug,
@@ -92,7 +92,7 @@ function eligibleRows(
   if (!credential) return [];
 
   return (availability.providers.get(credential.provider) ?? []).filter(
-    (row) => row.status === "active" && holdsAnyScope(row.scopes, credential.anyOfScopes),
+    (row) => row.status === "active" && missingRequiredScopes(row.scopes, credential) === null,
   );
 }
 
@@ -302,7 +302,9 @@ export function resolveWorkflowReadiness(args: {
         continue;
       }
 
-      if (!holdsAnyScope(selected.scopes, credential.anyOfScopes)) {
+      const missingScopes = missingRequiredScopes(selected.scopes, credential);
+
+      if (missingScopes !== null) {
         problems.push({
           code: "missing_scope",
           message: `The selected account for '${capability.tool}' is missing a required permission.`,
@@ -311,7 +313,7 @@ export function resolveWorkflowReadiness(args: {
             kind: "reauthorize",
             integration: tool.integration,
             accountRef: capability.accountRef,
-            acceptableScopes: [...credential.anyOfScopes],
+            acceptableScopes: [...missingScopes],
           },
         });
         continue;

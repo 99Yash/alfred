@@ -304,7 +304,7 @@ async function sentFromDraft(
  */
 async function executeSendDraft(input: GmailSendDraftInput, ctx: ToolExecuteContext) {
   // The send grant is the user's consent to send. Check it first, so the staging records a
-  // re-consent failure. The draft calls below use the modify grant on the same credential.
+  // re-consent failure. The credential also holds the modify grant that the draft calls use.
   const credential = await ctx.integrations.google.gmail.sendCredential();
   await assertGmailRecipientsAllowed({
     userId: ctx.userId,
@@ -761,8 +761,13 @@ export const gmailTools: readonly RegisteredTool[] = [
       verbs: ["send", "reply", "write"],
       relatedTools: ["gmail.search", "gmail.read_message", "gmail.create_draft"],
     },
+    // One account must hold both grants: the draft calls need modify, and send is the consent.
     availability: {
-      credential: { provider: "google", anyOfScopes: googleAuthorityScopes("gmail_modify") },
+      credential: {
+        provider: "google",
+        anyOfScopes: googleAuthorityScopes("gmail_modify"),
+        alsoAnyOfScopes: [googleAuthorityScopes("gmail_send")],
+      },
     },
     inputSchema: gmailSendDraftInput,
     execute: executeSendDraft,

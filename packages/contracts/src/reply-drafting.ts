@@ -96,7 +96,10 @@ export const replyNoDraftReasonSchema = z.enum(REPLY_NO_DRAFT_REASONS);
 export const REPLY_NO_ACCESS_REASONS = [
   /** No active Google credential for this mailbox. */
   "gmail_not_connected",
-  /** The credential exists but was never granted `gmail.send`. */
+  /**
+   * No credential holds both `gmail.send` (the consent) and `gmail.modify` (the draft calls of
+   * `gmail.send_draft`). The stored value keeps its old name.
+   */
   "gmail_send_scope_missing",
 ] as const;
 

@@ -21,7 +21,7 @@ import type {
 import {
   ASK_USER_TOOL,
   buildToolName,
-  holdsAnyScope,
+  missingRequiredScopes,
   INTEGRATION_ACTIONS,
   INTEGRATION_DISPLAY_NAMES,
   integrationFromToolName,
@@ -457,8 +457,8 @@ function evaluateSnapshotGates(
       return { available: false, code: "needs_reauth", reason: `${name} needs to be reconnected.` };
     }
 
-    const scopeMatches = activeRows.some((row) =>
-      holdsAnyScope(row.scopes, credential.anyOfScopes),
+    const scopeMatches = activeRows.some(
+      (row) => missingRequiredScopes(row.scopes, credential) === null,
     );
 
     if (!scopeMatches) {

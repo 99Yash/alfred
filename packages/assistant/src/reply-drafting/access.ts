@@ -4,7 +4,8 @@ import { GoogleCredentialSelectionError } from "@alfred/integrations/google";
 
 /**
  * Can Alfred send from this mailbox (ADR-0098)? `no_access` is a decision, not an error:
- * Gmail is read-only or not connected, so no draft is composed.
+ * Gmail is not connected, or no account holds both the send and the modify grant that
+ * `gmail.send_draft` needs, so no draft is composed.
  */
 export type GmailSendAccess =
   | { ok: true; credentialId: string; mailboxAddress: string | null }
