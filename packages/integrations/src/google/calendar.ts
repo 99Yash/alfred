@@ -110,6 +110,12 @@ export async function listEvents(
 export interface CreateEventArgs {
   accessToken: string;
   calendarId?: string | undefined;
+  /**
+   * The caller's id for the new event: base32hex (`0-9`, `a-v`), 5 to 1024 characters. Google
+   * keeps one event per id on a calendar, so a second insert with this id fails with 409 and
+   * makes no second event and sends no second invitation.
+   */
+  eventId: string;
   summary: string;
   description?: string | undefined;
   location?: string | undefined;
@@ -129,6 +135,7 @@ export async function createEvent(args: CreateEventArgs): Promise<CalendarEvent>
   }
 
   const payload = {
+    id: args.eventId,
     summary: args.summary,
     description: args.description,
     location: args.location,
