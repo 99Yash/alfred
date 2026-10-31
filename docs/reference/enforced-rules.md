@@ -112,6 +112,7 @@ When you add, remove or change a rule in `.oxlintrc.json`, a JS plugin, `scripts
 | `alfred/no-type-re-export-shim` |  | Disallow re-exporting a constants module's type from a module that is not its barrel. |
 | `alfred/no-union-enum-without-default` |  | Require an explicit `default` on every Elysia `t.UnionEnum` call. |
 | `alfred/sha256-over-json-stringify` |  | Disallow a hash digest over JSON.stringify output, whose pre-image depends on object key order. |
+| `alfred/switch-literal-needs-default` |  | Require a `default` clause on a `switch` whose `case` tests are all string literals. |
 | `alfred/transition-names-individual-transform` |  | Require a `transition-[…transform…]` list to name the `scale`, `translate` or `rotate` property that the element writes. |
 
 ## Lint rules: `anti-slop` plugin
