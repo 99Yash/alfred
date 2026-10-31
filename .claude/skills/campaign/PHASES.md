@@ -435,10 +435,18 @@ yourself, and a verdict.
    review, this file for a phase or the harness. If no skill file states it yet, and no
    `[NN land] moved ruling` line names it, move it. Use a separate worktree and branch
    `chore/campaign-<slug>-rulings-NN` from `origin/<baseBranch>`, edit only the skill
-   files, and open its own PR. Never put it in the item PR. Then write one
+   files and the smell files of step 6, and open its own PR. Never put it in the item PR. Then write one
    `- [NN land] moved ruling <ruling timestamp> to <file> in PR #<n>` line with
    `campaign-state.mjs note`. A ruling about one item stays in NOTES.md.
-6. Leave the worktree in place — the human is merging, not you. Cleanup is
+6. **Record the smells of each review round.** Read the **Smells** lists of the
+   item's rounds. In the same rulings worktree and PR as step 5, run
+   `node scripts/smells.mjs hit <id> <pr> "<file:line>: <finding>"` for each known
+   smell, and `node scripts/smells.mjs new <id> <section>` for a new one. Fill in the
+   new file from the round's Bad and Good lines. Then run `node scripts/smells.mjs`
+   and `pnpm check:smells`. When the check says that a smell needs a decision, file
+   an issue for its gate and set `status: candidate`. Do not write the gate in that
+   PR.
+7. Leave the worktree in place — the human is merging, not you. Cleanup is
    `git worktree remove` after the merge.
 
 **Close the phase:** `phase: "landed"`.

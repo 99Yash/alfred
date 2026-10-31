@@ -10,6 +10,7 @@ edit next.
 | Setup / commands                 | [`../README.md`](../README.md)                             |
 | Current repo shape               | [`reference/architecture.md`](./reference/architecture.md) |
 | Code rules before edit/review    | [`reference/review-checklist.md`](./reference/review-checklist.md), [`reference/enforced-rules.md`](./reference/enforced-rules.md) |
+| Smells with Bad/Good examples    | [`reference/smells/README.md`](./reference/smells/README.md) |
 | Non-obvious decisions            | [`../decisions.md`](../decisions.md)                       |
 | Domain vocabulary                | [`../CONTEXT.md`](../CONTEXT.md)                           |
 | Invented code terms              | [`reference/glossary.md`](./reference/glossary.md)         |

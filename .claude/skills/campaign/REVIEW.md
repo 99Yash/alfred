@@ -182,6 +182,15 @@ Then adjudicate, because three harsh reviewers over-produce:
   an illustrative name that does not exist out of backticks: `check:doc-symbols`
   fails on it after the paste.
 
+- **Name the smell of each code finding.** A must-fix or follow-up about code
+  either matches a smell in
+  [`docs/reference/smells/`](../../../docs/reference/smells/README.md) or is a new
+  smell that can occur in another PR. Write it in the round's **Smells** list: the
+  id, the `file:line`, and for a new smell the Bad lines from the diff and the Good
+  lines from the fix. A one-off design finding is not a smell. Prose findings name
+  `prose-not-safer-than-code` or another Process smell. The land phase records the
+  list, so a smell that two PRs repeat becomes a gate decision, not a third finding.
+
 Worked examples of the direction rule, from type-flow PRs:
 
 | PR    | Sentence                                                                                                           | What the code does                                                                                              | Rank       |
@@ -219,6 +228,12 @@ Append to the item file's **Review** section:
 **Won't-fix**
 
 - <finding> — <the gate it fails>
+
+**Smells**
+
+- `<smell-id>` — `<file:line>`: <finding, one line>
+- new `<kebab-id>` (<checklist section>) — `<file:line>`: <finding>
+  Bad: <the lines from the diff> Good: <the lines of the fix>
 ```
 
 Then close the phase as `PHASES.md` specifies. The raw subagent reports stay in
