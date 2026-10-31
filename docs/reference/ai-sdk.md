@@ -12,6 +12,8 @@ Model selection: `route(name)` from `@alfred/ai`. Named routes include `boss`, `
 
 Metering is not optional. Go through the `metered*` wrappers in `@alfred/ai` (`meteredGenerateText`, `meteredGenerateObject`, `meteredStreamText`) rather than the bare SDK calls, so every request lands in the cost rollups.
 
+Cancellation: give every generate or stream call an `abortSignal` (`alfred/ai-call-needs-abort-signal`). Pass the caller's run, request or job signal, combined with `AbortSignal.timeout(MS)` through `AbortSignal.any` when both exist. When no parent signal exists, pass `AbortSignal.timeout(MS)` with a named constant that is longer than a normal call. The wrappers' 600 s `timeout` is only a backstop. The SDK turns a `timeout` into an `AbortSignal.timeout`, so the two forms have the same deadline.
+
 Live web search runs on grounded Gemini 2.5 Flash via `route("webSearch").model()` (turn on Google Search grounding per-call with `googleSearchGroundingTools()`); route it through `meteredGenerateText` with `attribution.kind = 'web_search'` so cost rollups bucket it apart from the LLM line.
 
 Embeddings: `embed(text, opts?)` and `embedMany(texts, opts?)` from `@alfred/ai/embeddings` call Voyage (`voyage-3.5` by default) through metering. All embedding dimensions must be 1024.

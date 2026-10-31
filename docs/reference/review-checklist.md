@@ -59,8 +59,8 @@ Each rule has the rule and the reason. Its smell file has a Bad and a Good examp
   Why: an unknown state that reads as `absent` counts toward a demotion. Example: `VERDICT_BY_VERCEL_STATE`, #1364.
 - **Give a new endpoint the auth and rate limit of its group.** Run `db:generate` then `db:migrate`, never `db:push`. [Smell](./smells/endpoint-auth-and-migrations.md).
   Why: an uncovered route is open. See [elysia.md](./elysia.md) and [database.md](./database.md).
-- **Give every external call and LLM call a timeout and an `abortSignal`.** Cancel the siblings of a `Promise.all` when one fails. [Smell](./smells/external-call-timeout-and-abort.md).
-  Why: a loser keeps a billable call open. Example: #1086. See [ai-sdk.md](./ai-sdk.md).
+- **Give every external call that is not a model call a deadline and the signal of its caller.** Cancel the siblings of a `Promise.all` when one fails. A model call through the AI SDK is gated by `alfred/ai-call-needs-abort-signal` ([external-call-timeout-and-abort](./smells/external-call-timeout-and-abort.md)). [Smell](./smells/external-call-deadline-and-sibling-cancel.md).
+  Why: a call with no deadline holds a worker until the peer closes the socket, and a loser of a `Promise.all` keeps a billable call open. Example: #1086.
 - **Make work that BullMQ or a webhook retries idempotent.** Derive a stable key. [Smell](./smells/idempotent-retried-work.md).
   Why: a retry must not repeat a side effect. Example: #576.
 - **Name the clock of each timestamp. Compare only timestamps of one clock.** [Smell](./smells/name-timestamp-clock.md).

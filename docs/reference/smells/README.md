@@ -54,7 +54,8 @@ A `gated` smell stays here for its examples and its ledger. [review-checklist.md
 | [Bind the credential, not the token.](./bind-credential-not-token.md) | Review, medium | compiler | 1 |
 | [Map every provider status in a closed table. Make an unknown status a fault, not a default.](./closed-provider-status-map.md) | Stays review | none | 1 |
 | [Give a new endpoint the auth and rate limit of its group.](./endpoint-auth-and-migrations.md) | Stays review | none | 0 |
-| [Give every external call and LLM call a timeout and an `abortSignal`.](./external-call-timeout-and-abort.md) | Candidate, #1629 | ast | 4 |
+| [Give every external call that is not a model call a deadline and the signal of its caller.](./external-call-deadline-and-sibling-cancel.md) | Stays review | none | 4 |
+| [Give every AI SDK generate or stream call an `abortSignal`.](./external-call-timeout-and-abort.md) | Gated by `alfred/ai-call-needs-abort-signal` | ast | 0 |
 | [Make work that BullMQ or a webhook retries idempotent.](./idempotent-retried-work.md) | Stays review | none | 1 |
 | [Log a caught error only under the `err` key of a `logger` call. Put only safe fields beside it, and mask PII.](./log-caught-error-under-err.md) | Gated by `alfred/log-caught-error-under-err` | ast | 4 |
 | [Name the clock of each timestamp. Compare only timestamps of one clock.](./name-timestamp-clock.md) | Review, low | compiler | 1 |
