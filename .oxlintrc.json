@@ -95,6 +95,12 @@
     // that reaches the clause leaves as a valid result (#1566, #1547, #1219). Close the switch
     // with `assertNever(value, what)`, or return a real value of the return type.
     "alfred/no-never-sentinel-binding": "error",
+    // switch-literal-needs-default: a `switch` whose `case` tests are all string literals and
+    // that has no `default`. switch-exhaustiveness-check proves each union member has a case, but
+    // a stored row or a peer at deploy skew can hold a member this build does not know, and it
+    // falls through (#1535, #1132, #1103). The `default` calls `assertNever(value, what)` when
+    // the value was parsed at its boundary, or returns a real value when unparsed data reaches it.
+    "alfred/switch-literal-needs-default": "error",
     // The web motion and copy rules read one element's classes or JSX:
     // transition-names-individual-transform: a `transition-[…transform…]` list that misses the
     // `scale`/`translate`/`rotate` property a Tailwind v4 utility on the element writes.

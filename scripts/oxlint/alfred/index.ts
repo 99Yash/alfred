@@ -14,6 +14,7 @@ import { noTypeAliasShimRule } from "./rules/no-type-alias-shim.ts";
 import { noTypeReExportShimRule } from "./rules/no-type-re-export-shim.ts";
 import { noUnionEnumWithoutDefaultRule } from "./rules/no-union-enum-without-default.ts";
 import { sha256OverJsonStringifyRule } from "./rules/sha256-over-json-stringify.ts";
+import { switchLiteralNeedsDefaultRule } from "./rules/switch-literal-needs-default.ts";
 import { transitionNamesIndividualTransformRule } from "./rules/transition-names-individual-transform.ts";
 
 /**
@@ -37,6 +38,7 @@ const alfredPlugin = eslintCompatPlugin({
     "no-type-re-export-shim": noTypeReExportShimRule,
     "no-union-enum-without-default": noUnionEnumWithoutDefaultRule,
     "sha256-over-json-stringify": sha256OverJsonStringifyRule,
+    "switch-literal-needs-default": switchLiteralNeedsDefaultRule,
     "transition-names-individual-transform": transitionNamesIndividualTransformRule,
   },
 });
