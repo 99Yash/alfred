@@ -368,7 +368,6 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
       3,
       { kind: "done", state: {}, output: { messageId: "msg_x" } },
       [],
-      [],
     );
 
     assert.equal(outcome.kind, "skipped");
@@ -477,7 +476,6 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
         wake: { kind: "hil", approvalId: `ap_${randomUUID().slice(0, 8)}`, prompt: "Approve?" },
       },
       [],
-      [],
     );
 
     assert.equal(outcome.kind, "skipped");
@@ -516,7 +514,6 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
         state: {},
         wake: { kind: "hil", approvalId: "late", prompt: "Approve?" },
       },
-      [],
       [],
     );
 
@@ -873,7 +870,6 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
       STEP,
       3,
       { kind: "next", state: {}, nextStep: "dispatch-tools" },
-      [],
       [],
     );
 

@@ -64,8 +64,7 @@ claims, body, and tool input. Invalid candidates produce `withheld`.
 The verified input is saved before dispatch. The `stage` step dispatches through
 `toolRuntimeForRun(identity).dispatch`, the same bound door as chat and briefs,
 with one stable tool call id and the inbound account as a required capability. It uses `action_stagings` and the existing high-risk approval
-floor (ADR-0069). `ctx.stageAction` is not this approval path: it writes to the
-general pending effects queue. The run records `staged` in its state and decision
+floor (ADR-0069). The run records `staged` in its state and decision
 trace, then waits for approval. On resume, the dispatcher uses the stored or
 user-edited input. It records execution, rejection, or failure on the action row
 and in the transcript. The draft result remains the historical staging decision.

@@ -341,37 +341,6 @@ export const agentSteps = pgTable(
   ],
 );
 
-/** Outbound effects staged in a step's commit transaction (ADR-0014). No dispatcher reads them yet. */
-export const pendingActions = pgTable(
-  "pending_actions",
-  {
-    id: text("id")
-      .primaryKey()
-      .$defaultFn(() => createId("act")),
-    runId: text("run_id")
-      .notNull()
-      .references(() => agentRuns.id, { onDelete: "cascade" }),
-    stepId: text("step_id").notNull(),
-    attempt: integer("attempt").notNull(),
-    kind: text("kind").notNull(),
-    payload: jsonb("payload").notNull(),
-    idempotencyKey: text("idempotency_key").notNull(),
-    status: text("status").notNull().default("pending"),
-    result: jsonb("result"),
-    error: jsonb("error"),
-    dispatchedAt: timestamp("dispatched_at", { withTimezone: true }),
-    completedAt: timestamp("completed_at", { withTimezone: true }),
-    ...lifecycle_dates,
-  },
-  (t) => [
-    uniqueIndex("pending_actions_idem_idx").on(t.idempotencyKey),
-    index("pending_actions_run_idx").on(t.runId),
-    index("pending_actions_status_idx")
-      .on(t.status, t.id)
-      .where(sql`${t.status} = 'pending'`),
-  ],
-);
-
 /**
  * One queryable "why this decision" record per traced decision.
  * The runtime does not read `trace`; `ctx.trace` types it per kind.
@@ -436,8 +405,6 @@ export const agentRunContext = pgTable(
 export type AgentRun = typeof agentRuns.$inferSelect;
 
 export type AgentStep = typeof agentSteps.$inferSelect;
-
-export type PendingAction = typeof pendingActions.$inferSelect;
 
 export type AgentRunContextRow = typeof agentRunContext.$inferSelect;
 

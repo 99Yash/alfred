@@ -648,8 +648,8 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState, string, BriefRun
     [COMPACT_TRANSCRIPT_STEP_ID]: compactTranscriptStep,
   },
   stateSchema: briefRunStateSchema,
-  // One child per (parentRunId, parentToolCallId) (#375). The spawn runs in the step body, not
-  // through `stageAction`, so a double-run step could otherwise spawn two paid children.
+  // One child per (parentRunId, parentToolCallId) (#375). The spawn runs in the step body, so a
+  // double-run step could otherwise spawn two paid children.
   dedupKey({ metadata: { subAgent } }) {
     return subAgent ? `sub:${subAgent.parentRunId}:${subAgent.parentToolCallId}` : null;
   },

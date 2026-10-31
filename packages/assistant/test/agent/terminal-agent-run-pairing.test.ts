@@ -163,7 +163,6 @@ describe("terminal run ⟹ terminal agent.run frame (item 56, DB-backed)", { ski
       1,
       { kind: "done", state: {}, output: { ok: true } },
       [],
-      [],
     );
 
     assert.equal(outcome.kind, "completed");
@@ -183,7 +182,6 @@ describe("terminal run ⟹ terminal agent.run frame (item 56, DB-backed)", { ski
       STEP,
       1,
       { kind: "blocked", state: {}, output: { reason: "action required" } },
-      [],
       [],
     );
 

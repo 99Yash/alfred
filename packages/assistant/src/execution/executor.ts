@@ -12,13 +12,7 @@ import {
 import { createExecuteRowSchema, db, rowsFromExecute, type DbTransaction } from "@alfred/db";
 import { logger } from "@alfred/logging";
 import { parseStoredTranscript, toStoredTranscript } from "@alfred/ai";
-import {
-  agentDecisionTraces,
-  agentRuns,
-  agentSteps,
-  pendingActions,
-  type AgentRun,
-} from "@alfred/db/schemas";
+import { agentDecisionTraces, agentRuns, agentSteps, type AgentRun } from "@alfred/db/schemas";
 import { runStatusSchema } from "@alfred/contracts";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -31,7 +25,7 @@ import { finalizeFailedRun } from "./terminal-closure";
 import { deriveRunOutcome, pokeWorkflowOwner, recordWorkflowLastRun } from "./run-outcome";
 import { isUniqueViolation } from "@alfred/db/pg-errors";
 import { startQueueLeaseSpan, type QueueLeaseFromStatus } from "./runtime-spans";
-import type { StagedAction, Step, StepContext, StepResult, Workflow } from "./registry";
+import type { Step, StepContext, StepResult, Workflow } from "./registry";
 
 /**
  * A step reclaimed this many times since its last commit fails the run (ADR-0070 §1.4).
@@ -313,8 +307,7 @@ export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise
     payload: { runId: run.id, phase: "step_started", step: stepId, attempt },
   });
 
-  // The step body runs outside the tx; `stageAction` defers side effects to the commit.
-  const staged: StagedAction[] = [];
+  // The step body runs outside the tx; `trace` defers decision records to the commit.
   const traces: DecisionTraceBase[] = [];
   const seenTraceKeys = new Set<string>();
 
@@ -325,9 +318,6 @@ export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise
     attempt,
     fence: { generation: run.cancellationGeneration },
     state: run.state,
-    stageAction(action) {
-      staged.push(action);
-    },
     async log(message) {
       try {
         await publishEvent({
@@ -387,7 +377,7 @@ export async function runOnce(runId: string, opts: RunOnceOptions = {}): Promise
     return outcome;
   }
 
-  return await commitStepSuccess(run, stepId, attempt, result, staged, traces);
+  return await commitStepSuccess(run, stepId, attempt, result, traces);
 }
 
 /** The `leaseRun` row. `deferred_until` arrives as text and parses to `Date`; `staleMs` is `numeric` text. */
@@ -648,7 +638,6 @@ export async function commitStepSuccess(
   stepId: string,
   attempt: number,
   result: StepResult<unknown>,
-  staged: StagedAction[],
   traces: DecisionTraceBase[],
 ): Promise<RunOutcome> {
   // Model output can carry U+0000 or a lone surrogate that jsonb rejects (ADR-0070 §1.1).
@@ -671,7 +660,6 @@ export async function commitStepSuccess(
       stepId,
       attempt,
       result,
-      staged,
       traces,
       cleanState,
       cleanTranscript,
@@ -701,7 +689,6 @@ async function commitStepSuccessTx(
   stepId: string,
   attempt: number,
   result: StepResult<unknown>,
-  staged: StagedAction[],
   traces: DecisionTraceBase[],
   cleanState: unknown,
   cleanTranscript: AgentTranscriptMessage[] | undefined,
@@ -731,24 +718,6 @@ async function commitStepSuccessTx(
           eq(agentSteps.attempt, attempt),
         ),
       );
-
-    // The unique `idempotency_key` drops a re-staged action on a re-attempt.
-    for (const action of staged) {
-      const key = action.idempotencyKey ?? `${run.id}:${stepId}:${attempt}:${action.kind}`;
-
-      try {
-        await tx.insert(pendingActions).values({
-          runId: run.id,
-          stepId,
-          attempt,
-          kind: action.kind,
-          payload: sanitizeToolResult(action.payload).value,
-          idempotencyKey: key,
-        });
-      } catch (err) {
-        if (!isUniqueViolation(err)) throw err;
-      }
-    }
 
     if (traces.length > 0) {
       await tx
