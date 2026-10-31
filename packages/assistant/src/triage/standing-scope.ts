@@ -20,14 +20,27 @@ import type { StandingInstructionMatch } from "./floors";
  */
 
 /**
- * The model's answer for one instruction. `covers` is an optional free string, so that one
- * missing or bad value cannot fail the whole classification. A value of another type (`null`,
- * a number) also reads as missing, and the parse reads every such value as `part` (E2). The
- * `.catch` does not change the JSON schema that the model sees.
+ * The model's decision for one instruction. Only `matched` makes a match. The model writes a
+ * decision for each sent instruction, so a listed instruction is not a match by its presence.
+ * The field is not named `verdict`, because the prompt uses that word for the classification.
+ */
+const STANDING_SCOPE_DECISIONS = [
+  "matched",
+  "not_matched",
+] as const satisfies readonly StandingInstructionScopeResult["state"][];
+
+/**
+ * The model's answer for one instruction. `reason` comes before `decision`, so the model writes
+ * its reason first and decides from it. `decision` and `covers` are optional and tolerant, so
+ * one missing or bad value cannot fail the whole classification: a missing or bad decision reads
+ * as no answer (`unknown`), never as `matched`. A missing or bad `covers` reads as `part` (E2). The
+ * `.catch` does not change the JSON schema that the model sees, so the model sees the decision
+ * enum.
  */
 export const triageInstructionMatchOutputSchema = z.object({
   id: z.string(),
   reason: z.string(),
+  decision: z.enum(STANDING_SCOPE_DECISIONS).optional().catch(undefined),
   covers: z.string().optional().catch(undefined),
 });
 
@@ -76,8 +89,9 @@ export const STANDING_SCOPE_SECTION_HEADER =
  */
 export function standingScopeMatchRules(args: { lead: string; verdict: string }): string[] {
   return [
-    `${args.lead} each instruction whose scope this email is about, add one entry to \`instructionMatches\`: \`id\` (copied exactly), \`reason\` (one short line, under 20 words), and \`covers\`. Leave out every instruction whose scope does not fit. An empty list is a normal answer.`,
-    `\`covers\` is "all" when every reason for a demand in ${args.verdict} is inside the scope. It is "part" when the email also holds a reason for a demand that the scope does not cover. If you are not sure, write "part".`,
+    `${args.lead} each listed instruction, add one entry to \`instructionMatches\`: \`id\` (copied exactly), \`reason\` (one short line, under 20 words), \`decision\`, and \`covers\`. Write an entry for every instruction, also for one that does not fit.`,
+    `\`decision\` is "matched" only when this email is inside the instruction's scope. Else it is "not_matched". Read each scope on its own. Write the reason first, then the decision that it supports. A reason that says the email is outside the scope needs "not_matched".`,
+    `\`covers\` applies only to a "matched" decision. It is "all" when every reason for a demand in ${args.verdict} is inside the scope. It is "part" when the email also holds a reason for a demand that the scope does not cover. If you are not sure, write "part".`,
   ];
 }
 
@@ -146,16 +160,21 @@ export function buildStandingScopeBlock(
 }
 
 export interface StandingScopeMatchRead {
-  /** One result for each sent instruction, for `instruction_evaluation`. */
+  /**
+   * One result for each sent instruction that the model decided, for `instruction_evaluation`.
+   * A sent instruction with no result stays `unknown`.
+   */
   scopes: StandingInstructionScopeResult[];
   /** The `matched` results, for the instruction floor. */
   matches: StandingInstructionMatch[];
 }
 
 /**
- * The model's matches as scope results for every sent instruction. An id that was not sent
- * matches nothing. A sent instruction that the model did not list is `not_matched`. When the
- * model left out the whole list, no instruction has a result, so each stays `unknown`.
+ * The model's decisions as scope results for the sent instructions. Only an explicit `matched`
+ * decision makes a match, so a listed instruction is not a match by its presence. An explicit
+ * `not_matched` decision is `not_matched`. A sent instruction with no decision, a bad decision,
+ * or two entries that disagree has no result, so it stays `unknown`. An id that was not sent
+ * matches nothing. When the model left out the whole list, each instruction stays `unknown`.
  */
 export function readStandingScopeMatches(
   sent: readonly ActiveStandingInstruction[],
@@ -163,12 +182,18 @@ export function readStandingScopeMatches(
 ): StandingScopeMatchRead {
   if (output === undefined) return { scopes: [], matches: [] };
 
-  const byId = new Map<string, TriageInstructionMatchOutput>();
+  // An id with two entries that disagree on the decision maps to null: the model gave no one
+  // answer. Two `matched` entries that disagree on `covers` read as `part`, the narrower cover (E2).
+  const byId = new Map<string, TriageInstructionMatchOutput | null>();
 
   for (const entry of output) {
     const id = entry.id.trim();
+    const seen = byId.get(id);
 
-    if (!byId.has(id)) byId.set(id, entry);
+    if (seen === undefined) byId.set(id, entry);
+    else if (seen === null) continue;
+    else if (seen.decision !== entry.decision) byId.set(id, null);
+    else if (seen.covers !== entry.covers) byId.set(id, { ...seen, covers: "part" });
   }
 
   const scopes: StandingInstructionScopeResult[] = [];
@@ -178,7 +203,9 @@ export function readStandingScopeMatches(
     const { instructionId, revision } = instruction.value;
     const entry = byId.get(instructionId);
 
-    if (!entry) {
+    if (!entry?.decision) continue;
+
+    if (entry.decision === "not_matched") {
       scopes.push({ state: "not_matched", instructionId, revision });
       continue;
     }

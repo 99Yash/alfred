@@ -46,12 +46,15 @@ export const TRIAGE_INSTRUCTION_BLOCK_MAX_CHARS = 12_000;
 export const TRIAGE_INSTRUCTION_MATCH_MAX_ENTRIES = 24;
 
 /**
- * The output budget for one `instructionMatches` entry: the id, a reason under 20 words, and
- * `covers`. About 30 tokens is typical; the rest is headroom for a long reason.
+ * The output budget for one `instructionMatches` entry: the id, a reason under 20 words, the
+ * decision, and `covers`. Live calls used about 65 tokens; the rest is headroom for a long reason.
  */
-const TRIAGE_INSTRUCTION_MATCH_ENTRY_TOKENS = 64;
+const TRIAGE_INSTRUCTION_MATCH_ENTRY_TOKENS = 80;
 
-/** Extra output budget when the prompt carries scoped instructions: every sent one can match. */
+/**
+ * Extra output budget when the prompt carries scoped instructions: the model writes one entry,
+ * with a decision, for each sent instruction.
+ */
 export const TRIAGE_INSTRUCTION_MATCH_OUTPUT_TOKENS =
   TRIAGE_INSTRUCTION_MATCH_MAX_ENTRIES * TRIAGE_INSTRUCTION_MATCH_ENTRY_TOKENS;
 

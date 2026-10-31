@@ -3,6 +3,7 @@ import {
   canonicalJson,
   mapConcurrent,
   parseGmailDocumentMetadata,
+  toMessage,
   type GmailDocumentMetadata,
   type StandingInstructionScopeResult,
   type TriageInstructionEvaluation,
@@ -11,11 +12,16 @@ import { db } from "@alfred/db";
 import { gmailMailboxWritesEnabled } from "@alfred/env/server";
 import { documents, emailTriage, standingInstructionSetRevisions } from "@alfred/db/schemas";
 import { logger } from "@alfred/logging";
-import { and, desc, eq, gt, gte, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gt, gte, inArray, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { enqueueTriageRelabel } from "@alfred/assistant/connections/ingestion";
-import { standingInstructions, type LoadedMailStandingInstructions } from "../knowledge";
-import { triageEmailBody, triageEmailHeaderLines } from "./classify";
+import {
+  standingInstructions,
+  standingInstructionsOf,
+  type ActiveStandingInstruction,
+  type LoadedMailStandingInstructions,
+} from "../knowledge";
+import { triageEmailBody, triageEmailHeaderLines, type TriageEmailDocument } from "./classify";
 import {
   TRIAGE_INSTRUCTION_MATCH_OUTPUT_TOKENS,
   TRIAGE_REMATCH_CONCURRENCY,
@@ -92,13 +98,18 @@ async function loadRematchRows(userId: string) {
     .limit(TRIAGE_REMATCH_MAX_ROWS);
 }
 
-type RematchRow = Awaited<ReturnType<typeof loadRematchRows>>[number];
+/**
+ * The metering purpose of a match-only call. A preview logs apart, so it never mixes into the
+ * cost history of the live job.
+ */
+type MatchScopesPurpose = "triage.standing_rematch" | "triage.standing_rematch.preview";
 
 async function matchScopes(args: {
   userId: string;
   documentId: string;
   prompt: string;
   signal: AbortSignal;
+  purpose: MatchScopesPurpose;
 }) {
   const result = await meteredGenerateObject(
     {
@@ -114,34 +125,37 @@ async function matchScopes(args: {
     {
       role: "triage",
       userId: args.userId,
-      name: "triage.standing_rematch",
-      requestMeta: { purpose: "triage.standing_rematch", documentId: args.documentId },
+      name: args.purpose,
+      requestMeta: { purpose: args.purpose, documentId: args.documentId },
     },
   );
 
   return result.output.instructionMatches;
 }
 
+/** The document fields one match-only prompt reads. */
+type RematchPromptDocument = Omit<TriageEmailDocument, "metadata"> & {
+  metadata: GmailDocumentMetadata;
+};
+
 /**
  * The prompt for one match-only call. A row with no model verdict (from before ADR-0113, or
  * the classifier fallback) shows its cached category to the `covers` rule, which is the best
- * record it has.
+ * record it has. A document with no triage row for it shows no category.
  */
 function rematchPrompt(
-  row: RematchRow,
-  metadata: GmailDocumentMetadata,
+  document: RematchPromptDocument,
   verdict: TriageRow["modelVerdict"],
+  cachedCategory: TriageRow["category"] | null,
   instructionLines: readonly string[],
 ) {
-  const document = { ...row, metadata };
-
   const stored = verdict
     ? {
         category: verdict.category,
         documentAsk: verdict.documentAsk,
         todoSuggestion: verdict.todoSuggestion,
       }
-    : { category: row.category };
+    : { category: cachedCategory ?? "not classified" };
 
   return [
     STANDING_SCOPE_SECTION_HEADER,
@@ -153,7 +167,7 @@ function rematchPrompt(
     ...triageEmailHeaderLines(document),
     "",
     "=== Subject ===",
-    row.title?.trim() || "(no subject)",
+    document.title?.trim() || "(no subject)",
     "",
     "=== Body ===",
     triageEmailBody(document),
@@ -244,7 +258,10 @@ interface RematchCounts {
   called: number;
   /** Fresh `matched` results. */
   matched: number;
-  /** Scoped instructions still `unknown` after the job: past the allowance, or a failed call. */
+  /**
+   * Scoped instructions still `unknown` after the job: past the allowance, a failed call, or no
+   * decision from the model.
+   */
   unknownLeft: number;
   failed: number;
   cacheUpdated: number;
@@ -315,12 +332,20 @@ export async function rematchStandingInstructions(args: {
             const output = await matchScopes({
               userId,
               documentId: row.documentId,
-              prompt: rematchPrompt(row, metadata, evaluation.modelVerdict, lines),
+              prompt: rematchPrompt(
+                { ...row, metadata },
+                evaluation.modelVerdict,
+                row.category,
+                lines,
+              ),
               signal: scope.signal,
+              purpose: "triage.standing_rematch",
             });
 
             fresh = readStandingScopeMatches(sent, output).scopes;
             counts.matched += fresh.filter((result) => result.state === "matched").length;
+            // A sent instruction that the model did not decide stays `unknown`.
+            counts.unknownLeft += sent.length - fresh.length;
           } catch (err) {
             // A cancelled job stops. It is not a failed call.
             if (scope.signal.aborted) throw err;
@@ -412,4 +437,126 @@ export async function usersBehindRematch(): Promise<string[]> {
     );
 
   return rows.map((row) => row.userId);
+}
+
+/**
+ * The state of one proposed instruction for one stored mail, from a read-only preview.
+ *  - `matched` / `not_matched`: the answer of the match-only call, as the re-match job stores it.
+ *  - `target`: a sender-wide target hits, so code decides the match with no call.
+ *  - `not_candidate`: the sender filter or the mailbox bound leaves the mail out, so the model
+ *    never sees the instruction for it.
+ *  - `unknown`: past the prompt allowance, or the call failed.
+ */
+export type StandingScopePreviewState =
+  | StandingInstructionScopeResult
+  | { state: "target"; instructionId: string }
+  | { state: "not_candidate"; instructionId: string }
+  | { state: "unknown"; instructionId: string };
+
+export interface StandingScopePreview {
+  documentId: string;
+  results: StandingScopePreviewState[];
+  /** The message of a failed call. Each instruction that the call carried is then `unknown`. */
+  error: string | null;
+}
+
+/**
+ * A read-only match-only pass over stored mail for instructions that are not stored yet. The
+ * ADR-0113 migration review uses it to show what a scope matches before the owner writes it.
+ * It uses the prompt and the rules of the re-match job and makes at most one cheap call for each
+ * document. It writes no triage row; each call logs its cost under
+ * `triage.standing_rematch.preview`.
+ */
+export async function previewStandingScopeMatches(args: {
+  userId: string;
+  documentIds: readonly string[];
+  instructions: readonly ActiveStandingInstruction[];
+  signal?: AbortSignal | undefined;
+}): Promise<StandingScopePreview[]> {
+  if (args.documentIds.length === 0) return [];
+
+  const set = standingInstructionsOf(args.instructions);
+
+  const rows = await db()
+    .select({
+      documentId: documents.id,
+      accountId: documents.accountId,
+      metadata: documents.metadata,
+      title: documents.title,
+      content: documents.content,
+      authoredAt: documents.authoredAt,
+      triageDocumentId: emailTriage.documentId,
+      category: emailTriage.category,
+      modelVerdict: emailTriage.modelVerdict,
+      instructionEvaluation: emailTriage.instructionEvaluation,
+    })
+    .from(documents)
+    .leftJoin(
+      emailTriage,
+      and(
+        eq(emailTriage.userId, documents.userId),
+        eq(emailTriage.sourceThreadId, documents.sourceThreadId),
+      ),
+    )
+    .where(and(eq(documents.userId, args.userId), inArray(documents.id, [...args.documentIds])));
+
+  const previews: StandingScopePreview[] = [];
+
+  await mapConcurrent(
+    rows,
+    TRIAGE_REMATCH_CONCURRENCY,
+    async (row, scope) => {
+      const metadata = parseGmailDocumentMetadata(row.metadata);
+      const mail = set.forMail({ sender: metadata.from ?? null, accountId: row.accountId });
+      const hitIds = new Set(mail.targetHits.map((hit) => hit.value.instructionId));
+      const candidateIds = new Set(mail.scoped.map((candidate) => candidate.value.instructionId));
+      const { sent, lines } = fitStandingScopeInstructions(mail.scoped);
+
+      // The triage row describes this document only when it evaluated this document.
+      const own = row.triageDocumentId === row.documentId;
+      const verdict = own ? parseTriageEvaluationColumns(row).modelVerdict : null;
+
+      let fresh: StandingInstructionScopeResult[] = [];
+      let error: string | null = null;
+
+      if (sent.length > 0) {
+        try {
+          const output = await matchScopes({
+            userId: args.userId,
+            documentId: row.documentId,
+            prompt: rematchPrompt({ ...row, metadata }, verdict, own ? row.category : null, lines),
+            signal: scope.signal,
+            purpose: "triage.standing_rematch.preview",
+          });
+
+          fresh = readStandingScopeMatches(sent, output).scopes;
+        } catch (err) {
+          if (scope.signal.aborted) throw err;
+
+          error = toMessage(err);
+        }
+      }
+
+      const freshById = new Map(fresh.map((result) => [result.instructionId, result]));
+
+      const results = args.instructions.map((instruction): StandingScopePreviewState => {
+        const { instructionId } = instruction.value;
+
+        if (hitIds.has(instructionId)) return { state: "target", instructionId };
+
+        const answer = freshById.get(instructionId);
+
+        if (answer) return answer;
+
+        return candidateIds.has(instructionId)
+          ? { state: "unknown", instructionId }
+          : { state: "not_candidate", instructionId };
+      });
+
+      previews.push({ documentId: row.documentId, results, error });
+    },
+    args.signal ? { signal: args.signal } : {},
+  );
+
+  return previews;
 }

@@ -28,6 +28,7 @@ import {
   classifyEmail,
   DEFAULT_TRIAGE_CATEGORY,
   type ClassifyAudit,
+  type ClassifyEmailArgs,
   type TriageClassification,
 } from "./classify";
 import { extractSenderContext } from "./sender-context";
@@ -1035,6 +1036,68 @@ async function resolveTodoObject(args: {
     kind: state.kind,
     externalId: state.externalId,
     url: state.url,
+  };
+}
+
+/** The classify input of one stored mail, and the mailbox it came from. */
+export interface StoredTriageClassifyInput {
+  input: Pick<
+    ClassifyEmailArgs,
+    "userId" | "identity" | "document" | "senderContext" | "observations"
+  >;
+  accountId: string | null;
+}
+
+/**
+ * The classify input of one stored mail, built as the classify step builds it: the context
+ * load, the sender parse, and the observation gather. It reads only and calls no model. A dry
+ * run or a replay calls it, so it classifies the same input as the live step. Null when the
+ * document or its thread is gone.
+ */
+export async function loadStoredTriageClassifyInput(args: {
+  userId: string;
+  documentId: string;
+}): Promise<StoredTriageClassifyInput | null> {
+  const ctxData = await loadTriageContext(args.documentId, args.userId);
+  const sourceThreadId = ctxData?.document.sourceThreadId;
+
+  if (!ctxData || !sourceThreadId) return null;
+
+  const { document } = ctxData;
+
+  const sender = extractSenderContext({
+    fromHeader: document.metadata.from ?? null,
+    subject: document.title,
+    body: document.content,
+  });
+
+  const { observations } = await gatherObservations({
+    userId: args.userId,
+    settings: settings({ userId: args.userId }),
+    documentId: args.documentId,
+    sourceThreadId,
+    document,
+    accountId: document.accountId,
+    persona: ctxData.persona,
+    senderContext: sender.context,
+    senderAddress: sender.senderAddress,
+  });
+
+  return {
+    input: {
+      userId: args.userId,
+      identity: ctxData.identity,
+      document: {
+        id: document.id,
+        title: document.title,
+        content: document.content,
+        authoredAt: document.authoredAt,
+        metadata: document.metadata,
+      },
+      senderContext: sender.context,
+      observations,
+    },
+    accountId: document.accountId,
   };
 }
 

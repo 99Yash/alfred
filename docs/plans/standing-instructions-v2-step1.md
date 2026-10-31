@@ -1,6 +1,6 @@
 ---
 status: in-progress
-evidence: "PR 1 is #1609 (merged). PR 2 is #1610 (merged). PR 3 is #1611 (merged). PR 4 is #1613 (merged 2026-10-29T14:33Z). PR 4b is #1614 (open)."
+evidence: "PR 1 is #1609 (merged). PR 2 is #1610 (merged). PR 3 is #1611 (merged). PR 4 is #1613 (merged 2026-10-29T14:33Z). PR 4b is #1614 (merged 2026-10-29T15:26Z). PR 5 is #1627 (open); the owner runs its script."
 ---
 
 # Standing instructions v2, step 1: the base design of ADR-0113
@@ -21,7 +21,8 @@ These choices are not in the ADR. Each one is the smallest choice that keeps an 
    `target`, no scope, `instructionId` = the fact id, `revision` = 0, and the effects that
    ADR-0106 and ADR-0110 enforce today: `demote_demand`, `block_todo_suggestion`,
    `exclude_briefing_priority`, and `block_reply_draft`. Thus each consumer moves to the v2
-   reader with no change of behavior, and the migration (PR 5) changes only data.
+   reader with no change of behavior. The migration (PR 5) changes the behavior only through
+   data: its code changes are refactors and read-only previews.
 3. **The instruction-set revision is one row for each user** in a new table. Each instruction
    write increases it in the same transaction.
 4. **The model verdict and the evaluation live on `email_triage`.** Two new `jsonb` columns:
@@ -41,6 +42,19 @@ These choices are not in the ADR. Each one is the smallest choice that keeps an 
    classify prompt, and the output allowance holds a match for each. If the output still fails
    with the match list, the pass runs again without it. The verdict stays, and each sent
    instruction is `unknown`. The trace records `standingMatchFailure`.
+
+   **A match needs an explicit decision.** Both calls write one `instructionMatches` entry for
+   each sent instruction: `id`, `reason`, `decision` (`matched` or `not_matched`), and
+   `covers`. Only `decision: "matched"` makes a match. The presence of an entry is not a match.
+   A missing or bad decision, or two entries that disagree, read as `unknown`. Two `matched`
+   entries that disagree on `covers` read as `part`. The trace records each sent instruction
+   left `unknown` in `standingUndecidedCount`. An `unknown` blocking effect holds its output
+   (ADR-0113 rule 4). The re-match job asks again only after the next change to the set, and
+   only for its window. Before this
+   rule, code read each listed id as a match. The cheap model listed an exception with the
+   reason "not a tax or legal matter", and the exception then cancelled every lowering effect
+   of the investment instruction.
+
 8. **One derivation for every consumer.** `deriveEffectiveTriage` in `triage/effective.ts`
    takes the stored row, the consumer's document, and the current instructions. A stored scope
    result counts only when the row's `documentId` is the consumer's document and the revision
@@ -125,6 +139,23 @@ These choices are not in the ADR. Each one is the smallest choice that keeps an 
     the classify call read with the current one. When the set moved, the caller enqueues the
     user's re-match job. Each stored scope result carries the instruction `revision` that it
     read, so a result for an older revision reads as `unknown` and cannot apply.
+
+22. **The migration writes through capture, in a safe order.** The script
+    (`migrate-standing-instructions-v2-committed`) calls `saveStandingInstruction` for each
+    instruction, so the lock, the conflict gate, the observation log, and the trigger all run.
+    It writes the investment scope with no effects beside its v1 rows, then the exception, then
+    the Polylane and Smallcase instruction with `replaces`, and last the full investment content
+    with `replaces`. That last write stores the effects and closes the v1 rows in the same
+    transaction. Thus no lowering effect of the investment scope is stored while its exception
+    does not exist: until that last write, the v1 rows decide investment mail. If the exception
+    exists but the investment instruction does not, the script refuses. The source `meta` marks
+    each migrated row, so a rerun revises the same instruction and adds none. The commit also
+    needs a passing rollout gate: `gate-check` records one only when every labeled case ran and
+    passed, with a hash of the content that commit writes, so a later edit voids it.
+23. **The investment exception stores no effects.** On mail that both match, a matched exception
+    cancels each lowering effect of the broader instruction on any cover (decision 10), so the
+    mail keeps its model verdict. An effect on the exception would apply an owner rule that the
+    words do not state.
 
 ## Pull requests
 
