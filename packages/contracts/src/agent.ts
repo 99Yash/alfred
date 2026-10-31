@@ -418,10 +418,7 @@ export const authorableEventTriggerSchema = z
   .object({
     kind: z.literal("event"),
     source: z.enum(AUTHORABLE_EVENT_SOURCES),
-    type: z
-      .string()
-      .min(1)
-      .describe("gmail: 'message_received'. github/sentry: 'raw' plus rawKind."),
+    type: z.string().min(1).describe("gmail: 'message_received'. github: 'raw' plus rawKind."),
     rawKind: rawEventKindSchema
       .optional()
       .describe(

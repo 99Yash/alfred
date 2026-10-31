@@ -285,7 +285,7 @@ Queues: `memory-cron`, `chat-memory`. Surface: `apps/web/src/routes/memory.tsx`.
 
 ```mermaid
 flowchart LR
-  EV["inbound provider event<br/>(GitHub/Sentry/Vercel push · verified pull)"] --> RC[("event_receipts<br/>dedup + provenance")]
+  EV["inbound provider event<br/>(GitHub/Vercel push · verified pull)"] --> RC[("event_receipts<br/>dedup + provenance")]
   RC --> RED["per-provider reducer<br/>(object-state/*-reducer.ts)"]
   RED --> OBJ[("integration_objects<br/>+ keys · relations · pulls")]
   OBJ --> CL["briefing gather closure:<br/>closureCandidate → closesOpenAsk<br/>absence never closes"]
@@ -296,7 +296,7 @@ flowchart LR
 | --- | --- |
 | `connections/object-state/activity-consumer.ts` | One consumer per inbound source |
 | `connections/object-state/store.ts` | `applyEvent` — the state store with recency/absorbing guards |
-| `connections/object-state/*-reducer.ts`, `*-adapter.ts` | One reducer + adapter per provider (GitHub, Sentry, Vercel, Railway, MCP) |
+| `connections/object-state/*-reducer.ts`, `*-adapter.ts` | One reducer + adapter per provider (GitHub, Vercel, Railway, MCP) |
 | `contracts/src/integration-objects.ts` | `INTEGRATION_OBJECT_DEFS` registry (browser-safe) |
 
 Tables: `integration_objects`, `integration_object_keys`,

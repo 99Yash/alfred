@@ -25,7 +25,6 @@ import {
 import { mcpObjectStateAdapter } from "./mcp-adapter";
 import { railwayObjectStateAdapter } from "./railway-adapter";
 import { vercelObjectStateAdapter } from "./vercel-adapter";
-import { sentryObjectStateAdapter } from "./sentry-adapter";
 import {
   objectStateStore,
   type ObjectState,
@@ -93,7 +92,6 @@ export interface ReconcileCandidates<Reading extends KeyProposalReading> {
 /** `satisfies` makes a registry provider without an adapter a compile error. */
 const OBJECT_STATE_ADAPTERS = {
   github: githubObjectStateAdapter,
-  sentry: sentryObjectStateAdapter,
   railway: railwayObjectStateAdapter,
   // Proposes no keys from text yet: no Vercel notification in the corpus to ground a grammar on (#1167).
   vercel: vercelObjectStateAdapter,

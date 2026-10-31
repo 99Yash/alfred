@@ -53,9 +53,9 @@ const SOURCE = "gmail";
 
 const TYPE = "message_received";
 
-const RAW_SOURCE = "sentry";
+const RAW_SOURCE = "github";
 
-const RAW_KIND = "comment.created";
+const RAW_KIND = "issue_comment.created";
 
 const createdUserIds: string[] = [];
 
@@ -328,8 +328,8 @@ describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
     const [a, b] = await Promise.all([dispatch(), dispatch()]);
 
     // All eight consumers accept the event; seven no-op. The run count is the guard.
-    assert.deepEqual(a, { acceptedConsumers: 8 });
-    assert.deepEqual(b, { acceptedConsumers: 8 });
+    assert.deepEqual(a, { acceptedConsumers: 7 });
+    assert.deepEqual(b, { acceptedConsumers: 7 });
     assert.equal(await countActiveEventRuns(userId, eventId), 1);
   });
 
@@ -349,18 +349,18 @@ describe("event-dispatch duplicate-run guard (#531)", { skip: SKIP }, () => {
         payload,
       });
 
-    // `sentry-activity-fold` returns on `isRawEventType`, so a raw kind reaches no reducer.
+    // `github-activity-fold` returns on `isRawEventType`, so a raw kind reaches no reducer.
     const [a, b] = await Promise.all([dispatch(), dispatch()]);
-    assert.deepEqual(a, { acceptedConsumers: 8 });
-    assert.deepEqual(b, { acceptedConsumers: 8 });
+    assert.deepEqual(a, { acceptedConsumers: 7 });
+    assert.deepEqual(b, { acceptedConsumers: 7 });
     assert.equal(await countActiveEventRuns(userId, eventId, RAW_WORKFLOW_SLUG), 1);
 
     const otherKind = await acceptEvent({
       userId,
       source: RAW_SOURCE,
       type: "raw",
-      rawKind: "issue.ignored",
-      eventId: `raw:issue.ignored:${randomUUID()}`,
+      rawKind: "star.created",
+      eventId: `raw:star.created:${randomUUID()}`,
       payload: { receiptId: `rcpt-${randomUUID()}`, deliveryKey: "other" },
     });
 

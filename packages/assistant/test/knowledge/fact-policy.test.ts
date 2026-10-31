@@ -257,7 +257,7 @@ describe("authoredByUser (#330 — conservative, evidence-returning)", () => {
 
   test("a source with no author identity is unsupported_source", () => {
     // No `DOCUMENT_SOURCES` provider has a third-party author, so this is the full reject set.
-    const sources = ["github", "gmail_attachment", "sentry", "unknown"] as const;
+    const sources = ["github", "gmail_attachment", "unknown"] as const;
 
     for (const source of sources) {
       const r = authoredByUser({ source, metadata: {}, accountId: null, sender: null }, self);

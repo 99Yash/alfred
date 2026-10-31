@@ -44,7 +44,6 @@ export {
 const VERIFIED_PULLS = {
   // GitHub reads merged pull requests per window, not one target per trigger mail. See `./github`.
   github: null,
-  sentry: null,
   railway: defineVerifiedPull(railwayVerifiedPullProvider),
   vercel: defineVerifiedPull(vercelVerifiedPullProvider),
   // MCP health runs through the briefing loop verifier instead.

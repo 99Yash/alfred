@@ -2,8 +2,6 @@ export * as google from "./google/index";
 
 export * as github from "./github/index";
 
-export * as sentry from "./sentry/index";
-
 export * as vercel from "./vercel/index";
 
 export * as credentials from "./shared/credentials";

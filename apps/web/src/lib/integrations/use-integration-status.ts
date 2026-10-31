@@ -49,8 +49,6 @@ async function deleteProviderCredential(provider: CredentialProvider, id: string
       return client.api.integrations.google({ id }).delete();
     case "github":
       return client.api.integrations.github({ id }).delete();
-    case "sentry":
-      return client.api.integrations.sentry({ id }).delete();
     case "vercel":
       return client.api.integrations.vercel({ id }).delete();
     default:

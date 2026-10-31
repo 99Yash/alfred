@@ -84,26 +84,6 @@ export const EVENT_SOURCE_ENTRIES = {
     ],
   },
   /**
-   * One type per `<resource>_<action>` (`Sentry-Hook-Resource` plus `action`).
-   * `error_created` needs Sentry Business+; `event_alert_triggered` works on every
-   * plan. `seer_pr_created` is the Seer Autofix PR (#563, #567).
-   */
-  sentry: {
-    producer: "inbound_webhook",
-    delivery: { grain: "source" },
-    authoring: "raw",
-    eventTypes: [
-      "error_created",
-      "event_alert_triggered",
-      "issue_created",
-      "issue_resolved",
-      "issue_unresolved",
-      "issue_assigned",
-      "issue_archived",
-      "seer_pr_created",
-    ],
-  },
-  /**
    * `classify` publishes `classified` for the reply-drafting gate (ADR-0098).
    * Nothing publishes `reply_worthy`: the gate starts the run directly, and the
    * `reply-drafting` builtin declares it only to name its cause.
@@ -313,7 +293,7 @@ export function parseEventTypeName<S extends EventSource>(
 }
 
 /**
- * `Sentry comment.created` for a raw trigger, `Gmail message` for a typed one. A stored `type`
+ * `GitHub issue_comment.created` for a raw trigger, `Gmail message` for a typed one. A stored `type`
  * is an open string, so a type that no source declares now (a retired type) shows the source only.
  */
 export function eventTriggerPhrase(trigger: {

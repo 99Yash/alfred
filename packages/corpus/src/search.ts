@@ -166,7 +166,7 @@ async function search(args: SearchArgs): Promise<SearchHit[]> {
 
     const typed = parseDocumentMetadata({ source: r.source, metadata: r.documentMetadata });
 
-    if ((typed.source === "github" || typed.source === "sentry") && typed.metadata.kind) {
+    if (typed.source === "github" && typed.metadata.kind) {
       hit.kind = typed.metadata.kind;
     }
 

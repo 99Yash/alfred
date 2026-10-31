@@ -534,8 +534,8 @@ function logSoftEdgeLoops(
 /**
  * Drop priority items whose work object is closed, and return them for the evening recap.
  * Unresolved, ambiguous, or non-closing keys keep the loop live.
- * A kind with `closesAskFrom: "live_confirmation"` (a Sentry issue or a Railway target,
- * ADR-0103) needs a live read first. A missing reader or a failed read keeps the ask.
+ * A kind with `closesAskFrom: "live_confirmation"` (a Railway target, ADR-0103) needs a live
+ * read first. A missing reader or a failed read keeps the ask.
  */
 async function dropClosedLoops(
   userId: string,

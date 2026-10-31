@@ -15,7 +15,6 @@ import {
   type StateCategory,
 } from "@alfred/contracts";
 import { githubClientForUser } from "@alfred/integrations/github";
-import { readLiveSentryIssue } from "@alfred/integrations/sentry";
 import {
   selectPrimaryReconciledObject,
   type ObjectState,
@@ -61,8 +60,6 @@ export type LiveNativeStateReader = (userId: string) => Promise<string>;
 /** The parsed target each live reader reads. Each key is a `LoopRelevanceSource`. */
 interface LiveTargetBySource {
   live_github_read: { owner: string; repo: string; number: number };
-  /** The Sentry issue id. */
-  live_sentry_read: string;
   live_railway_read: RailwayPullTarget;
 }
 
@@ -122,9 +119,6 @@ const LIVE_READ_SOURCE_BY_KIND = {
     ci_attempt: null,
     ci_target: null,
   },
-  sentry: {
-    issue: "live_sentry_read",
-  },
   railway: {
     deployment_attempt: null,
     deployment_target: "live_railway_read",
@@ -164,12 +158,6 @@ const LIVE_STATE_READERS: LiveStateReaderBySource = {
       };
     },
     readTargets: readGithubTargets,
-  },
-  live_sentry_read: {
-    toTarget: (state) => state.externalId,
-    readTargets: readSentryTargets,
-    readNativeState: async (userId, issueId) =>
-      (await readLiveSentryIssue({ userId, issueId })).nativeState,
   },
   live_railway_read: {
     toTarget: (state) => railwayTargetFromId(state.externalId),
@@ -416,7 +404,6 @@ function finalizeLoopRelevanceVerdicts(args: {
 function planLiveReads(objects: readonly ObjectState[]): LiveReadPlan {
   const reads: LiveReadsBySource = {
     live_github_read: [],
-    live_sentry_read: [],
     live_railway_read: [],
   };
 
@@ -468,39 +455,6 @@ function runLiveReads<S extends LiveReadSource>(
 
 function objectRef(state: ObjectState): string {
   return `${state.provider}:${state.kind}:${state.externalId}`;
-}
-
-async function readSentryTargets(
-  userId: string,
-  reads: readonly LiveRead<"live_sentry_read">[],
-  verdictByObject: Map<string, ObjectVerdict>,
-  source: "live_sentry_read",
-): Promise<void> {
-  await Promise.all(
-    reads.map(async ({ state, target: issueId }) => {
-      const ref = objectRef(state);
-
-      try {
-        const live = await readLiveSentryIssue({ userId, issueId });
-
-        verdictByObject.set(
-          ref,
-          verdictFromNativeState({
-            state,
-            nativeState: live.nativeState,
-            detail: `Sentry live read reports issue ${issueId} as ${live.nativeState}.`,
-            source,
-          }),
-        );
-      } catch (err) {
-        logger.warn({ err }, `[briefing.relevance] sentry live read failed object=${ref}`);
-        verdictByObject.set(
-          ref,
-          unverified(state, "Sentry live read failed; loop stays live.", source),
-        );
-      }
-    }),
-  );
 }
 
 async function readRailwayTargets(

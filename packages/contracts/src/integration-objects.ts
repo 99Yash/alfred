@@ -32,10 +32,8 @@ export type ClosureSource = (typeof OBJECT_STATE_CLOSURE_SOURCES)[number];
 /**
  * The reading a kind needs before it may assert a closure (ADR-0103).
  * - `stored_projection`: the stored row is enough.
- * - `live_confirmation`: the row only nominates. The store orders by observation time,
- *   so a late resolve after an unresolve would falsely read `resolved` (`sentry.issue`).
- *   A pull-only row can also be older than the failure an email reports
- *   (`railway.deployment_target`).
+ * - `live_confirmation`: the row only nominates. A pull-only row can be older than the failure
+ *   an email reports (`railway.deployment_target`).
  * A sync reader with no IO can only pass `stored_projection`.
  */
 export const CLOSURE_PROOFS = ["stored_projection", "live_confirmation"] as const;
@@ -62,8 +60,8 @@ export interface ObjectKindDef {
   /**
    * True when one identity names one piece of work, so a todo may carry it as a source ref: a
    * live todo merges on it and a resolved todo suppresses it (ADR-0092 A1). A target (a branch, a
-   * service) fails again and again, and a Sentry issue can regress, so one dismissed todo would hide
-   * the next failure. Each declares `false`. No default, on purpose.
+   * service) fails again and again, so one dismissed todo would hide the next failure. Each declares
+   * `false`. No default, on purpose.
    */
   readonly todoIdentity: boolean;
   /** Links evidence to a row of this kind with no grammar (ADR-0109 rule 2). Absent: it cannot. */
@@ -138,7 +136,7 @@ export interface IntegrationObjectDef {
   normalize(kind: string, nativeState: string): StateCategory | null;
 }
 
-export const OBJECT_STATE_PROVIDERS = ["github", "sentry", "railway", "vercel", "mcp"] as const;
+export const OBJECT_STATE_PROVIDERS = ["github", "railway", "vercel", "mcp"] as const;
 
 export type ObjectStateProvider = (typeof OBJECT_STATE_PROVIDERS)[number];
 
@@ -364,14 +362,6 @@ export function isBuiltInObjectStateProvider(
 }
 
 /**
- * Sentry issue native states. Two producers write them: the webhook reducer and the
- * live read. The REST API says `ignored` where this says `archived`, so the live read translates.
- */
-export const SENTRY_ISSUE_NATIVE_STATES = ["unresolved", "resolved", "archived"] as const;
-
-export type SentryIssueNativeState = (typeof SENTRY_ISSUE_NATIVE_STATES)[number];
-
-/**
  * The registry. Reducers collapse provider payloads to these native tokens:
  * a PR to `open`/`merged`/`closed`, CI and deployments to `success`/`failure`/`pending`.
  */
@@ -434,36 +424,6 @@ export const INTEGRATION_OBJECT_DEFS = {
       }
 
       return null;
-    },
-  },
-  sentry: {
-    domains: ["sentry.io"],
-    kinds: {
-      // Every Sentry transition can reverse, so nothing absorbs. Sentry sends no
-      // transition version, so only a live read may close (see `ClosureProof`).
-      // `abandoned` stays out: archiving is a triage decision, not a fix.
-      issue: {
-        closesAskOn: ["resolved"],
-        closesAskFrom: "live_confirmation",
-        absorbing: [],
-        // A regression reopens the issue. It is new work, so a dismissed todo must not hide it.
-        todoIdentity: false,
-        // Every issue link holds `/issues/<issue_id>/`.
-        identity: { uniqueKey: { attribute: "issue_id", linkLabel: "issues" } },
-      },
-    },
-    prefixableKeys: {},
-    normalize(_kind, nativeState) {
-      switch (nativeState) {
-        case "resolved":
-          return "resolved";
-        case "unresolved":
-          return "active";
-        case "archived":
-          return "abandoned";
-        default:
-          return null;
-      }
     },
   },
   railway: {

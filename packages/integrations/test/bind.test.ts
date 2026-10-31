@@ -88,6 +88,6 @@ describe("user-bound integrations", () => {
   test("binding builds nothing until a provider is touched", () => {
     // Every provider sits behind a getter, so an unconfigured one cannot fail at bind time.
     const bound = integrations({ userId: "user_1", retry: RETRY });
-    assert.deepEqual(Object.keys(bound).toSorted(), ["github", "google", "sentry", "vercel"]);
+    assert.deepEqual(Object.keys(bound).toSorted(), ["github", "google", "vercel"]);
   });
 });

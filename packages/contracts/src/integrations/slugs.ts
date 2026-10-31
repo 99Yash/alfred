@@ -35,11 +35,6 @@ export type GithubAppSlug = SlugsWhere<{ credential: { shape: "github_app" } }>;
 /** Slugs whose access is one long-lived bearer token. */
 export type BearerSlug = SlugsWhere<{ credential: { shape: "bearer" } }>;
 
-/** Bearer slugs where the user pastes the token into a form. */
-export type TokenPasteSlug = SlugsWhere<{
-  credential: { shape: "bearer"; connect: "token_paste" };
-}>;
-
 /** Values of `integration_credentials.provider`: `google` for all Google products, else the slug. */
 export type CredentialProvider = "google" | GithubAppSlug | BearerSlug;
 
@@ -103,12 +98,6 @@ export const BEARER_PROVIDER_SLUGS: readonly BearerSlug[] = LIVE_PROVIDER_SLUGS.
 
 export const isBearerProvider = enumGuard(BEARER_PROVIDER_SLUGS);
 
-export const TOKEN_PASTE_SLUGS: readonly TokenPasteSlug[] = BEARER_PROVIDER_SLUGS.filter(
-  (slug): slug is TokenPasteSlug => INTEGRATIONS[slug].credential.connect === "token_paste",
-);
-
-export const isTokenPasteSlug = enumGuard(TOKEN_PASTE_SLUGS);
-
 export function credentialProviderOf(slug: LiveProviderSlug): CredentialProvider {
   return isGoogleSlug(slug) ? "google" : slug;
 }
@@ -122,7 +111,7 @@ export function integrationRoutePrefix<P extends CredentialProvider>(
 
 /**
  * The full-grant connect route that a reconnect opens (ADR-0044). The delivery-alert banner and
- * the briefing block both link here (ADR-0100). A `token_paste` credential POSTs here instead.
+ * the briefing block both link here (ADR-0100).
  */
 export function integrationConnectPath(slug: LiveProviderSlug): string {
   return `${integrationRoutePrefix(credentialProviderOf(slug))}/connect`;

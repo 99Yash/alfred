@@ -40,7 +40,7 @@ export interface PlannedIntegrationEntry extends EntryBase {
  * The credential provider is derived, not stored: see `credentialProviderOf`.
  * - `google_oauth`: needs one of `anyOfScopes`, because users can uncheck scopes.
  * - `github_app`: needs an `installation_id` (ADR-0052). Old OAuth rows do not count.
- * - `bearer`: an active row is the proof. `token_paste` shows a form, not a redirect.
+ * - `bearer`: an active row is the proof.
  */
 export type CredentialSpec =
   | {
@@ -53,7 +53,7 @@ export type CredentialSpec =
       readonly grants: Readonly<Record<string, readonly GoogleScope[]>>;
     }
   | { readonly shape: "github_app" }
-  | { readonly shape: "bearer"; readonly connect: "oauth" | "token_paste" };
+  | { readonly shape: "bearer"; readonly connect: "oauth" };
 
 /** ADR-0074 read-only passthrough. */
 export type PassthroughTransportKind = "rest" | "graphql";
@@ -287,19 +287,15 @@ export const INTEGRATIONS = {
     summaryBlurb: "the user's Vercel projects and deployments",
     domain: "vercel.com",
   },
+  // Sentry, Notion, Railway and Polylane (and Linear) are `planned` here but connect through MCP.
+  // The entries exist for the slug and the brand art the MCP catalog uses (ADR-0093).
   sentry: {
     kind: "provider",
-    status: "live",
+    status: "planned",
     displayName: "Sentry",
     brand: "sentry",
-    credential: { shape: "bearer", connect: "token_paste" },
-    passthrough: { transport: "rest" },
-    actions: ["request"],
-    summaryBlurb: "the user's Sentry issues and error events",
-    domain: "sentry.io",
+    actions: [],
   },
-  // Notion, Railway and Polylane (and Linear) are `planned` here but connect through MCP.
-  // The entries exist for the slug and the brand art the MCP catalog uses (ADR-0093).
   notion: {
     kind: "provider",
     status: "planned",

@@ -113,26 +113,27 @@ type InboundEventFields = Pick<DomainEvent, "userId" | "eventId" | "accountRef">
 };
 
 /**
- * The typed event of one receipt, or null when its stored type is not declared. One case per
+ * The typed event of one receipt, or null when its stored type is not declared. One entry per
  * source, because the compiler correlates `type` with `source` only for a literal source.
- * A new inbound source fails to compile here until it has a case.
+ * A new inbound source fails to compile here until it has an entry.
  */
+const TYPED_INBOUND_EVENTS = {
+  github: (eventTypeName, fields) => {
+    const type = parseEventTypeName("github", eventTypeName);
+
+    return type ? { ...fields, source: "github", type } : null;
+  },
+} satisfies {
+  [S in InboundEventSource]: (
+    eventTypeName: string,
+    fields: InboundEventFields,
+  ) => DomainEvent | null;
+};
+
 function typedInboundEvent(
   source: InboundEventSource,
   eventTypeName: string,
   fields: InboundEventFields,
 ): DomainEvent | null {
-  switch (source) {
-    case "github": {
-      const type = parseEventTypeName(source, eventTypeName);
-
-      return type ? { ...fields, source, type } : null;
-    }
-
-    case "sentry": {
-      const type = parseEventTypeName(source, eventTypeName);
-
-      return type ? { ...fields, source, type } : null;
-    }
-  }
+  return TYPED_INBOUND_EVENTS[source](eventTypeName, fields);
 }

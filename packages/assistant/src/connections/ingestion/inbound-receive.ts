@@ -167,7 +167,7 @@ export async function receiveInboundDelivery(
 function reportOwnerlessDelivery(
   source: InboundEventSource,
   projection: Exclude<InboundProjection<InboundEventSource>, { kind: "ignore" }>,
-  attribution: Extract<InboundAttribution, { kind: "unowned"; reason: "no_match" | "ambiguous" }>,
+  attribution: Extract<InboundAttribution, { kind: "unowned"; reason: "no_match" }>,
 ): void {
   const kind = projectionKind(projection);
   const { reason, reference } = attribution;

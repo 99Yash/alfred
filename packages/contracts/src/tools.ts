@@ -656,12 +656,6 @@ export const TOOL_LABELS = {
     done: "Queried the Vercel API",
     title: "run a read-only Vercel API request",
   },
-
-  "sentry.request": {
-    running: "Querying the Sentry API",
-    done: "Queried the Sentry API",
-    title: "run a read-only Sentry API request",
-  },
 } satisfies Record<ToolName, ToolLabel>;
 
 /** `null` for an unregistered name. */
@@ -761,8 +755,6 @@ export const TOOL_CATEGORIES = {
   "vercel.list_deployments": "source",
   "vercel.redeploy": "action",
   "vercel.request": "source",
-
-  "sentry.request": "source",
 } satisfies Record<ToolName, ToolCategory>;
 
 /** `null` for an unregistered name. */

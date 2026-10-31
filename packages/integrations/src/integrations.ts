@@ -1,6 +1,5 @@
 import { githubClientForUser } from "./github/client";
 import { googleClientForUser } from "./google/client";
-import { sentryClientForUser } from "./sentry/client";
 import { vercelClientForUser } from "./vercel/client";
 
 import { hasEveryKey, typedKeys, type CredentialProvider } from "@alfred/contracts";
@@ -22,7 +21,6 @@ import { once, type ProviderBindOptions, type ProviderFactory } from "./shared/p
 const providerRegistry = {
   github: githubClientForUser,
   google: googleClientForUser,
-  sentry: sentryClientForUser,
   vercel: vercelClientForUser,
 } satisfies Record<CredentialProvider, ProviderFactory>;
 

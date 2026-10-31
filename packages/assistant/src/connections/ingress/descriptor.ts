@@ -39,7 +39,7 @@ export interface InboundDescription {
 
 /**
  * `key` is a method, not a function property, so it is checked bivariantly.
- * Otherwise `InboundSourceDescriptor<"sentry">` would not widen to the union type.
+ * Otherwise `InboundSourceDescriptor<"github">` would not widen to the union type.
  */
 export type InboundDedupRule<S extends InboundEventSource = InboundEventSource> =
   /** A header id that is stable across redeliveries (GitHub's `X-GitHub-Delivery`). */
@@ -86,7 +86,7 @@ export interface UnattributedReference {
 }
 
 /**
- * `ambiguous`: more than one active credential behind one shared secret (Sentry).
+ * `no_match`: no active credential holds the account the payload names.
  * `reference` tells an operator if a credential is missing or stale.
  * It is `null` when the payload names no account.
  * `unscoped`: the payload names no installation at all — a GitHub app-level kind such as
@@ -96,7 +96,7 @@ export interface UnattributedReference {
  */
 export type InboundAttribution =
   | { kind: "owned"; owner: InboundOwner }
-  | { kind: "unowned"; reason: "no_match" | "ambiguous"; reference: UnattributedReference | null }
+  | { kind: "unowned"; reason: "no_match"; reference: UnattributedReference | null }
   | { kind: "unowned"; reason: "unscoped"; reference: null };
 
 /** What restores deliveries. Event source slugs and integration slugs differ, so `connect` names the integration. */

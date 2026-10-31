@@ -277,16 +277,19 @@ const INTEGRATION_PAGE_COPY = {
   sentry: {
     description: "Read Sentry issues and error events.",
     category: "Development",
-    capabilities: ["List Issues", "Read Issue Detail", "Read Stack Traces", "Receive Webhooks"],
+    capabilities: ["Search Issues", "Read Issue Detail", "Read Stack Traces", "Update Issues"],
     trust: {
-      title: "Your token, your control",
-      body: "You paste a token from an internal integration in your own Sentry organization. Revoke it any time from Sentry, or disconnect here.",
+      title: "You approve every call",
+      body: "Sentry connects over MCP, and every MCP call is staged for your approval before it runs.",
     },
     overview: {
-      body: "Connect Sentry with an internal integration token and your organization slug. Alfred reads your issues and events through that integration, and receives its webhooks.",
+      body: "Connect Sentry so Alfred can look into your errors: the issues, events, and stack traces Sentry already groups.",
       heading: "Error Intelligence",
       detail:
-        "Alfred can list an organization's projects and issues, read one issue and its latest event with the stack trace, and receive the webhook when Sentry sends an alert or Seer opens a pull request.",
+        "Alfred can search your issues and error events, read one issue with its latest stack trace, and resolve or assign an issue over your Sentry grant.",
+      extraHeading: "Connect it on the MCP tile",
+      extraDetail:
+        "Sentry has no separate Alfred credential. It is a first-class MCP server: connect it from the MCP section of this page, and the consent screen is Sentry's own.",
     },
   },
   polylane: {
@@ -384,7 +387,7 @@ export function matchesIntegration(page: IntegrationPage, query: string): boolea
 
 /**
  * The connect path for a live provider. A Google product adds `?features=` so consent
- * asks only for its scopes. A `token_paste` credential POSTs here instead of redirecting.
+ * asks only for its scopes.
  */
 export function connectPathFor(slug: LiveProviderSlug): string {
   const path = integrationConnectPath(slug);
