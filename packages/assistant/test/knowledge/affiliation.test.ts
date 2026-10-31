@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
-import { getPath, getStringPath, observationInsertSchema } from "@alfred/contracts";
+import { getStringPath, observationInsertSchema } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { unsealedTestSecret } from "../support/unsealed-secret";
 import {
@@ -139,8 +139,8 @@ describe("buildOrgAffiliationObservationInput", () => {
     assert.equal(res.ok, true);
 
     assert.equal(res.domainClass, "consumer_email");
-    assert.equal(getPath(res.input.payload, "verifiedHostedDomain"), null);
-    assert.equal(getStringPath(res.input.payload, "orgDomain"), "gmail.com");
+    assert.equal(res.input.payload.verifiedHostedDomain, null);
+    assert.equal(res.input.payload.orgDomain, "gmail.com");
     assert.doesNotThrow(() => observationInsertSchema.parse(res.input));
   });
 
@@ -153,7 +153,7 @@ describe("buildOrgAffiliationObservationInput", () => {
     assert.equal(res.ok, true);
 
     assert.equal(res.domainClass, "ambiguous_domain");
-    assert.equal(getPath(res.input.payload, "verifiedHostedDomain"), null);
+    assert.equal(res.input.payload.verifiedHostedDomain, null);
     assert.doesNotThrow(() => observationInsertSchema.parse(res.input));
   });
 
@@ -167,8 +167,8 @@ describe("buildOrgAffiliationObservationInput", () => {
     assert.equal(res.ok, true);
 
     assert.equal(res.domainClass, "corporate_domain");
-    assert.equal(getPath(res.input.payload, "verifiedHostedDomain"), "oliv.ai");
-    assert.equal(getStringPath(res.input.payload, "orgDomain"), "oliv.ai");
+    assert.equal(res.input.payload.verifiedHostedDomain, "oliv.ai");
+    assert.equal(res.input.payload.orgDomain, "oliv.ai");
     assert.equal(res.input.familyKey, "org_affiliation:108412341234123412341:oliv.ai");
     assert.doesNotThrow(() => observationInsertSchema.parse(res.input));
   });
@@ -193,8 +193,8 @@ describe("buildOrgAffiliationObservationInput", () => {
 
     assert.equal(res.ok, true);
 
-    assert.equal(getStringPath(res.input.payload, "accountEmail"), "yash.k@oliv.ai");
-    assert.equal(getStringPath(res.input.payload, "orgDomain"), "oliv.ai");
+    assert.equal(res.input.payload.accountEmail, "yash.k@oliv.ai");
+    assert.equal(res.input.payload.orgDomain, "oliv.ai");
   });
 
   for (const [label, over, reason] of [

@@ -229,9 +229,7 @@ async function removeQueuedContractRuns(): Promise<void> {
   const jobs = await queue.getJobs(["waiting", "delayed", "prioritized", "paused"], 0, 500);
   await Promise.all(
     jobs.map(async (job) => {
-      const runId = getStringPath(job.data, "runId");
-
-      if (runId && createdRunIds.includes(runId)) await job.remove();
+      if (createdRunIds.includes(job.data.runId)) await job.remove();
     }),
   );
 }
@@ -417,7 +415,7 @@ describe("generic execution contract (DB/Redis-backed)", { skip: SKIP }, () => {
     const run = await getRun(runId, userId);
     assert.equal(run?.status, "failed");
     assert.equal(
-      getStringPath(run.error, "message"),
+      run.error?.message,
       "exec-contract intentional failure",
       "the sanitized failure message is persisted",
     );
@@ -473,7 +471,7 @@ describe("generic execution contract (DB/Redis-backed)", { skip: SKIP }, () => {
 
     assert.equal(orphan[0]?.status, "failed", "the orphan step row is marked failed for audit");
     assert.equal(
-      getStringPath(orphan[0].reason, "reason"),
+      orphan[0].reason?.reason,
       "lease_reclaimed",
       "with the structured lease-reclaim marker",
     );

@@ -533,9 +533,16 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
   });
 });
 
-async function loadMailRow(userId: string, sourceId: string) {
+/**
+ * `metadata` is `unknown` here: raw SQL merges write the column, and its `$type` does not
+ * validate a read. These tests check the stored JSON itself.
+ */
+async function loadMailRow(
+  userId: string,
+  sourceId: string,
+): Promise<{ id: string; metadata: unknown } | null> {
   const rows = await db()
-    .select()
+    .select({ id: documents.id, metadata: documents.metadata })
     .from(documents)
     .where(
       and(

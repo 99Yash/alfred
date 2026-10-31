@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto";
 import { after, afterEach, before, describe, test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 
-import { getPath } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { agentRuns, user } from "@alfred/db/schemas";
 import { eq, inArray, like } from "drizzle-orm";
@@ -170,11 +169,7 @@ async function queuedAgentRunIds(): Promise<Set<string>> {
   const jobs = await queue.getJobs(["waiting", "delayed", "prioritized", "paused"], 0, 500);
   const runIds = new Set<string>();
 
-  for (const job of jobs) {
-    const runId = getPath(job.data, "runId");
-
-    if (typeof runId === "string") runIds.add(runId);
-  }
+  for (const job of jobs) runIds.add(job.data.runId);
 
   return runIds;
 }
@@ -193,9 +188,7 @@ async function removeQueuedAgentRuns(): Promise<void> {
   const jobs = await queue.getJobs(["waiting", "delayed", "prioritized", "paused"], 0, 500);
   await Promise.all(
     jobs.map(async (job) => {
-      const runId = getPath(job.data, "runId");
-
-      if (typeof runId === "string" && createdRunIds.includes(runId)) {
+      if (createdRunIds.includes(job.data.runId)) {
         await job.remove();
       }
     }),
