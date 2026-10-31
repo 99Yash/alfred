@@ -103,6 +103,7 @@ export const INTEGRATIONS = {
       "list_instructions",
       "forget_instruction",
       "edit_instruction",
+      "list_todos",
       "resolve_todo",
       "suggest_todo",
       "web_search",

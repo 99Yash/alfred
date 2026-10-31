@@ -26,7 +26,12 @@ import {
   type SystemToolTaskAdapter,
   type SystemToolWebSearchAdapter,
 } from "@alfred/assistant/tool-runtime";
-import { resolveTodosForGmailSource, suggestTodo } from "@alfred/assistant/tasks";
+import {
+  listTodos,
+  resolveTodosByIds,
+  resolveTodosForGmailSource,
+  suggestTodo,
+} from "@alfred/assistant/tasks";
 import { gmailThreadIdsFromSources } from "@alfred/assistant/tasks/resolve";
 
 type ToolCallContext = SystemToolRequest<"system.resolve_todo">["context"];
@@ -244,7 +249,20 @@ async function gmailSourcesAlreadyAnswered(
 }
 
 const taskAdapter: SystemToolTaskAdapter = {
+  listTodos({ input, context }) {
+    return listTodos({ userId: context.userId, status: input.status, limit: input.limit });
+  },
   resolveTodo({ input, context }) {
+    const attribution = chatToolAttribution(context, "dismissed", input.reason ?? null);
+
+    if (input.kind === "todo_ids") {
+      // The input schema requires `todoIds` for this kind. An empty list fails the task parse.
+      return resolveTodosByIds(
+        { userId: context.userId, todoIds: input.todoIds ?? [] },
+        attribution,
+      );
+    }
+
     return resolveTodosForGmailSource(
       {
         userId: context.userId,
@@ -252,7 +270,7 @@ const taskAdapter: SystemToolTaskAdapter = {
         sourceThreadId: input.sourceThreadId,
         accountId: input.accountId ?? null,
       },
-      chatToolAttribution(context, "dismissed", input.reason ?? null),
+      attribution,
     );
   },
   async suggestTodo({ input, context }) {

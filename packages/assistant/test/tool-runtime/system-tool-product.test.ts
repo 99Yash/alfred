@@ -188,6 +188,8 @@ describe("system-tool product seams with registered adapters", () => {
     };
 
     const tasks: SystemToolTaskAdapter = {
+      listTodos: () =>
+        Promise.resolve({ todos: [], status: "live", limit: 20, truncated: false } as const),
       resolveTodo: (args) => {
         calls.push({ name: "resolve", args });
 

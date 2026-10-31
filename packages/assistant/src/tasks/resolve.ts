@@ -1,6 +1,7 @@
 import {
   normalizeEmailAddress,
   parseGmailDocumentMetadata,
+  RESOLVE_TODO_IDS_MAX,
   standingInstructionTargetSchema,
   targetMatchesSender,
   targetNamesOneMailbox,
@@ -8,6 +9,7 @@ import {
   todoSourcesSchema,
   type TodoAttribution,
   type TodoSource,
+  type TodoStatus,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, todos } from "@alfred/db/schemas";
@@ -246,6 +248,93 @@ export async function resolveTodosForGmailSource(
     dismissedCount: dismissed.length,
     todoIds: dismissed.map((row) => row.id),
     matchedThreadIds: [...matchedThreadIds],
+    auditReason,
+  };
+}
+
+const resolveTodosByIdsArgsSchema = z.object({
+  userId: z.string().min(1),
+  todoIds: z.array(z.string().trim().min(1)).min(1).max(RESOLVE_TODO_IDS_MAX),
+});
+
+export type ResolveTodosByIdsArgs = z.infer<typeof resolveTodosByIdsArgsSchema>;
+
+/** Why one requested id was not dismissed. A todo of another user reads as `not_found`. */
+export type ResolveTodoSkip =
+  | { todoId: string; reason: "not_found" }
+  | { todoId: string; reason: "not_live"; status: TodoStatus };
+
+export interface ResolveTodosByIdsResult {
+  ok: true;
+  status: "dismissed" | "not_found";
+  dismissedCount: number;
+  todoIds: string[];
+  /** Each requested id that the write did not change, with the reason. */
+  skipped: ResolveTodoSkip[];
+  /** The write's `note`, else its `cause`. Echoed for the model and the log. */
+  auditReason: string | null;
+}
+
+/**
+ * Dismiss the named todos (`system.resolve_todo`, kind `todo_ids`). The UPDATE itself applies
+ * the id list, the user scope, and the live statuses, so no prior read is trusted. A read after
+ * the write reports each id that the write did not change: `not_live` with the current status
+ * for a todo of the user, else `not_found`.
+ */
+export async function resolveTodosByIds(
+  args: ResolveTodosByIdsArgs,
+  attribution: TodoAttribution,
+): Promise<ResolveTodosByIdsResult> {
+  const parsed = resolveTodosByIdsArgsSchema.parse(args);
+  const requested = [...new Set(parsed.todoIds)];
+  const record = todoAttributionSchema.parse(attribution);
+  const note = normalizeOptional(record.note);
+  const auditReason = note ?? record.cause;
+
+  const dismissed = await db()
+    .update(todos)
+    .set({
+      status: "dismissed",
+      completedAt: null,
+      attribution: { ...record, note },
+      rowVersion: sql`${todos.rowVersion} + 1`,
+    })
+    .where(
+      and(
+        eq(todos.userId, parsed.userId),
+        inArray(todos.id, requested),
+        inArray(todos.status, liveTodoStatusSchema.options),
+      ),
+    )
+    .returning({ id: todos.id });
+
+  const dismissedIds = new Set(dismissed.map((row) => row.id));
+  const rest = requested.filter((id) => !dismissedIds.has(id));
+
+  const current =
+    rest.length > 0
+      ? await db()
+          .select({ id: todos.id, status: todos.status })
+          .from(todos)
+          .where(and(eq(todos.userId, parsed.userId), inArray(todos.id, rest)))
+      : [];
+
+  const statusById = new Map(current.map((row) => [row.id, row.status]));
+
+  if (dismissed.length > 0) emitReplicachePokes([parsed.userId]);
+
+  return {
+    ok: true,
+    status: dismissed.length > 0 ? "dismissed" : "not_found",
+    dismissedCount: dismissed.length,
+    todoIds: requested.filter((id) => dismissedIds.has(id)),
+    skipped: rest.map((todoId): ResolveTodoSkip => {
+      const status = statusById.get(todoId);
+
+      return status === undefined
+        ? { todoId, reason: "not_found" }
+        : { todoId, reason: "not_live", status };
+    }),
     auditReason,
   };
 }

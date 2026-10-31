@@ -366,6 +366,11 @@ export const TOOL_LABELS = {
     done: "Updated a standing instruction",
     title: "update a standing instruction",
   },
+  "system.list_todos": {
+    running: "Reviewing your to-dos",
+    done: "Reviewed your to-dos",
+    title: "review to-dos",
+  },
   "system.resolve_todo": {
     running: "Resolving a to-do",
     done: "Resolved a to-do",
@@ -687,6 +692,7 @@ export const TOOL_CATEGORIES = {
   "system.list_instructions": "source",
   "system.forget_instruction": "action",
   "system.edit_instruction": "action",
+  "system.list_todos": "source",
   "system.resolve_todo": "action",
   "system.suggest_todo": "action",
   "system.web_search": "source",

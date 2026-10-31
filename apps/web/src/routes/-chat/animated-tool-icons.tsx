@@ -17,6 +17,7 @@ import {
   Link,
   ListChecks,
   ListPlus,
+  ListTodo,
   MessageCircleQuestionMark,
   MessagesSquare,
   Notebook,
@@ -62,6 +63,7 @@ const BRANDLESS_TOOL_ICONS = {
   "system.list_instructions": ListChecks,
   "system.forget_instruction": Eraser,
   "system.edit_instruction": PencilLine,
+  "system.list_todos": ListTodo,
   "system.resolve_todo": CircleCheckBig,
   "system.suggest_todo": SquarePen,
 

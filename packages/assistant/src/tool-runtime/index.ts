@@ -5,6 +5,7 @@ import type {
   authorWorkflowInput,
   readChatHistoryInput,
   ActivateWorkflowInput,
+  AttributionActor,
   CancellationFence,
   ChatConnectNudge,
   IanaTimezone,
@@ -17,6 +18,8 @@ import type {
   StandingInstructionValue,
   StandingInstructionValueV2,
   TOOL_INPUT_SCHEMAS,
+  TodoSource,
+  TodoStatus,
   ToolName,
   ToolRunContext,
   ToolUnavailabilityCode,
@@ -668,7 +671,7 @@ export type RememberInstructionResult =
       readonly related: readonly RelatedInstructionResult[];
       readonly relatedCount: number;
       readonly resolvedTodos:
-        | ResolveTodoResult
+        | ResolveTodoBySourceResult
         | { readonly ok: false; readonly status: "sweep_failed"; readonly message: string }
         | null;
     }
@@ -774,8 +777,39 @@ export interface SystemToolWebSearchAdapter {
   webSearch(args: SystemToolRequest<"system.web_search">): Promise<WebSearchToolResult>;
 }
 
-/** Mirrors `ResolveTodosForGmailSourceResult` in `tasks/resolve.ts` (ADR-0089). */
-export type ResolveTodoResult =
+/** Mirrors `ResolveTodosByIdsResult` in `tasks/resolve.ts` (ADR-0089). */
+export interface ResolveTodoByIdsResult {
+  readonly ok: true;
+  readonly status: "dismissed" | "not_found";
+  readonly dismissedCount: number;
+  readonly todoIds: readonly string[];
+  readonly skipped: readonly (
+    | { readonly todoId: string; readonly reason: "not_found" }
+    | { readonly todoId: string; readonly reason: "not_live"; readonly status: TodoStatus }
+  )[];
+  readonly auditReason: string | null;
+}
+
+/** Mirrors `ListTodosResult` in `tasks/list.ts` (ADR-0089). */
+export interface ListTodosResult {
+  readonly todos: readonly {
+    readonly id: string;
+    readonly name: string;
+    readonly status: TodoStatus;
+    readonly dueDate: string | null;
+    readonly sources: readonly TodoSource[];
+    readonly sourceCount: number;
+    readonly creatorActor: AttributionActor | null;
+  }[];
+  readonly status: SystemToolRequest<"system.list_todos">["input"]["status"];
+  readonly limit: number;
+  readonly truncated: boolean;
+}
+
+/** `kind: "gmail_sender"` mirrors `ResolveTodosForGmailSourceResult` in `tasks/resolve.ts` (ADR-0089). */
+export type ResolveTodoResult = ResolveTodoBySourceResult | ResolveTodoByIdsResult;
+
+export type ResolveTodoBySourceResult =
   | {
       readonly ok: true;
       readonly status: "dismissed" | "not_found";
@@ -814,11 +848,12 @@ export type SuggestTodoResult =
 
 /**
  * Surface: chat.
- * Owns/hides: todo suggestion and Gmail-sender todo resolution.
+ * Owns/hides: the todo list read, todo suggestion, and todo resolution by Gmail source or id.
  * Why the seam: tool-runtime must not import tasks or create a module cycle.
  * Wiring: runtime/adapters/system-tool-product.ts installs; internal/tools/system.ts reads.
  */
 export interface SystemToolTaskAdapter {
+  listTodos(args: SystemToolRequest<"system.list_todos">): Promise<ListTodosResult>;
   resolveTodo(args: SystemToolRequest<"system.resolve_todo">): Promise<ResolveTodoResult>;
   suggestTodo(args: SystemToolRequest<"system.suggest_todo">): Promise<SuggestTodoResult>;
 }
@@ -899,6 +934,10 @@ export function webSearch(
   args: SystemToolRequest<"system.web_search">,
 ): Promise<WebSearchToolResult> {
   return systemToolWebSearchAdapterPort.read().webSearch(args);
+}
+
+export function listTodos(args: SystemToolRequest<"system.list_todos">): Promise<ListTodosResult> {
+  return systemToolTaskAdapterPort.read().listTodos(args);
 }
 
 export function resolveTodo(

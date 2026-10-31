@@ -145,12 +145,13 @@ Last verified: 2026-10-20 at `fd13e6427`.
 
 - `read_user_context` (`knowledge/user-context.ts:285`): profile, confirmed `user_facts`, the legacy `entities` and their relations, and recent memory.
 - `search_context` (`context-search/default-sources.ts:13`): documents, memory chunks, object state, and Drive.
+- `system.list_todos` (`tasks/list.ts`), after a load: the user's todos, filtered by status, with a bounded limit.
 - The provider tools, after a load.
-- No tool reads the user's todos, past briefings, or triage tags. A search for `todos`, `briefing`, and `email_triage` in `context-search/` and `knowledge/user-context.ts` finds nothing.
+- No tool reads past briefings or triage tags. A search for `briefing` and `email_triage` in `context-search/` and `knowledge/user-context.ts` finds nothing.
 
 **Gaps.**
 
-- Chat cannot see what the other flows produce: todos, briefings, and triage tags. "What is on my plate?" has no direct answer.
+- Chat cannot see two things that the other flows produce: briefings and triage tags. `system.list_todos` reads the todos, but only after `search_tools` and `load_tool`.
 - Chat memory capture writes nothing. From chat, only a sender suppression persists. This is the main gap of the standing-instructions vision ("say it in chat, and Alfred keeps it").
 - `read_user_context` reads the legacy `entities`, not `entity_nodes` (see `context-graph.md`, point 1).
 - The prompt says "Write actions … are gated" (`chat-turn.ts:165`). The policy gates every non-system call in Review mode, reads too. The prompt and the policy do not agree.
