@@ -56,21 +56,91 @@ import {
 } from "./chat";
 import { triageTagOverrideArgsSchema, triageTagOverrideClient } from "./triage-tags";
 
-export * from "./notes";
+export { noteCreateArgsSchema, type NoteCreateArgs } from "./notes";
 
-export * from "./facts";
+export {
+  factConfirmArgsSchema,
+  type FactConfirmArgs,
+  factRejectArgsSchema,
+  type FactRejectArgs,
+  factCreateArgsSchema,
+  type FactCreateArgs,
+  factEditArgsSchema,
+  type FactEditArgs,
+} from "./facts";
 
-export * from "./prefs";
+export {
+  prefSetArgsSchema,
+  type PrefSetArgs,
+  prefDeleteArgsSchema,
+  type PrefDeleteArgs,
+} from "./prefs";
 
-export * from "./policy";
+export {
+  policySetIntegrationModeArgsSchema,
+  type PolicySetIntegrationModeArgs,
+  policySetToolModeArgsSchema,
+  type PolicySetToolModeArgs,
+  policySetDefaultModeArgsSchema,
+  type PolicySetDefaultModeArgs,
+} from "./policy";
 
-export * from "./workflows";
+export {
+  isLikelyValidWorkflowCron,
+  workflowUpdateArgsSchema,
+  type WorkflowUpdateArgs,
+} from "./workflows";
 
-export * from "./todos";
+export {
+  todoCreateArgsSchema,
+  type TodoCreateArgs,
+  todoCompleteArgsSchema,
+  type TodoCompleteArgs,
+  todoReopenArgsSchema,
+  type TodoReopenArgs,
+  todoPromoteArgsSchema,
+  type TodoPromoteArgs,
+  todoDismissArgsSchema,
+  type TodoDismissArgs,
+  todoClearArgsSchema,
+  type TodoClearArgs,
+  todoCompleteSuggestionArgsSchema,
+  type TodoCompleteSuggestionArgs,
+  todoEditArgsSchema,
+  type TodoEditArgs,
+  todoCompleteClient,
+  todoReopenClient,
+  todoCompleteSuggestionClient,
+  todoPromoteClient,
+  todoDismissClient,
+  todoClearClient,
+} from "./todos";
 
-export * from "./chat";
+export {
+  chatThreadCreateArgsSchema,
+  type ChatThreadCreateArgs,
+  chatMessageCreateArgsSchema,
+  type ChatMessageCreateArgs,
+  chatThreadRenameArgsSchema,
+  type ChatThreadRenameArgs,
+  chatThreadSetPinnedArgsSchema,
+  type ChatThreadSetPinnedArgs,
+  chatThreadSetApprovalModeArgsSchema,
+  type ChatThreadSetApprovalModeArgs,
+  type ChatApprovalMode,
+  chatThreadDeleteArgsSchema,
+  type ChatThreadDeleteArgs,
+  chatAttachmentCreateArgsSchema,
+  type ChatAttachmentCreateArgs,
+  toSyncedChatAttachment,
+  toSyncedUserMessage,
+} from "./chat";
 
-export * from "./triage-tags";
+export {
+  triageTagOverrideArgsSchema,
+  type TriageTagOverrideArgs,
+  triageTagOverrideClient,
+} from "./triage-tags";
 
 /** Client mutators by Replicache name. The server map uses the same names. */
 export const clientMutators = {

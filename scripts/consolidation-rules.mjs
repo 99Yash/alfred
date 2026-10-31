@@ -1052,6 +1052,19 @@ export const RULES = [
     owners: ["apps/web/src/lib/replicache/use-replicache-subscription.ts"],
     fix: "Use useReplicacheSubscription(query, select?, { isEmpty? }) from ~/lib/replicache/use-replicache-subscription. It owns the one loading rule and keeps cached rows through a sync error.",
   },
+  {
+    id: "export-star-outside-root-barrel",
+    // `export * from "./x"` (or `export type * from`) makes each new export of
+    // `./x` public with no review, and hides which names cross the barrel.
+    // Review found it in five PRs (#683, #684, #711, #745, #751). The formatter
+    // keeps the statement on one line, so a line row sees every spelling.
+    // `export * as ns from "./x"` stays legal: it binds one named namespace,
+    // and knip's `nsExports` reports a member that nobody reads.
+    re: /^\s*export\s+(?:type\s+)?\*\s*from\b/,
+    severity: "gate",
+    owners: ["packages/contracts/src/index.ts", "packages/db/src/schemas.ts"],
+    fix: 'Name each re-export: `export { a, type B } from "./x"`, with only the names that importers read through this barrel. Only the two package root barrels (packages/contracts/src/index.ts, packages/db/src/schemas.ts) may use `export *`.',
+  },
 ];
 
 /**

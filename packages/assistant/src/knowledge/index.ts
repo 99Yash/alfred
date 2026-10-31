@@ -66,7 +66,7 @@ export { userModelReader, type ActiveEntityProfile } from "./reader";
 
 export { refoldActiveGmailKindProjection } from "./refold";
 
-export * from "./extractor";
+export { type ThreadTurn, buildThreadTranscript, extractPropositionsFromThread } from "./extractor";
 
 /**
  * ── recall · contextFor · applyCorrection ───────────────────────────────────
@@ -180,8 +180,16 @@ export {
 export { readUserContextLine, type UserContextLine } from "./user-context-line";
 
 // ── memory acquisition sub-areas: cold-start research, drift audit, web search ──
-export * from "./cold-start";
+export { coldStartResearchWorkflow } from "./cold-start";
 
-export * from "./drift-audit";
+export {
+  selfIngestionCount,
+  attentionShare7d,
+  todoDismissDoneRatio,
+  DRIFT_METRICS,
+  type DriftMetricName,
+  type MetricResult,
+  type DriftHealthCheckResult,
+} from "./drift-audit";
 
 export { runWebSearch, type WebSearchArgs, type WebSearchResult } from "./web-search";

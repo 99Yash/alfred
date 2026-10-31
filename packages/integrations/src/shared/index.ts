@@ -3,7 +3,13 @@
  * base delay cross, because a bind site states its own envelope.
  */
 
-export * from "./credentials";
+export {
+  upsertBearerCredential,
+  deleteIntegrationCredential,
+  listActiveBearerCredentials,
+  findActiveCredentialByInstallationId,
+  getActiveBearerCredential,
+} from "./credentials";
 
 export {
   authedFetch,

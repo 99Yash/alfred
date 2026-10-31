@@ -2016,6 +2016,50 @@ const LINE_CASES = [
     file: "apps/web/src/routeTree.gen.ts",
     code: `/* eslint-disable */`,
   },
+  {
+    // The Bad example of docs/reference/smells/export-star-outside-root-barrel.md.
+    name: "export-star-outside-root-barrel — a module barrel forwards a sub-barrel with export *",
+    caught: true,
+    rule: "export-star-outside-root-barrel",
+    file: "packages/assistant/src/knowledge/index.ts",
+    code: `export { refoldActiveGmailKindProjection } from "./refold";
+export * from "./extractor";
+export * from "./cold-start";`,
+  },
+  {
+    name: "export-star-outside-root-barrel — a type-only export * hands out every type",
+    caught: true,
+    rule: "export-star-outside-root-barrel",
+    file: "packages/sync/src/index.ts",
+    code: `export type * from "./schemas";`,
+  },
+  {
+    // The Good example of the same smell file.
+    name: "export-star-outside-root-barrel — each re-export is named",
+    caught: false,
+    file: "packages/assistant/src/knowledge/index.ts",
+    code: `export { refoldActiveGmailKindProjection } from "./refold";
+export { buildThreadTranscript, extractPropositionsFromThread } from "./extractor";
+export { collectColdStartSignals, resolveIdentity } from "./cold-start";`,
+  },
+  {
+    name: "export-star-outside-root-barrel — the contracts root barrel owns export *",
+    caught: false,
+    file: "packages/contracts/src/index.ts",
+    code: `export * from "./integrations";`,
+  },
+  {
+    name: "export-star-outside-root-barrel — the db schemas barrel owns export *",
+    caught: false,
+    file: "packages/db/src/schemas.ts",
+    code: `export * from "./schema/auth";`,
+  },
+  {
+    name: "export-star-outside-root-barrel — a namespace re-export binds one name",
+    caught: false,
+    file: "packages/integrations/src/index.ts",
+    code: `export * as google from "./google/index";`,
+  },
 ];
 
 /** @returns {string[]} One message per failed fixture; empty when all pass. */

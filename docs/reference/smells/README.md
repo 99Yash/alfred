@@ -43,7 +43,7 @@ A `gated` smell stays here for its examples and its ledger. [review-checklist.md
 | [Put a constant at its narrowest stable owner.](./constant-at-narrowest-owner.md) | Stays review | none | 0 |
 | [Make a dedicated constants file only when its values couple.](./constants-file-only-when-coupled.md) | Stays review | none | 0 |
 | [Use an environment variable only for a deploy knob, a secret or an endpoint.](./env-var-only-for-deploy-knob.md) | Stays review | none | 0 |
-| [Name each re-export in a module barrel. Use `export *` only in a package root barrel.](./export-star-outside-root-barrel.md) | Candidate, #1629 | regex | 5 |
+| [Name each re-export in a module barrel. Use `export *` only in a package root barrel.](./export-star-outside-root-barrel.md) | Gated by `export-star-outside-root-barrel` | regex | 5 |
 | [Name a threshold, cap, TTL, retry count, batch size or budget.](./name-policy-number.md) | Stays review | none | 0 |
 
 ## Backend

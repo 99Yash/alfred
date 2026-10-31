@@ -6,9 +6,21 @@
  * lazily and no load probe would notice. HTTP routes live in `packages/http/src/connections/`.
  */
 
-export * from "./availability";
+export {
+  readIntegrationAvailability,
+  readFreshIntegrationAvailability,
+  readIntegrationStatus,
+  type BriefingBrokenConnections,
+  readBriefingBrokenConnections,
+} from "./availability";
 
-export * from "./broken-connection-facts";
+export {
+  type BrokenConnection,
+  listBrokenConnections,
+  brokenConnectionRepairPath,
+  BROKEN_CONNECTION_GUIDANCE,
+  describeBrokenConnection,
+} from "./broken-connection-facts";
 
 export { readDeliveryAlerts, toDeliveryAlerts, type DeliveryAlertVerdict } from "./delivery-alerts";
 
@@ -20,7 +32,18 @@ export {
   type EventSourceHealthMap,
 } from "./event-source-health";
 
-export * from "./google-credential-lifecycle";
+export {
+  googleCredentialUpsertRequestSchema,
+  googleCredentialDisconnectRequestSchema,
+  type GoogleCredentialLifecycleHandler,
+  NoGoogleCredentialLifecycleHandlerRegisteredError,
+  GoogleCredentialNotFoundError,
+  registerGoogleCredentialLifecycleHandler,
+  upsertGoogleCredentialConnection,
+  ownsGoogleCredential,
+  disconnectGoogleCredentialConnectionWith,
+  disconnectGoogleCredentialConnection,
+} from "./google-credential-lifecycle";
 
 export {
   documentAskReducer,

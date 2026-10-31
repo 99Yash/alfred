@@ -1,7 +1,7 @@
-export * from "./prompt";
+export { DEFAULT_VOICE_PROMPT } from "./prompt";
 
-export * from "./instructions";
+export { composeAgentInstructions } from "./instructions";
 
-export * from "./voice-sanitize";
+export { createVoiceStreamSanitizer, sanitizeVoice } from "./voice-sanitize";
 
-export * from "./voice-detector";
+export { detectAiTells, summarizeTells } from "./voice-detector";

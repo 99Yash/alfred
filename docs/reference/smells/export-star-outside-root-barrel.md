@@ -1,10 +1,9 @@
 ---
 id: export-star-outside-root-barrel
 section: Constants and ownership
-status: candidate
+status: gated
 rung: regex
-feasibility: medium
-issue: #1629
+rule: export-star-outside-root-barrel
 ---
 
 # Name each re-export in a module barrel. Use `export *` only in a package root barrel.
@@ -31,7 +30,11 @@ export { collectColdStartSignals, resolveIdentity } from "./cold-start";
 
 ## Mechanism
 
-Regex row: `export *` in a file under `src/`, with `packages/contracts/src/index.ts` and `packages/db/src/schemas.ts` as the owners. About 25 sites remain outside those two files.
+Regex row `export-star-outside-root-barrel` in `scripts/consolidation-rules.mjs`. It matches `export * from` and `export type * from` on one line. The formatter keeps the statement on one line, so the row sees each spelling. The owners are `packages/contracts/src/index.ts` and `packages/db/src/schemas.ts`.
+
+The paydown changed 44 `export *` lines in 10 barrels to named re-exports. Each list holds the names that an importer reads through the barrel. A name with no importer in the tree stays in the list, because knip then reports it in its source module. That removal is for a later change.
+
+`export * as ns from` stays legal. It binds one named namespace, and knip's `nsExports` reports a namespace member that nothing reads.
 
 ## Hits
 
