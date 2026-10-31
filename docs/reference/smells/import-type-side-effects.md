@@ -1,10 +1,9 @@
 ---
 id: import-type-side-effects
 section: Types
-status: candidate
+status: gated
 rung: ast
-feasibility: high
-issue: #1629
+rule: typescript/no-import-type-side-effects
 ---
 
 # Write `import type { X }` when every name of an import is a type.
@@ -29,7 +28,7 @@ import { findUnembeddedDocumentIds, indexDocument } from "./embed-document";
 
 ## Mechanism
 
-Built-in oxlint rule: `typescript/no-import-type-side-effects`. About 50 sites remain, and the fixer rewrites each of them.
+Built-in oxlint rule: `typescript/no-import-type-side-effects`. Its fixer rewrote about 50 sites when the rule was adopted.
 
 The `inline-type-imports` fix style of `typescript/consistent-type-imports` writes the Bad form. So the two rules must run together.
 

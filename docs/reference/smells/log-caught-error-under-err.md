@@ -1,10 +1,9 @@
 ---
 id: log-caught-error-under-err
 section: Backend
-status: candidate
+status: gated
 rung: ast
-feasibility: medium
-issue: #1629
+rule: alfred/log-caught-error-under-err
 ---
 
 # Log a caught error only under the `err` key of a `logger` call. Put only safe fields beside it, and mask PII.
@@ -31,7 +30,7 @@ Why: only the `err` key goes through the serializer that drops free text. An err
 
 ## Mechanism
 
-AST: a `catch` binding, or its `.message`, in a `logger` call under any key other than `err`. `no-console` already stops the `console` path.
+AST rule `alfred/log-caught-error-under-err` in `scripts/oxlint/alfred/rules/`. It follows a `catch` binding, or a `.catch(cb)` parameter, into a `logger` call. It reports the error or its text under a key other than `err`, and a derived value under `err`. `no-console` already stops the `console` path.
 
 ## Hits
 
