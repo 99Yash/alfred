@@ -10,10 +10,11 @@ import { buildColdStartWebTool } from "./web-tool";
 const SEED_MAX_STEPS = 4;
 
 /**
- * Up to four boss steps at medium reasoning, each with web searches. Five minutes ends only a hung
- * loop. The same signal ends the searches that the loop started.
+ * Up to four boss steps at medium reasoning, each with web searches. Ten minutes is the metered
+ * backstop, so a slow but healthy loop still finishes. The same signal ends the searches that the
+ * loop started.
  */
-const SEED_TIMEOUT_MS = 300_000;
+const SEED_TIMEOUT_MS = 600_000;
 
 export interface IdentityAnchor {
   /** About 150 words of prose, or an explicit no-confident-match. */
