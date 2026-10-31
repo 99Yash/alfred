@@ -98,11 +98,18 @@ async function loadRematchRows(userId: string) {
     .limit(TRIAGE_REMATCH_MAX_ROWS);
 }
 
+/**
+ * The metering purpose of a match-only call. A preview logs apart, so it never mixes into the
+ * cost history of the live job.
+ */
+type MatchScopesPurpose = "triage.standing_rematch" | "triage.standing_rematch.preview";
+
 async function matchScopes(args: {
   userId: string;
   documentId: string;
   prompt: string;
   signal: AbortSignal;
+  purpose: MatchScopesPurpose;
 }) {
   const result = await meteredGenerateObject(
     {
@@ -118,8 +125,8 @@ async function matchScopes(args: {
     {
       role: "triage",
       userId: args.userId,
-      name: "triage.standing_rematch",
-      requestMeta: { purpose: "triage.standing_rematch", documentId: args.documentId },
+      name: args.purpose,
+      requestMeta: { purpose: args.purpose, documentId: args.documentId },
     },
   );
 
@@ -332,6 +339,7 @@ export async function rematchStandingInstructions(args: {
                 lines,
               ),
               signal: scope.signal,
+              purpose: "triage.standing_rematch",
             });
 
             fresh = readStandingScopeMatches(sent, output).scopes;
@@ -455,8 +463,9 @@ export interface StandingScopePreview {
 /**
  * A read-only match-only pass over stored mail for instructions that are not stored yet. The
  * ADR-0113 migration review uses it to show what a scope matches before the owner writes it.
- * It uses the prompt and the rules of the re-match job, makes at most one cheap call for each
- * document, and writes nothing.
+ * It uses the prompt and the rules of the re-match job and makes at most one cheap call for each
+ * document. It writes no triage row; each call logs its cost under
+ * `triage.standing_rematch.preview`.
  */
 export async function previewStandingScopeMatches(args: {
   userId: string;
@@ -517,6 +526,7 @@ export async function previewStandingScopeMatches(args: {
             documentId: row.documentId,
             prompt: rematchPrompt({ ...row, metadata }, verdict, own ? row.category : null, lines),
             signal: scope.signal,
+            purpose: "triage.standing_rematch.preview",
           });
 
           fresh = readStandingScopeMatches(sent, output).scopes;

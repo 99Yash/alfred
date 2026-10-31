@@ -23,14 +23,11 @@ import { readFile, writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import {
   classifyEmail as currentClassifyEmail,
-  extractSenderContext,
-  gatherObservations,
-  loadTriageContext,
+  loadStoredTriageClassifyInput,
   triageClassificationSchema,
   type ClassifyEmailArgs,
   type TriageClassification,
 } from "@alfred/assistant/triage";
-import { settings } from "@alfred/assistant/settings";
 import { notSentGmailDocumentWhere } from "@alfred/assistant/triage/sent-mail";
 import { toMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -156,7 +153,7 @@ async function replayDocument(
 ): Promise<ReplayResult> {
   const selected = (
     await db()
-      .select({ userId: documents.userId, sourceThreadId: documents.sourceThreadId })
+      .select({ userId: documents.userId })
       .from(documents)
       .where(and(eq(documents.id, documentId), eq(documents.source, "gmail")))
       .limit(1)
@@ -164,43 +161,15 @@ async function replayDocument(
 
   const caseKey = createHash("sha256").update(documentId).digest("hex").slice(0, 16);
 
-  if (!selected?.sourceThreadId) return failedResult(documentId, caseKey);
+  if (!selected) return failedResult(documentId, caseKey);
 
-  const ctxData = await loadTriageContext(documentId, selected.userId);
+  const stored = await loadStoredTriageClassifyInput({ userId: selected.userId, documentId });
 
-  if (!ctxData) return failedResult(documentId, caseKey);
-
-  const sender = extractSenderContext({
-    fromHeader: ctxData.document.metadata.from ?? null,
-    subject: ctxData.document.title,
-    body: ctxData.document.content,
-  });
-
-  const { observations } = await gatherObservations({
-    userId: selected.userId,
-    settings: settings({ userId: selected.userId }),
-    documentId,
-    sourceThreadId: selected.sourceThreadId,
-    document: ctxData.document,
-    accountId: ctxData.document.accountId,
-    persona: ctxData.persona,
-    senderContext: sender.context,
-    senderAddress: sender.senderAddress,
-  });
+  if (!stored) return failedResult(documentId, caseKey);
 
   try {
     const { classification } = await classifyEmail({
-      userId: selected.userId,
-      document: {
-        id: ctxData.document.id,
-        title: ctxData.document.title,
-        content: ctxData.document.content,
-        authoredAt: ctxData.document.authoredAt,
-        metadata: ctxData.document.metadata,
-      },
-      senderContext: sender.context,
-      observations,
-      identity: ctxData.identity,
+      ...stored.input,
       maxRetries: 1,
       hedgeDelayMs: 0,
     });

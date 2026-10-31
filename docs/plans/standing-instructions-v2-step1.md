@@ -21,7 +21,8 @@ These choices are not in the ADR. Each one is the smallest choice that keeps an 
    `target`, no scope, `instructionId` = the fact id, `revision` = 0, and the effects that
    ADR-0106 and ADR-0110 enforce today: `demote_demand`, `block_todo_suggestion`,
    `exclude_briefing_priority`, and `block_reply_draft`. Thus each consumer moves to the v2
-   reader with no change of behavior, and the migration (PR 5) changes only data.
+   reader with no change of behavior. The migration (PR 5) changes the behavior only through
+   data: its code changes are refactors and read-only previews.
 3. **The instruction-set revision is one row for each user** in a new table. Each instruction
    write increases it in the same transaction.
 4. **The model verdict and the evaluation live on `email_triage`.** Two new `jsonb` columns:
@@ -142,11 +143,15 @@ These choices are not in the ADR. Each one is the smallest choice that keeps an 
 22. **The migration writes through capture, in a safe order.** The script
     (`migrate-standing-instructions-v2-committed`) calls `saveStandingInstruction` for each
     instruction, so the lock, the conflict gate, the observation log, and the trigger all run.
-    It writes the investment instruction beside its v1 rows, then the exception, then the
-    Polylane and Smallcase instruction with `replaces`, and last the investment content again
-    with `replaces`. The capture duplicate check closes the v1 rows in that last call. Thus a
-    stop between two writes never leaves the investment scope without its exception. The source
-    `meta` marks each migrated row, so a rerun revises the same instruction and adds none.
+    It writes the investment scope with no effects beside its v1 rows, then the exception, then
+    the Polylane and Smallcase instruction with `replaces`, and last the full investment content
+    with `replaces`. That last write stores the effects and closes the v1 rows in the same
+    transaction. Thus no lowering effect of the investment scope is stored while its exception
+    does not exist: until that last write, the v1 rows decide investment mail. If the exception
+    exists but the investment instruction does not, the script refuses. The source `meta` marks
+    each migrated row, so a rerun revises the same instruction and adds none. The commit also
+    needs a passing rollout gate: `gate-check` records one only when every labeled case ran and
+    passed, with a hash of the content that commit writes, so a later edit voids it.
 23. **The investment exception stores no effects.** On mail that both match, a matched exception
     cancels each lowering effect of the broader instruction on any cover (decision 10), so the
     mail keeps its model verdict. An effect on the exception would apply an owner rule that the

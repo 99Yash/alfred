@@ -19,19 +19,23 @@
  *
  * The script reads the v1 rows from the database at run time. Bundled for prod. Dry by default.
  *
- *   # 1. Review (dry, no model call). Asks one question for each row on a terminal:
+ *   # 1. Review (dry, no model call). Asks one question for each row on a terminal. A plan file
+ *   #    from an older version of this script is refused; start again with `review --fresh`:
  *   node dist/scripts/backfills/migrate-standing-instructions-v2-committed.js
  *   # 2. Optional, model calls: the stored mail of each removed sender that the scope rejects:
  *   node dist/scripts/backfills/migrate-standing-instructions-v2-committed.js check-removed
- *   # 3. The rollout gate: write the candidate set, label it, then the paired replay:
+ *   # 3. The rollout gate: write the candidate set, label it by hand, then the paired replay.
+ *   #    A full run where every case passes records the gate in the plan:
  *   node dist/scripts/backfills/migrate-standing-instructions-v2-committed.js gate-candidates
  *   node dist/scripts/backfills/migrate-standing-instructions-v2-committed.js gate-check
- *   # 4. Commit (writes):
+ *   # 4. Commit (writes). Refused unless the recorded gate matches the content it writes:
  *   node dist/scripts/backfills/migrate-standing-instructions-v2-committed.js --commit
  *
  * Flags: `--email=<user>` (default the owner), `--dir=<path>` (default
- * `<repo>/references/standing-instructions-v2`), `--fresh` (drop the saved review), `--limit=<n>`
- * and `--yes` for the commands that call a model.
+ * `<repo>/references/standing-instructions-v2`), `--fresh` (drop the saved review, or replace
+ * the label file), `--limit=<n>` (model calls) and `--yes` for the commands that call a model,
+ * `--per-sender=<n>` and `--days=<n>` for check-removed, `--per-group=<n>` and `--days=<n>` for
+ * gate-candidates.
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
@@ -47,12 +51,11 @@ import {
 } from "@alfred/assistant/knowledge";
 import { settings } from "@alfred/assistant/settings";
 import { resolveTodosForGmailSource } from "@alfred/assistant/tasks";
+import { inZone } from "@alfred/assistant/time";
 import {
   classifyEmail,
   deriveEffectiveTriage,
-  extractSenderContext,
-  gatherObservations,
-  loadTriageContext,
+  loadStoredTriageClassifyInput,
   previewStandingScopeMatches,
   threadsWhereInstructionBlocksTodo,
   type StandingScopePreviewState,
@@ -60,6 +63,7 @@ import {
 import { notSentGmailDocumentWhere } from "@alfred/assistant/triage/sent-mail";
 import {
   emailDomain,
+  isDomainOrSubdomain,
   normalizeEmailAddress,
   parseGmailDocumentMetadata,
   rememberInput,
@@ -75,10 +79,12 @@ import {
   type MemorySource,
   type StandingInstructionTarget,
   type StandingInstructionValueV2,
+  type IanaTimezone,
   type TodoAttribution,
   type TriageCategory,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
+import { sha256Canonical } from "@alfred/db/hash";
 import {
   apiCallLog,
   documents,
@@ -129,14 +135,20 @@ const LABELS_PATH = resolve(DIR, "gate-labels.json");
 /** The hard cap of model calls for one command. `--limit` can lower it, never raise it. */
 const MODEL_CALL_HARD_CAP = 400;
 
+/** A `--<name>=<n>` flag that must be a positive integer, or `fallback` when it is absent. */
+function positiveIntFlag(name: string, fallback: number): number {
+  const raw = flag(name);
+  const parsed = raw === null ? fallback : Number(raw);
+
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new Error(`--${name} must be a positive integer`);
+  }
+
+  return parsed;
+}
+
 function callLimit(fallback: number): number {
-  const raw = flag("limit");
-  const parsed = raw === null ? fallback : Number.parseInt(raw, 10);
-
-  if (!Number.isInteger(parsed) || parsed < 1)
-    throw new Error("--limit must be a positive integer");
-
-  return Math.min(parsed, MODEL_CALL_HARD_CAP);
+  return Math.min(positiveIntFlag("limit", fallback), MODEL_CALL_HARD_CAP);
 }
 
 // ─── The owner's words (ADR-0113 "Migration of v1 rows"; owner decisions of 2026-10-30) ─────
@@ -254,13 +266,22 @@ const rowPlanSchema = z.object({
 
 type RowPlan = z.infer<typeof rowPlanSchema>;
 
+const PLAN_VERSION = 2;
+
 const planSchema = z.object({
-  version: z.literal(1),
+  version: z.literal(PLAN_VERSION),
+  /** {@link PROPOSAL_FINGERPRINT} when the plan was made. Another value: an older proposal. */
+  proposal: z.string().min(1),
   userId: z.string().min(1),
   userEmail: z.string().min(1),
   createdAt: z.string(),
   /** Set when the owner confirmed every row and every instruction. */
   reviewedAt: z.string().nullable(),
+  /**
+   * Set by a full gate-check run where every labeled case passed. `fingerprint` is
+   * {@link commitFingerprint} of the plan at that run, so a later edit voids the gate.
+   */
+  gate: z.object({ passedAt: z.string(), fingerprint: z.string() }).nullable(),
   rows: z.array(rowPlanSchema),
   instructions: z.array(instructionPlanSchema),
 });
@@ -292,7 +313,7 @@ function targetDomain(target: StandingInstructionTarget): string | null {
 }
 
 function underDomain(domain: string | null, parents: readonly string[]): boolean {
-  return domain !== null && parents.some((p) => domain === p || domain.endsWith(`.${p}`));
+  return domain !== null && parents.some((p) => isDomainOrSubdomain(domain, p));
 }
 
 function proposeRow(
@@ -456,6 +477,12 @@ function proposeInstructions(accountIdOf: (group: GroupKey) => string | null): I
   ];
 }
 
+/**
+ * The hash of this script's proposal. A saved plan keeps its own copy of the instructions, so a
+ * plan made from an older proposal would commit the older words. `loadPlan` refuses one.
+ */
+const PROPOSAL_FINGERPRINT = sha256Canonical(proposeInstructions(() => null));
+
 // ─── Reads ──────────────────────────────────────────────────────────────────
 
 interface V1Row {
@@ -502,7 +529,7 @@ function activeInstructionWhere(userId: string) {
 }
 
 /** Every live v1 row, read at run time. */
-async function readV1Rows(userId: string): Promise<V1Row[]> {
+async function readV1Rows(userId: string, tz: IanaTimezone): Promise<V1Row[]> {
   const rows = await db()
     .select({
       id: userFacts.id,
@@ -525,7 +552,7 @@ async function readV1Rows(userId: string): Promise<V1Row[]> {
         target: v1.data.target,
         phrasing: v1.data.phrasing,
         writtenBy: describeSource(row.source),
-        writtenOn: row.validFrom.toISOString().slice(0, 10),
+        writtenOn: day(tz, row.validFrom),
       },
     ];
   });
@@ -616,12 +643,26 @@ function rowBase(row: V1Row): Omit<RowPlan, "group" | "result" | "why" | "confir
   };
 }
 
+const planHeaderSchema = z
+  .object({ version: z.unknown(), proposal: z.unknown().optional() })
+  .loose();
+
 async function loadPlan(): Promise<Plan | null> {
   const raw = await readFile(PLAN_PATH, "utf8").catch(() => null);
 
   if (raw === null) return null;
 
-  return planSchema.parse(JSON.parse(raw));
+  const json: unknown = JSON.parse(raw);
+  const header = planHeaderSchema.parse(json);
+
+  if (header.version !== PLAN_VERSION || header.proposal !== PROPOSAL_FINGERPRINT) {
+    throw new Error(
+      `${PLAN_PATH} was made by an older version of this script or from an older proposal. ` +
+        "Run review --fresh to start the review again.",
+    );
+  }
+
+  return planSchema.parse(json);
 }
 
 async function savePlan(plan: Plan): Promise<void> {
@@ -651,13 +692,16 @@ function mergePlan(
   const closed = saved?.rows.filter((row) => !live.some((l) => l.factId === row.factId)) ?? [];
 
   return {
-    version: 1,
+    version: PLAN_VERSION,
+    proposal: PROPOSAL_FINGERPRINT,
     userId: user.id,
     userEmail: user.email,
     createdAt: saved?.createdAt ?? new Date().toISOString(),
     reviewedAt: rows.every((row) => savedRows.get(row.factId)?.confirmed === true)
       ? (saved?.reviewedAt ?? null)
       : null,
+    // Kept as is: a new v1 row changes the commit fingerprint, which voids the gate.
+    gate: saved?.gate ?? null,
     rows: [...rows, ...closed],
     instructions:
       saved?.instructions ?? proposeInstructions((group) => commonAccountId(live, group)),
@@ -672,25 +716,59 @@ function instructionOf(plan: Plan, key: InstructionKey): InstructionPlan {
   return found;
 }
 
+/**
+ * The senders of the rows in the group of `key` with this result. The exception has no group,
+ * so it gets none; a row with no group never feeds it.
+ */
+function sendersOf(plan: Plan, key: InstructionKey, result: RowPlan["result"]): string[] {
+  if (key === "investment_exception") return [];
+
+  return plan.rows
+    .filter((row) => row.group === key && row.result === result)
+    .map((row) => targetSender(row.target));
+}
+
+/**
+ * The hash of the content that commit writes: each instruction, and each row with its group and
+ * sender result. Sorted, so the row order of the plan file does not change it.
+ */
+function commitFingerprint(plan: Plan): string {
+  return sha256Canonical({
+    instructions: plan.instructions
+      .map((i) => ({
+        key: i.key,
+        phrasing: i.phrasing,
+        directive: i.directive,
+        scope: i.scope,
+        effects: i.effects.map((e) => e.kind),
+        accountId: i.accountId,
+      }))
+      .sort((a, b) => a.key.localeCompare(b.key)),
+    rows: plan.rows
+      .map((row) => ({
+        factId: row.factId,
+        target: row.target,
+        group: row.group,
+        result: row.result,
+      }))
+      .sort((a, b) => a.factId.localeCompare(b.factId)),
+  });
+}
+
 /** The capture input of one instruction, parsed by the `system.remember` schema. */
 function captureInput(
   plan: Plan,
   key: InstructionKey,
-  extra: Pick<
-    SaveStandingInstructionInput,
-    "instructionId" | "expectedRevision" | "exceptionOf" | "replaces" | "coexistsWith"
+  extra: Partial<
+    Pick<
+      SaveStandingInstructionInput,
+      "instructionId" | "expectedRevision" | "exceptionOf" | "replaces" | "coexistsWith" | "effects"
+    >
   >,
 ): { ok: true; input: SaveStandingInstructionInput } | { ok: false; message: string } {
   const instruction = instructionOf(plan, key);
-  const group = key === "investment_exception" ? null : key;
-
-  const senders = (result: RowPlan["result"]) =>
-    plan.rows
-      .filter((row) => row.group === group && row.result === result)
-      .map((row) => targetSender(row.target));
-
-  const targets = senders("target");
-  const senderFilter = senders("sender_filter");
+  const targets = sendersOf(plan, key, "target");
+  const senderFilter = sendersOf(plan, key, "sender_filter");
 
   const parsed = rememberInput.safeParse({
     kind: "standing_instruction",
@@ -763,12 +841,7 @@ function printRow(row: RowPlan, index: number, total: number): void {
 
 function printInstruction(plan: Plan, instruction: InstructionPlan): void {
   const n = INSTRUCTION_KEYS.indexOf(instruction.key) + 1;
-  const group = instruction.key === "investment_exception" ? null : instruction.key;
-
-  const named = (result: RowPlan["result"]) =>
-    plan.rows
-      .filter((row) => row.group === group && row.result === result)
-      .map((row) => targetSender(row.target));
+  const named = (result: RowPlan["result"]) => sendersOf(plan, instruction.key, result);
 
   console.log(
     `\n=== Instruction ${n}: ${instruction.key}${instruction.confirmed ? " (confirmed)" : ""} ===`,
@@ -802,7 +875,9 @@ function printInstruction(plan: Plan, instruction: InstructionPlan): void {
 
 function printPlan(plan: Plan): void {
   console.log(`# Plan ${PLAN_PATH}`);
-  console.log(`# user=${plan.userEmail} reviewedAt=${plan.reviewedAt ?? "not yet"}`);
+  console.log(
+    `# user=${plan.userEmail} reviewedAt=${plan.reviewedAt ?? "not yet"} gate=${gateState(plan)}`,
+  );
   console.log(
     "# Decided by the owner on 2026-10-30: banking is outside the investment scope, and the " +
       `2026-09-11 directive edit ("If a message is genuinely urgent … it may be surfaced") is dropped.`,
@@ -811,6 +886,12 @@ function printPlan(plan: Plan): void {
   for (const instruction of plan.instructions) printInstruction(plan, instruction);
 
   for (const [index, row] of plan.rows.entries()) printRow(row, index, plan.rows.length);
+}
+
+function gateState(plan: Plan): "passed" | "stale" | "not run" {
+  if (plan.gate === null) return "not run";
+
+  return plan.gate.fingerprint === commitFingerprint(plan) ? "passed" : "stale";
 }
 
 /** Every reason the plan cannot be committed. Empty when it can. */
@@ -842,6 +923,17 @@ function planProblems(plan: Plan): string[] {
   }
 
   if (plan.reviewedAt === null) problems.push("the review is not finished");
+
+  switch (gateState(plan)) {
+    case "not run":
+      problems.push("the rollout gate has not passed: run gate-check over every labeled case");
+      break;
+    case "stale":
+      problems.push("the plan changed after the rollout gate passed: run gate-check again");
+      break;
+    case "passed":
+      break;
+  }
 
   return problems;
 }
@@ -1053,7 +1145,7 @@ async function consent(what: string, calls: number, purposes: readonly string[])
       : `about $${(mean * calls).toFixed(4)} (mean of recent ${purposes.join(", ")} calls)`;
 
   console.log(
-    `# ${what}: at most ${calls} cheap-model call(s), hard cap ${MODEL_CALL_HARD_CAP}. Estimate: ${estimate}.`,
+    `# ${what}: at most ${calls} model call(s), hard cap ${MODEL_CALL_HARD_CAP}. Estimate: ${estimate}.`,
   );
 
   if (YES) return true;
@@ -1085,8 +1177,15 @@ interface StoredMail {
   storedCategory: TriageCategory | null;
 }
 
-/** Inbound Gmail mail of the user, newest first, with the stored category of its own row. */
-async function readStoredMail(userId: string, since: Date | null): Promise<StoredMail[]> {
+function daysAgo(days: number): Date {
+  return new Date(Date.now() - days * 24 * 3_600_000);
+}
+
+/**
+ * Inbound Gmail mail of the user ingested since `since`, newest first, with the stored category
+ * of its own row.
+ */
+async function readStoredMail(userId: string, since: Date): Promise<StoredMail[]> {
   const rows = await db()
     .select({
       documentId: documents.id,
@@ -1111,7 +1210,7 @@ async function readStoredMail(userId: string, since: Date | null): Promise<Store
         eq(documents.userId, userId),
         eq(documents.source, "gmail"),
         notSentGmailDocumentWhere(),
-        ...(since ? [gte(documents.ingestedAt, since)] : []),
+        gte(documents.ingestedAt, since),
       ),
     )
     .orderBy(desc(documents.authoredAt), desc(documents.id));
@@ -1127,8 +1226,9 @@ async function readStoredMail(userId: string, since: Date | null): Promise<Store
   }));
 }
 
-function day(date: Date | null): string {
-  return date ? date.toISOString().slice(0, 10) : "----------";
+/** The calendar day of `date` in the user's zone. */
+function day(tz: IanaTimezone, date: Date | null): string {
+  return date ? inZone(tz).day(date) : "----------";
 }
 
 // ─── check-removed ─────────────────────────────────────────────────────────
@@ -1156,11 +1256,12 @@ function describePreview(state: StandingScopePreviewState | undefined): string {
  * Before commit (ADR-0113): for each removed sender, the stored mail from it that the proposed
  * scope rejects. A `covers part` match counts too, because a lowering effect needs full cover.
  */
-async function checkRemoved(plan: Plan): Promise<void> {
+async function checkRemoved(plan: Plan, tz: IanaTimezone): Promise<void> {
   const removed = plan.rows.filter((row) => row.result === "remove" && row.group !== null);
-  const perSender = Number.parseInt(flag("per-sender") ?? "10", 10);
+  const perSender = positiveIntFlag("per-sender", 10);
+  const days = positiveIntFlag("days", 365);
   const limit = callLimit(120);
-  const mail = await readStoredMail(plan.userId, null);
+  const mail = await readStoredMail(plan.userId, daysAgo(days));
 
   const bySender = removed.map((row) => ({
     row,
@@ -1175,12 +1276,15 @@ async function checkRemoved(plan: Plan): Promise<void> {
   );
 
   console.log(
-    `# ${removed.length} removed sender(s); ${documentIds.length} stored mail(s) to check (at most ${perSender} per sender).`,
+    `# ${removed.length} removed sender(s); ${documentIds.length} stored mail(s) of the last ${days} day(s) to check (at most ${perSender} per sender).`,
   );
 
   if (documentIds.length === 0) return;
 
-  if (!(await consent("check-removed", documentIds.length, ["triage.standing_rematch"]))) return;
+  // The preview sends the prompt of the re-match job, so the live job's calls price it too.
+  const purposes = ["triage.standing_rematch.preview", "triage.standing_rematch"];
+
+  if (!(await consent("check-removed", documentIds.length, purposes))) return;
 
   const previews = await previewStandingScopeMatches({
     userId: plan.userId,
@@ -1218,7 +1322,7 @@ async function checkRemoved(plan: Plan): Promise<void> {
         sender: targetSender(row.target),
         group,
         documentId: m.documentId,
-        date: day(m.authoredAt),
+        date: day(tz, m.authoredAt),
         subject: m.subject,
         storedCategory: m.storedCategory,
         result: describePreview(own),
@@ -1235,7 +1339,7 @@ async function checkRemoved(plan: Plan): Promise<void> {
         ? `matched, but the exception cancels it: ${describePreview(exception)}`
         : `${describePreview(own)}${preview.error ? ` (call failed: ${preview.error})` : ""}`;
 
-      console.log(`  ${day(m.authoredAt)}  ${m.storedCategory ?? "-"}  ${why}  ${m.subject}`);
+      console.log(`  ${day(tz, m.authoredAt)}  ${m.storedCategory ?? "-"}  ${why}  ${m.subject}`);
     }
 
     console.log(`  → the instruction still lowers ${kept} of ${senderMail.length}.`);
@@ -1301,12 +1405,15 @@ const LABEL_HELP = [
   "Add cases by hand for the ADR product cases that this set does not hold.",
 ];
 
-/** Writes the candidate labeled set. No model call, and every `label` is null. */
-async function gateCandidates(plan: Plan): Promise<void> {
-  const days = Number.parseInt(flag("days") ?? "120", 10);
-  const perGroup = Number.parseInt(flag("per-group") ?? "25", 10);
-  const since = new Date(Date.now() - days * 24 * 3_600_000);
-  const mail = await readStoredMail(plan.userId, since);
+/**
+ * Writes the candidate labeled set. No model call, and every `label` is null. The default
+ * `--per-group` keeps the 7 selection groups under the gate-check cap of
+ * `MODEL_CALL_HARD_CAP / GATE_CALLS_PER_CASE` cases.
+ */
+async function gateCandidates(plan: Plan, tz: IanaTimezone): Promise<void> {
+  const days = positiveIntFlag("days", 120);
+  const perGroup = positiveIntFlag("per-group", 14);
+  const mail = await readStoredMail(plan.userId, daysAgo(days));
   const v1Targets = plan.rows.map((row) => row.target);
 
   const groups = new Map<string, StoredMail[]>();
@@ -1352,7 +1459,7 @@ async function gateCandidates(plan: Plan): Promise<void> {
     .map((m) => ({
       documentId: m.documentId,
       sender: m.sender,
-      date: day(m.authoredAt),
+      date: day(tz, m.authoredAt),
       subject: m.subject,
       storedCategory: m.storedCategory,
       selectedBecause: reasons.get(m.documentId) ?? [],
@@ -1408,53 +1515,21 @@ async function replayCase(
   documentId: string,
   candidateSet: ReturnType<typeof standingInstructionsOf>,
 ): Promise<{ baseline: GateRun; candidate: GateRun }> {
-  const ctx = await loadTriageContext(documentId, plan.userId);
+  const stored = await loadStoredTriageClassifyInput({ userId: plan.userId, documentId });
 
-  if (!ctx) throw new Error("document is gone");
+  if (!stored) throw new Error("document or its thread is gone");
 
-  const [doc] = await db()
-    .select({ sourceThreadId: documents.sourceThreadId })
-    .from(documents)
-    .where(eq(documents.id, documentId))
-    .limit(1);
-
-  if (!doc?.sourceThreadId) throw new Error("document has no thread");
-
-  const sender = extractSenderContext({
-    fromHeader: ctx.document.metadata.from ?? null,
-    subject: ctx.document.title,
-    body: ctx.document.content,
-  });
-
-  const { observations } = await gatherObservations({
-    userId: plan.userId,
-    settings: settings({ userId: plan.userId }),
-    documentId,
-    sourceThreadId: doc.sourceThreadId,
-    document: ctx.document,
-    accountId: ctx.document.accountId,
-    persona: ctx.persona,
-    senderContext: sender.context,
-    senderAddress: sender.senderAddress,
-  });
+  const { input } = stored;
+  const { observations } = input;
 
   const candidateMail = candidateSet.forMail({
-    sender: ctx.document.metadata.from ?? null,
-    accountId: ctx.document.accountId,
+    sender: input.document.metadata.from ?? null,
+    accountId: stored.accountId,
   });
 
   const run = async (standing: typeof observations.standingInstructions): Promise<GateRun> => {
     const result = await classifyEmail({
-      userId: plan.userId,
-      identity: ctx.identity,
-      document: {
-        id: ctx.document.id,
-        title: ctx.document.title,
-        content: ctx.document.content,
-        authoredAt: ctx.document.authoredAt,
-        metadata: ctx.document.metadata,
-      },
-      senderContext: sender.context,
+      ...input,
       observations: { ...observations, standingInstructions: standing },
       maxRetries: 1,
       hedgeDelayMs: 0,
@@ -1496,6 +1571,12 @@ async function replayCase(
     candidate: await run(candidateMail),
   };
 }
+
+/**
+ * The most model calls one gate case can make: two classify runs (baseline and candidate), each
+ * with a possible second pass when the first pass conflicts.
+ */
+const GATE_CALLS_PER_CASE = 4;
 
 const PRIORITY: ReadonlySet<string> = new Set(PRIORITY_CATEGORIES);
 
@@ -1560,11 +1641,28 @@ async function gateCheck(plan: Plan): Promise<void> {
     return;
   }
 
-  const cases = file.cases.slice(0, callLimit(150));
+  const maxCases = Math.floor(callLimit(MODEL_CALL_HARD_CAP) / GATE_CALLS_PER_CASE);
 
-  // Two classify calls for each case, and a second pass when a pass conflicts.
+  if (maxCases < 1) throw new Error(`--limit must be at least ${GATE_CALLS_PER_CASE}`);
+
+  const cases = file.cases.slice(0, maxCases);
+  const truncated = cases.length < file.cases.length;
+
+  if (cases.length === 0) {
+    console.log(`# ${LABELS_PATH} holds no case. The gate needs at least one.`);
+
+    return;
+  }
+
+  if (truncated) {
+    console.log(
+      `# The call limit allows ${cases.length} of ${file.cases.length} case(s). A partial run ` +
+        "does not record a passing gate.",
+    );
+  }
+
   if (
-    !(await consent("gate-check", cases.length * 2, [
+    !(await consent("gate-check", cases.length * GATE_CALLS_PER_CASE, [
       "triage.classify",
       "triage.classify.second_pass",
     ]))
@@ -1608,9 +1706,25 @@ async function gateCheck(plan: Plan): Promise<void> {
 
   const path = resolve(DIR, `gate-check-${Date.now()}.json`);
   await writeFile(path, `${JSON.stringify(results, null, 2)}\n`);
-  console.log(
-    `\n# Gate: ${passed}/${cases.length} passed. ${passed === cases.length ? "The gate passes." : "The gate FAILS."} Wrote ${path}`,
-  );
+
+  const allPassed = passed === cases.length;
+
+  // Only a full run where every case passed records the gate. A failure voids an earlier pass.
+  if (allPassed && !truncated) {
+    plan.gate = { passedAt: new Date().toISOString(), fingerprint: commitFingerprint(plan) };
+  } else if (!allPassed) {
+    plan.gate = null;
+  }
+
+  await savePlan(plan);
+
+  const verdict = !allPassed
+    ? "The gate FAILS."
+    : truncated
+      ? "Every case run passed, but the run was partial: no gate is recorded."
+      : "The gate passes and is recorded in the plan.";
+
+  console.log(`\n# Gate: ${passed}/${cases.length} passed. ${verdict} Wrote ${path}`);
 }
 
 // ─── Commit ────────────────────────────────────────────────────────────────
@@ -1647,23 +1761,26 @@ function migrationSource(plan: Plan, key: InstructionKey): MemorySource {
 /**
  * Save one instruction through the capture operation. A migrated instruction that an earlier run
  * stored is revised in place: the same content returns `already_exists` and writes nothing.
+ * `effects` overrides the effects of the plan for this write only.
  */
 async function saveOne(args: {
   plan: Plan;
   key: InstructionKey;
-  existing: MigratedInstruction | undefined;
+  existing: StandingInstructionValueV2 | undefined;
   liveV1: readonly V1Row[];
   exceptionOf?: string;
   replaces?: string[];
+  effects?: SaveStandingInstructionInput["effects"];
 }): Promise<StandingInstructionValueV2> {
   const { plan, key, existing } = args;
   const replaces = new Set(args.replaces);
 
-  const draft = captureInput(
-    plan,
-    key,
-    args.exceptionOf === undefined ? {} : { exceptionOf: args.exceptionOf },
-  );
+  const content = {
+    ...(args.exceptionOf === undefined ? {} : { exceptionOf: args.exceptionOf }),
+    ...(args.effects === undefined ? {} : { effects: args.effects }),
+  };
+
+  const draft = captureInput(plan, key, content);
 
   if (!draft.ok) throw new Error(`${key}: ${draft.message}`);
 
@@ -1683,14 +1800,16 @@ async function saveOne(args: {
     .map((row) => row.factId);
 
   if (coexistsWith.length > REPLACES_PER_CALL) {
-    throw new Error(`${key}: ${coexistsWith.length} related v1 rows; capture takes at most 20`);
+    throw new Error(
+      `${key}: ${coexistsWith.length} related v1 rows; capture takes at most ${REPLACES_PER_CALL}`,
+    );
   }
 
   const built = captureInput(plan, key, {
     ...(existing
-      ? { instructionId: existing.value.instructionId, expectedRevision: existing.value.revision }
+      ? { instructionId: existing.instructionId, expectedRevision: existing.revision }
       : {}),
-    ...(args.exceptionOf === undefined ? {} : { exceptionOf: args.exceptionOf }),
+    ...content,
     ...(replaces.size > 0 ? { replaces: [...replaces] } : {}),
     ...(coexistsWith.length > 0 ? { coexistsWith } : {}),
   });
@@ -1750,7 +1869,7 @@ async function sweepTodos(userId: string, instruction: StandingInstructionValueV
   );
 }
 
-async function commit(plan: Plan): Promise<void> {
+async function commit(plan: Plan, tz: IanaTimezone): Promise<void> {
   const problems = planProblems(plan);
 
   if (problems.length > 0) {
@@ -1761,7 +1880,7 @@ async function commit(plan: Plan): Promise<void> {
     return;
   }
 
-  const live = await readV1Rows(plan.userId);
+  const live = await readV1Rows(plan.userId, tz);
   const planIds = new Set(plan.rows.map((row) => row.factId));
   const unplanned = live.filter((row) => !planIds.has(row.factId));
 
@@ -1785,6 +1904,18 @@ async function commit(plan: Plan): Promise<void> {
 
       return;
     }
+  }
+
+  const migratedInvestment = migrated.get("investment")?.value;
+  const migratedException = migrated.get("investment_exception")?.value;
+
+  if (migratedException && !migratedInvestment) {
+    console.log(
+      "# Commit refused: the migrated exception exists, but no migrated investment instruction " +
+        "does. Someone else changed it; resolve by hand first.",
+    );
+
+    return;
   }
 
   printPlan(plan);
@@ -1814,20 +1945,26 @@ async function commit(plan: Plan): Promise<void> {
 
   console.log("\n# Writing");
 
-  // 1. The investment instruction, beside the v1 rows. They close in step 4, after the exception
-  //    exists, so a stop between steps never leaves the investment scope without its exception.
-  const investment = await saveOne({
-    plan,
-    key: "investment",
-    existing: migrated.get("investment"),
-    liveV1: live,
-  });
+  // 1. The investment scope, with no effects, beside the v1 rows. The exception needs its id,
+  //    but a lowering effect stored before the exception would lower tax and legal mail. With
+  //    no effects, a stop here applies no new floor: the v1 rows still apply as before. A rerun
+  //    after step 2 skips this step, so it never takes the effects off again.
+  const investment =
+    migratedException && migratedInvestment
+      ? migratedInvestment
+      : await saveOne({
+          plan,
+          key: "investment",
+          existing: migratedInvestment,
+          liveV1: live,
+          effects: [],
+        });
 
   // 2. The exception.
   await saveOne({
     plan,
     key: "investment_exception",
-    existing: migrated.get("investment_exception"),
+    existing: migratedException,
     liveV1: live,
     exceptionOf: investment.instructionId,
   });
@@ -1836,20 +1973,25 @@ async function commit(plan: Plan): Promise<void> {
   const polylane = await saveOne({
     plan,
     key: "polylane_smallcase",
-    existing: migrated.get("polylane_smallcase"),
+    existing: migrated.get("polylane_smallcase")?.value,
     liveV1: live,
     replaces: rowsOf("polylane_smallcase"),
   });
 
-  // 4. The same investment content again: capture finds the duplicate and closes the rows.
+  // 4. The full investment content, now that the exception exists. The first call stores the
+  //    effects and each call closes one chunk of v1 rows in the same transaction. It always
+  //    runs once, so the effects are stored when the group has no v1 row.
+  const investmentRows = rowsOf("investment");
   let current = investment;
 
-  for (const replaces of chunks(rowsOf("investment"), REPLACES_PER_CALL)) {
+  for (const replaces of investmentRows.length > 0
+    ? chunks(investmentRows, REPLACES_PER_CALL)
+    : [[]]) {
     current = await saveOne({
       plan,
       key: "investment",
-      existing: { factId: "", value: current },
-      liveV1: await readV1Rows(plan.userId),
+      existing: current,
+      liveV1: await readV1Rows(plan.userId, tz),
       replaces,
     });
   }
@@ -1857,7 +1999,7 @@ async function commit(plan: Plan): Promise<void> {
   await sweepTodos(plan.userId, current);
   await sweepTodos(plan.userId, polylane);
 
-  const left = await readV1Rows(plan.userId);
+  const left = await readV1Rows(plan.userId, tz);
   const stillLive = left.filter((row) => planIds.has(row.factId));
 
   console.log(
@@ -1880,7 +2022,8 @@ async function main(): Promise<void> {
   );
 
   const user = await findUser();
-  const live = await readV1Rows(user.id);
+  const tz = await settings({ userId: user.id }).timezone();
+  const live = await readV1Rows(user.id, tz);
   const saved = FRESH && COMMAND === "review" ? null : await loadPlan();
 
   if (saved && saved.userId !== user.id) throw new Error(`${PLAN_PATH} belongs to another user`);
@@ -1898,7 +2041,7 @@ async function main(): Promise<void> {
   );
 
   if (COMMIT) {
-    await commit(plan);
+    await commit(plan, tz);
 
     return;
   }
@@ -1910,10 +2053,10 @@ async function main(): Promise<void> {
       await review(plan);
       break;
     case "check-removed":
-      await checkRemoved(plan);
+      await checkRemoved(plan, tz);
       break;
     case "gate-candidates":
-      await gateCandidates(plan);
+      await gateCandidates(plan, tz);
       break;
     case "gate-check":
       await gateCheck(plan);
@@ -1924,11 +2067,15 @@ async function main(): Promise<void> {
 
   const problems = planProblems(plan);
 
-  console.log(
-    problems.length === 0
-      ? "\n# The plan is ready. Commit with --commit."
-      : `\n# ${problems.length} item(s) left before a commit. Run the review again to finish.`,
-  );
+  if (problems.length === 0) {
+    console.log("\n# The plan is ready. Commit with --commit.");
+
+    return;
+  }
+
+  console.log(`\n# ${problems.length} item(s) left before a commit:`);
+
+  for (const p of problems) console.log(`  - ${p}`);
 }
 
 try {

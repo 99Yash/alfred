@@ -144,6 +144,7 @@ export type { TodoTriageResult, TriageTodoDecision } from "./todo-decision";
 
 export {
   gatherObservations,
+  loadStoredTriageClassifyInput,
   runEmailTriageApplyLabel,
   runEmailTriageClassify,
   type EmailTriageOperationState,
