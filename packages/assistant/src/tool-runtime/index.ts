@@ -780,7 +780,7 @@ export interface SystemToolWebSearchAdapter {
 /** Mirrors `ResolveTodosByIdsResult` in `tasks/resolve.ts` (ADR-0089). */
 export interface ResolveTodoByIdsResult {
   readonly ok: true;
-  readonly status: "dismissed" | "not_found";
+  readonly status: "dismissed" | "not_live" | "not_found";
   readonly dismissedCount: number;
   readonly todoIds: readonly string[];
   readonly skipped: readonly (

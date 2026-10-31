@@ -1587,6 +1587,12 @@ export const LIST_TODOS_MAX_LIMIT = 50;
 /** The hard cap on ids in one `system.resolve_todo` call of kind `todo_ids`. */
 export const RESOLVE_TODO_IDS_MAX = 50;
 
+/** The todo ids of one `system.resolve_todo` call of kind `todo_ids`. The task re-parses with it. */
+export const resolveTodoIdsSchema = z
+  .array(z.string().trim().min(1).max(100))
+  .min(1)
+  .max(RESOLVE_TODO_IDS_MAX);
+
 export const listTodosInput = z
   .object({
     status: z
@@ -1625,10 +1631,7 @@ export const resolveTodoInput = coerceJsonArrayFields(
             "`todo_ids`: dismiss the exact todos in `todoIds`. Use it when you chose the todos " +
             "by their ids, for example from `system.list_todos`.",
         ),
-      todoIds: z
-        .array(z.string().trim().min(1).max(100))
-        .min(1)
-        .max(RESOLVE_TODO_IDS_MAX)
+      todoIds: resolveTodoIdsSchema
         .optional()
         .describe(
           `Required for \`todo_ids\`, invalid for \`gmail_sender\`: the ids of the todos to ` +
