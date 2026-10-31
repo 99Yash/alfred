@@ -1,4 +1,4 @@
-import { type ButtonHTMLAttributes, type ReactNode, type Ref } from "react";
+import type { ButtonHTMLAttributes, ReactNode, Ref } from "react";
 import { cn } from "~/lib/utils";
 
 /** Forwards ref and props, so it works in `Tooltip.Trigger asChild`. */

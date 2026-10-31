@@ -1,7 +1,7 @@
 import { AppSwitch } from "~/components/ui/v2";
 import { cn } from "~/lib/utils";
 import { APP_TINTS } from "~/lib/tints";
-import { type BackgroundAgentDef } from "./helpers";
+import type { BackgroundAgentDef } from "./helpers";
 
 export function AgentRow({
   agent,

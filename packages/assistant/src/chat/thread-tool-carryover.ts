@@ -1,8 +1,8 @@
-import {
-  type IntegrationSlug,
-  type IntegrationAvailabilitySnapshot,
-  type ToolName,
-  type ToolRunContext,
+import type {
+  IntegrationSlug,
+  IntegrationAvailabilitySnapshot,
+  ToolName,
+  ToolRunContext,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { agentRuns, chatThreadRunMatch } from "@alfred/db/schemas";

@@ -15,7 +15,7 @@ import {
 } from "@alfred/db/schemas";
 import { and, desc, eq, gt, lte, sql } from "drizzle-orm";
 import { z } from "zod";
-import { type DbTransaction } from "@alfred/db";
+import type { DbTransaction } from "@alfred/db";
 import { projectGmailKindProfiles } from "./gmail-kind-fold";
 import { foldGmailProjectionRun } from "./gmail-projection-run";
 import { requireEntityIdNamespace } from "./namespace";

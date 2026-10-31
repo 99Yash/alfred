@@ -1,4 +1,4 @@
-import { type Document } from "@alfred/db/schemas";
+import type { Document } from "@alfred/db/schemas";
 import { findUnembeddedDocumentIds, indexDocument } from "./embed-document";
 
 export interface RetryPendingArgs {

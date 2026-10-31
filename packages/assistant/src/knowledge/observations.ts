@@ -7,7 +7,7 @@ import {
 } from "@alfred/contracts";
 import { and, eq, sql, type SQL } from "drizzle-orm";
 import { PG_UNIQUE_VIOLATION, pgErrorChain } from "@alfred/db/pg-errors";
-import { type DbTransaction } from "@alfred/db";
+import type { DbTransaction } from "@alfred/db";
 
 /**
  * Join to the live head of each observation family. Use as

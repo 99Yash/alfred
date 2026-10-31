@@ -7,7 +7,7 @@
  * logic drift. Activation also stays with the caller.
  */
 import { USER_MODEL_PROJECTION_NAME, type ProjectionSourceHighWatermark } from "@alfred/contracts";
-import { type DbTransaction } from "@alfred/db";
+import type { DbTransaction } from "@alfred/db";
 import { entityEdges, entityProfiles } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
 import { projectGmailWorksAtEdges } from "./gmail-edge-fold";

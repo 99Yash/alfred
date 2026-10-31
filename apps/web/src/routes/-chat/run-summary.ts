@@ -1,8 +1,8 @@
-import { type LucideIcon } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import type { ResolvedToolCall } from "~/lib/chat/resolved-tool-call";
-import { type IntegrationBrand } from "~/lib/integrations/integration-icons";
+import type { IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { lowerFirst } from "~/lib/strings";
-import { type McpServerLookup } from "./mcp-server";
+import type { McpServerLookup } from "./mcp-server";
 import { foldIdentity, presentTool, toolCategory } from "./tool-call-presentation";
 
 // Run summary for `ToolCallGroup` and `SubAgentCard`. Its own module to avoid a cycle between them.

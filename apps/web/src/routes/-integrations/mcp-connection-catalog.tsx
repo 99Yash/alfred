@@ -4,7 +4,7 @@ import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from "react";
 import { AppButton, AppInput } from "~/components/ui/v2";
 import { client } from "~/lib/eden";
-import { type McpConnection } from "~/lib/integrations/mcp-connections";
+import type { McpConnection } from "~/lib/integrations/mcp-connections";
 import { cn } from "~/lib/utils";
 import {
   MCP_CONNECTION_TOOLS_QUERY_KEY,

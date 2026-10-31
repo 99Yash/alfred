@@ -25,7 +25,7 @@ A `gated` smell stays here for its examples and its ledger. [review-checklist.md
 | [Choose the type of an open dictionary.](./choose-open-dictionary-type.md) | Stays review | none | 0 |
 | [Derive a row type from its table.](./derive-row-type-from-table.md) | Stays review | none | 0 |
 | [Use `isRecord` and `getPath` only on a value that is `unknown` at a true parse boundary.](./guards-only-on-unknown.md) | Candidate, #1629 | compiler | 7 |
-| [Write `import type { X }` when every name of an import is a type.](./import-type-side-effects.md) | Candidate, #1629 | ast | 5 |
+| [Write `import type { X }` when every name of an import is a type.](./import-type-side-effects.md) | Gated by `typescript/no-import-type-side-effects` | ast | 5 |
 | [Keep a literal type only when it is a different concept, and say why in one comment.](./literal-type-only-for-new-concept.md) | Stays review | none | 0 |
 | [Name a symbol for its domain role, not its structure.](./name-for-domain-role.md) | Stays review | none | 1 |
 | [Do not return or print the `never` binding of an exhaustive `default`. Throw with `assertNever`, or return a real value of the return type.](./never-sentinel-escape.md) | Candidate, #1629 | ast | 5 |
@@ -56,7 +56,7 @@ A `gated` smell stays here for its examples and its ledger. [review-checklist.md
 | [Give a new endpoint the auth and rate limit of its group.](./endpoint-auth-and-migrations.md) | Stays review | none | 0 |
 | [Give every external call and LLM call a timeout and an `abortSignal`.](./external-call-timeout-and-abort.md) | Candidate, #1629 | ast | 4 |
 | [Make work that BullMQ or a webhook retries idempotent.](./idempotent-retried-work.md) | Stays review | none | 1 |
-| [Log a caught error only under the `err` key of a `logger` call. Put only safe fields beside it, and mask PII.](./log-caught-error-under-err.md) | Candidate, #1629 | ast | 4 |
+| [Log a caught error only under the `err` key of a `logger` call. Put only safe fields beside it, and mask PII.](./log-caught-error-under-err.md) | Gated by `alfred/log-caught-error-under-err` | ast | 4 |
 | [Name the clock of each timestamp. Compare only timestamps of one clock.](./name-timestamp-clock.md) | Review, low | compiler | 1 |
 | [Do not export a primitive from a package barrel only for a test.](./no-barrel-export-for-test.md) | Candidate, #1629 | check | 2 |
 | [Do not query in a loop. Paginate every list endpoint.](./no-query-in-loop.md) | Review, medium | ast | 1 |

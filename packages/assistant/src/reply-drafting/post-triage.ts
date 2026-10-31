@@ -4,10 +4,10 @@ import { startRun } from "@alfred/assistant/execution";
 import { standingInstructions } from "@alfred/assistant/knowledge";
 import { settings } from "@alfred/assistant/settings";
 import { getTriage } from "@alfred/assistant/triage";
-import {
-  type DomainEvent,
-  type EmailTriageClassifiedPayload,
-  type TriggerConsumer,
+import type {
+  DomainEvent,
+  EmailTriageClassifiedPayload,
+  TriggerConsumer,
 } from "@alfred/assistant/triggers";
 import { recordReplyDraftDecision } from "./decision";
 import type { ReplyDraftingWorkflowInput } from "./workflow-input";

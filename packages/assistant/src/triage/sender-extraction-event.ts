@@ -1,12 +1,12 @@
-import {
-  type AccountPersona,
-  type CollabActivityKind,
-  type JsonObject,
-  type SenderContext,
-  type StandingInstructionTargetKind,
-  type StandingInstructionEvidence,
+import type {
+  AccountPersona,
+  CollabActivityKind,
+  JsonObject,
+  SenderContext,
+  StandingInstructionTargetKind,
+  StandingInstructionEvidence,
 } from "@alfred/contracts";
-import { type TriageCategory } from "@alfred/integrations/google";
+import type { TriageCategory } from "@alfred/integrations/google";
 import type { ClassifyAudit, StandingClassifyAudit, TriageClassification } from "./classify";
 import {
   standingInstructionEvidence,

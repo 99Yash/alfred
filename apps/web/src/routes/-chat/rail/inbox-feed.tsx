@@ -33,7 +33,7 @@ import { IntegrationGlyph } from "~/lib/integrations/integration-icons";
 import { cn } from "~/lib/utils";
 import { hasRemoteEmailMedia } from "./inbox-feed-media";
 import { APP_TINTS, type AppTint } from "~/lib/tints";
-import { type RailInboxItem } from "./models";
+import type { RailInboxItem } from "./models";
 import type { InboxPagination } from "./rail-data";
 
 const PAGE_SIZE = 8;

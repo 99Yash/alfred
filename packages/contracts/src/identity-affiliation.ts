@@ -15,7 +15,7 @@ import {
   type MatchedSenderClass,
   type SenderWord,
 } from "./sender-class";
-import { type FactKey } from "./user-model";
+import type { FactKey } from "./user-model";
 
 // Domain classifier (ADR-0080 §4b)
 

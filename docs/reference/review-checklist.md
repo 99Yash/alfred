@@ -23,8 +23,6 @@ Each rule has the rule and the reason. Its smell file has a Bad and a Good examp
   Why: a copy drifts when a column changes. Before you derive, read "Derive row types from the table" in `docs/reference/database.md`. Example: `rowToFact` in `packages/assistant/src/knowledge/facts.ts`.
 - **Use `isRecord` and `getPath` only on a value that is `unknown` at a true parse boundary.** Index a typed field directly. Use `isIndexable` and `Reflect.get` for an SDK instance. [Smell](./smells/guards-only-on-unknown.md).
   Why: the guard widens a parsed value again. Example: #1279.
-- **Write `import type { X }` when every name of an import is a type.** Keep the inline `type` marker only for a mixed import that also brings a value. [Smell](./smells/import-type-side-effects.md).
-  Why: under `verbatimModuleSyntax`, `import { type X } from "m"` erases the name but keeps `import "m"`. So the module still loads, runs its side effects, and stays in the import graph. Example: in #1554, a type-only inline import made a module cycle, and a schema threw a ReferenceError before initialization.
 - **Keep a literal type only when it is a different concept, and say why in one comment.** A wire reshape is the usual case. [Smell](./smells/literal-type-only-for-new-concept.md).
   Why: the next reviewer otherwise collapses it to the row type. Example: the `Synced*` read models in `packages/sync/src/schemas.ts`.
 - **Name a symbol for its domain role, not its structure.** Do not use `shape` for a payload or a credential. `DayShape` is a real domain term and stays. [Smell](./smells/name-for-domain-role.md).
@@ -71,8 +69,6 @@ Each rule has the rule and the reason. Its smell file has a Bad and a Good examp
   Why: a loser keeps a billable call open. Example: #1086. See [ai-sdk.md](./ai-sdk.md).
 - **Make work that BullMQ or a webhook retries idempotent.** Derive a stable key. [Smell](./smells/idempotent-retried-work.md).
   Why: a retry must not repeat a side effect. Example: #576.
-- **Log a caught error only under the `err` key of a `logger` call. Put only safe fields beside it, and mask PII.** `no-console` stops a `console` call outside `apps/web` and scripts. [Smell](./smells/log-caught-error-under-err.md).
-  Why: only the `err` key goes through the serializer that drops free text. An error under another key, or its message in a field, can carry a connection string or a token. Example: `serializeError` in `packages/logging/src/logger.ts`.
 - **Name the clock of each timestamp. Compare only timestamps of one clock.** [Smell](./smells/name-timestamp-clock.md).
   Why: creation, delivery, provider event and fire time are different clocks. Example: `scheduledFireTime`, #1358.
 - **Do not export a primitive from a package barrel only for a test.** The test imports it from `src/`. [Smell](./smells/no-barrel-export-for-test.md).

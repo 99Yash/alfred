@@ -126,12 +126,10 @@ Each row is a smell that review owns, from [smells/](./smells/README.md), with t
 
 | Smell (checklist section) | Mechanism | Status | PRs |
 | --- | --- | --- | --- |
-| [`import-type-side-effects`](./smells/import-type-side-effects.md) (Types) | Built-in oxlint rule: `typescript/no-import-type-side-effects`. About 50 sites remain, and the fixer rewrites each of them. | Candidate, #1629 | 5 |
 | [`guards-only-on-unknown`](./smells/guards-only-on-unknown.md) (Types) | Compiler: a closed-domain parameter that rejects an argument whose type is not `unknown`. | Candidate, #1629 | 7 |
 | [`export-star-outside-root-barrel`](./smells/export-star-outside-root-barrel.md) (Constants and ownership) | Regex row: `export *` in a file under `src/`, with `packages/contracts/src/index.ts` and `packages/db/src/schemas.ts` as the owners. About 25 sites remain outside those two files. | Candidate, #1629 | 5 |
 | [`never-sentinel-escape`](./smells/never-sentinel-escape.md) (Types) | AST: in a `default` clause, a `const` binding with a `never` annotation that is then returned, passed to `String`, or discarded with `void`. About 50 sites remain, so a paydown comes first. | Candidate, #1629 | 5 |
 | [`external-call-timeout-and-abort`](./smells/external-call-timeout-and-abort.md) (Backend) | AST: an AI SDK generate or stream call whose options have no `abortSignal` key. | Candidate, #1629 | 4 |
-| [`log-caught-error-under-err`](./smells/log-caught-error-under-err.md) (Backend) | AST: a `catch` binding, or its `.message`, in a `logger` call under any key other than `err`. `no-console` already stops the `console` path. | Candidate, #1629 | 4 |
 | [`switch-literal-needs-default`](./smells/switch-literal-needs-default.md) (Types) | AST: a `switch` whose every `case` test is a string literal and that has no `default` clause. A switch over an open `string` has no member set, so the rule must not fire on a switch that already has a `default`. | Candidate, #1629 | 4 |
 | [`array-sort-in-place`](./smells/array-sort-in-place.md) (Frontend) | Built-in oxlint rule: `unicorn/no-array-sort`. About 150 sites remain, so a paydown comes first; the rule has a fix suggestion. | Candidate, #1629 | 2 |
 | [`brand-claim-needs-probe`](./smells/brand-claim-needs-probe.md) (Types) | The claim is prose. An AST rule that fails a type guard or a `z.custom` of a brand outside its owner module would remove the mints with no cast. | Candidate, #1629 | 2 |

@@ -1,11 +1,5 @@
 import { logger } from "@alfred/logging";
-import {
-  Errors,
-  integrationRoutePrefix,
-  redactSecrets,
-  toMessage,
-  type CredentialProvider,
-} from "@alfred/contracts";
+import { Errors, integrationRoutePrefix, type CredentialProvider } from "@alfred/contracts";
 import { isSentryAuthorizationError, sentryValidateToken } from "@alfred/integrations/sentry";
 import {
   deleteIntegrationCredential,
@@ -46,11 +40,8 @@ export const sentryIntegrationRoutes = new Elysia({
           try {
             connection = await sentryValidateToken({ token, organization });
           } catch (err) {
-            // Log the upstream reason; never send it to the client.
-            logger.error(
-              { err, reason: redactSecrets(toMessage(err)) },
-              "[sentry.connect] token validation failed",
-            );
+            // Log the fault under `err`, which redacts it; never send it to the client.
+            logger.error({ err }, "[sentry.connect] token validation failed");
 
             // Only an auth failure means a bad token. An outage must not say "regenerate".
             if (isSentryAuthorizationError(err)) {

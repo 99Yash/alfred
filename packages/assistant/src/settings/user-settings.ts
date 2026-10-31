@@ -1,6 +1,6 @@
 import { db } from "@alfred/db";
 import { userPreferences } from "@alfred/db/schemas";
-import { type IanaTimezone } from "@alfred/contracts";
+import type { IanaTimezone } from "@alfred/contracts";
 
 import { firstValidTimezone, TIMEZONE_PREFERENCE_KEYS } from "@alfred/assistant/time";
 import { featureFlagsFrom, type FeatureFlags } from "./flags";

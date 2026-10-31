@@ -1,4 +1,4 @@
-import { type SenderContext } from "@alfred/contracts";
+import type { SenderContext } from "@alfred/contracts";
 import type { TriageClassification } from "../classify";
 import type { Observations } from "../observations";
 import { applyFloorVerdict, type FloorResult } from "./floor";

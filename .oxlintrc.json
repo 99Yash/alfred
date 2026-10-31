@@ -86,6 +86,10 @@
     // `x in TABLE`, `TABLE[x] === undefined`); the last two are true for an inherited key
     // such as "toString". Use keyGuard(TABLE).
     "alfred/hand-rolled-key-guard": "error",
+    // log-caught-error-under-err: a caught error, or its message, in a `logger` call anywhere
+    // but as the raw value under `err`. Only `err` goes through the redacting serializer.
+    // `safeErrorDiagnostic(err)` is the safe text form under another key.
+    "alfred/log-caught-error-under-err": "error",
     // The web motion and copy rules read one element's classes or JSX:
     // transition-names-individual-transform: a `transition-[…transform…]` list that misses the
     // `scale`/`translate`/`rotate` property a Tailwind v4 utility on the element writes.
@@ -120,14 +124,19 @@
     // takes `type`. `verbatimModuleSyntax` already fails `tsc` on a type imported without it,
     // but a value imported only for `typeof` compiles and stays in the runtime import graph.
     // `fixStyle` matches the tree: a mixed import marks each type inline. The fixer then
-    // writes `import { type X }` for a declaration whose every name is a type; rewrite that as
-    // `import type { X }`, because the inline form keeps a side-effect import of the module.
+    // writes `import { type X }` for a declaration whose every name is a type, and
+    // no-import-type-side-effects below rewrites that as `import type { X }`.
     // `disallowTypeAnnotations` is off: an `import("…")` type is erased, and the
     // `test/type/*.type-test.ts` fixtures need it to probe the exports map.
     "typescript/consistent-type-imports": [
       "error",
       { "disallowTypeAnnotations": false, "fixStyle": "inline-type-imports" }
     ],
+    // no-import-type-side-effects: `import { type X }` with every name a type keeps an empty
+    // side-effect import (`import {} from "…"`) under `verbatimModuleSyntax`, which can run the
+    // module or close an import cycle. Five review rounds found it before this rule (#1520,
+    // #1554, #680, #669, #742). Adopted with the tree autofixed to zero.
+    "typescript/no-import-type-side-effects": "error",
     // no-empty: an empty block, an empty `catch {}` included (`allowEmptyCatch` stays false). A
     // `catch` handles the failure, logs safe fields, or holds a comment that says why the failure
     // is safe to drop. A comment inside the block counts as content, so the reason is the fix.

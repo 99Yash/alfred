@@ -1,9 +1,9 @@
 import { route, meteredGenerateText, isStepCount, type ModelMessage } from "@alfred/ai";
-import {
-  type BriefingClosedLoop,
-  type BriefingLoopRelevance,
-  type DayShape,
-  type IanaTimezone,
+import type {
+  BriefingClosedLoop,
+  BriefingLoopRelevance,
+  DayShape,
+  IanaTimezone,
 } from "@alfred/contracts";
 import {
   BROKEN_CONNECTION_GUIDANCE,

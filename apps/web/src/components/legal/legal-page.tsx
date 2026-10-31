@@ -1,5 +1,5 @@
 import { ArrowLeft } from "lucide-react";
-import { type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { LandingBackground } from "~/components/landing";
 import { cn } from "~/lib/utils";
 

@@ -1,4 +1,4 @@
-import { type InboundEventSource } from "@alfred/contracts";
+import type { InboundEventSource } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, eventReceipts, integrationCredentials } from "@alfred/db/schemas";
 import { and, asc, eq, notExists } from "drizzle-orm";

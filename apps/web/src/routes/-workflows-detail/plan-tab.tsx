@@ -4,7 +4,7 @@ import {
   LOADABLE_INTEGRATION_SLUGS,
   type LoadableIntegrationSlug,
 } from "@alfred/contracts";
-import { type SyncedWorkflow, type WorkflowUpdateArgs } from "@alfred/sync";
+import type { SyncedWorkflow, WorkflowUpdateArgs } from "@alfred/sync";
 import { AlertTriangle, Link2, Lock } from "lucide-react";
 import { useMemo, useState } from "react";
 import { AppButton, AppCard, AppPill, AppTextarea } from "~/components/ui/v2";

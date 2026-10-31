@@ -1,5 +1,5 @@
 import { isQuotaOrBillingError } from "@alfred/ai";
-import { type TodoAttribution, type TodoSource } from "@alfred/contracts";
+import type { TodoAttribution, TodoSource } from "@alfred/contracts";
 import { AppError } from "@alfred/contracts/app-errors";
 import { logger } from "@alfred/logging";
 import {
