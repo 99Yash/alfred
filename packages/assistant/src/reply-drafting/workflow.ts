@@ -442,6 +442,7 @@ async function dispatchReply(ctx: StepContext<State>): Promise<StepResult<State>
   ).dispatch({
     stepId: "stage",
     fence: ctx.fence,
+    attempt: ctx.attempt,
     calls: [
       { toolCallId: REPLY_TOOL_CALL_ID, toolName: "gmail.send_draft", input: prepared.input },
     ],

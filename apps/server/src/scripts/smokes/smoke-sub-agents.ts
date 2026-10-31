@@ -30,6 +30,9 @@ import {
 import { and, eq, sql } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "~/builtins";
 
+/** A fresh run's first step: fence generation 0 and executor attempt 0, the Postgres defaults. */
+const FIRST_STEP = { fence: { generation: 0 }, attempt: 0 } as const;
+
 const SMOKE_USER_EMAIL = "smoke-sub-agents@alfred.local";
 
 const WORKFLOW_SLUG = "smoke-sub-agents";
@@ -146,7 +149,7 @@ async function main(): Promise<void> {
     timezone,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
-    fence: { generation: 0 },
+    ...FIRST_STEP,
     allowedIntegrations: ["gmail"],
   });
 
@@ -204,7 +207,7 @@ async function main(): Promise<void> {
     timezone,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
-    fence: { generation: 0 },
+    ...FIRST_STEP,
     allowedIntegrations: ["gmail"],
   });
 
@@ -242,7 +245,7 @@ async function main(): Promise<void> {
     timezone,
     caller: { subId: "subA" },
     runContext: { caller: "sub_agent", interaction: "background" },
-    fence: { generation: 0 },
+    ...FIRST_STEP,
     scratchpadRunId: parent.runId,
     allowedIntegrations: ["gmail"],
   });
@@ -267,7 +270,7 @@ async function main(): Promise<void> {
     timezone,
     caller: { subId: "subA" },
     runContext: { caller: "sub_agent", interaction: "background" },
-    fence: { generation: 0 },
+    ...FIRST_STEP,
     scratchpadRunId: parent.runId,
     allowedIntegrations: ["gmail"],
   });

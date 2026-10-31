@@ -23,7 +23,7 @@ import {
   jsonValueSchema,
   toJsonValue,
 } from "@alfred/contracts";
-import { db } from "@alfred/db";
+import { db, type DbTransaction } from "@alfred/db";
 import {
   actionStagings,
   agentRuns,
@@ -31,9 +31,10 @@ import {
   type ActionStaging,
   type NewActionStaging,
 } from "@alfred/db/schemas";
-import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 
 import type { PublicAppError } from "@alfred/contracts/app-errors";
+import { dispatchLease, type DispatchStepLease } from "@alfred/assistant/tool-runtime";
 
 import type { ToolEffects } from "../registry";
 
@@ -47,6 +48,7 @@ export type StagingRow = Pick<
   | "toolName"
   | "riskTier"
   | "proposedInput"
+  | "displayInput"
   | "proposedInputHash"
   | "decidedInput"
   | "rejectReason"
@@ -54,6 +56,7 @@ export type StagingRow = Pick<
   | "executeSanitized"
   | "executeEffects"
   | "executeError"
+  | "dispatchClaimedAt"
   | "notifyAfterAt"
   | "notifiedAt"
   | "expiresAt"
@@ -99,8 +102,68 @@ export type PendingApprovalPromotion = Pick<
 >;
 
 /**
+ * The input a claimed and unfinished call goes back to the user with. The raw input to run, not a
+ * redacted copy: approve runs `proposedInput`.
+ */
+export type InterruptedRestage = Omit<PendingApprovalPromotion, "proposedInputHash">;
+
+/** An earlier attempt claimed the call, so its effect may already exist. */
+export function stagingMayHaveRun(row: Pick<StagingRow, "dispatchClaimedAt">): boolean {
+  return row.dispatchClaimedAt !== null;
+}
+
+/**
+ * A row that dispatch may execute now: approved by the user, or an autonomous `pending` row. A
+ * gated `pending` row is a card, so it is not runnable. `runnableStagingSql` is the same predicate
+ * for a `WHERE`; keep the two together.
+ */
+export function isRunnableStaging(row: Pick<StagingRow, "status" | "requiresApproval">): boolean {
+  return row.status === "approved" || (row.status === "pending" && !row.requiresApproval);
+}
+
+function runnableStagingSql() {
+  return or(
+    eq(actionStagings.status, "approved"),
+    and(eq(actionStagings.status, "pending"), eq(actionStagings.requiresApproval, false)),
+  );
+}
+
+/** A runnable row that an attempt claimed and did not finish. It goes back to the user. */
+export function isInterruptedClaim(
+  row: Pick<StagingRow, "status" | "requiresApproval" | "dispatchClaimedAt">,
+): boolean {
+  return stagingMayHaveRun(row) && isRunnableStaging(row);
+}
+
+/**
+ * How a lease check under the run lock ends.
+ * - `lease_lost`: another attempt owns the run. Do not write the row: it may belong to the winner.
+ * - `fenced`: this attempt still owns the run, but a cancel moved the fence or cancelled the run.
+ * - `run_ended`: the run ended in another terminal status (for example `failed`). It was not
+ *   cancelled, so do not close the row as a cancelled call.
+ */
+type LeaseLoss = "lease_lost" | "fenced" | "run_ended";
+
+/**
+ * - `claimed`: this attempt owns the call and may run it.
+ * - `not_claimable`: the row is no longer an unclaimed runnable row of this run.
+ */
+export type DispatchClaim = "claimed" | LeaseLoss | "not_claimable";
+
+/**
+ * - `restaged`: the row is a new approval card.
+ * - `moved`: the row left the claimed state first (for example, a lost attempt committed its
+ *   result). `row` is the current row, so the caller settles from it.
+ */
+export type InterruptedRestageResult =
+  | { kind: "restaged"; row: StagingRow }
+  | { kind: "moved"; row: StagingRow }
+  | { kind: LeaseLoss };
+
+/**
  * The terminal outcomes. `unknown`: the effect may have happened without
- * confirmation. `refused`: the gate never called the provider.
+ * confirmation. `refused`: the gate did not call the provider for this decision. A row with
+ * `dispatch_claimed_at` set may still have reached it in an earlier, interrupted attempt.
  */
 export type StagingCommit =
   | { status: "failed"; outcome: "failed" | "refused"; error: PublicAppError; executedAt: Date }
@@ -115,13 +178,21 @@ export type StagingCommit =
     };
 
 export interface StagingStore {
-  /** Most recent row in `statuses` for this run, tool, and input hash. */
+  /** Match the first proposal or its edit. A claimed expiry also suppresses an identical retry. */
   findPriorRejection(query: {
     runId: string;
     toolName: ToolName;
     proposedInputHash: string;
+    input?: JsonValue;
     statuses: readonly PriorRejectionStatus[];
-  }): Promise<{ reason: string | null; status: ActionStaging["status"] } | null>;
+  }): Promise<{
+    reason: string | null;
+    status: ActionStaging["status"];
+    mayHaveRun?: true;
+  } | null>;
+
+  /** Read a saved call before binding against a possibly changed tool schema. */
+  readStaging(query: { runId: string; toolCallId: string }): Promise<StagingRow | null>;
 
   /**
    * An unresolved `unknown` row for this user and request hash. It blocks a
@@ -141,9 +212,6 @@ export interface StagingStore {
    */
   readThreadFullAutonomy(query: { userId: string; threadId: string }): Promise<boolean>;
 
-  /** Whether this call already has a staging row: a replay or a resume, not a fresh proposal. */
-  hasStaging(query: { runId: string; toolCallId: string }): Promise<boolean>;
-
   /** Idempotent on `(runId, toolCallId)`. On conflict, returns the stored row unchanged. */
   upsertStaging(values: StagingInsertValues): Promise<{ row: StagingRow; wasInserted: boolean }>;
 
@@ -154,12 +222,39 @@ export interface StagingStore {
   ): Promise<StagingRow | null>;
 
   /**
+   * Mark the call as started, just before an `unsafe` tool's `execute`. One transaction runs the
+   * step commit's lease check (`withStepLease`, through the `dispatchLease` seam), and then sets
+   * `dispatch_claimed_at` to `claimedAt` on an unclaimed runnable row (`isRunnableStaging`). The
+   * caller keeps `claimedAt` as the token that its commit fences on.
+   */
+  claimDispatch(
+    stagingId: string,
+    lease: DispatchStepLease,
+    claimedAt: Date,
+  ): Promise<DispatchClaim>;
+
+  /**
+   * Send a claimed and unfinished call back to the user (replay safety), under the same lease
+   * check as `claimDispatch`. The row becomes a `pending` approval again, and
+   * `dispatch_claimed_at` stays set, so the card says it may have run. A user edit stays in
+   * `decided_input`, so "Run again" still reports the edit to the model. The original proposal
+   * hash stays fixed, so rejection suppresses both the original call and its edited input.
+   */
+  restageInterrupted(
+    stagingId: string,
+    lease: DispatchStepLease,
+    restage: InterruptedRestage,
+  ): Promise<InterruptedRestageResult>;
+
+  /**
    * Commit from the observed state, or fill the result when the MCP broker
    * already wrote the same outcome. False for any other outcome.
+   * `dispatchClaimedAt` must also match. A zombie attempt that claimed at t1 then cannot commit
+   * after a restage and "Run again" set the row back to `approved` (claim cleared or re-claimed).
    */
   commitStaging(
     stagingId: string,
-    expected: Pick<StagingRow, "status" | "outcome">,
+    expected: Pick<StagingRow, "status" | "outcome" | "dispatchClaimedAt">,
     commit: StagingCommit,
   ): Promise<boolean>;
 }
@@ -172,6 +267,7 @@ const STAGING_COLUMNS = {
   toolName: actionStagings.toolName,
   riskTier: actionStagings.riskTier,
   proposedInput: actionStagings.proposedInput,
+  displayInput: actionStagings.displayInput,
   proposedInputHash: actionStagings.proposedInputHash,
   decidedInput: actionStagings.decidedInput,
   rejectReason: actionStagings.rejectReason,
@@ -179,6 +275,7 @@ const STAGING_COLUMNS = {
   executeSanitized: actionStagings.executeSanitized,
   executeEffects: actionStagings.executeEffects,
   executeError: actionStagings.executeError,
+  dispatchClaimedAt: actionStagings.dispatchClaimedAt,
   notifyAfterAt: actionStagings.notifyAfterAt,
   notifiedAt: actionStagings.notifiedAt,
   expiresAt: actionStagings.expiresAt,
@@ -231,6 +328,35 @@ function commitColumns(commit: StagingCommit) {
   }
 }
 
+/**
+ * Run `write` under the step commit's own lease check (the `dispatchLease` seam): one transaction
+ * that locks the `agent_runs` row first. The seam reports a cancel and any other run end as one
+ * `terminal` cause, so a read after it splits them. A moved fence and a terminal status do not
+ * change back, so this read agrees with the locked check.
+ */
+async function withDispatchLease<T>(
+  lease: DispatchStepLease,
+  write: (tx: DbTransaction) => Promise<T>,
+): Promise<{ ok: true; value: T } | { ok: false; loss: LeaseLoss }> {
+  const leased = await dispatchLease().withStepLease(lease, write);
+
+  if (leased.ok) return leased;
+
+  if (leased.cause === "reclaim") return { ok: false, loss: "lease_lost" };
+
+  const [run] = await db()
+    .select({ cancellationGeneration: agentRuns.cancellationGeneration, status: agentRuns.status })
+    .from(agentRuns)
+    .where(eq(agentRuns.id, lease.runId));
+
+  if (!run) return { ok: false, loss: "lease_lost" };
+
+  const cancelled =
+    run.cancellationGeneration !== lease.fence.generation || run.status === "cancelled";
+
+  return { ok: false, loss: cancelled ? "fenced" : "run_ended" };
+}
+
 export const postgresStagingStore: StagingStore = {
   async findPriorRejection(query) {
     const rows = await db()
@@ -238,14 +364,22 @@ export const postgresStagingStore: StagingStore = {
         reason: actionStagings.rejectReason,
         status: actionStagings.status,
         decidedAt: actionStagings.decidedAt,
+        dispatchClaimedAt: actionStagings.dispatchClaimedAt,
       })
       .from(actionStagings)
       .where(
         and(
           eq(actionStagings.runId, query.runId),
           eq(actionStagings.toolName, query.toolName),
-          eq(actionStagings.proposedInputHash, query.proposedInputHash),
-          inArray(actionStagings.status, query.statuses),
+          or(
+            eq(actionStagings.proposedInputHash, query.proposedInputHash),
+            query.input === undefined ? undefined : eq(actionStagings.proposedInput, query.input),
+            query.input === undefined ? undefined : eq(actionStagings.decidedInput, query.input),
+          ),
+          or(
+            inArray(actionStagings.status, query.statuses),
+            and(eq(actionStagings.status, "expired"), isNotNull(actionStagings.dispatchClaimedAt)),
+          ),
         ),
       )
       .orderBy(desc(actionStagings.decidedAt))
@@ -253,7 +387,24 @@ export const postgresStagingStore: StagingStore = {
 
     const row = rows[0];
 
-    return row ? { reason: row.reason, status: row.status } : null;
+    return row
+      ? {
+          reason: row.reason,
+          status: row.status,
+          ...(stagingMayHaveRun(row) ? { mayHaveRun: true as const } : {}),
+        }
+      : null;
+  },
+
+  async readStaging(query) {
+    const [row] = await db()
+      .select(STAGING_COLUMNS)
+      .from(actionStagings)
+      .where(
+        and(eq(actionStagings.runId, query.runId), eq(actionStagings.toolCallId, query.toolCallId)),
+      );
+
+    return row ? parseStagingRow(row) : null;
   },
 
   async findUnresolvedUnknown(query) {
@@ -304,18 +455,6 @@ export const postgresStagingStore: StagingStore = {
       .limit(1);
 
     return rows[0]?.fullAutonomy === true;
-  },
-
-  async hasStaging(query) {
-    const rows = await db()
-      .select({ id: actionStagings.id })
-      .from(actionStagings)
-      .where(
-        and(eq(actionStagings.runId, query.runId), eq(actionStagings.toolCallId, query.toolCallId)),
-      )
-      .limit(1);
-
-    return rows.length > 0;
   },
 
   async upsertStaging(values) {
@@ -376,6 +515,81 @@ export const postgresStagingStore: StagingStore = {
     return row ? parseStagingRow(row) : null;
   },
 
+  async claimDispatch(stagingId, lease, claimedAt) {
+    const leased = await withDispatchLease(lease, async (tx): Promise<DispatchClaim> => {
+      const claimed = await tx
+        .update(actionStagings)
+        .set({
+          // A JS time, not `now()`: millisecond precision reads back equal, so the commit can match it.
+          dispatchClaimedAt: claimedAt,
+          rowVersion: sql`${actionStagings.rowVersion} + 1`,
+        })
+        .where(
+          and(
+            eq(actionStagings.id, stagingId),
+            eq(actionStagings.runId, lease.runId),
+            runnableStagingSql(),
+            isNull(actionStagings.dispatchClaimedAt),
+          ),
+        )
+        .returning({ id: actionStagings.id });
+
+      return claimed.length > 0 ? "claimed" : "not_claimable";
+    });
+
+    return leased.ok ? leased.value : leased.loss;
+  },
+
+  async restageInterrupted(stagingId, lease, restage) {
+    const leased = await withDispatchLease(lease, async (tx): Promise<InterruptedRestageResult> => {
+      const [restaged] = await tx
+        .update(actionStagings)
+        .set({
+          status: "pending",
+          requiresApproval: true,
+          outcome: "awaiting_approval",
+          riskTier: restage.riskTier,
+          // The card shows `proposedInput`, so an earlier edit moves there and approve runs it.
+          proposedInput: restage.proposedInput,
+          displayInput: restage.displayInput,
+          // Keep the first proposal hash: rejection must also suppress the model's original call.
+          // `decided_input` stays: an approve with no new edit leaves it, so the result still
+          // reports the user's earlier edit to the model.
+          decidedAt: null,
+          notifyAfterAt: restage.notifyAfterAt,
+          // A new card gets a new notice.
+          notifiedAt: null,
+          expiresAt: restage.expiresAt,
+          rowVersion: sql`${actionStagings.rowVersion} + 1`,
+        })
+        .where(
+          and(
+            eq(actionStagings.id, stagingId),
+            eq(actionStagings.runId, lease.runId),
+            // `isInterruptedClaim`: a gated `pending` row is already a card.
+            runnableStagingSql(),
+            isNotNull(actionStagings.dispatchClaimedAt),
+          ),
+        )
+        .returning(STAGING_COLUMNS);
+
+      if (restaged) return { kind: "restaged", row: parseStagingRow(restaged) };
+
+      const [current] = await tx
+        .select(STAGING_COLUMNS)
+        .from(actionStagings)
+        .where(eq(actionStagings.id, stagingId));
+
+      if (!current) {
+        throw new Error(`[dispatch] interrupted staging row is gone (staging=${stagingId})`);
+      }
+
+      return { kind: "moved", row: parseStagingRow(current) };
+    });
+
+    return leased.ok ? leased.value : { kind: leased.loss };
+  },
+
   async commitStaging(stagingId, expected, commit) {
     const [updated] = await db()
       .update(actionStagings)
@@ -386,6 +600,9 @@ export const postgresStagingStore: StagingStore = {
       .where(
         and(
           eq(actionStagings.id, stagingId),
+          expected.dispatchClaimedAt === null
+            ? isNull(actionStagings.dispatchClaimedAt)
+            : eq(actionStagings.dispatchClaimedAt, expected.dispatchClaimedAt),
           or(
             and(
               eq(actionStagings.status, expected.status),

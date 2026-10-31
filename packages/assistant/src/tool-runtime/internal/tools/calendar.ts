@@ -452,6 +452,7 @@ export const calendarTools: readonly RegisteredTool[] = [
     integration: "calendar",
     action: "list_events",
     riskTier: "no_risk",
+    replay: "safe",
     description:
       "List Google Calendar events. Prefer the relative window fields for today/tomorrow/next-week questions; use explicit RFC3339 bounds only when the user gave exact dates or times.",
     discovery: {
@@ -483,6 +484,7 @@ export const calendarTools: readonly RegisteredTool[] = [
     integration: "calendar",
     action: "create_event",
     riskTier: "medium",
+    replay: "unsafe",
     description: "Create a Google Calendar event after the user approves the details.",
     discovery: {
       aliases: ["create calendar event", "schedule meeting", "add to calendar"],
@@ -504,6 +506,7 @@ export const calendarTools: readonly RegisteredTool[] = [
     integration: "calendar",
     action: "update_event",
     riskTier: "medium",
+    replay: "unsafe",
     description:
       "Change a Google Calendar event that the user organizes: title, description, location, " +
       "time, or guests. Pass the event reference from calendar.list_events. Only the fields " +
@@ -530,6 +533,7 @@ export const calendarTools: readonly RegisteredTool[] = [
     integration: "calendar",
     action: "delete_event",
     riskTier: "high",
+    replay: "safe",
     description:
       "Delete a Google Calendar event that the user organizes, after the user approves it. " +
       "Pass the event reference from calendar.list_events. Google emails the guests that it " +
@@ -556,6 +560,7 @@ export const calendarTools: readonly RegisteredTool[] = [
     action: "respond_to_event",
     // Google emails the answer and the note to the organizer, so it is a real send.
     riskTier: "high",
+    replay: "unsafe",
     description:
       "Accept, decline, or tentatively accept a Google Calendar invitation for the user, " +
       "with an optional note, after the user approves it. Pass the event reference from " +
@@ -580,6 +585,7 @@ export const calendarTools: readonly RegisteredTool[] = [
     integration: "calendar",
     action: "request",
     riskTier: "no_risk",
+    replay: "safe",
     availability: { passthrough: true },
     description:
       "Issue a raw, READ-ONLY Google Calendar REST call for anything the curated calendar tools don't cover — the user's calendar list (GET '/users/me/calendarList', '/users/me/calendarList/{id}'), a specific calendar's metadata (GET '/calendars/{id}'), raw event reads on any calendar (GET '/calendars/{id}/events', '/calendars/{id}/events/{eventId}'), the color palette (GET '/colors'), or free/busy across calendars (POST '/freeBusy' with a `body` of timeMin, timeMax, and items: [{id}]). Prefer the curated calendar.list_events for normal 'what's on my schedule' reads — it resolves the time window in the user's timezone; use this only for structure/metadata the curated tool doesn't return. Pass `method` (GET or HEAD; POST only for '/freeBusy'; the boundary rejects every other write), a namespace-relative `path` beginning with '/' (include the API version's resource segment, e.g. '/users/me/calendarList'; never a full URL and never the '/calendar/v3' prefix), and `query` for parameters (timeMin, timeMax, singleEvents, maxResults). This is a raw, unvalidated read: a 404 or empty list may mean your path/params were wrong — NOT that the thing is absent. Correct the path once and retry, or state the uncertainty. Never report a raw empty as a confident zero.",

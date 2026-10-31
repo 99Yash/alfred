@@ -176,6 +176,7 @@ export const gmailTools: readonly RegisteredTool[] = [
     integration: "gmail",
     action: "search",
     riskTier: "no_risk",
+    replay: "safe",
     description:
       "Search Gmail messages using Gmail query operators. Each hit carries the headers needed to " +
       "identify it without a follow-up read: `from` (sender), `subject`, `snippet`, `authoredAt`, " +
@@ -280,6 +281,7 @@ export const gmailTools: readonly RegisteredTool[] = [
     integration: "gmail",
     action: "read_message",
     riskTier: "low",
+    replay: "safe",
     description:
       "Read the full text and metadata for one Gmail message. Pass the `messageId` from a " +
       "gmail.search hit (or a `documentId` for an ingested message). Reads the cached copy when " +
@@ -385,6 +387,7 @@ export const gmailTools: readonly RegisteredTool[] = [
     integration: "gmail",
     action: "get_thread",
     riskTier: "low",
+    replay: "safe",
     description:
       "Read a whole Gmail thread in order: each message's sender, recipients, date, unread state " +
       "and body, plus the thread's label names. Pass a `threadId` from gmail.search.",
@@ -444,6 +447,7 @@ export const gmailTools: readonly RegisteredTool[] = [
     integration: "gmail",
     action: "modify_thread",
     riskTier: "medium",
+    replay: "safe",
     description:
       "Add or remove labels on every message of a Gmail thread, by label name. A missing user " +
       "label is created. System labels do the mailbox actions: remove INBOX to archive, " +
@@ -497,6 +501,7 @@ export const gmailTools: readonly RegisteredTool[] = [
     integration: "gmail",
     action: "modify_message",
     riskTier: "medium",
+    replay: "safe",
     description:
       "Add or remove labels on ONE Gmail message, by label name. Use it when only one message " +
       "of a thread must change; gmail.modify_thread changes them all. A missing user label is " +
@@ -549,6 +554,7 @@ export const gmailTools: readonly RegisteredTool[] = [
     integration: "gmail",
     action: "create_draft",
     riskTier: "low",
+    replay: "unsafe",
     description:
       "Save a plain-text Gmail draft and send nothing. The user reviews and sends it from Gmail, " +
       "so any recipient is allowed. Pass `threadId` to save a reply draft in that thread.",
@@ -584,6 +590,7 @@ export const gmailTools: readonly RegisteredTool[] = [
     integration: "gmail",
     action: "send_draft",
     riskTier: "high",
+    replay: "unsafe",
     description:
       "Send a Gmail message after the user approves it. Recipients must be the active mailbox or people the user has emailed before. To save without sending, use gmail.create_draft.",
     discovery: {
@@ -623,6 +630,7 @@ export const gmailTools: readonly RegisteredTool[] = [
     integration: "gmail",
     action: "request",
     riskTier: "no_risk",
+    replay: "safe",
     availability: { passthrough: true },
     description:
       "Issue a raw, READ-ONLY Gmail REST call, scoped to the connected user's own mailbox, for anything the curated gmail tools don't cover — most usefully the user's LABELS: GET '/labels' lists them, GET '/labels/{id}' reads one. Gmail's user labels ARE Alfred's own triage tags (e.g. '4: awaiting reply', '5: meeting', '6: fyi'), so this is how you reconcile the live mailbox against Alfred's triage state. Also reachable: GET '/messages', '/messages/{id}', '/threads', '/threads/{id}', '/settings/*'. Pass `method` (GET or HEAD only — writes are rejected at the boundary), a mailbox-relative `path` beginning with '/' (never a full URL; the path is already rooted at the user's own mailbox, so do NOT include '/users/me'), and `query` for parameters (labelIds, q, maxResults, format). This is a raw, unvalidated read: a 404 or empty list may mean your path/params were wrong — NOT that the thing is absent. Correct the path once and retry, or state the uncertainty. Never report a raw empty as a confident zero.",

@@ -15,6 +15,7 @@ export const slidesTools: readonly RegisteredTool[] = [
     integration: "slides",
     action: "create_presentation",
     riskTier: "medium",
+    replay: "unsafe",
     description: "Create a new Google Slides presentation in the user's Drive.",
     inputSchema: slidesCreateInput,
     execute: async (input, ctx) => {
@@ -30,6 +31,7 @@ export const slidesTools: readonly RegisteredTool[] = [
     integration: "slides",
     action: "get_presentation",
     riskTier: "no_risk",
+    replay: "safe",
     description: "Fetch a presentation's title, revision, and slide count.",
     inputSchema: slidesGetInput,
     execute: async (input, ctx) => {
@@ -45,6 +47,7 @@ export const slidesTools: readonly RegisteredTool[] = [
     integration: "slides",
     action: "batch_update",
     riskTier: "medium",
+    replay: "unsafe",
     description:
       "Edit a presentation (add slides, insert text, create shapes/images, …) via raw Slides API request objects.",
     inputSchema: slidesBatchUpdateInput,
@@ -62,6 +65,7 @@ export const slidesTools: readonly RegisteredTool[] = [
     integration: "slides",
     action: "add_slide",
     riskTier: "medium",
+    replay: "unsafe",
     description: "Append a blank slide (optionally with a predefined layout) to a presentation.",
     inputSchema: slidesAddSlideInput,
     execute: async (input, ctx) => {
@@ -78,6 +82,7 @@ export const slidesTools: readonly RegisteredTool[] = [
     integration: "slides",
     action: "request",
     riskTier: "no_risk",
+    replay: "safe",
     availability: { passthrough: true },
     description:
       "Issue a raw, READ-ONLY Google Slides REST call for a presentation's STRUCTURE — its slides, layouts, masters, and the page elements (shapes, text, images) on a single page. GET '/presentations/{presentationId}' returns the whole deck (scope it with a `fields` mask like 'slides.objectId,title'; the full deck is large and will be truncated-and-flagged), or read one page with GET '/presentations/{presentationId}/pages/{pageObjectId}'. Prefer the targeted per-page read over dumping the whole presentation. The curated slides.get_presentation returns the title/revision/slide count for a quick summary. Pass `method` (GET or HEAD only — writes are rejected at the boundary), a namespace-relative `path` beginning with '/' (never a full URL and never the '/v1' prefix), and `query` for parameters (fields). This is a raw, unvalidated read: a 404 may mean your id/path was wrong — NOT that the thing is absent. Correct the path once and retry, or state the uncertainty. Never report a raw empty as a confident zero.",

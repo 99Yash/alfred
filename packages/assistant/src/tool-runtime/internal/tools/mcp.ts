@@ -74,6 +74,7 @@ export const mcpTools: readonly RegisteredTool[] = [
     action: "call",
     // An outbound call to an external server always confirms (ADR-0069).
     riskTier: "high",
+    replay: "safe",
     description:
       "Invoke a tool on a connected MCP server. Supply the `connectionId`, remote `remoteName`, and `catalogRevision` from the exact ref returned by system.search_tools or mcp.list_tools, plus `arguments` matching the tool schema. Use mcp.inspect_tool if you need the full schema. The call is validated against the server's exact schema and routed through Alfred's approval + durable-execution boundary; a write that may have been delivered but not confirmed comes back as `status:\"unknown\"` and MUST NOT be repeated — check its state instead.",
     discovery: {
@@ -136,6 +137,7 @@ export const mcpTools: readonly RegisteredTool[] = [
     integration: "mcp",
     action: "list_tools",
     riskTier: "no_risk",
+    replay: "safe",
     description:
       'Search the tools in all connected MCP catalogs. Returns compact hits with an exact `ref`, namespace, and connection identity. `query` matches tool names, titles, and descriptions: every word must match, and a word that names the connection ("railway" for Railway MCP) is skipped. Scope with `namespace` or `connectionId`; continue with `cursor`. Use mcp.inspect_tool to inspect a full descriptor. This is a local read.',
     discovery: {
@@ -156,6 +158,7 @@ export const mcpTools: readonly RegisteredTool[] = [
     integration: "mcp",
     action: "inspect_tool",
     riskTier: "no_risk",
+    replay: "safe",
     description:
       "Inspect one connected MCP tool by the exact ref returned by mcp.list_tools or system.search_tools. Pass only `ref`.",
     discovery: {

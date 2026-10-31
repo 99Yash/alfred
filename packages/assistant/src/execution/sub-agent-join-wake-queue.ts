@@ -11,6 +11,7 @@ import { Queue } from "bullmq";
 import { z } from "zod";
 import { createRedisConnection, isQueueEnabled } from "@alfred/db/redis";
 import { logger } from "@alfred/logging";
+import { clearFinishedJob } from "@alfred/assistant/queue-jobs";
 
 export const SUB_AGENT_JOIN_WAKE_QUEUE_NAME = "sub-agent-join-wake";
 
@@ -60,17 +61,9 @@ export async function scheduleSubAgentJoinWakeJob(args: {
   try {
     const queue = getSubAgentJoinWakeQueue();
     const jobId = subAgentJoinWakeJobId(args.childRunId);
-    // `add` no-ops on an existing id, and a completed job is kept for an hour.
-    // Remove a finished job so a re-park gets a live timer; leave delayed and active jobs alone.
-    const existing = await queue.getJob(jobId);
-
-    if (existing) {
-      const state = await existing.getState();
-
-      if (state === "completed" || state === "failed") {
-        await existing.remove();
-      }
-    }
+    // A re-park needs a live timer. An unfinished job covers it, and the join reconciler is the
+    // backstop when the wake ran too early.
+    await clearFinishedJob(queue, jobId);
 
     await queue.add(
       "sub-agent-join.wake",

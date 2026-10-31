@@ -29,6 +29,9 @@ import { actionStagings, agentRunContext, agentRuns, user as userTable } from "@
 import { createRedisConnection } from "@alfred/db/redis";
 import { and, eq } from "drizzle-orm";
 
+/** A fresh run's first step: fence generation 0 and executor attempt 0, the Postgres defaults. */
+const FIRST_STEP = { fence: { generation: 0 }, attempt: 0 } as const;
+
 /** Captured scratch health spans (#408), so the smoke can check them without Langfuse. */
 interface CapturedScratchSpan {
   input: RuntimeSpanInput;
@@ -168,7 +171,7 @@ async function main(): Promise<void> {
     timezone,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
-    fence: { generation: 0 },
+    ...FIRST_STEP,
   });
 
   if (bossWrite.kind !== "executed") {
@@ -198,7 +201,7 @@ async function main(): Promise<void> {
     timezone,
     caller: { subId: "subA" },
     runContext: { caller: "sub_agent", interaction: "background" },
-    fence: { generation: 0 },
+    ...FIRST_STEP,
   });
 
   if (subWrite.kind !== "executed") {
@@ -222,7 +225,7 @@ async function main(): Promise<void> {
     timezone,
     caller: { subId: "subA" },
     runContext: { caller: "sub_agent", interaction: "background" },
-    fence: { generation: 0 },
+    ...FIRST_STEP,
   });
 
   if (subSharedWrite.kind !== "invalid_input") {
@@ -242,7 +245,7 @@ async function main(): Promise<void> {
     timezone,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
-    fence: { generation: 0 },
+    ...FIRST_STEP,
   });
 
   if (bossScratchWrite.kind !== "invalid_input") {
@@ -262,7 +265,7 @@ async function main(): Promise<void> {
     timezone,
     caller: { subId: "subA" },
     runContext: { caller: "sub_agent", interaction: "background" },
-    fence: { generation: 0 },
+    ...FIRST_STEP,
   });
 
   if (subOtherRead.kind !== "invalid_input") {
@@ -282,7 +285,7 @@ async function main(): Promise<void> {
     timezone,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
-    fence: { generation: 0 },
+    ...FIRST_STEP,
   });
 
   if (promotedByDispatch.kind !== "executed") {

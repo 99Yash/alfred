@@ -15,6 +15,7 @@ import { postgresStagingStore } from "../../../src/tool-runtime/internal/dispatc
 import { closeRedis } from "@alfred/db/redis";
 import { runStagingStoreContract, type StagingStoreHarness } from "./staging-store-contract";
 import { dbBackedSkip } from "../../support/db-backed";
+import { FIRST_STEP } from "../../support/first-step";
 
 const UTC = parseIanaTimezone("UTC");
 
@@ -76,6 +77,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
         integration: "system",
         action: "load_tool",
         riskTier: "no_risk",
+        replay: "safe",
         description: "test double — counts executions",
         inputSchema: z.object({ slug: z.string() }),
         execute: async (input) => {
@@ -102,6 +104,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
         integration: "system",
         action: "fetch_url",
         riskTier: "no_risk",
+        replay: "safe",
         description: "test double — echoes the raw url it received + redacts on persist",
         inputSchema: z.object({ url: z.string() }),
         execute: async (input) => {
@@ -121,6 +124,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
         integration: "system",
         action: "spawn_sub_agent",
         riskTier: "no_risk",
+        replay: "safe",
         description: "test double — should never execute in these tests",
         inputSchema: z.object({}).loose(),
         execute: async () => {
@@ -161,7 +165,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       timezone: UTC,
       caller: "boss" as const,
       runContext: { caller: "boss", interaction: "background" } as const,
-      fence: { generation: 0 } as const,
+      ...FIRST_STEP,
     };
 
     const first = await dispatchToolCall(args);
@@ -203,7 +207,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       timezone: UTC,
       caller: "boss" as const,
       runContext: { caller: "boss", interaction: "background" } as const,
-      fence: { generation: 0 } as const,
+      ...FIRST_STEP,
     };
 
     const first = await dispatchToolCall(args);
@@ -241,7 +245,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       timezone: UTC,
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
-      fence: { generation: 0 },
+      ...FIRST_STEP,
     });
 
     if (result.kind !== "failed") {
@@ -299,7 +303,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       timezone: UTC,
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
-      fence: { generation: 0 },
+      ...FIRST_STEP,
     });
 
     assert.deepEqual(result, {
@@ -333,7 +337,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       timezone: UTC,
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
-      fence: { generation: 0 },
+      ...FIRST_STEP,
     });
 
     // The in-tool credential block needs the real value.
@@ -377,7 +381,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       timezone: UTC,
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
-      fence: { generation: 0 },
+      ...FIRST_STEP,
     });
     assert.equal(executeCount, before + 1, "a new tool_call_id is a distinct call and re-executes");
   });
@@ -396,7 +400,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       timezone: UTC,
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
-      fence: { generation: 0 },
+      ...FIRST_STEP,
     });
     // Two tools under one call id must throw, not run against the first row's audit trail.
     await assert.rejects(
@@ -411,7 +415,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
         timezone: UTC,
         caller: "boss",
         runContext: { caller: "boss", interaction: "background" },
-        fence: { generation: 0 },
+        ...FIRST_STEP,
       }),
       /toolName mismatch on re-dispatch/,
     );

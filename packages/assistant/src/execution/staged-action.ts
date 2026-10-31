@@ -104,6 +104,7 @@ type LockedStaging = Pick<
   | "runId"
   | "status"
   | "requiresApproval"
+  | "dispatchClaimedAt"
   | "createdAt"
   | "toolName"
   | "integration"
@@ -187,6 +188,9 @@ async function decideStagedAction(
           .update(actionStagings)
           .set({
             ...approval.revision,
+            // A may-have-run revision must still suppress the first proposal after rejection.
+            proposedInputHash:
+              row.dispatchClaimedAt === null ? approval.revision.proposedInputHash : undefined,
             decidedInput: null,
             expiresAt,
             rowVersion: sql`${actionStagings.rowVersion} + 1`,
@@ -210,8 +214,11 @@ async function decideStagedAction(
           status: "approved",
           // The MCP broker requires `dispatching` before it reserves an invocation.
           outcome: "dispatching",
+          // `undefined` leaves the column alone, so a may-have-run card keeps an earlier edit.
           decidedInput: approval.decidedInput,
           decidedAt: now,
+          // "Run again" on a may-have-run card. Without this the resumed dispatch restages again.
+          dispatchClaimedAt: null,
           rowVersion: sql`${actionStagings.rowVersion} + 1`,
         })
         .where(eq(actionStagings.id, row.id));
@@ -255,7 +262,8 @@ async function decideStagedAction(
       .update(actionStagings)
       .set({
         status: "rejected",
-        // `refused`, not `failed`: the provider was never called.
+        // `refused`, not `failed`: the decided call never reached the provider. On a may-have-run
+        // card, `dispatch_claimed_at` records the earlier attempt that may have.
         outcome: "refused",
         rejectReason: input.reason ?? null,
         decidedAt: now,
@@ -404,6 +412,7 @@ async function lockStagingWithRunInTx(
       runId: actionStagings.runId,
       status: actionStagings.status,
       requiresApproval: actionStagings.requiresApproval,
+      dispatchClaimedAt: actionStagings.dispatchClaimedAt,
       createdAt: actionStagings.createdAt,
       toolName: actionStagings.toolName,
       integration: actionStagings.integration,

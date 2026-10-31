@@ -84,6 +84,7 @@ export const driveTools: readonly RegisteredTool[] = [
     integration: "drive",
     action: "search_files",
     riskTier: "no_risk",
+    replay: "safe",
     description: "Search or list the user's Drive files (with an optional Drive query string).",
     inputSchema: driveSearchInput,
     execute: async (input, ctx) => {
@@ -102,6 +103,7 @@ export const driveTools: readonly RegisteredTool[] = [
     integration: "drive",
     action: "get_file",
     riskTier: "no_risk",
+    replay: "safe",
     description: "Read one Drive file's metadata (name, mimeType, modified time, link, owners).",
     inputSchema: driveGetFileInput,
     execute: async (input, ctx) => {
@@ -114,6 +116,7 @@ export const driveTools: readonly RegisteredTool[] = [
     integration: "drive",
     action: "export_file",
     riskTier: "low",
+    replay: "safe",
     description:
       "Read a Google-native file (Doc/Sheet/Slide) in as text so you can reason over its contents. Text export only (text/plain default, text/csv, text/markdown, text/html) — it does NOT produce a downloadable PDF/slides/spreadsheet; that is a separate capability. Use download_file for non-Google uploads. When the user wants a shareable document, a live Google Sheet/Doc link is the deliverable.",
     inputSchema: driveExportFileInput,
@@ -141,6 +144,7 @@ export const driveTools: readonly RegisteredTool[] = [
     integration: "drive",
     action: "download_file",
     riskTier: "low",
+    replay: "safe",
     description:
       "Download a non-Google file's contents as text (best for .txt/.csv/.json uploads; binary comes back garbled).",
     inputSchema: driveDownloadFileInput,
@@ -167,6 +171,7 @@ export const driveTools: readonly RegisteredTool[] = [
     integration: "drive",
     action: "request",
     riskTier: "no_risk",
+    replay: "safe",
     availability: { passthrough: true },
     description:
       "Issue a raw, READ-ONLY Google Drive REST call for file STRUCTURE and metadata the curated drive tools don't return — list/search files (GET '/files'), one file's full metadata (GET '/files/{id}' with a `fields` query for owners/parents/permissions/capabilities), the user + storage quota (GET '/about'), shared drives (GET '/drives'), or the change feed (GET '/changes'). To read a file's CONTENT as text, use the curated drive.export_file (Google-native docs) or drive.download_file (uploads) — this raw read is for structure, not content. Pass `method` (GET or HEAD only — writes are rejected at the boundary), a namespace-relative `path` beginning with '/' (never a full URL and never the '/drive/v3' prefix), and `query` for parameters (q, fields, pageSize, orderBy, includeItemsFromAllDrives). This is a raw, unvalidated read: a 404 or empty list may mean your path/params were wrong — NOT that the thing is absent. Correct the path once and retry, or state the uncertainty. Never report a raw empty as a confident zero.",

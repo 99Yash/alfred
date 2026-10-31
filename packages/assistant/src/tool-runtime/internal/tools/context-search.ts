@@ -12,6 +12,7 @@ export const contextSearchTools: readonly RegisteredTool[] = [
     integration: "system",
     action: "search_context",
     riskTier: "no_risk",
+    replay: "safe",
     staging: "fast_path",
     // Kernel: the chat prompt names it as the first pass, so it must exist on turn one.
     availability: { surface: "kernel" },

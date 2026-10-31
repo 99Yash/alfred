@@ -114,6 +114,7 @@ export const githubTools: readonly RegisteredTool[] = [
     integration: "github",
     action: "search",
     riskTier: "no_risk",
+    replay: "safe",
     description:
       "Search the user's GitHub issues and pull requests by author, state, type, and time window. Returns an exact total count plus the matching items. Use the structured fields for type/author/state/recency — anything you put in `query` (author:, is:, state:) is folded into them automatically. 'How many PRs did I merge today' → type:'pr', state:'merged', mergedWithinDays:1. 'My open issues' → type:'issue', state:'open'. 'What did I ship this week' → state:'all', activeWithinDays:7 — one search, never one per state. Each item carries createdAt, mergedAt, closedAt, state and merged, so read those to say which event happened when. type defaults to pr; author defaults to @me ONLY for an unscoped search — a repo:/org:-scoped search is NOT narrowed to your items unless you set author:'@me'. For diff stats on the hits, pass them all to github.get_pull_requests in one call.",
     discovery: {
@@ -163,6 +164,7 @@ export const githubTools: readonly RegisteredTool[] = [
     integration: "github",
     action: "get_pull_request",
     riskTier: "no_risk",
+    replay: "safe",
     description:
       "Fetch ONE pull request by owner/repo/number. Returns diff stats — additions, deletions, changed_files, commits — that search cannot. For two or more PRs (every hit of a search, a set to total) use github.get_pull_requests once instead of calling this per PR.",
     discovery: {
@@ -184,6 +186,7 @@ export const githubTools: readonly RegisteredTool[] = [
     integration: "github",
     action: "get_pull_requests",
     riskTier: "no_risk",
+    replay: "safe",
     description:
       "Fetch SEVERAL pull requests in one call — pass every owner/repo/pull_number (or each hit's url) from a search as `items`. Returns each PR's diff stats (additions, deletions, changed_files, commits) plus `totals` summed for you, and lists any item that could not be fetched under `failed`. This is the way to total lines changed across a set of PRs or to summarize recent PR work: one search, then one call here — never one github.get_pull_request per hit.",
     discovery: {
@@ -207,6 +210,7 @@ export const githubTools: readonly RegisteredTool[] = [
     integration: "github",
     action: "get_issue",
     riskTier: "no_risk",
+    replay: "safe",
     description:
       "Fetch one issue by owner/repo/number. Returns the issue body, labels, and comment count (search returns only the title and metadata).",
     discovery: {
@@ -228,6 +232,7 @@ export const githubTools: readonly RegisteredTool[] = [
     integration: "github",
     action: "request",
     riskTier: "no_risk",
+    replay: "safe",
     availability: { passthrough: true },
     description:
       "Issue a raw, READ-ONLY GitHub REST call for anything the curated github tools don't cover — repo-scoped reads such as workflow runs, commits, releases, branches, tags, contents, issues/pulls detail (e.g. GET '/repos/{owner}/{repo}/actions/runs', '/repos/{owner}/{repo}/commits', '/repos/{owner}/{repo}/releases'). Pass `method` (GET or HEAD only — writes are rejected at the boundary), a namespace-relative `path` beginning with '/' (never a full URL), and `query` for parameters (per_page, page, sha, branch, since). GitHub's list endpoints paginate — set per_page/page rather than assuming the first page is everything. Note '/notifications' is user-scoped and NOT reachable under the App installation token; the curated github.search covers issues/PRs across repos. This is a raw, unvalidated read: a 404 or empty array may mean your path/params were wrong — NOT that the thing is absent. Correct the path once and retry, or state the uncertainty. Never report a raw empty as a confident zero.",

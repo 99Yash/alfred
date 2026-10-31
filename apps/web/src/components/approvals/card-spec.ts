@@ -145,8 +145,12 @@ export function approveButtonLabel(
   toolName: ToolName,
   riskTier: ToolRiskTier,
   edited: boolean,
+  mayHaveRun: boolean,
 ): string {
   if (edited && toolName === "system.activate_workflow") return "Review changes";
+
+  // The call started once and did not finish, so approve repeats it.
+  if (mayHaveRun) return edited ? "Run changes" : "Run again";
 
   if (edited) return isWriteRiskTier(riskTier) ? "Approve changes" : "Allow changes";
 

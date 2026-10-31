@@ -16,7 +16,9 @@ export type ActionStagingStatus = z.infer<typeof actionStagingStatusSchema>;
 /**
  * What happened to the write, apart from the approval `status`.
  * `unknown`: maybe delivered, never proven. It blocks repeats and never auto-retries.
- * `refused`: the provider was never called, so it is not an attempt.
+ * `refused`: the provider was not called for this decision, so it is not an attempt. When
+ * `dispatch_claimed_at` is set, an earlier interrupted attempt may have reached it: the user then
+ * refused to run the call again.
  * `superseded`: a new user authorization replaced an `unknown` row. The unique index
  * allows one `unknown` row per `request_hash`. Only the MCP recovery path writes it.
  */

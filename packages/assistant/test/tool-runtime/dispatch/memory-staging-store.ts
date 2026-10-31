@@ -6,29 +6,32 @@
 import {
   assertNever,
   cancellationFenceSchema,
+  hashToolInput,
+  isTerminalStatus,
   toJsonValue,
   type ActionStagingStatus,
   type CancellationFence,
   type RunStatus,
 } from "@alfred/contracts";
-import type { ActionStaging } from "@alfred/db/schemas";
 
 import {
   attemptKeyFor,
   effectKeyFor,
   effectsColumn,
+  isInterruptedClaim,
+  isRunnableStaging,
   outcomeForInsert,
+  stagingMayHaveRun,
   type StagingInsertValues,
   type StagingRow,
   type StagingStore,
 } from "../../../src/tool-runtime/internal/dispatch/staging-store";
+import type { DispatchStepLease } from "@alfred/assistant/tool-runtime";
 
 /** The gate's view plus what the contract reads back. */
 interface StoredRow extends StagingRow {
   userId: string;
   toolCallId: string;
-  /** Not in `StagingRow`: the gate never branches on it. */
-  displayInput: ActionStaging["displayInput"];
   decidedAt: Date | null;
   executedAt: Date | null;
   rowVersion: number;
@@ -72,6 +75,19 @@ export function memoryStagingStore(): MemoryStagingStore {
     return row;
   }
 
+  /** The Postgres lease check. A seeded run is at attempt 0, the Postgres default. */
+  function checkLease(lease: DispatchStepLease): "lease_lost" | "fenced" | "run_ended" | null {
+    const status = runs.get(lease.runId);
+
+    if (status === undefined || lease.attempt !== 0) return "lease_lost";
+
+    if (status === "cancelled" || (fences.get(lease.runId) ?? 0) !== lease.fence.generation) {
+      return "fenced";
+    }
+
+    return isTerminalStatus(status) ? "run_ended" : null;
+  }
+
   /** A copy, so a caller cannot mutate storage. */
   function project(row: StoredRow): StagingRow {
     return {
@@ -82,6 +98,7 @@ export function memoryStagingStore(): MemoryStagingStore {
       toolName: row.toolName,
       riskTier: row.riskTier,
       proposedInput: row.proposedInput,
+      displayInput: row.displayInput,
       proposedInputHash: row.proposedInputHash,
       decidedInput: row.decidedInput,
       rejectReason: row.rejectReason,
@@ -89,6 +106,7 @@ export function memoryStagingStore(): MemoryStagingStore {
       executeSanitized: row.executeSanitized,
       executeEffects: row.executeEffects,
       executeError: row.executeError,
+      dispatchClaimedAt: row.dispatchClaimedAt,
       notifyAfterAt: row.notifyAfterAt,
       notifiedAt: row.notifiedAt,
       expiresAt: row.expiresAt,
@@ -135,8 +153,13 @@ export function memoryStagingStore(): MemoryStagingStore {
         (row) =>
           row.runId === query.runId &&
           row.toolName === query.toolName &&
-          row.proposedInputHash === query.proposedInputHash &&
-          query.statuses.some((status) => status === row.status),
+          (row.proposedInputHash === query.proposedInputHash ||
+            (query.input !== undefined &&
+              (hashToolInput(row.toolName, row.proposedInput) === query.proposedInputHash ||
+                (row.decidedInput !== null &&
+                  hashToolInput(row.toolName, row.decidedInput) === query.proposedInputHash)))) &&
+          (query.statuses.some((status) => status === row.status) ||
+            (row.status === "expired" && stagingMayHaveRun(row))),
       );
 
       candidates.sort((a, b) => (b.decidedAt?.getTime() ?? 0) - (a.decidedAt?.getTime() ?? 0));
@@ -144,7 +167,11 @@ export function memoryStagingStore(): MemoryStagingStore {
 
       if (hit === undefined) return null;
 
-      return { reason: hit.rejectReason, status: hit.status };
+      return {
+        reason: hit.rejectReason,
+        status: hit.status,
+        ...(stagingMayHaveRun(hit) ? { mayHaveRun: true as const } : {}),
+      };
     },
 
     async findUnresolvedUnknown(query) {
@@ -170,8 +197,10 @@ export function memoryStagingStore(): MemoryStagingStore {
       return false;
     },
 
-    async hasStaging(query) {
-      return byConflictKey.has(conflictKey(query.runId, query.toolCallId));
+    async readStaging(query) {
+      const id = byConflictKey.get(conflictKey(query.runId, query.toolCallId));
+
+      return id === undefined ? null : project(mustGet(id));
     },
 
     async upsertStaging(values: StagingInsertValues) {
@@ -206,6 +235,7 @@ export function memoryStagingStore(): MemoryStagingStore {
         executeEffects: values.executeEffects ?? null,
         executeError: values.executeError ?? null,
         executedAt: values.executedAt ?? null,
+        dispatchClaimedAt: values.dispatchClaimedAt ?? null,
         notifyAfterAt: values.notifyAfterAt ?? null,
         notifiedAt: values.notifiedAt ?? null,
         expiresAt: values.expiresAt ?? null,
@@ -239,8 +269,54 @@ export function memoryStagingStore(): MemoryStagingStore {
       return project(row);
     },
 
+    async claimDispatch(stagingId, lease, claimedAt) {
+      const loss = checkLease(lease);
+
+      if (loss) return loss;
+
+      const row = mustGet(stagingId);
+
+      if (row.runId !== lease.runId || !isRunnableStaging(row) || stagingMayHaveRun(row)) {
+        return "not_claimable";
+      }
+
+      row.dispatchClaimedAt = claimedAt;
+      row.rowVersion += 1;
+
+      return "claimed";
+    },
+
+    async restageInterrupted(stagingId, lease, restage) {
+      const loss = checkLease(lease);
+
+      if (loss) return { kind: loss };
+
+      const row = mustGet(stagingId);
+
+      if (row.runId !== lease.runId || !isInterruptedClaim(row)) {
+        return { kind: "moved", row: project(row) };
+      }
+
+      row.status = "pending";
+      row.requiresApproval = true;
+      row.outcome = "awaiting_approval";
+      row.riskTier = restage.riskTier;
+      row.proposedInput = restage.proposedInput;
+      row.displayInput = restage.displayInput;
+      row.decidedAt = null;
+      row.notifyAfterAt = restage.notifyAfterAt;
+      row.notifiedAt = null;
+      row.expiresAt = restage.expiresAt;
+      row.rowVersion += 1;
+
+      return { kind: "restaged", row: project(row) };
+    },
+
     async commitStaging(stagingId, expected, commit) {
       const row = mustGet(stagingId);
+
+      if (row.dispatchClaimedAt?.getTime() !== expected.dispatchClaimedAt?.getTime()) return false;
+
       const isObservedState = row.status === expected.status && row.outcome === expected.outcome;
 
       const isUnenrichedAggregateState =

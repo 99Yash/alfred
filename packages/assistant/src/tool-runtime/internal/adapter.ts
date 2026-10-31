@@ -18,6 +18,8 @@ export interface RejectedToolResult {
   proposedInput: unknown;
   reason: string;
   retryPolicy: "do_not_retry_identical";
+  /** The interrupted attempt may have applied the write, even if this decision refused a retry. */
+  mayHaveRun?: true;
 }
 
 /** A dismissed or expired question (ADR-0099). Not a failed call anywhere downstream. */

@@ -4,6 +4,7 @@ import { AlertTriangle, Ban, Check, Pencil, RefreshCw, Workflow, X } from "lucid
 import { AppButton, AppCard, AppTextarea } from "~/components/ui/v2";
 import { cn } from "~/lib/utils";
 import { approveButtonLabel, toolChipLabel } from "./card-spec";
+import { MayHaveRunNotice } from "./may-have-run-notice";
 import { formatDateTime } from "~/lib/date-format";
 import { shortId, triggerLabel } from "./format";
 import { ApprovalInputEditor } from "./input-editor";
@@ -51,6 +52,7 @@ export function ApprovalCard({
     reasonMissing,
     title,
     approveDecision,
+    dontRunAgainDecision,
     run,
   } = useApprovalDecision(staging);
 
@@ -104,6 +106,8 @@ export function ApprovalCard({
           </div>
         </div>
       </div>
+
+      {staging.mayHaveRun ? <MayHaveRunNotice /> : null}
 
       {staging.recentRejection ? (
         <div className="flex items-start gap-2 rounded-surface bg-app-amber-1 px-3 py-2.5 text-xs leading-5 text-app-amber-4 shadow-[0_0_0_1px_var(--app-amber-2)]">
@@ -189,16 +193,29 @@ export function ApprovalCard({
       {error ? <p className="text-[12px] text-app-red-4">{error}</p> : null}
 
       <div className="flex flex-wrap items-center justify-end gap-2">
-        {/* Revise returns the action with a note and the run continues. End run stops it. */}
-        <AppButton
-          variant="ghost"
-          size="md"
-          leading={showReason ? ICON_X : ICON_REVISE}
-          disabled={busy}
-          onClick={() => setShowReason((v) => !v)}
-        >
-          {showReason ? "Cancel" : "Revise"}
-        </AppButton>
+        {staging.mayHaveRun ? (
+          // No revision here: the model must not send a corrected call (see the decision hook).
+          <AppButton
+            variant="ghost"
+            size="md"
+            leading={ICON_X}
+            disabled={busy}
+            onClick={() => void decide(dontRunAgainDecision())}
+          >
+            Don't run again
+          </AppButton>
+        ) : (
+          // Revise returns the action with a note and the run continues. End run stops it.
+          <AppButton
+            variant="ghost"
+            size="md"
+            leading={showReason ? ICON_X : ICON_REVISE}
+            disabled={busy}
+            onClick={() => setShowReason((v) => !v)}
+          >
+            {showReason ? "Cancel" : "Revise"}
+          </AppButton>
+        )}
         <AppButton
           variant="primary"
           size="md"
@@ -207,7 +224,7 @@ export function ApprovalCard({
           disabled={busy}
           onClick={() => void decide(approveDecision())}
         >
-          {approveButtonLabel(staging.toolName, staging.riskTier, edited)}
+          {approveButtonLabel(staging.toolName, staging.riskTier, edited, staging.mayHaveRun)}
         </AppButton>
       </div>
     </AppCard>

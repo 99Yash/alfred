@@ -20,8 +20,10 @@ import { createRedisConnection } from "@alfred/db/redis";
 import { send } from "@alfred/assistant/delivery";
 import {
   APPROVAL_NOTIFICATION_QUEUE_NAME,
+  approvalCardKey,
   approvalNotificationJobDataSchema,
   workflowBlockedNotificationJobDataSchema,
+  type ApprovalNotificationJobData,
   type NotificationJobData,
 } from "@alfred/assistant/tool-runtime";
 import { emailLogoUrl, webOrigin } from "@alfred/assistant/settings";
@@ -80,10 +82,8 @@ async function processNotificationJob(
 async function processApprovalNotificationJob({
   stagingId,
   userId,
-}: {
-  stagingId: string;
-  userId: string;
-}): Promise<ApprovalNotificationResult> {
+  card,
+}: ApprovalNotificationJobData): Promise<ApprovalNotificationResult> {
   const rows = await db()
     .select({
       id: actionStagings.id,
@@ -97,6 +97,7 @@ async function processApprovalNotificationJob({
       displayInput: actionStagings.displayInput,
       status: actionStagings.status,
       notifiedAt: actionStagings.notifiedAt,
+      dispatchClaimedAt: actionStagings.dispatchClaimedAt,
       workflowSlug: agentRuns.workflowSlug,
     })
     .from(actionStagings)
@@ -111,6 +112,11 @@ async function processApprovalNotificationJob({
   if (row.status !== "pending") return { status: "skipped", reason: row.status, stagingId };
 
   if (row.notifiedAt) return { status: "skipped", reason: "already_notified", stagingId };
+
+  // Each card of the row has its own job. A job for another card must not send this card early.
+  const rowCard = approvalCardKey(row.dispatchClaimedAt);
+
+  if (card !== rowCard) return { status: "skipped", reason: "other_card", stagingId };
 
   // Use the redacted `display_input`, never the raw payload (#374). The fallback is for legacy
   // rows.
@@ -127,12 +133,15 @@ async function processApprovalNotificationJob({
     riskTier: row.riskTier,
     displayInput,
     approvalUrl,
+    mayHaveRun: rowCard !== undefined,
   });
 
   const result = await send({
     userId: row.userId,
     kind: "approval",
-    idempotencyKey: `approval:${stagingId}`,
+    // A may-have-run card is a new decision on the same row, so its card key keys a new email.
+    idempotencyKey:
+      rowCard === undefined ? `approval:${stagingId}` : `approval:${stagingId}:${rowCard}`,
     subject: rendered.subject,
     html: rendered.html,
     text: rendered.text,
@@ -188,6 +197,8 @@ interface RenderApprovalNotificationArgs {
   riskTier: string;
   displayInput: JsonValue;
   approvalUrl: string;
+  /** The call started once and did not finish. Approve runs it again. */
+  mayHaveRun: boolean;
 }
 
 async function renderApprovalNotification(args: RenderApprovalNotificationArgs): Promise<{
@@ -198,7 +209,13 @@ async function renderApprovalNotification(args: RenderApprovalNotificationArgs):
   // A question asks for an answer, not a decision, so it gets no risk prefix (ADR-0099).
   const isQuestion = isQuestionApproval(args.toolName);
   const action = humanizeToolName(args.toolName);
-  const heading = isQuestion ? "Alfred has a question for you" : `Alfred wants to ${action}`;
+
+  const heading = isQuestion
+    ? "Alfred has a question for you"
+    : args.mayHaveRun
+      ? `Alfred may have already tried to ${action}`
+      : `Alfred wants to ${action}`;
+
   const subject = isQuestion ? heading : `[${args.riskTier}] ${heading}`;
   const inputFields = summarizeInput(args.toolName, args.displayInput);
 
@@ -206,6 +223,9 @@ async function renderApprovalNotification(args: RenderApprovalNotificationArgs):
     { label: "Workflow", value: args.workflowSlug },
     { label: "Tool", value: args.toolName },
     { label: "Risk", value: args.riskTier },
+    ...(args.mayHaveRun
+      ? [{ label: "Status", value: "Interrupted. Check first. Approve runs it again." }]
+      : []),
     ...inputFields,
   ];
 

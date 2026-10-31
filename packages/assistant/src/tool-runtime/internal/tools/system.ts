@@ -94,6 +94,7 @@ export const systemTools: readonly RegisteredTool[] = [
     integration: "system",
     action: "search_tools",
     riskTier: "no_risk",
+    replay: "safe",
     availability: { surface: "kernel" },
     description:
       "Search registered tools and connected MCP catalogs by capability. The result field loaded names the registered hit that is already loaded: call it directly on your next turn. Connected catalog hits instead return name mcp.call with an exact ref (connectionId, remoteName, catalogRevision); load mcp.call with system.load_tool and pass that ref's fields to invoke the remote tool.",
@@ -155,6 +156,7 @@ export const systemTools: readonly RegisteredTool[] = [
     integration: "system",
     action: "load_tool",
     riskTier: "no_risk",
+    replay: "safe",
     availability: { surface: "kernel" },
     description:
       "Load one exact available tool by the qualified name returned from system.search_tools. Prefer search_tools, which already loads its best registered hit; use this for a different name, including mcp.call for a connected-catalog ref. Its schema is available on the next model turn.",
@@ -216,6 +218,7 @@ export const systemTools: readonly RegisteredTool[] = [
     integration: "system",
     action: "current_time",
     riskTier: "no_risk",
+    replay: "safe",
     availability: { surface: "kernel" },
     description:
       "Return a live execution-time snapshot of the current instant and the user's local date, time, weekday, timezone, and UTC offset. In chat, use this live result over the turn-start runtime_context when an exact later instant matters.",
@@ -234,6 +237,7 @@ export const systemTools: readonly RegisteredTool[] = [
     integration: "system",
     action: "author_workflow",
     riskTier: "no_risk",
+    replay: "unsafe",
     availability: { requiresLiveChat: true, callers: ["boss"] },
     description:
       "Save an inactive workflow draft and return its server-canonical activation input.",
@@ -259,6 +263,7 @@ export const systemTools: readonly RegisteredTool[] = [
     integration: "system",
     action: "recover_workflow",
     riskTier: "no_risk",
+    replay: "safe",
     availability: { requiresLiveChat: true, callers: ["boss"] },
     description:
       "Revalidate one exact immutable workflow draft after setup and return the server-canonical activation proposal. Copy that proposal directly into system.activate_workflow; never reconstruct it.",
@@ -283,6 +288,7 @@ export const systemTools: readonly RegisteredTool[] = [
     integration: "system",
     action: "activate_workflow",
     riskTier: "high",
+    replay: "unsafe",
     availability: { requiresLiveChat: true, callers: ["boss"] },
     description: "Publish the exact workflow definition in this editable approval contract.",
     discovery: {
@@ -306,6 +312,7 @@ export const systemTools: readonly RegisteredTool[] = [
     integration: "system",
     action: "read_chat_history",
     riskTier: "no_risk",
+    replay: "safe",
     description:
       "Search or fetch bounded raw evidence from the current chat thread when the conversation summary is insufficient. Fetch messages, tool outcomes, or attachment representations by their stable IDs. This never accesses another thread.",
     // Kernel: the chat prompt names it, so a lazy load would cost a cache bust.
@@ -318,6 +325,7 @@ export const systemTools: readonly RegisteredTool[] = [
     integration: "system",
     action: "spawn_sub_agent",
     riskTier: "no_risk",
+    replay: "safe",
     description:
       "Spawn one focused sub-agent run with an isolated brief. Reserve it for a subtask that needs its own multi-step investigation across several sources (memory + the user's accounts + the web, or a long open-ended research question). It costs a second model run and a join, and its tool calls are no more parallel than yours. Do NOT spawn one for a bounded lookup chain you can run directly — one search plus a batch or a few fetches from a single integration (a daily GitHub summary, today's calendar, one person's recent mail) is a direct call, not a delegation.",
     // Kernel: the boss prompt names it.
@@ -355,6 +363,7 @@ export const systemTools: readonly RegisteredTool[] = [
     integration: "system",
     action: "await_sub_agent",
     riskTier: "no_risk",
+    replay: "safe",
     description:
       "Wait for a spawned sub-agent to finish and read its real result. Call this after system.spawn_sub_agent; it returns the child's terminal status, output, and any error. Never tell the user you'll notify them when a sub-agent is done later — there is no out-of-turn notification; await it here so the turn completes with the real result, or report honestly that it could not finish.",
     // Kernel: the prompt teaches spawn then await as one move.
@@ -374,6 +383,7 @@ export const systemTools: readonly RegisteredTool[] = [
     integration: "system",
     action: "ask_user",
     riskTier: "no_risk",
+    replay: "safe",
     description:
       `Ask the user ${ASK_USER_LIMITS.questions.min} to ${ASK_USER_LIMITS.questions.max} questions and wait for the answers before you continue. ` +
       "Ask only when the request is ambiguous and a wrong guess would waste work; never ask for something you can look up. " +
@@ -409,6 +419,7 @@ export const systemTools: readonly RegisteredTool[] = [
     integration: "system",
     action: "read_user_context",
     riskTier: "no_risk",
+    replay: "safe",
     description:
       "Read Alfred's compact, bounded user context: profile, confirmed facts, preferences, known people/entities, relationship edges, and recent memory. Use before answering questions about people, relationships, standing instructions, preferences, or personal context.",
     // Kernel: it has no intent-bearing discovery metadata, so it would never preload.
@@ -430,6 +441,7 @@ export const systemTools: readonly RegisteredTool[] = [
     integration: "system",
     action: "read_scratch",
     riskTier: "no_risk",
+    replay: "safe",
     description:
       "Read a value from the run scratchpad using shared.<path> or scratch.<subId>.<path>.",
     staging: "fast_path",
@@ -447,6 +459,7 @@ export const systemTools: readonly RegisteredTool[] = [
     integration: "system",
     action: "write_scratch",
     riskTier: "no_risk",
+    replay: "safe",
     description:
       "Write a value to the run scratchpad using shared.<path> or scratch.<subId>.<path>.",
     staging: "fast_path",
@@ -462,6 +475,7 @@ export const systemTools: readonly RegisteredTool[] = [
     integration: "system",
     action: "promote",
     riskTier: "no_risk",
+    replay: "safe",
     description: "Copy a sub-agent scratch value into the boss-owned shared scratchpad.",
     availability: { callers: ["boss"] },
     staging: "fast_path",
@@ -484,6 +498,7 @@ export const systemTools: readonly RegisteredTool[] = [
     integration: "system",
     action: "remember",
     riskTier: "no_risk",
+    replay: "unsafe",
     // ADR-0113: the card is the one-line confirmation, also under full autonomy.
     staging: "confirm",
     availability: { requiresLiveChat: true },
@@ -533,6 +548,7 @@ export const systemTools: readonly RegisteredTool[] = [
     integration: "system",
     action: "list_instructions",
     riskTier: "no_risk",
+    replay: "safe",
     description:
       "List the user's active standing instructions (each with its `factId`, `instructionId`, " +
       "`schemaVersion`, scope, targets, effects, and directive). Call this before forgetting, " +
@@ -556,6 +572,7 @@ export const systemTools: readonly RegisteredTool[] = [
     integration: "system",
     action: "forget_instruction",
     riskTier: "no_risk",
+    replay: "safe",
     description:
       "Remove a standing instruction the user explicitly asked you to drop, by its `factId` (from " +
       "list_instructions). Non-destructive — the instruction is retired, not erased. If you're not " +
@@ -577,6 +594,7 @@ export const systemTools: readonly RegisteredTool[] = [
     integration: "system",
     action: "edit_instruction",
     riskTier: "no_risk",
+    replay: "safe",
     description:
       "Reframe a schemaVersion 1 standing instruction's wording or display label, by its `factId` " +
       "(from list_instructions), without changing what it targets. Revise a schemaVersion 2 " +
@@ -601,6 +619,7 @@ export const systemTools: readonly RegisteredTool[] = [
     integration: "system",
     action: "resolve_todo",
     riskTier: "no_risk",
+    replay: "safe",
     description:
       "Dismiss live todos by resolved Gmail sender or Gmail thread source. Use after storing a sender suppression so current matching todos disappear instead of lingering.",
     inputSchema: resolveTodoInput,
@@ -621,6 +640,7 @@ export const systemTools: readonly RegisteredTool[] = [
     action: "suggest_todo",
     // A suggestion has no outside effect (ADR-0050). The todo row is the audit.
     riskTier: "no_risk",
+    replay: "unsafe",
     description:
       "Propose a todo for the user's quick rail. Inserts a 'suggested' row the user can accept or dismiss — it never acts on the user's behalf. Idempotent: if a live todo already references one of the given sources, the refs merge into it instead of duplicating. A Gmail thread the user has already answered is suppressed (status 'suppressed', reason 'user_already_replied') — the loop is closed, so do not ask the user to reply again.",
     inputSchema: suggestTodoInput,
@@ -641,6 +661,7 @@ export const systemTools: readonly RegisteredTool[] = [
     action: "web_search",
     // Cost is logged under api_call_log.kind = 'web_search'.
     riskTier: "no_risk",
+    replay: "safe",
     // Kernel: a hot path for person and company research.
     availability: { surface: "kernel" },
     description:
@@ -663,6 +684,7 @@ export const systemTools: readonly RegisteredTool[] = [
     action: "fetch_url",
     // ADR-0071: text only, size-bounded, binary reported, host-guarded for SSRF.
     riskTier: "no_risk",
+    replay: "safe",
     description:
       "Read the contents of a known http(s) URL in as sanitized text. Use this when you already hold a link (from the user, read_user_context, or a prior tool result) and need what the page actually says — 'read my website', 'summarize this page', 'what does this link say'. This reads a page you can name; use web_search to discover sources for a question instead. Reads JavaScript-rendered pages too (X/Twitter profiles and tweets, and other single-page apps): when the plain read comes back empty it re-fetches through a headless renderer, so prefer it over web_search for 'what's in his bio', 'read his recent tweets' — web_search only sees lagged second-hand commentary about X. Returns readable text (HTML stripped), the page title, and the final URL; binary resources (PDFs, images) are reported honestly, not downloaded.",
     inputSchema: fetchUrlInput,
@@ -678,6 +700,7 @@ export const systemTools: readonly RegisteredTool[] = [
     executionLane: "artifact_mutation",
     artifactStream: "replace",
     riskTier: "no_risk",
+    replay: "unsafe",
     description:
       "Produce a rich artifact the user reads in a side panel: a written `document` (markdown) or a deck/PDF of `pages` (HTML). Use this when the user asks you to write, draft, or build something substantial, instead of dumping it all into the chat reply. Pick the medium by how the deliverable is meant to be consumed, not by which looks more impressive: if it is read as prose — a brief, an overview, a primer, a report, notes, an explainer, a write-up — author a `document`. Reserve `pages` for deliverables that are inherently presentational or visually laid out — a slide deck or presentation to show, a pitch, a designed one-pager, a résumé, a printable PDF. When the ask is ambiguous, default to `document`: it is the right home for reading material and far cheaper to produce, so only reach for `pages` when the user actually signals slides, a deck, a presentation, or a designed/printable page. Opens the artifact; for a `document` author the opening section here (≤~1,800 words) and continue with append_artifact_section — do not attempt the whole document in one call; for `pages` follow with append_artifact_page per page. Each page is body-level HTML authored against the Alfred house shell: write only the page body, not a full standalone document. This is in-app content, not a downloadable file.",
     availability: { requiresLiveChat: true },
@@ -690,6 +713,7 @@ export const systemTools: readonly RegisteredTool[] = [
     action: "append_artifact_page",
     executionLane: "artifact_mutation",
     riskTier: "no_risk",
+    replay: "unsafe",
     description:
       "Append one page to a `pages` artifact created with create_artifact. Call once per page, in order. Write body-level HTML only: never emit <html>, <head>, <body>, <!doctype>, <script>, external <link>/CDN tags, page width/height, page margins, or a body background. The Alfred house shell supplies page geometry, white surface, typography, tokens, and classes at render time. Preferred classes: art-stack, art-row, art-grid-2, art-split, art-center, art-between, art-fill, art-grow, art-wrap; art-display, art-title, art-headline, art-subhead, art-body, art-caption, art-eyebrow; art-card, art-panel, art-badge, art-rule, art-accent-mark, art-dot, art-list, art-stat-value, art-stat-label, art-bar-track, art-bar-fill. For a `pdf` document (resume, report, one-pager) use the denser document vocabulary instead of the big slide type: the first content wrapper must be art-doc, then compose with art-doc-name, art-doc-role, art-doc-section, art-doc-heading, art-doc-body, art-doc-meta, art-doc-header, art-doc-contact, art-doc-lede, art-doc-entry, art-doc-cols, art-doc-chips, and art-doc-rule. PDF pages that override --art-* tokens or declare custom font, font-family, or font-size values are rejected. Keep everything inside the fixed page box; there is no scrolling. Use one idea per page, split crowded content, keep code blocks short, and use a small inline <style> only for one-off geometry (reference the design tokens, never hardcode colors). Pages appear in the sidebar as you add them.",
     availability: { requiresLiveChat: true },
@@ -703,6 +727,7 @@ export const systemTools: readonly RegisteredTool[] = [
     executionLane: "artifact_mutation",
     artifactStream: "append",
     riskTier: "no_risk",
+    replay: "unsafe",
     description:
       "Append one section of markdown to a `document` created with create_artifact. Call once per section, in order — do not attempt the whole document in one call; each section renders in the sidebar as you add it. Write your own `##` headings and keep each section self-contained (close every code fence, finish every list/table) since the sidebar re-renders the accumulated document as each section arrives. Also use this to extend a document from an earlier turn.",
     availability: { requiresLiveChat: true },
@@ -716,6 +741,7 @@ export const systemTools: readonly RegisteredTool[] = [
     executionLane: "artifact_mutation",
     artifactStream: "replace",
     riskTier: "no_risk",
+    replay: "unsafe",
     description:
       "Revise an existing artifact: rename it, make targeted text edits, replace a document's markdown, or replace a deck's full page list. Use this when the user asks to change content you already produced this conversation. To add a section or page at the end, use append_artifact_section or append_artifact_page instead. For a targeted change, send `edits`: exact oldString/newString pairs that save together, so you resend only what changes. Replace the full markdown or pages only for a broad rewrite. For cross-turn content replacement, work only from a reference with contentComplete=true and copy its baseContentHash; never replace content from a partial reference. Rename-only edits and `edits` need no hash.",
     availability: { requiresLiveChat: true },

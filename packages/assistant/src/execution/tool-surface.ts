@@ -208,7 +208,10 @@ async function applyPromptToolPreload(args: {
  * The run facts that every step of one agent run shares: who calls, for which run, and under which
  * caps. A workflow builds it once from run state; each step passes it to {@link toolRuntimeForRun}.
  */
-export type ToolRunIdentity = Omit<ToolCallRun, "stepId" | "fence" | "caller" | "runContext"> &
+export type ToolRunIdentity = Omit<
+  ToolCallRun,
+  "stepId" | "fence" | "attempt" | "caller" | "runContext"
+> &
   ToolCallActor & {
     allowedIntegrations: readonly IntegrationSlug[];
   };
@@ -219,7 +222,7 @@ type ToolCallRoundInput<Call extends ProposedToolCall> = Parameters<
 
 /** One dispatch round. The run identity comes from the runtime; the step supplies the rest. */
 type ToolRound<Call extends ProposedToolCall> = Omit<ToolCallRoundInput<Call>, "run"> &
-  Pick<ToolCallRun, "stepId" | "fence">;
+  Pick<ToolCallRun, "stepId" | "fence" | "attempt">;
 
 export interface ToolRunTools {
   readonly context: ToolRunContext;
@@ -273,8 +276,8 @@ export function toolRuntimeForRun(
         workflow: identity.workflow,
         spanCaller,
       }),
-    dispatch: ({ stepId, fence, ...round }) =>
-      executeToolCallRound({ ...round, run: { ...identity, stepId, fence } }),
+    dispatch: ({ stepId, fence, attempt, ...round }) =>
+      executeToolCallRound({ ...round, run: { ...identity, stepId, fence, attempt } }),
   };
 
   if (availability === undefined) return tools;

@@ -85,6 +85,15 @@ interface ToolAvailabilityMetadata {
  */
 export type ToolStagingPolicy = "staged" | "fast_path" | "join" | "question" | "confirm";
 
+/**
+ * Whether dispatch may run a call again after a crash left it started and unfinished.
+ * - `"safe"`: a second run makes no second effect (a read, a set, or a provider-side key).
+ * - `"unsafe"`: a second run can repeat the effect. Dispatch claims the call before `execute`,
+ *   and a reclaim that finds the claim with no result asks the user before it runs it again.
+ * Not `riskTier` and not `staging`: neither of them tracks whether a repeat is harmless.
+ */
+export type ToolReplay = "safe" | "unsafe";
+
 /** One live chat turn: its thread, and the assistant message the turn streams into (ADR-0073). */
 export const chatTurnAddressSchema = z
   .object({ threadId: z.string().min(1), messageId: z.string().min(1) })
@@ -192,6 +201,8 @@ export interface ToolArgsCommon<
   riskTierDowngradeReason?: string;
   /** Defaults to `"staged"`. */
   staging?: ToolStagingPolicy;
+  /** No default: every tool states it. `fast_path`, `join`, and `question` must be `"safe"`. */
+  replay: ToolReplay;
   /** Calls in the same live-chat lane execute in model order. */
   executionLane?: "artifact_mutation";
   /**
@@ -331,6 +342,8 @@ export interface RegisteredTool {
   riskTierDowngradeReason?: string | undefined;
   /** See {@link ToolStagingPolicy}. Resolved from the optional declaration. */
   staging: ToolStagingPolicy;
+  /** See {@link ToolReplay}. */
+  replay: ToolReplay;
   /** Shared-state lane that tool-runtime serializes during a live chat round. */
   executionLane?: "artifact_mutation" | undefined;
   /** See {@link LiveToolArgs.artifactStream}. */
@@ -657,6 +670,7 @@ export function liveTool<
     resolvesRiskTier: resolveRiskTier !== undefined,
     riskTierDowngradeReason: args.riskTierDowngradeReason,
     staging: args.staging ?? "staged",
+    replay: args.replay,
     executionLane: args.executionLane,
     artifactStream: args.artifactStream,
     policyGateWaiver: args.policyGateWaiver,
@@ -778,6 +792,14 @@ export function registerTool(tool: RegisteredTool): void {
     if (tool.riskTierDowngradeReason.trim().length === 0) {
       throw new Error(`[tools] '${tool.name}' declares an empty riskTierDowngradeReason`);
     }
+  }
+
+  // These arms write no staging row, so no claim can stop a second run.
+  if (tool.replay !== "safe" && tool.staging !== "staged" && tool.staging !== "confirm") {
+    throw new Error(
+      `[tools] '${tool.name}' declares staging='${tool.staging}' with replay='${tool.replay}' — ` +
+        "only a staged or confirm call has a row to claim, so every other arm must be replay-safe",
+    );
   }
 
   // `fast_path` skips the approval gate, so refuse both halves of

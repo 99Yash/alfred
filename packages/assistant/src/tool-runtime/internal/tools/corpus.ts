@@ -11,6 +11,7 @@ export const corpusTools: readonly RegisteredTool[] = [
     integration: "system",
     action: "corpus_search",
     riskTier: "no_risk",
+    replay: "safe",
     staging: "fast_path",
     // Lazy, not kernel: the kernel prompt budget is tight.
     description:

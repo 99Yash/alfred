@@ -14,6 +14,7 @@ export const vercelTools: readonly RegisteredTool[] = [
     integration: "vercel",
     action: "list_projects",
     riskTier: "no_risk",
+    replay: "safe",
     description:
       "List Vercel projects for the connected account/team, with framework and latest deployment state.",
     inputSchema: vercelListProjectsInput,
@@ -25,6 +26,7 @@ export const vercelTools: readonly RegisteredTool[] = [
     integration: "vercel",
     action: "list_deployments",
     riskTier: "no_risk",
+    replay: "safe",
     description:
       "List recent Vercel deployments, optionally scoped to a project, with state, target, and url. Use the returned uid as the deploymentId for redeploy.",
     inputSchema: vercelListDeploymentsInput,
@@ -39,6 +41,7 @@ export const vercelTools: readonly RegisteredTool[] = [
     integration: "vercel",
     action: "redeploy",
     riskTier: "high",
+    replay: "unsafe",
     description:
       "Redeploy an existing Vercel deployment. Pass the deployment uid and the project name; target defaults to the original deployment's target.",
     inputSchema: vercelRedeployInput,
@@ -53,6 +56,7 @@ export const vercelTools: readonly RegisteredTool[] = [
     integration: "vercel",
     action: "request",
     riskTier: "no_risk",
+    replay: "safe",
     availability: { passthrough: true },
     description:
       "Issue a raw, READ-ONLY Vercel REST call for anything the curated vercel tools don't cover — a project's details (GET '/v9/projects/{idOrName}'), a deployment's detail or build events (GET '/v13/deployments/{id}'), domains, environment variable metadata, or aliases. Pass `method` (GET or HEAD only — writes are rejected at the boundary), a namespace-relative `path` beginning with '/' (include the API version segment, e.g. '/v6/deployments'; never a full URL), and `query` for parameters (limit, projectId). `teamId` is applied automatically for team installs — do not add it. This is a raw, unvalidated read: a 404 or empty result may mean your path/params were wrong — NOT that the thing is absent. Correct the path once and retry, or state the uncertainty. Never report a raw empty as a confident zero.",

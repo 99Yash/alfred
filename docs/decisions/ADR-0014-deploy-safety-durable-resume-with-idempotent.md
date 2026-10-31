@@ -19,3 +19,5 @@
 
 - Drain-and-deploy (rejected — blocks deploys behind in-flight HIL runs).
 - Pinned versions (rejected — multi-version k8s overkill at this scale; concretely, a run paused on HIL for 3 days during a v1.4.2→v1.4.5 release cadence would force four parallel worker pools alive simultaneously, with backward-compat schema across all of them, and graveyard cleanup as permanent ops work).
+
+**Note (2026-10-31).** The per-tool plan rows above are not the shipped mechanism. Outbound effects run in dispatch against one generic `action_stagings` row (ADR-0034). A tool that cannot repeat safely declares `replay: "unsafe"`; dispatch claims the row before `execute`, and a reclaim that finds a claim with no result asks the user before it runs the call again (ADR-0034 amendment 2026-10-31). The `pending_actions` outbox and `ctx.stageAction` from this ADR are unused; the same amendment records why they stay until a separate removal. Production sets no Railway drain window, so "finish the current step" on SIGTERM gets 0 seconds today.

@@ -9,6 +9,7 @@ import {
   dispatchToolCall,
 } from "../../../src/tool-runtime/internal/dispatch";
 import { clearToolRegistryForTests, liveTool, registerTool } from "@alfred/assistant/tool-runtime";
+import { FIRST_STEP } from "../../support/first-step";
 
 /**
  * The availability evaluator enforces the registration's contract at the dispatch floor,
@@ -37,7 +38,7 @@ const baseDispatch = {
   userId: "user_1",
   timezone: parseIanaTimezone("UTC"),
   runContext: { caller: "boss", interaction: "background" } as const,
-  fence: { generation: 0 } as const,
+  ...FIRST_STEP,
 };
 
 /** Shaped like the sub-agent join tools (ADR-0073). */
@@ -46,6 +47,7 @@ function bossOnlyTool(onExecute: () => void) {
     integration: "system",
     action: "spawn_sub_agent",
     riskTier: "no_risk",
+    replay: "safe",
     description: "test boss-only tool",
     availability: { surface: "kernel", callers: ["boss"] },
     staging: "fast_path",
@@ -64,6 +66,7 @@ function threadOnlyTool(onExecute: () => void) {
     integration: "system",
     action: "read_chat_history",
     riskTier: "no_risk",
+    replay: "safe",
     description: "test thread-only tool",
     availability: { surface: "kernel", requiresLiveChat: true },
     staging: "fast_path",
@@ -154,6 +157,7 @@ describe("the declared tool contract is enforced at the dispatch floor", () => {
         integration: "system",
         action: "promote",
         riskTier: "no_risk",
+        replay: "safe",
         description: "test boss-only promote",
         availability: { callers: ["boss"] },
         staging: "fast_path",
@@ -204,6 +208,7 @@ describe("the declared tool contract is enforced at the dispatch floor", () => {
         integration: "system",
         action: "read_scratch",
         riskTier: "no_risk",
+        replay: "safe",
         description: "test JSON normalization on the fast path",
         staging: "fast_path",
         inputSchema: z.object({ key: z.string() }).strict(),

@@ -388,6 +388,7 @@ const dispatchToolsStep: Step<BriefRunState> = {
     const round = await toolRuntimeForRun(briefToolRunIdentity(ctx, state)).dispatch({
       stepId: "dispatch-tools",
       fence: ctx.fence,
+      attempt: ctx.attempt,
       calls: state.pendingToolCalls,
       transcript,
       activeNames: state.activeTools,
