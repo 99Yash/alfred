@@ -60,7 +60,8 @@ A `gated` smell stays here for its examples and its ledger. [review-checklist.md
 | [Name the clock of each timestamp. Compare only timestamps of one clock.](./name-timestamp-clock.md) | Review, low | compiler | 1 |
 | [Do not export a primitive from a package barrel only for a test.](./no-barrel-export-for-test.md) | Candidate, #1629 | check | 2 |
 | [Do not query in a loop. Paginate every list endpoint.](./no-query-in-loop.md) | Review, medium | ast | 1 |
-| [Do not swallow a caught error.](./no-swallowed-catch.md) | Candidate, #1629 | ast | 2 |
+| [Do not give a `.catch(…)` handler a body that drops the error and returns a constant.](./no-swallowed-catch.md) | Gated by `alfred/no-swallowed-catch` | ast | 2 |
+| [Do not let a `catch` clause with statements drop the error.](./no-swallowed-try-catch.md) | Review, low | ast | 1 |
 | [Do not use `updatedAt` or another `$onUpdate` column as a queue or schedule key.](./no-updated-at-queue-key.md) | Review, medium | ast | 1 |
 | [Give each state its own return value.](./one-return-value-per-state.md) | Stays review | none | 1 |
 | [Do not make a transaction parameter optional. Make the caller choose between its transaction and a new one.](./required-executor-param.md) | Gated by `alfred/required-executor-param` | ast | 4 |

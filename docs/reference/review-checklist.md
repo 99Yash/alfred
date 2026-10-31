@@ -69,7 +69,7 @@ Each rule has the rule and the reason. Its smell file has a Bad and a Good examp
   Why: a public primitive is the door for the next copy. Example: #1361.
 - **Do not query in a loop. Paginate every list endpoint.** [Smell](./smells/no-query-in-loop.md).
   Why: an N+1 read grows with the data. Example: #1126.
-- **Do not swallow a caught error.** Rethrow it, log it, or return a failure value. `no-empty` fails only an empty `catch` body, so check a `catch` that has statements. [Smell](./smells/no-swallowed-catch.md).
+- **Do not let a `catch` clause with statements drop the error.** Rethrow it, log it, or return a failure value. `no-empty` fails only an empty `catch` body, and `alfred/no-swallowed-catch` reads only a `.catch(…)` handler, so check a `catch` clause that has statements. [Smell](./smells/no-swallowed-try-catch.md).
   Why: a silent `catch` hides the fault from the user and from the logs.
 - **Do not use `updatedAt` or another `$onUpdate` column as a queue or schedule key.** Store the queue position in its own column or table. [Smell](./smells/no-updated-at-queue-key.md).
   Why: a pass that writes nothing never moves the key, so the same rows win every turn. Example: `integration_object_pulls`, #1355.

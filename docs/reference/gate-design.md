@@ -129,7 +129,6 @@ Each row is a smell that review owns, from [smells/](./smells/README.md), with t
 | [`guards-only-on-unknown`](./smells/guards-only-on-unknown.md) (Types) | Compiler: a closed-domain parameter that rejects an argument whose type is not `unknown`. | Candidate, #1629 | 7 |
 | [`external-call-timeout-and-abort`](./smells/external-call-timeout-and-abort.md) (Backend) | AST: an AI SDK generate or stream call whose options have no `abortSignal` key. | Candidate, #1629 | 4 |
 | [`no-barrel-export-for-test`](./smells/no-barrel-export-for-test.md) (Backend) | Knip in production mode, where test files are not entries. | Candidate, #1629 | 2 |
-| [`no-swallowed-catch`](./smells/no-swallowed-catch.md) (Backend) | AST: a `catch` with statements that does not rethrow, log or return a failure value. `no-empty` already fails an empty body. | Candidate, #1629 | 2 |
 | [`bind-credential-not-token`](./smells/bind-credential-not-token.md) (Backend) | Compiler: client factories that take a credential id and never a token, one provider at a time. | Medium | 1 |
 | [`no-query-in-loop`](./smells/no-query-in-loop.md) (Backend) | AST: a query on a `db()` or transaction handle awaited inside a loop body or an async `.map`. | Medium | 1 |
 | [`no-updated-at-queue-key`](./smells/no-updated-at-queue-key.md) (Backend) | AST: an `updatedAt` column inside an ordering or a comparison in a query chain. | Medium | 1 |
@@ -139,6 +138,7 @@ Each row is a smell that review owns, from [smells/](./smells/README.md), with t
 | [`pin-one-side-of-equality`](./smells/pin-one-side-of-equality.md) (Tests) | AST: two calls of one callee inside one `assert.equal`. The regex row is a `hint`. | Medium | 0 |
 | [`webhook-signature-raw-body`](./smells/webhook-signature-raw-body.md) (Backend) | Compiler: the verifier takes a branded raw-body type that only the raw-body reader mints. | Medium | 0 |
 | [`name-timestamp-clock`](./smells/name-timestamp-clock.md) (Backend) | Compiler: a brand for each clock. A wide migration for a rare bug. | Low | 1 |
+| [`no-swallowed-try-catch`](./smells/no-swallowed-try-catch.md) (Backend) | AST: a `catch` clause with statements that does not rethrow, log or return a failure value. The tree has about 500 `catch` clauses, and many of them map a fault to a value that the caller tells apart, such as `return null` for "a fault proves nothing" in `connections/verified-pull/`. An AST rule cannot tell that value from a value that hides the fault, so a first rule needs a narrow shape and a paydown of its own. | Low | 1 |
 | [`literal-pin-needs-why`](./smells/literal-pin-needs-why.md) (Tests) | An AST rule cannot tell a policy literal from a change detector. | Low | 0 |
 | [`prose-not-safer-than-code`](./smells/prose-not-safer-than-code.md) (Process) | A check cannot compare a claim with the sequences that the code permits. The campaign review ranks an overclaim `must-fix` and an underclaim `nit` (`.claude/skills/campaign/REVIEW.md`). | Stays review | 5 |
 | [`app-lifetime-data-outside-mount`](./smells/app-lifetime-data-outside-mount.md) (Frontend) | The lifetime of the data is a product fact, not a fact in the code. | Stays review | 3 |

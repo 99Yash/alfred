@@ -109,6 +109,7 @@ When you add, remove or change a rule in `.oxlintrc.json`, a JS plugin, `scripts
 | `alfred/no-exported-hasher` |  | Disallow exporting a function whose parameter flows into a hash digest from a module that is not a hash owner. |
 | `alfred/no-function-wrapper-shim` |  | Disallow an exported function whose only job is to return a constant or an imported name. |
 | `alfred/no-never-sentinel-binding` |  | Reject a `never` binding in a `switch` clause; close the switch with `assertNever`. |
+| `alfred/no-swallowed-catch` |  | Reject a `.catch(…)` handler that drops the error and returns a constant, such as `.catch(() => null)`. |
 | `alfred/no-type-alias-shim` |  | Disallow exporting a bare new name for an imported type. |
 | `alfred/no-type-re-export-shim` |  | Disallow re-exporting a constants module's type from a module that is not its barrel. |
 | `alfred/no-union-enum-without-default` |  | Require an explicit `default` on every Elysia `t.UnionEnum` call. |
