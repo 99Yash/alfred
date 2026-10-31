@@ -303,6 +303,7 @@ export async function meteredGenerateText(
 
   return metered(
     meta,
+    // oxlint-disable-next-line alfred/ai-call-needs-abort-signal -- the wrapper forwards the caller's options, `abortSignal` included.
     () => generateText<ToolSet, never, never>(callArgs),
     (result) => extractTextUsage(result, attribution.cacheWriteTtl, args.model),
   );
@@ -338,6 +339,7 @@ export async function meteredGenerateObject<O>(
 
   return metered(
     meta,
+    // oxlint-disable-next-line alfred/ai-call-needs-abort-signal -- the wrapper forwards the caller's options, `abortSignal` included.
     () => generateText<ToolSet, never, ObjectOutput>(callArgs),
     (result) => extractTextUsage(result, attribution.cacheWriteTtl, rest.model),
   );
@@ -393,6 +395,7 @@ export function meteredStreamText(
   const firstOutputAt: StreamFirstOutput = {};
 
   return meteredStream(meta, ({ finish, fail, abort }) =>
+    // oxlint-disable-next-line alfred/ai-call-needs-abort-signal -- the wrapper forwards the caller's options, `abortSignal` included.
     streamText<ToolSet, never, never>({
       ...args,
       timeout,

@@ -1,5 +1,6 @@
 import { eslintCompatPlugin } from "@oxlint/plugins";
 
+import { aiCallNeedsAbortSignalRule } from "./rules/ai-call-needs-abort-signal.ts";
 import { handRolledKeyGuardRule } from "./rules/hand-rolled-key-guard.ts";
 import { logCaughtErrorUnderErrRule } from "./rules/log-caught-error-under-err.ts";
 import { motionSafeVariantAnimateRule } from "./rules/motion-safe-variant-animate.ts";
@@ -27,6 +28,7 @@ import { transitionNamesIndividualTransformRule } from "./rules/transition-names
 const alfredPlugin = eslintCompatPlugin({
   meta: { name: "alfred" },
   rules: {
+    "ai-call-needs-abort-signal": aiCallNeedsAbortSignalRule,
     "hand-rolled-key-guard": handRolledKeyGuardRule,
     "log-caught-error-under-err": logCaughtErrorUnderErrRule,
     "motion-safe-variant-animate": motionSafeVariantAnimateRule,

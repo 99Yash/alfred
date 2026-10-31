@@ -85,6 +85,11 @@
     // hand-rolled-key-guard: a hand-written key test of a closed table (`Object.hasOwn`,
     // `x in TABLE`, `TABLE[x] === undefined`); the last two are true for an inherited key
     // such as "toString". Use keyGuard(TABLE).
+    // ai-call-needs-abort-signal: an AI SDK generate or stream call (bare or `metered*`) whose
+    // options show no `abortSignal` key. The wrappers' 600 s `timeout` is a backstop, not a
+    // cancel path, so a caller that stops waiting keeps a billable call open (#1086, #714).
+    // A pass-through wrapper whose options the rule cannot read takes a disable with its reason.
+    "alfred/ai-call-needs-abort-signal": "error",
     "alfred/hand-rolled-key-guard": "error",
     // log-caught-error-under-err: a caught error, or its message, in a `logger` call anywhere
     // but as the raw value under `err`. Only `err` goes through the redacting serializer.
