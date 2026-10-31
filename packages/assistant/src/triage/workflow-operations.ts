@@ -1146,7 +1146,11 @@ export async function gatherObservations(args: {
       messageCount: 0,
       recentMessages: [],
     })),
-    triageSenderKindProjectionEnabled(args.settings).catch(() => false),
+    triageSenderKindProjectionEnabled(args.settings).catch((err: unknown) => {
+      logger.warn({ err, userId: args.userId }, "[triage] sender-kind flag read failed");
+
+      return false;
+    }),
     // Read before the model call. A blip makes every `matchSender` report `read_failed`,
     // so the trace can tell none from unknown.
     standingInstructions({ userId: args.userId, onReadFailure: "report" }),
@@ -1175,7 +1179,11 @@ export async function gatherObservations(args: {
     baseSenderKey ?? (senderKind && args.senderAddress ? args.senderAddress.toLowerCase() : null);
 
   const senderPrior = senderKey
-    ? await getSenderPrior(args.userId, senderKey).catch(() => null)
+    ? await getSenderPrior(args.userId, senderKey).catch((err: unknown) => {
+        logger.warn({ err, userId: args.userId }, "[triage] sender prior read failed");
+
+        return null;
+      })
     : null;
 
   const usePersonTreatment = isHumanSender && senderKind == null;

@@ -14,6 +14,7 @@
  */
 
 import type { ExternalToolRef } from "@alfred/contracts";
+import { logger } from "@alfred/logging";
 import { Cause, Effect, Exit, Fiber, Scope } from "effect";
 import {
   McpRawClient,
@@ -807,7 +808,13 @@ export class McpConnectionManager {
         generation,
         "failure",
         boundedMcpErrorText(Cause.squash(exit.cause)),
-      ).catch(() => undefined);
+      ).catch((err: unknown) => {
+        // The close writes the `failed` status. When it fails, the row keeps its old status.
+        logger.warn(
+          { err, connectionId: generation.connectionId },
+          "[mcp.manager] close after a failed catalog refresh failed",
+        );
+      });
     });
   }
 

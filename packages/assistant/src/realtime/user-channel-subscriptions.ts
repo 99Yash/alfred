@@ -66,7 +66,11 @@ export function createUserChannelSubscriptions<T>({
 
         // The last listener may have left while the subscribe was in flight.
         if ((userRefCounts.get(userId) ?? 0) > 0) subscribed.add(userId);
-        else conn.unsubscribe(channelFor(userId)).catch(() => {});
+        else {
+          conn.unsubscribe(channelFor(userId)).catch((err: unknown) => {
+            logger.warn({ err, userId }, `${logTag} unsubscribe failed for user`);
+          });
+        }
       },
       (err: unknown) => {
         subscribing.delete(userId);
@@ -125,7 +129,9 @@ export function createUserChannelSubscriptions<T>({
         userRefCounts.delete(userId);
 
         if (subscribed.delete(userId) && subscriber) {
-          subscriber.unsubscribe(channelFor(userId)).catch(() => {});
+          subscriber.unsubscribe(channelFor(userId)).catch((err: unknown) => {
+            logger.warn({ err, userId }, `${logTag} unsubscribe failed for user`);
+          });
         }
       } else {
         userRefCounts.set(userId, remaining);

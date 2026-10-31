@@ -275,7 +275,12 @@ const taskAdapter: SystemToolTaskAdapter = {
   },
   async suggestTodo({ input, context }) {
     const answered = await gmailSourcesAlreadyAnswered(context.userId, input.sources ?? []).catch(
-      () => false,
+      (err: unknown) => {
+        // A failed check does not suppress the suggestion.
+        logger.warn({ err }, "[suggest-todo] already-answered check failed");
+
+        return false;
+      },
     );
 
     if (answered) {

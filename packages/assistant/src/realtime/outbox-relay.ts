@@ -93,7 +93,9 @@ async function drainOnce(): Promise<number> {
 
     return rows.length;
   } catch (err) {
-    await client.query("ROLLBACK").catch(() => {});
+    await client.query("ROLLBACK").catch((rollbackErr: unknown) => {
+      logger.warn({ err: rollbackErr }, "[outbox-relay] rollback failed");
+    });
     throw err;
   } finally {
     client.release();

@@ -48,7 +48,9 @@ function scheduleObservabilityInit() {
       .then(({ initObservability }) => {
         initObservability();
       })
-      .catch(() => {});
+      .catch((err: unknown) => {
+        console.warn("[observability] init failed:", err);
+      });
 
   if ("requestIdleCallback" in window) {
     window.requestIdleCallback(load, { timeout: 2_000 });

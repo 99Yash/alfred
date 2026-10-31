@@ -4,6 +4,7 @@ import {
   type IntegrationActivityItem,
   type ObjectStateProvider,
 } from "@alfred/contracts";
+import { logger } from "@alfred/logging";
 import {
   deliveryInstantNow,
   objectStateStore,
@@ -135,7 +136,11 @@ async function pullVerifiedTargets<E extends VerifiedPullEvent, Target, Session,
   userId: string,
   targets: readonly Target[],
 ): Promise<VerifiedPullResult<Target, Names>[]> {
-  const session = await source.openSession(userId).catch(() => null);
+  const session = await source.openSession(userId).catch((err: unknown) => {
+    logger.warn({ err, provider: source.provider }, "[verified-pull] session open failed");
+
+    return null;
+  });
 
   const names = session
     ? await source.resolveNames(session).catch(() => new Map<string, Names>())
@@ -161,7 +166,11 @@ async function pullVerifiedTargets<E extends VerifiedPullEvent, Target, Session,
     }
 
     const reading: VerifiedPullRead = session
-      ? await source.readStatus(session, target).catch(() => null)
+      ? await source.readStatus(session, target).catch((err: unknown) => {
+          logger.warn({ err, provider: source.provider, targetId }, "[verified-pull] read failed");
+
+          return null;
+        })
       : null;
 
     const identity = { provider: source.provider, kind: source.targetKind, externalId: targetId };
@@ -170,7 +179,12 @@ async function pullVerifiedTargets<E extends VerifiedPullEvent, Target, Session,
       // A lost count only delays demotion, so it must not drop the gather's lines.
       await objectStateStore
         .recordPullRead(userId, identity, reading === "absent" ? "absent" : "proved")
-        .catch(() => undefined);
+        .catch((err: unknown) => {
+          logger.warn(
+            { err, provider: source.provider, targetId },
+            "[verified-pull] read count write failed",
+          );
+        });
     }
 
     if (reading === null || reading === "absent") {
