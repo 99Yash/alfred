@@ -24,7 +24,12 @@ import { useEffect, useImperativeHandle, useRef, use, useId, useState } from "re
 import type { QuestionStaging, StagedRow } from "~/components/approvals/ask-user";
 import { decideApproval } from "~/components/approvals/decide-approval";
 import { describeApprovalWait } from "./conversation-helpers";
-import { approveButtonLabel, cardTitle } from "~/components/approvals/card-spec";
+import {
+  approveButtonLabel,
+  cardTitle,
+  MAY_HAVE_RUN_NOTICE,
+  reviseButtonLabel,
+} from "~/components/approvals/card-spec";
 import { formatDateTime } from "~/lib/date-format";
 import { ApprovalInputEditor, ApprovalInputFacts } from "~/components/approvals/input-editor";
 import { RiskChip } from "~/components/approvals/risk-pill";
@@ -462,7 +467,13 @@ function DockApprovalCard({
     };
   });
 
-  const approveLabel = approveButtonLabel(staging.toolName, staging.riskTier, edited);
+  const approveLabel = approveButtonLabel(
+    staging.toolName,
+    staging.riskTier,
+    edited,
+    staging.mayHaveRun,
+  );
+
   const approved = decisionKind === "approve";
   // An `mcp.call` shows the server it will reach, not a generic gear. The draft, not the
   // proposal: an edit that picks another server changes what Approve runs.
@@ -552,6 +563,16 @@ function DockApprovalCard({
               <ApprovalInputFacts toolName={staging.toolName} value={draftInput} />
             )}
 
+            {staging.mayHaveRun ? (
+              <div className="mt-2 flex items-start gap-2 rounded-surface bg-app-amber-1 px-3 py-2 text-[12px] leading-5 text-app-amber-4 shadow-[0_0_0_1px_var(--app-amber-2)]">
+                <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                <p className="min-w-0">
+                  <span className="font-medium">{MAY_HAVE_RUN_NOTICE.title}</span>{" "}
+                  {MAY_HAVE_RUN_NOTICE.detail}
+                </p>
+              </div>
+            ) : null}
+
             {staging.recentRejection ? (
               <div className="mt-2 flex items-start gap-2 rounded-surface bg-app-amber-1 px-3 py-2 text-[12px] leading-5 text-app-amber-4 shadow-[0_0_0_1px_var(--app-amber-2)]">
                 <AlertTriangle size={14} className="mt-0.5 shrink-0" />
@@ -600,7 +621,7 @@ function DockApprovalCard({
                   setError(null);
                 }}
               >
-                {showReason ? "Cancel" : "Revise"}
+                {showReason ? "Cancel" : reviseButtonLabel(staging.mayHaveRun)}
               </AppButton>
               {showReason ? null : (
                 <AppButton

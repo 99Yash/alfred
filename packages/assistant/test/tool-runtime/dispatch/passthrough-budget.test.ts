@@ -119,6 +119,7 @@ function dispatchGithubRequest(userId: string, runId: string, page: number) {
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
     fence: { generation: 0 },
+    attempt: 0,
   });
 }
 
@@ -131,6 +132,7 @@ describe("passthrough per-run ceiling (DB-backed)", { skip: SKIP }, () => {
         integration: "github",
         action: "request",
         riskTier: "no_risk",
+        replay: "safe",
         availability: { passthrough: true },
         description: "test double — counts real passthrough executions",
         inputSchema: restPassthroughInput,

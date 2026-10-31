@@ -14,6 +14,7 @@ const vercelRequest = liveTool({
   integration: "vercel",
   action: "request",
   riskTier: "no_risk",
+  replay: "safe",
   description: "Raw read-only Vercel request.",
   availability: { passthrough: true },
   inputSchema: z.object({ document: z.string() }),

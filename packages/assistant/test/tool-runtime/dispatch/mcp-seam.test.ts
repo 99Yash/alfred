@@ -290,6 +290,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
       fence: { generation: 0 },
+      attempt: 0,
     });
 
     assert.equal(result.kind, "staged");
@@ -347,6 +348,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
       fence: { generation: 0 },
+      attempt: 0,
     });
 
     assert.equal(
@@ -391,6 +393,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       caller: "boss" as const,
       runContext: { caller: "boss", interaction: "background" } as const,
       fence: { generation: 0 } as const,
+      attempt: 0,
     };
 
     const staged = await dispatchToolCall(args);
@@ -533,6 +536,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
       fence: { generation: 0 },
+      attempt: 0,
     });
 
     assert.equal(repeated.kind, "executed");
@@ -675,6 +679,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       caller: "boss" as const,
       runContext: { caller: "boss", interaction: "background" } as const,
       fence: { generation: 0 } as const,
+      attempt: 0,
     };
 
     const firstWorker = dispatchToolCall(dispatchInput);
@@ -779,6 +784,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
       fence: { generation: 0 },
+      attempt: 0,
     });
 
     assert.equal(result.kind, "executed");

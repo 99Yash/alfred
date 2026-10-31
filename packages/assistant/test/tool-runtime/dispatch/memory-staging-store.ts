@@ -6,6 +6,7 @@
 import {
   assertNever,
   cancellationFenceSchema,
+  isTerminalStatus,
   toJsonValue,
   type ActionStagingStatus,
   type CancellationFence,
@@ -18,6 +19,7 @@ import {
   effectKeyFor,
   effectsColumn,
   outcomeForInsert,
+  type DispatchLease,
   type StagingInsertValues,
   type StagingRow,
   type StagingStore,
@@ -72,6 +74,19 @@ export function memoryStagingStore(): MemoryStagingStore {
     return row;
   }
 
+  /** The Postgres lease check. A seeded run is at attempt 0, the Postgres default. */
+  function checkLease(lease: DispatchLease): "lease_lost" | "fenced" | null {
+    const status = runs.get(lease.runId);
+
+    if (status === undefined || lease.attempt !== 0) return "lease_lost";
+
+    if (isTerminalStatus(status) || (fences.get(lease.runId) ?? 0) !== lease.fence.generation) {
+      return "fenced";
+    }
+
+    return null;
+  }
+
   /** A copy, so a caller cannot mutate storage. */
   function project(row: StoredRow): StagingRow {
     return {
@@ -89,6 +104,7 @@ export function memoryStagingStore(): MemoryStagingStore {
       executeSanitized: row.executeSanitized,
       executeEffects: row.executeEffects,
       executeError: row.executeError,
+      dispatchClaimedAt: row.dispatchClaimedAt,
       notifyAfterAt: row.notifyAfterAt,
       notifiedAt: row.notifiedAt,
       expiresAt: row.expiresAt,
@@ -206,6 +222,7 @@ export function memoryStagingStore(): MemoryStagingStore {
         executeEffects: values.executeEffects ?? null,
         executeError: values.executeError ?? null,
         executedAt: values.executedAt ?? null,
+        dispatchClaimedAt: values.dispatchClaimedAt ?? null,
         notifyAfterAt: values.notifyAfterAt ?? null,
         notifiedAt: values.notifiedAt ?? null,
         expiresAt: values.expiresAt ?? null,
@@ -237,6 +254,59 @@ export function memoryStagingStore(): MemoryStagingStore {
       row.rowVersion += 1;
 
       return project(row);
+    },
+
+    async claimDispatch(stagingId, lease) {
+      const loss = checkLease(lease);
+
+      if (loss) return loss;
+
+      const row = mustGet(stagingId);
+
+      if (
+        row.runId !== lease.runId ||
+        (row.status !== "pending" && row.status !== "approved") ||
+        row.dispatchClaimedAt !== null
+      ) {
+        return "not_claimable";
+      }
+
+      row.dispatchClaimedAt = new Date();
+      row.rowVersion += 1;
+
+      return "claimed";
+    },
+
+    async restageInterrupted(stagingId, lease, restage) {
+      const loss = checkLease(lease);
+
+      if (loss) return { kind: loss };
+
+      const row = mustGet(stagingId);
+
+      if (
+        row.runId !== lease.runId ||
+        row.toolName !== restage.toolName ||
+        row.dispatchClaimedAt === null ||
+        !(row.status === "approved" || (row.status === "pending" && !row.requiresApproval))
+      ) {
+        return { kind: "moved", row: project(row) };
+      }
+
+      row.status = "pending";
+      row.requiresApproval = true;
+      row.outcome = "awaiting_approval";
+      row.riskTier = restage.riskTier;
+      row.proposedInput = restage.proposedInput;
+      row.displayInput = restage.displayInput;
+      row.proposedInputHash = restage.proposedInputHash;
+      row.decidedAt = null;
+      row.notifyAfterAt = restage.notifyAfterAt;
+      row.notifiedAt = null;
+      row.expiresAt = restage.expiresAt;
+      row.rowVersion += 1;
+
+      return { kind: "restaged", row: project(row) };
     },
 
     async commitStaging(stagingId, expected, commit) {

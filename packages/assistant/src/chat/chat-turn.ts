@@ -813,6 +813,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
         const round = await toolRuntimeForRun(chatToolRunIdentity(ctx, state)).dispatch({
           stepId: "dispatch-tools",
           fence: ctx.fence,
+          attempt: ctx.attempt,
           calls,
           transcript,
           activeNames: state.activeTools,

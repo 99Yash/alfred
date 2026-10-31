@@ -90,6 +90,9 @@ export const actionStagings = pgTable(
     // NULL when the tool declares none. The tool runtime parses it on replay.
     executeEffects: jsonb("execute_effects").$type<JsonValue>(),
     executeError: jsonb("execute_error").$type<JsonValue>(),
+    // Set just before an `unsafe` tool's `execute`. Set with no result means the call started and
+    // did not finish, so a reclaim asks the user before it runs the call again. Approve clears it.
+    dispatchClaimedAt: timestamp("dispatch_claimed_at", { withTimezone: true }),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     notifyAfterAt: timestamp("notify_after_at", { withTimezone: true }),
     notifiedAt: timestamp("notified_at", { withTimezone: true }),

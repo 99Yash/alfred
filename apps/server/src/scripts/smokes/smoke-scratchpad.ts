@@ -169,6 +169,7 @@ async function main(): Promise<void> {
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
     fence: { generation: 0 },
+    attempt: 0,
   });
 
   if (bossWrite.kind !== "executed") {
@@ -199,6 +200,7 @@ async function main(): Promise<void> {
     caller: { subId: "subA" },
     runContext: { caller: "sub_agent", interaction: "background" },
     fence: { generation: 0 },
+    attempt: 0,
   });
 
   if (subWrite.kind !== "executed") {
@@ -223,6 +225,7 @@ async function main(): Promise<void> {
     caller: { subId: "subA" },
     runContext: { caller: "sub_agent", interaction: "background" },
     fence: { generation: 0 },
+    attempt: 0,
   });
 
   if (subSharedWrite.kind !== "invalid_input") {
@@ -243,6 +246,7 @@ async function main(): Promise<void> {
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
     fence: { generation: 0 },
+    attempt: 0,
   });
 
   if (bossScratchWrite.kind !== "invalid_input") {
@@ -263,6 +267,7 @@ async function main(): Promise<void> {
     caller: { subId: "subA" },
     runContext: { caller: "sub_agent", interaction: "background" },
     fence: { generation: 0 },
+    attempt: 0,
   });
 
   if (subOtherRead.kind !== "invalid_input") {
@@ -283,6 +288,7 @@ async function main(): Promise<void> {
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
     fence: { generation: 0 },
+    attempt: 0,
   });
 
   if (promotedByDispatch.kind !== "executed") {

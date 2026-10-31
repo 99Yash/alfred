@@ -38,6 +38,7 @@ function probeTool(action: "read_scratch" | "write_scratch") {
     integration: "system",
     action,
     riskTier: "no_risk",
+    replay: "safe",
     description: `Registry door probe for ${action}.`,
     inputSchema: z.object({}),
     execute: async () => ({ ok: true }),

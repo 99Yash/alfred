@@ -20,10 +20,11 @@ import {
   assertNever,
   cancellationFenceSchema,
   effectOutcomeSchema,
+  isTerminalStatus,
   jsonValueSchema,
   toJsonValue,
 } from "@alfred/contracts";
-import { db } from "@alfred/db";
+import { db, type DbTransaction } from "@alfred/db";
 import {
   actionStagings,
   agentRuns,
@@ -31,7 +32,7 @@ import {
   type ActionStaging,
   type NewActionStaging,
 } from "@alfred/db/schemas";
-import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 
 import type { PublicAppError } from "@alfred/contracts/app-errors";
 
@@ -54,6 +55,7 @@ export type StagingRow = Pick<
   | "executeSanitized"
   | "executeEffects"
   | "executeError"
+  | "dispatchClaimedAt"
   | "notifyAfterAt"
   | "notifiedAt"
   | "expiresAt"
@@ -99,8 +101,45 @@ export type PendingApprovalPromotion = Pick<
 >;
 
 /**
+ * The input a claimed and unfinished call goes back to the user with. The raw input to run, not a
+ * redacted copy: approve runs `proposedInput`.
+ */
+export type InterruptedRestage = PendingApprovalPromotion & Pick<ActionStaging, "toolName">;
+
+/** The lease that a claim fences on: the run's attempt and its cancellation generation. */
+export interface DispatchLease {
+  runId: string;
+  attempt: number;
+  fence: CancellationFence;
+}
+
+/**
+ * How a lease check under the run lock ends.
+ * - `lease_lost`: another attempt owns the run. Do not write the row: it may belong to the winner.
+ * - `fenced`: this attempt still owns the run, but a cancel moved the fence or ended the run.
+ */
+type LeaseLoss = "lease_lost" | "fenced";
+
+/**
+ * - `claimed`: this attempt owns the call and may run it.
+ * - `not_claimable`: the row is no longer an unclaimed `pending` or `approved` row of this run.
+ */
+export type DispatchClaim = "claimed" | LeaseLoss | "not_claimable";
+
+/**
+ * - `restaged`: the row is a new approval card.
+ * - `moved`: the row left the claimed state first (for example, a lost attempt committed its
+ *   result). `row` is the current row, so the caller settles from it.
+ */
+export type InterruptedRestageResult =
+  | { kind: "restaged"; row: StagingRow }
+  | { kind: "moved"; row: StagingRow }
+  | { kind: LeaseLoss };
+
+/**
  * The terminal outcomes. `unknown`: the effect may have happened without
- * confirmation. `refused`: the gate never called the provider.
+ * confirmation. `refused`: the gate did not call the provider for this decision. A row with
+ * `dispatch_claimed_at` set may still have reached it in an earlier, interrupted attempt.
  */
 export type StagingCommit =
   | { status: "failed"; outcome: "failed" | "refused"; error: PublicAppError; executedAt: Date }
@@ -154,6 +193,25 @@ export interface StagingStore {
   ): Promise<StagingRow | null>;
 
   /**
+   * Mark the call as started, just before an `unsafe` tool's `execute`. One transaction locks the
+   * run row first (the order of `withStepLease`, which `tool-runtime` cannot import), checks the
+   * lease, and then sets `dispatch_claimed_at` on an unclaimed `pending` or `approved` row.
+   */
+  claimDispatch(stagingId: string, lease: DispatchLease): Promise<DispatchClaim>;
+
+  /**
+   * Send a claimed and unfinished call back to the user (replay safety), under the same lease
+   * check as `claimDispatch`. The row becomes a `pending` approval again, and
+   * `dispatch_claimed_at` stays set, so the card says it may have run. A user edit stays in
+   * `decided_input`, so "Run again" still reports the edit to the model.
+   */
+  restageInterrupted(
+    stagingId: string,
+    lease: DispatchLease,
+    restage: InterruptedRestage,
+  ): Promise<InterruptedRestageResult>;
+
+  /**
    * Commit from the observed state, or fill the result when the MCP broker
    * already wrote the same outcome. False for any other outcome.
    */
@@ -179,6 +237,7 @@ const STAGING_COLUMNS = {
   executeSanitized: actionStagings.executeSanitized,
   executeEffects: actionStagings.executeEffects,
   executeError: actionStagings.executeError,
+  dispatchClaimedAt: actionStagings.dispatchClaimedAt,
   notifyAfterAt: actionStagings.notifyAfterAt,
   notifiedAt: actionStagings.notifiedAt,
   expiresAt: actionStagings.expiresAt,
@@ -229,6 +288,30 @@ function commitColumns(commit: StagingCommit) {
     default:
       return assertNever(commit, "staging commit status");
   }
+}
+
+/**
+ * Lock the run row and check the lease. The attempt check comes first: a lost attempt must not
+ * write the row, but the attempt that owns the run may close it after a cancel.
+ */
+async function checkLeaseInTx(tx: DbTransaction, lease: DispatchLease): Promise<LeaseLoss | null> {
+  const [run] = await tx
+    .select({
+      attempt: agentRuns.attempt,
+      cancellationGeneration: agentRuns.cancellationGeneration,
+      status: agentRuns.status,
+    })
+    .from(agentRuns)
+    .where(eq(agentRuns.id, lease.runId))
+    .for("update");
+
+  if (!run || run.attempt !== lease.attempt) return "lease_lost";
+
+  if (run.cancellationGeneration !== lease.fence.generation || isTerminalStatus(run.status)) {
+    return "fenced";
+  }
+
+  return null;
 }
 
 export const postgresStagingStore: StagingStore = {
@@ -374,6 +457,88 @@ export const postgresStagingStore: StagingStore = {
     const row = promoted[0];
 
     return row ? parseStagingRow(row) : null;
+  },
+
+  async claimDispatch(stagingId, lease) {
+    return await db().transaction(async (tx) => {
+      const loss = await checkLeaseInTx(tx, lease);
+
+      if (loss) return loss;
+
+      const claimed = await tx
+        .update(actionStagings)
+        .set({
+          dispatchClaimedAt: sql`now()`,
+          rowVersion: sql`${actionStagings.rowVersion} + 1`,
+        })
+        .where(
+          and(
+            eq(actionStagings.id, stagingId),
+            eq(actionStagings.runId, lease.runId),
+            inArray(actionStagings.status, ["pending", "approved"]),
+            isNull(actionStagings.dispatchClaimedAt),
+          ),
+        )
+        .returning({ id: actionStagings.id });
+
+      return claimed.length > 0 ? "claimed" : "not_claimable";
+    });
+  },
+
+  async restageInterrupted(stagingId, lease, restage) {
+    return await db().transaction(async (tx): Promise<InterruptedRestageResult> => {
+      const loss = await checkLeaseInTx(tx, lease);
+
+      if (loss) return { kind: loss };
+
+      const [restaged] = await tx
+        .update(actionStagings)
+        .set({
+          status: "pending",
+          requiresApproval: true,
+          outcome: "awaiting_approval",
+          riskTier: restage.riskTier,
+          // The card shows `proposedInput`, so an earlier edit moves there and approve runs it.
+          proposedInput: restage.proposedInput,
+          displayInput: restage.displayInput,
+          proposedInputHash: restage.proposedInputHash,
+          // `decided_input` stays: an approve with no new edit leaves it, so the result still
+          // reports the user's earlier edit to the model.
+          decidedAt: null,
+          notifyAfterAt: restage.notifyAfterAt,
+          // A new card gets a new notice.
+          notifiedAt: null,
+          expiresAt: restage.expiresAt,
+          rowVersion: sql`${actionStagings.rowVersion} + 1`,
+        })
+        .where(
+          and(
+            eq(actionStagings.id, stagingId),
+            eq(actionStagings.runId, lease.runId),
+            eq(actionStagings.toolName, restage.toolName),
+            isNotNull(actionStagings.dispatchClaimedAt),
+            // The pipeline's guard: a gated `pending` row is already a card.
+            or(
+              eq(actionStagings.status, "approved"),
+              and(eq(actionStagings.status, "pending"), eq(actionStagings.requiresApproval, false)),
+            ),
+          ),
+        )
+        .returning(STAGING_COLUMNS);
+
+      if (restaged) return { kind: "restaged", row: parseStagingRow(restaged) };
+
+      const [current] = await tx
+        .select(STAGING_COLUMNS)
+        .from(actionStagings)
+        .where(eq(actionStagings.id, stagingId));
+
+      if (!current) {
+        throw new Error(`[dispatch] interrupted staging row is gone (staging=${stagingId})`);
+      }
+
+      return { kind: "moved", row: parseStagingRow(current) };
+    });
   },
 
   async commitStaging(stagingId, expected, commit) {

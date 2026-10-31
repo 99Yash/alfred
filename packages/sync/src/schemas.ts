@@ -176,6 +176,11 @@ export const syncedActionStagingSchema = z.object({
   riskTier: z.enum(TOOL_RISK_TIERS),
   proposedInput: z.unknown(),
   requiresApproval: z.boolean(),
+  /**
+   * The call started once and did not finish, so its effect may already exist. Approve runs it
+   * again. Defaults to false, so a row cached before this field existed still parses.
+   */
+  mayHaveRun: z.boolean().default(false),
   status: z.literal("pending"),
   expiresAt: isoDateTimeStringSchema.nullable(),
   notifyAfterAt: isoDateTimeStringSchema.nullable(),

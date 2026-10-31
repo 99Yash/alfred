@@ -3,7 +3,12 @@ import { Link } from "@tanstack/react-router";
 import { AlertTriangle, Ban, Check, Pencil, RefreshCw, Workflow, X } from "lucide-react";
 import { AppButton, AppCard, AppTextarea } from "~/components/ui/v2";
 import { cn } from "~/lib/utils";
-import { approveButtonLabel, toolChipLabel } from "./card-spec";
+import {
+  approveButtonLabel,
+  MAY_HAVE_RUN_NOTICE,
+  reviseButtonLabel,
+  toolChipLabel,
+} from "./card-spec";
 import { formatDateTime } from "~/lib/date-format";
 import { shortId, triggerLabel } from "./format";
 import { ApprovalInputEditor } from "./input-editor";
@@ -105,6 +110,16 @@ export function ApprovalCard({
         </div>
       </div>
 
+      {staging.mayHaveRun ? (
+        <div className="flex items-start gap-2 rounded-surface bg-app-amber-1 px-3 py-2.5 text-xs leading-5 text-app-amber-4 shadow-[0_0_0_1px_var(--app-amber-2)]">
+          <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+          <div className="min-w-0">
+            <p className="font-medium">{MAY_HAVE_RUN_NOTICE.title}</p>
+            <p className="mt-0.5 opacity-80">{MAY_HAVE_RUN_NOTICE.detail}</p>
+          </div>
+        </div>
+      ) : null}
+
       {staging.recentRejection ? (
         <div className="flex items-start gap-2 rounded-surface bg-app-amber-1 px-3 py-2.5 text-xs leading-5 text-app-amber-4 shadow-[0_0_0_1px_var(--app-amber-2)]">
           <AlertTriangle size={15} className="mt-0.5 shrink-0" />
@@ -197,7 +212,7 @@ export function ApprovalCard({
           disabled={busy}
           onClick={() => setShowReason((v) => !v)}
         >
-          {showReason ? "Cancel" : "Revise"}
+          {showReason ? "Cancel" : reviseButtonLabel(staging.mayHaveRun)}
         </AppButton>
         <AppButton
           variant="primary"
@@ -207,7 +222,7 @@ export function ApprovalCard({
           disabled={busy}
           onClick={() => void decide(approveDecision())}
         >
-          {approveButtonLabel(staging.toolName, staging.riskTier, edited)}
+          {approveButtonLabel(staging.toolName, staging.riskTier, edited, staging.mayHaveRun)}
         </AppButton>
       </div>
     </AppCard>

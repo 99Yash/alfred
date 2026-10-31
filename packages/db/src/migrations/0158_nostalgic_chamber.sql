@@ -1,0 +1,1 @@
+ALTER TABLE "action_stagings" ADD COLUMN "dispatch_claimed_at" timestamp with time zone;

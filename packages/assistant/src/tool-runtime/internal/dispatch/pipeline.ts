@@ -47,6 +47,8 @@ import {
 } from "@alfred/ai";
 import {
   stagingStore,
+  type DispatchLease,
+  type InterruptedRestageResult,
   type PriorRejectionStatus,
   type StagingCommit,
   type StagingRow,
@@ -787,6 +789,41 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
 
   let promotedPendingApproval = false;
 
+  // A claimed `unsafe` call with no result started before a crash and may have run. Ask the user
+  // before it runs again, also under full autonomy: a duplicate effect is worse than a wait.
+  if (
+    tool.replay === "unsafe" &&
+    row.dispatchClaimedAt !== null &&
+    (row.status === "approved" || (row.status === "pending" && !row.requiresApproval))
+  ) {
+    const restage = await restageInterruptedCall(row, call, ctx, {
+      runId: args.runId,
+      attempt: args.attempt,
+      fence: args.fence,
+    });
+
+    switch (restage.kind) {
+      case "restaged":
+        row = restage.row;
+        promotedPendingApproval = true;
+        break;
+      // A lost attempt committed first. Settle from its result below.
+      case "moved":
+        row = restage.row;
+        break;
+      case "fenced":
+        return closeFencedRow(row, ctx);
+      // Throw, do not write the row: it belongs to the attempt that won. The step commit's
+      // ownership guard skips this attempt as superseded.
+      case "lease_lost":
+        throw new Error(
+          `[dispatch] ${toolName} not restaged: lease lost (run=${args.runId}, staging=${row.id}, attempt=${args.attempt})`,
+        );
+      default:
+        return assertNever(restage, "interrupted restage result");
+    }
+  }
+
   // Reclaim uses the complete live requirement, including policy for low/medium tools.
   // A pending row may gain a gate after a mode change, but it must never lose one.
   if (!insertedNew && row.status === "pending" && requiresApproval && !row.requiresApproval) {
@@ -864,6 +901,7 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
 
       return executeAndCommit(row, call, ctx, {
         expectedFence: args.fence,
+        attempt: args.attempt,
         editedByUser: false,
       });
 
@@ -907,6 +945,7 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
 
       return executeAndCommit(row, rebound.call, ctx, {
         expectedFence: args.fence,
+        attempt: args.attempt,
         editedByUser,
         ...(editedByUser ? { executedInput: rebound.call.input } : {}),
       });
@@ -1357,29 +1396,108 @@ async function commitAndPoke(
   if (committed && row.requiresApproval) emitReplicachePokes([ctx.userId], row.id);
 }
 
+/**
+ * Send a claimed `unsafe` call that has no result back to the user as a new approval card.
+ * An `approved` row asks again with the input the user approved. A `pending` autonomous row stored
+ * its input redacted, so it asks with the live call input, which a reclaim re-sends unchanged.
+ */
+async function restageInterruptedCall(
+  row: StagingRow,
+  liveCall: BoundToolCall,
+  ctx: ToolExecuteContext,
+  lease: DispatchLease,
+): Promise<InterruptedRestageResult> {
+  const { tool } = liveCall;
+  let call = liveCall;
+
+  if (row.status === "approved") {
+    const rebound = tool.bind(row.decidedInput ?? row.proposedInput);
+
+    // The row ran this input once already, so a parse failure here is a bug, not a user edit.
+    if (!rebound.success) {
+      throw new Error(
+        `[dispatch] interrupted call input no longer binds (run=${ctx.runId}, staging=${row.id})`,
+      );
+    }
+
+    call = rebound.call;
+  }
+
+  const approvalNotifyDelayMs = await resolveApprovalNotifyDelayMs(ctx.userId);
+
+  const restage = await stagingStore().restageInterrupted(row.id, lease, {
+    toolName: tool.name,
+    riskTier: await call.effectiveRiskTier(ctx),
+    proposedInput: jsonValueSchema.parse(call.input),
+    displayInput: jsonValueSchema.parse(call.redactedInput()),
+    proposedInputHash: hashToolInput(tool.name, call.input),
+    notifyAfterAt: new Date(Date.now() + approvalNotifyDelayMs),
+    expiresAt: new Date(Date.now() + APPROVAL_EXPIRY_MS),
+  });
+
+  if (restage.kind === "restaged") {
+    logger.warn(
+      { runId: ctx.runId, stagingId: row.id, toolName: tool.name },
+      "[dispatch] an unsafe call started and did not finish; asking the user before it runs again",
+    );
+  }
+
+  return restage;
+}
+
+/** Close the row of a call that a cancel fenced off before it ran, and return the fenced result. */
+async function closeFencedRow(row: StagingRow, ctx: ToolExecuteContext): Promise<DispatchResult> {
+  await commitAndPoke(row, ctx, {
+    status: "failed",
+    outcome: "refused",
+    error: publicAppError("run_cancelled"),
+    executedAt: new Date(),
+  });
+
+  return {
+    kind: "fenced",
+    stagingId: row.id,
+    result: synthesizeCancelledByFence(),
+  };
+}
+
 async function executeAndCommit(
   row: StagingRow,
   call: BoundToolCall,
   ctx: ToolExecuteContext,
-  opts: { expectedFence: CancellationFence; editedByUser: boolean; executedInput?: unknown },
+  opts: {
+    expectedFence: CancellationFence;
+    attempt: number;
+    editedByUser: boolean;
+    executedInput?: unknown;
+  },
 ): Promise<DispatchResult> {
   // Second fence read, for a cancel that landed during dispatch. The row exists
   // now, so close it instead of leaving it pending.
   const fence = await stagingStore().readCancellationFence(ctx.runId);
 
-  if (fence.generation > opts.expectedFence.generation) {
-    await commitAndPoke(row, ctx, {
-      status: "failed",
-      outcome: "refused",
-      error: publicAppError("run_cancelled"),
-      executedAt: new Date(),
+  if (fence.generation > opts.expectedFence.generation) return closeFencedRow(row, ctx);
+
+  // Mark an `unsafe` call as started, so a crash from here on cannot run it again unasked. A safe
+  // tool skips the claim, so the MCP broker's `dispatching` contract does not change.
+  if (call.tool.replay === "unsafe") {
+    const claim = await stagingStore().claimDispatch(row.id, {
+      runId: ctx.runId,
+      attempt: opts.attempt,
+      fence: opts.expectedFence,
     });
 
-    return {
-      kind: "fenced",
-      stagingId: row.id,
-      result: synthesizeCancelledByFence(),
-    };
+    // A cancel that landed after the fence read above.
+    if (claim === "fenced") return closeFencedRow(row, ctx);
+
+    // Throw, do not write the row. On `lease_lost` the row belongs to the attempt that won, and
+    // the step commit's ownership guard skips this attempt as superseded. `not_claimable` under
+    // a live lease fails the run: the row left the runnable state, so the run fails closed.
+    if (claim !== "claimed") {
+      throw new Error(
+        `[dispatch] ${call.tool.name} not run: dispatch claim ${claim} (run=${ctx.runId}, staging=${row.id}, attempt=${opts.attempt})`,
+      );
+    }
   }
 
   let execution: ToolExecution;

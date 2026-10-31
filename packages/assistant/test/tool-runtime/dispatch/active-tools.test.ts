@@ -68,6 +68,7 @@ describe("exact active tool dispatch", () => {
         integration: "github",
         action: "search",
         riskTier: "no_risk",
+        replay: "safe",
         description: "test GitHub search",
         inputSchema: z.object({}).strict(),
         execute: async () => {
@@ -206,6 +207,7 @@ describe("legacy active integration migration", () => {
         integration: "github",
         action: "search",
         riskTier: "no_risk",
+        replay: "safe",
         description: "test GitHub search",
         inputSchema: z.object({}).strict(),
         execute: async () => ({ ok: true }),
@@ -276,6 +278,7 @@ const baseDispatch = {
   runContext: { caller: "boss", interaction: "background" } as const,
   timezone: parseIanaTimezone("UTC"),
   fence: { generation: 0 } as const,
+  attempt: 0,
 };
 
 function scratchReadTool(onExecute: () => void) {
@@ -283,6 +286,7 @@ function scratchReadTool(onExecute: () => void) {
     integration: "system",
     action: "read_scratch",
     riskTier: "no_risk",
+    replay: "safe",
     description: "test scratch read",
     // The fast path is declared, not inferred from the name.
     staging: "fast_path",
@@ -301,6 +305,7 @@ function registerKernelTools() {
       integration: "system",
       action: "current_time",
       riskTier: "no_risk",
+      replay: "safe",
       availability: { surface: "kernel" },
       description: "current time",
       inputSchema: z.object({}).strict(),
@@ -312,6 +317,7 @@ function registerKernelTools() {
       integration: "system",
       action: "load_tool",
       riskTier: "no_risk",
+      replay: "safe",
       availability: { surface: "kernel" },
       description: "load tool",
       inputSchema: z.object({}).strict(),
@@ -323,6 +329,7 @@ function registerKernelTools() {
       integration: "system",
       action: "search_tools",
       riskTier: "no_risk",
+      replay: "safe",
       availability: { surface: "kernel" },
       description: "search tools",
       inputSchema: z.object({}).strict(),

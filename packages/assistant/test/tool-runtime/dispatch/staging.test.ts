@@ -76,6 +76,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
         integration: "system",
         action: "load_tool",
         riskTier: "no_risk",
+        replay: "safe",
         description: "test double — counts executions",
         inputSchema: z.object({ slug: z.string() }),
         execute: async (input) => {
@@ -102,6 +103,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
         integration: "system",
         action: "fetch_url",
         riskTier: "no_risk",
+        replay: "safe",
         description: "test double — echoes the raw url it received + redacts on persist",
         inputSchema: z.object({ url: z.string() }),
         execute: async (input) => {
@@ -121,6 +123,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
         integration: "system",
         action: "spawn_sub_agent",
         riskTier: "no_risk",
+        replay: "safe",
         description: "test double — should never execute in these tests",
         inputSchema: z.object({}).loose(),
         execute: async () => {
@@ -162,6 +165,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       caller: "boss" as const,
       runContext: { caller: "boss", interaction: "background" } as const,
       fence: { generation: 0 } as const,
+      attempt: 0,
     };
 
     const first = await dispatchToolCall(args);
@@ -204,6 +208,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       caller: "boss" as const,
       runContext: { caller: "boss", interaction: "background" } as const,
       fence: { generation: 0 } as const,
+      attempt: 0,
     };
 
     const first = await dispatchToolCall(args);
@@ -242,6 +247,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
       fence: { generation: 0 },
+      attempt: 0,
     });
 
     if (result.kind !== "failed") {
@@ -300,6 +306,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
       fence: { generation: 0 },
+      attempt: 0,
     });
 
     assert.deepEqual(result, {
@@ -334,6 +341,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
       fence: { generation: 0 },
+      attempt: 0,
     });
 
     // The in-tool credential block needs the real value.
@@ -378,6 +386,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
       fence: { generation: 0 },
+      attempt: 0,
     });
     assert.equal(executeCount, before + 1, "a new tool_call_id is a distinct call and re-executes");
   });
@@ -397,6 +406,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
       fence: { generation: 0 },
+      attempt: 0,
     });
     // Two tools under one call id must throw, not run against the first row's audit trail.
     await assert.rejects(
@@ -412,6 +422,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
         caller: "boss",
         runContext: { caller: "boss", interaction: "background" },
         fence: { generation: 0 },
+        attempt: 0,
       }),
       /toolName mismatch on re-dispatch/,
     );

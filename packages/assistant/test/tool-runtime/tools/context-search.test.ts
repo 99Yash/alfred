@@ -57,6 +57,7 @@ const ROUND_RUN: ToolCallRun = {
   caller: "boss",
   runContext: { caller: "boss", interaction: "live_chat" },
   fence: { generation: 0 },
+  attempt: 0,
 };
 
 function evidenceCard(snippet: string): EvidenceCard {

@@ -120,6 +120,7 @@ function buildStubs(): Stubs {
           integration: "gmail",
           action: "search",
           riskTier: "no_risk",
+          replay: "safe",
           description: "Smoke-test Gmail search tool.",
           inputSchema: gmailSearchInput,
           execute: async (input) => {
@@ -132,6 +133,7 @@ function buildStubs(): Stubs {
           integration: "gmail",
           action: "send_draft",
           riskTier: "high",
+          replay: "unsafe",
           description: "Smoke-test Gmail draft send tool.",
           inputSchema: gmailSendDraftInput,
           execute: async (input) => {
@@ -171,6 +173,7 @@ async function main(): Promise<void> {
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
     fence: { generation: 0 },
+    attempt: 0,
   });
 
   assert(auto.kind === "executed", `autonomy expected 'executed', got '${auto.kind}'`);
@@ -207,6 +210,7 @@ async function main(): Promise<void> {
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
     fence: { generation: 0 },
+    attempt: 0,
   });
 
   assert(auto2.kind === "executed", "idempotent re-dispatch expected 'executed'");
@@ -228,6 +232,7 @@ async function main(): Promise<void> {
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
     fence: { generation: 0 },
+    attempt: 0,
   });
 
   assert(
@@ -259,6 +264,7 @@ async function main(): Promise<void> {
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
     fence: { generation: 0 },
+    attempt: 0,
   });
 
   assert(staged.kind === "staged", `gated expected 'staged', got '${staged.kind}'`);
@@ -294,6 +300,7 @@ async function main(): Promise<void> {
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
     fence: { generation: 0 },
+    attempt: 0,
   });
 
   assert(
@@ -354,6 +361,7 @@ async function main(): Promise<void> {
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
     fence: { generation: 0 },
+    attempt: 0,
   });
 
   assert(resumed.kind === "executed", `resume expected 'executed', got '${resumed.kind}'`);
@@ -388,6 +396,7 @@ async function main(): Promise<void> {
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
     fence: { generation: 0 },
+    attempt: 0,
   });
 
   assert(firstAttempt.kind === "staged", "retry-suppression setup expects staged on first try");
@@ -417,6 +426,7 @@ async function main(): Promise<void> {
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
     fence: { generation: 0 },
+    attempt: 0,
   });
 
   assert(

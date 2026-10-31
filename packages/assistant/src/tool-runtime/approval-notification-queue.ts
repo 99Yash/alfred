@@ -68,12 +68,26 @@ export async function scheduleApprovalNotificationJob(args: {
   if (!isQueueEnabled()) return "disabled";
 
   try {
-    await getApprovalNotificationQueue().add(
+    const queue = getApprovalNotificationQueue();
+    const jobId = approvalNotificationJobId(args.stagingId);
+    // `add` no-ops on an existing id, and a finished job lingers for an hour. Remove a finished
+    // job so a may-have-run card restaged soon after the first email gets its own email.
+    const existing = await queue.getJob(jobId);
+
+    if (existing) {
+      const state = await existing.getState();
+
+      if (state === "completed" || state === "failed") {
+        await existing.remove();
+      }
+    }
+
+    await queue.add(
       "approval.notify",
       { stagingId: args.stagingId, userId: args.userId },
       {
         delay: Math.max(0, args.delayMs),
-        jobId: approvalNotificationJobId(args.stagingId),
+        jobId,
       },
     );
 

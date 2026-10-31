@@ -22,6 +22,7 @@ export const contactsTools: readonly RegisteredTool[] = [
     integration: "contacts",
     action: "search",
     riskTier: "no_risk",
+    replay: "safe",
     description:
       "Find a person in the user's Google Contacts by name, email, or phone (saved contacts also match on organization). Searches saved contacts and 'Other contacts' (people the user emailed but never saved); each result names its `source`. Use it to resolve a name to an email address before you write to someone.",
     discovery: {
@@ -77,6 +78,7 @@ export const contactsTools: readonly RegisteredTool[] = [
     integration: "contacts",
     action: "list",
     riskTier: "no_risk",
+    replay: "safe",
     description:
       "Page through the user's saved Google Contacts (newest edits first) or their 'Other contacts'. Prefer contacts.search to find one person.",
     inputSchema: contactsListInput,
@@ -95,6 +97,7 @@ export const contactsTools: readonly RegisteredTool[] = [
     integration: "contacts",
     action: "get",
     riskTier: "low",
+    replay: "safe",
     description:
       "Read one saved contact in full: nicknames, all emails and phones, organization, addresses, birthday, notes, links, relations, and dates. Takes a `people/…` resourceName from contacts.search or contacts.list.",
     inputSchema: contactsGetInput,

@@ -9,6 +9,7 @@ export const docsTools: readonly RegisteredTool[] = [
     integration: "docs",
     action: "get_document",
     riskTier: "low",
+    replay: "safe",
     description:
       "Read a Google Doc's full text and heading outline. Provide the document id (from a Drive search or a Docs URL).",
     inputSchema: docsGetDocumentInput,
@@ -25,6 +26,7 @@ export const docsTools: readonly RegisteredTool[] = [
     integration: "docs",
     action: "request",
     riskTier: "no_risk",
+    replay: "safe",
     availability: { passthrough: true },
     description:
       "Issue a raw, READ-ONLY Google Docs REST call for a document's STRUCTURE — the raw body elements, named ranges, styles, inline objects, and headers/footers that the flattened curated read discards. GET '/documents/{documentId}'. To read a document's CONTENT as text, use the curated docs.get_document (or drive.export_file) instead — this raw read is for structure/metadata, and a full document is large, so scope it with a `fields` mask (e.g. 'title,namedRanges,documentStyle') and expect a truncated-and-flagged result if you pull the whole body. Pass `method` (GET or HEAD only — writes are rejected at the boundary), a namespace-relative `path` beginning with '/' (never a full URL and never the '/v1' prefix), and `query` for parameters (fields, suggestionsViewMode). This is a raw, unvalidated read: a 404 may mean your id/path was wrong — NOT that the document is absent. Correct the path once and retry, or state the uncertainty. Never report a raw empty as a confident zero.",

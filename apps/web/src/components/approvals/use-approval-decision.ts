@@ -1,6 +1,6 @@
 import type { SyncedActionStaging } from "@alfred/sync";
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
-import { cardTitle } from "./card-spec";
+import { cardTitle, MAY_HAVE_RUN_REJECT_REASON } from "./card-spec";
 import { formatJson } from "./format";
 
 /** Approve may carry an edited input. */
@@ -58,7 +58,9 @@ export interface ApprovalDecisionState {
 export function useApprovalDecision(staging: SyncedActionStaging): ApprovalDecisionState {
   const [draftInput, setDraftInput] = useState<unknown>(() => staging.proposedInput);
   const [showReason, setShowReason] = useState(false);
-  const [reason, setReason] = useState("");
+  // A may-have-run card starts with the note, so "Don't run again" needs no typing.
+  const initialReason = staging.mayHaveRun ? MAY_HAVE_RUN_REJECT_REASON : "";
+  const [reason, setReason] = useState(initialReason);
   const [busy, setBusy] = useState(false);
   const [decided, setDecided] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -80,7 +82,7 @@ export function useApprovalDecision(staging: SyncedActionStaging): ApprovalDecis
     setPreviousStaging({ id: staging.id, stagedInput });
     setDraftInput(staging.proposedInput);
     setShowReason(false);
-    setReason("");
+    setReason(initialReason);
     setBusy(false);
     setDecided(false);
     setError(null);

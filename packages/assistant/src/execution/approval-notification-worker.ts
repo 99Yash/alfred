@@ -97,6 +97,7 @@ async function processApprovalNotificationJob({
       displayInput: actionStagings.displayInput,
       status: actionStagings.status,
       notifiedAt: actionStagings.notifiedAt,
+      dispatchClaimedAt: actionStagings.dispatchClaimedAt,
       workflowSlug: agentRuns.workflowSlug,
     })
     .from(actionStagings)
@@ -127,12 +128,17 @@ async function processApprovalNotificationJob({
     riskTier: row.riskTier,
     displayInput,
     approvalUrl,
+    mayHaveRun: row.dispatchClaimedAt !== null,
   });
 
   const result = await send({
     userId: row.userId,
     kind: "approval",
-    idempotencyKey: `approval:${stagingId}`,
+    // A may-have-run card is a new decision on the same row, so its claim time keys a new email.
+    idempotencyKey:
+      row.dispatchClaimedAt === null
+        ? `approval:${stagingId}`
+        : `approval:${stagingId}:claim:${row.dispatchClaimedAt.getTime()}`,
     subject: rendered.subject,
     html: rendered.html,
     text: rendered.text,
@@ -188,6 +194,8 @@ interface RenderApprovalNotificationArgs {
   riskTier: string;
   displayInput: JsonValue;
   approvalUrl: string;
+  /** The call started once and did not finish. Approve runs it again. */
+  mayHaveRun: boolean;
 }
 
 async function renderApprovalNotification(args: RenderApprovalNotificationArgs): Promise<{
@@ -198,7 +206,13 @@ async function renderApprovalNotification(args: RenderApprovalNotificationArgs):
   // A question asks for an answer, not a decision, so it gets no risk prefix (ADR-0099).
   const isQuestion = isQuestionApproval(args.toolName);
   const action = humanizeToolName(args.toolName);
-  const heading = isQuestion ? "Alfred has a question for you" : `Alfred wants to ${action}`;
+
+  const heading = isQuestion
+    ? "Alfred has a question for you"
+    : args.mayHaveRun
+      ? `Alfred may have already tried to ${action}`
+      : `Alfred wants to ${action}`;
+
   const subject = isQuestion ? heading : `[${args.riskTier}] ${heading}`;
   const inputFields = summarizeInput(args.toolName, args.displayInput);
 
@@ -206,6 +220,9 @@ async function renderApprovalNotification(args: RenderApprovalNotificationArgs):
     { label: "Workflow", value: args.workflowSlug },
     { label: "Tool", value: args.toolName },
     { label: "Risk", value: args.riskTier },
+    ...(args.mayHaveRun
+      ? [{ label: "Status", value: "Interrupted. Check first. Approve runs it again." }]
+      : []),
     ...inputFields,
   ];
 

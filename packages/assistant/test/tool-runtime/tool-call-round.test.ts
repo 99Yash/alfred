@@ -28,6 +28,7 @@ const backgroundRun: ToolCallRun = {
   caller: "boss",
   runContext: { caller: "boss", interaction: "background" },
   fence: { generation: 0 },
+  attempt: 0,
 };
 
 const liveRun: ToolCallRun = {

@@ -36,12 +36,14 @@ const baseDispatch: ToolCallDispatchArgs = {
   runContext: { caller: "boss", interaction: "background" },
   activeTools: ["system.fetch_url"],
   fence: { generation: 0 },
+  attempt: 0,
 };
 
 const redactingTool: RegisteredTool = liveTool({
   integration: "system",
   action: "fetch_url",
   riskTier: "no_risk",
+  replay: "safe",
   description: "test redacting tool",
   inputSchema: z.object({ url: z.string() }),
   execute: async () => null,
@@ -165,6 +167,7 @@ describe("dispatchToolCall rejection tracing", () => {
         integration: "system",
         action: "load_tool",
         riskTier: "no_risk",
+        replay: "safe",
         description: "test tool",
         inputSchema: z.object({ slug: z.string() }).strict(),
         execute: async () => ({ ok: true }),
@@ -225,6 +228,7 @@ describe("dispatchToolCall rejection tracing", () => {
         integration: "system",
         action: "await_sub_agent",
         riskTier: "no_risk",
+        replay: "safe",
         description: "test await tool",
         staging: "join",
         inputSchema: z.object({ childRunId: z.string() }).strict(),

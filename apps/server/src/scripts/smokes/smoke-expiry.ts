@@ -183,6 +183,7 @@ async function stageGatedDraft(
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
     fence: { generation: 0 },
+    attempt: 0,
   });
 
   assert(
@@ -206,6 +207,7 @@ async function main(): Promise<void> {
       integration: "gmail",
       action: "send_draft",
       riskTier: "high",
+      replay: "unsafe",
       description: "Smoke-test Gmail draft send tool.",
       inputSchema: sendDraftInput,
       execute: async (input) => {
@@ -312,6 +314,7 @@ async function main(): Promise<void> {
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
     fence: { generation: 0 },
+    attempt: 0,
   });
 
   assert(

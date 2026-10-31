@@ -128,6 +128,11 @@ interface ToolCallRunBase {
   workflow: string;
   /** Dispatch refuses an effect once the run's fence moves past this value. */
   fence: CancellationFence;
+  /**
+   * The executor attempt that holds the step. An `unsafe` tool claims its call under this lease,
+   * so an attempt that lost the run cannot start the effect.
+   */
+  attempt: number;
   /** Set only for a live chat turn. */
   chat?: ChatTurnAddress | undefined;
   /**

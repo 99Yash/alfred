@@ -107,6 +107,7 @@ function baseArgs(overrides: Record<string, unknown> = {}) {
     runContext: { caller: "boss", interaction: "background" } as const,
     timezone: TIMEZONE,
     fence: { generation: 0 },
+    attempt: 0,
     ...overrides,
   };
 }
@@ -118,6 +119,7 @@ function registerDoubles(): void {
       integration: "system",
       action: "load_tool",
       riskTier: "no_risk",
+      replay: "safe",
       description: "test double — counts executions",
       inputSchema: z.object({ slug: z.string(), optional: z.string().optional() }),
       execute: async (input) => {
@@ -147,6 +149,7 @@ function registerDoubles(): void {
       integration: "system",
       action: "spawn_sub_agent",
       riskTier: "no_risk",
+      replay: "safe",
       description: "test double — should never execute here",
       inputSchema: z.object({}).loose(),
       execute: async () => {
@@ -161,6 +164,7 @@ function registerDoubles(): void {
       integration: "system",
       action: "fetch_url",
       riskTier: "high",
+      replay: "safe",
       description: "test double — high tier, so the approval floor gates it",
       inputSchema: z.object({ url: z.string() }),
       execute: async (input) => {
@@ -829,6 +833,7 @@ describe("dispatch staging machine (DB-free)", () => {
         integration: "system",
         action: "load_tool",
         riskTier: "no_risk",
+        replay: "safe",
         description: "test double — ambiguous delivery",
         inputSchema: z.object({ slug: z.string() }),
         execute: async () => {
