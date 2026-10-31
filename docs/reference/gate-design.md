@@ -127,7 +127,6 @@ Each row is a smell that review owns, from [smells/](./smells/README.md), with t
 | Smell (checklist section) | Mechanism | Status | PRs |
 | --- | --- | --- | --- |
 | [`guards-only-on-unknown`](./smells/guards-only-on-unknown.md) (Types) | Compiler: a closed-domain parameter that rejects an argument whose type is not `unknown`. | Candidate, #1629 | 7 |
-| [`no-barrel-export-for-test`](./smells/no-barrel-export-for-test.md) (Backend) | Knip in production mode, where test files are not entries. | Candidate, #1629 | 2 |
 | [`bind-credential-not-token`](./smells/bind-credential-not-token.md) (Backend) | Compiler: client factories that take a credential id and never a token, one provider at a time. | Medium | 1 |
 | [`no-query-in-loop`](./smells/no-query-in-loop.md) (Backend) | AST: a query on a `db()` or transaction handle awaited inside a loop body or an async `.map`. | Medium | 1 |
 | [`no-updated-at-queue-key`](./smells/no-updated-at-queue-key.md) (Backend) | AST: an `updatedAt` column inside an ordering or a comparison in a query chain. | Medium | 1 |

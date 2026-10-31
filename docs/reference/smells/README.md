@@ -59,7 +59,7 @@ A `gated` smell stays here for its examples and its ledger. [review-checklist.md
 | [Make work that BullMQ or a webhook retries idempotent.](./idempotent-retried-work.md) | Stays review | none | 1 |
 | [Log a caught error only under the `err` key of a `logger` call. Put only safe fields beside it, and mask PII.](./log-caught-error-under-err.md) | Gated by `alfred/log-caught-error-under-err` | ast | 4 |
 | [Name the clock of each timestamp. Compare only timestamps of one clock.](./name-timestamp-clock.md) | Review, low | compiler | 1 |
-| [Do not export a primitive from a package barrel only for a test.](./no-barrel-export-for-test.md) | Candidate, #1629 | check | 2 |
+| [Do not export a primitive from a package barrel only for a test.](./no-barrel-export-for-test.md) | Gated by `check:test-only-exports` | check | 2 |
 | [Do not query in a loop. Paginate every list endpoint.](./no-query-in-loop.md) | Review, medium | ast | 1 |
 | [Do not give a `.catch(…)` handler a body that drops the error and returns a constant.](./no-swallowed-catch.md) | Gated by `alfred/no-swallowed-catch` | ast | 2 |
 | [Do not let a `catch` clause with statements drop the error.](./no-swallowed-try-catch.md) | Review, low | ast | 1 |
