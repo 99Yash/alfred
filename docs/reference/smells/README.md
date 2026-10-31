@@ -28,7 +28,7 @@ A `gated` smell stays here for its examples and its ledger. [review-checklist.md
 | [Write `import type { X }` when every name of an import is a type.](./import-type-side-effects.md) | Gated by `typescript/no-import-type-side-effects` | ast | 5 |
 | [Keep a literal type only when it is a different concept, and say why in one comment.](./literal-type-only-for-new-concept.md) | Stays review | none | 0 |
 | [Name a symbol for its domain role, not its structure.](./name-for-domain-role.md) | Stays review | none | 1 |
-| [Do not return or print the `never` binding of an exhaustive `default`. Throw with `assertNever`, or return a real value of the return type.](./never-sentinel-escape.md) | Candidate, #1629 | ast | 5 |
+| [Do not return or print the `never` binding of an exhaustive `default`. Throw with `assertNever`, or return a real value of the return type.](./never-sentinel-escape.md) | Gated by `alfred/no-never-sentinel-binding` | ast | 5 |
 | [Give a shape that two packages share one owning schema.](./one-owning-schema-per-shared-shape.md) | Stays review | none | 0 |
 | [Choose `k?: T` or `k?: T \| undefined` for each optional field.](./optional-field-absence-choice.md) | Stays review | none | 0 |
 | [Put a shape in the file that mints or stores it.](./shape-in-minting-file.md) | Stays review | none | 0 |
