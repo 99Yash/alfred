@@ -8,7 +8,12 @@ import {
   type UserFact,
   userFacts,
 } from "@alfred/db/schemas";
-import { isNonBlankString, memorySourceSchema, type MemorySource } from "@alfred/contracts";
+import {
+  assertNever,
+  isNonBlankString,
+  memorySourceSchema,
+  type MemorySource,
+} from "@alfred/contracts";
 import { and, asc, desc, eq, gt, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import {
   settings,
@@ -204,11 +209,8 @@ function sourceRank(source: MemorySource): number {
     case "chunk":
     case "tool_call":
       return 3;
-    default: {
-      const _exhaustive: never = source.kind;
-
-      return _exhaustive;
-    }
+    default:
+      return assertNever(source.kind, "memory source kind");
   }
 }
 

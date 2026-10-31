@@ -13,6 +13,7 @@ import {
   skillDocumentationDedupKey,
   skillDocumentationInputSchema,
 } from "./skill-documentation-workflow-input";
+import { assertNever } from "@alfred/contracts";
 
 /**
  * `skill-documentation`: async phase 2 of Learn (ADR-0017), enqueued by `learn-skill`.
@@ -100,12 +101,8 @@ export const skillDocumentationWorkflow: Workflow<
           await finalizeSkillRun({ agentRunId: ctx.runId, status: "cancelled" });
 
           return;
-        default: {
-          const unhandled: never = ctx;
-          throw new Error(
-            `[skill-documentation] unhandled terminal outcome: ${JSON.stringify(unhandled)}`,
-          );
-        }
+        default:
+          return assertNever(ctx, "skill documentation terminal outcome");
       }
     },
   },

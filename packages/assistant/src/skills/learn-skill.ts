@@ -1,4 +1,4 @@
-import { toMessage } from "@alfred/contracts";
+import { assertNever, toMessage } from "@alfred/contracts";
 import { z } from "zod";
 import { isUniqueViolation } from "@alfred/db/pg-errors";
 import { startRun, type Workflow } from "@alfred/assistant/execution";
@@ -92,10 +92,8 @@ export const learnSkillWorkflow: Workflow<
           await finalizeSkillRun({ agentRunId: ctx.runId, status: "cancelled" });
 
           return;
-        default: {
-          const unhandled: never = ctx;
-          throw new Error(`[learn-skill] unhandled terminal outcome: ${JSON.stringify(unhandled)}`);
-        }
+        default:
+          return assertNever(ctx, "learn-skill terminal outcome");
       }
     },
   },

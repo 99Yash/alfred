@@ -48,11 +48,9 @@ export function mcpConnectionPresentation(
         statusText: lastError ?? "Connection failed",
         alert: { text: "Connection failed", diagnostic: lastError },
       };
-    default: {
-      const _exhaustive: never = connection.status;
-
-      return { statusText: _exhaustive, alert: null };
-    }
+    default:
+      // The connection list arrives as an unparsed HTTP response, so a newer server value can reach this clause.
+      return { statusText: "Unknown status", alert: null };
   }
 }
 

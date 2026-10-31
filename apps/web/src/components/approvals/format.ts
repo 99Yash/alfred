@@ -29,11 +29,9 @@ export function triggerLabel(trigger: {
       return `Triggered by ${phrase}`;
     }
 
-    default: {
-      const _exhaustive: never = trigger.kind;
-
-      return _exhaustive;
-    }
+    default:
+      // Run history arrives as an unparsed HTTP response, so a newer server value can reach this clause.
+      return "Triggered";
   }
 }
 

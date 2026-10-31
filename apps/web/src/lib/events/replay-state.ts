@@ -3,6 +3,7 @@ import { z } from "zod";
 import { isTerminalStatus } from "@alfred/contracts/agent";
 
 import type { EventStreamFrame } from "./frame";
+import { assertNever } from "@alfred/contracts";
 
 const replayStateObjectSchema = z.object({
   cursor: z.number().int().nonnegative(),
@@ -198,11 +199,8 @@ function barrierRunId(frame: EventStreamFrame): BarrierRunId | null {
     case "inbox.updated":
     case "memory.fact_learned":
       return speaksForNoRun(frame.kind);
-    default: {
-      const _exhaustive: never = frame;
-
-      return _exhaustive;
-    }
+    default:
+      return assertNever(frame, "event frame kind");
   }
 }
 
@@ -268,10 +266,7 @@ function releasedRunId(frame: EventStreamFrame): BarrierRunId | null {
     case "memory.fact_learned":
     case "tool.call":
       return null;
-    default: {
-      const _exhaustive: never = frame;
-
-      return _exhaustive;
-    }
+    default:
+      return assertNever(frame, "event frame kind");
   }
 }

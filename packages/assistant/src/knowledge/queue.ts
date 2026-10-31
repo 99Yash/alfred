@@ -7,7 +7,7 @@ import { createRedisConnection } from "@alfred/db/redis";
 import { scheduledFireTime, startRun } from "@alfred/assistant/execution";
 import { runDriftHealthCheck } from "./drift-audit/index";
 import { embedMemoryChunk, findPendingEmbedChunks, recordMemoryEmbedFailure } from "./chunks";
-import { toMessage } from "@alfred/contracts";
+import { assertNever, toMessage } from "@alfred/contracts";
 import { logger } from "@alfred/logging";
 
 /** Memory-cron queue: repeatable jobs that fan out into per-user runs. */
@@ -178,10 +178,8 @@ async function processMemoryJob(job: Job<MemoryJobData>) {
       return { checked, breached };
     }
 
-    default: {
-      const _exhaustive: never = data;
-      throw new Error(`unknown memory job kind: ${JSON.stringify(_exhaustive)}`);
-    }
+    default:
+      return assertNever(data, "knowledge job kind");
   }
 }
 

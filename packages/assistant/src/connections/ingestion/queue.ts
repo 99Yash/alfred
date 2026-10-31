@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Queue, Worker, type Job } from "bullmq";
-import { INBOUND_EVENT_SOURCES } from "@alfred/contracts";
+import { assertNever, INBOUND_EVENT_SOURCES } from "@alfred/contracts";
 import { findExpiringGmailWatches } from "@alfred/integrations/google";
 import {
   findCredentialsNeedingPoll,
@@ -653,10 +653,8 @@ async function processIngestionJobData(data: IngestionJobData) {
       return runDeliveryAlertSweepForAllUsers();
     }
 
-    default: {
-      const _exhaustive: never = data;
-      throw new Error(`unknown ingestion job kind: ${JSON.stringify(_exhaustive)}`);
-    }
+    default:
+      return assertNever(data, "ingestion job kind");
   }
 }
 

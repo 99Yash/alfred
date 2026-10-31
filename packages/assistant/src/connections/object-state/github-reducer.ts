@@ -1,4 +1,8 @@
-import { canonicalizeGithubPullRequestUrl, canonicalizeGithubTargetId } from "@alfred/contracts";
+import {
+  assertNever,
+  canonicalizeGithubPullRequestUrl,
+  canonicalizeGithubTargetId,
+} from "@alfred/contracts";
 import { GITHUB_MERGED_PULL_READ_EVENT_TYPE, type ObjectStateEvent } from "./events";
 import type { ObjectStateDelta } from "./store";
 
@@ -31,11 +35,8 @@ export function reduceGithubEvent(event: GithubFoldEvent): ObjectStateDelta[] {
       return reduceCheckSuite(event.payload);
     case GITHUB_MERGED_PULL_READ_EVENT_TYPE:
       return reduceMergedPullRead(event.payload);
-    default: {
-      const _exhaustive: never = event;
-
-      return _exhaustive;
-    }
+    default:
+      return assertNever(event, "GitHub event type");
   }
 }
 

@@ -9,6 +9,7 @@ import {
   type gmailDocumentMetadataSchema,
 } from "./gmail-document-metadata";
 import { parsePersistedMetadata } from "./persisted-metadata";
+import { assertNever } from "./errors";
 
 /**
  * `documents.metadata` on an inbound receipt row (ADR-0090). Legacy and smoke rows hold `{}`.
@@ -64,9 +65,7 @@ export function parseDocumentMetadata(row: {
         source: row.source,
         metadata: parsePersistedMetadata(receiptDocumentMetadataSchema, row.metadata),
       };
-    default: {
-      const exhaustive: never = row.source;
-      throw new Error(`[documents] unknown source ${String(exhaustive)}`);
-    }
+    default:
+      return assertNever(row.source, "document source");
   }
 }

@@ -1,4 +1,5 @@
 import {
+  assertNever,
   getPath,
   USAGE_ACTIVITY_MAX_PAGE_SIZE,
   type UsageActivityResult,
@@ -117,11 +118,8 @@ function categoryPredicate(category: UsageRunCategory): SQL {
       return inArray(agentRuns.workflowSlug, slugs);
     }
 
-    default: {
-      const _exhaustive: never = category;
-
-      return _exhaustive;
-    }
+    default:
+      return assertNever(category, "usage run category");
   }
 }
 

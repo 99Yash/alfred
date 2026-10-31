@@ -62,6 +62,7 @@ import {
 } from "@alfred/assistant/triage";
 import { notSentGmailDocumentWhere } from "@alfred/assistant/triage/sent-mail";
 import {
+  assertNever,
   emailDomain,
   isDomainOrSubdomain,
   normalizeEmailAddress,
@@ -1244,11 +1245,8 @@ function describePreview(state: StandingScopePreviewState | undefined): string {
     case "not_candidate":
     case "unknown":
       return state.state;
-    default: {
-      const exhaustive: never = state;
-
-      return String(exhaustive);
-    }
+    default:
+      return assertNever(state, "standing scope preview state");
   }
 }
 

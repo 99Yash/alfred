@@ -199,14 +199,9 @@ function githubReceiptEvent(
     case "issues":
     case "pull_request_review":
       return null;
-    default: {
+    default:
       // `parseGithubEvent` returns `null` first for an undeclared type, so no path gets here.
-      // The binding keeps the switch exhaustive.
-      const _exhaustive: never = event;
-      void _exhaustive;
-
       return null;
-    }
   }
 }
 
@@ -238,12 +233,8 @@ function sentryLifecycleEventType(
     case "event_alert_triggered":
     case "seer_pr_created":
       return null;
-    default: {
+    default:
       // A generic `S` can still land here at runtime with another source's type; fold nothing.
-      const _exhaustive: never = eventType;
-      void _exhaustive;
-
       return null;
-    }
   }
 }

@@ -84,6 +84,7 @@ import { streamModelTurn } from "./stream-model-turn";
 import { isStreamTimeoutAbort } from "./stream-timeout";
 import { createTurnStopController } from "./turn-stop-controller";
 import { emitTurnPhaseThermometer, type TurnPhaseOutcome } from "./turn-thermometer";
+import { assertNever } from "@alfred/contracts";
 
 /** One run serves one user turn: stream the model, dispatch tools, persist the reply (ADR-0077). */
 export { CHAT_TURN_WORKFLOW_SLUG };
@@ -1060,10 +1061,8 @@ export const chatTurnWorkflow: Workflow<ChatRunState, string, ChatTurnRunMetadat
           await finalizeCancelledMessage(ctx.userId, ctx.runId, ctx.state);
 
           return;
-        default: {
-          const unhandled: never = ctx;
-          throw new Error(`[chat-turn] unhandled terminal outcome: ${JSON.stringify(unhandled)}`);
-        }
+        default:
+          return assertNever(ctx, "chat turn terminal outcome");
       }
     },
   },

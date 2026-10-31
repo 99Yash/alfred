@@ -2,6 +2,7 @@ import { Queue, Worker, type Job } from "bullmq";
 import { createRedisConnection } from "@alfred/db/redis";
 import { dispatchDueCronWorkflows } from "./tick";
 import { logger } from "@alfred/logging";
+import { assertNever } from "@alfred/contracts";
 
 /**
  * Workflow dispatch queue (ADR-0027). It only drives the per-minute `workflows.tick`.
@@ -67,10 +68,8 @@ async function processWorkflowsJob(job: Job<WorkflowsJobData>) {
     // oxlint-disable-next-line typescript/no-unnecessary-condition -- BullMQ job.data is JSON read back from Redis and typed only by the queue generic; a stale or foreign job can carry another kind.
     case "workflows.tick":
       return dispatchDueCronWorkflows();
-    default: {
-      const _exhaustive: never = job.data.kind;
-      throw new Error(`unknown workflows job kind: ${JSON.stringify(_exhaustive)}`);
-    }
+    default:
+      return assertNever(job.data.kind, "workflows job kind");
   }
 }
 

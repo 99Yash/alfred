@@ -6,6 +6,7 @@ import type {
   JsonObject,
   IntegrationActivityItem,
 } from "@alfred/contracts";
+import { assertNever } from "@alfred/contracts";
 
 /**
  * The provider-specific half of one inbound webhook source (ADR-0097).
@@ -161,11 +162,8 @@ export function inboundDeliveryKey<S extends InboundEventSource>(
       return nonEmpty(rule.key(input));
     case "delivery_id_or_synthetic":
       return nonEmpty(headers.get(rule.header)) ?? nonEmpty(rule.key(input));
-    default: {
-      const _exhaustive: never = rule;
-
-      return _exhaustive;
-    }
+    default:
+      return assertNever(rule, "inbound delivery key rule");
   }
 }
 

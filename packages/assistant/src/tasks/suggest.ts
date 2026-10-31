@@ -1,5 +1,6 @@
 import { sanitizeVoice } from "@alfred/ai/voice";
 import {
+  assertNever,
   boundTodoSources,
   mergeTodoSources,
   todoSourceKey,
@@ -172,9 +173,7 @@ export async function suggestTodo(input: SuggestTodoInput): Promise<SuggestTodoR
       return { ok: true, status: "suppressed", todoId: result.todoId, reason: result.reason };
     case "created":
       return { ok: true, status: "created", todoId: result.todoId };
-    default: {
-      const _exhaustive: never = result;
-      throw new Error(`[suggestTodo] unhandled result: ${JSON.stringify(_exhaustive)}`);
-    }
+    default:
+      return assertNever(result, "suggestTodo result status");
   }
 }

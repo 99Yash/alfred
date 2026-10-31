@@ -31,6 +31,7 @@ import {
 import { LOCAL_STORAGE_KEY, setLocalStorageItem } from "~/lib/storage/storage";
 import { resolveSetState } from "~/lib/set-state";
 import type AuthedAppShell from "./authed-app-shell";
+import { assertNever } from "@alfred/contracts";
 
 /* Right-rail slot: `useRightRail(node)` mounts a page's own aside. The last one registered wins. */
 
@@ -197,11 +198,8 @@ function shellReducer(state: ShellState, action: ShellAction): ShellState {
       return { ...state, activeThread: action.value };
     case "setThreadViewModel":
       return { ...state, threadViewModel: action.value };
-    default: {
-      const _exhaustive: never = action;
-      // SAFETY: unreachable; the cast only reads `type` for the message.
-      throw new Error(`Unhandled shell action: ${(_exhaustive as ShellAction).type}`);
-    }
+    default:
+      return assertNever(action, "shell action");
   }
 }
 

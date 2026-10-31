@@ -1,4 +1,5 @@
 import {
+  assertNever,
   GOOGLE_SLUGS,
   INTEGRATIONS,
   integrationStatusSchema,
@@ -52,10 +53,8 @@ async function deleteProviderCredential(provider: CredentialProvider, id: string
       return client.api.integrations.sentry({ id }).delete();
     case "vercel":
       return client.api.integrations.vercel({ id }).delete();
-    default: {
-      const _exhaustive: never = provider;
-      throw new Error(`Unhandled credential provider: ${String(_exhaustive)}`);
-    }
+    default:
+      return assertNever(provider, "credential provider");
   }
 }
 

@@ -1,4 +1,5 @@
 import {
+  assertNever,
   briefingGatherSchema,
   ianaTimezoneSchema,
   resolveBriefingReferences,
@@ -446,10 +447,8 @@ function resumeExistingBriefing(
         },
         nextStep: "send",
       };
-    default: {
-      const _exhaustive: never = row.status;
-      throw new Error(`[morning-briefing] unknown briefing status ${String(_exhaustive)}`);
-    }
+    default:
+      return assertNever(row.status, "briefing row status");
   }
 }
 

@@ -14,6 +14,7 @@ import {
   triageTodoSuggestionSchema,
   type TriageCategory,
 } from "./triage";
+import { assertNever } from "./errors";
 
 export const STANDING_INSTRUCTION_KEY = "standing_instruction";
 
@@ -151,11 +152,8 @@ export function targetNamesOneMailbox(
       return true;
     case "sender_domain":
       return false;
-    default: {
-      const exhaustive: never = target;
-
-      return Boolean(exhaustive);
-    }
+    default:
+      return assertNever(target, "standing-instruction target kind");
   }
 }
 
@@ -170,11 +168,8 @@ export function renderStandingInstructionDirective(target: StandingInstructionTa
       return `Stop surfacing reminders and briefing items from any sender at ${target.domain}.`;
     case "sender_email":
       return `Stop surfacing reminders and briefing items from ${target.label ?? target.email}.`;
-    default: {
-      const exhaustive: never = target;
-
-      return String(exhaustive);
-    }
+    default:
+      return assertNever(target, "standing-instruction target kind");
   }
 }
 
@@ -185,12 +180,8 @@ export function standingInstructionTargetKey(target: StandingInstructionTarget):
       return `${target.kind}:${target.email}`;
     case "sender_domain":
       return `${target.kind}:${target.domain}`;
-    default: {
-      const exhaustive: never = target;
-      void exhaustive;
-
-      throw new Error("unreachable standing-instruction target kind");
-    }
+    default:
+      return assertNever(target, "standing-instruction target kind");
   }
 }
 
@@ -218,12 +209,8 @@ export function targetMatchesSender(
       break;
     }
 
-    default: {
-      const exhaustive: never = target;
-      void exhaustive;
-
+    default:
       return false;
-    }
   }
 
   if (!senderMatches) return false;
@@ -276,12 +263,8 @@ function senderScopeAxis(
             : "disjoint";
         }
 
-        default: {
-          const exhaustive: never = relativeTo;
-          void exhaustive;
-
+        default:
           return "disjoint";
-        }
       }
 
     case "sender_domain":
@@ -294,20 +277,12 @@ function senderScopeAxis(
 
         case "sender_domain":
           return "disjoint";
-        default: {
-          const exhaustive: never = relativeTo;
-          void exhaustive;
-
+        default:
           return "disjoint";
-        }
       }
 
-    default: {
-      const exhaustive: never = of;
-      void exhaustive;
-
+    default:
       return "disjoint";
-    }
   }
 }
 
@@ -520,11 +495,8 @@ export function standingInstructionEffectRaises(
     case "exclude_briefing_priority":
     case "block_reply_draft":
       return false;
-    default: {
-      const exhaustive: never = effect;
-
-      return Boolean(exhaustive);
-    }
+    default:
+      return assertNever(effect, "standing-instruction effect kind");
   }
 }
 

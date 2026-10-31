@@ -18,7 +18,7 @@ import {
 } from "@alfred/extraction";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
-import { normalizeMimeType } from "@alfred/contracts";
+import { assertNever, normalizeMimeType } from "@alfred/contracts";
 import { readObject } from "./storage";
 
 export const CHAT_ATTACHMENT_REPRESENTATION_VERSION = 1;
@@ -328,11 +328,8 @@ function pdfExtractionFailureError(result: ExtractedPdf): Error {
     case "text_without_pages":
     case "needs_ocr":
       throw new Error(`pdfExtractionFailureError: unexpected kind ${result.kind}`);
-    default: {
-      const _exhaustive: never = result;
-
-      return _exhaustive;
-    }
+    default:
+      return assertNever(result, "PDF extraction result kind");
   }
 }
 

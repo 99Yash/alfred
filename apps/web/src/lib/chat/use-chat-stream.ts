@@ -15,6 +15,7 @@ import {
   type ChatStreamCell,
   type StreamingMessage,
 } from "./chat-stream-state";
+import { assertNever } from "@alfred/contracts";
 
 export interface ChatStream {
   stream: StreamingMessage | null;
@@ -162,11 +163,8 @@ function mountsTurn(frame: EventStreamFrame): boolean {
     case "memory.fact_learned":
     case "tool.call":
       return false;
-    default: {
-      const _exhaustive: never = frame;
-
-      return _exhaustive;
-    }
+    default:
+      return assertNever(frame, "event frame kind");
   }
 }
 

@@ -1,5 +1,6 @@
 import type { TranscriptMessage } from "@alfred/ai";
 import {
+  assertNever,
   boundToolResult,
   getStringPath,
   isActionTool,
@@ -189,10 +190,7 @@ function connectActionFor(code: ToolUnavailabilityCode): ChatConnectNudge["actio
     case "requires_thread":
     case "wrong_caller":
       return undefined;
-    default: {
-      const _exhaustive: never = code;
-
-      return _exhaustive;
-    }
+    default:
+      return assertNever(code, "tool unavailability code");
   }
 }

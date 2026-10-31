@@ -1,4 +1,5 @@
 import {
+  assertNever,
   COLD_START_WORKFLOW_SLUG,
   DAILY_BRIEFING_WORKFLOW_SLUG,
   eventTriggerPhrase,
@@ -93,10 +94,7 @@ export function describeCadence(trigger: SyncedWorkflow["trigger"]): string {
       return "On signal";
     case "manual":
       return "Manual";
-    default: {
-      const _exhaustive: never = trigger;
-
-      return _exhaustive;
-    }
+    default:
+      return assertNever(trigger, "workflow trigger");
   }
 }

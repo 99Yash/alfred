@@ -1,5 +1,5 @@
 import type { TranscriptMessage } from "@alfred/ai";
-import { isRecord } from "@alfred/contracts";
+import { assertNever, isRecord } from "@alfred/contracts";
 import type { ToolName } from "@alfred/contracts";
 
 import type {
@@ -241,11 +241,8 @@ function surfaceActivation(
       return name === undefined ? undefined : { name, loadSource: "search_fold" };
     }
 
-    default: {
-      const unhandled: never = activation;
-
-      throw new Error(`[tool-call-round] unhandled activation '${JSON.stringify(unhandled)}'`);
-    }
+    default:
+      return assertNever(activation, "surface activation kind");
   }
 }
 

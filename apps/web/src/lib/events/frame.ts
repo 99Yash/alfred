@@ -1,4 +1,10 @@
-import { getStringPath, isNonEmptyString, isRecord, safeJsonParse } from "@alfred/contracts";
+import {
+  assertNever,
+  getStringPath,
+  isNonEmptyString,
+  isRecord,
+  safeJsonParse,
+} from "@alfred/contracts";
 import {
   eventFrameSchema,
   eventPayloadSchemas,
@@ -86,10 +92,7 @@ export function frameThreadId(frame: EventStreamFrame): string | null {
     case "memory.fact_learned":
     case "tool.call":
       return noThreadNamed(frame.kind);
-    default: {
-      const _exhaustive: never = frame;
-
-      return _exhaustive;
-    }
+    default:
+      return assertNever(frame, "event frame kind");
   }
 }
