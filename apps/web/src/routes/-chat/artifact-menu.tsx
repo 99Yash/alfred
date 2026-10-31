@@ -1,10 +1,8 @@
 import type { SyncedArtifact } from "@alfred/sync";
-import * as PopoverPrimitive from "@radix-ui/react-popover";
-import { Check, Files, Loader2 } from "lucide-react";
-import { use, useId, useState } from "react";
-import { AppThemeContext } from "~/components/ui/v2/theme";
+import { Files, Loader2 } from "lucide-react";
 import { ARTIFACT_KIND_ICON, artifactTypeLabel } from "~/lib/artifacts/artifact-type";
 import { cn } from "~/lib/utils";
+import { PickerMenu, PickerMenuItem } from "./picker-menu";
 import { IconButton } from "./rail/icon-button";
 import { Tip } from "./tip";
 
@@ -37,14 +35,6 @@ export function ArtifactMenu({
   onOpen: (artifactId: string) => void;
   onClose: () => void;
 }) {
-  const listboxId = useId();
-  const [open, setOpen] = useState(false);
-  // The popover portals out of `.app`, so stamp the theme on the content.
-  const themeCtx = use(AppThemeContext);
-
-  const dataTheme =
-    themeCtx?.mode === "dark" || themeCtx?.mode === "light" ? themeCtx.mode : undefined;
-
   const [only] = artifacts;
 
   if (!only) return null;
@@ -68,81 +58,55 @@ export function ArtifactMenu({
   // "Active" when one of this thread's artifacts is open.
   const panelShowsArtifact = artifacts.some((a) => a.id === selectedId);
 
+  // A radio menu: the panel shows at most one artifact, and its row carries the check.
+  // No artifact id is empty, so `""` checks no row when the panel shows none of these.
   return (
-    <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
-      <Tip label="View artifacts">
-        <PopoverPrimitive.Trigger asChild>
-          <button
-            type="button"
-            aria-haspopup="listbox"
-            aria-controls={listboxId}
-            aria-label={`Artifacts (${artifacts.length})`}
-            className={cn(
-              "app-press inline-flex h-8 items-center gap-1.5 rounded-control px-2 text-[13px] font-medium",
-              "transition-colors outline-none",
-              "focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
-              panelShowsArtifact
-                ? "bg-app-bg-2 text-app-fg-4 hover:bg-app-bg-a2"
-                : "text-app-fg-3 hover:bg-app-bg-a2 hover:text-app-fg-4",
-              "data-[state=open]:bg-app-bg-a2 data-[state=open]:text-app-fg-4",
-            )}
-          >
-            <Files size={14} />
-            <span className="tabular-nums">{artifacts.length}</span>
-          </button>
-        </PopoverPrimitive.Trigger>
-      </Tip>
-      <PopoverPrimitive.Portal>
-        <PopoverPrimitive.Content
-          id={listboxId}
-          role="listbox"
-          aria-label="Artifacts"
-          side="bottom"
-          align="end"
-          sideOffset={8}
-          collisionPadding={16}
-          data-app-theme={dataTheme}
+    <PickerMenu
+      label="Artifacts"
+      value={selectedId ?? ""}
+      tip="View artifacts"
+      side="bottom"
+      align="end"
+      trigger={
+        <button
+          type="button"
+          aria-label={`Artifacts (${artifacts.length})`}
           className={cn(
-            "app app-frost-overlay z-50 flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-0.5 overflow-hidden rounded-surface p-1.5",
-            "app-fade-in outline-none",
+            "app-press inline-flex h-8 items-center gap-1.5 rounded-control px-2 text-[13px] font-medium",
+            "transition-colors outline-none",
+            "focus-visible:ring-2 focus-visible:ring-app-purple-2 focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
+            panelShowsArtifact
+              ? "bg-app-bg-2 text-app-fg-4 hover:bg-app-bg-a2"
+              : "text-app-fg-3 hover:bg-app-bg-a2 hover:text-app-fg-4",
+            "data-[state=open]:bg-app-bg-a2 data-[state=open]:text-app-fg-4",
           )}
         >
-          {artifacts.map((artifact) => {
-            const checked = artifact.id === selectedId;
-
-            return (
-              <button
-                key={artifact.id}
-                type="button"
-                role="option"
-                aria-selected={checked}
-                onClick={() => {
-                  onOpen(artifact.id);
-                  setOpen(false);
-                }}
-                className={cn(
-                  "flex w-full items-center gap-2.5 rounded-surface p-2 text-left transition-colors outline-none",
-                  "hover:bg-app-bg-a2 focus-visible:bg-app-bg-a2",
-                  checked && "bg-app-bg-a2",
-                )}
-              >
-                <span className="grid size-8 shrink-0 place-items-center rounded-control bg-app-bg-1 text-app-fg-3">
-                  {artifactIcon(artifact, 15)}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13px] font-medium text-app-fg-4">
-                    {artifact.title}
-                  </span>
-                  <span className="block truncate text-[11.5px] text-app-fg-2">
-                    {artifactSubtitle(artifact)}
-                  </span>
-                </span>
-                {checked ? <Check size={14} className="shrink-0 text-app-purple-4" /> : null}
-              </button>
-            );
-          })}
-        </PopoverPrimitive.Content>
-      </PopoverPrimitive.Portal>
-    </PopoverPrimitive.Root>
+          <Files size={14} />
+          {/* Keyed by the count, so a new artifact replays the pop. */}
+          <span
+            key={artifacts.length}
+            className="tabular-nums motion-safe:animate-[app-count-pop_220ms_cubic-bezier(0.22,1,0.36,1)_backwards]"
+          >
+            {artifacts.length}
+          </span>
+        </button>
+      }
+    >
+      {artifacts.map((artifact) => (
+        <PickerMenuItem
+          key={artifact.id}
+          value={artifact.id}
+          label={artifact.title}
+          description={artifactSubtitle(artifact)}
+          truncate
+          icon={
+            <span className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-control-sm bg-app-bg-1 text-app-fg-3">
+              {artifactIcon(artifact, 15)}
+            </span>
+          }
+          onSelect={() => onOpen(artifact.id)}
+        />
+      ))}
+    </PickerMenu>
   );
 }

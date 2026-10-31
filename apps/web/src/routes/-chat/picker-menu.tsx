@@ -1,8 +1,10 @@
 /**
- * The composer's picker menu, shared by {@link ModelTierPicker} and {@link ApprovalModePicker}.
+ * The picker menu, shared by the composer's {@link ModelTierPicker} and {@link ApprovalModePicker}
+ * and the top bar's {@link ArtifactMenu}.
  * A Radix radio menu, so arrow keys, Home/End, and typeahead move between options.
  */
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import type { DropdownMenuContentProps } from "@radix-ui/react-dropdown-menu";
 import { Check, ChevronDown } from "lucide-react";
 import type { ReactElement, ReactNode } from "react";
 import { useAppTheme } from "~/components/ui/v2";
@@ -29,18 +31,23 @@ export function PickerMenu({
   tip,
   tipDescription,
   trigger,
+  side = "top",
+  align = "start",
   children,
 }: {
   /** The menu's accessible name. */
   label: string;
   /** Optional line above the options. */
   heading?: string | undefined;
-  /** The `value` of the checked {@link PickerMenuItem}. */
+  /** The `value` of the checked {@link PickerMenuItem}. A value no item has checks no item. */
   value: string;
   tip: string;
   tipDescription?: string | undefined;
   /** A button. Radix adds `data-state` and the ARIA attributes. */
   trigger: ReactElement;
+  /** Where the menu opens from the trigger. The composer pickers open up; the top bar opens down. */
+  side?: DropdownMenuContentProps["side"];
+  align?: DropdownMenuContentProps["align"];
   children: ReactNode;
 }) {
   // The menu portals out of `.app`, so stamp the resolved theme on the content.
@@ -54,8 +61,8 @@ export function PickerMenu({
       <DropdownMenu.Portal>
         <DropdownMenu.Content
           aria-label={label}
-          side="top"
-          align="start"
+          side={side}
+          align={align}
           sideOffset={8}
           collisionPadding={16}
           loop
@@ -85,6 +92,7 @@ export function PickerMenuItem({
   label,
   description,
   icon,
+  truncate = false,
   onSelect,
 }: {
   value: string;
@@ -92,6 +100,8 @@ export function PickerMenuItem({
   description: string;
   /** A 28px mark. */
   icon: ReactNode;
+  /** One line each for the label and the description, cut with an ellipsis. For user-written titles. */
+  truncate?: boolean | undefined;
   onSelect: () => void;
 }) {
   return (
@@ -108,8 +118,15 @@ export function PickerMenuItem({
     >
       {icon}
       <span className="min-w-0 flex-1">
-        <span className="block text-[13px] font-medium text-app-fg-4">{label}</span>
-        <span className="block text-[11.5px] leading-snug text-pretty text-app-fg-2">
+        <span className={cn("block text-[13px] font-medium text-app-fg-4", truncate && "truncate")}>
+          {label}
+        </span>
+        <span
+          className={cn(
+            "block text-[11.5px] leading-snug text-app-fg-2",
+            truncate ? "truncate" : "text-pretty",
+          )}
+        >
           {description}
         </span>
       </span>
