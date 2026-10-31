@@ -140,11 +140,10 @@ export async function refoldActiveGmailKindProjection(
     ),
   );
 
-  await activateProjectionVersion({
-    userId,
-    projectionName: USER_MODEL_PROJECTION_NAME,
-    runId: completed.runId,
-  });
+  await activateProjectionVersion(
+    { userId, projectionName: USER_MODEL_PROJECTION_NAME, runId: completed.runId },
+    "own",
+  );
   logger.info(
     `[user-model.refold] ACTIVATED user=${userId} version=${projectionVersion} ` +
       `profiles=${completed.profileCount} edges=${completed.edgesWritten} ` +

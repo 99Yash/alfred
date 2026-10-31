@@ -4,7 +4,7 @@ import type {
   CredentialStatus,
   JsonObject,
 } from "@alfred/contracts";
-import { db, type DbTransaction } from "@alfred/db";
+import type { DbRoot, DbTransaction } from "@alfred/db";
 import { credentialVault } from "@alfred/db/credential-vault";
 import { integrationCredentials } from "@alfred/db/schemas";
 import { sql } from "drizzle-orm";
@@ -43,11 +43,12 @@ const CONNECTED_STATUS: CredentialStatus = "active";
 
 /**
  * A reconnect of the same `(userId, provider, accountId)` updates the row in place and resets
- * `status` to `active`. A different account always gets its own row.
+ * `status` to `active`. A different account always gets its own row. `ex` is the caller's
+ * transaction, or `db()` when the caller has none.
  */
 export async function upsertIntegrationCredential(
   args: UpsertIntegrationCredentialArgs,
-  ex: ReturnType<typeof db> | DbTransaction = db(),
+  ex: DbRoot | DbTransaction,
 ): Promise<{ id: string }> {
   const vault = credentialVault();
   // Seal once: each `seal` draws a fresh DEK and nonces.

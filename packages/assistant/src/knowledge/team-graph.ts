@@ -221,13 +221,14 @@ function collectOrgDomains(contacts: Map<string, ContactAggregate>): Set<string>
 /**
  * Persist contacts onto `entities`, matched by alias. `"merge"` adds the delta
  * (the caller must pass only uncaptured docs); `"overwrite"` replaces it, so a
- * re-run converges. Pass `tx` to commit with the caller's capture marker.
+ * re-run converges. Pass the caller's `tx` to commit with its capture marker, or `"own"` to
+ * give each upsert its own transaction.
  */
 async function persistContacts(
   userId: string,
   contacts: Map<string, ContactAggregate>,
   mode: "merge" | "overwrite",
-  tx?: DbTransaction,
+  tx: DbTransaction | "own",
 ): Promise<ApplyIncrementsResult> {
   if (contacts.size === 0)
     return { contacts: 0, organizations: 0, nonPersonContacts: 0, reKindBlocked: 0 };
@@ -279,12 +280,12 @@ async function persistContacts(
 
 /**
  * Increment each contact's aggregate (daily capture). Not safe to re-run over the
- * same delta. Pass `tx` to commit with the `captured_into_graph_at` stamp.
+ * same delta. `tx` commits the increments with the `captured_into_graph_at` stamp.
  */
 export async function applyCorrespondenceIncrements(
   userId: string,
   contacts: Map<string, ContactAggregate>,
-  tx?: DbTransaction,
+  tx: DbTransaction,
 ): Promise<ApplyIncrementsResult> {
   return persistContacts(userId, contacts, "merge", tx);
 }
@@ -368,7 +369,7 @@ export async function backfillTeamGraph(
 
   if (commit) {
     // Overwrite with the scan, then score. Same writer as the incremental path.
-    const applied = await persistContacts(userId, contacts, "overwrite");
+    const applied = await persistContacts(userId, contacts, "overwrite", "own");
     const pass = await runSignificancePass(userId, { now, userDomains, commit: true });
     const scoreByAddr = new Map(pass.top.map((t) => [t.address ?? "", t.score]));
 

@@ -148,9 +148,10 @@ function rowToFact(r: UserFact): FactRow {
 
 /**
  * A caller that already holds a transaction passes it as `exec` (a Replicache push passes its
- * savepoint `tx`). The write then commits or rolls back with it, and the caller pokes.
+ * savepoint `tx`). The write then commits or rolls back with it, and the caller pokes. A caller
+ * with no transaction passes `"own"`: the write opens its own transaction and pokes after it.
  */
-type FactExec = { exec?: DbTransaction };
+type FactExec = { exec: DbTransaction | "own" };
 
 /** Serialize writes per `(userId, canonical key)`, or two writers can both add a confirmed single-valued row. */
 async function lockFactKey(tx: DbTransaction, userId: string, key: string): Promise<void> {
@@ -227,15 +228,15 @@ async function supersedeFacts(
 }
 
 /**
- * Run `body` on `exec` when the caller holds a transaction. Otherwise open one, and poke
+ * Run `body` on `exec` when the caller holds a transaction. For `"own"`, open one, and poke
  * Replicache after it commits, so the client pull sees the row. `null` means no write to show.
  */
 async function inFactTransaction<T>(
-  exec: DbTransaction | undefined,
+  exec: DbTransaction | "own",
   userId: string,
   body: (tx: DbTransaction) => Promise<T | null>,
 ): Promise<T | null> {
-  if (exec) return body(exec);
+  if (exec !== "own") return body(exec);
 
   const result = await db().transaction(body);
 
@@ -293,7 +294,7 @@ export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null
 
   const userDriven = parsed.source.kind === "user";
 
-  return inFactTransaction(undefined, parsed.userId, async (tx) => {
+  return inFactTransaction("own", parsed.userId, async (tx) => {
     await lockFactKey(tx, parsed.userId, key);
 
     // (2) Already rejected.

@@ -163,6 +163,7 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
         key: r.key,
         reason: junkReason(r.key, r.value),
       },
+      exec: "own",
     });
 
     if (res) rejected++;

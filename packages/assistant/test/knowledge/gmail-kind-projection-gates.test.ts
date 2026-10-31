@@ -115,11 +115,14 @@ describe("Gmail kind projection activation gates (DB-backed)", { skip: SKIP_DB }
     // Self, a `to` participant, is not a profile.
     assert.equal(first.profileCount, 4);
 
-    await activateProjectionVersion({
-      userId,
-      projectionName: USER_MODEL_PROJECTION_NAME,
-      runId: second.runId,
-    });
+    await activateProjectionVersion(
+      {
+        userId,
+        projectionName: USER_MODEL_PROJECTION_NAME,
+        runId: second.runId,
+      },
+      "own",
+    );
 
     // --- Gate 10: the reader returns the activated rows.
     const reader = userModelReader(userId);
@@ -168,27 +171,36 @@ async function foldOnce(
   userId: string,
   projectionVersion: number,
 ): Promise<{ runId: string; checksum: string; profileCount: number }> {
-  const { run } = await startProjectionRun({
-    userId,
-    projectionName: USER_MODEL_PROJECTION_NAME,
-    projectionVersion,
-  });
+  const { run } = await startProjectionRun(
+    {
+      userId,
+      projectionName: USER_MODEL_PROJECTION_NAME,
+      projectionVersion,
+    },
+    "own",
+  );
 
-  const projected = await projectGmailKindProfiles({
-    userId,
-    projectionRunId: run.id,
-    projectionVersion,
-    computedAt: OCCURRED_AT,
-    excludeEmailValues: [SELF_EMAIL],
-  });
+  const projected = await projectGmailKindProfiles(
+    {
+      userId,
+      projectionRunId: run.id,
+      projectionVersion,
+      computedAt: OCCURRED_AT,
+      excludeEmailValues: [SELF_EMAIL],
+    },
+    "own",
+  );
 
-  await completeProjectionRun({
-    runId: run.id,
-    userId,
-    checksum: projected.checksum,
-    rowCounts: { entity_profiles: projected.profileCount },
-    completedAt: OCCURRED_AT,
-  });
+  await completeProjectionRun(
+    {
+      runId: run.id,
+      userId,
+      checksum: projected.checksum,
+      rowCounts: { entity_profiles: projected.profileCount },
+      completedAt: OCCURRED_AT,
+    },
+    "own",
+  );
 
   return { runId: run.id, checksum: projected.checksum, profileCount: projected.profileCount };
 }

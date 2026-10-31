@@ -83,9 +83,12 @@ function rowToEntity(r: Entity): EntityRow {
 /**
  * Upsert by `(user_id, kind, canonical_name)`. Aliases only grow; metadata is last-writes-wins.
  * Two people with one display name merge here, so use {@link upsertContactByAlias} for people.
- * Pass `tx` to commit with the caller's other writes.
+ * Pass the caller's `tx` to commit with its other writes, or `"own"` to open a transaction here.
  */
-export async function upsertEntity(args: UpsertEntityArgs, tx?: DbTransaction): Promise<EntityRow> {
+export async function upsertEntity(
+  args: UpsertEntityArgs,
+  tx: DbTransaction | "own",
+): Promise<EntityRow> {
   const parsed = upsertEntityArgsSchema.parse(args);
   const aliases = parsed.aliases ?? [];
   const metadata = parsed.metadata ?? {};
@@ -140,7 +143,7 @@ export async function upsertEntity(args: UpsertEntityArgs, tx?: DbTransaction): 
     return rowToEntity(row);
   };
 
-  return tx ? run(tx) : db().transaction(run);
+  return tx === "own" ? db().transaction(run) : run(tx);
 }
 
 export interface UpsertContactByAliasArgs {
@@ -196,7 +199,7 @@ function classifyStoredContact(
  */
 export async function upsertContactByAlias(
   args: UpsertContactByAliasArgs,
-  tx?: DbTransaction,
+  tx: DbTransaction | "own",
 ): Promise<{ row: EntityRow; reKindBlocked: boolean }> {
   const address = canonicalizeIdentityValue("email", args.address);
 
@@ -262,7 +265,7 @@ export async function upsertContactByAlias(
     return { row: rowToEntity(row), reKindBlocked: decision.blocked };
   };
 
-  return tx ? run(tx) : db().transaction(run);
+  return tx === "own" ? db().transaction(run) : run(tx);
 }
 
 export interface ReKindCollisionArgs {
@@ -277,14 +280,15 @@ export interface ReKindCollisionArgs {
  * True when moving a contact to `kind` would hit the `entities` unique index.
  * Same kind answers `false` with no query. Callers keep the old kind and report it:
  * merging would drop one contact's correspondence. A stale kind is recoverable.
+ * A writer passes its `tx`, so the read sees its own rows. `"own"` reads on the root client.
  */
 export async function reKindWouldCollide(
   args: ReKindCollisionArgs,
-  tx?: DbTransaction,
+  tx: DbTransaction | "own",
 ): Promise<boolean> {
   if (args.from === args.kind) return false;
 
-  const [clash] = await (tx ?? db())
+  const [clash] = await (tx === "own" ? db() : tx)
     .select({ id: entities.id })
     .from(entities)
     .where(
@@ -353,7 +357,6 @@ function storedContactMatch(userId: string, normalizedAddresses: readonly string
 export async function previewContactKinds(
   userId: string,
   candidates: ReadonlyMap<string, ContactPreviewCandidate>,
-  tx?: DbTransaction,
 ): Promise<ContactKindPreview & { blockedEstimate: number }> {
   const wanted = new Map<string, ContactPreviewCandidate>();
   const keyOf = new Map<string, string>();
@@ -376,7 +379,7 @@ export async function previewContactKinds(
 
   if (wanted.size === 0) return { kinds, unclassifiable, blockedEstimate: 0 };
 
-  const rows = await (tx ?? db())
+  const rows = await db()
     .select({
       canonicalName: entities.canonicalName,
       aliases: entities.aliases,
@@ -421,7 +424,10 @@ export async function previewContactKinds(
 
     if (storedName !== undefined && priorKind !== undefined && priorKind !== kind) {
       if (
-        await reKindWouldCollide({ userId, from: priorKind, kind, canonicalName: storedName }, tx)
+        await reKindWouldCollide(
+          { userId, from: priorKind, kind, canonicalName: storedName },
+          "own",
+        )
       ) {
         blockedEstimate += 1;
       }

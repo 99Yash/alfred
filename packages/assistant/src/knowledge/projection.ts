@@ -37,7 +37,7 @@ export interface StartProjectionRunResult {
  */
 export async function startProjectionRun(
   args: StartProjectionRunArgs,
-  tx?: DbTransaction,
+  tx: DbTransaction | "own",
 ): Promise<StartProjectionRunResult> {
   const run = async (ex: DbTransaction): Promise<StartProjectionRunResult> => {
     const [inserted] = await ex
@@ -89,7 +89,7 @@ export async function startProjectionRun(
     return { run: existing, reused: true };
   };
 
-  return tx ? run(tx) : db().transaction(run);
+  return tx === "own" ? db().transaction(run) : run(tx);
 }
 
 export interface CompleteProjectionRunArgs {
@@ -109,7 +109,7 @@ export interface CompleteProjectionRunArgs {
  */
 export async function completeProjectionRun(
   args: CompleteProjectionRunArgs,
-  tx?: DbTransaction,
+  tx: DbTransaction | "own",
 ): Promise<ProjectionRun> {
   if (!args.checksum.trim()) {
     throw new Error(
@@ -118,7 +118,7 @@ export async function completeProjectionRun(
     );
   }
 
-  const ex = tx ?? db();
+  const ex = tx === "own" ? db() : tx;
 
   const [row] = await ex
     .update(projectionRuns)
@@ -165,11 +165,12 @@ export async function completeProjectionRun(
  * Mark a run `failed` (ADR-0067 D13). Never from `completed`, or the active
  * pointer could name a failed run. The `WHERE` makes the check atomic.
  */
-export async function failProjectionRun(
-  args: { runId: string; userId: string; completedAt?: Date },
-  tx?: DbTransaction,
-): Promise<ProjectionRun> {
-  const ex = tx ?? db();
+export async function failProjectionRun(args: {
+  runId: string;
+  userId: string;
+  completedAt?: Date;
+}): Promise<ProjectionRun> {
+  const ex = db();
 
   const [row] = await ex
     .update(projectionRuns)
@@ -219,7 +220,7 @@ export interface WriteProjectionCursorArgs {
  */
 export async function writeProjectionCursor(
   args: WriteProjectionCursorArgs,
-  tx?: DbTransaction,
+  tx: DbTransaction | "own",
 ): Promise<void> {
   const run = async (ex: DbTransaction): Promise<void> => {
     const [target] = await ex
@@ -264,7 +265,7 @@ export async function writeProjectionCursor(
       });
   };
 
-  return tx ? run(tx) : db().transaction(run);
+  return tx === "own" ? db().transaction(run) : run(tx);
 }
 
 /**
@@ -273,7 +274,7 @@ export async function writeProjectionCursor(
  */
 export async function activateProjectionVersion(
   args: { userId: string; projectionName: string; runId: string },
-  tx?: DbTransaction,
+  tx: DbTransaction | "own",
 ): Promise<ActiveProjectionVersion> {
   const run = async (ex: DbTransaction): Promise<ActiveProjectionVersion> => {
     const [target] = await ex
@@ -323,5 +324,5 @@ export async function activateProjectionVersion(
     return pointer;
   };
 
-  return tx ? run(tx) : db().transaction(run);
+  return tx === "own" ? db().transaction(run) : run(tx);
 }

@@ -129,7 +129,6 @@ Each row is a smell that review owns, from [smells/](./smells/README.md), with t
 | [`guards-only-on-unknown`](./smells/guards-only-on-unknown.md) (Types) | Compiler: a closed-domain parameter that rejects an argument whose type is not `unknown`. | Candidate, #1629 | 7 |
 | [`external-call-timeout-and-abort`](./smells/external-call-timeout-and-abort.md) (Backend) | AST: an AI SDK generate or stream call whose options have no `abortSignal` key. | Candidate, #1629 | 4 |
 | [`no-barrel-export-for-test`](./smells/no-barrel-export-for-test.md) (Backend) | Knip in production mode, where test files are not entries. | Candidate, #1629 | 2 |
-| [`required-executor-param`](./smells/required-executor-param.md) (Backend) | AST: an optional parameter or property whose type annotation is `DbTransaction`. About 35 sites remain, and some of them are correct, so the rule needs a per-site decision. | Candidate, #1629 | 4 |
 | [`no-swallowed-catch`](./smells/no-swallowed-catch.md) (Backend) | AST: a `catch` with statements that does not rethrow, log or return a failure value. `no-empty` already fails an empty body. | Candidate, #1629 | 2 |
 | [`bind-credential-not-token`](./smells/bind-credential-not-token.md) (Backend) | Compiler: client factories that take a credential id and never a token, one provider at a time. | Medium | 1 |
 | [`no-query-in-loop`](./smells/no-query-in-loop.md) (Backend) | AST: a query on a `db()` or transaction handle awaited inside a loop body or an async `.map`. | Medium | 1 |

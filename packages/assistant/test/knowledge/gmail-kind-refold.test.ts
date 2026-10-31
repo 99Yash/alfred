@@ -215,34 +215,46 @@ async function initialActivate(
 ): Promise<{ runId: string; checksum: string }> {
   const sourceHighWatermark = await currentGmailWatermark(userId);
 
-  const { run } = await startProjectionRun({
-    userId,
-    projectionName: USER_MODEL_PROJECTION_NAME,
-    projectionVersion: 1,
-    sourceHighWatermark,
-  });
+  const { run } = await startProjectionRun(
+    {
+      userId,
+      projectionName: USER_MODEL_PROJECTION_NAME,
+      projectionVersion: 1,
+      sourceHighWatermark,
+    },
+    "own",
+  );
 
-  const projected = await projectGmailKindProfiles({
-    userId,
-    projectionRunId: run.id,
-    projectionVersion: 1,
-    gmailHighWatermark: sourceHighWatermark.gmail,
-    excludeEmailValues,
-  });
+  const projected = await projectGmailKindProfiles(
+    {
+      userId,
+      projectionRunId: run.id,
+      projectionVersion: 1,
+      gmailHighWatermark: sourceHighWatermark.gmail,
+      excludeEmailValues,
+    },
+    "own",
+  );
 
-  await completeProjectionRun({
-    runId: run.id,
-    userId,
-    checksum: projected.checksum,
-    completedAt: new Date(BASE_AT),
-    rowCounts: { entity_profiles: projected.profileCount },
-    sourceHighWatermark,
-  });
-  await activateProjectionVersion({
-    userId,
-    projectionName: USER_MODEL_PROJECTION_NAME,
-    runId: run.id,
-  });
+  await completeProjectionRun(
+    {
+      runId: run.id,
+      userId,
+      checksum: projected.checksum,
+      completedAt: new Date(BASE_AT),
+      rowCounts: { entity_profiles: projected.profileCount },
+      sourceHighWatermark,
+    },
+    "own",
+  );
+  await activateProjectionVersion(
+    {
+      userId,
+      projectionName: USER_MODEL_PROJECTION_NAME,
+      runId: run.id,
+    },
+    "own",
+  );
 
   return { runId: run.id, checksum: projected.checksum };
 }

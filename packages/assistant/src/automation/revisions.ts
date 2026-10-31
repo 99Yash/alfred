@@ -372,7 +372,7 @@ export interface CreateWorkflowDraftArgs {
   authoringProposal?: WorkflowAuthoringProposal;
   /** A retry of the same run collapses onto one row. */
   createdByRunId?: string;
-  tx?: DbTransaction;
+  tx: DbTransaction | "own";
 }
 
 /**
@@ -435,7 +435,7 @@ export async function createWorkflowDraft(
     return { ok: true, workflow, revision };
   };
 
-  return args.tx ? run(args.tx) : db().transaction(run);
+  return args.tx === "own" ? db().transaction(run) : run(args.tx);
 }
 
 // ── Revise ───────────────────────────────────────────────────────────────────
@@ -458,7 +458,7 @@ export interface ReviseWorkflowArgs {
   createdByRunId?: string | undefined;
   /** Omit only when no concurrent editor is possible. */
   expectedRowVersion?: number | undefined;
-  tx?: DbTransaction;
+  tx: DbTransaction | "own";
 }
 
 /**
@@ -556,7 +556,7 @@ export async function reviseWorkflow(
     return { ok: true, workflow, revision, created: true };
   };
 
-  return args.tx ? run(args.tx) : db().transaction(run);
+  return args.tx === "own" ? db().transaction(run) : run(args.tx);
 }
 
 /**
@@ -570,7 +570,7 @@ export async function reviseWorkflowFromPatch(args: {
   authoringProposal?: WorkflowAuthoringProposal | undefined;
   createdByRunId?: string | undefined;
   expectedRowVersion?: number | undefined;
-  tx?: DbTransaction;
+  tx: DbTransaction | "own";
 }): Promise<WorkflowServiceResult<WorkflowRevisedOutcome>> {
   const run = async (tx: DbTransaction): Promise<WorkflowServiceResult<WorkflowRevisedOutcome>> => {
     const existing = await loadWorkflow(tx, args.userId, args.workflowId);
@@ -608,7 +608,7 @@ export async function reviseWorkflowFromPatch(args: {
     });
   };
 
-  return args.tx ? run(args.tx) : db().transaction(run);
+  return args.tx === "own" ? db().transaction(run) : run(args.tx);
 }
 
 /** Not a spread: under `exactOptionalPropertyTypes` an undefined key would clear the field. */
@@ -635,7 +635,7 @@ export interface ActivateWorkflowArgs {
   /** The hash the card was built from. Omit only to reactivate an unchanged workflow. */
   expectedContentHash?: string;
   expectedRowVersion?: number;
-  tx?: DbTransaction;
+  tx: DbTransaction | "own";
 }
 
 export interface ActivateWorkflowDefinitionArgs {
@@ -1282,7 +1282,7 @@ export async function activateWorkflow(
     };
   };
 
-  return args.tx ? run(args.tx) : db().transaction(run);
+  return args.tx === "own" ? db().transaction(run) : run(args.tx);
 }
 
 // ── Status and blocked: independent fields, independent writers ─────────────

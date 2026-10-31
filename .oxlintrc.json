@@ -95,6 +95,12 @@
     // that reaches the clause leaves as a valid result (#1566, #1547, #1219). Close the switch
     // with `assertNever(value, what)`, or return a real value of the return type.
     "alfred/no-never-sentinel-binding": "error",
+    // required-executor-param: an optional or defaulted parameter or property whose type names
+    // `DbTransaction`, or a union of it with `undefined`. A caller that omits it still compiles,
+    // and the write runs on a second pooled connection, outside its transaction and locks
+    // (#1526, #1225, #1224, #1114). Take `exec: DbTransaction | "own"`, or a plain
+    // `DbTransaction` when each caller holds one.
+    "alfred/required-executor-param": "error",
     // switch-literal-needs-default: a `switch` whose `case` tests are all string literals and
     // that has no `default`. switch-exhaustiveness-check proves each union member has a case, but
     // a stored row or a peer at deploy skew can hold a member this build does not know, and it

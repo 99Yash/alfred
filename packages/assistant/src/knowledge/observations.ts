@@ -82,11 +82,13 @@ async function lockObservationFamily(
  */
 export async function insertObservation(
   input: ObservationInsertInput,
-  tx?: DbTransaction,
+  tx: DbTransaction | "own",
 ): Promise<InsertObservationResult> {
   const parsed = observationInsertSchema.parse(input);
 
-  return tx ? insertParsed(parsed, tx) : db().transaction((ex) => insertParsed(parsed, ex));
+  return tx === "own"
+    ? db().transaction((ex) => insertParsed(parsed, ex))
+    : insertParsed(parsed, tx);
 }
 
 /** The insert body for a value one exported entry already parsed. Module-private, so the P1 gate stays at the export. */

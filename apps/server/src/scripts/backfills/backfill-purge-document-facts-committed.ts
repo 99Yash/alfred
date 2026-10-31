@@ -124,6 +124,7 @@ async function reject(row: ActiveFactRow, userId: string, reason: string): Promi
     factId: row.id,
     userId,
     reason: { via: "backfill-purge-document-facts", issue: 330, key: row.key, reason },
+    exec: "own",
   });
 
   return Boolean(res);

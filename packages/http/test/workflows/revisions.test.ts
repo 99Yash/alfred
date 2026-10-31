@@ -92,6 +92,7 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
       userId,
       slug,
       definition: definition("published brief"),
+      tx: "own",
     });
 
     assert.equal(created.ok, true);
@@ -100,6 +101,7 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
       userId,
       workflowId: created.workflow.id,
       expectedRowVersion: created.workflow.rowVersion,
+      tx: "own",
     });
 
     assert.equal(activated.ok, true);
@@ -109,6 +111,7 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
       workflowId: created.workflow.id,
       definition: definition("unpublished brief"),
       expectedRowVersion: activated.workflow.rowVersion,
+      tx: "own",
     });
 
     assert.equal(revised.ok, true);
@@ -253,6 +256,7 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
       userId,
       slug: `revision-race-${randomUUID()}`,
       definition: definition("v1"),
+      tx: "own",
     });
 
     assert.equal(created.ok, true);
@@ -262,6 +266,7 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
       workflowId: created.workflow.id,
       definition: definition("v2"),
       expectedRowVersion: created.workflow.rowVersion,
+      tx: "own",
     });
 
     assert.equal(first.ok, true);
@@ -271,6 +276,7 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
       workflowId: created.workflow.id,
       definition: definition("v3"),
       expectedRowVersion: created.workflow.rowVersion,
+      tx: "own",
     });
 
     assert.deepEqual(stale, {
@@ -304,6 +310,7 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
       userId,
       slug,
       definition: definition("original brief"),
+      tx: "own",
     });
 
     assert.equal(created.ok, true);
@@ -312,6 +319,7 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
       userId,
       workflowId: created.workflow.id,
       expectedRowVersion: created.workflow.rowVersion,
+      tx: "own",
     });
 
     assert.equal(activatedOriginal.ok, true);
@@ -331,6 +339,7 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
       workflowId: created.workflow.id,
       definition: definition("latest brief"),
       expectedRowVersion: activatedOriginal.workflow.rowVersion,
+      tx: "own",
     });
 
     assert.equal(revised.ok, true);
@@ -339,6 +348,7 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
       userId,
       workflowId: created.workflow.id,
       expectedRowVersion: revised.workflow.rowVersion,
+      tx: "own",
     });
 
     assert.equal(activatedLatest.ok, true);
@@ -395,6 +405,7 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
         ...definition("cron occurrence"),
         trigger: { kind: "cron", schedule: "* * * * *", timezone: "UTC" },
       },
+      tx: "own",
     });
 
     assert.equal(created.ok, true);
@@ -403,6 +414,7 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
       userId,
       workflowId: created.workflow.id,
       expectedRowVersion: created.workflow.rowVersion,
+      tx: "own",
     });
 
     assert.equal(activated.ok, true);
@@ -488,6 +500,7 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
         allowedTools: ["gmail.search"],
         requiredCapabilities: [{ tool: "gmail.search", accountRef }],
       },
+      tx: "own",
     });
 
     assert.equal(created.ok, true);
@@ -496,6 +509,7 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
       userId,
       workflowId: created.workflow.id,
       expectedRowVersion: created.workflow.rowVersion,
+      tx: "own",
     });
 
     assert.equal(activated.ok, true);
@@ -567,6 +581,7 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
         allowedTools: ["gmail.search"],
         requiredCapabilities: [{ tool: "gmail.search", accountRef }],
       },
+      tx: "own",
     });
 
     assert.equal(created.ok, true);
@@ -575,6 +590,7 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
       userId,
       workflowId: created.workflow.id,
       expectedRowVersion: created.workflow.rowVersion,
+      tx: "own",
     });
 
     assert.equal(activatedV1.ok, true);
@@ -594,6 +610,7 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
       workflowId: created.workflow.id,
       definition: definition("Current healthy revision"),
       expectedRowVersion: activatedV1.workflow.rowVersion,
+      tx: "own",
     });
 
     assert.equal(revised.ok, true);
@@ -602,6 +619,7 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
       userId,
       workflowId: created.workflow.id,
       expectedRowVersion: revised.workflow.rowVersion,
+      tx: "own",
     });
 
     assert.equal(activatedV2.ok, true);
@@ -636,6 +654,7 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
         requestedCapabilities: [{ tool: "system.current_time" }],
         scheduleSummary: "Run manually",
       },
+      tx: "own",
     });
 
     assert.equal(created.ok, true);
@@ -688,6 +707,7 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
         externalEffects: [],
         requestedCapabilities: [{ tool: "system.current_time" }],
       },
+      tx: "own",
     });
 
     assert.equal(created.ok, true);
@@ -697,6 +717,7 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
       workflowId: created.workflow.id,
       definition: definition("edited during OAuth"),
       expectedRowVersion: created.workflow.rowVersion,
+      tx: "own",
     });
 
     assert.equal(revised.ok, true);
@@ -720,6 +741,7 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
       userId,
       slug: `revision-blocked-${randomUUID()}`,
       definition: definition("blocked workflow"),
+      tx: "own",
     });
 
     assert.equal(created.ok, true);
@@ -728,6 +750,7 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
       userId,
       workflowId: created.workflow.id,
       expectedRowVersion: created.workflow.rowVersion,
+      tx: "own",
     });
 
     assert.equal(activated.ok, true);
