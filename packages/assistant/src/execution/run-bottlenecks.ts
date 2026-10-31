@@ -89,7 +89,7 @@ export function summarizeRunBottlenecks(input: RunBottleneckInput): RunBottlenec
     costUsd += toNumber(call.costUsd);
   }
 
-  const steps = [...input.steps].sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime());
+  const steps = input.steps.toSorted((a, b) => a.startedAt.getTime() - b.startedAt.getTime());
 
   let toolMs = 0;
   let reclaims = 0;

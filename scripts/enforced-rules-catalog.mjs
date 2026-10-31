@@ -257,7 +257,7 @@ function collectLintRules(source) {
 
   rules.delete("no-restricted-imports");
 
-  return [...rules.values()].sort((a, b) => compareText(a.name, b.name));
+  return [...rules.values()].toSorted((a, b) => compareText(a.name, b.name));
 }
 
 /**
@@ -350,7 +350,7 @@ function collectCheckScripts() {
     (name) => !isChain(commands.get(name) ?? ""),
   );
 
-  return names.sort(compareText).map((name) => {
+  return names.toSorted(compareText).map((name) => {
     const command = commands.get(name) ?? "";
 
     return {
@@ -569,7 +569,7 @@ function render() {
  * @returns {string[]}
  */
 function rowTable({ title, intro, rows }) {
-  const sorted = [...rows].sort((a, b) => compareText(a.id, b.id));
+  const sorted = [...rows].toSorted((a, b) => compareText(a.id, b.id));
   const gates = sorted.filter((rule) => rule.severity === "gate");
   const hints = sorted.filter((rule) => rule.severity !== "gate");
 

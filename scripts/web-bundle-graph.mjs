@@ -469,7 +469,7 @@ export function bundleViolations(graph, { forbidden, surface }) {
     if (info.kind === "virtual") continue;
 
     if (info.kind === "builtin-stub") {
-      const named = [...builtins.keys()].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+      const named = [...builtins.keys()].toSorted((a, b) => (a < b ? -1 : a > b ? 1 : 0));
       violations.push({
         rule: "node-builtin",
         subject: id,
@@ -568,7 +568,7 @@ export function bundleViolations(graph, { forbidden, surface }) {
     });
   }
 
-  return [...floors, ...violations, ...reported.values()].sort(
+  return [...floors, ...violations, ...reported.values()].toSorted(
     (left, right) =>
       left.rule.localeCompare(right.rule) || left.subject.localeCompare(right.subject),
   );
@@ -627,7 +627,7 @@ export async function recordBundleGraph(root) {
   const failures = [];
   const graph = emptyGraph(root);
 
-  const apps = [...BROWSER_ENTRY_APPS].sort();
+  const apps = [...BROWSER_ENTRY_APPS].toSorted();
 
   if (apps.length === 0) {
     failures.push(

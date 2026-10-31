@@ -440,7 +440,7 @@ export function testIdPrefixSelfTestFailures() {
     .filter(Boolean)
     .filter(inScanSurface)
     .filter((file) => existsSync(resolve(ROOT, file)))
-    .sort();
+    .toSorted();
 
   if (independent.length === 0) {
     failures.push("real root: the independent enumeration found 0 files, so it proves nothing");

@@ -82,7 +82,7 @@ async function withAdapters<T>(
         ...new Set(
           candidates.filter((name): name is ToolName => isToolName(name) && names.has(name)),
         ),
-      ].sort();
+      ].toSorted();
     },
     resolve: () => ({
       tools: {},

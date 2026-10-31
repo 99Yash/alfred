@@ -118,7 +118,7 @@ interface CostSlice {
 
 /** Boss first, then workers by size, so the bar always starts from the same anchor. */
 function costSlices(agents: readonly ChatMessageAgentUsage[], total: number): CostSlice[] {
-  const ordered = [...agents].sort((a, b) => {
+  const ordered = agents.toSorted((a, b) => {
     if ((a.subId === null) !== (b.subId === null)) return a.subId === null ? -1 : 1;
 
     return b.costUsd - a.costUsd;

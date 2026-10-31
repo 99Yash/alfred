@@ -73,7 +73,7 @@ function useThreadUsageSummary(messages: readonly SyncedChatMessage[]) {
       calls,
       turns: turnCosts.length,
       turnCosts,
-      models: [...models.values()].sort((a, b) => b.calls - a.calls),
+      models: [...models.values()].toSorted((a, b) => b.calls - a.calls),
     };
   }, [messages]);
 }

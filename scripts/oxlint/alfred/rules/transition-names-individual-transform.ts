@@ -85,7 +85,7 @@ export const transitionNamesIndividualTransformRule = defineRule({
 
           if (list === null || !list.includes("transform") || reported.has(token.node)) continue;
 
-          const missing = [...written].filter((property) => !list.includes(property)).sort();
+          const missing = [...written].filter((property) => !list.includes(property)).toSorted();
 
           if (missing.length === 0) continue;
 

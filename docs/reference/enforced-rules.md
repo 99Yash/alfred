@@ -89,6 +89,7 @@ When you add, remove or change a rule in `.oxlintrc.json`, a JS plugin, `scripts
 | [`typescript/return-await`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/return-await.html) | yes |  | `"error-handling-correctness-only"` |
 | [`typescript/switch-exhaustiveness-check`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/switch-exhaustiveness-check.html) | yes |  |  |
 | [`typescript/unbound-method`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/unbound-method.html) | yes |  |  |
+| [`unicorn/no-array-sort`](https://oxc.rs/docs/guide/usage/linter/rules/unicorn/no-array-sort.html) | no |  |  |
 | [`unicorn/no-useless-spread`](https://oxc.rs/docs/guide/usage/linter/rules/unicorn/no-useless-spread.html) | no |  |  |
 
 ## Lint rules: `alfred` plugin

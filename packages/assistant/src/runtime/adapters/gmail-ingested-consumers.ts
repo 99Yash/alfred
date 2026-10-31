@@ -283,7 +283,7 @@ async function resolveReplyReevalRequests(
 
     return Array.from(byThread.values())
       .filter((request) => triagedThreadIds.has(request.threadId))
-      .sort(
+      .toSorted(
         (a, b) =>
           compareNullableDatesDesc(a.sentAuthoredAt, b.sentAuthoredAt) ||
           b.eventId.localeCompare(a.eventId),

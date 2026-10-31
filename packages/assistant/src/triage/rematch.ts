@@ -200,7 +200,7 @@ function mergeScopes(
 
 /** Scope order does not count: triage writes them in prompt order. */
 function scopesKey(scopes: readonly StandingInstructionScopeResult[]): string {
-  return canonicalJson([...scopes].sort((a, b) => a.instructionId.localeCompare(b.instructionId)));
+  return canonicalJson(scopes.toSorted((a, b) => a.instructionId.localeCompare(b.instructionId)));
 }
 
 /**

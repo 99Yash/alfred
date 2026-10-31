@@ -16,7 +16,7 @@ describe("currentTimeSnapshot", () => {
   const instant = new Date("2026-07-14T16:20:11.000Z");
 
   test("returns exactly the six documented fields", () => {
-    assert.deepEqual(Object.keys(currentTimeSnapshot(UTC, instant)).sort(), [
+    assert.deepEqual(Object.keys(currentTimeSnapshot(UTC, instant)).toSorted(), [
       "isoTime",
       "localDate",
       "localTime",

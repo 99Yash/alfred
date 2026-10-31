@@ -40,10 +40,10 @@ describe("systemToolKernel", () => {
     const kernel = systemToolKernel();
     assert.ok(kernel.length > 0, "kernel must be non-empty");
     assert.deepEqual(
-      [...kernel].sort(),
+      kernel.toSorted(),
       listKernelTools()
         .map((tool) => tool.name)
-        .sort(),
+        .toSorted(),
     );
 
     for (const name of kernel) {
@@ -92,7 +92,7 @@ describe("buildSdkToolSet caller/interaction projection", () => {
       buildSdkToolSet(kernelNames(), { caller: "boss", interaction: "live_chat" }),
     );
 
-    assert.equal(chat.length, 10, `[${[...chat].sort().join(", ")}]`);
+    assert.equal(chat.length, 10, `[${chat.toSorted().join(", ")}]`);
   });
 
   test("a background brief drops read_chat_history and ask_user (requiresLiveChat) → eight", () => {
@@ -101,7 +101,7 @@ describe("buildSdkToolSet caller/interaction projection", () => {
     );
 
     assert.equal(brief.length, 8);
-    assert.ok(!brief.includes("system.read_chat_history"), `[${[...brief].sort().join(", ")}]`);
+    assert.ok(!brief.includes("system.read_chat_history"), `[${brief.toSorted().join(", ")}]`);
   });
 
   test("a sub-agent also drops spawn_sub_agent (boss-only caller) → six", () => {
@@ -111,7 +111,7 @@ describe("buildSdkToolSet caller/interaction projection", () => {
 
     assert.equal(sub.length, 6);
     assert.ok(!sub.includes("system.read_chat_history"));
-    assert.ok(!sub.includes("system.spawn_sub_agent"), `[${[...sub].sort().join(", ")}]`);
+    assert.ok(!sub.includes("system.spawn_sub_agent"), `[${sub.toSorted().join(", ")}]`);
   });
 
   test("the ladder (search_tools + load_tool) is projected in every context", () => {
@@ -123,7 +123,7 @@ describe("buildSdkToolSet caller/interaction projection", () => {
       const names = Object.keys(buildSdkToolSet(kernelNames(), context));
       assert.ok(
         names.includes("system.search_tools") && names.includes("system.load_tool"),
-        `ladder missing for ${JSON.stringify(context)}: [${[...names].sort().join(", ")}]`,
+        `ladder missing for ${JSON.stringify(context)}: [${names.toSorted().join(", ")}]`,
       );
     }
   });
@@ -241,7 +241,7 @@ describe("migrateActiveTools", () => {
       toolNamesForIntegrations(["system"]),
       listToolsForIntegration("system")
         .map((tool) => tool.name)
-        .sort(),
+        .toSorted(),
     );
   });
 
@@ -252,6 +252,6 @@ describe("migrateActiveTools", () => {
 
   test("empty legacy state yields exactly the kernel", () => {
     const migrated = migrateActiveTools(undefined, undefined, []);
-    assert.deepEqual([...migrated].sort(), [...systemToolKernel()].sort());
+    assert.deepEqual(migrated.toSorted(), [...systemToolKernel()].toSorted());
   });
 });

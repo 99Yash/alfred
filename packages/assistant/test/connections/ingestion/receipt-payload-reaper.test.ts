@@ -317,7 +317,7 @@ describe("event_receipts payload retention", { skip: SKIP }, () => {
     const updatedAfterFirst = (await readOne(releasable)).updatedAt;
     await new Promise((resolve) => setTimeout(resolve, 5));
     await releaseExpiredReceiptPayloadsOnce(now);
-    assert.deepEqual([...(await withBody(ids))].sort(), [fresh]);
+    assert.deepEqual([...(await withBody(ids))].toSorted(), [fresh]);
     assert.equal(
       (await readOne(releasable)).updatedAt?.getTime(),
       updatedAfterFirst?.getTime(),

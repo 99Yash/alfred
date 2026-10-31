@@ -309,7 +309,7 @@ export function typeFixtureFailures(root, tsc = defaultTscPath(root)) {
   // not a property of the enumeration.
   const packageDirs = workspaces
     .map((workspace) => workspace.dir)
-    .sort((left, right) => right.length - left.length);
+    .toSorted((left, right) => right.length - left.length);
 
   const byPackage = new Map();
 

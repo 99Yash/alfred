@@ -106,7 +106,7 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
     assert.equal(standingInstructionTargetKey(target), "sender_email:noisy@example.com");
     // A v1 row lists as v2, with the four effects it enforces (ADR-0113 plan decision 2).
     assert.equal(instructions[0].schemaVersion, 1);
-    assert.deepEqual(instructions[0].instruction.effects.map((effect) => effect.kind).sort(), [
+    assert.deepEqual(instructions[0].instruction.effects.map((effect) => effect.kind).toSorted(), [
       "block_reply_draft",
       "block_todo_suggestion",
       "demote_demand",
@@ -269,7 +269,7 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
 
         return operation;
       })
-      .sort();
+      .toSorted();
 
     assert.deepEqual(operations, ["edit", "forget", "remember"]);
   });

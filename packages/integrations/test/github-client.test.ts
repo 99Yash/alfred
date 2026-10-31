@@ -89,7 +89,7 @@ describe("github client auth", () => {
     const calls = stubFetch({ ok: true });
     const passthrough = client().passthrough;
     assert.equal(passthrough.slug, "github");
-    assert.deepEqual(Object.keys(passthrough).sort(), ["execute", "slug"]);
+    assert.deepEqual(Object.keys(passthrough).toSorted(), ["execute", "slug"]);
     await passthrough.execute({ method: "GET", path: "/repos/o/r", query: {} });
     assert.equal(calls[0]?.headers.get("Authorization"), "Bearer ghs_secret_token");
     assert.equal(calls[0].headers.get("X-GitHub-Api-Version"), "2022-11-28");

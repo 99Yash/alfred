@@ -47,11 +47,11 @@ test("acceptedParamNames survives every wrapper and matches the model-facing sur
 
   for (const slug of INTEGRATION_SLUGS) {
     for (const t of listToolsForIntegration(slug)) {
-      const accepted = [...acceptedParamNames(t.inputSchema)].sort();
+      const accepted = [...acceptedParamNames(t.inputSchema)].toSorted();
 
       const modelJson = asSchema(t.inputSchema).jsonSchema;
 
-      const modelFacing = Object.keys(toRecord(getPath(modelJson, "properties"))).sort();
+      const modelFacing = Object.keys(toRecord(getPath(modelJson, "properties"))).toSorted();
 
       if (PARAMLESS_TOOLS.has(t.name)) {
         if (accepted.length !== 0) {

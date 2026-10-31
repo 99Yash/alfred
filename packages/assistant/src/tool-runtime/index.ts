@@ -160,7 +160,7 @@ export function callerLabel(caller: ToolCallActor["caller"] | undefined): string
 
 /** Deduplicated and sorted, so two surfaces compare by value. */
 export function uniqueToolNames(toolNames: readonly ToolName[]): ToolName[] {
-  return [...new Set(toolNames)].sort();
+  return [...new Set(toolNames)].toSorted();
 }
 
 /** Stable run facts shared by every proposed call in one tool round. */

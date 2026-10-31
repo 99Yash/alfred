@@ -48,7 +48,7 @@ describe("collectSurfacedThreadIds", () => {
 
     const ids = collectSurfacedThreadIds([morning, lastNight]);
 
-    assert.deepEqual([...ids].sort(), ["thr_a", "thr_b", "thr_c", "thr_d"]);
+    assert.deepEqual([...ids].toSorted(), ["thr_a", "thr_b", "thr_c", "thr_d"]);
   });
 
   test("dedupes the same thread surfaced in two briefings", () => {

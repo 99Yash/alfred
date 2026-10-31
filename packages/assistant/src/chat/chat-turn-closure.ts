@@ -471,7 +471,7 @@ export async function foldUncommittedDeltas(
 
     // `keepText` stays true even when `reissuePending` is set, unlike `closeLeadInNarration`:
     // the outbox proves the user saw this text.
-    for (const [index, text] of [...log.segments].sort(([a], [b]) => a - b)) {
+    for (const [index, text] of [...log.segments].toSorted(([a], [b]) => a - b)) {
       while (folded.segmentIndex < index) {
         closeNarrationSegment(folded, { keepText: true, advanceWhenNothingKept: true });
       }

@@ -228,7 +228,7 @@ function parseSource(row: Pick<FactContextRow, "id" | "source">): MemorySource {
 }
 
 function sortIdentityFacts<T extends FactContextRow>(rows: T[]): T[] {
-  return [...rows].sort((a, b) => {
+  return rows.toSorted((a, b) => {
     const rankA = identityKeyRank.get(a.key) ?? Number.MAX_SAFE_INTEGER;
     const rankB = identityKeyRank.get(b.key) ?? Number.MAX_SAFE_INTEGER;
 

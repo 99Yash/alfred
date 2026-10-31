@@ -73,7 +73,7 @@ test("projects the exact caller-visible schemas and matching metrics", () => {
 
   assert.deepEqual(surface.surfacedNames, ["gmail.search", "system.search_tools"]);
   assert.deepEqual(surface.loadedNames, ["gmail.search"]);
-  assert.deepEqual(Object.keys(surface.tools).sort(), surface.surfacedNames);
+  assert.deepEqual(Object.keys(surface.tools).toSorted(), surface.surfacedNames);
   assert.equal(surface.kernelCount, 1);
   assert.ok(surface.schemaBytes > 0);
   assert.ok(surface.schemaTokens > 0);

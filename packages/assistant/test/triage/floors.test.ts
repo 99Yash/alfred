@@ -369,6 +369,9 @@ describe("applyFloors — demote, never bury", () => {
 describe("floors — trace projections", () => {
   test("every floor in the sequence projects onto the persisted trace", () => {
     const { audits } = applyFloors(classification(), context());
-    assert.deepEqual(Object.keys(FLOOR_TRACE_PROJECTIONS).sort(), Object.keys(audits).sort());
+    assert.deepEqual(
+      Object.keys(FLOOR_TRACE_PROJECTIONS).toSorted(),
+      Object.keys(audits).toSorted(),
+    );
   });
 });

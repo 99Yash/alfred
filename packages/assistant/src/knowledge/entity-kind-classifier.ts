@@ -87,7 +87,7 @@ export function classifyEntityKind(input: ClassifyEntityKindInput): EntityKindCl
 
   const listEvidence = [
     ...new Set([...listEvidenceCodes(signals), ...(input.listEvidence ?? [])]),
-  ].sort();
+  ].toSorted();
 
   if (listEvidence.length > 0) {
     return classification("group", AUTHORITATIVE_CONFIDENCE, listEvidence);
@@ -193,7 +193,7 @@ export function listEvidenceCodes(signals: readonly GmailPayloadSignals[]): List
     if (precedenceCode) evidenceCodes.add(precedenceCode);
   }
 
-  return [...evidenceCodes].sort();
+  return [...evidenceCodes].toSorted();
 }
 
 function normalizedDisplayNames(directDisplayNames: readonly string[]): string[] {

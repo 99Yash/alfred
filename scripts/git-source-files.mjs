@@ -21,5 +21,5 @@ export function listGitSourceFiles(patterns, cwd = process.cwd()) {
     .split("\n")
     .filter(Boolean)
     .filter((file) => existsSync(resolve(cwd, file)))
-    .sort();
+    .toSorted();
 }

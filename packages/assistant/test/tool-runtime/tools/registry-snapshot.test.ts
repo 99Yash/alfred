@@ -29,7 +29,7 @@ describe("listRegisteredTools snapshot", () => {
     assert.ok(first.length > 0);
 
     const names = first.map((tool) => tool.name);
-    assert.deepEqual(names, [...names].sort(), "the snapshot is sorted by name");
+    assert.deepEqual(names, names.toSorted(), "the snapshot is sorted by name");
   });
 
   test("invalidates on clear and on re-registration", () => {

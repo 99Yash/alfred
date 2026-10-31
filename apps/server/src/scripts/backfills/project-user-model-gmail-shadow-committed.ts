@@ -152,7 +152,7 @@ async function resolveTargets(emails: readonly string[]): Promise<TargetUser[]> 
   return baseRows.map((row) => ({
     userId: row.userId,
     email: row.email,
-    excludeEmailValues: [...(accountEmailsByUser.get(row.userId) ?? new Set())].sort(),
+    excludeEmailValues: [...(accountEmailsByUser.get(row.userId) ?? new Set())].toSorted(),
   }));
 }
 

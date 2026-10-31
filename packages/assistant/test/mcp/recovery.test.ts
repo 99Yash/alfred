@@ -194,7 +194,7 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
     assert.equal(second.nextCursor, null);
     const ids = [...first.operations, ...second.operations].map((row) => row.invocationId);
     assert.equal(new Set(ids).size, MCP_RECOVERY_PAGE_SIZE + 1);
-    assert.deepEqual(ids, [...ids].sort(), "the id tiebreaker is stable at one timestamp");
+    assert.deepEqual(ids, ids.toSorted(), "the id tiebreaker is stable at one timestamp");
 
     await assert.rejects(
       listMcpRecoveryOperations({ userId: seeded.userId, cursor: "not-a-cursor" }),
@@ -294,7 +294,7 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
       cursor = page.nextCursor ?? undefined;
     } while (cursor);
 
-    assert.deepEqual([...seen].sort(), expectedIds.sort());
+    assert.deepEqual(seen.toSorted(), expectedIds.toSorted());
   });
 
   test("paging is exact when the durable key carries microseconds", async () => {
@@ -364,7 +364,7 @@ describe("MCP recovery operations (DB-backed)", { skip: SKIP }, () => {
     assert.equal(second.nextCursor, null);
     const ids = [...first.operations, ...second.operations].map((row) => row.invocationId);
     assert.equal(new Set(ids).size, MCP_RECOVERY_PAGE_SIZE + 1, "no row repeats or drops");
-    assert.deepEqual([...ids].sort(), expectedIds.sort());
+    assert.deepEqual(ids.toSorted(), expectedIds.toSorted());
   });
 
   test("a confirmed outcome resolves both durable barriers atomically", async () => {

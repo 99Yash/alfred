@@ -140,8 +140,8 @@ describe("events_outbox retention", { skip: SKIP }, () => {
 
     assert.equal(afterFirst.size, 2);
     assert.deepEqual(
-      [...afterSecond].sort((a, b) => a - b),
-      [...afterFirst].sort((a, b) => a - b),
+      [...afterSecond].toSorted((a, b) => a - b),
+      [...afterFirst].toSorted((a, b) => a - b),
     );
   });
 
@@ -186,7 +186,7 @@ describe("events_outbox retention", { skip: SKIP }, () => {
     assert.equal(alive.size, 4, "the remainder must survive the capped pass");
     // Oldest first: a backlog drains in insertion order.
     assert.deepEqual(
-      [...alive].sort((a, b) => a - b),
+      [...alive].toSorted((a, b) => a - b),
       ids.slice(6),
     );
 

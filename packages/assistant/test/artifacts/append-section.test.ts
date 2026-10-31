@@ -247,6 +247,6 @@ describe("appendArtifactSection write path", { skip: SKIP }, () => {
 
     const parts = (await readMarkdown(created.artifactId)).split("\n\n");
     assert.equal(parts[0], "A");
-    assert.deepEqual([...parts].sort(), ["A", "B", "C"]);
+    assert.deepEqual(parts.toSorted(), ["A", "B", "C"]);
   });
 });

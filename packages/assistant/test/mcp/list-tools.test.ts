@@ -73,7 +73,7 @@ async function seedConnection(
 }
 
 async function seedRevision(connectionId: string, tools: Tool[]): Promise<string> {
-  const descriptors = [...tools].sort((left, right) => compareMcpToolNames(left.name, right.name));
+  const descriptors = tools.toSorted((left, right) => compareMcpToolNames(left.name, right.name));
   const revisionHash = `sha256:${randomUUID().replace(/-/g, "")}`;
   await publishCatalogRevision({ connectionId, revisionHash, descriptors });
 
@@ -308,7 +308,7 @@ describe("cross-connection MCP discovery (DB-backed, offline)", { skip: SKIP }, 
       Array.from({ length: 5 }, (_, index) => seedConnection(userId, { label: `Batch ${index}` })),
     );
 
-    const ordered = [...connections].sort((left, right) =>
+    const ordered = connections.toSorted((left, right) =>
       left.namespace < right.namespace ? -1 : left.namespace > right.namespace ? 1 : 0,
     );
 
@@ -456,7 +456,7 @@ describe("cross-connection MCP discovery (DB-backed, offline)", { skip: SKIP }, 
       seedConnection(userId, { label: "Budget second", resource, instanceKey: "second" }),
     ]);
 
-    const ordered = [...connections].sort((left, right) =>
+    const ordered = connections.toSorted((left, right) =>
       left.instanceKey < right.instanceKey ? -1 : left.instanceKey > right.instanceKey ? 1 : 0,
     );
 
@@ -513,7 +513,7 @@ describe("cross-connection MCP discovery (DB-backed, offline)", { skip: SKIP }, 
       seedConnection(userId, { label: "Exact budget second", resource, instanceKey: "second" }),
     ]);
 
-    const ordered = [...connections].sort((left, right) =>
+    const ordered = connections.toSorted((left, right) =>
       left.instanceKey < right.instanceKey ? -1 : left.instanceKey > right.instanceKey ? 1 : 0,
     );
 

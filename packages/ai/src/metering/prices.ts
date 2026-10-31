@@ -218,7 +218,7 @@ function resolveRates(
   inputTokens: number,
 ): Omit<PriceLookup, "contextWindow" | "tiers" | "perCallUsd"> {
   const tier = [...price.tiers]
-    .sort((a, b) => b.minInputTokens - a.minInputTokens)
+    .toSorted((a, b) => b.minInputTokens - a.minInputTokens)
     .find((candidate) => inputTokens > candidate.minInputTokens);
 
   return tier ?? price;

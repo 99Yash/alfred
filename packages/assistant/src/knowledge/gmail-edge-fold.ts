@@ -365,7 +365,7 @@ export async function projectGmailWorksAtEdges(
       { fromNodeId: string; newEdges: { toNodeId: string; validFrom: Date; orgKey: string }[] }
     >();
 
-    for (const acc of [...edges.values()].sort(compareEdgeAccumulators)) {
+    for (const acc of [...edges.values()].toSorted(compareEdgeAccumulators)) {
       const fromNode = await ensureEntityNode(
         { userId: args.userId, identity: acc.fromIdentity, firstSeenAt: acc.firstSeenAt },
         ex,
@@ -379,8 +379,8 @@ export async function projectGmailWorksAtEdges(
       if (fromNode.id === toNode.id) continue;
 
       const provenance: WorksAtEdgeProvenance = {
-        observationIds: [...acc.observationIds].sort(),
-        familyKeys: [...acc.familyKeys].sort(),
+        observationIds: [...acc.observationIds].toSorted(),
+        familyKeys: [...acc.familyKeys].toSorted(),
         groundingTier: WORKS_AT_GROUNDING_TIER,
         documentId: acc.documentId,
       };
@@ -527,7 +527,7 @@ function signatureOrgDomains(block: string): string[] {
     passing.push(parsed.data);
   }
 
-  return [...new Set(passing)].sort();
+  return [...new Set(passing)].toSorted();
 }
 
 /** Strip one literal `www.` label: footers usually state `www.acme.com`. */
@@ -601,7 +601,7 @@ function compareEdgeAccumulators(a: EdgeAccumulator, b: EdgeAccumulator): number
 }
 
 function checksumForEdges(rows: readonly EdgeChecksumRow[]): string {
-  const stable = [...rows].sort((a, b) =>
+  const stable = rows.toSorted((a, b) =>
     `${a.from}\u0000${a.to}\u0000${a.validFrom}`.localeCompare(
       `${b.from}\u0000${b.to}\u0000${b.validFrom}`,
     ),
@@ -616,7 +616,7 @@ async function readDocumentBodies(
   userId: string,
   documentIds: ReadonlySet<string>,
 ): Promise<Map<string, string>> {
-  const ids = [...documentIds].sort();
+  const ids = [...documentIds].toSorted();
   const bodies = new Map<string, string>();
 
   for (let i = 0; i < ids.length; i += 500) {

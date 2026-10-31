@@ -22,8 +22,8 @@ describe("general-invocation coverage registry", () => {
 describe("REST gate config ↔ coverage agreement", () => {
   test("every supported REST slug has exactly one gate config entry", () => {
     assert.deepEqual(
-      Object.keys(REST_GATE_CONFIG).sort(),
-      [...SUPPORTED_REST_PASSTHROUGH_SLUGS].sort(),
+      Object.keys(REST_GATE_CONFIG).toSorted(),
+      SUPPORTED_REST_PASSTHROUGH_SLUGS.toSorted(),
     );
   });
 

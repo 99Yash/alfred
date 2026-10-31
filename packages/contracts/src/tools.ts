@@ -848,7 +848,7 @@ function stringifyCanonical(value: unknown, seen: WeakSet<object>): string {
     seen.add(objectValue);
 
     const entries = Object.keys(objectValue)
-      .sort()
+      .toSorted()
       .flatMap((key) => {
         const item: unknown = Reflect.get(objectValue, key);
         // oxlint-disable-next-line anti-slop/no-runtime-typeof -- `JSON.stringify` drops undefined, function and symbol members; the canonical form must drop the same members.

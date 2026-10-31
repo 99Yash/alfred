@@ -577,7 +577,7 @@ export class McpRawClient {
       tools
         .map((tool) => deepFreeze(structuredClone(tool)))
         // Code-point order, not `localeCompare`: ICU collation varies by host and would change the hash.
-        .sort((a, b) => compareMcpToolNames(a.name, b.name)),
+        .toSorted((a, b) => compareMcpToolNames(a.name, b.name)),
     );
 
     const revision = sha256Canonical(sortedTools);

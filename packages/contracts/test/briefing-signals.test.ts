@@ -21,8 +21,8 @@ describe("briefing context signal taxonomy", () => {
   });
 
   test("the enum tuple and the metadata registry cover exactly the same kinds", () => {
-    const fromRegistry = Object.keys(BRIEFING_CONTEXT_SIGNALS).sort();
-    const fromTuple = [...BRIEFING_CONTEXT_SIGNAL_KINDS].sort();
+    const fromRegistry = Object.keys(BRIEFING_CONTEXT_SIGNALS).toSorted();
+    const fromTuple = BRIEFING_CONTEXT_SIGNAL_KINDS.toSorted();
     assert.deepEqual(fromTuple, fromRegistry);
   });
 

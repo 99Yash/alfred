@@ -194,7 +194,7 @@ try {
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
     .filter((name) => existsSync(resolve(ROOT, PLUGINS_DIR, name, "index.ts")))
-    .sort();
+    .toSorted();
 } catch (error) {
   console.error(
     `${PLUGINS_DIR} could not be read (${errorText(error)}). Without it this gate would check nothing.`,
@@ -244,7 +244,7 @@ for (const plugin of pluginDirs) {
   const present = entries
     .filter((name) => name.endsWith(".ts") && !name.endsWith(".rule-test.ts"))
     .map((name) => name.slice(0, -".ts".length))
-    .sort();
+    .toSorted();
 
   if (present.length === 0) {
     failures.push(
@@ -265,7 +265,7 @@ for (const plugin of pluginDirs) {
   // Registration: is every rule wired into the plugin, and vice versa?
   const registered = [...indexSource.matchAll(/^\s*"([a-z0-9-]+)":\s*[A-Za-z][A-Za-z0-9]*Rule,$/gm)]
     .map((match) => match[1])
-    .sort();
+    .toSorted();
 
   if (registered.length === 0) {
     failures.push(

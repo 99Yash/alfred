@@ -100,7 +100,7 @@ describe("invokedToolNamesFromTranscript", () => {
     ];
 
     const invoked = invokedToolNamesFromTranscript(transcript);
-    assert.deepEqual([...invoked].sort(), ["calendar.list_events", "gmail.search"]);
+    assert.deepEqual([...invoked].toSorted(), ["calendar.list_events", "gmail.search"]);
   });
 
   test("ignores non-assistant messages, non-tool-call parts, and unregistered names", () => {

@@ -60,7 +60,7 @@ describe("skipping the credential read is a promise phase 2 keeps", () => {
         .map((tool) => tool.integration),
     );
 
-    assert.deepEqual([...excusedIntegrations].sort(), ["mcp", "system"]);
+    assert.deepEqual([...excusedIntegrations].toSorted(), ["mcp", "system"]);
   });
 
   test("a credential-bearing tool is NOT excused — it must pay the read", () => {

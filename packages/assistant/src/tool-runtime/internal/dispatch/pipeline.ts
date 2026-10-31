@@ -132,7 +132,7 @@ function rejectionSignature(
 
   const parts = issues
     .map((issue) => `${issue.code ?? "?"}@${(issue.path ?? []).map(pathPart).join(".")}`)
-    .sort();
+    .toSorted();
 
   return `${base}:${parts.join(",")}`;
 }

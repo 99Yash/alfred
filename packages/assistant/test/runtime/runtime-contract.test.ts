@@ -29,7 +29,7 @@ describe("assistant runtime door", () => {
   test("exposes exactly start and stop", () => {
     const runtime = createAssistantRuntime(inertConfig);
 
-    assert.deepEqual(Object.keys(runtime).sort(), ["start", "stop"]);
+    assert.deepEqual(Object.keys(runtime).toSorted(), ["start", "stop"]);
     assert.equal(typeof runtime.start, "function");
     assert.equal(typeof runtime.stop, "function");
   });

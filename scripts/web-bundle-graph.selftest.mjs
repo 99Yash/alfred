@@ -312,7 +312,7 @@ function forbidSetFailures() {
 function violationFailures() {
   const failures = [];
 
-  const rulesOf = (violations) => violations.map((violation) => violation.rule).sort();
+  const rulesOf = (violations) => violations.map((violation) => violation.rule).toSorted();
   const subjectsOf = (violations) => violations.map((violation) => violation.subject);
 
   withFixture((root) => {
@@ -507,7 +507,7 @@ function violationFailures() {
     // A finished build whose graph holds only third-party modules still has no anchor.
     const anchorless = graphOf(root, [[pg, []]], { entries: [pg] });
     expect(
-      subjectsOf(bundleViolations(anchorless, { forbidden, surface })).sort(),
+      subjectsOf(bundleViolations(anchorless, { forbidden, surface })).toSorted(),
       ["pg", "src/main.tsx", "workspace modules"],
       "bundleViolations — a graph with no workspace module fails its floors as well as its rules",
       failures,

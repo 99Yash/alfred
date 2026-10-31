@@ -454,7 +454,11 @@ describe("github fetch tools accept a URL / number (param-ergonomics)", () => {
       properties?: Record<string, unknown>;
     };
 
-    assert.deepEqual(Object.keys(json.properties ?? {}).sort(), ["owner", "pull_number", "repo"]);
+    assert.deepEqual(Object.keys(json.properties ?? {}).toSorted(), [
+      "owner",
+      "pull_number",
+      "repo",
+    ]);
   });
 
   test("github.search folds the invented `limit` into perPage", () => {

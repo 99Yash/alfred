@@ -41,7 +41,7 @@ export async function estimateChatRequestTokens({
 
   const canonicalTools = await Promise.all(
     Object.keys(tools)
-      .sort((left, right) => left.localeCompare(right))
+      .toSorted((left, right) => left.localeCompare(right))
       .map(async (name) => {
         const definition = tools[name];
 

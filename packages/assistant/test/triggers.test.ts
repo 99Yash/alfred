@@ -39,7 +39,7 @@ describe("triggers", () => {
     try {
       const result = await publishDomainEvent(event);
       assert.deepEqual(result, { acceptedConsumers: 2 });
-      assert.deepEqual(received.sort(), ["first:message-1", "second:message-1"]);
+      assert.deepEqual(received.toSorted(), ["first:message-1", "second:message-1"]);
     } finally {
       unregisterFirst();
       unregisterSecond();

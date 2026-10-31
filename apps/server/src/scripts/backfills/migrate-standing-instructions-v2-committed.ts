@@ -743,7 +743,7 @@ function commitFingerprint(plan: Plan): string {
         effects: i.effects.map((e) => e.kind),
         accountId: i.accountId,
       }))
-      .sort((a, b) => a.key.localeCompare(b.key)),
+      .toSorted((a, b) => a.key.localeCompare(b.key)),
     rows: plan.rows
       .map((row) => ({
         factId: row.factId,
@@ -751,7 +751,7 @@ function commitFingerprint(plan: Plan): string {
         group: row.group,
         result: row.result,
       }))
-      .sort((a, b) => a.factId.localeCompare(b.factId)),
+      .toSorted((a, b) => a.factId.localeCompare(b.factId)),
   });
 }
 
@@ -1586,8 +1586,8 @@ function gateFailures(
 ): string[] {
   const { baseline, candidate } = pair;
   const failures: string[] = [];
-  const expected = [...label.expectedMatches].sort().join(",");
-  const got = [...new Set(candidate.matched)].sort().join(",");
+  const expected = label.expectedMatches.toSorted().join(",");
+  const got = [...new Set(candidate.matched)].toSorted().join(",");
 
   if (expected !== got) failures.push(`matches: expected [${expected}] got [${got}]`);
 

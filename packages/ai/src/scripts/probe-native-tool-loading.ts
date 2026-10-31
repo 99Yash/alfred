@@ -654,7 +654,7 @@ function inspectRuns(runs: readonly RunRecord[]) {
   return {
     internalEnvelopeAbsent: !JSON.stringify(providerBodies).includes("alfredInternal"),
     providerSearchCalls,
-    discoveredToolNames: [...discoveredToolNames].sort(),
+    discoveredToolNames: [...discoveredToolNames].toSorted(),
     clientToolCallNames,
     cacheReadTokens,
   };
@@ -683,9 +683,9 @@ function inspectStreams(streams: readonly StreamRecord[]) {
   for (const result of toolResults) collectToolReferences(result, discoveredToolNames);
 
   return {
-    streamPartTypes: [...partTypes].sort(),
+    streamPartTypes: [...partTypes].toSorted(),
     streamInternalEnvelopeAbsent: !JSON.stringify(providerBodies).includes("alfredInternal"),
-    streamDiscoveredToolNames: [...discoveredToolNames].sort(),
+    streamDiscoveredToolNames: [...discoveredToolNames].toSorted(),
   };
 }
 

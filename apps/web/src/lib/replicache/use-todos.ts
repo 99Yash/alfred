@@ -56,7 +56,7 @@ function scanTodos(tx: ReadTransaction): Promise<SyncedTodo[]> {
 }
 
 function sortedTodos(todos: SyncedTodo[]): SyncedTodo[] {
-  return todos.sort(sortTodos);
+  return todos.toSorted(sortTodos);
 }
 
 /** Todos and suggestions for the rail (ADR-0050). `done` rows sync for 2 days. */

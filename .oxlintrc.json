@@ -145,6 +145,12 @@
     // fail on. Its common hit here is `{ ...(x ? { k: x } : {}) }` with nothing else in the
     // literal; pass the conditional itself (docs/reference/typescript.md).
     "unicorn/no-useless-spread": "error",
+    // no-array-sort: `sort` reorders its input, so a sort of a Replicache subscription result,
+    // a query cache entry, or a prop reorders it for every other reader (#1572, #1577). Use
+    // `toSorted`. A bare `xs.sort(...)` statement stays legal (the default
+    // `allowExpressionStatement`): it sorts a local array the code built for that purpose.
+    // Adopted with the tree autofixed to zero.
+    "unicorn/no-array-sort": "error",
     // React rules, from the `react` plugin in `plugins` above. rules-of-hooks: a hook called
     // conditionally, in a loop, or outside a component or hook. exhaustive-deps: a value that a
     // `useEffect` / `useCallback` / `useMemo` callback reads but its dependency array leaves out,

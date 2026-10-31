@@ -252,7 +252,7 @@ function walkSourceFiles(parent) {
     }
   }
 
-  return files.sort((a, b) => a.localeCompare(b));
+  return files.toSorted((a, b) => a.localeCompare(b));
 }
 
 function exportedRuntimeLifecycleSymbols(source) {
@@ -452,7 +452,7 @@ function runtimeAdapterViolations(compositionSources, manifestSource) {
     }
   }
 
-  return violations.sort((a, b) => a.localeCompare(b));
+  return violations.toSorted((a, b) => a.localeCompare(b));
 }
 
 // Finds every bootPort call in a source and the line it sits on. A call is the
@@ -569,7 +569,7 @@ function bootSeamHeaderViolations(sources) {
     }
   }
 
-  return violations.sort((a, b) => a.localeCompare(b));
+  return violations.toSorted((a, b) => a.localeCompare(b));
 }
 
 function resolveSourceImport(importer, specifier) {
@@ -625,7 +625,7 @@ function workspaceEntries() {
       name: workspace.name,
       source: join(ROOT, workspace.source),
     }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .toSorted((a, b) => a.name.localeCompare(b.name));
 
   if (entries.length === 0) {
     failures.push(
@@ -690,7 +690,7 @@ function importKey(file, specifier) {
 }
 
 function uniqueSorted(values) {
-  return [...new Set(values)].sort((a, b) => a.localeCompare(b));
+  return [...new Set(values)].toSorted((a, b) => a.localeCompare(b));
 }
 
 function stronglyConnectedComponents(nodes, edges) {
@@ -741,14 +741,14 @@ function stronglyConnectedComponents(nodes, edges) {
       if (member === node) break;
     }
 
-    components.push(component.sort((a, b) => a.localeCompare(b)));
+    components.push(component.toSorted((a, b) => a.localeCompare(b)));
   }
 
-  for (const node of [...adjacency.keys()].sort((a, b) => a.localeCompare(b))) {
+  for (const node of [...adjacency.keys()].toSorted((a, b) => a.localeCompare(b))) {
     if (!indexes.has(node)) connect(node);
   }
 
-  return components.sort((a, b) => a.join("\0").localeCompare(b.join("\0")));
+  return components.toSorted((a, b) => a.join("\0").localeCompare(b.join("\0")));
 }
 
 function cyclicEdgeKeys(edges, components) {
@@ -1169,8 +1169,8 @@ function collectImportFacts(entries, routesRoot = WEB_ROUTES_ROOT, moduleRoots =
 
   return {
     exceptions: {
-      privateModuleImports: privateModuleImports.sort((a, b) => a.key.localeCompare(b.key)),
-      webFeatureImports: webFeatureImports.sort((a, b) => a.key.localeCompare(b.key)),
+      privateModuleImports: privateModuleImports.toSorted((a, b) => a.key.localeCompare(b.key)),
+      webFeatureImports: webFeatureImports.toSorted((a, b) => a.key.localeCompare(b.key)),
     },
     forbiddenBackendImports,
     moduleEdges,
@@ -3391,7 +3391,7 @@ function checkArchitecture(architecture, baseline) {
 
   violations.push(...bootSeamHeaderViolations(architecture.bootSeamSources));
 
-  return violations.sort((a, b) => a.localeCompare(b));
+  return violations.toSorted((a, b) => a.localeCompare(b));
 }
 
 const selfTestErrors = selfTestFailures();

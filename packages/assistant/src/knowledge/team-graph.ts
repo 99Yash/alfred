@@ -181,7 +181,7 @@ function contactMetadataBuilder(
 
     const listEvidence = [
       ...new Set([...(priorMeta.listEvidence ?? []), ...agg.listEvidence]),
-    ].sort();
+    ].toSorted();
 
     const userHasWrittenTo =
       priorMeta.userHasWrittenTo === true ||

@@ -220,7 +220,7 @@ export function findDupes(repoScan) {
 
   return [...bySignature.entries()]
     .filter(([, list]) => list.length >= 2)
-    .sort((a, b) => b[1].length - a[1].length);
+    .toSorted((a, b) => b[1].length - a[1].length);
 }
 
 function printCatalog(repoScan, pkgFilter) {
@@ -241,15 +241,15 @@ function printCatalog(repoScan, pkgFilter) {
 
   let total = 0;
 
-  for (const [pkg, files] of [...packages].sort(([a], [b]) => (a < b ? -1 : 1))) {
+  for (const [pkg, files] of [...packages].toSorted(([a], [b]) => (a < b ? -1 : 1))) {
     const count = files.reduce((sum, [, defs]) => sum + defs.length, 0);
     total += count;
     console.log(`\n@alfred/${pkg}  (${count})`);
 
-    for (const [file, defs] of files.sort((a, b) => b[1].length - a[1].length)) {
+    for (const [file, defs] of files.toSorted((a, b) => b[1].length - a[1].length)) {
       console.log(`  ${file}`);
 
-      for (const def of defs.sort((a, b) => a.name.localeCompare(b.name))) {
+      for (const def of defs.toSorted((a, b) => a.name.localeCompare(b.name))) {
         const mark = def.exported ? "" : "(local)";
         console.log(`    ${mark.padEnd(7)}${def.name}`);
       }

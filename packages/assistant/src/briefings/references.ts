@@ -174,7 +174,7 @@ function prioritizeReferenced(
   items: BriefingSourcePanelItem[],
   referenced: ReadonlySet<BriefingReference>,
 ): BriefingSourcePanelItem[] {
-  return [...items].sort((a, b) => {
+  return items.toSorted((a, b) => {
     const aHit = isReferenced(a.reference, referenced) ? 1 : 0;
     const bHit = isReferenced(b.reference, referenced) ? 1 : 0;
 

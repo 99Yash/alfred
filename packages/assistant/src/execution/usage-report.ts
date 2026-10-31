@@ -211,7 +211,7 @@ export async function getUsageBreakdown(
     byCategory.set(category, acc);
   }
 
-  const categories: UsageCategoryBreakdown[] = [...byCategory.values()].sort(
+  const categories: UsageCategoryBreakdown[] = [...byCategory.values()].toSorted(
     (a, b) => b.costUsd - a.costUsd,
   );
 

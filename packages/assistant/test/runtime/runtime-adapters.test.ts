@@ -65,7 +65,7 @@ describe("runtime adapter lifecycle", () => {
     );
     assert.deepEqual(
       [...RUNTIME_ADAPTERS]
-        .sort((left, right) => left.shutdownOrder - right.shutdownOrder)
+        .toSorted((left, right) => left.shutdownOrder - right.shutdownOrder)
         .map(({ name }) => name),
       [
         "trigger-consumers",

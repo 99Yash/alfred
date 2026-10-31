@@ -181,7 +181,7 @@ export async function embedMany(texts: string[], opts: EmbedOptions = {}): Promi
   for (const batch of batchForVoyage(filtered)) {
     const response = await callVoyage(batch, opts);
     // Voyage returns them in order today; sort anyway.
-    const sorted = [...response.data].sort((a, b) => a.index - b.index);
+    const sorted = response.data.toSorted((a, b) => a.index - b.index);
     out.push(...sorted.map((d) => d.embedding));
   }
 

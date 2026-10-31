@@ -139,8 +139,8 @@ describe("handlePush LMID, replay and ownership (DB-backed)", { skip: SKIP }, ()
 
     const rows = await db().select({ id: notes.id }).from(notes).where(eq(notes.userId, userId));
     assert.deepEqual(
-      rows.map((r) => r.id).sort(),
-      [firstNoteId, lastNoteId].sort(),
+      rows.map((r) => r.id).toSorted(),
+      [firstNoteId, lastNoteId].toSorted(),
       "only the two valid mutations wrote a row",
     );
   });

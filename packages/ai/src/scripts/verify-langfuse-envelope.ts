@@ -152,8 +152,8 @@ async function main() {
     }
 
     const gotSession = t.sessionId ?? null;
-    const gotTags = [...(t.tags ?? [])].sort();
-    const wantTags = [...c.expectTags].sort();
+    const gotTags = [...(t.tags ?? [])].toSorted();
+    const wantTags = c.expectTags.toSorted();
     const sessionOk = gotSession === c.expectSession;
     const tagsOk = JSON.stringify(gotTags) === JSON.stringify(wantTags);
     const env226 = t.environment;

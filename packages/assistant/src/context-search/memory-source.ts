@@ -52,7 +52,7 @@ async function readMemory(request: ContextSearchRequest) {
     limit: request.limit,
   });
 
-  const evidence = [...hits].sort(compareByScoreThenId).map(memoryHitToEvidenceCard);
+  const evidence = hits.toSorted(compareByScoreThenId).map(memoryHitToEvidenceCard);
 
   return { evidence };
 }

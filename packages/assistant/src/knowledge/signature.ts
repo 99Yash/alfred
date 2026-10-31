@@ -27,7 +27,7 @@ function canonicalize(value: unknown): string {
   }
 
   if (isRecord(value)) {
-    const keys = Object.keys(value).sort();
+    const keys = Object.keys(value).toSorted();
     const parts = keys.map((k) => `${JSON.stringify(k)}:${canonicalize(value[k])}`);
 
     return `{${parts.join(",")}}`;
