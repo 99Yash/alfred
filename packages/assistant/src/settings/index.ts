@@ -15,4 +15,11 @@ export { parseMemorySourceOrDefault } from "./memory-source";
 
 export { type FeatureFlags } from "./flags";
 
-export * from "./self-identity";
+export {
+  type SelfIdentity,
+  resolveSelfIdentity,
+  webOrigin,
+  emailLogoUrl,
+  formatSelfIdentityGrounding,
+  selfIdentityGrounding,
+} from "./self-identity";

@@ -1,14 +1,11 @@
-/** Artifact design tokens, render shell, and authoring prompt. Pure data, safe in the browser. */
-export * from "./tokens";
+/**
+ * Artifact render shell, document templates, authoring prompts, and PDF validation. Pure data,
+ * safe in the browser. Import the design tokens from the `./tokens` subpath.
+ */
+export { buildArtifactDocument } from "./shell";
 
-export * from "./shell";
+export { documentTemplates, documentTemplateById } from "./templates";
 
-export * from "./archetypes";
+export { ARTIFACT_DESIGN_PROMPT, ARTIFACT_DOCUMENT_DESIGN_PROMPT } from "./prompt";
 
-export * from "./templates";
-
-export * from "./theme";
-
-export * from "./prompt";
-
-export * from "./validation";
+export { pdfArtifactHtmlViolations } from "./validation";

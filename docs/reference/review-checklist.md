@@ -48,8 +48,6 @@ Each rule has the rule and the reason. Its smell file has a Bad and a Good examp
   Why: a file of unrelated values fails the deletion test. Example: `derivePoolMax()` in `packages/env/src/pool.ts`.
 - **Use an environment variable only for a deploy knob, a secret or an endpoint.** [Smell](./smells/env-var-only-for-deploy-knob.md).
   Why: an env var is not a way to avoid a name. See "Environment variables" in `docs/reference/architecture.md`.
-- **Name each re-export in a module barrel. Use `export *` only in a package root barrel.** [Smell](./smells/export-star-outside-root-barrel.md).
-  Why: `export *` makes every new export of the source module public with no review, and it hides which names cross the door. It also loads the whole module, so a new export with a side effect at load reaches every importer. Example: `packages/assistant/src/knowledge/index.ts` names most of its exports and still ends three blocks with `export *`.
 - **Name a threshold, cap, TTL, retry count, batch size or budget.** Give it a short reason when the value is not clear. Simple arithmetic stays inline. [Smell](./smells/name-policy-number.md).
   Why: an unnamed number hides a policy. Example: `CONTEXT_SEARCH_MAX_LIMIT` in `packages/contracts/src/context-search.ts`.
 
