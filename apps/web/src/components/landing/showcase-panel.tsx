@@ -16,7 +16,13 @@ const EDGE_MASK = {
   bottom: "linear-gradient(to bottom, #000 0%, #000 86%, transparent 100%)",
 } satisfies Record<ShowcaseFadeEdge, string>;
 
-/** Looping clip. Muted, autoPlay, loop, and playsInline satisfy mobile autoplay rules. */
+/**
+ * Looping clip. Muted and playsInline satisfy mobile autoplay rules for `play()`.
+ * No `autoPlay`: it makes every mounted clip download in full on first load, and
+ * the hero mounts all three tabs at once. The effect plays a clip when its tab is
+ * active. A hidden clip gets `preload="none"`: Chrome still fetched the full
+ * file under "metadata", at the same time as the LCP image.
+ */
 export function ShowcaseVideo({
   src,
   label,
@@ -65,11 +71,10 @@ export function ShowcaseVideo({
           : {}),
       }}
       src={src}
-      autoPlay
       loop
       muted
       playsInline
-      preload="metadata"
+      preload={active ? "metadata" : "none"}
       aria-label={label}
     />
   );

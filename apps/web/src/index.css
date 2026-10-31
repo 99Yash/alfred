@@ -17,12 +17,48 @@
  * than reintroducing the remote import.
  * -------------------------------------------------------------------------- */
 
+/* Two faces per weight, split by `unicode-range` so the browser only fetches
+ * what a page renders. The `-latin` slice (~30 KB, preloaded in index.html)
+ * covers Latin plus the UI's arrows and keyboard glyphs. The full file (~165 KB)
+ * covers the rest and loads only when a page shows such a character (Greek,
+ * Cyrillic, extended Latin in a name). Both ranges and the slices come from
+ * `apps/web/scripts/subset-fonts.mjs`; rerun it and paste its output here. */
+@font-face {
+  font-family: "Open Runde";
+  src: url("/fonts/OpenRunde-Medium-latin.woff2") format("woff2");
+  font-weight: 400 550;
+  font-style: normal;
+  font-display: swap;
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2190-2199, U+21B5, U+21E5, U+21E7, U+2212, U+2215, U+2248,
+    U+2260, U+2264-2265, U+2303, U+2318, U+2325, U+232B, U+238B, U+2713, U+FEFF, U+FFFD;
+}
+
 @font-face {
   font-family: "Open Runde";
   src: url("/fonts/OpenRunde-Medium.woff2") format("woff2");
   font-weight: 400 550;
   font-style: normal;
   font-display: swap;
+  unicode-range:
+    U+0100-0130, U+0132-0151, U+0154-02BA, U+02BD-02C5, U+02C7-02D9, U+02DB, U+02DD-0303,
+    U+0305-0307, U+0309-0328, U+032A-1FFF, U+2070-20AB, U+20AD-2121, U+2123-218F, U+219A-21B4,
+    U+21B6-21E4, U+21E6, U+21E8-2211, U+2213-2214, U+2216-2247, U+2249-225F, U+2261-2263,
+    U+2266-2302, U+2304-2317, U+2319-2324, U+2326-232A, U+232C-238A, U+238C-2712, U+2714-FEFE,
+    U+FF00-FFFC, U+FFFE-10FFFF;
+}
+
+@font-face {
+  font-family: "Open Runde";
+  src: url("/fonts/OpenRunde-Semibold-latin.woff2") format("woff2");
+  font-weight: 551 800;
+  font-style: normal;
+  font-display: swap;
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2190-2199, U+21B5, U+21E5, U+21E7, U+2212, U+2215, U+2248,
+    U+2260, U+2264-2265, U+2303, U+2318, U+2325, U+232B, U+238B, U+2713, U+FEFF, U+FFFD;
 }
 
 @font-face {
@@ -31,13 +67,20 @@
   font-weight: 551 800;
   font-style: normal;
   font-display: swap;
+  unicode-range:
+    U+0100-0130, U+0132-0151, U+0154-02BA, U+02BD-02C5, U+02C7-02D9, U+02DB, U+02DD-0303,
+    U+0305-0307, U+0309-0328, U+032A-1FFF, U+2070-20AB, U+20AD-2121, U+2123-218F, U+219A-21B4,
+    U+21B6-21E4, U+21E6, U+21E8-2211, U+2213-2214, U+2216-2247, U+2249-225F, U+2261-2263,
+    U+2266-2302, U+2304-2317, U+2319-2324, U+2326-232A, U+232C-238A, U+238C-2712, U+2714-FEFE,
+    U+FF00-FFFC, U+FFFE-10FFFF;
 }
 
 /* Metric-matched fallback (Arial reshaped to Open Runde's box) so the
  * font-display: swap above is invisible — no reflow when Open Runde arrives.
  * Overrides generated from the real font metrics via @capsizecss/core
  * (Open Runde: unitsPerEm 2816, ascent 2728, descent -680, xWidthAvg 1373).
- * Regenerate with capsize if the font file changes. */
+ * The `-latin` slices keep these metrics. Regenerate with capsize if the
+ * source font file changes. */
 @font-face {
   font-family: "Open Runde Fallback";
   src: local("Arial"), local("ArialMT");
