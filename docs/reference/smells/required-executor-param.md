@@ -1,10 +1,9 @@
 ---
 id: required-executor-param
 section: Backend
-status: candidate
+status: gated
 rung: ast
-feasibility: low
-issue: #1629
+rule: alfred/required-executor-param
 ---
 
 # Do not make a transaction parameter optional. Make the caller choose between its transaction and a new one.
@@ -14,7 +13,11 @@ Why: with `tx?: DbTransaction`, a caller that forgets the argument still compile
 ## Bad
 
 ```ts
-export async function createDraft(args: { userId: string; definition: unknown; tx?: DbTransaction }) {
+export async function createDraft(args: {
+  userId: string;
+  definition: unknown;
+  tx?: DbTransaction;
+}) {
   const executor = args.tx ?? db();
   // ...
 }
@@ -34,7 +37,30 @@ export async function createDraft(args: {
 
 ## Mechanism
 
-AST: an optional parameter or property whose type annotation is `DbTransaction`. About 35 sites remain, and some of them are correct, so the rule needs a per-site decision.
+AST rule `alfred/required-executor-param`. It reports a parameter, a property signature or a class field whose type annotation names `DbTransaction`, as the whole type or as one member of a union, when one of these is true:
+
+- the slot is optional (`tx?: DbTransaction`);
+- the parameter has a default value (`runner: DbRoot | DbTransaction = db()`);
+- the union also has `undefined` (`exec: DbTransaction | undefined`).
+
+The name match reads the last segment of the type name, so `Db.DbTransaction` also matches. The rule does not report a callback type that takes a transaction (`body?: (tx: DbTransaction) => …`), a `tx?: never` slot, or a local variable.
+
+An oxlint JS plugin has no type information. So the rule does not see these forms (false negatives):
+
+- an alias of the transaction type: `DbRunner`, `AgentDbExecutor`, `PreferenceExecutor`, `DbExecutor` in `packages/integrations/src/google/credentials.ts`, and `WorkflowExecutor` in `packages/assistant/src/automation/revisions.ts`. 47 parameters use an alias with a `= db()` default, such as `runner: DbRunner = db()`, and 10 slots use `?:` with an alias. These stay for review.
+- a type that a mapped or derived type builds: `Partial<{ tx: DbTransaction }>`, `Parameters<typeof f>[1]`;
+- an options type that a file imports and then makes optional with `Partial`.
+
+The rule has no false positive in the tree. A slot that names `DbTransaction` and lets the caller omit it is always the smell. A caller with no transaction passes `"own"` or `db()` explicitly.
+
+The paydown made 28 slots required and added no disable comment:
+
+- 22 slots now take `DbTransaction | "own"`. `"own"` keeps the old executor of a caller that passed nothing: the callee opens its own transaction, or it runs one statement on the root client. These slots are in `entity-graph.ts`, `affiliation.ts`, `projection.ts`, `entities.ts`, `observations.ts`, `gmail-kind-fold.ts`, `team-graph.ts` (`persistContacts`), `facts.ts` (`FactExec.exec`, and the `exec: DbTransaction | undefined` parameter of `inFactTransaction`) and the four workflow writers in `automation/revisions.ts`.
+- 2 slots now take a plain `DbTransaction`, because each caller holds a transaction: `projectGmailWorksAtEdges` and `applyCorrespondenceIncrements`.
+- 3 parameters are gone, because no caller passed a transaction: `previewContactKinds` (#1225), `recordOrgAffiliationOnConnect` and `failProjectionRun`.
+- `upsertIntegrationCredential` lost its `= db()` default. The GitHub and bearer writers now pass `db()`.
+
+`packages/http/test/workflows/revisions.test.ts` is in the type-check baseline, so the compiler does not see it. Its 23 calls now pass `tx: "own"` by hand.
 
 ## Hits
 

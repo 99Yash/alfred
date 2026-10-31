@@ -75,8 +75,6 @@ Each rule has the rule and the reason. Its smell file has a Bad and a Good examp
   Why: a pass that writes nothing never moves the key, so the same rows win every turn. Example: `integration_object_pulls`, #1355.
 - **Give each state its own return value.** A miss and a fault are two variants. [Smell](./smells/one-return-value-per-state.md).
   Why: a miss counter that also counts faults demotes healthy rows in an outage. Example: `VerifiedPullRead`, #1356.
-- **Do not make a transaction parameter optional. Make the caller choose between its transaction and a new one.** [Smell](./smells/required-executor-param.md).
-  Why: with `tx?: DbTransaction`, a caller that forgets the argument still compiles. The write then runs on a second pooled connection, outside the caller's transaction and its locks. Example: the `exec` choice of the fact owners in `packages/assistant/src/knowledge/facts.ts`.
 - **Make a script, dry run or backfill call the live owner.** Add the missing verb to the owner. Do not copy its logic. [Smell](./smells/scripts-call-live-owner.md).
   Why: a copy skips the gates of the owner. Example: `setIfUnset`, #1347.
 - **Verify a webhook signature with a timing-safe compare on the raw body.** [Smell](./smells/webhook-signature-raw-body.md).

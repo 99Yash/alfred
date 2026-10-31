@@ -63,7 +63,7 @@ A `gated` smell stays here for its examples and its ledger. [review-checklist.md
 | [Do not swallow a caught error.](./no-swallowed-catch.md) | Candidate, #1629 | ast | 2 |
 | [Do not use `updatedAt` or another `$onUpdate` column as a queue or schedule key.](./no-updated-at-queue-key.md) | Review, medium | ast | 1 |
 | [Give each state its own return value.](./one-return-value-per-state.md) | Stays review | none | 1 |
-| [Do not make a transaction parameter optional. Make the caller choose between its transaction and a new one.](./required-executor-param.md) | Candidate, #1629 | ast | 4 |
+| [Do not make a transaction parameter optional. Make the caller choose between its transaction and a new one.](./required-executor-param.md) | Gated by `alfred/required-executor-param` | ast | 4 |
 | [Make a script, dry run or backfill call the live owner.](./scripts-call-live-owner.md) | Stays review | none | 1 |
 | [Verify a webhook signature with a timing-safe compare on the raw body.](./webhook-signature-raw-body.md) | Review, medium | compiler | 0 |
 
