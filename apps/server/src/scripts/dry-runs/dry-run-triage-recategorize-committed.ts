@@ -167,7 +167,7 @@ async function processUser(u: TargetUser): Promise<Set<string>> {
   console.log(`  scored ${scored}, skipped ${skipped} (no local doc / classify error)`);
   console.log(`\n  -- category transitions (old → new) --`);
 
-  for (const [k, n] of [...transitions.entries()].sort((a, b) => b[1] - a[1])) {
+  for (const [k, n] of [...transitions.entries()].toSorted((a, b) => b[1] - a[1])) {
     const mark = k.split(" → ")[0] === k.split(" → ")[1] ? "   " : " * ";
     console.log(`  ${mark}${n}\t${k}`);
   }

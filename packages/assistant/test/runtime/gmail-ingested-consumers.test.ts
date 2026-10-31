@@ -61,7 +61,7 @@ describe("gmail documents_ingested consumers", () => {
     assert.deepEqual(
       gmailIngestedTriggerConsumers()
         .map((consumer) => consumer.name)
-        .sort(),
+        .toSorted(),
       [
         "gmail-corpus-index",
         "gmail-inbox-rail",

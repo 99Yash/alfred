@@ -600,7 +600,7 @@ function queryTerms(query: string): readonly string[] {
   }
 
   return [...seen]
-    .sort((a, b) => b.length - a.length || (a < b ? -1 : 1))
+    .toSorted((a, b) => b.length - a.length || (a < b ? -1 : 1))
     .slice(0, DRIVE_MAX_QUERY_TERMS);
 }
 

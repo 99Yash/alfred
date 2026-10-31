@@ -156,7 +156,7 @@ describe("runtime.tool_surface", () => {
           runContext: { caller: "boss", interaction: "live_chat" },
           allowedIntegrations: ["calendar"],
         }).forModel(activeTools),
-      ).sort();
+      ).toSorted();
     });
 
     assert.ok(returnedToolNames.includes("calendar.list_events"));

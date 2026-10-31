@@ -205,7 +205,7 @@ if (DRY_RUN) {
 
 // Supervisors first: killing a parent before its child denies the parent the
 // chance to respawn what we are about to remove.
-const ordered = found.sort((a, b) => {
+const ordered = found.toSorted((a, b) => {
   const aSupervised = targets.has(a.ppid) ? 1 : 0;
   const bSupervised = targets.has(b.ppid) ? 1 : 0;
 

@@ -42,7 +42,7 @@ export function createId(prefix?: string, { length = 12, separator = "_" } = {})
 export const inList = (values: readonly string[]): SQL =>
   sql.raw(
     [...values]
-      .sort()
+      .toSorted()
       .map((v) => `'${v}'`)
       .join(", "),
   );

@@ -49,8 +49,8 @@ describe("toolExecuteContext", () => {
     assert.ok(ctx.integrations, "the constructor must attach a provider bind");
     assert.ok(ctx.corpus, "the constructor must attach a corpus bind");
     assert.deepEqual(
-      Object.keys(ctx).sort(),
-      [...Object.keys(fields), "corpus", "integrations"].sort(),
+      Object.keys(ctx).toSorted(),
+      [...Object.keys(fields), "corpus", "integrations"].toSorted(),
       "the constructor added or dropped a key beyond the derived binds",
     );
   });

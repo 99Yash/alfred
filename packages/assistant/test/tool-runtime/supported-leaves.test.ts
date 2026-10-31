@@ -10,7 +10,7 @@ test("the dispatch leaf exposes only production operations and registers no tool
   clearToolRegistryForTests();
   const dispatch = await import("@alfred/assistant/tool-runtime/dispatch");
 
-  assert.deepEqual(Object.keys(dispatch).sort(), [
+  assert.deepEqual(Object.keys(dispatch).toSorted(), [
     "dispatchToolCall",
     "registerDispatchToolCallRoundAdapter",
   ]);

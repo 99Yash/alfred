@@ -226,7 +226,7 @@ function compactEvent(credential: CalendarCredential, calendarId: string, event:
 }
 
 function sortEvents(events: CompactCalendarEvent[]): CompactCalendarEvent[] {
-  return events.sort((a, b) => (a.start ?? "").localeCompare(b.start ?? ""));
+  return events.toSorted((a, b) => (a.start ?? "").localeCompare(b.start ?? ""));
 }
 
 function allReadsFailed(

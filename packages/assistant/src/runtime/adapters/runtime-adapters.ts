@@ -50,7 +50,7 @@ export function createRuntimeAdapterLifecycle(
 ): RuntimeAdapterLifecycle {
   const startupAdapters = [...definitions];
 
-  const shutdownAdapters = [...definitions].sort(
+  const shutdownAdapters = definitions.toSorted(
     (left, right) => left.shutdownOrder - right.shutdownOrder,
   );
 

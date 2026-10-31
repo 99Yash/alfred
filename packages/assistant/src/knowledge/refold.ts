@@ -86,7 +86,7 @@ export async function refoldActiveGmailKindProjection(
   const excludeEmailValues = [...(await userIdentity({ userId })).emails]
     .map((email) => parseEmailIdentity(email))
     .filter((email) => email !== null)
-    .sort();
+    .toSorted();
 
   // Frozen-logic gate: the current code must reproduce the active checksum first.
   if (!activeChecksum || !activeGmailWatermark || !hasGmailAppendSnapshot(activeGmailWatermark)) {

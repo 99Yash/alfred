@@ -175,7 +175,7 @@ async function readRailwayDeploymentStatusFromSession(
       timeMs: parseProviderInstant(deployment.createdAt)?.getTime() ?? null,
     }))
     .filter((candidate) => candidate.status !== null)
-    .sort(
+    .toSorted(
       (a, b) => (b.timeMs ?? Number.NEGATIVE_INFINITY) - (a.timeMs ?? Number.NEGATIVE_INFINITY),
     );
 

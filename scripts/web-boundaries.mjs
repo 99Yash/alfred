@@ -280,7 +280,7 @@ export function browserSurface(root) {
 
   failures.push(...appDeclarationFailures(root, appDirs));
 
-  const roots = [...BROWSER_ENTRY_APPS].map((app) => `${app}/src`).sort();
+  const roots = [...BROWSER_ENTRY_APPS].map((app) => `${app}/src`).toSorted();
   const seen = new Set(roots);
   /** Why each derived root joined the surface, so an empty one can name its importer. */
   const reachedBy = new Map();
@@ -480,7 +480,7 @@ function containmentFailures(site, lines, regions) {
     for (const index of listBlockLines(lines, region)) block.add(index);
   }
 
-  for (const index of [...block].sort((left, right) => left - right)) {
+  for (const index of [...block].toSorted((left, right) => left - right)) {
     if (regions.some((region) => index > region.startLine && index < region.endLine)) continue;
 
     for (const pkg of packageTokens(lines[index])) {

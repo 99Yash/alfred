@@ -988,7 +988,7 @@ export function listToolsForIntegration(slug: IntegrationSlug): RegisteredTool[]
 /** Every registered tool, sorted by name. Memoized and frozen. */
 export function listRegisteredTools(): readonly RegisteredTool[] {
   return (cachedSortedTools ??= Object.freeze(
-    [...REGISTRY.values()].sort((a, b) => a.name.localeCompare(b.name)),
+    [...REGISTRY.values()].toSorted((a, b) => a.name.localeCompare(b.name)),
   ));
 }
 

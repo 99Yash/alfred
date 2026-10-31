@@ -291,7 +291,7 @@ export function createDigestFlow(sourceCode: SourceCode, jsonCalls: readonly Ran
           write.identifier.start < use.identifier.start &&
           (write.writeExpr === null || !within(use.identifier, write.writeExpr)),
       )
-      .sort((a, b) => b.identifier.start - a.identifier.start);
+      .toSorted((a, b) => b.identifier.start - a.identifier.start);
 
     const values: ESTree.Expression[] = [];
 

@@ -61,7 +61,7 @@ const RUNS_PER_FIXTURE = 5;
 
 async function loadFixtures(): Promise<Fixture[]> {
   const entries = await readdir(FIXTURES_DIR);
-  const files = entries.filter((f) => f.endsWith(".json")).sort();
+  const files = entries.filter((f) => f.endsWith(".json")).toSorted();
   const out: Fixture[] = [];
 
   for (const f of files) {

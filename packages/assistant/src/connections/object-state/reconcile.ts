@@ -302,7 +302,7 @@ export async function reconcileEvidence<Reading extends KeyProposalReading>(args
 
     // Exact, then identity, then prefix, then nomination; stable within a rank.
     const resolved: ReconciledObject<Reading>[] = linked
-      .sort((a, b) => MATCH_RANK[a.key.match] - MATCH_RANK[b.key.match])
+      .toSorted((a, b) => MATCH_RANK[a.key.match] - MATCH_RANK[b.key.match])
       .map(({ key, state }) => ({ key, state, closesAskAs: closesAskAsFor(key, state) }));
 
     if (resolved.length > 0) result.set(subject.id, resolved);

@@ -233,7 +233,7 @@ export function detectAiTells(text: string, options: DetectOptions = {}): VoiceT
     }
   }
 
-  return tells.sort((a, b) => a.index - b.index);
+  return tells.toSorted((a, b) => a.index - b.index);
 }
 
 /** One-line summary of findings, for eval metadata / logs. */

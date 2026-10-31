@@ -59,7 +59,7 @@ test("the model-facing JSON schema still advertises the canonical surface", () =
     required?: string[];
   };
 
-  assert.deepEqual(Object.keys(json.properties ?? {}).sort(), [
+  assert.deepEqual(Object.keys(json.properties ?? {}).toSorted(), [
     "attendees",
     "calendarId",
     "description",
@@ -70,5 +70,5 @@ test("the model-facing JSON schema still advertises the canonical surface", () =
     "timeZone",
   ]);
   // The preprocess must not make an optional field required.
-  assert.deepEqual((json.required ?? []).sort(), ["end", "start", "summary"]);
+  assert.deepEqual((json.required ?? []).toSorted(), ["end", "start", "summary"]);
 });

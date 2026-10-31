@@ -225,7 +225,7 @@ function exceptionCancels(
 
 /** Oldest write first, so the later write wins a conflict. */
 function oldestFirst(matches: readonly StandingInstructionMatch[]): StandingInstructionMatch[] {
-  return [...matches].sort(
+  return matches.toSorted(
     (a, b) => a.validFrom.getTime() - b.validFrom.getTime() || a.factId.localeCompare(b.factId),
   );
 }

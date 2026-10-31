@@ -323,7 +323,7 @@ function compareIdentity(a: ObjectStateDelta, b: ObjectStateDelta): number {
  * later one wins. `applyEvent` is the only app writer of either table.
  */
 function inLockOrder(deltas: readonly ObjectStateDelta[]): ObjectStateDelta[] {
-  return [...deltas].sort(compareIdentity);
+  return deltas.toSorted(compareIdentity);
 }
 
 /** One deferred key upsert, bound to the object its delta resolved. */
@@ -343,7 +343,7 @@ function compareKeyUpsert(a: PendingKeyUpsert, b: PendingKeyUpsert): number {
 
 /** Phase 2 lock order: the `integration_object_keys` rows of one delivery. */
 function inKeyLockOrder(upserts: readonly PendingKeyUpsert[]): PendingKeyUpsert[] {
-  return [...upserts].sort(compareKeyUpsert);
+  return upserts.toSorted(compareKeyUpsert);
 }
 
 export const objectStateStore: ObjectStateStore = {

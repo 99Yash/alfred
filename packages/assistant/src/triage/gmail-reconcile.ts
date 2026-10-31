@@ -63,7 +63,7 @@ export function planGmailThreadReconcile(args: {
   const repointTarget =
     args.storedDocs
       .filter((doc) => args.liveSourceIds.has(doc.sourceId) && !doc.isSent)
-      .sort(compareNewestFirst)[0] ?? null;
+      .toSorted(compareNewestFirst)[0] ?? null;
 
   let deadToDelete = confirmedDead.filter((doc) => !protectedIds.has(doc.id));
   let repointDocumentId: string | null = null;

@@ -74,7 +74,7 @@ export function senderKindSignalFromProfile(
   return {
     kind: classification.kind,
     confidence: classification.confidence,
-    evidenceCodes: [...classification.evidenceCodes].sort(),
+    evidenceCodes: classification.evidenceCodes.toSorted(),
     entityId: profile.entityId,
     displayName: profile.displayName,
   };

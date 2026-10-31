@@ -1,10 +1,9 @@
 ---
 id: array-sort-in-place
 section: Frontend
-status: candidate
+status: gated
 rung: ast
-feasibility: medium
-issue: #1629
+rule: unicorn/no-array-sort
 ---
 
 # Sort a copy with `toSorted`. Do not call `sort` on an array that another owner holds.
@@ -29,7 +28,9 @@ function sortedTodos(todos: SyncedTodo[]): SyncedTodo[] {
 
 ## Mechanism
 
-Built-in oxlint rule: `unicorn/no-array-sort`. About 150 sites remain, so a paydown comes first; the rule has a fix suggestion.
+Built-in oxlint rule: `unicorn/no-array-sort`. Its fix suggestion rewrote 198 sites when the rule was adopted.
+
+A `sort` call as a bare statement stays legal under the default options of the rule. At adoption, all 21 such statements sorted a local array that the same function built. The rule cannot see who owns the receiver, so it does not report a bare `props.items.sort(...)` statement.
 
 ## Hits
 

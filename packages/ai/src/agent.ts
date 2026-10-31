@@ -231,7 +231,7 @@ async function resolve<T extends SettingValue, CTX>(v: T | Thunk<T, CTX>, ctx: C
 
 /** Drop `execute` and sort by name. The order reaches the wire, and the cache prefix is byte-exact. */
 function prepareTools(tools: ToolSet): ToolSet {
-  const sortedNames = Object.keys(tools).sort((a, b) => a.localeCompare(b));
+  const sortedNames = Object.keys(tools).toSorted((a, b) => a.localeCompare(b));
   const out: ToolSet = {};
 
   for (const name of sortedNames) {

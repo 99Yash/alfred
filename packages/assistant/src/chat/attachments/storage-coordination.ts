@@ -10,7 +10,7 @@ export async function lockChatStorageKeys(
   tx: DbTransaction,
   storageKeys: readonly string[],
 ): Promise<void> {
-  const keys = [...new Set(storageKeys)].sort();
+  const keys = [...new Set(storageKeys)].toSorted();
 
   for (const key of keys) {
     await tx.execute(

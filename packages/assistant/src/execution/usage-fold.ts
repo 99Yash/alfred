@@ -103,10 +103,10 @@ export function foldModelUsage(
         totals.fallbackCalls > 0 ? { primary: totals.primary, calls: totals.fallbackCalls } : null,
     }))
     .filter((m) => m.calls > 0)
-    .sort((a, b) => b.calls - a.calls);
+    .toSorted((a, b) => b.calls - a.calls);
   usage.agents = [...byAgent]
     .map(([subId, totals]) => ({ subId, ...totals }))
-    .sort((a, b) => b.costUsd - a.costUsd);
+    .toSorted((a, b) => b.costUsd - a.costUsd);
 
   return usage;
 }

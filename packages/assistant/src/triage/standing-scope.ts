@@ -108,7 +108,7 @@ const SECTION_RULES = [
 export function fitStandingScopeInstructions(
   scoped: readonly ActiveStandingInstruction[],
 ): StandingScopeFit {
-  const newestFirst = [...scoped].sort((a, b) => b.validFrom.getTime() - a.validFrom.getTime());
+  const newestFirst = scoped.toSorted((a, b) => b.validFrom.getTime() - a.validFrom.getTime());
 
   const sent: ActiveStandingInstruction[] = [];
   const lines: string[] = [];

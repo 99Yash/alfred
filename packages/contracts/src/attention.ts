@@ -183,7 +183,7 @@ export function scoreAttentionForItems(items: readonly AttentionItemInput[]): At
   // The sorted copy shares entry objects, so these writes reach `entries`.
   const seen = new Map<string, number>();
 
-  const chronological = [...entries].sort(
+  const chronological = entries.toSorted(
     (a, b) => (a.item.occurredAtMs ?? 0) - (b.item.occurredAtMs ?? 0) || a.index - b.index,
   );
 

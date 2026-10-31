@@ -82,7 +82,7 @@ test("action-policies barrel loads with no database and no redis configured", as
     );
   }
 
-  assert.deepEqual(Object.keys(ns).sort(), BARREL_EXPORTS);
+  assert.deepEqual(Object.keys(ns).toSorted(), BARREL_EXPORTS);
 
   for (const [name, value] of Object.entries(ns)) {
     assert.equal(typeof value, "function", `${name} should be a function`);

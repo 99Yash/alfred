@@ -301,7 +301,7 @@ function overlayTriageTags(
 
   return withBand
     .map((item, index) => ({ item, index }))
-    .sort((a, b) => {
+    .toSorted((a, b) => {
       const rank =
         ATTENTION_BAND_ORDER[a.item.attentionBand ?? "normal"] -
         ATTENTION_BAND_ORDER[b.item.attentionBand ?? "normal"];

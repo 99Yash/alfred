@@ -129,7 +129,7 @@ export function parseImports(source) {
 
   return [
     ...new Map(imports.map((entry) => [`${entry.line}:${entry.specifier}`, entry])).values(),
-  ].sort((a, b) => a.line - b.line || a.specifier.localeCompare(b.specifier));
+  ].toSorted((a, b) => a.line - b.line || a.specifier.localeCompare(b.specifier));
 }
 
 /**

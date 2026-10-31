@@ -89,7 +89,7 @@ function ts(value: Date | null): number {
 
 /** The single-valued winner: source priority, then confidence, then recency. */
 function pickWinner(rows: ActiveFactRow[]): ActiveFactRow {
-  const [winner] = [...rows].sort((a, b) => {
+  const [winner] = rows.toSorted((a, b) => {
     const p = sourcePriority(a.source) - sourcePriority(b.source);
 
     if (p !== 0) return p;
@@ -264,7 +264,7 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
     for (const p of purge) byReason.set(p.reason, (byReason.get(p.reason) ?? 0) + 1);
     console.log(`\n  PURGE by reason:`);
 
-    for (const [reason, n] of [...byReason.entries()].sort(([a], [b]) => (a < b ? -1 : 1))) {
+    for (const [reason, n] of [...byReason.entries()].toSorted(([a], [b]) => (a < b ? -1 : 1))) {
       console.log(`    ${reason}: ${n}`);
     }
 
@@ -273,7 +273,7 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
     for (const p of purge) keyCounts.set(p.row.key, (keyCounts.get(p.row.key) ?? 0) + 1);
     console.log(`  PURGE distinct keys (${keyCounts.size}):`);
 
-    for (const key of [...keyCounts.keys()].sort()) {
+    for (const key of [...keyCounts.keys()].toSorted()) {
       const sample = VERBOSE_VALUES ? purge.find((p) => p.row.key === key)?.row : undefined;
       console.log(`    ${key}×${keyCounts.get(key)}${sample ? ` = ${preview(sample.value)}` : ""}`);
     }
@@ -287,7 +287,7 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
       pairs.set(`→ ${rk.canonicalKey}`, (pairs.get(`→ ${rk.canonicalKey}`) ?? 0) + 1);
     }
 
-    for (const [k, n] of [...pairs.entries()].sort(([a], [b]) => (a < b ? -1 : 1)))
+    for (const [k, n] of [...pairs.entries()].toSorted(([a], [b]) => (a < b ? -1 : 1)))
       console.log(`    ${k}: ${n}`);
   }
 
@@ -297,7 +297,7 @@ async function processUser(u: { userId: string; email: string }): Promise<void> 
 
     for (const c of collapse) keyCounts.set(c.row.key, (keyCounts.get(c.row.key) ?? 0) + 1);
 
-    for (const key of [...keyCounts.keys()].sort()) {
+    for (const key of [...keyCounts.keys()].toSorted()) {
       console.log(`    ${key}×${keyCounts.get(key)}`);
     }
   }

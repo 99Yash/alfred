@@ -22,7 +22,7 @@ test("every code has a status, and every factory carries the code it names", () 
   // The status derives from the code, so the two cannot disagree.
   const built = Object.values(Errors).map((make) => make());
   const codes = built.map((err) => err.code);
-  assert.deepEqual([...codes].sort(), [...API_ERROR_CODES].sort());
+  assert.deepEqual(codes.toSorted(), API_ERROR_CODES.toSorted());
 
   for (const err of built) {
     assert.equal(err.statusCode, API_ERROR_STATUS[err.code]);

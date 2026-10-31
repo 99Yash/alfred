@@ -67,7 +67,7 @@ try {
     // A computed specifier types the namespace as `any`; a namespace is always an object.
     const namespace: unknown = await import(target);
     names =
-      typeof namespace === "object" && namespace !== null ? Object.keys(namespace).sort() : [];
+      typeof namespace === "object" && namespace !== null ? Object.keys(namespace).toSorted() : [];
   } catch (error) {
     // Not `toMessage`: this wants only the first line, and a workspace import would load before the measurement.
     importError =

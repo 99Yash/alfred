@@ -88,7 +88,7 @@ async function main() {
 
       return { name: t.name, kernel: kernelNames.has(t.name), bytes, tokens };
     })
-    .sort((a, b) => b.tokens - a.tokens);
+    .toSorted((a, b) => b.tokens - a.tokens);
 
   console.log("per-tool schema size (bytes exact; tokens = repo chars/4 heuristic), desc:\n");
   console.log("  tok   bytes  K  tool");

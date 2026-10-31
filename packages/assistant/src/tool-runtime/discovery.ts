@@ -140,7 +140,7 @@ export async function searchAvailableTools(args: {
     }
   }
 
-  const ranked = [...curated, ...remote].sort(
+  const ranked = [...curated, ...remote].toSorted(
     (a, b) =>
       rankAvailability(b) - rankAvailability(a) ||
       b.score - a.score ||
@@ -341,7 +341,7 @@ function rankToolCatalog(args: ToolSearchArgs): RankedCandidate[] {
   }
 
   // Runnable first, so an unavailable match never crowds out a runnable tool.
-  return ranked.sort(
+  return ranked.toSorted(
     (a, b) =>
       rankAvailability(b) - rankAvailability(a) ||
       b.score - a.score ||

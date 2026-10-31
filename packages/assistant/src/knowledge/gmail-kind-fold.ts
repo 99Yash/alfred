@@ -93,7 +93,7 @@ export async function projectGmailKindProfiles(
     const projectionName = args.projectionName ?? USER_MODEL_PROJECTION_NAME;
     const computedAt = args.computedAt ?? new Date();
 
-    for (const acc of [...identities.values()].sort(compareAccumulators)) {
+    for (const acc of [...identities.values()].toSorted(compareAccumulators)) {
       const node = await ensureEntityNode(
         { userId: args.userId, identity: acc.identity, firstSeenAt: acc.firstSeenAt },
         ex,
@@ -117,8 +117,8 @@ export async function projectGmailKindProfiles(
       });
 
       const provenance: ProjectionProvenance = {
-        observationIds: [...acc.observationIds].sort(),
-        familyKeys: [...acc.familyKeys].sort(),
+        observationIds: [...acc.observationIds].toSorted(),
+        familyKeys: [...acc.familyKeys].toSorted(),
         classification,
       };
 
@@ -320,7 +320,7 @@ function isExcluded(identity: IdentityRef, excludedEmails: ReadonlySet<string>):
 
 function displayNamesByStrength(counts: ReadonlyMap<string, number>): string[] {
   return [...counts.entries()]
-    .sort(([nameA, countA], [nameB, countB]) => countB - countA || nameA.localeCompare(nameB))
+    .toSorted(([nameA, countA], [nameB, countB]) => countB - countA || nameA.localeCompare(nameB))
     .map(([name]) => name);
 }
 
@@ -344,13 +344,13 @@ function checksumRow(
     entityId,
     kind: classification.kind,
     confidence: classification.confidence,
-    evidenceCodes: [...classification.evidenceCodes].sort(),
+    evidenceCodes: classification.evidenceCodes.toSorted(),
     bestGuess: classification.bestGuess ?? null,
   };
 }
 
 function checksumFor(rows: readonly ProfileChecksumRow[]): string {
-  const stable = [...rows].sort((a, b) => a.entityId.localeCompare(b.entityId));
+  const stable = rows.toSorted((a, b) => a.entityId.localeCompare(b.entityId));
 
   return sha256Canonical(stable);
 }

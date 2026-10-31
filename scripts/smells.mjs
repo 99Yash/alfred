@@ -311,7 +311,7 @@ export function loadSmells(root = ROOT) {
 
   return readdirSync(dir)
     .filter((name) => name.endsWith(".md") && name !== "README.md")
-    .sort()
+    .toSorted()
     .map((name) => {
       const id = name.slice(0, -3);
       const file = `${SMELL_DIR}/${name}`;

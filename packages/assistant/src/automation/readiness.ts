@@ -181,7 +181,7 @@ export function resolveWorkflowApprovalDisplay(
         ...(capability.resourceScope ? { resourceScope: capability.resourceScope } : {}),
       };
     })
-    .sort(
+    .toSorted(
       (a, b) =>
         a.tool.localeCompare(b.tool) || (a.accountRef ?? "").localeCompare(b.accountRef ?? ""),
     );
@@ -193,7 +193,7 @@ export function resolveWorkflowApprovalDisplay(
   }
 
   return {
-    resolvedAccounts: [...resolvedAccounts.values()].sort(
+    resolvedAccounts: [...resolvedAccounts.values()].toSorted(
       (a, b) => a.provider.localeCompare(b.provider) || a.accountRef.localeCompare(b.accountRef),
     ),
     resolvedCapabilities,
@@ -380,7 +380,7 @@ export function resolveWorkflowCapabilities<TDefinition extends WorkflowRevision
     integrationSet.add(args.definition.trigger.source);
   }
 
-  const allowedIntegrations = [...integrationSet].sort();
+  const allowedIntegrations = [...integrationSet].toSorted();
 
   const definition = canonicalizeWorkflowAccounts({
     definition: {

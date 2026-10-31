@@ -304,7 +304,7 @@ describe("tool-schema array-field coercion (cross-integration)", () => {
 
       // The fixtures' array fields, together, must match the schema's exactly.
       const arrayFields = fixtures.flatMap((fixture) => fixture.arrayFields);
-      assert.deepEqual(arrayFields.sort(), discoverArrayFields(schema).sort());
+      assert.deepEqual(arrayFields.toSorted(), discoverArrayFields(schema).toSorted());
     });
 
     const cases = fixtures.flatMap(({ base, arrayFields }) =>

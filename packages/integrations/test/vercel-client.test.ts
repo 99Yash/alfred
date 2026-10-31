@@ -165,7 +165,7 @@ describe("vercel client auth", () => {
   test("passthrough is opaque and keeps bearer auth inside integrations", async () => {
     const calls = stubFetch({ ok: true });
     const passthrough = client("team_abc").passthrough;
-    assert.deepEqual(Object.keys(passthrough).sort(), ["execute", "slug"]);
+    assert.deepEqual(Object.keys(passthrough).toSorted(), ["execute", "slug"]);
     await passthrough.execute({ method: "GET", path: "/v9/projects", query: {} });
     assert.equal(calls[0]?.headers.get("Authorization"), "Bearer vercel_secret_token");
   });

@@ -73,7 +73,7 @@ A `gated` smell stays here for its examples and its ledger. [review-checklist.md
 | --- | --- | --- | --- |
 | [Make each control keyboard-reachable. Add ARIA where it is necessary. Do not use color as the only signal.](./accessible-controls.md) | Review, medium | ast | 0 |
 | [Do not keep data that must outlive one page view in a ref or a state that each mount creates.](./app-lifetime-data-outside-mount.md) | Stays review | none | 3 |
-| [Sort a copy with `toSorted`. Do not call `sort` on an array that another owner holds.](./array-sort-in-place.md) | Candidate, #1629 | ast | 2 |
+| [Sort a copy with `toSorted`. Do not call `sort` on an array that another owner holds.](./array-sort-in-place.md) | Gated by `unicorn/no-array-sort` | ast | 2 |
 | [Do not pass a same-property Tailwind utility through `className` to a primitive that carries a delta class.](./delta-class-across-component.md) | Stays review | none | 0 |
 | [Clean up each subscription and timer in an effect. Do not set state after unmount.](./effect-cleanup.md) | Stays review | none | 0 |
 | [Do not find an item by its position (`.at(-1)`, index 0, the queue head) when items run in parallel or change order.](./find-item-by-id.md) | Stays review | none | 2 |

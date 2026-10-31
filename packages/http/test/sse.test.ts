@@ -95,7 +95,7 @@ describe("sseResponse", () => {
     assert.equal(res.headers.get("Cache-Control"), "no-cache");
     assert.equal(res.headers.get("Connection"), "keep-alive");
     assert.equal(res.headers.get("X-Accel-Buffering"), "no");
-    assert.deepEqual([...res.headers.keys()].sort(), [
+    assert.deepEqual([...res.headers.keys()].toSorted(), [
       "cache-control",
       "connection",
       "content-type",

@@ -28,9 +28,9 @@ export function canonicalWorkflowDefinition<T extends WorkflowTrigger>(
     description: definition.description,
     brief: definition.brief,
     trigger: definition.trigger,
-    allowedIntegrations: [...definition.allowedIntegrations].sort(),
-    allowedTools: [...definition.allowedTools].sort(),
-    requiredCapabilities: [...definition.requiredCapabilities].sort(compareCapabilities),
+    allowedIntegrations: definition.allowedIntegrations.toSorted(),
+    allowedTools: definition.allowedTools.toSorted(),
+    requiredCapabilities: definition.requiredCapabilities.toSorted(compareCapabilities),
   };
 }
 

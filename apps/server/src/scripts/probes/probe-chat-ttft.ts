@@ -130,7 +130,7 @@ async function once(model: LanguageModel, tools: ToolSet | undefined): Promise<S
 }
 
 const median = (xs: number[]): number => {
-  const s = [...xs].sort((a, b) => a - b);
+  const s = xs.toSorted((a, b) => a - b);
 
   return s[Math.floor(s.length / 2)] ?? 0;
 };

@@ -179,7 +179,7 @@ function inlineTypeClauseRootFailures() {
 
     const flagged = browserSurface(fixture)
       .files.filter((file) => findViolations(fixture, file).length > 0)
-      .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+      .toSorted((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 
     if (!flagged.includes("packages/typedonly/src/leak.ts")) {
       failures.push(
@@ -494,7 +494,7 @@ function widenedScanFailures() {
 
     const flagged = browserSurface(fixture)
       .files.filter((file) => findViolations(fixture, file).length > 0)
-      .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+      .toSorted((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 
     // `entry.ts` is the old surface's own catch (it binds `@alfred/db`); the
     // other four are the ones a scan fixed at `apps/web/src` cannot see.

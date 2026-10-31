@@ -431,10 +431,10 @@ export function checkTestTypecheckBaseline({ root, tscBinary, searchRoots }) {
   if (nowClean.length > 0 || newlyDirty.length > 0 || missing.length > 0 || problems.length > 0) {
     return {
       ok: false,
-      nowClean: nowClean.sort(),
-      newlyDirty: newlyDirty.sort(),
-      missing: missing.sort(),
-      problems: problems.sort(),
+      nowClean: nowClean.toSorted(),
+      newlyDirty: newlyDirty.toSorted(),
+      missing: missing.toSorted(),
+      problems: problems.toSorted(),
     };
   }
 

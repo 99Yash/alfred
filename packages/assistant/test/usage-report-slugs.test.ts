@@ -35,7 +35,7 @@ describe("SLUG_CATEGORY drift guard", () => {
 
   // Pin the full key set, which covers slugs with no importable constant.
   test("map key set is unchanged", () => {
-    assert.deepEqual(Object.keys(SLUG_CATEGORY).sort(), [
+    assert.deepEqual(Object.keys(SLUG_CATEGORY).toSorted(), [
       "__chat-memory-capture__",
       "__chat-turn__",
       "__user-authored-brief__",

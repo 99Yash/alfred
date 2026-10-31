@@ -260,7 +260,7 @@ function printLanes(dir) {
   if (existsSync(lanesDir)) {
     for (const name of readdirSync(lanesDir)
       .filter((one) => one.endsWith(".json"))
-      .sort()) {
+      .toSorted()) {
       let lane;
 
       try {

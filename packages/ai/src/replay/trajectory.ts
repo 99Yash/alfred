@@ -51,7 +51,7 @@ export function canonicalize(value: unknown): unknown {
   if (isRecord(value)) {
     return (
       Object.keys(value)
-        .sort()
+        .toSorted()
         // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- the key-sorted rebuild keeps the input's keys, so no narrower key type exists.
         .reduce<Record<string, unknown>>((out, key) => {
           const v = value[key];
@@ -113,7 +113,7 @@ function readToolCallId(metadata: unknown): string | undefined {
 }
 
 export function extractTrajectory(trace: TraceLike): Trajectory {
-  const obs = (trace.observations ?? []).slice().sort(byStartTime);
+  const obs = (trace.observations ?? []).slice().toSorted(byStartTime);
 
   const steps: TrajectoryStep[] = [];
   const executedCallIds = new Set<string>();
