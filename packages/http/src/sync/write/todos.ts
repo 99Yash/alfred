@@ -1,4 +1,9 @@
-import { todoAttributionSchema, type TodoAttribution, type TodoCause } from "@alfred/contracts";
+import {
+  LIVE_TODO_STATUSES,
+  todoAttributionSchema,
+  type TodoAttribution,
+  type TodoCause,
+} from "@alfred/contracts";
 import { todos } from "@alfred/db/schemas";
 import type {
   TodoClearArgs,
@@ -125,7 +130,7 @@ export async function todoDismiss(
       and(
         eq(todos.id, args.id),
         eq(todos.userId, userId),
-        inArray(todos.status, ["open", "suggested"]),
+        inArray(todos.status, LIVE_TODO_STATUSES),
       ),
     );
 }
