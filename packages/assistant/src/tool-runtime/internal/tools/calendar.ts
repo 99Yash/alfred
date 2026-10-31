@@ -6,12 +6,14 @@ import {
   calendarListEventsInput,
   calendarRespondToEventInput,
   calendarUpdateEventInput,
+  canonicalJson,
   googleAuthorityScopes,
   isHttpError,
   restPassthroughInput,
   type IanaTimezone,
   type ToolRiskTier,
 } from "@alfred/contracts";
+import { sha256Hex } from "@alfred/db/hash";
 import type { CalendarEvent } from "@alfred/integrations/google";
 import type { z } from "zod";
 import {
@@ -296,22 +298,48 @@ async function executeListEvents(input: CalendarListEventsInput, ctx: ToolExecut
   };
 }
 
+/**
+ * The event id for this call. `(runId, toolCallId)` names one call, so a reclaimed run sends the
+ * same id and Google refuses the second insert. The input is part of the hash, so an approval
+ * with edits makes its own event. SHA-256 hex is valid base32hex.
+ */
+function createEventId(input: CalendarCreateEventInput, ctx: ToolExecuteContext): string {
+  return sha256Hex(canonicalJson({ runId: ctx.runId, toolCallId: ctx.toolCallId, input }));
+}
+
 async function executeCreateEvent(input: CalendarCreateEventInput, ctx: ToolExecuteContext) {
   const credential = await ctx.integrations.google.calendar.writeCredential();
+  const eventId = createEventId(input, ctx);
 
-  const created = await ctx.integrations.google.calendar.createEvent({
+  try {
+    const created = await ctx.integrations.google.calendar.createEvent({
+      credentialId: credential.id,
+      calendarId: input.calendarId,
+      eventId,
+      summary: input.summary,
+      description: input.description,
+      location: input.location,
+      start: input.start,
+      end: input.end,
+      timeZone: input.timeZone ?? ctx.timezone,
+      attendees: input.attendees,
+    });
+
+    return { event: compactEvent(credential, input.calendarId, created) };
+  } catch (err) {
+    if (!isHttpError(err) || err.status !== 409) throw err;
+  }
+
+  // A 409 means an earlier attempt of this call made the event. Report that event, not a failure.
+  const existing = await ctx.integrations.google.calendar.getEvent({
     credentialId: credential.id,
     calendarId: input.calendarId,
-    summary: input.summary,
-    description: input.description,
-    location: input.location,
-    start: input.start,
-    end: input.end,
-    timeZone: input.timeZone ?? ctx.timezone,
-    attendees: input.attendees,
+    eventId,
   });
 
-  return { event: compactEvent(credential, input.calendarId, created) };
+  if (existing.status === "cancelled") throw new AppError("calendar_event_cancelled");
+
+  return { event: compactEvent(credential, input.calendarId, existing) };
 }
 
 type CalendarEventRef = Pick<CalendarDeleteEventInput, "accountId" | "calendarId" | "eventId">;
@@ -484,7 +512,8 @@ export const calendarTools: readonly RegisteredTool[] = [
     integration: "calendar",
     action: "create_event",
     riskTier: "medium",
-    replay: "unsafe",
+    // The call's event id makes a second insert fail with 409, so a repeat makes no second event.
+    replay: "safe",
     description: "Create a Google Calendar event after the user approves the details.",
     discovery: {
       aliases: ["create calendar event", "schedule meeting", "add to calendar"],

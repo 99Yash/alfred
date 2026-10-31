@@ -5,6 +5,7 @@ import { createEvent } from "../src/google/calendar";
 
 const CREATE_ARGS = {
   accessToken: "test-token",
+  eventId: "testevent0",
   summary: "Planning",
   start: "2026-08-12T10:00:00+05:30",
   end: "2026-08-12T11:00:00+05:30",
