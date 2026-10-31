@@ -332,7 +332,7 @@ describe("workflow readiness", () => {
       kind: "reauthorize",
       integration: "gmail",
       accountRef: "account-1",
-      acceptableScopes: ["https://www.googleapis.com/auth/gmail.send"],
+      acceptableScopes: ["https://www.googleapis.com/auth/gmail.modify"],
     });
   });
 
