@@ -48,6 +48,7 @@ export type StagingRow = Pick<
   | "toolName"
   | "riskTier"
   | "proposedInput"
+  | "displayInput"
   | "proposedInputHash"
   | "decidedInput"
   | "rejectReason"
@@ -104,7 +105,8 @@ export type PendingApprovalPromotion = Pick<
  * The input a claimed and unfinished call goes back to the user with. The raw input to run, not a
  * redacted copy: approve runs `proposedInput`.
  */
-export type InterruptedRestage = PendingApprovalPromotion & Pick<ActionStaging, "toolName">;
+export type InterruptedRestage = Omit<PendingApprovalPromotion, "proposedInputHash"> &
+  Pick<ActionStaging, "toolName">;
 
 /** The lease that a claim fences on: the run's attempt and its cancellation generation. */
 export interface DispatchLease {
@@ -154,13 +156,21 @@ export type StagingCommit =
     };
 
 export interface StagingStore {
-  /** Most recent row in `statuses` for this run, tool, and input hash. */
+  /** Match the first proposal or its edit. A claimed expiry also suppresses an identical retry. */
   findPriorRejection(query: {
     runId: string;
     toolName: ToolName;
     proposedInputHash: string;
+    input?: JsonValue;
     statuses: readonly PriorRejectionStatus[];
-  }): Promise<{ reason: string | null; status: ActionStaging["status"] } | null>;
+  }): Promise<{
+    reason: string | null;
+    status: ActionStaging["status"];
+    mayHaveRun?: true;
+  } | null>;
+
+  /** Read a saved call before binding against a possibly changed tool schema. */
+  readStaging(query: { runId: string; toolCallId: string }): Promise<StagingRow | null>;
 
   /**
    * An unresolved `unknown` row for this user and request hash. It blocks a
@@ -179,9 +189,6 @@ export interface StagingStore {
    * owned by another user reads as `false`, so a doubt keeps the card.
    */
   readThreadFullAutonomy(query: { userId: string; threadId: string }): Promise<boolean>;
-
-  /** Whether this call already has a staging row: a replay or a resume, not a fresh proposal. */
-  hasStaging(query: { runId: string; toolCallId: string }): Promise<boolean>;
 
   /** Idempotent on `(runId, toolCallId)`. On conflict, returns the stored row unchanged. */
   upsertStaging(values: StagingInsertValues): Promise<{ row: StagingRow; wasInserted: boolean }>;
@@ -203,7 +210,8 @@ export interface StagingStore {
    * Send a claimed and unfinished call back to the user (replay safety), under the same lease
    * check as `claimDispatch`. The row becomes a `pending` approval again, and
    * `dispatch_claimed_at` stays set, so the card says it may have run. A user edit stays in
-   * `decided_input`, so "Run again" still reports the edit to the model.
+   * `decided_input`, so "Run again" still reports the edit to the model. The original proposal
+   * hash stays fixed, so rejection suppresses both the original call and its edited input.
    */
   restageInterrupted(
     stagingId: string,
@@ -230,6 +238,7 @@ const STAGING_COLUMNS = {
   toolName: actionStagings.toolName,
   riskTier: actionStagings.riskTier,
   proposedInput: actionStagings.proposedInput,
+  displayInput: actionStagings.displayInput,
   proposedInputHash: actionStagings.proposedInputHash,
   decidedInput: actionStagings.decidedInput,
   rejectReason: actionStagings.rejectReason,
@@ -321,14 +330,22 @@ export const postgresStagingStore: StagingStore = {
         reason: actionStagings.rejectReason,
         status: actionStagings.status,
         decidedAt: actionStagings.decidedAt,
+        dispatchClaimedAt: actionStagings.dispatchClaimedAt,
       })
       .from(actionStagings)
       .where(
         and(
           eq(actionStagings.runId, query.runId),
           eq(actionStagings.toolName, query.toolName),
-          eq(actionStagings.proposedInputHash, query.proposedInputHash),
-          inArray(actionStagings.status, query.statuses),
+          or(
+            eq(actionStagings.proposedInputHash, query.proposedInputHash),
+            query.input === undefined ? undefined : eq(actionStagings.proposedInput, query.input),
+            query.input === undefined ? undefined : eq(actionStagings.decidedInput, query.input),
+          ),
+          or(
+            inArray(actionStagings.status, query.statuses),
+            and(eq(actionStagings.status, "expired"), isNotNull(actionStagings.dispatchClaimedAt)),
+          ),
         ),
       )
       .orderBy(desc(actionStagings.decidedAt))
@@ -336,7 +353,24 @@ export const postgresStagingStore: StagingStore = {
 
     const row = rows[0];
 
-    return row ? { reason: row.reason, status: row.status } : null;
+    return row
+      ? {
+          reason: row.reason,
+          status: row.status,
+          ...(row.dispatchClaimedAt !== null ? { mayHaveRun: true as const } : {}),
+        }
+      : null;
+  },
+
+  async readStaging(query) {
+    const [row] = await db()
+      .select(STAGING_COLUMNS)
+      .from(actionStagings)
+      .where(
+        and(eq(actionStagings.runId, query.runId), eq(actionStagings.toolCallId, query.toolCallId)),
+      );
+
+    return row ? parseStagingRow(row) : null;
   },
 
   async findUnresolvedUnknown(query) {
@@ -387,18 +421,6 @@ export const postgresStagingStore: StagingStore = {
       .limit(1);
 
     return rows[0]?.fullAutonomy === true;
-  },
-
-  async hasStaging(query) {
-    const rows = await db()
-      .select({ id: actionStagings.id })
-      .from(actionStagings)
-      .where(
-        and(eq(actionStagings.runId, query.runId), eq(actionStagings.toolCallId, query.toolCallId)),
-      )
-      .limit(1);
-
-    return rows.length > 0;
   },
 
   async upsertStaging(values) {
@@ -501,7 +523,7 @@ export const postgresStagingStore: StagingStore = {
           // The card shows `proposedInput`, so an earlier edit moves there and approve runs it.
           proposedInput: restage.proposedInput,
           displayInput: restage.displayInput,
-          proposedInputHash: restage.proposedInputHash,
+          // Keep the first proposal hash: rejection must also suppress the model's original call.
           // `decided_input` stays: an approve with no new edit leaves it, so the result still
           // reports the user's earlier edit to the model.
           decidedAt: null,

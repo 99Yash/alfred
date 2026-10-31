@@ -6,13 +6,13 @@
 import {
   assertNever,
   cancellationFenceSchema,
+  hashToolInput,
   isTerminalStatus,
   toJsonValue,
   type ActionStagingStatus,
   type CancellationFence,
   type RunStatus,
 } from "@alfred/contracts";
-import type { ActionStaging } from "@alfred/db/schemas";
 
 import {
   attemptKeyFor,
@@ -29,8 +29,6 @@ import {
 interface StoredRow extends StagingRow {
   userId: string;
   toolCallId: string;
-  /** Not in `StagingRow`: the gate never branches on it. */
-  displayInput: ActionStaging["displayInput"];
   decidedAt: Date | null;
   executedAt: Date | null;
   rowVersion: number;
@@ -97,6 +95,7 @@ export function memoryStagingStore(): MemoryStagingStore {
       toolName: row.toolName,
       riskTier: row.riskTier,
       proposedInput: row.proposedInput,
+      displayInput: row.displayInput,
       proposedInputHash: row.proposedInputHash,
       decidedInput: row.decidedInput,
       rejectReason: row.rejectReason,
@@ -151,8 +150,13 @@ export function memoryStagingStore(): MemoryStagingStore {
         (row) =>
           row.runId === query.runId &&
           row.toolName === query.toolName &&
-          row.proposedInputHash === query.proposedInputHash &&
-          query.statuses.some((status) => status === row.status),
+          (row.proposedInputHash === query.proposedInputHash ||
+            (query.input !== undefined &&
+              (hashToolInput(row.toolName, row.proposedInput) === query.proposedInputHash ||
+                (row.decidedInput !== null &&
+                  hashToolInput(row.toolName, row.decidedInput) === query.proposedInputHash)))) &&
+          (query.statuses.some((status) => status === row.status) ||
+            (row.status === "expired" && row.dispatchClaimedAt !== null)),
       );
 
       candidates.sort((a, b) => (b.decidedAt?.getTime() ?? 0) - (a.decidedAt?.getTime() ?? 0));
@@ -160,7 +164,11 @@ export function memoryStagingStore(): MemoryStagingStore {
 
       if (hit === undefined) return null;
 
-      return { reason: hit.rejectReason, status: hit.status };
+      return {
+        reason: hit.rejectReason,
+        status: hit.status,
+        ...(hit.dispatchClaimedAt !== null ? { mayHaveRun: true as const } : {}),
+      };
     },
 
     async findUnresolvedUnknown(query) {
@@ -186,8 +194,10 @@ export function memoryStagingStore(): MemoryStagingStore {
       return false;
     },
 
-    async hasStaging(query) {
-      return byConflictKey.has(conflictKey(query.runId, query.toolCallId));
+    async readStaging(query) {
+      const id = byConflictKey.get(conflictKey(query.runId, query.toolCallId));
+
+      return id === undefined ? null : project(mustGet(id));
     },
 
     async upsertStaging(values: StagingInsertValues) {
@@ -299,7 +309,6 @@ export function memoryStagingStore(): MemoryStagingStore {
       row.riskTier = restage.riskTier;
       row.proposedInput = restage.proposedInput;
       row.displayInput = restage.displayInput;
-      row.proposedInputHash = restage.proposedInputHash;
       row.decidedAt = null;
       row.notifyAfterAt = restage.notifyAfterAt;
       row.notifiedAt = null;

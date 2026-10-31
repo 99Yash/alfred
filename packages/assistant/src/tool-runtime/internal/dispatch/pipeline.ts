@@ -47,7 +47,6 @@ import {
 } from "@alfred/ai";
 import {
   stagingStore,
-  type DispatchLease,
   type InterruptedRestageResult,
   type PriorRejectionStatus,
   type StagingCommit,
@@ -309,15 +308,20 @@ interface SuppressedDispatch extends ValidatedDispatch {
 }
 
 /**
- * Run the four stages in order: resolve, validate, suppress repeats, then stage
- * or resume. Approval resume uses this same entry point.
+ * Resolve the tool, recover saved staging, validate, suppress repeats, then stage or execute.
+ * Approval resume uses this same entry point.
  */
 export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<DispatchResult> {
   const registry = await resolveRegistryStage(args);
 
   if (!isContinue(registry)) return registry;
 
-  const validated = await validateInputStage(registry.continueWith);
+  // A saved claim must become a card even when a deploy changed the input schema.
+  const resumed = await resumeSavedStagingStage(registry.continueWith);
+
+  if (!isContinue(resumed)) return resumed;
+
+  const validated = await validateInputStage(resumed.continueWith);
 
   if (!isContinue(validated)) return validated;
 
@@ -447,11 +451,112 @@ const resolveRegistryStage: DispatchStage<ToolCallDispatchArgs, ResolvedDispatch
   return continueWith({ args, toolName, tool, integration, workflowCapabilities });
 };
 
+/** Recover saved claims and decisions before a deploy's new schema can reject the old call. */
+const resumeSavedStagingStage: DispatchStage<ResolvedDispatch, ResolvedDispatch> = async (
+  resolved,
+) => {
+  const { args, tool, toolName } = resolved;
+  const arm = STAGING_ARM[tool.staging];
+
+  if (arm === null) return continueWith(resolved);
+
+  let row = await stagingStore().readStaging({ runId: args.runId, toolCallId: args.toolCallId });
+
+  if (row === null) return continueWith(resolved);
+
+  if (row.toolName !== toolName) {
+    throw new Error(
+      `[dispatch] toolName mismatch on re-dispatch (run=${args.runId}, toolCallId=${args.toolCallId})`,
+    );
+  }
+
+  const fence = await stagingStore().readCancellationFence(args.runId);
+
+  if (fence.generation > args.fence.generation) {
+    return { kind: "fenced", stagingId: null, result: synthesizeCancelledByFence() };
+  }
+
+  const unavailableRun = await refuseUnavailableRun(resolved, args.input);
+
+  if (unavailableRun) return unavailableRun;
+
+  if (
+    row.dispatchClaimedAt !== null &&
+    (row.status === "approved" || (row.status === "pending" && !row.requiresApproval))
+  ) {
+    // The claim itself proves that a write may have started, even if replay classification changed.
+    const restage = await restageInterruptedCall(row, resolved);
+
+    switch (restage.kind) {
+      case "restaged":
+        return waitForStagingApproval(restage.row, args, arm, true);
+      case "moved":
+        row = restage.row;
+        break;
+      case "fenced":
+        return closeFencedRow(row, dispatchContext(resolved));
+      case "lease_lost":
+        throw new Error(
+          `[dispatch] ${toolName} not restaged: lease lost (run=${args.runId}, staging=${row.id}, attempt=${args.attempt})`,
+        );
+      default:
+        return assertNever(restage, "interrupted restage result");
+    }
+  }
+
+  switch (row.status) {
+    case "pending":
+      if (row.requiresApproval) return waitForStagingApproval(row, args, arm, false);
+
+      return continueWith(resolved);
+    case "approved": {
+      const binding = tool.bind(row.decidedInput ?? row.proposedInput);
+
+      if (!binding.success) return failApprovedInput(row, resolved, binding.error.issues);
+
+      return continueWith({
+        ...resolved,
+        args: {
+          ...args,
+          // The question's model input excludes answers; its approved row supplies them later.
+          input: tool.staging === "question" ? args.input : (row.decidedInput ?? row.proposedInput),
+        },
+      });
+    }
+
+    case "rejected":
+    case "expired":
+    case "executed":
+    case "failed":
+      return replaySettledStaging(row, resolved);
+    default:
+      return assertNever(row.status, "saved staging status");
+  }
+};
+
+/** Bind provider clients lazily for this dispatch identity. */
+function dispatchContext(resolved: ResolvedDispatch): ToolExecuteContext {
+  const { args, workflowCapabilities } = resolved;
+
+  return toolExecuteContext({
+    runId: args.runId,
+    scratchpadRunId: args.scratchpadRunId ?? args.runId,
+    stepId: args.stepId,
+    toolCallId: args.toolCallId,
+    userId: args.userId,
+    timezone: args.timezone,
+    caller: args.caller,
+    runContext: args.runContext,
+    activeTools: args.activeTools,
+    chat: args.chat,
+    allowedIntegrations: args.allowedIntegrations,
+    accountRef: workflowCapabilities[0]?.accountRef,
+  });
+}
+
 /** Stage 2: validate input, then run `join` and `fast_path` tools inline. */
 const validateInputStage: DispatchStage<ResolvedDispatch, ValidatedDispatch> = async (resolved) => {
   const { args, toolName, tool, integration, workflowCapabilities } = resolved;
-  const caller = args.caller;
-
   // Fix key casing (`max_results` -> `maxResults`). Use the model-facing schema:
   // the runtime one for `system.ask_user` also has the user's `answers` (ADR-0099).
   const normalized = normalizeToolInputKeys(args.input, tool.modelInputSchema);
@@ -507,21 +612,7 @@ const validateInputStage: DispatchStage<ResolvedDispatch, ValidatedDispatch> = a
     };
   }
 
-  // Provider clients bind to this user's credentials, lazily.
-  const ctx = toolExecuteContext({
-    runId: args.runId,
-    scratchpadRunId: args.scratchpadRunId ?? args.runId,
-    stepId: args.stepId,
-    toolCallId: args.toolCallId,
-    userId: args.userId,
-    timezone: args.timezone,
-    caller,
-    runContext: args.runContext,
-    activeTools: args.activeTools,
-    chat: args.chat,
-    allowedIntegrations: args.allowedIntegrations,
-    accountRef: workflowCapabilities[0]?.accountRef,
-  });
+  const ctx = dispatchContext(resolved);
 
   // A refusal that depends on the caller, which the schema cannot express. Its owner decides it.
   const refusal = call.refusal(ctx);
@@ -640,6 +731,7 @@ const suppressRepeatedStage: DispatchStage<ValidatedDispatch, SuppressedDispatch
     runId: args.runId,
     toolName,
     proposedInputHash,
+    input: jsonValueSchema.parse(input),
     statuses: arm.priorRejectionStatuses,
   });
 
@@ -652,6 +744,7 @@ const suppressRepeatedStage: DispatchStage<ValidatedDispatch, SuppressedDispatch
       input,
       status: priorReject.status === "expired" ? "expired" : "rejected",
       reason: priorReject.reason,
+      mayHaveRun: priorReject.mayHaveRun === true,
     });
   }
 
@@ -671,6 +764,26 @@ async function readFullAutonomy(args: ToolCallDispatchArgs): Promise<boolean> {
   });
 }
 
+/** The staging write autocommits, so a run that has ended cannot gain a new card. */
+async function refuseUnavailableRun(
+  resolved: ResolvedDispatch,
+  input: unknown,
+): Promise<DispatchResult | null> {
+  const runStatus = await stagingStore().readRunStatus(resolved.args.runId);
+
+  if (runStatus !== null && !isTerminalStatus(runStatus)) return null;
+
+  return {
+    kind: "rejected",
+    stagingId: null,
+    result: synthesizeRejection({
+      toolName: resolved.toolName,
+      proposedInput: input,
+      reason: runStatus === null ? "run is unavailable" : `run is already ${runStatus}`,
+    }),
+  };
+}
+
 /**
  * Stage 4: upsert the staging row, then act on its status. Pending parks or
  * executes, approved executes the decided input, and settled rows replay.
@@ -681,29 +794,15 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
 
   const input = call.input;
 
-  // The staging insert autocommits, so the executor cannot roll it back. Check
-  // the run first. `null` means absent or unparseable.
-  const runStatus = await stagingStore().readRunStatus(args.runId);
+  const unavailableRun = await refuseUnavailableRun(suppressed, input);
 
-  if (runStatus === null || isTerminalStatus(runStatus)) {
-    const reason = runStatus === null ? "run is unavailable" : `run is already ${runStatus}`;
-
-    return {
-      kind: "rejected",
-      stagingId: null,
-      result: synthesizeRejection({
-        toolName,
-        proposedInput: input,
-        reason,
-      }),
-    };
-  }
+  if (unavailableRun) return unavailableRun;
 
   // A state check runs only for a fresh proposal. A replay or a resume has a row, and the
   // state can change after the write, so the check would refuse a call that already ran.
   if (
     call.proposalRefusal !== null &&
-    !(await stagingStore().hasStaging({ runId: args.runId, toolCallId: args.toolCallId }))
+    !(await stagingStore().readStaging({ runId: args.runId, toolCallId: args.toolCallId }))
   ) {
     const refusal = await call.proposalRefusal(ctx);
 
@@ -789,41 +888,6 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
 
   let promotedPendingApproval = false;
 
-  // A claimed `unsafe` call with no result started before a crash and may have run. Ask the user
-  // before it runs again, also under full autonomy: a duplicate effect is worse than a wait.
-  if (
-    tool.replay === "unsafe" &&
-    row.dispatchClaimedAt !== null &&
-    (row.status === "approved" || (row.status === "pending" && !row.requiresApproval))
-  ) {
-    const restage = await restageInterruptedCall(row, call, ctx, {
-      runId: args.runId,
-      attempt: args.attempt,
-      fence: args.fence,
-    });
-
-    switch (restage.kind) {
-      case "restaged":
-        row = restage.row;
-        promotedPendingApproval = true;
-        break;
-      // A lost attempt committed first. Settle from its result below.
-      case "moved":
-        row = restage.row;
-        break;
-      case "fenced":
-        return closeFencedRow(row, ctx);
-      // Throw, do not write the row: it belongs to the attempt that won. The step commit's
-      // ownership guard skips this attempt as superseded.
-      case "lease_lost":
-        throw new Error(
-          `[dispatch] ${toolName} not restaged: lease lost (run=${args.runId}, staging=${row.id}, attempt=${args.attempt})`,
-        );
-      default:
-        return assertNever(restage, "interrupted restage result");
-    }
-  }
-
   // Reclaim uses the complete live requirement, including policy for low/medium tools.
   // A pending row may gain a gate after a mode change, but it must never lose one.
   if (!insertedNew && row.status === "pending" && requiresApproval && !row.requiresApproval) {
@@ -850,47 +914,7 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
     case "pending":
       // A pending row can gain a gate but never lose one (ADR-0034, ADR-0088).
       if (row.requiresApproval) {
-        // Poke only when the row first enters the approvals queue.
-        if (insertedNew || promotedPendingApproval) emitReplicachePokes([args.userId], row.id);
-
-        if (!row.notifiedAt) {
-          const delayMs =
-            row.notifyAfterAt instanceof Date
-              ? row.notifyAfterAt.getTime() - Date.now()
-              : (approvalNotifyDelayMs ?? 0);
-
-          await scheduleApprovalNotificationJob({
-            stagingId: row.id,
-            userId: args.userId,
-            delayMs,
-          });
-        }
-
-        // Idempotent on the job id. The delay comes from the stored `expires_at`.
-        {
-          const expiryDelayMs =
-            row.expiresAt instanceof Date
-              ? row.expiresAt.getTime() - Date.now()
-              : APPROVAL_EXPIRY_MS;
-
-          await scheduleApprovalExpiryJob({
-            stagingId: row.id,
-            userId: args.userId,
-            delayMs: expiryDelayMs,
-          });
-        }
-
-        // The only place the approval kind is written (ADR-0099).
-        return {
-          kind: "staged",
-          stagingId: row.id,
-          wake: {
-            kind: "hil",
-            approvalId: row.id,
-            approvalKind: arm.approvalKind,
-            prompt: arm.wakePrompt(toolName),
-          },
-        };
+        return waitForStagingApproval(row, args, arm, insertedNew || promotedPendingApproval);
       }
 
       {
@@ -913,29 +937,7 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
       // A user edit may break the schema. Fail the row instead of throwing.
       const rebound = tool.bind(useInput);
 
-      if (!rebound.success) {
-        const error = publicAppError("tool_input_invalid");
-        await commitAndPoke(row, ctx, {
-          status: "failed",
-          outcome: "failed",
-          error,
-          executedAt: new Date(),
-        });
-        // No execution, so no span. Trace it here.
-        recordRejection({
-          dispatch: args,
-          outcome: "failed",
-          reason: error.message,
-          issues: rebound.error.issues,
-          toolName,
-        });
-
-        return {
-          kind: "failed",
-          stagingId: row.id,
-          error,
-        };
-      }
+      if (!rebound.success) return failApprovedInput(row, suppressed, rebound.error.issues);
 
       {
         const exhausted = await guardPassthroughBudget(row, tool, ctx);
@@ -953,6 +955,73 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
 
     case "rejected":
     case "expired":
+    case "executed":
+    case "failed":
+      return replaySettledStaging(row, suppressed);
+
+    default: {
+      // Fail instead of throwing, so the boss gets a tool result. The cases above are exhaustive,
+      // so `row.status` is `never` here; `String` prints whatever an out-of-contract row holds.
+      const diagnostic = `dispatcher saw unexpected staging status '${String(row.status)}'`;
+      const error = publicAppError("tool_execution_failed");
+      recordRejection({
+        dispatch: args,
+        outcome: "failed",
+        reason: diagnostic,
+        toolName,
+        input: storedTraceInput(tool, row.proposedInput),
+      });
+
+      return {
+        kind: "failed",
+        stagingId: row.id,
+        error,
+      };
+    }
+  }
+};
+
+/** An invalid approved edit closes its row and exposes only the registered public error. */
+async function failApprovedInput(
+  row: StagingRow,
+  resolved: ResolvedDispatch,
+  issues: readonly RejectionIssue[],
+): Promise<DispatchResult> {
+  const { args, toolName } = resolved;
+  const ctx = dispatchContext(resolved);
+
+  const error = publicAppError("tool_input_invalid");
+  await commitAndPoke(row, ctx, {
+    status: "failed",
+    outcome: "failed",
+    error,
+    executedAt: new Date(),
+  });
+  // No execution, so no span. Trace it here.
+  recordRejection({
+    dispatch: args,
+    outcome: "failed",
+    reason: error.message,
+    issues,
+    toolName,
+  });
+
+  return {
+    kind: "failed",
+    stagingId: row.id,
+    error,
+  };
+}
+
+function replaySettledStaging(row: StagingRow, resolved: ResolvedDispatch): DispatchResult {
+  const { args, tool, toolName } = resolved;
+  const arm = STAGING_ARM[tool.staging];
+
+  if (arm === null) throw new Error(`[dispatch] unexpected unstaged tool '${toolName}'`);
+
+  switch (row.status) {
+    case "rejected":
+    case "expired":
       return settleWithoutExecution(arm, {
         dispatch: args,
         traceInput: storedTraceInput(tool, row.proposedInput),
@@ -961,6 +1030,7 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
         input: row.proposedInput,
         status: row.status,
         reason: row.rejectReason,
+        mayHaveRun: row.dispatchClaimedAt !== null,
       });
 
     case "executed":
@@ -984,27 +1054,59 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
         ...(row.decidedInput !== null ? { executedInput: row.decidedInput } : {}),
       };
 
-    default: {
-      // Fail instead of throwing, so the boss gets a tool result. The cases above are exhaustive,
-      // so `row.status` is `never` here; `String` prints whatever an out-of-contract row holds.
-      const diagnostic = `dispatcher saw unexpected staging status '${String(row.status)}'`;
-      const error = publicAppError("tool_execution_failed");
-      recordRejection({
-        dispatch: args,
-        outcome: "failed",
-        reason: diagnostic,
-        toolName,
-        input: storedTraceInput(tool, row.proposedInput),
-      });
-
-      return {
-        kind: "failed",
-        stagingId: row.id,
-        error,
-      };
-    }
+    case "pending":
+    case "approved":
+      throw new Error(`[dispatch] staging '${row.id}' is not settled`);
+    default:
+      return assertNever(row.status, "settled staging status");
   }
-};
+}
+
+/** Schedule the notice and expiry without requiring the saved input to bind. */
+async function waitForStagingApproval(
+  row: StagingRow,
+  args: ToolCallDispatchArgs,
+  arm: GatedArmPolicy,
+  newCard: boolean,
+): Promise<DispatchResult> {
+  // Poke only when the row first enters the approvals queue.
+  if (newCard) emitReplicachePokes([args.userId], row.id);
+
+  if (!row.notifiedAt) {
+    const delayMs =
+      row.notifyAfterAt instanceof Date ? row.notifyAfterAt.getTime() - Date.now() : 0;
+
+    await scheduleApprovalNotificationJob({
+      stagingId: row.id,
+      userId: args.userId,
+      delayMs,
+    });
+  }
+
+  // Idempotent on the job id. The delay comes from the stored `expires_at`.
+  {
+    const expiryDelayMs =
+      row.expiresAt instanceof Date ? row.expiresAt.getTime() - Date.now() : APPROVAL_EXPIRY_MS;
+
+    await scheduleApprovalExpiryJob({
+      stagingId: row.id,
+      userId: args.userId,
+      delayMs: expiryDelayMs,
+    });
+  }
+
+  // The only place the approval kind is written (ADR-0099).
+  return {
+    kind: "staged",
+    stagingId: row.id,
+    wake: {
+      kind: "hil",
+      approvalId: row.id,
+      approvalKind: arm.approvalKind,
+      prompt: arm.wakePrompt(row.toolName),
+    },
+  };
+}
 
 const dispatchToolCallRoundAdapter: DispatchToolCallRoundAdapter = {
   dispatch: dispatchToolCall,
@@ -1403,41 +1505,38 @@ async function commitAndPoke(
  */
 async function restageInterruptedCall(
   row: StagingRow,
-  liveCall: BoundToolCall,
-  ctx: ToolExecuteContext,
-  lease: DispatchLease,
+  resolved: ResolvedDispatch,
 ): Promise<InterruptedRestageResult> {
-  const { tool } = liveCall;
-  let call = liveCall;
+  const { args, tool, toolName } = resolved;
+  // Autonomous rows stored redacted input. The step supplies their original raw call.
+  const input = row.status === "approved" ? (row.decidedInput ?? row.proposedInput) : args.input;
+  const binding = tool.bind(input);
+  const approvalNotifyDelayMs = await resolveApprovalNotifyDelayMs(args.userId);
 
-  if (row.status === "approved") {
-    const rebound = tool.bind(row.decidedInput ?? row.proposedInput);
-
-    // The row ran this input once already, so a parse failure here is a bug, not a user edit.
-    if (!rebound.success) {
-      throw new Error(
-        `[dispatch] interrupted call input no longer binds (run=${ctx.runId}, staging=${row.id})`,
-      );
-    }
-
-    call = rebound.call;
-  }
-
-  const approvalNotifyDelayMs = await resolveApprovalNotifyDelayMs(ctx.userId);
-
-  const restage = await stagingStore().restageInterrupted(row.id, lease, {
-    toolName: tool.name,
-    riskTier: await call.effectiveRiskTier(ctx),
-    proposedInput: jsonValueSchema.parse(call.input),
-    displayInput: jsonValueSchema.parse(call.redactedInput()),
-    proposedInputHash: hashToolInput(tool.name, call.input),
-    notifyAfterAt: new Date(Date.now() + approvalNotifyDelayMs),
-    expiresAt: new Date(Date.now() + APPROVAL_EXPIRY_MS),
-  });
+  const restage = await stagingStore().restageInterrupted(
+    row.id,
+    {
+      runId: args.runId,
+      attempt: args.attempt,
+      fence: args.fence,
+    },
+    {
+      toolName,
+      // A deploy can invalidate the old input. Keep its saved tier and redacted display in that
+      // case. Raw JSON is only for the card; execute still requires the current tool schema.
+      riskTier: row.riskTier,
+      proposedInput: jsonValueSchema.parse(binding.success ? binding.call.input : input),
+      displayInput: jsonValueSchema.parse(
+        binding.success ? binding.call.redactedInput() : row.displayInput,
+      ),
+      notifyAfterAt: new Date(Date.now() + approvalNotifyDelayMs),
+      expiresAt: new Date(Date.now() + APPROVAL_EXPIRY_MS),
+    },
+  );
 
   if (restage.kind === "restaged") {
     logger.warn(
-      { runId: ctx.runId, stagingId: row.id, toolName: tool.name },
+      { runId: args.runId, stagingId: row.id, toolName },
       "[dispatch] an unsafe call started and did not finish; asking the user before it runs again",
     );
   }
@@ -1613,6 +1712,7 @@ interface SynthesizeRejectionArgs {
   toolName: ToolName;
   proposedInput: unknown;
   reason: string;
+  mayHaveRun?: boolean;
 }
 
 /** Refusal for a call whose identical effect is still `unknown`. Same shape the MCP broker returns. */
@@ -1642,8 +1742,11 @@ function synthesizeRejection(args: SynthesizeRejectionArgs): RejectedToolResult 
     status: "rejected_by_user",
     toolName: args.toolName,
     proposedInput: args.proposedInput,
-    reason: args.reason,
+    reason: args.mayHaveRun
+      ? `This call may have already run. Do not run it again or send a corrected or reworded call. Check the target state instead. ${args.reason}`
+      : args.reason,
     retryPolicy: "do_not_retry_identical",
+    ...(args.mayHaveRun ? { mayHaveRun: true } : {}),
   };
 }
 
@@ -1663,6 +1766,7 @@ function settleWithoutExecution(
     input: unknown;
     status: PriorRejectionStatus;
     reason: string | null;
+    mayHaveRun?: boolean;
   },
 ): DispatchResult {
   const reason =
@@ -1695,6 +1799,7 @@ function settleWithoutExecution(
       toolName: args.toolName,
       proposedInput: args.input,
       reason,
+      mayHaveRun: args.mayHaveRun === true,
     }),
   };
 }
