@@ -3,6 +3,7 @@ import { eslintCompatPlugin } from "@oxlint/plugins";
 import { handRolledKeyGuardRule } from "./rules/hand-rolled-key-guard.ts";
 import { logCaughtErrorUnderErrRule } from "./rules/log-caught-error-under-err.ts";
 import { motionSafeVariantAnimateRule } from "./rules/motion-safe-variant-animate.ts";
+import { noBrandMintOutsideOwnerRule } from "./rules/no-brand-mint-outside-owner.ts";
 import { noConditionalMotionRefRule } from "./rules/no-conditional-motion-ref.ts";
 import { noConstantsReExportRule } from "./rules/no-constants-re-export.ts";
 import { noDashInWebCopyRule } from "./rules/no-dash-in-web-copy.ts";
@@ -27,6 +28,7 @@ const alfredPlugin = eslintCompatPlugin({
     "hand-rolled-key-guard": handRolledKeyGuardRule,
     "log-caught-error-under-err": logCaughtErrorUnderErrRule,
     "motion-safe-variant-animate": motionSafeVariantAnimateRule,
+    "no-brand-mint-outside-owner": noBrandMintOutsideOwnerRule,
     "no-conditional-motion-ref": noConditionalMotionRefRule,
     "no-constants-re-export": noConstantsReExportRule,
     "no-dash-in-web-copy": noDashInWebCopyRule,

@@ -20,7 +20,7 @@ A `gated` smell stays here for its examples and its ledger. [review-checklist.md
 
 | Smell | Status | Rung | PRs |
 | --- | --- | --- | --- |
-| [Record a probe before you claim that only one function mints a brand, that a misuse does not compile, or that `check-types` catches a form.](./brand-claim-needs-probe.md) | Candidate, #1629 | ast | 2 |
+| [Record a probe before you claim that only one function mints a brand, that a misuse does not compile, or that `check-types` catches a form.](./brand-claim-needs-probe.md) | Stays review | none | 2 |
 | [Check the `.d.ts` file or the library source before you say a library cannot do something.](./check-dts-before-library-claim.md) | Stays review | none | 0 |
 | [Choose the type of an open dictionary.](./choose-open-dictionary-type.md) | Stays review | none | 0 |
 | [Derive a row type from its table.](./derive-row-type-from-table.md) | Stays review | none | 0 |

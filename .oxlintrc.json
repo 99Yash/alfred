@@ -101,6 +101,11 @@
     // falls through (#1535, #1132, #1103). The `default` calls `assertNever(value, what)` when
     // the value was parsed at its boundary, or returns a real value when unparsed data reaches it.
     "alfred/switch-literal-needs-default": "error",
+    // no-brand-mint-outside-owner: a type guard (`x is Brand`) or a `z.custom<Brand>()` of a
+    // `unique symbol` brand outside the brand's owner file. Both mint the brand with no cast,
+    // so a doc that says "only foo() mints it" was false (#1540, #1548). The rule keeps a
+    // closed BRANDS table, and it reports a brand declaration that the table does not list.
+    "alfred/no-brand-mint-outside-owner": "error",
     // The web motion and copy rules read one element's classes or JSX:
     // transition-names-individual-transform: a `transition-[…transform…]` list that misses the
     // `scale`/`translate`/`rotate` property a Tailwind v4 utility on the element writes.
