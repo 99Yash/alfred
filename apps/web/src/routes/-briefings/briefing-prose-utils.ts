@@ -16,6 +16,8 @@ export function briefingPlainText(markdown: string, gather: BriefingGather | nul
 /**
  * Composer prose as one plain line for the briefings-list gist: resolves tokens, then
  * strips headings, bullets, blockquotes, emphasis, inline code, and link/image syntax.
+ * Emphasis markers go only in pairs, and `_` only at a word edge, so `installation_id`,
+ * `file_name.ts`, and `2*3` keep their characters.
  */
 export function briefingGist(markdown: string, gather: BriefingGather | null): string {
   return collapseWhitespace(
@@ -25,6 +27,9 @@ export function briefingGist(markdown: string, gather: BriefingGather | null): s
       .replace(/^\s{0,3}#{1,6}\s+/gm, "") // ATX heading markers
       .replace(/^\s{0,3}>\s?/gm, "") // blockquote markers
       .replace(/^\s{0,3}(?:[-*+]|\d+[.)])\s+/gm, "") // list bullets / ordinals
-      .replace(/(\*\*|__|~~|\*|_|`)/g, ""), // emphasis / inline-code markers
+      .replace(/`+([^`]+?)`+/g, "$1") // inline code → its text
+      .replace(/~~(?=\S)(.*?\S)~~/g, "$1") // strikethrough
+      .replace(/(\*{1,3})(?=\S)([^*]*?\S)\1/g, "$2") // `*` emphasis, also intraword
+      .replace(/(^|[^\p{L}\p{N}_])(_{1,3})(?=\S)(.*?\S)\2(?![\p{L}\p{N}_])/gmu, "$1$3"), // `_` emphasis at word edges
   );
 }
