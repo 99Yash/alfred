@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { authClient } from "~/lib/auth/auth-client";
 import { openEventStream } from "./stream";
+import { assertNever } from "@alfred/contracts";
 
 /** Invalidate React Query caches when SSE events arrive. Mount once, in the app shell. */
 export function useEventBridge(): void {
@@ -32,11 +33,8 @@ export function useEventBridge(): void {
           case "memory.fact_learned":
           case "tool.call":
             break;
-          default: {
-            const _exhaustive: never = frame;
-
-            return _exhaustive;
-          }
+          default:
+            return assertNever(frame, "event frame kind");
         }
       },
     });

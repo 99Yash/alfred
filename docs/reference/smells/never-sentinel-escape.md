@@ -1,10 +1,9 @@
 ---
 id: never-sentinel-escape
 section: Types
-status: candidate
+status: gated
 rung: ast
-feasibility: medium
-issue: #1629
+rule: alfred/no-never-sentinel-binding
 ---
 
 # Do not return or print the `never` binding of an exhaustive `default`. Throw with `assertNever`, or return a real value of the return type.
@@ -24,13 +23,24 @@ default: {
 ## Good
 
 ```ts
+// A value parsed at its boundary cannot reach the default, so throw.
 default:
-  return assertNever(connection.status, "MCP connection status");
+  return assertNever(decision, "write decision");
+
+// An unparsed HTTP response can carry a newer server value, so return a real value.
+default:
+  return { statusText: "Unknown status", alert: null };
 ```
 
 ## Mechanism
 
-AST: in a `default` clause, a `const` binding with a `never` annotation that is then returned, passed to `String`, or discarded with `void`. About 50 sites remain, so a paydown comes first.
+AST rule `alfred/no-never-sentinel-binding`: a variable with a `never` annotation in a `switch` clause. The rule reports the binding itself, not only the forms that leak it. The hits also leaked it through `Boolean`, `JSON.stringify`, and an object property.
+
+The binding adds no check. `typescript/switch-exhaustiveness-check` keeps its default options, so it reports a missing union member when a `default` exists.
+
+The paydown changed 75 sites. A site that leaked the binding or threw now calls `assertNever`. A site that returned a real value keeps it. Three sites that leaked the binding return a real value, because unparsed data can reach their `default`. Two web display functions read an unparsed HTTP response (`triggerLabel` for run history and `mcpConnectionPresentation`). `toAuthorshipSource` reads `documents.source`, which is text with no CHECK. Replicache rows are parsed on read, and a row that fails the parse is dropped, so a web `default` on a synced row calls `assertNever`.
+
+The rule does not see a `default` that returns the narrowed value with no binding, such as `return status`.
 
 ## Hits
 

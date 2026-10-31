@@ -9,6 +9,7 @@ import type { WorkflowUpdateArgs } from "@alfred/sync";
 import { and, eq } from "drizzle-orm";
 import { MutatorForbiddenError } from "../authz";
 import type { DbTransaction } from "@alfred/db";
+import { assertNever } from "@alfred/contracts";
 
 /** None of these is retryable. The savepoint rolls back, and the next pull drops the optimistic patch. */
 function workflowMutatorError(failure: WorkflowServiceFailure): MutatorForbiddenError {
@@ -29,11 +30,8 @@ function workflowMutatorError(failure: WorkflowServiceFailure): MutatorForbidden
       return new MutatorForbiddenError(`a workflow named '${failure.slug}' already exists`);
     case "not_found":
       return new MutatorForbiddenError("workflow not found");
-    default: {
-      const unhandled: never = failure;
-
-      return unhandled;
-    }
+    default:
+      return assertNever(failure, "workflow service failure kind");
   }
 }
 

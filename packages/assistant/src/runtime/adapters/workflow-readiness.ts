@@ -6,6 +6,7 @@ import {
   checkWorkflowRunReadiness,
   type RuntimeReadinessResult,
 } from "@alfred/assistant/automation";
+import { assertNever } from "@alfred/contracts";
 
 let unregisterWorkflowReadinessCheck: (() => void) | undefined;
 
@@ -21,11 +22,8 @@ export function toVerdict(result: RuntimeReadinessResult): WorkflowReadinessVerd
       return { kind: "deferred", reason: result.reason };
     case "blocked":
       return { kind: "blocked", problems: result.problems };
-    default: {
-      const exhaustive: never = result;
-
-      return exhaustive;
-    }
+    default:
+      return assertNever(result, "runtime readiness result kind");
   }
 }
 

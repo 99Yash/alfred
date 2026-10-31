@@ -3,7 +3,8 @@ import { defineRule } from "@oxlint/plugins";
 import type { ESTree, SourceCode, Variable } from "@oxlint/plugins";
 
 import { createDigestFlow, digestSinkOf, ownerImportsOf, unwrap } from "../shared/digest-flow.ts";
-import type { FunctionNode, OwnerImports, Sink } from "../shared/digest-flow.ts";
+import type { OwnerImports, Sink } from "../shared/digest-flow.ts";
+import type { FunctionNode } from "../shared/function-node.ts";
 import { HASH_OWNERS, isOwnerModule, ownerOfSpecifier } from "../shared/hash-owners.ts";
 import { inGateScope } from "../shared/scope.ts";
 

@@ -17,6 +17,7 @@ import type {
 } from "@alfred/contracts";
 import {
   actionStagingStatusSchema,
+  assertNever,
   cancellationFenceSchema,
   effectOutcomeSchema,
   jsonValueSchema,
@@ -225,10 +226,8 @@ function commitColumns(commit: StagingCommit) {
         executeEffects: effectsColumn(commit.effects),
         executedAt: commit.executedAt,
       } as const;
-    default: {
-      const unhandled: never = commit;
-      throw new Error(`[staging-store] unhandled commit outcome '${JSON.stringify(unhandled)}'`);
-    }
+    default:
+      return assertNever(commit, "staging commit status");
   }
 }
 

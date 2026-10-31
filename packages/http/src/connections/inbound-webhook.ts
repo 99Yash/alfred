@@ -3,6 +3,7 @@ import {
   receiveInboundDelivery,
   type InboundDeliveryOutcome,
 } from "@alfred/assistant/connections/ingestion";
+import { assertNever } from "@alfred/contracts";
 
 /**
  * Generic webhook receiver (ADR-0097): unknown source 404, bad signature 401,
@@ -35,11 +36,8 @@ function respond(outcome: InboundDeliveryOutcome, set: Context["set"]) {
       return { ok: true as const, receiptId: outcome.receiptId };
     case "raw":
       return { ok: true as const, receiptId: outcome.receiptId, raw: true as const };
-    default: {
-      const _exhaustive: never = outcome;
-
-      return _exhaustive;
-    }
+    default:
+      return assertNever(outcome, "inbound delivery outcome kind");
   }
 }
 

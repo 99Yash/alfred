@@ -1,4 +1,4 @@
-import type { AskUserUnansweredReason } from "@alfred/contracts";
+import { assertNever, type AskUserUnansweredReason } from "@alfred/contracts";
 import { Check, MessageCircleQuestion } from "lucide-react";
 import { isAnswerEmpty, type AskUserSummary } from "./ask-user";
 
@@ -88,10 +88,7 @@ function unansweredCopy(reason: AskUserUnansweredReason): string {
       return "The question expired before an answer arrived.";
     case "no_answers":
       return "You continued without answering.";
-    default: {
-      const _exhaustive: never = reason;
-
-      return _exhaustive;
-    }
+    default:
+      return assertNever(reason, "ask_user unanswered reason");
   }
 }

@@ -27,8 +27,6 @@ Each rule has the rule and the reason. Its smell file has a Bad and a Good examp
   Why: the next reviewer otherwise collapses it to the row type. Example: the `Synced*` read models in `packages/sync/src/schemas.ts`.
 - **Name a symbol for its domain role, not its structure.** Do not use `shape` for a payload or a credential. `DayShape` is a real domain term and stays. [Smell](./smells/name-for-domain-role.md).
   Why: a structural name does not tell which structure. Example: #1149.
-- **Do not return or print the `never` binding of an exhaustive `default`. Throw with `assertNever`, or return a real value of the return type.** [Smell](./smells/never-sentinel-escape.md).
-  Why: `never` is assignable to every type, so `return _exhaustive` compiles for any return type. At runtime, a value from a newer peer or an old row reaches the `default`, and the function returns the raw input as if it were a valid result. Example: `assertNever` in `packages/contracts/src/errors.ts`.
 - **Give a shape that two packages share one owning schema.** Consumers derive with `.pick`, `.omit` or `.extend`. A producer pins its return type to the owner. [Smell](./smells/one-owning-schema-per-shared-shape.md).
   Why: a field renamed by the producer then fails `tsc` and does not drop from the client. Example: `readIntegrationStatus` in `packages/assistant/src/connections/availability.ts`.
 - **Choose `k?: T` or `k?: T | undefined` for each optional field.** Keep `k?: T` when absence has a meaning, and omit the key with a conditional spread. [Smell](./smells/optional-field-absence-choice.md).

@@ -5,6 +5,7 @@
  */
 
 import {
+  assertNever,
   canonicalizeFactKey,
   classifyConnectedAccount,
   isFactKey,
@@ -222,11 +223,10 @@ function toAuthorshipSource(source: AuthorshipDocument["source"]): AuthorshipSou
     case "sentry":
     case "unknown":
       return "unknown";
-    default: {
-      const _exhaustive: never = source;
-
-      return _exhaustive;
-    }
+    default:
+      // `documents.source` is `$type` text with no CHECK, so a stored value outside the union
+      // can reach this clause. It cannot prove user authorship either.
+      return "unknown";
   }
 }
 
@@ -322,11 +322,8 @@ export function authoredByUser(
       return authoredByGmail(doc.sender, doc.accountId, self);
     case "unknown":
       return { authoredByUser: false, source, reason: "unsupported_source" };
-    default: {
-      const _exhaustive: never = source;
-
-      return { authoredByUser: false, source: _exhaustive, reason: "unsupported_source" };
-    }
+    default:
+      return assertNever(source, "authorship source");
   }
 }
 

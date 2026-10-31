@@ -12,6 +12,7 @@ import type {
 } from "@alfred/contracts";
 import {
   APPROVAL_EXPIRY_MS,
+  assertNever,
   hashToolInput,
   hashToolRequest,
   INTEGRATION_ACTIONS,
@@ -579,13 +580,8 @@ const validateInputStage: DispatchStage<ResolvedDispatch, ValidatedDispatch> = a
     case "staged":
     case "confirm":
       break;
-    default: {
-      // A new policy must not silently take the staged path.
-      const unhandled: never = tool.staging;
-      throw new Error(
-        `[dispatch] unhandled staging policy '${String(unhandled)}' on '${toolName}'`,
-      );
-    }
+    default:
+      return assertNever(tool.staging, "tool staging mode");
   }
 
   // Only `staged`, `confirm`, and `question` reach here, so the arm is non-null.
@@ -1303,11 +1299,8 @@ function awaitSubAgentSpanOutput(result: DispatchResult): SubAgentSpanOutput {
     case "unanswered":
     case "unknown_tool":
       return { status: result.kind };
-    default: {
-      const _exhaustive: never = result;
-
-      return _exhaustive;
-    }
+    default:
+      return assertNever(result, "dispatch result kind");
   }
 }
 

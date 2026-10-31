@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { assertNever } from "@alfred/contracts";
 
 /**
  * What a memory-extraction run did, as one discriminated value (#1109). Pure.
@@ -117,10 +118,7 @@ export function describeMemoryExtractionOutcome(outcome: MemoryExtractionOutcome
         describeErrors(outcome.errors, outcome.processed)
       );
 
-    default: {
-      const unreachable: never = outcome;
-
-      return unreachable;
-    }
+    default:
+      return assertNever(outcome, "memory extraction outcome kind");
   }
 }

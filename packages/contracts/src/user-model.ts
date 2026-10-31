@@ -11,6 +11,7 @@ import { HOSTNAME } from "./hostname";
 import { classifyConnectedAccount, domainClassSchema } from "./identity-affiliation";
 import { pluckField, typedKeys } from "./records";
 import { STANDING_INSTRUCTION_KEY } from "./standing-instructions";
+import { assertNever } from "./errors";
 
 // ───────────────────────────────────────────────────────────────────────────
 // Observation sources + precedence (D1, D14)
@@ -659,11 +660,8 @@ export function identityAnchorRank({
       return IDENTITY_ANCHOR_TIER.providerHandle;
     case "phone":
       return IDENTITY_ANCHOR_TIER.provisional;
-    default: {
-      const _exhaustive: never = kind;
-
-      return _exhaustive;
-    }
+    default:
+      return assertNever(kind, "identity anchor kind");
   }
 }
 

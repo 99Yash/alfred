@@ -1,4 +1,5 @@
 import {
+  assertNever,
   WRITE_RISK_TIERS,
   workflowReadinessOutputSchema,
   workflowRunHistoryTriggerSchema,
@@ -239,11 +240,8 @@ function toHistoryOutcome(outcome: WorkflowRunOutcome): WorkflowRunHistoryOutcom
     case "no_change":
     case "unknown_write_outcome":
       return outcome;
-    default: {
-      const _exhaustive: never = outcome;
-
-      return _exhaustive;
-    }
+    default:
+      return assertNever(outcome, "workflow run outcome kind");
   }
 }
 
@@ -295,10 +293,7 @@ function recoveryFor(args: {
     case "running":
     case "waiting":
       return { kind: "none" };
-    default: {
-      const _exhaustive: never = args.status;
-
-      return _exhaustive;
-    }
+    default:
+      return assertNever(args.status, "workflow run status");
   }
 }

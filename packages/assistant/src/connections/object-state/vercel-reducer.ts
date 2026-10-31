@@ -1,4 +1,5 @@
 import {
+  assertNever,
   canonicalizeVercelTargetId,
   parseGitBranchRef,
   vercelDeploymentOutcome,
@@ -26,11 +27,8 @@ export function reduceVercelEvent(event: VercelFoldEvent): ObjectStateDelta[] {
       return reduceVercelDispatch(event.payload);
     case "deployment_status":
       return reduceVercelPull(event.payload);
-    default: {
-      const _exhaustive: never = event;
-
-      return _exhaustive;
-    }
+    default:
+      return assertNever(event, "Vercel event type");
   }
 }
 

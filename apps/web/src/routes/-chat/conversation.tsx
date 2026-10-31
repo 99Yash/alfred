@@ -47,6 +47,7 @@ import { collectSources } from "./sources";
 import { ToolCallGroup } from "./tool-call-group";
 import { CHAT_POP, CHAT_SWAP, usePrefersReducedMotion } from "./motion";
 import { MESSAGE_ID_ATTR, useQuestionAnchor } from "./use-question-anchor";
+import { assertNever } from "@alfred/contracts";
 
 /**
  * Scrollable message feed: synced messages, then the live streaming bubble.
@@ -576,11 +577,8 @@ function pillFace(state: PillState): PillFace | null {
         ariaLabel: `${state.label} Scroll to latest.`,
         working: true,
       };
-    default: {
-      const _exhaustive: never = state;
-
-      return _exhaustive;
-    }
+    default:
+      return assertNever(state, "pill state kind");
   }
 }
 

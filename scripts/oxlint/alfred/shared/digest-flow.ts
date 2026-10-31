@@ -1,5 +1,6 @@
 import type { ESTree, Reference, Scope, SourceCode, Variable } from "@oxlint/plugins";
 
+import { type FunctionNode, isFunctionNode } from "./function-node.ts";
 import { ownerOfSpecifier } from "./hash-owners.ts";
 
 // The value flow into a hash digest, for one file. `alfred/sha256-over-json-stringify`
@@ -8,8 +9,6 @@ import { ownerOfSpecifier } from "./hash-owners.ts";
 // sinks and the same flow, which `rules/sha256-over-json-stringify.ts` documents.
 
 export type Ranged = Readonly<{ start: number; end: number }>;
-
-export type FunctionNode = ESTree.Function | ESTree.ArrowFunctionExpression;
 
 export type Sink = {
   readonly call: ESTree.CallExpression;
@@ -112,14 +111,6 @@ export function digestSinkOf(call: ESTree.CallExpression): Sink | null {
   }
 
   return null;
-}
-
-function isFunctionNode(node: ESTree.Node): node is FunctionNode {
-  return (
-    node.type === "FunctionDeclaration" ||
-    node.type === "FunctionExpression" ||
-    node.type === "ArrowFunctionExpression"
-  );
 }
 
 function importedName(specifier: ESTree.ImportSpecifier): string {

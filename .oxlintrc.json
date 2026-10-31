@@ -90,6 +90,11 @@
     // but as the raw value under `err`. Only `err` goes through the redacting serializer.
     // `safeErrorDiagnostic(err)` is the safe text form under another key.
     "alfred/log-caught-error-under-err": "error",
+    // no-never-sentinel-binding: a `const x: never` in a `switch` clause. `never` is assignable
+    // to every type, so `return x`, `Boolean(x)` or `{ text: x }` compiles, and a runtime value
+    // that reaches the clause leaves as a valid result (#1566, #1547, #1219). Close the switch
+    // with `assertNever(value, what)`, or return a real value of the return type.
+    "alfred/no-never-sentinel-binding": "error",
     // The web motion and copy rules read one element's classes or JSX:
     // transition-names-individual-transform: a `transition-[…transform…]` list that misses the
     // `scale`/`translate`/`rotate` property a Tailwind v4 utility on the element writes.
@@ -212,9 +217,10 @@
     // groups above. no-floating-promises names the node:test registrars as known-safe calls:
     // `test(...)` and `describe(...)` return a promise the runner owns, and it is not awaited
     // on purpose. switch-exhaustiveness-check keeps its defaults: a `default` does NOT count as
-    // the exhaustive case for a union, so a union switch names every member and ends in the
-    // `const _exhaustive: never` default (allowDefaultCaseForExhaustiveSwitch stays true, which
-    // that default needs). requireDefaultForNonUnion stays false: an open `string` such as
+    // the exhaustive case for a union, so a union switch names every member even when it has a
+    // `default`. That is why the `default` needs no `never` binding: it calls `assertNever` or
+    // returns a real value (allowDefaultCaseForExhaustiveSwitch stays true, which that default
+    // needs). requireDefaultForNonUnion stays false: an open `string` such as
     // `event.key` has no member set to prove, so an empty `default` would add nothing. A switch
     // over the ESTree node union in scripts/oxlint/ carries its own directive with the reason.
     // no-misused-promises and restrict-template-expressions keep their defaults.

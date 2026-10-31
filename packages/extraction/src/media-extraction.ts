@@ -2,6 +2,7 @@ import type { ContentFormat } from "@alfred/contracts";
 import { createPdfExtractor, type ExtractedPdf } from "./extract-pdf";
 import { parsePdfExtractionLimits, truncateTextToFit } from "./extract-pdf-protocol";
 import type { ExtractionLimits } from "./constants";
+import { assertNever } from "@alfred/contracts";
 
 /** One result shape for every format. Only PDF has page offsets. */
 export type MediaExtractionResult =
@@ -98,11 +99,8 @@ function pdfResultToMedia(result: ExtractedPdf, format: ContentFormat): MediaExt
         maximum: result.maximum,
         message: result.message,
       };
-    default: {
-      const _exhaustive: never = result;
-
-      return _exhaustive;
-    }
+    default:
+      return assertNever(result, "PDF extraction result kind");
   }
 }
 

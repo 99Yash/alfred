@@ -314,13 +314,9 @@ function referentKeyFromLoopEntityRef(ref: LoopEntityRef): ReferentKey | null {
       return senderScopedKey(foldedId);
     }
 
-    default: {
-      // A new `LoopEntityKind` must stop the build: a wrong scope mints a permanent node.
-      const _exhaustive: never = ref.kind;
-      void _exhaustive;
-
+    default:
+      // A new `LoopEntityKind` must get its own case: a wrong scope mints a permanent node.
       return senderScopedKey(foldedId);
-    }
   }
 }
 

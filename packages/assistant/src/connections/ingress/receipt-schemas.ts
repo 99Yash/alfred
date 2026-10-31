@@ -159,13 +159,9 @@ export function parseGithubEvent(eventType: GithubEventType, raw: unknown): Gith
       return githubEvent(eventType, GITHUB_EVENT_SCHEMAS.issues, raw);
     case "pull_request_review":
       return githubEvent(eventType, GITHUB_EVENT_SCHEMAS.pull_request_review, raw);
-    default: {
+    default:
       // Unreachable for a literal source. A generic `S` can still land here at runtime with
-      // another source's type, so keep the exhaustiveness binding and fold nothing.
-      const _exhaustive: never = eventType;
-      void _exhaustive;
-
+      // another source's type, so fold nothing.
       return null;
-    }
   }
 }

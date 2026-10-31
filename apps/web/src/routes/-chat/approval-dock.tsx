@@ -1,5 +1,5 @@
 import type { ToolRiskTier } from "@alfred/contracts";
-import { humanizeToolName, isLoadableIntegrationSlug } from "@alfred/contracts";
+import { assertNever, humanizeToolName, isLoadableIntegrationSlug } from "@alfred/contracts";
 import type { SyncedActionStaging } from "@alfred/sync";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { Link } from "@tanstack/react-router";
@@ -715,12 +715,8 @@ function writeDecisionToast(decision: WriteDecision): DecisionToast | null {
       return null;
     case "cancel_run":
       return { tone: "info", message: "Run ended", description: "Alfred stopped this run." };
-    default: {
-      // A new `WriteDecision` arm fails to compile here.
-      const unhandled: never = decision;
-
-      return unhandled;
-    }
+    default:
+      return assertNever(decision, "write decision");
   }
 }
 
@@ -733,11 +729,8 @@ function questionDecisionToast(decision: QuestionDecision): DecisionToast | null
     case "approve":
     case "reject":
       return null;
-    default: {
-      const unhandled: never = decision;
-
-      return unhandled;
-    }
+    default:
+      return assertNever(decision, "question decision");
   }
 }
 
@@ -959,11 +952,8 @@ function ResolvedCopy({ kind, edited }: { kind: WriteDecision["decision"]; edite
       return "Sent back to Alfred with a revision note.";
     case "cancel_run":
       return "Run ended at your request.";
-    default: {
-      const unhandled: never = kind;
-
-      return unhandled;
-    }
+    default:
+      return assertNever(kind, "write decision");
   }
 }
 

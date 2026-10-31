@@ -1,4 +1,5 @@
 import {
+  assertNever,
   collapseWhitespace,
   isEventTypeForSource,
   isVercelDeploymentDeletion,
@@ -91,11 +92,8 @@ function describeGithubActivity(
       };
     }
 
-    default: {
-      const exhaustive: never = event;
-
-      return exhaustive;
-    }
+    default:
+      return assertNever(event, "GitHub event type");
   }
 }
 

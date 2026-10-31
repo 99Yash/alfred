@@ -8,6 +8,7 @@ import { evalite } from "evalite";
 import { z } from "zod";
 import { buildSystemPrompt } from "@alfred/assistant/briefings";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
+import { assertNever } from "@alfred/contracts";
 
 // #265: on a machine notification (ClickUp, Slack, Linear, GitHub), the briefing must not claim
 // "no progress". That work happens in the tool, so email silence proves nothing.
@@ -210,11 +211,8 @@ function modelForLane(lane: ModelLane): LanguageModel {
       return route("boss").model();
     case "forced-gemini":
       return probeRoute(googleLeg("gemini-3.5-flash"), "medium").model();
-    default: {
-      const _exhaustive: never = lane;
-
-      return _exhaustive;
-    }
+    default:
+      return assertNever(lane, "model lane");
   }
 }
 

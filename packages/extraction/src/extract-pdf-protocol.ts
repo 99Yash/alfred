@@ -5,6 +5,7 @@ import type {
   PdfExtractionLimitKind,
 } from "./extract-pdf";
 import type { ExtractionLimits } from "./constants";
+import { assertNever } from "@alfred/contracts";
 
 // The child process imports this file. Keep it free of runtime imports, including `@alfred/contracts`.
 
@@ -126,11 +127,8 @@ function isValidLimitActual(
       return actual > maximum;
     case "parse_milliseconds":
       return actual >= maximum;
-    default: {
-      const _exhaustive: never = limit;
-
-      return _exhaustive;
-    }
+    default:
+      return assertNever(limit, "PDF extraction limit");
   }
 }
 
@@ -280,11 +278,8 @@ export function pdfExtractionContentCharacterCount(result: ExtractedPdf): number
         result,
         PDF_EXTRACTION_RESULT_CONTENT_FIELDS.limit_exceeded,
       );
-    default: {
-      const _exhaustive: never = result;
-
-      return _exhaustive;
-    }
+    default:
+      return assertNever(result, "PDF extraction result kind");
   }
 }
 
@@ -547,11 +542,8 @@ function parseResult(value: unknown): ExtractedPdf {
       };
     }
 
-    default: {
-      const _exhaustive: never = kind;
-
-      return _exhaustive;
-    }
+    default:
+      return assertNever(kind, "PDF extraction result kind");
   }
 }
 

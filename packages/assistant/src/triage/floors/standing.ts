@@ -1,4 +1,5 @@
 import {
+  assertNever,
   isDemandCategory,
   sanitizeErrorMessage,
   standingInstructionEffectApplies,
@@ -116,11 +117,8 @@ function categoryAfter(
     case "include_briefing_priority":
     case "block_reply_draft":
       return null;
-    default: {
-      const exhaustive: never = effect;
-
-      return exhaustive;
-    }
+    default:
+      return assertNever(effect, "standing-instruction effect kind");
   }
 }
 
@@ -438,11 +436,8 @@ export function applyStandingConsumerEffects(context: {
         case "demote_meeting":
         case "force_category":
           break;
-        default: {
-          const exhaustive: never = effect;
-
-          return exhaustive;
-        }
+        default:
+          return assertNever(effect, "standing-instruction effect kind");
       }
     }
   }

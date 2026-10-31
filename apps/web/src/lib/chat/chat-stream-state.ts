@@ -1,5 +1,6 @@
 import {
   applyChatDelta,
+  assertNever,
   createChatDeltaLog,
   type ChatConnectNudge,
   type ChatDeltaLog,
@@ -367,12 +368,8 @@ export function applyChatFrame(
         r.awaitingCapacity = false;
 
         return true;
-      default: {
-        // A new phase must fail to compile, not fall into the completion branch.
-        const _exhaustive: never = p.phase;
-
-        return _exhaustive;
-      }
+      default:
+        return assertNever(p.phase, "chat stream phase");
     }
   }
 

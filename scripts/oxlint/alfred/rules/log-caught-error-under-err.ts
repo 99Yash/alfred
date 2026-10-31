@@ -2,6 +2,7 @@ import { defineRule } from "@oxlint/plugins";
 
 import type { ESTree } from "@oxlint/plugins";
 
+import { isFunctionNode } from "../shared/function-node.ts";
 import { inGateScope } from "../shared/scope.ts";
 
 /**
@@ -44,14 +45,6 @@ const TEXT_FIELDS = new Set(["message", "stack", "cause"]);
 
 const SAFE_DIAGNOSTIC = "safeErrorDiagnostic";
 
-function isFunction(node: ESTree.Node): boolean {
-  return (
-    node.type === "ArrowFunctionExpression" ||
-    node.type === "FunctionExpression" ||
-    node.type === "FunctionDeclaration"
-  );
-}
-
 function isLoggerCall(node: ESTree.Node): node is ESTree.CallExpression {
   if (node.type !== "CallExpression" || node.callee.type !== "MemberExpression") return false;
 
@@ -93,7 +86,7 @@ function findingFor(reference: ESTree.Node): Finding | null {
   for (;;) {
     const parent: ESTree.Node | null | undefined = current.parent;
 
-    if (!parent || isFunction(parent) || parent.type.endsWith("Statement")) return null;
+    if (!parent || isFunctionNode(parent) || parent.type.endsWith("Statement")) return null;
 
     if (parent.type === "MemberExpression" && parent.object === current) {
       const field =

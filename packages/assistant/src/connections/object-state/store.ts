@@ -1,4 +1,5 @@
 import {
+  assertNever,
   type ClosureSource,
   enumGuard,
   getObjectDef,
@@ -221,11 +222,8 @@ function reduce(event: ObjectStateEvent): ObjectStateDelta[] {
       return reduceVercelEvent(event);
     case "mcp":
       return reduceMcpEvent(event);
-    default: {
-      const _exhaustive: never = event;
-
-      return _exhaustive;
-    }
+    default:
+      return assertNever(event, "object-state event provider");
   }
 }
 

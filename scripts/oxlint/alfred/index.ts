@@ -9,6 +9,7 @@ import { noDashInWebCopyRule } from "./rules/no-dash-in-web-copy.ts";
 import { noDeltaClassUtilityCollisionRule } from "./rules/no-delta-class-utility-collision.ts";
 import { noExportedHasherRule } from "./rules/no-exported-hasher.ts";
 import { noFunctionWrapperShimRule } from "./rules/no-function-wrapper-shim.ts";
+import { noNeverSentinelBindingRule } from "./rules/no-never-sentinel-binding.ts";
 import { noTypeAliasShimRule } from "./rules/no-type-alias-shim.ts";
 import { noTypeReExportShimRule } from "./rules/no-type-re-export-shim.ts";
 import { noUnionEnumWithoutDefaultRule } from "./rules/no-union-enum-without-default.ts";
@@ -31,6 +32,7 @@ const alfredPlugin = eslintCompatPlugin({
     "no-delta-class-utility-collision": noDeltaClassUtilityCollisionRule,
     "no-exported-hasher": noExportedHasherRule,
     "no-function-wrapper-shim": noFunctionWrapperShimRule,
+    "no-never-sentinel-binding": noNeverSentinelBindingRule,
     "no-type-alias-shim": noTypeAliasShimRule,
     "no-type-re-export-shim": noTypeReExportShimRule,
     "no-union-enum-without-default": noUnionEnumWithoutDefaultRule,

@@ -1,4 +1,9 @@
-import { typedEntries, type ArtifactKind, type ExternalFileSource } from "@alfred/contracts";
+import {
+  assertNever,
+  typedEntries,
+  type ArtifactKind,
+  type ExternalFileSource,
+} from "@alfred/contracts";
 import type { SyncedArtifact } from "@alfred/sync";
 import { FileText, Layers, type LucideIcon } from "lucide-react";
 
@@ -15,11 +20,8 @@ export function artifactType(artifact: Pick<SyncedArtifact, "kind" | "format">):
       return "spreadsheet";
     case "external_file":
       return "external_file";
-    default: {
-      const _exhaustive: never = artifact.kind;
-
-      throw new Error(`Unhandled artifact kind: ${String(_exhaustive)}`);
-    }
+    default:
+      return assertNever(artifact.kind, "artifact kind");
   }
 }
 

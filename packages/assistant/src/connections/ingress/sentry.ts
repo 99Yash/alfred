@@ -1,4 +1,10 @@
-import { getIdPath, getStringPath, isEventTypeForSource, type JsonObject } from "@alfred/contracts";
+import {
+  assertNever,
+  getIdPath,
+  getStringPath,
+  isEventTypeForSource,
+  type JsonObject,
+} from "@alfred/contracts";
 import { findSoleActiveCredential } from "@alfred/integrations/shared";
 import {
   SENTRY_HOOK_HEADERS,
@@ -98,11 +104,8 @@ const sentryDeliveryKey: InboundSyntheticKey<"sentry"> = ({ payload, type, paylo
       return runId ? `${type}:${runId}` : null;
     }
 
-    default: {
-      const _exhaustive: never = type;
-
-      return _exhaustive;
-    }
+    default:
+      return assertNever(type, "Sentry event type");
   }
 };
 

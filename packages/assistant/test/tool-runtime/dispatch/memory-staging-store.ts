@@ -4,6 +4,7 @@
  */
 
 import {
+  assertNever,
   cancellationFenceSchema,
   toJsonValue,
   type ActionStagingStatus,
@@ -264,12 +265,8 @@ export function memoryStagingStore(): MemoryStagingStore {
           row.executeEffects = effectsColumn(commit.effects);
           row.executedAt = commit.executedAt;
           break;
-        default: {
-          const unhandled: never = commit;
-          throw new Error(
-            `[memory-staging-store] unhandled commit outcome '${JSON.stringify(unhandled)}'`,
-          );
-        }
+        default:
+          assertNever(commit, "staging commit status");
       }
 
       row.rowVersion += 1;

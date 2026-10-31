@@ -1,4 +1,4 @@
-import { linkNamesObject, type SentryIssueNativeState } from "@alfred/contracts";
+import { assertNever, linkNamesObject, type SentryIssueNativeState } from "@alfred/contracts";
 import type { ObjectStateEvent, SentryLifecycleEventType } from "./events";
 import type { ObjectStateDelta } from "./store";
 
@@ -61,10 +61,7 @@ function issueNativeState(eventType: SentryLifecycleEventType): SentryIssueNativ
       return "resolved";
     case "issue_archived":
       return "archived";
-    default: {
-      const _exhaustive: never = eventType;
-
-      return _exhaustive;
-    }
+    default:
+      return assertNever(eventType, "Sentry lifecycle event type");
   }
 }

@@ -1,4 +1,5 @@
 import {
+  assertNever,
   boundPassthroughBody,
   canonicalJson,
   enumGuard,
@@ -370,11 +371,8 @@ export class McpRawClient {
         case "oauth":
           oauth = auth.provider(authorized.oauth);
           break;
-        default: {
-          const _exhaustive: never = auth;
-
-          throw new Error(`unknown MCP auth mode: ${JSON.stringify(_exhaustive)}`);
-        }
+        default:
+          assertNever(auth, "MCP auth mode");
       }
 
       if (oauth) await oauth.authorize();

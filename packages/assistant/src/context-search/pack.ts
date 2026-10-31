@@ -1,4 +1,5 @@
 import {
+  assertNever,
   evidenceObjectClosesAsk,
   EVIDENCE_SNIPPET_MAX_CHARS,
   sanitizeErrorMessage,
@@ -182,11 +183,8 @@ function renderSourceNotes(
         break;
       }
 
-      default: {
-        const _exhaustive: never = source;
-
-        throw new Error(`[pack] unknown source status: ${String(_exhaustive)}`);
-      }
+      default:
+        assertNever(source, "context-search source status");
     }
   }
 
@@ -370,10 +368,7 @@ function renderAnchor(anchor: EvidenceAnchor): string {
       return parts.join(" ");
     }
 
-    default: {
-      const _exhaustive: never = anchor;
-
-      throw new Error(`[pack] unknown anchor kind: ${String(_exhaustive)}`);
-    }
+    default:
+      return assertNever(anchor, "evidence anchor kind");
   }
 }

@@ -11,6 +11,7 @@
  * it without activation, so `readUserContext` still reads the legacy graph.
  */
 import {
+  assertNever,
   USER_MODEL_PROJECTION_NAME,
   canonicalizeIdentityValue,
   classifyBareDomain,
@@ -153,11 +154,8 @@ function canGroundEdgeType(tier: GroundingTier, edge: EntityEdgeType): boolean {
     case "frequent_collaborator":
     case "in_org":
       return false;
-    default: {
-      const exhaustive: never = edge;
-      void exhaustive;
-      throw new Error("[user-model.gmail-edge-fold] unhandled entity edge type");
-    }
+    default:
+      return assertNever(edge, "entity edge type");
   }
 }
 
