@@ -7,6 +7,7 @@ import {
   targetNamesOneMailbox,
   todoAttributionSchema,
   todoSourcesSchema,
+  LIVE_TODO_STATUSES,
   type TodoAttribution,
   type TodoSource,
   type TodoStatus,
@@ -19,7 +20,7 @@ import { z } from "zod";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
 
 /** Live statuses a dismissal may target. */
-const liveTodoStatusSchema = z.enum(["open", "suggested"]);
+const liveTodoStatusSchema = z.enum(LIVE_TODO_STATUSES);
 
 const resolveTodosForGmailSourceArgsSchema = z
   .object({
@@ -60,10 +61,6 @@ const resolveTodosForGmailSourceArgsSchema = z
   );
 
 export type ResolveTodosForGmailSourceArgs = z.infer<typeof resolveTodosForGmailSourceArgsSchema>;
-
-const DEFAULT_RETRACTABLE_STATUSES = ["open", "suggested"] as const satisfies ReadonlyArray<
-  z.infer<typeof liveTodoStatusSchema>
->;
 
 export type ResolveTodosForGmailSourceResult =
   | {
@@ -129,7 +126,7 @@ export async function resolveTodosForGmailSource(
 
   // Load both statuses for a target sweep. Each target bounds its own matches below.
   // The schema refuses `statuses` with `targets`.
-  const statuses = parsed.statuses ?? DEFAULT_RETRACTABLE_STATUSES;
+  const statuses = parsed.statuses ?? LIVE_TODO_STATUSES;
 
   if (!senderEmail && !sourceThreadId && !targets) {
     return {

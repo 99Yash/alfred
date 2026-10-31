@@ -32,7 +32,7 @@ import { mcpCallInput, mcpToolInspectInputSchema, mcpToolSearchInputSchema } fro
 import { restPassthroughRequestSchema } from "./passthrough";
 import { typedKeys } from "./records";
 import { STANDING_INSTRUCTION_CAPTURE_EFFECT_KINDS } from "./standing-instructions";
-import { TODO_STATUSES, todoSourceSchema } from "./todos";
+import { LIVE_TODO_STATUSES, TODO_STATUSES, todoSourceSchema } from "./todos";
 import { triageCategorySchema } from "./triage";
 import {
   GMAIL_SEARCH_DEFAULT_RESULTS,
@@ -1578,11 +1578,14 @@ export const editInstructionInput = z
   })
   .strict();
 
-/** `live` is `suggested` plus `open`: the todos in the rail. */
+/** `live` is {@link LIVE_TODO_STATUSES}. */
 export const LIST_TODOS_STATUS_FILTERS = ["live", ...TODO_STATUSES] as const;
 
 /** The hard cap on rows in one `system.list_todos` result. */
 export const LIST_TODOS_MAX_LIMIT = 50;
+
+/** The row count of one `system.list_todos` result when the model passes no `limit`. */
+export const LIST_TODOS_DEFAULT_LIMIT = 20;
 
 /** The hard cap on ids in one `system.resolve_todo` call of kind `todo_ids`. */
 export const RESOLVE_TODO_IDS_MAX = 50;
@@ -1599,7 +1602,8 @@ export const listTodosInput = z
       .enum(LIST_TODOS_STATUS_FILTERS)
       .default("live")
       .describe(
-        "`live` (default) returns the todos in the rail: `suggested` and `open`. Pass one " +
+        `\`live\` (default) returns the todos in the rail: ` +
+          `${LIVE_TODO_STATUSES.map((status) => `\`${status}\``).join(" and ")}. Pass one ` +
           "status to read only that status, for example `done` or `dismissed`.",
       ),
     limit: z
@@ -1607,9 +1611,10 @@ export const listTodosInput = z
       .int()
       .min(1)
       .max(LIST_TODOS_MAX_LIMIT)
-      .default(20)
+      .default(LIST_TODOS_DEFAULT_LIMIT)
       .describe(
-        `Maximum todos to return (1-${LIST_TODOS_MAX_LIMIT}, default 20), most recently changed first.`,
+        `Maximum todos to return (1-${LIST_TODOS_MAX_LIMIT}, default ${LIST_TODOS_DEFAULT_LIMIT}), ` +
+          "most recently changed first.",
       ),
   })
   .strict();
@@ -1626,10 +1631,8 @@ export const resolveTodoInput = coerceJsonArrayFields(
       kind: z
         .enum(["gmail_sender", "todo_ids"])
         .describe(
-          "`gmail_sender`: dismiss the live todos that came from Gmail threads of a sender, a " +
-            "thread, or an account. Use it when the user names a sender or an email thread. " +
-            "`todo_ids`: dismiss the exact todos in `todoIds`. Use it when you chose the todos " +
-            "by their ids, for example from `system.list_todos`.",
+          "`gmail_sender`: the live todos from the Gmail threads of a sender, a thread, or an " +
+            "account. `todo_ids`: the exact todos in `todoIds`.",
         ),
       todoIds: resolveTodoIdsSchema
         .optional()
