@@ -22,6 +22,9 @@ export interface ThreadTurn {
 /** Over budget, keep the latest turns: the resolved end state lives there. */
 export const MAX_TRANSCRIPT_CHARS = 12_000;
 
+/** One cheap-route call that writes at most 2k tokens. Two minutes ends only a hung call. */
+const EXTRACT_TIMEOUT_MS = 120_000;
+
 export interface ExtractThreadArgs {
   userId: string;
   threadId: string;
@@ -135,6 +138,7 @@ function defaultGenerate(args: ExtractThreadArgs): GenerateObject {
         schema: chatMemoryExtractionResultSchema,
         temperature: 0,
         maxOutputTokens: 2_000,
+        abortSignal: AbortSignal.timeout(EXTRACT_TIMEOUT_MS),
       },
       {
         role: "memory_extraction",

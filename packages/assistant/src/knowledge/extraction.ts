@@ -24,6 +24,9 @@ export const factProposalSchema = z.object({
 
 export type FactProposal = z.infer<typeof factProposalSchema>;
 
+/** One cheap-route call that writes at most 2k tokens. Two minutes ends only a hung call. */
+const EXTRACTION_TIMEOUT_MS = 120_000;
+
 const extractionResultSchema = z.object({
   proposals: z.array(factProposalSchema).max(20),
 });
@@ -104,6 +107,7 @@ export async function extractFactsFromDocument(args: ExtractDocumentArgs): Promi
       schema: extractionResultSchema,
       temperature: 0,
       maxOutputTokens: 2_000,
+      abortSignal: AbortSignal.timeout(EXTRACTION_TIMEOUT_MS),
     },
     {
       role: "memory_extraction",

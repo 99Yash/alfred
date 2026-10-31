@@ -3,6 +3,9 @@ import { confidenceSchema } from "@alfred/contracts";
 import { z } from "zod";
 import type { ColdStartSignals } from "./signals";
 
+/** One cheap-route call that writes at most 4k tokens. Two minutes ends only a hung call. */
+const EXTRACT_TIMEOUT_MS = 120_000;
+
 /**
  * Turn the cold-start summary into `user_facts` proposals (ADR-0011, ADR-0019).
  * `value` is a plain string because structured output failed often on a union.
@@ -100,6 +103,7 @@ export async function extractColdStartFacts(
       temperature: 0,
       // 2k truncated the JSON on long research.
       maxOutputTokens: 4_000,
+      abortSignal: AbortSignal.timeout(EXTRACT_TIMEOUT_MS),
     },
     {
       role: "cold_start",

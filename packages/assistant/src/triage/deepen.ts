@@ -12,6 +12,9 @@ import { MAX_RATIONALE_LEN, type TriageClassification, truncateRationale } from 
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
 import type { UserContext } from "../knowledge";
 
+/** One boss call that writes at most 1.5k tokens. Two minutes ends only a hung call. */
+const DEEPEN_TIMEOUT_MS = 120_000;
+
 export const DEEPEN_REASONS = ["severity_suspect_bot", "low_confidence", "unknown_human"] as const;
 
 export type DeepenReason = (typeof DEEPEN_REASONS)[number];
@@ -125,6 +128,7 @@ export async function deepenTriageClassification(
         "Refines an email triage category using sender context and compact user knowledge.",
       temperature: 0,
       maxOutputTokens: 1_500,
+      abortSignal: AbortSignal.timeout(DEEPEN_TIMEOUT_MS),
     },
     {
       role: "triage",

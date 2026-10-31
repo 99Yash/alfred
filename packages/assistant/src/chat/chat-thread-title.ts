@@ -98,7 +98,7 @@ export async function maybeGenerateThreadTitle(args: {
           .join("\n"),
         temperature: 0.3,
         maxOutputTokens: 32,
-        timeout: TITLE_TIMEOUT_MS,
+        abortSignal: AbortSignal.timeout(TITLE_TIMEOUT_MS),
       },
       { kind: "llm", userId, runId, sessionId: threadId, name: "chat.thread-title" },
     );

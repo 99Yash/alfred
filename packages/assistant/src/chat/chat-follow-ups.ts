@@ -67,7 +67,7 @@ export async function maybeGenerateFollowUps(args: {
           .join("\n\n"),
         temperature: 0.4,
         maxOutputTokens: 200,
-        timeout: FOLLOW_UPS_TIMEOUT_MS,
+        abortSignal: AbortSignal.timeout(FOLLOW_UPS_TIMEOUT_MS),
       },
       { kind: "llm", userId, runId, sessionId: threadId, name: "chat.follow-ups" },
     );

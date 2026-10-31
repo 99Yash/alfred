@@ -11,6 +11,9 @@ import type { ColdStartSignals } from "./signals";
 
 const SYNTHESIS_MAX_OUTPUT_TOKENS = 1_500;
 
+/** One boss call that writes at most 1.5k tokens. Three minutes ends only a hung call. */
+const SYNTHESIS_TIMEOUT_MS = 180_000;
+
 export interface ResearchResult {
   content: string;
   citations: string[];
@@ -83,6 +86,7 @@ export async function synthesizeColdStart(args: SynthesizeColdStartArgs): Promis
       prompt: buildPrompt(args),
       maxOutputTokens: SYNTHESIS_MAX_OUTPUT_TOKENS,
       temperature: 0,
+      abortSignal: AbortSignal.timeout(SYNTHESIS_TIMEOUT_MS),
     },
     {
       kind: "llm",
