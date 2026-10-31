@@ -1,5 +1,5 @@
 import { TRIAGE_WORKFLOW_SLUG } from "@alfred/contracts";
-import { type Workflow } from "@alfred/assistant/execution";
+import type { Workflow } from "@alfred/assistant/execution";
 import { triageWorkflowInputSchema, type TriageWorkflowInput } from "./workflow-input";
 import {
   EMAIL_TRIAGE_INITIAL_STEP,

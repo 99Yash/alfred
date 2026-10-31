@@ -3,7 +3,7 @@ import { ArrowLeft } from "lucide-react";
 import { AppButton } from "~/components/ui/v2";
 import { IntegrationGlyph } from "~/lib/integrations/integration-icons";
 import { cn } from "~/lib/utils";
-import { type MentionConnection, type MentionConnectionLookup } from "../mention-connection";
+import type { MentionConnection, MentionConnectionLookup } from "../mention-connection";
 import type { MentionOption } from "../mention-options";
 
 export function MentionPalette({

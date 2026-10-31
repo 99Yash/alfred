@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import {
-  type ContextSearchRequest,
-  type EvidenceCard,
-  type RetrievalSourceManifest,
-  type SourceManifest,
+import type {
+  ContextSearchRequest,
+  EvidenceCard,
+  RetrievalSourceManifest,
+  SourceManifest,
 } from "@alfred/contracts";
 import {
   isTrustedRetrievalSource,

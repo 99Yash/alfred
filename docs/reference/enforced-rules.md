@@ -66,6 +66,7 @@ When you add, remove or change a rule in `.oxlintrc.json`, a JS plugin, `scripts
 | [`typescript/no-floating-promises`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-floating-promises.html) | yes |  | `{"allowForKnownSafeCalls":[{"from":"package","package":"node:test","name":["describe","it","suite","test"]}]}` |
 | [`typescript/no-for-in-array`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-for-in-array.html) | yes |  |  |
 | [`typescript/no-implied-eval`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-implied-eval.html) | yes |  |  |
+| [`typescript/no-import-type-side-effects`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-import-type-side-effects.html) | no |  |  |
 | [`typescript/no-meaningless-void-operator`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-meaningless-void-operator.html) | yes |  |  |
 | [`typescript/no-misused-promises`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-misused-promises.html) | yes |  |  |
 | [`typescript/no-misused-spread`](https://oxc.rs/docs/guide/usage/linter/rules/typescript/no-misused-spread.html) | yes |  |  |

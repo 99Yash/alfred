@@ -1,4 +1,4 @@
-import { type SentryIssueNativeState } from "@alfred/contracts";
+import type { SentryIssueNativeState } from "@alfred/contracts";
 import { z } from "zod";
 
 import { authedJson } from "../shared/authed-json";

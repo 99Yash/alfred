@@ -1,4 +1,4 @@
-import { type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { cn } from "~/lib/utils";
 
 /** Small bordered pill above hero headlines. The styleguide imports this same component. */

@@ -12,7 +12,7 @@ import {
   type IanaTimezone,
   type ToolRiskTier,
 } from "@alfred/contracts";
-import { type CalendarEvent } from "@alfred/integrations/google";
+import type { CalendarEvent } from "@alfred/integrations/google";
 import type { z } from "zod";
 import {
   AppError,

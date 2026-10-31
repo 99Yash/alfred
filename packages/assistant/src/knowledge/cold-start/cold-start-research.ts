@@ -1,6 +1,6 @@
 import { COLD_START_WORKFLOW_SLUG } from "@alfred/contracts";
 import { z } from "zod";
-import { type Workflow } from "@alfred/assistant/execution";
+import type { Workflow } from "@alfred/assistant/execution";
 import { writeMemoryChunk } from "../chunks";
 import { proposeFact } from "../facts";
 import { researchAspects, type AspectFinding } from "./aspects";

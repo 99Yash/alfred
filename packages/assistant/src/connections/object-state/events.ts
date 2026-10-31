@@ -1,10 +1,10 @@
-import {
-  type DeploymentStatus,
-  type EventTypeForSource,
-  type InboundEventSource,
-  type McpHealthObjectTitle,
-  type McpHealthObjectUrl,
-  type StateCategory,
+import type {
+  DeploymentStatus,
+  EventTypeForSource,
+  InboundEventSource,
+  McpHealthObjectTitle,
+  McpHealthObjectUrl,
+  StateCategory,
 } from "@alfred/contracts";
 import { type GithubPayload, parseGithubEvent } from "../ingress/receipt-schemas";
 import { type SentryIssuePayload, sentryIssueEventSchema } from "../ingress/sentry";

@@ -8,7 +8,7 @@
  * {@link formatDay}.
  */
 
-import { type IanaTimezone } from "@alfred/contracts";
+import type { IanaTimezone } from "@alfred/contracts";
 
 // ─── The local date key ───────────────────────────────────────────────────
 

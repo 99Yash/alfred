@@ -5,7 +5,7 @@ import { AppButton } from "~/components/ui/v2";
 import { openAuthorizationTab } from "~/lib/integrations/authorization-tab";
 import { brandForIntegration } from "~/lib/integrations/integrations";
 import { mcpAuthorizeUrl, mcpBuiltInConnectUrl } from "./helpers";
-import { type McpConnection } from "~/lib/integrations/mcp-connections";
+import type { McpConnection } from "~/lib/integrations/mcp-connections";
 import { useMcpConnectionActions, type McpConnectionActions } from "./mcp-connection-actions";
 import { McpActionErrorText, McpConnectionMenu } from "./mcp-connection-menu";
 import {

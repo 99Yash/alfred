@@ -1,4 +1,4 @@
-import { type McpApiKeyPlacement, type Redacted } from "@alfred/contracts";
+import type { McpApiKeyPlacement, Redacted } from "@alfred/contracts";
 import type { McpServer } from "@alfred/db/schemas";
 import type { FetchLike } from "@modelcontextprotocol/client";
 import {

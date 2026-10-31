@@ -1,4 +1,4 @@
-import { type DbRoot, type DbTransaction } from "@alfred/db";
+import type { DbRoot, DbTransaction } from "@alfred/db";
 import {
   userPreferenceInsertSchema,
   userPreferences,

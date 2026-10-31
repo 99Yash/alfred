@@ -6,7 +6,7 @@ import {
   type IanaTimezone,
 } from "@alfred/contracts";
 import { z } from "zod";
-import { type Workflow } from "@alfred/assistant/execution";
+import type { Workflow } from "@alfred/assistant/execution";
 import { send } from "@alfred/assistant/delivery";
 import { inZone, parseLocalDateKey } from "@alfred/assistant/time";
 import { composeBriefing } from "./compose";

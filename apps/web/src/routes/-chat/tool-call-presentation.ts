@@ -11,7 +11,7 @@ import {
 } from "@alfred/contracts";
 import { Sparkles, Wrench, type LucideIcon } from "lucide-react";
 import type { ResolvedToolCall } from "~/lib/chat/resolved-tool-call";
-import { type IntegrationBrand } from "~/lib/integrations/integration-icons";
+import type { IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { getIntegrationPage } from "~/lib/integrations/integrations";
 import { brandlessToolIcon } from "./animated-tool-icons";
 import { MCP_CALL_TOOL, type McpServerLookup } from "./mcp-server";

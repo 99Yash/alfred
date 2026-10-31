@@ -18,7 +18,7 @@ import {
   type Observation,
 } from "@alfred/db/schemas";
 import { and, asc, eq, lte, or, sql, type SQL } from "drizzle-orm";
-import { type DbTransaction } from "@alfred/db";
+import type { DbTransaction } from "@alfred/db";
 import { liveObservationHeadJoin } from "./observations";
 import { classifyEntityKind, type GmailPayloadSignals } from "./entity-kind-classifier";
 import { ensureEntityNode, recordEntityIdentity } from "./entities";

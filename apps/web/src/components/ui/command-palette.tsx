@@ -5,7 +5,7 @@
 
 import { Command as CommandPrimitive } from "cmdk";
 import { Search } from "lucide-react";
-import { type ComponentType, type ReactNode } from "react";
+import type { ComponentType, ReactNode } from "react";
 import { Dialog, DialogContent } from "~/components/ui/dialog";
 import { Kbd } from "~/components/ui/kbd";
 import { cn } from "~/lib/utils";

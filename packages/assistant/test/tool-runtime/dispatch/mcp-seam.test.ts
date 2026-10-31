@@ -30,7 +30,7 @@ import {
   publishCatalogRevision,
 } from "@alfred/assistant/connections/mcp/test-support";
 import { ensureConnection } from "../../../src/connections/mcp/persistence";
-import { type McpBrokerCallInput, type McpBrokerOutcome } from "@alfred/assistant/tool-runtime/mcp";
+import type { McpBrokerCallInput, McpBrokerOutcome } from "@alfred/assistant/tool-runtime/mcp";
 import {
   _setMcpExecutionBrokerForTests,
   upsertToolPolicy,

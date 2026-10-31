@@ -40,7 +40,7 @@ import {
   GMAIL_SEARCH_QUERY_MAX_CHARS,
   GMAIL_SEARCH_SNIPPET_MAX_CHARS,
 } from "./tool-constants";
-import { type ToolName } from "./tools";
+import type { ToolName } from "./tools";
 
 /** Zod's email check emits lookahead, which OpenAI rejects in tool parameters. */
 const MODEL_TOOL_EMAIL_PATTERN =

@@ -6,11 +6,11 @@ import {
   type ActiveProjectionVersion,
   type ProjectionRun,
 } from "@alfred/db/schemas";
-import {
-  type ObservationSource,
-  type ProjectionCursorValue,
-  type ProjectionRowCounts,
-  type ProjectionSourceHighWatermark,
+import type {
+  ObservationSource,
+  ProjectionCursorValue,
+  ProjectionRowCounts,
+  ProjectionSourceHighWatermark,
 } from "@alfred/contracts";
 import { and, eq, inArray, ne } from "drizzle-orm";
 import type { DbTransaction } from "@alfred/db";

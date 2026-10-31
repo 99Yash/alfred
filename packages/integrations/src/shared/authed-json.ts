@@ -1,4 +1,4 @@
-import { type ErrorBodyPolicy } from "@alfred/contracts";
+import type { ErrorBodyPolicy } from "@alfred/contracts";
 import { z } from "zod";
 
 import { authedFetch, type AuthedFetchProfile, type AuthedFetchRequest } from "./authed-fetch";

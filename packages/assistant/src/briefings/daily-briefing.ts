@@ -1,6 +1,6 @@
 import { DAILY_BRIEFING_WORKFLOW_SLUG } from "@alfred/contracts";
 import type { z } from "zod";
-import { type Workflow } from "@alfred/assistant/execution";
+import type { Workflow } from "@alfred/assistant/execution";
 import { dailyBriefingWorkflowInputSchema } from "./workflow-input";
 import {
   dailyBriefingStateSchema,

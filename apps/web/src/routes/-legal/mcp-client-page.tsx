@@ -1,4 +1,4 @@
-import { type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { LegalPage, LegalSection } from "~/components/legal/legal-page";
 
 const CONTACT = "yashgouravkar@gmail.com";

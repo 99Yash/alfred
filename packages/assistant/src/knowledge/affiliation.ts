@@ -25,7 +25,7 @@ import { and, eq } from "drizzle-orm";
 import { uniqueViolationConstraint } from "@alfred/db/pg-errors";
 import { parseGoogleCredentialMetadata } from "@alfred/integrations/google";
 import { insertObservation } from "./observations";
-import { type DbTransaction } from "@alfred/db";
+import type { DbTransaction } from "@alfred/db";
 
 export type OrgAffiliationStatus = UserOrgAffiliationPayload["status"];
 
