@@ -78,6 +78,7 @@ export {
 
 export {
   APPROVAL_NOTIFICATION_QUEUE_NAME,
+  approvalCardKey,
   approvalNotificationJobId,
   approvalNotificationJobDataSchema,
   getApprovalNotificationQueue,
@@ -374,12 +375,11 @@ export function registerSystemToolAgentAdapter(adapter: SystemToolAgentAdapter):
   return systemToolAgentAdapterPort.install(adapter);
 }
 
-/** The step identity that a dispatch claim fences on. Execution's `StepLease` satisfies it. */
-export interface DispatchStepLease {
-  runId: string;
-  attempt: number;
-  fence: CancellationFence;
-}
+/**
+ * The step identity that a dispatch claim fences on: the lease fields of the run, read only from
+ * the dispatch args. Execution's `StepLease` is the same three fields of a `StepContext`.
+ */
+export type DispatchStepLease = Pick<ToolCallRunBase, "runId" | "attempt" | "fence">;
 
 /**
  * Surface:  chat.

@@ -110,20 +110,6 @@ export function toolChipLabel(toolName: ToolName): string {
   return capitalize(humanizeToolName(toolName));
 }
 
-/** The notice on a may-have-run card, in the approvals list and the chat dock. */
-export const MAY_HAVE_RUN_NOTICE = {
-  title: "This may have already run.",
-  detail: "Alfred stopped before it could confirm. Check first, then decide.",
-} as const;
-
-/** The note a "Don't run again" sends back with a may-have-run card. */
-export const MAY_HAVE_RUN_REJECT_REASON = "It may have already run. Don't run it again.";
-
-/** The toggle that opens the revision note: "Don't run again" on a may-have-run card. */
-export function reviseButtonLabel(mayHaveRun: boolean): string {
-  return mayHaveRun ? "Don't run again" : "Revise";
-}
-
 /**
  * Short verbs for the approve button, e.g. "Create event". A tool not listed here gets
  * the generic "Approve". Keep each one short enough for a button.

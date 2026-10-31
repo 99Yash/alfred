@@ -20,6 +20,7 @@ import { createRedisConnection } from "@alfred/db/redis";
 import { send } from "@alfred/assistant/delivery";
 import {
   APPROVAL_NOTIFICATION_QUEUE_NAME,
+  approvalCardKey,
   approvalNotificationJobDataSchema,
   workflowBlockedNotificationJobDataSchema,
   type ApprovalNotificationJobData,
@@ -81,7 +82,7 @@ async function processNotificationJob(
 async function processApprovalNotificationJob({
   stagingId,
   userId,
-  claimedAtMs,
+  card,
 }: ApprovalNotificationJobData): Promise<ApprovalNotificationResult> {
   const rows = await db()
     .select({
@@ -112,10 +113,10 @@ async function processApprovalNotificationJob({
 
   if (row.notifiedAt) return { status: "skipped", reason: "already_notified", stagingId };
 
-  // Each card generation has its own job. A job for another card must not send this card early.
-  if (claimedAtMs !== row.dispatchClaimedAt?.getTime()) {
-    return { status: "skipped", reason: "other_card", stagingId };
-  }
+  // Each card of the row has its own job. A job for another card must not send this card early.
+  const rowCard = approvalCardKey(row.dispatchClaimedAt);
+
+  if (card !== rowCard) return { status: "skipped", reason: "other_card", stagingId };
 
   // Use the redacted `display_input`, never the raw payload (#374). The fallback is for legacy
   // rows.
@@ -132,17 +133,15 @@ async function processApprovalNotificationJob({
     riskTier: row.riskTier,
     displayInput,
     approvalUrl,
-    mayHaveRun: row.dispatchClaimedAt !== null,
+    mayHaveRun: rowCard !== undefined,
   });
 
   const result = await send({
     userId: row.userId,
     kind: "approval",
-    // A may-have-run card is a new decision on the same row, so its claim time keys a new email.
+    // A may-have-run card is a new decision on the same row, so its card key keys a new email.
     idempotencyKey:
-      row.dispatchClaimedAt === null
-        ? `approval:${stagingId}`
-        : `approval:${stagingId}:claim:${row.dispatchClaimedAt.getTime()}`,
+      rowCard === undefined ? `approval:${stagingId}` : `approval:${stagingId}:${rowCard}`,
     subject: rendered.subject,
     html: rendered.html,
     text: rendered.text,

@@ -39,6 +39,7 @@ import { calendarTools } from "../../../src/tool-runtime/internal/tools/calendar
 import { registerReplicachePokeAdapter } from "@alfred/assistant/realtime";
 import { memoryStagingStore, type MemoryStagingStore } from "./memory-staging-store";
 import { runStagingStoreContract, type StagingStoreHarness } from "./staging-store-contract";
+import { FIRST_STEP } from "../../support/first-step";
 
 const USER_ID = "usr_staging_machine";
 
@@ -106,8 +107,7 @@ function baseArgs(overrides: Record<string, unknown> = {}) {
     caller: "boss" as const,
     runContext: { caller: "boss", interaction: "background" } as const,
     timezone: TIMEZONE,
-    fence: { generation: 0 },
-    attempt: 0,
+    ...FIRST_STEP,
     ...overrides,
   };
 }

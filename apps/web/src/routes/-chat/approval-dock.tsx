@@ -24,12 +24,8 @@ import { useEffect, useImperativeHandle, useRef, use, useId, useState } from "re
 import type { QuestionStaging, StagedRow } from "~/components/approvals/ask-user";
 import { decideApproval } from "~/components/approvals/decide-approval";
 import { describeApprovalWait } from "./conversation-helpers";
-import {
-  approveButtonLabel,
-  cardTitle,
-  MAY_HAVE_RUN_NOTICE,
-  reviseButtonLabel,
-} from "~/components/approvals/card-spec";
+import { approveButtonLabel, cardTitle } from "~/components/approvals/card-spec";
+import { MayHaveRunNotice } from "~/components/approvals/may-have-run-notice";
 import { formatDateTime } from "~/lib/date-format";
 import { ApprovalInputEditor, ApprovalInputFacts } from "~/components/approvals/input-editor";
 import { RiskChip } from "~/components/approvals/risk-pill";
@@ -439,6 +435,7 @@ function DockApprovalCard({
     reasonMissing,
     title,
     approveDecision,
+    dontRunAgainDecision,
     run,
   } = useApprovalDecision(staging);
 
@@ -497,7 +494,7 @@ function DockApprovalCard({
           <p className="mt-0.5 truncate text-[12px] leading-[18px] text-app-fg-3">
             {mcpServer ? `${mcpServer.label} · ` : null}
             {decided && decisionKind !== null ? (
-              <ResolvedCopy kind={decisionKind} edited={edited} />
+              <ResolvedCopy kind={decisionKind} edited={edited} mayHaveRun={staging.mayHaveRun} />
             ) : (
               policyCopy(staging.riskTier)
             )}
@@ -563,15 +560,7 @@ function DockApprovalCard({
               <ApprovalInputFacts toolName={staging.toolName} value={draftInput} />
             )}
 
-            {staging.mayHaveRun ? (
-              <div className="mt-2 flex items-start gap-2 rounded-surface bg-app-amber-1 px-3 py-2 text-[12px] leading-5 text-app-amber-4 shadow-[0_0_0_1px_var(--app-amber-2)]">
-                <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-                <p className="min-w-0">
-                  <span className="font-medium">{MAY_HAVE_RUN_NOTICE.title}</span>{" "}
-                  {MAY_HAVE_RUN_NOTICE.detail}
-                </p>
-              </div>
-            ) : null}
+            {staging.mayHaveRun ? <MayHaveRunNotice compact /> : null}
 
             {staging.recentRejection ? (
               <div className="mt-2 flex items-start gap-2 rounded-surface bg-app-amber-1 px-3 py-2 text-[12px] leading-5 text-app-amber-4 shadow-[0_0_0_1px_var(--app-amber-2)]">
@@ -610,19 +599,32 @@ function DockApprovalCard({
 
           <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 px-3 pt-2 sm:px-4">
             <div className="flex min-w-0 flex-wrap items-center gap-1">
-              {/* Revise sends the action back with a note and the run continues. End run stops it. */}
-              <AppButton
-                variant="ghost"
-                size="sm"
-                leading={showReason ? ICON_X : ICON_REVISE}
-                disabled={busy || decided}
-                onClick={() => {
-                  setShowReason((v) => !v);
-                  setError(null);
-                }}
-              >
-                {showReason ? "Cancel" : reviseButtonLabel(staging.mayHaveRun)}
-              </AppButton>
+              {staging.mayHaveRun ? (
+                // No revision here: the model must not send a corrected call (see the decision hook).
+                <AppButton
+                  variant="ghost"
+                  size="sm"
+                  leading={ICON_X}
+                  disabled={busy || decided}
+                  onClick={() => void decide(dontRunAgainDecision())}
+                >
+                  Don't run again
+                </AppButton>
+              ) : (
+                // Revise sends the action back with a note and the run continues. End run stops it.
+                <AppButton
+                  variant="ghost"
+                  size="sm"
+                  leading={showReason ? ICON_X : ICON_REVISE}
+                  disabled={busy || decided}
+                  onClick={() => {
+                    setShowReason((v) => !v);
+                    setError(null);
+                  }}
+                >
+                  {showReason ? "Cancel" : "Revise"}
+                </AppButton>
+              )}
               {showReason ? null : (
                 <AppButton
                   variant="ghost"
@@ -965,12 +967,22 @@ function PermissionSwitch({
 }
 
 /** Head subline after a decision. Write cards only. */
-function ResolvedCopy({ kind, edited }: { kind: WriteDecision["decision"]; edited: boolean }) {
+function ResolvedCopy({
+  kind,
+  edited,
+  mayHaveRun,
+}: {
+  kind: WriteDecision["decision"];
+  edited: boolean;
+  mayHaveRun: boolean;
+}) {
   switch (kind) {
     case "approve":
       return edited ? "Approved with changes. Resuming the run." : "Approved. Resuming the run.";
     case "reject":
-      return "Sent back to Alfred with a revision note.";
+      return mayHaveRun
+        ? "Not run again. Resuming the run."
+        : "Sent back to Alfred with a revision note.";
     case "cancel_run":
       return "Run ended at your request.";
     default:

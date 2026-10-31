@@ -18,7 +18,10 @@ import {
   attemptKeyFor,
   effectKeyFor,
   effectsColumn,
+  isInterruptedClaim,
+  isRunnableStaging,
   outcomeForInsert,
+  stagingMayHaveRun,
   type StagingInsertValues,
   type StagingRow,
   type StagingStore,
@@ -156,7 +159,7 @@ export function memoryStagingStore(): MemoryStagingStore {
                 (row.decidedInput !== null &&
                   hashToolInput(row.toolName, row.decidedInput) === query.proposedInputHash)))) &&
           (query.statuses.some((status) => status === row.status) ||
-            (row.status === "expired" && row.dispatchClaimedAt !== null)),
+            (row.status === "expired" && stagingMayHaveRun(row))),
       );
 
       candidates.sort((a, b) => (b.decidedAt?.getTime() ?? 0) - (a.decidedAt?.getTime() ?? 0));
@@ -167,7 +170,7 @@ export function memoryStagingStore(): MemoryStagingStore {
       return {
         reason: hit.rejectReason,
         status: hit.status,
-        ...(hit.dispatchClaimedAt !== null ? { mayHaveRun: true as const } : {}),
+        ...(stagingMayHaveRun(hit) ? { mayHaveRun: true as const } : {}),
       };
     },
 
@@ -273,11 +276,7 @@ export function memoryStagingStore(): MemoryStagingStore {
 
       const row = mustGet(stagingId);
 
-      if (
-        row.runId !== lease.runId ||
-        (row.status !== "pending" && row.status !== "approved") ||
-        row.dispatchClaimedAt !== null
-      ) {
+      if (row.runId !== lease.runId || !isRunnableStaging(row) || stagingMayHaveRun(row)) {
         return "not_claimable";
       }
 
@@ -294,12 +293,7 @@ export function memoryStagingStore(): MemoryStagingStore {
 
       const row = mustGet(stagingId);
 
-      if (
-        row.runId !== lease.runId ||
-        row.toolName !== restage.toolName ||
-        row.dispatchClaimedAt === null ||
-        !(row.status === "approved" || (row.status === "pending" && !row.requiresApproval))
-      ) {
+      if (row.runId !== lease.runId || !isInterruptedClaim(row)) {
         return { kind: "moved", row: project(row) };
       }
 

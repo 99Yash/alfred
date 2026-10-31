@@ -34,6 +34,9 @@ import {
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
+/** A fresh run's first step: fence generation 0 and executor attempt 0, the Postgres defaults. */
+const FIRST_STEP = { fence: { generation: 0 }, attempt: 0 } as const;
+
 const SMOKE_USER_EMAIL = "smoke-dispatch@alfred.local";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -172,8 +175,7 @@ async function main(): Promise<void> {
     timezone,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
-    fence: { generation: 0 },
-    attempt: 0,
+    ...FIRST_STEP,
   });
 
   assert(auto.kind === "executed", `autonomy expected 'executed', got '${auto.kind}'`);
@@ -209,8 +211,7 @@ async function main(): Promise<void> {
     timezone,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
-    fence: { generation: 0 },
-    attempt: 0,
+    ...FIRST_STEP,
   });
 
   assert(auto2.kind === "executed", "idempotent re-dispatch expected 'executed'");
@@ -231,8 +232,7 @@ async function main(): Promise<void> {
     timezone,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
-    fence: { generation: 0 },
-    attempt: 0,
+    ...FIRST_STEP,
   });
 
   assert(
@@ -263,8 +263,7 @@ async function main(): Promise<void> {
     timezone,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
-    fence: { generation: 0 },
-    attempt: 0,
+    ...FIRST_STEP,
   });
 
   assert(staged.kind === "staged", `gated expected 'staged', got '${staged.kind}'`);
@@ -299,8 +298,7 @@ async function main(): Promise<void> {
     timezone,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
-    fence: { generation: 0 },
-    attempt: 0,
+    ...FIRST_STEP,
   });
 
   assert(
@@ -360,8 +358,7 @@ async function main(): Promise<void> {
     timezone,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
-    fence: { generation: 0 },
-    attempt: 0,
+    ...FIRST_STEP,
   });
 
   assert(resumed.kind === "executed", `resume expected 'executed', got '${resumed.kind}'`);
@@ -395,8 +392,7 @@ async function main(): Promise<void> {
     timezone,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
-    fence: { generation: 0 },
-    attempt: 0,
+    ...FIRST_STEP,
   });
 
   assert(firstAttempt.kind === "staged", "retry-suppression setup expects staged on first try");
@@ -425,8 +421,7 @@ async function main(): Promise<void> {
     timezone,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
-    fence: { generation: 0 },
-    attempt: 0,
+    ...FIRST_STEP,
   });
 
   assert(

@@ -12,6 +12,7 @@ import {
   type ToolEffects,
 } from "@alfred/assistant/tool-runtime";
 import { _setToolRuntimeSpanStarterForTests } from "../../src/tool-runtime/internal/runtime-spans";
+import { FIRST_STEP } from "../support/first-step";
 
 const UTC = parseIanaTimezone("UTC");
 
@@ -27,8 +28,7 @@ const backgroundRun: ToolCallRun = {
   workflow: "test-workflow",
   caller: "boss",
   runContext: { caller: "boss", interaction: "background" },
-  fence: { generation: 0 },
-  attempt: 0,
+  ...FIRST_STEP,
 };
 
 const liveRun: ToolCallRun = {

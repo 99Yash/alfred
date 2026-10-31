@@ -15,6 +15,7 @@ import { postgresStagingStore } from "../../../src/tool-runtime/internal/dispatc
 import { closeRedis } from "@alfred/db/redis";
 import { runStagingStoreContract, type StagingStoreHarness } from "./staging-store-contract";
 import { dbBackedSkip } from "../../support/db-backed";
+import { FIRST_STEP } from "../../support/first-step";
 
 const UTC = parseIanaTimezone("UTC");
 
@@ -164,8 +165,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       timezone: UTC,
       caller: "boss" as const,
       runContext: { caller: "boss", interaction: "background" } as const,
-      fence: { generation: 0 } as const,
-      attempt: 0,
+      ...FIRST_STEP,
     };
 
     const first = await dispatchToolCall(args);
@@ -207,8 +207,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       timezone: UTC,
       caller: "boss" as const,
       runContext: { caller: "boss", interaction: "background" } as const,
-      fence: { generation: 0 } as const,
-      attempt: 0,
+      ...FIRST_STEP,
     };
 
     const first = await dispatchToolCall(args);
@@ -246,8 +245,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       timezone: UTC,
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
-      fence: { generation: 0 },
-      attempt: 0,
+      ...FIRST_STEP,
     });
 
     if (result.kind !== "failed") {
@@ -305,8 +303,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       timezone: UTC,
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
-      fence: { generation: 0 },
-      attempt: 0,
+      ...FIRST_STEP,
     });
 
     assert.deepEqual(result, {
@@ -340,8 +337,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       timezone: UTC,
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
-      fence: { generation: 0 },
-      attempt: 0,
+      ...FIRST_STEP,
     });
 
     // The in-tool credential block needs the real value.
@@ -385,8 +381,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       timezone: UTC,
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
-      fence: { generation: 0 },
-      attempt: 0,
+      ...FIRST_STEP,
     });
     assert.equal(executeCount, before + 1, "a new tool_call_id is a distinct call and re-executes");
   });
@@ -405,8 +400,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
       timezone: UTC,
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
-      fence: { generation: 0 },
-      attempt: 0,
+      ...FIRST_STEP,
     });
     // Two tools under one call id must throw, not run against the first row's audit trail.
     await assert.rejects(
@@ -421,8 +415,7 @@ describe("dispatch staging (DB-backed)", { skip: SKIP }, () => {
         timezone: UTC,
         caller: "boss",
         runContext: { caller: "boss", interaction: "background" },
-        fence: { generation: 0 },
-        attempt: 0,
+        ...FIRST_STEP,
       }),
       /toolName mismatch on re-dispatch/,
     );

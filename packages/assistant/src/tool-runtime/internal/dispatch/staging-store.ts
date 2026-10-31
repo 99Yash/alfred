@@ -105,8 +105,35 @@ export type PendingApprovalPromotion = Pick<
  * The input a claimed and unfinished call goes back to the user with. The raw input to run, not a
  * redacted copy: approve runs `proposedInput`.
  */
-export type InterruptedRestage = Omit<PendingApprovalPromotion, "proposedInputHash"> &
-  Pick<ActionStaging, "toolName">;
+export type InterruptedRestage = Omit<PendingApprovalPromotion, "proposedInputHash">;
+
+/** An earlier attempt claimed the call, so its effect may already exist. */
+export function stagingMayHaveRun(row: Pick<StagingRow, "dispatchClaimedAt">): boolean {
+  return row.dispatchClaimedAt !== null;
+}
+
+/**
+ * A row that dispatch may execute now: approved by the user, or an autonomous `pending` row. A
+ * gated `pending` row is a card, so it is not runnable. `runnableStagingSql` is the same predicate
+ * for a `WHERE`; keep the two together.
+ */
+export function isRunnableStaging(row: Pick<StagingRow, "status" | "requiresApproval">): boolean {
+  return row.status === "approved" || (row.status === "pending" && !row.requiresApproval);
+}
+
+function runnableStagingSql() {
+  return or(
+    eq(actionStagings.status, "approved"),
+    and(eq(actionStagings.status, "pending"), eq(actionStagings.requiresApproval, false)),
+  );
+}
+
+/** A runnable row that an attempt claimed and did not finish. It goes back to the user. */
+export function isInterruptedClaim(
+  row: Pick<StagingRow, "status" | "requiresApproval" | "dispatchClaimedAt">,
+): boolean {
+  return stagingMayHaveRun(row) && isRunnableStaging(row);
+}
 
 /**
  * How a lease check under the run lock ends.
@@ -119,7 +146,7 @@ type LeaseLoss = "lease_lost" | "fenced" | "run_ended";
 
 /**
  * - `claimed`: this attempt owns the call and may run it.
- * - `not_claimable`: the row is no longer an unclaimed `pending` or `approved` row of this run.
+ * - `not_claimable`: the row is no longer an unclaimed runnable row of this run.
  */
 export type DispatchClaim = "claimed" | LeaseLoss | "not_claimable";
 
@@ -196,8 +223,9 @@ export interface StagingStore {
 
   /**
    * Mark the call as started, just before an `unsafe` tool's `execute`. One transaction runs the
-   * step commit's lease check (`withStepLease`, through the `dispatchLease` seam), and then sets `dispatch_claimed_at` to `claimedAt` on an unclaimed `pending` or
-   * `approved` row. The caller keeps `claimedAt` as the token that its commit fences on.
+   * step commit's lease check (`withStepLease`, through the `dispatchLease` seam), and then sets
+   * `dispatch_claimed_at` to `claimedAt` on an unclaimed runnable row (`isRunnableStaging`). The
+   * caller keeps `claimedAt` as the token that its commit fences on.
    */
   claimDispatch(
     stagingId: string,
@@ -363,7 +391,7 @@ export const postgresStagingStore: StagingStore = {
       ? {
           reason: row.reason,
           status: row.status,
-          ...(row.dispatchClaimedAt !== null ? { mayHaveRun: true as const } : {}),
+          ...(stagingMayHaveRun(row) ? { mayHaveRun: true as const } : {}),
         }
       : null;
   },
@@ -500,7 +528,7 @@ export const postgresStagingStore: StagingStore = {
           and(
             eq(actionStagings.id, stagingId),
             eq(actionStagings.runId, lease.runId),
-            inArray(actionStagings.status, ["pending", "approved"]),
+            runnableStagingSql(),
             isNull(actionStagings.dispatchClaimedAt),
           ),
         )
@@ -538,13 +566,9 @@ export const postgresStagingStore: StagingStore = {
           and(
             eq(actionStagings.id, stagingId),
             eq(actionStagings.runId, lease.runId),
-            eq(actionStagings.toolName, restage.toolName),
+            // `isInterruptedClaim`: a gated `pending` row is already a card.
+            runnableStagingSql(),
             isNotNull(actionStagings.dispatchClaimedAt),
-            // The pipeline's guard: a gated `pending` row is already a card.
-            or(
-              eq(actionStagings.status, "approved"),
-              and(eq(actionStagings.status, "pending"), eq(actionStagings.requiresApproval, false)),
-            ),
           ),
         )
         .returning(STAGING_COLUMNS);

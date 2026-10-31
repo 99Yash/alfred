@@ -28,6 +28,7 @@ import {
   unregisterSystemToolContextSearch,
 } from "../../../src/runtime/adapters/system-tool-context-search";
 import { executeTool } from "../../support/execute-tool";
+import { FIRST_STEP } from "../../support/first-step";
 
 /**
  * `system.search_context` end to end over a fake source: tool, seam, `searchContext`,
@@ -56,8 +57,7 @@ const ROUND_RUN: ToolCallRun = {
   workflow: "test-workflow",
   caller: "boss",
   runContext: { caller: "boss", interaction: "live_chat" },
-  fence: { generation: 0 },
-  attempt: 0,
+  ...FIRST_STEP,
 };
 
 function evidenceCard(snippet: string): EvidenceCard {

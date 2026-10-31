@@ -1,7 +1,10 @@
 import type { SyncedActionStaging } from "@alfred/sync";
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
-import { cardTitle, MAY_HAVE_RUN_REJECT_REASON } from "./card-spec";
+import { cardTitle } from "./card-spec";
 import { formatJson } from "./format";
+
+/** The note that "Don't run again" sends back with a may-have-run card. */
+const MAY_HAVE_RUN_REJECT_REASON = "It may have already run. Don't run it again.";
 
 /** Approve may carry an edited input. */
 type ApproveDecision = {
@@ -47,6 +50,8 @@ export interface ApprovalDecisionState {
   reasonMissing: boolean;
   title: string;
   approveDecision: () => ApproveDecision;
+  /** The one-click reject of a may-have-run card. */
+  dontRunAgainDecision: () => WriteDecision;
   /**
    * Run a decision once: skips if busy or decided, and shows a thrown error.
    * On success the caller owns `busy`/`decided`.
@@ -58,9 +63,7 @@ export interface ApprovalDecisionState {
 export function useApprovalDecision(staging: SyncedActionStaging): ApprovalDecisionState {
   const [draftInput, setDraftInput] = useState<unknown>(() => staging.proposedInput);
   const [showReason, setShowReason] = useState(false);
-  // A may-have-run card starts with the note, so "Don't run again" needs no typing.
-  const initialReason = staging.mayHaveRun ? MAY_HAVE_RUN_REJECT_REASON : "";
-  const [reason, setReason] = useState(initialReason);
+  const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [decided, setDecided] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -82,7 +85,7 @@ export function useApprovalDecision(staging: SyncedActionStaging): ApprovalDecis
     setPreviousStaging({ id: staging.id, stagedInput });
     setDraftInput(staging.proposedInput);
     setShowReason(false);
-    setReason(initialReason);
+    setReason("");
     setBusy(false);
     setDecided(false);
     setError(null);
@@ -108,6 +111,14 @@ export function useApprovalDecision(staging: SyncedActionStaging): ApprovalDecis
     edited
       ? { decision: "approve", expectedRowVersion: staging.rowVersion, editedInput: draftInput }
       : { decision: "approve", expectedRowVersion: staging.rowVersion };
+
+  // A may-have-run card has no revision: the model is told not to send a corrected call, so a
+  // "what should change" note would contradict it. The reject is one click with a fixed note.
+  const dontRunAgainDecision = (): WriteDecision => ({
+    decision: "reject",
+    expectedRowVersion: staging.rowVersion,
+    reason: MAY_HAVE_RUN_REJECT_REASON,
+  });
 
   const run = async (execute: () => Promise<void>): Promise<void> => {
     if (busy || decided) return;
@@ -139,6 +150,7 @@ export function useApprovalDecision(staging: SyncedActionStaging): ApprovalDecis
     reasonMissing,
     title,
     approveDecision,
+    dontRunAgainDecision,
     run,
   };
 }

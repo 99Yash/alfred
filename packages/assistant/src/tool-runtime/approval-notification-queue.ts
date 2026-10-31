@@ -14,8 +14,8 @@ export const APPROVAL_NOTIFICATION_QUEUE_NAME = "staging-notify";
 export const approvalNotificationJobDataSchema = z.object({
   stagingId: z.string().min(1),
   userId: z.string().min(1),
-  /** `dispatch_claimed_at` of the card this job is for. The worker skips a job for an older card. */
-  claimedAtMs: z.number().int().optional(),
+  /** `approvalCardKey` of the card this job is for. Absent for a row's first card. */
+  card: z.string().min(1).optional(),
 });
 
 export type ApprovalNotificationJobData = z.infer<typeof approvalNotificationJobDataSchema>;
@@ -43,17 +43,21 @@ export type NotificationJobData = z.infer<typeof notificationJobDataSchema>;
 let _queue: Queue<NotificationJobData> | undefined;
 
 /**
- * A may-have-run card (`claimedAt` set) gets its own id, so its job never meets the finished or
- * active job of the first card on the same row.
+ * Which approval card of a staging row a notice is for. The first card has no key (`undefined`).
+ * A may-have-run card is a new decision on the same row, so the claim that it was restaged from
+ * keys it. The claim time is only an identity here: it is compared for equality, never ordered.
+ * The job id, the job data, the worker's match, and the email idempotency key all use this key.
  */
-export function approvalNotificationJobId(
-  stagingId: string,
-  claimedAt: Date | null = null,
-): string {
-  // BullMQ custom job ids cannot contain `:`.
+export function approvalCardKey(dispatchClaimedAt: Date | null): string | undefined {
+  // BullMQ custom job ids cannot contain `:`, so neither can the key.
+  return dispatchClaimedAt === null ? undefined : `claim-${dispatchClaimedAt.getTime()}`;
+}
+
+/** Each card has its own id, so a may-have-run card's job never meets the first card's job. */
+export function approvalNotificationJobId(stagingId: string, card?: string): string {
   const base = `staging-notify.${stagingId}`;
 
-  return claimedAt === null ? base : `${base}.claim-${claimedAt.getTime()}`;
+  return card === undefined ? base : `${base}.${card}`;
 }
 
 export function getApprovalNotificationQueue(): Queue<NotificationJobData> {
@@ -76,9 +80,11 @@ export async function scheduleApprovalNotificationJob(args: {
   userId: string;
   delayMs: number;
   /** The row's `dispatch_claimed_at`. Set only on a may-have-run card. */
-  claimedAt: Date | null;
+  dispatchClaimedAt: Date | null;
 }): Promise<"scheduled" | "disabled" | "failed"> {
   if (!isQueueEnabled()) return "disabled";
+
+  const card = approvalCardKey(args.dispatchClaimedAt);
 
   try {
     await getApprovalNotificationQueue().add(
@@ -86,11 +92,11 @@ export async function scheduleApprovalNotificationJob(args: {
       {
         stagingId: args.stagingId,
         userId: args.userId,
-        ...(args.claimedAt === null ? {} : { claimedAtMs: args.claimedAt.getTime() }),
+        ...(card === undefined ? {} : { card }),
       },
       {
         delay: Math.max(0, args.delayMs),
-        jobId: approvalNotificationJobId(args.stagingId, args.claimedAt),
+        jobId: approvalNotificationJobId(args.stagingId, card),
       },
     );
 
@@ -138,7 +144,7 @@ export async function scheduleWorkflowBlockedNotificationJob(
 
 /**
  * Removes the first card's job. A may-have-run card's job can stay after a decision: the worker
- * skips it, because the row is no longer `pending` or its claim no longer matches.
+ * skips it, because the row is no longer `pending` or its card key no longer matches.
  */
 export async function removeApprovalNotificationJob(stagingId: string): Promise<void> {
   if (!isQueueEnabled()) return;

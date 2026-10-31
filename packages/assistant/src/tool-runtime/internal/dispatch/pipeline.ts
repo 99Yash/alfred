@@ -32,7 +32,6 @@ import {
   cancellationEnvelopeSchema,
   unknownEffectEnvelopeSchema,
   type CancellationEnvelope,
-  type CancellationFence,
   type ToolUnavailabilityCode,
   type UnknownEffectEnvelope,
 } from "@alfred/contracts";
@@ -46,6 +45,8 @@ import {
   type ToolSpanInput,
 } from "@alfred/ai";
 import {
+  isInterruptedClaim,
+  stagingMayHaveRun,
   stagingStore,
   type InterruptedRestageResult,
   type PriorRejectionStatus,
@@ -58,6 +59,7 @@ import {
   callerLabel,
   questionToolInput,
   registerToolCallRoundAdapter,
+  type DispatchStepLease,
   type ToolCallDispatchArgs,
 } from "@alfred/assistant/tool-runtime";
 import {
@@ -476,7 +478,7 @@ const resumeSavedStagingStage: DispatchStage<ResolvedDispatch, ResolvedDispatch>
     return {
       kind: "fenced",
       stagingId: null,
-      result: synthesizeCancelledByFence(row.dispatchClaimedAt !== null),
+      result: synthesizeCancelledByFence(stagingMayHaveRun(row)),
     };
   }
 
@@ -484,10 +486,7 @@ const resumeSavedStagingStage: DispatchStage<ResolvedDispatch, ResolvedDispatch>
 
   if (unavailableRun) return unavailableRun;
 
-  if (
-    row.dispatchClaimedAt !== null &&
-    (row.status === "approved" || (row.status === "pending" && !row.requiresApproval))
-  ) {
+  if (isInterruptedClaim(row)) {
     // The claim itself proves that a write may have started, even if replay classification changed.
     const restage = await restageInterruptedCall(row, resolved);
 
@@ -770,6 +769,28 @@ async function readFullAutonomy(args: ToolCallDispatchArgs): Promise<boolean> {
   });
 }
 
+/**
+ * When a new approval card notifies the user, and when it expires. The `staging-expire` worker
+ * auto-rejects at `expiresAt`, so an approval cannot park a run forever. Both times use one clock
+ * reading. A first card and a restaged card both get their times here.
+ */
+async function approvalDeadlines(
+  userId: string,
+): Promise<{ notifyAfterAt: Date; expiresAt: Date }> {
+  const notifyDelayMs = await resolveApprovalNotifyDelayMs(userId);
+  const now = Date.now();
+
+  return {
+    notifyAfterAt: new Date(now + notifyDelayMs),
+    expiresAt: new Date(now + APPROVAL_EXPIRY_MS),
+  };
+}
+
+/** The lease that a claim and a restage fence on. The dispatch args are its only source. */
+function stepLease(args: ToolCallDispatchArgs): DispatchStepLease {
+  return { runId: args.runId, attempt: args.attempt, fence: args.fence };
+}
+
 /** The staging write autocommits, so a run that has ended cannot gain a new card. */
 async function refuseUnavailableRun(
   resolved: ResolvedDispatch,
@@ -846,15 +867,9 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
     );
   }
 
-  const approvalNotifyDelayMs = requiresApproval
-    ? await resolveApprovalNotifyDelayMs(args.userId)
-    : null;
-
-  const notifyAfterAt =
-    approvalNotifyDelayMs !== null ? new Date(Date.now() + approvalNotifyDelayMs) : null;
-
-  // The `staging-expire` worker auto-rejects at this time, so an approval cannot park a run forever.
-  const expiresAt = requiresApproval ? new Date(Date.now() + APPROVAL_EXPIRY_MS) : null;
+  const { notifyAfterAt, expiresAt } = requiresApproval
+    ? await approvalDeadlines(args.userId)
+    : { notifyAfterAt: null, expiresAt: null };
 
   // A gated row keeps raw input, because resume executes it. An autonomous row stores it redacted.
   const redactedInput = call.redactedInput();
@@ -929,11 +944,7 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
         if (exhausted) return exhausted;
       }
 
-      return executeAndCommit(row, call, ctx, {
-        expectedFence: args.fence,
-        attempt: args.attempt,
-        editedByUser: false,
-      });
+      return executeAndCommit(row, call, ctx, { lease: stepLease(args), editedByUser: false });
 
     case "approved": {
       // Execute what the user approved from the row, never `args.input`, so a
@@ -952,8 +963,7 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
       }
 
       return executeAndCommit(row, rebound.call, ctx, {
-        expectedFence: args.fence,
-        attempt: args.attempt,
+        lease: stepLease(args),
         editedByUser,
         ...(editedByUser ? { executedInput: rebound.call.input } : {}),
       });
@@ -1036,7 +1046,7 @@ function replaySettledStaging(row: StagingRow, resolved: ResolvedDispatch): Disp
         input: row.proposedInput,
         status: row.status,
         reason: row.rejectReason,
-        mayHaveRun: row.dispatchClaimedAt !== null,
+        mayHaveRun: stagingMayHaveRun(row),
       });
 
     case "executed":
@@ -1086,7 +1096,7 @@ async function waitForStagingApproval(
       stagingId: row.id,
       userId: args.userId,
       delayMs,
-      claimedAt: row.dispatchClaimedAt,
+      dispatchClaimedAt: row.dispatchClaimedAt,
     });
   }
 
@@ -1528,28 +1538,17 @@ async function restageInterruptedCall(
   // Autonomous rows stored redacted input. The step supplies their original raw call.
   const input = row.status === "approved" ? (row.decidedInput ?? row.proposedInput) : args.input;
   const binding = tool.bind(input);
-  const approvalNotifyDelayMs = await resolveApprovalNotifyDelayMs(args.userId);
 
-  const restage = await stagingStore().restageInterrupted(
-    row.id,
-    {
-      runId: args.runId,
-      attempt: args.attempt,
-      fence: args.fence,
-    },
-    {
-      toolName,
-      // A deploy can invalidate the old input. Keep its saved tier and redacted display in that
-      // case. Raw JSON is only for the card; execute still requires the current tool schema.
-      riskTier: row.riskTier,
-      proposedInput: jsonValueSchema.parse(binding.success ? binding.call.input : input),
-      displayInput: jsonValueSchema.parse(
-        binding.success ? binding.call.redactedInput() : row.displayInput,
-      ),
-      notifyAfterAt: new Date(Date.now() + approvalNotifyDelayMs),
-      expiresAt: new Date(Date.now() + APPROVAL_EXPIRY_MS),
-    },
-  );
+  const restage = await stagingStore().restageInterrupted(row.id, stepLease(args), {
+    // A deploy can invalidate the old input. Keep its saved tier and redacted display in that
+    // case. Raw JSON is only for the card; execute still requires the current tool schema.
+    riskTier: row.riskTier,
+    proposedInput: jsonValueSchema.parse(binding.success ? binding.call.input : input),
+    displayInput: jsonValueSchema.parse(
+      binding.success ? binding.call.redactedInput() : row.displayInput,
+    ),
+    ...(await approvalDeadlines(args.userId)),
+  });
 
   if (restage.kind === "restaged") {
     logger.warn(
@@ -1576,7 +1575,7 @@ async function closeFencedRow(row: StagingRow, ctx: ToolExecuteContext): Promise
   return {
     kind: "fenced",
     stagingId: row.id,
-    result: synthesizeCancelledByFence(row.dispatchClaimedAt !== null),
+    result: synthesizeCancelledByFence(stagingMayHaveRun(row)),
   };
 }
 
@@ -1584,18 +1583,13 @@ async function executeAndCommit(
   row: StagingRow,
   call: BoundToolCall,
   ctx: ToolExecuteContext,
-  opts: {
-    expectedFence: CancellationFence;
-    attempt: number;
-    editedByUser: boolean;
-    executedInput?: unknown;
-  },
+  opts: { lease: DispatchStepLease; editedByUser: boolean; executedInput?: unknown },
 ): Promise<DispatchResult> {
   // Second fence read, for a cancel that landed during dispatch. The row exists
   // now, so close it instead of leaving it pending.
-  const fence = await stagingStore().readCancellationFence(ctx.runId);
+  const fence = await stagingStore().readCancellationFence(opts.lease.runId);
 
-  if (fence.generation > opts.expectedFence.generation) return closeFencedRow(row, ctx);
+  if (fence.generation > opts.lease.fence.generation) return closeFencedRow(row, ctx);
 
   // The row that the commits below expect. After a claim it carries the claim time.
   let runRow = row;
@@ -1605,11 +1599,7 @@ async function executeAndCommit(
   if (call.tool.replay === "unsafe") {
     const claimedAt = new Date();
 
-    const claim = await stagingStore().claimDispatch(
-      row.id,
-      { runId: ctx.runId, attempt: opts.attempt, fence: opts.expectedFence },
-      claimedAt,
-    );
+    const claim = await stagingStore().claimDispatch(row.id, opts.lease, claimedAt);
 
     // A cancel that landed after the fence read above.
     if (claim === "fenced") return closeFencedRow(row, ctx);
@@ -1620,7 +1610,7 @@ async function executeAndCommit(
     // lease fails the run: the row left the runnable state, so the run fails closed.
     if (claim !== "claimed") {
       throw new Error(
-        `[dispatch] ${call.tool.name} not run: dispatch claim ${claim} (run=${ctx.runId}, staging=${row.id}, attempt=${opts.attempt})`,
+        `[dispatch] ${call.tool.name} not run: dispatch claim ${claim} (run=${opts.lease.runId}, staging=${row.id}, attempt=${opts.lease.attempt})`,
       );
     }
 

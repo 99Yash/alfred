@@ -20,6 +20,7 @@ import { dispatchToolCall } from "../../../src/tool-runtime/dispatch";
 import { PASSTHROUGH_PER_RUN_CEILING } from "../../../src/tool-runtime/internal/tools/passthrough";
 import { clearToolRegistryForTests, liveTool, registerTool } from "@alfred/assistant/tool-runtime";
 import { dbBackedSkip } from "../../support/db-backed";
+import { FIRST_STEP } from "../../support/first-step";
 
 const UTC = parseIanaTimezone("UTC");
 
@@ -118,8 +119,7 @@ function dispatchGithubRequest(userId: string, runId: string, page: number) {
     timezone: UTC,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
-    fence: { generation: 0 },
-    attempt: 0,
+    ...FIRST_STEP,
   });
 }
 

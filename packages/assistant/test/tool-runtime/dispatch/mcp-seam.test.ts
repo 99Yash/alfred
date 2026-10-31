@@ -52,6 +52,7 @@ import { closeRedis } from "@alfred/db/redis";
 import { dbBackedSkip } from "../../support/db-backed";
 import { awaitGate } from "../../support/gate-timeout";
 import { asTestDouble } from "../../support/test-double";
+import { FIRST_STEP } from "../../support/first-step";
 
 const UTC = parseIanaTimezone("UTC");
 
@@ -289,8 +290,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       timezone: UTC,
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
-      fence: { generation: 0 },
-      attempt: 0,
+      ...FIRST_STEP,
     });
 
     assert.equal(result.kind, "staged");
@@ -347,8 +347,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       timezone: UTC,
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
-      fence: { generation: 0 },
-      attempt: 0,
+      ...FIRST_STEP,
     });
 
     assert.equal(
@@ -392,8 +391,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       timezone: UTC,
       caller: "boss" as const,
       runContext: { caller: "boss", interaction: "background" } as const,
-      fence: { generation: 0 } as const,
-      attempt: 0,
+      ...FIRST_STEP,
     };
 
     const staged = await dispatchToolCall(args);
@@ -535,8 +533,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       timezone: UTC,
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
-      fence: { generation: 0 },
-      attempt: 0,
+      ...FIRST_STEP,
     });
 
     assert.equal(repeated.kind, "executed");
@@ -678,8 +675,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       timezone: UTC,
       caller: "boss" as const,
       runContext: { caller: "boss", interaction: "background" } as const,
-      fence: { generation: 0 } as const,
-      attempt: 0,
+      ...FIRST_STEP,
     };
 
     const firstWorker = dispatchToolCall(dispatchInput);
@@ -783,8 +779,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       timezone: UTC,
       caller: "boss",
       runContext: { caller: "boss", interaction: "background" },
-      fence: { generation: 0 },
-      attempt: 0,
+      ...FIRST_STEP,
     });
 
     assert.equal(result.kind, "executed");

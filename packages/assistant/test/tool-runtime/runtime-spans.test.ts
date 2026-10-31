@@ -18,6 +18,7 @@ import {
   startToolSearchSpan,
 } from "../../src/tool-runtime/internal/runtime-spans";
 import { asTestDouble } from "../support/test-double";
+import { FIRST_STEP } from "../support/first-step";
 
 const UTC = parseIanaTimezone("UTC");
 
@@ -57,8 +58,7 @@ const bossRun: ToolCallRun = {
   workflow: "__chat-turn__",
   caller: "boss",
   runContext: { caller: "boss", interaction: "background" },
-  fence: { generation: 0 },
-  attempt: 0,
+  ...FIRST_STEP,
 };
 
 const subRun: ToolCallRun = {

@@ -13,6 +13,7 @@ import {
 } from "../../../src/tool-runtime/internal/dispatch";
 import { liveTool, registerTool } from "@alfred/assistant/tool-runtime";
 import { resetToolFixtures } from "@alfred/assistant/tool-runtime/test-support";
+import { FIRST_STEP } from "../../support/first-step";
 
 let restoreTraceSinks: (() => void) | undefined;
 
@@ -277,8 +278,7 @@ const baseDispatch = {
   caller: "boss" as const,
   runContext: { caller: "boss", interaction: "background" } as const,
   timezone: parseIanaTimezone("UTC"),
-  fence: { generation: 0 } as const,
-  attempt: 0,
+  ...FIRST_STEP,
 };
 
 function scratchReadTool(onExecute: () => void) {

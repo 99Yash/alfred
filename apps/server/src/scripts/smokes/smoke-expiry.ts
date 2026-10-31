@@ -46,6 +46,9 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { closeScriptResources } from "../script-runtime";
 
+/** A fresh run's first step: fence generation 0 and executor attempt 0, the Postgres defaults. */
+const FIRST_STEP = { fence: { generation: 0 }, attempt: 0 } as const;
+
 const SMOKE_USER_EMAIL = "smoke-expiry@alfred.local";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -182,8 +185,7 @@ async function stageGatedDraft(
     timezone,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
-    fence: { generation: 0 },
-    attempt: 0,
+    ...FIRST_STEP,
   });
 
   assert(
@@ -313,8 +315,7 @@ async function main(): Promise<void> {
     timezone,
     caller: "boss",
     runContext: { caller: "boss", interaction: "background" },
-    fence: { generation: 0 },
-    attempt: 0,
+    ...FIRST_STEP,
   });
 
   assert(

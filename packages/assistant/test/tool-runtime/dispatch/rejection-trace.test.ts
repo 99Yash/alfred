@@ -19,6 +19,7 @@ import {
   type ToolCallDispatchArgs,
 } from "@alfred/assistant/tool-runtime";
 import { closeRedis } from "@alfred/db/redis";
+import { FIRST_STEP } from "../../support/first-step";
 
 const startedAt = new Date("2026-06-29T00:00:00.000Z");
 
@@ -35,8 +36,7 @@ const baseDispatch: ToolCallDispatchArgs = {
   caller: "boss",
   runContext: { caller: "boss", interaction: "background" },
   activeTools: ["system.fetch_url"],
-  fence: { generation: 0 },
-  attempt: 0,
+  ...FIRST_STEP,
 };
 
 const redactingTool: RegisteredTool = liveTool({

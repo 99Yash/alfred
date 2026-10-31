@@ -9,6 +9,7 @@ import {
   dispatchToolCall,
 } from "../../../src/tool-runtime/internal/dispatch";
 import { clearToolRegistryForTests, liveTool, registerTool } from "@alfred/assistant/tool-runtime";
+import { FIRST_STEP } from "../../support/first-step";
 
 /**
  * The availability evaluator enforces the registration's contract at the dispatch floor,
@@ -37,8 +38,7 @@ const baseDispatch = {
   userId: "user_1",
   timezone: parseIanaTimezone("UTC"),
   runContext: { caller: "boss", interaction: "background" } as const,
-  fence: { generation: 0 } as const,
-  attempt: 0,
+  ...FIRST_STEP,
 };
 
 /** Shaped like the sub-agent join tools (ADR-0073). */
