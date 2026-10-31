@@ -4,7 +4,7 @@ This document records how Alfred works as a product, flow by flow. The owner sta
 
 Each section has three parts: the owner's model, the verified model, and the known gaps. File references are relative to `packages/` unless a different root is given.
 
-Last verified: 2026-10-20 at `fd13e6427`.
+Last verified: 2026-10-20 at `fd13e6427`. A section or a part that names a different commit was verified at that commit.
 
 ---
 
@@ -141,16 +141,18 @@ Last verified: 2026-10-20 at `fd13e6427`.
 - `CHAT_MEMORY_CAPTURE_ENABLED` is off by default (`env/src/server.ts:305`). When it is on, a job runs 12 minutes after the thread goes quiet. The job extracts propositions, but it writes nothing (`chat/chat-memory-capture.ts:235`, `TODO(#399)`).
 - The only chat tool that writes memory is `system.remember`, and it stores only a standing instruction about mail (ADR-0113): the user's words, a scope that triage matches by meaning, the senders the words name, and the chosen effects. The user confirms each one on a card, also under full autonomy. The other memory tools list, edit, or forget those instructions. So Alfred does not keep "I prefer morning meetings" or "I am on X this week".
 
-**What chat can read.**
+**What chat can read** (the todo tools verified 2026-10-31 at `4b9b0d256`).
 
 - `read_user_context` (`knowledge/user-context.ts:285`): profile, confirmed `user_facts`, the legacy `entities` and their relations, and recent memory.
 - `search_context` (`context-search/default-sources.ts:13`): documents, memory chunks, object state, and Drive.
+- `system.list_todos` (`tool-runtime/internal/tools/system.ts:620`, task `tasks/list.ts:46`), after a load: the user's todos with their ids. The default filter is the live todos, `suggested` and `open` (`:49-50`). The limit is 20 by default and 50 at most (`contracts/src/tool-schemas.ts:1599`).
+- `system.resolve_todo` with kind `todo_ids` (`system.ts:645`, task `tasks/resolve.ts:282`) dismisses the todos that chat chose by id, for example from `system.list_todos`. The write changes only the live todos of the user. The result is `dismissed` if the write changed one or more todos, `not_live` if it changed none and one or more ids are todos of the user that are not live, and `not_found` if no id is a todo of the user (`:326-332`). Each id that did not change is under `skipped`, with its reason.
 - The provider tools, after a load.
-- No tool reads the user's todos, past briefings, or triage tags. A search for `todos`, `briefing`, and `email_triage` in `context-search/` and `knowledge/user-context.ts` finds nothing.
+- No tool reads past briefings or triage tags. A search for `briefing` and `email_triage` in `context-search/` and `knowledge/user-context.ts` finds nothing.
 
 **Gaps.**
 
-- Chat cannot see what the other flows produce: todos, briefings, and triage tags. "What is on my plate?" has no direct answer.
+- Chat cannot see two things that the other flows produce: briefings and triage tags. `system.list_todos` reads the todos, but it is not in the kernel. A run gets it only from the preload, the carryover, or `search_tools` and `load_tool`.
 - Chat memory capture writes nothing. From chat, only a sender suppression persists. This is the main gap of the standing-instructions vision ("say it in chat, and Alfred keeps it").
 - `read_user_context` reads the legacy `entities`, not `entity_nodes` (see `context-graph.md`, point 1).
 - The prompt says "Write actions … are gated" (`chat-turn.ts:165`). The policy gates every non-system call in Review mode, reads too. The prompt and the policy do not agree.

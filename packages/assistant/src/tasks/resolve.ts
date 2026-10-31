@@ -1,22 +1,26 @@
 import {
   normalizeEmailAddress,
   parseGmailDocumentMetadata,
+  resolveTodoIdsSchema,
   standingInstructionTargetSchema,
   targetMatchesSender,
   targetNamesOneMailbox,
   todoAttributionSchema,
   todoSourcesSchema,
+  LIVE_TODO_STATUSES,
   type TodoAttribution,
   type TodoSource,
+  type TodoStatus,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, todos } from "@alfred/db/schemas";
 import { and, eq, inArray, or, sql } from "drizzle-orm";
+import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
 
 /** Live statuses a dismissal may target. */
-const liveTodoStatusSchema = z.enum(["open", "suggested"]);
+const liveTodoStatusSchema = z.enum(LIVE_TODO_STATUSES);
 
 const resolveTodosForGmailSourceArgsSchema = z
   .object({
@@ -57,10 +61,6 @@ const resolveTodosForGmailSourceArgsSchema = z
   );
 
 export type ResolveTodosForGmailSourceArgs = z.infer<typeof resolveTodosForGmailSourceArgsSchema>;
-
-const DEFAULT_RETRACTABLE_STATUSES = ["open", "suggested"] as const satisfies ReadonlyArray<
-  z.infer<typeof liveTodoStatusSchema>
->;
 
 export type ResolveTodosForGmailSourceResult =
   | {
@@ -121,13 +121,12 @@ export async function resolveTodosForGmailSource(
   const requestedTodoIds = parsed.todoIds ? new Set(parsed.todoIds) : null;
   const accountId = normalizeOptional(parsed.accountId);
   const targets = parsed.targets ?? null;
-  const record = todoAttributionSchema.parse(attribution);
-  const note = normalizeOptional(record.note);
-  const auditReason = note ?? record.cause;
+  const dismissal = dismissalWrite(attribution);
+  const auditReason = dismissal.auditReason;
 
   // Load both statuses for a target sweep. Each target bounds its own matches below.
   // The schema refuses `statuses` with `targets`.
-  const statuses = parsed.statuses ?? DEFAULT_RETRACTABLE_STATUSES;
+  const statuses = parsed.statuses ?? LIVE_TODO_STATUSES;
 
   if (!senderEmail && !sourceThreadId && !targets) {
     return {
@@ -217,12 +216,7 @@ export async function resolveTodosForGmailSource(
 
   const dismissed = await db()
     .update(todos)
-    .set({
-      status: "dismissed",
-      completedAt: null,
-      attribution: { ...record, note },
-      rowVersion: sql`${todos.rowVersion} + 1`,
-    })
+    .set(dismissal.set)
     .where(
       and(
         eq(todos.userId, parsed.userId),
@@ -247,6 +241,99 @@ export async function resolveTodosForGmailSource(
     todoIds: dismissed.map((row) => row.id),
     matchedThreadIds: [...matchedThreadIds],
     auditReason,
+  };
+}
+
+const resolveTodosByIdsArgsSchema = z.object({
+  userId: z.string().min(1),
+  todoIds: resolveTodoIdsSchema,
+});
+
+export type ResolveTodosByIdsArgs = z.infer<typeof resolveTodosByIdsArgsSchema>;
+
+/** Why one requested id was not dismissed. A todo of another user reads as `not_found`. */
+export type ResolveTodoSkip =
+  | { todoId: string; reason: "not_found" }
+  | { todoId: string; reason: "not_live"; status: TodoStatus };
+
+export interface ResolveTodosByIdsResult {
+  ok: true;
+  /**
+   * `dismissed`: the write changed at least one todo; `skipped` lists the rest. `not_live`: it
+   * changed none, and at least one id is a todo of the user that is not live. `not_found`: it
+   * changed none, and no id is a todo of the user.
+   */
+  status: "dismissed" | "not_live" | "not_found";
+  dismissedCount: number;
+  todoIds: string[];
+  /** Each requested id that the write did not change, with the reason. */
+  skipped: ResolveTodoSkip[];
+  /** The write's `note`, else its `cause`. Echoed for the model and the log. */
+  auditReason: string | null;
+}
+
+/**
+ * Dismiss the named todos (`system.resolve_todo`, kind `todo_ids`). The UPDATE itself applies
+ * the id list, the user scope, and the live statuses, so no prior read is trusted. A read after
+ * the write reports each id that the write did not change: `not_live` with the current status
+ * for a todo of the user, else `not_found`. A todo that the user promoted after the caller read it
+ * is still dismissed: the ADR-0116 drift guard (`row_version`) owns that case.
+ */
+export async function resolveTodosByIds(
+  args: ResolveTodosByIdsArgs,
+  attribution: TodoAttribution,
+): Promise<ResolveTodosByIdsResult> {
+  const parsed = resolveTodosByIdsArgsSchema.parse(args);
+  const requested = [...new Set(parsed.todoIds)];
+  const dismissal = dismissalWrite(attribution);
+
+  const dismissed = await db()
+    .update(todos)
+    .set(dismissal.set)
+    .where(
+      and(
+        eq(todos.userId, parsed.userId),
+        inArray(todos.id, requested),
+        inArray(todos.status, liveTodoStatusSchema.options),
+      ),
+    )
+    .returning({ id: todos.id });
+
+  const dismissedIds = new Set(dismissed.map((row) => row.id));
+  const rest = requested.filter((id) => !dismissedIds.has(id));
+
+  const current =
+    rest.length > 0
+      ? await db()
+          .select({ id: todos.id, status: todos.status })
+          .from(todos)
+          .where(and(eq(todos.userId, parsed.userId), inArray(todos.id, rest)))
+      : [];
+
+  const statusById = new Map(current.map((row) => [row.id, row.status]));
+
+  if (dismissed.length > 0) emitReplicachePokes([parsed.userId]);
+
+  const skipped = rest.map((todoId): ResolveTodoSkip => {
+    const status = statusById.get(todoId);
+
+    return status === undefined
+      ? { todoId, reason: "not_found" }
+      : { todoId, reason: "not_live", status };
+  });
+
+  return {
+    ok: true,
+    status:
+      dismissed.length > 0
+        ? "dismissed"
+        : skipped.some((skip) => skip.reason === "not_live")
+          ? "not_live"
+          : "not_found",
+    dismissedCount: dismissed.length,
+    todoIds: requested.filter((id) => dismissedIds.has(id)),
+    skipped,
+    auditReason: dismissal.auditReason,
   };
 }
 
@@ -340,6 +427,26 @@ async function loadThreadMetadata(
 
 function metadataSenderEmail(metadata: unknown): string | null {
   return normalizeEmailAddress(parseGmailDocumentMetadata(metadata).from);
+}
+
+/**
+ * The ADR-0115 record of one dismissal and the column values of its UPDATE. It parses the
+ * attribution and builds values only: it reads and writes nothing.
+ */
+function dismissalWrite(attribution: TodoAttribution) {
+  const record = todoAttributionSchema.parse(attribution);
+  const note = normalizeOptional(record.note);
+
+  return {
+    /** The write's `note`, else its `cause`. */
+    auditReason: note ?? record.cause,
+    set: {
+      status: "dismissed",
+      completedAt: null,
+      attribution: { ...record, note },
+      rowVersion: sql`${todos.rowVersion} + 1`,
+    } satisfies PgUpdateSetSource<typeof todos>,
+  };
 }
 
 function normalizeOptional(value: string | null | undefined): string | null {

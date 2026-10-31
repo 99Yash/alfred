@@ -32,7 +32,7 @@ import { mcpCallInput, mcpToolInspectInputSchema, mcpToolSearchInputSchema } fro
 import { restPassthroughRequestSchema } from "./passthrough";
 import { typedKeys } from "./records";
 import { STANDING_INSTRUCTION_CAPTURE_EFFECT_KINDS } from "./standing-instructions";
-import { todoSourceSchema } from "./todos";
+import { LIVE_TODO_STATUSES, TODO_STATUSES, todoSourceSchema } from "./todos";
 import { triageCategorySchema } from "./triage";
 import {
   GMAIL_SEARCH_DEFAULT_RESULTS,
@@ -1578,41 +1578,121 @@ export const editInstructionInput = z
   })
   .strict();
 
-export const resolveTodoInput = z
+/** `live` is {@link LIVE_TODO_STATUSES}. */
+export const LIST_TODOS_STATUS_FILTERS = ["live", ...TODO_STATUSES] as const;
+
+/** The hard cap on rows in one `system.list_todos` result. */
+export const LIST_TODOS_MAX_LIMIT = 50;
+
+/** The row count of one `system.list_todos` result when the model passes no `limit`. */
+export const LIST_TODOS_DEFAULT_LIMIT = 20;
+
+/** The hard cap on ids in one `system.resolve_todo` call of kind `todo_ids`. */
+export const RESOLVE_TODO_IDS_MAX = 50;
+
+/** The todo ids of one `system.resolve_todo` call of kind `todo_ids`. The task re-parses with it. */
+export const resolveTodoIdsSchema = z
+  .array(z.string().trim().min(1).max(100))
+  .min(1)
+  .max(RESOLVE_TODO_IDS_MAX);
+
+export const listTodosInput = z
   .object({
-    kind: z
-      .literal("gmail_sender")
-      .describe("Dismiss live todos that came from Gmail threads matching a sender/source."),
-    senderEmail: z
-      .string()
-      .trim()
-      .toLowerCase()
-      .max(320)
-      .optional()
+    status: z
+      .enum(LIST_TODOS_STATUS_FILTERS)
+      .default("live")
       .describe(
-        "Resolved sender email. If unresolved, omit it and provide sourceThreadId if known.",
+        `\`live\` (default) returns the todos in the rail: ` +
+          `${LIVE_TODO_STATUSES.map((status) => `\`${status}\``).join(" and ")}. Pass one ` +
+          "status to read only that status, for example `done` or `dismissed`.",
       ),
-    sourceThreadId: z
-      .string()
-      .trim()
-      .max(512)
-      .optional()
-      .describe("Optional Gmail thread id to resolve exactly."),
-    accountId: z
-      .string()
-      .trim()
-      .max(200)
-      .nullable()
-      .optional()
-      .describe("Optional account scope. Null or omitted means match across accounts."),
-    reason: z
-      .string()
-      .trim()
-      .max(1_000)
-      .optional()
-      .describe("Short audit reason for why the todo is being dismissed."),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(LIST_TODOS_MAX_LIMIT)
+      .default(LIST_TODOS_DEFAULT_LIMIT)
+      .describe(
+        `Maximum todos to return (1-${LIST_TODOS_MAX_LIMIT}, default ${LIST_TODOS_DEFAULT_LIMIT}), ` +
+          "most recently changed first.",
+      ),
   })
   .strict();
+
+/**
+ * One object with `kind` as the discriminant, because a top-level union serializes to a
+ * typeless `oneOf`. `gmail_sender` matches by sender, thread, or account; `todo_ids` names
+ * the todos. The refinements keep each kind to its own fields.
+ */
+export const resolveTodoInput = coerceJsonArrayFields(
+  ["todoIds"],
+  z
+    .object({
+      kind: z
+        .enum(["gmail_sender", "todo_ids"])
+        .describe(
+          "`gmail_sender`: the live todos from the Gmail threads of a sender, a thread, or an " +
+            "account. `todo_ids`: the exact todos in `todoIds`.",
+        ),
+      todoIds: resolveTodoIdsSchema
+        .optional()
+        .describe(
+          `Required for \`todo_ids\`, invalid for \`gmail_sender\`: the ids of the todos to ` +
+            `dismiss (1-${RESOLVE_TODO_IDS_MAX}). An id that is not a live todo of the user is ` +
+            "reported under `skipped` and is not changed.",
+        ),
+      senderEmail: z
+        .string()
+        .trim()
+        .toLowerCase()
+        .max(320)
+        .optional()
+        .describe(
+          "`gmail_sender` only. Resolved sender email. If unresolved, omit it and provide " +
+            "sourceThreadId if known.",
+        ),
+      sourceThreadId: z
+        .string()
+        .trim()
+        .max(512)
+        .optional()
+        .describe("`gmail_sender` only. Optional Gmail thread id to resolve exactly."),
+      accountId: z
+        .string()
+        .trim()
+        .max(200)
+        .nullable()
+        .optional()
+        .describe(
+          "`gmail_sender` only. Optional account scope. Null or omitted means match across " +
+            "accounts.",
+        ),
+      reason: z
+        .string()
+        .trim()
+        .max(1_000)
+        .optional()
+        .describe("Short audit reason for why the todo is being dismissed."),
+    })
+    .strict()
+    .refine((v) => v.kind !== "todo_ids" || v.todoIds !== undefined, {
+      message: "todoIds is required when kind is 'todo_ids'",
+      path: ["todoIds"],
+    })
+    .refine((v) => v.kind !== "gmail_sender" || v.todoIds === undefined, {
+      message: "todoIds is only for kind 'todo_ids'",
+      path: ["todoIds"],
+    })
+    .refine(
+      (v) =>
+        v.kind !== "todo_ids" ||
+        (v.senderEmail === undefined && v.sourceThreadId === undefined && v.accountId == null),
+      {
+        message: "kind 'todo_ids' takes no senderEmail, sourceThreadId, or accountId",
+        path: ["kind"],
+      },
+    ),
+);
 
 export const webSearchInput = z
   .object({
@@ -2092,6 +2172,7 @@ export const TOOL_INPUT_SCHEMAS = {
   "system.list_instructions": listInstructionsInput,
   "system.forget_instruction": forgetInstructionInput,
   "system.edit_instruction": editInstructionInput,
+  "system.list_todos": listTodosInput,
   "system.resolve_todo": resolveTodoInput,
   "system.suggest_todo": suggestTodoInput,
   "system.web_search": webSearchInput,

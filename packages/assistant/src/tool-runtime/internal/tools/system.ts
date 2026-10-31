@@ -10,6 +10,7 @@ import {
   editInstructionInput,
   forgetInstructionInput,
   listInstructionsInput,
+  listTodosInput,
   loadToolInput,
   currentTimeInput,
   promoteScratchInput,
@@ -48,6 +49,7 @@ import {
   editInstruction,
   forgetInstruction,
   listInstructions,
+  listTodos,
   readChatHistory,
   readChildRunOutcome,
   readUserContext,
@@ -617,11 +619,41 @@ export const systemTools: readonly RegisteredTool[] = [
   }),
   liveTool({
     integration: "system",
+    action: "list_todos",
+    riskTier: "no_risk",
+    replay: "safe",
+    description:
+      "List the user's todos (each with its `id`, `name`, `status`, `dueDate`, `sources`, and " +
+      "`creatorActor`). Never changes a todo. By default it returns the live todos in the rail " +
+      "(`suggested` and `open`); pass `status` for one other status. Call it when the user " +
+      "asks what is on their list, or to get the ids for resolve_todo with kind `todo_ids`. " +
+      "`creatorActor` is null when the creation was not recorded. The result is capped; if " +
+      "`truncated` is true, say that the list is partial.",
+    inputSchema: listTodosInput,
+    execute: async (input, ctx) => {
+      return await listTodos({
+        input,
+        context: {
+          userId: ctx.userId,
+          runId: ctx.runId,
+          stepId: ctx.stepId,
+          toolCallId: ctx.toolCallId,
+        },
+      });
+    },
+  }),
+  liveTool({
+    integration: "system",
     action: "resolve_todo",
     riskTier: "no_risk",
     replay: "safe",
     description:
-      "Dismiss live todos by resolved Gmail sender or Gmail thread source. Use after storing a sender suppression so current matching todos disappear instead of lingering.",
+      "Dismiss live todos. Kind `gmail_sender` dismisses the todos from the Gmail threads of a " +
+      "resolved sender or a thread: use it when the user names a sender or an email, and after " +
+      "storing a sender suppression so current matching todos disappear instead of lingering. " +
+      "Kind `todo_ids` dismisses the exact todos in `todoIds`: use it when you chose the todos " +
+      "by id, for example from list_todos. An id that is not a live todo of the user is not " +
+      "changed and is returned under `skipped` with its reason.",
     inputSchema: resolveTodoInput,
     execute: async (input, ctx) => {
       return await resolveTodo({

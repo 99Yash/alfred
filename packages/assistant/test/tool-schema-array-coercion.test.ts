@@ -192,6 +192,10 @@ const FIXTURES = {
     },
     arrayFields: ["targets", "senderFilter", "effects", "replaces", "coexistsWith"],
   },
+  "system.resolve_todo": {
+    base: { kind: "todo_ids", todoIds: ["todo_1", "todo_2"] },
+    arrayFields: ["todoIds"],
+  },
   "system.suggest_todo": {
     base: {
       name: "Reply to the vendor contract",

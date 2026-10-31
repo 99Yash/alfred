@@ -2,6 +2,7 @@ import { sanitizeVoice } from "@alfred/ai/voice";
 import {
   assertNever,
   boundTodoSources,
+  LIVE_TODO_STATUSES,
   mergeTodoSources,
   todoSourceKey,
   todoAttributionSchema,
@@ -80,7 +81,7 @@ export async function suggestTodo(input: SuggestTodoInput): Promise<SuggestTodoR
           and(
             eq(todos.userId, input.userId),
             or(
-              inArray(todos.status, ["open", "suggested"]),
+              inArray(todos.status, LIVE_TODO_STATUSES),
               // Recently resolved rows too, so handled work is not re-suggested.
               and(
                 inArray(todos.status, ["done", "dismissed"]),

@@ -298,6 +298,8 @@ describe("runtime adapter lifecycle", () => {
       };
 
       const tasks: SystemToolTaskAdapter = {
+        listTodos: () =>
+          Promise.resolve({ todos: [], status: "live", limit: 20, truncated: false } as const),
         resolveTodo: () =>
           Promise.resolve({
             ok: true,

@@ -18,6 +18,14 @@ export type TodoStatus = (typeof TODO_STATUSES)[number];
 
 export const todoStatusSchema = z.enum(TODO_STATUSES);
 
+/**
+ * The live todos: the ones the rail shows and a dismissal may target. The `live` filter of
+ * `system.list_todos` reads this set.
+ */
+export const LIVE_TODO_STATUSES = ["suggested", "open"] as const satisfies readonly TodoStatus[];
+
+export type LiveTodoStatus = (typeof LIVE_TODO_STATUSES)[number];
+
 // ─── Authorship ──────────────────────────────────────────────────────────
 
 /** Survives promotion, so suggestion acceptance stays measurable. */
