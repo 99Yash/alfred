@@ -5,7 +5,7 @@ import { after, before, describe, test } from "node:test";
 
 import { getPath } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
-import { agentDecisionTraces, agentRuns, pendingActions, user } from "@alfred/db/schemas";
+import { agentDecisionTraces, agentRuns, user } from "@alfred/db/schemas";
 import { eq, inArray, like } from "drizzle-orm";
 
 import { runOnce } from "@alfred/assistant/execution/executor";
@@ -126,11 +126,6 @@ const poisonWorkflow: Workflow<TestState> = {
     "poison-next": {
       id: "poison-next",
       run: async (ctx): Promise<StepResult<TestState>> => {
-        ctx.stageAction({
-          kind: "test.noop",
-          payload: { body: `staged${NUL}payload`, nested: { x: `s${LONE_SURROGATE}` } },
-          idempotencyKey: `${ctx.runId}:staged`,
-        });
         // The decision-trace sink takes the same strip path.
         ctx.trace("triage.classification", traceFixture(`rel${NUL}poison`));
         ctx.trace("triage.classification", traceFixture(`secondary${LONE_SURROGATE}poison`), {
@@ -208,29 +203,12 @@ describe("commit sanitizes executor jsonb sinks (DB-backed)", { skip: SKIP }, ()
     await closeConnections();
   });
 
-  test("a step returning poisoned state/transcript/staged payload commits clean", async () => {
+  test("a step returning poisoned state/transcript/traces commits clean", async () => {
     const { runId } = await seedRunnableRun();
 
     const first = await runOnce(runId);
     assert.equal(first.kind, "advanced", "the poisoned `next` commit must succeed, not throw");
     assert.equal(first.nextStep, "poison-done");
-
-    const staged = await db()
-      .select({ payload: pendingActions.payload })
-      .from(pendingActions)
-      .where(eq(pendingActions.runId, runId));
-
-    const payload = staged[0]?.payload;
-    assert.equal(
-      getPath(payload, "body"),
-      "stagedpayload",
-      "NUL stripped from staged payload string",
-    );
-    assert.equal(
-      getPath(payload, "nested", "x"),
-      "s",
-      "lone surrogate stripped from nested staged value",
-    );
 
     const tr = await db()
       .select({

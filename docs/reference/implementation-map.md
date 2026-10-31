@@ -146,10 +146,10 @@ flowchart LR
 | `execution/executor.ts` | One step body per job; `next` / `done` / `defer` semantics |
 | `execution/resolve-workflow.ts` + `registry.ts` | Workflow resolution; builtin slugs never live in the DB |
 | `execution/sub-agent-join-*.ts` | Sub-agent wake (`sub-agent-join-wake` queue) |
-| `execution/approval-*-worker.ts` | `pending_actions` lifecycle (expiry, notification) |
+| `execution/approval-*-worker.ts` | `action_stagings` lifecycle (expiry, notification) |
 | `automation/*` | User workflow authoring, readiness, `workflows-tick` |
 
-Tables: `agent_runs`, `agent_steps`, `pending_actions`, `agent_decision_traces`,
+Tables: `agent_runs`, `agent_steps`, `agent_decision_traces`,
 `agent_run_context`, `workflows`, `workflow_revisions`, `action_stagings`.
 Queues: `agent-runs`, `sub-agent-join-wake`, `staging-expire`, `staging-notify`,
 `workflows-tick`. Surface: `apps/web/src/routes/workflows.$workflow.tsx` + approvals routes.

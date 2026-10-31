@@ -170,7 +170,6 @@ describe("commit attempt-guard (DB-backed)", { skip: SKIP }, () => {
       5,
       { kind: "next", state: {}, nextStep: "dispatch-tools" },
       [],
-      [],
     );
 
     assert.equal(outcome.kind, "advanced");
@@ -191,7 +190,6 @@ describe("commit attempt-guard (DB-backed)", { skip: SKIP }, () => {
       2,
       { kind: "defer", state: { readinessDeferrals: 1 }, retryAt },
       [],
-      [],
     );
 
     assert.equal(outcome.kind, "deferred");
@@ -211,7 +209,6 @@ describe("commit attempt-guard (DB-backed)", { skip: SKIP }, () => {
       4,
       { kind: "blocked", state: {}, output: { code: "needs_reauth" } },
       [],
-      [],
     );
 
     assert.equal(outcome.kind, "blocked");
@@ -230,7 +227,6 @@ describe("commit attempt-guard (DB-backed)", { skip: SKIP }, () => {
       STEP,
       5,
       { kind: "next", state: { wrote: "should-not-land" }, nextStep: "dispatch-tools" },
-      [],
       [],
     );
 
@@ -255,7 +251,6 @@ describe("commit attempt-guard (DB-backed)", { skip: SKIP }, () => {
       STEP,
       3,
       { kind: "done", state: {}, output: { messageId: "msg_x" } },
-      [],
       [],
     );
 

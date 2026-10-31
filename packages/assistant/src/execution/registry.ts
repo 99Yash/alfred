@@ -14,16 +14,6 @@ import type { WorkflowClosure } from "./terminal-closure";
 
 type MaybePromise<T> = T | Promise<T>;
 
-/** An outbound effect committed with the step and fired later by the dispatcher. */
-export interface StagedAction {
-  kind: string;
-  payload: unknown;
-  /**
-   * Defaults to `${runId}:${stepId}:${attempt}:${kind}`; set it when a step stages two of one kind.
-   */
-  idempotencyKey?: string;
-}
-
 /**
  * What a step returns. `blocked` ends the run on a readiness failure the user must fix;
  * `interrupt` parks it until the wake condition fires.
@@ -65,11 +55,6 @@ export interface StepContext<S> {
   fence: CancellationFence;
   state: S;
   transcript: TranscriptMessage[];
-  /**
-   * Commit an outbound effect with this step's result.
-   * A re-run is a no-op because `idempotencyKey` is unique on `pending_actions`.
-   */
-  stageAction(action: StagedAction): void;
   /**
    * Best-effort progress frame to the user's realtime channel (ADR-0005).
    * Never rejects: a publish fault goes to the process log and the frame is lost.
