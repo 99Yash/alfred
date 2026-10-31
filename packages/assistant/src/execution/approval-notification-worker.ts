@@ -22,6 +22,7 @@ import {
   APPROVAL_NOTIFICATION_QUEUE_NAME,
   approvalNotificationJobDataSchema,
   workflowBlockedNotificationJobDataSchema,
+  type ApprovalNotificationJobData,
   type NotificationJobData,
 } from "@alfred/assistant/tool-runtime";
 import { emailLogoUrl, webOrigin } from "@alfred/assistant/settings";
@@ -80,10 +81,8 @@ async function processNotificationJob(
 async function processApprovalNotificationJob({
   stagingId,
   userId,
-}: {
-  stagingId: string;
-  userId: string;
-}): Promise<ApprovalNotificationResult> {
+  claimedAtMs,
+}: ApprovalNotificationJobData): Promise<ApprovalNotificationResult> {
   const rows = await db()
     .select({
       id: actionStagings.id,
@@ -112,6 +111,11 @@ async function processApprovalNotificationJob({
   if (row.status !== "pending") return { status: "skipped", reason: row.status, stagingId };
 
   if (row.notifiedAt) return { status: "skipped", reason: "already_notified", stagingId };
+
+  // Each card generation has its own job. A job for another card must not send this card early.
+  if (claimedAtMs !== row.dispatchClaimedAt?.getTime()) {
+    return { status: "skipped", reason: "other_card", stagingId };
+  }
 
   // Use the redacted `display_input`, never the raw payload (#374). The fallback is for legacy
   // rows.

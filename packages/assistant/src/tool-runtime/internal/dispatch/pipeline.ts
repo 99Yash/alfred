@@ -473,7 +473,11 @@ const resumeSavedStagingStage: DispatchStage<ResolvedDispatch, ResolvedDispatch>
   const fence = await stagingStore().readCancellationFence(args.runId);
 
   if (fence.generation > args.fence.generation) {
-    return { kind: "fenced", stagingId: null, result: synthesizeCancelledByFence() };
+    return {
+      kind: "fenced",
+      stagingId: null,
+      result: synthesizeCancelledByFence(row.dispatchClaimedAt !== null),
+    };
   }
 
   const unavailableRun = await refuseUnavailableRun(resolved, args.input);
@@ -495,9 +499,11 @@ const resumeSavedStagingStage: DispatchStage<ResolvedDispatch, ResolvedDispatch>
         break;
       case "fenced":
         return closeFencedRow(row, dispatchContext(resolved));
+      // Do not write the row. A run that ended without a cancel must not label the call cancelled.
       case "lease_lost":
+      case "run_ended":
         throw new Error(
-          `[dispatch] ${toolName} not restaged: lease lost (run=${args.runId}, staging=${row.id}, attempt=${args.attempt})`,
+          `[dispatch] ${toolName} not restaged: ${restage.kind} (run=${args.runId}, staging=${row.id}, attempt=${args.attempt})`,
         );
       default:
         return assertNever(restage, "interrupted restage result");
@@ -704,7 +710,7 @@ const suppressRepeatedStage: DispatchStage<ValidatedDispatch, SuppressedDispatch
     return {
       kind: "fenced",
       stagingId: null,
-      result: synthesizeCancelledByFence(),
+      result: synthesizeCancelledByFence(false),
     };
   }
 
@@ -1080,6 +1086,7 @@ async function waitForStagingApproval(
       stagingId: row.id,
       userId: args.userId,
       delayMs,
+      claimedAt: row.dispatchClaimedAt,
     });
   }
 
@@ -1491,11 +1498,21 @@ async function commitAndPoke(
 ): Promise<void> {
   const committed = await stagingStore().commitStaging(
     row.id,
-    { status: row.status, outcome: row.outcome },
+    { status: row.status, outcome: row.outcome, dispatchClaimedAt: row.dispatchClaimedAt },
     commit,
   );
 
-  if (committed && row.requiresApproval) emitReplicachePokes([ctx.userId], row.id);
+  if (!committed) {
+    // The row moved on without this attempt, for example a zombie after a restage or "Run again".
+    logger.warn(
+      { runId: ctx.runId, stagingId: row.id, status: commit.status },
+      "[dispatch] staging commit lost; the row keeps its current state",
+    );
+
+    return;
+  }
+
+  if (row.requiresApproval) emitReplicachePokes([ctx.userId], row.id);
 }
 
 /**
@@ -1544,7 +1561,10 @@ async function restageInterruptedCall(
   return restage;
 }
 
-/** Close the row of a call that a cancel fenced off before it ran, and return the fenced result. */
+/**
+ * Close the row of a call that a cancel fenced off, and return the fenced result. A claimed row
+ * (a cancel during a restage) may have reached the provider, so its result says so.
+ */
 async function closeFencedRow(row: StagingRow, ctx: ToolExecuteContext): Promise<DispatchResult> {
   await commitAndPoke(row, ctx, {
     status: "failed",
@@ -1556,7 +1576,7 @@ async function closeFencedRow(row: StagingRow, ctx: ToolExecuteContext): Promise
   return {
     kind: "fenced",
     stagingId: row.id,
-    result: synthesizeCancelledByFence(),
+    result: synthesizeCancelledByFence(row.dispatchClaimedAt !== null),
   };
 }
 
@@ -1577,26 +1597,36 @@ async function executeAndCommit(
 
   if (fence.generation > opts.expectedFence.generation) return closeFencedRow(row, ctx);
 
+  // The row that the commits below expect. After a claim it carries the claim time.
+  let runRow = row;
+
   // Mark an `unsafe` call as started, so a crash from here on cannot run it again unasked. A safe
   // tool skips the claim, so the MCP broker's `dispatching` contract does not change.
   if (call.tool.replay === "unsafe") {
-    const claim = await stagingStore().claimDispatch(row.id, {
-      runId: ctx.runId,
-      attempt: opts.attempt,
-      fence: opts.expectedFence,
-    });
+    const claimedAt = new Date();
+
+    const claim = await stagingStore().claimDispatch(
+      row.id,
+      { runId: ctx.runId, attempt: opts.attempt, fence: opts.expectedFence },
+      claimedAt,
+    );
 
     // A cancel that landed after the fence read above.
     if (claim === "fenced") return closeFencedRow(row, ctx);
 
     // Throw, do not write the row. On `lease_lost` the row belongs to the attempt that won, and
-    // the step commit's ownership guard skips this attempt as superseded. `not_claimable` under
-    // a live lease fails the run: the row left the runnable state, so the run fails closed.
+    // the step commit's ownership guard skips this attempt as superseded. On `run_ended` the run
+    // ended without a cancel, and the guard skips this attempt too. `not_claimable` under a live
+    // lease fails the run: the row left the runnable state, so the run fails closed.
     if (claim !== "claimed") {
       throw new Error(
         `[dispatch] ${call.tool.name} not run: dispatch claim ${claim} (run=${ctx.runId}, staging=${row.id}, attempt=${opts.attempt})`,
       );
     }
+
+    // The commit fences on this claim time. If this attempt becomes a zombie, a restage and
+    // "Run again" clear or replace the claim, so its late commit cannot overwrite the new run.
+    runRow = { ...row, dispatchClaimedAt: claimedAt };
   }
 
   let execution: ToolExecution;
@@ -1611,7 +1641,7 @@ async function executeAndCommit(
       { err, event: "tool_execution_failed", toolName: call.tool.name, runId: ctx.runId },
       error.message,
     );
-    await commitAndPoke(row, ctx, {
+    await commitAndPoke(runRow, ctx, {
       status: "failed",
       outcome: "failed",
       error,
@@ -1643,7 +1673,7 @@ async function executeAndCommit(
 
   // Possibly delivered without confirmation, so the repeat barrier must see `unknown`.
   const outcome = isUnknownEffectEnvelope(persistedResult) ? "unknown" : "succeeded";
-  await commitAndPoke(row, ctx, {
+  await commitAndPoke(runRow, ctx, {
     status: "executed",
     outcome,
     result: persistedResult,
@@ -1727,13 +1757,16 @@ function synthesizeBlockedByUnknownEffect(): UnknownEffectEnvelope {
   });
 }
 
-function synthesizeCancelledByFence(): CancellationEnvelope {
+/** `mayHaveRun`: an earlier attempt claimed the call, so it may have reached the provider. */
+function synthesizeCancelledByFence(mayHaveRun: boolean): CancellationEnvelope {
   return cancellationEnvelopeSchema.parse({
     status: "cancelled",
     retry: "never",
-    message:
-      "The run was cancelled while this call was pending. It did not run and " +
-      "will not be repeated; do not re-issue it.",
+    message: mayHaveRun
+      ? "The run was cancelled after this call started. It may have already run. It will not be " +
+        "repeated; do not re-issue it. Check the target state instead."
+      : "The run was cancelled while this call was pending. It did not run and " +
+        "will not be repeated; do not re-issue it.",
   });
 }
 

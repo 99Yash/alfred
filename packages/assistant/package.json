@@ -4,6 +4,7 @@
   "exports": {
     "./boot-port": "./src/boot-port.ts",
     "./search-words": "./src/search-words.ts",
+    "./queue-jobs": "./src/queue-jobs.ts",
     "./time": "./src/time/index.ts",
     "./delivery": "./src/delivery/index.ts",
     "./triggers": "./src/triggers/index.ts",

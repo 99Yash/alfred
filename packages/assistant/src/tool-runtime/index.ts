@@ -24,6 +24,7 @@ import type {
   WorkflowRecoveryNavigation,
   WorkflowRequiredCapability,
 } from "@alfred/contracts";
+import type { DbTransaction } from "@alfred/db";
 import type { z } from "zod";
 import { bootPort } from "@alfred/assistant/boot-port";
 import type { ToolCallRoundAdapter } from "./internal/adapter";
@@ -371,6 +372,44 @@ const systemToolAgentAdapterPort = bootPort<SystemToolAgentAdapter>("system-tool
 /** Runtime composition installs the agent-behavior handler at boot. */
 export function registerSystemToolAgentAdapter(adapter: SystemToolAgentAdapter): () => void {
   return systemToolAgentAdapterPort.install(adapter);
+}
+
+/** The step identity that a dispatch claim fences on. Execution's `StepLease` satisfies it. */
+export interface DispatchStepLease {
+  runId: string;
+  attempt: number;
+  fence: CancellationFence;
+}
+
+/**
+ * Surface:  chat.
+ * Owns/hides: the executor's run-ownership check under the `agent_runs` row lock. Hides the executor.
+ * Why the seam: inverts tool-runtime -> execution, so a dispatch claim uses the step commit's own
+ *   predicate, not a copy of it.
+ * Wiring: execution/dispatch-lease-adapter.ts installs; internal/dispatch/staging-store.ts reads.
+ * See: ADR-0089, ADR-0034 amendment 2026-10-31, and docs/reference/tool-runtime-map.md.
+ */
+export interface DispatchLeaseAdapter {
+  /**
+   * Run `write` in one transaction after the run lock and the ownership check. `reclaim`: another
+   * attempt owns the run. `terminal`: a cancel moved the fence, or the run is terminal.
+   */
+  withStepLease<T>(
+    lease: DispatchStepLease,
+    write: (tx: DbTransaction) => Promise<T>,
+  ): Promise<{ ok: true; value: T } | { ok: false; cause: "reclaim" | "terminal" }>;
+}
+
+const dispatchLeaseAdapterPort = bootPort<DispatchLeaseAdapter>("dispatch lease adapter");
+
+/** Runtime composition installs the executor's lease check at boot. */
+export function registerDispatchLeaseAdapter(adapter: DispatchLeaseAdapter): () => void {
+  return dispatchLeaseAdapterPort.install(adapter);
+}
+
+/** The executor's lease check. Throws when no adapter is installed, so a claim fails closed. */
+export function dispatchLease(): DispatchLeaseAdapter {
+  return dispatchLeaseAdapterPort.read();
 }
 
 /** A bounded excerpt. The truncation facts stop a cut excerpt from reading as complete. */

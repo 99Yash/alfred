@@ -44,7 +44,7 @@ holds only the registration line. The object-state fold is the example:
 beside the ADR-0062 reducers and store it calls (#986), and it builds one
 consumer per inbound source rather than one file per provider (#1090).
 
-## The eleven seams
+## The twelve seams
 
 Each seam is a `bootPort<T>` slot. The composition root installs one concrete
 value at boot, and a peer reads it. The `src/boot-port.ts` file defines the
@@ -55,6 +55,7 @@ factory (`@alfred/assistant/boot-port`); it is not itself a seam.
 | `ToolRuntimeAdapter`             | chat      | `surface-adapter.ts` installs → the runtime forwarders read              |
 | `ToolCallRoundAdapter`           | chat      | dispatch installs → `executeToolCallRound` reads                         |
 | `SystemToolAgentAdapter`         | chat      | agent installs → the system tools read                                   |
+| `DispatchLeaseAdapter`           | chat      | execution installs → the dispatch staging store reads                    |
 | `SystemToolChatHistoryAdapter`   | chat      | chat installs → the system tools read                                    |
 | `SystemToolWorkflowAdapter`      | chat      | workflows installs → the system tools read                               |
 | `SystemToolKnowledgeAdapter`     | chat      | runtime composition installs → the system tools read                     |
@@ -64,12 +65,12 @@ factory (`@alfred/assistant/boot-port`); it is not itself a seam.
 | `SystemToolContextSearchAdapter` | chat      | runtime composition installs → the `system.search_context` tool reads    |
 | `WorkflowToolCatalogSource`      | workflows | `workflow-tool-catalog-source.ts` installs → `workflowToolCatalog` reads |
 
-The first ten seams live in `tool-runtime/index.ts`. The eleventh lives in
-`tool-runtime/workflow-tool-catalog.ts`. Each of the eleven seams carries a fixed four-field
+The first eleven seams live in `tool-runtime/index.ts`. The twelfth lives in
+`tool-runtime/workflow-tool-catalog.ts`. Each of the twelve seams carries a fixed four-field
 header (`Surface:`, `Owns/hides:`, `Why the seam:`, `Wiring:`), and
 `scripts/check-module-architecture.mjs` fails when a `bootPort` file inside
 `tool-runtime/` lacks it. A `bootPort` slot outside `tool-runtime/` is not one of
-the eleven seams and carries no header check.
+the twelve seams and carries no header check.
 
 ## Why the seams exist
 
@@ -81,6 +82,9 @@ small boot-time interface:
   `connections` -> `@alfred/db` reach, out of the eager `tool-runtime` barrel.
 - `ToolCallRoundAdapter` keeps the dispatch value graph out of the eager barrel.
 - `SystemToolAgentAdapter` inverts `tool-runtime -> execution`.
+- `DispatchLeaseAdapter` inverts `tool-runtime -> execution` for the dispatch
+  claim, so the claim runs the step commit's own lease check (`withStepLease`)
+  and does not copy it.
 - `SystemToolChatHistoryAdapter` inverts `tool-runtime -> chat`.
 - `SystemToolWorkflowAdapter` inverts `tool-runtime -> workflows`.
 - `SystemToolKnowledgeAdapter`, `SystemToolInstructionAdapter`,

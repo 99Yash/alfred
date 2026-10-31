@@ -20,7 +20,6 @@ import {
   assertNever,
   cancellationFenceSchema,
   effectOutcomeSchema,
-  isTerminalStatus,
   jsonValueSchema,
   toJsonValue,
 } from "@alfred/contracts";
@@ -35,6 +34,7 @@ import {
 import { and, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 
 import type { PublicAppError } from "@alfred/contracts/app-errors";
+import { dispatchLease, type DispatchStepLease } from "@alfred/assistant/tool-runtime";
 
 import type { ToolEffects } from "../registry";
 
@@ -108,19 +108,14 @@ export type PendingApprovalPromotion = Pick<
 export type InterruptedRestage = Omit<PendingApprovalPromotion, "proposedInputHash"> &
   Pick<ActionStaging, "toolName">;
 
-/** The lease that a claim fences on: the run's attempt and its cancellation generation. */
-export interface DispatchLease {
-  runId: string;
-  attempt: number;
-  fence: CancellationFence;
-}
-
 /**
  * How a lease check under the run lock ends.
  * - `lease_lost`: another attempt owns the run. Do not write the row: it may belong to the winner.
- * - `fenced`: this attempt still owns the run, but a cancel moved the fence or ended the run.
+ * - `fenced`: this attempt still owns the run, but a cancel moved the fence or cancelled the run.
+ * - `run_ended`: the run ended in another terminal status (for example `failed`). It was not
+ *   cancelled, so do not close the row as a cancelled call.
  */
-type LeaseLoss = "lease_lost" | "fenced";
+type LeaseLoss = "lease_lost" | "fenced" | "run_ended";
 
 /**
  * - `claimed`: this attempt owns the call and may run it.
@@ -200,11 +195,15 @@ export interface StagingStore {
   ): Promise<StagingRow | null>;
 
   /**
-   * Mark the call as started, just before an `unsafe` tool's `execute`. One transaction locks the
-   * run row first (the order of `withStepLease`, which `tool-runtime` cannot import), checks the
-   * lease, and then sets `dispatch_claimed_at` on an unclaimed `pending` or `approved` row.
+   * Mark the call as started, just before an `unsafe` tool's `execute`. One transaction runs the
+   * step commit's lease check (`withStepLease`, through the `dispatchLease` seam), and then sets `dispatch_claimed_at` to `claimedAt` on an unclaimed `pending` or
+   * `approved` row. The caller keeps `claimedAt` as the token that its commit fences on.
    */
-  claimDispatch(stagingId: string, lease: DispatchLease): Promise<DispatchClaim>;
+  claimDispatch(
+    stagingId: string,
+    lease: DispatchStepLease,
+    claimedAt: Date,
+  ): Promise<DispatchClaim>;
 
   /**
    * Send a claimed and unfinished call back to the user (replay safety), under the same lease
@@ -215,17 +214,19 @@ export interface StagingStore {
    */
   restageInterrupted(
     stagingId: string,
-    lease: DispatchLease,
+    lease: DispatchStepLease,
     restage: InterruptedRestage,
   ): Promise<InterruptedRestageResult>;
 
   /**
    * Commit from the observed state, or fill the result when the MCP broker
    * already wrote the same outcome. False for any other outcome.
+   * `dispatchClaimedAt` must also match. A zombie attempt that claimed at t1 then cannot commit
+   * after a restage and "Run again" set the row back to `approved` (claim cleared or re-claimed).
    */
   commitStaging(
     stagingId: string,
-    expected: Pick<StagingRow, "status" | "outcome">,
+    expected: Pick<StagingRow, "status" | "outcome" | "dispatchClaimedAt">,
     commit: StagingCommit,
   ): Promise<boolean>;
 }
@@ -300,27 +301,32 @@ function commitColumns(commit: StagingCommit) {
 }
 
 /**
- * Lock the run row and check the lease. The attempt check comes first: a lost attempt must not
- * write the row, but the attempt that owns the run may close it after a cancel.
+ * Run `write` under the step commit's own lease check (the `dispatchLease` seam): one transaction
+ * that locks the `agent_runs` row first. The seam reports a cancel and any other run end as one
+ * `terminal` cause, so a read after it splits them. A moved fence and a terminal status do not
+ * change back, so this read agrees with the locked check.
  */
-async function checkLeaseInTx(tx: DbTransaction, lease: DispatchLease): Promise<LeaseLoss | null> {
-  const [run] = await tx
-    .select({
-      attempt: agentRuns.attempt,
-      cancellationGeneration: agentRuns.cancellationGeneration,
-      status: agentRuns.status,
-    })
+async function withDispatchLease<T>(
+  lease: DispatchStepLease,
+  write: (tx: DbTransaction) => Promise<T>,
+): Promise<{ ok: true; value: T } | { ok: false; loss: LeaseLoss }> {
+  const leased = await dispatchLease().withStepLease(lease, write);
+
+  if (leased.ok) return leased;
+
+  if (leased.cause === "reclaim") return { ok: false, loss: "lease_lost" };
+
+  const [run] = await db()
+    .select({ cancellationGeneration: agentRuns.cancellationGeneration, status: agentRuns.status })
     .from(agentRuns)
-    .where(eq(agentRuns.id, lease.runId))
-    .for("update");
+    .where(eq(agentRuns.id, lease.runId));
 
-  if (!run || run.attempt !== lease.attempt) return "lease_lost";
+  if (!run) return { ok: false, loss: "lease_lost" };
 
-  if (run.cancellationGeneration !== lease.fence.generation || isTerminalStatus(run.status)) {
-    return "fenced";
-  }
+  const cancelled =
+    run.cancellationGeneration !== lease.fence.generation || run.status === "cancelled";
 
-  return null;
+  return { ok: false, loss: cancelled ? "fenced" : "run_ended" };
 }
 
 export const postgresStagingStore: StagingStore = {
@@ -481,16 +487,13 @@ export const postgresStagingStore: StagingStore = {
     return row ? parseStagingRow(row) : null;
   },
 
-  async claimDispatch(stagingId, lease) {
-    return await db().transaction(async (tx) => {
-      const loss = await checkLeaseInTx(tx, lease);
-
-      if (loss) return loss;
-
+  async claimDispatch(stagingId, lease, claimedAt) {
+    const leased = await withDispatchLease(lease, async (tx): Promise<DispatchClaim> => {
       const claimed = await tx
         .update(actionStagings)
         .set({
-          dispatchClaimedAt: sql`now()`,
+          // A JS time, not `now()`: millisecond precision reads back equal, so the commit can match it.
+          dispatchClaimedAt: claimedAt,
           rowVersion: sql`${actionStagings.rowVersion} + 1`,
         })
         .where(
@@ -505,14 +508,12 @@ export const postgresStagingStore: StagingStore = {
 
       return claimed.length > 0 ? "claimed" : "not_claimable";
     });
+
+    return leased.ok ? leased.value : leased.loss;
   },
 
   async restageInterrupted(stagingId, lease, restage) {
-    return await db().transaction(async (tx): Promise<InterruptedRestageResult> => {
-      const loss = await checkLeaseInTx(tx, lease);
-
-      if (loss) return { kind: loss };
-
+    const leased = await withDispatchLease(lease, async (tx): Promise<InterruptedRestageResult> => {
       const [restaged] = await tx
         .update(actionStagings)
         .set({
@@ -561,6 +562,8 @@ export const postgresStagingStore: StagingStore = {
 
       return { kind: "moved", row: parseStagingRow(current) };
     });
+
+    return leased.ok ? leased.value : { kind: leased.loss };
   },
 
   async commitStaging(stagingId, expected, commit) {
@@ -573,6 +576,9 @@ export const postgresStagingStore: StagingStore = {
       .where(
         and(
           eq(actionStagings.id, stagingId),
+          expected.dispatchClaimedAt === null
+            ? isNull(actionStagings.dispatchClaimedAt)
+            : eq(actionStagings.dispatchClaimedAt, expected.dispatchClaimedAt),
           or(
             and(
               eq(actionStagings.status, expected.status),

@@ -19,11 +19,11 @@ import {
   effectKeyFor,
   effectsColumn,
   outcomeForInsert,
-  type DispatchLease,
   type StagingInsertValues,
   type StagingRow,
   type StagingStore,
 } from "../../../src/tool-runtime/internal/dispatch/staging-store";
+import type { DispatchStepLease } from "@alfred/assistant/tool-runtime";
 
 /** The gate's view plus what the contract reads back. */
 interface StoredRow extends StagingRow {
@@ -73,16 +73,16 @@ export function memoryStagingStore(): MemoryStagingStore {
   }
 
   /** The Postgres lease check. A seeded run is at attempt 0, the Postgres default. */
-  function checkLease(lease: DispatchLease): "lease_lost" | "fenced" | null {
+  function checkLease(lease: DispatchStepLease): "lease_lost" | "fenced" | "run_ended" | null {
     const status = runs.get(lease.runId);
 
     if (status === undefined || lease.attempt !== 0) return "lease_lost";
 
-    if (isTerminalStatus(status) || (fences.get(lease.runId) ?? 0) !== lease.fence.generation) {
+    if (status === "cancelled" || (fences.get(lease.runId) ?? 0) !== lease.fence.generation) {
       return "fenced";
     }
 
-    return null;
+    return isTerminalStatus(status) ? "run_ended" : null;
   }
 
   /** A copy, so a caller cannot mutate storage. */
@@ -266,7 +266,7 @@ export function memoryStagingStore(): MemoryStagingStore {
       return project(row);
     },
 
-    async claimDispatch(stagingId, lease) {
+    async claimDispatch(stagingId, lease, claimedAt) {
       const loss = checkLease(lease);
 
       if (loss) return loss;
@@ -281,7 +281,7 @@ export function memoryStagingStore(): MemoryStagingStore {
         return "not_claimable";
       }
 
-      row.dispatchClaimedAt = new Date();
+      row.dispatchClaimedAt = claimedAt;
       row.rowVersion += 1;
 
       return "claimed";
@@ -320,6 +320,9 @@ export function memoryStagingStore(): MemoryStagingStore {
 
     async commitStaging(stagingId, expected, commit) {
       const row = mustGet(stagingId);
+
+      if (row.dispatchClaimedAt?.getTime() !== expected.dispatchClaimedAt?.getTime()) return false;
+
       const isObservedState = row.status === expected.status && row.outcome === expected.outcome;
 
       const isUnenrichedAggregateState =

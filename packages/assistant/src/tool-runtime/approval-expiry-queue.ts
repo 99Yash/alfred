@@ -9,6 +9,7 @@ import { Queue } from "bullmq";
 import { z } from "zod";
 import { createRedisConnection, isQueueEnabled } from "@alfred/db/redis";
 import { logger } from "@alfred/logging";
+import { clearFinishedJob } from "@alfred/assistant/queue-jobs";
 
 export const APPROVAL_EXPIRY_QUEUE_NAME = "staging-expire";
 
@@ -51,17 +52,9 @@ export async function scheduleApprovalExpiryJob(args: {
   try {
     const queue = getApprovalExpiryQueue();
     const jobId = approvalExpiryJobId(args.stagingId);
-    // `add` no-ops on an existing id, and a finished job lingers for an hour. Remove a
-    // finished job so a resumed re-park gets a live timer. Leave delayed and active jobs.
-    const existing = await queue.getJob(jobId);
-
-    if (existing) {
-      const state = await existing.getState();
-
-      if (state === "completed" || state === "failed") {
-        await existing.remove();
-      }
-    }
+    // A resumed re-park needs a live timer. An unfinished job covers it: the worker re-delays a
+    // job that runs before the row's new `expires_at`.
+    await clearFinishedJob(queue, jobId);
 
     await queue.add(
       "approval.expire",

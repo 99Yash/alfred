@@ -14,6 +14,8 @@ export const APPROVAL_NOTIFICATION_QUEUE_NAME = "staging-notify";
 export const approvalNotificationJobDataSchema = z.object({
   stagingId: z.string().min(1),
   userId: z.string().min(1),
+  /** `dispatch_claimed_at` of the card this job is for. The worker skips a job for an older card. */
+  claimedAtMs: z.number().int().optional(),
 });
 
 export type ApprovalNotificationJobData = z.infer<typeof approvalNotificationJobDataSchema>;
@@ -40,9 +42,18 @@ export type NotificationJobData = z.infer<typeof notificationJobDataSchema>;
 
 let _queue: Queue<NotificationJobData> | undefined;
 
-export function approvalNotificationJobId(stagingId: string): string {
+/**
+ * A may-have-run card (`claimedAt` set) gets its own id, so its job never meets the finished or
+ * active job of the first card on the same row.
+ */
+export function approvalNotificationJobId(
+  stagingId: string,
+  claimedAt: Date | null = null,
+): string {
   // BullMQ custom job ids cannot contain `:`.
-  return `staging-notify.${stagingId}`;
+  const base = `staging-notify.${stagingId}`;
+
+  return claimedAt === null ? base : `${base}.claim-${claimedAt.getTime()}`;
 }
 
 export function getApprovalNotificationQueue(): Queue<NotificationJobData> {
@@ -64,30 +75,22 @@ export async function scheduleApprovalNotificationJob(args: {
   stagingId: string;
   userId: string;
   delayMs: number;
+  /** The row's `dispatch_claimed_at`. Set only on a may-have-run card. */
+  claimedAt: Date | null;
 }): Promise<"scheduled" | "disabled" | "failed"> {
   if (!isQueueEnabled()) return "disabled";
 
   try {
-    const queue = getApprovalNotificationQueue();
-    const jobId = approvalNotificationJobId(args.stagingId);
-    // `add` no-ops on an existing id, and a finished job lingers for an hour. Remove a finished
-    // job so a may-have-run card restaged soon after the first email gets its own email.
-    const existing = await queue.getJob(jobId);
-
-    if (existing) {
-      const state = await existing.getState();
-
-      if (state === "completed" || state === "failed") {
-        await existing.remove();
-      }
-    }
-
-    await queue.add(
+    await getApprovalNotificationQueue().add(
       "approval.notify",
-      { stagingId: args.stagingId, userId: args.userId },
+      {
+        stagingId: args.stagingId,
+        userId: args.userId,
+        ...(args.claimedAt === null ? {} : { claimedAtMs: args.claimedAt.getTime() }),
+      },
       {
         delay: Math.max(0, args.delayMs),
-        jobId,
+        jobId: approvalNotificationJobId(args.stagingId, args.claimedAt),
       },
     );
 
@@ -133,6 +136,10 @@ export async function scheduleWorkflowBlockedNotificationJob(
   }
 }
 
+/**
+ * Removes the first card's job. A may-have-run card's job can stay after a decision: the worker
+ * skips it, because the row is no longer `pending` or its claim no longer matches.
+ */
 export async function removeApprovalNotificationJob(stagingId: string): Promise<void> {
   if (!isQueueEnabled()) return;
 
