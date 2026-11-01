@@ -9,8 +9,9 @@ export const INBOUND_DAILY_EMBED_CAP_REASON = "inbound_daily_embedding_cap";
 /**
  * Provider event names whose receipts get a document but no embedding (ADR-0118 decision 8). The
  * receipt and its document stay; only the vector index skips them. A row skipped here does not
- * count toward {@link INBOUND_DAILY_EMBED_CAP}. ADR-0118 slice 2 replaces this list with the
- * decision 1 predicate.
+ * count toward {@link INBOUND_DAILY_EMBED_CAP}. The decision 1 predicate replaces this list in
+ * the ADR-0118 slice that adds the comment and state-change rows. The predicate has no comment rows
+ * before that, so it would remove the embeddings of comments.
  */
 const UNEMBEDDED_RECEIPT_EVENTS = {
   // A CI job's queued/in_progress/completed state, about two thirds of all GitHub deliveries.
