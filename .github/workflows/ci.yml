@@ -745,13 +745,13 @@ jobs:
   # the default, one failure hides the other two thirds of the suite and the
   # next push re-runs everything to find the rest.
   assistant-unit-tests-shard:
-    name: assistant-unit-tests-shard (${{ matrix.shard }}/4)
+    name: assistant-unit-tests-shard (${{ matrix.shard }}/5)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5]
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -833,7 +833,7 @@ jobs:
       # `--test-shard= requires an argument`.
       - name: Assistant tests
         env:
-          TEST_SHARD: ${{ matrix.shard }}/4
+          TEST_SHARD: ${{ matrix.shard }}/5
         run: corepack pnpm --filter @alfred/assistant test:shard
 
   # This job exists to publish ONE check named `assistant-unit-tests`, because
