@@ -172,7 +172,7 @@ function parseStoredLocation(value: unknown): Place | null {
  * characters, and "city, region, country" fits in 100. A longer value is not a place name (a cold
  * start fact can hold 2,000 characters), and the text goes into a bounded provenance reason.
  */
-export const PLACE_TEXT_MAX = 100;
+const PLACE_TEXT_MAX = 100;
 
 const factTextSchema = z.string().trim().min(1);
 

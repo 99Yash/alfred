@@ -40,7 +40,7 @@ export interface VerifiedPullTriggerItem {
  * the event. `delivered`: the time that Alfred stored the row's state, which is later than the
  * event. Only `provider_event` dates the event itself.
  */
-export interface VerifiedPullTime {
+interface VerifiedPullTime {
   at: string;
   clock: "provider_event" | "delivered";
 }
