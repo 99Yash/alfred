@@ -62,6 +62,7 @@ import {
   readUserLocation,
   standingInstructions,
   type ActiveStandingInstruction,
+  type UserLocation,
 } from "../knowledge";
 import {
   deriveEffectiveTriage,
@@ -92,10 +93,11 @@ import {
   logProvenance,
   readFailed,
   splitVerifiedPullActivity,
-  weatherLocationProvenance,
+  placeProvenance,
   type Sourced,
   type StatedProvenance,
 } from "./provenance";
+import { gatherWarningsContribution } from "./warnings";
 import { logger } from "@alfred/logging";
 
 /**
@@ -666,7 +668,18 @@ export async function gatherBriefingWithSuppressionAudit(
   // Activity uses the email window.
   const activityStart = args.windowStart ?? new Date(windowEnd.getTime() - 24 * 60 * 60 * 1000);
 
-  const [digest, calendar, weather, integrationActivity, brokenConnections, email] =
+  // One place read for weather and warnings. It does not throw: a fault is its `fault` basis.
+  // Its deadline is the weather deadline, so the forecast read and the place read share it.
+  const placeDeadline = AbortSignal.timeout(WEATHER_DEADLINE_MS);
+
+  const placeRead = readUserLocation({
+    userId: args.userId,
+    settings: args.settings,
+    timezone: args.timezone,
+    signal: placeDeadline,
+  });
+
+  const [digest, calendar, weather, warnings, integrationActivity, brokenConnections, email] =
     await Promise.all([
       gatherBriefingDigest({
         userId: args.userId,
@@ -679,12 +692,23 @@ export async function gatherBriefingWithSuppressionAudit(
         timezone: args.timezone,
         slot,
       }),
-      gatherWeatherContribution({
-        userId: args.userId,
-        settings: args.settings,
-        briefingDate: args.briefingDate,
-        timezone: args.timezone,
-      }),
+      placeRead.then((place) =>
+        gatherWeatherContribution({
+          located: place,
+          deadline: placeDeadline,
+          briefingDate: args.briefingDate,
+          timezone: args.timezone,
+        }),
+      ),
+      placeRead.then((place) =>
+        gatherWarningsContribution({
+          userId: args.userId,
+          located: place,
+          timezone: args.timezone,
+          briefingDate: args.briefingDate,
+          now: new Date(),
+        }),
+      ),
       gatherIntegrationActivity({
         userId: args.userId,
         windowStart: activityStart,
@@ -753,6 +777,7 @@ export async function gatherBriefingWithSuppressionAudit(
     email: [email],
     calendar: calendar.provenance,
     weather: weather.provenance,
+    warnings: warnings.provenance,
     integration_activity: verifiedPull.provenance,
     github_merged: [githubMergedProvenance(githubMerged)],
     loop_relevance: digest.loopRelevanceProvenance,
@@ -770,6 +795,7 @@ export async function gatherBriefingWithSuppressionAudit(
       calendar: calendar.value,
       integration_activity: { items: [...integrationActivity, ...verifiedPull.value] },
       weather: weather.value,
+      warnings: warnings.value,
       day_of_week: dayContribution(args.briefingDate),
       day_shape: {
         ...dayShape,
@@ -1014,16 +1040,15 @@ function calendarEventToContributionEvent(
   };
 }
 
+/** `deadline`: the one deadline of the place read and the forecast read together. */
 async function gatherWeatherContribution(args: {
-  userId: string;
-  settings: UserSettings;
+  located: UserLocation;
+  deadline: AbortSignal;
   briefingDate: LocalDateKey;
   timezone: IanaTimezone;
 }): Promise<Sourced<WeatherContribution | null>> {
-  // One deadline for the place read and the forecast read together.
-  const deadline = AbortSignal.timeout(WEATHER_DEADLINE_MS);
-  const located = await readUserLocation({ ...args, signal: deadline });
-  const { place: location, statement } = weatherLocationProvenance(located, args.timezone);
+  const { deadline } = args;
+  const { place: location, statement } = placeProvenance("weather", args.located, args.timezone);
 
   if (location === null) return { value: null, provenance: [statement] };
 

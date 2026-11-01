@@ -337,23 +337,36 @@ export function logProvenance(userId: string, provenance: readonly GatherProvena
   logger.info({ userId, provenance: logged }, "[briefing.gather] inputs not live");
 }
 
+/** A statement that Alfred used a default in place of a user fact. */
+export type FallbackProvenance = Extract<GatherProvenance, { state: "fallback" }>;
+
+/** The inputs that read the user's place. */
+export type PlaceInput = Extract<GatherInput, "weather" | "warnings">;
+
+/** How the fallback statement opens, for each input that reads the place. */
+const FALLBACK_SUBJECT = {
+  weather: "The weather is for",
+  warnings: "Official warnings were checked for",
+} as const satisfies Record<PlaceInput, string>;
+
 /**
- * What the place read says about the weather input, before the forecast read (ADR-0117 decision
- * 3). `place: null`: no forecast to read, and `statement` is the whole weather statement.
- * Otherwise the forecast reads `place`, and `statement` is the `fallback` entry that goes beside
- * the forecast read, or `null` for the user's own place.
+ * What the place read says about an input that reads the place, before the input's own read
+ * (ADR-0117 decision 3). `place: null`: no read, and `statement` is the whole statement.
+ * Otherwise the input reads `place`, and `statement` is the `fallback` entry that goes beside the
+ * read, or `null` for the user's own place.
  *
  * - `fault`: `read_failed` with `retry`. A failed fact read or geocode is temporary, so Alfred
  *   does not put a default city in place of the user's place.
  * - `none`: `no_place`. Alfred has no place, and the zone has no default city.
  * - `timezone_default`: `fallback` with recovery `none`. No surface can set the city yet.
  */
-export function weatherLocationProvenance(
+export function placeProvenance(
+  input: PlaceInput,
   located: UserLocation,
   timezone: IanaTimezone,
 ):
   | { readonly place: null; readonly statement: GatherProvenance }
-  | { readonly place: Place; readonly statement: GatherProvenance | null } {
+  | { readonly place: Place; readonly statement: FallbackProvenance | null } {
   switch (located.basis) {
     case "preference":
     case "home_fact":
@@ -363,11 +376,11 @@ export function weatherLocationProvenance(
       return {
         place: located.place,
         statement: {
-          input: "weather",
+          input,
           state: "fallback",
           used: provenanceText(located.place.label),
           reason: provenanceText(
-            `The weather is for ${located.place.label}, the default city for the time zone ${timezone}. ${noUserPlaceSentence(located.unplaced)}`,
+            `${FALLBACK_SUBJECT[input]} ${located.place.label}, the default city for the time zone ${timezone}. ${noUserPlaceSentence(located.unplaced)}`,
           ),
           recovery: { kind: "none" },
         },
@@ -376,7 +389,7 @@ export function weatherLocationProvenance(
       return {
         place: null,
         statement: {
-          input: "weather",
+          input,
           state: "unavailable",
           cause: "no_place",
           reason: provenanceText(
@@ -389,7 +402,7 @@ export function weatherLocationProvenance(
       return {
         place: null,
         statement: readFailed(
-          "weather",
+          input,
           provenanceText(
             located.step === "fact_read"
               ? "Alfred could not read the facts that give the user's place."
@@ -400,6 +413,49 @@ export function weatherLocationProvenance(
     default:
       return assertNever(located, "user location basis");
   }
+}
+
+/**
+ * The warnings statement (ADR-0117 decision 4), at most two entries, after the feed reads:
+ *
+ * 1. The place: the `fallback` entry of a default city, or `no_place` when a national feed could
+ *    not be read for want of a district. `coverageGap` is that sentence. A fallback carries it in
+ *    its reason, so the list stays inside two entries.
+ * 2. `read_failed` with `retry`, when a feed or a part of it could not be read. `failures` names
+ *    each one.
+ *
+ * With neither, the input is `live`. A place `fault` or `none` reads no feed, so its statement
+ * comes from `placeProvenance` alone and does not pass here.
+ */
+export function warningsProvenance(args: {
+  fallback: FallbackProvenance | null;
+  coverageGap: string | null;
+  failures: readonly string[];
+}): StatedProvenance {
+  const { fallback, coverageGap, failures } = args;
+  const entries: GatherProvenance[] = [];
+
+  if (fallback !== null) {
+    entries.push(
+      coverageGap === null
+        ? fallback
+        : { ...fallback, reason: provenanceText(`${fallback.reason} ${coverageGap}`) },
+    );
+  } else if (coverageGap !== null) {
+    entries.push({
+      input: "warnings",
+      state: "unavailable",
+      cause: "no_place",
+      reason: provenanceText(coverageGap),
+      recovery: { kind: "none" },
+    });
+  }
+
+  if (failures.length > 0) entries.push(readFailed("warnings", provenanceText(failures.join(" "))));
+
+  const [first, ...rest] = entries;
+
+  return first === undefined ? [live("warnings")] : [first, ...rest];
 }
 
 const STATED_PLACE_NAME = {

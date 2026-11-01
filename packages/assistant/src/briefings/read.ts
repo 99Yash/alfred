@@ -453,7 +453,8 @@ function isDemandingPayment(item: PriorityEmailDemandItem): boolean {
  * `githubMergedTotal` counts merges the live GitHub read proved that no webhook delivered,
  * so a merge day is not quiet (ADR-0062 amendment 2026-10-27). A broken connection the user
  * can repair is not quiet either: the block must reach the user each day the break lasts
- * (ADR-0100 amendment 2026-10-28). With no attention signal,
+ * (ADR-0100 amendment 2026-10-28). An official warning for the user's place ranks first under
+ * "at risk", so it is not quiet either (ADR-0117 decision 4). With no attention signal,
  * fall back to the raw email count: a false send is better than a silent suppression
  * (ADR-0048).
  */
@@ -466,8 +467,11 @@ export function isQuietMorning(args: {
   meetingCount: number;
   /** Rows of the briefing's fixed broken-connection block. */
   brokenConnectionCount: number;
+  /** Official warnings that the gather selected for the user's place. */
+  warningCount: number;
 }): boolean {
   if (
+    args.warningCount > 0 ||
     args.activityCount > 0 ||
     args.meetingCount > 0 ||
     (args.githubMergedTotal ?? 0) > 0 ||
@@ -486,6 +490,8 @@ export interface GatheredCounts {
   email: number;
   activity: number;
   meetings: number;
+  /** Official warnings for the user's place. The legacy gate does not read it. */
+  warnings: number;
 }
 
 export function gatherCounts(gather: BriefingGather): GatheredCounts {
@@ -493,6 +499,7 @@ export function gatherCounts(gather: BriefingGather): GatheredCounts {
     email: Object.values(gather.email.categories).reduce((sum, items) => sum + items.length, 0),
     activity: gather.integration_activity.items.length,
     meetings: gather.calendar?.events.length ?? 0,
+    warnings: gather.warnings?.items.length ?? 0,
   };
 }
 

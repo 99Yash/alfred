@@ -8,6 +8,7 @@ import {
   type GatherInput,
   type GatherProvenance,
   type IanaTimezone,
+  type WarningsContribution,
 } from "@alfred/contracts";
 import {
   BROKEN_CONNECTION_GUIDANCE,
@@ -49,6 +50,11 @@ export interface RunBriefingAgentArgs {
    * read. `null`: the gather could not read it. Absent on a run from before this field.
    */
   calendar?: CalendarContribution | null | undefined;
+  /**
+   * The gather's official warnings, for `list_official_warnings`. `null`: the gather read no feed.
+   * Absent on a run from before this field.
+   */
+  warnings?: WarningsContribution | null | undefined;
   /**
    * Connections the user must repair. The composer writes one notice per connection; the email
    * renders each notice with its repair link below the body.
@@ -113,7 +119,9 @@ interface ComposerRead {
 
 /**
  * The inputs that the composer reads through its tools, and so the inputs that get a composer
- * fact. Weather does not reach the composer. The activity list reaches it only as a count:
+ * fact. Warnings reach it through `list_official_warnings`, so a warnings `fallback` (the default
+ * city) is a fact, while the same weather `fallback` is a log line only: weather does not reach
+ * the composer. The activity list reaches it only as a count:
  * `gatherBriefingWithSuppressionAudit` adds the fresh items to `activityCount`, which sets
  * `get_day_shape.activityVolume`. A stale item left the list before the count, so its statement
  * stays in the stored gather and the log. A failed deploy-status read can make that count low, and
@@ -127,6 +135,7 @@ const COMPOSER_READS = {
     tool: "list_loop_relevance",
     hides: "whether your open threads still need you",
   },
+  warnings: { tool: "list_official_warnings", hides: "official hazard warnings for your area" },
   weather: null,
   integration_activity: null,
 } as const satisfies Record<GatherInput, ComposerRead | null>;
@@ -135,20 +144,22 @@ type UnavailableCause = Extract<GatherProvenance, { state: "unavailable" }>["cau
 
 /**
  * What a blind input costs this briefing, for each cause. A cause the user can repair names the
- * repair, because the read stays blind until the user does it. `no_place` belongs to weather,
- * which the composer does not read.
+ * repair, because the read stays blind until the user does it. `no_place` reaches the composer
+ * only for warnings: either no feed was read, or only GDACS was read for want of a district. So it
+ * says "may be missing", which is true in both cases.
  */
 const BLIND_COST = {
   not_connected: "So this briefing cannot see",
   needs_reauth: "Until the user signs in again, this briefing cannot see",
   scope_missing: "Until the user grants that permission, this briefing cannot see",
   read_failed: "So this briefing may be missing",
-  no_place: "So this briefing cannot see",
+  no_place: "So this briefing may be missing",
 } as const satisfies Record<UnavailableCause, string>;
 
 /**
- * One composer fact: the tool, what Alfred knows about the read, and what it costs. No input in
- * `COMPOSER_READS` states `fallback` or `stale` today; those arms keep the switch total.
+ * One composer fact: the tool, what Alfred knows about the read, and what it costs. Of the inputs
+ * in `COMPOSER_READS`, only warnings states `fallback`, and none states `stale` today; that arm
+ * keeps the switch total.
  */
 function composerFact(entry: GatherProvenance, read: ComposerRead): string | null {
   switch (entry.state) {
@@ -156,7 +167,7 @@ function composerFact(entry: GatherProvenance, read: ComposerRead): string | nul
     case "live":
       return null;
     case "fallback":
-      return `- ${read.tool}: ${entry.reason} Alfred used a default: ${entry.used}.`;
+      return `- ${read.tool}: ${entry.reason} Alfred used a default: ${entry.used}. So this briefing may be missing ${read.hides}.`;
     case "stale":
       return `- ${read.tool}: "${entry.title}" is from ${entry.occurredAt}. It is old, so it is not news.`;
     case "unavailable":
@@ -190,7 +201,7 @@ function inputProvenanceFacts(provenance: readonly GatherProvenance[]): string {
     `\n\nAlfred did not get a full, current read of these inputs for this briefing. ` +
     `Each line names the tool, what Alfred knows, and what this briefing cannot see as a result. ` +
     `What those tools return is incomplete. ` +
-    `Acknowledge each one in the body in one short clause: name the source, say that you could not read it, and say what the user cannot rely on as a result. ` +
+    `Acknowledge each one in the body in one short clause: name the source, say what you could not read or which default you used, and say what the user cannot rely on as a result. ` +
     `Put the clause where it matters, for example where you talk about the day ahead for the calendar. ` +
     `For example: Calendar isn't connected, so I can't see your meetings. ` +
     `When a connection key above names the same source, its notice already says this below the body, so do not repeat it. ` +
@@ -230,6 +241,7 @@ export async function runBriefingAgent(
     loopRelevance: args.loopRelevance,
     dayShape: args.dayShape,
     calendar: args.calendar,
+    warnings: args.warnings,
   });
 
   const seed: ModelMessage[] = [
@@ -237,7 +249,7 @@ export async function runBriefingAgent(
       role: "user",
       content:
         `Compose the ${args.slot} briefing for ${args.recipientFirstName ?? "the user"}. ` +
-        `Start by reading list_prior_briefings, then list_emails_since, list_closed_loops, and list_loop_relevance. ` +
+        `Start by reading list_prior_briefings, then list_official_warnings, list_emails_since, list_closed_loops, and list_loop_relevance. ` +
         `Apply the three honest loop-state tiers, then end with dump_briefing.` +
         brokenConnectionFacts(args.brokenConnections) +
         // No list is a gather from before this build. It states nothing, so it adds no fact.

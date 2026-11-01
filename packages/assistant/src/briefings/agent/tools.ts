@@ -17,6 +17,8 @@ import {
   type CalendarContribution,
   type DayShape,
   type IanaTimezone,
+  type OfficialWarning,
+  type WarningsContribution,
 } from "@alfred/contracts";
 import type { LocalDateKey } from "@alfred/assistant/time";
 import { z } from "zod";
@@ -73,6 +75,11 @@ interface BuildArgs {
    * Absent on a run that gathered before this field existed; the tool then reads the calendar again.
    */
   calendar?: CalendarContribution | null | undefined;
+  /**
+   * The gather's official warnings (ADR-0117 decision 4). `null`: the gather read no feed, and its
+   * statement says why. Absent on a run that gathered before this field; the tool returns no item.
+   */
+  warnings?: WarningsContribution | null | undefined;
 }
 
 /** Day-shape window on the first run, when there is no watermark. */
@@ -132,6 +139,7 @@ export type BriefingToolName =
   | "read_email"
   | "list_prior_briefings"
   | "list_calendar_events"
+  | "list_official_warnings"
   | "get_day_shape"
   | "list_closed_loops"
   | "list_loop_relevance"
@@ -222,6 +230,13 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
 
         return contribution.value?.events ?? [];
       },
+    }),
+
+    list_official_warnings: tool({
+      description:
+        "List the official hazard warnings whose area contains the user's place today: a cyclone, flood, earthquake, volcano, or wildfire alert from GDACS, or a district warning from India's NDMA Sachet (IMD, CWC, or a state authority). Each item gives the issuer, event, severity, headline, area, onset, and expiry. A geometry or district match selected each one, not a model. An item here is something at risk: lead with it, name the issuer and what it warns of, and keep its severity word. Do not add advice that the warning does not give. An empty array means that the feeds Alfred read had no warning for the place, not that no hazard exists: do not mention it. When the briefing request says that warnings could not be read, or were checked for a default city, follow that fact.",
+      inputSchema: z.object({}),
+      execute: async (): Promise<OfficialWarning[]> => args.warnings?.items ?? [],
     }),
 
     get_day_shape: tool({

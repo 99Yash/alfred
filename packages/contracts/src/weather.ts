@@ -5,11 +5,26 @@
 
 import type { IanaTimezone } from "./briefing";
 
-/** A place: its coordinates and the name to show. A time-zone default, a preference, and a geocoded fact share this shape. */
+/**
+ * The administrative areas that hold a place, from the geocode. `countryCode` is ISO 3166-1
+ * alpha-2. `region` is the first-level area (a state), and `district` the second-level area. A
+ * national warning feed names its areas at these levels (ADR-0117 decision 4).
+ */
+export interface PlaceArea {
+  countryCode: string;
+  region?: string;
+  district?: string;
+}
+
+/**
+ * A place: its coordinates and the name to show. A time-zone default, a preference, and a
+ * geocoded fact share this shape. Only a geocoded fact has `area`.
+ */
 export interface Place {
   lat: number;
   lng: number;
   label: string;
+  area?: PlaceArea;
 }
 
 /** A `Map`, not a `Record`: the table is not exhaustive, and `IanaTimezone` is branded. */

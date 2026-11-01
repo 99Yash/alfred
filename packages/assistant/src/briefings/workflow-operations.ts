@@ -96,6 +96,12 @@ export const dailyBriefingStateSchema = z.object({
    */
   calendar: briefingGatherSchema.shape.calendar.optional(),
   /**
+   * The gathered official warnings (ADR-0117 decision 4). Compose gives them to
+   * `list_official_warnings`. `null`: the gather read no feed. Absent on a run persisted before
+   * this field; the tool then returns no item.
+   */
+  warnings: briefingGatherSchema.shape.warnings,
+  /**
    * Connections whose delivery broke (ADR-0100 amendment 2026-10-28). Send renders one row for
    * each below the prose. Absent on a run persisted before this field; send then renders none.
    */
@@ -274,13 +280,14 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
     githubMergedTotal: gather.day_shape?.shippedTotal,
     meetingCount: counts.meetings,
     brokenConnectionCount: listGatheredBrokenConnections(gather).length,
+    warningCount: counts.warnings,
   });
 
   await ctx.log(
     `gather: id=${begun.row.id} action=${begun.action} tz=${timezone} date=${briefingDate} ` +
       `since=${since ? since.toISOString() : "(first run)"} until=${until.toISOString()} ` +
       `email=${counts.email} demanding=${demandingEmailCount ?? "n/a"} topBand=${gather.day_shape?.topEmailBand ?? "n/a"} ` +
-      `activity=${counts.activity} meetings=${counts.meetings} broken=${listGatheredBrokenConnections(gather).length} quiet=${quietDay}${instructionSuppressionLogPart(suppressedByInstruction)}`,
+      `activity=${counts.activity} meetings=${counts.meetings} warnings=${counts.warnings} broken=${listGatheredBrokenConnections(gather).length} quiet=${quietDay}${instructionSuppressionLogPart(suppressedByInstruction)}`,
   );
 
   return {
@@ -298,6 +305,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
       loopRelevance,
       dayShape: gather.day_shape,
       calendar: gather.calendar,
+      warnings: gather.warnings,
       brokenConnections: gather.broken_connections ?? [],
       brokenMcpConnections: gather.broken_mcp_connections ?? [],
       provenance: gather.provenance ?? [],
@@ -378,6 +386,7 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
         loopRelevance: ctx.state.loopRelevance,
         dayShape: ctx.state.dayShape,
         calendar: ctx.state.calendar,
+        warnings: ctx.state.warnings,
         brokenConnections,
         provenance: ctx.state.provenance,
         openAskViolations,
