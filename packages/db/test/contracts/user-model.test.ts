@@ -403,7 +403,7 @@ describe("user-model observation contracts", () => {
   test("lists only sources that have a writer (#987)", () => {
     assert.equal(observationSourceSchema.safeParse("google_directory").success, false);
     assert.equal(observationSourceSchema.safeParse("enrichment").success, false);
-    assert.equal(observationSourceSchema.safeParse("github").success, false);
+    assert.equal(observationSourceSchema.safeParse("github").success, true);
   });
 
   test("validates the participant envelope reducers must write", () => {

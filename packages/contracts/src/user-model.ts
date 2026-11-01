@@ -8,6 +8,7 @@
 import { z } from "zod";
 import { keyGuard } from "./guards";
 import { HOSTNAME } from "./hostname";
+import { sourceIdentitySchema } from "./source-identity";
 import { classifyConnectedAccount, domainClassSchema } from "./identity-affiliation";
 import { pluckField, typedKeys } from "./records";
 import { STANDING_INSTRUCTION_KEY } from "./standing-instructions";
@@ -37,6 +38,11 @@ interface ObservationReducerEntry {
   readonly kinds: readonly [string, ...string[]];
   /** Identity kinds this source may write to `entity_identities` (D2/D3). Empty means none. */
   readonly identityKinds: readonly string[];
+  /**
+   * The verbs an `activity` row of this source may carry (ADR-0118 decision 1). A delivery outside
+   * the list is not an activity row, even when the user sent it. Only a source that emits `activity`.
+   */
+  readonly activityVerbs?: readonly [string, ...string[]];
 }
 
 /**
@@ -52,6 +58,13 @@ export const OBSERVATION_REDUCERS = {
   gmail: { rank: 2, kinds: ["email_message"], identityKinds: ["email"] },
   /** The connected Google account asserts the user's org domain (ADR-0080 §4a). Not a Gmail event. */
   google_account: { rank: 2, kinds: ["user_org_affiliation"], identityKinds: [] },
+  /** GitHub App deliveries, as activity rows (ADR-0118). Evidence of what happened, never a fact. */
+  github: {
+    rank: 2,
+    kinds: ["activity"],
+    identityKinds: [],
+    activityVerbs: ["opened", "merged", "closed", "reopened", "reviewed", "pushed"],
+  },
 } as const satisfies Record<string, ObservationReducerEntry>;
 
 export type ObservationSource = keyof typeof OBSERVATION_REDUCERS;
@@ -460,6 +473,58 @@ export const userOrgAffiliationPayloadSchema = z
 export type UserOrgAffiliationPayload = z.infer<typeof userOrgAffiliationPayloadSchema>;
 
 // ───────────────────────────────────────────────────────────────────────────
+// Activity rows (ADR-0118 decision 1)
+// ───────────────────────────────────────────────────────────────────────────
+
+/** The sources whose reducer declares `activityVerbs`. */
+export type ActivityObservationSource = {
+  [S in ObservationSource]: (typeof OBSERVATION_REDUCERS)[S] extends {
+    readonly activityVerbs: readonly string[];
+  }
+    ? S
+    : never;
+}[ObservationSource];
+
+/** The closed verb list of one activity source, or of all of them. */
+export type ActivityVerb<S extends ActivityObservationSource = ActivityObservationSource> =
+  (typeof OBSERVATION_REDUCERS)[S]["activityVerbs"][number];
+
+function activityVerbsOf(source: ObservationSource): readonly string[] {
+  const entry = OBSERVATION_REDUCERS[source];
+
+  return "activityVerbs" in entry ? entry.activityVerbs : [];
+}
+
+function isActivityVerb(value: string): value is ActivityVerb {
+  return OBSERVATION_SOURCES.some((source) => activityVerbsOf(source).includes(value));
+}
+
+/**
+ * The payload of an `activity` row. The row points at the stored body and never copies it. The
+ * actor is the row's subject; the verb comes from the source's closed list.
+ */
+export const activityPayloadSchema = z
+  .object({
+    source: sourceIdentitySchema,
+    /** Any declared verb here; the insert schema checks it against the row's source. */
+    verb: z.string().refine(isActivityVerb, { error: "not a declared activity verb" }),
+    /** The `documents` row that keeps the body. It outlives a credential. */
+    documentId: z.string().min(1),
+    /**
+     * The `event_receipts` id of the delivery. A credential cascade can delete that row (ADR-0118
+     * residual risk), so read the body through `documentId`.
+     */
+    receiptId: z.string().min(1),
+    /** The provider account that delivered the event, as `documents.account_id`. */
+    accountId: z.string().min(1),
+    /** The provider's login of the actor, canonical. Kept when the subject is the user, so a replay can check the match. */
+    actorLogin: z.string().min(1).nullable(),
+  })
+  .strict();
+
+export type ActivityPayload = z.infer<typeof activityPayloadSchema>;
+
+// ───────────────────────────────────────────────────────────────────────────
 // Observation write boundary
 // ───────────────────────────────────────────────────────────────────────────
 
@@ -507,7 +572,7 @@ export const observationInsertSchema = z
     error: "observation kind is not valid for its source",
     path: ["kind"],
   })
-  .superRefine(({ kind, payload, subjectIdentity }, ctx) => {
+  .superRefine(({ source, kind, payload, subjectIdentity }, ctx) => {
     if (kind === "email_message") {
       const parsed = gmailEmailMessagePayloadSchema.safeParse(payload);
 
@@ -519,6 +584,42 @@ export const observationInsertSchema = z
             message: issue.message,
           });
         }
+      }
+
+      return;
+    }
+
+    if (kind === "activity") {
+      const parsed = activityPayloadSchema.safeParse(payload);
+
+      if (!parsed.success) {
+        for (const issue of parsed.error.issues) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["payload", ...issue.path],
+            message: issue.message,
+          });
+        }
+
+        return;
+      }
+
+      const { source: identity, verb } = parsed.data;
+
+      if (identity.kind !== "integration" || identity.slug !== source) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["payload", "source"],
+          message: "an activity row's source identity must name its observation source",
+        });
+      }
+
+      if (!activityVerbsOf(source).includes(verb)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["payload", "verb"],
+          message: "activity verb is not in its source's list",
+        });
       }
 
       return;

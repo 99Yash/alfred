@@ -95,6 +95,18 @@ export {
   type ReconciledObject,
 } from "./object-state";
 
+export {
+  pageGithubActivityDocuments,
+  readActivityCoverage,
+  readGithubActivityDocument,
+  readGithubSelf,
+  reduceGithubActivity,
+  type ActivityCoverage,
+  type ActivityWindow,
+  type GithubFamilyHead,
+  type ReadFamilyHeads,
+} from "./activity";
+
 export { oauthHandshake, type OAuthHandshake, type OAuthHandshakeState } from "./oauth-state";
 
 export { publishGoogleCallbackCompleted } from "./google-callback-events";

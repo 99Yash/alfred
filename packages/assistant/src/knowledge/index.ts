@@ -11,6 +11,7 @@ export { requireEntityIdNamespace } from "./namespace";
 
 export {
   appendObservationFamilyMember,
+  readObservationFamilyHeads,
   type AppendObservationFamilyMemberResult,
 } from "./observations";
 
