@@ -13,12 +13,12 @@ import {
   briefingConnectionNoticeSchema,
   type BriefingConnectionNotice,
   type BriefingClosedLoop,
+  type BriefingGather,
   type BriefingLoopRelevance,
   type CalendarContribution,
   type DayShape,
   type IanaTimezone,
   type OfficialWarning,
-  type WarningsContribution,
 } from "@alfred/contracts";
 import type { LocalDateKey } from "@alfred/assistant/time";
 import { z } from "zod";
@@ -74,12 +74,12 @@ interface BuildArgs {
    * from one read. `null`: the gather could not read the calendar, and its statement says why.
    * Absent on a run that gathered before this field existed; the tool then reads the calendar again.
    */
-  calendar?: CalendarContribution | null | undefined;
+  calendar?: BriefingGather["calendar"] | undefined;
   /**
    * The gather's official warnings (ADR-0117 decision 4). `null`: the gather read no feed, and its
    * statement says why. Absent on a run that gathered before this field; the tool returns no item.
    */
-  warnings?: WarningsContribution | null | undefined;
+  warnings?: BriefingGather["warnings"];
 }
 
 /** Day-shape window on the first run, when there is no watermark. */

@@ -23,6 +23,14 @@ type GdacsEventType = (typeof GDACS_EVENT_TYPES)[number];
 
 const gdacsEventTypeSchema = z.enum(GDACS_EVENT_TYPES);
 
+/**
+ * The alert levels that the event list asks for. A Green event is not asked for, so any other
+ * level in a reply is a feed fault: the event is skipped and counted as unreadable.
+ */
+const GDACS_ALERT_LEVELS = ["Red", "Orange"] as const;
+
+type GdacsAlertLevel = (typeof GDACS_ALERT_LEVELS)[number];
+
 /** The API gives at most 100 events in a page. */
 const PAGE_SIZE = 100;
 
@@ -49,7 +57,7 @@ const eventSchema = z.object({
     eventid: z.number().int(),
     episodeid: z.number().int(),
     name: z.string().min(1),
-    alertlevel: z.string().min(1),
+    alertlevel: z.enum(GDACS_ALERT_LEVELS),
     fromdate: z.string(),
     todate: z.string(),
     country: z.string().optional(),
@@ -94,10 +102,10 @@ const EVENT_AREA = {
 } as const satisfies Record<GdacsEventType, (feature: AreaFeature) => boolean>;
 
 /** Red before Orange. */
-const ALERT_RANK: ReadonlyMap<string, number> = new Map([
-  ["Red", 0],
-  ["Orange", 1],
-]);
+const ALERT_RANK = {
+  Red: 0,
+  Orange: 1,
+} as const satisfies Record<GdacsAlertLevel, number>;
 
 /**
  * The GDACS events whose area contains the place, during the day `[dayStart, dayEnd)`. The test is
@@ -159,7 +167,7 @@ async function listEvents(args: {
   for (let page = 1; page <= MAX_PAGES; page++) {
     const url = new URL(`${GDACS_API}/events/geteventlist/SEARCH`);
     url.searchParams.set("eventlist", GDACS_EVENT_TYPES.join(";"));
-    url.searchParams.set("alertlevel", "Orange;Red");
+    url.searchParams.set("alertlevel", GDACS_ALERT_LEVELS.join(";"));
     url.searchParams.set("fromDate", utcDay(from));
     url.searchParams.set("toDate", utcDay(args.dayEnd));
     url.searchParams.set("pagenumber", String(page));
@@ -192,7 +200,10 @@ async function listEvents(args: {
   }
 
   if (skipped > 0) {
-    logger.warn({ skipped }, "[briefing.warnings] GDACS events with an unreadable shape skipped");
+    logger.warn(
+      { skipped },
+      "[briefing.warnings] GDACS events with an unreadable shape or alert level skipped",
+    );
   }
 
   return events;
@@ -251,7 +262,7 @@ async function matchEvent(
   const report = z.url().safeParse(p.url?.report);
 
   return {
-    rank: ALERT_RANK.get(p.alertlevel) ?? ALERT_RANK.size,
+    rank: ALERT_RANK[p.alertlevel],
     warning: {
       source: "gdacs",
       issuer: clipText(

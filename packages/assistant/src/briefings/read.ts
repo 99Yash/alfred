@@ -490,7 +490,7 @@ export interface GatheredCounts {
   email: number;
   activity: number;
   meetings: number;
-  /** Official warnings for the user's place. The legacy gate does not read it. */
+  /** Official warnings for the user's place. Both send gates read it. */
   warnings: number;
 }
 

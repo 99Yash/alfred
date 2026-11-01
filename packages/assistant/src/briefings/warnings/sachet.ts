@@ -30,16 +30,27 @@ const capCache = new Map<string, CapAlert | null>();
 
 const CAP_CACHE_MAX = 500;
 
+/** The CAP 1.2 severities. The standard closes this set. */
+const CAP_SEVERITIES = ["Extreme", "Severe", "Moderate", "Minor", "Unknown"] as const;
+
+type CapSeverity = (typeof CAP_SEVERITIES)[number];
+
+const capSeveritySchema = z.enum(CAP_SEVERITIES);
+
 /**
- * The CAP severities that the briefing selects, most severe first, with the rank of each. Each
- * rank is the same as the GDACS alert level of the same weight: Red and `Extreme` are 0. A
- * `Moderate` or `Minor` alert is not selected (owner decision, 2026-11-01): on that day most
- * Sachet alerts were IMD nowcasts such as "Light Rain, Moderate", and each would lead the briefing.
+ * The rank of each CAP severity, or `null` when the briefing does not select it. Each rank is the
+ * same as the GDACS alert level of the same weight: Red and `Extreme` are 0. A `Moderate` or
+ * `Minor` alert is not selected (owner decision, 2026-11-01): on that day most Sachet alerts were
+ * IMD nowcasts such as "Light Rain, Moderate", and each would lead the briefing. A value outside
+ * CAP 1.2 is not selected either, and `readSachet` logs it as a fault.
  */
-const SEVERITY_RANK: ReadonlyMap<string, number> = new Map([
-  ["Extreme", 0],
-  ["Severe", 1],
-]);
+const SEVERITY_RANK = {
+  Extreme: 0,
+  Severe: 1,
+  Moderate: null,
+  Minor: null,
+  Unknown: null,
+} as const satisfies Record<CapSeverity, number | null>;
 
 /**
  * The shortest alert that the briefing selects. IMD issues most of its alerts as nowcasts of one
@@ -184,13 +195,32 @@ export async function readSachet(args: {
   const replaced = new Set(alerts.flatMap(({ alert }) => referencedIdentifiers(alert.references)));
   const found: RankedWarning[] = [];
   const seen = new Set<string>();
+  const offCap = new Set<string>();
+  let offCapAlerts = 0;
 
   for (const { item, alert } of alerts) {
     if (alert.status !== "Actual" || replaced.has(alert.identifier)) continue;
 
     if (alert.msgType !== "Alert" && alert.msgType !== "Update") continue;
 
-    const warning = matchAlert(item, alert, args);
+    const info = alert.info.find((entry) => entry.language?.startsWith("en")) ?? alert.info[0];
+
+    if (!info) continue;
+
+    const severity = capSeveritySchema.safeParse(info.severity);
+
+    // A feed change or a typo, not an intended drop: not selected, and logged below.
+    if (!severity.success) {
+      offCapAlerts += 1;
+      offCap.add(info.severity);
+      continue;
+    }
+
+    const rank = SEVERITY_RANK[severity.data];
+
+    if (rank === null) continue;
+
+    const warning = matchAlert(item, alert, { ...args, info, rank });
 
     if (!warning) continue;
 
@@ -200,6 +230,13 @@ export async function readSachet(args: {
     if (seen.has(key)) continue;
     seen.add(key);
     found.push(warning);
+  }
+
+  if (offCapAlerts > 0) {
+    logger.warn(
+      { alerts: offCapAlerts, severities: [...offCap].slice(0, 5) },
+      "[briefing.warnings] Sachet alerts with a severity outside CAP 1.2; not selected",
+    );
   }
 
   return { found, unread, total: items.length };
@@ -245,21 +282,22 @@ async function readCap(item: RssItem, signal: AbortSignal): Promise<CapAlert | n
 function matchAlert(
   item: RssItem,
   alert: CapAlert,
-  args: { district: SachetDistrict; dayEnd: Date; now: Date },
+  args: {
+    district: SachetDistrict;
+    dayEnd: Date;
+    now: Date;
+    info: CapAlert["info"][number];
+    rank: number;
+  },
 ): RankedWarning | null {
-  const info = alert.info.find((entry) => entry.language?.startsWith("en")) ?? alert.info[0];
-
-  if (!info) return null;
-
+  const { info, rank } = args;
   const start = Date.parse(info.effective || info.onset || alert.sent);
   const end = Date.parse(info.expires ?? "");
 
   // An alert with no expiry cannot say that it is still in force.
   if (!(start < args.dayEnd.getTime()) || !(end > args.now.getTime())) return null;
 
-  const rank = SEVERITY_RANK.get(info.severity);
-
-  if (rank === undefined || !(end - start >= MIN_ALERT_MS)) return null;
+  if (!(end - start >= MIN_ALERT_MS)) return null;
 
   const area = info.area.find((candidate) => areaHasDistrict(candidate, args.district));
   const onset = isoInstant(start);

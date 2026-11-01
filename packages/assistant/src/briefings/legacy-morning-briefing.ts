@@ -472,16 +472,17 @@ function decideSend(
 
   const counts = gatherCounts(state.gather);
 
-  if (counts.email > 0 || counts.activity > 0 || counts.meetings > 0) {
+  if (counts.email > 0 || counts.activity > 0 || counts.meetings > 0 || counts.warnings > 0) {
     return {
       decision: "sent",
-      reason: `live signals: email=${counts.email} activity=${counts.activity} meetings=${counts.meetings}`,
+      reason: `live signals: email=${counts.email} activity=${counts.activity} meetings=${counts.meetings} warnings=${counts.warnings}`,
     };
   }
 
   return {
     decision: "suppressed",
-    reason: "quiet morning: no priority email, integration activity, or calendar events",
+    reason:
+      "quiet morning: no priority email, integration activity, calendar events, or official warnings",
   };
 }
 

@@ -2,13 +2,12 @@ import { route, meteredGenerateText, isStepCount, type ModelMessage } from "@alf
 import {
   assertNever,
   type BriefingClosedLoop,
+  type BriefingGather,
   type BriefingLoopRelevance,
-  type CalendarContribution,
   type DayShape,
   type GatherInput,
   type GatherProvenance,
   type IanaTimezone,
-  type WarningsContribution,
 } from "@alfred/contracts";
 import {
   BROKEN_CONNECTION_GUIDANCE,
@@ -49,12 +48,12 @@ export interface RunBriefingAgentArgs {
    * The gather's calendar read, so `list_calendar_events` and the calendar statement come from one
    * read. `null`: the gather could not read it. Absent on a run from before this field.
    */
-  calendar?: CalendarContribution | null | undefined;
+  calendar?: BriefingGather["calendar"] | undefined;
   /**
    * The gather's official warnings, for `list_official_warnings`. `null`: the gather read no feed.
    * Absent on a run from before this field.
    */
-  warnings?: WarningsContribution | null | undefined;
+  warnings?: BriefingGather["warnings"];
   /**
    * Connections the user must repair. The composer writes one notice per connection; the email
    * renders each notice with its repair link below the body.
