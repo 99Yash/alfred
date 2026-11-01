@@ -451,8 +451,8 @@ export type OfficialWarningSource = (typeof OFFICIAL_WARNING_SOURCES)[number];
 export const OFFICIAL_WARNINGS_MAX = 8;
 
 /**
- * Text bounds of one warning. The producer clips each field to its bound before the parse, so a
- * long feed value cannot fail the parse of the stored gather.
+ * Text bounds of one warning. The producer clips each field to its bound and parses the warning
+ * before it stores it, so a feed value cannot fail the parse of the stored gather.
  */
 export const OFFICIAL_WARNING_TEXT_MAX = {
   issuer: 120,
@@ -465,7 +465,9 @@ export const OFFICIAL_WARNING_TEXT_MAX = {
 /**
  * One official warning whose area contains the user's place on the briefing day. A geometry or
  * district match selects it, not a model. `severity` is the feed's own word: a CAP severity
- * ("Severe") or a GDACS alert level ("Red alert"). `onset` and `expires` are ISO instants.
+ * ("Severe") or a GDACS alert level ("Red alert"). `onset` and `expires` are UTC instants in the
+ * `Date.prototype.toISOString` form ("2026-11-01T00:00:00.000Z"), so their text order is their time
+ * order.
  */
 export const officialWarningSchema = z.object({
   source: z.enum(OFFICIAL_WARNING_SOURCES),
@@ -474,8 +476,8 @@ export const officialWarningSchema = z.object({
   severity: z.string().min(1).max(OFFICIAL_WARNING_TEXT_MAX.severity),
   headline: z.string().min(1).max(OFFICIAL_WARNING_TEXT_MAX.headline),
   area: z.string().min(1).max(OFFICIAL_WARNING_TEXT_MAX.area),
-  onset: z.string().min(1),
-  expires: z.string().min(1),
+  onset: z.iso.datetime({ precision: 3 }),
+  expires: z.iso.datetime({ precision: 3 }),
   url: z.url().optional(),
 });
 

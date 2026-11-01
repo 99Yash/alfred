@@ -1,13 +1,15 @@
-import {
-  mapConcurrent,
-  OFFICIAL_WARNING_TEXT_MAX,
-  parseIanaTimezone,
-  type Place,
-} from "@alfred/contracts";
+import { mapConcurrent, parseIanaTimezone, type Place } from "@alfred/contracts";
 import { logger } from "@alfred/logging";
 import { addDays, inZone } from "@alfred/assistant/time";
 import { z } from "zod";
-import { clipText, fetchFeed, type FeedRead, type RankedWarning } from "./feed";
+import {
+  buildWarning,
+  fetchFeed,
+  WARNING_RANK,
+  type FeedRead,
+  type RankedWarning,
+  type WarningRank,
+} from "./feed";
 import { areaGeometrySchema, containsPoint, distanceKm } from "./geometry";
 
 /**
@@ -182,16 +184,17 @@ const EVENT_AREA = {
   (properties: FeatureProperties, dayStart: number) => FeatureRole
 >;
 
-/** Red before Orange. */
+/** The rank of each alert level on the scale of all feeds (`WARNING_RANK`). Red before Orange. */
 const ALERT_RANK = {
-  Red: 0,
-  Orange: 1,
-} as const satisfies Record<GdacsAlertLevel, number>;
+  Red: WARNING_RANK.extreme,
+  Orange: WARNING_RANK.severe,
+} as const satisfies Record<GdacsAlertLevel, WarningRank>;
 
 /**
  * The result of one event area read. `warning`: the area contains the place. `clear`: each hazard
  * area was read and none contains the place. `unreadable`: Alfred cannot tell, because the reply
- * had no geometry or a hazard feature that it could not read. A failed request throws instead.
+ * had no geometry or a hazard feature that it could not read, or the event cannot give a warning
+ * that passes the contract parse. A failed request throws instead.
  */
 type AreaRead =
   | { readonly kind: "warning"; readonly warning: RankedWarning }
@@ -398,30 +401,20 @@ async function readEventArea(
   const severity = properties.severitydata?.severitytext;
   const report = z.url().safeParse(properties.url?.report);
 
-  return {
-    kind: "warning",
-    warning: {
-      rank: ALERT_RANK[properties.alertlevel],
-      warning: {
-        source: "gdacs",
-        issuer: clipText(
-          properties.source ? `GDACS (${properties.source})` : "GDACS",
-          OFFICIAL_WARNING_TEXT_MAX.issuer,
-        ),
-        event: clipText(properties.name, OFFICIAL_WARNING_TEXT_MAX.event),
-        severity: clipText(`${properties.alertlevel} alert`, OFFICIAL_WARNING_TEXT_MAX.severity),
-        headline: clipText(
-          severity ? `${properties.name}: ${severity}` : properties.name,
-          OFFICIAL_WARNING_TEXT_MAX.headline,
-        ),
-        area: clipText(properties.country || properties.name, OFFICIAL_WARNING_TEXT_MAX.area),
-        // `gdacsTime` parses only to a valid time, so `toISOString` does not throw.
-        onset: new Date(properties.fromdate).toISOString(),
-        expires: new Date(end).toISOString(),
-        ...(report.success ? { url: report.data } : {}),
-      },
-    },
-  };
+  const built = buildWarning({
+    source: "gdacs",
+    rank: ALERT_RANK[properties.alertlevel],
+    issuer: properties.source ? `GDACS (${properties.source})` : "GDACS",
+    event: properties.name,
+    severity: `${properties.alertlevel} alert`,
+    headline: severity ? `${properties.name}: ${severity}` : properties.name,
+    area: properties.country || properties.name,
+    onset: properties.fromdate,
+    expires: end,
+    ...(report.success ? { url: report.data } : {}),
+  });
+
+  return built.kind === "warning" ? built : { kind: "unreadable" };
 }
 
 /** The point that the event list gives for the event. It orders the area reads, nearest first. */

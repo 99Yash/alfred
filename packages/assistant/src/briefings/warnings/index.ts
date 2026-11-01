@@ -11,7 +11,7 @@ import type { UserLocation } from "../../knowledge";
 import { placeProvenance, warningsProvenance, type Sourced } from "../provenance";
 import type { FeedRead, RankedWarning } from "./feed";
 import { readGdacs } from "./gdacs";
-import { readSachet, sachetDistrict } from "./sachet";
+import { readSachet, sachetCovers, sachetDistrict } from "./sachet";
 
 /**
  * One deadline for all feed reads of a gather. It starts after the place read. A cold Sachet read
@@ -20,17 +20,14 @@ import { readSachet, sachetDistrict } from "./sachet";
  */
 const WARNINGS_DEADLINE_MS = 30_000;
 
-/** The name of each feed in a provenance reason. */
-const FEED_NAME = {
-  gdacs: "GDACS",
-  ndma_sachet: "NDMA Sachet",
-} as const satisfies Record<OfficialWarningSource, string>;
-
-/** What a partial read could not read, for each feed. */
-const FEED_UNIT = {
-  gdacs: "events",
-  ndma_sachet: "alerts",
-} as const satisfies Record<OfficialWarningSource, string>;
+/**
+ * How a provenance reason names each feed. `name`: the feed. `unit`: what a partial read could not
+ * read.
+ */
+const FEED_LABEL = {
+  gdacs: { name: "GDACS", unit: "events" },
+  ndma_sachet: { name: "NDMA Sachet", unit: "alerts" },
+} as const satisfies Record<OfficialWarningSource, { name: string; unit: string }>;
 
 /**
  * The official warnings whose area contains the user's place on the briefing day (ADR-0117
@@ -53,7 +50,7 @@ export async function gatherWarningsContribution(args: {
   const zone = inZone(args.timezone);
   const dayStart = zone.startOf(args.briefingDate);
   const dayEnd = zone.startOf(addDays(args.briefingDate, 1));
-  const district = place.area?.countryCode === "IN" ? sachetDistrict(place.area) : null;
+  const district = place.area === undefined ? null : sachetDistrict(place.area);
 
   const reads: readonly (readonly [OfficialWarningSource, Promise<FeedRead>])[] = [
     ["gdacs", readGdacs({ place, dayStart, dayEnd, signal })],
@@ -77,19 +74,18 @@ export async function gatherWarningsContribution(args: {
         { err: result.reason, userId: args.userId, source },
         "[briefing.warnings] feed read failed",
       );
-      failures.push(`The ${FEED_NAME[source]} read failed.`);
+      failures.push(`The ${FEED_LABEL[source].name} read failed.`);
       continue;
     }
 
     const { unread, total } = result.value;
+    const label = FEED_LABEL[source];
 
     readAny = true;
     found.push(...result.value.found);
 
     if (unread > 0) {
-      failures.push(
-        `${FEED_NAME[source]}: ${unread} of ${total} ${FEED_UNIT[source]} could not be read.`,
-      );
+      failures.push(`${label.name}: ${unread} of ${total} ${label.unit} could not be read.`);
     }
   }
 
@@ -101,6 +97,7 @@ export async function gatherWarningsContribution(args: {
 
   if (!readAny) return { value: null, provenance };
 
+  // `officialWarningSchema` gives `onset` in one UTC form, so the text order is the time order.
   const ranked = found.toSorted(
     (a, b) => a.rank - b.rank || a.warning.onset.localeCompare(b.warning.onset),
   );
@@ -130,7 +127,7 @@ function coverageGap(place: Place): string | null {
     return `Alfred has no country or district for ${place.label}, so it did not read a national warning feed.`;
   }
 
-  if (place.area.countryCode === "IN" && place.area.district === undefined) {
+  if (sachetCovers(place.area) && place.area.district === undefined) {
     return `Alfred has no district for ${place.label}, so it did not read NDMA Sachet.`;
   }
 

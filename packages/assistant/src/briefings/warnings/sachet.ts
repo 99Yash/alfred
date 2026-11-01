@@ -1,8 +1,16 @@
-import { mapConcurrent, OFFICIAL_WARNING_TEXT_MAX, type PlaceArea } from "@alfred/contracts";
+import { mapConcurrent, type PlaceArea } from "@alfred/contracts";
 import { logger } from "@alfred/logging";
 import { XMLParser } from "fast-xml-parser";
 import { z } from "zod";
-import { clipText, fetchFeed, isoInstant, type FeedRead, type RankedWarning } from "./feed";
+import {
+  buildWarning,
+  fetchFeed,
+  WARNING_RANK,
+  type FeedRead,
+  type RankedWarning,
+  type WarningBuild,
+  type WarningRank,
+} from "./feed";
 import { LGD_DISTRICTS } from "./lgd-districts";
 
 /**
@@ -38,19 +46,19 @@ type CapSeverity = (typeof CAP_SEVERITIES)[number];
 const capSeveritySchema = z.enum(CAP_SEVERITIES);
 
 /**
- * The rank of each CAP severity, or `null` when the briefing does not select it. Each rank is the
- * same as the GDACS alert level of the same weight: Red and `Extreme` are 0. A `Moderate` or
- * `Minor` alert is not selected (owner decision, 2026-11-01): on that day most Sachet alerts were
- * IMD nowcasts such as "Light Rain, Moderate", and each would lead the briefing. A value outside
- * CAP 1.2 is not selected either, and `readSachet` logs it as a fault.
+ * The rank of each CAP severity on the scale of all feeds (`WARNING_RANK`), or `null` when the
+ * briefing does not select it. Red and `Extreme` have the same rank. A `Moderate` or `Minor`
+ * alert is not selected (owner decision, 2026-11-01): on that day most Sachet alerts were IMD
+ * nowcasts such as "Light Rain, Moderate", and each would lead the briefing. A value outside CAP
+ * 1.2 is not selected either, and `readSachet` logs it as a fault.
  */
 const SEVERITY_RANK = {
-  Extreme: 0,
-  Severe: 1,
+  Extreme: WARNING_RANK.extreme,
+  Severe: WARNING_RANK.severe,
   Moderate: null,
   Minor: null,
   Unknown: null,
-} as const satisfies Record<CapSeverity, number | null>;
+} as const satisfies Record<CapSeverity, WarningRank | null>;
 
 /**
  * The shortest alert that the briefing selects. IMD issues most of its alerts as nowcasts of one
@@ -167,15 +175,21 @@ export interface SachetDistrict {
 /** The comparison keys of the LGD states. */
 const LGD_STATES = new Set(LGD_DISTRICTS.map(([state]) => normalizeName(state)));
 
+/** Sachet covers India only. A place in another country has no Sachet read. */
+export function sachetCovers(area: PlaceArea): boolean {
+  return area.countryCode === "IN";
+}
+
 /**
- * The district of an Indian place, or `null` when the geocode gave no district. When the geocode
- * gives a state that LGD knows, only a district in that state can give the code. A district with
- * the same name in another state is a different district: LGD has Aurangabad only in Bihar, and
- * Maharashtra renamed its Aurangabad to Chhatrapati Sambhajinagar. When the state is not known,
- * the name gives the code only if one LGD district has it.
+ * The district of a place that Sachet covers, or `null` when Sachet does not cover the place or
+ * the geocode gave no district. When the geocode gives a state that LGD knows, only a district in
+ * that state can give the code. A district with the same name in another state is a different
+ * district: LGD has Aurangabad only in Bihar, and Maharashtra renamed its Aurangabad to
+ * Chhatrapati Sambhajinagar. When the state is not known, the name gives the code only if one LGD
+ * district has it.
  */
 export function sachetDistrict(area: PlaceArea): SachetDistrict | null {
-  if (area.district === undefined) return null;
+  if (!sachetCovers(area) || area.district === undefined) return null;
 
   const key = normalizeName(area.district);
   const state = area.region === undefined ? null : normalizeName(area.region);
@@ -211,9 +225,9 @@ export function sachetDistrict(area: PlaceArea): SachetDistrict | null {
  * The Sachet alerts that name the user's district and that are in force during the day: the
  * hazard starts (`onset`, else `effective`, else `sent`) before the day ends, and the alert
  * expires after `now`. Only a `Severe` or `Extreme` alert of `MIN_ALERT_MS` or more counts. An
- * alert that an `Actual` update or cancel names does not count.
- * Only a failed RSS read throws. When `signal` aborts, the CAP reads stop, the alerts already
- * read stay, and the items that were not read count in `unread`.
+ * alert that an `Actual` update or cancel names does not count. A matched alert that fails the
+ * contract parse counts in `unread`. Only a failed RSS read throws. When `signal` aborts, the CAP
+ * reads stop, the alerts already read stay, and the items that were not read count in `unread`.
  */
 export async function readSachet(args: {
   district: SachetDistrict;
@@ -293,9 +307,16 @@ export async function readSachet(args: {
 
     if (rank === null) continue;
 
-    const warning = matchAlert(item, alert, { ...args, info, rank });
+    const built = matchAlert(item, alert, { ...args, info, rank });
 
-    if (!warning) continue;
+    if (built === null) continue;
+
+    if (built.kind === "rejected") {
+      unread += 1;
+      continue;
+    }
+
+    const { warning } = built;
 
     // The same warning can come again under a new identifier with no reference.
     const key = `${warning.warning.headline}|${warning.warning.area}`;
@@ -353,6 +374,10 @@ async function readCap(item: RssItem, signal: AbortSignal): Promise<CapRead> {
   return { kind: "alert", alert: parsed.data.alert };
 }
 
+/**
+ * The alert as a warning when it is in force during the day, lasts `MIN_ALERT_MS` or more, and
+ * names the district. `null`: the alert does not match.
+ */
 function matchAlert(
   item: RssItem,
   alert: CapAlert,
@@ -361,9 +386,9 @@ function matchAlert(
     dayEnd: Date;
     now: Date;
     info: CapAlert["info"][number];
-    rank: number;
+    rank: WarningRank;
   },
-): RankedWarning | null {
+): WarningBuild | null {
   const { info, rank } = args;
   // CAP 1.2: `onset` is the expected start of the hazard, and `effective` is only when the message
   // takes effect. A warning that takes effect today for a hazard tomorrow is tomorrow's warning.
@@ -378,27 +403,20 @@ function matchAlert(
   if (end - start < MIN_ALERT_MS) return null;
 
   const area = info.area.find((candidate) => areaHasDistrict(candidate, args.district));
-  const onset = isoInstant(start);
-  const expires = isoInstant(end);
 
-  if (!area || onset === null || expires === null) return null;
+  if (!area) return null;
 
-  return {
+  return buildWarning({
+    source: "ndma_sachet",
     rank,
-    warning: {
-      source: "ndma_sachet",
-      issuer: clipText(
-        authorName(item.author) || info.senderName || alert.sender || "NDMA Sachet",
-        OFFICIAL_WARNING_TEXT_MAX.issuer,
-      ),
-      event: clipText(info.event, OFFICIAL_WARNING_TEXT_MAX.event),
-      severity: clipText(info.severity, OFFICIAL_WARNING_TEXT_MAX.severity),
-      headline: clipText(info.headline || info.event, OFFICIAL_WARNING_TEXT_MAX.headline),
-      area: clipText(area.areaDesc || args.district.name, OFFICIAL_WARNING_TEXT_MAX.area),
-      onset,
-      expires,
-    },
-  };
+    issuer: authorName(item.author) || info.senderName || alert.sender || "NDMA Sachet",
+    event: info.event,
+    severity: info.severity,
+    headline: info.headline || info.event,
+    area: area.areaDesc || args.district.name,
+    onset: start,
+    expires: end,
+  });
 }
 
 /**
