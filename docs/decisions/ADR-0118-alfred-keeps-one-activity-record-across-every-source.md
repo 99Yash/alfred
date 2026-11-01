@@ -158,8 +158,8 @@ The baseline uses GitHub only until another source records the user's actions. T
 
 ## Implementation slices
 
-1. `SourceIdentity` and its parser in `@alfred/contracts`, and the required route field on each `INTEGRATIONS` entry. No data changes. The compiler lists every table that must handle the union.
-2. The GitHub activity reducer, with replay and the coverage of decision 4. The replay reads `documents.raw` for history before 2026-10-28, and `event_receipts` after it. Proof: replay 2026-10-27. The read must report GitHub as `unavailable` from 2026-10-22, not as quiet. The old credential row is gone, so the coverage for that window comes from the time of the last event.
+1. The required route field on each `INTEGRATIONS` entry, set to what is built today, and an "Activity record" note on the integration page that reads it. No data changes. `SourceIdentity` waits for slice 2, because a type with no reader fails the `knip` gate.
+2. `SourceIdentity` and its parser in `@alfred/contracts`, and the GitHub activity reducer as its first writer, with replay and the coverage of decision 4. The replay reads `documents.raw` for history before 2026-10-28, and `event_receipts` after it. Proof: replay 2026-10-27. The read must report GitHub as `unavailable` from 2026-10-22, not as quiet. The old credential row is gone, so the coverage for that window comes from the time of the last event.
 3. `readActivity`, and the briefing reads "since the last briefing" from it. This slice ships with ADR-0117 slice 2, which adds the same provenance type to the gather.
 4. The rhythm view and the three results of decision 7, in the briefing and in chat.
 5. Custom servers in object state: the `mcp_server_id` columns, declared kinds with presets, the migration of the `mcp` rows, and the split of `LOOP_ENTITY_PROVIDERS`.
