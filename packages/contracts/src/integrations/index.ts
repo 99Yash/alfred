@@ -3,6 +3,7 @@
 export {
   type CredentialSpec,
   type PassthroughTransportKind,
+  type SourceRoute,
   INTEGRATIONS,
   type IntegrationSlug,
   INTEGRATION_SLUGS,
