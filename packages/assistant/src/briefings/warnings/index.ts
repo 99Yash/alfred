@@ -28,7 +28,7 @@ const FEED_NAME = {
 
 /** What a partial read could not read, for each feed. */
 const FEED_UNIT = {
-  gdacs: "event areas",
+  gdacs: "events",
   ndma_sachet: "alerts",
 } as const satisfies Record<OfficialWarningSource, string>;
 

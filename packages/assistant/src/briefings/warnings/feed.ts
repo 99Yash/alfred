@@ -5,7 +5,11 @@ import {
   type OfficialWarningSource,
 } from "@alfred/contracts";
 
-/** One request to a feed. The gather's deadline also stops it. */
+/**
+ * One request to a feed. It is a third of the gather deadline (`WARNINGS_DEADLINE_MS`, 30 s, in
+ * `index.ts`), so one slow request leaves time for the reads after it, such as the GDACS area reads
+ * after the event list. The gather's deadline also stops it.
+ */
 const REQUEST_TIMEOUT_MS = 10_000;
 
 /** Some government servers refuse a request with no agent name. */
@@ -37,10 +41,11 @@ export interface RankedWarning {
 }
 
 /**
- * What one feed gave. `unread`: the items of the feed that Alfred could not read (an event area, or
- * one alert), out of `total`. An item counts when its request failed, when its body was not
- * readable, when Alfred did not request it, or when the deadline stopped its read. A feed whose
- * list read failed throws instead.
+ * What one feed gave. `unread`: the items of the feed that Alfred could not read (a GDACS event, or
+ * one Sachet alert), out of `total`. An item counts when its request failed, when its body was not
+ * readable, when the feed did not give a value that the match needs, when Alfred did not request
+ * it, or when the deadline stopped its read. A list that is over its page bound counts one item
+ * for the rest, because their number is not known. A feed whose list read failed throws instead.
  */
 export interface FeedRead {
   readonly found: readonly RankedWarning[];

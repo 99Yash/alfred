@@ -1,7 +1,13 @@
-import { OFFICIAL_WARNING_TEXT_MAX, type Place } from "@alfred/contracts";
+import {
+  mapConcurrent,
+  OFFICIAL_WARNING_TEXT_MAX,
+  parseIanaTimezone,
+  type Place,
+} from "@alfred/contracts";
 import { logger } from "@alfred/logging";
+import { addDays, inZone } from "@alfred/assistant/time";
 import { z } from "zod";
-import { clipText, fetchFeed, isoInstant, type FeedRead, type RankedWarning } from "./feed";
+import { clipText, fetchFeed, type FeedRead, type RankedWarning } from "./feed";
 import { areaGeometrySchema, containsPoint, distanceKm } from "./geometry";
 
 /**
@@ -14,18 +20,22 @@ import { areaGeometrySchema, containsPoint, distanceKm } from "./geometry";
 const GDACS_API = "https://www.gdacs.org/gdacsapi/api";
 
 /**
- * The event types that Alfred reads. A drought (DR) is not read: it lasts for months, so it would
- * be an "at risk" item in every briefing.
+ * The event list writes its dates as UTC calendar days ("2026-11-01"), so the query window is a
+ * day range in UTC.
+ */
+const GDACS_DAYS = inZone(parseIanaTimezone("UTC"));
+
+/**
+ * The event types that Alfred reads. A drought (DR) is not read: its dates span months, so it
+ * overlaps every query window and would be an "at risk" item in every briefing.
  */
 const GDACS_EVENT_TYPES = ["TC", "EQ", "FL", "VO", "WF"] as const;
 
 type GdacsEventType = (typeof GDACS_EVENT_TYPES)[number];
 
-const gdacsEventTypeSchema = z.enum(GDACS_EVENT_TYPES);
-
 /**
  * The alert levels that the event list asks for. A Green event is not asked for, so any other
- * level in a reply is a feed fault: the event is skipped and counted as unreadable.
+ * level in a reply is a feed fault: the event is skipped and counted as unread.
  */
 const GDACS_ALERT_LEVELS = ["Red", "Orange"] as const;
 
@@ -34,14 +44,30 @@ type GdacsAlertLevel = (typeof GDACS_ALERT_LEVELS)[number];
 /** The API gives at most 100 events in a page. */
 const PAGE_SIZE = 100;
 
-/** Orange and Red events in a few days are far fewer than five pages. More is a log line. */
+/** Orange and Red events in a few days are far fewer than five pages. More counts as unread. */
 const MAX_PAGES = 5;
 
-/** Days before the briefing day that the event list reads, so a cyclone that started earlier is in it. */
-const LIST_DAYS_BEFORE = 3;
+/**
+ * Days before the briefing day where the query window starts. The event list gives each event
+ * whose dates (`fromdate` to `todate`) overlap the window, so an event that started long before
+ * the window, such as a flood of several weeks, is in it. For an event in progress, `todate` is
+ * its last update, not its end. In the capture of 2026-11-01, a current flood had a `todate` three
+ * days old, and GDACS marked each flood and fire with a `todate` four days old as not current. So
+ * seven days lists each event that GDACS still marks as current. An event that is not current is
+ * dropped before its area read, so a wide window costs no area read.
+ */
+const LIST_DAYS_BEFORE = 7;
 
-/** Event areas that one gather reads. The nearest events go first. A drop is a log line. */
+/**
+ * Event areas that one gather reads, the nearest first. In the capture of 2026-11-01, one of the
+ * 100 newest GDACS events was Orange or Red, so a normal list is far below 20. The bound caps the
+ * requests and the bytes (an earthquake ShakeMap is 1.4 MB) that one gather takes from a public
+ * server: five rounds of `AREA_READ_CONCURRENCY`. An event past the bound counts as unread.
+ */
 const MAX_AREA_READS = 20;
+
+/** Parallel area reads, so 20 reads take seconds and do not load the public GDACS server. */
+const AREA_READ_CONCURRENCY = 4;
 
 /**
  * The lowest shaking intensity (Modified Mercalli, from the GDACS ShakeMap polygons) that is a
@@ -50,16 +76,26 @@ const MAX_AREA_READS = 20;
  */
 const EQ_MIN_INTENSITY = 5;
 
+/**
+ * A GDACS time as epoch milliseconds. GDACS writes UTC times with no zone ("2026-11-01T00:00:00").
+ * A time that `Date.parse` cannot read fails the parse.
+ */
+const gdacsTime = z
+  .string()
+  .transform((text) => Date.parse(/(?:Z|[+-]\d{2}:\d{2})$/.test(text) ? text : `${text}Z`))
+  .pipe(z.number());
+
 const eventSchema = z.object({
   geometry: z.object({ coordinates: z.array(z.number()).min(2) }),
   properties: z.object({
-    eventtype: z.string(),
+    eventtype: z.enum(GDACS_EVENT_TYPES),
     eventid: z.number().int(),
     episodeid: z.number().int(),
     name: z.string().min(1),
     alertlevel: z.enum(GDACS_ALERT_LEVELS),
-    fromdate: z.string(),
-    todate: z.string(),
+    iscurrent: z.enum(["true", "false"]),
+    fromdate: gdacsTime,
+    todate: gdacsTime,
     country: z.string().optional(),
     source: z.string().optional(),
     url: z.object({ report: z.string().optional() }).optional(),
@@ -71,35 +107,51 @@ type GdacsEvent = z.infer<typeof eventSchema>;
 
 const featureListSchema = z.object({ features: z.array(z.unknown()) });
 
-const areaFeatureSchema = z.object({
+/** A feature of an event geometry. Its geometry is parsed only when the feature is a hazard area. */
+const geometryFeatureSchema = z.object({
   geometry: z.unknown(),
   properties: z.object({
     Class: z.string(),
     intensity: z.number().optional(),
-    polygondate: z.string().optional(),
+    polygondate: gdacsTime.optional(),
   }),
 });
 
-type AreaFeature = z.infer<typeof areaFeatureSchema>["properties"];
+type FeatureProperties = z.infer<typeof geometryFeatureSchema>["properties"];
 
 /**
- * The polygons that are the area of an event, for each type. The probe of 2026-11-01 found these
- * classes. Each other class (a track line, a 100 km circle around an epicentre, a river basin) is
- * not an area where the hazard is.
+ * What a feature of an event geometry is. `hazard`: an area where the hazard is. `other`: a feature
+ * that is not such an area (a track line, a centroid point, a river basin, a low intensity).
+ * `unreadable`: the feature does not give a value that the test needs.
+ */
+type FeatureRole = "hazard" | "other" | "unreadable";
+
+/**
+ * The hazard areas of each event type. The probe of 2026-11-01 found these classes. Each other
+ * class (a track line, a 100 km circle around an epicentre, a river basin) is not an area where the
+ * hazard is.
  *
  * - TC: the 60, 90, and 120 km/h wind buffers, and the uncertainty cone of the track.
- * - EQ: the ShakeMap intensity polygons at `EQ_MIN_INTENSITY` or more.
+ * - EQ: the ShakeMap intensity polygons at `EQ_MIN_INTENSITY` or more. A ShakeMap polygon with no
+ *   intensity is unreadable, not intensity 0.
  * - FL: the affected area. `Poly_Global` is the whole basin.
  * - VO: the circle around the volcano.
  * - WF: the burned area.
  */
 const EVENT_AREA = {
-  TC: (f) => ["Poly_Green", "Poly_Orange", "Poly_Red", "Poly_Cones"].includes(f.Class),
-  EQ: (f) => f.Class.startsWith("Poly_SMPInt") && (f.intensity ?? 0) >= EQ_MIN_INTENSITY,
-  FL: (f) => f.Class === "Poly_Affected",
-  VO: (f) => f.Class === "Poly_Circle",
-  WF: (f) => f.Class === "Poly_area",
-} as const satisfies Record<GdacsEventType, (feature: AreaFeature) => boolean>;
+  TC: ({ Class }) =>
+    ["Poly_Green", "Poly_Orange", "Poly_Red", "Poly_Cones"].includes(Class) ? "hazard" : "other",
+  EQ: ({ Class, intensity }) => {
+    if (!Class.startsWith("Poly_SMPInt")) return "other";
+
+    if (intensity === undefined) return "unreadable";
+
+    return intensity >= EQ_MIN_INTENSITY ? "hazard" : "other";
+  },
+  FL: ({ Class }) => (Class === "Poly_Affected" ? "hazard" : "other"),
+  VO: ({ Class }) => (Class === "Poly_Circle" ? "hazard" : "other"),
+  WF: ({ Class }) => (Class === "Poly_area" ? "hazard" : "other"),
+} as const satisfies Record<GdacsEventType, (properties: FeatureProperties) => FeatureRole>;
 
 /** Red before Orange. */
 const ALERT_RANK = {
@@ -108,10 +160,27 @@ const ALERT_RANK = {
 } as const satisfies Record<GdacsAlertLevel, number>;
 
 /**
- * The GDACS events whose area contains the place, during the day `[dayStart, dayEnd)`. The test is
- * containment, with no distance band: on 2026-10-28 the nearest wind buffer of cyclone ARNAB-26
- * was 318 km from Bhubaneswar, and a band that wide selects much of a coast. The national feed
- * carries the district warnings.
+ * The result of one event area read. `warning`: the area contains the place. `clear`: each hazard
+ * area was read and none contains the place. `unreadable`: Alfred cannot tell, because the reply
+ * had no geometry or a hazard feature that it could not read. A failed request throws instead.
+ */
+type AreaRead =
+  | { readonly kind: "warning"; readonly warning: RankedWarning }
+  | { readonly kind: "clear" }
+  | { readonly kind: "unreadable" };
+
+/**
+ * The GDACS events that are in force at the run and whose area contains the place. GDACS marks
+ * an event in progress as current (`iscurrent`), and an event that ended is not. The `todate` of an
+ * event in progress is its last update, so it is earlier than the run and cannot tell whether
+ * the event is in force. An event that started after the briefing day (`dayEnd`) is not selected.
+ *
+ * The test is containment, with no distance band: on 2026-10-28 the nearest wind buffer of
+ * cyclone ARNAB-26 was 318 km from Bhubaneswar, and a band that wide selects much of a coast. The
+ * national feed carries the district warnings.
+ *
+ * `total` counts each listed event. `unread` counts the events that Alfred could not read or did
+ * not read, and one more when the list is over its page bound.
  */
 export async function readGdacs(args: {
   place: Place;
@@ -119,57 +188,84 @@ export async function readGdacs(args: {
   dayEnd: Date;
   signal: AbortSignal;
 }): Promise<FeedRead> {
-  const events = await listEvents(args);
+  const list = await listEvents(args);
+  const dayEnd = args.dayEnd.getTime();
 
-  const near = events
-    .map((event) => ({ event, km: distanceKm(args.place, centroidOf(event)) }))
+  const byDistance = list.events
+    .filter(({ properties }) => properties.iscurrent === "true" && properties.fromdate < dayEnd)
+    .map((event) => ({ event, km: distanceKm(args.place, reportedPoint(event)) }))
     .toSorted((a, b) => a.km - b.km);
 
-  if (near.length > MAX_AREA_READS) {
+  const toRead = byDistance.slice(0, MAX_AREA_READS).map(({ event }) => event);
+  const notRead = byDistance.length - toRead.length;
+
+  if (notRead > 0) {
     logger.warn(
-      { events: near.length, read: MAX_AREA_READS },
+      { events: byDistance.length, read: MAX_AREA_READS },
       "[briefing.warnings] GDACS events over the read bound; the farthest are not read",
     );
   }
 
   const found: RankedWarning[] = [];
-  let unread = 0;
+  let unread = list.unread + notRead;
+  let stopped = 0;
 
-  const reads = await Promise.allSettled(
-    near.slice(0, MAX_AREA_READS).map(({ event }) => matchEvent(event, args)),
-  );
+  // `mapConcurrent` does not get the signal: an abort there throws and loses the areas already
+  // read. After an abort, each read that is left fails at once in `fetchFeed`.
+  await mapConcurrent(toRead, AREA_READ_CONCURRENCY, async (event) => {
+    try {
+      const read = await readEventArea(event, args);
 
-  for (const [i, read] of reads.entries()) {
-    if (read.status === "rejected") {
+      if (read.kind === "warning") found.push(read.warning);
+      else if (read.kind === "unreadable") unread += 1;
+    } catch (err) {
       unread += 1;
+
+      if (args.signal.aborted) {
+        stopped += 1;
+
+        return;
+      }
+
       logger.warn(
-        { err: read.reason, eventId: near[i]?.event.properties.eventid },
+        { err, eventId: event.properties.eventid },
         "[briefing.warnings] GDACS event area read failed",
       );
-      continue;
     }
+  });
 
-    if (read.value) found.push(read.value);
+  if (stopped > 0) {
+    logger.warn(
+      { err: args.signal.reason, stopped, read: toRead.length - stopped },
+      "[briefing.warnings] GDACS area reads stopped by the abort; the areas already read are kept",
+    );
   }
 
-  return { found, unread, total: Math.min(near.length, MAX_AREA_READS) };
+  return { found, unread, total: list.total };
 }
 
+/**
+ * The events that overlap the query window. `unread`: the listed events that Alfred could not
+ * parse, and one more when the list is over its page bound (the number past the bound is not
+ * known). `total`: each listed event, and that one.
+ */
 async function listEvents(args: {
   dayStart: Date;
   dayEnd: Date;
   signal: AbortSignal;
-}): Promise<GdacsEvent[]> {
-  const from = new Date(args.dayStart.getTime() - LIST_DAYS_BEFORE * DAY_MS);
+}): Promise<{ events: GdacsEvent[]; unread: number; total: number }> {
+  const from = addDays(GDACS_DAYS.day(args.dayStart), -LIST_DAYS_BEFORE);
+  const to = GDACS_DAYS.day(args.dayEnd);
   const events: GdacsEvent[] = [];
-  let skipped = 0;
+  let unread = 0;
+  let total = 0;
 
   for (let page = 1; page <= MAX_PAGES; page++) {
     const url = new URL(`${GDACS_API}/events/geteventlist/SEARCH`);
     url.searchParams.set("eventlist", GDACS_EVENT_TYPES.join(";"));
     url.searchParams.set("alertlevel", GDACS_ALERT_LEVELS.join(";"));
-    url.searchParams.set("fromDate", utcDay(from));
-    url.searchParams.set("toDate", utcDay(args.dayEnd));
+    url.searchParams.set("fromDate", from);
+    url.searchParams.set("toDate", to);
     url.searchParams.set("pagenumber", String(page));
 
     const res = await fetchFeed(url, "gdacs", args.signal);
@@ -179,127 +275,127 @@ async function listEvents(args: {
 
     const { features } = featureListSchema.parse(await res.json());
 
+    total += features.length;
+
     for (const feature of features) {
       const event = eventSchema.safeParse(feature);
 
-      if (
-        event.success &&
-        gdacsEventTypeSchema.safeParse(event.data.properties.eventtype).success
-      ) {
-        events.push(event.data);
-      } else {
-        skipped += 1;
-      }
+      if (event.success) events.push(event.data);
+      else unread += 1;
     }
 
     if (features.length < PAGE_SIZE) break;
 
     if (page === MAX_PAGES) {
-      logger.warn({ pages: MAX_PAGES }, "[briefing.warnings] GDACS event list over its page bound");
+      unread += 1;
+      total += 1;
+      logger.warn(
+        { pages: MAX_PAGES },
+        "[briefing.warnings] GDACS event list over its page bound; the rest counts as unread",
+      );
     }
   }
 
-  if (skipped > 0) {
+  if (unread > 0) {
     logger.warn(
-      { skipped },
-      "[briefing.warnings] GDACS events with an unreadable shape or alert level skipped",
+      { unread },
+      "[briefing.warnings] GDACS events with an unreadable shape, type, level, or date",
     );
   }
 
-  return events;
+  return { events, unread, total };
 }
 
-/** The event as a warning when its area contains the place during the day, else `null`. */
-async function matchEvent(
+/**
+ * Reads the event's geometry and tests whether a hazard area contains the place. A forecast
+ * polygon of a cyclone counts at any forecast time: a polygon for a later day that contains the
+ * place selects the event today, so a landfall tomorrow is in today's briefing (owner decision).
+ */
+async function readEventArea(
   event: GdacsEvent,
-  args: { place: Place; dayStart: Date; dayEnd: Date; signal: AbortSignal },
-): Promise<RankedWarning | null> {
-  const { properties: p } = event;
-  const type = gdacsEventTypeSchema.parse(p.eventtype);
-  const start = gdacsTime(p.fromdate);
-
-  // The event started after the day: it does not touch it.
-  if (!Number.isFinite(start) || start >= args.dayEnd.getTime()) return null;
+  args: { place: Place; signal: AbortSignal },
+): Promise<AreaRead> {
+  const { properties } = event;
 
   // The URL is built here, not read from the feed, so the read goes only to GDACS.
   const url = new URL(`${GDACS_API}/polygons/getgeometry`);
-  url.searchParams.set("eventtype", type);
-  url.searchParams.set("eventid", String(p.eventid));
-  url.searchParams.set("episodeid", String(p.episodeid));
+  url.searchParams.set("eventtype", properties.eventtype);
+  url.searchParams.set("eventid", String(properties.eventid));
+  url.searchParams.set("episodeid", String(properties.episodeid));
 
   const res = await fetchFeed(url, "gdacs", args.signal);
 
-  if (res.status === 204) return null;
+  // An Orange or Red event with no geometry: Alfred cannot tell whether it touches the place.
+  if (res.status === 204) return { kind: "unreadable" };
 
   const { features } = featureListSchema.parse(await res.json());
-  let end = gdacsTime(p.todate);
+  let end = properties.todate;
   let inside = false;
+  let unreadable = false;
 
   for (const feature of features) {
-    const parsed = areaFeatureSchema.safeParse(feature);
+    const parsed = geometryFeatureSchema.safeParse(feature);
 
-    if (!parsed.success || !EVENT_AREA[type](parsed.data.properties)) continue;
+    if (!parsed.success) {
+      unreadable = true;
+      continue;
+    }
+
+    const role = EVENT_AREA[properties.eventtype](parsed.data.properties);
+
+    if (role === "other") continue;
 
     const area = areaGeometrySchema.safeParse(parsed.data.geometry);
 
-    if (!area.success || !containsPoint(area.data, args.place)) continue;
+    if (role === "unreadable" || !area.success) {
+      unreadable = true;
+      continue;
+    }
+
+    if (!containsPoint(area.data, args.place)) continue;
 
     inside = true;
-    // A forecast polygon of a cyclone is later than the event's last observation.
-    const at = gdacsTime(parsed.data.properties.polygondate ?? "");
 
-    if (Number.isFinite(at) && !(at <= end)) end = at;
+    // A forecast polygon of a cyclone is later than the event's last update.
+    const at = parsed.data.properties.polygondate;
+
+    if (at !== undefined && at > end) end = at;
   }
 
-  if (!inside || !(end >= args.dayStart.getTime())) return null;
+  if (!inside) return unreadable ? { kind: "unreadable" } : { kind: "clear" };
 
-  const onset = isoInstant(start);
-  const expires = isoInstant(end);
-
-  if (onset === null || expires === null) return null;
-
-  const severity = p.severitydata?.severitytext;
-  const report = z.url().safeParse(p.url?.report);
+  const severity = properties.severitydata?.severitytext;
+  const report = z.url().safeParse(properties.url?.report);
 
   return {
-    rank: ALERT_RANK[p.alertlevel],
+    kind: "warning",
     warning: {
-      source: "gdacs",
-      issuer: clipText(
-        p.source ? `GDACS (${p.source})` : "GDACS",
-        OFFICIAL_WARNING_TEXT_MAX.issuer,
-      ),
-      event: clipText(p.name, OFFICIAL_WARNING_TEXT_MAX.event),
-      severity: clipText(`${p.alertlevel} alert`, OFFICIAL_WARNING_TEXT_MAX.severity),
-      headline: clipText(
-        severity ? `${p.name}: ${severity}` : p.name,
-        OFFICIAL_WARNING_TEXT_MAX.headline,
-      ),
-      area: clipText(p.country || p.name, OFFICIAL_WARNING_TEXT_MAX.area),
-      onset,
-      expires,
-      ...(report.success ? { url: report.data } : {}),
+      rank: ALERT_RANK[properties.alertlevel],
+      warning: {
+        source: "gdacs",
+        issuer: clipText(
+          properties.source ? `GDACS (${properties.source})` : "GDACS",
+          OFFICIAL_WARNING_TEXT_MAX.issuer,
+        ),
+        event: clipText(properties.name, OFFICIAL_WARNING_TEXT_MAX.event),
+        severity: clipText(`${properties.alertlevel} alert`, OFFICIAL_WARNING_TEXT_MAX.severity),
+        headline: clipText(
+          severity ? `${properties.name}: ${severity}` : properties.name,
+          OFFICIAL_WARNING_TEXT_MAX.headline,
+        ),
+        area: clipText(properties.country || properties.name, OFFICIAL_WARNING_TEXT_MAX.area),
+        // `gdacsTime` parses only to a valid time, so `toISOString` does not throw.
+        onset: new Date(properties.fromdate).toISOString(),
+        expires: new Date(end).toISOString(),
+        ...(report.success ? { url: report.data } : {}),
+      },
     },
   };
 }
 
-/** The event's point, as the list gives it. */
-function centroidOf(event: GdacsEvent) {
+/** The point that the event list gives for the event. It orders the area reads, nearest first. */
+function reportedPoint(event: GdacsEvent) {
   const [lng = 0, lat = 0] = event.geometry.coordinates;
 
   return { lat, lng };
 }
-
-/** GDACS writes UTC times with no zone ("2026-11-01T00:00:00"). `NaN` for an unreadable time. */
-function gdacsTime(text: string): number {
-  if (text.length === 0) return Number.NaN;
-
-  return Date.parse(/(?:Z|[+-]\d{2}:\d{2})$/.test(text) ? text : `${text}Z`);
-}
-
-/** `YYYY-MM-DD` in UTC, the date form of the event list. */
-function utcDay(at: Date): string {
-  return at.toISOString().slice(0, 10);
-}
-
-const DAY_MS = 24 * 60 * 60 * 1000;
