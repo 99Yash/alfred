@@ -1,14 +1,17 @@
 import {
   assertNever,
   GATHER_PROVENANCE_MAX,
+  GATHER_PROVENANCE_TEXT_MAX,
   GATHER_STALE_PROVENANCE_MAX,
   INTEGRATIONS,
   type BlockingGatherProvenance,
   type GatherInput,
   type GatherProvenance,
+  type IanaTimezone,
   type IntegrationActivityItem,
   type IntegrationHealth,
   type LiveProviderSlug,
+  type Place,
 } from "@alfred/contracts";
 import { GoogleCredentialSelectionError, type GoogleCredential } from "@alfred/integrations/google";
 import { logger } from "@alfred/logging";
@@ -17,6 +20,7 @@ import type {
   GithubMergedReadOutcome,
   VerifiedPullOutcome,
 } from "@alfred/assistant/connections/verified-pull";
+import type { StatedPlace, UserLocation } from "../knowledge";
 
 /** At least one statement. A producer cannot return an empty list for an input. */
 export type StatedProvenance = readonly [GatherProvenance, ...GatherProvenance[]];
@@ -331,4 +335,94 @@ export function logProvenance(userId: string, provenance: readonly GatherProvena
   if (logged.length === 0) return;
 
   logger.info({ userId, provenance: logged }, "[briefing.gather] inputs not live");
+}
+
+/**
+ * What the place read says about the weather input, before the forecast read (ADR-0117 decision
+ * 3). `place: null`: no forecast to read, and `statement` is the whole weather statement.
+ * Otherwise the forecast reads `place`, and `statement` is the `fallback` entry that goes beside
+ * the forecast read, or `null` for the user's own place.
+ *
+ * - `fault`: `read_failed` with `retry`. A failed fact read or geocode is temporary, so Alfred
+ *   does not put a default city in place of the user's place.
+ * - `none`: `no_place`. Alfred has no place, and the zone has no default city.
+ * - `timezone_default`: `fallback` with recovery `none`. No surface can set the city yet.
+ */
+export function weatherLocationProvenance(
+  located: UserLocation,
+  timezone: IanaTimezone,
+):
+  | { readonly place: null; readonly statement: GatherProvenance }
+  | { readonly place: Place; readonly statement: GatherProvenance | null } {
+  switch (located.basis) {
+    case "preference":
+    case "home_fact":
+    case "location_fact":
+      return { place: located.place, statement: null };
+    case "timezone_default":
+      return {
+        place: located.place,
+        statement: {
+          input: "weather",
+          state: "fallback",
+          used: provenanceText(located.place.label),
+          reason: provenanceText(
+            `The weather is for ${located.place.label}, the default city for the time zone ${timezone}. ${noUserPlaceSentence(located.unplaced)}`,
+          ),
+          recovery: { kind: "none" },
+        },
+      };
+    case "none":
+      return {
+        place: null,
+        statement: {
+          input: "weather",
+          state: "unavailable",
+          cause: "no_place",
+          reason: provenanceText(
+            `${noUserPlaceSentence(located.unplaced)} The time zone ${timezone} has no default city.`,
+          ),
+          recovery: { kind: "none" },
+        },
+      };
+    case "fault":
+      return {
+        place: null,
+        statement: readFailed(
+          "weather",
+          provenanceText(
+            located.step === "fact_read"
+              ? "Alfred could not read the facts that give the user's place."
+              : `Alfred could not look up the place of the confirmed ${STATED_PLACE_NAME[located.stated.key]} "${located.stated.text}".`,
+          ),
+        ),
+      };
+    default:
+      return assertNever(located, "user location basis");
+  }
+}
+
+const STATED_PLACE_NAME = {
+  home_city: "home city",
+  location: "location",
+} as const satisfies Record<StatedPlace["key"], string>;
+
+/**
+ * Why the weather does not use the user's own place. A confirmed fact that the geocode did not
+ * match is a different fact from no fact: the default won over a confirmed fact (decision 3).
+ */
+function noUserPlaceSentence(unplaced: StatedPlace | null): string {
+  return unplaced === null
+    ? "Alfred knows no place for the user."
+    : `Alfred could not place the confirmed ${STATED_PLACE_NAME[unplaced.key]} "${unplaced.text}".`;
+}
+
+/**
+ * A sentence inside `GATHER_PROVENANCE_TEXT_MAX`, so a long name cannot fail the parse of the
+ * stored gather. The place reader keeps a fact inside `PLACE_TEXT_MAX`, so the cut is a backstop.
+ */
+function provenanceText(text: string): string {
+  return text.length <= GATHER_PROVENANCE_TEXT_MAX
+    ? text
+    : `${text.slice(0, GATHER_PROVENANCE_TEXT_MAX - 3)}...`;
 }

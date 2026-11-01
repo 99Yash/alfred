@@ -92,6 +92,7 @@ import {
   logProvenance,
   readFailed,
   splitVerifiedPullActivity,
+  weatherLocationProvenance,
   type Sourced,
   type StatedProvenance,
 } from "./provenance";
@@ -254,7 +255,11 @@ const DEFAULT_MAX_PER_BUCKET = 8;
 
 const MAX_CALENDAR_EVENTS = 40;
 
-const WEATHER_FETCH_TIMEOUT_MS = 30_000;
+/**
+ * Bound on the whole weather input: the geocode of the user's place and the forecast read. The
+ * forecast had 30 seconds alone before; the geocode stops sooner on its own timeout.
+ */
+const WEATHER_DEADLINE_MS = 30_000;
 
 /** Bucket the window's triaged email. Reads `email_triage` only; no Gmail call. */
 export async function gatherBriefingDigest(
@@ -1015,48 +1020,16 @@ async function gatherWeatherContribution(args: {
   briefingDate: LocalDateKey;
   timezone: IanaTimezone;
 }): Promise<Sourced<WeatherContribution | null>> {
-  const located = await readUserLocation(args);
+  // One deadline for the place read and the forecast read together.
+  const deadline = AbortSignal.timeout(WEATHER_DEADLINE_MS);
+  const located = await readUserLocation({ ...args, signal: deadline });
+  const { place: location, statement } = weatherLocationProvenance(located, args.timezone);
 
-  // A confirmed city that the geocode could not place is a different fact from no city at all.
-  const known =
-    located.basis === "none" || located.basis === "timezone_default"
-      ? located.unplacedCity === null
-        ? "Alfred knows no city for the user."
-        : `Alfred could not place the confirmed home city ${located.unplacedCity}.`
-      : "";
+  if (location === null) return { value: null, provenance: [statement] };
 
-  if (located.basis === "none") {
-    return {
-      value: null,
-      provenance: [
-        {
-          input: "weather",
-          state: "unavailable",
-          cause: "no_place",
-          reason: `${known} The time zone ${args.timezone} has no default city.`,
-          recovery: { kind: "none" },
-        },
-      ],
-    };
-  }
-
-  const location = located.place;
-
-  // The time-zone city stands in for a fact Alfred does not have. No surface can set the city
-  // yet, so the recovery is `none` (ADR-0117 decision 3). A failed forecast keeps this statement
-  // too, so the log still shows which city the read was for.
-  const fallback: GatherProvenance[] =
-    located.basis === "timezone_default"
-      ? [
-          {
-            input: "weather",
-            state: "fallback",
-            used: location.label,
-            reason: `The weather is for ${location.label}, the default city for the time zone ${args.timezone}. ${known}`,
-            recovery: { kind: "none" },
-          },
-        ]
-      : [];
+  // A failed forecast keeps the fallback statement too, so the log still shows which city the
+  // read was for.
+  const fallback: GatherProvenance[] = statement ? [statement] : [];
 
   try {
     const url = new URL("https://api.open-meteo.com/v1/forecast");
@@ -1071,7 +1044,7 @@ async function gatherWeatherContribution(args: {
     url.searchParams.set("end_date", args.briefingDate);
     url.searchParams.set("timezone", "auto");
 
-    const res = await fetch(url, { signal: AbortSignal.timeout(WEATHER_FETCH_TIMEOUT_MS) });
+    const res = await fetch(url, { signal: deadline });
 
     if (!res.ok) {
       // oxlint-disable-next-line alfred/no-swallowed-catch -- an unreadable error body only drops detail; the thrown error keeps the status
