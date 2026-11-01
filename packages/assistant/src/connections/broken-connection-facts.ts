@@ -18,10 +18,18 @@ import type { BriefingBrokenConnections } from "./availability";
 
 /**
  * One connection the user must repair: a delivery alert, an MCP alert, or a briefing input that
- * Alfred could not read and the user can reconnect (ADR-0117 decision 2).
+ * Alfred could not read and the user can reconnect (ADR-0117 decision 2). A delivery alert carries
+ * `input` when a briefing input of the same integration is also a block row, so the one row states
+ * both facts.
  */
 export type BrokenConnection =
-  | { kind: "delivery"; key: string; name: string; alert: DeliveryAlert }
+  | {
+      kind: "delivery";
+      key: string;
+      name: string;
+      alert: DeliveryAlert;
+      input?: BlockingGatherProvenance | undefined;
+    }
   | { kind: "mcp"; key: string; name: string; alert: McpConnectionAlert }
   | { kind: "input"; key: string; name: string; entry: BlockingGatherProvenance };
 
@@ -44,23 +52,36 @@ export function mcpConnectionKey(alert: McpConnectionAlert): string {
 
 /**
  * Every connection to repair, one per key. An input row shares its key with a delivery alert for
- * the same integration, so one integration is one row, and the delivery alert wins: it is the
- * broader fact, and the repair link is the same. `blockingInputs` are the briefing's block rows
- * (`blockingProvenance` in `briefings/provenance.ts`); a caller without input rows passes `[]`.
+ * the same integration, so one integration is one row. The delivery alert takes the row, because
+ * the repair link is the same, and it carries the input entry, so the row does not lose the fact
+ * that the read failed. When two inputs share an integration, the first one counts. `blockingInputs`
+ * are the briefing's block rows (`blockingProvenance` in `briefings/provenance.ts`); a caller
+ * without input rows passes `[]`.
  */
 export function listBrokenConnections(
   broken: BriefingBrokenConnections,
   blockingInputs: readonly BlockingGatherProvenance[],
 ): BrokenConnection[] {
+  const inputByKey = new Map<string, BlockingGatherProvenance>();
+
+  for (const entry of blockingInputs) {
+    const key = integrationConnectionKey(entry.recovery.integration);
+
+    if (!inputByKey.has(key)) inputByKey.set(key, entry);
+  }
+
   const listed: BrokenConnection[] = [
-    ...broken.integrations.map(
-      (alert): BrokenConnection => ({
+    ...broken.integrations.map((alert): BrokenConnection => {
+      const key = deliveryConnectionKey(alert);
+
+      return {
         kind: "delivery",
-        key: deliveryConnectionKey(alert),
+        key,
         name: INTEGRATIONS[alert.integration].displayName,
         alert,
-      }),
-    ),
+        input: inputByKey.get(key),
+      };
+    }),
     ...broken.mcp.map(
       (alert): BrokenConnection => ({
         kind: "mcp",
@@ -73,11 +94,8 @@ export function listBrokenConnections(
 
   const keys = new Set(listed.map((connection) => connection.key));
 
-  for (const entry of blockingInputs) {
-    const key = integrationConnectionKey(entry.recovery.integration);
-
+  for (const [key, entry] of inputByKey) {
     if (keys.has(key)) continue;
-    keys.add(key);
     listed.push({
       kind: "input",
       key,
@@ -111,7 +129,7 @@ export const BROKEN_CONNECTION_GUIDANCE = [
   "You are Alfred, the user's personal assistant, telling them about one of your connections that stopped working. Say `I`, never `Alfred`.",
   "From the facts, work out the likely cause, what it costs the user in concrete terms (what you can no longer see, check, or do for them with that service), and what the fix takes. Lead with the cost, keep it short, and skip pleasantries such as `please`.",
   "Reason from the facts, and do not add facts that are not listed:",
-  "- `delivery` means updates stopped arriving live. It does not prove that direct reads fail, so do not say that you see nothing from that source.",
+  "- `delivery` means updates stopped arriving live. On its own, it does not prove that direct reads fail. When the same entry names a briefing input, or another fact you were given says that you could not read the same source, that read failed too: say so. Otherwise, do not say that you see nothing from that source.",
   "- `mcp` means your tool calls through that connection fail until the user repairs it.",
   "- `input` means you could not read that source for this briefing. The reason says why.",
   "- Missing scopes mean that the grant is narrower than the tools need. Say what the missing access covers in plain words; name a scope only when it helps the user choose the right box on the consent screen.",
@@ -129,6 +147,13 @@ export function describeBrokenConnection(connection: BrokenConnection): string {
       `  kind: delivery (the integration sends Alfred live activity events)`,
       `  health check: ${connection.alert.reason}`,
     );
+
+    if (connection.input) {
+      lines.push(
+        `  briefing input: ${connection.input.input} (Alfred could not read it)`,
+        `  reason: ${connection.input.reason}`,
+      );
+    }
 
     return lines.join("\n");
   }

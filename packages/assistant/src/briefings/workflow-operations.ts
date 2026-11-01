@@ -90,6 +90,12 @@ export const dailyBriefingStateSchema = z.object({
   /** The gathered day shape. Compose reads it, so the agent does not repeat the GitHub read. */
   dayShape: dayShapeSchema.optional(),
   /**
+   * The gathered calendar read. Compose gives it to `list_calendar_events`, so the list and the
+   * calendar statement in `provenance` come from one read. `null`: the gather could not read the
+   * calendar. Absent on a run persisted before this field; the tool then reads the calendar again.
+   */
+  calendar: briefingGatherSchema.shape.calendar.optional(),
+  /**
    * Connections whose delivery broke (ADR-0100 amendment 2026-10-28). Send renders one row for
    * each below the prose. Absent on a run persisted before this field; send then renders none.
    */
@@ -97,8 +103,11 @@ export const dailyBriefingStateSchema = z.object({
   /** MCP connections the user must repair (item 4 of the same amendment). Absent reads as none. */
   brokenMcpConnections: z.array(mcpConnectionAlertSchema).optional(),
   /**
-   * The gathered provenance of each input (ADR-0117 decision 1). Compose states every entry that
-   * is not `live`, and send renders a row for each blocking entry. Absent on an older run.
+   * The gathered provenance of each input (ADR-0117 decision 1). Compose gives the composer a fact
+   * for each entry that `provenanceAudience` gives to the composer, for an input that the composer
+   * reads (`COMPOSER_READS` in `agent/agent.ts`). Send renders one row per integration for the
+   * blocking entries; a delivery alert for the same integration takes that row. Absent on an older
+   * run, which states nothing.
    */
   provenance: briefingGatherSchema.shape.provenance,
   composed: z
@@ -288,6 +297,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
       closedLoops,
       loopRelevance,
       dayShape: gather.day_shape,
+      calendar: gather.calendar,
       brokenConnections: gather.broken_connections ?? [],
       brokenMcpConnections: gather.broken_mcp_connections ?? [],
       provenance: gather.provenance ?? [],
@@ -367,6 +377,7 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
         closedLoops: ctx.state.closedLoops,
         loopRelevance: ctx.state.loopRelevance,
         dayShape: ctx.state.dayShape,
+        calendar: ctx.state.calendar,
         brokenConnections,
         provenance: ctx.state.provenance,
         openAskViolations,
