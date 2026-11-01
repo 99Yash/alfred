@@ -9,11 +9,16 @@ import {
 import { db, type DbTransaction } from "@alfred/db";
 import { sha256Hex } from "@alfred/db/hash";
 import { documents, eventReceipts, type Document, type EventReceipt } from "@alfred/db/schemas";
-import { and, count, eq, gte, lt, sql, type SQL } from "drizzle-orm";
+import { and, count, eq, gte, isNull, lt, ne, or, sql, type SQL } from "drizzle-orm";
 import { settings } from "@alfred/assistant/settings";
 import { inZone } from "@alfred/assistant/time";
 import { INBOUND_SOURCES } from "../ingress";
-import { INBOUND_DAILY_EMBED_CAP, INBOUND_DAILY_EMBED_CAP_REASON } from "../receipt-corpus-policy";
+import {
+  INBOUND_DAILY_EMBED_CAP,
+  INBOUND_DAILY_EMBED_CAP_REASON,
+  RECEIPT_KIND_NOT_EMBEDDED_REASON,
+  receiptKindEmbeds,
+} from "../receipt-corpus-policy";
 
 /**
  * Corpus document key for one receipt: `(userId, source, sourceId = receipt id)`. The only place it
@@ -119,35 +124,23 @@ export type ReceiptDocumentIdentity = Pick<EventReceipt, "id" | "payload" | "del
 
 /**
  * Write the corpus document for a receipt, inside the receipt's transaction. A per-user, per-source
- * advisory lock serializes the daily embed cap check. No provider or embed call here; the sweep
- * indexes later.
+ * advisory lock serializes the daily embed cap check. A kind that {@link receiptKindEmbeds} refuses
+ * is marked without the lock or the count, and it does not use the cap. No provider or embed call
+ * here; the sweep indexes later.
  */
 export async function writeReceiptDocument(
   tx: DbTransaction,
   projection: ReceiptProjection,
   identity: ReceiptDocumentIdentity,
 ): Promise<void> {
-  const { provider, userId, kind, timezone } = projection;
+  const { provider, userId, kind } = projection;
   const description = INBOUND_SOURCES[provider].describe(kind, identity.payload);
-  await tx.execute(
-    sql`select pg_advisory_xact_lock(hashtextextended(${`receipt-corpus:${userId}:${provider}`}, 0))`,
-  );
   const admittedAt = new Date();
-  const { start, end } = inZone(timezone).dayBounds(admittedAt);
 
-  const [usage] = await tx
-    .select({ count: count() })
-    .from(documents)
-    .where(
-      and(
-        eq(documents.userId, userId),
-        eq(documents.source, provider),
-        gte(documents.ingestedAt, start),
-        lt(documents.ingestedAt, end),
-      ),
-    );
+  const skipReason = receiptKindEmbeds(provider, kind)
+    ? await dailyCapReason(tx, projection, admittedAt)
+    : RECEIPT_KIND_NOT_EMBEDDED_REASON;
 
-  const capped = (usage?.count ?? 0) >= INBOUND_DAILY_EMBED_CAP;
   await tx
     .insert(documents)
     .values({
@@ -161,9 +154,40 @@ export async function writeReceiptDocument(
       authoredAt: identity.deliveredAt,
       ingestedAt: admittedAt,
       metadata: receiptDocumentMetadataSchema.parse({ kind, summary: description.summary }),
-      ...(capped
-        ? { embedFailedAt: admittedAt, lastEmbedError: INBOUND_DAILY_EMBED_CAP_REASON }
-        : {}),
+      ...(skipReason ? { embedFailedAt: admittedAt, lastEmbedError: skipReason } : {}),
     })
     .onConflictDoNothing({ target: [documents.userId, documents.source, documents.sourceId] });
+}
+
+/**
+ * The cap reason when the user's documents from this source, admitted today in the user's zone,
+ * reach {@link INBOUND_DAILY_EMBED_CAP}. Rows the kind policy skipped do not count.
+ */
+async function dailyCapReason(
+  tx: DbTransaction,
+  { userId, provider, timezone }: ReceiptProjection,
+  admittedAt: Date,
+): Promise<typeof INBOUND_DAILY_EMBED_CAP_REASON | null> {
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(hashtextextended(${`receipt-corpus:${userId}:${provider}`}, 0))`,
+  );
+  const { start, end } = inZone(timezone).dayBounds(admittedAt);
+
+  const [usage] = await tx
+    .select({ count: count() })
+    .from(documents)
+    .where(
+      and(
+        eq(documents.userId, userId),
+        eq(documents.source, provider),
+        gte(documents.ingestedAt, start),
+        lt(documents.ingestedAt, end),
+        or(
+          isNull(documents.lastEmbedError),
+          ne(documents.lastEmbedError, RECEIPT_KIND_NOT_EMBEDDED_REASON),
+        ),
+      ),
+    );
+
+  return (usage?.count ?? 0) >= INBOUND_DAILY_EMBED_CAP ? INBOUND_DAILY_EMBED_CAP_REASON : null;
 }
