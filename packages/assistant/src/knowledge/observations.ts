@@ -5,7 +5,7 @@ import {
   type ObservationInsert,
   type ObservationInsertInput,
 } from "@alfred/contracts";
-import { and, eq, sql, type SQL } from "drizzle-orm";
+import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
 import { PG_UNIQUE_VIOLATION, pgErrorChain } from "@alfred/db/pg-errors";
 import type { DbTransaction } from "@alfred/db";
 
@@ -29,6 +29,25 @@ export function liveObservationHeadJoin(): SQL {
   return predicate;
 }
 
+/**
+ * The live head of each of the user's families in `familyKeys`, by family key. A family with no
+ * row has no entry.
+ */
+export async function readObservationFamilyHeads(
+  userId: string,
+  familyKeys: readonly string[],
+): Promise<ReadonlyMap<string, Observation>> {
+  if (familyKeys.length === 0) return new Map();
+
+  const rows = await db()
+    .select({ observation: observations })
+    .from(observations)
+    .innerJoin(observationFamilyHeads, liveObservationHeadJoin())
+    .where(and(eq(observations.userId, userId), inArray(observations.familyKey, [...familyKeys])));
+
+  return new Map(rows.map(({ observation }) => [observation.familyKey, observation]));
+}
+
 const OBSERVATION_APPEND_MAX_ATTEMPTS = 3;
 
 const OBSERVATION_CHAIN_CONSTRAINTS = new Set([
@@ -45,6 +64,20 @@ export interface InsertObservationResult {
 
 export interface AppendObservationFamilyMemberResult extends InsertObservationResult {
   status: "inserted" | "deduped";
+}
+
+/** The `keepHead` option kept the current head, and nothing was written. */
+interface KeptHeadResult extends InsertObservationResult {
+  status: "kept_head";
+}
+
+interface AppendObservationFamilyMemberOptions {
+  /**
+   * Keep the current head when this returns true, and write nothing. The check runs under the
+   * family lock, so the order of two concurrent writers cannot change the result. A writer uses it
+   * when two deliveries report one act and one of them must win, whichever arrives first.
+   */
+  readonly keepHead?: (head: Observation) => boolean;
 }
 
 export function isObservationAppendConflict(err: unknown): boolean {
@@ -166,7 +199,16 @@ async function insertParsed(
  */
 export async function appendObservationFamilyMember(
   input: ObservationInsertInput,
-): Promise<AppendObservationFamilyMemberResult> {
+): Promise<AppendObservationFamilyMemberResult>;
+/** Only a caller that passes `keepHead` can get `kept_head`. */
+export async function appendObservationFamilyMember(
+  input: ObservationInsertInput,
+  options: AppendObservationFamilyMemberOptions,
+): Promise<AppendObservationFamilyMemberResult | KeptHeadResult>;
+export async function appendObservationFamilyMember(
+  input: ObservationInsertInput,
+  options: AppendObservationFamilyMemberOptions = {},
+): Promise<AppendObservationFamilyMemberResult | KeptHeadResult> {
   const parsed = observationInsertSchema.parse(input);
 
   for (let attempt = 1; ; attempt++) {
@@ -184,6 +226,18 @@ export async function appendObservationFamilyMember(
             ),
           )
           .limit(1);
+
+        if (head && options.keepHead) {
+          const [current] = await tx
+            .select()
+            .from(observations)
+            .where(eq(observations.id, head.headObservationId))
+            .limit(1);
+
+          if (current && options.keepHead(current)) {
+            return { observation: current, deduped: false, status: "kept_head" as const };
+          }
+        }
 
         const result = await insertParsed(
           { ...parsed, supersedesObservationId: head?.headObservationId ?? null },

@@ -119,6 +119,8 @@ export * from "./mime";
 
 export * from "./source-manifest";
 
+export * from "./source-identity";
+
 export * from "./attachments";
 
 export * from "./weather";

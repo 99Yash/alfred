@@ -70,6 +70,7 @@ const BRANDS: ReadonlyMap<string, string> = new Map([
   ["DeliveryInstant", "packages/assistant/src/connections/object-state/delivery-instant.ts"],
   ["IanaTimezone", "packages/contracts/src/briefing.ts"],
   ["LocalDateKey", "packages/assistant/src/time/local-time.ts"],
+  ["McpServerId", "packages/contracts/src/source-identity.ts"],
   ["PublicAppErrorMessage", "packages/contracts/src/app-errors/index.ts"],
   ["ReceiptProjection", "packages/assistant/src/connections/ingestion/receipt-document.ts"],
   ["RedactedToolInput", "packages/ai/src/metering/langfuse.ts"],
