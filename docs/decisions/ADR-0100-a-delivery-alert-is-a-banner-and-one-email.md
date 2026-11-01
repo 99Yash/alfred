@@ -58,7 +58,7 @@ The fix is a **fourth alert condition**, not a change to the verdict: `unrepaira
 
 ## Amendment — 2026-10-28: a broken connection is a block in the briefing, and a missing row does not prove a disconnect
 
-**Status.** Accepted. Slice 1 is built (items 1 and 2): `gather.broken_connections`, `isQuietMorning`'s `brokenConnectionCount`, and the `BriefingBlockRow` block in the briefing template. Slice 2 is built (item 4), with the revision **The model writes the words**. Slices 3 and 4 are not built. Item 1 was revised on the same day after review; see **Revision to item 1**. ADR-0117 slice 2 is built (2026-11-01): a briefing input that is `unavailable` with recovery `connect` (a connected account without the grant for that input) is also a block row, with the kind `input`, and it also stops a quiet morning.
+**Status.** Accepted. Slice 1 is built (items 1 and 2): `gather.broken_connections`, `isQuietMorning`'s `brokenConnectionCount`, and the `BriefingBlockRow` block in the briefing template. Slice 2 is built (item 4), with the revision **The model writes the words**. Slices 3 and 4 are not built. Item 1 was revised on the same day after review; see **Revision to item 1**. ADR-0117 slice 2 is built (2026-11-01): a briefing input that is `unavailable` with recovery `connect` is also a block row, with the kind `input`, and it also stops a quiet morning. Two causes have that recovery: `scope_missing` (a connected account without the grant for that input) and `needs_reauth` (a Google credential row exists, but no row is active). When a delivery alert and an input row share an integration, the delivery alert takes the row and carries the input entry. A briefing input with no credential row (`not_connected`) makes no row, so item 3 holds for the block. The composer names that input in one clause of the prose.
 
 ### What happened
 
@@ -110,7 +110,7 @@ What the composer can still get wrong: a notice can be weak or vague. The check 
 | An MCP connection in `auth_required` or `failed` | `mcp_connections.status` (item 4) | user |
 | The App is installed but its credential is lost or does not match (#1033) | merges with no deliveries (item 5) | user, in the briefing |
 | A delivery names an installation that no row owns | `ingress.no_owner` (#1583) | operator only; the delivery names no user |
-| The user disconnected on purpose | no row | nobody, by design |
+| The user disconnected on purpose | no row | no row and no alert, by design; the briefing prose names a missed briefing input (ADR-0117) |
 
 ### Why the old reasons against the briefing do not hold here
 
