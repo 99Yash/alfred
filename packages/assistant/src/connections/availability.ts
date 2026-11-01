@@ -196,7 +196,7 @@ export async function readBriefingBrokenConnections(
 type AvailabilityRow = ProviderAvailability & Pick<IntegrationCredential, "createdAt">;
 
 /** Oldest first, so "the first row" is the first connected account for every reader. */
-async function loadCredentialRowsByProvider(
+export async function loadCredentialRowsByProvider(
   userId: string,
 ): Promise<Map<CredentialProvider, AvailabilityRow[]>> {
   const rows = await db()

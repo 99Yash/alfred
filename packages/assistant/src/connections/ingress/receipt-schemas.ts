@@ -25,7 +25,21 @@ const providerId = z
 /** A provider timestamp. Text that is not a date gives `undefined`, so the store uses receipt time. */
 const providerTime = lenient(z.string().pipe(z.coerce.date()));
 
-const repositorySchema = lenient(z.object({ full_name: text, html_url: text }));
+/** `repository.pushed_at` on a push is Unix seconds, not ISO text. */
+const unixSeconds = lenient(
+  z
+    .number()
+    .int()
+    .positive()
+    .transform((s) => new Date(s * 1000)),
+);
+
+const repositorySchema = lenient(
+  z.object({ full_name: text, html_url: text, pushed_at: unixSeconds }),
+);
+
+/** Who sent the delivery. Not the actor of every kind (ADR-0118): the activity reducer decides. */
+const senderSchema = lenient(z.object({ id: providerId, login: text, type: text }));
 
 const pullRequestSchema = lenient(
   z.object({
@@ -35,6 +49,10 @@ const pullRequestSchema = lenient(
     html_url: text,
     merged: lenient(z.boolean()),
     head: lenient(z.object({ sha: text, ref: text })),
+    created_at: providerTime,
+    updated_at: providerTime,
+    closed_at: providerTime,
+    merged_at: providerTime,
   }),
 );
 
@@ -43,6 +61,7 @@ const GITHUB_EVENT_SCHEMAS = {
     action: text,
     pull_request: pullRequestSchema,
     repository: repositorySchema,
+    sender: senderSchema,
   }),
   check_suite: z.object({
     action: text,
@@ -77,20 +96,41 @@ const GITHUB_EVENT_SCHEMAS = {
   push: z.object({
     action: text,
     ref: text,
+    /** The head sha after the push. */
+    after: text,
+    /** True when the push deleted the ref. */
+    deleted: lenient(z.boolean()),
     commits: lenient(z.array(z.unknown())),
+    /** `committer.username` is `web-flow` when GitHub made the commit: a merge or an update-branch. */
+    head_commit: lenient(z.object({ committer: lenient(z.object({ username: text })) })),
     compare: text,
     repository: repositorySchema,
+    sender: senderSchema,
   }),
   issues: z.object({
     action: text,
-    issue: lenient(z.object({ number: lenient(z.number()), title: text, html_url: text })),
+    issue: lenient(
+      z.object({
+        id: providerId,
+        number: lenient(z.number()),
+        title: text,
+        html_url: text,
+        created_at: providerTime,
+        updated_at: providerTime,
+        closed_at: providerTime,
+      }),
+    ),
     repository: repositorySchema,
+    sender: senderSchema,
   }),
   pull_request_review: z.object({
     action: text,
     pull_request: pullRequestSchema,
-    review: lenient(z.object({ state: text, html_url: text })),
+    review: lenient(
+      z.object({ id: providerId, state: text, html_url: text, submitted_at: providerTime }),
+    ),
     repository: repositorySchema,
+    sender: senderSchema,
   }),
 } satisfies { [T in EventTypeForSource<"github">]: z.ZodType };
 
