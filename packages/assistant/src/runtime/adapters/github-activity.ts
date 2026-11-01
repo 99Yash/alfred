@@ -14,7 +14,8 @@ import { isInboundDomainEvent, type TriggerConsumer } from "@alfred/assistant/tr
  * observation writer is in `knowledge`.
  *
  * `propagate`: a write failure fails `ingress.deliver`, and the queue retries. The family key and
- * the evidence hash make a retry a dedup.
+ * the evidence hash make a retry a dedup. A receipt that stays `failed` makes the coverage of its
+ * window `unavailable`, so a reader does not take the missing row for a quiet window.
  */
 export function githubActivityTriggerConsumer(): TriggerConsumer {
   return {
@@ -32,9 +33,14 @@ export function githubActivityTriggerConsumer(): TriggerConsumer {
       if (!doc) return;
       const fact = await recallLatestByKey(event.userId, "github_username");
       const self = await readGithubSelf(event.userId, fact?.value);
-      const row = reduceGithubActivity(doc, self);
+      const append = reduceGithubActivity(doc, self);
 
-      if (row) await appendObservationFamilyMember(row);
+      if (!append) return;
+      const result = await appendObservationFamilyMember(append.row, { keepHead: append.keepHead });
+
+      if (result.status === "kept_head" && append.otherwise) {
+        await appendObservationFamilyMember(append.otherwise);
+      }
     },
   };
 }

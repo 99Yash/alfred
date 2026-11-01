@@ -49,10 +49,14 @@ const pullRequestSchema = lenient(
     html_url: text,
     merged: lenient(z.boolean()),
     head: lenient(z.object({ sha: text, ref: text })),
+    /** The branch that the pull request merges into. The merge push goes to it. */
+    base: lenient(z.object({ ref: text })),
     created_at: providerTime,
     updated_at: providerTime,
     closed_at: providerTime,
     merged_at: providerTime,
+    /** The sha that the base branch moved to, for each merge method. The merge push has it as `after`. */
+    merge_commit_sha: text,
   }),
 );
 
@@ -96,12 +100,14 @@ const GITHUB_EVENT_SCHEMAS = {
   push: z.object({
     action: text,
     ref: text,
+    /** The head sha before the push. */
+    before: text,
     /** The head sha after the push. */
     after: text,
     /** True when the push deleted the ref. */
     deleted: lenient(z.boolean()),
     commits: lenient(z.array(z.unknown())),
-    /** `committer.username` is `web-flow` when GitHub made the commit: a merge or an update-branch. */
+    /** `committer.username` is `web-flow` when GitHub made the commit: a merge, an update-branch, or a browser edit. */
     head_commit: lenient(z.object({ committer: lenient(z.object({ username: text })) })),
     compare: text,
     repository: repositorySchema,

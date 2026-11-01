@@ -1,4 +1,5 @@
 import {
+  activityPayloadSchema,
   canonicalizeGithubTargetId,
   assertNever,
   canonicalizeIdentityValue,
@@ -10,7 +11,7 @@ import {
   type ObservationSubject,
 } from "@alfred/contracts";
 import { sha256Canonical } from "@alfred/db/hash";
-import type { Document } from "@alfred/db/schemas";
+import type { Document, Observation } from "@alfred/db/schemas";
 import { parseGithubEvent, type GithubPayload } from "../ingress/receipt-schemas";
 
 /**
@@ -22,8 +23,15 @@ import { parseGithubEvent, type GithubPayload } from "../ingress/receipt-schemas
  * - The actor is the delivery's `sender`, but only for these kinds, where the sender did the act.
  * - `occurredAt` is the provider's time from the body. `documents.authored_at` is the arrival
  *   time, so it is only the fallback.
- * - One merge is one row: the `push` that GitHub makes for a merge has the `web-flow` committer and
- *   gives nothing. An update-branch push has the same committer and also gives nothing.
+ * - One merge is one row. GitHub sends a `pull_request` "closed" delivery and a `push` to the base
+ *   branch for each merge, in either order. The push's `after` is the pull request's
+ *   `merge_commit_sha`, so both rows get the family key of that commit on that branch, and a
+ *   `merged` head outranks a `pushed` row. Only a
+ *   push whose head commit GitHub made (`web-flow`) gets that key. A browser edit and an
+ *   update-branch push also have the `web-flow` committer, but no merge shares their commit, so
+ *   they stay `pushed` rows.
+ * - Every other push is one act: its family key holds the push's own transition and time, so the
+ *   same sha pushed twice gives two rows, and a redelivery gives the same key.
  * - The object is the `integration_objects` key (`github:<kind>:<externalId>`, ADR-0118 decision 1),
  *   so a reader joins a row to its object state. A pull request is its numeric GitHub id, as in the
  *   object-state fold. The keys are not built with `integrationObjectKey`: that builder takes only
@@ -66,15 +74,33 @@ interface ActivityFacts {
   readonly object: string;
   readonly occurredAt: Date | undefined;
   readonly familyKey: string;
+  /** A merge's own family, for when its commit family already holds another pull request's merge. */
+  readonly ownFamilyKey?: string;
   /** Every activity kind's schema shares one sender shape. */
   readonly sender: GithubPayload<"push">["sender"];
+}
+
+/**
+ * One activity row and the rule that keeps a stronger head of its family. Pass both to
+ * `appendObservationFamilyMember(row, { keepHead })`: the rule runs under the family lock. When
+ * the result is `kept_head`, append `otherwise` if it is not `null`.
+ */
+export interface GithubActivityAppend {
+  readonly row: ObservationInsertInput;
+  readonly keepHead: (head: Observation) => boolean;
+  /**
+   * The same act in its own family. One push can merge two pull requests (a stacked pull request
+   * that the base merge also contains), so both merges have the same commit. The first one takes
+   * the commit family. The second one keeps its row here.
+   */
+  readonly otherwise: ObservationInsertInput | null;
 }
 
 /** The activity row for one delivery, or `null` when the delivery is not an activity. */
 export function reduceGithubActivity(
   doc: GithubActivityDocument,
   self: GithubSelf,
-): ObservationInsertInput | null {
+): GithubActivityAppend | null {
   const [eventName = ""] = doc.kind.split(".");
 
   if (!doc.accountId || !isEventTypeForSource("github", eventName)) return null;
@@ -94,7 +120,7 @@ export function reduceGithubActivity(
       facts = reviewFacts(event.payload);
       break;
     case "push":
-      facts = pushFacts(event.payload);
+      facts = pushFacts(event.payload, doc.sourceId);
       break;
     case "check_suite":
     case "repository_dispatch":
@@ -142,7 +168,7 @@ export function reduceGithubActivity(
     actorLogin,
   };
 
-  return {
+  const row: ObservationInsertInput = {
     userId: doc.userId,
     source: "github",
     kind: "activity",
@@ -159,6 +185,44 @@ export function reduceGithubActivity(
     payload,
     reducerVersion: GITHUB_ACTIVITY_REDUCER_VERSION,
   };
+
+  const { verb, ownFamilyKey } = facts;
+
+  // A merge outranks the push that GitHub made for it, whichever delivery came first. A merge of
+  // another pull request at the head sends this merge to its own family.
+  const keepHead = (head: Observation): boolean =>
+    isMergedHead(head) && (verb === "pushed" || head.objectIdentity?.value !== object.value);
+
+  return {
+    row,
+    keepHead,
+    otherwise:
+      ownFamilyKey && ownFamilyKey !== facts.familyKey ? { ...row, familyKey: ownFamilyKey } : null,
+  };
+}
+
+function isMergedHead(head: Observation): boolean {
+  const payload = activityPayloadSchema.safeParse(head.payload);
+
+  return payload.success && payload.data.verb === "merged";
+}
+
+/**
+ * The family key of a commit that lands on a branch. The merged row and the push that GitHub made
+ * for the merge share it. The branch is part of the key, so the same commit pushed to another
+ * branch later is a separate act.
+ */
+function landedCommitKey(args: {
+  repoFullName: string | undefined;
+  branch: string | undefined;
+  sha: string;
+}): string | null {
+  const { repoFullName, branch, sha } = args;
+
+  if (!repoFullName || !branch) return null;
+  const target = canonicalizeGithubTargetId({ repoFullName, branch });
+
+  return target ? `github:commit:${target}@${sha}` : null;
 }
 
 /** A family key part for an act that can repeat on one thing, such as a close and a reopen. */
@@ -178,7 +242,20 @@ function pullRequestFacts(payload: GithubPayload<"pull_request">): ActivityFacts
       return { ...base, verb: "opened", occurredAt: pr.created_at, familyKey: `${object}:opened` };
     case "closed":
       return pr.merged === true
-        ? { ...base, verb: "merged", occurredAt: pr.merged_at, familyKey: `${object}:merged` }
+        ? {
+            ...base,
+            verb: "merged",
+            occurredAt: pr.merged_at,
+            familyKey:
+              (pr.merge_commit_sha
+                ? landedCommitKey({
+                    repoFullName: payload.repository?.full_name,
+                    branch: pr.base?.ref,
+                    sha: pr.merge_commit_sha,
+                  })
+                : null) ?? `${object}:merged`,
+            ownFamilyKey: `${object}:merged`,
+          }
         : {
             ...base,
             verb: "closed",
@@ -248,32 +325,34 @@ function reviewFacts(payload: GithubPayload<"pull_request_review">): ActivityFac
   };
 }
 
-/** A push of new commits to a branch. A delete, a tag, and a GitHub-made commit give nothing. */
-function pushFacts(payload: GithubPayload<"push">): ActivityFacts | null {
-  const { ref, after, repository } = payload;
+/**
+ * A push of new commits to a branch. A delete and a tag give nothing. `receiptId` names the push
+ * only when the body has no push time.
+ */
+function pushFacts(payload: GithubPayload<"push">, receiptId: string): ActivityFacts | null {
+  const { ref, before, after, repository } = payload;
 
   if (payload.deleted === true || !after || !ref?.startsWith(BRANCH_REF_PREFIX)) return null;
 
   if ((payload.commits?.length ?? 0) === 0) return null;
-
-  if (payload.head_commit?.committer?.username === GITHUB_WEB_FLOW_LOGIN) return null;
   const repoFullName = repository?.full_name;
 
   if (!repoFullName) return null;
-
-  const target = canonicalizeGithubTargetId({
-    repoFullName,
-    branch: ref.slice(BRANCH_REF_PREFIX.length),
-  });
+  const branch = ref.slice(BRANCH_REF_PREFIX.length);
+  const target = canonicalizeGithubTargetId({ repoFullName, branch });
 
   if (!target) return null;
   const object = `github:ci_target:${target}`;
+  const pushedAt = repository.pushed_at;
 
-  return {
-    verb: "pushed",
-    object,
-    occurredAt: repository.pushed_at,
-    familyKey: `${object}:${after}`,
-    sender: payload.sender,
-  };
+  const occurrence = pushedAt
+    ? `${before ?? "unknown"}..${after}@${pushedAt.getTime()}`
+    : `receipt:${receiptId}`;
+
+  const familyKey =
+    (payload.head_commit?.committer?.username === GITHUB_WEB_FLOW_LOGIN
+      ? landedCommitKey({ repoFullName, branch, sha: after })
+      : null) ?? `${object}:push:${occurrence}`;
+
+  return { verb: "pushed", object, occurredAt: pushedAt, familyKey, sender: payload.sender };
 }

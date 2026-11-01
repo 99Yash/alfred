@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { INTEGRATION_SLUGS, type IntegrationSlug } from "./integrations";
+import { INTEGRATION_SLUGS } from "./integrations";
 
 /**
  * The one name of a source in every layer (ADR-0118 decision 2): the activity record, object
@@ -24,15 +24,17 @@ const mcpServerIdSchema: z.ZodType<McpServerId, string> = z
   .string()
   .refine(isMcpServerId, { error: "not an mcp_servers id" });
 
-export type SourceIdentity =
-  | { readonly kind: "integration"; readonly slug: IntegrationSlug }
-  | { readonly kind: "custom_mcp"; readonly serverId: McpServerId };
-
 /** The parser at every boundary that reads a stored source identity. */
-export const sourceIdentitySchema: z.ZodType<SourceIdentity, unknown> = z.discriminatedUnion(
-  "kind",
-  [
-    z.object({ kind: z.literal("integration"), slug: z.enum(INTEGRATION_SLUGS) }).strict(),
-    z.object({ kind: z.literal("custom_mcp"), serverId: mcpServerIdSchema }).strict(),
-  ],
-);
+export const sourceIdentitySchema = z.discriminatedUnion("kind", [
+  z
+    .object({ kind: z.literal("integration"), slug: z.enum(INTEGRATION_SLUGS) })
+    .strict()
+    .readonly(),
+  z
+    .object({ kind: z.literal("custom_mcp"), serverId: mcpServerIdSchema })
+    .strict()
+    .readonly(),
+]);
+
+/** Derived from the parser, so a member that the parser does not accept cannot exist. */
+export type SourceIdentity = z.infer<typeof sourceIdentitySchema>;

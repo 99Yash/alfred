@@ -47,6 +47,20 @@ export interface AppendObservationFamilyMemberResult extends InsertObservationRe
   status: "inserted" | "deduped";
 }
 
+/** The `keepHead` option kept the current head, and nothing was written. */
+interface KeptHeadResult extends InsertObservationResult {
+  status: "kept_head";
+}
+
+interface AppendObservationFamilyMemberOptions {
+  /**
+   * Keep the current head when this returns true, and write nothing. The check runs under the
+   * family lock, so the order of two concurrent writers cannot change the result. A writer uses it
+   * when two deliveries report one act and one of them must win, whichever arrives first.
+   */
+  readonly keepHead?: (head: Observation) => boolean;
+}
+
 export function isObservationAppendConflict(err: unknown): boolean {
   let sawUniqueViolation = false;
   let sawChainConstraint = false;
@@ -166,7 +180,16 @@ async function insertParsed(
  */
 export async function appendObservationFamilyMember(
   input: ObservationInsertInput,
-): Promise<AppendObservationFamilyMemberResult> {
+): Promise<AppendObservationFamilyMemberResult>;
+/** Only a caller that passes `keepHead` can get `kept_head`. */
+export async function appendObservationFamilyMember(
+  input: ObservationInsertInput,
+  options: AppendObservationFamilyMemberOptions,
+): Promise<AppendObservationFamilyMemberResult | KeptHeadResult>;
+export async function appendObservationFamilyMember(
+  input: ObservationInsertInput,
+  options: AppendObservationFamilyMemberOptions = {},
+): Promise<AppendObservationFamilyMemberResult | KeptHeadResult> {
   const parsed = observationInsertSchema.parse(input);
 
   for (let attempt = 1; ; attempt++) {
@@ -184,6 +207,18 @@ export async function appendObservationFamilyMember(
             ),
           )
           .limit(1);
+
+        if (head && options.keepHead) {
+          const [current] = await tx
+            .select()
+            .from(observations)
+            .where(eq(observations.id, head.headObservationId))
+            .limit(1);
+
+          if (current && options.keepHead(current)) {
+            return { observation: current, deduped: false, status: "kept_head" as const };
+          }
+        }
 
         const result = await insertParsed(
           { ...parsed, supersedesObservationId: head?.headObservationId ?? null },

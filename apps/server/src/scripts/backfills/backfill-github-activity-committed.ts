@@ -4,7 +4,9 @@
  *
  * The bodies come from `documents.raw`. A credential cascade deleted the GitHub receipts from
  * before 2026-10-28, but their documents remain. The reducer is idempotent: a family key names one
- * act, and an equal evidence hash dedups. Dry by default; `--commit` appends (additive only).
+ * act, and an equal evidence hash dedups. A merge and the push that GitHub made for it share one
+ * family, and the merge stays the head in either order. A second pull request that the same commit
+ * merged keeps its row in its own family. The DRY count applies the same rules in memory. Dry by default; `--commit` appends (additive only).
  *
  *   # preview (writes nothing):
  *   tsx src/scripts/backfills/backfill-github-activity-committed.ts
@@ -52,10 +54,12 @@ async function selfOf(userId: string, cache: Map<string, GithubSelf>): Promise<G
 async function replay(): Promise<void> {
   console.log(`# GitHub activity replay: mode=${COMMIT ? "COMMIT" : "DRY"}`);
   const selves = new Map<string, GithubSelf>();
-  const byVerb = new Map<string, number>();
+  /** The head of each family after the replay, as `<verb> by <subject>`. */
+  const heads = new Map<string, { label: string; object: string | undefined }>();
   let read = 0;
   let rows = 0;
   let inserted = 0;
+  let kept = 0;
   let afterId: string | null = null;
 
   do {
@@ -64,20 +68,47 @@ async function replay(): Promise<void> {
 
     for (const doc of page.documents) {
       read++;
-      const row = reduceGithubActivity(doc, await selfOf(doc.userId, selves));
+      const append = reduceGithubActivity(doc, await selfOf(doc.userId, selves));
 
-      if (!row) continue;
+      if (!append) continue;
       rows++;
+      const { row, keepHead, otherwise } = append;
       const payload = activityPayloadSchema.parse(row.payload);
       const subject = row.subjectIdentity.kind === "user" ? "user" : "other";
-      const key = `${payload.verb} by ${subject}`;
-      byVerb.set(key, (byVerb.get(key) ?? 0) + 1);
+      const familyId = `${row.userId} ${row.familyKey}`;
+      const head = heads.get(familyId);
+      const value = { label: `${payload.verb} by ${subject}`, object: row.objectIdentity?.value };
 
-      if (COMMIT && (await appendObservationFamilyMember(row)).status === "inserted") inserted++;
+      // The in-memory form of `keepHead`: a `merged` head keeps a push, and the merge of another
+      // pull request goes to its own family.
+      if (
+        head?.label.startsWith("merged ") &&
+        (payload.verb === "pushed" || head.object !== value.object)
+      ) {
+        if (otherwise) heads.set(`${otherwise.userId} ${otherwise.familyKey}`, value);
+        else kept++;
+      } else {
+        heads.set(familyId, value);
+      }
+
+      if (COMMIT) {
+        const result = await appendObservationFamilyMember(row, { keepHead });
+
+        if (result.status === "inserted") inserted++;
+
+        if (result.status === "kept_head" && otherwise) {
+          if ((await appendObservationFamilyMember(otherwise)).status === "inserted") inserted++;
+        }
+      }
     }
   } while (afterId);
 
-  console.log(`  ${read} candidate documents, ${rows} activity rows`);
+  const byVerb = new Map<string, number>();
+
+  for (const { label } of heads.values()) byVerb.set(label, (byVerb.get(label) ?? 0) + 1);
+
+  console.log(`  ${read} candidate documents, ${rows} activity rows, ${heads.size} family heads`);
+  console.log(`  ${kept} merge pushes kept out by their merge`);
 
   for (const [key, count] of [...byVerb].toSorted(([a], [b]) => a.localeCompare(b))) {
     console.log(`    ${key}: ${count}`);
