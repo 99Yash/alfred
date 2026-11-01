@@ -1,11 +1,9 @@
 import { useMemo, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import type { SyncedChatThread } from "@alfred/sync";
 import { EventStreamBanner } from "~/components/event-stream-banner";
-import { DeliveryAlertBanner } from "~/components/delivery-alert-banner";
-import { GithubReconnectBanner } from "~/components/github-reconnect-banner";
-import { ScopeGapBanner } from "~/components/scope-gap-banner";
 import { AppThemed } from "~/components/ui/v2/themed";
 import { useEventBridge } from "~/lib/events/use-event-bridge";
+import { useConnectionAttention } from "~/lib/integrations/connection-attention";
 import { useArtifactStreamStore } from "~/lib/chat/use-artifact-stream";
 import { useChatStreamStore } from "~/lib/chat/use-chat-stream";
 import { useChatThreads } from "~/lib/replicache/use-chat";
@@ -53,6 +51,8 @@ export default function AuthedAppShell({
 
   const sidebarThreads = threadViewModel?.groups ?? realThreads;
   const sidebarApprovalsBadge = threadViewModel?.approvalsBadge;
+  const attentionCount = useConnectionAttention().length;
+  const integrationsBadge = attentionCount > 0 ? String(attentionCount) : undefined;
   const paletteRecentThreads = threadViewModel?.recent ?? realRecentThreads;
 
   /* Not on preview routes: their rows are demo ids no mutator should touch. */
@@ -68,6 +68,7 @@ export default function AuthedAppShell({
           threads={sidebarThreads}
           threadActions={threadActions}
           approvalsBadge={sidebarApprovalsBadge}
+          integrationsBadge={integrationsBadge}
           open={sidebarOpen}
           mode={sidebarMode}
           onCollapse={() => setSidebarOpen(false)}
@@ -82,9 +83,6 @@ export default function AuthedAppShell({
           >
             {/* Notices sit 8px under the header; only the cards take clicks. */}
             <div className="pointer-events-none absolute inset-x-0 top-16 z-20 flex flex-col items-center gap-2 px-3">
-              <ScopeGapBanner />
-              <GithubReconnectBanner />
-              <DeliveryAlertBanner />
               <EventStreamBanner />
             </div>
             {mainContent}

@@ -29,11 +29,11 @@ function summarizeTiers(counts: RiskTierCounts): string {
  * none: the coverage read states that gap where an answer depends on it.
  */
 function recordChips(provider: IntegrationPage): ReadonlyArray<string> {
-  const { routes } = INTEGRATIONS[provider.slug];
+  const { sourceRoutes } = INTEGRATIONS[provider.slug];
 
   return [
-    ...(hasSourceRoute(routes, "ingest") ? ["Records Every Event"] : []),
-    ...(hasSourceRoute(routes, "live") ? ["Searched Live"] : []),
+    ...(hasSourceRoute(sourceRoutes, "ingest") ? ["Records Every Event"] : []),
+    ...(hasSourceRoute(sourceRoutes, "live") ? ["Searched Live"] : []),
   ];
 }
 

@@ -21,20 +21,25 @@ export interface InternalIntegrationEntry extends EntryBase {
   readonly kind: "internal";
 }
 
+/** A local ingest channel with no provider credential (iMessage). */
+export interface ChannelIntegrationEntry extends SourceEntryBase {
+  readonly kind: "channel";
+}
+
 /**
- * How events from a source reach Alfred (ADR-0118 decision 3). State what is built today.
+ * How a source reaches the activity record (ADR-0118 decision 3).
  * - `ingest`: events arrive by push or by poll, and Alfred stores them.
- * - `live`: Context Search reads the provider at query time.
- * - `tools_only`: the chat tools work, and Alfred stores no events from the source.
+ * - `live`: a Context Search source reads the provider at query time.
+ * - `tools_only`: the tools work in chat. The record has no events from this source.
  */
 export type SourceRoute = "ingest" | "live" | "tools_only";
 
-/** `tools_only` never pairs with another route. */
+/** `tools_only` stands alone. A source can ingest and read live (Calendar: past and future events). */
 export type SourceRoutes =
-  | readonly ["tools_only"]
   | readonly ["ingest"]
   | readonly ["live"]
-  | readonly ["ingest", "live"];
+  | readonly ["ingest", "live"]
+  | readonly ["tools_only"];
 
 /** True when `routes` holds `route`. */
 export function hasSourceRoute(routes: SourceRoutes, route: SourceRoute): boolean {
@@ -43,12 +48,8 @@ export function hasSourceRoute(routes: SourceRoutes, route: SourceRoute): boolea
 
 /** An entry for a source of events. Internal entries are not sources, so they have no routes. */
 interface SourceEntryBase extends EntryBase {
-  readonly routes: SourceRoutes;
-}
-
-/** A local ingest channel with no provider credential (iMessage). */
-export interface ChannelIntegrationEntry extends SourceEntryBase {
-  readonly kind: "channel";
+  /** Set to what is built today, not to the plan. */
+  readonly sourceRoutes: SourceRoutes;
 }
 
 /** A provider that has a page and a brand but no wired credential store yet. */
@@ -149,8 +150,8 @@ export const INTEGRATIONS = {
     kind: "provider",
     status: "live",
     displayName: "Gmail",
-    routes: ["ingest"],
     brand: "gmail",
+    sourceRoutes: ["ingest"],
     credential: {
       shape: "google_oauth",
       features: ["briefing", "triage", "reply_draft"],
@@ -175,8 +176,9 @@ export const INTEGRATIONS = {
     kind: "provider",
     status: "live",
     displayName: "Calendar",
-    routes: ["tools_only"],
     brand: "google_calendar",
+    // No ingest and no Context Search source yet. ADR-0118 plans ingest (past) and live (future).
+    sourceRoutes: ["tools_only"],
     credential: {
       shape: "google_oauth",
       features: ["calendar"],
@@ -199,8 +201,9 @@ export const INTEGRATIONS = {
     kind: "provider",
     status: "live",
     displayName: "Drive",
-    routes: ["live"],
     brand: "google_drive",
+    // The Drive Context Search source reads files at query time (ADR-0104).
+    sourceRoutes: ["live"],
     credential: {
       shape: "google_oauth",
       features: ["drive"],
@@ -216,8 +219,8 @@ export const INTEGRATIONS = {
     kind: "provider",
     status: "live",
     displayName: "Docs",
-    routes: ["tools_only"],
     brand: "google_docs",
+    sourceRoutes: ["tools_only"],
     credential: {
       shape: "google_oauth",
       features: ["docs"],
@@ -233,8 +236,8 @@ export const INTEGRATIONS = {
     kind: "provider",
     status: "live",
     displayName: "Sheets",
-    routes: ["tools_only"],
     brand: "google_sheets",
+    sourceRoutes: ["tools_only"],
     credential: {
       shape: "google_oauth",
       features: ["sheets"],
@@ -258,8 +261,8 @@ export const INTEGRATIONS = {
     kind: "provider",
     status: "live",
     displayName: "Slides",
-    routes: ["tools_only"],
     brand: "google_slides",
+    sourceRoutes: ["tools_only"],
     credential: {
       shape: "google_oauth",
       features: ["slides"],
@@ -275,8 +278,8 @@ export const INTEGRATIONS = {
     kind: "provider",
     status: "live",
     displayName: "Contacts",
-    routes: ["tools_only"],
     brand: "google_contacts",
+    sourceRoutes: ["tools_only"],
     credential: {
       shape: "google_oauth",
       features: ["contacts"],
@@ -292,24 +295,24 @@ export const INTEGRATIONS = {
     kind: "provider",
     status: "planned",
     displayName: "Slack",
-    routes: ["tools_only"],
     brand: "slack",
+    sourceRoutes: ["tools_only"],
     actions: [],
   },
   linear: {
     kind: "provider",
     status: "planned",
     displayName: "Linear",
-    routes: ["tools_only"],
     brand: "linear",
+    sourceRoutes: ["tools_only"],
     actions: [],
   },
   github: {
     kind: "provider",
     status: "live",
     displayName: "GitHub",
-    routes: ["ingest"],
     brand: "github",
+    sourceRoutes: ["ingest"],
     credential: { shape: "github_app" },
     passthrough: { transport: "rest" },
     actions: ["search", "get_pull_request", "get_pull_requests", "get_issue", "request"],
@@ -322,8 +325,9 @@ export const INTEGRATIONS = {
     kind: "provider",
     status: "live",
     displayName: "Vercel",
-    routes: ["tools_only"],
     brand: "vercel",
+    // Deployments arrive as a GitHub `repository_dispatch` push (#1167) and a pull (#1193).
+    sourceRoutes: ["ingest"],
     credential: { shape: "bearer", connect: "oauth" },
     passthrough: { transport: "rest" },
     actions: ["list_projects", "list_deployments", "redeploy", "request"],
@@ -336,35 +340,35 @@ export const INTEGRATIONS = {
     kind: "provider",
     status: "planned",
     displayName: "Sentry",
-    routes: ["tools_only"],
     brand: "sentry",
+    sourceRoutes: ["tools_only"],
     actions: [],
   },
   notion: {
     kind: "provider",
     status: "planned",
     displayName: "Notion",
-    routes: ["tools_only"],
     brand: "notion",
+    sourceRoutes: ["tools_only"],
     actions: [],
   },
   railway: {
     kind: "provider",
     status: "planned",
     displayName: "Railway",
-    routes: ["tools_only"],
     brand: "railway",
+    sourceRoutes: ["tools_only"],
     actions: [],
   },
   polylane: {
     kind: "provider",
     status: "planned",
     displayName: "Polylane",
-    routes: ["tools_only"],
     brand: "polylane",
+    sourceRoutes: ["tools_only"],
     actions: [],
   },
-  imessage: { kind: "channel", displayName: "iMessage", routes: ["tools_only"], actions: [] },
+  imessage: { kind: "channel", displayName: "iMessage", sourceRoutes: ["tools_only"], actions: [] },
 } as const satisfies Record<string, IntegrationEntry>;
 
 export type IntegrationSlug = keyof typeof INTEGRATIONS;
