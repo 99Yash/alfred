@@ -1,4 +1,4 @@
-import { mapConcurrent, type PlaceArea } from "@alfred/contracts";
+import { isNonBlankString, mapConcurrent, type PlaceArea } from "@alfred/contracts";
 import { logger } from "@alfred/logging";
 import { XMLParser } from "fast-xml-parser";
 import { z } from "zod";
@@ -406,14 +406,18 @@ function matchAlert(
 
   if (!area) return null;
 
+  // Each fallback skips a value that is blank after the whitespace fold, because `buildWarning`
+  // rejects the warning when a blank value wins.
   return buildWarning({
     source: "ndma_sachet",
     rank,
-    issuer: authorName(item.author) || info.senderName || alert.sender || "NDMA Sachet",
+    issuer:
+      [authorName(item.author), info.senderName, alert.sender].find(isNonBlankString) ??
+      "NDMA Sachet",
     event: info.event,
     severity: info.severity,
-    headline: info.headline || info.event,
-    area: area.areaDesc || args.district.name,
+    headline: isNonBlankString(info.headline) ? info.headline : info.event,
+    area: isNonBlankString(area.areaDesc) ? area.areaDesc : args.district.name,
     onset: start,
     expires: end,
   });

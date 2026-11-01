@@ -1,4 +1,4 @@
-import { mapConcurrent, parseIanaTimezone, type Place } from "@alfred/contracts";
+import { isNonBlankString, mapConcurrent, parseIanaTimezone, type Place } from "@alfred/contracts";
 import { logger } from "@alfred/logging";
 import { addDays, inZone } from "@alfred/assistant/time";
 import { z } from "zod";
@@ -401,14 +401,16 @@ async function readEventArea(
   const severity = properties.severitydata?.severitytext;
   const report = z.url().safeParse(properties.url?.report);
 
+  // Each fallback skips a value that is blank after the whitespace fold, because `buildWarning`
+  // rejects the warning when a blank value wins.
   const built = buildWarning({
     source: "gdacs",
     rank: ALERT_RANK[properties.alertlevel],
-    issuer: properties.source ? `GDACS (${properties.source})` : "GDACS",
+    issuer: isNonBlankString(properties.source) ? `GDACS (${properties.source})` : "GDACS",
     event: properties.name,
     severity: `${properties.alertlevel} alert`,
-    headline: severity ? `${properties.name}: ${severity}` : properties.name,
-    area: properties.country || properties.name,
+    headline: isNonBlankString(severity) ? `${properties.name}: ${severity}` : properties.name,
+    area: isNonBlankString(properties.country) ? properties.country : properties.name,
     onset: properties.fromdate,
     expires: end,
     ...(report.success ? { url: report.data } : {}),

@@ -11,7 +11,7 @@ import { logger } from "@alfred/logging";
 /**
  * One request to a feed. It is a third of the gather deadline (`WARNINGS_DEADLINE_MS`, 30 s, in
  * `index.ts`), so one slow request leaves time for the reads after it, such as the GDACS area reads
- * after the event list. The gather's deadline also stops it.
+ * after the event list. The gather's deadline and the caller's cancel also stop it.
  */
 const REQUEST_TIMEOUT_MS = 10_000;
 
@@ -59,8 +59,8 @@ export interface RankedWarning {
  * What one feed gave. `unread`: the items of the feed that Alfred could not read (a GDACS event, or
  * one Sachet alert), out of `total`. An item counts when its request failed, when its body was not
  * readable, when the feed did not give a value that the match needs, when its warning failed the
- * contract parse (`buildWarning`), when Alfred did not request it, or when the deadline stopped its
- * read. A list that is over its page bound counts one item for the rest, because their number is
+ * contract parse (`buildWarning`), when Alfred did not request it, or when the deadline or a cancel
+ * stopped its read. A list that is over its page bound counts one item for the rest, because their number is
  * not known. A feed whose list read failed throws instead.
  */
 export interface FeedRead {

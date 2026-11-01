@@ -16,8 +16,9 @@ import { readSachet, sachetCovers, sachetDistrict, type SachetDistrict } from ".
 
 /**
  * One deadline for all feed reads of a gather. It starts after the place read. A cold Sachet read
- * is about 100 CAP files at six at a time, so it can take most of this. When the deadline stops a
- * feed after its list read, the feed keeps what it read and counts the rest as unread.
+ * is about 100 CAP files at six at a time, so it can take most of this. When the deadline or the
+ * caller's `signal` stops a feed after its list read, the feed keeps what it read and counts the
+ * rest as unread.
  */
 const WARNINGS_DEADLINE_MS = 30_000;
 
@@ -34,7 +35,8 @@ const FEED_LABEL = {
  * The official warnings whose area contains the user's place on the briefing day (ADR-0117
  * decision 4). GDACS is read for every place. NDMA Sachet is read when the place is in India and
  * its district has an LGD code. The reader does not throw: a feed that fails is a `read_failed`
- * statement, and the value holds the feeds that Alfred read.
+ * statement, and the value holds the feeds that Alfred read. `signal` is the caller's cancel; the
+ * reads stop on it or on `WARNINGS_DEADLINE_MS`, whichever comes first.
  */
 export async function gatherWarningsContribution(args: {
   userId: string;
@@ -42,12 +44,13 @@ export async function gatherWarningsContribution(args: {
   timezone: IanaTimezone;
   briefingDate: LocalDateKey;
   now: Date;
+  signal: AbortSignal;
 }): Promise<Sourced<WarningsContribution | null>> {
   const { place, statement } = placeProvenance("warnings", args.located, args.timezone);
 
   if (place === null) return { value: null, provenance: [statement] };
 
-  const signal = AbortSignal.timeout(WARNINGS_DEADLINE_MS);
+  const signal = AbortSignal.any([args.signal, AbortSignal.timeout(WARNINGS_DEADLINE_MS)]);
   const zone = inZone(args.timezone);
   const dayStart = zone.startOf(args.briefingDate);
   const dayEnd = zone.startOf(addDays(args.briefingDate, 1));

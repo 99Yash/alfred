@@ -669,14 +669,19 @@ export async function gatherBriefingWithSuppressionAudit(
   const activityStart = args.windowStart ?? new Date(windowEnd.getTime() - 24 * 60 * 60 * 1000);
 
   // One place read for weather and warnings. It does not throw: a fault is its `fault` basis.
-  // Its deadline is the weather deadline, so the forecast read and the place read share it.
-  const placeDeadline = AbortSignal.timeout(WEATHER_DEADLINE_MS);
+  // This one deadline bounds the place read and the forecast read together. The warnings feeds
+  // have their own deadline (`WARNINGS_DEADLINE_MS`), which starts after the place read.
+  const weatherDeadline = AbortSignal.timeout(WEATHER_DEADLINE_MS);
+
+  // When a read below fails, `Promise.all` rejects and the gather stops. This controller then stops
+  // the warnings feed reads, so they do not run on to their own deadline.
+  const gatherCancel = new AbortController();
 
   const placeRead = readUserLocation({
     userId: args.userId,
     settings: args.settings,
     timezone: args.timezone,
-    signal: placeDeadline,
+    signal: weatherDeadline,
   });
 
   const [digest, calendar, weather, warnings, integrationActivity, brokenConnections, email] =
@@ -695,7 +700,7 @@ export async function gatherBriefingWithSuppressionAudit(
       placeRead.then((place) =>
         gatherWeatherContribution({
           located: place,
-          deadline: placeDeadline,
+          deadline: weatherDeadline,
           briefingDate: args.briefingDate,
           timezone: args.timezone,
         }),
@@ -707,6 +712,7 @@ export async function gatherBriefingWithSuppressionAudit(
           timezone: args.timezone,
           briefingDate: args.briefingDate,
           now: new Date(),
+          signal: gatherCancel.signal,
         }),
       ),
       gatherIntegrationActivity({
@@ -718,7 +724,10 @@ export async function gatherBriefingWithSuppressionAudit(
       emailProvenance(args.userId, () =>
         integrations({ userId: args.userId, retry: "none" }).google.gmail.readCredential(),
       ),
-    ]);
+    ]).catch((err: unknown) => {
+      gatherCancel.abort(err);
+      throw err;
+    });
 
   const categories: BriefingGather["email"]["categories"] = {};
 
