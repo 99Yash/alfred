@@ -53,6 +53,7 @@ import {
   verifyApprovedMcpHealth,
   type GithubMergedRead,
   type GithubMergedReadOutcome,
+  type VerifiedPullOutcome,
   type VerifiedPullTriggerItem,
 } from "@alfred/assistant/connections/verified-pull";
 import { type UserSettings, userIdentity } from "@alfred/assistant/settings";
@@ -83,14 +84,16 @@ import {
 } from "./relevance";
 import { scorePriorityEmailDemand } from "./read";
 import {
+  boundProvenance,
   emailProvenance,
   githubMergedProvenance,
   googleSelectionProvenance,
   live,
   logProvenance,
   readFailed,
-  splitStaleActivity,
+  splitVerifiedPullActivity,
   type Sourced,
+  type StatedProvenance,
 } from "./provenance";
 import { logger } from "@alfred/logging";
 
@@ -144,10 +147,10 @@ export interface BriefingDigest {
   buckets: Record<PriorityCategory, BriefingItem[]>;
   suppressedCounts: Record<SuppressedCategory, number>;
   /**
-   * Verified-pull verdict lines (#1094, #1192). The pull runs before reconciliation, so a
-   * failure mail reconciles against the target's state as of this gather.
+   * Verified-pull outcomes, one per pull (#1094, #1192). The pull runs before reconciliation, so
+   * a failure mail reconciles against the target's state as of this gather.
    */
-  verifiedPull: IntegrationActivityItem[];
+  verifiedPull: VerifiedPullOutcome[];
   /**
    * The window's merged pull requests, read live from GitHub (ADR-0062 amendment 2026-10-27).
    * The read folds into existing rows before reconciliation. A miss and a fault are two
@@ -160,7 +163,7 @@ export interface BriefingDigest {
   closedLoops: BriefingClosedLoop[];
   loopRelevance: BriefingLoopRelevance[];
   /** `unavailable` when the whole relevance pass faulted (ADR-0117 decision 1). */
-  loopRelevanceProvenance: readonly GatherProvenance[];
+  loopRelevanceProvenance: StatedProvenance;
   totalPriority: number;
   totalSuppressed: number;
 }
@@ -683,7 +686,7 @@ export async function gatherBriefingWithSuppressionAudit(
         windowEnd,
       }),
       readBriefingBrokenConnections(args.userId),
-      emailProvenance(() =>
+      emailProvenance(args.userId, () =>
         integrations({ userId: args.userId, retry: "none" }).google.gmail.readCredential(),
       ),
     ]);
@@ -704,7 +707,7 @@ export async function gatherBriefingWithSuppressionAudit(
   const { githubMerged } = digest;
 
   // A verified pull can report a failure from long ago. It is real, but it is not news.
-  const verifiedPull = splitStaleActivity(digest.verifiedPull, activityStart);
+  const verifiedPull = splitVerifiedPullActivity(digest.verifiedPull, activityStart);
 
   // Only `completed` carries a read; every fault and the miss fall back to the stored rows.
   const githubMergedRead = githubMerged.status === "completed" ? githubMerged.read : null;
@@ -739,7 +742,8 @@ export async function gatherBriefingWithSuppressionAudit(
 
   // `gatherIntegrationActivity` reads only the window's receipts, so only the verified pull can
   // hold an old item.
-  // A total table, so a new member of `GATHER_INPUTS` does not compile until it states its read.
+  // A total table of non-empty lists, so a new member of `GATHER_INPUTS` does not compile until
+  // it states at least one entry.
   const provenanceByInput = {
     email: [email],
     calendar: calendar.provenance,
@@ -747,9 +751,9 @@ export async function gatherBriefingWithSuppressionAudit(
     integration_activity: verifiedPull.provenance,
     github_merged: [githubMergedProvenance(githubMerged)],
     loop_relevance: digest.loopRelevanceProvenance,
-  } satisfies Record<GatherInput, readonly GatherProvenance[]>;
+  } satisfies Record<GatherInput, StatedProvenance>;
 
-  const provenance = Object.values(provenanceByInput).flat();
+  const provenance = boundProvenance(args.userId, Object.values(provenanceByInput).flat());
 
   logProvenance(args.userId, provenance);
 
@@ -925,7 +929,10 @@ export async function gatherCalendarContribution(
     calendarCreds = await calendar.readCredentials();
   } catch (err) {
     if (err instanceof GoogleCredentialSelectionError) {
-      return { value: null, provenance: [googleSelectionProvenance("calendar", "calendar", err)] };
+      return {
+        value: null,
+        provenance: [await googleSelectionProvenance(args.userId, "calendar", "calendar", err)],
+      };
     }
 
     throw err;
@@ -1097,7 +1104,7 @@ async function gatherWeatherContribution(args: {
       },
     };
 
-    return { value, provenance: fallback.length > 0 ? fallback : [live("weather")] };
+    return { value, provenance: [fallback[0] ?? live("weather"), ...fallback.slice(1)] };
   } catch (err) {
     logger.warn({ err }, `[briefing.gather] weather unavailable location=${location.label}`);
 

@@ -9,8 +9,6 @@ import {
   INTEGRATIONS,
   integrationConnectPath,
   type BlockingGatherProvenance,
-  type GatherProvenance,
-  isBlockingProvenance,
   type LiveProviderSlug,
   mcpConnectionAuthorizePath,
   type DeliveryAlert,
@@ -47,11 +45,12 @@ export function mcpConnectionKey(alert: McpConnectionAlert): string {
 /**
  * Every connection to repair, one per key. An input row shares its key with a delivery alert for
  * the same integration, so one integration is one row, and the delivery alert wins: it is the
- * broader fact, and the repair link is the same.
+ * broader fact, and the repair link is the same. `blockingInputs` are the briefing's block rows
+ * (`blockingProvenance` in `briefings/provenance.ts`); a caller without input rows passes `[]`.
  */
 export function listBrokenConnections(
   broken: BriefingBrokenConnections,
-  provenance: readonly GatherProvenance[] = [],
+  blockingInputs: readonly BlockingGatherProvenance[],
 ): BrokenConnection[] {
   const listed: BrokenConnection[] = [
     ...broken.integrations.map(
@@ -74,7 +73,7 @@ export function listBrokenConnections(
 
   const keys = new Set(listed.map((connection) => connection.key));
 
-  for (const entry of provenance.filter(isBlockingProvenance)) {
+  for (const entry of blockingInputs) {
     const key = integrationConnectionKey(entry.recovery.integration);
 
     if (keys.has(key)) continue;

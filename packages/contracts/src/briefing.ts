@@ -353,15 +353,17 @@ const provenanceTextSchema = z.string().min(1).max(GATHER_PROVENANCE_TEXT_MAX);
 
 /**
  * Why Alfred could not read an input. Each cause pins the recovery that it allows, so a wrong
- * pair does not compile. Only `scope_missing` asks the user to act: the user connected the
- * account but did not grant this input. `not_connected` is silent, because no credential row is
- * also what a deliberate disconnect leaves (ADR-0100 amendment 2026-10-28, item 3).
+ * pair does not compile. Two causes ask the user to act, with recovery `connect`:
+ * `scope_missing` (the account is connected without the grant for this input) and `needs_reauth`
+ * (a credential row exists, but no row is active). `not_connected` has recovery `none`, because no
+ * credential row is also what a deliberate disconnect leaves (ADR-0100 amendment 2026-10-28,
+ * item 3).
  */
 const unavailableProvenanceSchema = z.discriminatedUnion("cause", [
   z.object({
     input: gatherInputSchema,
     state: z.literal("unavailable"),
-    cause: z.literal("scope_missing"),
+    cause: z.enum(["scope_missing", "needs_reauth"]),
     reason: provenanceTextSchema,
     recovery: connectRecoverySchema,
   }),
@@ -403,7 +405,7 @@ export const gatherProvenanceSchema = z.union([
     input: gatherInputSchema,
     state: z.literal("stale"),
     // The stale item is an activity item, so its title bound is the activity title's bound.
-    item: integrationActivityItemSchema.shape.title,
+    title: integrationActivityItemSchema.shape.title,
     occurredAt: z.string().min(1),
     recovery: noRecoverySchema,
   }),
@@ -412,22 +414,29 @@ export const gatherProvenanceSchema = z.union([
 
 export type GatherProvenance = z.infer<typeof gatherProvenanceSchema>;
 
-/** The block rule (ADR-0117 decision 2): an input the user can reconnect is a block row. */
+/**
+ * An entry whose recovery is `connect`: the shape that a connection-block row needs. The briefing
+ * decides which entries become rows (`provenanceAudience` in `@alfred/assistant`).
+ */
 export type BlockingGatherProvenance = Extract<
   GatherProvenance,
   { state: "unavailable"; recovery: { kind: "connect" } }
 >;
 
-export function isBlockingProvenance(entry: GatherProvenance): entry is BlockingGatherProvenance {
-  return entry.state === "unavailable" && entry.recovery.kind === "connect";
-}
+/**
+ * Upper bound on the stale entries that one gather stores. The producer keeps the first entries up
+ * to this bound and logs the count that it drops.
+ */
+export const GATHER_STALE_PROVENANCE_MAX = 10;
 
 /**
- * Upper bound on stored entries: one per input (six), plus the stale items of the activity list.
- * The verified pull returns a few failures per target, so 60 leaves room; a gather over the bound
- * fails its parse and the run fails loudly, never with a cut list.
+ * Upper bound on stored entries. Today a gather states at most two entries for each input (weather:
+ * a failed read and its fallback), which is 12 for six inputs, plus the stale entries above (10).
+ * The verified pull reads at most 5 targets for each of its 2 providers, so 10 stale entries is
+ * also the most it can produce. The producer clips the list to this bound, so a stored list never
+ * fails its parse on length.
  */
-export const GATHER_PROVENANCE_MAX = 60;
+export const GATHER_PROVENANCE_MAX = GATHER_INPUTS.length * 2 + GATHER_STALE_PROVENANCE_MAX;
 
 export const briefingGatherSchema = z.object({
   email: emailContributionSchema,
@@ -446,8 +455,8 @@ export const briefingGatherSchema = z.object({
   /** MCP connections the user must repair (item 4 of the same amendment). Optional for the same reason. */
   broken_mcp_connections: z.array(mcpConnectionAlertSchema).optional(),
   /**
-   * The provenance of each input (ADR-0117 decision 1). Optional, so older gathers parse. Absent
-   * means the gather predates provenance, not that every input was live.
+   * The provenance of each input (ADR-0117 decision 1). Optional, so a gather from before this
+   * field parses. Such a gather states nothing, and every reader treats absence as no statements.
    */
   provenance: z.array(gatherProvenanceSchema).max(GATHER_PROVENANCE_MAX).optional(),
 });
