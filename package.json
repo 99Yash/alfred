@@ -42,6 +42,7 @@
     "check:oxlint-config": "node scripts/check-oxlint-config.mjs",
     "check:pr-body": "node scripts/check-pr-body.mjs",
     "check:oxlint-plugin": "node scripts/check-oxlint-plugin.mjs",
+    "check:static-shards": "node scripts/check-static-shards.mjs",
     "check:knip": "knip --treat-config-hints-as-errors",
     "check:test-only-exports": "node scripts/check-test-only-exports.mjs",
     "lint": "oxlint --config .oxlintrc.json --report-unused-disable-directives-severity=error",
