@@ -12,6 +12,7 @@ import {
   assertNever,
   isNonBlankString,
   memorySourceSchema,
+  type IanaTimezone,
   type MemorySource,
 } from "@alfred/contracts";
 import { and, asc, desc, eq, gt, ilike, inArray, isNull, or, sql } from "drizzle-orm";
@@ -23,6 +24,7 @@ import {
 } from "@alfred/assistant/settings";
 import { USER_FACING_MEMORY_CHUNK_KINDS } from "./chunks";
 import { entityAliasMatch } from "./entity-graph";
+import { isUserStatedSource, readUserLocation, statedLocationLabel } from "./location";
 import { logger } from "@alfred/logging";
 
 /** Sections `include` can select. */
@@ -117,12 +119,12 @@ const IDENTITY_FACT_KEYS = [
 
 type IdentityFactKey = (typeof IDENTITY_FACT_KEYS)[number];
 
+/** No `location`: `currentLocation` comes from the one place reader (ADR-0117 decision 3). */
 const PROFILE_IDENTITY_FACT_KEYS = [
   "employer",
   "work_summary",
   "job_title",
   "bio_summary",
-  "location",
 ] as const satisfies readonly IdentityFactKey[];
 
 const profileIdentityFactKeys = new Set<string>(PROFILE_IDENTITY_FACT_KEYS);
@@ -243,14 +245,8 @@ function profileIdentityFacts(rows: FactContextRow[]): StringFactContextRow[] {
     if (!profileIdentityFactKeys.has(row.key)) return false;
 
     if (typeof row.value !== "string" || !row.value.trim()) return false;
-    const source = parseSource(row);
 
-    return (
-      source.kind === "user" ||
-      source.kind === "cold_start" ||
-      source.kind === "agent" ||
-      (source.kind === "document" && source.meta?.documentAuthoredByUser === true)
-    );
+    return isUserStatedSource(parseSource(row));
   });
 
   return bestIdentityFacts(candidates);
@@ -300,6 +296,7 @@ export async function readUserContext(
 
   const subjectEmail = options.subjectEmail?.trim().toLowerCase() || undefined;
   const tokens = queryTokens(options.query);
+  const userSettings = options.settings ?? settings({ userId });
 
   const [
     identity,
@@ -309,6 +306,7 @@ export async function readUserContext(
     prefRows,
     rankedEntityRows,
     memoryRows,
+    currentLocation,
   ] = await Promise.all([
     userIdentity({ userId }),
     wants("integrations")
@@ -359,7 +357,7 @@ export async function readUserContext(
       .orderBy(userFacts.key, desc(userFacts.confidence), desc(userFacts.updatedAt)),
     // Ordered by key; the first PREF_LIMIT rows, as before.
     wants("preferences")
-      ? (options.settings ?? settings({ userId })).all().then((rows) => rows.slice(0, PREF_LIMIT))
+      ? userSettings.all().then((rows) => rows.slice(0, PREF_LIMIT))
       : Promise.resolve([]),
     // Relationships need the entities to resolve endpoint names.
     // SAFETY: the skipped tier contributes no rows; EntityRow[] is the shared element type of these Promise.all branches.
@@ -389,6 +387,7 @@ export async function readUserContext(
           .orderBy(desc(memoryChunks.createdAt))
           .limit(MEMORY_LIMIT)
       : Promise.resolve([]),
+    readCurrentLocation(userId, userSettings),
   ]);
 
   const identityFactRows = bestIdentityFacts(identityFactRowsRaw);
@@ -459,7 +458,7 @@ export async function readUserContext(
     currentCompany: stringIdentityValue(profileIdentityRows, "employer"),
     currentRole: stringIdentityValue(profileIdentityRows, "job_title"),
     currentWork: stringIdentityValue(profileIdentityRows, "work_summary"),
-    currentLocation: stringIdentityValue(profileIdentityRows, "location"),
+    currentLocation,
     bioSummary: stringIdentityValue(profileIdentityRows, "bio_summary"),
     identityFacts: profileIdentityRows.map((row) => ({
       key: row.key,
@@ -505,6 +504,31 @@ export async function readUserContext(
           : row.content,
     })),
   };
+}
+
+/**
+ * The user's place through the one reader, so chat and the briefing give one answer. Chat needs a
+ * name, not coordinates. The reader does not throw, and a fault of the zone read is `null`, so a
+ * chat turn never fails on its place.
+ */
+async function readCurrentLocation(
+  userId: string,
+  userSettings: UserSettings,
+): Promise<string | null> {
+  let timezone: IanaTimezone;
+
+  try {
+    timezone = await userSettings.timezone();
+  } catch (err) {
+    logger.warn(
+      { err, userId },
+      "[memory.user-context] time zone read failed; no current location",
+    );
+
+    return null;
+  }
+
+  return statedLocationLabel(await readUserLocation({ userId, settings: userSettings, timezone }));
 }
 
 /** Entities matched by `subjectEmail` (exact alias) or `query` (ILIKE per token). Bounded by {@link FOCUS_MATCH_LIMIT}. */

@@ -26,6 +26,7 @@ import {
   type RailwayPullTarget,
 } from "@alfred/assistant/connections/verified-pull";
 import { logger } from "@alfred/logging";
+import { live, readFailed, type Sourced } from "./provenance";
 
 /**
  * Check-before-remind relevance (#1194), between reconciliation and compose.
@@ -259,22 +260,29 @@ function verdictFromNativeState(args: {
   };
 }
 
-/** One verdict per loop, in order. Never throws: a total fault gives `unverifiable` for each. */
+/**
+ * One verdict per loop, in order. Never throws: a total fault gives `unverifiable` for each, and
+ * the input is `unavailable`. One loop's missing read is that loop's `unverifiable` verdict, not a
+ * blind input: the composer already reads it per loop.
+ */
 export async function assessLoopRelevance(args: {
   userId: string;
   loops: readonly RelevanceLoop[];
   reconciled: ReconcileResult<"about">;
   approvedStates?: ReadonlyMap<string, ApprovedLoopState> | undefined;
   unverifiedDetails?: ReadonlyMap<string, string> | undefined;
-}): Promise<BriefingLoopRelevance[]> {
+}): Promise<Sourced<BriefingLoopRelevance[]>> {
   try {
-    return await assessLoopRelevanceInner(args);
+    return { value: await assessLoopRelevanceInner(args), provenance: [live("loop_relevance")] };
   } catch (err) {
     logger.warn({ err }, "[briefing.relevance] pass failed, all loops unverified");
 
-    return args.loops.map((loop) =>
-      toVerdict(loop.documentId, unverified(null, "Relevance pass faulted; loop unverified.")),
-    );
+    return {
+      value: args.loops.map((loop) =>
+        toVerdict(loop.documentId, unverified(null, "Relevance pass faulted; loop unverified.")),
+      ),
+      provenance: [readFailed("loop_relevance", "The relevance pass failed.")],
+    };
   }
 }
 

@@ -5,17 +5,15 @@
 
 import type { IanaTimezone } from "./briefing";
 
-export interface WeatherFallbackLocation {
+/** A place: its coordinates and the name to show. A time-zone default, a preference, and a geocoded fact share this shape. */
+export interface Place {
   lat: number;
   lng: number;
   label: string;
 }
 
 /** A `Map`, not a `Record`: the table is not exhaustive, and `IanaTimezone` is branded. */
-export const WEATHER_FALLBACK_CITIES: ReadonlyMap<string, WeatherFallbackLocation> = new Map<
-  string,
-  WeatherFallbackLocation
->([
+export const WEATHER_FALLBACK_CITIES: ReadonlyMap<string, Place> = new Map<string, Place>([
   ["America/New_York", { lat: 40.7128, lng: -74.006, label: "New York" }],
   ["America/Chicago", { lat: 41.8781, lng: -87.6298, label: "Chicago" }],
   ["America/Denver", { lat: 39.7392, lng: -104.9903, label: "Denver" }],
@@ -50,11 +48,11 @@ function icuZoneId(tz: string): string {
   }
 }
 
-const WEATHER_FALLBACK_BY_ICU_ID: ReadonlyMap<string, WeatherFallbackLocation> = new Map(
+const WEATHER_FALLBACK_BY_ICU_ID: ReadonlyMap<string, Place> = new Map(
   [...WEATHER_FALLBACK_CITIES].map(([tz, location]) => [icuZoneId(tz), location]),
 );
 
 /** `null` for an unknown zone. The caller decides what to do without weather. */
-export function weatherFallbackFor(tz: IanaTimezone): WeatherFallbackLocation | null {
+export function weatherFallbackFor(tz: IanaTimezone): Place | null {
   return WEATHER_FALLBACK_BY_ICU_ID.get(icuZoneId(tz)) ?? null;
 }

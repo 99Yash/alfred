@@ -1,9 +1,13 @@
 import { route, meteredGenerateText, isStepCount, type ModelMessage } from "@alfred/ai";
-import type {
-  BriefingClosedLoop,
-  BriefingLoopRelevance,
-  DayShape,
-  IanaTimezone,
+import {
+  assertNever,
+  type BriefingClosedLoop,
+  type BriefingLoopRelevance,
+  type CalendarContribution,
+  type DayShape,
+  type GatherInput,
+  type GatherProvenance,
+  type IanaTimezone,
 } from "@alfred/contracts";
 import {
   BROKEN_CONNECTION_GUIDANCE,
@@ -13,7 +17,8 @@ import {
 import type { LocalDateKey } from "@alfred/assistant/time";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
 import { buildSystemPrompt } from "./prompt";
-import { buildBriefingTools, type DumpedBriefing } from "./tools";
+import { buildBriefingTools, type BriefingToolName, type DumpedBriefing } from "./tools";
+import { provenanceAudience } from "../provenance";
 import { describeOpenAskViolation, type OpenAskViolation } from "../open-ask-guard";
 
 /** Daily-briefing agent. Uses the AI SDK tool loop (`generateText` + `stopWhen`) in one workflow step. */
@@ -40,10 +45,21 @@ export interface RunBriefingAgentArgs {
   /** The gather's day shape, so `get_day_shape` does not repeat the live GitHub read. */
   dayShape?: DayShape | undefined;
   /**
+   * The gather's calendar read, so `list_calendar_events` and the calendar statement come from one
+   * read. `null`: the gather could not read it. Absent on a run from before this field.
+   */
+  calendar?: CalendarContribution | null | undefined;
+  /**
    * Connections the user must repair. The composer writes one notice per connection; the email
    * renders each notice with its repair link below the body.
    */
   brokenConnections: readonly BrokenConnection[];
+  /**
+   * How the gather read each input (ADR-0117 decision 1). The composer gets a fact for each entry
+   * that `provenanceAudience` gives to the composer, when `COMPOSER_READS` lists the entry's input.
+   * Absent on a run from before provenance.
+   */
+  provenance?: readonly GatherProvenance[] | undefined;
   /** Only on a re-prompt: earlier violations, named back verbatim so the rewrite is aimed (#1082). */
   openAskViolations?: readonly OpenAskViolation[];
   /** Only on a re-prompt: connection keys the earlier draft wrote no notice for. */
@@ -87,6 +103,103 @@ function brokenConnectionFacts(connections: readonly BrokenConnection[]): string
   );
 }
 
+/** One input that the composer reads, and what the user cannot see when Alfred could not read it. */
+interface ComposerRead {
+  /** The tool that returns the input. Typed against the bag, so a renamed tool fails `check-types`. */
+  readonly tool: BriefingToolName;
+  /** What a blind read hides from this briefing, as a noun phrase. */
+  readonly hides: string;
+}
+
+/**
+ * The inputs that the composer reads through its tools, and so the inputs that get a composer
+ * fact. Weather does not reach the composer. The activity list reaches it only as a count:
+ * `gatherBriefingWithSuppressionAudit` adds the fresh items to `activityCount`, which sets
+ * `get_day_shape.activityVolume`. A stale item left the list before the count, so its statement
+ * stays in the stored gather and the log. A failed deploy-status read can make that count low, and
+ * the composer gets no fact for it.
+ */
+const COMPOSER_READS = {
+  email: { tool: "list_emails_since", hides: "your new email" },
+  calendar: { tool: "list_calendar_events", hides: "your meetings" },
+  github_merged: { tool: "get_day_shape", hides: "the work that merged on GitHub" },
+  loop_relevance: {
+    tool: "list_loop_relevance",
+    hides: "whether your open threads still need you",
+  },
+  weather: null,
+  integration_activity: null,
+} as const satisfies Record<GatherInput, ComposerRead | null>;
+
+type UnavailableCause = Extract<GatherProvenance, { state: "unavailable" }>["cause"];
+
+/**
+ * What a blind input costs this briefing, for each cause. A cause the user can repair names the
+ * repair, because the read stays blind until the user does it. `no_place` belongs to weather,
+ * which the composer does not read.
+ */
+const BLIND_COST = {
+  not_connected: "So this briefing cannot see",
+  needs_reauth: "Until the user signs in again, this briefing cannot see",
+  scope_missing: "Until the user grants that permission, this briefing cannot see",
+  read_failed: "So this briefing may be missing",
+  no_place: "So this briefing cannot see",
+} as const satisfies Record<UnavailableCause, string>;
+
+/**
+ * One composer fact: the tool, what Alfred knows about the read, and what it costs. No input in
+ * `COMPOSER_READS` states `fallback` or `stale` today; those arms keep the switch total.
+ */
+function composerFact(entry: GatherProvenance, read: ComposerRead): string | null {
+  switch (entry.state) {
+    // A live read is not a fact for the composer (`provenanceAudience`).
+    case "live":
+      return null;
+    case "fallback":
+      return `- ${read.tool}: ${entry.reason} Alfred used a default: ${entry.used}.`;
+    case "stale":
+      return `- ${read.tool}: "${entry.title}" is from ${entry.occurredAt}. It is old, so it is not news.`;
+    case "unavailable":
+      return `- ${read.tool}: ${entry.reason} ${BLIND_COST[entry.cause]} ${read.hides}.`;
+    default:
+      return assertNever(entry, "provenance state");
+  }
+}
+
+/**
+ * The composer's facts about how the gather read its inputs (ADR-0117 decision 2).
+ * `provenanceAudience` decides which entries the composer gets, and `COMPOSER_READS` keeps the
+ * inputs that the composer reads. A `not_connected` input gets a fact and no block row, so the
+ * body is the only place that says it. An empty result from such an input is not evidence, so
+ * the composer must not turn it into "nothing needs attention".
+ */
+function inputProvenanceFacts(provenance: readonly GatherProvenance[]): string {
+  const lines = provenance.flatMap((entry) => {
+    const read = COMPOSER_READS[entry.input];
+
+    if (read === null || !provenanceAudience(entry).composerFact) return [];
+
+    const fact = composerFact(entry, read);
+
+    return fact === null ? [] : [fact];
+  });
+
+  if (lines.length === 0) return "";
+
+  return (
+    `\n\nAlfred did not get a full, current read of these inputs for this briefing. ` +
+    `Each line names the tool, what Alfred knows, and what this briefing cannot see as a result. ` +
+    `What those tools return is incomplete. ` +
+    `Acknowledge each one in the body in one short clause: name the source, say that you could not read it, and say what the user cannot rely on as a result. ` +
+    `Put the clause where it matters, for example where you talk about the day ahead for the calendar. ` +
+    `For example: Calendar isn't connected, so I can't see your meetings. ` +
+    `When a connection key above names the same source, its notice already says this below the body, so do not repeat it. ` +
+    `Never say or imply that nothing needs attention, that the day is clear, that the day was quiet, or that you saw everything, on the basis of these inputs. ` +
+    `Write a connection notice only for a key listed above.\n\n` +
+    lines.join("\n")
+  );
+}
+
 /** Re-prompt text for keys the earlier draft wrote no notice for. */
 function connectionNoticeCorrection(missing: readonly string[]): string {
   if (missing.length === 0) return "";
@@ -116,6 +229,7 @@ export async function runBriefingAgent(
     closedLoops: args.closedLoops,
     loopRelevance: args.loopRelevance,
     dayShape: args.dayShape,
+    calendar: args.calendar,
   });
 
   const seed: ModelMessage[] = [
@@ -126,6 +240,8 @@ export async function runBriefingAgent(
         `Start by reading list_prior_briefings, then list_emails_since, list_closed_loops, and list_loop_relevance. ` +
         `Apply the three honest loop-state tiers, then end with dump_briefing.` +
         brokenConnectionFacts(args.brokenConnections) +
+        // No list is a gather from before this build. It states nothing, so it adds no fact.
+        inputProvenanceFacts(args.provenance ?? []) +
         openAskCorrection(args.openAskViolations ?? []) +
         connectionNoticeCorrection(args.missingConnectionNotices ?? []),
     },

@@ -35,6 +35,33 @@ export interface VerifiedPullTriggerItem {
   snippet?: string | null;
 }
 
+/**
+ * An activity time and the clock that produced it. `provider_event`: the provider's own time for
+ * the event. `delivered`: the time that Alfred stored the row's state, which is later than the
+ * event. Only `provider_event` dates the event itself.
+ */
+interface VerifiedPullTime {
+  at: string;
+  clock: "provider_event" | "delivered";
+}
+
+/** `observed`: no stored time, so the item carries the gather's own clock. */
+export type VerifiedPullClock = VerifiedPullTime["clock"] | "observed";
+
+/** One activity line and the clock behind its `occurredAt`. The clock is not stored. */
+export interface VerifiedPullItem {
+  item: IntegrationActivityItem;
+  clock: VerifiedPullClock;
+}
+
+/**
+ * One pull's result. `read`: the pull ran, and `items` can be empty. `failed`: the pull faulted
+ * before it produced its lines, so an empty list does not prove that nothing changed.
+ */
+export type VerifiedPullOutcome =
+  | { provider: ObjectStateProvider; status: "read"; items: VerifiedPullItem[] }
+  | { provider: ObjectStateProvider; status: "failed" };
+
 export interface VerifiedPullResult<Target, Names> {
   target: Target;
   targetId: string;
@@ -48,7 +75,7 @@ export interface VerifiedPullResult<Target, Names> {
   outcome: "applied" | "duplicate" | "stale" | "unverified";
   attemptId: string | null;
   url: string | null;
-  occurredAt: string | null;
+  occurredAt: VerifiedPullTime | null;
 }
 
 /** One provider's half of the verified pull. `Session` is opaque to the driver. */
@@ -103,7 +130,7 @@ export function verifiedPullVerdict<Target, Names>(
 ): VerifiedPullVerdict {
   return {
     ...(result.status ? VERDICT_BY_STATUS[result.status] : UNVERIFIED_VERDICT),
-    occurredAt: result.occurredAt ?? new Date().toISOString(),
+    occurredAt: result.occurredAt?.at ?? new Date().toISOString(),
     ...(result.url && result.url.startsWith("https://") ? { url: result.url } : {}),
   };
 }
@@ -113,7 +140,7 @@ export interface VerifiedPull {
   gather(args: {
     userId: string;
     digestItems: readonly VerifiedPullTriggerItem[];
-  }): Promise<IntegrationActivityItem[]>;
+  }): Promise<VerifiedPullOutcome>;
 }
 
 export const MAX_VERIFIED_PULL_TARGETS = 5;
@@ -209,7 +236,9 @@ async function pullVerifiedTargets<E extends VerifiedPullEvent, Target, Session,
       outcome: "applied",
       attemptId: reading.attemptId,
       url: reading.url,
-      occurredAt: reading.providerEventTime?.toISOString() ?? null,
+      occurredAt: reading.providerEventTime
+        ? { at: reading.providerEventTime.toISOString(), clock: "provider_event" }
+        : null,
     };
 
     // The reducer writes one attempt key per folded attempt.
@@ -247,7 +276,9 @@ async function pullVerifiedTargets<E extends VerifiedPullEvent, Target, Session,
       outcome: "stale",
       attemptId: null,
       url: stored.url,
-      occurredAt: stored.stateDeliveredAt?.toISOString() ?? result.occurredAt,
+      occurredAt: stored.stateDeliveredAt
+        ? { at: stored.stateDeliveredAt.toISOString(), clock: "delivered" }
+        : result.occurredAt,
     });
   }
 
@@ -258,12 +289,19 @@ async function pullVerifiedTargets<E extends VerifiedPullEvent, Target, Session,
  * Pick targets in pull rotation: failed and active rows, or a bootstrap when there are no rows.
  * A failure mail adds resolved and demoted rows to the pool (#1357). The mail can be about a
  * target the pull last proved green, and a provider with no push has no other signal for it.
- * Never throws; a fault returns no lines (ADR-0048-D).
+ * Never throws (ADR-0048-D). A fault is the `failed` outcome, so the gather can state that it
+ * could not read the pull.
  */
 async function gatherVerifiedPull<E extends VerifiedPullEvent, Target, Session, Names>(
   source: VerifiedPullProvider<E, Target, Session, Names>,
   args: { userId: string; digestItems: readonly VerifiedPullTriggerItem[] },
-): Promise<IntegrationActivityItem[]> {
+): Promise<VerifiedPullOutcome> {
+  const read = (items: VerifiedPullItem[]): VerifiedPullOutcome => ({
+    provider: source.provider,
+    status: "read",
+    items,
+  });
+
   try {
     const failureMailed = source.digestSignalsFailure?.(args.digestItems) ?? false;
 
@@ -289,18 +327,25 @@ async function gatherVerifiedPull<E extends VerifiedPullEvent, Target, Session, 
         limit: 1,
       });
 
-      if (known.length > 0) return [];
+      if (known.length > 0) return read([]);
 
       targets = await source.discoverTargets(args.userId, MAX_VERIFIED_PULL_TARGETS);
     }
 
-    if (targets.length === 0) return [];
+    if (targets.length === 0) return read([]);
 
     const results = await pullVerifiedTargets(source, args.userId, targets);
 
-    return results.map((result) => source.toActivityItem(result));
-  } catch {
-    return [];
+    return read(
+      results.map((result) => ({
+        item: source.toActivityItem(result),
+        clock: result.occurredAt?.clock ?? "observed",
+      })),
+    );
+  } catch (err) {
+    logger.warn({ err, provider: source.provider }, "[verified-pull] gather failed");
+
+    return { provider: source.provider, status: "failed" };
   }
 }
 

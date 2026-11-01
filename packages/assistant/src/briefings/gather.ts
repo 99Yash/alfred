@@ -10,21 +10,19 @@ import type {
   LoopClosingStateCategory,
   ObjectStateProvider,
   StateCategory,
+  GatherInput,
+  GatherProvenance,
   WeatherContribution,
-  WeatherFallbackLocation,
 } from "@alfred/contracts";
 import {
   closesOpenAsk,
   closureCandidate,
   getObjectDef,
-  getStringPath,
   isNotificationSender,
-  isRecord,
   mailboxLabel,
   OBJECT_STATE_PROVIDERS,
   parseEventTypeName,
   parseGmailDocumentMetadata,
-  weatherFallbackFor,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { INBOUND_SOURCES, parseGithubEvent } from "@alfred/assistant/connections/ingress";
@@ -55,11 +53,16 @@ import {
   verifyApprovedMcpHealth,
   type GithubMergedRead,
   type GithubMergedReadOutcome,
+  type VerifiedPullOutcome,
   type VerifiedPullTriggerItem,
 } from "@alfred/assistant/connections/verified-pull";
 import { type UserSettings, userIdentity } from "@alfred/assistant/settings";
 import { getMcpExecutionBroker } from "@alfred/assistant/tool-runtime/mcp";
-import { standingInstructions, type ActiveStandingInstruction } from "../knowledge";
+import {
+  readUserLocation,
+  standingInstructions,
+  type ActiveStandingInstruction,
+} from "../knowledge";
 import {
   deriveEffectiveTriage,
   parseTriageEvaluationColumns,
@@ -80,6 +83,19 @@ import {
   type LiveNativeStateReader,
 } from "./relevance";
 import { scorePriorityEmailDemand } from "./read";
+import {
+  boundProvenance,
+  emailProvenance,
+  githubMergedProvenance,
+  googleSelectionProvenance,
+  live,
+  logProvenance,
+  readFailed,
+  splitVerifiedPullActivity,
+  weatherLocationProvenance,
+  type Sourced,
+  type StatedProvenance,
+} from "./provenance";
 import { logger } from "@alfred/logging";
 
 /**
@@ -132,10 +148,10 @@ export interface BriefingDigest {
   buckets: Record<PriorityCategory, BriefingItem[]>;
   suppressedCounts: Record<SuppressedCategory, number>;
   /**
-   * Verified-pull verdict lines (#1094, #1192). The pull runs before reconciliation, so a
-   * failure mail reconciles against the target's state as of this gather.
+   * Verified-pull outcomes, one per pull (#1094, #1192). The pull runs before reconciliation, so
+   * a failure mail reconciles against the target's state as of this gather.
    */
-  verifiedPull: IntegrationActivityItem[];
+  verifiedPull: VerifiedPullOutcome[];
   /**
    * The window's merged pull requests, read live from GitHub (ADR-0062 amendment 2026-10-27).
    * The read folds into existing rows before reconciliation. A miss and a fault are two
@@ -147,6 +163,8 @@ export interface BriefingDigest {
   /** Items whose work object reached a terminal state (ADR-0062). Feeds the evening recap. */
   closedLoops: BriefingClosedLoop[];
   loopRelevance: BriefingLoopRelevance[];
+  /** `unavailable` when the whole relevance pass faulted (ADR-0117 decision 1). */
+  loopRelevanceProvenance: StatedProvenance;
   totalPriority: number;
   totalSuppressed: number;
 }
@@ -237,7 +255,11 @@ const DEFAULT_MAX_PER_BUCKET = 8;
 
 const MAX_CALENDAR_EVENTS = 40;
 
-const WEATHER_FETCH_TIMEOUT_MS = 30_000;
+/**
+ * Bound on the whole weather input: the geocode of the user's place and the forecast read. The
+ * forecast had 30 seconds alone before; the geocode stops sooner on its own timeout.
+ */
+const WEATHER_DEADLINE_MS = 30_000;
 
 /** Bucket the window's triaged email. Reads `email_triage` only; no Gmail call. */
 export async function gatherBriefingDigest(
@@ -462,7 +484,7 @@ export async function gatherBriefingDigest(
     }
   }
 
-  const loopRelevance = await assessLoopRelevance({
+  const relevance = await assessLoopRelevance({
     userId: args.userId,
     loops: PRIORITY_CATEGORIES.flatMap((category) => buckets[category]),
     reconciled: reconciliation.reconciled,
@@ -489,7 +511,8 @@ export async function gatherBriefingDigest(
     githubMerged,
     suppressedByInstruction,
     closedLoops: reconciliation.closedLoops,
-    loopRelevance,
+    loopRelevance: relevance.value,
+    loopRelevanceProvenance: relevance.provenance,
     totalPriority,
     totalSuppressed,
   };
@@ -643,30 +666,35 @@ export async function gatherBriefingWithSuppressionAudit(
   // Activity uses the email window.
   const activityStart = args.windowStart ?? new Date(windowEnd.getTime() - 24 * 60 * 60 * 1000);
 
-  const [digest, calendar, weather, integrationActivity, brokenConnections] = await Promise.all([
-    gatherBriefingDigest({
-      userId: args.userId,
-      windowStart: args.windowStart,
-      windowEnd,
-    }),
-    gatherCalendarContribution({
-      userId: args.userId,
-      briefingDate: args.briefingDate,
-      timezone: args.timezone,
-      slot,
-    }),
-    gatherWeatherContribution({
-      settings: args.settings,
-      briefingDate: args.briefingDate,
-      timezone: args.timezone,
-    }),
-    gatherIntegrationActivity({
-      userId: args.userId,
-      windowStart: activityStart,
-      windowEnd,
-    }),
-    readBriefingBrokenConnections(args.userId),
-  ]);
+  const [digest, calendar, weather, integrationActivity, brokenConnections, email] =
+    await Promise.all([
+      gatherBriefingDigest({
+        userId: args.userId,
+        windowStart: args.windowStart,
+        windowEnd,
+      }),
+      gatherCalendarContribution({
+        userId: args.userId,
+        briefingDate: args.briefingDate,
+        timezone: args.timezone,
+        slot,
+      }),
+      gatherWeatherContribution({
+        userId: args.userId,
+        settings: args.settings,
+        briefingDate: args.briefingDate,
+        timezone: args.timezone,
+      }),
+      gatherIntegrationActivity({
+        userId: args.userId,
+        windowStart: activityStart,
+        windowEnd,
+      }),
+      readBriefingBrokenConnections(args.userId),
+      emailProvenance(args.userId, () =>
+        integrations({ userId: args.userId, retry: "none" }).google.gmail.readCredential(),
+      ),
+    ]);
 
   const categories: BriefingGather["email"]["categories"] = {};
 
@@ -681,7 +709,10 @@ export async function gatherBriefingWithSuppressionAudit(
     }));
   }
 
-  const { verifiedPull, githubMerged } = digest;
+  const { githubMerged } = digest;
+
+  // A verified pull can report a failure from long ago. It is real, but it is not news.
+  const verifiedPull = splitVerifiedPullActivity(digest.verifiedPull, activityStart);
 
   // Only `completed` carries a read; every fault and the miss fall back to the stored rows.
   const githubMergedRead = githubMerged.status === "completed" ? githubMerged.read : null;
@@ -694,7 +725,8 @@ export async function gatherBriefingWithSuppressionAudit(
     windowStart: activityStart,
     windowEnd,
     activityCount:
-      Math.max(integrationActivity.length, githubMergedRead?.total ?? 0) + verifiedPull.length,
+      Math.max(integrationActivity.length, githubMergedRead?.total ?? 0) +
+      verifiedPull.value.length,
     githubMerged: githubMergedRead,
   });
 
@@ -713,14 +745,31 @@ export async function gatherBriefingWithSuppressionAudit(
     ),
   );
 
+  // `gatherIntegrationActivity` reads only the window's receipts, so only the verified pull can
+  // hold an old item.
+  // A total table of non-empty lists, so a new member of `GATHER_INPUTS` does not compile until
+  // it states at least one entry.
+  const provenanceByInput = {
+    email: [email],
+    calendar: calendar.provenance,
+    weather: weather.provenance,
+    integration_activity: verifiedPull.provenance,
+    github_merged: [githubMergedProvenance(githubMerged)],
+    loop_relevance: digest.loopRelevanceProvenance,
+  } satisfies Record<GatherInput, StatedProvenance>;
+
+  const provenance = boundProvenance(args.userId, Object.values(provenanceByInput).flat());
+
+  logProvenance(args.userId, provenance);
+
   return {
     gather: {
       email: {
         categories,
       },
-      calendar,
-      integration_activity: { items: [...integrationActivity, ...verifiedPull] },
-      weather,
+      calendar: calendar.value,
+      integration_activity: { items: [...integrationActivity, ...verifiedPull.value] },
+      weather: weather.value,
       day_of_week: dayContribution(args.briefingDate),
       day_shape: {
         ...dayShape,
@@ -729,6 +778,7 @@ export async function gatherBriefingWithSuppressionAudit(
       },
       broken_connections: brokenConnections.integrations,
       broken_mcp_connections: brokenConnections.mcp,
+      provenance,
     },
     suppressedByInstruction: digest.suppressedByInstruction,
     closedLoops: digest.closedLoops,
@@ -876,14 +926,20 @@ export interface GatherCalendarArgs {
 
 export async function gatherCalendarContribution(
   args: GatherCalendarArgs,
-): Promise<CalendarContribution | null> {
+): Promise<Sourced<CalendarContribution | null>> {
   const calendar = integrations({ userId: args.userId, retry: "none" }).google.calendar;
   let calendarCreds: GoogleCredential[];
 
   try {
     calendarCreds = await calendar.readCredentials();
   } catch (err) {
-    if (err instanceof GoogleCredentialSelectionError) return null;
+    if (err instanceof GoogleCredentialSelectionError) {
+      return {
+        value: null,
+        provenance: [await googleSelectionProvenance(args.userId, "calendar", "calendar", err)],
+      };
+    }
+
     throw err;
   }
 
@@ -912,10 +968,20 @@ export async function gatherCalendarContribution(
     }
   }
 
-  if (successfulReads === 0) return null;
+  if (successfulReads === 0) {
+    return {
+      value: null,
+      provenance: [readFailed("calendar", "Every calendar read failed.")],
+    };
+  }
+
   events.sort((a, b) => a.start.localeCompare(b.start));
 
-  return { events: events.slice(0, MAX_CALENDAR_EVENTS) };
+  // One account that failed beside one that read is a log line above, not a blind input.
+  return {
+    value: { events: events.slice(0, MAX_CALENDAR_EVENTS) },
+    provenance: [live("calendar")],
+  };
 }
 
 function calendarWindow(briefingDate: LocalDateKey, timezone: IanaTimezone, slot: BriefingSlot) {
@@ -949,13 +1015,21 @@ function calendarEventToContributionEvent(
 }
 
 async function gatherWeatherContribution(args: {
+  userId: string;
   settings: UserSettings;
   briefingDate: LocalDateKey;
   timezone: IanaTimezone;
-}): Promise<WeatherContribution | null> {
-  const location = await resolveWeatherLocation(args.settings, args.timezone);
+}): Promise<Sourced<WeatherContribution | null>> {
+  // One deadline for the place read and the forecast read together.
+  const deadline = AbortSignal.timeout(WEATHER_DEADLINE_MS);
+  const located = await readUserLocation({ ...args, signal: deadline });
+  const { place: location, statement } = weatherLocationProvenance(located, args.timezone);
 
-  if (!location) return null;
+  if (location === null) return { value: null, provenance: [statement] };
+
+  // A failed forecast keeps the fallback statement too, so the log still shows which city the
+  // read was for.
+  const fallback: GatherProvenance[] = statement ? [statement] : [];
 
   try {
     const url = new URL("https://api.open-meteo.com/v1/forecast");
@@ -970,7 +1044,7 @@ async function gatherWeatherContribution(args: {
     url.searchParams.set("end_date", args.briefingDate);
     url.searchParams.set("timezone", "auto");
 
-    const res = await fetch(url, { signal: AbortSignal.timeout(WEATHER_FETCH_TIMEOUT_MS) });
+    const res = await fetch(url, { signal: deadline });
 
     if (!res.ok) {
       // oxlint-disable-next-line alfred/no-swallowed-catch -- an unreadable error body only drops detail; the thrown error keeps the status
@@ -982,9 +1056,14 @@ async function gatherWeatherContribution(args: {
     const current = parsed.current;
     const daily = parsed.daily;
 
-    if (!current) return null;
+    if (!current) {
+      return {
+        value: null,
+        provenance: [readFailed("weather", "The forecast had no current conditions."), ...fallback],
+      };
+    }
 
-    return {
+    const value: WeatherContribution = {
       current: {
         temperatureC: current.temperature_2m,
         apparentTemperatureC: current.apparent_temperature,
@@ -997,10 +1076,15 @@ async function gatherWeatherContribution(args: {
         description: describeWeatherCode(daily?.weather_code[0] ?? current.weather_code),
       },
     };
+
+    return { value, provenance: [fallback[0] ?? live("weather"), ...fallback.slice(1)] };
   } catch (err) {
     logger.warn({ err }, `[briefing.gather] weather unavailable location=${location.label}`);
 
-    return null;
+    return {
+      value: null,
+      provenance: [readFailed("weather", "The forecast read failed."), ...fallback],
+    };
   }
 }
 
@@ -1021,37 +1105,6 @@ const openMeteoSchema = z.object({
     })
     .optional(),
 });
-
-async function resolveWeatherLocation(
-  userSettings: UserSettings,
-  timezone: IanaTimezone,
-): Promise<WeatherFallbackLocation | null> {
-  const pref = await userSettings.get("location");
-  const parsed = parseWeatherLocation(pref?.value);
-
-  return parsed ?? weatherFallbackFor(timezone);
-}
-
-/** A stored coordinate: a number, or a string `parseFloat` reads. `z.number()` rejects NaN and Infinity. */
-const storedCoordSchema = z
-  .union([z.number(), z.string().transform((value) => Number.parseFloat(value))])
-  .pipe(z.number());
-
-function parseWeatherLocation(value: unknown): WeatherFallbackLocation | null {
-  if (!isRecord(value)) return null;
-  const lat = storedCoordSchema.safeParse(value.lat ?? value.latitude);
-  const lng = storedCoordSchema.safeParse(value.lng ?? value.lon ?? value.longitude);
-
-  if (!lat.success || !lng.success) return null;
-
-  const label =
-    getStringPath(value, "label") ??
-    getStringPath(value, "city") ??
-    getStringPath(value, "name") ??
-    `${lat.data},${lng.data}`;
-
-  return { lat: lat.data, lng: lng.data, label };
-}
 
 function describeWeatherCode(code: number): string {
   if (code === 0) return "clear sky";

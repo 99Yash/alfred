@@ -107,6 +107,8 @@ export { ENTITY_KINDS, entityKindSchema, type EntityKind } from "./entity-graph"
 
 export { readUserContext, type UserContext } from "./user-context";
 
+export { readUserLocation, type StatedPlace, type UserLocation } from "./location";
+
 // Cross-module helpers for replicache, triage, briefing, tools, and todos.
 export { valueSignature } from "./signature";
 

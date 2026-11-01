@@ -67,6 +67,12 @@ interface BuildArgs {
    * Absent on a run that gathered before this field existed; the tool then recomputes.
    */
   dayShape?: DayShape | undefined;
+  /**
+   * The gather's calendar read, so `list_calendar_events` and the gather's calendar statement come
+   * from one read. `null`: the gather could not read the calendar, and its statement says why.
+   * Absent on a run that gathered before this field existed; the tool then reads the calendar again.
+   */
+  calendar?: CalendarContribution | null | undefined;
 }
 
 /** Day-shape window on the first run, when there is no watermark. */
@@ -115,6 +121,23 @@ const dumpInputSchema = z
       }
     }
   });
+
+/**
+ * The name of each tool in the bag. The bag `satisfies` a record over this union, so a tool that
+ * the union does not name, or a name with no tool, fails `check-types`. A table that names a tool
+ * types its keys with this union, so a renamed tool fails there too.
+ */
+export type BriefingToolName =
+  | "list_emails_since"
+  | "read_email"
+  | "list_prior_briefings"
+  | "list_calendar_events"
+  | "get_day_shape"
+  | "list_closed_loops"
+  | "list_loop_relevance"
+  | "list_action_items"
+  | "list_meeting_preps"
+  | "dump_briefing";
 
 export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
   let dumped: DumpedBriefing | null = null;
@@ -177,7 +200,7 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
 
     list_calendar_events: tool({
       description:
-        "List the user's calendar events in the briefing window (today through end of tomorrow; for the evening slot, from now onward). Returns title, start/end, attendees, and location per event. An empty array means either no events in the window or no calendar scope granted. It is not proof of a clear day, and it is not news: do not mention the calendar when it is empty.",
+        "List the user's calendar events in the briefing window (today through end of tomorrow; for the evening slot, from the gather onward). Returns title, start/end, attendees, and location per event. The list is the calendar read that this briefing's gather made. An empty array is not proof of a clear day. When the briefing request says that the calendar could not be read, follow that fact. Otherwise an empty calendar is not news: do not mention it.",
       inputSchema: z.object({
         window: z
           .enum(["today", "today_and_tomorrow", "rest_of_today_and_tomorrow"])
@@ -186,6 +209,10 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
           ),
       }),
       execute: async (_input): Promise<CalendarContribution["events"]> => {
+        // The gather's read: a second read here could disagree with the gather's statement.
+        if (args.calendar !== undefined) return args.calendar?.events ?? [];
+
+        // A run that gathered before the field existed stated nothing, so a fresh read is safe.
         const contribution = await gatherCalendarContribution({
           userId: args.userId,
           briefingDate: args.briefingDate,
@@ -193,7 +220,7 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
           slot: args.slot,
         });
 
-        return contribution?.events ?? [];
+        return contribution.value?.events ?? [];
       },
     }),
 
@@ -276,7 +303,7 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
         return { ok: true };
       },
     }),
-  } as const;
+  } as const satisfies Record<BriefingToolName, ToolSet[string]>;
 
   // `slot` is used by the system prompt, not the tools.
   void args.slot;
