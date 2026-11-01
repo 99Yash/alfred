@@ -26,10 +26,27 @@ export interface ChannelIntegrationEntry extends EntryBase {
   readonly kind: "channel";
 }
 
+/**
+ * How a source reaches the activity record (ADR-0118 decision 3).
+ * - `ingest`: events arrive by push or by poll, and Alfred stores them.
+ * - `live`: a Context Search source reads the provider at query time.
+ * - `tools_only`: the tools work in chat. The record has no events from this source.
+ */
+export type SourceRoute = "ingest" | "live" | "tools_only";
+
+/** `tools_only` stands alone. A source can ingest and read live (Calendar: past and future events). */
+export type SourceRoutes =
+  | readonly ["ingest"]
+  | readonly ["live"]
+  | readonly ["ingest", "live"]
+  | readonly ["tools_only"];
+
 /** A provider that has a page and a brand but no wired credential store yet. */
 export interface PlannedIntegrationEntry extends EntryBase {
   readonly kind: "provider";
   readonly status: "planned";
+  /** Set to what is built today, not to the plan. */
+  readonly sourceRoutes: SourceRoutes;
   /** Web asset key for the icon and accent. */
   readonly brand: string;
   readonly actions: readonly [];
@@ -65,6 +82,8 @@ export interface LiveIntegrationEntry extends EntryBase {
   readonly kind: "provider";
   readonly status: "live";
   readonly brand: string;
+  /** Set to what is built today, not to the plan. */
+  readonly sourceRoutes: SourceRoutes;
   readonly credential: CredentialSpec;
   readonly passthrough: PassthroughSpec;
   /** The model reads this in the connected summary (ADR-0053). */
@@ -125,6 +144,7 @@ export const INTEGRATIONS = {
     status: "live",
     displayName: "Gmail",
     brand: "gmail",
+    sourceRoutes: ["ingest"],
     credential: {
       shape: "google_oauth",
       features: ["briefing", "triage", "reply_draft"],
@@ -150,6 +170,8 @@ export const INTEGRATIONS = {
     status: "live",
     displayName: "Calendar",
     brand: "google_calendar",
+    // No ingest and no Context Search source yet. ADR-0118 plans ingest (past) and live (future).
+    sourceRoutes: ["tools_only"],
     credential: {
       shape: "google_oauth",
       features: ["calendar"],
@@ -173,6 +195,8 @@ export const INTEGRATIONS = {
     status: "live",
     displayName: "Drive",
     brand: "google_drive",
+    // The Drive Context Search source reads files at query time (ADR-0104).
+    sourceRoutes: ["live"],
     credential: {
       shape: "google_oauth",
       features: ["drive"],
@@ -189,6 +213,7 @@ export const INTEGRATIONS = {
     status: "live",
     displayName: "Docs",
     brand: "google_docs",
+    sourceRoutes: ["tools_only"],
     credential: {
       shape: "google_oauth",
       features: ["docs"],
@@ -205,6 +230,7 @@ export const INTEGRATIONS = {
     status: "live",
     displayName: "Sheets",
     brand: "google_sheets",
+    sourceRoutes: ["tools_only"],
     credential: {
       shape: "google_oauth",
       features: ["sheets"],
@@ -229,6 +255,7 @@ export const INTEGRATIONS = {
     status: "live",
     displayName: "Slides",
     brand: "google_slides",
+    sourceRoutes: ["tools_only"],
     credential: {
       shape: "google_oauth",
       features: ["slides"],
@@ -245,6 +272,7 @@ export const INTEGRATIONS = {
     status: "live",
     displayName: "Contacts",
     brand: "google_contacts",
+    sourceRoutes: ["tools_only"],
     credential: {
       shape: "google_oauth",
       features: ["contacts"],
@@ -256,12 +284,20 @@ export const INTEGRATIONS = {
     summaryBlurb: "the user's saved contacts and the people they email",
     domain: "contacts.google.com",
   },
-  slack: { kind: "provider", status: "planned", displayName: "Slack", brand: "slack", actions: [] },
+  slack: {
+    kind: "provider",
+    status: "planned",
+    displayName: "Slack",
+    brand: "slack",
+    sourceRoutes: ["tools_only"],
+    actions: [],
+  },
   linear: {
     kind: "provider",
     status: "planned",
     displayName: "Linear",
     brand: "linear",
+    sourceRoutes: ["tools_only"],
     actions: [],
   },
   github: {
@@ -269,6 +305,7 @@ export const INTEGRATIONS = {
     status: "live",
     displayName: "GitHub",
     brand: "github",
+    sourceRoutes: ["ingest"],
     credential: { shape: "github_app" },
     passthrough: { transport: "rest" },
     actions: ["search", "get_pull_request", "get_pull_requests", "get_issue", "request"],
@@ -282,6 +319,8 @@ export const INTEGRATIONS = {
     status: "live",
     displayName: "Vercel",
     brand: "vercel",
+    // Deployments arrive as a GitHub `repository_dispatch` push (#1167) and a pull (#1193).
+    sourceRoutes: ["ingest"],
     credential: { shape: "bearer", connect: "oauth" },
     passthrough: { transport: "rest" },
     actions: ["list_projects", "list_deployments", "redeploy", "request"],
@@ -295,6 +334,7 @@ export const INTEGRATIONS = {
     status: "planned",
     displayName: "Sentry",
     brand: "sentry",
+    sourceRoutes: ["tools_only"],
     actions: [],
   },
   notion: {
@@ -302,6 +342,7 @@ export const INTEGRATIONS = {
     status: "planned",
     displayName: "Notion",
     brand: "notion",
+    sourceRoutes: ["tools_only"],
     actions: [],
   },
   railway: {
@@ -309,6 +350,7 @@ export const INTEGRATIONS = {
     status: "planned",
     displayName: "Railway",
     brand: "railway",
+    sourceRoutes: ["tools_only"],
     actions: [],
   },
   polylane: {
@@ -316,6 +358,7 @@ export const INTEGRATIONS = {
     status: "planned",
     displayName: "Polylane",
     brand: "polylane",
+    sourceRoutes: ["tools_only"],
     actions: [],
   },
   imessage: { kind: "channel", displayName: "iMessage", actions: [] },
