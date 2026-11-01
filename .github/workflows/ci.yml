@@ -17,10 +17,39 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  static:
-    name: static
+  # `static` used to run `check:ci` and `check-types` in ONE serial step, and
+  # that step measured 187 s of the job's 227 s wall clock (run 41211342533,
+  # 2026-11-01). The ~28 checks are independent scripts that need only
+  # `pnpm install`, so a serial chain is the one shape that cannot use the
+  # runner fleet's parallelism, and the 2-core runner stretches the ~80 s of
+  # warm local work to nearly double. The matrix legs below split the chain
+  # three ways; the aggregate `static` job at the bottom publishes the single
+  # check name the `main protection` ruleset requires.
+  #
+  # Runner-measured step weights (run 41280982346, 2026-11-01; single-process
+  # local timings in parentheses):
+  #   shard 1  "Static checks 1/3"  ~43 s  (28 s)  — script-paths … imports
+  #   shard 2  "Static checks 2/3"  ~36 s  (23 s)  — consolidation … smells
+  #   shard 3  "Static checks 3/3"  ~60 s  (21 s)  — knip, lint, format:check
+  #   shard 4  "Monorepo type check" ~100 s (cold) — check-types, PDF smoke
+  # `check-types` is cold every run (turbo has no remote cache), so it holds
+  # shard 4; the other shards land 35-60 s against the ~23 s setup. Re-weigh
+  # from GitHub's own step timings as the scripts drift; move a script
+  # between legs freely, but keep the multiset of scripts across the three
+  # `Static checks` steps equal to what `package.json` puts in `check:ci` —
+  # `check:static-shards` (shard 1) asserts exactly that, so a check added to
+  # the chain without a leg reddens `static` instead of silently going unrun.
+  #
+  # No leg carries `services:`, an `env:` block, or migrations: no check in
+  # the chain touches Postgres or Redis.
+  static-shard:
+    name: static-shard (${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v4
 
@@ -43,6 +72,12 @@ jobs:
       - name: Install dependencies
         run: corepack pnpm install --frozen-lockfile
 
+      # Run OUTSIDE the `Static checks` steps on purpose: the guard parses this
+      # workflow and must not count itself as part of the chain it checks.
+      - name: The three legs cover exactly the check:ci chain
+        if: matrix.shard == 1
+        run: corepack pnpm check:static-shards
+
       # The four sections CLAUDE.md asks a PR body for, in sentences of 25 words or
       # fewer and with no review-process words. A STEP here and not an entry in
       # `check:ci`, because the check reads GitHub rather than the working tree: it runs
@@ -53,23 +88,86 @@ jobs:
       #
       # Skipped on a push to main, where there is no PR body to check.
       - name: Pull-request body carries the sections CLAUDE.md asks for
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && matrix.shard == 1
         env:
           GH_TOKEN: ${{ github.token }}
         run: corepack pnpm check:pr-body "${{ github.event.pull_request.number }}"
 
-      - name: Verify architecture, boundaries, style, and types
-        # `verify:ci`, not `verify:fast`: jscpd (`check:duplicates`) runs as the
-        # advisory `duplicates` job below so a copy-paste flag does not block
-        # merge. Local `pnpm check` still includes it.
-        run: corepack pnpm verify:ci
+      # Steps run on EVERY leg by default, so each non-leg-specific step
+      # carries an `if: matrix.shard == N`. A step left unconditioned — which
+      # is what the first landed version did — runs four times and the matrix
+      # saves nothing.
+      - name: Static checks 1/3
+        if: matrix.shard == 1
+        run: |
+          corepack pnpm check:script-paths
+          corepack pnpm check:test-id-prefixes
+          corepack pnpm check:architecture
+          corepack pnpm check:web-boundaries
+          corepack pnpm check:exports
+          corepack pnpm check:type-fixtures
+          corepack pnpm check:test-typecheck-baseline
+          corepack pnpm check:imports
+
+      - name: Static checks 2/3
+        if: matrix.shard == 2
+        run: |
+          corepack pnpm check:consolidation
+          corepack pnpm check:test-tautology
+          corepack pnpm check:doc-symbols
+          corepack pnpm check:prose-locators
+          corepack pnpm check:plan-status
+          corepack pnpm check:campaign-state
+          corepack pnpm check:merge-guard
+          corepack pnpm check:schema-catalog
+          corepack pnpm check:constraint-snapshot
+          corepack pnpm check:oxlint-config
+          corepack pnpm check:oxlint-plugin
+          corepack pnpm check:rules-catalog
+          corepack pnpm check:smells
+
+      - name: Static checks 3/3
+        if: matrix.shard == 3
+        run: |
+          corepack pnpm check:knip
+          corepack pnpm check:test-only-exports
+          corepack pnpm lint
+          corepack pnpm format:check
+
+      - name: Monorepo type check
+        if: matrix.shard == 4
+        run: corepack pnpm check-types
 
       - name: Build and smoke-test the PDF extraction child
+        if: matrix.shard == 4
         run: |
           corepack pnpm --filter server build
           test -f apps/server/dist/extract-pdf-child.js
           reply=$(printf '%s\nx' '{"limits":{"maxBytes":100,"maxCharacters":1000,"maxParseMilliseconds":5000},"byteLength":1}' | node apps/server/dist/extract-pdf-child.js)
           REPLY="$reply" node -e 'const reply = JSON.parse(process.env.REPLY); if (reply.kind !== "result" || reply.result.kind !== "invalid") process.exit(1)'
+
+  # This job exists to publish ONE check named `static`, the name the
+  # `main protection` ruleset requires, because the matrix above publishes
+  # `static-shard (1/3)` and its siblings and never the bare name — without
+  # the aggregate the ruleset would wait on a check that can never arrive.
+  # It copies the `assistant-unit-tests` aggregate pattern below: `always()`
+  # guards the needs-read so a failed leg cannot skip it, and a skipped
+  # required check is not a passing one. No checkout, no install — it costs
+  # seconds. Rename the shards freely; rename THIS job only together with the
+  # ruleset.
+  static:
+    name: static
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: static-shard
+    if: always()
+    steps:
+      - name: Require every shard to pass
+        env:
+          SHARDS_RESULT: ${{ needs.static-shard.result }}
+        run: |
+          echo "static-shard matrix result: $SHARDS_RESULT"
+          test "$SHARDS_RESULT" = "success"
 
   # Advisory copy-paste gate. Deliberately NOT in the `main protection`
   # ruleset: `static` must stay the fast required signal, and a jscpd flag
@@ -634,10 +732,23 @@ jobs:
   # each to transpile and evaluate the import graph again in every child
   # process. That is CPU-bound and splits cleanly, so more runners is the lever.
   #
-  # THREE shards, not more. 265 s becomes about 90 s, and a shard still pays the
-  # ~45 s this job spends on checkout, install, container health and migrations,
-  # so a shard lands near 135 s — already below the `static` job's 160 s. A
-  # fourth shard pays a fourth setup and moves the wall clock nowhere.
+  # THREE shards. Adding legs was measured and rejected twice on the same day
+  # (runs 41281464813, 41281851932, 2026-11-01): four legs put the wall at
+  # 176 s and five at 164 s. `--test-shard` round-robins over the sorted file
+  # list, so one leg keeps landing a ~110-126 s heavy tier (triage, chat,
+  # briefings/*, reply-drafting, knowledge/* — single files run 14-18 s) at
+  # every leg count, and an extra leg buys nothing but a sixth ~55 s setup
+  # (containers ~24 s, cache ~10, install ~8, node ~5, checkout 2,
+  # migrations 2-3). With three legs the total test time ~281 s puts each
+  # near 86-104 s and a shard lands near 135-157 s at the least runner
+  # overhead for that.
+  #
+  # A MEASURED file-to-shard manifest that knapsacks real per-file weights is
+  # the actual fix — three legs would then land near ~120 s — and it is
+  # deliberately deferred: durations for the other legs do not survive in the
+  # GitHub log (only one shard's spec summary carries the `✔ ./path` file
+  # lines) and a local run skips the DB-backed suites, so the manifest needs
+  # its own recording path first.
   #
   # `fail-fast: false` because a red shard must not cancel its siblings. With
   # the default, one failure hides the other two thirds of the suite and the
