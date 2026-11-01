@@ -6,7 +6,8 @@
  * before 2026-10-28, but their documents remain. The reducer is idempotent: a family key names one
  * act, and an equal evidence hash dedups. A merge and the push that GitHub made for it share one
  * family, and the merge stays the head in either order. A second pull request that the same commit
- * merged keeps its row in its own family. The DRY count applies the same rules in memory. Dry by default; `--commit` appends (additive only).
+ * merged keeps its row in its own family. The DRY count calls the same head rule on heads that it
+ * keeps in memory. Dry by default; `--commit` appends (additive only).
  *
  *   # preview (writes nothing):
  *   tsx src/scripts/backfills/backfill-github-activity-committed.ts
@@ -16,12 +17,17 @@
  *   tsx src/scripts/backfills/backfill-github-activity-committed.ts --report 2026-10-27
  */
 import {
+  type GithubFamilyHead,
   pageGithubActivityDocuments,
   readActivityCoverage,
   readGithubSelf,
   reduceGithubActivity,
 } from "@alfred/assistant/connections";
-import { appendObservationFamilyMember, recallLatestByKey } from "@alfred/assistant/knowledge";
+import {
+  appendObservationFamilyMember,
+  readObservationFamilyHeads,
+  recallLatestByKey,
+} from "@alfred/assistant/knowledge";
 import { settings } from "@alfred/assistant/settings";
 import { inZone, parseLocalDateKey } from "@alfred/assistant/time";
 import { activityPayloadSchema, toMessage } from "@alfred/contracts";
@@ -54,8 +60,8 @@ async function selfOf(userId: string, cache: Map<string, GithubSelf>): Promise<G
 async function replay(): Promise<void> {
   console.log(`# GitHub activity replay: mode=${COMMIT ? "COMMIT" : "DRY"}`);
   const selves = new Map<string, GithubSelf>();
-  /** The head of each family after the replay, as `<verb> by <subject>`. */
-  const heads = new Map<string, { label: string; object: string | undefined }>();
+  /** The head of each family after the replay, in the fields that the head rule reads. */
+  const heads = new Map<string, GithubFamilyHead & { readonly label: string }>();
   let read = 0;
   let rows = 0;
   let inserted = 0;
@@ -77,14 +83,15 @@ async function replay(): Promise<void> {
       const subject = row.subjectIdentity.kind === "user" ? "user" : "other";
       const familyId = `${row.userId} ${row.familyKey}`;
       const head = heads.get(familyId);
-      const value = { label: `${payload.verb} by ${subject}`, object: row.objectIdentity?.value };
 
-      // The in-memory form of `keepHead`: a `merged` head keeps a push, and the merge of another
-      // pull request goes to its own family.
-      if (
-        head?.label.startsWith("merged ") &&
-        (payload.verb === "pushed" || head.object !== value.object)
-      ) {
+      const value = {
+        label: `${payload.verb} by ${subject}`,
+        payload: row.payload,
+        objectIdentity: row.objectIdentity ?? null,
+      };
+
+      // The rule that the commit path runs under the family lock.
+      if (head && keepHead(head)) {
         if (otherwise) heads.set(`${otherwise.userId} ${otherwise.familyKey}`, value);
         else kept++;
       } else {
@@ -134,6 +141,7 @@ async function report(dayText: string): Promise<void> {
       userId,
       window: { start, end },
       now: new Date(),
+      readFamilyHeads: readObservationFamilyHeads,
     });
 
     console.log(`# ${userId} ${day} (${timezone}) [${start.toISOString()}, ${end.toISOString()})`);

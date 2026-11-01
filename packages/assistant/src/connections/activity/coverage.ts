@@ -9,20 +9,24 @@ import {
   type SourceRoutes,
 } from "@alfred/contracts";
 import { db, rowsFromExecute } from "@alfred/db";
-import { documents, typedEventReceipts } from "@alfred/db/schemas";
-import { and, count, eq, gte, lt, ne, sql } from "drizzle-orm";
+import { documents } from "@alfred/db/schemas";
+import { and, eq, lt, sql } from "drizzle-orm";
 import { z } from "zod";
 import { readIntegrationAvailability } from "../availability";
 import type { EventDeliveryFailure, EventDeliveryRecovery } from "../ingress/descriptor";
 import { readInboundTriggerHealth } from "../ingress/health";
 import { builtInProviderForEndpoint } from "../mcp/built-ins";
 import { listOwnedConnections } from "../mcp/persistence";
+import { readGithubActivityDocumentsBetween } from "./documents";
+import { githubActOf, isGithubActRecorded, type GithubFamilyHead } from "./github-activity";
 
 /**
  * The coverage of each connected source for one window (ADR-0118 decision 4, in the ADR-0117
  * vocabulary). A reader that gets no events from an `unavailable` source must not say that
  * nothing happened. Every connected source gets one entry: a credential provider, a built-in MCP
- * server (named by its registry slug), and a server that the user added.
+ * server (named by its registry slug), and a server that the user added. A source with a reducer
+ * also gets one when its documents reach into the window, so a deleted credential does not hide
+ * the coverage of the time when it was connected.
  *
  * A source with no activity reducer is `unavailable` with the cause `no_record`, whatever its
  * route: a `tools_only` or `live` source records nothing, and an `ingest` source without a reducer
@@ -35,10 +39,12 @@ import { listOwnedConnections } from "../mcp/persistence";
  *   longer than the source's bound. The gap can be anywhere in the window, so a day where the
  *   deliveries start again after an outage is still `unavailable`. This is the only delivery signal
  *   for a past window: a credential row that a reconnect deleted leaves no record.
- * - An incomplete record. A delivery arrived, but its receipt is not `completed`: the activity
- *   writer failed all its attempts, or the queue did not run it. The document exists, so the
- *   silence check cannot see this. A redelivery of the receipt runs the writer again, and the
- *   receipt then becomes `completed`.
+ * - An incomplete record. A delivery arrived, but the record does not hold its act: the activity
+ *   writer failed all its attempts, or the delivery came before the writer existed. The document
+ *   exists, so the silence check cannot see this. The receipt status is not the evidence: a
+ *   receipt from before the writer is `completed`, and `ingress.deliver` does not run a completed
+ *   receipt again. The check reduces each document of the window and looks for the act's family
+ *   head. The replay repairs the record.
  *
  * Only a gap that reaches the present tells the user to connect. A past gap cannot be repaired
  * now, so its recovery is `none`: the reader still must not call the window quiet.
@@ -51,8 +57,13 @@ const ACTIVITY_SOURCES = {
    * 14 h 41 min, except the 6-day outage from 2026-10-22. A day with no work at all can still read
    * as `unavailable`; that is the cost of not reading a dead source as a quiet one.
    */
-  github: { silenceBoundMs: 24 * 60 * 60 * 1000 },
-} as const satisfies { readonly [S in ActivityObservationSource]: { silenceBoundMs: number } };
+  github: { silenceBoundMs: 24 * 60 * 60 * 1000, countUnrecordedActs: countUnrecordedGithubActs },
+} as const satisfies {
+  readonly [S in ActivityObservationSource]: {
+    silenceBoundMs: number;
+    countUnrecordedActs: (args: UnrecordedActsArgs) => Promise<number>;
+  };
+};
 
 const ACTIVITY_SOURCE_SLUGS = typedKeys(ACTIVITY_SOURCES);
 
@@ -63,7 +74,7 @@ function activitySourceOf(source: SourceIdentity): ActivityObservationSource | n
 }
 
 /**
- * A receipt younger than this can still be in the queue: `ingress.deliver` makes five attempts
+ * A delivery younger than this can still be in the queue: `ingress.deliver` makes five attempts
  * with an exponential 5 s backoff, about 75 s in total.
  */
 const DELIVERY_GRACE_MS = 15 * 60 * 1000;
@@ -82,13 +93,13 @@ interface SilentFailure {
   readonly recovery: EventDeliveryRecovery;
 }
 
-/** Deliveries arrived, but the activity writer did not finish them. */
+/** Deliveries arrived, but the record does not hold their acts. Only the replay repairs it. */
 interface RecordIncompleteFailure {
   readonly cause: "record_incomplete";
   readonly reason: string;
-  /** The receipts in the window that are not `completed`. */
-  readonly receipts: number;
-  readonly recovery: { readonly kind: "retry" };
+  /** The acts of the window's deliveries that the record does not hold. */
+  readonly acts: number;
+  readonly recovery: { readonly kind: "none" };
 }
 
 /** The source has no activity reducer, so the record has no events from it. */
@@ -114,17 +125,35 @@ export type ActivityCoverage =
 /** The routes of a server that the user added. The owner declares nothing yet (ADR-0118 decision 3). */
 const CUSTOM_MCP_ROUTES: SourceRoutes = ["tools_only"];
 
+/**
+ * The live head of each family in `familyKeys`. `knowledge` owns the observation tables, so the
+ * caller passes its reader in.
+ */
+export type ReadFamilyHeads = (
+  userId: string,
+  familyKeys: readonly string[],
+) => Promise<ReadonlyMap<string, GithubFamilyHead>>;
+
+interface UnrecordedActsArgs {
+  readonly userId: string;
+  readonly start: Date;
+  readonly end: Date;
+  readonly readFamilyHeads: ReadFamilyHeads;
+}
+
 /** The coverage of every connected source for `window`, as of `now`. */
 export async function readActivityCoverage(args: {
   userId: string;
   window: ActivityWindow;
   now: Date;
+  readFamilyHeads: ReadFamilyHeads;
 }): Promise<ActivityCoverage[]> {
-  const { userId } = args;
+  const { userId, window } = args;
 
-  const [availability, connections] = await Promise.all([
+  const [availability, connections, recordedHistory] = await Promise.all([
     readIntegrationAvailability(userId),
     listOwnedConnections(userId),
+    sourcesWithHistory(userId, window.end),
   ]);
 
   const sources = new Map<string, SourceIdentity>();
@@ -150,6 +179,8 @@ export async function readActivityCoverage(args: {
 
     if (source.success) add(source.data);
   }
+
+  for (const slug of recordedHistory) add({ kind: "integration", slug });
 
   return Promise.all(
     [...sources.values()].map(async (source) => {
@@ -181,6 +212,32 @@ function noRecordCoverage(source: SourceIdentity): ActivityCoverage {
   };
 }
 
+/**
+ * The sources with a reducer that have a document from before `end`. Their history stays after the
+ * last credential is deleted.
+ */
+async function sourcesWithHistory(userId: string, end: Date): Promise<ActivityObservationSource[]> {
+  const found = await Promise.all(
+    ACTIVITY_SOURCE_SLUGS.map(async (slug) => {
+      const [row] = await db()
+        .select({ id: documents.id })
+        .from(documents)
+        .where(
+          and(
+            eq(documents.userId, userId),
+            eq(documents.source, slug),
+            lt(documents.authoredAt, end),
+          ),
+        )
+        .limit(1);
+
+      return row ? [slug] : [];
+    }),
+  );
+
+  return found.flat();
+}
+
 async function recordedSourceCoverage(args: {
   userId: string;
   window: ActivityWindow;
@@ -188,8 +245,9 @@ async function recordedSourceCoverage(args: {
   source: SourceIdentity;
   recorded: ActivityObservationSource;
   rows: CredentialRowsByProvider;
+  readFamilyHeads: ReadFamilyHeads;
 }): Promise<ActivityCoverage> {
-  const { userId, window, now, source, recorded, rows } = args;
+  const { userId, window, now, source, recorded, rows, readFamilyHeads } = args;
   const reachesPresent = window.end.getTime() >= now.getTime();
 
   if (reachesPresent) {
@@ -205,9 +263,19 @@ async function recordedSourceCoverage(args: {
   // An open window is measured to now: the time after the last delivery is blind time too.
   const until = reachesPresent ? now : window.end;
 
-  const [gap, unfinished] = await Promise.all([
+  // A delivery inside the grace time can still be in the queue, so its act does not count yet.
+  const settled = new Date(Math.min(until.getTime(), now.getTime() - DELIVERY_GRACE_MS));
+
+  const [gap, unrecorded] = await Promise.all([
     longestDeliveryGap(userId, recorded, window.start, until),
-    countUnfinishedReceipts(userId, recorded, window.start, until, now),
+    settled.getTime() > window.start.getTime()
+      ? ACTIVITY_SOURCES[recorded].countUnrecordedActs({
+          userId,
+          start: window.start,
+          end: settled,
+          readFamilyHeads,
+        })
+      : 0,
   ]);
 
   const neverDelivered = gap.from === null && gap.to.getTime() === until.getTime();
@@ -233,15 +301,15 @@ async function recordedSourceCoverage(args: {
     };
   }
 
-  if (unfinished > 0) {
+  if (unrecorded > 0) {
     return {
       source,
       state: "unavailable",
       failure: {
         cause: "record_incomplete",
-        reason: `${unfinished} ${recorded} deliveries in the window are not in the activity record`,
-        receipts: unfinished,
-        recovery: { kind: "retry" },
+        reason: `the activity record does not hold ${unrecorded} ${recorded} acts of the window`,
+        acts: unrecorded,
+        recovery: { kind: "none" },
       },
     };
   }
@@ -250,36 +318,21 @@ async function recordedSourceCoverage(args: {
 }
 
 /**
- * The receipts of `source` delivered in `[start, until)` that are not `completed`, without the
- * ones younger than {@link DELIVERY_GRACE_MS}. `completed` means that every `propagate` consumer
- * finished, and the activity writer is one of them. A failure of another consumer also counts:
- * the reader cannot tell which consumer failed, so it does not trust the window.
+ * The acts of the user's GitHub deliveries in `[start, end)` that the record does not hold. The
+ * same reducer as the writer names each act, so the check and the writer cannot disagree.
  */
-async function countUnfinishedReceipts(
-  userId: string,
-  source: ActivityObservationSource,
-  start: Date,
-  until: Date,
-  now: Date,
-): Promise<number> {
-  const settled = new Date(Math.min(until.getTime(), now.getTime() - DELIVERY_GRACE_MS));
+async function countUnrecordedGithubActs(args: UnrecordedActsArgs): Promise<number> {
+  const { userId, start, end, readFamilyHeads } = args;
+  const docs = await readGithubActivityDocumentsBetween({ userId, start, end });
+  const acts = docs.flatMap((doc) => githubActOf(doc) ?? []);
 
-  if (settled.getTime() <= start.getTime()) return 0;
+  const familyKeys = new Set(
+    acts.flatMap((act) => (act.ownFamilyKey ? [act.familyKey, act.ownFamilyKey] : [act.familyKey])),
+  );
 
-  const [row] = await db()
-    .select({ unfinished: count() })
-    .from(typedEventReceipts)
-    .where(
-      and(
-        eq(typedEventReceipts.userId, userId),
-        eq(typedEventReceipts.provider, source),
-        gte(typedEventReceipts.deliveredAt, start),
-        lt(typedEventReceipts.deliveredAt, settled),
-        ne(typedEventReceipts.processingStatus, "completed"),
-      ),
-    );
+  const heads = await readFamilyHeads(userId, [...familyKeys]);
 
-  return row?.unfinished ?? 0;
+  return acts.filter((act) => !isGithubActRecorded(act, (key) => heads.get(key))).length;
 }
 
 const gapRowSchema = z.object({

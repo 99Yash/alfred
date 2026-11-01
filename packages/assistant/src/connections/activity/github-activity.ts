@@ -26,10 +26,9 @@ import { parseGithubEvent, type GithubPayload } from "../ingress/receipt-schemas
  * - One merge is one row. GitHub sends a `pull_request` "closed" delivery and a `push` to the base
  *   branch for each merge, in either order. The push's `after` is the pull request's
  *   `merge_commit_sha`, so both rows get the family key of that commit on that branch, and a
- *   `merged` head outranks a `pushed` row. Only a
- *   push whose head commit GitHub made (`web-flow`) gets that key. A browser edit and an
- *   update-branch push also have the `web-flow` committer, but no merge shares their commit, so
- *   they stay `pushed` rows.
+ *   `merged` head outranks a `pushed` row. Only a push where GitHub made the head commit
+ *   (`web-flow`) and pushed it in the same moment gets that key. A browser edit and an
+ *   update-branch push also fit, but no merge shares their commit, so they stay `pushed` rows.
  * - Every other push is one act: its family key holds the push's own transition and time, so the
  *   same sha pushed twice gives two rows, and a redelivery gives the same key.
  * - The object is the `integration_objects` key (`github:<kind>:<externalId>`, ADR-0118 decision 1),
@@ -44,6 +43,9 @@ const GITHUB_ACTIVITY_REDUCER_VERSION = 1;
 
 /** The committer login that GitHub uses for a commit it makes itself. */
 const GITHUB_WEB_FLOW_LOGIN = "web-flow";
+
+/** How far apart the time of a commit that GitHub made and the time of its push can be. */
+const GITHUB_OWN_PUSH_BOUND_MS = 60 * 1000;
 
 const BRANCH_REF_PREFIX = "refs/heads/";
 
@@ -81,26 +83,49 @@ interface ActivityFacts {
 }
 
 /**
+ * The fields of a family head that the head rules read. A stored row fits, and so does the row that
+ * a dry run keeps in memory.
+ */
+export type GithubFamilyHead = Pick<Observation, "objectIdentity"> & { readonly payload: unknown };
+
+/** The act of one delivery: what the record must hold for it, without the actor. */
+export interface GithubAct {
+  readonly verb: GithubVerb;
+  /** The canonical `integration_objects` key. */
+  readonly object: string;
+  readonly familyKey: string;
+  /**
+   * The merge's own family when `familyKey` is the commit family, else `null`. One push can merge
+   * two pull requests (a stacked pull request that the base merge also contains), so both merges
+   * have the same commit. The first one takes the commit family. The second one keeps its row here.
+   */
+  readonly ownFamilyKey: string | null;
+}
+
+interface GithubDeliveryAct extends GithubAct {
+  readonly occurredAt: Date;
+  readonly actorId: string;
+  readonly actorLogin: string | null;
+}
+
+/**
  * One activity row and the rule that keeps a stronger head of its family. Pass both to
  * `appendObservationFamilyMember(row, { keepHead })`: the rule runs under the family lock. When
  * the result is `kept_head`, append `otherwise` if it is not `null`.
  */
 export interface GithubActivityAppend {
   readonly row: ObservationInsertInput;
-  readonly keepHead: (head: Observation) => boolean;
-  /**
-   * The same act in its own family. One push can merge two pull requests (a stacked pull request
-   * that the base merge also contains), so both merges have the same commit. The first one takes
-   * the commit family. The second one keeps its row here.
-   */
+  readonly keepHead: (head: GithubFamilyHead) => boolean;
+  /** The same row in the act's own family (`GithubAct.ownFamilyKey`). */
   readonly otherwise: ObservationInsertInput | null;
 }
 
-/** The activity row for one delivery, or `null` when the delivery is not an activity. */
-export function reduceGithubActivity(
-  doc: GithubActivityDocument,
-  self: GithubSelf,
-): GithubActivityAppend | null {
+/** The act of one delivery, or `null` when the delivery is not an activity. */
+export function githubActOf(doc: GithubActivityDocument): GithubAct | null {
+  return deliveryActOf(doc);
+}
+
+function deliveryActOf(doc: GithubActivityDocument): GithubDeliveryAct | null {
   const [eventName = ""] = doc.kind.split(".");
 
   if (!doc.accountId || !isEventTypeForSource("github", eventName)) return null;
@@ -140,10 +165,30 @@ export function reduceGithubActivity(
   const occurredAt = facts.occurredAt ?? doc.authoredAt;
 
   if (!occurredAt) return null;
+  const { verb, familyKey, ownFamilyKey } = facts;
 
-  const actorLogin = facts.sender?.login
-    ? canonicalizeIdentityValue("github_login", facts.sender.login)
-    : null;
+  return {
+    verb,
+    object: canonicalizeIdentityValue("integration_object_key", facts.object),
+    familyKey,
+    ownFamilyKey: ownFamilyKey && ownFamilyKey !== familyKey ? ownFamilyKey : null,
+    occurredAt,
+    actorId,
+    actorLogin: facts.sender?.login
+      ? canonicalizeIdentityValue("github_login", facts.sender.login)
+      : null,
+  };
+}
+
+/** The activity row for one delivery, or `null` when the delivery is not an activity. */
+export function reduceGithubActivity(
+  doc: GithubActivityDocument,
+  self: GithubSelf,
+): GithubActivityAppend | null {
+  const act = deliveryActOf(doc);
+
+  if (!act || !doc.accountId) return null;
+  const { verb, occurredAt, actorId, actorLogin } = act;
 
   // `doc.accountId` is the GitHub user id of the credential that received the delivery, so a match
   // is the user. The credential ids and logins also count, for a document from an older credential.
@@ -154,14 +199,11 @@ export function reduceGithubActivity(
       ? { kind: "user" }
       : { kind: "github_user_id", value: actorId };
 
-  const object: IdentityRef = {
-    kind: "integration_object_key",
-    value: canonicalizeIdentityValue("integration_object_key", facts.object),
-  };
+  const object: IdentityRef = { kind: "integration_object_key", value: act.object };
 
   const payload: ActivityPayload = {
     source: { kind: "integration", slug: "github" },
-    verb: facts.verb,
+    verb,
     documentId: doc.id,
     receiptId: doc.sourceId,
     accountId: doc.accountId,
@@ -173,9 +215,9 @@ export function reduceGithubActivity(
     source: "github",
     kind: "activity",
     occurredAt,
-    familyKey: facts.familyKey,
+    familyKey: act.familyKey,
     evidenceHash: sha256Canonical({
-      verb: facts.verb,
+      verb,
       subject,
       object,
       occurredAt: occurredAt.toISOString(),
@@ -186,22 +228,51 @@ export function reduceGithubActivity(
     reducerVersion: GITHUB_ACTIVITY_REDUCER_VERSION,
   };
 
-  const { verb, ownFamilyKey } = facts;
-
-  // A merge outranks the push that GitHub made for it, whichever delivery came first. A merge of
-  // another pull request at the head sends this merge to its own family.
-  const keepHead = (head: Observation): boolean =>
-    isMergedHead(head) && (verb === "pushed" || head.objectIdentity?.value !== object.value);
-
   return {
     row,
-    keepHead,
-    otherwise:
-      ownFamilyKey && ownFamilyKey !== facts.familyKey ? { ...row, familyKey: ownFamilyKey } : null,
+    keepHead: (head) => keepsGithubHead(act, head),
+    otherwise: act.ownFamilyKey ? { ...row, familyKey: act.ownFamilyKey } : null,
   };
 }
 
-function isMergedHead(head: Observation): boolean {
+/**
+ * The head rule of a family. A merge outranks the push that GitHub made for it, whichever delivery
+ * came first. A merge of another pull request at the head sends this merge to its own family.
+ */
+function keepsGithubHead(act: GithubAct, head: GithubFamilyHead): boolean {
+  return isMergedHead(head) && (act.verb === "pushed" || head.objectIdentity?.value !== act.object);
+}
+
+/**
+ * True when the record holds `act` (ADR-0118 decision 4). Its family head is the act itself, or a
+ * merge that keeps the act out. A merge that another merge keeps out must head its own family.
+ * `headOf` gives the live head of a family, or `undefined` when the family has no row.
+ */
+export function isGithubActRecorded(
+  act: GithubAct,
+  headOf: (familyKey: string) => GithubFamilyHead | undefined,
+): boolean {
+  const head = headOf(act.familyKey);
+
+  if (!head) return false;
+
+  if (isSameAct(act, head)) return true;
+
+  if (!keepsGithubHead(act, head)) return false;
+  const own = act.ownFamilyKey ? headOf(act.ownFamilyKey) : undefined;
+
+  return act.ownFamilyKey === null || (own !== undefined && isSameAct(act, own));
+}
+
+function isSameAct(act: GithubAct, head: GithubFamilyHead): boolean {
+  const payload = activityPayloadSchema.safeParse(head.payload);
+
+  return (
+    payload.success && payload.data.verb === act.verb && head.objectIdentity?.value === act.object
+  );
+}
+
+function isMergedHead(head: GithubFamilyHead): boolean {
   const payload = activityPayloadSchema.safeParse(head.payload);
 
   return payload.success && payload.data.verb === "merged";
@@ -350,9 +421,28 @@ function pushFacts(payload: GithubPayload<"push">, receiptId: string): ActivityF
     : `receipt:${receiptId}`;
 
   const familyKey =
-    (payload.head_commit?.committer?.username === GITHUB_WEB_FLOW_LOGIN
-      ? landedCommitKey({ repoFullName, branch, sha: after })
-      : null) ?? `${object}:push:${occurrence}`;
+    (isGithubOwnPush(payload) ? landedCommitKey({ repoFullName, branch, sha: after }) : null) ??
+    `${object}:push:${occurrence}`;
 
   return { verb: "pushed", object, occurredAt: pushedAt, familyKey, sender: payload.sender };
+}
+
+/**
+ * True when GitHub made the head commit and pushed it in the same moment: a merge, an
+ * update-branch, or a browser edit. Only this push can be the push of a merge, so only this push
+ * shares the commit family with the merged row. A later push of the same commit, for example after
+ * the user rewinds the branch, is its own act. On prod, the commit time and the push time of all 477
+ * merge pushes differ by less than 2 s.
+ */
+function isGithubOwnPush(payload: GithubPayload<"push">): boolean {
+  const commit = payload.head_commit;
+  const pushedAt = payload.repository?.pushed_at;
+  const madeAt = commit?.timestamp;
+
+  return (
+    commit?.committer?.username === GITHUB_WEB_FLOW_LOGIN &&
+    pushedAt !== undefined &&
+    madeAt !== undefined &&
+    Math.abs(pushedAt.getTime() - madeAt.getTime()) <= GITHUB_OWN_PUSH_BOUND_MS
+  );
 }

@@ -107,8 +107,16 @@ const GITHUB_EVENT_SCHEMAS = {
     /** True when the push deleted the ref. */
     deleted: lenient(z.boolean()),
     commits: lenient(z.array(z.unknown())),
-    /** `committer.username` is `web-flow` when GitHub made the commit: a merge, an update-branch, or a browser edit. */
-    head_commit: lenient(z.object({ committer: lenient(z.object({ username: text })) })),
+    /**
+     * `committer.username` is `web-flow` when GitHub made the commit: a merge, an update-branch, or
+     * a browser edit. `timestamp` is the time of the commit, not of the push.
+     */
+    head_commit: lenient(
+      z.object({
+        timestamp: providerTime,
+        committer: lenient(z.object({ username: text })),
+      }),
+    ),
     compare: text,
     repository: repositorySchema,
     sender: senderSchema,

@@ -14,8 +14,9 @@ import { isInboundDomainEvent, type TriggerConsumer } from "@alfred/assistant/tr
  * observation writer is in `knowledge`.
  *
  * `propagate`: a write failure fails `ingress.deliver`, and the queue retries. The family key and
- * the evidence hash make a retry a dedup. A receipt that stays `failed` makes the coverage of its
- * window `unavailable`, so a reader does not take the missing row for a quiet window.
+ * the evidence hash make a retry a dedup. When all attempts fail, coverage finds the act missing
+ * from the record and makes the window `unavailable`, so a reader does not take the missing row
+ * for a quiet window.
  */
 export function githubActivityTriggerConsumer(): TriggerConsumer {
   return {

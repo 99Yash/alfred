@@ -5,7 +5,7 @@ import {
   type ObservationInsert,
   type ObservationInsertInput,
 } from "@alfred/contracts";
-import { and, eq, sql, type SQL } from "drizzle-orm";
+import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
 import { PG_UNIQUE_VIOLATION, pgErrorChain } from "@alfred/db/pg-errors";
 import type { DbTransaction } from "@alfred/db";
 
@@ -27,6 +27,25 @@ export function liveObservationHeadJoin(): SQL {
   }
 
   return predicate;
+}
+
+/**
+ * The live head of each of the user's families in `familyKeys`, by family key. A family with no
+ * row has no entry.
+ */
+export async function readObservationFamilyHeads(
+  userId: string,
+  familyKeys: readonly string[],
+): Promise<ReadonlyMap<string, Observation>> {
+  if (familyKeys.length === 0) return new Map();
+
+  const rows = await db()
+    .select({ observation: observations })
+    .from(observations)
+    .innerJoin(observationFamilyHeads, liveObservationHeadJoin())
+    .where(and(eq(observations.userId, userId), inArray(observations.familyKey, [...familyKeys])));
+
+  return new Map(rows.map(({ observation }) => [observation.familyKey, observation]));
 }
 
 const OBSERVATION_APPEND_MAX_ATTEMPTS = 3;

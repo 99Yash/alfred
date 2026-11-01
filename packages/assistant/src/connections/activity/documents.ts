@@ -1,7 +1,7 @@
 import { canonicalizeIdentityValue, parseDocumentMetadata } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
-import { and, asc, eq, gt, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, gt, gte, lt, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { loadCredentialRowsByProvider } from "../availability";
 import type { GithubActivityDocument, GithubSelf } from "./github-activity";
@@ -86,6 +86,33 @@ export async function pageGithubActivityDocuments(args: {
     documents: rows.flatMap((row) => toActivityDocument(row) ?? []),
     nextId: last && rows.length === limit ? last.id : null,
   };
+}
+
+/**
+ * The user's GitHub documents that can be activity and that arrived in `[start, end)`. Coverage
+ * reads them to prove that the record holds each act.
+ */
+export async function readGithubActivityDocumentsBetween(args: {
+  userId: string;
+  start: Date;
+  end: Date;
+}): Promise<GithubActivityDocument[]> {
+  const { userId, start, end } = args;
+
+  const rows = await db()
+    .select(GITHUB_DOCUMENT_COLUMNS)
+    .from(documents)
+    .where(
+      and(
+        eq(documents.userId, userId),
+        eq(documents.source, "github"),
+        ACTIVITY_KIND_FILTER,
+        gte(documents.authoredAt, start),
+        lt(documents.authoredAt, end),
+      ),
+    );
+
+  return rows.flatMap((row) => toActivityDocument(row) ?? []);
 }
 
 /**

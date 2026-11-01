@@ -103,6 +103,8 @@ export {
   reduceGithubActivity,
   type ActivityCoverage,
   type ActivityWindow,
+  type GithubFamilyHead,
+  type ReadFamilyHeads,
 } from "./activity";
 
 export { oauthHandshake, type OAuthHandshake, type OAuthHandshakeState } from "./oauth-state";
