@@ -36,8 +36,3 @@ export const sourceIdentitySchema: z.ZodType<SourceIdentity, unknown> = z.discri
     z.object({ kind: z.literal("custom_mcp"), serverId: mcpServerIdSchema }).strict(),
   ],
 );
-
-/** True when `identity` names the built-in integration `slug`. */
-export function isIntegrationSource(identity: SourceIdentity, slug: IntegrationSlug): boolean {
-  return identity.kind === "integration" && identity.slug === slug;
-}

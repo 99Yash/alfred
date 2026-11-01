@@ -1,9 +1,10 @@
 import type { ActivityObservationSource, SourceIdentity } from "@alfred/contracts";
-import { db } from "@alfred/db";
+import { db, rowsFromExecute } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
-import { and, eq, lt, max } from "drizzle-orm";
+import { sql } from "drizzle-orm";
+import { z } from "zod";
 import { loadCredentialRowsByProvider } from "../availability";
-import type { EventDeliveryFailure } from "../ingress/descriptor";
+import type { EventDeliveryFailure, EventDeliveryRecovery } from "../ingress/descriptor";
 import { readInboundTriggerHealth } from "../ingress/health";
 
 /**
@@ -12,10 +13,15 @@ import { readInboundTriggerHealth } from "../ingress/health";
  * nothing happened.
  *
  * Two signals, and either one makes a source `unavailable`:
- * - Silence. The last delivery before the window ends is older than the source's bound. This is the
- *   only signal for a past window: a credential row that a reconnect deleted leaves no record.
+ * - Silence. A gap between two deliveries, or between the last delivery and the window's end, is
+ *   longer than the source's bound. The gap can be anywhere in the window, so a day where the
+ *   deliveries start again after an outage is still `unavailable`. This is the only signal for a
+ *   past window: a credential row that a reconnect deleted leaves no record.
  * - Connection state, only for a window that reaches the present. The current credential says
  *   nothing about a past day.
+ *
+ * Only a gap that reaches the present tells the user to connect. A past gap cannot be repaired
+ * now, so its recovery is `none`: the reader still must not call the window quiet.
  */
 
 /** How long each activity source can be silent before Alfred stops trusting a quiet window. */
@@ -34,20 +40,19 @@ export interface ActivityWindow {
   readonly end: Date;
 }
 
-/** No delivery inside the source's bound. The cause names the last delivery, or that none exists. */
+/** A delivery gap longer than the source's bound. `from` is `null` when no delivery came before. */
 interface SilentFailure {
   readonly cause: "silent";
   readonly reason: string;
-  readonly recovery: { readonly kind: "connect"; readonly integration: ActivityObservationSource };
+  readonly gap: { readonly from: Date | null; readonly to: Date };
+  readonly recovery: EventDeliveryRecovery;
 }
 
 export type ActivityCoverage =
-  | { readonly source: SourceIdentity; readonly state: "live"; readonly lastEventAt: Date }
+  | { readonly source: SourceIdentity; readonly state: "live" }
   | {
       readonly source: SourceIdentity;
       readonly state: "unavailable";
-      /** The last delivery before the window ends. `null`: the source never delivered. */
-      readonly lastEventAt: Date | null;
       readonly failure: SilentFailure | Omit<EventDeliveryFailure, "healthy">;
     };
 
@@ -59,11 +64,9 @@ export async function readActivityCoverage(args: {
 }): Promise<ActivityCoverage[]> {
   const { userId, window, now } = args;
   const source: SourceIdentity = { kind: "integration", slug: "github" };
-  const lastEventAt = await lastDeliveryBefore(userId, "github", window.end);
-  const { silenceBoundMs } = ACTIVITY_SOURCES.github;
+  const reachesPresent = window.end.getTime() >= now.getTime();
 
-  // A window that reaches the present also reads the connection.
-  if (window.end.getTime() >= now.getTime() - silenceBoundMs) {
+  if (reachesPresent) {
     const health = (
       await readInboundTriggerHealth(userId, await loadCredentialRowsByProvider(userId))
     ).github;
@@ -71,50 +74,91 @@ export async function readActivityCoverage(args: {
     if (!health.healthy) {
       const { healthy: _healthy, ...failure } = health;
 
-      return [{ source, state: "unavailable", lastEventAt, failure }];
+      return [{ source, state: "unavailable", failure }];
     }
   }
 
-  // Measured to the window's end, or to now for an open window: a gap after the last
-  // delivery is blind time even when the window itself held events.
-  const until = Math.min(window.end.getTime(), now.getTime());
+  // An open window is measured to now: the time after the last delivery is blind time too.
+  const until = reachesPresent ? now : window.end;
+  const gap = await longestDeliveryGap(userId, "github", window.start, until);
 
-  if (!lastEventAt || until - lastEventAt.getTime() > silenceBoundMs) {
-    return [
-      {
-        source,
-        state: "unavailable",
-        lastEventAt,
-        failure: {
-          cause: "silent",
-          reason: lastEventAt
-            ? `no GitHub delivery since ${lastEventAt.toISOString()}`
-            : "GitHub never delivered an event",
-          recovery: { kind: "connect", integration: "github" },
-        },
-      },
-    ];
+  const neverDelivered = gap.from === null && gap.to.getTime() === until.getTime();
+  const gapMs = gap.to.getTime() - (gap.from ?? window.start).getTime();
+
+  if (!neverDelivered && gapMs <= ACTIVITY_SOURCES.github.silenceBoundMs) {
+    return [{ source, state: "live" }];
   }
 
-  return [{ source, state: "live", lastEventAt }];
+  const recovery: EventDeliveryRecovery =
+    reachesPresent && gap.to.getTime() === until.getTime()
+      ? { kind: "connect", integration: "github" }
+      : { kind: "none" };
+
+  return [
+    {
+      source,
+      state: "unavailable",
+      failure: {
+        cause: "silent",
+        reason: gap.from
+          ? `no GitHub delivery from ${gap.from.toISOString()} to ${gap.to.toISOString()}`
+          : `no GitHub delivery before ${gap.to.toISOString()}`,
+        gap,
+        recovery,
+      },
+    },
+  ];
 }
 
-/** The newest stored delivery of `source` before `end`. A GitHub document is one delivery. */
-async function lastDeliveryBefore(
+const gapRowSchema = z.object({
+  from_at: z.coerce.date().nullable(),
+  to_at: z.coerce.date(),
+});
+
+/**
+ * The longest gap in `[start, until)` between consecutive stored deliveries of `source`. The last
+ * delivery before `start` opens the first gap, and `until` closes the last one. `from` is `null`
+ * when no delivery came before the gap: the gap then starts at `start`, or the source never
+ * delivered when `to` is `until`. A GitHub document is one delivery, and `authored_at` is its
+ * arrival time.
+ */
+async function longestDeliveryGap(
   userId: string,
   source: ActivityObservationSource,
-  end: Date,
-): Promise<Date | null> {
-  const [row] = await db()
-    .select({ at: max(documents.authoredAt) })
-    .from(documents)
-    .where(
-      and(
-        eq(documents.userId, userId),
-        eq(documents.source, source),
-        lt(documents.authoredAt, end),
-      ),
-    );
+  start: Date,
+  until: Date,
+): Promise<{ from: Date | null; to: Date }> {
+  const result = await db().execute(sql`
+    with points as (
+      select max(${documents.authoredAt}) as at
+        from ${documents}
+       where ${documents.userId} = ${userId}
+         and ${documents.source} = ${source}
+         and ${documents.authoredAt} < ${start}
+      union all
+      select ${documents.authoredAt}
+        from ${documents}
+       where ${documents.userId} = ${userId}
+         and ${documents.source} = ${source}
+         and ${documents.authoredAt} >= ${start}
+         and ${documents.authoredAt} < ${until}
+      union all
+      select ${until}::timestamptz
+    ),
+    gaps as (
+      select lag(at) over (order by at nulls first) as from_at, at as to_at
+        from points
+    )
+    -- The filter drops the row of the point before the window, and its null when there is none.
+    select from_at, to_at
+      from gaps
+     where to_at >= ${start}
+     order by to_at - coalesce(from_at, ${start}::timestamptz) desc
+     limit 1
+  `);
 
-  return row?.at ?? null;
+  const [row] = rowsFromExecute(result, gapRowSchema);
+
+  // The `until` point always gives one row; the fallback only satisfies the type.
+  return row ? { from: row.from_at, to: row.to_at } : { from: null, to: until };
 }

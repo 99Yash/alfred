@@ -1,5 +1,6 @@
 import {
   canonicalizeGithubTargetId,
+  assertNever,
   canonicalizeIdentityValue,
   isEventTypeForSource,
   type ActivityPayload,
@@ -23,6 +24,11 @@ import { parseGithubEvent, type GithubPayload } from "../ingress/receipt-schemas
  *   time, so it is only the fallback.
  * - One merge is one row: the `push` that GitHub makes for a merge has the `web-flow` committer and
  *   gives nothing. An update-branch push has the same committer and also gives nothing.
+ * - The object is the `integration_objects` key (`github:<kind>:<externalId>`, ADR-0118 decision 1),
+ *   so a reader joins a row to its object state. A pull request is its numeric GitHub id, as in the
+ *   object-state fold. The keys are not built with `integrationObjectKey`: that builder takes only
+ *   entity-graph segments, and `ci_target` is object state, not an entity. The referent key
+ *   (`github:pull_request:owner/repo#913`, ADR-0092) is a different key for the same pull request.
  */
 
 /** Bump when a rule changes, so a replay appends superseding rows (ADR-0067 D4). */
@@ -32,6 +38,9 @@ const GITHUB_ACTIVITY_REDUCER_VERSION = 1;
 const GITHUB_WEB_FLOW_LOGIN = "web-flow";
 
 const BRANCH_REF_PREFIX = "refs/heads/";
+
+/** The `sender.type` of a GitHub App account. */
+const GITHUB_BOT_SENDER_TYPE = "Bot";
 
 /** The fields of one stored GitHub delivery that the reducer reads. */
 export type GithubActivityDocument = Pick<
@@ -91,20 +100,27 @@ export function reduceGithubActivity(
     case "repository_dispatch":
       facts = null;
       break;
+    // `parseGithubEvent` parsed the kind, so this is unreachable. A new GitHub event kind does
+    // not compile until it is listed here.
     default:
-      facts = null;
+      return assertNever(event, "GitHub activity event");
   }
 
   const actorId = facts?.sender?.id;
 
-  if (!facts || !actorId) return null;
+  // An activity row is an action by a person (ADR-0118 decision 1). A GitHub App account, such as
+  // `dependabot[bot]`, has `type` "Bot". Its pull requests reach the user through object state.
+  if (!facts || !actorId || facts.sender?.type === GITHUB_BOT_SENDER_TYPE) return null;
   const occurredAt = facts.occurredAt ?? doc.authoredAt;
 
   if (!occurredAt) return null;
-  const actorLogin = facts.sender?.login ? facts.sender.login.trim().toLowerCase() : null;
 
-  // The delivering account is the user's own account when the App is installed on it. An org
-  // installation names the org, which never sends a delivery, so the match stays safe.
+  const actorLogin = facts.sender?.login
+    ? canonicalizeIdentityValue("github_login", facts.sender.login)
+    : null;
+
+  // `doc.accountId` is the GitHub user id of the credential that received the delivery, so a match
+  // is the user. The credential ids and logins also count, for a document from an older credential.
   const subject: ObservationSubject =
     actorId === doc.accountId ||
     self.userIds.has(actorId) ||
