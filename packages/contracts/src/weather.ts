@@ -13,10 +13,7 @@ export interface Place {
 }
 
 /** A `Map`, not a `Record`: the table is not exhaustive, and `IanaTimezone` is branded. */
-export const WEATHER_FALLBACK_CITIES: ReadonlyMap<string, Place> = new Map<
-  string,
-  Place
->([
+export const WEATHER_FALLBACK_CITIES: ReadonlyMap<string, Place> = new Map<string, Place>([
   ["America/New_York", { lat: 40.7128, lng: -74.006, label: "New York" }],
   ["America/Chicago", { lat: 41.8781, lng: -87.6298, label: "Chicago" }],
   ["America/Denver", { lat: 39.7392, lng: -104.9903, label: "Denver" }],
