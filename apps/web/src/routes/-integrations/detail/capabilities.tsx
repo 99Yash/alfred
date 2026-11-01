@@ -1,4 +1,4 @@
-import type { RiskTierCounts } from "@alfred/contracts";
+import { hasSourceRoute, INTEGRATIONS, type RiskTierCounts } from "@alfred/contracts";
 import { useIntegrationTierCounts } from "./use-tool-tiers";
 import type { IntegrationPage } from "~/lib/integrations/integrations";
 import { CapabilityChip } from "./capability-chip";
@@ -24,8 +24,22 @@ function summarizeTiers(counts: RiskTierCounts): string {
   return parts.length > 0 ? `${total} ${noun} · ${parts.join(", ")}` : `${total} ${noun}`;
 }
 
+/**
+ * The record chips, from the registry route (ADR-0118 decision 3). A `tools_only` source gets
+ * none: the coverage read states that gap where an answer depends on it.
+ */
+function recordChips(provider: IntegrationPage): ReadonlyArray<string> {
+  const { routes } = INTEGRATIONS[provider.slug];
+
+  return [
+    ...(hasSourceRoute(routes, "ingest") ? ["Records Every Event"] : []),
+    ...(hasSourceRoute(routes, "live") ? ["Searched Live"] : []),
+  ];
+}
+
 export function Capabilities({ provider }: { provider: IntegrationPage }) {
   const tierCounts = useIntegrationTierCounts(provider.slug);
+  const chips = [...provider.capabilities, ...recordChips(provider)];
 
   return (
     <section className="app-card-in space-y-3" style={{ animationDelay: "300ms" }}>
@@ -36,7 +50,7 @@ export function Capabilities({ provider }: { provider: IntegrationPage }) {
         ) : null}
       </div>
       <div className="flex flex-wrap gap-2">
-        {provider.capabilities.map((capability) => (
+        {chips.map((capability) => (
           <CapabilityChip key={capability}>{capability}</CapabilityChip>
         ))}
       </div>

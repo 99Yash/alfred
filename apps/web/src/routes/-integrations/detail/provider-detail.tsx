@@ -9,7 +9,6 @@ import { McpConnectionPanel } from "./mcp-connection-panel";
 import { Overview } from "./overview";
 import { ProviderPolicy } from "./provider-policy";
 import { RawKinds } from "./raw-kinds";
-import { RecordNotice } from "./record-notice";
 import { RelatedSetup } from "./related-setup";
 import { TrustNotice } from "./trust-notice";
 
@@ -28,16 +27,12 @@ export function ProviderDetail({ provider }: { provider: IntegrationPage }) {
           <ConnectedAccounts provider={provider} connected={connected} />
           <ProviderPolicy provider={provider} />
           <TrustNotice provider={provider} />
-          <RecordNotice slug={provider.slug} name={provider.name} />
           <RelatedSetup provider={provider} />
           <Capabilities provider={provider} />
           {isInboundEventSource(provider.slug) && <RawKinds slug={provider.slug} />}
         </>
       ) : isBuiltInMCPProvider(provider.slug) ? (
-        <>
-          <McpConnectionPanel provider={provider.slug} name={provider.name} />
-          <RecordNotice slug={provider.slug} name={provider.name} />
-        </>
+        <McpConnectionPanel provider={provider.slug} name={provider.name} />
       ) : (
         <DesignOnlyNotice name={provider.name} />
       )}
