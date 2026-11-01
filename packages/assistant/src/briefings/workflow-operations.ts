@@ -7,7 +7,7 @@ import {
 import { inZone, parseLocalDateKey } from "@alfred/assistant/time";
 import { settings } from "@alfred/assistant/settings";
 import { resolveBriefingPreferences } from "./preferences";
-import { fetchLatestWatermark, gatherCounts, isQuietMorning } from "./read";
+import { fetchLatestWatermark, gatherCounts, isQuietMorning, sendableWarningCount } from "./read";
 import {
   beginBriefing,
   markBriefingComposed,
@@ -267,11 +267,13 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
   }
 
   const counts = gatherCounts(gather);
-  // Quiet means no `demanding` email, no activity, no meetings, and no read-proven merges
-  // (ADR-0064; ADR-0062 amendment 2026-10-27). `shippedTotal` is the read's full merge count,
-  // and is absent when the read failed, so the gate then behaves as before.
-  // With no demand signal, fall back to the raw email count.
+  // Quiet means no `demanding` email, no activity, no meetings, no read-proven merges, and no
+  // official warning for the user's place (ADR-0064; ADR-0062 amendment 2026-10-27; ADR-0117).
+  // `shippedTotal` is the read's full merge count, and is absent when the read failed, so the gate
+  // then behaves as before. With no demand signal, fall back to the raw email count. A warning for
+  // the time-zone default city does not count, because a `fallback` does not send a morning.
   const demandingEmailCount = gather.day_shape?.demandingEmailCount;
+  const sendableWarnings = sendableWarningCount(gather);
 
   const quietDay = isQuietMorning({
     demandingEmailCount,
@@ -280,14 +282,14 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
     githubMergedTotal: gather.day_shape?.shippedTotal,
     meetingCount: counts.meetings,
     brokenConnectionCount: listGatheredBrokenConnections(gather).length,
-    warningCount: counts.warnings,
+    warningCount: sendableWarnings,
   });
 
   await ctx.log(
     `gather: id=${begun.row.id} action=${begun.action} tz=${timezone} date=${briefingDate} ` +
       `since=${since ? since.toISOString() : "(first run)"} until=${until.toISOString()} ` +
       `email=${counts.email} demanding=${demandingEmailCount ?? "n/a"} topBand=${gather.day_shape?.topEmailBand ?? "n/a"} ` +
-      `activity=${counts.activity} meetings=${counts.meetings} warnings=${counts.warnings} broken=${listGatheredBrokenConnections(gather).length} quiet=${quietDay}${instructionSuppressionLogPart(suppressedByInstruction)}`,
+      `activity=${counts.activity} meetings=${counts.meetings} warnings=${counts.warnings} sendableWarnings=${sendableWarnings} broken=${listGatheredBrokenConnections(gather).length} quiet=${quietDay}${instructionSuppressionLogPart(suppressedByInstruction)}`,
   );
 
   return {

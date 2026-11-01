@@ -8,14 +8,13 @@ import {
   type GatherInput,
   type GatherProvenance,
   type IanaTimezone,
-  type OfficialWarning,
 } from "@alfred/contracts";
 import {
   BROKEN_CONNECTION_GUIDANCE,
   describeBrokenConnection,
   type BrokenConnection,
 } from "@alfred/assistant/connections";
-import { inZone, type LocalDateKey, type ZoneClock } from "@alfred/assistant/time";
+import { inZone, type LocalDateKey } from "@alfred/assistant/time";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
 import { buildSystemPrompt } from "./prompt";
 import {
@@ -24,7 +23,8 @@ import {
   type BriefingToolName,
   type DumpedBriefing,
 } from "./tools";
-import { provenanceAudience, type FallbackProvenance } from "../provenance";
+import { provenanceAudience, warningsFallback } from "../provenance";
+import { describeWarning } from "../warnings";
 import { describeOpenAskViolation, type OpenAskViolation } from "../open-ask-guard";
 
 /** Daily-briefing agent. Uses the AI SDK tool loop (`generateText` + `stopWhen`) in one workflow step. */
@@ -237,10 +237,7 @@ function officialWarningFacts(args: {
 
   if (read.status !== "read" || read.items.length === 0) return "";
 
-  const fallback = args.provenance.find(
-    (entry): entry is FallbackProvenance =>
-      entry.input === "warnings" && entry.state === "fallback",
-  );
+  const fallback = warningsFallback(args.provenance);
 
   const place =
     fallback === undefined
@@ -256,15 +253,9 @@ function officialWarningFacts(args: {
     `For each one, name the issuer and what it warns of, and keep its severity word. ` +
     `Do not add advice that the warning does not give, and do not soften or inflate its severity. ` +
     `Call list_official_warnings only if you need a headline or a link.\n\n` +
-    read.items.map((warning) => warningFact(warning, zone)).join("\n")
-  );
-}
-
-/** One warning: issuer, event, severity word, area, and its window in the user's zone. */
-function warningFact(warning: OfficialWarning, zone: ZoneClock): string {
-  return (
-    `- ${warning.issuer}: ${warning.event}. Severity: ${warning.severity}. Area: ${warning.area}. ` +
-    `From ${zone.format(new Date(warning.onset))} to ${zone.format(new Date(warning.expires))}, in the user's time zone.`
+    read.items
+      .map((warning) => `- ${describeWarning(warning, zone)}, in the user's time zone.`)
+      .join("\n")
   );
 }
 

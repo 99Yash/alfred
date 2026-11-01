@@ -1,12 +1,13 @@
 import {
   OFFICIAL_WARNINGS_MAX,
   type IanaTimezone,
+  type OfficialWarning,
   type OfficialWarningSource,
   type Place,
   type WarningsContribution,
 } from "@alfred/contracts";
 import { logger } from "@alfred/logging";
-import { addDays, inZone, type LocalDateKey } from "@alfred/assistant/time";
+import { addDays, inZone, type LocalDateKey, type ZoneClock } from "@alfred/assistant/time";
 import type { UserLocation } from "../../knowledge";
 import { placeProvenance, provenanceName, warningsProvenance, type Sourced } from "../provenance";
 import type { FeedRead, RankedWarning } from "./feed";
@@ -141,4 +142,16 @@ function coverageGap(place: Place, district: SachetDistrict | null): string | nu
   }
 
   return null;
+}
+
+/**
+ * One warning as text: issuer, event, severity word, area, and its window in `zone`. It ends with
+ * no full stop, so each reader closes the sentence. The composer seed (`officialWarningFacts`) and
+ * the legacy composer (its prompt and its deterministic text) read this one form.
+ */
+export function describeWarning(warning: OfficialWarning, zone: ZoneClock): string {
+  return (
+    `${warning.issuer}: ${warning.event}. Severity: ${warning.severity}. Area: ${warning.area}. ` +
+    `From ${zone.format(new Date(warning.onset))} to ${zone.format(new Date(warning.expires))}`
+  );
 }

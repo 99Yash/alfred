@@ -340,6 +340,22 @@ export function logProvenance(userId: string, provenance: readonly GatherProvena
 /** A statement that Alfred used a default in place of a user fact. */
 export type FallbackProvenance = Extract<GatherProvenance, { state: "fallback" }>;
 
+/**
+ * The warnings `fallback` entry, or `undefined` when the warnings are for the user's place. An
+ * entry says that Alfred read the feeds for the default city of the time zone (`used`), not for a
+ * place that the user gave. `placeProvenance` writes it, and the stored list keeps it, because
+ * `boundProvenance` drops only `stale` entries. A gather from before the provenance field has no
+ * list, so it has no entry.
+ */
+export function warningsFallback(
+  provenance: readonly GatherProvenance[] | undefined,
+): FallbackProvenance | undefined {
+  return provenance?.find(
+    (entry): entry is FallbackProvenance =>
+      entry.input === "warnings" && entry.state === "fallback",
+  );
+}
+
 /** The inputs that read the user's place. */
 export type PlaceInput = Extract<GatherInput, "weather" | "warnings">;
 
