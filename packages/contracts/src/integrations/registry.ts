@@ -21,13 +21,38 @@ export interface InternalIntegrationEntry extends EntryBase {
   readonly kind: "internal";
 }
 
+/**
+ * How events from a source reach Alfred (ADR-0118 decision 3). State what is built today.
+ * - `ingest`: events arrive by push or by poll, and Alfred stores them.
+ * - `live`: Context Search reads the provider at query time.
+ * - `tools_only`: the chat tools work, and Alfred stores no events from the source.
+ */
+export type SourceRoute = "ingest" | "live" | "tools_only";
+
+/** `tools_only` never pairs with another route. */
+export type SourceRoutes =
+  | readonly ["tools_only"]
+  | readonly ["ingest"]
+  | readonly ["live"]
+  | readonly ["ingest", "live"];
+
+/** True when `routes` holds `route`. */
+export function hasSourceRoute(routes: SourceRoutes, route: SourceRoute): boolean {
+  return routes.some((held) => held === route);
+}
+
+/** An entry for a source of events. Internal entries are not sources, so they have no routes. */
+interface SourceEntryBase extends EntryBase {
+  readonly routes: SourceRoutes;
+}
+
 /** A local ingest channel with no provider credential (iMessage). */
-export interface ChannelIntegrationEntry extends EntryBase {
+export interface ChannelIntegrationEntry extends SourceEntryBase {
   readonly kind: "channel";
 }
 
 /** A provider that has a page and a brand but no wired credential store yet. */
-export interface PlannedIntegrationEntry extends EntryBase {
+export interface PlannedIntegrationEntry extends SourceEntryBase {
   readonly kind: "provider";
   readonly status: "planned";
   /** Web asset key for the icon and accent. */
@@ -61,7 +86,7 @@ export type PassthroughTransportKind = "rest" | "graphql";
 /** `null`: no passthrough tier. */
 export type PassthroughSpec = { readonly transport: PassthroughTransportKind } | null;
 
-export interface LiveIntegrationEntry extends EntryBase {
+export interface LiveIntegrationEntry extends SourceEntryBase {
   readonly kind: "provider";
   readonly status: "live";
   readonly brand: string;
@@ -124,6 +149,7 @@ export const INTEGRATIONS = {
     kind: "provider",
     status: "live",
     displayName: "Gmail",
+    routes: ["ingest"],
     brand: "gmail",
     credential: {
       shape: "google_oauth",
@@ -149,6 +175,7 @@ export const INTEGRATIONS = {
     kind: "provider",
     status: "live",
     displayName: "Calendar",
+    routes: ["tools_only"],
     brand: "google_calendar",
     credential: {
       shape: "google_oauth",
@@ -172,6 +199,7 @@ export const INTEGRATIONS = {
     kind: "provider",
     status: "live",
     displayName: "Drive",
+    routes: ["live"],
     brand: "google_drive",
     credential: {
       shape: "google_oauth",
@@ -188,6 +216,7 @@ export const INTEGRATIONS = {
     kind: "provider",
     status: "live",
     displayName: "Docs",
+    routes: ["tools_only"],
     brand: "google_docs",
     credential: {
       shape: "google_oauth",
@@ -204,6 +233,7 @@ export const INTEGRATIONS = {
     kind: "provider",
     status: "live",
     displayName: "Sheets",
+    routes: ["tools_only"],
     brand: "google_sheets",
     credential: {
       shape: "google_oauth",
@@ -228,6 +258,7 @@ export const INTEGRATIONS = {
     kind: "provider",
     status: "live",
     displayName: "Slides",
+    routes: ["tools_only"],
     brand: "google_slides",
     credential: {
       shape: "google_oauth",
@@ -244,6 +275,7 @@ export const INTEGRATIONS = {
     kind: "provider",
     status: "live",
     displayName: "Contacts",
+    routes: ["tools_only"],
     brand: "google_contacts",
     credential: {
       shape: "google_oauth",
@@ -256,11 +288,19 @@ export const INTEGRATIONS = {
     summaryBlurb: "the user's saved contacts and the people they email",
     domain: "contacts.google.com",
   },
-  slack: { kind: "provider", status: "planned", displayName: "Slack", brand: "slack", actions: [] },
+  slack: {
+    kind: "provider",
+    status: "planned",
+    displayName: "Slack",
+    routes: ["tools_only"],
+    brand: "slack",
+    actions: [],
+  },
   linear: {
     kind: "provider",
     status: "planned",
     displayName: "Linear",
+    routes: ["tools_only"],
     brand: "linear",
     actions: [],
   },
@@ -268,6 +308,7 @@ export const INTEGRATIONS = {
     kind: "provider",
     status: "live",
     displayName: "GitHub",
+    routes: ["ingest"],
     brand: "github",
     credential: { shape: "github_app" },
     passthrough: { transport: "rest" },
@@ -281,6 +322,7 @@ export const INTEGRATIONS = {
     kind: "provider",
     status: "live",
     displayName: "Vercel",
+    routes: ["tools_only"],
     brand: "vercel",
     credential: { shape: "bearer", connect: "oauth" },
     passthrough: { transport: "rest" },
@@ -294,6 +336,7 @@ export const INTEGRATIONS = {
     kind: "provider",
     status: "planned",
     displayName: "Sentry",
+    routes: ["tools_only"],
     brand: "sentry",
     actions: [],
   },
@@ -301,6 +344,7 @@ export const INTEGRATIONS = {
     kind: "provider",
     status: "planned",
     displayName: "Notion",
+    routes: ["tools_only"],
     brand: "notion",
     actions: [],
   },
@@ -308,6 +352,7 @@ export const INTEGRATIONS = {
     kind: "provider",
     status: "planned",
     displayName: "Railway",
+    routes: ["tools_only"],
     brand: "railway",
     actions: [],
   },
@@ -315,10 +360,11 @@ export const INTEGRATIONS = {
     kind: "provider",
     status: "planned",
     displayName: "Polylane",
+    routes: ["tools_only"],
     brand: "polylane",
     actions: [],
   },
-  imessage: { kind: "channel", displayName: "iMessage", actions: [] },
+  imessage: { kind: "channel", displayName: "iMessage", routes: ["tools_only"], actions: [] },
 } as const satisfies Record<string, IntegrationEntry>;
 
 export type IntegrationSlug = keyof typeof INTEGRATIONS;
