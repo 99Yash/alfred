@@ -1,6 +1,6 @@
 # ADR-0100 — A delivery alert is a banner and one email, never a briefing line
 
-**Status.** Accepted (issue #1035, PR #1038). Motivated by incident #1033. Refines ADR-0097 item 5. Amends nothing in ADR-0048. **Amended 2026-10-28 (accepted; slices 1 and 2 built):** a broken connection is also a block in the briefing, and a broken connection stops a quiet morning. The code supplies facts and a model writes the words (see **Revision: the model writes the words**). See the amendment of that date; it reverses "never a briefing line" for this case only.
+**Status.** Accepted (issue #1035, PR #1038). Motivated by incident #1033. Refines ADR-0097 item 5. Amends nothing in ADR-0048. **Amended 2026-11-01 (built):** the floating banners are gone. An amber count on the sidebar Integrations item and a "Needs attention" list on the integrations page replace them. **Amended 2026-10-28 (accepted; slices 1 and 2 built):** a broken connection is also a block in the briefing, and a broken connection stops a quiet morning. The code supplies facts and a model writes the words (see **Revision: the model writes the words**). See the amendment of that date; it reverses "never a briefing line" for this case only.
 
 **Decision.** An event source that stopped delivering reaches the user through two surfaces: a live app banner, and at most one pushed `delivery_alert` email per source per week. It never reaches the user through the morning or evening briefing. A delivery verdict names a cause. Only the cause `broken`, with a recovery the user can perform, and with no other surface already asking for the same click, is alertable. Every other verdict is operator text and stays in the log.
 
@@ -145,6 +145,33 @@ The cause vocabulary, the three-arm `EventDeliveryFailure` union, workflow readi
 ## Amendment — 2026-10-31: Sentry is no longer an event source
 
 The `sentry` inbound source is deleted (ADR-0093 and ADR-0097, same date). Its two operator-only `broken` arms and its `never_connected` verdict are gone with the descriptor. The text above that names Sentry describes the state before this date. GitHub and Gmail stay the two producers of an alertable verdict.
+
+## Amendment — 2026-11-01: the banner becomes a sidebar count and a list on the integrations page
+
+**Status.** Accepted (owner decision). Built with this amendment. PR B (a Reconnect button in a chat tool card) is not built.
+
+### What happened
+
+The banners did not work as a surface. The app shell floated up to three amber cards (`ScopeGapBanner`, `GithubReconnectBanner`, `DeliveryAlertBanner`) over the content of every page. A card covered the content below it. A dismissal lasted only until the next reload, so the same card came back on each visit. The owner kept one broken connection on purpose (a local Sentry MCP row whose tokens the 2026-10-29 key rotation cleared), and the card asked for the same click on every page.
+
+### Decisions
+
+1. **No floating card for a broken connection.** The three banners are removed. `EventStreamBanner` stays, because it reports the state of the app, not of a connection, and it asks for no action.
+2. **The sidebar shows the count.** The Integrations item in the sidebar shows an amber count of the connections that need the user. The count is quiet: it covers no content and it needs no dismissal. It goes away when the user repairs or disconnects the connection.
+3. **The integrations page lists the items first.** A "Needs attention" list sits at the top of `/integrations`. Each row has the name, the fact, and one Reconnect button. A healthy page shows no list.
+4. **One read, one set.** `useConnectionAttention` (`apps/web/src/lib/integrations/connection-attention.ts`) builds the set from the integration-status read: missing Google scopes, the pre-App GitHub credential, the delivery alerts, and the MCP alerts. The sidebar and the list read the same hook. The server-side `nagsOwnCredential` dedup still applies, because the credential items are in the same list.
+5. **The push surfaces do not change.** The briefing block and the weekly `delivery_alert` email stay as the 2026-10-28 amendment states. They are the surfaces that reach the user without the app open, so the app surface can be quiet.
+6. **At need (not built).** A chat tool call that fails on a broken connection gets a Reconnect button in its tool card. Today `mcp_reauth_required` carries no connection id, so the web cannot build the route. A later change adds it.
+
+### Rejected alternatives
+
+- **Keep the banner, but persist the dismissal until the facts change.** It still covers content on every page until the user acts.
+- **A banner on the home page only.** The user does not always start on the home page, and the briefing block already covers the daily reminder.
+- **A banner for ingest sources only.** A stopped Gmail or GitHub delivery is the case where silence looks like a quiet day. The briefing block already says so each morning, so the app does not need a second loud surface.
+
+### Residual risk
+
+A user who does not open the integrations page and does not read the briefing sees only a number in the sidebar. The weekly email is the backstop.
 
 ## Where the code lives
 

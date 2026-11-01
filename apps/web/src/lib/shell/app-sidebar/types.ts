@@ -14,6 +14,8 @@ export interface AppSidebarProps {
   threadActions?: SidebarThreadActions | undefined;
   /** Approvals badge text. Only fixture surfaces pass this. */
   approvalsBadge?: string | undefined;
+  /** Count of connections the user must repair. Amber. */
+  integrationsBadge?: string | undefined;
   /** Default true. */
   open?: boolean | undefined;
   /** Inline: wide, resizable, minimizable. Overlay: narrow drawer. */

@@ -27,6 +27,7 @@ interface FullContentProps {
   onChevron: () => void;
   onOpenSearch: () => void;
   approvalsBadge?: string | undefined;
+  integrationsBadge?: string | undefined;
   threads?: Record<ThreadGroup, ThreadEntry[]> | undefined;
   threadActions?: SidebarThreadActions | undefined;
   activeThread?: string | undefined;
@@ -46,6 +47,7 @@ export function FullContent({
   onChevron,
   onOpenSearch,
   approvalsBadge,
+  integrationsBadge,
   threads,
   threadActions,
   activeThread,
@@ -92,6 +94,8 @@ export function FullContent({
           icon={Plug}
           label="Integrations"
           to="/integrations"
+          badge={integrationsBadge}
+          badgeTone="attention"
           active={path.startsWith("/integrations")}
         />
         <NavLink
