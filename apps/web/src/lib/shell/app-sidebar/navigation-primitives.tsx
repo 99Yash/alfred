@@ -11,6 +11,8 @@ interface BaseNavProps {
   label: string;
   kbd?: string | undefined;
   badge?: string | undefined;
+  /** `attention`: amber, for a count the user must act on. Default: purple. */
+  badgeTone?: "attention" | undefined;
   active?: boolean | undefined;
 }
 
@@ -32,7 +34,7 @@ const navRowClass = (active = false) =>
       : "text-app-fg-3 hover:bg-app-bg-a2 hover:text-app-fg-4 hover:shadow-[inset_0_1px_0_var(--app-sidebar-tile-highlight)]",
   );
 
-function NavInner({ icon: Icon, label, kbd, badge, active }: BaseNavProps) {
+function NavInner({ icon: Icon, label, kbd, badge, badgeTone, active }: BaseNavProps) {
   return (
     <>
       <Icon
@@ -46,7 +48,14 @@ function NavInner({ icon: Icon, label, kbd, badge, active }: BaseNavProps) {
       />
       <span className="min-w-0 flex-1 truncate text-sm font-medium">{label}</span>
       {badge ? (
-        <span className="inline-flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-app-purple-1 px-1 text-[10.5px] font-medium text-app-purple-4 tabular-nums">
+        <span
+          className={cn(
+            "inline-flex h-4.5 min-w-4.5 items-center justify-center rounded-full px-1 text-[10.5px] font-medium tabular-nums",
+            badgeTone === "attention"
+              ? "bg-app-amber-1 text-app-amber-4"
+              : "bg-app-purple-1 text-app-purple-4",
+          )}
+        >
           {badge}
         </span>
       ) : null}
@@ -127,6 +136,7 @@ export function RailLink({
   to,
   active,
   badge,
+  badgeTone,
   kbd,
 }: BaseNavProps & { to: string }) {
   return (
@@ -139,7 +149,12 @@ export function RailLink({
       >
         <Icon size={16} strokeWidth={1.75} aria-hidden />
         {badge ? (
-          <span className="absolute -top-0.5 -right-0.5 inline-flex h-3.75 min-w-3.75 items-center justify-center rounded-full bg-app-purple-4 px-1 text-[9px] font-semibold text-app-bg-1 tabular-nums">
+          <span
+            className={cn(
+              "absolute -top-0.5 -right-0.5 inline-flex h-3.75 min-w-3.75 items-center justify-center rounded-full px-1 text-[9px] font-semibold text-app-bg-1 tabular-nums",
+              badgeTone === "attention" ? "bg-app-amber-4" : "bg-app-purple-4",
+            )}
+          >
             {badge}
           </span>
         ) : null}

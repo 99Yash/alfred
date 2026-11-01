@@ -90,7 +90,7 @@ function alertable(
 
 /**
  * Integrations with an active row that fails the connected rule (ADR-0093).
- * `ScopeGapBanner` and `GithubReconnectBanner` already ask for that reconnect.
+ * The scope-gap and pre-App GitHub items of `useConnectionAttention` already ask for that reconnect.
  */
 function nagsOwnCredential(rows: CredentialRowsByProvider): ReadonlySet<LiveProviderSlug> {
   const nagged = new Set<LiveProviderSlug>();

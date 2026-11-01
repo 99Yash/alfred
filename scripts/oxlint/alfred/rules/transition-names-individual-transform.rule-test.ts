@@ -5,7 +5,7 @@ import { transitionNamesIndividualTransformRule } from "./transition-names-indiv
 // The spec of `transition-names-individual-transform`: Tailwind v4 `scale-*`,
 // `translate-*` and `rotate-*` write the individual CSS properties, so a
 // `transition-[…transform…]` list that does not name them lets the change snap
-// (the `tool-call-group.tsx` chevron, the `nag-banner.tsx` press).
+// (the `tool-call-group.tsx` chevron).
 //
 // `pnpm check:oxlint-plugin` runs this file, and it drives every `invalid` case
 // without a `filename` through the root `.oxlintrc.json`. A bare `probe.tsx`

@@ -23,6 +23,7 @@ export function AppSidebar({
   threads,
   threadActions,
   approvalsBadge,
+  integrationsBadge,
   open = true,
   mode = "inline",
   onCollapse,
@@ -88,6 +89,7 @@ export function AppSidebar({
           isChat={isChat}
           onOpenSearch={onOpenSearch}
           approvalsBadge={approvalsBadge}
+          integrationsBadge={integrationsBadge}
           onExpand={handleChevron}
         />
       ) : (
@@ -98,6 +100,7 @@ export function AppSidebar({
           onChevron={handleChevron}
           onOpenSearch={onOpenSearch}
           approvalsBadge={approvalsBadge}
+          integrationsBadge={integrationsBadge}
           threads={threads}
           threadActions={threadActions}
           activeThread={activeThread}

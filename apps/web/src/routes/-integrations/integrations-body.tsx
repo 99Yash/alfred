@@ -5,6 +5,7 @@ import { useResolvedIntegrations } from "~/lib/integrations/use-integration-stat
 import type { IntegrationBrand } from "~/lib/integrations/integration-icons";
 import { FeaturedHero } from "./featured-hero";
 import { MCPServerSection } from "./mcp-server-section";
+import { NeedsAttention } from "./needs-attention";
 import { SectionBlock } from "./section-block";
 import { useIntegrationCatalog } from "./use-integration-catalog";
 
@@ -34,6 +35,8 @@ export function IntegrationsBody() {
             Connect the tools Alfred can read, write, and act on.
           </p>
         </header>
+
+        <NeedsAttention />
 
         <FeaturedHero brands={connectedBrands} />
 

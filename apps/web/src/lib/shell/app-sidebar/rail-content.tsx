@@ -23,6 +23,7 @@ interface RailContentProps {
   isChat: boolean;
   onOpenSearch: () => void;
   approvalsBadge?: string | undefined;
+  integrationsBadge?: string | undefined;
   onExpand: () => void;
 }
 
@@ -31,6 +32,7 @@ export function RailContent({
   isChat,
   onOpenSearch,
   approvalsBadge,
+  integrationsBadge,
   onExpand,
 }: RailContentProps) {
   return (
@@ -73,6 +75,8 @@ export function RailContent({
           icon={Plug}
           label="Integrations"
           to="/integrations"
+          badge={integrationsBadge}
+          badgeTone="attention"
           active={path.startsWith("/integrations")}
         />
         <RailLink
