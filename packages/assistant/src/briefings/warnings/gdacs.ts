@@ -112,6 +112,8 @@ const geometryFeatureSchema = z.object({
   geometry: z.unknown(),
   properties: z.object({
     Class: z.string(),
+    featuretype: z.string().optional(),
+    polygonlabel: z.string().optional(),
     intensity: z.number().optional(),
     polygondate: gdacsTime.optional(),
   }),
@@ -121,8 +123,9 @@ type FeatureProperties = z.infer<typeof geometryFeatureSchema>["properties"];
 
 /**
  * What a feature of an event geometry is. `hazard`: an area where the hazard is. `other`: a feature
- * that is not such an area (a track line, a centroid point, a river basin, a low intensity).
- * `unreadable`: the feature does not give a value that the test needs.
+ * that is not such an area (a track line, a centroid point, a river basin, a low intensity, a wind
+ * area that only tells the past). `unreadable`: the feature does not give a value that the test
+ * needs.
  */
 type FeatureRole = "hazard" | "other" | "unreadable";
 
@@ -131,7 +134,17 @@ type FeatureRole = "hazard" | "other" | "unreadable";
  * class (a track line, a 100 km circle around an epicentre, a river basin) is not an area where the
  * hazard is.
  *
- * - TC: the 60, 90, and 120 km/h wind buffers, and the uncertainty cone of the track.
+ * - TC: the 60, 90, and 120 km/h wind areas (`Poly_Green`, `Poly_Orange`, `Poly_Red`) of each time
+ *   from the start of the briefing day, and the uncertainty cone of the track. The capture of
+ *   2026-11-01 gives two kinds of wind area. A `WindRadii` area has the wind at one time
+ *   (`polygondate`): the time of the last advisory, then each forecast time. A wind area with no
+ *   `featuretype` and a label such as "60 km/h" is one buffer of the whole track, the past days
+ *   included: the 60 km/h buffer of ARNAB-26 reached 89.1 E, where the track started two days
+ *   before the advisory. So that buffer is not an area, and a `WindRadii` area of a time before the
+ *   briefing day is not an area: a place that the cyclone passed on an earlier day is not at risk
+ *   today. A `WindRadii` area with no time, or a wind area of neither kind, is unreadable. The cone
+ *   has the time of the advisory, but it is the forecast track from the position at that time, so
+ *   it is an area at any time.
  * - EQ: the ShakeMap intensity polygons at `EQ_MIN_INTENSITY` or more. A ShakeMap polygon with no
  *   intensity is unreadable, not intensity 0.
  * - FL: the affected area. `Poly_Global` is the whole basin.
@@ -139,8 +152,21 @@ type FeatureRole = "hazard" | "other" | "unreadable";
  * - WF: the burned area.
  */
 const EVENT_AREA = {
-  TC: ({ Class }) =>
-    ["Poly_Green", "Poly_Orange", "Poly_Red", "Poly_Cones"].includes(Class) ? "hazard" : "other",
+  TC: ({ Class, featuretype, polygonlabel, polygondate }, dayStart) => {
+    if (Class === "Poly_Cones") return "hazard";
+
+    if (!["Poly_Green", "Poly_Orange", "Poly_Red"].includes(Class)) return "other";
+
+    if (featuretype === "WindRadii") {
+      if (polygondate === undefined) return "unreadable";
+
+      return polygondate >= dayStart ? "hazard" : "other";
+    }
+
+    return featuretype === undefined && /^\d+ km\/h$/.test(polygonlabel ?? "")
+      ? "other"
+      : "unreadable";
+  },
   EQ: ({ Class, intensity }) => {
     if (!Class.startsWith("Poly_SMPInt")) return "other";
 
@@ -151,7 +177,10 @@ const EVENT_AREA = {
   FL: ({ Class }) => (Class === "Poly_Affected" ? "hazard" : "other"),
   VO: ({ Class }) => (Class === "Poly_Circle" ? "hazard" : "other"),
   WF: ({ Class }) => (Class === "Poly_area" ? "hazard" : "other"),
-} as const satisfies Record<GdacsEventType, (properties: FeatureProperties) => FeatureRole>;
+} as const satisfies Record<
+  GdacsEventType,
+  (properties: FeatureProperties, dayStart: number) => FeatureRole
+>;
 
 /** Red before Orange. */
 const ALERT_RANK = {
@@ -309,11 +338,12 @@ async function listEvents(args: {
 /**
  * Reads the event's geometry and tests whether a hazard area contains the place. A forecast
  * polygon of a cyclone counts at any forecast time: a polygon for a later day that contains the
- * place selects the event today, so a landfall tomorrow is in today's briefing (owner decision).
+ * place selects the event today, so a landfall tomorrow is in today's briefing (owner decision). A
+ * cyclone wind area of a time before the briefing day (`dayStart`) does not select it.
  */
 async function readEventArea(
   event: GdacsEvent,
-  args: { place: Place; signal: AbortSignal },
+  args: { place: Place; dayStart: Date; signal: AbortSignal },
 ): Promise<AreaRead> {
   const { properties } = event;
 
@@ -329,6 +359,7 @@ async function readEventArea(
   if (res.status === 204) return { kind: "unreadable" };
 
   const { features } = featureListSchema.parse(await res.json());
+  const dayStart = args.dayStart.getTime();
   let end = properties.todate;
   let inside = false;
   let unreadable = false;
@@ -341,7 +372,7 @@ async function readEventArea(
       continue;
     }
 
-    const role = EVENT_AREA[properties.eventtype](parsed.data.properties);
+    const role = EVENT_AREA[properties.eventtype](parsed.data.properties, dayStart);
 
     if (role === "other") continue;
 
